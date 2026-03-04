@@ -131,9 +131,8 @@ export {
     TimeStruct,
     type TimeInstance,
     time,
-    MeshStruct,
-    type MeshInstance,
-    mesh,
+    meshModelMatrix,
+    meshNormalMatrix,
     instanceIndex,
     positionClip,
     // Compute builtin helpers

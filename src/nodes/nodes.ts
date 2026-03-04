@@ -157,7 +157,16 @@ export type NodeKind =
     | 'return';
 
 export type StructMember = { readonly name: string; readonly type: WgslType };
-export type BuiltinKind = 'camera' | 'instance_index' | 'instance_data' | 'mesh' | 'time' | 'vertex_index' | 'global_invocation_id' | 'local_invocation_id' | 'local_invocation_index' | 'workgroup_id' | 'num_workgroups';
+export type BuiltinKind =
+    | 'camera' | 'instance_index' | 'instance_data' | 'mesh' | 'time'
+    | 'vertex_index' | 'global_invocation_id' | 'local_invocation_id'
+    | 'local_invocation_index' | 'workgroup_id' | 'num_workgroups'
+    // Flat per-field camera/time builtins (three.js style)
+    | 'cameraProjectionMatrix' | 'cameraViewMatrix' | 'cameraPosition'
+    | 'cameraNear' | 'cameraFar'
+    | 'timeElapsed' | 'timeDelta'
+    // Flat per-field mesh builtins
+    | 'meshModelMatrix' | 'meshNormalMatrix';
 export type BinopOp = '+' | '-' | '*' | '/' | '%' | '==' | '!=' | '<' | '>' | '<=' | '>=';
 
 // ---------------------------------------------------------------------------
@@ -1027,22 +1036,41 @@ export class BuiltinNode<T extends WgslType> extends Node<T> {
     }
 
     override setup(builder: WgslBuilder): void {
-        builder.builtinsUsed.add(this.builtinKind);
-        if (this.builtinKind === 'camera' && !builder.structNodes.has('Camera')) {
-            builder.structNodes.set('Camera', CameraStruct.node);
+        // Flat per-field camera/time builtins register their group key
+        const CAMERA_FIELDS = new Set([
+            'cameraProjectionMatrix', 'cameraViewMatrix', 'cameraPosition',
+            'cameraNear', 'cameraFar',
+        ]);
+        const TIME_FIELDS = new Set(['timeElapsed', 'timeDelta']);
+        const MESH_FIELDS = new Set(['meshModelMatrix', 'meshNormalMatrix']);
+
+        if (CAMERA_FIELDS.has(this.builtinKind)) {
+            builder.builtinsUsed.add('camera');
+        } else if (TIME_FIELDS.has(this.builtinKind)) {
+            builder.builtinsUsed.add('time');
+        } else if (MESH_FIELDS.has(this.builtinKind)) {
+            builder.builtinsUsed.add('mesh');
+        } else {
+            builder.builtinsUsed.add(this.builtinKind);
         }
-        if (this.builtinKind === 'time' && !builder.structNodes.has('Time')) {
-            builder.structNodes.set('Time', TimeStruct.node);
-        }
-        if (this.builtinKind === 'mesh' && !builder.structNodes.has('Mesh')) {
-            builder.structNodes.set('Mesh', MeshStruct.node);
-        }
+
+        // Legacy 'mesh' kind: no longer registers the Mesh struct (flat bindings used instead)
     }
 
     override generate(builder: WgslBuilder): string {
         const BUILTIN_VAR: Record<string, string> = {
-            camera:         'camera',
-            time:           'time',
+            // Flat per-field camera/time — WGSL variable name is the builtinKind itself
+            cameraProjectionMatrix: 'cameraProjectionMatrix',
+            cameraViewMatrix:       'cameraViewMatrix',
+            cameraPosition:         'cameraPosition',
+            cameraNear:             'cameraNear',
+            cameraFar:              'cameraFar',
+            timeElapsed:            'timeElapsed',
+            timeDelta:              'timeDelta',
+            // Flat per-field mesh
+            meshModelMatrix:        'meshModelMatrix',
+            meshNormalMatrix:       'meshNormalMatrix',
+            // Legacy / other builtins
             mesh:           'mesh',
             instance_index: 'instance_index',
             instance_data:  'instanceData',
@@ -2111,7 +2139,80 @@ export function color(input: ColorInput): ConstNode<'vec3f'> {
 
 import * as S from './schema.js';
 
-export const CameraStruct = struct('Camera', {
+// ---------------------------------------------------------------------------
+// Camera — flat per-field singleton nodes (three.js style)
+// Each is a module-level singleton; users can import them directly or
+// access them via the backwards-compat camera() shim.
+// ---------------------------------------------------------------------------
+
+/** Projection matrix of the scene camera. `mat4x4f` at @group(0) @binding(0). */
+export const cameraProjectionMatrix = /*@__PURE__*/ new BuiltinNode('cameraProjectionMatrix', 'mat4x4f');
+
+/** View (world-to-camera) matrix. `mat4x4f` at @group(0) @binding(1). */
+export const cameraViewMatrix = /*@__PURE__*/ new BuiltinNode('cameraViewMatrix', 'mat4x4f');
+
+/** Camera world-space position. `vec3f` at @group(0) @binding(2). */
+export const cameraPosition = /*@__PURE__*/ new BuiltinNode('cameraPosition', 'vec3f');
+
+/** Camera near plane distance. `f32` at @group(0) @binding(3). */
+export const cameraNear = /*@__PURE__*/ new BuiltinNode('cameraNear', 'f32');
+
+/** Camera far plane distance. `f32` at @group(0) @binding(4). */
+export const cameraFar = /*@__PURE__*/ new BuiltinNode('cameraFar', 'f32');
+
+// ---------------------------------------------------------------------------
+// Time — flat per-field singleton nodes
+// ---------------------------------------------------------------------------
+
+/** Elapsed time in seconds. `f32` at @group(0) @binding(5). */
+export const timeElapsed = /*@__PURE__*/ new BuiltinNode('timeElapsed', 'f32');
+
+/** Frame delta time in seconds. `f32` at @group(0) @binding(6). */
+export const timeDelta = /*@__PURE__*/ new BuiltinNode('timeDelta', 'f32');
+
+// ---------------------------------------------------------------------------
+// Backwards-compat object types + shims
+// ---------------------------------------------------------------------------
+
+export type CameraInstance = {
+    readonly projectionMatrix: typeof cameraProjectionMatrix;
+    readonly viewMatrix:       typeof cameraViewMatrix;
+    readonly position:         typeof cameraPosition;
+    readonly near:             typeof cameraNear;
+    readonly far:              typeof cameraFar;
+};
+
+export type TimeInstance = {
+    readonly elapsed: typeof timeElapsed;
+    readonly delta:   typeof timeDelta;
+};
+
+/**
+ * Returns a plain object whose fields are the flat singleton camera nodes.
+ * Backwards-compatible with code that destructures `camera().projectionMatrix` etc.
+ */
+export function camera(): CameraInstance {
+    return {
+        projectionMatrix: cameraProjectionMatrix,
+        viewMatrix:       cameraViewMatrix,
+        position:         cameraPosition,
+        near:             cameraNear,
+        far:              cameraFar,
+    };
+}
+
+/**
+ * Returns a plain object whose fields are the flat singleton time nodes.
+ */
+export function time(): TimeInstance {
+    return {
+        elapsed: timeElapsed,
+        delta:   timeDelta,
+    };
+}
+
+// Stub exports kept for public API compatibility — no longer used for WGSL generation.
+export const CameraStruct = /*@__PURE__*/ struct('Camera', {
     projectionMatrix: S.mat4x4f(),
     viewMatrix: S.mat4x4f(),
     position: S.vec3f(),
@@ -2119,33 +2220,20 @@ export const CameraStruct = struct('Camera', {
     far: S.f32(),
 });
 
-export type CameraInstance = StructInstance<typeof CameraStruct.schema>;
-
-export function camera(): CameraInstance {
-    return CameraStruct.instantiate(builtin('camera', 'Camera'));
-}
-
-export const TimeStruct = struct('Time', {
+export const TimeStruct = /*@__PURE__*/ struct('Time', {
     elapsed: S.f32(),
     delta: S.f32(),
 });
 
-export type TimeInstance = StructInstance<typeof TimeStruct.schema>;
+// ---------------------------------------------------------------------------
+// Mesh — flat per-field singleton nodes (mirrors camera/time pattern)
+// ---------------------------------------------------------------------------
 
-export function time(): TimeInstance {
-    return TimeStruct.instantiate(builtin('time', 'Time'));
-}
+/** Model-to-world transform matrix. `mat4x4f` at @group(1) @binding(0). */
+export const meshModelMatrix = /*@__PURE__*/ new BuiltinNode('meshModelMatrix', 'mat4x4f');
 
-export const MeshStruct = struct('Mesh', {
-    modelMatrix: S.mat4x4f(),
-    normalMatrix: S.mat3x3f(),
-});
-
-export type MeshInstance = StructInstance<typeof MeshStruct.schema>;
-
-export function mesh(): MeshInstance {
-    return MeshStruct.instantiate(builtin('mesh', 'Mesh'));
-}
+/** Normal matrix (inverse-transpose of model matrix). `mat3x3f` at @group(1) @binding(1). */
+export const meshNormalMatrix = /*@__PURE__*/ new BuiltinNode('meshNormalMatrix', 'mat3x3f');
 
 export const instanceIndex = (): BuiltinNode<'u32'> => builtin('instance_index', 'u32');
 
@@ -2153,12 +2241,10 @@ export const positionClip: Node<'vec4f'> = (() => {
     const pos = attribute('vec3f', 'position');
     const localPos = vec4(pos, konst('f32', 1.0));
 
-    const m = mesh();
-    const worldPos = mul(m.modelMatrix, localPos);
+    const worldPos = mul(meshModelMatrix, localPos);
 
-    const cam = camera();
-    const viewPos = mul(cam.viewMatrix, worldPos);
-    const clipPos = mul(cam.projectionMatrix, viewPos);
+    const viewPos = mul(cameraViewMatrix, worldPos);
+    const clipPos = mul(cameraProjectionMatrix, viewPos);
 
     return clipPos as unknown as Node<'vec4f'>;
 })();

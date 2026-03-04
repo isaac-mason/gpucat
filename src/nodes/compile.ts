@@ -65,7 +65,7 @@ import {
     type WgslType,
 } from './nodes.js';
 import { collectGraph, getChildren } from './collect.js';
-import { MeshStruct, type StructDef, type StructSchema } from './nodes.js';
+import { type StructDef, type StructSchema } from './nodes.js';
 import type { ComputeNode } from './compute-node.js';
 
 // ---------------------------------------------------------------------------
@@ -141,6 +141,7 @@ export type CompileResult = {
     storage: StorageEntry[];
     textures: TextureEntry[];
     samplers: SamplerEntry[];
+    builtinsUsed: Set<string>;
 };
 
 export type CompileSlots = {
@@ -774,26 +775,34 @@ export class WgslBuilder {
 
         const lines: string[] = [];
 
-        // Struct declarations
-        if (!this.structNodes.has('Mesh')) {
-            this.structNodes.set('Mesh', MeshStruct.node);
-        }
+        // Struct declarations — only user-defined structs (Mesh is now flat bindings)
         for (const sn of this.structNodes.values()) {
             const members = sn.members.map((m) => `    ${m.name} : ${m.type},`).join('\n');
             lines.push(`struct ${sn.type} {\n${members}\n}`);
         }
 
-        // Builtin UBO bindings
+        // Builtin UBO bindings — flat per-field, three.js style
+        // Camera fields: bindings 0–4 (conditional on 'camera' being used)
         if (this.builtinsUsed.has('camera')) {
-            lines.push(`@group(0) @binding(0) var<uniform> camera : Camera;`);
+            lines.push(`@group(0) @binding(0) var<uniform> cameraProjectionMatrix : mat4x4f;`);
+            lines.push(`@group(0) @binding(1) var<uniform> cameraViewMatrix : mat4x4f;`);
+            lines.push(`@group(0) @binding(2) var<uniform> cameraPosition : vec3f;`);
+            lines.push(`@group(0) @binding(3) var<uniform> cameraNear : f32;`);
+            lines.push(`@group(0) @binding(4) var<uniform> cameraFar : f32;`);
         }
+        // Time fields: bindings 5–6 (conditional on 'time' being used)
         if (this.builtinsUsed.has('time')) {
-            lines.push(`@group(0) @binding(1) var<uniform> time : Time;`);
+            lines.push(`@group(0) @binding(5) var<uniform> timeElapsed : f32;`);
+            lines.push(`@group(0) @binding(6) var<uniform> timeDelta : f32;`);
         }
-        lines.push(`@group(1) @binding(0) var<uniform> mesh : Mesh;`);
+        // Mesh fields: bindings 0–1 at group 1 (conditional on 'mesh' being used)
+        if (this.builtinsUsed.has('mesh')) {
+            lines.push(`@group(1) @binding(0) var<uniform> meshModelMatrix : mat4x4f;`);
+            lines.push(`@group(1) @binding(1) var<uniform> meshNormalMatrix : mat3x3f;`);
+        }
 
-        // Material resources
-        let matBinding = 1;
+        // Material resources — start at binding 2 (mesh bindings occupy 0 and 1)
+        let matBinding = 2;
 
         const matUniforms = [...this.uniformNodes.values()];
         let uniformBlockEntry: UniformBlockEntry | null = null;
@@ -859,6 +868,7 @@ export class WgslBuilder {
             storage: storageEntries,
             textures: textureEntries,
             samplers: samplerEntries,
+            builtinsUsed: new Set(this.builtinsUsed),
         };
     }
 

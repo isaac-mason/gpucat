@@ -116,7 +116,7 @@ export class PipelineCache {
         const cr = compile({ position: positionGraph, color: colorGraph });
 
         // Build bind group layouts from CompileResult.
-        const layout0 = this._buildLayout0();
+        const layout0 = this._buildLayout0(cr);
         const layout1 = this._buildLayout1(cr);
 
         const pipelineLayout = this.device.createPipelineLayout({
@@ -178,26 +178,29 @@ export class PipelineCache {
     // Bind group layout builders
     // -----------------------------------------------------------------------
 
-    /** Group 0: Camera UBO (binding 0) + Time UBO (binding 1). */
-    private _buildLayout0(): GPUBindGroupLayout {
-        return this.device.createBindGroupLayout({
-            entries: [
-                {
-                    binding: 0,
-                    visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-                    buffer: { type: 'uniform' },
-                },
-                {
-                    binding: 1,
-                    visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-                    buffer: { type: 'uniform' },
-                },
-            ],
-        });
+    /** Group 0: flat per-field camera/time uniform bindings, dynamic based on shader usage. */
+    private _buildLayout0(cr: CompileResult): GPUBindGroupLayout {
+        const entries: GPUBindGroupLayoutEntry[] = [];
+        const vis = GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT;
+
+        if (cr.builtinsUsed.has('camera')) {
+            // bindings 0–4: projectionMatrix, viewMatrix, position, near, far
+            for (let b = 0; b <= 4; b++) {
+                entries.push({ binding: b, visibility: vis, buffer: { type: 'uniform' } });
+            }
+        }
+        if (cr.builtinsUsed.has('time')) {
+            // bindings 5–6: elapsed, delta
+            entries.push({ binding: 5, visibility: vis, buffer: { type: 'uniform' } });
+            entries.push({ binding: 6, visibility: vis, buffer: { type: 'uniform' } });
+        }
+
+        return this.device.createBindGroupLayout({ entries });
     }
 
     /**
-     * Group 1: Mesh UBO always at binding 0, then material resources (uniforms, textures, samplers).
+     * Group 1: flat mesh bindings (0 = meshModelMatrix, 1 = meshNormalMatrix) when 'mesh' is
+     * used, then material resources (uniforms, textures, samplers) starting at binding 2.
      *
      * InstancedBufferAttributeNodes are vertex buffers, not bind group entries — they are
      * NOT included here.
@@ -205,12 +208,21 @@ export class PipelineCache {
     private _buildLayout1(cr: CompileResult): GPUBindGroupLayout {
         const entries: GPUBindGroupLayoutEntry[] = [];
 
-        // Mesh UBO — always at binding 0
-        entries.push({
-            binding: 0,
-            visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-            buffer: { type: 'uniform' },
-        });
+        // Mesh flat bindings — always present when the shader references mesh fields
+        if (cr.builtinsUsed.has('mesh')) {
+            // binding 0: meshModelMatrix : mat4x4f
+            entries.push({
+                binding: 0,
+                visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+                buffer: { type: 'uniform' },
+            });
+            // binding 1: meshNormalMatrix : mat3x3f
+            entries.push({
+                binding: 1,
+                visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
+                buffer: { type: 'uniform' },
+            });
+        }
 
         // Per-material storage buffers (binding 1+)
         // Render shaders emit all storage buffers as var<storage, read> (the WGSL module is shared

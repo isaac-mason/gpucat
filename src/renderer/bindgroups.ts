@@ -1,8 +1,11 @@
 /**
  * bindgroups.ts — GPUBindGroup construction.
  *
- * Group 0 (frame): Camera UBO + Time UBO.
- * Group 1 (mesh):  Mesh UBO (binding 0, always) + material uniforms/textures/samplers (binding 1+).
+ * Group 0 (frame): flat per-field camera/time uniform bindings (three.js style).
+ *   Bindings 0–4: cameraProjectionMatrix, cameraViewMatrix, cameraPosition, cameraNear, cameraFar
+ *   Bindings 5–6: timeElapsed, timeDelta
+ * Group 1 (mesh):  flat mesh bindings (0 = meshModelMatrix, 1 = meshNormalMatrix) + material
+ *                  uniforms/textures/samplers starting at binding 2.
  *
  * The renderer calls these once per frame (group 0) and once per draw (group 1).
  */
@@ -12,63 +15,92 @@ import type { Mesh } from '../scene/mesh.js';
 import type { BufferCache } from './buffers.js';
 
 // ---------------------------------------------------------------------------
-// Group 0 — frame-level (camera + time)
+// Group 0 — frame-level (camera + time flat uniforms)
 // ---------------------------------------------------------------------------
+
+export type FrameBuffers = {
+    /** @group(0) @binding(0) cameraProjectionMatrix : mat4x4f  (64B) */
+    camProj:    GPUBuffer | null;
+    /** @group(0) @binding(1) cameraViewMatrix : mat4x4f        (64B) */
+    camView:    GPUBuffer | null;
+    /** @group(0) @binding(2) cameraPosition : vec3f            (16B, std140 padded) */
+    camPos:     GPUBuffer | null;
+    /** @group(0) @binding(3) cameraNear : f32                  (4B, min 16B) */
+    camNear:    GPUBuffer | null;
+    /** @group(0) @binding(4) cameraFar : f32                   (4B, min 16B) */
+    camFar:     GPUBuffer | null;
+    /** @group(0) @binding(5) timeElapsed : f32                 (4B, min 16B) */
+    timeElapsed: GPUBuffer | null;
+    /** @group(0) @binding(6) timeDelta : f32                   (4B, min 16B) */
+    timeDelta:  GPUBuffer | null;
+};
 
 /**
  * Build the frame-level bind group (group 0).
  *
- * @param device         GPUDevice
- * @param layout         Bind group layout from PipelineEntry.layout0
- * @param cameraBuffer   GPUBuffer containing the Camera UBO (160B)
- * @param timeBuffer     GPUBuffer containing the Time UBO (8B)
+ * Only includes entries for bindings declared in the shader (driven by cr.builtinsUsed).
+ * The layout must have been built from the same CompileResult via _buildLayout0.
  */
 export function buildFrameBindGroup(
     device: GPUDevice,
     layout: GPUBindGroupLayout,
-    cameraBuffer: GPUBuffer,
-    timeBuffer: GPUBuffer,
+    cr: CompileResult,
+    bufs: FrameBuffers,
 ): GPUBindGroup {
-    return device.createBindGroup({
-        layout,
-        entries: [
-            { binding: 0, resource: { buffer: cameraBuffer } },
-            { binding: 1, resource: { buffer: timeBuffer } },
-        ],
-    });
+    const entries: GPUBindGroupEntry[] = [];
+
+    if (cr.builtinsUsed.has('camera')) {
+        entries.push({ binding: 0, resource: { buffer: bufs.camProj! } });
+        entries.push({ binding: 1, resource: { buffer: bufs.camView! } });
+        entries.push({ binding: 2, resource: { buffer: bufs.camPos! } });
+        entries.push({ binding: 3, resource: { buffer: bufs.camNear! } });
+        entries.push({ binding: 4, resource: { buffer: bufs.camFar! } });
+    }
+    if (cr.builtinsUsed.has('time')) {
+        entries.push({ binding: 5, resource: { buffer: bufs.timeElapsed! } });
+        entries.push({ binding: 6, resource: { buffer: bufs.timeDelta! } });
+    }
+
+    return device.createBindGroup({ layout, entries });
 }
 
 // ---------------------------------------------------------------------------
-// Group 1 — mesh-level (Mesh UBO + material)
+// Group 1 — mesh-level (flat mesh bindings + material)
 // ---------------------------------------------------------------------------
 
 /**
  * Build the per-mesh bind group (group 1).
  *
- * The Mesh UBO (modelMatrix + normalMatrix) is always at binding 0.
- * Material uniforms, textures, and samplers follow at binding 1+.
+ * Mesh flat bindings (when 'mesh' is used by the shader):
+ *   binding 0: meshModelMatrix : mat4x4f
+ *   binding 1: meshNormalMatrix : mat3x3f
+ * Material uniforms, textures, and samplers follow at binding 2+.
  *
- * @param device          GPUDevice
- * @param layout          Bind group layout from PipelineEntry.layout1
- * @param cr              CompileResult for this material
- * @param _mesh           The mesh being drawn (reserved for future use)
- * @param material        The mesh's material
- * @param meshUboBuf      GPUBuffer containing the Mesh UBO (modelMatrix + normalMatrix)
- * @param materialUboBuf  GPUBuffer containing the packed material uniform block (may be null)
+ * @param device              GPUDevice
+ * @param layout              Bind group layout from PipelineEntry.layout1
+ * @param cr                  CompileResult for this material
+ * @param _mesh               The mesh being drawn (reserved for future use)
+ * @param meshModelMatrixBuf  GPUBuffer for meshModelMatrix (may be null if mesh not used)
+ * @param meshNormalMatrixBuf GPUBuffer for meshNormalMatrix (may be null if mesh not used)
+ * @param materialUboBuf      GPUBuffer containing the packed material uniform block (may be null)
  */
 export function buildMeshBindGroup(
     device: GPUDevice,
     layout: GPUBindGroupLayout,
     cr: CompileResult,
     _mesh: Mesh | null,
-    meshUboBuf: GPUBuffer,
+    meshModelMatrixBuf: GPUBuffer | null,
+    meshNormalMatrixBuf: GPUBuffer | null,
     materialUboBuf: GPUBuffer | null,
     buffers: BufferCache,
 ): GPUBindGroup {
     const entries: GPUBindGroupEntry[] = [];
 
-    // Mesh UBO — always at binding 0
-    entries.push({ binding: 0, resource: { buffer: meshUboBuf } });
+    // Flat mesh bindings
+    if (cr.builtinsUsed.has('mesh')) {
+        entries.push({ binding: 0, resource: { buffer: meshModelMatrixBuf! } });
+        entries.push({ binding: 1, resource: { buffer: meshNormalMatrixBuf! } });
+    }
 
     // Per-material storage buffers (binding 1+)
     for (const s of cr.storage) {

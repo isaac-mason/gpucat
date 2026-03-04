@@ -50,7 +50,7 @@ import {
 } from '../src/nodes/nodes.js';
 import * as S from '../src/nodes/schema.js';
 import { struct } from '../src/nodes/nodes.js';
-import { camera, positionClip, instanceIndex, mesh } from '../src/nodes/nodes.js';
+import { camera, positionClip, instanceIndex, meshModelMatrix, meshNormalMatrix } from '../src/nodes/nodes.js';
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -135,14 +135,16 @@ describe('attribute nodes', () => {
 // ---------------------------------------------------------------------------
 
 describe('builtin binding declarations', () => {
-    test('camera builtin → @group(0) @binding(0) uniform', () => {
+    test('camera builtins → flat @group(0) uniform bindings', () => {
         const result = compileColor(vec4f(1, 1, 1, 1));
-        expect(result.code).toContain('@group(0) @binding(0) var<uniform> camera : Camera;');
+        expect(result.code).toContain('@group(0) @binding(0) var<uniform> cameraProjectionMatrix : mat4x4f;');
+        expect(result.code).toContain('@group(0) @binding(1) var<uniform> cameraViewMatrix : mat4x4f;');
     });
 
-    test('Mesh UBO always emitted at @group(1) @binding(0)', () => {
+    test('mesh builtins → flat @group(1) uniform bindings', () => {
         const result = compileColor(vec4f(1, 1, 1, 1));
-        expect(result.code).toContain('@group(1) @binding(0) var<uniform> mesh : Mesh;');
+        expect(result.code).toContain('@group(1) @binding(0) var<uniform> meshModelMatrix : mat4x4f;');
+        expect(result.code).toContain('@group(1) @binding(1) var<uniform> meshNormalMatrix : mat3x3f;');
     });
 
     test('instance_index → @builtin(instance_index) in VertexInput', () => {
@@ -168,20 +170,18 @@ describe('builtin binding declarations', () => {
         expect(r2.code).toContain('@builtin(instance_index) instance_index : u32');
     });
 
-    test('explicit mesh() node in graph causes Mesh struct to appear', () => {
-        const m = mesh();
+    test('mesh nodes in graph cause flat mesh bindings to appear', () => {
         const pos = attribute('vec3f', 'position');
         const localPos = vec4(pos, f32(1.0));
-        const worldPos = m.modelMatrix.mul(localPos);
+        const worldPos = meshModelMatrix.mul(localPos);
         const cam = camera();
         const clipPos = cam.projectionMatrix.mul(cam.viewMatrix.mul(worldPos));
         const result = compile({
             position: clipPos,
             color: vec4f(1, 0, 0, 1),
         });
-        expect(result.code).toContain('struct Mesh {');
-        expect(result.code).toContain('modelMatrix : mat4x4f');
-        expect(result.code).toContain('@group(1) @binding(0) var<uniform> mesh : Mesh;');
+        expect(result.code).toContain('@group(1) @binding(0) var<uniform> meshModelMatrix : mat4x4f;');
+        expect(result.code).toContain('@group(1) @binding(1) var<uniform> meshNormalMatrix : mat3x3f;');
     });
 
     test('result.storage is empty (no instanceMatrices storage buffer)', () => {
@@ -194,28 +194,34 @@ describe('builtin binding declarations', () => {
 // 4. Struct declarations (Camera, Time, Mesh) emitted before entry points
 // ---------------------------------------------------------------------------
 
-describe('struct declarations', () => {
-    test('Camera struct emitted before @vertex', () => {
+// ---------------------------------------------------------------------------
+// 4. Binding declarations emitted before entry points
+// ---------------------------------------------------------------------------
+
+describe('binding declarations', () => {
+    test('camera flat bindings emitted before @vertex', () => {
         const result = compileColor(vec4f(1, 1, 1, 1));
-        const cameraStructIdx = result.code.indexOf('struct Camera {');
+        const camBindingIdx = result.code.indexOf('@group(0) @binding(0) var<uniform> cameraProjectionMatrix');
         const vertexIdx = result.code.indexOf('@vertex');
-        expect(cameraStructIdx).toBeGreaterThanOrEqual(0);
-        expect(cameraStructIdx).toBeLessThan(vertexIdx);
+        expect(camBindingIdx).toBeGreaterThanOrEqual(0);
+        expect(camBindingIdx).toBeLessThan(vertexIdx);
     });
 
-    test('Camera struct contains expected fields', () => {
+    test('camera flat bindings cover all five fields', () => {
         const result = compileColor(vec4f(1, 1, 1, 1));
-        expect(result.code).toContain('projectionMatrix : mat4x4f');
-        expect(result.code).toContain('viewMatrix : mat4x4f');
-        expect(result.code).toContain('position : vec3f');
+        expect(result.code).toContain('var<uniform> cameraProjectionMatrix : mat4x4f');
+        expect(result.code).toContain('var<uniform> cameraViewMatrix : mat4x4f');
+        expect(result.code).toContain('var<uniform> cameraPosition : vec3f');
+        expect(result.code).toContain('var<uniform> cameraNear : f32');
+        expect(result.code).toContain('var<uniform> cameraFar : f32');
     });
 
-    test('Mesh struct emitted before @vertex', () => {
+    test('mesh flat bindings emitted before @vertex', () => {
         const result = compileColor(vec4f(1, 1, 1, 1));
-        const meshStructIdx = result.code.indexOf('struct Mesh {');
+        const meshBindingIdx = result.code.indexOf('@group(1) @binding(0) var<uniform> meshModelMatrix');
         const vertexIdx = result.code.indexOf('@vertex');
-        expect(meshStructIdx).toBeGreaterThanOrEqual(0);
-        expect(meshStructIdx).toBeLessThan(vertexIdx);
+        expect(meshBindingIdx).toBeGreaterThanOrEqual(0);
+        expect(meshBindingIdx).toBeLessThan(vertexIdx);
     });
 });
 
@@ -272,13 +278,13 @@ describe('material uniforms', () => {
         expect(result.code).toContain('var<uniform> materialUniforms : MaterialUniforms;');
     });
 
-    test('material uniform gets @group(1) binding starting at 1', () => {
+    test('material uniform gets @group(1) binding starting at 2', () => {
         const u = uniform(vec4f(0, 0, 0, 0), 'baseColor');
         const result = compile({
             position: positionClip,
             color: u,
         });
-        expect(result.code).toContain('@group(1) @binding(1)');
+        expect(result.code).toContain('@group(1) @binding(2)');
     });
 
     test('result.uniforms populated correctly', () => {
@@ -298,7 +304,7 @@ describe('material uniforms', () => {
         expect(result2.uniforms).toHaveLength(1);
         expect(result2.uniforms[0].members[0].uniformId).toBe('roughness');
         expect(result2.uniforms[0].group).toBe(1);
-        expect(result2.uniforms[0].binding).toBe(1);
+        expect(result2.uniforms[0].binding).toBe(2);
     });
 });
 
@@ -307,7 +313,7 @@ describe('material uniforms', () => {
 // ---------------------------------------------------------------------------
 
 describe('texture and sampler nodes', () => {
-    test('texture and sampler get consecutive @group(1) bindings starting at 1', () => {
+    test('texture and sampler get consecutive @group(1) bindings starting at 2', () => {
         const albedoTex = texture('texture_2d<f32>', 'albedo');
         const albedoSamp = sampler('albedo');
         const uv = attribute('vec2f', 'uv');
@@ -320,8 +326,8 @@ describe('texture and sampler nodes', () => {
             position: localPos,
             color: sample,
         });
-        expect(result.code).toContain('@group(1) @binding(1) var albedo_tex : texture_2d<f32>');
-        expect(result.code).toContain('@group(1) @binding(2) var albedo_samp : sampler');
+        expect(result.code).toContain('@group(1) @binding(2) var albedo_tex : texture_2d<f32>');
+        expect(result.code).toContain('@group(1) @binding(3) var albedo_samp : sampler');
     });
 
     test('result.textures and result.samplers populated', () => {
@@ -339,12 +345,12 @@ describe('texture and sampler nodes', () => {
         expect(result.textures).toHaveLength(1);
         expect(result.textures[0].textureId).toBe('albedo');
         expect(result.textures[0].group).toBe(1);
-        expect(result.textures[0].binding).toBe(1);
+        expect(result.textures[0].binding).toBe(2);
 
         expect(result.samplers).toHaveLength(1);
         expect(result.samplers[0].samplerId).toBe('albedo');
         expect(result.samplers[0].group).toBe(1);
-        expect(result.samplers[0].binding).toBe(2);
+        expect(result.samplers[0].binding).toBe(3);
     });
 });
 
@@ -357,11 +363,11 @@ describe('defaultPositionGraph', () => {
         expect(() => compileColor(vec4f(0.2, 0.4, 0.8, 1))).not.toThrow();
     });
 
-    test('result code contains MVP transform calls via mesh.modelMatrix', () => {
+    test('result code contains MVP transform using flat mesh/camera bindings', () => {
         const result = compileColor(vec4f(0.2, 0.4, 0.8, 1));
-        expect(result.code).toContain('camera.projectionMatrix');
-        expect(result.code).toContain('camera.viewMatrix');
-        expect(result.code).toContain('mesh.modelMatrix');
+        expect(result.code).toContain('cameraProjectionMatrix');
+        expect(result.code).toContain('cameraViewMatrix');
+        expect(result.code).toContain('meshModelMatrix');
     });
 
     test('result.attributes has only position (vec3f) with kind:geometry', () => {

@@ -30,6 +30,12 @@ export class Object3D {
     /** Column-major Mat4 in world space. */
     _worldMatrix: Mat4 = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1];
 
+    /**
+     * Incremented each time updateWorldMatrix() runs on this node.
+     * The renderer uses this to skip the mesh UBO GPU upload when the matrix hasn't changed.
+     */
+    matrixVersion: number = 0;
+
     add(child: Object3D): this {
         if (child.parent) child.parent.remove(child);
         child.parent = this;
@@ -49,7 +55,8 @@ export class Object3D {
     /**
      * Recompute `_localMatrix` from position/quaternion/scale,
      * then `_worldMatrix` = parent._worldMatrix * _localMatrix.
-     * Call on the scene root each frame to propagate transforms to all children.
+     * Call this manually each frame for any object whose transform has changed.
+     * Children are always recursed so world matrices stay consistent.
      */
     updateWorldMatrix(): void {
         mat4.fromRotationTranslationScale(this._localMatrix, this.quaternion, this.position, this.scale);
@@ -59,6 +66,8 @@ export class Object3D {
         } else {
             mat4.copy(this._localMatrix, this._worldMatrix);
         }
+
+        this.matrixVersion++;
 
         for (const child of this.children) {
             child.updateWorldMatrix();

@@ -196,6 +196,9 @@ async function main() {
     );
     camera.position[2] = 28;
     scene.add(camera);
+    // Static scene — set matrices once after setup.
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
 
     window.addEventListener('resize', () => {
         renderer.setSize(window.innerWidth * devicePixelRatio, window.innerHeight * devicePixelRatio);

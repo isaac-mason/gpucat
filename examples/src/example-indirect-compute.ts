@@ -181,6 +181,9 @@ async function main() {
     );
     camera.position[2] = 55;
     scene.add(camera);
+    // Static scene — set matrices once after setup.
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
 
     window.addEventListener('resize', () => {
         renderer.setSize(window.innerWidth * devicePixelRatio, window.innerHeight * devicePixelRatio);
@@ -199,10 +202,11 @@ async function main() {
     // mesh.count is ignored when indirect is set — GPU supplies instanceCount.
     scene.add(mesh);
 
-    await renderer.compile(cullNode);
-
     const scenePass  = gpu.pass(scene, camera);
     const outputNode = scenePass.getTextureNode();
+
+    await renderer.compile(cullNode);
+    await renderer.compile(outputNode);
 
     // -------------------------------------------------------------------
     // UI — cull radius slider

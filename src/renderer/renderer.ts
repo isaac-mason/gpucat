@@ -20,7 +20,7 @@
  *   2. Collect all PassNodes from outputNode graph (BFS via collectPassNodes)
  *   3. For each PassNode:
  *      a. _ensureTarget(device, w, h) — lazy texture allocation
- *      b. scene.updateWorldMatrices(), camera.updateViewMatrix()
+ *      b. (transforms must be updated by the caller before renderer.render())
  *      c. collectDraws — opaque sorted by pipeline key, transparent back-to-front
  *      d. Per-mesh: upload vertex/index buffers, Mesh UBO, material UBO
  *      e. Begin render pass into passNode's color+depth textures, issue draws, end pass
@@ -32,7 +32,7 @@ import type { Mesh } from '../scene/mesh.js';
 import { mat3 } from 'mathcat';
 import { BufferCache } from './buffers.js';
 import { PipelineCache, makePipelineKey } from './pipeline.js';
-import { buildFrameBindGroup, buildMeshBindGroup, packMaterialUBO } from './bindgroups.js';
+import { buildFrameBindGroup, buildMeshBindGroup, packMaterialUBO, type FrameBuffers } from './bindgroups.js';
 import { collectDraws, type DrawCall } from './collect.js';
 import { Material } from '../scene/material.js';
 import { Geometry } from '../scene/geometry.js';
@@ -83,25 +83,54 @@ export class WebGPURenderer {
     /** MSAA color texture (null when samples <= 1). Only used for swapchain passes. */
     private msaaTexture: GPUTexture | null = null;
 
-    /** Reusable CPU buffer for Camera UBO. */
-    private readonly cameraUBOData: Float32Array = new Float32Array(40);
+    /** Reusable CPU-side Float32Arrays for per-field camera/time uploads. */
+    private readonly _camProjData:    Float32Array = new Float32Array(16);
+    private readonly _camViewData:    Float32Array = new Float32Array(16);
+    private readonly _camPosData:     Float32Array = new Float32Array(4);  // vec3f padded to 16B
+    private readonly _camNearData:    Float32Array = new Float32Array(1);
+    private readonly _camFarData:     Float32Array = new Float32Array(1);
+    private readonly _timeElapsedData: Float32Array = new Float32Array(1);
+    private readonly _timeDeltaData:   Float32Array = new Float32Array(1);
 
-    /** Fixed object keys used as WeakMap identities for the Camera/Time GPU buffers. */
-    private readonly cameraUBOKey: object = {};
-    private readonly timeUBOKey: object = {};
+    /** Stable object keys used as WeakMap identities for per-field GPU buffers. */
+    private readonly _camProjKey:     object = {};
+    private readonly _camViewKey:     object = {};
+    private readonly _camPosKey:      object = {};
+    private readonly _camNearKey:     object = {};
+    private readonly _camFarKey:      object = {};
+    private readonly _timeElapsedKey: object = {};
+    private readonly _timeDeltaKey:   object = {};
+
+    /** Last-uploaded values for per-field dirty checking. */
+    private _lastCamProj:     Float32Array | null = null;
+    private _lastCamView:     Float32Array | null = null;
+    private _lastCamPos:      Float32Array | null = null;
+    private _lastCamNear:     number | null = null;
+    private _lastCamFar:      number | null = null;
+    private _lastTimeElapsed: number | null = null;
+    private _lastTimeDelta:   number | null = null;
 
     /** Per-mesh GPU buffer keys — keyed by Mesh object identity. */
-    private readonly meshUBOKeys: WeakMap<Mesh, object> = new WeakMap();
+    private readonly meshModelMatrixKeys: WeakMap<Mesh, object> = new WeakMap();
+    private readonly meshNormalMatrixKeys: WeakMap<Mesh, object> = new WeakMap();
     private readonly materialUBOKeys: WeakMap<Mesh, object> = new WeakMap();
 
-    /** Reusable CPU buffer for Mesh UBO: 16 f32 (modelMatrix) + 12 f32 (normalMatrix padded) = 28 f32. */
-    private readonly meshUBOData: Float32Array = new Float32Array(28);
+    /** Reusable CPU buffers for per-field mesh uploads. */
+    private readonly _meshModelMatrixData: Float32Array = new Float32Array(16);
+    /** mat3x3f in uniform address space: each column padded to vec4, 3×4 = 12 f32 (48 bytes). */
+    private readonly _meshNormalMatrixData: Float32Array = new Float32Array(12);
 
     /**
      * Per-CompileResult last-packed version sum for the material UBO dirty check.
      * Key: CompileResult object. Value: sum of member.node.version at last pack.
      */
     private readonly _uboVersionSums: WeakMap<CompileResult, number> = new WeakMap();
+
+    /**
+     * Per-mesh last-uploaded matrixVersion for the mesh UBO dirty check.
+     * Key: Mesh object. Value: mesh.matrixVersion at last upload.
+     */
+    private readonly _meshMatrixVersions: WeakMap<Mesh, number> = new WeakMap();
 
     /** Elapsed time in seconds. */
     private elapsed = 0;
@@ -123,13 +152,8 @@ export class WebGPURenderer {
     /** Geometry for the internal fullscreen triangle. Created once on first use. */
     private _fullscreenGeometry: Geometry | null = null;
 
-    /**
-     * Stable keys for the internal fullscreen material UBO and dummy mesh UBO.
-     * These are renderer-scoped (not per-output-node) since the fullscreen quad
-     * is always the same oversized triangle with an identity mesh transform.
-     */
+    /** Stable key for the internal fullscreen material UBO. */
     private readonly _fsQuadMatUBOKey: object = {};
-    private readonly _fsQuadDummyMeshKey: object = {};
 
     constructor(opts: WebGPURendererOptions = {}) {
         let samples = 0;
@@ -371,13 +395,8 @@ export class WebGPURenderer {
         this.lastTimestamp = now;
         this.elapsed += delta;
 
-        // Upload shared per-frame Time UBO.
-        const timeData = new Float32Array([this.elapsed, delta]);
-        const timeBuf = this.buffers.uploadRaw(
-            this.timeUBOKey,
-            timeData,
-            GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        );
+        // Upload per-frame Time uniforms (dirty-checked per field).
+        this._uploadTimeFields(this.elapsed, delta);
 
         // Reuse the frame encoder if compute() was called this frame; otherwise create fresh.
         const encoder = this._frameEncoder ?? this.device.createCommandEncoder();
@@ -389,7 +408,7 @@ export class WebGPURenderer {
         // 1. Render each PassNode's scene into its off-screen render target.
         const passNodes = collectPassNodes(outputNode);
         for (const passNode of passNodes) {
-            this._renderPassNode(passNode, encoder, timeBuf, w, h);
+            this._renderPassNode(passNode, encoder, w, h);
         }
 
         // 2. Render the outputNode expression as a fullscreen quad to the swapchain.
@@ -440,7 +459,6 @@ export class WebGPURenderer {
     private _renderPassNode(
         passNode: PassNode,
         encoder: GPUCommandEncoder,
-        timeBuf: GPUBuffer,
         width: number,
         height: number,
     ): void {
@@ -449,18 +467,8 @@ export class WebGPURenderer {
 
         const { scene, camera } = passNode;
 
-        // Update transforms.
-        scene.updateWorldMatrix();
-        camera.updateViewMatrix();
-
-        // Upload Camera UBO for this pass's camera.
-        packCameraUBO(camera, this.cameraUBOData);
-        const cameraBuf = this.buffers.uploadRaw(
-            this.cameraUBOKey,
-            this.cameraUBOData,
-            GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        );
-
+        // Upload Camera per-field uniforms (dirty-checked).
+        this._uploadCameraFields(camera);
         // Collect draws.
         // PassNode render targets are always sampleCount=1 (no MSAA off-screen) and rgba8unorm.
         const PASS_SAMPLES = 1;
@@ -522,34 +530,34 @@ export class WebGPURenderer {
                         currentFrameBindGroup = buildFrameBindGroup(
                             this.device,
                             entry.layout0,
-                            cameraBuf,
-                            timeBuf,
+                            entry.compileResult,
+                            this._makeFrameBuffers(),
                         );
                         gpuPass.setBindGroup(0, currentFrameBindGroup);
                     }
                 }
 
-                const meshUboBuf = this.buffers.getRaw(this._getMeshUBOKey(mesh))!;
+                const meshModelMatrixBuf = this.buffers.getRaw(this._getMeshModelMatrixKey(mesh)) ?? null;
+                const meshNormalMatrixBuf = this.buffers.getRaw(this._getMeshNormalMatrixKey(mesh)) ?? null;
                 const materialUboBuf = this.buffers.getRaw(this._getMaterialUBOKey(mesh)) ?? null;
                 const meshBindGroup = buildMeshBindGroup(
                     this.device,
                     entry.layout1,
                     entry.compileResult,
                     mesh,
-                    meshUboBuf,
+                    meshModelMatrixBuf,
+                    meshNormalMatrixBuf,
                     materialUboBuf,
                     this.buffers,
                 );
                 gpuPass.setBindGroup(1, meshBindGroup);
 
                 let slot = 0;
-                const _dbgVbufs: string[] = [];
                 for (const attrEntry of entry.compileResult.attributes) {
                     if (attrEntry.kind === 'geometry') {
                         const bufAttr = mesh.geometry.attributes.get(attrEntry.name);
-                        if (!bufAttr) { _dbgVbufs.push(`slot${slot}:MISSING(${attrEntry.name})`); continue; }
+                        if (!bufAttr) { slot++; continue; }
                         const gpuBuf = this.buffers.uploadVertex(bufAttr);
-                        _dbgVbufs.push(`slot${slot}:${attrEntry.name}(${gpuBuf.size}b)`);
                         gpuPass.setVertexBuffer(slot++, gpuBuf);
                     } else {
                         const node = attrEntry.node;
@@ -558,27 +566,15 @@ export class WebGPURenderer {
                             node.data,
                             GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
                         );
-                        _dbgVbufs.push(`slot${slot}:${attrEntry.name}(${gpuBuf.size}b,stride=${node.stride},off=${node.offset})`);
                         gpuPass.setVertexBuffer(slot++, gpuBuf);
                     }
                 }
-                console.log('[draw] vtxbufs:', _dbgVbufs.join(' | '));
 
                 if (mesh.geometry.index) {
                     const idxBuf = this.buffers.uploadIndex(mesh.geometry.index);
                     gpuPass.setIndexBuffer(idxBuf, mesh.geometry.index.format);
                     if (mesh.geometry.indirect) {
                         const indBuf = this.buffers.uploadIndirect(mesh.geometry.indirect);
-                        const ind = mesh.geometry.indirect;
-                        console.log('[draw] drawIndexedIndirect', {
-                            indexCount: ind.data[0],
-                            instanceCount: ind.data[1],
-                            firstIndex: ind.data[2],
-                            baseVertex: ind.data[3],
-                            firstInstance: ind.data[4],
-                            indexBufSize: idxBuf.size,
-                            indirectBufSize: indBuf.size,
-                        });
                         gpuPass.drawIndexedIndirect(indBuf, 0);
                     } else {
                         gpuPass.drawIndexed(mesh.geometry.index.data.length, mesh.count);
@@ -676,31 +672,21 @@ export class WebGPURenderer {
                 this._uboVersionSums.set(cr, versionSum);
             }
 
-            const cameraBuf = this.buffers.getRaw(this.cameraUBOKey);
-            const timeBuf   = this.buffers.getRaw(this.timeUBOKey);
             const matUboBuf = this.buffers.getRaw(matUBOKey) ?? null;
 
-            if (cameraBuf && timeBuf) {
-                const frameBindGroup = buildFrameBindGroup(
-                    this.device, entry.layout0, cameraBuf, timeBuf,
-                );
-                gpuPass.setBindGroup(0, frameBindGroup);
-            }
-
-            // Dummy mesh UBO (identity matrices — fullscreen quad has no mesh transform).
-            const dummyMeshKey = this._fsQuadDummyMeshKey;
-            const meshUboBuf = this.buffers.ensureRaw(
-                dummyMeshKey,
-                112, // 28 × f32
-                GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            const frameBindGroup = buildFrameBindGroup(
+                this.device, entry.layout0, entry.compileResult,
+                this._makeFrameBuffers(),
             );
+            gpuPass.setBindGroup(0, frameBindGroup);
 
             const meshBindGroup = buildMeshBindGroup(
                 this.device,
                 entry.layout1,
                 entry.compileResult,
                 null,
-                meshUboBuf,
+                null, // meshModelMatrix — not used by fullscreen quad
+                null, // meshNormalMatrix — not used by fullscreen quad
                 matUboBuf,
                 this.buffers,
             );
@@ -725,15 +711,22 @@ export class WebGPURenderer {
             this.buffers.uploadIndex(mesh.geometry.index);
         }
 
-        const meshUBOKey = this._getMeshUBOKey(mesh);
-        const ubo = this.meshUBOData;
-        ubo.set(mesh._worldMatrix, 0);
-        packMat3IntoVec4Columns(
-            mat3.normalFromMat4(_normalMatrix, mesh._worldMatrix) ?? mat3.identity(_normalMatrix),
-            ubo,
-            16,
-        );
-        this.buffers.uploadRaw(meshUBOKey, ubo, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+        const U = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
+        if (this._meshMatrixVersions.get(mesh) !== mesh.matrixVersion) {
+            // meshModelMatrix — 16 f32, 64 bytes
+            this._meshModelMatrixData.set(mesh._worldMatrix);
+            this.buffers.uploadRaw(this._getMeshModelMatrixKey(mesh), this._meshModelMatrixData, U);
+
+            // meshNormalMatrix — mat3x3f padded to 12 f32 (48 bytes, 3 × vec4 columns)
+            packMat3IntoVec4Columns(
+                mat3.normalFromMat4(_normalMatrix, mesh._worldMatrix) ?? mat3.identity(_normalMatrix),
+                this._meshNormalMatrixData,
+                0,
+            );
+            this.buffers.uploadRaw(this._getMeshNormalMatrixKey(mesh), this._meshNormalMatrixData, U);
+
+            this._meshMatrixVersions.set(mesh, mesh.matrixVersion);
+        }
 
         const pipelineKey = makePipelineKey(mesh.material, samples, format);
         const entry = this.pipelines.get(pipelineKey, mesh.material, mesh.geometry, samples, format);
@@ -758,9 +751,15 @@ export class WebGPURenderer {
     // Per-object buffer key accessors
     // -----------------------------------------------------------------------
 
-    private _getMeshUBOKey(mesh: Mesh): object {
-        let k = this.meshUBOKeys.get(mesh);
-        if (!k) { k = {}; this.meshUBOKeys.set(mesh, k); }
+    private _getMeshModelMatrixKey(mesh: Mesh): object {
+        let k = this.meshModelMatrixKeys.get(mesh);
+        if (!k) { k = {}; this.meshModelMatrixKeys.set(mesh, k); }
+        return k;
+    }
+
+    private _getMeshNormalMatrixKey(mesh: Mesh): object {
+        let k = this.meshNormalMatrixKeys.get(mesh);
+        if (!k) { k = {}; this.meshNormalMatrixKeys.set(mesh, k); }
         return k;
     }
 
@@ -833,6 +832,98 @@ export class WebGPURenderer {
         const pipelineKey = makePipelineKey(mat, this._samples, this.format);
         return { mat, pipelineKey };
     }
+
+    // -----------------------------------------------------------------------
+    // Per-field camera/time upload helpers
+    // -----------------------------------------------------------------------
+
+    /**
+     * Upload all 5 camera fields to their individual GPU buffers, dirty-checking each.
+     * Reuses pre-allocated Float32Arrays; only calls uploadRaw when the value changed.
+     */
+    private _uploadCameraFields(camera: import('../scene/camera.js').Camera): void {
+        const U = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
+
+        // projectionMatrix (16 f32, 64B)
+        const proj = camera.projectionMatrix;
+        let projDirty = this._lastCamProj === null;
+        if (!projDirty) { for (let i = 0; i < 16; i++) if (proj[i] !== this._lastCamProj![i]) { projDirty = true; break; } }
+        if (projDirty) {
+            for (let i = 0; i < 16; i++) this._camProjData[i] = proj[i];
+            this.buffers.uploadRaw(this._camProjKey, this._camProjData, U);
+            if (!this._lastCamProj) this._lastCamProj = new Float32Array(16);
+            this._lastCamProj.set(this._camProjData);
+        }
+
+        // viewMatrix (16 f32, 64B)
+        const view = camera._viewMatrix;
+        let viewDirty = this._lastCamView === null;
+        if (!viewDirty) { for (let i = 0; i < 16; i++) if (view[i] !== this._lastCamView![i]) { viewDirty = true; break; } }
+        if (viewDirty) {
+            for (let i = 0; i < 16; i++) this._camViewData[i] = view[i];
+            this.buffers.uploadRaw(this._camViewKey, this._camViewData, U);
+            if (!this._lastCamView) this._lastCamView = new Float32Array(16);
+            this._lastCamView.set(this._camViewData);
+        }
+
+        // position (vec3f, padded to 16B)
+        const wx = camera._worldMatrix[12];
+        const wy = camera._worldMatrix[13];
+        const wz = camera._worldMatrix[14];
+        if (this._lastCamPos === null || this._lastCamPos[0] !== wx || this._lastCamPos[1] !== wy || this._lastCamPos[2] !== wz) {
+            this._camPosData[0] = wx; this._camPosData[1] = wy; this._camPosData[2] = wz; this._camPosData[3] = 0;
+            this.buffers.uploadRaw(this._camPosKey, this._camPosData, U);
+            if (!this._lastCamPos) this._lastCamPos = new Float32Array(3);
+            this._lastCamPos[0] = wx; this._lastCamPos[1] = wy; this._lastCamPos[2] = wz;
+        }
+
+        // near (f32, min 16B — uploadRaw pads)
+        if (camera.near !== this._lastCamNear) {
+            this._camNearData[0] = camera.near;
+            this.buffers.uploadRaw(this._camNearKey, this._camNearData, U);
+            this._lastCamNear = camera.near;
+        }
+
+        // far (f32)
+        if (camera.far !== this._lastCamFar) {
+            this._camFarData[0] = camera.far;
+            this.buffers.uploadRaw(this._camFarKey, this._camFarData, U);
+            this._lastCamFar = camera.far;
+        }
+    }
+
+    /**
+     * Upload elapsed and delta time to their individual GPU buffers, dirty-checking each.
+     */
+    private _uploadTimeFields(elapsed: number, delta: number): void {
+        const U = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
+        if (elapsed !== this._lastTimeElapsed) {
+            this._timeElapsedData[0] = elapsed;
+            this.buffers.uploadRaw(this._timeElapsedKey, this._timeElapsedData, U);
+            this._lastTimeElapsed = elapsed;
+        }
+        if (delta !== this._lastTimeDelta) {
+            this._timeDeltaData[0] = delta;
+            this.buffers.uploadRaw(this._timeDeltaKey, this._timeDeltaData, U);
+            this._lastTimeDelta = delta;
+        }
+    }
+
+    /**
+     * Collect the current per-field GPU buffers into a FrameBuffers bag.
+     * Returns null for fields not yet uploaded (buffers will be allocated on first use).
+     */
+    private _makeFrameBuffers(): FrameBuffers {
+        return {
+            camProj:     this.buffers.getRaw(this._camProjKey)     ?? null,
+            camView:     this.buffers.getRaw(this._camViewKey)     ?? null,
+            camPos:      this.buffers.getRaw(this._camPosKey)      ?? null,
+            camNear:     this.buffers.getRaw(this._camNearKey)     ?? null,
+            camFar:      this.buffers.getRaw(this._camFarKey)      ?? null,
+            timeElapsed: this.buffers.getRaw(this._timeElapsedKey) ?? null,
+            timeDelta:   this.buffers.getRaw(this._timeDeltaKey)   ?? null,
+        };
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -892,16 +983,6 @@ function _makeFullscreenUVVarying(): VaryingNode<'vec2f'> {
 // ---------------------------------------------------------------------------
 // Module-level helpers
 // ---------------------------------------------------------------------------
-
-function packCameraUBO(camera: import('../scene/camera.js').Camera, out: Float32Array): void {
-    for (let i = 0; i < 16; i++) out[i]      = camera.projectionMatrix[i];
-    for (let i = 0; i < 16; i++) out[16 + i] = camera._viewMatrix[i];
-    out[32] = camera._worldMatrix[12];
-    out[33] = camera._worldMatrix[13];
-    out[34] = camera._worldMatrix[14];
-    out[35] = camera.near;
-    out[36] = camera.far;
-}
 
 function packMat3IntoVec4Columns(m: ArrayLike<number>, out: Float32Array, offset: number): void {
     out[offset + 0] = m[0]; out[offset + 1] = m[1]; out[offset + 2] = m[2]; out[offset + 3] = 0;

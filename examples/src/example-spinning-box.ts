@@ -29,6 +29,9 @@ async function main() {
     );
     camera.position[2] = 5;
     scene.add(camera);
+    // Initial matrix setup — camera doesn't move after this so only needed once.
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
 
     window.addEventListener('resize', () => {
         renderer.setSize(window.innerWidth * devicePixelRatio, window.innerHeight * devicePixelRatio);
@@ -58,6 +61,9 @@ async function main() {
         angle += dt * 0.8;
 
         quat.fromEuler(mesh.quaternion, [0, angle, 0.2 * Math.sin(angle * 0.5), 'yxz'] as Euler);
+
+        // Mesh rotates every frame — update its world matrix.
+        mesh.updateWorldMatrix();
 
         renderer.render(outputNode);
         requestAnimationFrame(frame);
