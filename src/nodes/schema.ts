@@ -1,11 +1,11 @@
 /**
- * schema.ts — WgslDesc type descriptors, defineStruct, and S.* constructor namespace.
+ * schema.ts — WgslDesc type descriptors, struct(), and S.* constructor namespace.
  *
  * Import this module as:
  *   import * as S from './schema.js'
  *
  * Then use S.f32(), S.vec3f(), S.mat4x4f() etc. as WgslDesc descriptors in
- * defineStruct() schemas and Fn() param lists.
+ * struct() schemas and Fn() param lists.
  *
  * For storage buffers, use S.array() to describe the element type:
  *   S.array(S.mat4x4f())   → ArrayDesc whose wgslType is 'array<mat4x4f>'
@@ -89,7 +89,7 @@ export function typedArrayCtorOf(desc: WgslDesc<WgslType>): new (length: number)
 
 /**
  * A WGSL type descriptor: a plain object carrying the WGSL type string as a
- * phantom type parameter. Used as field descriptors in defineStruct() and as
+ * phantom type parameter. Used as field descriptors in struct() and as
  * Fn() param type declarations.
  *
  * Example: S.f32() returns WgslDesc<'f32'>, S.mat4x4f() returns WgslDesc<'mat4x4f'>.
@@ -118,7 +118,7 @@ export type StructInstance<S extends StructSchema> = {
     readonly [K in keyof S]: Node<S[K]['wgslType']>;
 };
 
-/** The object returned by defineStruct(). */
+/** The object returned by struct(). */
 export type StructDef<S extends StructSchema> = {
     readonly schema: S;
     readonly typeName: string;
@@ -130,7 +130,7 @@ export type StructDef<S extends StructSchema> = {
 };
 
 // ---------------------------------------------------------------------------
-// Module-level StructNode → StructDef registry (populated by defineStruct)
+// Module-level StructNode → StructDef registry (populated by struct())
 // ---------------------------------------------------------------------------
 
 const _structNodeRegistry: WeakMap<StructNode, StructDef<StructSchema>> = new WeakMap();
@@ -141,13 +141,13 @@ export function lookupStructDef(node: StructNode): StructDef<StructSchema> | und
     return _structNodeRegistry.get(node);
 }
 
-/** Look up a StructDef by its WGSL type name, if registered via defineStruct(). */
+/** Look up a StructDef by its WGSL type name, if registered via struct(). */
 export function lookupStructDefByName(typeName: string): StructDef<StructSchema> | undefined {
     return _structNameRegistry.get(typeName);
 }
 
 // ---------------------------------------------------------------------------
-// defineStruct
+// struct
 // ---------------------------------------------------------------------------
 
 /**
@@ -156,7 +156,7 @@ export function lookupStructDefByName(typeName: string): StructDef<StructSchema>
  * @example
  * import * as S from './schema.js'
  *
- * const CameraStruct = defineStruct('Camera', {
+ * const CameraStruct = struct('Camera', {
  *     projectionMatrix: S.mat4x4f(),
  *     viewMatrix:       S.mat4x4f(),
  *     position:         S.vec3f(),
@@ -164,7 +164,7 @@ export function lookupStructDefByName(typeName: string): StructDef<StructSchema>
  *     far:              S.f32(),
  * });
  */
-export function defineStruct<S extends StructSchema>(typeName: string, schema: S): StructDef<S> {
+export function struct<S extends StructSchema>(typeName: string, schema: S): StructDef<S> {
     const members: StructMember[] = Object.entries(schema).map(([name, desc]) => ({ name, type: desc.wgslType }));
     const node = new StructNode(typeName, members);
 
@@ -221,7 +221,7 @@ export const mat4x3f = (): WgslDesc<'mat4x3f'> => ({ wgslType: 'mat4x3f' });
 export const mat4x4f = (): WgslDesc<'mat4x4f'> => ({ wgslType: 'mat4x4f' });
 
 // ---------------------------------------------------------------------------
-// S.struct — nested struct descriptor
+// S.nested — nested struct descriptor
 // ---------------------------------------------------------------------------
 
 /** Returns true if a WgslDesc is a StructDesc (carries a nested StructDef). */
@@ -230,12 +230,12 @@ export function isStructDesc<S extends StructSchema>(desc: WgslDesc<WgslType>): 
 }
 
 /**
- * Wrap an existing StructDef as a WgslDesc for use inside another defineStruct() schema.
+ * Wrap an existing StructDef as a WgslDesc for use as a field inside another struct() schema.
  *
  * @example
- * const Inner = defineStruct('Inner', { x: S.f32() });
- * const Outer = defineStruct('Outer', { inner: S.struct(Inner), y: S.f32() });
+ * const Inner = struct('Inner', { x: S.f32() });
+ * const Outer = struct('Outer', { inner: S.nested(Inner), y: S.f32() });
  */
-export function struct<S extends StructSchema>(def: StructDef<S>): StructDesc<S> {
+export function nested<S extends StructSchema>(def: StructDef<S>): StructDesc<S> {
     return { wgslType: def.typeName, structDef: def };
 }

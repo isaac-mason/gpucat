@@ -15,7 +15,9 @@ import { describe, expect, test } from 'vitest';
 import { collectGraph, depsOf } from '../src/nodes/collect.js';
 import {
     attribute,
+    bool,
     CallNode,
+    f32,
     Fn,
     FnNode,
     For,
@@ -28,7 +30,9 @@ import {
     type ReturnNode,
     StackNode,
     toVar,
+    u32,
     type VarNode,
+    vec3f,
     vec4,
     type WgslType,
 } from '../src/nodes/nodes.js';
@@ -40,8 +44,8 @@ import * as S from '../src/nodes/schema.js';
 
 describe('pure expression graph', () => {
     test('konst node has stable content-addressed id', () => {
-        const a = konst('f32', 1.0);
-        const b = konst('f32', 1.0);
+        const a = f32(1.0);
+        const b = f32(1.0);
         expect(a.id).toBe(b.id);
         expect(a.kind).toBe('const');
         expect(a.type).toBe('f32');
@@ -56,8 +60,8 @@ describe('pure expression graph', () => {
     });
 
     test('comparison operators return bool', () => {
-        const x = konst('f32', 1.0);
-        const y = konst('f32', 2.0);
+        const x = f32(1.0);
+        const y = f32(2.0);
         expect(x.gt(y).type).toBe('bool');
         expect(x.lt(y).type).toBe('bool');
         expect(x.gte(y).type).toBe('bool');
@@ -67,7 +71,7 @@ describe('pure expression graph', () => {
     });
 
     test('toF32 conversion', () => {
-        const n = konst('u32', 42);
+        const n = u32(42);
         const f = n.toF32();
         expect(f.type).toBe('f32');
         expect(f.kind).toBe('call');
@@ -75,7 +79,7 @@ describe('pure expression graph', () => {
 
     test('collectGraph traverses expression tree', () => {
         const pos = attribute('vec3f', 'position');
-        const w = konst('f32', 1.0);
+        const w = f32(1.0);
         const clip = vec4(pos, w);
         const g = collectGraph(clip);
         // Should contain clip, pos, w
@@ -92,12 +96,12 @@ describe('pure expression graph', () => {
 
 describe('toVar + If/Else inside Fn', () => {
     test('Fn traces toVar and If correctly', () => {
-        const heatmap = Fn([S.vec2f()], (uv: Node<'vec2f'>): Node<'vec3f'> => {
-            const result = toVar('vec3f', konst('vec3f', [0, 0, 0]));
-            If(uv.x.gt(konst('f32', 0.5)), () => {
-                result.assign(konst('vec3f', [1, 0, 0]));
+        const heatmap = Fn([S.vec2f()], (uv): Node<'vec3f'> => {
+            const result = toVar('vec3f', vec3f(0, 0, 0));
+            If(uv.x.gt(f32(0.5)), () => {
+                result.assign(vec3f(1, 0, 0));
             }).Else(() => {
-                result.assign(konst('vec3f', [0, 0, 1]));
+                result.assign(vec3f(0, 0, 1));
             });
             return result;
         });
@@ -116,7 +120,7 @@ describe('toVar + If/Else inside Fn', () => {
             capturedVar = toVar('f32', x);
             return capturedVar;
         });
-        const arg = konst('f32', 1.0);
+        const arg = f32(1.0);
         myFn(arg); // trigger trace (Fn traces eagerly to get return type)
         // The var should have been created
         expect(capturedVar).not.toBeNull();
@@ -127,27 +131,27 @@ describe('toVar + If/Else inside Fn', () => {
     test('IfNode has thenBody and elseBody after Else chain', () => {
         let capturedIf: IfNode | null = null;
         Fn([S.f32()], (x: Node<'f32'>): Node<'f32'> => {
-            const result = toVar('f32', konst('f32', 0.0));
+            const result = toVar('f32', f32(0.0));
             // Intercept to capture the IfNode — we check the stack body
-            const cond = x.gt(konst('f32', 0.5));
+            const cond = x.gt(f32(0.5));
             If(cond, () => {
-                result.assign(konst('f32', 1.0));
+                result.assign(f32(1.0));
             }).Else(() => {
-                result.assign(konst('f32', -1.0));
+                result.assign(f32(-1.0));
             });
             return result;
         });
         // We can't capture IfNode directly without tracing, but we can check
         // by tracing via a FnNode
         const fnNode = new FnNode<'f32'>('f32', [S.f32()], (x: Node<'f32'>) => {
-            const result = toVar('f32', konst('f32', 0.0));
+            const result = toVar('f32', f32(0.0));
             // Intercept to capture the IfNode — we check the stack body
-            const cond = x.gt(konst('f32', 0.5));
+            const cond = x.gt(f32(0.5));
             capturedIf = null;
             If(cond, () => {
-                result.assign(konst('f32', 1.0));
+                result.assign(f32(1.0));
             }).Else(() => {
-                result.assign(konst('f32', -1.0));
+                result.assign(f32(-1.0));
             });
             return result;
         });
@@ -170,7 +174,7 @@ describe('toVar + If/Else inside Fn', () => {
 describe('For loop inside Fn', () => {
     test('ForNode is created with correct count and body', () => {
         const fnNode = new FnNode<'f32'>('f32', [S.u32()], (n: Node<'u32'>) => {
-            const acc = toVar('f32', konst('f32', 0.0));
+            const acc = toVar('f32', f32(0.0));
             For({ count: n }, ({ i }) => {
                 acc.assign(acc.add(i.toF32()));
             });
@@ -197,10 +201,10 @@ describe('For loop inside Fn', () => {
 describe('Return inside Fn', () => {
     test('ReturnNode is pushed onto stack', () => {
         const fnNode = new FnNode<'f32'>('f32', [S.f32()], (x: Node<'f32'>) => {
-            If(x.lt(konst('f32', 0.0)), () => {
-                Return(konst('f32', 0.0));
+            If(x.lt(f32(0.0)), () => {
+                Return(f32(0.0));
             });
-            return x.mul(konst('f32', 2.0));
+            return x.mul(f32(2.0));
         });
 
         const { body } = fnNode.trace();
@@ -223,25 +227,25 @@ describe('Return inside Fn', () => {
 describe('control flow outside Fn throws', () => {
     test('toVar outside Fn throws', () => {
         expect(() => {
-            toVar('f32', konst('f32', 0.0));
+            toVar('f32', f32(0.0));
         }).toThrow('[gpucat]');
     });
 
     test('If outside Fn throws', () => {
         expect(() => {
-            If(konst('bool', 1), () => {});
+            If(bool(true), () => {});
         }).toThrow('[gpucat]');
     });
 
     test('For outside Fn throws', () => {
         expect(() => {
-            For({ count: konst('u32', 4) }, () => {});
+            For({ count: u32(4) }, () => {});
         }).toThrow('[gpucat]');
     });
 
     test('Return outside Fn throws', () => {
         expect(() => {
-            Return(konst('f32', 0.0));
+            Return(f32(0.0));
         }).toThrow('[gpucat]');
     });
 });
@@ -264,11 +268,11 @@ describe('depsOf new node kinds', () => {
 
     test('if deps = [condition, thenBody] or [condition, thenBody, elseBody]', () => {
         const fnNode = new FnNode<'void'>('void', [S.f32()], (x: Node<'f32'>) => {
-            const v = toVar('f32', konst('f32', 0.0));
-            If(x.gt(konst('f32', 0.0)), () => {
-                v.assign(konst('f32', 1.0));
+            const v = toVar('f32', f32(0.0));
+            If(x.gt(f32(0.0)), () => {
+                v.assign(f32(1.0));
             }).Else(() => {
-                v.assign(konst('f32', -1.0));
+                v.assign(f32(-1.0));
             });
             return konst('void', 0) as unknown as Node<'void'>;
         });
@@ -283,7 +287,7 @@ describe('depsOf new node kinds', () => {
 
     test('for deps = [count, indexVar, body]', () => {
         const fnNode = new FnNode<'f32'>('f32', [S.u32()], (n: Node<'u32'>) => {
-            const acc = toVar('f32', konst('f32', 0.0));
+            const acc = toVar('f32', f32(0.0));
             For({ count: n }, ({ i }) => {
                 acc.assign(i.toF32());
             });
@@ -300,8 +304,8 @@ describe('depsOf new node kinds', () => {
 
     test('return deps = [value]', () => {
         const fnNode = new FnNode<'f32'>('f32', [S.f32()], (x: Node<'f32'>) => {
-            If(x.lt(konst('f32', 0.0)), () => {
-                Return(konst('f32', 0.0));
+            If(x.lt(f32(0.0)), () => {
+                Return(f32(0.0));
             });
             return x;
         });
@@ -334,10 +338,10 @@ describe('depsOf new node kinds', () => {
 describe('Fn DSL', () => {
     test('Fn returns a callable that produces CallNode with fnNode reference', () => {
         const double = Fn([S.f32()], (x: Node<'f32'>): Node<'f32'> => {
-            return x.mul(konst('f32', 2.0));
+            return x.mul(f32(2.0));
         });
 
-        const arg = konst('f32', 5.0);
+        const arg = f32(5.0);
         const result = double(arg);
         expect(result).toBeInstanceOf(CallNode);
         expect(result.type).toBe('f32');
@@ -347,7 +351,7 @@ describe('Fn DSL', () => {
 
     test('Fn with vec3f param', () => {
         const invert = Fn([S.vec3f()], (c: Node<'vec3f'>): Node<'vec3f'> => {
-            return konst('vec3f', [1, 1, 1]).sub(c);
+            return vec3f(1, 1, 1).sub(c);
         });
 
         const color = attribute('vec3f', 'color');

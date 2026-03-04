@@ -51,12 +51,12 @@ const clipPos  = gpu.mul(cam.projectionMatrix, viewPos);
 const time = gpu.time();
 
 // pulse: gentle brightness oscillation each second
-const tScaled = time.elapsed.mul(gpu.konst('f32', 2.0));
-const pulse = gpu.konst('f32', 0.12).mul(
-    gpu.konst('f32', 1.0).add(tScaled.sin()),
+const tScaled = time.elapsed.mul(gpu.f32(2.0));
+const pulse = gpu.f32(0.12).mul(
+    gpu.f32(1.0).add(tScaled.sin()),
 );
 const finalColor = gpu.vec4(
-    vColor.add(gpu.konst('vec3f', [1, 1, 1]).mul(pulse)),
+    vColor.add(gpu.vec3f(1, 1, 1).mul(pulse)),
     gpu.f32(1.0),
 );
 

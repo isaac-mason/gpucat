@@ -404,6 +404,13 @@ export class ConstNode<T extends WgslType> extends Node<T> {
 
 export class UniformNode<T extends WgslType> extends Node<T> {
     readonly group: 'material' | 'frame';
+
+    /** CPU-side value. Set this to update the uniform on the GPU. */
+    value: number | number[] | Float32Array | null = null;
+
+    /** Monotonically incremented when value is set. Renderer re-uploads when stale. */
+    version: number = 0;
+
     constructor(
         type: T,
         readonly uniformId: string,
@@ -498,6 +505,9 @@ export class StorageNode<T extends WgslType> extends Node<T> {
 }
 
 export class TextureNode extends Node<TextureType> {
+    /** GPU texture resource. Set this before rendering. */
+    resource: GPUTexture | GPUTextureView | null = null;
+
     constructor(
         type: TextureType,
         readonly textureId: string,
@@ -507,6 +517,9 @@ export class TextureNode extends Node<TextureType> {
 }
 
 export class SamplerNode extends Node<SamplerType> {
+    /** GPU sampler resource. Set this before rendering. */
+    resource: GPUSampler | null = null;
+
     constructor(
         type: SamplerType,
         readonly samplerId: string,
@@ -879,8 +892,46 @@ function djb2(str: string): number {
 // ---------------------------------------------------------------------------
 
 export const konst = <T extends WgslType>(type: T, value: number | number[] | string) => new ConstNode(type, value);
-export const uniform = <T extends WgslType>(type: T, uniformId: string, opts?: { group?: 'material' | 'frame' }) =>
-    new UniformNode(type, uniformId, opts?.group);
+/**
+ * Declare a material uniform.
+ *
+ * **Scalar / vector / matrix form** — pass a typed ConstNode as the initialiser:
+ *   uniform(f32(0.5))               // anonymous — uniformId derived from type
+ *   uniform(f32(0.5), 'roughness')  // explicit name used as the WGSL field name
+ *   uniform(vec4f(1, 0, 0, 1), 'baseColor')
+ *
+ * **Struct form** — pass a StructDef directly; returns a typed StructInstance
+ * whose keys are FieldNodes and whose `.$node` is the underlying UniformNode:
+ *   const MyStruct = struct('MyStruct', { x: S.f32(), y: S.f32() })
+ *   const myVal = uniform(MyStruct, 'myVal')
+ *   myVal.x      // → FieldNode<'f32'>
+ *   myVal.$node  // → UniformNode<'MyStruct'>
+ *
+ * The underlying UniformNode is content-addressed on (type, uniformId) so two
+ * calls with the same arguments return the same node object.
+ */
+export function uniform<S extends StructSchema>(def: StructDef<S>, name: string): StructInstance<S>;
+export function uniform<T extends WgslType>(init: ConstNode<T>, name?: string): UniformNode<T>;
+export function uniform<T extends WgslType, S extends StructSchema>(
+    init: ConstNode<T> | StructDef<S>,
+    name?: string,
+): UniformNode<T> | StructInstance<S> {
+    if ('schema' in init) {
+        // Struct form: init is a StructDef
+        const def = init as StructDef<S>;
+        const uniformId = name ?? def.typeName;
+        const node = new UniformNode<string>(def.typeName, uniformId);
+        return def.instantiate(node);
+    }
+    // Scalar / vector / matrix form: init is a ConstNode
+    const constNode = init as ConstNode<T>;
+    const uniformId = name ?? constNode.type;
+    const node = new UniformNode(constNode.type, uniformId);
+    if (node.value === null && constNode.value !== null) {
+        node.value = constNode.value as number | number[];
+    }
+    return node;
+}
 export const attribute = <T extends WgslType>(type: T, name: string) => new AttributeNode(type, name);
 
 /**
@@ -931,7 +982,6 @@ export const texture = (textureType: string, textureId: string) => new TextureNo
 export const sampler = (samplerId: string, opts?: { comparison?: boolean }) =>
     new SamplerNode(opts?.comparison ? 'sampler_comparison' : 'sampler', samplerId);
 export const varying = <T extends WgslType>(type: T, name: string, source: Node<WgslType>) => new VaryingNode(type, name, source);
-export const struct = (typeName: string, members: StructMember[]) => new StructNode(typeName, members);
 export const builtin = <T extends WgslType>(builtinKind: BuiltinKind, type: T) => new BuiltinNode(builtinKind, type);
 export const raw = <T extends WgslType>(type: T, wgsl: string, ...deps: Node<WgslType>[]) => new RawNode(type, wgsl, deps);
 export const stack = (...body: Node<WgslType>[]) => new StackNode(body);
@@ -1353,7 +1403,7 @@ export const mat4x4f = (...v: number[]): ConstNode<'mat4x4f'> => new ConstNode('
 // ---------------------------------------------------------------------------
 
 import { Color, type ColorInput } from '../utils/color.js';
-import { ArrayDesc, itemSizeOf, typedArrayCtorOf, WgslDesc } from './schema.js';
+import { ArrayDesc, itemSizeOf, typedArrayCtorOf, WgslDesc, type StructDef, type StructInstance, type StructSchema } from './schema.js';
 
 /**
  * Convert any color input to a `ConstNode<'vec3f'>` (linear RGB).

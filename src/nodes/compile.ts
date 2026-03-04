@@ -36,6 +36,8 @@
  */
 
 import {
+    ParamNode,
+    StackNode,
     type AssignNode,
     type AttributeNode,
     type BinopNode,
@@ -61,10 +63,10 @@ import {
     type VarNode,
     type VaryingNode,
     type WgslType,
-} from './nodes.js';
-import { collectGraph, refCount, topoSort } from './collect.js';
-import { CameraStruct, MeshStruct, TimeStruct } from './std-nodes.js';
-import { lookupStructDef, lookupStructDefByName, type StructDef, type StructSchema } from './schema.js';
+} from './nodes';
+import { collectGraph, refCount, topoSort } from './collect';
+import { CameraStruct, MeshStruct, TimeStruct } from './std-nodes';
+import { lookupStructDef, lookupStructDefByName, type StructDef, type StructSchema } from './schema';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -107,6 +109,8 @@ export type UniformMember = {
     offset: number;
     /** Byte size of this field. */
     size: number;
+    /** The UniformNode that owns this member. Renderer reads .value from here. */
+    node: UniformNode<WgslType>;
 };
 
 export type UniformBlockEntry = {
@@ -135,6 +139,8 @@ export type TextureEntry = {
     type: string;
     group: 0 | 1;
     binding: number;
+    /** The TextureNode that owns this entry. Renderer reads .resource from here. */
+    node: TextureNode;
 };
 
 export type SamplerEntry = {
@@ -142,6 +148,8 @@ export type SamplerEntry = {
     type: 'sampler' | 'sampler_comparison';
     group: 0 | 1;
     binding: number;
+    /** The SamplerNode that owns this entry. Renderer reads .resource from here. */
+    node: SamplerNode;
 };
 
 export type CompileResult = {
@@ -516,7 +524,7 @@ class CompileContext {
 
     private collectFnNodesInStack(stack: Node<WgslType>): void {
         if (stack.kind !== 'stack') return;
-        const s = stack as import('./nodes.js').StackNode;
+        const s = stack as StackNode;
         for (const stmt of s.body) {
             this.collectFnNodesInNode(stmt);
         }
@@ -615,7 +623,7 @@ class CompileContext {
         // Textures
         const textureEntries: TextureEntry[] = [];
         for (const tn of this.textureNodes.values()) {
-            textureEntries.push({ textureId: tn.textureId, type: tn.type, group: 1, binding: matBinding });
+            textureEntries.push({ textureId: tn.textureId, type: tn.type, group: 1, binding: matBinding, node: tn });
             lines.push(`@group(1) @binding(${matBinding}) var ${tn.textureId}_tex : ${tn.type};`);
             matBinding++;
         }
@@ -623,7 +631,7 @@ class CompileContext {
         // Samplers
         const samplerEntries: SamplerEntry[] = [];
         for (const sn of this.samplerNodes.values()) {
-            samplerEntries.push({ samplerId: sn.samplerId, type: sn.type, group: 1, binding: matBinding });
+            samplerEntries.push({ samplerId: sn.samplerId, type: sn.type, group: 1, binding: matBinding, node: sn });
             lines.push(`@group(1) @binding(${matBinding}) var ${sn.samplerId}_samp : ${sn.type};`);
             matBinding++;
         }
@@ -685,7 +693,7 @@ class CompileContext {
             const align = std140Align(n.type);
             const size = std140Size(n.type);
             offset = alignUp(offset, align);
-            members.push({ uniformId: n.uniformId, type: n.type, offset, size });
+            members.push({ uniformId: n.uniformId, type: n.type, offset, size, node: n });
             offset += size;
         }
         // Align total to 16-byte boundary (std140 struct rule)
@@ -1147,7 +1155,7 @@ class CompileContext {
             }
 
             case 'param': {
-                const n = node as import('./nodes.js').ParamNode<WgslType>;
+                const n = node as ParamNode<WgslType>;
                 // Look up by paramIndex in the provided params list
                 if (params && n.paramIndex < params.length) {
                     return `p${n.paramIndex}`;

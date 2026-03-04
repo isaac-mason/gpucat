@@ -8,7 +8,6 @@
  */
 
 import type { CompileResult } from '../nodes/compile.js';
-import type { Material } from '../scene/material.js';
 import type { Mesh } from '../scene/mesh.js';
 import type { BufferCache } from './buffers.js';
 
@@ -62,7 +61,6 @@ export function buildMeshBindGroup(
     layout: GPUBindGroupLayout,
     cr: CompileResult,
     _mesh: Mesh | null,
-    material: Material,
     meshUboBuf: GPUBuffer,
     materialUboBuf: GPUBuffer | null,
     buffers: BufferCache,
@@ -91,23 +89,20 @@ export function buildMeshBindGroup(
     // Textures (binding 1+)
     for (const t of cr.textures) {
         if (t.group !== 1) continue;
-        const tex = material.uniforms.get(t.textureId);
-        if (!(tex instanceof GPUTextureView) && !(tex && typeof tex === 'object' && 'createView' in tex)) {
-            throw new Error(`[buildMeshBindGroup] missing texture '${t.textureId}' in material.uniforms`);
+        const res = t.node.resource;
+        if (res === null) {
+            throw new Error(`[buildMeshBindGroup] TextureNode '${t.textureId}' has no resource set`);
         }
-        // Accept either a GPUTextureView directly or a GPUTexture (call createView())
-        const view = tex instanceof GPUTextureView
-            ? tex
-            : (tex as GPUTexture).createView();
+        const view = res instanceof GPUTextureView ? res : (res as GPUTexture).createView();
         entries.push({ binding: t.binding, resource: view });
     }
 
     // Samplers (binding 1+)
     for (const s of cr.samplers) {
         if (s.group !== 1) continue;
-        const samp = material.uniforms.get(s.samplerId);
-        if (!(samp instanceof GPUSampler)) {
-            throw new Error(`[buildMeshBindGroup] missing sampler '${s.samplerId}' in material.uniforms`);
+        const samp = s.node.resource;
+        if (samp === null) {
+            throw new Error(`[buildMeshBindGroup] SamplerNode '${s.samplerId}' has no resource set`);
         }
         entries.push({ binding: s.binding, resource: samp });
     }
@@ -121,10 +116,10 @@ export function buildMeshBindGroup(
 
 /**
  * Pack material uniform values into a Float32Array for GPU upload.
- * Reads values from `material.uniforms` keyed by `uniformId`.
+ * Reads values from each member's node.value directly.
  * Uses byte offsets from `CompileResult.uniforms[0].members`.
  */
-export function packMaterialUBO(cr: CompileResult, material: Material): Float32Array | null {
+export function packMaterialUBO(cr: CompileResult): Float32Array | null {
     // Find the group-1 material uniform block
     const ub = cr.uniforms.find((u) => u.group === 1);
     if (!ub || ub.totalBytes === 0) return null;
@@ -133,8 +128,8 @@ export function packMaterialUBO(cr: CompileResult, material: Material): Float32A
     const bytes = new Uint8Array(buf.buffer);
 
     for (const member of ub.members) {
-        const value = material.uniforms.get(member.uniformId);
-        if (value === undefined) continue;
+        const value = member.node.value;
+        if (value === null || value === undefined) continue;
 
         if (typeof value === 'number') {
             new DataView(bytes.buffer).setFloat32(member.offset, value, true);
@@ -144,7 +139,6 @@ export function packMaterialUBO(cr: CompileResult, material: Material): Float32A
             const fa = new Float32Array(value as number[]);
             bytes.set(new Uint8Array(fa.buffer), member.offset);
         }
-        // GPUTexture / GPUSampler — not scalar, handled via texture/sampler entries above
     }
 
     return buf;

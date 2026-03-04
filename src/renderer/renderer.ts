@@ -41,6 +41,7 @@ import { Geometry } from '../scene/geometry.js';
 import { raw, builtin, type Node, type WgslType, VaryingNode, RawNode } from '../nodes/nodes.js';
 import { collectPassNodes, type PassNode } from '../nodes/pass-node.js';
 import type { RenderPipeline } from './render-pipeline.js';
+import type { CompileResult } from '../nodes/compile.js';
 
 const _normalMatrix = mat3.create();
 
@@ -95,6 +96,12 @@ export class WebGPURenderer {
 
     /** Reusable CPU buffer for Mesh UBO: 16 f32 (modelMatrix) + 12 f32 (normalMatrix padded) = 28 f32. */
     private readonly meshUBOData: Float32Array = new Float32Array(28);
+
+    /**
+     * Per-CompileResult last-packed version sum for the material UBO dirty check.
+     * Key: CompileResult object. Value: sum of member.node.version at last pack.
+     */
+    private readonly _uboVersionSums: WeakMap<CompileResult, number> = new WeakMap();
 
     /** Elapsed time in seconds. */
     private elapsed = 0;
@@ -347,7 +354,6 @@ export class WebGPURenderer {
                     entry.layout1,
                     entry.compileResult,
                     mesh,
-                    mesh.material,
                     meshUboBuf,
                     materialUboBuf,
                     this.buffers,
@@ -415,13 +421,12 @@ export class WebGPURenderer {
 
         const mat = new Material({ position: posNode, color: colorNode, depthWrite: false, depthTest: false });
 
-        // Register passNode textures + samplers into the material uniforms so
-        // the compiler-generated bind group entries can be filled.
+        // Register passNode textures + samplers directly on the node objects.
         for (const passNode of passNodes) {
             const { colorTexNode, samplerNode, depthTexNode } = passNode._getResourceNodes();
-            if (passNode._colorTexture) mat.uniforms.set(colorTexNode.textureId, passNode._colorTexture);
-            if (passNode._sampler)       mat.uniforms.set(samplerNode.samplerId,  passNode._sampler);
-            if (passNode._depthTexture)  mat.uniforms.set(depthTexNode.textureId, passNode._depthTexture);
+            if (passNode._colorTexture) colorTexNode.resource = passNode._colorTexture;
+            if (passNode._sampler)       samplerNode.resource  = passNode._sampler;
+            if (passNode._depthTexture)  depthTexNode.resource = passNode._depthTexture;
         }
 
         const fullscreenGeom = this._getFullscreenGeometry();
@@ -460,10 +465,12 @@ export class WebGPURenderer {
         });
 
         if (entry) {
-            // Upload material UBO if needed.
+            // Upload material UBO if needed (version-sum dirty check).
             const matUBOKey = this._getPipelineMatUBOKey(pipeline);
-            if (mat._lastUploadedGeneration !== mat.uniforms.generation) {
-                const uboData = packMaterialUBO(entry.compileResult, mat);
+            const cr = entry.compileResult;
+            const versionSum = _uniformVersionSum(cr);
+            if (this._uboVersionSums.get(cr) !== versionSum) {
+                const uboData = packMaterialUBO(cr);
                 if (uboData) {
                     this.buffers.uploadRaw(
                         matUBOKey,
@@ -471,7 +478,7 @@ export class WebGPURenderer {
                         GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
                     );
                 }
-                mat._lastUploadedGeneration = mat.uniforms.generation;
+                this._uboVersionSums.set(cr, versionSum);
             }
 
             const cameraBuf = this.buffers.getRaw(this.cameraUBOKey);
@@ -498,7 +505,6 @@ export class WebGPURenderer {
                 entry.layout1,
                 entry.compileResult,
                 null,
-                mat,
                 meshUboBuf,
                 matUboBuf,
                 this.buffers,
@@ -537,9 +543,10 @@ export class WebGPURenderer {
         const pipelineKey = makePipelineKey(mesh.material, samples, format);
         const entry = this.pipelines.get(pipelineKey, mesh.material, mesh.geometry, samples, format);
         if (entry) {
-            const { material } = mesh;
-            if (material._lastUploadedGeneration !== material.uniforms.generation) {
-                const uboData = packMaterialUBO(entry.compileResult, material);
+            const cr = entry.compileResult;
+            const versionSum = _uniformVersionSum(cr);
+            if (this._uboVersionSums.get(cr) !== versionSum) {
+                const uboData = packMaterialUBO(cr);
                 if (uboData) {
                     this.buffers.uploadRaw(
                         this._getMaterialUBOKey(mesh),
@@ -547,7 +554,7 @@ export class WebGPURenderer {
                         GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
                     );
                 }
-                material._lastUploadedGeneration = material.uniforms.generation;
+                this._uboVersionSums.set(cr, versionSum);
             }
         }
     }
@@ -688,4 +695,16 @@ function packMat3IntoVec4Columns(m: ArrayLike<number>, out: Float32Array, offset
     out[offset + 0] = m[0]; out[offset + 1] = m[1]; out[offset + 2] = m[2]; out[offset + 3] = 0;
     out[offset + 4] = m[3]; out[offset + 5] = m[4]; out[offset + 6] = m[5]; out[offset + 7] = 0;
     out[offset + 8] = m[6]; out[offset + 9] = m[7]; out[offset + 10] = m[8]; out[offset + 11] = 0;
+}
+
+/**
+ * Returns the sum of node.version across all uniform members in the group-1 block.
+ * Used as a cheap dirty-check: if the sum changes, the UBO needs re-packing.
+ */
+function _uniformVersionSum(cr: CompileResult): number {
+    const ub = cr.uniforms.find((u) => u.group === 1);
+    if (!ub) return 0;
+    let sum = 0;
+    for (const m of ub.members) sum += m.node.version;
+    return sum;
 }

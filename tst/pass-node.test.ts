@@ -21,7 +21,7 @@ import { pass, PassNode, collectPassNodes, PassColorTextureNode } from '../src/n
 import { RenderPipeline } from '../src/renderer/render-pipeline.js';
 import { Scene } from '../src/scene/scene.js';
 import { PerspectiveCamera } from '../src/scene/camera.js';
-import { konst } from '../src/nodes/nodes.js';
+import { vec4f } from '../src/nodes/nodes.js';
 import type { Node, WgslType } from '../src/nodes/nodes.js';
 
 // ---------------------------------------------------------------------------
@@ -238,7 +238,7 @@ describe('collectPassNodes — deduplication', () => {
 
 describe('collectPassNodes — no pass nodes', () => {
     test('returns empty array for a plain constant node', () => {
-        const root = konst('vec4f', [1, 0, 0, 1]);
+        const root = vec4f(1, 0, 0, 1);
         const found = collectPassNodes(root);
         expect(found).toHaveLength(0);
     });

@@ -8,9 +8,9 @@ import {
     vec4,
 } from './nodes.js';
 import * as S from './schema.js';
-import { defineStruct, type StructInstance } from './schema.js';
+import { struct, type StructInstance } from './schema.js';
 
-export const CameraStruct = defineStruct('Camera', {
+export const CameraStruct = struct('Camera', {
     projectionMatrix: S.mat4x4f(),
     viewMatrix: S.mat4x4f(),
     position: S.vec3f(),
@@ -24,7 +24,7 @@ export function camera(): CameraInstance {
     return CameraStruct.instantiate(builtin('camera', 'Camera'));
 }
 
-export const TimeStruct = defineStruct('Time', {
+export const TimeStruct = struct('Time', {
     elapsed: S.f32(),
     delta: S.f32(),
 });
@@ -35,7 +35,7 @@ export function time(): TimeInstance {
     return TimeStruct.instantiate(builtin('time', 'Time'));
 }
 
-export const MeshStruct = defineStruct('Mesh', {
+export const MeshStruct = struct('Mesh', {
     modelMatrix: S.mat4x4f(),
     normalMatrix: S.mat3x3f(),
 });

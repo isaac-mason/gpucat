@@ -1,41 +1,11 @@
 /**
- * material.ts — Material class: shader slot graphs + render state + live uniform values.
+ * material.ts — Material class: shader slot graphs + render state.
  *
  * No WebGPU imports. GPU resource creation lives in the renderer layer.
+ * Uniform/texture/sampler values live directly on their node objects.
  */
 
 import type { Node, WgslType } from '../nodes/nodes.js';
-
-// ---------------------------------------------------------------------------
-// UniformValue — the type of values stored in material.uniforms
-// ---------------------------------------------------------------------------
-
-/**
- * A live per-material uniform value.
- *
- * - number        → f32 scalar
- * - number[]      → packed into Float32Array by the renderer (vec/mat)
- * - Float32Array  → vector or matrix data (uploaded as-is)
- * - GPUTexture    → bound to the texture slot for the matching textureId
- * - GPUSampler    → bound to the sampler slot for the matching samplerId
- */
-export type UniformValue = number | number[] | Float32Array | GPUTexture | GPUSampler;
-
-// ---------------------------------------------------------------------------
-// UniformsMap — Map with generation counter for change detection
-// ---------------------------------------------------------------------------
-
-export class UniformsMap extends Map<string, UniformValue> {
-    /** Incremented every time `set()` is called. The renderer compares this to
-     *  `_lastUploadedGeneration` to decide whether a GPU re-upload is needed. */
-    generation: number = 0;
-
-    override set(key: string, value: UniformValue): this {
-        super.set(key, value);
-        this.generation++;
-        return this;
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Material
@@ -96,20 +66,6 @@ export class Material {
 
     /** Alpha-to-coverage. Meaningful only when renderer.samples > 1. Default false. */
     alphaToCoverage: boolean;
-
-    // -----------------------------------------------------------------------
-    // Live uniform values
-    // -----------------------------------------------------------------------
-
-    /**
-     * Per-material uniform/texture/sampler values.
-     * Keys match uniformId/textureId/samplerId declared in the node graph.
-     * The renderer re-uploads when generation advances.
-     */
-    uniforms: UniformsMap = new UniformsMap();
-
-    /** Tracks which generation was last uploaded to the GPU. Managed by the renderer. */
-    _lastUploadedGeneration: number = -1;
 
     constructor(opts: MaterialOptions) {
         this.color = opts.color;

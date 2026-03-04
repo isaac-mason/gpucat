@@ -99,7 +99,7 @@ export {
     color,
 } from './nodes/nodes.js';
 
-// Schema — WgslDesc constructors and defineStruct
+// Schema — WgslDesc constructors and struct()
 export {
     type WgslDesc,
     type ArrayDesc,
@@ -109,7 +109,7 @@ export {
     array,
     itemSizeOf,
     typedArrayCtorOf,
-    defineStruct,
+    struct,
 } from './nodes/schema.js';
 export * as S from './nodes/schema.js';
 
@@ -169,8 +169,6 @@ export {
 
 export {
     Material,
-    UniformsMap,
-    type UniformValue,
     type MaterialOptions,
 } from './scene/material.js';
 
