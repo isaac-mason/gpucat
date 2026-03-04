@@ -200,6 +200,7 @@ type NodeStageData = {
     usageCount?: number;       // populated in analyze pass
     propertyName?: string;     // CSE: var name when usageCount > 1
     initialized?: boolean;     // setup pass dedup guard
+    varName?: string;          // registered var name (parallel to three.js nodeData.variable)
 };
 
 type NodeData = {
@@ -241,6 +242,13 @@ export class WgslBuilder {
     varCounter = 0;
     // For-loop index counter
     forCounter = 0;
+
+    // Per-stage var declaration registry (parallel to three.js this.vars[shaderStage])
+    // Each entry: { name, type } — one per registered VarNode per stage.
+    // Keyed by shaderStage string ('vertex'|'fragment'|'compute'|null→'fn').
+    stageVars: Record<string, { name: string; type: string }[]> = {};
+    // Shared counter for auto-generated var names across all stages
+    stageVarCounter = 0;
 
     // Root nodes per stage
     flowNodes: {
@@ -393,6 +401,40 @@ export class WgslBuilder {
 
     addFlowCode(code: string): void {
         this.flow.code += code;
+    }
+
+    // -----------------------------------------------------------------------
+    // getVarFromNode — register a VarNode's declaration into the per-stage
+    // vars preamble dict. Deduplicates: safe to call multiple times for the
+    // same node+stage — only the first call allocates and registers.
+    // Returns the WGSL variable name (e.g. "nodeVar0" or the node's own varName).
+    // (Parallel to three.js NodeBuilder.getVarFromNode)
+    // -----------------------------------------------------------------------
+
+    getVarFromNode(node: Node<WgslType>, varName: string, type: string): string {
+        const stage = this.shaderStage ?? 'fn';
+        const data = this.getDataFromNode(node, stage);
+
+        if (data.varName === undefined) {
+            // First registration for this node+stage: allocate into stageVars
+            const vars = this.stageVars[stage] ?? (this.stageVars[stage] = []);
+            vars.push({ name: varName, type });
+            data.varName = varName;
+        }
+
+        return data.varName;
+    }
+
+    // -----------------------------------------------------------------------
+    // getVars — serialize the per-stage vars dict to a WGSL declaration block.
+    // Returns a string of "    var name : type;\n" lines (empty string if none).
+    // (Parallel to three.js WGSLNodeBuilder.getVars)
+    // -----------------------------------------------------------------------
+
+    getVars(stage: string): string {
+        const vars = this.stageVars[stage];
+        if (!vars || vars.length === 0) return '';
+        return vars.map((v) => `    var ${v.name} : ${wgslTypeName(v.type)};`).join('\n') + '\n';
     }
 
     // -----------------------------------------------------------------------
@@ -701,18 +743,24 @@ export class WgslBuilder {
         // Generate the body statements
         const prevBuildStage = this.buildStage;
         const prevShaderStage = this.shaderStage;
+        const prevStageVars = this.stageVars;   // isolate vars for this fn body
         this.buildStage = 'generate';
         // Fn bodies are stage-agnostic — use 'any' stage for CSE
         this.shaderStage = null;
+        this.stageVars = {};                    // fresh dict; VarNodes inside fn register here
 
         const bodyFlow = this.flowChildNode(body);
         const retExpr = this._generateNode(output) ?? '/* missing */';
 
+        // Collect the fn-local vars preamble, then restore outer state
+        const fnVarsPreamble = this.getVars('fn');
         this.buildStage = prevBuildStage;
         this.shaderStage = prevShaderStage;
+        this.stageVars = prevStageVars;
 
         return [
             `fn ${fn.fnName}(${paramList}) -> ${wgslTypeName(fn.type)} {`,
+            ...(fnVarsPreamble ? [fnVarsPreamble.replace(/\n$/, '')] : []),
             bodyFlow.code.replace(/\n$/, ''), // strip trailing newline
             `    return ${retExpr};`,
             `}`,
@@ -849,6 +897,10 @@ export class WgslBuilder {
         lines.push(`fn vs_main(in : VertexInput) -> VertexOutput {`);
         lines.push(`    var out : VertexOutput;`);
 
+        // Emit var declarations preamble (VarNode declarations for this stage)
+        const vertexVars = this.getVars('vertex');
+        if (vertexVars) lines.push(vertexVars.replace(/\n$/, ''));
+
         // Emit vertex-stage preamble (varying source assignments from flowNodeFromShaderStage)
         if (this.flowCode.vertex) {
             lines.push(this.flowCode.vertex.replace(/\n$/, ''));
@@ -908,6 +960,10 @@ export class WgslBuilder {
         lines.push(`@fragment`);
         lines.push(`fn fs_main(${inputParam}) -> @location(0) vec4f {`);
 
+        // Emit var declarations preamble (VarNode declarations for this stage)
+        const fragmentVars = this.getVars('fragment');
+        if (fragmentVars) lines.push(fragmentVars.replace(/\n$/, ''));
+
         const colorRoot = this.input.kind === 'render' ? this.input.slots.color : null;
         if (colorRoot) {
             const flowData = this.flowResults.get(colorRoot);
@@ -961,6 +1017,10 @@ export class WgslBuilder {
         }
         const paramList = paramParts.length > 0 ? '\n' + paramParts.join(',\n') + '\n' : '';
         lines.push(`fn cs_main(${paramList}) {`);
+
+        // Emit var declarations preamble (VarNode declarations for this stage)
+        const computeVars = this.getVars('compute');
+        if (computeVars) lines.push(computeVars.replace(/\n$/, ''));
 
         // Emit the body StackNode
         const bodyRoot = this.flowNodes.compute[0];

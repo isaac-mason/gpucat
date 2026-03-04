@@ -17,7 +17,7 @@
  * New API usage pattern:
  *   const matrixNode = gpu.storage(matrixData, S.array(S.mat4x4f()));
  *   const iIdx       = gpu.instanceIndex();
- *   const modelMat   = gpu.index('mat4x4f', matrixNode, iIdx);
+ *   const modelMat   = gpu.index(matrixNode, iIdx);
  *   // The renderer auto-uploads matrixData to a GPU storage buffer.
  *   // To update: matrixNode.needsUpdate = true  (or addUpdateRange for partial)
  */
@@ -76,8 +76,8 @@ const instanceColors   = gpu.storage(colorData,  S.array(S.vec4f()));
 const iIdx = gpu.instanceIndex();
 
 // Index into the storage arrays.
-const modelMat   = gpu.index('mat4x4f', instanceMatrices, iIdx);
-const rawColor   = gpu.index('vec4f',   instanceColors,   iIdx);
+const modelMat   = gpu.index(instanceMatrices, iIdx);
+const rawColor   = gpu.index(instanceColors,   iIdx);
 
 // Also demo instancedBufferAttribute for the spin offset — shows both APIs together.
 // Each instance gets a unique starting angle (in radians) baked into a vertex buffer.

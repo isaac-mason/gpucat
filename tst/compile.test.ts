@@ -613,7 +613,7 @@ describe('stage validation', () => {
 describe('loop WGSL output', () => {
     test('For with end emits forward for loop from 0', () => {
         const sumFn = Fn(() => {
-            const acc = toVar('f32', f32(0.0)) as Node<'f32'>;
+            const acc = toVar(f32(0.0)) as Node<'f32'>;
             For({ end: 8 }, ({ i }) => {
                 acc.assign(acc.add(i.toF32()));
             });
@@ -692,7 +692,7 @@ describe('loop WGSL output', () => {
 
     test('While emits while loop with condition', () => {
         const fn = Fn(() => {
-            const counter = toVar('u32', u32(0)) as Node<'u32'>;
+            const counter = toVar(u32(0)) as Node<'u32'>;
             While(counter.lt(u32(10)), () => {
                 counter.assign(counter.add(u32(1)));
             });
@@ -778,8 +778,8 @@ describe('loop WGSL output', () => {
 describe('nested if WGSL output', () => {
     test('nested If emits correctly indented if blocks', () => {
         const fn = Fn(() => {
-            const x = toVar('f32', f32(0.5)) as Node<'f32'>;
-            const y = toVar('f32', f32(0.25)) as Node<'f32'>;
+            const x = toVar(f32(0.5)) as Node<'f32'>;
+            const y = toVar(f32(0.25)) as Node<'f32'>;
             If(x.gt(f32(0.0)), () => {
                 If(y.lt(f32(1.0)), () => {
                     x.assign(f32(1.0));
@@ -803,7 +803,7 @@ describe('nested if WGSL output', () => {
 
     test('If/Else emits both branches', () => {
         const fn = Fn(() => {
-            const x = toVar('f32', f32(0.0)) as Node<'f32'>;
+            const x = toVar(f32(0.0)) as Node<'f32'>;
             If(x.gt(f32(0.5)), () => {
                 x.assign(f32(1.0));
             }).Else(() => {
@@ -823,7 +823,7 @@ describe('nested if WGSL output', () => {
 
     test('If nested inside For loop emits correct structure', () => {
         const fn = Fn(() => {
-            const acc = toVar('f32', f32(0.0)) as Node<'f32'>;
+            const acc = toVar(f32(0.0)) as Node<'f32'>;
             For({ end: 4 }, ({ i }) => {
                 void i;
                 If(acc.lt(f32(2.0)), () => {

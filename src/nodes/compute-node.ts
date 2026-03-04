@@ -17,11 +17,15 @@
  */
 
 import {
+    builtin,
+    FnNode,
+    konst,
     StackNode,
+    type BuiltinNode,
+    type ConstNode,
     type StorageNode,
     type WgslType,
 } from './nodes.js';
-import { builtin, type BuiltinNode } from './nodes.js';
 
 // ---------------------------------------------------------------------------
 // Monotonic counter — ComputeNode uses a stable monotonic ID (not content-
@@ -106,40 +110,30 @@ export class ComputeNode {
      */
     trace(): { builtins: ComputeBuiltins; body: StackNode } {
         const builtins: ComputeBuiltins = {
-            globalId:      builtin('global_invocation_id',   'vec3u'),
-            localId:       builtin('local_invocation_id',    'vec3u'),
-            localIndex:    builtin('local_invocation_index', 'u32'),
-            workgroupId:   builtin('workgroup_id',           'vec3u'),
-            numWorkgroups: builtin('num_workgroups',         'vec3u'),
+            globalId: builtin('global_invocation_id', 'vec3u'),
+            localId: builtin('local_invocation_id', 'vec3u'),
+            localIndex: builtin('local_invocation_index', 'u32'),
+            workgroupId: builtin('workgroup_id', 'vec3u'),
+            numWorkgroups: builtin('num_workgroups', 'vec3u'),
         };
 
         const stack = new StackNode();
-        _traceComputeBody(stack, () => this.body(builtins));
+
+        const fn = new FnNode<'void'>(
+            'void',
+            [],
+            (): ConstNode<'void'> => {
+                this.body(builtins);
+                return konst('u32', 0) as unknown as ConstNode<'void'>;
+            },
+        );
+
+        const traced = fn.trace();
+        for (const stmt of traced.body.body) {
+            stack.push(stmt);
+        }
 
         return { builtins, body: stack };
-    }
-}
-
-// ---------------------------------------------------------------------------
-// _traceComputeBody — thin shim to drive tracing with an external stack.
-// ---------------------------------------------------------------------------
-
-import { FnNode, type ConstNode } from './nodes.js';
-import { konst } from './nodes.js';
-
-function _traceComputeBody(stack: StackNode, body: () => void): void {
-    const fn = new FnNode<'void'>(
-        'void',
-        [],
-        (): ConstNode<'void'> => {
-            body();
-            return konst('u32', 0) as unknown as ConstNode<'void'>;
-        },
-    );
-
-    const traced = fn.trace();
-    for (const stmt of traced.body.body) {
-        stack.push(stmt);
     }
 }
 
@@ -158,10 +152,10 @@ function _traceComputeBody(stack: StackNode, body: () => void): void {
  *     dispatch: [Math.ceil(N / 64)],
  *     storage: [particles],
  *     body: ({ globalId }) => {
- *         const idx = toVar('u32', globalId.x, 'idx');
- *         const pos = toVar('vec4f', index('vec4f', particles, idx), 'pos');
+ *         const idx = toVar(globalId.x, 'idx');
+ *         const pos = toVar(index(particles, idx), 'pos');
  *         // ... update pos ...
- *         index('vec4f', particles, idx).assign(pos);
+ *         index(particles, idx).assign(pos);
  *     },
  * });
  */

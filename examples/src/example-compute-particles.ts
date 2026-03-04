@@ -56,13 +56,13 @@ const updateParticles = gpu.compute({
     storage: [positions, velocities],
 
     body({ globalId }) {
-        const idx = gpu.toVar('u32', globalId.x, 'idx');
+        const idx = gpu.toVar(globalId.x, 'idx');
 
         // Bounds check — last workgroup may have spare threads.
         // Use If guard instead of Return() to stay compatible with void kernels.
         gpu.If(idx.lt(gpu.u32(N)), () => {
-            const pos = gpu.toVar('vec4f', gpu.index('vec4f', positions, idx), 'pos');
-            const vel = gpu.toVar('vec4f', gpu.index('vec4f', velocities, idx), 'vel');
+            const pos = gpu.toVar(gpu.index(positions, idx), 'pos');
+            const vel = gpu.toVar(gpu.index(velocities, idx), 'vel');
 
             // Advance position by velocity.
             const newX = pos.x.add(vel.x);
@@ -76,11 +76,11 @@ const updateParticles = gpu.compute({
             gpu.If(newW.lte(gpu.f32(0)), () => {
                 // Use globalId components as a cheap deterministic hash for spawn position.
                 const seedX = gpu.f32(0).add(idx.toF32().mul(gpu.f32(0.0013)).fract().mul(gpu.f32(20)).sub(gpu.f32(10)));
-                gpu.index('vec4f', positions, idx).assign(
+                gpu.index(positions, idx).assign(
                     gpu.vec4(seedX, gpu.f32(-5), gpu.f32(0), gpu.f32(1)),
                 );
             }).Else(() => {
-                gpu.index('vec4f', positions, idx).assign(
+                gpu.index(positions, idx).assign(
                     gpu.vec4(newX, newY, newZ, newW),
                 );
             });
@@ -98,7 +98,7 @@ const timeNode = gpu.time();
 
 // Read this particle's world position directly from the storage buffer.
 // renderer.compute() ensures the buffer is updated before the render pass each frame.
-const particlePos = gpu.index('vec4f', positions, iIdx);
+const particlePos = gpu.index(positions, iIdx);
 
 // Vertex: offset the geometry vertex by the particle's world position.
 const vtxPos = gpu.attribute('vec3f', 'position');

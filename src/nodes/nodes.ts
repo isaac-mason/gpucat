@@ -255,6 +255,27 @@ export class Node<T extends WgslType> {
      */
     assign(value: Node<T>): void { addToStack(new AssignNode(this, value)); }
 
+    /**
+     * Declare a mutable local variable initialised to this node's value.
+     * Equivalent to the standalone `toVar(this, label)`.
+     *
+     * When called inside a `Fn` body, the `VarNode` is pushed onto the current
+     * stack so it is declared at the point of use.
+     *
+     * When called **outside** any `Fn` body (e.g. at module scope to build a
+     * shared sub-graph), the `VarNode` is created but not added to any stack.
+     * It will be emitted inline into whichever shader-stage function body first
+     * references it during the generate pass — mirroring three.js TSL behaviour.
+     */
+    toVar(label?: string): VarNode<T> {
+        const varName = label ? `var_${_nodeCounter}_${label}` : `var_${_nodeCounter}`;
+        const v = new VarNode(this.type as T, varName, this);
+        if (currentStack !== null) {
+            currentStack.push(v as Node<WgslType>);
+        }
+        return v;
+    }
+
     /* xyzw 1-component swizzles */
     get x(): Node<WgslType> { return new FieldNode(vecElementTypeOrSelf(this.type), this, 'x'); }
     get y(): Node<WgslType> { return new FieldNode(vecElementTypeOrSelf(this.type), this, 'y'); }
@@ -1069,11 +1090,16 @@ export class VarNode<T extends WgslType> extends Node<T> {
     }
 
     override generate(builder: WgslBuilder): string {
+        // Register the declaration into the per-stage vars preamble (deduplicates automatically).
+        // Parallel to three.js VarNode.generate calling builder.getVarFromNode().
+        const name = builder.getVarFromNode(this as unknown as Node<WgslType>, this.varName, this.type);
+        // Emit only the assignment into the flow code (no `var` keyword here).
         const initExpr = builder._generateNode(this.init) ?? '/* missing */';
-        builder.addLineFlowCode(`var ${this.varName} : ${wgslTypeName(this.type)} = ${initExpr}`);
+        builder.addLineFlowCode(`${name} = ${initExpr}`);
+        // Cache the name for subsequent references (CSE hit path).
         const data = builder.getDataFromNode(this as unknown as Node<WgslType>);
-        data.propertyName = this.varName;
-        return this.varName;
+        data.propertyName = name;
+        return name;
     }
 }
 
@@ -1474,8 +1500,8 @@ export const stack = (...body: Node<WgslType>[]) => new StackNode(body);
 export const cond = <T extends WgslType>(condition: Node<WgslType>, ifTrue: Node<T>, ifFalse?: Node<T>) =>
     new CondNode(condition, ifTrue, ifFalse);
 
-/** Array element access: array[index]. Element type T must be specified explicitly. */
-export const index = <T extends WgslType>(type: T, array: Node<WgslType>, idx: Node<WgslType>) => new IndexNode(type, array, idx);
+/** Array element access: array[index]. Element type T is inferred from the array node. */
+export const index = <T extends WgslType>(array: Node<T>, idx: Node<WgslType>) => new IndexNode(array.type, array, idx);
 
 // ---------------------------------------------------------------------------
 // Vec constructor helpers
@@ -1651,20 +1677,24 @@ export const instancedBufferAttribute = <T extends WgslType>(
 // ---------------------------------------------------------------------------
 
 /**
- * Declare a mutable local variable inside a Fn body.
- * @param init    Initial value node.
+ * Declare a mutable variable initialised to `init`.
+ *
+ * @param init    Initial value node — element type T is inferred from this.
  * @param label   Optional debug label — appended to the generated var name (e.g. 'color' → 'var_42_color').
  * @returns       A VarNode you can later call `.assign()` on.
  *
+ * **Inside a `Fn` body** — the declaration is emitted at the call site (function-scope `var`).
+ *
+ * **Outside any `Fn` body** — the VarNode is created but not pushed onto a stack.
+ * It is emitted inline into whatever shader-stage function body first references it
+ * during the generate pass, mirroring three.js TSL behaviour.
+ *
  * @example
- * const acc = toVar('f32', konst('f32', 0.0), 'acc')
- * acc.assign(acc.add(konst('f32', 1.0)))
+ * const acc = toVar(f32(0.0), 'acc')
+ * acc.assign(acc.add(f32(1.0)))
  */
-export function toVar<T extends WgslType>(type: T, init: Node<T>, label?: string): VarNode<T> {
-    const varName = label ? `var_${_nodeCounter}_${label}` : `var_${_nodeCounter}`;
-    const v = new VarNode(type, varName, init);
-    addToStack(v as Node<WgslType>);
-    return v;
+export function toVar<T extends WgslType>(init: Node<T>, label?: string): VarNode<T> {
+    return init.toVar(label);
 }
 
 /** Chainable object returned by `If()` so `.Else()` can be chained. */
@@ -1757,7 +1787,7 @@ export function For(range: ForRange, body: (args: { i: ParamNode<WgslType> }) =>
  * Runs as long as `condition` evaluates to `true`.
  *
  * ```ts
- * const counter = toVar('u32', u32(0));
+ * const counter = toVar(u32(0));
  * While(counter.lt(u32(10)), () => {
  *     counter.assign(counter.add(u32(1)));
  * });

@@ -103,7 +103,7 @@ describe('pure expression graph', () => {
 describe('toVar + If/Else inside Fn', () => {
     test('Fn traces toVar and If correctly', () => {
         const heatmap = Fn((uv: Node<WgslType>): Node<'vec3f'> => {
-            const result = toVar('vec3f', vec3f(0, 0, 0)) as Node<'vec3f'>;
+            const result = toVar(vec3f(0, 0, 0)) as Node<'vec3f'>;
             If((uv as Node<'vec2f'>).x.gt(f32(0.5)), () => {
                 (result as VarNode<'vec3f'>).assign(vec3f(1, 0, 0));
             }).Else(() => {
@@ -126,7 +126,7 @@ describe('toVar + If/Else inside Fn', () => {
     test('VarNode is pushed onto stack during Fn trace', () => {
         let capturedVar: VarNode<'f32'> | null = null;
         const myFn = Fn((x: Node<WgslType>): Node<'f32'> => {
-            capturedVar = toVar('f32', x as Node<'f32'>) as VarNode<'f32'>;
+            capturedVar = toVar(x as Node<'f32'>) as VarNode<'f32'>;
             return capturedVar;
         }, {
             name: 'myFn',
@@ -143,7 +143,7 @@ describe('toVar + If/Else inside Fn', () => {
     test('IfNode has thenBody and elseBody after Else chain', () => {
         let capturedIf: IfNode | null = null;
         Fn((x: Node<WgslType>): Node<'f32'> => {
-            const result = toVar('f32', f32(0.0)) as Node<'f32'>;
+            const result = toVar(f32(0.0)) as Node<'f32'>;
             const cond = (x as Node<'f32'>).gt(f32(0.5));
             If(cond, () => {
                 (result as VarNode<'f32'>).assign(f32(1.0));
@@ -159,7 +159,7 @@ describe('toVar + If/Else inside Fn', () => {
         // by tracing via a FnNode
         const fnNode = new FnNode<'f32'>('f32', [S.f32()], (...args: Node<WgslType>[]) => {
             const x = args[0] as Node<'f32'>;
-            const result = toVar('f32', f32(0.0)) as Node<'f32'>;
+            const result = toVar(f32(0.0)) as Node<'f32'>;
             const cond = x.gt(f32(0.5));
             capturedIf = null;
             If(cond, () => {
@@ -189,7 +189,7 @@ describe('For loop inside Fn', () => {
     test('ForNode is created with correct range and body', () => {
         const fnNode = new FnNode<'f32'>('f32', [S.u32()], (...args: Node<WgslType>[]) => {
             const n = args[0] as Node<'u32'>;
-            const acc = toVar('f32', f32(0.0)) as Node<'f32'>;
+            const acc = toVar(f32(0.0)) as Node<'f32'>;
             For({ end: n }, ({ i }) => {
                 (acc as VarNode<'f32'>).assign((acc as Node<'f32'>).add(i.toF32()));
             });
@@ -273,7 +273,7 @@ describe('For loop inside Fn', () => {
 describe('While loop inside Fn', () => {
     test('WhileNode is created with condition and body', () => {
         const fnNode = new FnNode<'void'>('void', [], () => {
-            const counter = toVar('u32', u32(0)) as Node<'u32'>;
+            const counter = toVar(u32(0)) as Node<'u32'>;
             While(counter.lt(u32(10)), () => {
                 (counter as VarNode<'u32'>).assign(counter.add(u32(1)));
             });
@@ -378,10 +378,13 @@ describe('Return inside Fn', () => {
 // ---------------------------------------------------------------------------
 
 describe('control flow outside Fn throws', () => {
-    test('toVar outside Fn throws', () => {
+    test('toVar outside Fn does NOT throw — returns a VarNode (emitted inline at use site)', () => {
+        // Mirrors three.js TSL: toVar() outside a Fn silently creates a VarNode that is
+        // emitted inline into whichever shader-stage function body first references it.
         expect(() => {
-            toVar('f32', f32(0.0));
-        }).toThrow('[gpucat]');
+            const v = toVar(f32(0.0));
+            expect(v.kind).toBe('var');
+        }).not.toThrow();
     });
 
     test('If outside Fn throws', () => {
@@ -411,7 +414,7 @@ describe('depsOf new node kinds', () => {
     test('var deps = [init]', () => {
         const fnNode = new FnNode<'f32'>('f32', [S.f32()], (...args: Node<WgslType>[]) => {
             const x = args[0] as Node<'f32'>;
-            return toVar('f32', x) as Node<'f32'>;
+            return toVar(x) as Node<'f32'>;
         });
         const { body } = fnNode.trace();
         const varNode = body.body[0] as VarNode<'f32'>;
@@ -423,7 +426,7 @@ describe('depsOf new node kinds', () => {
     test('if deps = [condition, thenBody] or [condition, thenBody, elseBody]', () => {
         const fnNode = new FnNode<'void'>('void', [S.f32()], (...args: Node<WgslType>[]) => {
             const x = args[0] as Node<'f32'>;
-            const v = toVar('f32', f32(0.0)) as Node<'f32'>;
+            const v = toVar(f32(0.0)) as Node<'f32'>;
             If(x.gt(f32(0.0)), () => {
                 (v as VarNode<'f32'>).assign(f32(1.0));
             }).Else(() => {
@@ -443,7 +446,7 @@ describe('depsOf new node kinds', () => {
     test('for deps = [indexVar, body, end-node] when end is a node', () => {
         const fnNode = new FnNode<'f32'>('f32', [S.u32()], (...args: Node<WgslType>[]) => {
             const n = args[0] as Node<'u32'>;
-            const acc = toVar('f32', f32(0.0)) as Node<'f32'>;
+            const acc = toVar(f32(0.0)) as Node<'f32'>;
             For({ end: n }, ({ i }) => {
                 (acc as VarNode<'f32'>).assign(i.toF32());
             });
