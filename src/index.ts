@@ -120,22 +120,15 @@ export {
     itemSizeOf,
     typedArrayCtorOf,
     struct,
-} from './nodes/nodes.js';
-export * as S from './nodes/schema.js';
+} from './nodes/nodes';
+export * as S from './nodes/schema';
 
-// Std nodes — builtin helpers + default position graph
+/* builtins */
 export {
-    CameraStruct,
-    type CameraInstance,
-    camera,
-    TimeStruct,
-    type TimeInstance,
-    time,
     meshModelMatrix,
     meshNormalMatrix,
     instanceIndex,
     positionClip,
-    // Compute builtin helpers
     globalId,
     localId,
     localIndex,

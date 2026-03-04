@@ -47,10 +47,12 @@ import {
     vec4f,
     While,
     type WgslType,
+    cameraProjectionMatrix,
+    cameraViewMatrix,
 } from '../src/nodes/nodes.js';
 import * as S from '../src/nodes/schema.js';
 import { struct } from '../src/nodes/nodes.js';
-import { camera, positionClip, instanceIndex, meshModelMatrix, meshNormalMatrix } from '../src/nodes/nodes.js';
+import { positionClip, instanceIndex, meshModelMatrix, meshNormalMatrix } from '../src/nodes/nodes.js';
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -174,8 +176,7 @@ describe('builtin binding declarations', () => {
         const pos = attribute('vec3f', 'position');
         const localPos = vec4(pos, f32(1.0));
         const worldPos = meshModelMatrix.mul(localPos);
-        const cam = camera();
-        const clipPos = cam.projectionMatrix.mul(cam.viewMatrix.mul(worldPos));
+        const clipPos = cameraProjectionMatrix.mul(cameraViewMatrix.mul(worldPos));
         const result = compile({
             position: clipPos,
             color: vec4f(1, 0, 0, 1),

@@ -2066,6 +2066,7 @@ export function mulResultType(a: string, b: string): WgslType {
     if (SCALAR_TYPES.has(a)) return b as WgslType;
     return a as WgslType;
 }
+
 // ---------------------------------------------------------------------------
 // ConstNode factories — f32(0.5), vec3f(1, 0, 0), mat4x4f() etc.
 //
@@ -2134,12 +2135,6 @@ export function color(input: ColorInput): ConstNode<'vec3f'> {
 }
 
 // ---------------------------------------------------------------------------
-// Builtin structs + std scene nodes (formerly std-nodes.ts)
-// ---------------------------------------------------------------------------
-
-import * as S from './schema.js';
-
-// ---------------------------------------------------------------------------
 // Camera — flat per-field singleton nodes (three.js style)
 // Each is a module-level singleton; users can import them directly or
 // access them via the backwards-compat camera() shim.
@@ -2169,61 +2164,6 @@ export const timeElapsed = /*@__PURE__*/ new BuiltinNode('timeElapsed', 'f32');
 
 /** Frame delta time in seconds. `f32` at @group(0) @binding(6). */
 export const timeDelta = /*@__PURE__*/ new BuiltinNode('timeDelta', 'f32');
-
-// ---------------------------------------------------------------------------
-// Backwards-compat object types + shims
-// ---------------------------------------------------------------------------
-
-export type CameraInstance = {
-    readonly projectionMatrix: typeof cameraProjectionMatrix;
-    readonly viewMatrix:       typeof cameraViewMatrix;
-    readonly position:         typeof cameraPosition;
-    readonly near:             typeof cameraNear;
-    readonly far:              typeof cameraFar;
-};
-
-export type TimeInstance = {
-    readonly elapsed: typeof timeElapsed;
-    readonly delta:   typeof timeDelta;
-};
-
-/**
- * Returns a plain object whose fields are the flat singleton camera nodes.
- * Backwards-compatible with code that destructures `camera().projectionMatrix` etc.
- */
-export function camera(): CameraInstance {
-    return {
-        projectionMatrix: cameraProjectionMatrix,
-        viewMatrix:       cameraViewMatrix,
-        position:         cameraPosition,
-        near:             cameraNear,
-        far:              cameraFar,
-    };
-}
-
-/**
- * Returns a plain object whose fields are the flat singleton time nodes.
- */
-export function time(): TimeInstance {
-    return {
-        elapsed: timeElapsed,
-        delta:   timeDelta,
-    };
-}
-
-// Stub exports kept for public API compatibility — no longer used for WGSL generation.
-export const CameraStruct = /*@__PURE__*/ struct('Camera', {
-    projectionMatrix: S.mat4x4f(),
-    viewMatrix: S.mat4x4f(),
-    position: S.vec3f(),
-    near: S.f32(),
-    far: S.f32(),
-});
-
-export const TimeStruct = /*@__PURE__*/ struct('Time', {
-    elapsed: S.f32(),
-    delta: S.f32(),
-});
 
 // ---------------------------------------------------------------------------
 // Mesh — flat per-field singleton nodes (mirrors camera/time pattern)
