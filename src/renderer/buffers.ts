@@ -9,7 +9,7 @@
 
 import type { BufferAttribute, IndexAttribute } from '../scene/geometry.js';
 import type { GpuTypedArray, StorageNode, WgslType } from '../nodes/nodes.js';
-
+import type { IndirectBuffer } from '../scene/indirect-buffer.js';
 // ---------------------------------------------------------------------------
 // BufferCache — vertex + index buffers
 // ---------------------------------------------------------------------------
@@ -24,6 +24,17 @@ export class BufferCache {
 
     /** Storage node buffers — keyed by node identity, version-gated re-upload. */
     private readonly storageMap: WeakMap<StorageNode<WgslType>, { buf: GPUBuffer; version: number }> = new WeakMap();
+
+    /** Indirect draw buffers — keyed by IndirectBuffer identity, version-gated re-upload. */
+    private readonly indirectMap: WeakMap<IndirectBuffer, { buf: GPUBuffer; version: number }> = new WeakMap();
+
+    /**
+     * Reverse-lookup: maps a computeWritable IndirectBuffer's Uint32Array to
+     * the IndirectBuffer itself. Populated by uploadIndirect when
+     * computeWritable=true. Used by uploadStorage to detect that a StorageNode
+     * backed by the same array should reuse the indirect GPUBuffer.
+     */
+    private readonly dataToIndirect: WeakMap<Uint32Array, IndirectBuffer> = new WeakMap();
 
     constructor(device: GPUDevice) {
         this.device = device;
@@ -132,6 +143,11 @@ export class BufferCache {
      * Get or create a GPUBuffer for a StorageNode. Re-uploads when node.version advances
      * (full upload) or when node.updateRanges is non-empty (partial upload).
      * Automatically calls node.clearUpdateRanges() after a partial upload.
+     *
+     * Special case: if the node's data array is the same Uint32Array as a
+     * computeWritable IndirectBuffer (registered via uploadIndirect), the
+     * IndirectBuffer's GPUBuffer is returned and registered in storageMap so the
+     * compute shader binds to the same buffer that drawIndexedIndirect reads.
      */
     uploadStorage(node: StorageNode<WgslType>): GPUBuffer {
         if (node.data === null) {
@@ -139,6 +155,40 @@ export class BufferCache {
             const entry = this.storageMap.get(node);
             if (!entry) throw new Error('[gpucat] BufferCache.uploadStorage: node has been released before its buffer was created.');
             return entry.buf;
+        }
+
+        // Primary check: if this StorageNode was created by IndirectBuffer.asStorageNode(),
+        // use uploadIndirect to get (or create) the shared STORAGE|INDIRECT|COPY_DST buffer.
+        // This must run before the dataToIndirect check because uploadIndirect populates
+        // dataToIndirect — and compute dispatches happen before issueDraws, so dataToIndirect
+        // would otherwise be empty on the first frame.
+        if (node._indirectOwner) {
+            const indBuf = this.uploadIndirect(node._indirectOwner);
+            const entry = this.storageMap.get(node);
+            if (!entry || entry.buf !== indBuf) {
+                this.storageMap.set(node, { buf: indBuf, version: node.version });
+            } else if (node.version !== entry.version) {
+                entry.version = node.version;
+            }
+            return indBuf;
+        }
+
+        // Fallback: check if this node's Uint32Array happens to be shared with a
+        // computeWritable IndirectBuffer that was already uploaded (e.g. render ran first).
+        if (node.data instanceof Uint32Array) {
+            const indirect = this.dataToIndirect.get(node.data as Uint32Array);
+            if (indirect) {
+                const indBuf = this.uploadIndirect(indirect);
+                // Register / refresh in storageMap so the compiler can find it.
+                let entry = this.storageMap.get(node);
+                if (!entry || entry.buf !== indBuf) {
+                    this.storageMap.set(node, { buf: indBuf, version: node.version });
+                } else if (node.version !== entry.version) {
+                    // version bump from initial seeding — already written by uploadIndirect
+                    entry.version = node.version;
+                }
+                return indBuf;
+            }
         }
 
         const byteLength = alignTo4(node.data.byteLength);
@@ -182,6 +232,59 @@ export class BufferCache {
         }
 
         return buf;
+    }
+
+    /**
+     * Get or create a GPUBuffer for an IndirectBuffer. Re-uploads when
+     * indirect.version advances (full upload — buffer is ≤ 20 bytes).
+     *
+     * Usage flags:
+     *   computeWritable=false (default): INDIRECT | COPY_DST
+     *   computeWritable=true:            STORAGE | INDIRECT | COPY_DST
+     *
+     * The STORAGE flag allows a compute shader to write to the buffer directly.
+     * Must be set on the IndirectBuffer before the first frame.
+     */
+    uploadIndirect(indirect: IndirectBuffer): GPUBuffer {
+        const entry = this.indirectMap.get(indirect);
+
+        if (!entry) {
+            const usage = indirect.computeWritable
+                ? GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST
+                : GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST;
+            const buf = this.device.createBuffer({
+                size: indirect.data.byteLength, // 16 or 20 — already u32-aligned
+                usage,
+            });
+            this.device.queue.writeBuffer(buf, 0, indirect.data.buffer as ArrayBuffer, indirect.data.byteOffset, indirect.data.byteLength);
+            this.indirectMap.set(indirect, { buf, version: indirect.version });
+
+            // Register the data→indirect reverse-lookup so uploadStorage can detect
+            // that a StorageNode backed by this Uint32Array should reuse this buffer.
+            if (indirect.computeWritable) {
+                this.dataToIndirect.set(indirect.data, indirect);
+            }
+
+            return buf;
+        }
+
+        // computeWritable buffers are written by the GPU — skip CPU re-upload
+        // unless version was explicitly bumped (e.g. initial seed values).
+        if (indirect.version !== entry.version) {
+            this.device.queue.writeBuffer(entry.buf, 0, indirect.data.buffer as ArrayBuffer, indirect.data.byteOffset, indirect.data.byteLength);
+            entry.version = indirect.version;
+        }
+
+        return entry.buf;
+    }
+
+    /**
+     * Return the GPUBuffer for an already-uploaded IndirectBuffer, or undefined
+     * if it has not been uploaded yet. Use this to pass the buffer as a bind-group
+     * entry for a compute shader that writes the draw arguments.
+     */
+    getIndirect(indirect: IndirectBuffer): GPUBuffer | undefined {
+        return this.indirectMap.get(indirect)?.buf;
     }
 
     destroy(): void {

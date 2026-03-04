@@ -147,6 +147,9 @@ export {
 // Color
 export { Color, type ColorInput } from './utils/color.js';
 
+// Frustum culling
+export { Frustum } from './utils/frustum.js';
+
 // Collect
 export { getChildren, depsOf, collectGraph, mergeGraphs } from './nodes/collect.js';
 
@@ -182,6 +185,12 @@ export {
     createSphereGeometry,
     createPlaneGeometry,
 } from './scene/geometry.js';
+
+export {
+    IndirectBuffer,
+    type DrawIndirectArgs,
+    type DrawIndexedIndirectArgs,
+} from './scene/indirect-buffer.js';
 
 export {
     Material,

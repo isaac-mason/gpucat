@@ -38,8 +38,8 @@ export class PipelineCache {
 
     /** Resolved pipelines. */
     private readonly ready: Map<string, PipelineEntry> = new Map();
-    /** In-flight async requests. */
-    private readonly pending: Set<string> = new Set();
+    /** In-flight async compilations, keyed by pipeline key. */
+    private readonly pending: Map<string, Promise<PipelineEntry>> = new Map();
 
     constructor(device: GPUDevice, format: GPUTextureFormat) {
         this.device = device;
@@ -60,14 +60,47 @@ export class PipelineCache {
         if (this.ready.has(key)) return this.ready.get(key)!;
 
         if (!this.pending.has(key)) {
-            this.pending.add(key);
-            this._compile(key, material, geometry, samples, format).catch((err) => {
-                this.pending.delete(key);
-                console.error('[PipelineCache] pipeline compilation failed:', err);
-            });
+            this._startCompile(key, material, geometry, samples, format);
         }
 
         return undefined;
+    }
+
+    /**
+     * Returns a Promise that resolves to the PipelineEntry.
+     * If already compiled, resolves immediately.
+     * If compilation is in-flight, returns the same Promise (deduplicates).
+     * If not yet started, kicks off compilation and returns the Promise.
+     * Used by renderer.compile() to pre-warm a pipeline before the frame loop.
+     */
+    getAsync(
+        key: string,
+        material: Material,
+        geometry: Geometry,
+        samples: number,
+        format: GPUTextureFormat = this.format,
+    ): Promise<PipelineEntry> {
+        if (this.ready.has(key)) return Promise.resolve(this.ready.get(key)!);
+        if (this.pending.has(key)) return this.pending.get(key)!;
+        return this._startCompile(key, material, geometry, samples, format);
+    }
+
+    private _startCompile(
+        key: string,
+        material: Material,
+        geometry: Geometry,
+        samples: number,
+        format: GPUTextureFormat,
+    ): Promise<PipelineEntry> {
+        const p = this._compile(key, material, geometry, samples, format);
+        this.pending.set(key, p);
+        p.then(() => {
+            this.pending.delete(key);
+        }).catch((err) => {
+            this.pending.delete(key);
+            console.error('[PipelineCache] pipeline compilation failed:', err);
+        });
+        return p;
     }
 
     private async _compile(
@@ -76,7 +109,7 @@ export class PipelineCache {
         geometry: Geometry,
         samples: number,
         format: GPUTextureFormat = this.format,
-    ): Promise<void> {
+    ): Promise<PipelineEntry> {
         const positionGraph: Node<WgslType> = material.position ?? positionClip;
         const colorGraph: Node<WgslType> = material.color;
 
@@ -135,8 +168,10 @@ export class PipelineCache {
 
         const pipeline = await this.device.createRenderPipelineAsync(descriptor);
 
-        this.ready.set(key, { pipeline, compileResult: cr, layout0, layout1 });
+        const entry: PipelineEntry = { pipeline, compileResult: cr, layout0, layout1 };
+        this.ready.set(key, entry);
         this.pending.delete(key);
+        return entry;
     }
 
     // -----------------------------------------------------------------------

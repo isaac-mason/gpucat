@@ -4,6 +4,9 @@
  * No WebGPU imports. The renderer layer is responsible for creating GPUBuffers.
  */
 
+import type { IndirectBuffer } from './indirect-buffer.js';
+import type { Box3, Sphere } from 'mathcat';
+
 // ---------------------------------------------------------------------------
 // BufferAttribute — a single named vertex buffer
 // ---------------------------------------------------------------------------
@@ -56,9 +59,27 @@ export class Geometry {
     /** Named vertex buffer attributes. Standard names: position, normal, uv, tangent. */
     readonly attributes: Map<string, BufferAttribute> = new Map();
     /** Optional index buffer. */
-    index?: IndexAttribute;
+    index: IndexAttribute | undefined = undefined;
     /** Number of vertices. Used for non-indexed draws. */
     vertexCount: number = 0;
+    /**
+     * Optional indirect draw buffer. When set, the renderer calls
+     * drawIndirect / drawIndexedIndirect using this buffer instead of
+     * draw / drawIndexed. `mesh.count` is ignored when this is set.
+     */
+    indirect: IndirectBuffer | undefined = undefined;
+    /**
+     * Axis-aligned bounding box in local space.
+     * Set by createBoxGeometry / createSphereGeometry / createPlaneGeometry.
+     * You may set this manually for custom geometry to enable frustum culling.
+     */
+    boundingBox: Box3 | undefined = undefined;
+    /**
+     * Bounding sphere in local space.
+     * Set by createBoxGeometry / createSphereGeometry / createPlaneGeometry.
+     * You may set this manually for custom geometry to enable frustum culling.
+     */
+    boundingSphere: Sphere | undefined = undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -120,6 +141,8 @@ export function createBoxGeometry(width = 1, height = 1, depth = 1): Geometry {
     geom.attributes.set('uv',       new BufferAttribute(new Float32Array(uvs),       'float32x2'));
     geom.index = new IndexAttribute(new Uint16Array(indices));
     geom.vertexCount = positions.length / 3;
+    geom.boundingBox = [-hw, -hh, -hd, hw, hh, hd];
+    geom.boundingSphere = { center: [0, 0, 0], radius: Math.sqrt(hw * hw + hh * hh + hd * hd) };
     return geom;
 }
 
@@ -163,6 +186,8 @@ export function createSphereGeometry(radius = 0.5, widthSegments = 16, heightSeg
     geom.attributes.set('uv',       new BufferAttribute(new Float32Array(uvs),       'float32x2'));
     geom.index = new IndexAttribute(new Uint16Array(indices));
     geom.vertexCount = positions.length / 3;
+    geom.boundingBox = [-radius, -radius, -radius, radius, radius, radius];
+    geom.boundingSphere = { center: [0, 0, 0], radius };
     return geom;
 }
 
@@ -185,5 +210,7 @@ export function createPlaneGeometry(width = 1, height = 1): Geometry {
     geom.attributes.set('uv',       new BufferAttribute(uvsData,   'float32x2'));
     geom.index = new IndexAttribute(indexData);
     geom.vertexCount = 4;
+    geom.boundingBox = [-hw, -hh, 0, hw, hh, 0];
+    geom.boundingSphere = { center: [0, 0, 0], radius: Math.sqrt(hw * hw + hh * hh) };
     return geom;
 }

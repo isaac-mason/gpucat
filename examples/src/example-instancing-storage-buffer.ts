@@ -83,7 +83,7 @@ const rawColor   = gpu.index(instanceColors,   iIdx);
 // Each instance gets a unique starting angle (in radians) baked into a vertex buffer.
 const spinOffsets = new Float32Array(N);
 for (let i = 0; i < N; i++) spinOffsets[i] = (i / N) * Math.PI * 2;
-const spinOffset = gpu.instancedBufferAttribute(spinOffsets, 'f32', 4, 0);
+const spinOffset = gpu.instancedBufferAttribute(spinOffsets, S.f32(), 4, 0);
 
 // Animate rotation: time.elapsed drives a per-instance spin via the storage matrix +
 // a small additional rotation sourced from the instancedBufferAttribute offset.

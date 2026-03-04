@@ -38,7 +38,7 @@ import { Material } from '../scene/material.js';
 import { Geometry } from '../scene/geometry.js';
 import { raw, builtin, type Node, type WgslType, VaryingNode, RawNode } from '../nodes/nodes.js';
 import { collectPassNodes, type PassNode } from '../nodes/pass-node.js';
-import { type ComputeNode } from '../nodes/compute-node.js';
+import { ComputeNode } from '../nodes/compute-node.js';
 import { ComputePipelineCache, type ComputePipelineEntry } from './compute-pipeline.js';
 import type { CompileResult } from '../nodes/compile.js';
 
@@ -172,7 +172,28 @@ export class WebGPURenderer {
             throw new Error('[WebGPURenderer] No WebGPU adapter found. Is WebGPU enabled?');
         }
         this.adapter = adapter;
-        this.device = await adapter.requestDevice(this._deviceDescriptor);
+
+        // Request optional features that gpucat relies on when available.
+        // 'indirect-first-instance': allows firstInstance > 0 inside indirect draw
+        // buffers (drawIndirect / drawIndexedIndirect). Without this feature the
+        // GPU silently drops any indirect draw whose firstInstance field is non-zero,
+        // which breaks multi-shape batching patterns that split instance ranges.
+        const wantedFeatures: GPUFeatureName[] = ['indirect-first-instance'];
+        const requiredFeatures: GPUFeatureName[] = wantedFeatures.filter(
+            (f) => adapter.features.has(f),
+        );
+
+        // Merge with any caller-supplied descriptor, deduplicating features.
+        const callerFeatures = this._deviceDescriptor?.requiredFeatures ?? [];
+        const mergedFeatures = [
+            ...new Set([...requiredFeatures, ...callerFeatures]),
+        ] as GPUFeatureName[];
+        const deviceDescriptor: GPUDeviceDescriptor = {
+            ...this._deviceDescriptor,
+            requiredFeatures: mergedFeatures,
+        };
+
+        this.device = await adapter.requestDevice(deviceDescriptor);
 
         const context = this.domElement.getContext('webgpu');
         if (!context) throw new Error('[WebGPURenderer] Failed to get WebGPU canvas context.');
@@ -226,22 +247,63 @@ export class WebGPURenderer {
     // -----------------------------------------------------------------------
 
     // -----------------------------------------------------------------------
-    // compile() — pre-warm a compute pipeline
+    // compile() — pre-warm pipelines before the render loop
     // -----------------------------------------------------------------------
 
     /**
-     * Pre-compile the WebGPU compute pipeline for `node`.
-     * Safe to call before the render loop starts — awaiting it guarantees the
-     * first `renderer.compute(node)` call will dispatch without a skip-frame.
-     * No-op if the pipeline is already compiled.
+     * Pre-compile all WebGPU pipelines reachable from `target` before the
+     * render loop starts.
+     *
+     * - Pass a `Node` (the same node you will give `renderer.render()`) to
+     *   pre-warm every render pipeline in the scene graph — it walks
+     *   PassNodes → scenes → meshes and also compiles the fullscreen
+     *   composite pipeline.
+     * - Pass a `ComputeNode` to pre-warm its compute pipeline.
+     *
+     * Awaiting the returned Promise guarantees the first render/compute call
+     * will not skip a frame waiting for pipeline compilation.
+     * No-op for any pipeline that is already compiled.
      *
      * @throws if the renderer has not been initialised yet (call await renderer.init() first).
      */
-    async compile(node: ComputeNode): Promise<void> {
+    async compile(target: Node<WgslType> | ComputeNode): Promise<void> {
         if (!this._initialized) {
             throw new Error('[WebGPURenderer] compile() called before init(). Await renderer.init() first.');
         }
-        await this.computePipelines.getAsync(node.id, node);
+
+        // ComputeNode: pre-warm the compute pipeline.
+        if (target instanceof ComputeNode) {
+            await this.computePipelines.getAsync(target.id, target);
+            return;
+        }
+
+        // Node<WgslType>: walk the graph, pre-warm all render pipelines.
+        const outputNode = target as Node<WgslType>;
+        const promises: Promise<unknown>[] = [];
+
+        // 1. Find all PassNodes and pre-warm their scene meshes.
+        const passNodes = collectPassNodes(outputNode);
+        const PASS_SAMPLES = 1;
+        const PASS_FORMAT: GPUTextureFormat = 'rgba8unorm';
+        const fullscreenGeom = this._getFullscreenGeometry();
+
+        for (const passNode of passNodes) {
+            const { scene, camera } = passNode;
+            const { opaque, transparent } = collectDraws(scene, camera, PASS_SAMPLES, PASS_FORMAT);
+            for (const draw of [...opaque, ...transparent]) {
+                const { mesh } = draw;
+                const key = makePipelineKey(mesh.material, PASS_SAMPLES, PASS_FORMAT);
+                promises.push(
+                    this.pipelines.getAsync(key, mesh.material, mesh.geometry, PASS_SAMPLES, PASS_FORMAT),
+                );
+            }
+        }
+
+        // 2. Pre-warm the fullscreen composite pipeline.
+        const { mat, pipelineKey } = this._makeOutputMaterial(outputNode);
+        promises.push(this.pipelines.getAsync(pipelineKey, mat, fullscreenGeom, this._samples, this.format));
+
+        await Promise.all(promises);
     }
 
     // -----------------------------------------------------------------------
@@ -388,7 +450,7 @@ export class WebGPURenderer {
         const { scene, camera } = passNode;
 
         // Update transforms.
-        scene.updateWorldMatrices();
+        scene.updateWorldMatrix();
         camera.updateViewMatrix();
 
         // Upload Camera UBO for this pass's camera.
@@ -425,6 +487,9 @@ export class WebGPURenderer {
             depthLoadOp: 'clear',
             depthStoreOp: 'store',
         };
+
+        // DEBUG: capture any WebGPU validation errors from this pass
+        this.device.pushErrorScope('validation');
 
         const gpuPass = encoder.beginRenderPass({
             colorAttachments: [colorAttachment],
@@ -478,11 +543,13 @@ export class WebGPURenderer {
                 gpuPass.setBindGroup(1, meshBindGroup);
 
                 let slot = 0;
+                const _dbgVbufs: string[] = [];
                 for (const attrEntry of entry.compileResult.attributes) {
                     if (attrEntry.kind === 'geometry') {
                         const bufAttr = mesh.geometry.attributes.get(attrEntry.name);
-                        if (!bufAttr) continue;
+                        if (!bufAttr) { _dbgVbufs.push(`slot${slot}:MISSING(${attrEntry.name})`); continue; }
                         const gpuBuf = this.buffers.uploadVertex(bufAttr);
+                        _dbgVbufs.push(`slot${slot}:${attrEntry.name}(${gpuBuf.size}b)`);
                         gpuPass.setVertexBuffer(slot++, gpuBuf);
                     } else {
                         const node = attrEntry.node;
@@ -491,16 +558,38 @@ export class WebGPURenderer {
                             node.data,
                             GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
                         );
+                        _dbgVbufs.push(`slot${slot}:${attrEntry.name}(${gpuBuf.size}b,stride=${node.stride},off=${node.offset})`);
                         gpuPass.setVertexBuffer(slot++, gpuBuf);
                     }
                 }
+                console.log('[draw] vtxbufs:', _dbgVbufs.join(' | '));
 
                 if (mesh.geometry.index) {
                     const idxBuf = this.buffers.uploadIndex(mesh.geometry.index);
                     gpuPass.setIndexBuffer(idxBuf, mesh.geometry.index.format);
-                    gpuPass.drawIndexed(mesh.geometry.index.data.length, mesh.count);
+                    if (mesh.geometry.indirect) {
+                        const indBuf = this.buffers.uploadIndirect(mesh.geometry.indirect);
+                        const ind = mesh.geometry.indirect;
+                        console.log('[draw] drawIndexedIndirect', {
+                            indexCount: ind.data[0],
+                            instanceCount: ind.data[1],
+                            firstIndex: ind.data[2],
+                            baseVertex: ind.data[3],
+                            firstInstance: ind.data[4],
+                            indexBufSize: idxBuf.size,
+                            indirectBufSize: indBuf.size,
+                        });
+                        gpuPass.drawIndexedIndirect(indBuf, 0);
+                    } else {
+                        gpuPass.drawIndexed(mesh.geometry.index.data.length, mesh.count);
+                    }
                 } else {
-                    gpuPass.draw(mesh.geometry.vertexCount, mesh.count);
+                    if (mesh.geometry.indirect) {
+                        const indBuf = this.buffers.uploadIndirect(mesh.geometry.indirect);
+                        gpuPass.drawIndirect(indBuf, 0);
+                    } else {
+                        gpuPass.draw(mesh.geometry.vertexCount, mesh.count);
+                    }
                 }
             }
         };
@@ -509,6 +598,11 @@ export class WebGPURenderer {
         issueDraws(transparent);
 
         gpuPass.end();
+
+        // DEBUG: report any validation errors from this pass
+        this.device.popErrorScope().then((err) => {
+            if (err) console.error('[WebGPU pass validation error]', err.message);
+        });
     }
 
     // -----------------------------------------------------------------------
@@ -520,22 +614,7 @@ export class WebGPURenderer {
         encoder: GPUCommandEncoder,
         passNodes: PassNode[],
     ): void {
-        // Build the internal fullscreen material:
-        //   position = fullscreenPosition() (uses @builtin(vertex_index))
-        //   color    = outputNode wrapped to also include the UV varying in the graph
-        //
-        // The UV varying makes `in.uv` available in the fragment shader so that
-        // textureSample(..., in.uv) calls in PassColorTextureNode work correctly.
-        const posNode = _makeFullscreenPositionNode();
-        const uvVarying = _makeFullscreenUVVarying();
-
-        // Wrap outputNode so the UV varying is reachable from the color graph.
-        // We use a RawNode<'vec4f'> with wgsl='$0' that has both outputNode and uvVarying
-        // as deps — the compiler sees the VaryingNode and emits in.uv in FragmentInput,
-        // then the actual color expression (outputNode) can reference in.uv.
-        const colorNode = new RawNode<'vec4f'>('vec4f', '$0', [outputNode, uvVarying]);
-
-        const mat = new Material({ position: posNode, color: colorNode, depthWrite: false, depthTest: false });
+        const { mat, pipelineKey } = this._makeOutputMaterial(outputNode);
 
         // Register passNode textures + samplers directly on the node objects.
         for (const passNode of passNodes) {
@@ -547,7 +626,6 @@ export class WebGPURenderer {
 
         const fullscreenGeom = this._getFullscreenGeometry();
         // sampleCount and format must match the swapchain render pass.
-        const pipelineKey = makePipelineKey(mat, this._samples, this.format);
         const entry = this.pipelines.get(pipelineKey, mat, fullscreenGeom, this._samples, this.format);
 
         // Build the swapchain render pass.
@@ -725,6 +803,35 @@ export class WebGPURenderer {
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
             sampleCount: this._samples,
         });
+    }
+
+    // -----------------------------------------------------------------------
+    // _makeOutputMaterial — build the fullscreen composite Material + pipeline key
+    // -----------------------------------------------------------------------
+
+    /**
+     * Constructs the synthetic fullscreen Material used for compositing
+     * `outputNode` to the swapchain. Factored out so it can be called both
+     * from _renderOutputNode (at draw time) and from compile() (pre-warm).
+     *
+     * Returns the Material and its stable pipeline cache key.
+     * The fullscreen geometry is always this._getFullscreenGeometry().
+     */
+    private _makeOutputMaterial(outputNode: Node<WgslType>): { mat: Material; pipelineKey: string } {
+        // Build the internal fullscreen material:
+        //   position = fullscreenPosition() (uses @builtin(vertex_index))
+        //   color    = outputNode wrapped to also include the UV varying in the graph
+        //
+        // The UV varying makes `in.uv` available in the fragment shader so that
+        // textureSample(..., in.uv) calls in PassColorTextureNode work correctly.
+        const posNode = _makeFullscreenPositionNode();
+        const uvVarying = _makeFullscreenUVVarying();
+
+        // Wrap outputNode so the UV varying is reachable from the color graph.
+        const colorNode = new RawNode<'vec4f'>('vec4f', '$0', [outputNode, uvVarying]);
+        const mat = new Material({ position: posNode, color: colorNode, depthWrite: false, depthTest: false });
+        const pipelineKey = makePipelineKey(mat, this._samples, this.format);
+        return { mat, pipelineKey };
     }
 }
 

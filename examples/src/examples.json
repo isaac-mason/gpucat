@@ -18,5 +18,15 @@
         "title": "compute-particles",
         "description": "8192 GPU-simulated particles updated each frame by a @compute shader (renderer.compute) and rendered as instanced quads — no CPU readback.",
         "tags": ["webgpu", "3d", "renderer", "compute", "particles", "node-graph"]
+    },
+    "example-indirect-batched": {
+        "title": "indirect-batched",
+        "description": "CPU-driven indirect rendering: one merged geometry holds box and sphere data; two IndirectBuffers select sub-ranges via firstIndex + instanceCount. A slider moves the box/sphere split at runtime.",
+        "tags": ["webgpu", "3d", "renderer", "indirect", "batched-mesh", "node-graph"]
+    },
+    "example-indirect-compute": {
+        "title": "indirect-compute",
+        "description": "GPU-driven indirect rendering: a compute shader writes instanceCount directly into the indirect draw buffer each frame via IndirectBuffer.asStorageNode(), culling instances by distance — no CPU readback.",
+        "tags": ["webgpu", "3d", "renderer", "indirect", "compute", "culling", "node-graph"]
     }
 }

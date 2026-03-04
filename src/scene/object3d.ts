@@ -49,7 +49,7 @@ export class Object3D {
     /**
      * Recompute `_localMatrix` from position/quaternion/scale,
      * then `_worldMatrix` = parent._worldMatrix * _localMatrix.
-     * Called top-down by Scene.updateWorldMatrices() — do not call directly.
+     * Call on the scene root each frame to propagate transforms to all children.
      */
     updateWorldMatrix(): void {
         mat4.fromRotationTranslationScale(this._localMatrix, this.quaternion, this.position, this.scale);

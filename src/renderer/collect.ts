@@ -4,13 +4,20 @@
  * Returns two lists:
  *   opaque      — sorted by pipelineKey (minimise pipeline switches)
  *   transparent — sorted back-to-front by view-space Z
+ *
+ * Meshes whose geometry carries a boundingSphere or boundingBox are tested
+ * against the camera frustum in world space; meshes that fall entirely outside
+ * are discarded before a DrawCall is created.
  */
 
 import type { Object3D } from '../scene/object3d.js';
 import type { Scene } from '../scene/scene.js';
 import type { Camera } from '../scene/camera.js';
+import type { Box3, Sphere } from 'mathcat';
+import { box3 } from 'mathcat';
 import { Mesh } from '../scene/mesh.js';
 import { makePipelineKey } from './pipeline.js';
+import { Frustum } from '../utils/frustum.js';
 
 // ---------------------------------------------------------------------------
 // DrawCall
@@ -28,11 +35,25 @@ export type DrawCall = {
 };
 
 // ---------------------------------------------------------------------------
+// Module-level scratch objects — reused every frame to avoid GC pressure
+// ---------------------------------------------------------------------------
+
+/** Reused Frustum instance; rebuilt from VP every frame. */
+const _frustum = new Frustum();
+/** Scratch world-space AABB used when transforming a local bounding box. */
+const _worldBox: Box3 = [0, 0, 0, 0, 0, 0];
+/** Scratch world-space sphere used when transforming a local bounding sphere. */
+const _worldSphere: Sphere = { center: [0, 0, 0], radius: 0 };
+
+// ---------------------------------------------------------------------------
 // collectDraws
 // ---------------------------------------------------------------------------
 
 /**
  * Walk `scene`, collect all `Mesh` nodes, and split into opaque / transparent lists.
+ *
+ * Meshes with geometry bounding volumes are frustum-culled in world space.
+ * Meshes without any bounding volume are always drawn (safe default).
  *
  * Opaque draws are sorted by pipelineKey to minimise GPU pipeline switches.
  * Transparent draws are sorted back-to-front by viewZ.
@@ -50,6 +71,9 @@ export function collectDraws(
 ): { opaque: DrawCall[]; transparent: DrawCall[] } {
     const opaque: DrawCall[] = [];
     const transparent: DrawCall[] = [];
+
+    // Rebuild frustum planes from the current view-projection matrix.
+    _frustum.setFromViewProjectionMatrix(camera.projectionMatrix, camera._viewMatrix);
 
     walkObject(scene, camera, samples, format, opaque, transparent);
 
@@ -75,20 +99,73 @@ function walkObject(
     transparent: DrawCall[],
 ): void {
     if (obj instanceof Mesh) {
-        const pipelineKey = makePipelineKey(obj.material, samples, format);
-        const viewZ = computeViewZ(obj, camera);
-        const call: DrawCall = { mesh: obj, pipelineKey, viewZ };
-
-        if (obj.material.transparent) {
-            transparent.push(call);
+        if (!isMeshVisible(obj)) {
+            // Skip this mesh but still recurse into children
         } else {
-            opaque.push(call);
+            const pipelineKey = makePipelineKey(obj.material, samples, format);
+            const viewZ = computeViewZ(obj, camera);
+            const call: DrawCall = { mesh: obj, pipelineKey, viewZ };
+
+            if (obj.material.transparent) {
+                transparent.push(call);
+            } else {
+                opaque.push(call);
+            }
         }
     }
 
     for (const child of obj.children) {
         walkObject(child, camera, samples, format, opaque, transparent);
     }
+}
+
+/**
+ * Test whether a mesh should be included in the draw list.
+ *
+ * Preference order:
+ *   1. boundingSphere — cheapest test (6 dot-products)
+ *   2. boundingBox    — more precise but slightly more work
+ *   3. no bounds      — always visible (safe fallback)
+ *
+ * Bounding volumes are stored in local (geometry) space and must be
+ * transformed to world space before testing.
+ */
+function isMeshVisible(mesh: Mesh): boolean {
+    const geom = mesh.geometry;
+    const wm = mesh._worldMatrix;
+
+    // --- sphere test (preferred) ------------------------------------------
+    if (geom.boundingSphere !== undefined) {
+        const ls = geom.boundingSphere;
+
+        // Transform centre: ws_centre = wm * [cx, cy, cz, 1]
+        const cx = ls.center[0];
+        const cy = ls.center[1];
+        const cz = ls.center[2];
+        _worldSphere.center[0] = wm[0]*cx + wm[4]*cy + wm[8]*cz  + wm[12];
+        _worldSphere.center[1] = wm[1]*cx + wm[5]*cy + wm[9]*cz  + wm[13];
+        _worldSphere.center[2] = wm[2]*cx + wm[6]*cy + wm[10]*cz + wm[14];
+
+        // Scale the radius by the largest axis scale extracted from the world matrix.
+        // The scale of each axis is the length of the corresponding basis column.
+        const sx = Math.sqrt(wm[0]*wm[0] + wm[1]*wm[1] + wm[2]*wm[2]);
+        const sy = Math.sqrt(wm[4]*wm[4] + wm[5]*wm[5] + wm[6]*wm[6]);
+        const sz = Math.sqrt(wm[8]*wm[8] + wm[9]*wm[9] + wm[10]*wm[10]);
+        _worldSphere.radius = ls.radius * Math.max(sx, sy, sz);
+
+        return _frustum.intersectsSphere(_worldSphere);
+    }
+
+    // --- AABB test (fallback) -----------------------------------------------
+    if (geom.boundingBox !== undefined) {
+        // Transform the local AABB by the world matrix to a world-space AABB.
+        // box3.transformMat4 handles this correctly (worst-case 8-corner expansion).
+        box3.transformMat4(_worldBox, geom.boundingBox, wm);
+        return _frustum.intersectsBox3(_worldBox);
+    }
+
+    // --- no bounds — always draw -------------------------------------------
+    return true;
 }
 
 /**

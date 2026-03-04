@@ -454,7 +454,7 @@ describe('Fn node', () => {
 describe('InstancedBufferAttributeNode', () => {
     test('instancedBufferAttribute appears in VertexInput and result.attributes with kind:instanced', () => {
         const colors = new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
-        const instColor = instancedBufferAttribute(colors, 'vec3f', 12, 0);
+        const instColor = instancedBufferAttribute(colors, S.vec3f(), 12, 0);
         const pos = attribute('vec3f', 'position');
         const localPos = vec4(pos, f32(1.0));
         // instColor is vertex-only; bridge to fragment via a varying
@@ -476,10 +476,10 @@ describe('InstancedBufferAttributeNode', () => {
         const matrices = new Float32Array(16); // 1 identity matrix
         matrices[0] = 1; matrices[5] = 1; matrices[10] = 1; matrices[15] = 1;
         const stride = 16 * 4;
-        const col0 = instancedBufferAttribute(matrices, 'vec4f', stride, 0);
-        const col1 = instancedBufferAttribute(matrices, 'vec4f', stride, 16);
-        const col2 = instancedBufferAttribute(matrices, 'vec4f', stride, 32);
-        const col3 = instancedBufferAttribute(matrices, 'vec4f', stride, 48);
+        const col0 = instancedBufferAttribute(matrices, S.vec4f(), stride, 0);
+        const col1 = instancedBufferAttribute(matrices, S.vec4f(), stride, 16);
+        const col2 = instancedBufferAttribute(matrices, S.vec4f(), stride, 32);
+        const col3 = instancedBufferAttribute(matrices, S.vec4f(), stride, 48);
         const instanceTransform = mat4(col0, col1, col2, col3);
         const pos = attribute('vec3f', 'position');
         const localPos = vec4(pos, f32(1.0));
@@ -593,7 +593,7 @@ describe('stage validation', () => {
 
     test('instancedBufferAttribute node in fragment graph throws a descriptive error', () => {
         const colors = new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
-        const instColor = instancedBufferAttribute(colors, 'vec3f', 12, 0);
+        const instColor = instancedBufferAttribute(colors, S.vec3f(), 12, 0);
         const pos = attribute('vec3f', 'position');
         const localPos = vec4(pos, f32(1.0));
         // instColor is vertex-only — using it directly as color is invalid

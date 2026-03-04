@@ -1,6 +1,8 @@
 import * as gpu from 'gpucat';
 import { mat4, type Mat4, type Vec3, type Quat } from 'mathcat';
 
+const S = gpu.S;
+
 const COLS = 6;
 const ROWS = 5;
 const N = COLS * ROWS;
@@ -31,13 +33,13 @@ for (let i = 0; i < N; i++) {
 }
 
 const instanceTransformStride = 16 * 4;
-const col0 = gpu.instancedBufferAttribute(instanceMatrices, 'vec4f', instanceTransformStride, 0);
-const col1 = gpu.instancedBufferAttribute(instanceMatrices, 'vec4f', instanceTransformStride, 16);
-const col2 = gpu.instancedBufferAttribute(instanceMatrices, 'vec4f', instanceTransformStride, 32);
-const col3 = gpu.instancedBufferAttribute(instanceMatrices, 'vec4f', instanceTransformStride, 48);
+const col0 = gpu.instancedBufferAttribute(instanceMatrices, S.vec4f(), instanceTransformStride, 0);
+const col1 = gpu.instancedBufferAttribute(instanceMatrices, S.vec4f(), instanceTransformStride, 16);
+const col2 = gpu.instancedBufferAttribute(instanceMatrices, S.vec4f(), instanceTransformStride, 32);
+const col3 = gpu.instancedBufferAttribute(instanceMatrices, S.vec4f(), instanceTransformStride, 48);
 const instanceTransform = gpu.mat4(col0, col1, col2, col3);
 
-const instanceColor = gpu.instancedBufferAttribute(instanceColors, 'vec3f', 12, 0);
+const instanceColor = gpu.instancedBufferAttribute(instanceColors, S.vec3f(), 12, 0);
 
 const vColor = gpu.varying('vec3f', 'v_color', instanceColor);
 

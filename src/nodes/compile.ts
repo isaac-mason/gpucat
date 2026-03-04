@@ -207,6 +207,7 @@ type NodeData = {
     fragment?: NodeStageData;
     compute?: NodeStageData;
     any?: NodeStageData;       // stage-agnostic (fn traces, etc.)
+    fn?: NodeStageData;        // inside _emitFnDecl traces (shaderStage === null → 'fn')
 };
 
 // Traced fn data stored alongside NodeData (keyed on fn.id in fnNodes map)
@@ -246,8 +247,6 @@ export class WgslBuilder {
     // Each entry: { name, type } — one per registered VarNode per stage.
     // Keyed by shaderStage string ('vertex'|'fragment'|'compute'|null→'fn').
     stageVars: Record<string, { name: string; type: string }[]> = {};
-    // Shared counter for auto-generated var names across all stages
-    stageVarCounter = 0;
 
     // Root nodes per stage
     flowNodes: {

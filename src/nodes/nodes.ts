@@ -705,6 +705,14 @@ export class StorageNode<T extends WgslType> extends Node<T> {
 
     readonly access: 'read' | 'read_write';
 
+    /**
+     * Back-reference to the IndirectBuffer that owns this StorageNode.
+     * Set by IndirectBuffer.asStorageNode(). Used by BufferCache.uploadStorage()
+     * to ensure the same GPUBuffer (STORAGE | INDIRECT | COPY_DST) is used for
+     * both the compute shader binding and the drawIndirect/drawIndexedIndirect call.
+     */
+    _indirectOwner?: import('../scene/indirect-buffer.js').IndirectBuffer;
+
     /** Monotonically-incremented upload version. Renderer re-uploads when its
      *  stored version lags behind this. */
     version: number = 0;
@@ -1080,7 +1088,7 @@ export type GpuTypedArray =
  * The renderer uploads `data` as a vertex buffer with stepMode: 'instance'.
  *
  * @example
- * const offsets = instancedBufferAttribute(new Float32Array([...]), 'vec3f', 12, 0)
+ * const offsets = instancedBufferAttribute(new Float32Array([...]), S.vec3f(), 12, 0)
  */
 export class InstancedBufferAttributeNode<T extends WgslType> extends Node<T> {
     constructor(
@@ -1181,9 +1189,6 @@ export class VarNode<T extends WgslType> extends Node<T> {
         // Emit only the assignment into the flow code (no `var` keyword here).
         const initExpr = builder._generateNode(this.init) ?? '/* missing */';
         builder.addLineFlowCode(`${name} = ${initExpr}`);
-        // Cache the name for subsequent references (CSE hit path).
-        const data = builder.getDataFromNode(this as unknown as Node<WgslType>);
-        data.propertyName = name;
         return name;
     }
 }
@@ -1736,23 +1741,21 @@ export function tex(
  * whose data lives on the node and is uploaded by the renderer as a vertex
  * buffer with stepMode: 'instance'.
  *
- * @param data    Flat typed array — one record per instance. Any GPU-compatible
- *                typed array is accepted: Float32Array, Int32Array, Uint32Array,
- *                Int16Array, Uint16Array, Int8Array, Uint8Array.
- * @param type    WGSL type of the attribute (e.g. 'vec3f', 'vec4f').
+ * @param data    Flat typed array — one record per instance.
+ * @param desc    WgslDesc for the attribute element type (e.g. `S.vec3f()`, `S.f32()`).
  * @param stride  Byte stride between consecutive instance records.
  * @param offset  Byte offset of this attribute within each instance record.
  *
  * @example
- * const colors = instancedBufferAttribute(new Float32Array([1,0,0, 0,1,0, 0,0,1]), 'vec3f', 12, 0)
- * const flags  = instancedBufferAttribute(new Uint8Array([1, 0, 1, 1]), 'u32', 1, 0)
+ * const colors = instancedBufferAttribute(new Float32Array([1,0,0, 0,1,0]), S.vec3f(), 12, 0)
+ * const flags  = instancedBufferAttribute(new Uint32Array([1, 0, 1, 1]),     S.u32(),   4, 0)
  */
 export const instancedBufferAttribute = <T extends WgslType>(
     data: GpuTypedArray,
-    type: T,
+    desc: WgslDesc<T>,
     stride: number,
     offset: number,
-) => new InstancedBufferAttributeNode(type, data, stride, offset);
+) => new InstancedBufferAttributeNode(desc.wgslType as T, data, stride, offset);
 
 // ---------------------------------------------------------------------------
 // Control-flow DSL — must be called inside a Fn body
