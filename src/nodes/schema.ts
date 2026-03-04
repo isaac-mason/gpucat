@@ -7,6 +7,10 @@
  * Then use S.f32(), S.vec3f(), S.mat4x4f() etc. as WgslDesc descriptors in
  * struct() schemas and Fn() param lists.
  *
+ * Nested structs are passed directly — no wrapper needed:
+ *   const Inner = struct('Inner', { x: S.f32() });
+ *   const Outer = struct('Outer', { inner: Inner, y: S.f32() });
+ *
  * For storage buffers, use S.array() to describe the element type:
  *   S.array(S.mat4x4f())   → ArrayDesc whose wgslType is 'array<mat4x4f>'
  *   S.array(S.vec4f())     → ArrayDesc whose wgslType is 'array<vec4f>'
@@ -78,8 +82,7 @@ export function itemSizeOf(desc: WgslDesc<WgslType>): number {
 }
 
 /** The TypedArray constructor appropriate for a WGSL numeric type's scalar kind. */
-export function typedArrayCtorOf(desc: WgslDesc<WgslType>): new (length: number) => GpuTypedArray
- {
+export function typedArrayCtorOf(desc: WgslDesc<WgslType>): new (length: number) => GpuTypedArray {
     const t = desc.wgslType;
     if (t === 'i32' || t === 'vec2i' || t === 'vec3i' || t === 'vec4i') return Int32Array;
     if (t === 'u32' || t === 'vec2u' || t === 'vec3u' || t === 'vec4u') return Uint32Array;
@@ -97,16 +100,9 @@ export function typedArrayCtorOf(desc: WgslDesc<WgslType>): new (length: number)
  */
 export type WgslDesc<T extends WgslType> = { readonly wgslType: T };
 
-/** Record of field name → WgslDesc, describing a WGSL struct's members. */
+/** Record of field name → WgslDesc (or StructDef, which satisfies WgslDesc<string>),
+ *  describing a WGSL struct's members. */
 export type StructSchema = Record<string, WgslDesc<WgslType>>;
-
-/**
- * A WgslDesc whose type is the name of a nested struct.
- * Carries the full StructDef so the compiler can resolve declaration order.
- */
-export type StructDesc<S extends StructSchema> = WgslDesc<string> & {
-    readonly structDef: StructDef<S>;
-};
 
 /**
  * Given a StructSchema, produces an object type where each key maps to the
@@ -118,13 +114,13 @@ export type StructInstance<S extends StructSchema> = {
     readonly [K in keyof S]: Node<S[K]['wgslType']>;
 };
 
-/** The object returned by struct(). */
-export type StructDef<S extends StructSchema> = {
+/** The object returned by struct(). StructDef itself satisfies WgslDesc<string>
+ *  so it can be used directly as a field value inside another struct() schema. */
+export type StructDef<S extends StructSchema> = WgslDesc<string> & {
     readonly schema: S;
-    readonly typeName: string;
     readonly members: StructMember[];
     readonly node: StructNode;
-    /** Any nested struct defs referenced by this struct's fields, keyed by typeName. */
+    /** Any nested StructDefs referenced by this struct's fields, keyed by wgslType. */
     readonly nestedDefs: ReadonlyMap<string, StructDef<StructSchema>>;
     instantiate<N extends Node<WgslType>>(base: N): StructInstance<S>;
 };
@@ -142,8 +138,13 @@ export function lookupStructDef(node: StructNode): StructDef<StructSchema> | und
 }
 
 /** Look up a StructDef by its WGSL type name, if registered via struct(). */
-export function lookupStructDefByName(typeName: string): StructDef<StructSchema> | undefined {
-    return _structNameRegistry.get(typeName);
+export function lookupStructDefByName(wgslType: string): StructDef<StructSchema> | undefined {
+    return _structNameRegistry.get(wgslType);
+}
+
+/** Returns true if a WgslDesc is a StructDef (has a schema — i.e. defines a nested struct). */
+export function isStructDef(field: WgslDesc<WgslType>): field is StructDef<StructSchema> {
+    return 'schema' in field;
 }
 
 // ---------------------------------------------------------------------------
@@ -151,42 +152,52 @@ export function lookupStructDefByName(typeName: string): StructDef<StructSchema>
 // ---------------------------------------------------------------------------
 
 /**
- * Define a typed WGSL struct schema.
+ * Define a typed WGSL struct schema. The returned StructDef satisfies WgslDesc<string>
+ * so it can be used directly as a field value inside another struct() schema —
+ * no wrapper needed.
  *
  * @example
  * import * as S from './schema.js'
  *
- * const CameraStruct = struct('Camera', {
- *     projectionMatrix: S.mat4x4f(),
- *     viewMatrix:       S.mat4x4f(),
- *     position:         S.vec3f(),
- *     near:             S.f32(),
- *     far:              S.f32(),
+ * const Inner = struct('Inner', { x: S.f32() });
+ *
+ * const Outer = struct('Outer', {
+ *     inner: Inner,   // ← StructDef used directly, no S.nested() needed
+ *     y:     S.f32(),
  * });
+ *
+ * // Use as a uniform — returns a typed StructInstance
+ * const outerInst = uniform(Outer, 'myOuter');
+ * outerInst.y       // → Node<'f32'>
+ * outerInst.$node   // → UniformNode<'Outer'>
  */
-export function struct<S extends StructSchema>(typeName: string, schema: S): StructDef<S> {
-    const members: StructMember[] = Object.entries(schema).map(([name, desc]) => ({ name, type: desc.wgslType }));
-    const node = new StructNode(typeName, members);
+export function struct<S extends StructSchema>(wgslType: string, schema: S): StructDef<S> {
+    const members: StructMember[] = Object.entries(schema).map(([name, field]) => ({
+        name,
+        type: isStructDef(field) ? field.wgslType : field.wgslType,
+    }));
+    const node = new StructNode(wgslType, members);
 
-    // Collect any StructDesc fields as nested deps
+    // Collect nested StructDefs from fields
     const nestedDefs: Map<string, StructDef<StructSchema>> = new Map();
-    for (const desc of Object.values(schema)) {
-        if (isStructDesc(desc)) {
-            nestedDefs.set(desc.structDef.typeName, desc.structDef);
+    for (const field of Object.values(schema)) {
+        if (isStructDef(field)) {
+            nestedDefs.set(field.wgslType, field);
         }
     }
 
     function instantiate<N extends Node<WgslType>>(base: N): StructInstance<S> {
         const result: Record<string, Node<WgslType>> = { $node: base };
-        for (const [name, desc] of Object.entries(schema)) {
-            result[name] = new FieldNode(desc.wgslType, base, name);
+        for (const [name, field] of Object.entries(schema)) {
+            const type = isStructDef(field) ? field.wgslType : field.wgslType;
+            result[name] = new FieldNode(type as WgslType, base, name);
         }
         return result as StructInstance<S>;
     }
 
-    const def: StructDef<S> = { schema, typeName, members, node, nestedDefs, instantiate };
+    const def: StructDef<S> = { wgslType, schema, members, node, nestedDefs, instantiate };
     _structNodeRegistry.set(node, def);
-    _structNameRegistry.set(typeName, def);
+    _structNameRegistry.set(wgslType, def);
     return def;
 }
 
@@ -219,23 +230,3 @@ export const mat3x4f = (): WgslDesc<'mat3x4f'> => ({ wgslType: 'mat3x4f' });
 export const mat4x2f = (): WgslDesc<'mat4x2f'> => ({ wgslType: 'mat4x2f' });
 export const mat4x3f = (): WgslDesc<'mat4x3f'> => ({ wgslType: 'mat4x3f' });
 export const mat4x4f = (): WgslDesc<'mat4x4f'> => ({ wgslType: 'mat4x4f' });
-
-// ---------------------------------------------------------------------------
-// S.nested — nested struct descriptor
-// ---------------------------------------------------------------------------
-
-/** Returns true if a WgslDesc is a StructDesc (carries a nested StructDef). */
-export function isStructDesc<S extends StructSchema>(desc: WgslDesc<WgslType>): desc is StructDesc<S> {
-    return 'structDef' in desc;
-}
-
-/**
- * Wrap an existing StructDef as a WgslDesc for use as a field inside another struct() schema.
- *
- * @example
- * const Inner = struct('Inner', { x: S.f32() });
- * const Outer = struct('Outer', { inner: S.nested(Inner), y: S.f32() });
- */
-export function nested<S extends StructSchema>(def: StructDef<S>): StructDesc<S> {
-    return { wgslType: def.typeName, structDef: def };
-}

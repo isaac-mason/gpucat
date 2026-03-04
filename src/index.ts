@@ -47,6 +47,10 @@ export {
     VarNode,
     IfNode,
     ForNode,
+    type ForRange,
+    WhileNode,
+    BreakNode,
+    ContinueNode,
     FnNode,
     ParamNode,
     ReturnNode,
@@ -97,6 +101,15 @@ export {
     vec3b,
     vec4b,
     color,
+    // Control-flow DSL
+    toVar,
+    If,
+    For,
+    While,
+    Break,
+    Continue,
+    Return,
+    Fn,
 } from './nodes/nodes.js';
 
 // Schema — WgslDesc constructors and struct()
@@ -162,9 +175,9 @@ export {
     Geometry,
     BufferAttribute,
     IndexAttribute,
-    box,
-    sphere,
-    plane,
+    createBoxGeometry,
+    createSphereGeometry,
+    createPlaneGeometry,
 } from './scene/geometry.js';
 
 export {
@@ -188,5 +201,4 @@ export {
 export { collectDraws, type DrawCall } from './renderer/collect.js';
 export { WebGPURenderer, type WebGPURendererOptions } from './renderer/renderer.js';
 export { RenderTarget, type RenderTargetOptions } from './renderer/render-target.js';
-export { RenderPipeline } from './renderer/render-pipeline.js';
-export { pass, PassNode, collectPassNodes } from './nodes/pass-node.js';
+export { pass, PassNode, type PassNodeOptions, collectPassNodes } from './nodes/pass-node.js';

@@ -81,6 +81,15 @@ export class PassColorTextureNode extends Node<'vec4f'> {
 }
 
 // ---------------------------------------------------------------------------
+// PassNodeOptions
+// ---------------------------------------------------------------------------
+
+export type PassNodeOptions = {
+    /** RGBA clear color for this pass's color attachment. Defaults to [0, 0, 0, 1]. */
+    clearColor?: [number, number, number, number];
+};
+
+// ---------------------------------------------------------------------------
 // PassNode
 // ---------------------------------------------------------------------------
 
@@ -90,6 +99,9 @@ export class PassNode extends Node<'vec4f'> {
 
     /** Stable unique string used to namespace texture/sampler IDs. */
     readonly passId: string;
+
+    /** Clear color for this pass's color attachment. Defaults to opaque black. */
+    clearColor: [number, number, number, number];
 
     // GPU resources — null until _ensureTarget() is called.
     _colorTexture: GPUTexture | null = null;
@@ -104,13 +116,14 @@ export class PassNode extends Node<'vec4f'> {
     private readonly _depthTexNode: TextureNode;
     private readonly _colorSampleNode: PassColorTextureNode;
 
-    constructor(scene: Scene, camera: Camera) {
+    constructor(scene: Scene, camera: Camera, options: PassNodeOptions = {}) {
         const pid = `_pass${_passCount++}`;
         super(`passnode_${pid}`, 'raw', 'vec4f');
 
         this.scene  = scene;
         this.camera = camera;
         this.passId = pid;
+        this.clearColor = options.clearColor ?? [0, 0, 0, 1];
 
         this._colorTexNode   = new TextureNode('texture_2d<f32>',    `${pid}_color`);
         this._samplerNode    = new SamplerNode('sampler',             `${pid}_samp`);
@@ -264,12 +277,12 @@ export class PassNode extends Node<'vec4f'> {
  * render target.  The result feeds into post-processing node expressions.
  *
  * ```ts
- * const scenePass = pass(scene, camera);
- * renderPipeline.outputNode = scenePass.getTextureNode();
+ * const scenePass = pass(scene, camera, { clearColor: [0.1, 0.1, 0.1, 1] });
+ * renderer.render(scenePass.getTextureNode());
  * ```
  */
-export function pass(scene: Scene, camera: Camera): PassNode {
-    return new PassNode(scene, camera);
+export function pass(scene: Scene, camera: Camera, options?: PassNodeOptions): PassNode {
+    return new PassNode(scene, camera, options);
 }
 
 // ---------------------------------------------------------------------------

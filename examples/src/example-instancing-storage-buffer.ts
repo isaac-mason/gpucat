@@ -160,16 +160,15 @@ async function main() {
         camera.updateProjectionMatrix();
     });
 
-    const mesh  = new gpu.Mesh(gpu.box(1, 1, 1), material);
+    const mesh  = new gpu.Mesh(gpu.createBoxGeometry(1, 1, 1), material);
     mesh.count  = N;
     scene.add(mesh);
 
     const scenePass = gpu.pass(scene, camera);
-    const pipeline  = new gpu.RenderPipeline();
-    pipeline.outputNode = scenePass.getTextureNode();
+    const outputNode = scenePass.getTextureNode();
 
     function frame() {
-        pipeline.render(renderer);
+        renderer.render(outputNode);
         requestAnimationFrame(frame);
     }
 

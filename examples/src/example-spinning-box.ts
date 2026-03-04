@@ -1,12 +1,11 @@
 import {
-    box,
+    createBoxGeometry,
     color,
     f32,
     Material,
     Mesh,
     pass,
     PerspectiveCamera,
-    RenderPipeline,
     Scene,
     vec4,
     WebGPURenderer,
@@ -41,12 +40,11 @@ async function main() {
         color: vec4(color('#f60'), f32(1)),
     });
 
-    const mesh = new Mesh(box(1, 1, 1), mat);
+    const mesh = new Mesh(createBoxGeometry(1, 1, 1), mat);
     scene.add(mesh);
 
     const scenePass = pass(scene, camera);
-    const pipeline = new RenderPipeline();
-    pipeline.outputNode = scenePass.getTextureNode();
+    const outputNode = scenePass.getTextureNode();
 
     let angle = 0;
 
@@ -61,7 +59,7 @@ async function main() {
 
         quat.fromEuler(mesh.quaternion, [0, angle, 0.2 * Math.sin(angle * 0.5), 'yxz'] as Euler);
 
-        pipeline.render(renderer);
+        renderer.render(outputNode);
         requestAnimationFrame(frame);
     }
 

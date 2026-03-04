@@ -79,6 +79,9 @@ export type NodeKind =
     | 'var'
     | 'if'
     | 'for'
+    | 'while'
+    | 'break'
+    | 'continue'
     | 'fn'
     | 'param'
     | 'return';
@@ -86,6 +89,33 @@ export type NodeKind =
 export type StructMember = { readonly name: string; readonly type: WgslType };
 export type BuiltinKind = 'camera' | 'instance_index' | 'instance_data' | 'mesh' | 'time' | 'vertex_index';
 export type BinopOp = '+' | '-' | '*' | '/' | '%' | '==' | '!=' | '<' | '>' | '<=' | '>=';
+
+// ---------------------------------------------------------------------------
+// Fn layout types
+// ---------------------------------------------------------------------------
+
+/**
+ * A single named + typed parameter descriptor for Fn().
+ * Mirrors WGSL syntax: `name: type` e.g. `{ name: 'uv', type: S.vec2f() }` → `uv: vec2f`
+ */
+export type ParamDesc<T extends WgslType = WgslType> = {
+    readonly name: string;
+    readonly type: WgslDesc<T>;
+};
+
+/**
+ * Maps a tuple of ParamDesc to a tuple of correspondingly-typed Nodes.
+ * e.g. [ParamDesc<'vec2f'>, ParamDesc<'f32'>] → [Node<'vec2f'>, Node<'f32'>]
+ */
+export type ParamDescsToNodes<P extends readonly ParamDesc[]> = {
+    [K in keyof P]: P[K] extends ParamDesc<infer U> ? Node<U> : never;
+};
+
+/** Layout descriptor for a named, fully-typed Fn. */
+export type FnLayout<P extends readonly ParamDesc[]> = {
+    readonly name: string;
+    readonly params: [...P];
+};
 
 // ---------------------------------------------------------------------------
 // Node<T> — base class with chaining API
@@ -751,19 +781,86 @@ export class IfNode extends Node<'void'> {
 }
 
 /**
- * ForNode — statement-form counted loop.
- * Created by `For({ count }, ({ i }) => { ... })`.
- * `count` is a u32 node giving the iteration count; `i` is a ParamNode<'u32'>.
+ * ForRange — describes the iteration space for a ForNode.
+ *
+ * - `start`     — initial value (default: `0u` for u32, `0i` for i32, etc.)
+ * - `end`       — exclusive/inclusive upper/lower bound depending on `condition`
+ * - `type`      — WGSL scalar type of the index variable (default: `'u32'`)
+ * - `condition` — comparison operator (auto-inferred when omitted)
+ * - `update`    — step per iteration as a node or number (default: `++` / `--`)
+ *
+ * Auto-inference rules (mirroring Three.js TSL LoopNode):
+ *   - `end` given, no `start`  → forward:   `start=0`, `condition='<'`,  `update=1`
+ *   - `start` given, no `end`  → backwards: `end=0`,   `condition='>='`, `update=-1`
+ *   - both given               → compare numerically to pick direction when `condition` omitted
+ */
+export type ForRange = {
+    /** Inclusive start value. Node<WgslType> or plain number. Default: 0. */
+    start?: Node<WgslType> | number;
+    /** End bound. Node<WgslType> or plain number. Required unless `start` is given alone (backwards). */
+    end?: Node<WgslType> | number;
+    /** WGSL scalar type for the index variable. Default: `'u32'`. */
+    type?: ScalarType;
+    /** Comparison operator. Auto-inferred when omitted. */
+    condition?: '<' | '<=' | '>' | '>=';
+    /** Per-iteration step as a Node or number. Auto-inferred when omitted. */
+    update?: Node<WgslType> | number;
+};
+
+/**
+ * ForNode — statement-form counted loop with a configurable range.
+ * Created by `For({ end: n }, ({ i }) => { ... })`.
+ *
+ * The `range` descriptor drives WGSL codegen. See `ForRange` for full options.
  *
  * kind: 'for'
  */
 export class ForNode extends Node<'void'> {
     constructor(
-        readonly count: Node<WgslType>,
-        readonly indexVar: ParamNode<'u32'>,
+        readonly range: ForRange,
+        readonly indexVar: ParamNode<WgslType>,
         readonly body: StackNode,
     ) {
         super(nextId(), 'for', 'void');
+    }
+}
+
+/**
+ * WhileNode — statement-form while loop driven by a boolean expression.
+ * Created by `While(conditionNode, () => { ... })`.
+ *
+ * kind: 'while'
+ */
+export class WhileNode extends Node<'void'> {
+    constructor(
+        readonly condition: Node<WgslType>,
+        readonly body: StackNode,
+    ) {
+        super(nextId(), 'while', 'void');
+    }
+}
+
+/**
+ * BreakNode — a `break` statement inside a loop body.
+ * Created by `Break()`.
+ *
+ * kind: 'break'
+ */
+export class BreakNode extends Node<'void'> {
+    constructor() {
+        super(nextId(), 'break', 'void');
+    }
+}
+
+/**
+ * ContinueNode — a `continue` statement inside a loop body.
+ * Created by `Continue()`.
+ *
+ * kind: 'continue'
+ */
+export class ContinueNode extends Node<'void'> {
+    constructor() {
+        super(nextId(), 'continue', 'void');
     }
 }
 
@@ -777,6 +874,8 @@ export class ParamNode<T extends WgslType> extends Node<T> {
     constructor(
         type: T,
         readonly paramIndex: number,
+        /** The declared name from FnLayout.params[i].name, if a layout was provided. */
+        readonly paramName?: string,
     ) {
         super(nextId(), 'param', type);
     }
@@ -795,7 +894,7 @@ export class ReturnNode<T extends WgslType> extends Node<T> {
 }
 
 /**
- * FnNode — a named WGSL function defined via `Fn(params, jsFunc)`.
+ * FnNode — a named WGSL function defined via `Fn(jsFunc)` or `Fn(jsFunc, layout)`.
  * Holds the parameter descriptors and a JS function that, when called with
  * ParamNodes, performs eager tracing to produce the body StackNode + outputNode.
  *
@@ -804,14 +903,24 @@ export class ReturnNode<T extends WgslType> extends Node<T> {
  * kind: 'fn'
  */
 export class FnNode<T extends WgslType> extends Node<T> {
+    /** WGSL function name. From layout.name if provided, otherwise auto-generated `fn_<id>`. */
     readonly fnName: string;
-    readonly paramDescs: WgslDesc<WgslType>[];
+    /**
+     * Parameter descriptors. ParamDesc[] when a layout was provided (carries name + type),
+     * WgslDesc[] when no layout was given (type only, name will be auto `p0`, `p1`, …).
+     */
+    readonly paramDescs: (ParamDesc | WgslDesc<WgslType>)[];
     /** The JS function passed to Fn(). The compiler calls this with ParamNodes. */
     readonly jsFunc: (...args: Node<WgslType>[]) => Node<T>;
 
-    constructor(returnType: T, paramDescs: WgslDesc<WgslType>[], jsFunc: (...args: Node<WgslType>[]) => Node<T>) {
+    constructor(
+        returnType: T,
+        paramDescs: (ParamDesc | WgslDesc<WgslType>)[],
+        jsFunc: (...args: Node<WgslType>[]) => Node<T>,
+        fnName?: string,
+    ) {
         super(nextId(), 'fn', returnType);
-        this.fnName = `fn_${this.id}`;
+        this.fnName = fnName ?? `fn_${this.id}`;
         this.paramDescs = paramDescs;
         this.jsFunc = jsFunc;
     }
@@ -822,7 +931,11 @@ export class FnNode<T extends WgslType> extends Node<T> {
      * Returns { params, body, output } for use by the compiler.
      */
     trace(): { params: ParamNode<WgslType>[]; body: StackNode; output: Node<T> } {
-        const params = this.paramDescs.map((d, i) => new ParamNode(d.wgslType, i));
+        const params = this.paramDescs.map((d, i) => {
+            const paramName = 'name' in d ? (d as ParamDesc).name : undefined;
+            const wgslType = 'name' in d ? (d as ParamDesc).type.wgslType : (d as WgslDesc<WgslType>).wgslType;
+            return new ParamNode(wgslType, i, paramName);
+        });
         const stack = new StackNode();
         const prev = pushStack(stack);
         let output: Node<T>;
@@ -919,8 +1032,8 @@ export function uniform<T extends WgslType, S extends StructSchema>(
     if ('schema' in init) {
         // Struct form: init is a StructDef
         const def = init as StructDef<S>;
-        const uniformId = name ?? def.typeName;
-        const node = new UniformNode<string>(def.typeName, uniformId);
+        const uniformId = name ?? def.wgslType;
+        const node = new UniformNode<string>(def.wgslType, uniformId);
         return def.instantiate(node);
     }
     // Scalar / vector / matrix form: init is a ConstNode
@@ -1227,18 +1340,34 @@ export function If(condition: Node<WgslType>, thenBody: () => void): IfChain {
 }
 
 /**
- * Statement-form counted loop inside a Fn body.
+ * Statement-form loop with a configurable range, inside a Fn body.
  *
- * @param opts    `{ count }` — a Node<u32> giving the iteration count.
- * @param body    Callback receiving `{ i }` — the loop index as a Node<'u32'>.
+ * **Simple forward loop** (0 to `end`, exclusive):
+ * ```ts
+ * For({ end: n }, ({ i }) => { ... })
+ * ```
  *
- * @example
- * For({ count: n }, ({ i }) => {
- *     acc.assign(acc.add(i.toF32()))
- * })
+ * **Custom range and step**:
+ * ```ts
+ * For({ start: u32(4), end: u32(16), condition: '<', update: 2 }, ({ i }) => { ... })
+ * ```
+ *
+ * **Backwards** (start only — counts down to 0):
+ * ```ts
+ * For({ start: u32(10) }, ({ i }) => { ... })
+ * // → for (var i : u32 = 10u - 1u; i >= 0u; i--)
+ * ```
+ *
+ * **Signed integer index**:
+ * ```ts
+ * For({ start: i32(-4), end: i32(4), type: 'i32' }, ({ i }) => { ... })
+ * ```
+ *
+ * Use `Break()` and `Continue()` inside the body for early exit / skip.
  */
-export function For(opts: { count: Node<WgslType> }, body: (args: { i: ParamNode<'u32'> }) => void): void {
-    const indexVar = new ParamNode<'u32'>('u32', 0);
+export function For(range: ForRange, body: (args: { i: ParamNode<WgslType> }) => void): void {
+    const idxType: ScalarType = range.type ?? 'u32';
+    const indexVar = new ParamNode<WgslType>(idxType, 0);
     const loopStack = new StackNode();
     const prev = pushStack(loopStack);
     try {
@@ -1246,41 +1375,100 @@ export function For(opts: { count: Node<WgslType> }, body: (args: { i: ParamNode
     } finally {
         popStack(prev);
     }
-    addToStack(new ForNode(opts.count, indexVar, loopStack));
+    addToStack(new ForNode(range, indexVar, loopStack));
+}
+
+/**
+ * Statement-form while loop, inside a Fn body.
+ *
+ * Runs as long as `condition` evaluates to `true`.
+ *
+ * ```ts
+ * const counter = toVar('u32', u32(0));
+ * While(counter.lt(u32(10)), () => {
+ *     counter.assign(counter.add(u32(1)));
+ * });
+ * ```
+ *
+ * Use `Break()` and `Continue()` inside the body for early exit / skip.
+ */
+export function While(condition: Node<WgslType>, body: () => void): void {
+    const loopStack = new StackNode();
+    const prev = pushStack(loopStack);
+    try {
+        body();
+    } finally {
+        popStack(prev);
+    }
+    addToStack(new WhileNode(condition, loopStack));
+}
+
+/**
+ * Emits a `break;` statement inside a loop body.
+ * Must be called inside a `For(...)` or `While(...)` body.
+ */
+export function Break(): void {
+    addToStack(new BreakNode());
+}
+
+/**
+ * Emits a `continue;` statement inside a loop body.
+ * Must be called inside a `For(...)` or `While(...)` body.
+ */
+export function Continue(): void {
+    addToStack(new ContinueNode());
 }
 
 /**
  * Define a reusable WGSL function.
  *
- * `params` is an array of WgslDesc descriptors (e.g. `[vec2f(), f32()]`) giving
- * the WGSL parameter types. The JS callback receives typed Node handles and should
- * return a Node for the function's output (JS `return` = WGSL function return value).
+ * ### No-layout form (anonymous, params must be manually annotated)
+ * ```ts
+ * const double = Fn((x: Node<'f32'>) => x.mul(f32(2)))
+ * ```
+ * Emits: `fn fn_<id>(p0: f32) -> f32`
  *
- * Returns a callable: when invoked with Node arguments it produces a CallNode
- * that calls the WGSL function.
- *
- * @example
- * const heatmap = Fn([vec2f()], (uv: Node<'vec2f'>): Node<'vec3f'> => {
- *     const result = toVar('vec3f', konst('vec3f', [0, 0, 0]))
- *     If(uv.x.gt(konst('f32', 0.5)), () => {
- *         result.assign(konst('vec3f', [1, 0, 0]))
- *     }).Else(() => {
- *         result.assign(konst('vec3f', [0, 0, 1]))
- *     })
- *     return result
+ * ### Layout form (named, param types fully inferred from layout)
+ * ```ts
+ * const heatmap = Fn((uv, roughness) => {
+ *     return vec3f(uv.x, uv.y, 0)
+ * }, {
+ *     name: 'heatmap',
+ *     params: [
+ *         { name: 'uv',        type: S.vec2f() },
+ *         { name: 'roughness', type: S.f32()   },
+ *     ],
  * })
+ * ```
+ * Emits: `fn heatmap(uv: vec2f, roughness: f32) -> vec3f`
  *
- * // Use it in a graph:
- * const color = heatmap(someUvNode)  // → CallNode<'vec3f'>
+ * Call both forms the same way:
+ * ```ts
+ * const result = heatmap(uvNode, roughnessNode)  // → CallNode<'vec3f'>
+ * ```
  */
+// Overload 1 — with layout: param types inferred from layout.params
+export function Fn<T extends WgslType, P extends readonly ParamDesc[]>(
+    jsFunc: (...args: ParamDescsToNodes<P>) => Node<T>,
+    layout: FnLayout<P>,
+): (...args: ParamDescsToNodes<P>) => CallNode<T>;
+// Overload 2 — no layout: params are Node<WgslType>, user annotates manually
 export function Fn<T extends WgslType>(
-    params: WgslDesc<WgslType>[],
     jsFunc: (...args: Node<WgslType>[]) => Node<T>,
+): (...args: Node<WgslType>[]) => CallNode<T>;
+// Implementation
+export function Fn<T extends WgslType>(
+    jsFunc: (...args: Node<WgslType>[]) => Node<T>,
+    layout?: FnLayout<readonly ParamDesc[]>,
 ): (...args: Node<WgslType>[]) => CallNode<T> {
-    // Determine return type by doing a quick dry-run with dummy params to get the type.
-    // We create the FnNode eagerly; the compiler will call trace() later for codegen.
-    const dummyParams = params.map((d, i) => new ParamNode(d.wgslType, i));
-    // We need the return type now. Trace once to get it.
+    // Build dummy ParamNodes for the dry-run trace that infers the return type.
+    const paramDescs: (ParamDesc | WgslDesc<WgslType>)[] = layout?.params ?? [];
+    const dummyParams = paramDescs.map((d, i) => {
+        const paramName = 'name' in d ? (d as ParamDesc).name : undefined;
+        const wgslType = 'name' in d ? (d as ParamDesc).type.wgslType : (d as WgslDesc<WgslType>).wgslType;
+        return new ParamNode(wgslType, i, paramName);
+    });
+
     const traceStack = new StackNode();
     const prev = pushStack(traceStack);
     let returnType: T;
@@ -1291,7 +1479,7 @@ export function Fn<T extends WgslType>(
         popStack(prev);
     }
 
-    const fnNode = new FnNode<T>(returnType, params, jsFunc);
+    const fnNode = new FnNode<T>(returnType, paramDescs, jsFunc, layout?.name);
 
     return (...args: Node<WgslType>[]): CallNode<T> => {
         return new CallNode<T>(returnType, fnNode.fnName, args, fnNode);

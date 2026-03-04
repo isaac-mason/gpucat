@@ -25,18 +25,28 @@ import { describe, expect, test } from 'vitest';
 import { compile } from '../src/nodes/compile.js';
 import {
     attribute,
+    Break,
+    Continue,
     f32,
     Fn,
+    For,
+    If,
+    i32,
     instancedBufferAttribute,
     mat4,
+    type Node,
     sampler,
     texture,
     textureSample,
+    toVar,
+    u32,
     uniform,
     varying,
     vec3f,
     vec4,
     vec4f,
+    While,
+    type WgslType,
 } from '../src/nodes/nodes.js';
 import * as S from '../src/nodes/schema.js';
 import { struct } from '../src/nodes/schema.js';
@@ -401,7 +411,22 @@ describe('negate', () => {
 
 describe('Fn node', () => {
     test('Fn produces a named function in WGSL output', () => {
-        const lerp = Fn([S.f32(), S.f32(), S.f32()], (a, b, t) => a.add(b.sub(a).mul(t)));
+        const lerp = Fn(
+            (a: Node<WgslType>, b: Node<WgslType>, t: Node<WgslType>) => {
+                const af = a as ReturnType<typeof f32>;
+                const bf = b as ReturnType<typeof f32>;
+                const tf = t as ReturnType<typeof f32>;
+                return af.add(bf.sub(af).mul(tf));
+            },
+            {
+                name: 'lerp',
+                params: [
+                    { name: 'a', type: S.f32() },
+                    { name: 'b', type: S.f32() },
+                    { name: 't', type: S.f32() },
+                ],
+            },
+        );
         const pos = attribute('vec3f', 'position');
         const localPos = vec4(pos, f32(1.0));
         const alpha = lerp(f32(0.0), f32(1.0), f32(0.5));
@@ -411,14 +436,14 @@ describe('Fn node', () => {
             color: color,
         });
         // A user fn declaration should appear before vs_main
-        const fnIdx = result.code.search(/^fn \w+\(p0/m);
+        const fnIdx = result.code.search(/^fn lerp\(/m);
         const vertexIdx = result.code.indexOf('@vertex');
         expect(fnIdx).toBeGreaterThanOrEqual(0);
         expect(fnIdx).toBeLessThan(vertexIdx);
-        // Params should be p0, p1, p2 with type f32
-        expect(result.code).toContain('p0 : f32');
-        expect(result.code).toContain('p1 : f32');
-        expect(result.code).toContain('p2 : f32');
+        // Params should use declared names with type f32
+        expect(result.code).toContain('a : f32');
+        expect(result.code).toContain('b : f32');
+        expect(result.code).toContain('t : f32');
     });
 });
 
@@ -481,7 +506,7 @@ describe('InstancedBufferAttributeNode', () => {
 describe('nested struct support', () => {
     test('inner struct declared before outer struct in WGSL output', () => {
         const Inner = struct('NestInner', { x: S.f32(), y: S.f32() });
-        const Outer = struct('NestOuter', { inner: S.nested(Inner), z: S.f32() });
+        const Outer = struct('NestOuter', { inner: Inner, z: S.f32() });
 
         // Reference Outer via a material uniform so its StructNode enters the graph
         const outerInst = uniform(Outer, 'nestOuterVal');
@@ -504,7 +529,7 @@ describe('nested struct support', () => {
 
     test('field access on nested struct member emits correct dot-chain', () => {
         const Inner = struct('Inner2', { val: S.f32() });
-        const Outer2 = struct('Outer2', { inner: S.nested(Inner), extra: S.f32() });
+        const Outer2 = struct('Outer2', { inner: Inner, extra: S.f32() });
 
         // Use a uniform of type Outer2 and access .inner.val via instantiate
         const outerInst = uniform(Outer2, 'outerVal2');
@@ -524,8 +549,8 @@ describe('nested struct support', () => {
 
     test('deeply nested A→B→C — correct declaration order A, B, C', () => {
         const A = struct('DeepA', { a: S.f32() });
-        const B = struct('DeepB', { nested: S.nested(A), b: S.f32() });
-        const C = struct('DeepC', { nested: S.nested(B), c: S.f32() });
+        const B = struct('DeepB', { nested: A, b: S.f32() });
+        const C = struct('DeepC', { nested: B, c: S.f32() });
 
         const cInst = uniform(C, 'deepC');
         const cField = cInst.c;
@@ -578,5 +603,246 @@ describe('stage validation', () => {
                 color: vec4(instColor, f32(1.0)),
             }),
         ).toThrow(/instancedBufferAttribute.*vertex-only/i);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// 18. Loop WGSL output
+// ---------------------------------------------------------------------------
+
+describe('loop WGSL output', () => {
+    test('For with end emits forward for loop from 0', () => {
+        const sumFn = Fn(() => {
+            const acc = toVar('f32', f32(0.0)) as Node<'f32'>;
+            For({ end: 8 }, ({ i }) => {
+                acc.assign(acc.add(i.toF32()));
+            });
+            return acc;
+        }, { name: 'sumFn', params: [] });
+
+        const call = sumFn() as Node<'f32'>;
+        const result = compile({
+            position: positionClip,
+            color: vec4(call, call, call, f32(1.0)),
+        });
+        // Should have a forward for loop from 0u to 8u
+        expect(result.code).toMatch(/for\s*\(var \w+ : u32 = 0u; \w+ < 8u; \w+\+\+\)/);
+    });
+
+    test('For with start only emits backwards for loop', () => {
+        const fn = Fn(() => {
+            For({ start: 4 }, ({ i }) => { void i; });
+            return f32(0.0);
+        }, { name: 'backFn', params: [] });
+
+        const call = fn() as Node<'f32'>;
+        const result = compile({
+            position: positionClip,
+            color: vec4(call, call, call, f32(1.0)),
+        });
+        // Should have backwards loop: start = 4u - 1u, condition >=, step --
+        expect(result.code).toMatch(/for\s*\(var \w+ : u32 = 4u - 1u; \w+ >= 0u; \w+--\)/);
+    });
+
+    test('For with explicit start, end, step emits custom loop', () => {
+        const fn = Fn(() => {
+            For({ start: 2, end: 10, condition: '<', update: 2 }, ({ i }) => { void i; });
+            return f32(0.0);
+        }, { name: 'stepFn', params: [] });
+
+        const call = fn() as Node<'f32'>;
+        const result = compile({
+            position: positionClip,
+            color: vec4(call, call, call, f32(1.0)),
+        });
+        // start=2u, end=10u, step+=2u
+        expect(result.code).toMatch(/for\s*\(var \w+ : u32 = 2u; \w+ < 10u; \w+ \+= 2u\)/);
+    });
+
+    test('For with type i32 emits i32 index variable', () => {
+        const fn = Fn(() => {
+            For({ end: 4, type: 'i32' }, ({ i }) => { void i; });
+            return f32(0.0);
+        }, { name: 'i32Fn', params: [] });
+
+        const call = fn() as Node<'f32'>;
+        const result = compile({
+            position: positionClip,
+            color: vec4(call, call, call, f32(1.0)),
+        });
+        expect(result.code).toMatch(/for\s*\(var \w+ : i32 = 0i; \w+ < 4i; \w+\+\+\)/);
+    });
+
+    test('For with node end emits node expression as bound', () => {
+        const countFn = Fn((n: Node<WgslType>) => {
+            For({ end: n as Node<'u32'> }, ({ i }) => { void i; });
+            return f32(0.0);
+        }, {
+            name: 'nodeEndFn',
+            params: [{ name: 'n', type: S.u32() }],
+        });
+
+        const call = countFn(u32(5)) as Node<'f32'>;
+        const result = compile({
+            position: positionClip,
+            color: vec4(call, call, call, f32(1.0)),
+        });
+        expect(result.code).toMatch(/for\s*\(var \w+ : u32 = 0u; \w+ < \w+; \w+\+\+\)/);
+    });
+
+    test('While emits while loop with condition', () => {
+        const fn = Fn(() => {
+            const counter = toVar('u32', u32(0)) as Node<'u32'>;
+            While(counter.lt(u32(10)), () => {
+                counter.assign(counter.add(u32(1)));
+            });
+            return f32(0.0);
+        }, { name: 'whileFn', params: [] });
+
+        const call = fn() as Node<'f32'>;
+        const result = compile({
+            position: positionClip,
+            color: vec4(call, call, call, f32(1.0)),
+        });
+        expect(result.code).toContain('while (');
+        // BinopNode emits with its own parens: while ((var_N < 10u))
+        expect(result.code).toMatch(/while\s*\(\(\w+ < 10u\)\)/);
+    });
+
+    test('Break emits break; statement inside loop', () => {
+        const fn = Fn(() => {
+            For({ end: 10 }, ({ i }) => {
+                void i;
+                Break();
+            });
+            return f32(0.0);
+        }, { name: 'breakFn', params: [] });
+
+        const call = fn() as Node<'f32'>;
+        const result = compile({
+            position: positionClip,
+            color: vec4(call, call, call, f32(1.0)),
+        });
+        expect(result.code).toContain('break;');
+    });
+
+    test('Continue emits continue; statement inside loop', () => {
+        const fn = Fn(() => {
+            For({ end: 10 }, ({ i }) => {
+                void i;
+                Continue();
+            });
+            return f32(0.0);
+        }, { name: 'continueFn', params: [] });
+
+        const call = fn() as Node<'f32'>;
+        const result = compile({
+            position: positionClip,
+            color: vec4(call, call, call, f32(1.0)),
+        });
+        expect(result.code).toContain('continue;');
+    });
+
+    test('nested For loops emit correctly indented and independent index variables', () => {
+        const fn = Fn(() => {
+            For({ end: 4 }, ({ i }) => {
+                For({ end: 8 }, ({ i: j }) => {
+                    void i;
+                    void j;
+                });
+            });
+            return f32(0.0);
+        }, { name: 'nestedFn', params: [] });
+
+        const call = fn() as Node<'f32'>;
+        const result = compile({
+            position: positionClip,
+            color: vec4(call, call, call, f32(1.0)),
+        });
+        // Both loops present
+        const forMatches = [...result.code.matchAll(/for\s*\(var (\w+) : u32 = 0u; \w+ < \d+u; \w+\+\+\)/g)];
+        expect(forMatches).toHaveLength(2);
+        // Outer loop bound is 4u, inner is 8u
+        expect(result.code).toMatch(/for\s*\(var \w+ : u32 = 0u; \w+ < 4u; \w+\+\+\)/);
+        expect(result.code).toMatch(/for\s*\(var \w+ : u32 = 0u; \w+ < 8u; \w+\+\+\)/);
+        // The two loops use distinct index variable names
+        const [outerIdx, innerIdx] = forMatches.map(m => m[1]);
+        expect(outerIdx).not.toBe(innerIdx);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Nested if conditions
+// ---------------------------------------------------------------------------
+
+describe('nested if WGSL output', () => {
+    test('nested If emits correctly indented if blocks', () => {
+        const fn = Fn(() => {
+            const x = toVar('f32', f32(0.5)) as Node<'f32'>;
+            const y = toVar('f32', f32(0.25)) as Node<'f32'>;
+            If(x.gt(f32(0.0)), () => {
+                If(y.lt(f32(1.0)), () => {
+                    x.assign(f32(1.0));
+                });
+            });
+            return x;
+        }, { name: 'nestedIfFn', params: [] });
+
+        const call = fn() as Node<'f32'>;
+        const result = compile({
+            position: positionClip,
+            color: vec4(call, call, call, f32(1.0)),
+        });
+        // Both if blocks present
+        const ifMatches = [...result.code.matchAll(/if\s*\(/g)];
+        expect(ifMatches.length).toBeGreaterThanOrEqual(2);
+        // Outer condition checks x > 0.0, inner checks y < 1.0
+        expect(result.code).toMatch(/if\s*\(\(\w+ > 0.0\)\)/);
+        expect(result.code).toMatch(/if\s*\(\(\w+ < 1.0\)\)/);
+    });
+
+    test('If/Else emits both branches', () => {
+        const fn = Fn(() => {
+            const x = toVar('f32', f32(0.0)) as Node<'f32'>;
+            If(x.gt(f32(0.5)), () => {
+                x.assign(f32(1.0));
+            }).Else(() => {
+                x.assign(f32(0.0));
+            });
+            return x;
+        }, { name: 'ifElseFn', params: [] });
+
+        const call = fn() as Node<'f32'>;
+        const result = compile({
+            position: positionClip,
+            color: vec4(call, call, call, f32(1.0)),
+        });
+        expect(result.code).toContain('if (');
+        expect(result.code).toContain('} else {');
+    });
+
+    test('If nested inside For loop emits correct structure', () => {
+        const fn = Fn(() => {
+            const acc = toVar('f32', f32(0.0)) as Node<'f32'>;
+            For({ end: 4 }, ({ i }) => {
+                void i;
+                If(acc.lt(f32(2.0)), () => {
+                    acc.assign(acc.add(f32(1.0)));
+                });
+            });
+            return acc;
+        }, { name: 'forIfFn', params: [] });
+
+        const call = fn() as Node<'f32'>;
+        const result = compile({
+            position: positionClip,
+            color: vec4(call, call, call, f32(1.0)),
+        });
+        expect(result.code).toMatch(/for\s*\(var \w+ : u32 = 0u; \w+ < 4u; \w+\+\+\)/);
+        expect(result.code).toContain('if (');
+        // if block appears inside (after) the for header
+        const forPos = result.code.indexOf('for (');
+        const ifPos = result.code.indexOf('if (');
+        expect(ifPos).toBeGreaterThan(forPos);
     });
 });

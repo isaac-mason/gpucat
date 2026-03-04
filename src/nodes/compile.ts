@@ -49,19 +49,23 @@ import {
     type FieldNode,
     type FnNode,
     type ForNode,
+    type ForRange,
     type IfNode,
     type IndexNode,
     type InstancedBufferAttributeNode,
     type Node,
+    type ParamDesc,
     type RawNode,
     type ReturnNode,
     type SamplerNode,
+    type ScalarType,
     type StorageNode,
     type StructNode,
     type TextureNode,
     type UniformNode,
     type VarNode,
     type VaryingNode,
+    type WhileNode,
     type WgslType,
 } from './nodes';
 import { collectGraph, refCount, topoSort } from './collect';
@@ -270,6 +274,83 @@ function constLiteral(type: string, value: number | number[] | string): string {
 }
 
 // ---------------------------------------------------------------------------
+// ForRange → WGSL for-loop header builder
+// ---------------------------------------------------------------------------
+
+/**
+ * Given a ForRange descriptor and pre-built start/end/update expression strings,
+ * return the full `for (...)` or `while (...)` header snippet.
+ *
+ * This is used by both emit paths (topo-sort and emitStack) to keep them in sync.
+ */
+function buildForHeader(
+    range: ForRange,
+    iName: string,
+    getScalarExpr: (v: Node<WgslType> | number, type: ScalarType) => string,
+): string {
+    const type: ScalarType = range.type ?? 'u32';
+
+    // Resolve start/end to strings
+    const rawStart = range.start !== undefined
+        ? (typeof range.start === 'number' ? constLiteral(type, range.start) : getScalarExpr(range.start, type))
+        : undefined;
+    const rawEnd = range.end !== undefined
+        ? (typeof range.end === 'number' ? constLiteral(type, range.end) : getScalarExpr(range.end, type))
+        : undefined;
+
+    let startSnippet: string;
+    let endSnippet: string;
+    let condition: string;
+    let updateSnippet: string;
+
+    if (rawStart !== undefined && rawEnd === undefined) {
+        // Backwards: start only → count down to 0 (start at start-1, condition >=0, step --)
+        startSnippet = `${rawStart} - ${constLiteral(type, 1)}`;
+        endSnippet = constLiteral(type, 0);
+        condition = range.condition ?? '>=';
+        const defaultUpdate = condition.includes('<') ? '++' : '--';
+        updateSnippet = buildUpdateSnippet(range.update, iName, type, defaultUpdate);
+    } else {
+        // Forward (or explicit both): default start=0
+        startSnippet = rawStart ?? constLiteral(type, 0);
+        endSnippet = rawEnd ?? constLiteral(type, 0);
+
+        if (range.condition !== undefined) {
+            condition = range.condition;
+        } else {
+            // Infer from numeric start/end when possible, else default to '<'
+            const numStart = typeof range.start === 'number' ? range.start : 0;
+            const numEnd = typeof range.end === 'number' ? range.end : undefined;
+            condition = (numEnd !== undefined && numStart > numEnd) ? '>=' : '<';
+        }
+
+        const defaultUpdate = condition.includes('<') ? '++' : '--';
+        updateSnippet = buildUpdateSnippet(range.update, iName, type, defaultUpdate);
+    }
+
+    return `for (var ${iName} : ${type} = ${startSnippet}; ${iName} ${condition} ${endSnippet}; ${updateSnippet})`;
+}
+
+function buildUpdateSnippet(
+    update: ForRange['update'],
+    iName: string,
+    type: ScalarType,
+    defaultOp: '++' | '--',
+): string {
+    if (update === undefined || update === null) {
+        return `${iName}${defaultOp}`;
+    }
+    if (typeof update === 'number') {
+        const delta = constLiteral(type, Math.abs(update));
+        const op = defaultOp.includes('+') ? '+=' : '-=';
+        return `${iName} ${op} ${delta}`;
+    }
+    // Node — caller must have pre-built it; we receive it as a string via getScalarExpr
+    // This path is not used directly here — the caller inlines it
+    return `${iName}${defaultOp}`;
+}
+
+// ---------------------------------------------------------------------------
 // Builtin WGSL variable names (known to the renderer)
 // ---------------------------------------------------------------------------
 
@@ -311,7 +392,10 @@ class CompileContext {
     private samplerNodes: Map<string, SamplerNode> = new Map();
 
     // FnNodes encountered (via CallNode.fnNode), in encounter order
-    private fnNodes: Map<string, FnNode<WgslType>> = new Map();
+    // Stores the fn AND its single traced result so both collection and
+    // emission use the exact same node instances (trace() creates fresh
+    // ParamNode IDs each call, so we must only call it once).
+    private fnNodes: Map<string, { fn: FnNode<WgslType>; traced: ReturnType<FnNode<WgslType>['trace']> }> = new Map();
 
     // Per-graph ref counts for let-binding extraction
     private vertRefCounts: Map<string, number> = new Map();
@@ -506,11 +590,16 @@ class CompileContext {
     /** Recursively collect FnNode and any nested FnNodes in its body. */
     private collectFnNode(fn: FnNode<WgslType>): void {
         if (this.fnNodes.has(fn.id)) return;
-        this.fnNodes.set(fn.id, fn);
-        // Trace the fn body and collect any inner fn nodes
-        const { body, output } = fn.trace();
+        // Trace once and cache — trace() creates fresh ParamNode IDs each call,
+        // so both collection and emission must use the same traced instance.
+        const traced = fn.trace();
+        this.fnNodes.set(fn.id, { fn, traced });
+        const { body, output } = traced;
         const bodyGraph = collectGraph(output);
-        for (const node of bodyGraph.nodes.values()) {
+        // Add all nodes from the output expression graph to allNodes so
+        // getExpr can resolve them during emit.
+        for (const [id, node] of bodyGraph.nodes) {
+            if (!this.allNodes.has(id)) this.allNodes.set(id, node);
             if (node.kind === 'call') {
                 const cn = node as CallNode<WgslType>;
                 if (cn.fnNode && !this.fnNodes.has(cn.fnNode.id)) {
@@ -518,7 +607,13 @@ class CompileContext {
                 }
             }
         }
-        // Also scan the stack for nested fn nodes
+        // Also walk the stack (statement nodes like while/for/if/var/assign)
+        // and add all reachable expression nodes to allNodes.
+        const stackGraph = collectGraph(body);
+        for (const [id, node] of stackGraph.nodes) {
+            if (!this.allNodes.has(id)) this.allNodes.set(id, node);
+        }
+        // Scan the stack for nested fn nodes
         this.collectFnNodesInStack(body);
     }
 
@@ -550,6 +645,15 @@ class CompileContext {
                 this.collectFnNodesInStack(n.body);
                 break;
             }
+            case 'while': {
+                const n = node as WhileNode;
+                this.collectFnNodesInStack(n.body);
+                break;
+            }
+            case 'break':
+            case 'continue': {
+                break;
+            }
             case 'stack': {
                 this.collectFnNodesInStack(node);
                 break;
@@ -568,8 +672,8 @@ class CompileContext {
         for (const nested of def.nestedDefs.values()) {
             this.registerStructDef(nested);
         }
-        if (!this.structNodes.has(def.typeName)) {
-            this.structNodes.set(def.typeName, def.node);
+        if (!this.structNodes.has(def.wgslType)) {
+            this.structNodes.set(def.wgslType, def.node);
         }
     }
 
@@ -639,8 +743,8 @@ class CompileContext {
         if (lines.length > 0) lines.push('');
 
         // --- User-defined Fn declarations ---
-        for (const fn of this.fnNodes.values()) {
-            lines.push(this.emitFnDecl(fn));
+        for (const { fn, traced } of this.fnNodes.values()) {
+            lines.push(this.emitFnDecl(fn, traced));
             lines.push('');
         }
 
@@ -715,10 +819,25 @@ class CompileContext {
     // User Fn declarations
     // -----------------------------------------------------------------------
 
-    private emitFnDecl(fn: FnNode<WgslType>): string {
-        const { params, body, output } = fn.trace();
-        const paramList = params.map((_p, i) => `p${i} : ${wgslTypeName(fn.paramDescs[i].wgslType)}`).join(', ');
+    private emitFnDecl(fn: FnNode<WgslType>, traced: ReturnType<FnNode<WgslType>['trace']>): string {
+        const { params, body, output } = traced;
+        // Register param nodes into allNodes so getExpr can resolve them
+        for (const p of params) {
+            if (!this.allNodes.has(p.id)) this.allNodes.set(p.id, p);
+        }
+        const paramList = params.map((p, i) => {
+            const name = p.paramName ?? `p${i}`;
+            const desc = fn.paramDescs[i];
+            const wgslType = 'name' in desc
+                ? (desc as ParamDesc).type.wgslType
+                : (desc as { wgslType: string }).wgslType;
+            return `${name} : ${wgslTypeName(wgslType)}`;
+        }).join(', ');
         const letBindings = new Map<string, string>();
+        // Pre-bind param names so getExpr resolves them by name
+        for (const p of params) {
+            letBindings.set(p.id, p.paramName ?? `p${params.indexOf(p)}`);
+        }
         const bodyLines = this.emitStack(body, params, letBindings, '    ');
         const retExpr = this.getExpr(output.id, letBindings, params);
         return [
@@ -911,16 +1030,34 @@ class CompileContext {
                 }
                 case 'for': {
                     const n = node as ForNode;
-                    const countExpr = this.getExpr(n.count.id, letBindings, params);
                     const iName = `i_${letCounter++}`;
                     letBindings.set(n.indexVar.id, iName);
-                    lines.push(`${indent}for (var ${iName} : u32 = 0u; ${iName} < ${countExpr}; ${iName}++) {`);
+                    const getExprForRange = (v: Node<WgslType> | number, _type: ScalarType) =>
+                        typeof v === 'number' ? constLiteral(_type, v) : this.getExpr((v as Node<WgslType>).id, letBindings, params);
+                    const header = buildForHeader(n.range, iName, getExprForRange);
+                    lines.push(`${indent}${header} {`);
                     for (const s of this.emitStack(n.body, params ?? [], letBindings, indent + '    ')) {
                         lines.push(s);
                     }
                     lines.push(`${indent}}`);
                     continue;
                 }
+                case 'while': {
+                    const n = node as WhileNode;
+                    const condExpr = this.getExpr(n.condition.id, letBindings, params);
+                    lines.push(`${indent}while (${condExpr}) {`);
+                    for (const s of this.emitStack(n.body, params ?? [], letBindings, indent + '    ')) {
+                        lines.push(s);
+                    }
+                    lines.push(`${indent}}`);
+                    continue;
+                }
+                case 'break':
+                    lines.push(`${indent}break;`);
+                    continue;
+                case 'continue':
+                    lines.push(`${indent}continue;`);
+                    continue;
                 case 'return': {
                     const n = node as ReturnNode<WgslType>;
                     const valExpr = this.getExpr(n.value.id, letBindings, params);
@@ -994,16 +1131,34 @@ class CompileContext {
                 }
                 case 'for': {
                     const n = stmt as ForNode;
-                    const countExpr = this.getExpr(n.count.id, letBindings, params);
                     const iName = `i_${stmt.id}`;
                     letBindings.set(n.indexVar.id, iName);
-                    lines.push(`${indent}for (var ${iName} : u32 = 0u; ${iName} < ${countExpr}; ${iName}++) {`);
+                    const getExprForRange = (v: Node<WgslType> | number, _type: ScalarType) =>
+                        typeof v === 'number' ? constLiteral(_type, v) : this.getExpr((v as Node<WgslType>).id, letBindings, params);
+                    const header = buildForHeader(n.range, iName, getExprForRange);
+                    lines.push(`${indent}${header} {`);
                     for (const s of this.emitStack(n.body, params, letBindings, indent + '    ')) {
                         lines.push(s);
                     }
                     lines.push(`${indent}}`);
                     break;
                 }
+                case 'while': {
+                    const n = stmt as WhileNode;
+                    const condExpr = this.getExpr(n.condition.id, letBindings, params);
+                    lines.push(`${indent}while (${condExpr}) {`);
+                    for (const s of this.emitStack(n.body, params, letBindings, indent + '    ')) {
+                        lines.push(s);
+                    }
+                    lines.push(`${indent}}`);
+                    break;
+                }
+                case 'break':
+                    lines.push(`${indent}break;`);
+                    break;
+                case 'continue':
+                    lines.push(`${indent}continue;`);
+                    break;
                 case 'return': {
                     const n = stmt as ReturnNode<WgslType>;
                     const valExpr = this.getExpr(n.value.id, letBindings, params);
@@ -1156,11 +1311,7 @@ class CompileContext {
 
             case 'param': {
                 const n = node as ParamNode<WgslType>;
-                // Look up by paramIndex in the provided params list
-                if (params && n.paramIndex < params.length) {
-                    return `p${n.paramIndex}`;
-                }
-                return `p${n.paramIndex}`;
+                return n.paramName ?? `p${n.paramIndex}`;
             }
 
             case 'var': {
@@ -1178,6 +1329,9 @@ class CompileContext {
             case 'return':
             case 'stack':
             case 'fn':
+            case 'while':
+            case 'break':
+            case 'continue':
                 // Statement-level nodes — should not appear inline
                 return `/* stmt:${node.kind} */`;
 

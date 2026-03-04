@@ -62,7 +62,7 @@ export class Geometry {
 }
 
 // ---------------------------------------------------------------------------
-// box() — unit box geometry with position + normal + uv
+// createBoxGeometry() — unit box geometry with position + normal + uv
 // ---------------------------------------------------------------------------
 
 /**
@@ -71,7 +71,7 @@ export class Geometry {
  * Attributes: position (float32x3), normal (float32x3), uv (float32x2).
  * Indexed draw (Uint16 indices).
  */
-export function box(width = 1, height = 1, depth = 1): Geometry {
+export function createBoxGeometry(width = 1, height = 1, depth = 1): Geometry {
     const hw = width  / 2;
     const hh = height / 2;
     const hd = depth  / 2;
@@ -124,10 +124,10 @@ export function box(width = 1, height = 1, depth = 1): Geometry {
 }
 
 // ---------------------------------------------------------------------------
-// sphere() — UV sphere geometry
+// createSphereGeometry() — UV sphere geometry
 // ---------------------------------------------------------------------------
 
-export function sphere(radius = 0.5, widthSegments = 16, heightSegments = 8): Geometry {
+export function createSphereGeometry(radius = 0.5, widthSegments = 16, heightSegments = 8): Geometry {
     const positions: number[] = [];
     const normals: number[] = [];
     const uvs: number[] = [];
@@ -167,10 +167,10 @@ export function sphere(radius = 0.5, widthSegments = 16, heightSegments = 8): Ge
 }
 
 // ---------------------------------------------------------------------------
-// plane() — XY plane geometry
+// createPlaneGeometry() — XY plane geometry
 // ---------------------------------------------------------------------------
 
-export function plane(width = 1, height = 1): Geometry {
+export function createPlaneGeometry(width = 1, height = 1): Geometry {
     const hw = width  / 2;
     const hh = height / 2;
 

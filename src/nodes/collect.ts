@@ -21,6 +21,7 @@ import type {
     ReturnNode,
     StackNode,
     VarNode,
+    WhileNode,
     WgslType,
 } from './nodes.js';
 
@@ -114,8 +115,21 @@ export function depsOf(node: Node<WgslType>): Node<WgslType>[] {
 
         case 'for': {
             const n = node as ForNode;
-            return [n.count, n.indexVar, n.body];
+            const deps: Node<WgslType>[] = [n.indexVar, n.body];
+            if (n.range.start !== undefined && typeof n.range.start !== 'number') deps.push(n.range.start);
+            if (n.range.end !== undefined && typeof n.range.end !== 'number') deps.push(n.range.end);
+            if (n.range.update !== undefined && typeof n.range.update !== 'number') deps.push(n.range.update as Node<WgslType>);
+            return deps;
         }
+
+        case 'while': {
+            const n = node as WhileNode;
+            return [n.condition, n.body];
+        }
+
+        case 'break':
+        case 'continue':
+            return [];
 
         case 'param':
             // Parameters have no deps — they are leaf nodes (placeholders).

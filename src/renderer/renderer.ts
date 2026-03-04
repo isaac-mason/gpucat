@@ -1,5 +1,5 @@
 /**
- * renderer.ts — WebGPU renderer. Drives pass execution for RenderPipeline.
+ * renderer.ts — WebGPU renderer.
  *
  * Usage:
  *   const renderer = new WebGPURenderer({ antialias: true });
@@ -8,16 +8,14 @@
  *   renderer.setSize(window.innerWidth, window.innerHeight);
  *
  *   const scenePass = pass(scene, camera);
- *   const pipeline = new RenderPipeline();
- *   pipeline.outputNode = scenePass.getTextureNode();
  *
  *   function frame() {
- *       pipeline.render(renderer);
+ *       renderer.render(scenePass.getTextureNode());
  *       requestAnimationFrame(frame);
  *   }
  *   requestAnimationFrame(frame);
  *
- * Frame loop (inside RenderPipeline.render → renderer._executePipeline()):
+ * Frame loop (inside renderer.render()):
  *   1. Advance time, upload Time UBO (group 0)
  *   2. Collect all PassNodes from outputNode graph (BFS via collectPassNodes)
  *   3. For each PassNode:
@@ -40,7 +38,6 @@ import { Material } from '../scene/material.js';
 import { Geometry } from '../scene/geometry.js';
 import { raw, builtin, type Node, type WgslType, VaryingNode, RawNode } from '../nodes/nodes.js';
 import { collectPassNodes, type PassNode } from '../nodes/pass-node.js';
-import type { RenderPipeline } from './render-pipeline.js';
 import type { CompileResult } from '../nodes/compile.js';
 
 const _normalMatrix = mat3.create();
@@ -107,6 +104,9 @@ export class WebGPURenderer {
     private elapsed = 0;
     private lastTimestamp = 0;
 
+    /** Clear color for the final swapchain composite pass. Defaults to opaque black. */
+    clearColor: [number, number, number, number] = [0, 0, 0, 1];
+
     // -----------------------------------------------------------------------
     // Internal fullscreen quad state
     // -----------------------------------------------------------------------
@@ -115,11 +115,12 @@ export class WebGPURenderer {
     private _fullscreenGeometry: Geometry | null = null;
 
     /**
-     * Per-RenderPipeline keys for the internal fullscreen material UBO and dummy mesh UBO.
-     * Keyed by RenderPipeline object identity.
+     * Stable keys for the internal fullscreen material UBO and dummy mesh UBO.
+     * These are renderer-scoped (not per-output-node) since the fullscreen quad
+     * is always the same oversized triangle with an identity mesh transform.
      */
-    private readonly _pipelineMatUBOKeys: WeakMap<RenderPipeline, object> = new WeakMap();
-    private readonly _pipelineDummyMeshKeys: WeakMap<RenderPipeline, object> = new WeakMap();
+    private readonly _fsQuadMatUBOKey: object = {};
+    private readonly _fsQuadDummyMeshKey: object = {};
 
     constructor(opts: WebGPURendererOptions = {}) {
         let samples = 0;
@@ -211,16 +212,20 @@ export class WebGPURenderer {
     }
 
     // -----------------------------------------------------------------------
-    // _executePipeline — called by RenderPipeline.render()
+    // render() — public entry point
     // -----------------------------------------------------------------------
 
-    /** @internal — called by RenderPipeline, not intended for direct use. */
-    _executePipeline(pipeline: RenderPipeline): void {
+    /**
+     * Render the given node expression as a fullscreen quad to the swapchain.
+     * Collects all PassNodes reachable from outputNode (BFS), renders each
+     * scene into its off-screen render target, then composites the expression
+     * to the canvas.
+     *
+     * Call this once per animation frame.
+     */
+    render(outputNode: Node<WgslType>): void {
         if (!this._initialized) {
             throw new Error('[WebGPURenderer] render() called before init(). Await renderer.init() first.');
-        }
-        if (!pipeline.outputNode) {
-            throw new Error('[WebGPURenderer] RenderPipeline.outputNode is null. Set it before calling render().');
         }
 
         // Advance time.
@@ -244,13 +249,13 @@ export class WebGPURenderer {
         const h = this.domElement.height || 1;
 
         // 1. Render each PassNode's scene into its off-screen render target.
-        const passNodes = collectPassNodes(pipeline.outputNode);
+        const passNodes = collectPassNodes(outputNode);
         for (const passNode of passNodes) {
             this._renderPassNode(passNode, encoder, timeBuf, w, h);
         }
 
         // 2. Render the outputNode expression as a fullscreen quad to the swapchain.
-        this._renderOutputNode(pipeline, pipeline.outputNode, encoder, passNodes);
+        this._renderOutputNode(outputNode, encoder, passNodes);
 
         this.device.queue.submit([encoder.finish()]);
     }
@@ -296,9 +301,10 @@ export class WebGPURenderer {
         }
 
         // Build render pass descriptor targeting the passNode's off-screen textures.
+        const [cr, cg, cb, ca] = passNode.clearColor;
         const colorAttachment: GPURenderPassColorAttachment = {
             view: passNode._colorTexture!.createView(),
-            clearValue: { r: 0, g: 0, b: 0, a: 1 },
+            clearValue: { r: cr, g: cg, b: cb, a: ca },
             loadOp: 'clear',
             storeOp: 'store',
         };
@@ -399,7 +405,6 @@ export class WebGPURenderer {
     // -----------------------------------------------------------------------
 
     private _renderOutputNode(
-        pipeline: RenderPipeline,
         outputNode: Node<WgslType>,
         encoder: GPUCommandEncoder,
         passNodes: PassNode[],
@@ -436,19 +441,20 @@ export class WebGPURenderer {
 
         // Build the swapchain render pass.
         const swapchainView = this.context.getCurrentTexture().createView();
+        const [cr, cg, cb, ca] = this.clearColor;
         let colorAttachment: GPURenderPassColorAttachment;
         if (this._samples > 1 && this.msaaTexture) {
             colorAttachment = {
                 view: this.msaaTexture.createView(),
                 resolveTarget: swapchainView,
-                clearValue: { r: 0, g: 0, b: 0, a: 1 },
+                clearValue: { r: cr, g: cg, b: cb, a: ca },
                 loadOp: 'clear',
                 storeOp: 'discard',
             };
         } else {
             colorAttachment = {
                 view: swapchainView,
-                clearValue: { r: 0, g: 0, b: 0, a: 1 },
+                clearValue: { r: cr, g: cg, b: cb, a: ca },
                 loadOp: 'clear',
                 storeOp: 'store',
             };
@@ -466,7 +472,7 @@ export class WebGPURenderer {
 
         if (entry) {
             // Upload material UBO if needed (version-sum dirty check).
-            const matUBOKey = this._getPipelineMatUBOKey(pipeline);
+            const matUBOKey = this._fsQuadMatUBOKey;
             const cr = entry.compileResult;
             const versionSum = _uniformVersionSum(cr);
             if (this._uboVersionSums.get(cr) !== versionSum) {
@@ -493,7 +499,7 @@ export class WebGPURenderer {
             }
 
             // Dummy mesh UBO (identity matrices — fullscreen quad has no mesh transform).
-            const dummyMeshKey = this._getPipelineDummyMeshKey(pipeline);
+            const dummyMeshKey = this._fsQuadDummyMeshKey;
             const meshUboBuf = this.buffers.ensureRaw(
                 dummyMeshKey,
                 112, // 28 × f32
@@ -572,18 +578,6 @@ export class WebGPURenderer {
     private _getMaterialUBOKey(mesh: Mesh): object {
         let k = this.materialUBOKeys.get(mesh);
         if (!k) { k = {}; this.materialUBOKeys.set(mesh, k); }
-        return k;
-    }
-
-    private _getPipelineMatUBOKey(pipeline: RenderPipeline): object {
-        let k = this._pipelineMatUBOKeys.get(pipeline);
-        if (!k) { k = {}; this._pipelineMatUBOKeys.set(pipeline, k); }
-        return k;
-    }
-
-    private _getPipelineDummyMeshKey(pipeline: RenderPipeline): object {
-        let k = this._pipelineDummyMeshKeys.get(pipeline);
-        if (!k) { k = {}; this._pipelineDummyMeshKeys.set(pipeline, k); }
         return k;
     }
 
