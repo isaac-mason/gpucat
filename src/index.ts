@@ -123,7 +123,7 @@ export {
     itemSizeOf,
     typedArrayCtorOf,
     struct,
-} from './nodes/schema.js';
+} from './nodes/nodes.js';
 export * as S from './nodes/schema.js';
 
 // Std nodes — builtin helpers + default position graph
@@ -139,13 +139,19 @@ export {
     mesh,
     instanceIndex,
     positionClip,
-} from './nodes/std-nodes.js';
+    // Compute builtin helpers
+    globalId,
+    localId,
+    localIndex,
+    workgroupId,
+    numWorkgroups,
+} from './nodes/nodes.js';
 
 // Color
 export { Color, type ColorInput } from './utils/color.js';
 
 // Collect
-export { depsOf, collectGraph, mergeGraphs, topoSort, refCount } from './nodes/collect.js';
+export { getChildren, depsOf, collectGraph, mergeGraphs } from './nodes/collect.js';
 
 // Compile
 export {
@@ -202,3 +208,25 @@ export { collectDraws, type DrawCall } from './renderer/collect.js';
 export { WebGPURenderer, type WebGPURendererOptions } from './renderer/renderer.js';
 export { RenderTarget, type RenderTargetOptions } from './renderer/render-target.js';
 export { pass, PassNode, type PassNodeOptions, collectPassNodes } from './nodes/pass-node.js';
+
+// ---------------------------------------------------------------------------
+// Compute — ComputeNode, compile-compute, compute-pipeline
+// ---------------------------------------------------------------------------
+
+export {
+    ComputeNode,
+    compute,
+    type ComputeNodeOptions,
+    type ComputeBuiltins,
+} from './nodes/compute-node.js';
+
+export {
+    compileCompute,
+    type ComputeCompileResult,
+    type ComputeStorageEntry,
+} from './nodes/compile.js';
+
+export {
+    ComputePipelineCache,
+    type ComputePipelineEntry,
+} from './renderer/compute-pipeline.js';

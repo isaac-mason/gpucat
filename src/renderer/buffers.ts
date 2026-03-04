@@ -147,9 +147,15 @@ export class BufferCache {
         // Create buffer if it doesn't exist or is too small.
         if (!entry || entry.buf.size < byteLength) {
             entry?.buf.destroy();
+            // read_write storage nodes need COPY_SRC so the GPU can read back the
+            // buffer contents after a compute dispatch (e.g. for readback or chained
+            // compute passes). read-only nodes only need COPY_DST.
+            const storageUsage = node.access === 'read_write'
+                ? GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
+                : GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST;
             const buf = this.device.createBuffer({
                 size: byteLength,
-                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+                usage: storageUsage,
             });
             // Full upload on creation.
             this.device.queue.writeBuffer(buf, 0, node.data.buffer as ArrayBuffer, node.data.byteOffset, node.data.byteLength);

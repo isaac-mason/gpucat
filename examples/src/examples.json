@@ -13,5 +13,10 @@
         "title": "instancing-storage-buffer",
         "description": "35 instanced boxes using storage buffers (mat4x4f transforms + vec4f colours) indexed by instance_index, combined with an instancedBufferAttribute for per-instance spin offset.",
         "tags": ["webgpu", "3d", "renderer", "instancing", "storage-buffer", "node-graph"]
+    },
+    "example-compute-particles": {
+        "title": "compute-particles",
+        "description": "8192 GPU-simulated particles updated each frame by a @compute shader (renderer.compute) and rendered as instanced quads — no CPU readback.",
+        "tags": ["webgpu", "3d", "renderer", "compute", "particles", "node-graph"]
     }
 }

@@ -1,5 +1,5 @@
 /**
- * collect.ts — Graph walk, topological sort, and ref counting.
+ * collect.ts — Graph walk utilities.
  *
  * Functions here are pure: they take node objects and return plain data.
  * No GPU calls, no side effects.
@@ -26,14 +26,14 @@ import type {
 } from './nodes.js';
 
 // ---------------------------------------------------------------------------
-// depsOf — returns direct dependency nodes for any node kind
+// getChildren — returns direct dependency nodes for any node kind
 // ---------------------------------------------------------------------------
 
 /**
  * Returns the immediate dependency nodes of `node`.
  * The returned array is in the order they should be visited (left-to-right).
  */
-export function depsOf(node: Node<WgslType>): Node<WgslType>[] {
+export function getChildren(node: Node<WgslType>): Node<WgslType>[] {
     switch (node.kind) {
         case 'const':
         case 'uniform':
@@ -177,7 +177,7 @@ export function collectGraph(root: Node<WgslType>): NodeGraph {
     function walk(node: Node<WgslType>): void {
         if (nodes.has(node.id)) return;
         nodes.set(node.id, node);
-        for (const dep of depsOf(node)) {
+        for (const dep of getChildren(node)) {
             walk(dep);
         }
     }
@@ -200,105 +200,8 @@ export function mergeGraphs(...graphs: NodeGraph[]): Map<string, Node<WgslType>>
     return merged;
 }
 
-// ---------------------------------------------------------------------------
-// topoSort — Kahn's algorithm
-// ---------------------------------------------------------------------------
-
 /**
- * Returns node IDs in topological evaluation order (all deps before dependents).
- * `nodes` should be the full reachable subgraph (from collectGraph).
- * `rootId` is used to anchor the traversal but Kahn's algorithm processes all nodes.
- *
- * Throws if a cycle is detected (shouldn't happen with content-addressed IDs
- * since cycles would require a node to hash its own ID before it exists).
+ * @deprecated Use `getChildren` instead.
+ * Kept as an alias for backward compatibility with existing code and tests.
  */
-export function topoSort(nodes: ReadonlyMap<string, Node<WgslType>>, rootId: string): string[] {
-    // In Kahn's algorithm:
-    //   in-degree[X] = number of nodes that have X as a direct dependency
-    //   (i.e. number of nodes that "point to" X, meaning X must come before them)
-    //
-    // Nodes with in-degree 0 have no dependents — they are safe to emit first (leaves).
-    // Each time we emit a node, we decrement the in-degree of every node that depends on it.
-    //
-    // We also build a reverse-edge map: dep → [nodes that use dep] for O(1) neighbour lookup.
-
-    const inDegree = new Map<string, number>();
-    // dependents[id] = list of node IDs that list `id` as a direct dep
-    const dependents = new Map<string, string[]>();
-
-    for (const id of nodes.keys()) {
-        inDegree.set(id, 0);
-        dependents.set(id, []);
-    }
-
-    // For each node, increment in-degree of each of its deps' dependents
-    // i.e. "node X depends on dep D" → D is referenced by X → X's count goes up
-    for (const [id, node] of nodes) {
-        for (const dep of depsOf(node)) {
-            if (!nodes.has(dep.id)) continue;
-            // dep must come before id, so id's in-degree increases
-            inDegree.set(id, (inDegree.get(id) ?? 0) + 1);
-            dependents.get(dep.id)!.push(id);
-        }
-    }
-
-    // Seed queue with nodes that have no deps (can be emitted immediately)
-    const queue: string[] = [];
-    for (const [id, deg] of inDegree) {
-        if (deg === 0) queue.push(id);
-    }
-
-    const sorted: string[] = [];
-
-    while (queue.length > 0) {
-        const id = queue.shift()!;
-        sorted.push(id);
-        // For each node that depends on the just-emitted node, decrement its in-degree
-        for (const dependentId of dependents.get(id) ?? []) {
-            const deg = (inDegree.get(dependentId) ?? 0) - 1;
-            inDegree.set(dependentId, deg);
-            if (deg === 0) queue.push(dependentId);
-        }
-    }
-
-    if (sorted.length !== nodes.size) {
-        throw new Error(`topoSort: cycle detected in node graph (sorted ${sorted.length} of ${nodes.size} nodes)`);
-    }
-
-    // The root should naturally end up last (highest reverse-dep depth).
-    // If for some reason it doesn't (e.g. isolated sub-graphs), move it to the end.
-    const rootIdx = sorted.indexOf(rootId);
-    if (rootIdx !== -1 && rootIdx !== sorted.length - 1) {
-        sorted.splice(rootIdx, 1);
-        sorted.push(rootId);
-    }
-
-    return sorted;
-}
-
-// ---------------------------------------------------------------------------
-// refCount — how many times each node is referenced
-// ---------------------------------------------------------------------------
-
-/**
- * Returns a map of node id → reference count within the subgraph.
- * Nodes with count > 1 should be extracted to `let` bindings by the compiler
- * to avoid duplicating work.
- */
-export function refCount(nodes: ReadonlyMap<string, Node<WgslType>>): Map<string, number> {
-    const counts = new Map<string, number>();
-
-    for (const id of nodes.keys()) {
-        counts.set(id, 0);
-    }
-
-    for (const node of nodes.values()) {
-        for (const dep of depsOf(node)) {
-            if (counts.has(dep.id)) {
-                counts.set(dep.id, (counts.get(dep.id) ?? 0) + 1);
-            }
-        }
-    }
-
-    return counts;
-}
+export const depsOf = getChildren;

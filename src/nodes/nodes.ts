@@ -10,6 +10,77 @@
  * exported for convenience and for use without chaining.
  */
 
+import { getChildren as _getChildren } from './collect';
+import { constLiteral, wgslTypeName, buildForHeader } from './wgsl-utils';
+import type { WgslBuilder } from './compile';
+import { type WgslDesc, type StructSchema, type ArrayDesc, itemSizeOf, typedArrayCtorOf, isStructDef } from './schema';
+export { array, isArrayDesc, isStructDef, type WgslDesc, type ArrayDesc, type StructSchema, itemSizeOf, typedArrayCtorOf } from './schema';
+
+
+// ---------------------------------------------------------------------------
+// StructDef / StructInstance — defined here so they can reference StructNode
+// ---------------------------------------------------------------------------
+
+export type StructInstance<S extends StructSchema> = {
+    readonly $node: Node<WgslType>;
+} & {
+    readonly [K in keyof S]: Node<S[K]['wgslType'] & WgslType>;
+};
+
+export type StructDef<S extends StructSchema> = WgslDesc<string> & {
+    readonly schema: S;
+    readonly members: StructMember[];
+    readonly node: StructNode;
+    readonly nestedDefs: ReadonlyMap<string, StructDef<StructSchema>>;
+    instantiate<N extends Node<WgslType>>(base: N): StructInstance<S>;
+};
+
+
+// ---------------------------------------------------------------------------
+// Struct registry + struct() — live here to avoid circular imports
+// (StructNode and FieldNode are defined later in this file)
+// ---------------------------------------------------------------------------
+
+const _structNodeRegistry: WeakMap<StructNode, StructDef<StructSchema>> = new WeakMap();
+const _structNameRegistry: Map<string, StructDef<StructSchema>> = new Map();
+
+export function lookupStructDef(node: StructNode): StructDef<StructSchema> | undefined {
+    return _structNodeRegistry.get(node);
+}
+
+export function lookupStructDefByName(wgslType: string): StructDef<StructSchema> | undefined {
+    return _structNameRegistry.get(wgslType);
+}
+
+export function struct<S extends StructSchema>(wgslType: string, schema: S): StructDef<S> {
+    const members: StructMember[] = Object.entries(schema).map(([name, field]) => ({
+        name,
+        type: field.wgslType,
+    }));
+    const node = new StructNode(wgslType, members);
+
+    const nestedDefs: Map<string, StructDef<StructSchema>> = new Map();
+    for (const field of Object.values(schema)) {
+        if (isStructDef(field)) {
+            nestedDefs.set(field.wgslType, field as unknown as StructDef<StructSchema>);
+        }
+    }
+
+    function instantiate<N extends Node<WgslType>>(base: N): StructInstance<S> {
+        const result: Record<string, Node<WgslType>> = { $node: base };
+        for (const [name, field] of Object.entries(schema)) {
+            result[name] = new FieldNode(field.wgslType as WgslType, base, name);
+        }
+        return result as StructInstance<S>;
+    }
+
+    const def: StructDef<S> = { wgslType, schema, members, node, nestedDefs, instantiate };
+    _structNodeRegistry.set(node, def);
+    _structNameRegistry.set(wgslType, def);
+    return def;
+}
+
+
 /* wgsl type vocabulary */
 
 export type ScalarType = 'f32' | 'i32' | 'u32' | 'bool';
@@ -87,7 +158,7 @@ export type NodeKind =
     | 'return';
 
 export type StructMember = { readonly name: string; readonly type: WgslType };
-export type BuiltinKind = 'camera' | 'instance_index' | 'instance_data' | 'mesh' | 'time' | 'vertex_index';
+export type BuiltinKind = 'camera' | 'instance_index' | 'instance_data' | 'mesh' | 'time' | 'vertex_index' | 'global_invocation_id' | 'local_invocation_id' | 'local_invocation_index' | 'workgroup_id' | 'num_workgroups';
 export type BinopOp = '+' | '-' | '*' | '/' | '%' | '==' | '!=' | '<' | '>' | '<=' | '>=';
 
 // ---------------------------------------------------------------------------
@@ -415,6 +486,28 @@ export class Node<T extends WgslType> {
     get agbr(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'wyzx'); }
     get abrg(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'wzxy'); }
     get abgr(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'wzyx'); }
+
+    /**
+     * Returns the immediate child nodes of this node.
+     * Delegates to the module-level getChildren() from collect.ts.
+     */
+    getChildren(): Node<WgslType>[] { return _getChildren(this); }
+
+    /**
+     * Setup pass: register any resources this node owns into the builder.
+     * Base implementation is a no-op; resource-owning nodes override this.
+     */
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    setup(_builder: WgslBuilder): void { /* no-op */ }
+
+    /**
+     * Generate pass: return the WGSL expression string for this node,
+     * or null for statement nodes (side-effect: emits into builder.flow).
+     * Base implementation returns a comment indicating a missing override.
+     */
+    generate(_builder: WgslBuilder): string | null {
+        return `/* unimplemented generate for kind:${this.kind} */`;
+    }
 }
 
 // Use .field() for typed struct member access.
@@ -429,6 +522,10 @@ export class ConstNode<T extends WgslType> extends Node<T> {
         readonly value: number | number[] | string,
     ) {
         super(computeId('const', { type, value }), 'const', type);
+    }
+
+    override generate(_builder: WgslBuilder): string {
+        return constLiteral(this.type, this.value);
     }
 }
 
@@ -449,6 +546,19 @@ export class UniformNode<T extends WgslType> extends Node<T> {
         super(computeId('uniform', { type, uniformId, group }), 'uniform', type);
         this.group = group;
     }
+
+    override setup(builder: WgslBuilder): void {
+        if (this.group === 'material' && !builder.uniformNodes.has(this.uniformId)) {
+            builder.uniformNodes.set(this.uniformId, this as unknown as UniformNode<WgslType>);
+        }
+        const uniformDef = lookupStructDefByName(this.type);
+        if (uniformDef) builder._registerStructDef(uniformDef);
+    }
+
+    override generate(_builder: WgslBuilder): string {
+        if (this.group === 'material') return `materialUniforms.${this.uniformId}`;
+        return this.uniformId;
+    }
 }
 
 export class AttributeNode<T extends WgslType> extends Node<T> {
@@ -457,6 +567,17 @@ export class AttributeNode<T extends WgslType> extends Node<T> {
         readonly name: string,
     ) {
         super(computeId('attribute', { type, name }), 'attribute', type);
+    }
+
+    override setup(builder: WgslBuilder): void {
+        if (!builder.attributes.has(this.name)) {
+            const totalLoc = builder.attributes.size + builder.instancedAttrs.length;
+            builder.attributes.set(this.name, { kind: 'geometry', name: this.name, type: this.type, location: totalLoc });
+        }
+    }
+
+    override generate(_builder: WgslBuilder): string {
+        return `in.${this.name}`;
     }
 }
 
@@ -497,6 +618,27 @@ export class StorageNode<T extends WgslType> extends Node<T> {
         this.storageType = storageType;
         this.data = data;
         this.access = access;
+    }
+
+    override setup(builder: WgslBuilder): void {
+        if (!builder.storageNodes.has(this.id)) {
+            if (builder.input.kind === 'compute') {
+                const idx = builder.input.node.storage.findIndex((s) => s.id === this.id);
+                const name = idx >= 0 ? `_cs${idx}` : `_cs${builder.storageNodes.size}`;
+                builder.storageNodes.set(this.id, this as unknown as StorageNode<WgslType>);
+                builder.storageNames.set(this.id, name);
+            } else {
+                const name = `_stor${builder.storageNodes.size}`;
+                builder.storageNodes.set(this.id, this as unknown as StorageNode<WgslType>);
+                builder.storageNames.set(this.id, name);
+            }
+        }
+        const storageDef = lookupStructDefByName(this.type);
+        if (storageDef) builder._registerStructDef(storageDef);
+    }
+
+    override generate(builder: WgslBuilder): string {
+        return builder.storageNames.get(this.id) ?? this.id;
     }
 
     /** Mark data as needing re-upload on the next draw. Increments version. */
@@ -544,6 +686,16 @@ export class TextureNode extends Node<TextureType> {
     ) {
         super(computeId('texture', { type, textureId }), 'texture', type);
     }
+
+    override setup(builder: WgslBuilder): void {
+        if (!builder.textureNodes.has(this.textureId)) {
+            builder.textureNodes.set(this.textureId, this);
+        }
+    }
+
+    override generate(_builder: WgslBuilder): string {
+        return `${this.textureId}_tex`;
+    }
 }
 
 export class SamplerNode extends Node<SamplerType> {
@@ -556,6 +708,16 @@ export class SamplerNode extends Node<SamplerType> {
     ) {
         super(computeId('sampler', { type, samplerId }), 'sampler', type);
     }
+
+    override setup(builder: WgslBuilder): void {
+        if (!builder.samplerNodes.has(this.samplerId)) {
+            builder.samplerNodes.set(this.samplerId, this);
+        }
+    }
+
+    override generate(_builder: WgslBuilder): string {
+        return `${this.samplerId}_samp`;
+    }
 }
 
 export class VaryingNode<T extends WgslType> extends Node<T> {
@@ -565,6 +727,26 @@ export class VaryingNode<T extends WgslType> extends Node<T> {
         readonly source: Node<WgslType>,
     ) {
         super(computeId('varying', { type, name, source: source.id }), 'varying', type);
+    }
+
+    override setup(builder: WgslBuilder): void {
+        if (!builder.varyings.has(this.name)) {
+            builder.varyings.set(this.name, { name: this.name, type: this.type, location: builder.varyings.size });
+        }
+        // Walk the varying's source in setup so its resources are registered.
+        builder._setupNode(this.source);
+    }
+
+    override generate(builder: WgslBuilder): string {
+        if (builder.shaderStage === 'fragment') {
+            const varyingData = builder.getDataFromNode(this as unknown as Node<WgslType>, 'fragment');
+            if (varyingData.propertyName === undefined) {
+                builder.flowNodeFromShaderStage('vertex', this.source);
+                varyingData.propertyName = `in.${this.name}`;
+            }
+            return `in.${this.name}`;
+        }
+        return `in.${this.name}`;
     }
 }
 
@@ -576,6 +758,12 @@ export class BinopNode<T extends WgslType> extends Node<T> {
         readonly right: Node<WgslType>,
     ) {
         super(computeId('binop', { type, op, a: left.id, b: right.id }), 'binop', type);
+    }
+
+    override generate(builder: WgslBuilder): string {
+        const l = builder._generateNode(this.left) ?? '/* missing */';
+        const r = builder._generateNode(this.right) ?? '/* missing */';
+        return `(${l} ${this.op} ${r})`;
     }
 }
 
@@ -591,6 +779,21 @@ export class CallNode<T extends WgslType> extends Node<T> {
         super(computeId('call', { type, fn, args: args.map((n) => n.id) }), 'call', type);
         this.fnNode = fnNode;
     }
+
+    override setup(builder: WgslBuilder): void {
+        if (this.fnNode && !builder.fnNodes.has(this.fnNode.id)) {
+            builder._setupFnNode(this.fnNode);
+        }
+    }
+
+    override generate(builder: WgslBuilder): string {
+        const argExprs = this.args.map((a) => builder._generateNode(a) ?? '/* missing */');
+        if (this.fn === 'negate' && argExprs.length === 1) return `(-${argExprs[0]})`;
+        if ((this.fn === 'f32' || this.fn === 'i32' || this.fn === 'u32') && argExprs.length === 1) {
+            return `${this.fn}(${argExprs[0]})`;
+        }
+        return `${this.fn}(${argExprs.join(', ')})`;
+    }
 }
 
 export class RawNode<T extends WgslType> extends Node<T> {
@@ -601,6 +804,11 @@ export class RawNode<T extends WgslType> extends Node<T> {
     ) {
         super(computeId('raw', { type, wgsl, deps: deps.map((n) => n.id) }), 'raw', type);
     }
+
+    override generate(builder: WgslBuilder): string {
+        const depExprs = this.deps.map((d) => builder._generateNode(d) ?? '/* missing */');
+        return this.wgsl.replace(/\$(\d+)/g, (_, i) => depExprs[parseInt(i, 10)] ?? `/* dep${i} */`);
+    }
 }
 
 export class AssignNode extends Node<'void'> {
@@ -609,6 +817,13 @@ export class AssignNode extends Node<'void'> {
         readonly value: Node<WgslType>,
     ) {
         super(computeId('assign', { target: target.id, value: value.id }), 'assign', 'void');
+    }
+
+    override generate(builder: WgslBuilder): null {
+        const tgt = builder._generateNode(this.target) ?? '/* missing */';
+        const val = builder._generateNode(this.value) ?? '/* missing */';
+        builder.addLineFlowCode(`${tgt} = ${val}`);
+        return null;
     }
 }
 
@@ -619,6 +834,11 @@ export class ConstructNode<T extends WgslType> extends Node<T> {
     ) {
         super(computeId('construct', { type, args: args.map((n) => n.id) }), 'construct', type);
     }
+
+    override generate(builder: WgslBuilder): string {
+        const argExprs = this.args.map((a) => builder._generateNode(a) ?? '/* missing */');
+        return `${wgslTypeName(this.type)}(${argExprs.join(', ')})`;
+    }
 }
 
 export class StructNode extends Node<string> {
@@ -627,6 +847,19 @@ export class StructNode extends Node<string> {
         readonly members: StructMember[],
     ) {
         super(computeId('struct', { type: typeName, members }), 'struct', typeName);
+    }
+
+    override setup(builder: WgslBuilder): void {
+        const def = lookupStructDef(this);
+        if (def) {
+            builder._registerStructDef(def);
+        } else if (!builder.structNodes.has(this.type)) {
+            builder.structNodes.set(this.type, this);
+        }
+    }
+
+    override generate(_builder: WgslBuilder): string {
+        return `/* struct ${this.type} */`;
     }
 }
 
@@ -637,6 +870,11 @@ export class FieldNode<T extends WgslType> extends Node<T> {
         readonly fieldName: string,
     ) {
         super(computeId('field', { type, object: object.id, field: fieldName }), 'field', type);
+    }
+
+    override generate(builder: WgslBuilder): string {
+        const objExpr = builder._generateNode(this.object) ?? '/* missing */';
+        return `${objExpr}.${this.fieldName}`;
     }
 }
 
@@ -658,6 +896,12 @@ export class IndexNode<T extends WgslType> extends Node<T> {
     ) {
         super(computeId('index', { type, array: array.id, index: index.id }), 'index', type);
     }
+
+    override generate(builder: WgslBuilder): string {
+        const arrExpr = builder._generateNode(this.array) ?? '/* missing */';
+        const idxExpr = builder._generateNode(this.index) ?? '/* missing */';
+        return `${arrExpr}[${idxExpr}]`;
+    }
 }
 
 export class BuiltinNode<T extends WgslType> extends Node<T> {
@@ -666,6 +910,38 @@ export class BuiltinNode<T extends WgslType> extends Node<T> {
         type: T,
     ) {
         super(computeId('builtin', { builtinKind, type }), 'builtin', type);
+    }
+
+    override setup(builder: WgslBuilder): void {
+        builder.builtinsUsed.add(this.builtinKind);
+        if (this.builtinKind === 'camera' && !builder.structNodes.has('Camera')) {
+            builder.structNodes.set('Camera', CameraStruct.node);
+        }
+        if (this.builtinKind === 'time' && !builder.structNodes.has('Time')) {
+            builder.structNodes.set('Time', TimeStruct.node);
+        }
+        if (this.builtinKind === 'mesh' && !builder.structNodes.has('Mesh')) {
+            builder.structNodes.set('Mesh', MeshStruct.node);
+        }
+    }
+
+    override generate(builder: WgslBuilder): string {
+        const BUILTIN_VAR: Record<string, string> = {
+            camera:         'camera',
+            time:           'time',
+            mesh:           'mesh',
+            instance_index: 'instance_index',
+            instance_data:  'instanceData',
+            vertex_index:   'vertex_index',
+        };
+        const BUILTIN_VERTEX_INPUT = new Set(['instance_index', 'vertex_index']);
+        if (builder.shaderStage === 'compute') {
+            return this.builtinKind;
+        }
+        if (BUILTIN_VERTEX_INPUT.has(this.builtinKind)) {
+            return `in.${BUILTIN_VAR[this.builtinKind] ?? this.builtinKind}`;
+        }
+        return BUILTIN_VAR[this.builtinKind] ?? this.builtinKind;
     }
 }
 
@@ -714,6 +990,20 @@ export class InstancedBufferAttributeNode<T extends WgslType> extends Node<T> {
         // Use a monotonic id so two separate instancedBufferAttribute() calls are always distinct.
         super(nextId(), 'instanced_buffer_attribute', type);
     }
+
+    override setup(builder: WgslBuilder): void {
+        if (!builder.instancedAttrNames.has(this.id)) {
+            const totalLoc = builder.attributes.size + builder.instancedAttrs.length;
+            const name = `_inst${builder.instancedAttrs.length}`;
+            builder.instancedAttrNames.set(this.id, name);
+            builder.instancedAttrs.push({ kind: 'instanced', node: this as unknown as InstancedBufferAttributeNode<WgslType>, name, type: this.type, location: totalLoc });
+        }
+    }
+
+    override generate(builder: WgslBuilder): string {
+        const name = builder.instancedAttrNames.get(this.id);
+        return name ? `in.${name}` : `/* missing instanced attr ${this.id} */`;
+    }
 }
 
 export class StackNode extends Node<'void'> {
@@ -728,6 +1018,13 @@ export class StackNode extends Node<'void'> {
     push(node: Node<WgslType>): void {
         this.body.push(node);
     }
+
+    override generate(builder: WgslBuilder): null {
+        for (const stmt of this.body) {
+            builder._buildNode(stmt);
+        }
+        return null;
+    }
 }
 
 export class CondNode<T extends WgslType> extends Node<T> {
@@ -739,6 +1036,15 @@ export class CondNode<T extends WgslType> extends Node<T> {
     ) {
         super(computeId('cond', { condition: condition.id, ifTrue: ifTrue.id, ifFalse: ifFalse?.id }), 'cond', ifTrue.type);
         this.ifFalse = ifFalse;
+    }
+
+    override generate(builder: WgslBuilder): string {
+        const condExpr = builder._generateNode(this.condition) ?? '/* missing */';
+        const trueExpr = builder._generateNode(this.ifTrue) ?? '/* missing */';
+        const falseExpr = this.ifFalse
+            ? builder._generateNode(this.ifFalse) ?? '/* missing */'
+            : `${this.type}()`;
+        return `select(${falseExpr}, ${trueExpr}, ${condExpr})`;
     }
 }
 
@@ -761,6 +1067,14 @@ export class VarNode<T extends WgslType> extends Node<T> {
     ) {
         super(nextId(), 'var', type);
     }
+
+    override generate(builder: WgslBuilder): string {
+        const initExpr = builder._generateNode(this.init) ?? '/* missing */';
+        builder.addLineFlowCode(`var ${this.varName} : ${wgslTypeName(this.type)} = ${initExpr}`);
+        const data = builder.getDataFromNode(this as unknown as Node<WgslType>);
+        data.propertyName = this.varName;
+        return this.varName;
+    }
 }
 
 /**
@@ -777,6 +1091,18 @@ export class IfNode extends Node<'void'> {
         readonly thenBody: StackNode,
     ) {
         super(nextId(), 'if', 'void');
+    }
+
+    override generate(builder: WgslBuilder): null {
+        const condExpr = builder._generateNode(this.condition) ?? '/* missing */';
+        builder.addFlowCode(`    if (${condExpr}) {\n`);
+        builder._emitStackIntoFlow(this.thenBody, '        ');
+        if (this.elseBody) {
+            builder.addFlowCode(`    } else {\n`);
+            builder._emitStackIntoFlow(this.elseBody, '        ');
+        }
+        builder.addFlowCode(`    }\n`);
+        return null;
     }
 }
 
@@ -823,6 +1149,21 @@ export class ForNode extends Node<'void'> {
     ) {
         super(nextId(), 'for', 'void');
     }
+
+    override generate(builder: WgslBuilder): null {
+        const iName = `i_${builder.forCounter++}`;
+        const idxData = builder.getDataFromNode(this.indexVar);
+        idxData.propertyName = iName;
+        const getScalarExpr = (v: Node<WgslType> | number, _type: ScalarType) =>
+            typeof v === 'number'
+                ? constLiteral(_type, v)
+                : builder._generateNode(v as Node<WgslType>) ?? '/* missing */';
+        const header = buildForHeader(this.range, iName, getScalarExpr);
+        builder.addFlowCode(`    ${header} {\n`);
+        builder._emitStackIntoFlow(this.body, '        ');
+        builder.addFlowCode(`    }\n`);
+        return null;
+    }
 }
 
 /**
@@ -838,6 +1179,14 @@ export class WhileNode extends Node<'void'> {
     ) {
         super(nextId(), 'while', 'void');
     }
+
+    override generate(builder: WgslBuilder): null {
+        const condExpr = builder._generateNode(this.condition) ?? '/* missing */';
+        builder.addFlowCode(`    while (${condExpr}) {\n`);
+        builder._emitStackIntoFlow(this.body, '        ');
+        builder.addFlowCode(`    }\n`);
+        return null;
+    }
 }
 
 /**
@@ -850,6 +1199,11 @@ export class BreakNode extends Node<'void'> {
     constructor() {
         super(nextId(), 'break', 'void');
     }
+
+    override generate(builder: WgslBuilder): null {
+        builder.addLineFlowCode('break');
+        return null;
+    }
 }
 
 /**
@@ -861,6 +1215,11 @@ export class BreakNode extends Node<'void'> {
 export class ContinueNode extends Node<'void'> {
     constructor() {
         super(nextId(), 'continue', 'void');
+    }
+
+    override generate(builder: WgslBuilder): null {
+        builder.addLineFlowCode('continue');
+        return null;
     }
 }
 
@@ -879,6 +1238,10 @@ export class ParamNode<T extends WgslType> extends Node<T> {
     ) {
         super(nextId(), 'param', type);
     }
+
+    override generate(_builder: WgslBuilder): string {
+        return this.paramName ?? `p${this.paramIndex}`;
+    }
 }
 
 /**
@@ -890,6 +1253,12 @@ export class ParamNode<T extends WgslType> extends Node<T> {
 export class ReturnNode<T extends WgslType> extends Node<T> {
     constructor(readonly value: Node<T>) {
         super(nextId(), 'return', value.type);
+    }
+
+    override generate(builder: WgslBuilder): null {
+        const valExpr = builder._generateNode(this.value) ?? '/* missing */';
+        builder.addLineFlowCode(`return ${valExpr}`);
+        return null;
     }
 }
 
@@ -945,6 +1314,10 @@ export class FnNode<T extends WgslType> extends Node<T> {
             popStack(prev);
         }
         return { params, body: stack, output };
+    }
+
+    override generate(_builder: WgslBuilder): string {
+        return `/* fn ${this.type} */`;
     }
 }
 
@@ -1591,7 +1964,6 @@ export const mat4x4f = (...v: number[]): ConstNode<'mat4x4f'> => new ConstNode('
 // ---------------------------------------------------------------------------
 
 import { Color, type ColorInput } from '../utils/color.js';
-import { ArrayDesc, itemSizeOf, typedArrayCtorOf, WgslDesc, type StructDef, type StructInstance, type StructSchema } from './schema.js';
 
 /**
  * Convert any color input to a `ConstNode<'vec3f'>` (linear RGB).
@@ -1617,3 +1989,76 @@ export function color(input: ColorInput): ConstNode<'vec3f'> {
     const c = input instanceof Color ? input : new Color(input);
     return new ConstNode('vec3f', [c.r, c.g, c.b]);
 }
+
+// ---------------------------------------------------------------------------
+// Builtin structs + std scene nodes (formerly std-nodes.ts)
+// ---------------------------------------------------------------------------
+
+import * as S from './schema.js';
+
+export const CameraStruct = struct('Camera', {
+    projectionMatrix: S.mat4x4f(),
+    viewMatrix: S.mat4x4f(),
+    position: S.vec3f(),
+    near: S.f32(),
+    far: S.f32(),
+});
+
+export type CameraInstance = StructInstance<typeof CameraStruct.schema>;
+
+export function camera(): CameraInstance {
+    return CameraStruct.instantiate(builtin('camera', 'Camera'));
+}
+
+export const TimeStruct = struct('Time', {
+    elapsed: S.f32(),
+    delta: S.f32(),
+});
+
+export type TimeInstance = StructInstance<typeof TimeStruct.schema>;
+
+export function time(): TimeInstance {
+    return TimeStruct.instantiate(builtin('time', 'Time'));
+}
+
+export const MeshStruct = struct('Mesh', {
+    modelMatrix: S.mat4x4f(),
+    normalMatrix: S.mat3x3f(),
+});
+
+export type MeshInstance = StructInstance<typeof MeshStruct.schema>;
+
+export function mesh(): MeshInstance {
+    return MeshStruct.instantiate(builtin('mesh', 'Mesh'));
+}
+
+export const instanceIndex = (): BuiltinNode<'u32'> => builtin('instance_index', 'u32');
+
+export const positionClip: Node<'vec4f'> = (() => {
+    const pos = attribute('vec3f', 'position');
+    const localPos = vec4(pos, konst('f32', 1.0));
+
+    const m = mesh();
+    const worldPos = mul(m.modelMatrix, localPos);
+
+    const cam = camera();
+    const viewPos = mul(cam.viewMatrix, worldPos);
+    const clipPos = mul(cam.projectionMatrix, viewPos);
+
+    return clipPos as unknown as Node<'vec4f'>;
+})();
+
+/** @builtin(global_invocation_id) — unique thread ID across the entire dispatch. */
+export const globalId     = (): BuiltinNode<'vec3u'> => builtin('global_invocation_id',   'vec3u');
+
+/** @builtin(local_invocation_id) — thread ID within its workgroup. */
+export const localId      = (): BuiltinNode<'vec3u'> => builtin('local_invocation_id',    'vec3u');
+
+/** @builtin(local_invocation_index) — flat 1-D index within the workgroup. */
+export const localIndex   = (): BuiltinNode<'u32'>   => builtin('local_invocation_index', 'u32');
+
+/** @builtin(workgroup_id) — workgroup coordinate in the dispatch grid. */
+export const workgroupId  = (): BuiltinNode<'vec3u'> => builtin('workgroup_id',           'vec3u');
+
+/** @builtin(num_workgroups) — total number of workgroups dispatched. */
+export const numWorkgroups = (): BuiltinNode<'vec3u'> => builtin('num_workgroups',        'vec3u');

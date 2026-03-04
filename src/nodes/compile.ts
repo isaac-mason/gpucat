@@ -1,136 +1,117 @@
 /**
  * compile.ts — Node graph → WGSL + binding metadata.
  *
- * Pure function: compile(slots) → CompileResult
+ * Exports two pure entry-point functions:
+ *   compile(slots)      → CompileResult        (render: vertex + fragment)
+ *   compileCompute(node) → ComputeCompileResult (compute)
  *
- * No WebGPU imports. No side effects. Fully usable in Node/workers/offline.
+ * Both functions create a single WgslBuilder internally. The builder follows
+ * three.js NodeBuilder's three-pass architecture (setup → analyze → generate)
+ * and its WeakMap-based per-node state model (getDataFromNode).
  *
- * Design overview
- * ---------------
- * Two named output slots drive compilation:
- *   position — vec4f clip-space (vertex stage)
- *   color    — vec4f RGBA (fragment stage)
+ * Architecture
+ * ------------
+ * Three-pass build:
+ *   Setup   — walk from root nodes, collect FnNodes, StructNodes, register
+ *             resource bindings (uniforms, storage, textures, samplers,
+ *             attributes, varyings). Replaces collectGraph()+collectResources().
+ *   Analyze — walk all nodes, call increaseUsage(node) for each reference
+ *             encountered, stored in getDataFromNode(node).usageCount. Replaces
+ *             the separate refCount() pass.
+ *   Generate — call _generateNodeExpr(root) per root. CSE: when usageCount > 1,
+ *              emit `let _v0 = expr;` via addLineFlowCode, cache name in
+ *              nodeData.propertyName. Replaces emitGraphStmts()+letBindings map.
  *
- * The compiler walks each slot's node graph, collects resource bindings
- * (builtins, attributes, uniforms, storage, textures, samplers, varyings),
- * assigns @group/@binding indices, and emits WGSL for both entry points.
+ * Key aligned patterns from three.js NodeBuilder:
+ *   getDataFromNode(node, stage?)  — WeakMap<Node, NodeData> per-node-per-stage
+ *   increaseUsage(node)            — called in analyze pass, replaces refCount()
+ *   flow / addLineFlowCode         — code accumulation buffer
+ *   flowChildNode / flowNodeFromShaderStage — for VaryingNode vertex-stage emit
+ *   _buildNode(node)               — single dispatch entry (parallel to node.build(builder))
  *
- * Builtin binding layout (fixed by renderer contract):
- *   Group 0, binding 0 — Camera UBO          (var<uniform> camera : Camera)
- *   Group 0, binding 1 — Time UBO            (var<uniform> time : Time)
- *   Group 1, binding 0 — Mesh UBO            (var<uniform> mesh : Mesh)   ← always present
- *   Group 1, binding 1+ — material resources (uniforms, textures, samplers in encounter order)
+ * What is NOT adopted from three.js:
+ *   - No node.setup()/analyze()/generate() methods on node classes
+ *   - No topo-sort (recursive generate visits children before parents naturally)
+ *   - No open class hierarchy — the switch(node.kind) visitor stays exhaustive
  *
- * InstancedBufferAttributeNode values are NOT bind-group bindings — they are
- * vertex buffer slots (stepMode: 'instance') and appear in VertexInput as
- * @location(N) with generated names.
+ * Builtin binding layout (render, fixed by renderer contract):
+ *   Group 0, binding 0 — Camera UBO
+ *   Group 0, binding 1 — Time UBO
+ *   Group 1, binding 0 — Mesh UBO (always present)
+ *   Group 1, binding 1+ — material resources (uniforms, textures, samplers,
+ *                          storage in encounter order)
  *
- * Varyings bridge vertex → fragment. They are collected from both graphs
- * and assigned @location(N) indices in encounter order.
- *
- * Fn nodes are collected from CallNodes that carry a fnNode reference.
- * Each distinct FnNode is emitted once at module scope before the entry points.
- *
- * Statement-level nodes (var, if, for, assign, return) are emitted inside
- * their containing Fn body via a recursive emit walk.
+ * Compute binding layout:
+ *   Group 0, binding 0, 1, … — storage buffers (declared order in ComputeNode.storage)
  */
 
 import {
-    ParamNode,
     StackNode,
-    type AssignNode,
     type AttributeNode,
-    type BinopNode,
-    type BuiltinNode,
     type CallNode,
-    type CondNode,
-    type ConstNode,
-    type ConstructNode,
-    type FieldNode,
     type FnNode,
     type ForNode,
-    type ForRange,
     type IfNode,
-    type IndexNode,
     type InstancedBufferAttributeNode,
     type Node,
     type ParamDesc,
-    type RawNode,
-    type ReturnNode,
     type SamplerNode,
-    type ScalarType,
     type StorageNode,
     type StructNode,
     type TextureNode,
     type UniformNode,
-    type VarNode,
     type VaryingNode,
     type WhileNode,
     type WgslType,
-} from './nodes';
-import { collectGraph, refCount, topoSort } from './collect';
-import { CameraStruct, MeshStruct, TimeStruct } from './std-nodes';
-import { lookupStructDef, lookupStructDefByName, type StructDef, type StructSchema } from './schema';
+} from './nodes.js';
+import { collectGraph, getChildren } from './collect.js';
+import { MeshStruct, type StructDef, type StructSchema } from './nodes.js';
+import type { ComputeNode } from './compute-node.js';
+import { alignUp, std140Align, std140Size, wgslTypeName } from './wgsl-utils.js';
 
 // ---------------------------------------------------------------------------
-// Public types
+// Public types — render
 // ---------------------------------------------------------------------------
 
 export type AttributeEntry =
     | {
           kind: 'geometry';
-          /** Attribute name (matches geometry.attributes key). */
           name: string;
-          /** WGSL type string, e.g. 'vec3f'. */
           type: string;
-          /** Shader location index. */
           location: number;
       }
     | {
           kind: 'instanced';
-          /** The InstancedBufferAttributeNode owning the data. */
           node: InstancedBufferAttributeNode<WgslType>;
-          /** Generated attribute name used in the VertexInput struct (e.g. '_inst0'). */
           name: string;
-          /** WGSL type string, e.g. 'vec4f'. */
           type: string;
-          /** Shader location index. */
           location: number;
       };
 
 export type VaryingEntry = {
     name: string;
     type: string;
-    /** @location index in vertex output / fragment input structs. */
     location: number;
 };
 
-/** A single member in a packed material UBO struct. */
 export type UniformMember = {
     uniformId: string;
     type: string;
-    /** Byte offset within the UBO (std140 rules). */
     offset: number;
-    /** Byte size of this field. */
     size: number;
-    /** The UniformNode that owns this member. Renderer reads .value from here. */
     node: UniformNode<WgslType>;
 };
 
 export type UniformBlockEntry = {
     group: 0 | 1;
     binding: number;
-    /** Members sorted by offset. */
     members: UniformMember[];
     totalBytes: number;
 };
 
 export type StorageEntry = {
-    /** The StorageNode that owns the CPU data. Used by the renderer to upload. */
     node: StorageNode<WgslType>;
-    /** Generated WGSL variable name (e.g. '_stor0'). */
     name: string;
-    /** Full WGSL array type string (e.g. 'array<mat4x4f>'). */
     type: string;
     access: 'read' | 'read_write';
     group: 0 | 1;
@@ -139,11 +120,9 @@ export type StorageEntry = {
 
 export type TextureEntry = {
     textureId: string;
-    /** e.g. 'texture_2d<f32>' */
     type: string;
     group: 0 | 1;
     binding: number;
-    /** The TextureNode that owns this entry. Renderer reads .resource from here. */
     node: TextureNode;
 };
 
@@ -152,12 +131,10 @@ export type SamplerEntry = {
     type: 'sampler' | 'sampler_comparison';
     group: 0 | 1;
     binding: number;
-    /** The SamplerNode that owns this entry. Renderer reads .resource from here. */
     node: SamplerNode;
 };
 
 export type CompileResult = {
-    /** Complete WGSL module source (both entry points + helpers). */
     code: string;
     attributes: AttributeEntry[];
     varyings: VaryingEntry[];
@@ -167,265 +144,200 @@ export type CompileResult = {
     samplers: SamplerEntry[];
 };
 
-// ---------------------------------------------------------------------------
-// Compile entry point
-// ---------------------------------------------------------------------------
-
 export type CompileSlots = {
-    /** vec4f clip-space. Required. */
     position: Node<WgslType>;
-    /** vec4f RGBA. Required. */
     color: Node<WgslType>;
 };
 
-/**
- * Compile a position + color node graph pair to WGSL and binding metadata.
- *
- * @example
- * import { compile } from './compile.js'
- * const result = compile({ position: positionClip, color: konst('vec4f', [1,0.5,0.1,1]) })
- * console.log(result.code)
- */
-export function compile(slots: CompileSlots): CompileResult {
-    const ctx = new CompileContext(slots);
-    ctx.run();
-    return ctx.result();
-}
-
 // ---------------------------------------------------------------------------
-// std140 size/alignment helpers
+// Public types — compute
 // ---------------------------------------------------------------------------
 
-function std140Size(type: string): number {
-    switch (type) {
-        case 'f32': case 'i32': case 'u32': case 'bool': return 4;
-        case 'vec2f': case 'vec2i': case 'vec2u': case 'vec2b': return 8;
-        case 'vec3f': case 'vec3i': case 'vec3u': case 'vec3b': return 12;
-        case 'vec4f': case 'vec4i': case 'vec4u': case 'vec4b': return 16;
-        case 'mat2x2f': return 32;
-        case 'mat2x3f': case 'mat2x4f': return 32;
-        case 'mat3x2f': return 48;
-        case 'mat3x3f': case 'mat3x4f': return 48;
-        case 'mat4x2f': return 64;
-        case 'mat4x3f': case 'mat4x4f': return 64;
-        default: return 16;
-    }
-}
-
-function std140Align(type: string): number {
-    switch (type) {
-        case 'f32': case 'i32': case 'u32': case 'bool': return 4;
-        case 'vec2f': case 'vec2i': case 'vec2u': case 'vec2b': return 8;
-        // vec3 and vec4 both align to 16
-        case 'vec3f': case 'vec3i': case 'vec3u': case 'vec3b': return 16;
-        case 'vec4f': case 'vec4i': case 'vec4u': case 'vec4b': return 16;
-        // matrices: align of column vector (each column is a vec, rounded up to vec4)
-        default: return 16;
-    }
-}
-
-function alignUp(offset: number, align: number): number {
-    return Math.ceil(offset / align) * align;
-}
-
-// ---------------------------------------------------------------------------
-// WGSL type name translation
-// ---------------------------------------------------------------------------
-
-/**
- * Converts our internal type strings to valid WGSL type names.
- * Most types are identity (vec3f, mat4x4f, f32 …).
- * Boolean vectors are the exception: 'vec2b' → 'vec2<bool>' etc.
- */
-function wgslTypeName(type: string): string {
-    if (type === 'vec2b') return 'vec2<bool>';
-    if (type === 'vec3b') return 'vec3<bool>';
-    if (type === 'vec4b') return 'vec4<bool>';
-    return type;
-}
-
-// ---------------------------------------------------------------------------
-// WGSL constant literal helpers
-// ---------------------------------------------------------------------------
-
-function constLiteral(type: string, value: number | number[] | string): string {
-    if (typeof value === 'string') return value;
-    if (typeof value === 'number') {
-        switch (type) {
-            case 'f32': return Number.isInteger(value) ? `${value}.0` : `${value}`;
-            case 'i32': return `${Math.trunc(value)}i`;
-            case 'u32': return `${Math.trunc(value)}u`;
-            case 'bool': return value !== 0 ? 'true' : 'false';
-            default: return `${value}`;
-        }
-    }
-    // array value — type constructor
-    const components = (value as number[]).map((v) => {
-        // determine element type from vec/mat prefix
-        if (type.startsWith('vec') && type.endsWith('f')) return Number.isInteger(v) ? `${v}.0` : `${v}`;
-        if (type.startsWith('vec') && type.endsWith('i')) return `${Math.trunc(v)}i`;
-        if (type.startsWith('vec') && type.endsWith('u')) return `${Math.trunc(v)}u`;
-        if (type.startsWith('vec') && type.endsWith('b')) return v !== 0 ? 'true' : 'false';
-        if (type.startsWith('mat')) return Number.isInteger(v) ? `${v}.0` : `${v}`;
-        return `${v}`;
-    });
-    if (components.length === 0) return `${wgslTypeName(type)}()`;
-    return `${wgslTypeName(type)}(${components.join(', ')})`;
-}
-
-// ---------------------------------------------------------------------------
-// ForRange → WGSL for-loop header builder
-// ---------------------------------------------------------------------------
-
-/**
- * Given a ForRange descriptor and pre-built start/end/update expression strings,
- * return the full `for (...)` or `while (...)` header snippet.
- *
- * This is used by both emit paths (topo-sort and emitStack) to keep them in sync.
- */
-function buildForHeader(
-    range: ForRange,
-    iName: string,
-    getScalarExpr: (v: Node<WgslType> | number, type: ScalarType) => string,
-): string {
-    const type: ScalarType = range.type ?? 'u32';
-
-    // Resolve start/end to strings
-    const rawStart = range.start !== undefined
-        ? (typeof range.start === 'number' ? constLiteral(type, range.start) : getScalarExpr(range.start, type))
-        : undefined;
-    const rawEnd = range.end !== undefined
-        ? (typeof range.end === 'number' ? constLiteral(type, range.end) : getScalarExpr(range.end, type))
-        : undefined;
-
-    let startSnippet: string;
-    let endSnippet: string;
-    let condition: string;
-    let updateSnippet: string;
-
-    if (rawStart !== undefined && rawEnd === undefined) {
-        // Backwards: start only → count down to 0 (start at start-1, condition >=0, step --)
-        startSnippet = `${rawStart} - ${constLiteral(type, 1)}`;
-        endSnippet = constLiteral(type, 0);
-        condition = range.condition ?? '>=';
-        const defaultUpdate = condition.includes('<') ? '++' : '--';
-        updateSnippet = buildUpdateSnippet(range.update, iName, type, defaultUpdate);
-    } else {
-        // Forward (or explicit both): default start=0
-        startSnippet = rawStart ?? constLiteral(type, 0);
-        endSnippet = rawEnd ?? constLiteral(type, 0);
-
-        if (range.condition !== undefined) {
-            condition = range.condition;
-        } else {
-            // Infer from numeric start/end when possible, else default to '<'
-            const numStart = typeof range.start === 'number' ? range.start : 0;
-            const numEnd = typeof range.end === 'number' ? range.end : undefined;
-            condition = (numEnd !== undefined && numStart > numEnd) ? '>=' : '<';
-        }
-
-        const defaultUpdate = condition.includes('<') ? '++' : '--';
-        updateSnippet = buildUpdateSnippet(range.update, iName, type, defaultUpdate);
-    }
-
-    return `for (var ${iName} : ${type} = ${startSnippet}; ${iName} ${condition} ${endSnippet}; ${updateSnippet})`;
-}
-
-function buildUpdateSnippet(
-    update: ForRange['update'],
-    iName: string,
-    type: ScalarType,
-    defaultOp: '++' | '--',
-): string {
-    if (update === undefined || update === null) {
-        return `${iName}${defaultOp}`;
-    }
-    if (typeof update === 'number') {
-        const delta = constLiteral(type, Math.abs(update));
-        const op = defaultOp.includes('+') ? '+=' : '-=';
-        return `${iName} ${op} ${delta}`;
-    }
-    // Node — caller must have pre-built it; we receive it as a string via getScalarExpr
-    // This path is not used directly here — the caller inlines it
-    return `${iName}${defaultOp}`;
-}
-
-// ---------------------------------------------------------------------------
-// Builtin WGSL variable names (known to the renderer)
-// ---------------------------------------------------------------------------
-
-const BUILTIN_VAR: Record<string, string> = {
-    camera:         'camera',
-    time:           'time',
-    mesh:           'mesh',
-    instance_index: 'instance_index',
-    instance_data:  'instanceData',
-    vertex_index:   'vertex_index',
+export type ComputeStorageEntry = {
+    node: StorageNode<WgslType>;
+    name: string;
+    type: string;
+    access: 'read' | 'read_write';
+    binding: number;
 };
 
-// Builtins that are @builtin(...) vertex inputs (not bind-group resources)
-const BUILTIN_VERTEX_INPUT = new Set(['instance_index', 'vertex_index']);
-
-
+export type ComputeCompileResult = {
+    code: string;
+    storage: ComputeStorageEntry[];
+    workgroupSize: [number, number, number];
+};
 
 // ---------------------------------------------------------------------------
-// CompileContext — internal accumulator
+// Public entry points
 // ---------------------------------------------------------------------------
 
-type BuiltinKind = string; // mirrors nodes.ts BuiltinKind
+export function compile(slots: CompileSlots): CompileResult {
+    const builder = new WgslBuilder({ kind: 'render', slots });
+    builder.build();
+    return builder._makeRenderResult();
+}
 
-class CompileContext {
-    private slots: CompileSlots;
+export function compileCompute(node: ComputeNode): ComputeCompileResult {
+    const builder = new WgslBuilder({ kind: 'compute', node });
+    builder.build();
+    return builder._makeComputeResult();
+}
 
-    // Collected resources, in encounter order
-    private attributes: Map<string, AttributeEntry & { kind: 'geometry' }> = new Map();
-    private instancedAttrs: Array<AttributeEntry & { kind: 'instanced' }> = [];
-    private varyings: Map<string, VaryingEntry> = new Map();
-    private builtinsUsed: Set<BuiltinKind> = new Set();
-    private structNodes: Map<string, StructNode> = new Map();
+// Builtin WGSL variable names for render stage — used in _getWGSLVertexCode
+const COMPUTE_BUILTIN_PARAM: Record<string, { attr: string; type: string }> = {
+    global_invocation_id:   { attr: 'global_invocation_id',   type: 'vec3u' },
+    local_invocation_id:    { attr: 'local_invocation_id',    type: 'vec3u' },
+    local_invocation_index: { attr: 'local_invocation_index', type: 'u32'   },
+    workgroup_id:           { attr: 'workgroup_id',           type: 'vec3u' },
+    num_workgroups:         { attr: 'num_workgroups',         type: 'vec3u' },
+};
 
-    // Material-group resources (group 1, binding 1+)
-    private uniformNodes: Map<string, UniformNode<WgslType>> = new Map();
-    private storageNodes: Map<string, StorageNode<WgslType>> = new Map();
-    private storageNames: Map<string, string> = new Map(); // node.id → '_stor0' etc.
-    private textureNodes: Map<string, TextureNode> = new Map();
-    private samplerNodes: Map<string, SamplerNode> = new Map();
+// ---------------------------------------------------------------------------
+// Per-node state types (aligned with three.js getDataFromNode)
+// ---------------------------------------------------------------------------
 
-    // FnNodes encountered (via CallNode.fnNode), in encounter order
-    // Stores the fn AND its single traced result so both collection and
-    // emission use the exact same node instances (trace() creates fresh
-    // ParamNode IDs each call, so we must only call it once).
-    private fnNodes: Map<string, { fn: FnNode<WgslType>; traced: ReturnType<FnNode<WgslType>['trace']> }> = new Map();
+type NodeStageData = {
+    usageCount?: number;       // populated in analyze pass
+    propertyName?: string;     // CSE: var name when usageCount > 1
+    initialized?: boolean;     // setup pass dedup guard
+};
 
-    // Per-graph ref counts for let-binding extraction
-    private vertRefCounts: Map<string, number> = new Map();
-    private fragRefCounts: Map<string, number> = new Map();
+type NodeData = {
+    vertex?: NodeStageData;
+    fragment?: NodeStageData;
+    compute?: NodeStageData;
+    any?: NodeStageData;       // stage-agnostic (fn traces, etc.)
+};
 
-    // Topo-sorted node IDs per stage
-    private vertOrder: string[] = [];
-    private fragOrder: string[] = [];
+// Traced fn data stored alongside NodeData (keyed on fn.id in fnNodes map)
+type TracedFn = ReturnType<FnNode<WgslType>['trace']>;
 
-    // The full merged node set (id → node) for expression lookup
-    private allNodes: Map<string, Node<WgslType>> = new Map();
+// ---------------------------------------------------------------------------
+// Builder input discriminated union
+// ---------------------------------------------------------------------------
 
-    // Maps InstancedBufferAttributeNode id → generated attr name (e.g. '_inst0')
-    private instancedAttrNames: Map<string, string> = new Map();
+type RenderInput = { kind: 'render'; slots: CompileSlots };
+type ComputeInput = { kind: 'compute'; node: ComputeNode };
 
-    constructor(slots: CompileSlots) {
-        this.slots = slots;
+// ---------------------------------------------------------------------------
+// WgslBuilder — the single unified builder class
+// ---------------------------------------------------------------------------
+
+export class WgslBuilder {
+    // Build stage cursor (parallel to three.js NodeBuilder.buildStage)
+    buildStage: 'setup' | 'analyze' | 'generate' | null = null;
+    // Shader stage cursor (parallel to three.js NodeBuilder.shaderStage)
+    shaderStage: 'vertex' | 'fragment' | 'compute' | null = null;
+
+    // Per-node WeakMap state (parallel to three.js NodeBuilder.nodeData)
+    nodeData: WeakMap<Node<WgslType>, NodeData> = new WeakMap();
+
+    // Current writable code buffer (parallel to three.js NodeBuilder.flow)
+    flow: { code: string } = { code: '' };
+    // Per-stage accumulated code (from flowChildNode calls)
+    flowCode: Record<string, string> = { vertex: '', fragment: '', compute: '' };
+
+    // CSE var counter
+    varCounter = 0;
+    // For-loop index counter
+    forCounter = 0;
+
+    // Root nodes per stage
+    flowNodes: {
+        vertex: Node<WgslType>[];
+        fragment: Node<WgslType>[];
+        compute: Node<WgslType>[];
+    } = { vertex: [], fragment: [], compute: [] };
+
+    // Accumulated flow results per root node (for buildCode)
+    flowResults: Map<Node<WgslType>, { code: string; result: string | null }> = new Map();
+
+    // Input
+    input: RenderInput | ComputeInput;
+
+    // Collected resources (render)
+    attributes: Map<string, AttributeEntry & { kind: 'geometry' }> = new Map();
+    instancedAttrs: Array<AttributeEntry & { kind: 'instanced' }> = [];
+    instancedAttrNames: Map<string, string> = new Map();
+    varyings: Map<string, VaryingEntry> = new Map();
+    builtinsUsed: Set<string> = new Set();
+    structNodes: Map<string, StructNode> = new Map();
+    uniformNodes: Map<string, UniformNode<WgslType>> = new Map();
+    storageNodes: Map<string, StorageNode<WgslType>> = new Map();
+    storageNames: Map<string, string> = new Map();
+    textureNodes: Map<string, TextureNode> = new Map();
+    samplerNodes: Map<string, SamplerNode> = new Map();
+    fnNodes: Map<string, { fn: FnNode<WgslType>; traced: TracedFn }> = new Map();
+
+    // All nodes seen (for expression lookup during generate)
+    allNodes: Map<string, Node<WgslType>> = new Map();
+
+    constructor(input: RenderInput | ComputeInput) {
+        this.input = input;
     }
 
     // -----------------------------------------------------------------------
-    // Phase 1 — collect graphs
+    // Top-level orchestrator: setup → analyze → generate → buildCode
+    // (Parallel to three.js NodeBuilder.build())
     // -----------------------------------------------------------------------
 
-    run(): void {
-        const vertGraph = collectGraph(this.slots.position);
-        const fragGraph = collectGraph(this.slots.color);
+    build(): this {
+        this._registerRoots();
 
-        // Stage validation — vertex-only nodes must not appear in the fragment graph.
-        // Catching this here (JS time) produces a clear error rather than a GPU validation failure.
-        for (const node of fragGraph.nodes.values()) {
+        for (const stage of ['setup', 'analyze', 'generate'] as const) {
+            this.buildStage = stage;
+            const stages = this.input.kind === 'render'
+                ? (['vertex', 'fragment'] as const)
+                : (['compute'] as const);
+            for (const shaderStage of stages) {
+                this.shaderStage = shaderStage;
+                for (const node of this.flowNodes[shaderStage]) {
+                    if (stage === 'generate') {
+                        const flowData = this.flowChildNode(node);
+                        this.flowResults.set(node, flowData);
+                    } else {
+                        this._buildNode(node);
+                    }
+                }
+            }
+        }
+
+        this.buildStage = null;
+        this.shaderStage = null;
+        return this;
+    }
+
+    // -----------------------------------------------------------------------
+    // Register root nodes per stage
+    // -----------------------------------------------------------------------
+
+    private _registerRoots(): void {
+        if (this.input.kind === 'render') {
+            const { position, color } = this.input.slots;
+            // Stage validation: fragment graph must not contain vertex-only nodes
+            this._validateFragmentRoot(color);
+            this.flowNodes.vertex.push(position);
+            this.flowNodes.fragment.push(color);
+        } else {
+            // Compute: register builtin + storage nodes into allNodes pre-setup
+            const { builtins, body } = this.input.node.trace();
+            // Store the traced result on the ComputeNode's nodeData for later
+            const data = this.getDataFromNode(this.input.node as unknown as Node<WgslType>, 'any');
+            (data as NodeStageData & { _traced?: { builtins: typeof builtins; body: typeof body } })._traced = { builtins, body };
+
+            for (const bNode of Object.values(builtins)) {
+                this.allNodes.set(bNode.id, bNode as unknown as Node<WgslType>);
+            }
+            for (const s of this.input.node.storage) {
+                this.allNodes.set(s.id, s);
+            }
+            this.flowNodes.compute.push(body);
+        }
+    }
+
+    private _validateFragmentRoot(root: Node<WgslType>): void {
+        const graph = collectGraph(root);
+        for (const node of graph.nodes.values()) {
             if (node.kind === 'attribute') {
                 const n = node as AttributeNode<WgslType>;
                 throw new Error(
@@ -440,222 +352,196 @@ class CompileContext {
                 );
             }
         }
-
-        // For each VaryingNode in the fragment graph, collect its source subgraph into the
-        // vertex graph. This ensures varying sources (attributes, expressions) are reachable
-        // during vertex emission even when they are not part of the position graph.
-        const vertNodes = new Map(vertGraph.nodes);
-        for (const node of fragGraph.nodes.values()) {
-            if (node.kind === 'varying') {
-                const vn = node as VaryingNode<WgslType>;
-                const srcGraph = collectGraph(vn.source);
-                for (const [id, n] of srcGraph.nodes) {
-                    if (!vertNodes.has(id)) vertNodes.set(id, n);
-                }
-            }
-        }
-
-        // Merge into allNodes (for expression lookup during emit)
-        for (const [id, n] of vertNodes) this.allNodes.set(id, n);
-        for (const [id, n] of fragGraph.nodes) this.allNodes.set(id, n);
-
-        this.vertRefCounts = refCount(vertNodes);
-        this.fragRefCounts = refCount(fragGraph.nodes);
-
-        this.vertOrder = topoSort(vertNodes, vertGraph.rootId);
-        this.fragOrder = topoSort(fragGraph.nodes, fragGraph.rootId);
-
-        // Walk both graphs to collect resources
-        this.collectResources(vertNodes);
-        this.collectResources(fragGraph.nodes);
     }
 
-    private collectResources(nodes: ReadonlyMap<string, Node<WgslType>>): void {
-        for (const node of nodes.values()) {
-            switch (node.kind) {
-                case 'attribute': {
-                    const n = node as AttributeNode<WgslType>;
-                    if (!this.attributes.has(n.name)) {
-                        const totalLoc = this.attributes.size + this.instancedAttrs.length;
-                        this.attributes.set(n.name, {
-                            kind: 'geometry',
-                            name: n.name,
-                            type: n.type,
-                            location: totalLoc,
-                        });
-                    }
-                    break;
-                }
-                case 'instanced_buffer_attribute': {
-                    const n = node as InstancedBufferAttributeNode<WgslType>;
-                    if (!this.instancedAttrNames.has(n.id)) {
-                        const totalLoc = this.attributes.size + this.instancedAttrs.length;
-                        const name = `_inst${this.instancedAttrs.length}`;
-                        this.instancedAttrNames.set(n.id, name);
-                        this.instancedAttrs.push({
-                            kind: 'instanced',
-                            node: n,
-                            name,
-                            type: n.type,
-                            location: totalLoc,
-                        });
-                    }
-                    break;
-                }
-                case 'varying': {
-                    const n = node as VaryingNode<WgslType>;
-                    if (!this.varyings.has(n.name)) {
-                        this.varyings.set(n.name, {
-                            name: n.name,
-                            type: n.type,
-                            location: this.varyings.size,
-                        });
-                    }
-                    break;
-                }
-                case 'builtin': {
-                    const n = node as BuiltinNode<WgslType>;
-                    this.builtinsUsed.add(n.builtinKind);
-                    // Auto-register known struct declarations for camera/time/mesh builtins
-                    if (n.builtinKind === 'camera' && !this.structNodes.has('Camera')) {
-                        this.structNodes.set('Camera', CameraStruct.node);
-                    }
-                    if (n.builtinKind === 'time' && !this.structNodes.has('Time')) {
-                        this.structNodes.set('Time', TimeStruct.node);
-                    }
-                    if (n.builtinKind === 'mesh' && !this.structNodes.has('Mesh')) {
-                        this.structNodes.set('Mesh', MeshStruct.node);
-                    }
-                    break;
-                }
-                case 'struct': {
-                    const n = node as StructNode;
-                    const def = lookupStructDef(n);
-                    if (def) {
-                        this.registerStructDef(def);
-                    } else if (!this.structNodes.has(n.type)) {
-                        this.structNodes.set(n.type, n);
-                    }
-                    break;
-                }
-                case 'uniform': {
-                    const n = node as UniformNode<WgslType>;
-                    if (n.group === 'material' && !this.uniformNodes.has(n.uniformId)) {
-                        this.uniformNodes.set(n.uniformId, n);
-                    }
-                    // If the uniform type is a user-defined struct, register its deps
-                    const uniformDef = lookupStructDefByName(n.type);
-                    if (uniformDef) this.registerStructDef(uniformDef);
-                    break;
-                }
-                case 'storage': {
-                    const n = node as StorageNode<WgslType>;
-                    if (!this.storageNodes.has(n.id)) {
-                        const name = `_stor${this.storageNodes.size}`;
-                        this.storageNodes.set(n.id, n);
-                        this.storageNames.set(n.id, name);
-                    }
-                    // If the storage element type is a user-defined struct, register its deps
-                    const storageDef = lookupStructDefByName(n.type);
-                    if (storageDef) this.registerStructDef(storageDef);
-                    break;
-                }
-                case 'texture': {
-                    const n = node as TextureNode;
-                    if (!this.textureNodes.has(n.textureId)) {
-                        this.textureNodes.set(n.textureId, n);
-                    }
-                    break;
-                }
-                case 'sampler': {
-                    const n = node as SamplerNode;
-                    if (!this.samplerNodes.has(n.samplerId)) {
-                        this.samplerNodes.set(n.samplerId, n);
-                    }
-                    break;
-                }
-                case 'call': {
-                    const n = node as CallNode<WgslType>;
-                    if (n.fnNode && !this.fnNodes.has(n.fnNode.id)) {
-                        this.collectFnNode(n.fnNode);
-                    }
-                    break;
-                }
-                default:
-                    break;
-            }
+    // -----------------------------------------------------------------------
+    // getDataFromNode — WeakMap per-node-per-stage state
+    // (Parallel to three.js NodeBuilder.getDataFromNode)
+    // -----------------------------------------------------------------------
+
+    getDataFromNode(node: Node<WgslType>, stage?: string): NodeStageData {
+        const s = stage ?? this.shaderStage ?? 'any';
+        let data = this.nodeData.get(node);
+        if (!data) {
+            data = {};
+            this.nodeData.set(node, data);
         }
+        const key = s as keyof NodeData;
+        if (!data[key]) data[key] = {};
+        return data[key]!;
     }
 
-    /** Recursively collect FnNode and any nested FnNodes in its body. */
-    private collectFnNode(fn: FnNode<WgslType>): void {
-        if (this.fnNodes.has(fn.id)) return;
-        // Trace once and cache — trace() creates fresh ParamNode IDs each call,
-        // so both collection and emission must use the same traced instance.
+    // -----------------------------------------------------------------------
+    // increaseUsage — called in analyze pass
+    // (Parallel to three.js NodeBuilder.increaseUsage)
+    // -----------------------------------------------------------------------
+
+    increaseUsage(node: Node<WgslType>): number {
+        const data = this.getDataFromNode(node);
+        data.usageCount = (data.usageCount ?? 0) + 1;
+        return data.usageCount;
+    }
+
+    // -----------------------------------------------------------------------
+    // Flow accumulation helpers
+    // (Parallel to three.js NodeBuilder.addLineFlowCode / addFlowCode)
+    // -----------------------------------------------------------------------
+
+    addLineFlowCode(code: string): void {
+        this.flow.code += `    ${code};\n`;
+    }
+
+    addFlowCode(code: string): void {
+        this.flow.code += code;
+    }
+
+    // -----------------------------------------------------------------------
+    // flowChildNode — saves/installs/restores the flow buffer
+    // (Parallel to three.js NodeBuilder.flowChildNode)
+    // -----------------------------------------------------------------------
+
+    flowChildNode(node: Node<WgslType>): { code: string; result: string | null } {
+        const previousFlow = this.flow;
+        this.flow = { code: '' };
+        const result = this._buildNode(node);
+        const flowData = { code: this.flow.code, result };
+        this.flow = previousFlow;
+        return flowData;
+    }
+
+    // -----------------------------------------------------------------------
+    // flowNodeFromShaderStage — run a node in a different shader stage
+    // Used by VaryingNode to compute vertex-side expressions from fragment context.
+    // (Parallel to three.js NodeBuilder.flowNodeFromShaderStage)
+    // -----------------------------------------------------------------------
+
+    flowNodeFromShaderStage(
+        stage: 'vertex' | 'fragment' | 'compute',
+        node: Node<WgslType>,
+        propertyName?: string,
+    ): string | null {
+        const previousStage = this.shaderStage;
+        this.shaderStage = stage;
+        const flowData = this.flowChildNode(node);
+        // Append accumulated statements into the stage's preamble code
+        if (propertyName && flowData.result !== null) {
+            this.flowCode[stage] += `    ${propertyName} = ${flowData.result};\n`;
+        }
+        this.flowCode[stage] += flowData.code;
+        this.shaderStage = previousStage;
+        return flowData.result;
+    }
+
+    // -----------------------------------------------------------------------
+    // _buildNode — single dispatch entry point
+    // (Parallel to node.build(builder, output) in three.js)
+    // -----------------------------------------------------------------------
+
+    _buildNode(node: Node<WgslType>): string | null {
+        if (this.buildStage === 'setup') {
+            this._setupNode(node);
+            return null;
+        }
+        if (this.buildStage === 'analyze') {
+            this._analyzeNode(node);
+            return null;
+        }
+        // Generate stage
+        return this._generateNode(node);
+    }
+
+    // -----------------------------------------------------------------------
+    // Setup pass — register resources, collect Fn/Struct nodes
+    // -----------------------------------------------------------------------
+
+    _setupNode(node: Node<WgslType>): void {
+        const data = this.getDataFromNode(node, 'any');
+        if (data.initialized) return;
+        data.initialized = true;
+
+        // Register node into allNodes for expression lookup
+        if (!this.allNodes.has(node.id)) {
+            this.allNodes.set(node.id, node);
+        }
+
+        // Visit children first (depth-first)
+        for (const child of getChildren(node)) {
+            this._setupNode(child);
+        }
+
+        // Delegate resource registration to the node class
+        node.setup(this);
+    }
+
+    _setupFnNode(fn: FnNode<WgslType>): void {
+        const data = this.getDataFromNode(fn as unknown as Node<WgslType>, 'any');
+        if (data.initialized) return;
+        data.initialized = true;
+
         const traced = fn.trace();
         this.fnNodes.set(fn.id, { fn, traced });
-        const { body, output } = traced;
-        const bodyGraph = collectGraph(output);
-        // Add all nodes from the output expression graph to allNodes so
-        // getExpr can resolve them during emit.
+
+        // Register param nodes into allNodes
+        for (const p of traced.params) {
+            if (!this.allNodes.has(p.id)) this.allNodes.set(p.id, p);
+        }
+
+        // Walk the output expression graph
+        const bodyGraph = collectGraph(traced.output);
         for (const [id, node] of bodyGraph.nodes) {
             if (!this.allNodes.has(id)) this.allNodes.set(id, node);
-            if (node.kind === 'call') {
-                const cn = node as CallNode<WgslType>;
-                if (cn.fnNode && !this.fnNodes.has(cn.fnNode.id)) {
-                    this.collectFnNode(cn.fnNode);
-                }
-            }
         }
-        // Also walk the stack (statement nodes like while/for/if/var/assign)
-        // and add all reachable expression nodes to allNodes.
-        const stackGraph = collectGraph(body);
+        // Walk statement nodes
+        const stackGraph = collectGraph(traced.body);
         for (const [id, node] of stackGraph.nodes) {
             if (!this.allNodes.has(id)) this.allNodes.set(id, node);
         }
-        // Scan the stack for nested fn nodes
-        this.collectFnNodesInStack(body);
-    }
 
-    private collectFnNodesInStack(stack: Node<WgslType>): void {
-        if (stack.kind !== 'stack') return;
-        const s = stack as StackNode;
-        for (const stmt of s.body) {
-            this.collectFnNodesInNode(stmt);
+        // Recurse into body to collect nested Fns and resources
+        this._setupStackNode(traced.body);
+
+        // Also recurse into the output expression
+        for (const node of bodyGraph.nodes.values()) {
+            if (node.kind === 'call') {
+                const cn = node as CallNode<WgslType>;
+                if (cn.fnNode && !this.fnNodes.has(cn.fnNode.id)) {
+                    this._setupFnNode(cn.fnNode);
+                }
+            }
         }
     }
 
-    private collectFnNodesInNode(node: Node<WgslType>): void {
+    private _setupStackNode(stack: Node<WgslType>): void {
+        if (stack.kind !== 'stack') return;
+        const s = stack as StackNode;
+        for (const stmt of s.body) {
+            this._setupNodeRecursive(stmt);
+        }
+    }
+
+    private _setupNodeRecursive(node: Node<WgslType>): void {
         switch (node.kind) {
             case 'call': {
                 const cn = node as CallNode<WgslType>;
                 if (cn.fnNode && !this.fnNodes.has(cn.fnNode.id)) {
-                    this.collectFnNode(cn.fnNode);
+                    this._setupFnNode(cn.fnNode);
                 }
                 break;
             }
             case 'if': {
                 const n = node as IfNode;
-                this.collectFnNodesInStack(n.thenBody);
-                if (n.elseBody) this.collectFnNodesInStack(n.elseBody);
+                this._setupStackNode(n.thenBody);
+                if (n.elseBody) this._setupStackNode(n.elseBody);
                 break;
             }
             case 'for': {
                 const n = node as ForNode;
-                this.collectFnNodesInStack(n.body);
+                this._setupStackNode(n.body);
                 break;
             }
             case 'while': {
                 const n = node as WhileNode;
-                this.collectFnNodesInStack(n.body);
-                break;
-            }
-            case 'break':
-            case 'continue': {
-                break;
-            }
-            case 'stack': {
-                this.collectFnNodesInStack(node);
+                this._setupStackNode(n.body);
                 break;
             }
             default:
@@ -663,14 +549,9 @@ class CompileContext {
         }
     }
 
-    /**
-     * Register a StructDef's nested deps (in declaration order) before the struct itself.
-     * Handles arbitrary nesting depth; the insertion-ordered Map ensures correct WGSL output.
-     */
-    private registerStructDef(def: StructDef<StructSchema>): void {
-        // Register nested deps first (depth-first pre-order)
+    _registerStructDef(def: StructDef<StructSchema>): void {
         for (const nested of def.nestedDefs.values()) {
-            this.registerStructDef(nested);
+            this._registerStructDef(nested);
         }
         if (!this.structNodes.has(def.wgslType)) {
             this.structNodes.set(def.wgslType, def.node);
@@ -678,53 +559,217 @@ class CompileContext {
     }
 
     // -----------------------------------------------------------------------
-    // Phase 2 — emit WGSL
+    // Analyze pass — count usages per stage
+    // (Parallel to three.js Node.analyze calling increaseUsage)
     // -----------------------------------------------------------------------
 
-    result(): CompileResult {
+    private _analyzeNode(node: Node<WgslType>): void {
+        const count = this.increaseUsage(node);
+
+        // Only recurse into children the first time we see this node (count === 1).
+        // This is the same deduplication as three.js: if count > 1, we know we've
+        // already walked the subtree, so we only need to mark the extra usage.
+        if (count !== 1) return;
+
+        for (const child of getChildren(node)) {
+            this._analyzeNode(child);
+        }
+
+        // VaryingNode: also analyze its source in vertex stage
+        if (node.kind === 'varying') {
+            const vn = node as VaryingNode<WgslType>;
+            const prevStage = this.shaderStage;
+            this.shaderStage = 'vertex';
+            this._analyzeNode(vn.source);
+            this.shaderStage = prevStage;
+        }
+
+        // StackNode: analyze all body statements
+        if (node.kind === 'stack') {
+            const s = node as StackNode;
+            for (const stmt of s.body) {
+                this._analyzeNode(stmt);
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Generate pass — main dispatch + CSE
+    // (Parallel to TempNode.build in three.js)
+    // -----------------------------------------------------------------------
+
+    _generateNode(node: Node<WgslType>): string | null {
+        const data = this.getDataFromNode(node);
+
+        // CSE hit: already emitted as a var
+        if (data.propertyName !== undefined) return data.propertyName;
+
+        // Check if this is a statement-level node (should not be CSE'd)
+        const isStatement = (
+            node.kind === 'var' ||
+            node.kind === 'assign' ||
+            node.kind === 'if' ||
+            node.kind === 'for' ||
+            node.kind === 'while' ||
+            node.kind === 'break' ||
+            node.kind === 'continue' ||
+            node.kind === 'return' ||
+            node.kind === 'stack'
+        );
+
+        // Leaf nodes that produce a bare identifier (no computation) — skip CSE.
+        // Re-emitting "camera" or "in.position" is free; extracting it to a let
+        // binding would produce confusing output and break tests that check for
+        // the literal identifier in the generated code.
+        const isLeafIdentifier = (
+            node.kind === 'const' ||
+            node.kind === 'attribute' ||
+            node.kind === 'instanced_buffer_attribute' ||
+            node.kind === 'builtin' ||
+            node.kind === 'uniform' ||
+            node.kind === 'storage' ||
+            node.kind === 'texture' ||
+            node.kind === 'sampler' ||
+            node.kind === 'param' ||
+            node.kind === 'varying' ||
+            node.kind === 'struct' ||
+            node.kind === 'fn'
+        );
+
+        if (!isStatement && !isLeafIdentifier && (data.usageCount ?? 0) > 1) {
+            // CSE: emit a var and cache its name
+            const snippet = this._generateNodeExpr(node);
+            const varName = `_v${this.varCounter++}`;
+            this.addLineFlowCode(`let ${varName} = ${snippet}`);
+            data.propertyName = varName;
+            return varName;
+        }
+
+        return this._generateNodeExpr(node);
+    }
+
+    // -----------------------------------------------------------------------
+    // _generateNodeExpr — delegate to node.generate(this)
+    // -----------------------------------------------------------------------
+
+    _generateNodeExpr(node: Node<WgslType>): string | null {
+        return node.generate(this);
+    }
+
+    // -----------------------------------------------------------------------
+    // _emitStackIntoFlow — emit a StackNode's statements with a given indent
+    // Used for nested blocks (if/else, for, while bodies).
+    // -----------------------------------------------------------------------
+
+    _emitStackIntoFlow(stack: StackNode, indent: string): void {
+        const outerFlow = this.flow;
+        this.flow = { code: '' };
+
+        for (const stmt of stack.body) {
+            this._buildNode(stmt);
+        }
+
+        // Re-indent the accumulated code by replacing the default 4-space indent
+        // with the requested indent
+        const indented = this.flow.code.replace(/^    /gm, indent);
+        outerFlow.code += indented;
+        this.flow = outerFlow;
+    }
+
+    // -----------------------------------------------------------------------
+    // Fn declaration emitter
+    // -----------------------------------------------------------------------
+
+    private _emitFnDecl(fn: FnNode<WgslType>, traced: TracedFn): string {
+        const { params, body, output } = traced;
+
+        // Register param names so _generateNode resolves them
+        for (const p of params) {
+            const data = this.getDataFromNode(p);
+            data.propertyName = p.paramName ?? `p${p.paramIndex}`;
+        }
+
+        const paramList = params.map((p, i) => {
+            const name = p.paramName ?? `p${i}`;
+            const desc = fn.paramDescs[i];
+            const wgslType = 'name' in desc
+                ? (desc as ParamDesc).type.wgslType
+                : (desc as { wgslType: string }).wgslType;
+            return `${name} : ${wgslTypeName(wgslType)}`;
+        }).join(', ');
+
+        // Generate the body statements
+        const prevBuildStage = this.buildStage;
+        const prevShaderStage = this.shaderStage;
+        this.buildStage = 'generate';
+        // Fn bodies are stage-agnostic — use 'any' stage for CSE
+        this.shaderStage = null;
+
+        const bodyFlow = this.flowChildNode(body);
+        const retExpr = this._generateNode(output) ?? '/* missing */';
+
+        this.buildStage = prevBuildStage;
+        this.shaderStage = prevShaderStage;
+
+        return [
+            `fn ${fn.fnName}(${paramList}) -> ${wgslTypeName(fn.type)} {`,
+            bodyFlow.code.replace(/\n$/, ''), // strip trailing newline
+            `    return ${retExpr};`,
+            `}`,
+        ].join('\n');
+    }
+
+    // -----------------------------------------------------------------------
+    // buildCode — assemble the final WGSL string(s)
+    // -----------------------------------------------------------------------
+
+    _makeRenderResult(): CompileResult {
+        if (this.input.kind !== 'render') throw new Error('_makeRenderResult called on compute builder');
+
         const lines: string[] = [];
 
-        // --- Struct declarations (Camera, Time, Mesh, user structs) ---
-        // Mesh struct is always registered since the Mesh UBO is always emitted.
+        // Struct declarations
         if (!this.structNodes.has('Mesh')) {
             this.structNodes.set('Mesh', MeshStruct.node);
         }
         for (const sn of this.structNodes.values()) {
-            lines.push(this.emitStructDecl(sn));
+            const members = sn.members.map((m) => `    ${m.name} : ${wgslTypeName(m.type)},`).join('\n');
+            lines.push(`struct ${sn.type} {\n${members}\n}`);
         }
 
-        // --- Builtin UBO bindings ---
+        // Builtin UBO bindings
         if (this.builtinsUsed.has('camera')) {
             lines.push(`@group(0) @binding(0) var<uniform> camera : Camera;`);
         }
         if (this.builtinsUsed.has('time')) {
             lines.push(`@group(0) @binding(1) var<uniform> time : Time;`);
         }
-        // Mesh UBO is always at group(1) binding(0) — always emitted (renderer always uploads it)
         lines.push(`@group(1) @binding(0) var<uniform> mesh : Mesh;`);
 
-        // --- Material resources (group 1, binding 1+) ---
+        // Material resources
         let matBinding = 1;
 
-        // Material uniform block (if any per-material uniforms exist)
         const matUniforms = [...this.uniformNodes.values()];
         let uniformBlockEntry: UniformBlockEntry | null = null;
         if (matUniforms.length > 0) {
-            uniformBlockEntry = this.buildUniformBlock(matUniforms, 1, matBinding);
-            lines.push(this.emitMaterialUniformBlock(uniformBlockEntry));
+            uniformBlockEntry = this._buildUniformBlock(matUniforms, 1, matBinding);
+            lines.push(this._emitMaterialUniformBlock(uniformBlockEntry));
             matBinding++;
         }
 
-        // Per-material storage buffers
         const storageEntries: StorageEntry[] = [];
         for (const sn of this.storageNodes.values()) {
             const name = this.storageNames.get(sn.id)!;
+            // Render shaders share a single WGSL module between vertex and fragment stages.
+            // WGSL forbids var<storage, read_write> from being visible to the vertex stage,
+            // so always emit read access in render shaders — the buffer can still be written
+            // by a compute pass.  Only compute shaders get the true read_write access mode.
+            const wgslAccess = 'read';
             storageEntries.push({ node: sn, name, type: sn.storageType, access: sn.access, group: 1, binding: matBinding });
-            lines.push(`@group(1) @binding(${matBinding}) var<storage, ${sn.access}> ${name} : ${sn.storageType};`);
+            lines.push(`@group(1) @binding(${matBinding}) var<storage, ${wgslAccess}> ${name} : ${sn.storageType};`);
             matBinding++;
         }
 
-        // Textures
         const textureEntries: TextureEntry[] = [];
         for (const tn of this.textureNodes.values()) {
             textureEntries.push({ textureId: tn.textureId, type: tn.type, group: 1, binding: matBinding, node: tn });
@@ -732,7 +777,6 @@ class CompileContext {
             matBinding++;
         }
 
-        // Samplers
         const samplerEntries: SamplerEntry[] = [];
         for (const sn of this.samplerNodes.values()) {
             samplerEntries.push({ samplerId: sn.samplerId, type: sn.type, group: 1, binding: matBinding, node: sn });
@@ -742,20 +786,19 @@ class CompileContext {
 
         if (lines.length > 0) lines.push('');
 
-        // --- User-defined Fn declarations ---
+        // User-defined Fn declarations
         for (const { fn, traced } of this.fnNodes.values()) {
-            lines.push(this.emitFnDecl(fn, traced));
+            lines.push(this._emitFnDecl(fn, traced));
             lines.push('');
         }
 
-        // --- Vertex entry ---
-        lines.push(this.emitVertexEntry());
+        // Vertex entry
+        lines.push(this._getWGSLVertexCode());
         lines.push('');
 
-        // --- Fragment entry ---
-        lines.push(this.emitFragmentEntry());
+        // Fragment entry
+        lines.push(this._getWGSLFragmentCode());
 
-        // --- Build CompileResult ---
         const attributes: AttributeEntry[] = [
             ...[...this.attributes.values()],
             ...this.instancedAttrs,
@@ -773,91 +816,11 @@ class CompileContext {
         };
     }
 
-    // -----------------------------------------------------------------------
-    // Struct decl
-    // -----------------------------------------------------------------------
-
-    private emitStructDecl(sn: StructNode): string {
-        const members = sn.members.map((m) => `    ${m.name} : ${wgslTypeName(m.type)},`).join('\n');
-        return `struct ${sn.type} {\n${members}\n}`;
-    }
-
-    // -----------------------------------------------------------------------
-    // Material uniform block
-    // -----------------------------------------------------------------------
-
-    private buildUniformBlock(
-        nodes: UniformNode<WgslType>[],
-        group: 0 | 1,
-        binding: number,
-    ): UniformBlockEntry {
-        const members: UniformMember[] = [];
-        let offset = 0;
-        for (const n of nodes) {
-            const align = std140Align(n.type);
-            const size = std140Size(n.type);
-            offset = alignUp(offset, align);
-            members.push({ uniformId: n.uniformId, type: n.type, offset, size, node: n });
-            offset += size;
-        }
-        // Align total to 16-byte boundary (std140 struct rule)
-        const totalBytes = alignUp(offset, 16);
-        return { group, binding, members, totalBytes };
-    }
-
-    private emitMaterialUniformBlock(block: UniformBlockEntry): string {
-        const members = block.members.map((m) => `    ${m.uniformId} : ${m.type},`).join('\n');
-        return [
-            `struct MaterialUniforms {`,
-            members,
-            `}`,
-            `@group(${block.group}) @binding(${block.binding}) var<uniform> materialUniforms : MaterialUniforms;`,
-        ].join('\n');
-    }
-
-    // -----------------------------------------------------------------------
-    // User Fn declarations
-    // -----------------------------------------------------------------------
-
-    private emitFnDecl(fn: FnNode<WgslType>, traced: ReturnType<FnNode<WgslType>['trace']>): string {
-        const { params, body, output } = traced;
-        // Register param nodes into allNodes so getExpr can resolve them
-        for (const p of params) {
-            if (!this.allNodes.has(p.id)) this.allNodes.set(p.id, p);
-        }
-        const paramList = params.map((p, i) => {
-            const name = p.paramName ?? `p${i}`;
-            const desc = fn.paramDescs[i];
-            const wgslType = 'name' in desc
-                ? (desc as ParamDesc).type.wgslType
-                : (desc as { wgslType: string }).wgslType;
-            return `${name} : ${wgslTypeName(wgslType)}`;
-        }).join(', ');
-        const letBindings = new Map<string, string>();
-        // Pre-bind param names so getExpr resolves them by name
-        for (const p of params) {
-            letBindings.set(p.id, p.paramName ?? `p${params.indexOf(p)}`);
-        }
-        const bodyLines = this.emitStack(body, params, letBindings, '    ');
-        const retExpr = this.getExpr(output.id, letBindings, params);
-        return [
-            `fn ${fn.fnName}(${paramList}) -> ${wgslTypeName(fn.type)} {`,
-            ...bodyLines,
-            `    return ${retExpr};`,
-            `}`,
-        ].join('\n');
-    }
-
-    // -----------------------------------------------------------------------
-    // Vertex entry function
-    // -----------------------------------------------------------------------
-
-    private emitVertexEntry(): string {
+    private _getWGSLVertexCode(): string {
         const lines: string[] = [];
         const varyingList = [...this.varyings.values()];
         const attrList = [...this.attributes.values()];
 
-        // Input struct
         lines.push(`struct VertexInput {`);
         for (const a of attrList) {
             lines.push(`    @location(${a.location}) ${a.name} : ${wgslTypeName(a.type)},`);
@@ -874,7 +837,6 @@ class CompileContext {
         lines.push(`}`);
         lines.push('');
 
-        // Output struct
         lines.push(`struct VertexOutput {`);
         lines.push(`    @builtin(position) position : vec4f,`);
         for (const v of varyingList) {
@@ -883,33 +845,40 @@ class CompileContext {
         lines.push(`}`);
         lines.push('');
 
-        // Entry function
         lines.push(`@vertex`);
         lines.push(`fn vs_main(in : VertexInput) -> VertexOutput {`);
         lines.push(`    var out : VertexOutput;`);
 
-        // Emit the vertex graph body
-        const refCounts = this.vertRefCounts;
-        const letBindings = new Map<string, string>(); // id → let name
-        const stmts = this.emitGraphStmts(
-            this.vertOrder,
-            refCounts,
-            letBindings,
-            null, // no param nodes in entry points
-            '    ',
-        );
-        for (const s of stmts) lines.push(s);
+        // Emit vertex-stage preamble (varying source assignments from flowNodeFromShaderStage)
+        if (this.flowCode.vertex) {
+            lines.push(this.flowCode.vertex.replace(/\n$/, ''));
+        }
 
-        // Assign output position from the root node expression
-        const posExpr = this.getExpr(this.slots.position.id, letBindings, null);
-        lines.push(`    out.position = ${posExpr};`);
+        // Emit the generated flow for the position root node
+        const posRoot = this.input.kind === 'render' ? this.input.slots.position : null;
+        if (posRoot) {
+            const flowData = this.flowResults.get(posRoot);
+            if (flowData) {
+                if (flowData.code) lines.push(flowData.code.replace(/\n$/, ''));
+                lines.push(`    out.position = ${flowData.result};`);
+            }
+        }
 
         // Assign varyings
         for (const v of varyingList) {
-            // Find the VaryingNode in the vertex graph by name
-            const vn = this.findVaryingNodeByName(v.name);
+            const vn = this._findVaryingNodeByName(v.name);
             if (vn) {
-                const srcExpr = this.getExpr(vn.source.id, letBindings, null);
+                // Source expression was collected into flowCode.vertex via flowNodeFromShaderStage
+                // We need to find the expression for it. Re-generate with saved state.
+                // The vertex-side source result is stored when flowNodeFromShaderStage ran.
+                // We use a fresh generate call here to get the expression (CSE will return cached name).
+                const prevBuildStage = this.buildStage;
+                const prevShaderStage = this.shaderStage;
+                this.buildStage = 'generate';
+                this.shaderStage = 'vertex';
+                const srcExpr = this._generateNode(vn.source) ?? '/* missing */';
+                this.buildStage = prevBuildStage;
+                this.shaderStage = prevShaderStage;
                 lines.push(`    out.${v.name} = ${srcExpr};`);
             }
         }
@@ -920,17 +889,11 @@ class CompileContext {
         return lines.join('\n');
     }
 
-    // -----------------------------------------------------------------------
-    // Fragment entry function
-    // -----------------------------------------------------------------------
-
-    private emitFragmentEntry(): string {
+    private _getWGSLFragmentCode(): string {
         const lines: string[] = [];
         const varyingList = [...this.varyings.values()];
         const hasVaryings = varyingList.length > 0;
 
-        // Input struct (matches vertex output, minus @builtin(position))
-        // WGSL forbids empty structs — only emit when there are varyings.
         if (hasVaryings) {
             lines.push(`struct FragmentInput {`);
             for (const v of varyingList) {
@@ -942,412 +905,118 @@ class CompileContext {
 
         const inputParam = hasVaryings ? `in : FragmentInput` : ``;
 
-        // Entry function
         lines.push(`@fragment`);
         lines.push(`fn fs_main(${inputParam}) -> @location(0) vec4f {`);
 
-        const refCounts = this.fragRefCounts;
-        const letBindings = new Map<string, string>();
-        const stmts = this.emitGraphStmts(this.fragOrder, refCounts, letBindings, null, '    ');
-        for (const s of stmts) lines.push(s);
+        const colorRoot = this.input.kind === 'render' ? this.input.slots.color : null;
+        if (colorRoot) {
+            const flowData = this.flowResults.get(colorRoot);
+            if (flowData) {
+                if (flowData.code) lines.push(flowData.code.replace(/\n$/, ''));
+                lines.push(`    return ${flowData.result};`);
+            }
+        }
 
-        const colorExpr = this.getExpr(this.slots.color.id, letBindings, null);
-        lines.push(`    return ${colorExpr};`);
         lines.push(`}`);
-
         return lines.join('\n');
     }
 
-    // -----------------------------------------------------------------------
-    // Graph statement emitter — walks topo-sorted IDs, emits let bindings
-    // for nodes referenced more than once and for statement-level nodes.
-    // -----------------------------------------------------------------------
+    _makeComputeResult(): ComputeCompileResult {
+        if (this.input.kind !== 'compute') throw new Error('_makeComputeResult called on render builder');
 
-    private emitGraphStmts(
-        order: string[],
-        refCounts: Map<string, number>,
-        letBindings: Map<string, string>,
-        params: import('./nodes.js').ParamNode<WgslType>[] | null,
-        indent: string,
-    ): string[] {
-        const lines: string[] = [];
-        let letCounter = 0;
-
-        for (const id of order) {
-            const node = this.allNodes.get(id);
-            if (!node) continue;
-
-            // Skip leaf nodes that don't need extraction
-            switch (node.kind) {
-                case 'const':
-                case 'attribute':
-                case 'instanced_buffer_attribute':
-                case 'builtin':
-                case 'uniform':
-                case 'storage':
-                case 'texture':
-                case 'sampler':
-                case 'struct':
-                case 'param':
-                case 'fn':
-                    continue;
-                default:
-                    break;
-            }
-
-            // Statement nodes — always emit as statements
-            switch (node.kind) {
-                case 'var': {
-                    const n = node as VarNode<WgslType>;
-                    const initExpr = this.getExpr(n.init.id, letBindings, params);
-                    lines.push(`${indent}var ${n.varName} : ${wgslTypeName(n.type)} = ${initExpr};`);
-                    // The var node's "expression" is just its name
-                    letBindings.set(id, n.varName);
-                    continue;
-                }
-                case 'assign': {
-                    const n = node as AssignNode;
-                    const tgt = this.getExpr(n.target.id, letBindings, params);
-                    const val = this.getExpr(n.value.id, letBindings, params);
-                    lines.push(`${indent}${tgt} = ${val};`);
-                    continue;
-                }
-                case 'if': {
-                    const n = node as IfNode;
-                    const condExpr = this.getExpr(n.condition.id, letBindings, params);
-                    lines.push(`${indent}if (${condExpr}) {`);
-                    for (const s of this.emitStack(n.thenBody, params ?? [], letBindings, indent + '    ')) {
-                        lines.push(s);
-                    }
-                    if (n.elseBody) {
-                        lines.push(`${indent}} else {`);
-                        for (const s of this.emitStack(n.elseBody, params ?? [], letBindings, indent + '    ')) {
-                            lines.push(s);
-                        }
-                    }
-                    lines.push(`${indent}}`);
-                    continue;
-                }
-                case 'for': {
-                    const n = node as ForNode;
-                    const iName = `i_${letCounter++}`;
-                    letBindings.set(n.indexVar.id, iName);
-                    const getExprForRange = (v: Node<WgslType> | number, _type: ScalarType) =>
-                        typeof v === 'number' ? constLiteral(_type, v) : this.getExpr((v as Node<WgslType>).id, letBindings, params);
-                    const header = buildForHeader(n.range, iName, getExprForRange);
-                    lines.push(`${indent}${header} {`);
-                    for (const s of this.emitStack(n.body, params ?? [], letBindings, indent + '    ')) {
-                        lines.push(s);
-                    }
-                    lines.push(`${indent}}`);
-                    continue;
-                }
-                case 'while': {
-                    const n = node as WhileNode;
-                    const condExpr = this.getExpr(n.condition.id, letBindings, params);
-                    lines.push(`${indent}while (${condExpr}) {`);
-                    for (const s of this.emitStack(n.body, params ?? [], letBindings, indent + '    ')) {
-                        lines.push(s);
-                    }
-                    lines.push(`${indent}}`);
-                    continue;
-                }
-                case 'break':
-                    lines.push(`${indent}break;`);
-                    continue;
-                case 'continue':
-                    lines.push(`${indent}continue;`);
-                    continue;
-                case 'return': {
-                    const n = node as ReturnNode<WgslType>;
-                    const valExpr = this.getExpr(n.value.id, letBindings, params);
-                    lines.push(`${indent}return ${valExpr};`);
-                    continue;
-                }
-                case 'stack':
-                    // Inline stacks are emitted by their parent (if/for)
-                    continue;
-                default:
-                    break;
-            }
-
-            // Expression nodes — extract to let if referenced more than once
-            const refs = refCounts.get(id) ?? 0;
-            if (refs > 1) {
-                const letName = `v${letCounter++}`;
-                const expr = this.emitNodeExpr(node, letBindings, params);
-                lines.push(`${indent}let ${letName} = ${expr};`);
-                letBindings.set(id, letName);
-            }
-            // If refs <= 1, expression is inlined at use site — no let needed
-        }
-
-        return lines;
-    }
-
-    // -----------------------------------------------------------------------
-    // Stack emitter (for Fn bodies, if/else/for blocks)
-    // -----------------------------------------------------------------------
-
-    private emitStack(
-        stack: import('./nodes.js').StackNode,
-        params: import('./nodes.js').ParamNode<WgslType>[],
-        letBindings: Map<string, string>,
-        indent: string,
-    ): string[] {
         const lines: string[] = [];
 
-        for (const stmt of stack.body) {
-            switch (stmt.kind) {
-                case 'var': {
-                    const n = stmt as VarNode<WgslType>;
-                    const initExpr = this.getExpr(n.init.id, letBindings, params);
-                    lines.push(`${indent}var ${n.varName} : ${n.type} = ${initExpr};`);
-                    letBindings.set(stmt.id, n.varName);
-                    break;
-                }
-                case 'assign': {
-                    const n = stmt as AssignNode;
-                    const tgt = this.getExpr(n.target.id, letBindings, params);
-                    const val = this.getExpr(n.value.id, letBindings, params);
-                    lines.push(`${indent}${tgt} = ${val};`);
-                    break;
-                }
-                case 'if': {
-                    const n = stmt as IfNode;
-                    const condExpr = this.getExpr(n.condition.id, letBindings, params);
-                    lines.push(`${indent}if (${condExpr}) {`);
-                    for (const s of this.emitStack(n.thenBody, params, letBindings, indent + '    ')) {
-                        lines.push(s);
-                    }
-                    if (n.elseBody) {
-                        lines.push(`${indent}} else {`);
-                        for (const s of this.emitStack(n.elseBody, params, letBindings, indent + '    ')) {
-                            lines.push(s);
-                        }
-                    }
-                    lines.push(`${indent}}`);
-                    break;
-                }
-                case 'for': {
-                    const n = stmt as ForNode;
-                    const iName = `i_${stmt.id}`;
-                    letBindings.set(n.indexVar.id, iName);
-                    const getExprForRange = (v: Node<WgslType> | number, _type: ScalarType) =>
-                        typeof v === 'number' ? constLiteral(_type, v) : this.getExpr((v as Node<WgslType>).id, letBindings, params);
-                    const header = buildForHeader(n.range, iName, getExprForRange);
-                    lines.push(`${indent}${header} {`);
-                    for (const s of this.emitStack(n.body, params, letBindings, indent + '    ')) {
-                        lines.push(s);
-                    }
-                    lines.push(`${indent}}`);
-                    break;
-                }
-                case 'while': {
-                    const n = stmt as WhileNode;
-                    const condExpr = this.getExpr(n.condition.id, letBindings, params);
-                    lines.push(`${indent}while (${condExpr}) {`);
-                    for (const s of this.emitStack(n.body, params, letBindings, indent + '    ')) {
-                        lines.push(s);
-                    }
-                    lines.push(`${indent}}`);
-                    break;
-                }
-                case 'break':
-                    lines.push(`${indent}break;`);
-                    break;
-                case 'continue':
-                    lines.push(`${indent}continue;`);
-                    break;
-                case 'return': {
-                    const n = stmt as ReturnNode<WgslType>;
-                    const valExpr = this.getExpr(n.value.id, letBindings, params);
-                    lines.push(`${indent}return ${valExpr};`);
-                    break;
-                }
-                default:
-                    break;
+        // Struct declarations
+        for (const sn of this.structNodes.values()) {
+            const members = sn.members.map((m) => `    ${m.name} : ${wgslTypeName(m.type)},`).join('\n');
+            lines.push(`struct ${sn.type} {\n${members}\n}`);
+        }
+        if (this.structNodes.size > 0) lines.push('');
+
+        // Storage bindings (group 0)
+        const storageEntries: ComputeStorageEntry[] = [];
+        for (let i = 0; i < this.input.node.storage.length; i++) {
+            const s = this.input.node.storage[i];
+            const name = this.storageNames.get(s.id) ?? `_cs${i}`;
+            storageEntries.push({ node: s, name, type: s.storageType, access: s.access, binding: i });
+            lines.push(`@group(0) @binding(${i}) var<storage, ${s.access}> ${name} : ${s.storageType};`);
+        }
+        if (storageEntries.length > 0) lines.push('');
+
+        // User-defined Fn declarations
+        for (const { fn, traced } of this.fnNodes.values()) {
+            lines.push(this._emitFnDecl(fn, traced));
+            lines.push('');
+        }
+
+        // @compute entry point
+        const [wx, wy, wz] = this.input.node.workgroupSize;
+        lines.push(`@compute @workgroup_size(${wx}, ${wy}, ${wz})`);
+
+        const paramParts: string[] = [];
+        for (const [kind, info] of Object.entries(COMPUTE_BUILTIN_PARAM)) {
+            if (this.builtinsUsed.has(kind)) {
+                paramParts.push(`    @builtin(${info.attr}) ${kind} : ${info.type}`);
+            }
+        }
+        const paramList = paramParts.length > 0 ? '\n' + paramParts.join(',\n') + '\n' : '';
+        lines.push(`fn cs_main(${paramList}) {`);
+
+        // Emit the body StackNode
+        const bodyRoot = this.flowNodes.compute[0];
+        if (bodyRoot) {
+            const flowData = this.flowResults.get(bodyRoot);
+            if (flowData?.code) {
+                lines.push(flowData.code.replace(/\n$/, ''));
             }
         }
 
-        return lines;
+        lines.push(`}`);
+
+        return {
+            code: lines.join('\n'),
+            storage: storageEntries,
+            workgroupSize: this.input.node.workgroupSize,
+        };
     }
 
     // -----------------------------------------------------------------------
-    // Expression emitters
+    // Uniform block helpers
     // -----------------------------------------------------------------------
 
-    /**
-     * Get the WGSL expression string for a given node id.
-     * If the node has been extracted to a let binding, returns the let name.
-     * Otherwise inlines the expression.
-     */
-    private getExpr(
-        id: string,
-        letBindings: Map<string, string>,
-        params: import('./nodes.js').ParamNode<WgslType>[] | null,
-    ): string {
-        const bound = letBindings.get(id);
-        if (bound !== undefined) return bound;
-        const node = this.allNodes.get(id);
-        if (!node) return `/* missing:${id} */`;
-        return this.emitNodeExpr(node, letBindings, params);
-    }
-
-    /**
-     * Emit the inline WGSL expression for a single node.
-     */
-    private emitNodeExpr(
-        node: Node<WgslType>,
-        letBindings: Map<string, string>,
-        params: import('./nodes.js').ParamNode<WgslType>[] | null,
-    ): string {
-        switch (node.kind) {
-            case 'const': {
-                const n = node as ConstNode<WgslType>;
-                return constLiteral(n.type, n.value);
-            }
-
-            case 'attribute': {
-                const n = node as AttributeNode<WgslType>;
-                return `in.${n.name}`;
-            }
-
-            case 'instanced_buffer_attribute': {
-                const n = node as InstancedBufferAttributeNode<WgslType>;
-                const name = this.instancedAttrNames.get(n.id);
-                return name ? `in.${name}` : `/* missing instanced attr ${n.id} */`;
-            }
-
-            case 'builtin': {
-                const n = node as BuiltinNode<WgslType>;
-                if (BUILTIN_VERTEX_INPUT.has(n.builtinKind)) {
-                    return `in.${BUILTIN_VAR[n.builtinKind] ?? n.builtinKind}`;
-                }
-                return BUILTIN_VAR[n.builtinKind] ?? n.builtinKind;
-            }
-
-            case 'uniform': {
-                const n = node as UniformNode<WgslType>;
-                if (n.group === 'material') return `materialUniforms.${n.uniformId}`;
-                // frame-group uniforms treated like builtins
-                return n.uniformId;
-            }
-
-            case 'storage': {
-                const n = node as StorageNode<WgslType>;
-                return this.storageNames.get(n.id) ?? n.id;
-            }
-
-            case 'texture': {
-                const n = node as TextureNode;
-                return `${n.textureId}_tex`;
-            }
-
-            case 'sampler': {
-                const n = node as SamplerNode;
-                return `${n.samplerId}_samp`;
-            }
-
-            case 'varying': {
-                const n = node as VaryingNode<WgslType>;
-                // In fragment stage, read from input struct; in vertex stage, source expr
-                // The fragment entry uses in.<name> via FragmentInput struct
-                return `in.${n.name}`;
-            }
-
-            case 'binop': {
-                const n = node as BinopNode<WgslType>;
-                const l = this.getExpr(n.left.id, letBindings, params);
-                const r = this.getExpr(n.right.id, letBindings, params);
-                return `(${l} ${n.op} ${r})`;
-            }
-
-            case 'call': {
-                const n = node as CallNode<WgslType>;
-                const argExprs = n.args.map((a) => this.getExpr(a.id, letBindings, params));
-                // Special case: negate
-                if (n.fn === 'negate' && argExprs.length === 1) return `(-${argExprs[0]})`;
-                // f32/i32/u32 type conversions
-                if ((n.fn === 'f32' || n.fn === 'i32' || n.fn === 'u32') && argExprs.length === 1) {
-                    return `${n.fn}(${argExprs[0]})`;
-                }
-                return `${n.fn}(${argExprs.join(', ')})`;
-            }
-
-            case 'raw': {
-                const n = node as RawNode<WgslType>;
-                const depExprs = n.deps.map((d) => this.getExpr(d.id, letBindings, params));
-                return n.wgsl.replace(/\$(\d+)/g, (_, i) => depExprs[parseInt(i, 10)] ?? `/* dep${i} */`);
-            }
-
-            case 'construct': {
-                const n = node as ConstructNode<WgslType>;
-                const argExprs = n.args.map((a) => this.getExpr(a.id, letBindings, params));
-                return `${wgslTypeName(n.type)}(${argExprs.join(', ')})`;
-            }
-
-            case 'field': {
-                const n = node as FieldNode<WgslType>;
-                const objExpr = this.getExpr(n.object.id, letBindings, params);
-                return `${objExpr}.${n.fieldName}`;
-            }
-
-            case 'index': {
-                const n = node as IndexNode<WgslType>;
-                const arrExpr = this.getExpr(n.array.id, letBindings, params);
-                const idxExpr = this.getExpr(n.index.id, letBindings, params);
-                return `${arrExpr}[${idxExpr}]`;
-            }
-
-            case 'cond': {
-                const n = node as CondNode<WgslType>;
-                const condExpr = this.getExpr(n.condition.id, letBindings, params);
-                const trueExpr = this.getExpr(n.ifTrue.id, letBindings, params);
-                const falseExpr = n.ifFalse ? this.getExpr(n.ifFalse.id, letBindings, params) : `${n.type}()`;
-                // WGSL select(false_val, true_val, condition)
-                return `select(${falseExpr}, ${trueExpr}, ${condExpr})`;
-            }
-
-            case 'param': {
-                const n = node as ParamNode<WgslType>;
-                return n.paramName ?? `p${n.paramIndex}`;
-            }
-
-            case 'var': {
-                const n = node as VarNode<WgslType>;
-                return n.varName;
-            }
-
-            case 'struct':
-                // Struct nodes are declarations, not expressions
-                return `/* struct ${node.type} */`;
-
-            case 'assign':
-            case 'if':
-            case 'for':
-            case 'return':
-            case 'stack':
-            case 'fn':
-            case 'while':
-            case 'break':
-            case 'continue':
-                // Statement-level nodes — should not appear inline
-                return `/* stmt:${node.kind} */`;
-
-            default: {
-                const _x: never = node.kind;
-                void _x;
-                return `/* unknown:${node.kind} */`;
-            }
+    private _buildUniformBlock(
+        nodes: UniformNode<WgslType>[],
+        group: 0 | 1,
+        binding: number,
+    ): UniformBlockEntry {
+        const members: UniformMember[] = [];
+        let offset = 0;
+        for (const n of nodes) {
+            const align = std140Align(n.type);
+            const size = std140Size(n.type);
+            offset = alignUp(offset, align);
+            members.push({ uniformId: n.uniformId, type: n.type, offset, size, node: n });
+            offset += size;
         }
+        const totalBytes = alignUp(offset, 16);
+        return { group, binding, members, totalBytes };
+    }
+
+    private _emitMaterialUniformBlock(block: UniformBlockEntry): string {
+        const members = block.members.map((m) => `    ${m.uniformId} : ${m.type},`).join('\n');
+        return [
+            `struct MaterialUniforms {`,
+            members,
+            `}`,
+            `@group(${block.group}) @binding(${block.binding}) var<uniform> materialUniforms : MaterialUniforms;`,
+        ].join('\n');
     }
 
     // -----------------------------------------------------------------------
     // Helpers
     // -----------------------------------------------------------------------
 
-    private findVaryingNodeByName(name: string): VaryingNode<WgslType> | null {
+    private _findVaryingNodeByName(name: string): VaryingNode<WgslType> | null {
         for (const node of this.allNodes.values()) {
             if (node.kind === 'varying') {
                 const vn = node as VaryingNode<WgslType>;

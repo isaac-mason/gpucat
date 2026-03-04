@@ -49,8 +49,8 @@ import {
     type WgslType,
 } from '../src/nodes/nodes.js';
 import * as S from '../src/nodes/schema.js';
-import { struct } from '../src/nodes/schema.js';
-import { camera, positionClip, instanceIndex, mesh } from '../src/nodes/std-nodes.js';
+import { struct } from '../src/nodes/nodes.js';
+import { camera, positionClip, instanceIndex, mesh } from '../src/nodes/nodes.js';
 
 // ---------------------------------------------------------------------------
 // helpers

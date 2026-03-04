@@ -9,7 +9,7 @@
  */
 
 import { compile, type CompileResult } from '../nodes/compile.js';
-import { positionClip } from '../nodes/std-nodes.js';
+import { positionClip } from '../nodes/nodes.js';
 import type { Node, WgslType } from '../nodes/nodes.js';
 import type { Material } from '../scene/material.js';
 import type { Geometry } from '../scene/geometry.js';
@@ -178,12 +178,16 @@ export class PipelineCache {
         });
 
         // Per-material storage buffers (binding 1+)
+        // Render shaders emit all storage buffers as var<storage, read> (the WGSL module is shared
+        // between vertex and fragment stages, and read_write is forbidden in the vertex stage).
+        // The bind group layout therefore always uses read-only-storage here, regardless of the
+        // node's access field.  Read-write access is only relevant for compute passes.
         for (const s of cr.storage) {
             if (s.group !== 1) continue;
             entries.push({
                 binding: s.binding,
                 visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-                buffer: { type: s.access === 'read_write' ? 'storage' : 'read-only-storage' },
+                buffer: { type: 'read-only-storage' },
             });
         }
 

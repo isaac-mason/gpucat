@@ -31,6 +31,7 @@
  */
 
 import { Node, TextureNode, SamplerNode, RawNode, type WgslType } from './nodes.js';
+import type { WgslBuilder } from './compile.js';
 import type { Scene } from '../scene/scene.js';
 import type { Camera } from '../scene/camera.js';
 
@@ -77,6 +78,11 @@ export class PassColorTextureNode extends Node<'vec4f'> {
         this.textureNode = textureNode;
         this.samplerNode = samplerNode;
         this.deps        = [textureNode, samplerNode];
+    }
+
+    override generate(builder: WgslBuilder): string {
+        const depExprs = this.deps.map((d) => builder._generateNode(d) ?? '/* missing */');
+        return this.wgsl.replace(/\$(\d+)/g, (_, i) => depExprs[parseInt(i, 10)] ?? `/* dep${i} */`);
     }
 }
 
@@ -129,6 +135,12 @@ export class PassNode extends Node<'vec4f'> {
         this._samplerNode    = new SamplerNode('sampler',             `${pid}_samp`);
         this._depthTexNode   = new TextureNode('texture_depth_2d',   `${pid}_depth`);
         this._colorSampleNode = new PassColorTextureNode(this, this._colorTexNode, this._samplerNode);
+    }
+
+    // PassNode is a container for GPU resources; it is never a direct expression
+    // in the shader graph.  Return null to suppress code emission.
+    override generate(_builder: WgslBuilder): null {
+        return null;
     }
 
     // -----------------------------------------------------------------------

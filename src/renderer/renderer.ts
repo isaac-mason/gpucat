@@ -38,6 +38,8 @@ import { Material } from '../scene/material.js';
 import { Geometry } from '../scene/geometry.js';
 import { raw, builtin, type Node, type WgslType, VaryingNode, RawNode } from '../nodes/nodes.js';
 import { collectPassNodes, type PassNode } from '../nodes/pass-node.js';
+import { type ComputeNode } from '../nodes/compute-node.js';
+import { ComputePipelineCache, type ComputePipelineEntry } from './compute-pipeline.js';
 import type { CompileResult } from '../nodes/compile.js';
 
 const _normalMatrix = mat3.create();
@@ -72,6 +74,7 @@ export class WebGPURenderer {
 
     /** @internal */ buffers!: BufferCache;
     /** @internal */ pipelines!: PipelineCache;
+    /** @internal */ computePipelines!: ComputePipelineCache;
 
     private _initialized = false;
 
@@ -103,6 +106,12 @@ export class WebGPURenderer {
     /** Elapsed time in seconds. */
     private elapsed = 0;
     private lastTimestamp = 0;
+
+    /**
+     * Pending command encoder shared between compute() and render() within a single frame.
+     * Created lazily by compute() and consumed (submitted + nulled) by render().
+     */
+    private _frameEncoder: GPUCommandEncoder | null = null;
 
     /** Clear color for the final swapchain composite pass. Defaults to opaque black. */
     clearColor: [number, number, number, number] = [0, 0, 0, 1];
@@ -174,6 +183,7 @@ export class WebGPURenderer {
 
         this.buffers = new BufferCache(this.device);
         this.pipelines = new PipelineCache(this.device, this.format);
+        this.computePipelines = new ComputePipelineCache(this.device);
 
         const w = this.domElement.width || 1;
         const h = this.domElement.height || 1;
@@ -215,20 +225,85 @@ export class WebGPURenderer {
     // render() — public entry point
     // -----------------------------------------------------------------------
 
+    // -----------------------------------------------------------------------
+    // compile() — pre-warm a compute pipeline
+    // -----------------------------------------------------------------------
+
+    /**
+     * Pre-compile the WebGPU compute pipeline for `node`.
+     * Safe to call before the render loop starts — awaiting it guarantees the
+     * first `renderer.compute(node)` call will dispatch without a skip-frame.
+     * No-op if the pipeline is already compiled.
+     *
+     * @throws if the renderer has not been initialised yet (call await renderer.init() first).
+     */
+    async compile(node: ComputeNode): Promise<void> {
+        if (!this._initialized) {
+            throw new Error('[WebGPURenderer] compile() called before init(). Await renderer.init() first.');
+        }
+        await this.computePipelines.getAsync(node.id, node);
+    }
+
+    // -----------------------------------------------------------------------
+    // compute() — encode a single compute dispatch into the current frame
+    // -----------------------------------------------------------------------
+
+    /**
+     * Encode a compute dispatch for `node` using the renderer's current
+     * command encoder.  Must be called **inside** a `requestAnimationFrame`
+     * callback, before `renderer.render()`, so that the compute pass is
+     * submitted in the same command buffer as the render pass.
+     *
+     * Typical usage:
+     * ```ts
+     * await renderer.compile(updateParticles);
+     *
+     * function frame() {
+     *     renderer.compute(updateParticles);
+     *     renderer.render(outputNode);
+     *     requestAnimationFrame(frame);
+     * }
+     * ```
+     *
+     * @throws if the renderer has not been initialised.
+     * @throws if the pipeline has not been compiled yet (call renderer.compile() first).
+     */
+    compute(node: ComputeNode): void {
+        if (!this._initialized) {
+            throw new Error('[WebGPURenderer] compute() called before init(). Await renderer.init() first.');
+        }
+        const entry = this.computePipelines.get(node.id, node);
+        if (!entry) {
+            throw new Error(
+                `[WebGPURenderer] compute() called for node "${node.id}" before its pipeline was compiled. ` +
+                'Await renderer.compile(node) before entering the frame loop.',
+            );
+        }
+        // Lazily create the per-frame encoder if it does not exist yet.
+        if (!this._frameEncoder) {
+            this._frameEncoder = this.device.createCommandEncoder();
+        }
+        this._dispatchComputeNode(node, this._frameEncoder);
+    }
+
+    // -----------------------------------------------------------------------
+    // render() — public entry point
+    // -----------------------------------------------------------------------
+
     /**
      * Render the given node expression as a fullscreen quad to the swapchain.
      * Collects all PassNodes reachable from outputNode (BFS), renders each
      * scene into its off-screen render target, then composites the expression
      * to the canvas.
      *
-     * Call this once per animation frame.
+     * Call this once per animation frame. Any `renderer.compute()` calls made
+     * earlier in the same frame will be submitted in the same command buffer.
      */
     render(outputNode: Node<WgslType>): void {
         if (!this._initialized) {
             throw new Error('[WebGPURenderer] render() called before init(). Await renderer.init() first.');
         }
 
-        // Advance time.
         const now = performance.now() / 1000;
         const delta = this.lastTimestamp === 0 ? 0 : now - this.lastTimestamp;
         this.lastTimestamp = now;
@@ -242,8 +317,9 @@ export class WebGPURenderer {
             GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         );
 
-        // Single command encoder for the entire pipeline.
-        const encoder = this.device.createCommandEncoder();
+        // Reuse the frame encoder if compute() was called this frame; otherwise create fresh.
+        const encoder = this._frameEncoder ?? this.device.createCommandEncoder();
+        this._frameEncoder = null;
 
         const w = this.domElement.width || 1;
         const h = this.domElement.height || 1;
@@ -258,6 +334,41 @@ export class WebGPURenderer {
         this._renderOutputNode(outputNode, encoder, passNodes);
 
         this.device.queue.submit([encoder.finish()]);
+    }
+
+    // -----------------------------------------------------------------------
+    // _dispatchComputeNode — encode a single compute dispatch
+    // -----------------------------------------------------------------------
+
+    private _dispatchComputeNode(
+        node: ComputeNode,
+        encoder: GPUCommandEncoder,
+    ): void {
+        const key = node.id;
+        const entry: ComputePipelineEntry | undefined = this.computePipelines.get(key, node);
+        if (!entry) return; // Pipeline not ready yet — skip this frame (will compile async)
+
+        // Upload / ensure storage buffers for all outputs.
+        const gpuBuffers: GPUBuffer[] = entry.compileResult.storage.map((s) =>
+            this.buffers.uploadStorage(s.node),
+        );
+
+        // Build the bind group for group 0 (storage outputs).
+        const bindGroup = this.device.createBindGroup({
+            layout: entry.layout0,
+            entries: entry.compileResult.storage.map((s, i) => ({
+                binding: s.binding,
+                resource: { buffer: gpuBuffers[i] },
+            })),
+        });
+
+        // Encode the compute pass.
+        const computePass = encoder.beginComputePass();
+        computePass.setPipeline(entry.pipeline);
+        computePass.setBindGroup(0, bindGroup);
+        const [dx, dy, dz] = node.dispatch;
+        computePass.dispatchWorkgroups(dx, dy, dz);
+        computePass.end();
     }
 
     // -----------------------------------------------------------------------
