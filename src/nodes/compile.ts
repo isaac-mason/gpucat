@@ -67,7 +67,6 @@ import {
 import { collectGraph, getChildren } from './collect.js';
 import { MeshStruct, type StructDef, type StructSchema } from './nodes.js';
 import type { ComputeNode } from './compute-node.js';
-import { alignUp, std140Align, std140Size, wgslTypeName } from './wgsl-utils.js';
 
 // ---------------------------------------------------------------------------
 // Public types — render
@@ -434,7 +433,7 @@ export class WgslBuilder {
     getVars(stage: string): string {
         const vars = this.stageVars[stage];
         if (!vars || vars.length === 0) return '';
-        return vars.map((v) => `    var ${v.name} : ${wgslTypeName(v.type)};`).join('\n') + '\n';
+        return vars.map((v) => `    var ${v.name} : ${v.type};`).join('\n') + '\n';
     }
 
     // -----------------------------------------------------------------------
@@ -737,7 +736,7 @@ export class WgslBuilder {
             const wgslType = 'name' in desc
                 ? (desc as ParamDesc).type.wgslType
                 : (desc as { wgslType: string }).wgslType;
-            return `${name} : ${wgslTypeName(wgslType)}`;
+            return `${name} : ${wgslType}`;
         }).join(', ');
 
         // Generate the body statements
@@ -759,7 +758,7 @@ export class WgslBuilder {
         this.stageVars = prevStageVars;
 
         return [
-            `fn ${fn.fnName}(${paramList}) -> ${wgslTypeName(fn.type)} {`,
+            `fn ${fn.fnName}(${paramList}) -> ${fn.type} {`,
             ...(fnVarsPreamble ? [fnVarsPreamble.replace(/\n$/, '')] : []),
             bodyFlow.code.replace(/\n$/, ''), // strip trailing newline
             `    return ${retExpr};`,
@@ -781,7 +780,7 @@ export class WgslBuilder {
             this.structNodes.set('Mesh', MeshStruct.node);
         }
         for (const sn of this.structNodes.values()) {
-            const members = sn.members.map((m) => `    ${m.name} : ${wgslTypeName(m.type)},`).join('\n');
+            const members = sn.members.map((m) => `    ${m.name} : ${m.type},`).join('\n');
             lines.push(`struct ${sn.type} {\n${members}\n}`);
         }
 
@@ -871,10 +870,10 @@ export class WgslBuilder {
 
         lines.push(`struct VertexInput {`);
         for (const a of attrList) {
-            lines.push(`    @location(${a.location}) ${a.name} : ${wgslTypeName(a.type)},`);
+            lines.push(`    @location(${a.location}) ${a.name} : ${a.type},`);
         }
         for (const a of this.instancedAttrs) {
-            lines.push(`    @location(${a.location}) ${a.name} : ${wgslTypeName(a.type)},`);
+            lines.push(`    @location(${a.location}) ${a.name} : ${a.type},`);
         }
         if (this.builtinsUsed.has('instance_index')) {
             lines.push(`    @builtin(instance_index) instance_index : u32,`);
@@ -888,7 +887,7 @@ export class WgslBuilder {
         lines.push(`struct VertexOutput {`);
         lines.push(`    @builtin(position) position : vec4f,`);
         for (const v of varyingList) {
-            lines.push(`    @location(${v.location}) ${v.name} : ${wgslTypeName(v.type)},`);
+            lines.push(`    @location(${v.location}) ${v.name} : ${v.type},`);
         }
         lines.push(`}`);
         lines.push('');
@@ -949,7 +948,7 @@ export class WgslBuilder {
         if (hasVaryings) {
             lines.push(`struct FragmentInput {`);
             for (const v of varyingList) {
-                lines.push(`    @location(${v.location}) ${v.name} : ${wgslTypeName(v.type)},`);
+                lines.push(`    @location(${v.location}) ${v.name} : ${v.type},`);
             }
             lines.push(`}`);
             lines.push('');
@@ -984,7 +983,7 @@ export class WgslBuilder {
 
         // Struct declarations
         for (const sn of this.structNodes.values()) {
-            const members = sn.members.map((m) => `    ${m.name} : ${wgslTypeName(m.type)},`).join('\n');
+            const members = sn.members.map((m) => `    ${m.name} : ${m.type},`).join('\n');
             lines.push(`struct ${sn.type} {\n${members}\n}`);
         }
         if (this.structNodes.size > 0) lines.push('');
@@ -1085,4 +1084,38 @@ export class WgslBuilder {
         }
         return null;
     }
+}
+
+// ---------------------------------------------------------------------------
+// std140 layout helpers — only used by WgslBuilder._buildUniformBlock
+// ---------------------------------------------------------------------------
+
+function std140Size(type: string): number {
+    switch (type) {
+        case 'f32': case 'i32': case 'u32': case 'bool': return 4;
+        case 'vec2f': case 'vec2i': case 'vec2u': case 'vec2<bool>': return 8;
+        case 'vec3f': case 'vec3i': case 'vec3u': case 'vec3<bool>': return 12;
+        case 'vec4f': case 'vec4i': case 'vec4u': case 'vec4<bool>': return 16;
+        case 'mat2x2f': return 32;
+        case 'mat2x3f': case 'mat2x4f': return 32;
+        case 'mat3x2f': return 48;
+        case 'mat3x3f': case 'mat3x4f': return 48;
+        case 'mat4x2f': return 64;
+        case 'mat4x3f': case 'mat4x4f': return 64;
+        default: return 16;
+    }
+}
+
+function std140Align(type: string): number {
+    switch (type) {
+        case 'f32': case 'i32': case 'u32': case 'bool': return 4;
+        case 'vec2f': case 'vec2i': case 'vec2u': case 'vec2<bool>': return 8;
+        case 'vec3f': case 'vec3i': case 'vec3u': case 'vec3<bool>': return 16;
+        case 'vec4f': case 'vec4i': case 'vec4u': case 'vec4<bool>': return 16;
+        default: return 16;
+    }
+}
+
+function alignUp(offset: number, align: number): number {
+    return Math.ceil(offset / align) * align;
 }

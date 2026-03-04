@@ -34,9 +34,9 @@ export function array<E extends WgslType>(elementDesc: WgslDesc<E>): ArrayDesc<E
 export function itemSizeOf(desc: WgslDesc<WgslType>): number {
     const t = desc.wgslType;
     if (t === 'f32' || t === 'i32' || t === 'u32' || t === 'bool') return 1;
-    if (t === 'vec2f' || t === 'vec2i' || t === 'vec2u' || t === 'vec2b') return 2;
-    if (t === 'vec3f' || t === 'vec3i' || t === 'vec3u' || t === 'vec3b') return 3;
-    if (t === 'vec4f' || t === 'vec4i' || t === 'vec4u' || t === 'vec4b') return 4;
+    if (t === 'vec2f' || t === 'vec2i' || t === 'vec2u' || t === 'vec2<bool>') return 2;
+    if (t === 'vec3f' || t === 'vec3i' || t === 'vec3u' || t === 'vec3<bool>') return 3;
+    if (t === 'vec4f' || t === 'vec4i' || t === 'vec4u' || t === 'vec4<bool>') return 4;
     if (t === 'mat2x2f') return 4;
     if (t === 'mat2x3f' || t === 'mat3x2f') return 6;
     if (t === 'mat2x4f' || t === 'mat4x2f') return 8;

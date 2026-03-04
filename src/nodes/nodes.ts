@@ -11,7 +11,6 @@
  */
 
 import { getChildren as _getChildren } from './collect';
-import { constLiteral, wgslTypeName, buildForHeader } from './wgsl-utils';
 import type { WgslBuilder } from './compile';
 import { type WgslDesc, type StructSchema, type ArrayDesc, itemSizeOf, typedArrayCtorOf, isStructDef } from './schema';
 export { array, isArrayDesc, isStructDef, type WgslDesc, type ArrayDesc, type StructSchema, itemSizeOf, typedArrayCtorOf } from './schema';
@@ -85,9 +84,9 @@ export function struct<S extends StructSchema>(wgslType: string, schema: S): Str
 
 export type ScalarType = 'f32' | 'i32' | 'u32' | 'bool';
 
-export type Vec2Type = 'vec2f' | 'vec2i' | 'vec2u' | 'vec2b';
-export type Vec3Type = 'vec3f' | 'vec3i' | 'vec3u' | 'vec3b';
-export type Vec4Type = 'vec4f' | 'vec4i' | 'vec4u' | 'vec4b';
+export type Vec2Type = 'vec2f' | 'vec2i' | 'vec2u' | 'vec2<bool>';
+export type Vec3Type = 'vec3f' | 'vec3i' | 'vec3u' | 'vec3<bool>';
+export type Vec4Type = 'vec4f' | 'vec4i' | 'vec4u' | 'vec4<bool>';
 export type VecType = Vec2Type | Vec3Type | Vec4Type;
 
 export type MatType = 'mat2x2f' | 'mat2x3f' | 'mat2x4f' | 'mat3x2f' | 'mat3x3f' | 'mat3x4f' | 'mat4x2f' | 'mat4x3f' | 'mat4x4f';
@@ -109,9 +108,9 @@ export type VecElement<T extends VecType> = T extends 'vec2f' | 'vec3f' | 'vec4f
         ? 'u32'
         : 'bool';
 
-export type Vec2Of<E extends ScalarType> = E extends 'f32' ? 'vec2f' : E extends 'i32' ? 'vec2i' : E extends 'u32' ? 'vec2u' : 'vec2b';
-export type Vec3Of<E extends ScalarType> = E extends 'f32' ? 'vec3f' : E extends 'i32' ? 'vec3i' : E extends 'u32' ? 'vec3u' : 'vec3b';
-export type Vec4Of<E extends ScalarType> = E extends 'f32' ? 'vec4f' : E extends 'i32' ? 'vec4i' : E extends 'u32' ? 'vec4u' : 'vec4b';
+export type Vec2Of<E extends ScalarType> = E extends 'f32' ? 'vec2f' : E extends 'i32' ? 'vec2i' : E extends 'u32' ? 'vec2u' : 'vec2<bool>';
+export type Vec3Of<E extends ScalarType> = E extends 'f32' ? 'vec3f' : E extends 'i32' ? 'vec3i' : E extends 'u32' ? 'vec3u' : 'vec3<bool>';
+export type Vec4Of<E extends ScalarType> = E extends 'f32' ? 'vec4f' : E extends 'i32' ? 'vec4i' : E extends 'u32' ? 'vec4u' : 'vec4<bool>';
 
 export type MulResult<A extends WgslType, B extends WgslType> = A extends MatType
     ? B extends VecType
@@ -534,6 +533,92 @@ export class Node<T extends WgslType> {
 // Use .field() for typed struct member access.
 
 // ---------------------------------------------------------------------------
+// Code-generation helpers — used only within nodes.ts
+// ---------------------------------------------------------------------------
+
+function constLiteral(type: string, value: number | number[] | string): string {
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number') {
+        switch (type) {
+            case 'f32': return Number.isInteger(value) ? `${value}.0` : `${value}`;
+            case 'i32': return `${Math.trunc(value)}i`;
+            case 'u32': return `${Math.trunc(value)}u`;
+            case 'bool': return value !== 0 ? 'true' : 'false';
+            default: return `${value}`;
+        }
+    }
+    const components = (value as number[]).map((v) => {
+        if (type.startsWith('vec') && type.endsWith('f')) return Number.isInteger(v) ? `${v}.0` : `${v}`;
+        if (type.startsWith('vec') && type.endsWith('i')) return `${Math.trunc(v)}i`;
+        if (type.startsWith('vec') && type.endsWith('u')) return `${Math.trunc(v)}u`;
+        if (type === 'vec2<bool>' || type === 'vec3<bool>' || type === 'vec4<bool>') return v !== 0 ? 'true' : 'false';
+        if (type.startsWith('mat')) return Number.isInteger(v) ? `${v}.0` : `${v}`;
+        return `${v}`;
+    });
+    if (components.length === 0) return `${type}()`;
+    return `${type}(${components.join(', ')})`;
+}
+
+function buildUpdateSnippet(
+    update: ForRange['update'],
+    iName: string,
+    type: ScalarType,
+    defaultOp: '++' | '--',
+): string {
+    if (update === undefined || update === null) return `${iName}${defaultOp}`;
+    if (typeof update === 'number') {
+        const delta = constLiteral(type, Math.abs(update));
+        const op = defaultOp.includes('+') ? '+=' : '-=';
+        return `${iName} ${op} ${delta}`;
+    }
+    return `${iName}${defaultOp}`;
+}
+
+function buildForHeader(
+    range: ForRange,
+    iName: string,
+    getScalarExpr: (v: Node<WgslType> | number, type: ScalarType) => string,
+): string {
+    const type: ScalarType = range.type ?? 'u32';
+
+    const rawStart = range.start !== undefined
+        ? (typeof range.start === 'number' ? constLiteral(type, range.start) : getScalarExpr(range.start, type))
+        : undefined;
+    const rawEnd = range.end !== undefined
+        ? (typeof range.end === 'number' ? constLiteral(type, range.end) : getScalarExpr(range.end, type))
+        : undefined;
+
+    let startSnippet: string;
+    let endSnippet: string;
+    let condition: string;
+    let updateSnippet: string;
+
+    if (rawStart !== undefined && rawEnd === undefined) {
+        startSnippet = `${rawStart} - ${constLiteral(type, 1)}`;
+        endSnippet = constLiteral(type, 0);
+        condition = range.condition ?? '>=';
+        const defaultUpdate = condition.includes('<') ? '++' : '--';
+        updateSnippet = buildUpdateSnippet(range.update, iName, type, defaultUpdate);
+    } else {
+        startSnippet = rawStart ?? constLiteral(type, 0);
+        endSnippet = rawEnd ?? constLiteral(type, 0);
+
+        if (range.condition !== undefined) {
+            condition = range.condition;
+        } else {
+            const numStart = typeof range.start === 'number' ? range.start : 0;
+            const numEnd = typeof range.end === 'number' ? range.end : undefined;
+            condition = (numEnd !== undefined && numStart > numEnd) ? '>=' : '<';
+        }
+
+        const defaultUpdate = condition.includes('<') ? '++' : '--';
+        updateSnippet = buildUpdateSnippet(range.update, iName, type, defaultUpdate);
+    }
+
+    return `for (var ${iName} : ${type} = ${startSnippet}; ${iName} ${condition} ${endSnippet}; ${updateSnippet})`;
+}
+
+// ---------------------------------------------------------------------------
 // Subclasses — one per node kind
 // ---------------------------------------------------------------------------
 
@@ -858,7 +943,7 @@ export class ConstructNode<T extends WgslType> extends Node<T> {
 
     override generate(builder: WgslBuilder): string {
         const argExprs = this.args.map((a) => builder._generateNode(a) ?? '/* missing */');
-        return `${wgslTypeName(this.type)}(${argExprs.join(', ')})`;
+        return `${this.type}(${argExprs.join(', ')})`;
     }
 }
 
@@ -1596,10 +1681,7 @@ export const uvec2 = makeVec2('vec2u');
 export const uvec3 = makeVec3('vec3u');
 export const uvec4 = makeVec4('vec4u');
 
-// bool variants — bvec2 / bvec3 / bvec4
-export const bvec2 = makeVec2('vec2b');
-export const bvec3 = makeVec3('vec3b');
-export const bvec4 = makeVec4('vec4b');
+
 
 export const mat4 = (c0: Node<'vec4f'>, c1: Node<'vec4f'>, c2: Node<'vec4f'>, c3: Node<'vec4f'>) =>
     new ConstructNode('mat4x4f', [c0, c1, c2, c3]);
@@ -1975,9 +2057,9 @@ export const vec2u  = (x = 0, y = 0):               ConstNode<'vec2u'>  => new C
 export const vec3u  = (x = 0, y = 0, z = 0):        ConstNode<'vec3u'>  => new ConstNode('vec3u',  [x, y, z]);
 export const vec4u  = (x = 0, y = 0, z = 0, w = 0): ConstNode<'vec4u'>  => new ConstNode('vec4u',  [x, y, z, w]);
 
-export const vec2b  = (x = false, y = false):                    ConstNode<'vec2b'>  => new ConstNode('vec2b',  [x ? 1 : 0, y ? 1 : 0]);
-export const vec3b  = (x = false, y = false, z = false):         ConstNode<'vec3b'>  => new ConstNode('vec3b',  [x ? 1 : 0, y ? 1 : 0, z ? 1 : 0]);
-export const vec4b  = (x = false, y = false, z = false, w = false): ConstNode<'vec4b'>  => new ConstNode('vec4b',  [x ? 1 : 0, y ? 1 : 0, z ? 1 : 0, w ? 1 : 0]);
+export const vec2b  = (x = false, y = false):                    ConstNode<'vec2<bool>'>  => new ConstNode('vec2<bool>',  [x ? 1 : 0, y ? 1 : 0]);
+export const vec3b  = (x = false, y = false, z = false):         ConstNode<'vec3<bool>'>  => new ConstNode('vec3<bool>',  [x ? 1 : 0, y ? 1 : 0, z ? 1 : 0]);
+export const vec4b  = (x = false, y = false, z = false, w = false): ConstNode<'vec4<bool>'>  => new ConstNode('vec4<bool>',  [x ? 1 : 0, y ? 1 : 0, z ? 1 : 0, w ? 1 : 0]);
 
 export const mat2x2f = (...v: number[]): ConstNode<'mat2x2f'> => new ConstNode('mat2x2f', v.length ? v : []);
 export const mat2x3f = (...v: number[]): ConstNode<'mat2x3f'> => new ConstNode('mat2x3f', v.length ? v : []);
