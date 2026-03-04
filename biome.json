@@ -5,7 +5,7 @@
         "clientKind": "git",
         "useIgnoreFile": false
     },
-    "files": { "ignoreUnknown": false },
+    "files": { "ignoreUnknown": false, "ignore": ["src/nodes/nodes.ts"] },
     "formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 4, "lineWidth": 130 },
     "linter": {
         "enabled": true,

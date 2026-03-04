@@ -14,6 +14,7 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noImplicitReturns": true,
+    "types": ["@webgpu/types"],
     "skipLibCheck": true,
     "baseUrl": "./",
     "rootDir": "./src",

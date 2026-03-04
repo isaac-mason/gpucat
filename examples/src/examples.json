@@ -1,17 +1,17 @@
 {
-    "example-quickhull2": {
-        "title": "quickhull2",
-        "description": "Demonstrates usage of the QuickHull algorithm to compute the convex hull of a set of 2D points.",
-        "tags": ["geometry", "convex hull", "quickhull", "2d"]
+    "example-spinning-box": {
+        "title": "spinning-box",
+        "description": "A flat-shaded spinning box rendered with a node-graph material and WebGPU.",
+        "tags": ["webgpu", "3d", "renderer", "node-graph"]
     },
-    "example-quickhull3": {
-        "title": "quickhull3",
-        "description": "Demonstrates usage of the QuickHull algorithm to compute the convex hull of a set of 3D points.",
-        "tags": ["geometry", "convex hull", "quickhull", "3d"]
+    "example-instanced-mesh": {
+        "title": "instanced-mesh",
+        "description": "30 instanced boxes with per-instance transforms and colours via InstancedBufferAttributeNode.",
+        "tags": ["webgpu", "3d", "renderer", "instancing", "node-graph"]
     },
-    "example-triangle2-circumcircle": {
-        "title": "triangle2.circumcircle",
-        "description": "Demonstrates the circumcircle calculation for 2D triangles - the circle passing through all three vertices.",
-        "tags": ["geometry", "triangle", "circumcircle", "2d"]
+    "example-instancing-storage-buffer": {
+        "title": "instancing-storage-buffer",
+        "description": "35 instanced boxes using storage buffers (mat4x4f transforms + vec4f colours) indexed by instance_index, combined with an instancedBufferAttribute for per-instance spin offset.",
+        "tags": ["webgpu", "3d", "renderer", "instancing", "storage-buffer", "node-graph"]
     }
 }

@@ -3,7 +3,11 @@
     "version": "0.0.0-alpha.1",
     "author": "Isaac Mason <isaac@isaacmason.com>",
     "description": "an entity management library",
-    "keywords": ["entity", "query", "filter"],
+    "keywords": [
+        "entity",
+        "query",
+        "filter"
+    ],
     "license": "MIT",
     "type": "module",
     "main": "dist/index.js",
@@ -25,10 +29,14 @@
         "docs": "(cd docs && node ./build.js)"
     },
     "packageManager": "pnpm@8.15.2+sha1.798034f615aa211c6c2ae00010cc20be5fc102ee",
+    "dependencies": {
+        "mathcat": "0.0.11"
+    },
     "devDependencies": {
         "@biomejs/biome": "^2.2.0",
         "@rollup/plugin-node-resolve": "^16.0.1",
         "@rollup/plugin-typescript": "^12.1.4",
+        "@webgpu/types": "^0.1.69",
         "rollup": "^4.46.2",
         "rollup-plugin-copy": "^3.5.0",
         "rollup-plugin-filesize": "^10.0.0",
