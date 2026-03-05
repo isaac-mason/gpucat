@@ -185,8 +185,8 @@ const fragColor = gpu.vec4(
 );
 
 const material = new gpu.Material({
-    position: clipPos,
-    color:    fragColor,
+    vertex: clipPos,
+    fragment: fragColor,
     transparent: true,
     cullMode: 'none',
 });

@@ -15,9 +15,9 @@
  * All per-particle state lives on the GPU after the first upload.
  */
 
-import * as gpu from 'gpucat';
+import * as g from 'gpucat';
 
-const S = gpu.S;
+const S = g.S;
 
 const N = 8192;
 const WG = 64; // workgroup size
@@ -34,8 +34,8 @@ for (let i = 0; i < N; i++) {
     positionData[i * 4 + 2] = (Math.random() - 0.5) * 4;   // z depth
     positionData[i * 4 + 3] = Math.random();                // initial lifetime
 }
-const positionAttr = new gpu.StorageBufferAttribute(positionData, 4); // 4 floats per vec4f
-const positions = gpu.storage(positionAttr, S.array(S.vec4f()), 'read_write');
+const positionAttr = new g.StorageBufferAttribute(positionData, 4); // 4 floats per vec4f
+const positions = g.storage(positionAttr, S.array(S.vec4f()), 'read_write');
 
 // velocities: vec4f per particle — xyz = velocity, w = unused
 const velocityData = new Float32Array(N * 4);
@@ -45,21 +45,21 @@ for (let i = 0; i < N; i++) {
     velocityData[i * 4 + 2] = (Math.random() - 0.5) * 0.01;
     velocityData[i * 4 + 3] = 0;
 }
-const velocityAttr = new gpu.StorageBufferAttribute(velocityData, 4); // 4 floats per vec4f
-const velocities = gpu.storage(velocityAttr, S.array(S.vec4f()), 'read');
+const velocityAttr = new g.StorageBufferAttribute(velocityData, 4); // 4 floats per vec4f
+const velocities = g.storage(velocityAttr, S.array(S.vec4f()), 'read');
 
 // ---------------------------------------------------------------------------
 // 2. Compute kernel — advance particles each frame
 // ---------------------------------------------------------------------------
 
-const updateParticles = gpu.Fn(() => {
-    const idx = gpu.toVar(gpu.globalId().x, 'idx');
+const updateParticles = g.Fn(() => {
+    const idx = g.Var(g.globalId().x, 'idx');
 
     // Bounds check — last workgroup may have spare threads.
     // Use If guard instead of Return() to stay compatible with void kernels.
-    gpu.If(idx.lt(gpu.u32(N)), () => {
-        const pos = gpu.toVar(gpu.index(positions, idx), 'pos');
-        const vel = gpu.toVar(gpu.index(velocities, idx), 'vel');
+    g.If(idx.lt(g.u32(N)), () => {
+        const pos = g.Var(g.index(positions, idx), 'pos');
+        const vel = g.Var(g.index(velocities, idx), 'vel');
 
         // Advance position by velocity.
         const newX = pos.x.add(vel.x);
@@ -67,18 +67,18 @@ const updateParticles = gpu.Fn(() => {
         const newZ = pos.z.add(vel.z);
 
         // Decay lifetime — w counts down from 1 to 0.
-        const newW = pos.w.sub(gpu.f32(0.004));
+        const newW = pos.w.sub(g.f32(0.004));
 
         // Respawn when lifetime expires (w <= 0).
-        gpu.If(newW.lte(gpu.f32(0)), () => {
+        g.If(newW.lte(g.f32(0)), () => {
             // Use globalId components as a cheap deterministic hash for spawn position.
-            const seedX = gpu.f32(0).add(idx.toF32().mul(gpu.f32(0.0013)).fract().mul(gpu.f32(20)).sub(gpu.f32(10)));
-            gpu.index(positions, idx).assign(
-                gpu.vec4(seedX, gpu.f32(-5), gpu.f32(0), gpu.f32(1)),
+            const seedX = g.f32(0).add(idx.toF32().mul(g.f32(0.0013)).fract().mul(g.f32(20)).sub(g.f32(10)));
+            g.index(positions, idx).assign(
+                g.vec4(seedX, g.f32(-5), g.f32(0), g.f32(1)),
             );
         }).Else(() => {
-            gpu.index(positions, idx).assign(
-                gpu.vec4(newX, newY, newZ, newW),
+            g.index(positions, idx).assign(
+                g.vec4(newX, newY, newZ, newW),
             );
         });
     });
@@ -88,41 +88,41 @@ const updateParticles = gpu.Fn(() => {
 // 3. Render graph — instanced particles
 // ---------------------------------------------------------------------------
 
-const iIdx    = gpu.instanceIndex();
+const iIdx    = g.instanceIndex();
 
 // Read this particle's world position directly from the storage buffer.
 // renderer.compute() ensures the buffer is updated before the render pass each frame.
-const particlePos = gpu.index(positions, iIdx);
+const particlePos = g.index(positions, iIdx);
 
 // Vertex: offset the geometry vertex by the particle's world position.
-const vtxPos = gpu.attribute('vec3f', 'position');
-const worldPos = gpu.vec4(
+const vtxPos = g.attribute('vec3f', 'position');
+const worldPos = g.vec4(
     vtxPos.x.add(particlePos.x),
     vtxPos.y.add(particlePos.y),
     vtxPos.z.add(particlePos.z),
-    gpu.f32(1),
+    g.f32(1),
 );
-const viewPos = gpu.mul(gpu.cameraViewMatrix, worldPos);
-const clipPos = gpu.mul(gpu.cameraProjectionMatrix, viewPos);
+const viewPos = g.mul(g.cameraViewMatrix, worldPos);
+const clipPos = g.mul(g.cameraProjectionMatrix, viewPos);
 
 // Color: fade by lifetime (w), add a soft blue-white hue.
-const lifetime = gpu.varying('f32', 'v_life', particlePos.w);
-const r = lifetime.mul(gpu.f32(0.6)).add(gpu.f32(0.4));
-const g = lifetime.mul(gpu.f32(0.7)).add(gpu.f32(0.3));
-const b = gpu.f32(1.0);
-const a = lifetime.clamp(gpu.f32(0), gpu.f32(1));
-const particleColor = gpu.vec4(r, g, b, a);
+const lifetime = g.varying('f32', 'v_life', particlePos.w);
+const colR = lifetime.mul(g.f32(0.6)).add(g.f32(0.4));
+const colG = lifetime.mul(g.f32(0.7)).add(g.f32(0.3));
+const colB = g.f32(1.0);
+const colA = lifetime.clamp(g.f32(0), g.f32(1));
+const particleColor = g.vec4(colR, colG, colB, colA);
 
 // Subtle time-driven pulse on brightness.
-const pulse = gpu.timeElapsed.mul(gpu.f32(2)).sin().mul(gpu.f32(0.05)).add(gpu.f32(1));
-const finalColor = gpu.vec4(
+const pulse = g.timeElapsed.mul(g.f32(2)).sin().mul(g.f32(0.05)).add(g.f32(1));
+const finalColor = g.vec4(
     particleColor.rgb.mul(pulse),
     particleColor.a,
 );
 
-const material = new gpu.Material({
-    position: clipPos,
-    color: finalColor,
+const material = new g.Material({
+    vertex: clipPos,
+    fragment: finalColor,
     transparent: true,
     depthWrite: false,
 });
@@ -132,17 +132,17 @@ const material = new gpu.Material({
 // ---------------------------------------------------------------------------
 
 async function main() {
-    const renderer = new gpu.WebGPURenderer({ antialias: true });
-    renderer.inspector = new gpu.Inspector();
+    const renderer = new g.WebGPURenderer({ antialias: true });
+    renderer.inspector = new g.Inspector();
     await renderer.init();
 
     document.body.appendChild(renderer.domElement);
-    document.body.appendChild((renderer.inspector as gpu.Inspector).domElement);
+    document.body.appendChild((renderer.inspector as g.Inspector).domElement);
     renderer.setSize(window.innerWidth * devicePixelRatio, window.innerHeight * devicePixelRatio);
     renderer.clearColor = [0.04, 0.04, 0.08, 1];
 
-    const scene = new gpu.Scene();
-    const camera = new gpu.PerspectiveCamera(
+    const scene = new g.Scene();
+    const camera = new g.PerspectiveCamera(
         Math.PI / 4,
         window.innerWidth / window.innerHeight,
         0.1,
@@ -162,7 +162,7 @@ async function main() {
 
     // Small quad geometry for each particle — a 0.15-unit square.
     const S2 = 0.075;
-    const quadGeom = new gpu.Geometry();
+    const quadGeom = new g.Geometry();
     const verts = new Float32Array([
         -S2, -S2, 0,
          S2, -S2, 0,
@@ -170,17 +170,17 @@ async function main() {
         -S2,  S2, 0,
     ]);
     const indices = new Uint16Array([0, 1, 2, 0, 2, 3]);
-    quadGeom.attributes.set('position', new gpu.BufferAttribute(verts, 3));
-    quadGeom.index = new gpu.IndexAttribute(indices);
+    quadGeom.attributes.set('position', new g.BufferAttribute(verts, 3));
+    quadGeom.index = new g.IndexAttribute(indices);
 
-    const mesh = new gpu.Mesh(quadGeom, material);
+    const mesh = new g.Mesh(quadGeom, material);
     mesh.count = N;
     scene.add(mesh);
 
     // Pre-warm the compute pipeline before the frame loop.
     await renderer.compileCompute(updateParticles);
 
-    const scenePass = gpu.pass(scene, camera);
+    const scenePass = g.pass(scene, camera);
     const outputNode = scenePass.getTextureNode();
 
     function frame() {

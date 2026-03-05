@@ -131,22 +131,14 @@ export class Timeline extends Tab {
 
     private _buildUI(): void {
         const container = document.createElement('div');
-        container.style.display = 'flex';
-        container.style.flexDirection = 'column';
-        container.style.height = 'calc(100% - 37px)';
-        container.style.width = '100%';
+        container.className = 'timeline-body';
 
         const graphContainer = document.createElement('div');
-        graphContainer.style.height = '60px';
-        graphContainer.style.minHeight = '60px';
+        graphContainer.className = 'graph-container';
         graphContainer.style.borderBottom = '1px solid var(--border-color)';
-        graphContainer.style.backgroundColor = 'var(--background-color)';
 
         this.graphSlider = document.createElement('div');
-        this.graphSlider.style.height = '100%';
-        this.graphSlider.style.margin = '0 10px';
-        this.graphSlider.style.position = 'relative';
-        this.graphSlider.style.cursor = 'crosshair';
+        this.graphSlider.className = 'timeline-graph-slider';
 
         graphContainer.appendChild(this.graphSlider);
 
@@ -155,18 +147,17 @@ export class Timeline extends Tab {
         this.graphSlider.appendChild(this.graph.domElement);
 
         this.hoverIndicator = document.createElement('div');
-        this.hoverIndicator.style.cssText = 'position:absolute;top:0;bottom:0;width:1px;background:rgba(255,255,255,0.3);pointer-events:none;display:none;z-index:9;transform:translateX(-50%)';
+        this.hoverIndicator.className = 'timeline-hover-indicator';
         this.graphSlider.appendChild(this.hoverIndicator);
 
         this.playhead = document.createElement('div');
-        this.playhead.style.cssText = 'position:absolute;top:0;bottom:0;width:2px;background:var(--color-red);box-shadow:0 0 4px rgba(255,0,0,0.5);pointer-events:none;display:none;z-index:10;transform:translateX(-50%)';
+        this.playhead.className = 'timeline-playhead';
         const playheadHandle = document.createElement('div');
-        playheadHandle.style.cssText = 'position:absolute;top:0;left:50%;transform:translate(-50%,0);width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:8px solid var(--color-red)';
+        playheadHandle.className = 'timeline-playhead-handle';
         this.playhead.appendChild(playheadHandle);
         this.graphSlider.appendChild(this.playhead);
 
         this.graphSlider.tabIndex = 0;
-        this.graphSlider.style.outline = 'none';
 
         let isDragging = false;
 
@@ -280,16 +271,11 @@ export class Timeline extends Tab {
         container.appendChild(graphContainer);
 
         const mainArea = document.createElement('div');
-        mainArea.style.flex = '1';
-        mainArea.style.display = 'flex';
-        mainArea.style.flexDirection = 'column';
-        mainArea.style.overflow = 'hidden';
+        mainArea.className = 'timeline-main-area';
 
         this.timelineTrack = document.createElement('div');
-        this.timelineTrack.style.flex = '1';
-        this.timelineTrack.style.overflowY = 'auto';
-        this.timelineTrack.style.margin = '10px';
-        this.timelineTrack.style.backgroundColor = 'var(--background-color)';
+        this.timelineTrack.className = 'timeline-track';
+        this._showEmptyHint();
         mainArea.appendChild(this.timelineTrack);
 
         container.appendChild(mainArea);
@@ -394,12 +380,20 @@ export class Timeline extends Tab {
     clear(): void {
         this.frames = [];
         this.timelineTrack.innerHTML = '';
+        this._showEmptyHint();
         this.playhead.style.display = 'none';
         this.frameInfo.textContent = '';
         this.graph.lines['calls'].points = [];
         this.graph.lines['fps'].points = [];
         this.graph.resetLimit();
         this.graph.update();
+    }
+
+    private _showEmptyHint(): void {
+        const hint = document.createElement('div');
+        hint.className = 'timeline-empty-hint';
+        hint.textContent = 'Click \u25CF Record to capture backend calls';
+        this.timelineTrack.appendChild(hint);
     }
 
     renderSlider(): void {

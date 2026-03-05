@@ -136,6 +136,7 @@ export type NodeKind =
     | 'storage'
     | 'texture'
     | 'sampler'
+    | 'convert'
     | 'varying'
     | 'binop'
     | 'call'
@@ -156,7 +157,8 @@ export type NodeKind =
     | 'continue'
     | 'fn'
     | 'param'
-    | 'return';
+    | 'return'
+    | 'output_struct';
 
 export type StructMember = { readonly name: string; readonly type: WgslType };
 export type BuiltinKind =
@@ -890,6 +892,13 @@ export class StorageNode<T extends WgslType> extends Node<T> {
      */
     isAtomic: boolean = false;
 
+    /**
+     * Uniform group — determines @group index.
+     * Three.js pattern: StorageBufferNode extends BufferNode extends UniformNode,
+     * so storage buffers inherit groupNode. Defaults to objectGroup.
+     */
+    groupNode: UniformGroupNode;
+
     constructor(
         /** The buffer attribute holding the data. */
         value: StorageBufferAttribute,
@@ -898,6 +907,8 @@ export class StorageNode<T extends WgslType> extends Node<T> {
         /** Full WGSL array type string (e.g. 'array<mat4x4f>'). */
         storageType: string,
         access: 'read' | 'read_write' = 'read',
+        /** Uniform group — determines @group index. Defaults to objectGroup. */
+        groupNode: UniformGroupNode = objectGroup,
     ) {
         super(nextId(), 'storage', bufferType);
         this.value = value;
@@ -905,6 +916,7 @@ export class StorageNode<T extends WgslType> extends Node<T> {
         this.bufferCount = value.count;
         this.storageType = storageType;
         this.access = access;
+        this.groupNode = groupNode;
     }
 
     /**
@@ -995,7 +1007,14 @@ export class StorageNode<T extends WgslType> extends Node<T> {
     }
 }
 
-export class TextureNode extends Node<TextureType> {
+/**
+ * TextureNode - represents a texture sample operation.
+ * Three.js pattern: TextureNode generates textureSample(texture, sampler, uv).
+ * 
+ * When used as a value, it samples the texture at the given UV coordinates.
+ * The node type is 'vec4f' (the sampled color), not the texture type.
+ */
+export class TextureNode extends Node<'vec4f'> {
     /**
      * GPU texture resource. Set this before rendering.
      * This can be set directly, OR use `value` (a Texture object) which the renderer
@@ -1004,29 +1023,119 @@ export class TextureNode extends Node<TextureType> {
     resource: GPUTexture | GPUTextureView | null = null;
 
     /**
+     * GPU sampler resource (Three.js pattern).
+     * In Three.js, the sampler lives on the texture data and is auto-created
+     * by the builder when processing texture bindings. The renderer sets this
+     * based on the texture's sampling properties (wrap, filter, etc.).
+     */
+    gpuSampler: GPUSampler | null = null;
+
+    /**
      * High-level Texture wrapper (like Three.js pattern).
      * If set, the renderer will use this to create/update the GPU texture.
      * The `value` getter/setter provides Three.js-compatible access.
+     * 
+     * Can be:
+     * - Texture (scene texture with image data)
+     * - RenderTargetTexture (render target color attachment)
+     * - DepthTexture (render target depth attachment)
      */
-    private _value: import('../scene/texture').Texture | null = null;
+    private _value: Texture | RenderTargetTexture | DepthTexture | null = null;
+
+    /**
+     * The UV node for texture coordinates.
+     * Three.js pattern: defaults to uv() if not specified.
+     */
+    uvNode: Node<'vec2f'> | null = null;
+
+    /**
+     * The reference node (Three.js pattern).
+     * When sampling with different UVs, this points to the base texture node.
+     */
+    referenceNode: TextureNode | null = null;
+
+    /**
+     * The WGSL texture type (e.g., 'texture_2d<f32>').
+     * Used for binding declarations.
+     */
+    readonly textureType: TextureType;
+
+    /**
+     * This flag can be used for type testing.
+     */
+    readonly isTextureNode = true;
+
+    /**
+     * Uniform group — determines @group index.
+     * Three.js pattern: TextureNode extends UniformNode, so textures inherit groupNode.
+     * Defaults to objectGroup.
+     */
+    groupNode: UniformGroupNode;
 
     constructor(
-        type: TextureType,
+        textureType: TextureType,
         readonly textureId: number | string,
+        uvNode: Node<'vec2f'> | null = null,
+        /** Uniform group — determines @group index. Defaults to objectGroup. */
+        groupNode: UniformGroupNode = objectGroup,
     ) {
-        super(computeId('texture', { type, textureId }), 'texture', type);
+        // Node type is vec4f (the sampled color)
+        super(computeId('texture', { type: textureType, textureId, uvNode: uvNode?.id }), 'texture', 'vec4f');
+        this.textureType = textureType;
+        this.uvNode = uvNode;
+        this.groupNode = groupNode;
     }
 
     /**
      * The high-level Texture object (Three.js-compatible pattern).
      * Setting this allows automatic GPU texture management.
+     * 
+     * Can be Texture, RenderTargetTexture, or DepthTexture.
      */
-    get value(): import('../scene/texture').Texture | null {
+    get value(): Texture | RenderTargetTexture | DepthTexture | null {
         return this._value;
     }
 
-    set value(tex: import('../scene/texture').Texture | null) {
+    set value(tex: Texture | RenderTargetTexture | DepthTexture | null) {
         this._value = tex;
+    }
+
+    /**
+     * Get the base texture node (follows referenceNode chain).
+     */
+    getBase(): TextureNode {
+        return this.referenceNode ? this.referenceNode.getBase() : this;
+    }
+
+    /**
+     * Convert this texture node to another type.
+     */
+    convert(type: 'sampler' | 'sampler_comparison'): ConvertNode {
+        return new ConvertNode(this, type);
+    }
+
+    /**
+     * Clone this texture node.
+     * Three.js pattern.
+     */
+    clone(): TextureNode {
+        const cloned = new TextureNode(this.textureType, this.textureId, this.uvNode, this.groupNode);
+        cloned._value = this._value;
+        cloned.resource = this.resource;
+        cloned.gpuSampler = this.gpuSampler;
+        cloned.referenceNode = this.referenceNode;
+        return cloned;
+    }
+
+    /**
+     * Sample the texture at the given UV coordinates.
+     * Three.js pattern: texture.sample(uvNode) returns a new TextureNode with that UV.
+     */
+    sample(uvNode: Node<'vec2f'>): TextureNode {
+        const textureNode = this.clone();
+        textureNode.uvNode = uvNode;
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
     }
 }
 
@@ -1064,7 +1173,6 @@ export class BinopNode<T extends WgslType> extends Node<T> {
 }
 
 export class CallNode<T extends WgslType> extends Node<T> {
-    /** For user-defined Fn calls, this references the FnNode for codegen traversal. */
     readonly fnNode?: FnNode<WgslType>;
     constructor(
         type: T,
@@ -1084,6 +1192,15 @@ export class RawNode<T extends WgslType> extends Node<T> {
         readonly deps: Node<WgslType>[],
     ) {
         super(computeId('raw', { type, wgsl, deps: deps.map((n) => n.id) }), 'raw', type);
+    }
+}
+
+export class ConvertNode extends Node<WgslType> {
+    constructor(
+        readonly node: Node<WgslType>,
+        readonly convertTo: string,
+    ) {
+        super(computeId('convert', { node: node.id, convertTo }), 'convert', convertTo as WgslType);
     }
 }
 
@@ -1124,16 +1241,6 @@ export class FieldNode<T extends WgslType> extends Node<T> {
     }
 }
 
-/**
- * IndexNode — array element access: array[indexExpr].
- *
- * Used to index into storage buffers (e.g. instanceMatrices[instance_index]).
- * The element type T is the type of each array element.
- *
- * @example
- * const modelMat = new IndexNode('mat4x4f', instanceMatricesNode, instanceIndexNode);
- * // compiles to: instanceMatrices[instance_index]
- */
 export class IndexNode<T extends WgslType> extends Node<T> {
     constructor(
         type: T,
@@ -1142,8 +1249,9 @@ export class IndexNode<T extends WgslType> extends Node<T> {
     ) {
         super(computeId('index', { type, array: array.id, index: index.id }), 'index', type);
     }
-
 }
+
+export const index = <T extends WgslType>(array: Node<T>, idx: Node<WgslType>) => new IndexNode(array.type, array, idx);
 
 export class BuiltinNode<T extends WgslType> extends Node<T> {
     constructor(
@@ -1152,8 +1260,9 @@ export class BuiltinNode<T extends WgslType> extends Node<T> {
     ) {
         super(computeId('builtin', { builtinKind, type }), 'builtin', type);
     }
-
 }
+
+export const builtin = <T extends WgslType>(builtinKind: BuiltinKind, type: T) => new BuiltinNode(builtinKind, type);
 
 // ---------------------------------------------------------------------------
 // Monotonic counter — used by StackNode and all statement-level nodes so that
@@ -1402,12 +1511,6 @@ export class ParamNode<T extends WgslType> extends Node<T> {
     }
 }
 
-/**
- * ReturnNode — an explicit early `return` statement inside a Fn body.
- * Created by `Return(node)`. Compiles to `return <expr>;`.
- *
- * kind: 'return'
- */
 export class ReturnNode<T extends WgslType> extends Node<T> {
     constructor(readonly value: Node<T>) {
         super(nextId(), 'return', value.type);
@@ -1682,17 +1785,48 @@ export const texture = (
     node.value = tex;
     return node;
 };
-export const sampler = (samplerId: string, opts?: { comparison?: boolean }) =>
-    new SamplerNode(opts?.comparison ? 'sampler_comparison' : 'sampler', samplerId);
+
+/**
+ * nodeObject - wraps a value into a node if needed.
+ * Three.js pattern: converts raw values (textures, numbers, etc.) to nodes.
+ */
+export function nodeObject<T extends WgslType>(val: T | Node<T> | unknown): Node<WgslType> {
+    if (val && typeof val === 'object' && 'isNode' in (val as Record<string, unknown>)) {
+        return val as Node<WgslType>;
+    }
+    // For now, only handle Texture objects - others can be added later
+    if (val && typeof val === 'object' && 'isTexture' in (val as Record<string, unknown>)) {
+        return texture(val as import('../scene/texture').Texture);
+    }
+    throw new Error(`[gpucat] nodeObject: cannot convert ${typeof val} to Node`);
+}
+
+/**
+ * TSL convert function - converts a node to a different type.
+ * Three.js pattern: convert(node, 'sampler') creates a ConvertNode.
+ */
+export const convert = (node: Node<WgslType> | unknown, types: string): ConvertNode => {
+    return new ConvertNode(nodeObject(node), types);
+};
+
+/**
+ * TSL function - converts a texture to a sampler reference.
+ * Three.js pattern: sampler(textureNode) returns ${textureId}_samp
+ */
+export const sampler = (value: TextureNode): ConvertNode => value.convert('sampler');
+
+/**
+ * TSL function - converts a texture to a sampler comparison reference.
+ * Three.js pattern: samplerComparison(textureNode) returns ${textureId}_samp for depth comparison
+ */
+export const samplerComparison = (value: TextureNode): ConvertNode => value.convert('sampler_comparison');
+
 export const varying = <T extends WgslType>(type: T, name: string, source: Node<WgslType>) => new VaryingNode(type, name, source);
-export const builtin = <T extends WgslType>(builtinKind: BuiltinKind, type: T) => new BuiltinNode(builtinKind, type);
 export const raw = <T extends WgslType>(type: T, wgsl: string, ...deps: Node<WgslType>[]) => new RawNode(type, wgsl, deps);
 export const stack = (...body: Node<WgslType>[]) => new StackNode(body);
 export const cond = <T extends WgslType>(condition: Node<WgslType>, ifTrue: Node<T>, ifFalse?: Node<T>) =>
     new CondNode(condition, ifTrue, ifFalse);
 
-/** Array element access: array[index]. Element type T is inferred from the array node. */
-export const index = <T extends WgslType>(array: Node<T>, idx: Node<WgslType>) => new IndexNode(array.type, array, idx);
 
 // ---------------------------------------------------------------------------
 // Vec constructor helpers
@@ -1830,13 +1964,14 @@ export const textureLoad = (t: Node<WgslType>, coord: Node<WgslType>, level: Nod
 export const textureSampleLevel = (t: Node<WgslType>, s: Node<WgslType>, uv: Node<WgslType>, level: Node<WgslType>) =>
     new CallNode('vec4f', 'textureSampleLevel', [t, s, uv, level]);
 
-export function tex(
-    id: string,
-    textureType = 'texture_2d<f32>',
-): { node: TextureNode; samp: SamplerNode; sample(uv: Node<WgslType>): CallNode<'vec4f'> } {
-    const node = new TextureNode(textureType, id);
-    const samp = new SamplerNode('sampler', id);
-    return { node, samp, sample: (uv) => new CallNode('vec4f', 'textureSample', [node, samp, uv]) };
+/**
+ * Get a sampler reference for a TextureNode.
+ * Three.js pattern: returns ${textureId}_samp which references the auto-generated sampler.
+ * This uses a RawNode with the texture as a dep - the generated code will substitute
+ * the texture name, and we manually append _samp to create the sampler reference.
+ */
+export function samplerFor(textureNode: TextureNode): RawNode<'sampler'> {
+    return new RawNode('sampler', `${String(textureNode.textureId)}_samp`, [textureNode]);
 }
 
 // ---------------------------------------------------------------------------
@@ -1930,7 +2065,7 @@ export const instancedBufferAttribute = <T extends WgslType>(
  * const acc = toVar(f32(0.0), 'acc')
  * acc.assign(acc.add(f32(1.0)))
  */
-export function toVar<T extends WgslType>(init: Node<T>, label?: string): VarNode<T> {
+export function Var<T extends WgslType>(init: Node<T>, label?: string): VarNode<T> {
     return init.toVar(label);
 }
 
@@ -2018,20 +2153,6 @@ export function For(range: ForRange, body: (args: { i: ParamNode<WgslType> }) =>
     addToStack(new ForNode(range, indexVar, loopStack));
 }
 
-/**
- * Statement-form while loop, inside a Fn body.
- *
- * Runs as long as `condition` evaluates to `true`.
- *
- * ```ts
- * const counter = toVar(u32(0));
- * While(counter.lt(u32(10)), () => {
- *     counter.assign(counter.add(u32(1)));
- * });
- * ```
- *
- * Use `Break()` and `Continue()` inside the body for early exit / skip.
- */
 export function While(condition: Node<WgslType>, body: () => void): void {
     const loopStack = new StackNode();
     const prev = pushStack(loopStack);
@@ -2043,18 +2164,14 @@ export function While(condition: Node<WgslType>, body: () => void): void {
     addToStack(new WhileNode(condition, loopStack));
 }
 
-/**
- * Emits a `break;` statement inside a loop body.
- * Must be called inside a `For(...)` or `While(...)` body.
- */
+export function Return<T extends WgslType>(value: Node<T>): void {
+    addToStack(new ReturnNode(value) as Node<WgslType>);
+}
+
 export function Break(): void {
     addToStack(new BreakNode());
 }
 
-/**
- * Emits a `continue;` statement inside a loop body.
- * Must be called inside a `For(...)` or `While(...)` body.
- */
 export function Continue(): void {
     addToStack(new ContinueNode());
 }
@@ -2140,23 +2257,6 @@ export function Fn<T extends WgslType>(
     };
 }
 
-/**
- * Explicit early return inside a Fn body.
- * Compiles to `return <value>;`.
- *
- * @example
- * If(x.lt(konst('f32', 0.0)), () => {
- *     Return(konst('f32', 0.0))
- * })
- */
-export function Return<T extends WgslType>(value: Node<T>): void {
-    addToStack(new ReturnNode(value) as Node<WgslType>);
-}
-
-// ---------------------------------------------------------------------------
-// Runtime type helpers
-// ---------------------------------------------------------------------------
-
 const VEC_ELEMENT: Record<string, ScalarType> = {
     vec2f: 'f32',
     vec3f: 'f32',
@@ -2190,27 +2290,23 @@ export function vec2TypeOf(t: string): WgslType {
     const e = VEC_ELEMENT[t] ?? (SCALAR_TYPES.has(t) ? t : 'f32');
     return (VEC2_OF[e] ?? 'vec2f') as WgslType;
 }
+
 export function vec3TypeOf(t: string): WgslType {
     const e = VEC_ELEMENT[t] ?? (SCALAR_TYPES.has(t) ? t : 'f32');
     return (VEC3_OF[e] ?? 'vec3f') as WgslType;
 }
+
 export function vec4TypeOf(t: string): WgslType {
     const e = VEC_ELEMENT[t] ?? (SCALAR_TYPES.has(t) ? t : 'f32');
     return (VEC4_OF[e] ?? 'vec4f') as WgslType;
 }
+
 export function mulResultType(a: string, b: string): WgslType {
     if (MAT_TYPES.has(a)) return (VEC_TYPES.has(b) ? b : a) as WgslType;
     if (SCALAR_TYPES.has(b)) return a as WgslType;
     if (SCALAR_TYPES.has(a)) return b as WgslType;
     return a as WgslType;
 }
-
-// ---------------------------------------------------------------------------
-// ConstNode factories — f32(0.5), vec3f(1, 0, 0), mat4x4f() etc.
-//
-// Called with no args: returns a zero/identity ConstNode.
-// Called with args: packs them into a ConstNode of the matching type.
-// ---------------------------------------------------------------------------
 
 export const f32    = (v = 0):                       ConstNode<'f32'>    => new ConstNode('f32',    v);
 export const i32    = (v = 0):                       ConstNode<'i32'>    => new ConstNode('i32',    v);
@@ -2247,6 +2343,8 @@ export const mat4x4f = (...v: number[]): ConstNode<'mat4x4f'> => new ConstNode('
 
 import { Color, type ColorInput } from '../utils/color';
 import type { IndirectStorageBufferAttribute } from '../scene/geometry';
+import { DepthTexture, RenderTargetTexture } from '../renderer/render-target';
+import { Texture } from '../scene/texture';
 
 /**
  * Convert any color input to a `ConstNode<'vec3f'>` (linear RGB).
@@ -2355,6 +2453,184 @@ export const workgroupId  = (): BuiltinNode<'vec3u'> => builtin('workgroup_id', 
 export const numWorkgroups = (): BuiltinNode<'vec3u'> => builtin('num_workgroups',        'vec3u');
 
 // ---------------------------------------------------------------------------
+// OutputStructNode — base class for multi-output fragment shaders (MRT)
+// Mirrors Three.js nodes/core/OutputStructNode.js
+// ---------------------------------------------------------------------------
+
+let _outputStructCounter = 0;
+
+/**
+ * Represents a fragment shader output struct with multiple @location outputs.
+ * Used for MRT (Multiple Render Targets).
+ *
+ * Each member in the `members` array corresponds to a @location(N) output.
+ * The index in the array determines the @location index.
+ *
+ * @example
+ * // Direct usage (rare):
+ * const outputs = new OutputStructNode([colorNode, normalNode, velocityNode]);
+ *
+ * // Typically created via mrt() helper instead.
+ */
+export class OutputStructNode extends Node<'vec4f'> {
+    /**
+     * Array of output nodes. Each node maps to @location(index).
+     * All nodes should produce vec4f values.
+     */
+    members: Node<WgslType>[];
+
+    /** Type flag for runtime checking. */
+    readonly isOutputStructNode = true;
+
+    constructor(members: Node<WgslType>[] = [], id?: string) {
+        super(id ?? `_output_struct_${_outputStructCounter++}`, 'output_struct', 'vec4f');
+        this.members = members;
+    }
+
+    override getChildren(): Node<WgslType>[] {
+        return this.members;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MRTNode — dictionary-based MRT output
+// Mirrors Three.js nodes/core/MRTNode.js
+// ---------------------------------------------------------------------------
+
+let _mrtCounter = 0;
+
+/**
+ * MRT (Multiple Render Targets) node.
+ *
+ * Takes a dictionary of named outputs. At setup time, the names are resolved
+ * to @location(N) indices based on the current render target's texture names.
+ *
+ * @example
+ * // Set up render target with named textures:
+ * const rt = new RenderTarget(device, w, h, { count: 3 });
+ * rt.textures[0].name = 'color';
+ * rt.textures[1].name = 'normal';
+ * rt.textures[2].name = 'velocity';
+ *
+ * // Create MRT node:
+ * const mrtNode = mrt({
+ *     color: outputColor,      // -> @location(0)
+ *     normal: viewNormal,      // -> @location(1)
+ *     velocity: motionVector,  // -> @location(2)
+ * });
+ *
+ * // Use in material:
+ * const mat = new Material({
+ *     vertex: clipPos,
+ *     fragment: mrtNode,
+ * });
+ */
+export class MRTNode extends OutputStructNode {
+    /**
+     * Dictionary of named outputs. Keys are texture names,
+     * values are nodes producing vec4f values.
+     */
+    outputNodes: Record<string, Node<WgslType>>;
+
+    /** Type flag for runtime checking. */
+    readonly isMRTNode = true;
+
+    /**
+     * Resolved output names in order. Populated during setup() when
+     * render target is known. Used by the compiler to emit correct
+     * @location indices.
+     */
+    _resolvedNames: string[] = [];
+
+    constructor(outputNodes: Record<string, Node<WgslType>>) {
+        super([], `_mrt_${_mrtCounter++}`);
+        this.outputNodes = outputNodes;
+    }
+
+    /**
+     * Returns true if this MRT node has an output with the given name.
+     */
+    has(name: string): boolean {
+        return this.outputNodes[name] !== undefined;
+    }
+
+    /**
+     * Returns the output node for the given name.
+     */
+    get(name: string): Node<WgslType> | undefined {
+        return this.outputNodes[name];
+    }
+
+    /**
+     * Merge another MRTNode's outputs into this one.
+     * Returns a new MRTNode with combined outputs (other's outputs override this's).
+     */
+    merge(other: MRTNode): MRTNode {
+        return new MRTNode({ ...this.outputNodes, ...other.outputNodes });
+    }
+
+    /**
+     * Resolve output names to @location indices based on render target textures.
+     * Called by the compiler when the render target is known.
+     *
+     * @param getTextureIndex - Function that maps texture name to index (from RenderTarget)
+     */
+    setup(getTextureIndex: (name: string) => number): void {
+        const members: Node<WgslType>[] = [];
+        const names: string[] = [];
+
+        for (const name in this.outputNodes) {
+            const index = getTextureIndex(name);
+            if (index === -1) {
+                console.warn(`[MRTNode] Output '${name}' not found in render target textures. Skipping.`);
+                continue;
+            }
+            // Ensure the node outputs vec4f (wrap if needed)
+            let node = this.outputNodes[name];
+            if (node.type !== 'vec4f') {
+                node = vec4(node as Node<'vec3f'>, konst('f32', 1));
+            }
+            members[index] = node;
+            names[index] = name;
+        }
+
+        this.members = members;
+        this._resolvedNames = names;
+    }
+
+    override getChildren(): Node<WgslType>[] {
+        // Before setup, return outputNodes values; after setup, use members
+        if (this.members.length > 0) {
+            return this.members.filter(Boolean);
+        }
+        return Object.values(this.outputNodes);
+    }
+}
+
+/**
+ * Create an MRT (Multiple Render Targets) node from a dictionary of outputs.
+ *
+ * Output names must match the `.name` property of textures in the render target.
+ * The compiler maps each output to the corresponding @location(N) based on
+ * texture array indices.
+ *
+ * @example
+ * const mrtOutput = mrt({
+ *     color: finalColor,
+ *     normal: viewSpaceNormal,
+ *     velocity: motionVector,
+ * });
+ *
+ * const material = new Material({
+ *     vertex: clipPosition,
+ *     fragment: mrtOutput,
+ * });
+ */
+export function mrt(outputNodes: Record<string, Node<WgslType>>): MRTNode {
+    return new MRTNode(outputNodes);
+}
+
+// ---------------------------------------------------------------------------
 // ComputeNode — lives here (same file as FnNode) so .compute() can be a real
 // method with no circular imports and no optional / any hacks.
 // ---------------------------------------------------------------------------
@@ -2366,12 +2642,12 @@ export type ComputeOpts = {
      * Dispatch dimensions [x, y, z] — number of workgroups to dispatch.
      * Trailing 1s may be omitted: [N] = [N, 1, 1], [N, M] = [N, M, 1].
      */
-    dispatch: [number, number, number] | [number, number] | [number];
+    dispatch: [x: number, y: number, z: number] | [x: number, y: number] | [x: number];
     /**
      * Workgroup size tuple [x, y, z].
      * Defaults to [64, 1, 1].
      */
-    workgroupSize?: [number, number, number];
+    workgroupSize?: [x: number, y: number, z: number];
 };
 
 export type ComputeNodeOptions = ComputeOpts & {

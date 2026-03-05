@@ -4,7 +4,7 @@
  * Layer 1 — Node graph
  */
 
-    // Node types + DSL constructors
+// Node types + DSL constructors
 export {
     // Type vocab
     type ScalarType,
@@ -31,7 +31,6 @@ export {
     BufferAttributeNode,
     StorageNode,
     TextureNode,
-    SamplerNode,
     VaryingNode,
     BinopNode,
     CallNode,
@@ -54,6 +53,10 @@ export {
     FnNode,
     ParamNode,
     ReturnNode,
+    // MRT (Multiple Render Targets)
+    OutputStructNode,
+    MRTNode,
+    mrt,
     // DSL constructors
     konst,
     attribute,
@@ -63,7 +66,6 @@ export {
     storage,
     storageArray,
     texture,
-    sampler,
     varying,
     raw,
     builtin,
@@ -99,8 +101,8 @@ export {
     vec3b,
     vec4b,
     color,
-    // Control-flow DSL
-    toVar,
+    // control flow
+    Var,
     If,
     For,
     While,
@@ -163,43 +165,39 @@ export {
     timeDelta,
 } from './nodes/nodes';
 
-/* Uniform groups — Three.js-aligned (PR #33047) */
-export {
-    UniformGroupNode,
-    uniformGroup,
-    sharedUniformGroup,
-    frameGroup,
-    renderGroup,
-    objectGroup,
-    NodeUpdateType,
-    type NodeUpdateTypeValue,
-} from './nodes/nodes';
+// export {
+//     UniformGroupNode,
+//     uniformGroup,
+//     sharedUniformGroup,
+//     frameGroup,
+//     renderGroup,
+//     objectGroup,
+//     NodeUpdateType,
+//     type NodeUpdateTypeValue,
+// } from './nodes/nodes';
 
-// Color
 export { Color, type ColorInput } from './utils/color';
 
-// Frustum culling
 export { Frustum } from './utils/frustum';
 
-// Collect
-export { getChildren, collectGraph, mergeGraphs } from './nodes/collect';
+// export { getChildren, collectGraph, mergeGraphs } from './nodes/collect';
 
 // Compile
-export {
-    compile,
-    type CompileSlots,
-    type CompileResult,
-    type AttributeEntry,
-    type VaryingEntry,
-    type UniformMember,
-    type UniformBlockEntry,
-    type StorageEntry,
-    type TextureEntry,
-    type SamplerEntry,
-    type UpdateBeforeNode,
-    type UpdateAfterNode,
-    type UpdateNode,
-} from './nodes/compile';
+// export {
+//     compile,
+//     type CompileSlots,
+//     type CompileResult,
+//     type AttributeEntry,
+//     type VaryingEntry,
+//     type UniformMember,
+//     type UniformBlockEntry,
+//     type StorageEntry,
+//     type TextureEntry,
+//     type SamplerEntry,
+//     type UpdateBeforeNode,
+//     type UpdateAfterNode,
+//     type UpdateNode,
+// } from './nodes/compile';
 
 // ---------------------------------------------------------------------------
 // Layer 2 — Scene
@@ -254,7 +252,7 @@ export {
 } from './renderer/bindgroups';
 export { collectDraws, type DrawCall } from './renderer/collect';
 export { WebGPURenderer, type WebGPURendererOptions } from './renderer/renderer';
-export { RenderTarget, type RenderTargetOptions } from './renderer/render-target';
+export { RenderTarget, RenderTargetTexture, type RenderTargetOptions } from './renderer/render-target';
 export { pass, PassNode, type PassNodeOptions } from './nodes/pass-node';
 export { renderOutput, type RenderOutputOptions, type ToneMappingMode, type OutputColorSpace } from './nodes/render-output';
 

@@ -47,6 +47,7 @@
 
 import {
     StackNode,
+    SamplerNode,
     type AssignNode,
     type AttributeNode,
     type BinopNode,
@@ -57,6 +58,7 @@ import {
     type ConstNode,
     type ConstructNode,
     type ContinueNode,
+    type ConvertNode,
     type FieldNode,
     type FnNode,
     type ForNode,
@@ -68,7 +70,6 @@ import {
     type ParamNode,
     type RawNode,
     type ReturnNode,
-    type SamplerNode,
     type StorageNode,
     type StructNode,
     type TextureNode,
@@ -81,6 +82,8 @@ import {
     type NodeKind,
     type ScalarType,
     type NodeUpdateTypeValue,
+    OutputStructNode,
+    MRTNode,
     constLiteral,
     buildForHeader,
     lookupStructDef,
@@ -90,10 +93,7 @@ import { collectGraph, getChildren } from './collect';
 import { type StructDef, type StructSchema } from './nodes';
 import type { ComputeNode } from './nodes';
 import type { RenderFrame } from '../renderer/render-frame';
-
-// ---------------------------------------------------------------------------
-// NodeUpdateType — re-export from nodes.ts for compile-level consumers
-// ---------------------------------------------------------------------------
+import { PassMultipleTextureNode } from './pass-node';
 
 /**
  * Controls how often a node's update method is called.
@@ -103,55 +103,21 @@ import type { RenderFrame } from '../renderer/render-frame';
  */
 export type NodeUpdateType = NodeUpdateTypeValue;
 
-// ---------------------------------------------------------------------------
-// UpdateBeforeNode — interface for nodes with updateBefore() lifecycle
-// ---------------------------------------------------------------------------
-
-/**
- * Interface for nodes that need to execute GPU work before the final composite
- * quad each frame/render/object.
- *
- * Mirrors three's Node.updateBefore(frame) pattern.  The compiler discovers
- * nodes implementing this interface during the setup pass (post-order DFS) and
- * stores them in CompileResult.updateBeforeNodes.  The renderer iterates that
- * list with deduplication controlled by updateBeforeType.
- */
+/** interface for nodes that need to execute GPU work before the final composite quad each frame/render/object */
 export type UpdateBeforeNode = {
     readonly id: string;
     readonly updateBeforeType: NodeUpdateType;
-    /** Mirrors three Node.updateBefore(frame) — single argument. Returns false to cancel/revert. */
     updateBefore(frame: RenderFrame): boolean | void;
 }
 
-// ---------------------------------------------------------------------------
-// UpdateAfterNode — interface for nodes with updateAfter() lifecycle
-// ---------------------------------------------------------------------------
-
-/**
- * Interface for nodes that need to execute GPU work after each draw call.
- *
- * Mirrors three's Node.updateAfter(frame) pattern.  Stored in
- * CompileResult.updateAfterNodes and called by the renderer after each
- * render pass with deduplication controlled by updateAfterType.
- */
+/** interface for nodes that need to execute GPU work after each draw call */
 export type UpdateAfterNode = {
     readonly id: string;
     readonly updateAfterType: NodeUpdateType;
-    /** Mirrors three Node.updateAfter(frame) — single argument. Returns false to cancel/revert. */
     updateAfter(frame: RenderFrame): boolean | void;
 }
 
-// ---------------------------------------------------------------------------
-// UpdateNode — interface for nodes with update() lifecycle (mid-frame uniform push)
-// ---------------------------------------------------------------------------
-
-/**
- * Interface for nodes that push CPU data into GPU uniforms each frame/render/object.
- *
- * Mirrors three's Node.update(frame) pattern.  Stored in
- * CompileResult.updateNodes and called by the renderer with deduplication
- * controlled by updateType.
- */
+/** interface for nodes that push CPU data into GPU uniforms each frame/render/object */
 export type UpdateNode = {
     readonly id: string;
     readonly updateType: NodeUpdateType;
@@ -242,7 +208,12 @@ export type SamplerEntry = {
     type: 'sampler' | 'sampler_comparison';
     group: 0 | 1;
     binding: number;
-    node: SamplerNode;
+    /**
+     * The TextureNode this sampler is derived from (Three.js pattern).
+     * The renderer gets the GPUSampler from textureNode.gpuSampler.
+     * This replaces the old SamplerNode reference.
+     */
+    textureNode: TextureNode;
 };
 
 export type CompileResult = {
@@ -300,6 +271,7 @@ export type ComputeStorageEntry = {
     name: string;
     type: string;
     access: 'read' | 'read_write';
+    group: number;
     binding: number;
 };
 
@@ -313,6 +285,68 @@ export type ComputeCompileResult = {
     uniformGroups: UniformGroupBlock[];
 };
 
+/** shader data for a single stage (vertex/fragment/compute) */
+type ShaderData = {
+    structs: string;
+    uniforms: string;
+    codes: string;
+    vars: string;
+    flow: string;
+    attributes: string;
+    varyings: string;
+    returnType: string;
+};
+
+/** vertex-specific shader data (extends ShaderData with vertex I/O structs) */
+type VertexShaderData = ShaderData & {
+    inputStruct: string;
+    outputStruct: string;
+};
+
+/** fragment-specific shader data (extends ShaderData with fragment I/O structs) */
+type FragmentShaderData = ShaderData & {
+    inputStruct: string;
+    outputStruct: string;
+};
+
+/** compute-specific shader data */
+type ComputeShaderData = ShaderData & {
+    workgroupSize: [number, number, number];
+    builtinParams: string;
+};
+
+// ---------------------------------------------------------------------------
+// Bindings types — Three.js aligned
+// ---------------------------------------------------------------------------
+
+/** Types of bindings that can be in a bind group */
+type BindingType = 'uniform' | 'storage' | 'texture' | 'sampler';
+
+/**
+ * A single binding entry in a bind group.
+ * Three.js pattern: NodeUniformsGroup, NodeSampler, NodeSampledTexture, NodeStorageBuffer
+ */
+type BindingEntry = {
+    type: BindingType;
+    name: string;
+    groupNode: UniformGroupNode;
+    /** The source node for this binding */
+    node: UniformNode<WgslType> | StorageNode<WgslType> | TextureNode;
+    /** For uniform bindings: the list of uniforms in this group */
+    uniforms?: UniformNode<WgslType>[];
+};
+
+/**
+ * A bind group containing multiple bindings.
+ * Three.js pattern: BindGroup class
+ */
+type BindGroup = {
+    name: string;
+    index: number;
+    bindings: BindingEntry[];
+    groupNode: UniformGroupNode;
+};
+
 // ---------------------------------------------------------------------------
 // Public entry points
 // ---------------------------------------------------------------------------
@@ -320,13 +354,13 @@ export type ComputeCompileResult = {
 export function compile(slots: CompileSlots): CompileResult {
     const builder = new WgslBuilder({ kind: 'render', slots });
     builder.build();
-    return builder._makeRenderResult();
+    return builder.renderResult!;
 }
 
 export function compileCompute(node: ComputeNode): ComputeCompileResult {
     const builder = new WgslBuilder({ kind: 'compute', node });
     builder.build();
-    return builder._makeComputeResult();
+    return builder.computeResult!;
 }
 
 // Builtin WGSL variable names for render stage — used in _getWGSLVertexCode
@@ -357,13 +391,9 @@ type NodeData = {
     fn?: NodeStageData;        // inside _emitFnDecl traces (shaderStage === null → 'fn')
 };
 
-// Traced fn data stored alongside NodeData (keyed on fn.id in fnNodes map)
 type TracedFn = ReturnType<FnNode<WgslType>['trace']>;
 
-// ---------------------------------------------------------------------------
-// compilerDefs — per-kind compilation behaviour
-// ---------------------------------------------------------------------------
-
+/* node kind -> type */
 type NodeOf<K extends NodeKind> =
     K extends 'const'                    ? ConstNode<WgslType>                    :
     K extends 'uniform'                  ? UniformNode<WgslType>                  :
@@ -399,23 +429,13 @@ type NodeCompilerDef<K extends NodeKind = NodeKind> = {
     isStatement: boolean;
     isLeaf: boolean;
     setup: ((node: NodeOf<K>, builder: WgslBuilder) => void) | null;
-    generate: (node: NodeOf<K>, builder: WgslBuilder) => string | null;
+    generate: (node: NodeOf<K>, builder: WgslBuilder, output?: string) => string | null;
 };
 
-// Forward-declare WgslBuilder for compilerDefs (class is defined below)
-// eslint-disable-next-line prefer-const
 let compilerDefs: Record<NodeKind, NodeCompilerDef>;
-
-// ---------------------------------------------------------------------------
-// Builder input discriminated union
-// ---------------------------------------------------------------------------
 
 type RenderInput = { kind: 'render'; slots: CompileSlots };
 type ComputeInput = { kind: 'compute'; node: ComputeNode };
-
-// ---------------------------------------------------------------------------
-// WgslBuilder — the single unified builder class
-// ---------------------------------------------------------------------------
 
 export class WgslBuilder {
     // Build stage cursor (parallel to three NodeBuilder.buildStage)
@@ -461,15 +481,62 @@ export class WgslBuilder {
     varyings: Map<string, VaryingEntry> = new Map();
     builtinsUsed: Set<string> = new Set();
     structNodes: Map<string, StructNode> = new Map();
+
+    // -----------------------------------------------------------------------
+    // Bindings system — Three.js aligned
+    // All resources (uniforms, storage, textures, samplers) are tracked here.
+    // -----------------------------------------------------------------------
+
     /**
-     * Uniforms bucketed by groupNode.name (e.g. 'render', 'object').
-     * Each entry contains the groupNode and ordered list of UniformNodes.
+     * Per-stage bindings keyed by groupName.
+     * Three.js pattern: this.bindings[shaderStage][groupName] = array of bindings
      */
-    uniformGroupBuckets: Map<string, { groupNode: UniformGroupNode; nodes: UniformNode<WgslType>[] }> = new Map();
-    storageNodes: Map<string, StorageNode<WgslType>> = new Map();
+    bindings: {
+        vertex: Record<string, BindingEntry[]>;
+        fragment: Record<string, BindingEntry[]>;
+        compute: Record<string, BindingEntry[]>;
+    } = { vertex: {}, fragment: {}, compute: {} };
+
+    /**
+     * Tracks binding/group indices per groupName.
+     * Three.js pattern: bindingsIndexes[groupName] = { binding, group }
+     */
+    bindingsIndexes: Record<string, { binding: number; group: number }> = {};
+
+    /**
+     * Cached bind groups after getBindings() is called.
+     * Three.js pattern: populated by getBindings(), sorted by sortBindingGroups().
+     */
+    bindGroups: BindGroup[] | null = null;
+
+    /**
+     * Shared uniform binding entries keyed by groupName.
+     * Three.js pattern: this.uniformGroups[groupName] = NodeUniformsGroup
+     * A single BindingEntry is shared across all shader stages that use uniforms from this group.
+     */
+    uniformGroups: Record<string, BindingEntry> = {};
+
+    /**
+     * Shared texture binding entries keyed by textureId.
+     * A single BindingEntry is shared across all shader stages that use this texture.
+     */
+    textureBindings: Record<string, BindingEntry> = {};
+
+    /**
+     * Shared sampler binding entries keyed by textureId.
+     * A single BindingEntry is shared across all shader stages that use this sampler.
+     */
+    samplerBindings: Record<string, BindingEntry> = {};
+
+    /**
+     * Shared storage binding entries keyed by storage id.
+     * A single BindingEntry is shared across all shader stages that use this storage buffer.
+     */
+    storageBindings: Record<string, BindingEntry> = {};
+
+    // Legacy maps for name lookups during generate (will be populated from bindings)
     storageNames: Map<string, string> = new Map();
-    textureNodes: Map<string, TextureNode> = new Map();
-    samplerNodes: Map<string, SamplerNode> = new Map();
+
     fnNodes: Map<string, { fn: FnNode<WgslType>; traced: TracedFn }> = new Map();
 
     // All nodes seen (for expression lookup during generate)
@@ -487,6 +554,10 @@ export class WgslBuilder {
     _updateAfterNodes:  UpdateAfterNode[]  = [];
     _updateNodes:       UpdateNode[]       = [];
 
+    // Build results — populated by buildCode() (Three.js pattern)
+    renderResult: CompileResult | null = null;
+    computeResult: ComputeCompileResult | null = null;
+
     constructor(input: RenderInput | ComputeInput) {
         this.input = input;
     }
@@ -499,6 +570,9 @@ export class WgslBuilder {
     build(): this {
         this._registerRoots();
 
+        // setup() -> stage 1: create possible new nodes and/or return an output reference node
+        // analyze() -> stage 2: analyze nodes to possible optimization and validation
+        // generate() -> stage 3: generate shader
         for (const stage of ['setup', 'analyze', 'generate'] as const) {
             this.buildStage = stage;
             const stages = this.input.kind === 'render'
@@ -520,10 +594,162 @@ export class WgslBuilder {
         this.buildStage = null;
         this.shaderStage = null;
 
+        // stage 4: build code for a specific output (Three.js pattern)
+        this.buildCode();
+
         // Split _sequentialNodes into typed arrays (mirrors three buildUpdateNodes()).
         this._buildUpdateNodes();
 
         return this;
+    }
+
+    // -----------------------------------------------------------------------
+    // buildCode — assemble final shader code (Three.js pattern)
+    // Controls the code build of the shader stages.
+    // Unified for both render and compute — mirrors Three.js WGSLNodeBuilder.buildCode()
+    // -----------------------------------------------------------------------
+
+    buildCode(): void {
+        // ---------------------------------------------------------------------
+        // Sort bind groups by groupNode.order — Three.js pattern
+        // ---------------------------------------------------------------------
+        this.sortBindingGroups();
+        const bindGroups = this.getBindings();
+
+        // ---------------------------------------------------------------------
+        // Build entries from bind groups (shared by render and compute)
+        // ---------------------------------------------------------------------
+        const uniformGroups: UniformGroupBlock[] = [];
+        const storageEntries: StorageEntry[] = [];
+        const computeStorageEntries: ComputeStorageEntry[] = [];
+        const textureEntries: TextureEntry[] = [];
+        const samplerEntries: SamplerEntry[] = [];
+
+        for (const group of bindGroups) {
+            const groupIndex = group.index;
+            let bindingIndex = 0;
+
+            const uniformsInGroup: UniformNode<WgslType>[] = [];
+
+            for (const entry of group.bindings) {
+                if (entry.type === 'uniform' && entry.uniforms) {
+                    uniformsInGroup.push(...entry.uniforms);
+                    bindingIndex++;
+                } else if (entry.type === 'storage') {
+                    const storageNode = entry.node as StorageNode<WgslType>;
+                    if (this.input.kind === 'render') {
+                        storageEntries.push({
+                            node: storageNode,
+                            name: entry.name,
+                            type: storageNode.storageType,
+                            access: storageNode.access,
+                            group: groupIndex as 0 | 1,
+                            binding: bindingIndex,
+                        });
+                    } else {
+                        computeStorageEntries.push({
+                            node: storageNode,
+                            name: entry.name,
+                            type: storageNode.storageType,
+                            access: storageNode.access,
+                            group: groupIndex,
+                            binding: bindingIndex,
+                        });
+                    }
+                    bindingIndex++;
+                } else if (entry.type === 'texture') {
+                    const textureNode = entry.node as TextureNode;
+                    textureEntries.push({
+                        textureId: entry.name,
+                        type: textureNode.textureType,
+                        group: groupIndex as 0 | 1,
+                        binding: bindingIndex,
+                        node: textureNode,
+                    });
+                    bindingIndex++;
+                } else if (entry.type === 'sampler') {
+                    const textureNode = entry.node as TextureNode;
+                    samplerEntries.push({
+                        samplerId: entry.name,
+                        type: 'sampler',
+                        group: groupIndex as 0 | 1,
+                        binding: bindingIndex,
+                        textureNode,
+                    });
+                    bindingIndex++;
+                }
+            }
+
+            if (uniformsInGroup.length > 0) {
+                const block = this._buildUniformGroupBlock(group.groupNode, uniformsInGroup, groupIndex, 0);
+                uniformGroups.push(block);
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // Build shader preamble — shared by all stages
+        // ---------------------------------------------------------------------
+        const structs = this.getStructs();
+        const bindings = this._emitBindingsWGSL();
+        const codes = this.getCodes();
+        const preamble = [structs, bindings, codes].filter(s => s).join('\n\n');
+
+        // ---------------------------------------------------------------------
+        // Generate stage-specific code — Three.js pattern
+        // ---------------------------------------------------------------------
+        if (this.input.kind === 'render') {
+            const vertexShaderData = this._buildVertexShaderData();
+            const fragmentShaderData = this._buildFragmentShaderData();
+
+            const vertexCode = this._getWGSLVertexCode(vertexShaderData);
+            const fragmentCode = this._getWGSLFragmentCode(fragmentShaderData);
+
+            const code = [preamble, vertexCode, fragmentCode].filter(s => s).join('\n\n');
+
+            const attributes: AttributeEntry[] = [
+                ...[...this.attributes.values()],
+                ...this.bufferAttrs,
+            ];
+            const varyings = [...this.varyings.values()];
+
+            // Legacy uniforms array
+            const objectGroup = uniformGroups.find(g => g.groupNode.name === 'object');
+            const legacyMaterialUniforms = objectGroup
+                ? objectGroup.members.filter(m =>
+                    m.uniformId !== 'modelWorldMatrix' && m.uniformId !== 'modelNormalMatrix')
+                : [];
+            const legacyUniformBlockEntry: UniformBlockEntry | null = legacyMaterialUniforms.length > 0
+                ? { group: 1, binding: 0, members: legacyMaterialUniforms, totalBytes: objectGroup!.totalBytes }
+                : null;
+
+            this.renderResult = {
+                code,
+                attributes,
+                varyings,
+                uniforms: legacyUniformBlockEntry ? [legacyUniformBlockEntry] : [],
+                uniformGroups,
+                storage: storageEntries,
+                textures: textureEntries,
+                samplers: samplerEntries,
+                builtinsUsed: new Set(this.builtinsUsed),
+                updateBeforeNodes: this._updateBeforeNodes,
+                updateAfterNodes: this._updateAfterNodes,
+                updateNodes: this._updateNodes,
+                inspectableNodes: [...this.allNodes.values()].filter(n => n._isInspectable),
+            };
+        } else {
+            const computeShaderData = this._buildComputeShaderData();
+            const computeCode = this._getWGSLComputeCode(computeShaderData);
+            const code = [preamble, computeCode].filter(s => s).join('\n\n');
+
+            this.computeResult = {
+                code,
+                storage: computeStorageEntries,
+                workgroupSize: this.input.node.workgroupSize,
+                builtinsUsed: new Set(this.builtinsUsed),
+                uniformGroups,
+            };
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -645,6 +871,104 @@ export class WgslBuilder {
         const vars = this.stageVars[stage];
         if (!vars || vars.length === 0) return '';
         return vars.map((v) => `    var ${v.name} : ${v.type};`).join('\n') + '\n';
+    }
+
+    // -----------------------------------------------------------------------
+    // Binding methods — Three.js aligned
+    // -----------------------------------------------------------------------
+
+    /**
+     * Returns the bindings array for a group name and shader stage.
+     * Creates the group if it doesn't exist.
+     * Three.js pattern: NodeBuilder.getBindGroupArray()
+     */
+    getBindGroupArray(groupName: string, shaderStage: 'vertex' | 'fragment' | 'compute'): BindingEntry[] {
+        const stageBindings = this.bindings[shaderStage];
+        
+        let bindGroup = stageBindings[groupName];
+        
+        if (bindGroup === undefined) {
+            if (this.bindingsIndexes[groupName] === undefined) {
+                this.bindingsIndexes[groupName] = {
+                    binding: 0,
+                    group: Object.keys(this.bindingsIndexes).length
+                };
+            }
+            stageBindings[groupName] = bindGroup = [];
+        }
+        
+        return bindGroup;
+    }
+
+    /**
+     * Returns all bind groups merged from all shader stages.
+     * Three.js pattern: NodeBuilder.getBindings()
+     * 
+     * Since uniform entries are shared objects (via uniformGroups), we use
+     * includes() for deduplication - same object reference means same binding.
+     */
+    getBindings(): BindGroup[] {
+        if (this.bindGroups !== null) {
+            return this.bindGroups;
+        }
+
+        const groups: Record<string, BindingEntry[]> = {};
+        const shaderStages = this.input.kind === 'render'
+            ? ['vertex', 'fragment'] as const
+            : ['compute'] as const;
+
+        // Merge bindings from all stages
+        // Three.js pattern: iterate all stages, use includes() for dedup
+        for (const shaderStage of shaderStages) {
+            const stageBindings = this.bindings[shaderStage];
+            for (const groupName in stageBindings) {
+                const bindings = stageBindings[groupName];
+                const groupBindings = groups[groupName] || (groups[groupName] = []);
+                
+                for (const binding of bindings) {
+                    // Three.js pattern: includes() works because we use shared object references
+                    // for uniform entries (via uniformGroups cache)
+                    if (!groupBindings.includes(binding)) {
+                        groupBindings.push(binding);
+                    }
+                }
+            }
+        }
+
+        // Create BindGroup objects
+        const bindGroups: BindGroup[] = [];
+        for (const groupName in groups) {
+            const bindings = groups[groupName];
+            if (bindings.length === 0) continue;
+            
+            bindGroups.push({
+                name: groupName,
+                index: this.bindingsIndexes[groupName]?.group ?? 0,
+                bindings,
+                groupNode: bindings[0].groupNode,
+            });
+        }
+
+        this.bindGroups = bindGroups;
+        return bindGroups;
+    }
+
+    /**
+     * Sorts bind groups by groupNode.order and assigns final group indices.
+     * Three.js pattern: NodeBuilder.sortBindingGroups()
+     */
+    sortBindingGroups(): void {
+        const bindGroups = this.getBindings();
+        
+        // Sort by groupNode.order
+        bindGroups.sort((a, b) => a.groupNode.order - b.groupNode.order);
+        
+        // Assign final group indices
+        for (let i = 0; i < bindGroups.length; i++) {
+            const bindGroup = bindGroups[i];
+            this.bindingsIndexes[bindGroup.name].group = i;
+            bindGroup.index = i;
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -888,25 +1212,32 @@ export class WgslBuilder {
     // (Parallel to TempNode.build in three)
     // -----------------------------------------------------------------------
 
-    _generateNode(node: Node<WgslType>): string | null {
+    /**
+     * Generate WGSL code for a node.
+     * Three.js pattern: node.build(builder, output) where output is the requested type.
+     * 
+     * @param node - The node to generate
+     * @param output - Optional requested output type (e.g., 'sampler' for texture nodes)
+     */
+    _generateNode(node: Node<WgslType>, output?: string): string | null {
         const data = this.getDataFromNode(node);
         const def  = compilerDefs[node.kind];
 
-        // CSE hit: already emitted as a var
-        if (data.propertyName !== undefined) return data.propertyName;
+        // CSE hit: already emitted as a var (only if no special output requested)
+        if (data.propertyName !== undefined && output === undefined) return data.propertyName;
 
-        if (def.isStatement || def.isLeaf) return def.generate(node as never, this);
+        if (def.isStatement || def.isLeaf) return def.generate(node as never, this, output);
 
-        if ((data.usageCount ?? 0) > 1) {
+        if ((data.usageCount ?? 0) > 1 && output === undefined) {
             // CSE: emit a var and cache its name
-            const snippet = def.generate(node as never, this)!;
+            const snippet = def.generate(node as never, this, output)!;
             const varName = `_v${this.varCounter++}`;
             this.addLineFlowCode(`let ${varName} = ${snippet}`);
             data.propertyName = varName;
             return varName;
         }
 
-        return def.generate(node as never, this);
+        return def.generate(node as never, this, output);
     }
 
     // -----------------------------------------------------------------------
@@ -979,128 +1310,302 @@ export class WgslBuilder {
     }
 
     // -----------------------------------------------------------------------
-    // buildCode — assemble the final WGSL string(s)
+    // Three.js aligned: getStructs(), getUniforms(), getCodes() for shader data
     // -----------------------------------------------------------------------
 
-    _makeRenderResult(): CompileResult {
-        if (this.input.kind !== 'render') throw new Error('_makeRenderResult called on compute builder');
-
+    /**
+     * Returns user-defined struct declarations.
+     * Three.js pattern: getStructs(shaderStage)
+     */
+    private getStructs(): string {
         const lines: string[] = [];
-
-        // Struct declarations — only user-defined structs
         for (const sn of this.structNodes.values()) {
             const members = sn.members.map((m) => `    ${m.name} : ${m.type},`).join('\n');
             lines.push(`struct ${sn.type} {\n${members}\n}`);
         }
+        return lines.join('\n');
+    }
 
-        // ---------------------------------------------------------------------
-        // Build uniform groups from buckets — Three.js aligned struct-based UBOs
-        // Sort groups by order, then assign @group indices
-        // ---------------------------------------------------------------------
-        const uniformGroups: UniformGroupBlock[] = [];
-        const sortedBuckets = [...this.uniformGroupBuckets.values()]
-            .sort((a, b) => a.groupNode.order - b.groupNode.order);
+    /**
+     * Emits WGSL declarations for all bindings.
+     * Three.js pattern: part of getUniforms() output in WGSLNodeBuilder
+     */
+    private _emitBindingsWGSL(): string {
+        const lines: string[] = [];
+        const bindGroups = this.getBindings();
 
-        // Assign group indices based on sorted order
-        // render (order=0) → @group(0), object (order=1) → @group(1)
-        let groupIndex = 0;
-        for (const bucket of sortedBuckets) {
-            if (bucket.nodes.length === 0) continue;
+        for (const group of bindGroups) {
+            const groupIndex = group.index;
+            let bindingIndex = 0;
 
-            const block = this._buildUniformGroupBlock(bucket.groupNode, bucket.nodes, groupIndex, 0);
-            uniformGroups.push(block);
-
-            // Emit struct definition + var declaration
-            // Struct type name gets "Struct" suffix to avoid shadowing the variable name
-            // (mirrors Three.js WGSLNodeBuilder._getWGSLStructBinding pattern)
-            const structTypeName = bucket.groupNode.name + 'Struct';
-            const memberLines = block.members.map(m => `    ${m.uniformId} : ${m.type},`).join('\n');
-            lines.push(`struct ${structTypeName} {\n${memberLines}\n}`);
-            lines.push(`@group(${groupIndex}) @binding(0) var<uniform> ${bucket.groupNode.name} : ${structTypeName};`);
-
-            groupIndex++;
+            for (const entry of group.bindings) {
+                if (entry.type === 'uniform' && entry.uniforms) {
+                    // Uniform buffer - emit struct and var
+                    const structTypeName = entry.groupNode.name + 'Struct';
+                    const memberLines = entry.uniforms.map(u => `    ${u.name} : ${u.type},`).join('\n');
+                    lines.push(`struct ${structTypeName} {\n${memberLines}\n}`);
+                    lines.push(`@group(${groupIndex}) @binding(${bindingIndex}) var<uniform> ${entry.groupNode.name} : ${structTypeName};`);
+                    bindingIndex++;
+                } else if (entry.type === 'storage') {
+                    const storageNode = entry.node as StorageNode<WgslType>;
+                    const access = this.input.kind === 'render' ? 'read' : storageNode.access;
+                    lines.push(`@group(${groupIndex}) @binding(${bindingIndex}) var<storage, ${access}> ${entry.name} : ${storageNode.storageType};`);
+                    bindingIndex++;
+                } else if (entry.type === 'texture') {
+                    const textureNode = entry.node as TextureNode;
+                    lines.push(`@group(${groupIndex}) @binding(${bindingIndex}) var ${entry.name}_tex : ${textureNode.textureType};`);
+                    bindingIndex++;
+                } else if (entry.type === 'sampler') {
+                    lines.push(`@group(${groupIndex}) @binding(${bindingIndex}) var ${entry.name}_samp : sampler;`);
+                    bindingIndex++;
+                }
+            }
         }
 
-        // Object group resources (textures, samplers, storage) belong to the object group.
-        // Three.js aligned: if object group has uniforms, use its assigned index.
-        // If not, textures/samplers/storage go in the next available group index.
-        const objectUniformGroup = uniformGroups.find(g => g.groupNode.name === 'object');
-        const objectGroupIndex = objectUniformGroup?.groupIndex ?? groupIndex;
-        // If object group exists, binding 0 is the uniform struct; otherwise start at 0
-        let objectBinding = objectUniformGroup ? 1 : 0;
+        return lines.join('\n');
+    }
 
-        const storageEntries: StorageEntry[] = [];
-        for (const sn of this.storageNodes.values()) {
-            const name = this.storageNames.get(sn.id)!;
-            // Render shaders share a single WGSL module between vertex and fragment stages.
-            // WGSL forbids var<storage, read_write> from being visible to the vertex stage,
-            // so always emit read access in render shaders — the buffer can still be written
-            // by a compute pass.  Only compute shaders get the true read_write access mode.
-            const wgslAccess = 'read';
-            storageEntries.push({ node: sn, name, type: sn.storageType, access: sn.access, group: objectGroupIndex as 0 | 1, binding: objectBinding });
-            lines.push(`@group(${objectGroupIndex}) @binding(${objectBinding}) var<storage, ${wgslAccess}> ${name} : ${sn.storageType};`);
-            objectBinding++;
-        }
-
-        const textureEntries: TextureEntry[] = [];
-        for (const tn of this.textureNodes.values()) {
-            textureEntries.push({ textureId: String(tn.textureId), type: tn.type, group: objectGroupIndex as 0 | 1, binding: objectBinding, node: tn });
-            lines.push(`@group(${objectGroupIndex}) @binding(${objectBinding}) var ${tn.textureId}_tex : ${tn.type};`);
-            objectBinding++;
-        }
-
-        const samplerEntries: SamplerEntry[] = [];
-        for (const sn of this.samplerNodes.values()) {
-            samplerEntries.push({ samplerId: String(sn.samplerId), type: sn.type, group: objectGroupIndex as 0 | 1, binding: objectBinding, node: sn });
-            lines.push(`@group(${objectGroupIndex}) @binding(${objectBinding}) var ${sn.samplerId}_samp : ${sn.type};`);
-            objectBinding++;
-        }
-
-        if (lines.length > 0) lines.push('');
-
-        // User-defined Fn declarations
+    /**
+     * Returns user-defined function declarations.
+     * Three.js pattern: getCodes(shaderStage)
+     */
+    private getCodes(): string {
+        const lines: string[] = [];
         for (const { fn, traced } of this.fnNodes.values()) {
             lines.push(this._emitFnDecl(fn, traced));
-            lines.push('');
+        }
+        return lines.join('\n\n');
+    }
+
+    // -----------------------------------------------------------------------
+    // Stage-specific shader data builders — Three.js buildCode() pattern
+    // -----------------------------------------------------------------------
+
+    /**
+     * Build VertexShaderData with all vertex-stage specific pieces.
+     * Three.js pattern: buildCode() populates stageData for each stage.
+     */
+    private _buildVertexShaderData(): VertexShaderData {
+        const varyingList = [...this.varyings.values()];
+        const attrList = [...this.attributes.values()];
+
+        // Build VertexInput struct
+        const inputLines: string[] = [`struct VertexInput {`];
+        for (const a of attrList) {
+            inputLines.push(`    @location(${a.location}) ${a.name} : ${a.type},`);
+        }
+        for (const a of this.bufferAttrs) {
+            inputLines.push(`    @location(${a.location}) ${a.name} : ${a.type},`);
+        }
+        if (this.builtinsUsed.has('instance_index')) {
+            inputLines.push(`    @builtin(instance_index) instance_index : u32,`);
+        }
+        if (this.builtinsUsed.has('vertex_index')) {
+            inputLines.push(`    @builtin(vertex_index) vertex_index : u32,`);
+        }
+        inputLines.push(`}`);
+        const inputStruct = inputLines.join('\n');
+
+        // Build VertexOutput struct
+        const outputLines: string[] = [`struct VertexOutput {`];
+        outputLines.push(`    @builtin(position) position : vec4f,`);
+        for (const v of varyingList) {
+            outputLines.push(`    @location(${v.location}) ${v.name} : ${v.type},`);
+        }
+        outputLines.push(`}`);
+        const outputStruct = outputLines.join('\n');
+
+        // Build vars
+        const vars = this.getVars('vertex') ?? '';
+
+        // Build flow (position calculation + varying assignments)
+        const flowLines: string[] = [];
+
+        // Emit vertex-stage preamble (varying source assignments from flowNodeFromShaderStage)
+        if (this.flowCode.vertex) {
+            flowLines.push(this.flowCode.vertex.replace(/\n$/, ''));
         }
 
-        // Vertex entry
-        lines.push(this._getWGSLVertexCode());
-        lines.push('');
+        // Emit the generated flow for the position root node
+        const posRoot = this.input.kind === 'render' ? this.input.slots.position : null;
+        if (posRoot) {
+            const flowData = this.flowResults.get(posRoot);
+            if (flowData) {
+                if (flowData.code) flowLines.push(flowData.code.replace(/\n$/, ''));
+                flowLines.push(`    out.position = ${flowData.result};`);
+            }
+        }
 
-        // Fragment entry
-        lines.push(this._getWGSLFragmentCode());
+        // Assign varyings
+        for (const v of varyingList) {
+            const vn = this._findVaryingNodeByName(v.name);
+            if (vn) {
+                const prevBuildStage = this.buildStage;
+                const prevShaderStage = this.shaderStage;
+                this.buildStage = 'generate';
+                this.shaderStage = 'vertex';
+                const srcExpr = this._generateNode(vn.source) ?? '/* missing */';
+                this.buildStage = prevBuildStage;
+                this.shaderStage = prevShaderStage;
+                flowLines.push(`    out.${v.name} = ${srcExpr};`);
+            }
+        }
 
-        const attributes: AttributeEntry[] = [
-            ...[...this.attributes.values()],
-            ...this.bufferAttrs,
-        ];
-        const varyings = [...this.varyings.values()];
-
-        // Legacy uniforms array — extract material uniforms from object group for backwards compat
-        const objectGroup = uniformGroups.find(g => g.groupNode.name === 'object');
-        const legacyMaterialUniforms = objectGroup
-            ? objectGroup.members.filter(m =>
-                m.uniformId !== 'modelWorldMatrix' && m.uniformId !== 'modelNormalMatrix')
-            : [];
-        const legacyUniformBlockEntry: UniformBlockEntry | null = legacyMaterialUniforms.length > 0
-            ? { group: 1, binding: 0, members: legacyMaterialUniforms, totalBytes: objectGroup!.totalBytes }
-            : null;
+        const flow = flowLines.join('\n');
 
         return {
-            code: lines.join('\n'),
-            attributes,
-            varyings,
-            uniforms: legacyUniformBlockEntry ? [legacyUniformBlockEntry] : [],
-            uniformGroups,
-            storage: storageEntries,
-            textures: textureEntries,
-            samplers: samplerEntries,
-            builtinsUsed: new Set(this.builtinsUsed),
-            updateBeforeNodes: this._updateBeforeNodes,
-            updateAfterNodes:  this._updateAfterNodes,
-            updateNodes:       this._updateNodes,
-            inspectableNodes:  [...this.allNodes.values()].filter(n => n._isInspectable),
+            structs: '',
+            uniforms: '',
+            codes: '',
+            vars,
+            flow,
+            attributes: 'in : VertexInput',
+            varyings: '',
+            returnType: 'VertexOutput',
+            inputStruct,
+            outputStruct,
+        };
+    }
+
+    /**
+     * Build FragmentShaderData with all fragment-stage specific pieces.
+     * Three.js pattern: buildCode() populates stageData for each stage.
+     */
+    private _buildFragmentShaderData(): FragmentShaderData {
+        const varyingList = [...this.varyings.values()];
+        const hasVaryings = varyingList.length > 0;
+
+        const slots = this.input.kind === 'render' ? this.input.slots : null;
+        const maskRoot = slots?.mask;
+        const depthRoot = slots?.depth;
+        const hasDepth = depthRoot !== undefined;
+        const colorRoot = slots?.color ?? null;
+
+        // Check if colorRoot is an OutputStructNode (MRT)
+        const isMRT = colorRoot instanceof OutputStructNode;
+        const mrtNode = isMRT ? colorRoot as OutputStructNode : null;
+
+        // Build FragmentInput struct
+        let inputStruct = '';
+        if (hasVaryings) {
+            const inputLines: string[] = [`struct FragmentInput {`];
+            for (const v of varyingList) {
+                inputLines.push(`    @location(${v.location}) ${v.name} : ${v.type},`);
+            }
+            inputLines.push(`}`);
+            inputStruct = inputLines.join('\n');
+        }
+
+        // Determine if we need an output struct (MRT or depthNode)
+        const needsOutputStruct = isMRT || hasDepth;
+
+        // Build FragmentOutput struct
+        let outputStruct = '';
+        if (needsOutputStruct) {
+            const outputLines: string[] = [`struct FragmentOutput {`];
+            if (isMRT && mrtNode) {
+                for (let i = 0; i < mrtNode.members.length; i++) {
+                    const member = mrtNode.members[i];
+                    if (!member) continue;
+                    const name = (mrtNode instanceof MRTNode && mrtNode._resolvedNames[i])
+                        ? mrtNode._resolvedNames[i]
+                        : `output${i}`;
+                    outputLines.push(`    @location(${i}) ${name} : vec4f,`);
+                }
+            } else {
+                outputLines.push(`    @location(0) color : vec4f,`);
+            }
+            if (hasDepth) {
+                outputLines.push(`    @builtin(frag_depth) frag_depth : f32,`);
+            }
+            outputLines.push(`}`);
+            outputStruct = outputLines.join('\n');
+        }
+
+        // Build vars
+        const vars = this.getVars('fragment') ?? '';
+
+        // Build flow (mask, color, depth)
+        const flowLines: string[] = [];
+
+        // maskNode: evaluate, then emit early-discard
+        if (maskRoot) {
+            const maskFlowData = this.flowResults.get(maskRoot);
+            if (maskFlowData) {
+                if (maskFlowData.code) flowLines.push(maskFlowData.code.replace(/\n$/, ''));
+                flowLines.push(`    if (!(${maskFlowData.result})) { discard; }`);
+            }
+        }
+
+        if (colorRoot) {
+            if (isMRT && mrtNode) {
+                // MRT: generate each member expression and assign to output struct
+                flowLines.push(`    var _out : FragmentOutput;`);
+
+                for (let i = 0; i < mrtNode.members.length; i++) {
+                    const member = mrtNode.members[i];
+                    if (!member) continue;
+
+                    const memberFlow = this.flowChildNode(member);
+                    if (memberFlow.code) flowLines.push(memberFlow.code.replace(/\n$/, ''));
+
+                    const name = (mrtNode instanceof MRTNode && mrtNode._resolvedNames[i])
+                        ? mrtNode._resolvedNames[i]
+                        : `output${i}`;
+                    flowLines.push(`    _out.${name} = ${memberFlow.result};`);
+                }
+
+                // depthNode if present
+                if (hasDepth && depthRoot) {
+                    const depthFlowData = this.flowResults.get(depthRoot);
+                    if (depthFlowData) {
+                        if (depthFlowData.code) flowLines.push(depthFlowData.code.replace(/\n$/, ''));
+                        flowLines.push(`    _out.frag_depth = ${depthFlowData.result};`);
+                    }
+                }
+
+                flowLines.push(`    return _out;`);
+            } else {
+                // Single output
+                const flowData = this.flowResults.get(colorRoot);
+                if (flowData) {
+                    if (flowData.code) flowLines.push(flowData.code.replace(/\n$/, ''));
+
+                    if (hasDepth) {
+                        const depthFlowData = this.flowResults.get(depthRoot!);
+                        flowLines.push(`    var _out : FragmentOutput;`);
+                        flowLines.push(`    _out.color = ${flowData.result};`);
+                        if (depthFlowData) {
+                            if (depthFlowData.code) flowLines.push(depthFlowData.code.replace(/\n$/, ''));
+                            flowLines.push(`    _out.frag_depth = ${depthFlowData.result};`);
+                        }
+                        flowLines.push(`    return _out;`);
+                    } else {
+                        flowLines.push(`    return ${flowData.result};`);
+                    }
+                }
+            }
+        }
+
+        const flow = flowLines.join('\n');
+
+        // Determine return type
+        const returnType = needsOutputStruct ? 'FragmentOutput' : '@location(0) vec4f';
+
+        // Input param
+        const varyingsParam = hasVaryings ? 'in : FragmentInput' : '';
+
+        return {
+            structs: '',
+            uniforms: '',
+            codes: '',
+            vars,
+            flow,
+            attributes: '',
+            varyings: varyingsParam,
+            returnType,
+            inputStruct,
+            outputStruct,
         };
     }
 
@@ -1135,249 +1640,96 @@ export class WgslBuilder {
         };
     }
 
-    private _getWGSLVertexCode(): string {
-        const lines: string[] = [];
-        const varyingList = [...this.varyings.values()];
-        const attrList = [...this.attributes.values()];
+    /**
+     * Returns a WGSL vertex shader based on the given shader data.
+     * Three.js pattern: pure template function.
+     */
+    private _getWGSLVertexCode(shaderData: VertexShaderData): string {
+        const varsSection = shaderData.vars ? `\n${shaderData.vars}` : '';
+        const flowSection = shaderData.flow ? `\n${shaderData.flow}` : '';
 
-        lines.push(`struct VertexInput {`);
-        for (const a of attrList) {
-            lines.push(`    @location(${a.location}) ${a.name} : ${a.type},`);
-        }
-        for (const a of this.bufferAttrs) {
-            lines.push(`    @location(${a.location}) ${a.name} : ${a.type},`);
-        }
-        if (this.builtinsUsed.has('instance_index')) {
-            lines.push(`    @builtin(instance_index) instance_index : u32,`);
-        }
-        if (this.builtinsUsed.has('vertex_index')) {
-            lines.push(`    @builtin(vertex_index) vertex_index : u32,`);
-        }
-        lines.push(`}`);
-        lines.push('');
+        return `${shaderData.inputStruct}
 
-        lines.push(`struct VertexOutput {`);
-        lines.push(`    @builtin(position) position : vec4f,`);
-        for (const v of varyingList) {
-            lines.push(`    @location(${v.location}) ${v.name} : ${v.type},`);
-        }
-        lines.push(`}`);
-        lines.push('');
+${shaderData.outputStruct}
 
-        lines.push(`@vertex`);
-        lines.push(`fn vs_main(in : VertexInput) -> VertexOutput {`);
-        lines.push(`    var out : VertexOutput;`);
-
-        // Emit var declarations preamble (VarNode declarations for this stage)
-        const vertexVars = this.getVars('vertex');
-        if (vertexVars) lines.push(vertexVars.replace(/\n$/, ''));
-
-        // Emit vertex-stage preamble (varying source assignments from flowNodeFromShaderStage)
-        if (this.flowCode.vertex) {
-            lines.push(this.flowCode.vertex.replace(/\n$/, ''));
-        }
-
-        // Emit the generated flow for the position root node
-        const posRoot = this.input.kind === 'render' ? this.input.slots.position : null;
-        if (posRoot) {
-            const flowData = this.flowResults.get(posRoot);
-            if (flowData) {
-                if (flowData.code) lines.push(flowData.code.replace(/\n$/, ''));
-                lines.push(`    out.position = ${flowData.result};`);
-            }
-        }
-
-        // Assign varyings
-        for (const v of varyingList) {
-            const vn = this._findVaryingNodeByName(v.name);
-            if (vn) {
-                // Source expression was collected into flowCode.vertex via flowNodeFromShaderStage
-                // We need to find the expression for it. Re-generate with saved state.
-                // The vertex-side source result is stored when flowNodeFromShaderStage ran.
-                // We use a fresh generate call here to get the expression (CSE will return cached name).
-                const prevBuildStage = this.buildStage;
-                const prevShaderStage = this.shaderStage;
-                this.buildStage = 'generate';
-                this.shaderStage = 'vertex';
-                const srcExpr = this._generateNode(vn.source) ?? '/* missing */';
-                this.buildStage = prevBuildStage;
-                this.shaderStage = prevShaderStage;
-                lines.push(`    out.${v.name} = ${srcExpr};`);
-            }
-        }
-
-        lines.push(`    return out;`);
-        lines.push(`}`);
-
-        return lines.join('\n');
+@vertex
+fn vs_main(${shaderData.attributes}) -> ${shaderData.returnType} {
+    var out : ${shaderData.returnType};${varsSection}${flowSection}
+    return out;
+}`;
     }
 
-    private _getWGSLFragmentCode(): string {
-        const lines: string[] = [];
-        const varyingList = [...this.varyings.values()];
-        const hasVaryings = varyingList.length > 0;
+    /**
+     * Returns a WGSL fragment shader based on the given shader data.
+     * Three.js pattern: pure template function.
+     */
+    private _getWGSLFragmentCode(shaderData: FragmentShaderData): string {
+        const inputStructSection = shaderData.inputStruct ? `${shaderData.inputStruct}\n\n` : '';
+        const outputStructSection = shaderData.outputStruct ? `${shaderData.outputStruct}\n\n` : '';
+        const varsSection = shaderData.vars ? `\n${shaderData.vars}` : '';
+        const flowSection = shaderData.flow ? `\n${shaderData.flow}` : '';
 
-        const slots = this.input.kind === 'render' ? this.input.slots : null;
-        const maskRoot  = slots?.mask;
-        const depthRoot = slots?.depth;
-        const hasDepth  = depthRoot !== undefined;
-
-        if (hasVaryings) {
-            lines.push(`struct FragmentInput {`);
-            for (const v of varyingList) {
-                lines.push(`    @location(${v.location}) ${v.name} : ${v.type},`);
-            }
-            lines.push(`}`);
-            lines.push('');
-        }
-
-        // When depthNode is set, use a named output struct so we can attach
-        // @builtin(frag_depth) alongside the colour attachment.
-        if (hasDepth) {
-            lines.push(`struct FragmentOutput {`);
-            lines.push(`    @location(0) color : vec4f,`);
-            lines.push(`    @builtin(frag_depth) frag_depth : f32,`);
-            lines.push(`}`);
-            lines.push('');
-        }
-
-        const inputParam = hasVaryings ? `in : FragmentInput` : ``;
-        const returnType = hasDepth ? `-> FragmentOutput` : `-> @location(0) vec4f`;
-
-        lines.push(`@fragment`);
-        lines.push(`fn fs_main(${inputParam}) ${returnType} {`);
-
-        // Emit var declarations preamble (VarNode declarations for this stage)
-        const fragmentVars = this.getVars('fragment');
-        if (fragmentVars) lines.push(fragmentVars.replace(/\n$/, ''));
-
-        // maskNode: evaluate, then emit early-discard
-        if (maskRoot) {
-            const maskFlowData = this.flowResults.get(maskRoot);
-            if (maskFlowData) {
-                if (maskFlowData.code) lines.push(maskFlowData.code.replace(/\n$/, ''));
-                lines.push(`    if (!(${maskFlowData.result})) { discard; }`);
-            }
-        }
-
-        const colorRoot = slots?.color ?? null;
-        if (colorRoot) {
-            const flowData = this.flowResults.get(colorRoot);
-            if (flowData) {
-                if (flowData.code) lines.push(flowData.code.replace(/\n$/, ''));
-
-                if (hasDepth) {
-                    // depthNode: evaluate and emit into the output struct
-                    const depthFlowData = this.flowResults.get(depthRoot!);
-                    lines.push(`    var _out : FragmentOutput;`);
-                    lines.push(`    _out.color = ${flowData.result};`);
-                    if (depthFlowData) {
-                        if (depthFlowData.code) lines.push(depthFlowData.code.replace(/\n$/, ''));
-                        lines.push(`    _out.frag_depth = ${depthFlowData.result};`);
-                    }
-                    lines.push(`    return _out;`);
-                } else {
-                    lines.push(`    return ${flowData.result};`);
-                }
-            }
-        }
-
-        lines.push(`}`);
-        return lines.join('\n');
+        return `${inputStructSection}${outputStructSection}@fragment
+fn fs_main(${shaderData.varyings}) -> ${shaderData.returnType} {${varsSection}${flowSection}
+}`;
     }
 
-    _makeComputeResult(): ComputeCompileResult {
-        if (this.input.kind !== 'compute') throw new Error('_makeComputeResult called on render builder');
+    /**
+     * Build ComputeShaderData with all compute-stage specific pieces.
+     * Three.js pattern: buildCode() populates stageData for each stage.
+     */
+    private _buildComputeShaderData(): ComputeShaderData {
+        if (this.input.kind !== 'compute') throw new Error('_buildComputeShaderData called on render builder');
 
-        const lines: string[] = [];
-
-        // Struct declarations
-        for (const sn of this.structNodes.values()) {
-            const members = sn.members.map((m) => `    ${m.name} : ${m.type},`).join('\n');
-            lines.push(`struct ${sn.type} {\n${members}\n}`);
-        }
-        if (this.structNodes.size > 0) lines.push('');
-
-        // Storage bindings (group 0) — inferred in _registerRoots
-        const storageEntries: ComputeStorageEntry[] = [];
-        for (let i = 0; i < this._computeStorage.length; i++) {
-            const s = this._computeStorage[i];
-            const name = this.storageNames.get(s.id) ?? `_cs${i}`;
-            storageEntries.push({ node: s, name, type: s.storageType, access: s.access, binding: i });
-            lines.push(`@group(0) @binding(${i}) var<storage, ${s.access}> ${name} : ${s.storageType};`);
-        }
-        if (storageEntries.length > 0) lines.push('');
-
-        // ---------------------------------------------------------------------
-        // Build uniform groups from buckets — same as render shaders
-        // For compute: only render group (time uniforms), no object group
-        // Storage is group 0, so uniforms go to group 1
-        // ---------------------------------------------------------------------
-        const uniformGroups: UniformGroupBlock[] = [];
-        const sortedBuckets = [...this.uniformGroupBuckets.values()]
-            .sort((a, b) => a.groupNode.order - b.groupNode.order);
-
-        // For compute shaders: group 0 = storage, group 1 = render uniforms (time)
-        let groupIndex = 1; // Start at 1 since storage is group 0
-        for (const bucket of sortedBuckets) {
-            if (bucket.nodes.length === 0) continue;
-
-            const block = this._buildUniformGroupBlock(bucket.groupNode, bucket.nodes, groupIndex, 0);
-            uniformGroups.push(block);
-
-            // Emit struct definition + var declaration
-            // Struct type name gets "Struct" suffix to avoid shadowing the variable name
-            // (mirrors Three.js WGSLNodeBuilder._getWGSLStructBinding pattern)
-            const structTypeName = bucket.groupNode.name + 'Struct';
-            const memberLines = block.members.map(m => `    ${m.uniformId} : ${m.type},`).join('\n');
-            lines.push(`struct ${structTypeName} {\n${memberLines}\n}`);
-            lines.push(`@group(${groupIndex}) @binding(0) var<uniform> ${bucket.groupNode.name} : ${structTypeName};`);
-
-            groupIndex++;
-        }
-        if (uniformGroups.length > 0) lines.push('');
-
-        // User-defined Fn declarations
-        for (const { fn, traced } of this.fnNodes.values()) {
-            lines.push(this._emitFnDecl(fn, traced));
-            lines.push('');
-        }
-
-        // @compute entry point
-        const [wx, wy, wz] = this.input.node.workgroupSize;
-        lines.push(`@compute @workgroup_size(${wx}, ${wy}, ${wz})`);
-
+        // Build builtin params
         const paramParts: string[] = [];
         for (const [kind, info] of Object.entries(COMPUTE_BUILTIN_PARAM)) {
             if (this.builtinsUsed.has(kind)) {
                 paramParts.push(`    @builtin(${info.attr}) ${kind} : ${info.type}`);
             }
         }
-        const paramList = paramParts.length > 0 ? '\n' + paramParts.join(',\n') + '\n' : '';
-        lines.push(`fn cs_main(${paramList}) {`);
+        const builtinParams = paramParts.length > 0 ? '\n' + paramParts.join(',\n') + '\n' : '';
 
-        // Emit var declarations preamble (VarNode declarations for this stage)
-        const computeVars = this.getVars('compute');
-        if (computeVars) lines.push(computeVars.replace(/\n$/, ''));
+        // Build vars
+        const vars = this.getVars('compute') ?? '';
 
-        // Emit the body StackNode
+        // Build flow
+        const flowLines: string[] = [];
         const bodyRoot = this.flowNodes.compute[0];
         if (bodyRoot) {
             const flowData = this.flowResults.get(bodyRoot);
             if (flowData?.code) {
-                lines.push(flowData.code.replace(/\n$/, ''));
+                flowLines.push(flowData.code.replace(/\n$/, ''));
             }
         }
-
-        lines.push(`}`);
+        const flow = flowLines.join('\n');
 
         return {
-            code: lines.join('\n'),
-            storage: storageEntries,
+            structs: '',
+            uniforms: '',
+            codes: '',
+            vars,
+            flow,
+            attributes: '',
+            varyings: '',
+            returnType: '',
             workgroupSize: this.input.node.workgroupSize,
-            builtinsUsed: new Set(this.builtinsUsed),
-            uniformGroups,
+            builtinParams,
         };
+    }
+
+    /**
+     * Returns a WGSL compute shader based on the given shader data.
+     * Three.js pattern: pure template function.
+     */
+    private _getWGSLComputeCode(shaderData: ComputeShaderData): string {
+        const [wx, wy, wz] = shaderData.workgroupSize;
+        const varsSection = shaderData.vars ? `\n${shaderData.vars}` : '';
+        const flowSection = shaderData.flow ? `\n${shaderData.flow}` : '';
+
+        return `@compute @workgroup_size(${wx}, ${wy}, ${wz})
+fn cs_main(${shaderData.builtinParams}) {${varsSection}${flowSection}
+}`;
     }
 
     // -----------------------------------------------------------------------
@@ -1408,23 +1760,40 @@ compilerDefs = {
     uniform: {
         isStatement: false, isLeaf: true,
         setup: (node: UniformNode<WgslType>, b: WgslBuilder) => {
-            // Bucket by groupNode.name — this is the new Three.js-aligned approach
+            // Three.js pattern: use a single shared BindingEntry per group name
             const groupName = node.groupNode.name;
-            let bucket = b.uniformGroupBuckets.get(groupName);
-            if (!bucket) {
-                bucket = { groupNode: node.groupNode, nodes: [] };
-                b.uniformGroupBuckets.set(groupName, bucket);
+            const shaderStage = b.shaderStage ?? 'vertex';
+            const bindings = b.getBindGroupArray(groupName, shaderStage);
+
+            // Get or create the shared uniform entry for this group
+            let uniformEntry = b.uniformGroups[groupName];
+            if (uniformEntry === undefined) {
+                uniformEntry = {
+                    type: 'uniform',
+                    name: groupName,
+                    groupNode: node.groupNode,
+                    node: node,
+                    uniforms: [],
+                };
+                b.uniformGroups[groupName] = uniformEntry;
             }
-            // Dedup by name (the WGSL field name)
-            if (!bucket.nodes.some(n => n.name === node.name)) {
-                bucket.nodes.push(node);
+
+            // Add the shared entry to this stage's bindings if not already present
+            // Three.js pattern: same object reference added to multiple stages
+            if (!bindings.includes(uniformEntry)) {
+                bindings.push(uniformEntry);
+            }
+
+            // Add uniform to the shared group (dedup by name)
+            if (!uniformEntry.uniforms!.some((n: UniformNode<WgslType>) => n.name === node.name)) {
+                uniformEntry.uniforms!.push(node);
             }
 
             const uniformDef = lookupStructDefByName(node.type);
             if (uniformDef) b._registerStructDef(uniformDef);
         },
         generate: (node: UniformNode<WgslType>, _b: WgslBuilder) =>
-            // New Three.js-aligned property access: groupName.fieldName
+            // Three.js-aligned property access: groupName.fieldName
             `${node.groupNode.name}.${node.name}`,
     },
     attribute: {
@@ -1455,42 +1824,129 @@ compilerDefs = {
     storage: {
         isStatement: false, isLeaf: true,
         setup: (node: StorageNode<WgslType>, b: WgslBuilder) => {
-            if (!b.storageNodes.has(node.id)) {
-                if (b.input.kind === 'compute') {
-                    const idx = b._computeStorage.findIndex((s: StorageNode<WgslType>) => s.id === node.id);
-                    const name = idx >= 0 ? `_cs${idx}` : `_cs${b.storageNodes.size}`;
-                    b.storageNodes.set(node.id, node as unknown as StorageNode<WgslType>);
-                    b.storageNames.set(node.id, name);
-                } else {
-                    const name = `_stor${b.storageNodes.size}`;
-                    b.storageNodes.set(node.id, node as unknown as StorageNode<WgslType>);
-                    b.storageNames.set(node.id, name);
-                }
+            const groupName = node.groupNode.name;
+            const shaderStage = b.shaderStage ?? 'compute';
+            const bindings = b.getBindGroupArray(groupName, shaderStage);
+
+            // Get or create shared storage binding entry
+            let storEntry = b.storageBindings[node.id];
+            if (storEntry === undefined) {
+                // Generate a unique name
+                const existingStorageCount = Object.keys(b.storageBindings).length;
+                const name = `_stor${existingStorageCount}`;
+                b.storageNames.set(node.id, name);
+
+                storEntry = {
+                    type: 'storage',
+                    name,
+                    groupNode: node.groupNode,
+                    node: node,
+                };
+                b.storageBindings[node.id] = storEntry;
+
+                const storageDef = lookupStructDefByName(node.type);
+                if (storageDef) b._registerStructDef(storageDef);
             }
-            const storageDef = lookupStructDefByName(node.type);
-            if (storageDef) b._registerStructDef(storageDef);
+
+            // Add shared entry to this stage's bindings if not already present
+            if (!bindings.includes(storEntry)) {
+                bindings.push(storEntry);
+            }
         },
         generate: (node: StorageNode<WgslType>, b: WgslBuilder) => b.storageNames.get(node.id) ?? node.id,
     },
     texture: {
-        isStatement: false, isLeaf: true,
+        isStatement: false, isLeaf: false,  // Not a leaf - has uvNode child
         setup: (node: TextureNode, b: WgslBuilder) => {
-            const key = String(node.textureId);
-            if (!b.textureNodes.has(key)) {
-                b.textureNodes.set(key, node);
+            // Register the base texture (follow referenceNode if present)
+            const base = node.referenceNode ?? node;
+            const key = String(base.textureId);
+
+            const groupName = base.groupNode.name;
+            const shaderStage = b.shaderStage ?? 'fragment';
+            const bindings = b.getBindGroupArray(groupName, shaderStage);
+
+            // Three.js pattern: PassMultipleTextureNode.setup() calls updateTexture()
+            if (base instanceof PassMultipleTextureNode) {
+                base.updateTexture();
+                const passNode = base.passNode;
+                if (passNode.updateBeforeType !== 'none') {
+                    b._sequentialNodes.add(passNode);
+                }
+            }
+
+            // Get or create shared texture binding entry
+            let texEntry = b.textureBindings[key];
+            if (texEntry === undefined) {
+                texEntry = {
+                    type: 'texture',
+                    name: key,
+                    groupNode: base.groupNode,
+                    node: base,
+                };
+                b.textureBindings[key] = texEntry;
+            }
+
+            // Add shared entry to this stage's bindings if not already present
+            if (!bindings.includes(texEntry)) {
+                bindings.push(texEntry);
+            }
+
+            // Get or create shared sampler binding entry
+            let sampEntry = b.samplerBindings[key];
+            if (sampEntry === undefined) {
+                sampEntry = {
+                    type: 'sampler',
+                    name: key,
+                    groupNode: base.groupNode,
+                    node: base,
+                };
+                b.samplerBindings[key] = sampEntry;
+            }
+
+            // Add shared entry to this stage's bindings if not already present
+            if (!bindings.includes(sampEntry)) {
+                bindings.push(sampEntry);
             }
         },
-        generate: (node: TextureNode, _b: WgslBuilder) => `${node.textureId}_tex`,
+        generate: (node: TextureNode, b: WgslBuilder, output?: string) => {
+            // Get the base texture for binding reference
+            const base = node.referenceNode ?? node;
+            
+            // Three.js TextureNode.generate(): if output starts with 'sampler', return sampler name
+            if (output !== undefined && /^sampler/.test(output)) {
+                return `${base.textureId}_samp`;
+            }
+            
+            const texName = `${base.textureId}_tex`;
+            const sampName = `${base.textureId}_samp`;
+            
+            // Generate UV - use uvNode if provided, otherwise default to in.uv
+            const uvExpr = node.uvNode ? b._generateNode(node.uvNode) : 'in.uv';
+            
+            // Three.js pattern: generate textureSample(texture, sampler, uv)
+            return `textureSample(${texName}, ${sampName}, ${uvExpr})`;
+        },
     },
-    sampler: {
-        isStatement: false, isLeaf: true,
-        setup: (node: SamplerNode, b: WgslBuilder) => {
-            const key = String(node.samplerId);
-            if (!b.samplerNodes.has(key)) {
-                b.samplerNodes.set(key, node);
-            }
+    // Three.js ConvertNode: converts a node's output type to a target type.
+    // generate() calls node.build(builder, type) which requests specific output.
+    convert: {
+        isStatement: false, isLeaf: false,
+        setup: (node: ConvertNode, b: WgslBuilder) => {
+            b._setupNode(node.node);
         },
-        generate: (node: SamplerNode, _b: WgslBuilder) => `${node.samplerId}_samp`,
+        generate: (node: ConvertNode, b: WgslBuilder) => {
+            // Three.js: const type = this.getNodeType(builder);
+            // For simplicity, we use convertTo directly (no type length matching)
+            const type = node.convertTo;
+
+            // Three.js: const snippet = node.build(builder, type);
+            const snippet = b._generateNode(node.node, type);
+
+            // Three.js: return builder.format(snippet, type, output);
+            // For now, just return snippet (no additional formatting)
+            return snippet;
+        },
     },
     varying: {
         isStatement: false, isLeaf: true,
@@ -1542,7 +1998,12 @@ compilerDefs = {
         setup: null,
         generate: (node: RawNode<WgslType>, b: WgslBuilder) => {
             const depExprs = node.deps.map((d) => b._generateNode(d) ?? '/* missing */');
-            return node.wgsl.replace(/\$(\d+)/g, (_, i) => depExprs[parseInt(i, 10)] ?? `/* dep${i} */`);
+            // Handle $0, $1, etc. as well as $0_samp, $1_xxx for sampler refs
+            return node.wgsl.replace(/\$(\d+)(?:_(\w+))?/g, (_, idx, suffix) => {
+                const dep = depExprs[parseInt(idx, 10)];
+                if (!dep) return `/* dep${idx}${suffix ? '_' + suffix : ''} */`;
+                return suffix ? `${dep}_${suffix}` : dep;
+            });
         },
     },
     assign: {
@@ -1721,6 +2182,21 @@ compilerDefs = {
             const valExpr = b._generateNode(node.value) ?? '/* missing */';
             b.addLineFlowCode(`return ${valExpr}`);
             return null;
+        },
+    },
+    output_struct: {
+        isStatement: false, isLeaf: false,
+        setup: (node: OutputStructNode, b: WgslBuilder) => {
+            // Setup all member nodes
+            for (const member of node.members) {
+                if (member) b._setupNode(member);
+            }
+        },
+        generate: (node: OutputStructNode, _b: WgslBuilder) => {
+            // OutputStructNode generation is handled specially in _getWGSLFragmentCode
+            // When encountered during normal generation, just return a placeholder
+            // that will be replaced by the fragment code emitter
+            return `/* output_struct ${node.id} */`;
         },
     },
 } as unknown as Record<NodeKind, NodeCompilerDef>;

@@ -231,23 +231,34 @@ export class RendererInspector extends InspectorBase {
     // GPU timestamp resolution
     // -----------------------------------------------------------------------
 
+    /**
+     * Resolves GPU timestamps for a frame.
+     * Three.js pattern: Check buffer.mapState before using, skip if not 'unmapped'.
+     */
     private _resolveTimestamps(frameId: number, record: FrameRecord): void {
         const device = this.renderer!.device;
         const slotCount = Math.min(record.passes.length, MAX_PASSES_PER_FRAME);
         if (slotCount === 0) return;
+
+        const rb = this._readbackBuffer!;
+
+        // Three.js pattern: Check mapState before using buffer
+        if (rb.mapState !== 'unmapped') return;
 
         const encoder = device.createCommandEncoder();
         encoder.resolveQuerySet(this._querySet!, 0, slotCount * 2, this._resolveBuffer!, 0);
         encoder.copyBufferToBuffer(
             this._resolveBuffer!,
             0,
-            this._readbackBuffer!,
+            rb,
             0,
             slotCount * 2 * 8,
         );
         device.queue.submit([encoder.finish()]);
 
-        const rb = this._readbackBuffer!;
+        // Three.js pattern: Check mapState again after submit
+        if (rb.mapState !== 'unmapped') return;
+
         rb.mapAsync(GPUMapMode.READ, 0, slotCount * 2 * 8).then(() => {
             const data = new BigInt64Array(rb.getMappedRange(0, slotCount * 2 * 8));
             let totalGpuNs = 0n;
@@ -264,6 +275,9 @@ export class RendererInspector extends InspectorBase {
             rb.unmap();
         }).catch(() => {
             // Timestamp readback failed — GPU may not support it in this context
+            if (rb.mapState === 'mapped') {
+                rb.unmap();
+            }
             void frameId;
         });
     }

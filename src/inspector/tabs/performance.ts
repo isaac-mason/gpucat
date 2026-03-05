@@ -17,6 +17,16 @@ export class Performance extends Tab {
     constructor(options: { name?: string; allowDetach?: boolean } = {}) {
         super('Performance', options);
 
+        // Graph pinned above the list — full width, fixed height
+        const graphContainer = document.createElement('div');
+        graphContainer.className = 'graph-container';
+
+        const graph = new Graph();
+        graph.addLine('fps', 'var(--color-fps)');
+        graphContainer.appendChild(graph.domElement);
+        this.content.appendChild(graphContainer);
+
+        // Scrollable list below the graph
         const perfList = new List('Name', 'CPU (ms)', 'GPU (ms)');
         perfList.setGridStyle('minmax(200px, 2fr) 80px 80px');
         perfList.domElement.style.minWidth = '400px';
@@ -26,21 +36,9 @@ export class Performance extends Tab {
         scrollWrapper.appendChild(perfList.domElement);
         this.content.appendChild(scrollWrapper);
 
-        // Graph container
-        const graphContainer = document.createElement('div');
-        graphContainer.className = 'graph-container';
-
-        const graph = new Graph();
-        graph.addLine('fps', 'var(--color-fps)');
-        graphContainer.append(graph.domElement);
-
-        // Graph stats item (with fps counter span)
-        const graphStats = new Item('Graph Stats', createValueSpan(), createValueSpan('graph-fps-counter'));
+        // Graph stats row (FPS counter)
+        const graphStats = new Item('Graph', createValueSpan(), createValueSpan('graph-fps-counter'));
         perfList.add(graphStats);
-
-        const graphItem = new Item(graphContainer);
-        (graphItem.itemRow.childNodes[0] as HTMLElement).style.gridColumn = '1 / -1';
-        graphStats.add(graphItem);
 
         // Frame stats item (totals row)
         const frameStats = new Item('Frame Stats', createValueSpan(), createValueSpan());

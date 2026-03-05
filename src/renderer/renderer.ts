@@ -34,7 +34,7 @@ import {
 import { collectDraws, type DrawCall } from './collect';
 import { Material } from '../scene/material';
 import { Geometry } from '../scene/geometry';
-import { raw, builtin, type Node, type WgslType, VaryingNode, RawNode } from '../nodes/nodes';
+import { raw, builtin, type Node, type WgslType, VaryingNode, RawNode, MRTNode } from '../nodes/nodes';
 
 import { ComputeNode } from '../nodes/nodes';
 import { ComputePipelineCache, type ComputePipelineEntry } from './compute-pipeline';
@@ -43,6 +43,7 @@ import type { RenderFrame, RenderUpdateContext, ObjectUpdateContext } from './re
 import type { Scene } from '../scene/scene';
 import type { Camera } from '../scene/camera';
 import { InspectorBase } from '../inspector/inspector-base';
+import type { RenderTarget } from './render-target';
 
 // ---------------------------------------------------------------------------
 // Uniform group packing helpers (Phase 3d)
@@ -234,6 +235,76 @@ export class WebGPURenderer {
 
     /** Clear color for the final swapchain composite pass. Defaults to opaque black. */
     clearColor: [number, number, number, number] = [0, 0, 0, 1];
+
+    // -----------------------------------------------------------------------
+    // MRT (Multiple Render Targets) support - aligned with Three.js
+    // -----------------------------------------------------------------------
+
+    /**
+     * The current MRT configuration. When set, materials using mrt() nodes
+     * will write to multiple color attachments.
+     * @internal
+     */
+    private _mrt: MRTNode | null = null;
+
+    /**
+     * Sets the MRT (Multiple Render Targets) configuration.
+     * When set, renderScene() will use the MRT node to determine
+     * which outputs map to which color attachments.
+     *
+     * @param mrt - The MRT node, or null to disable MRT.
+     * @returns This renderer for chaining.
+     */
+    setMRT(mrt: MRTNode | null): this {
+        this._mrt = mrt;
+        return this;
+    }
+
+    /**
+     * Returns the current MRT configuration.
+     *
+     * @returns The current MRT node, or null if MRT is disabled.
+     */
+    getMRT(): MRTNode | null {
+        return this._mrt;
+    }
+
+    // -----------------------------------------------------------------------
+    // Render Target support - aligned with Three.js
+    // -----------------------------------------------------------------------
+
+    /**
+     * The current render target. When set, render() will render to this
+     * target instead of the swapchain.
+     * @internal
+     */
+    private _renderTarget: RenderTarget | null = null;
+
+    /**
+     * Sets the current render target.
+     * When set, subsequent render() calls will render to this target
+     * instead of the canvas swapchain.
+     *
+     * Mirrors Three.js `renderer.setRenderTarget(renderTarget)`.
+     *
+     * @param renderTarget - The render target, or null to render to the canvas.
+     * @returns This renderer for chaining.
+     */
+    setRenderTarget(renderTarget: RenderTarget | null): this {
+        this._renderTarget = renderTarget;
+        return this;
+    }
+
+    /**
+     * Returns the current render target.
+     *
+     * Mirrors Three.js `renderer.getRenderTarget()`.
+     *
+     * @returns The current render target, or null if rendering to canvas.
+     */
+    getRenderTarget(): RenderTarget | null {
+        return this._renderTarget;
+    }
 
     // -----------------------------------------------------------------------
     // Internal fullscreen quad state
@@ -722,52 +793,124 @@ export class WebGPURenderer {
     }
 
     // -----------------------------------------------------------------------
-    // renderScene() — public entry point called by PassNode.updateBefore()
+    // renderScene() — Three.js aligned render(scene, camera)
     // -----------------------------------------------------------------------
 
     /**
-     * Render a scene + camera into caller-supplied color + depth textures.
-     * Called by PassNode.updateBefore(frame) via frame.renderer.renderScene(...).
+     * Render a scene with a camera to the current render target.
      *
-     * This is the same logic as the old _renderPassNode() but exposed publicly
-     * so PassNode can drive it without needing access to renderer internals.
+     * When `setRenderTarget()` has been called, renders to that target.
+     * When `setMRT()` has been called, uses MRT output mapping.
+     * Otherwise renders to the swapchain (canvas).
+     *
+     * Mirrors Three.js `renderer.render(scene, camera)`.
+     *
+     * @param scene The scene to render.
+     * @param camera The camera to render with.
+     * @param encoder Optional command encoder. If not provided, a new one is created and submitted.
+     * @param passId Optional pass ID for inspector tracking.
      */
     renderScene(
         scene: Scene,
         camera: Camera,
-        encoder: GPUCommandEncoder,
-        colorTex: GPUTexture,
-        depthTex: GPUTexture,
-        clearColor: [number, number, number, number],
-        colorFormat: GPUTextureFormat,
+        encoder?: GPUCommandEncoder,
+        passId = 'scene',
     ): void {
-        const PASS_SAMPLES = 1;
+        if (!this._initialized) {
+            throw new Error('[WebGPURenderer] renderScene() called before init().');
+        }
 
-        const { opaque, transparent } = collectDraws(scene, camera, PASS_SAMPLES, colorFormat);
-        const allDraws = [...opaque, ...transparent];
+        this.inspector.beginRender(passId, this.frameId);
 
-        for (const draw of allDraws) {
+        const renderTarget = this._renderTarget;
+        const mrt = this._mrt;
+
+        // Setup MRT if active - resolve output names to texture indices
+        if (mrt && renderTarget) {
+            mrt.setup((name: string) => renderTarget.getTextureIndex(name));
+        }
+
+        const ownEncoder = !encoder;
+        if (!encoder) {
+            encoder = this.device.createCommandEncoder();
+        }
+
+        // Determine render target parameters
+        const samples = renderTarget?.samples ?? this._samples;
+        const colorFormat = renderTarget?.colorFormat ?? 'rgba8unorm';
+
+        const { opaque, transparent } = collectDraws(scene, camera, samples, colorFormat);
+
+        for (const draw of opaque) {
+            this._prepareMesh(draw.mesh);
+        }
+        for (const draw of transparent) {
             this._prepareMesh(draw.mesh);
         }
 
-        const [cr, cg, cb, ca] = clearColor;
-        const colorAttachment: GPURenderPassColorAttachment = {
-            view: colorTex.createView(),
-            clearValue: { r: cr, g: cg, b: cb, a: ca },
-            loadOp: 'clear',
-            storeOp: 'store',
-        };
-        const depthAttachment: GPURenderPassDepthStencilAttachment = {
-            view: depthTex.createView(),
-            depthClearValue: 1.0,
-            depthLoadOp: 'clear',
-            depthStoreOp: 'store',
-        };
+        // Build color attachments
+        const [cr, cg, cb, ca] = this.clearColor;
+        const colorAttachments: GPURenderPassColorAttachment[] = [];
+
+        if (renderTarget) {
+            // Ensure render target GPU resources are allocated
+            this._ensureRenderTargetAllocated(renderTarget);
+
+            // Render to RenderTarget - supports MRT (multiple textures)
+            for (const tex of renderTarget.textures) {
+                colorAttachments.push({
+                    view: tex.gpuTexture!.createView(),
+                    clearValue: { r: cr, g: cg, b: cb, a: ca },
+                    loadOp: 'clear',
+                    storeOp: 'store',
+                });
+            }
+        } else {
+            // Render to swapchain
+            const swapchainView = this.context.getCurrentTexture().createView();
+            if (this._samples > 1 && this.msaaTexture) {
+                colorAttachments.push({
+                    view: this.msaaTexture.createView(),
+                    resolveTarget: swapchainView,
+                    clearValue: { r: cr, g: cg, b: cb, a: ca },
+                    loadOp: 'clear',
+                    storeOp: 'discard',
+                });
+            } else {
+                colorAttachments.push({
+                    view: swapchainView,
+                    clearValue: { r: cr, g: cg, b: cb, a: ca },
+                    loadOp: 'clear',
+                    storeOp: 'store',
+                });
+            }
+        }
+
+        // Build depth attachment
+        let depthAttachment: GPURenderPassDepthStencilAttachment | undefined;
+        if (renderTarget) {
+            if (renderTarget.depthTexture?.gpuTexture) {
+                depthAttachment = {
+                    view: renderTarget.depthTexture.gpuTexture.createView(),
+                    depthClearValue: 1.0,
+                    depthLoadOp: 'clear',
+                    depthStoreOp: 'store',
+                };
+            }
+        } else {
+            // Use swapchain depth texture
+            depthAttachment = {
+                view: this.depthTexture.createView(),
+                depthClearValue: 1.0,
+                depthLoadOp: 'clear',
+                depthStoreOp: 'store',
+            };
+        }
 
         this.device.pushErrorScope('validation');
 
         const gpuPass = encoder.beginRenderPass({
-            colorAttachments: [colorAttachment],
+            colorAttachments,
             depthStencilAttachment: depthAttachment,
         });
 
@@ -781,7 +924,7 @@ export class WebGPURenderer {
                     draw.pipelineKey,
                     mesh.material,
                     mesh.geometry,
-                    PASS_SAMPLES,
+                    samples,
                     colorFormat,
                 );
                 if (!entry) continue;
@@ -880,6 +1023,12 @@ export class WebGPURenderer {
         issueDraws(transparent);
 
         gpuPass.end();
+        this.inspector.finishRender(passId, this.frameId);
+
+        // If we created the encoder ourselves, submit it now
+        if (ownEncoder) {
+            this.device.queue.submit([encoder.finish()]);
+        }
 
         this.device.popErrorScope().then((err) => {
             if (err) console.error('[WebGPU renderScene validation error]', err.message);
@@ -895,6 +1044,7 @@ export class WebGPURenderer {
         encoder: GPUCommandEncoder,
         entry: PipelineEntry,
     ): void {
+        this.inspector.beginRender('composite', this.frameId);
         // Build the swapchain render pass.
         const swapchainView = this.context.getCurrentTexture().createView();
         const [cr, cg, cb, ca] = this.clearColor;
@@ -969,6 +1119,64 @@ export class WebGPURenderer {
         gpuPass.draw(3, 1);
 
         gpuPass.end();
+        this.inspector.finishRender('composite', this.frameId);
+    }
+
+    // -----------------------------------------------------------------------
+    // RenderTarget GPU allocation — managed by renderer, not RenderTarget
+    // -----------------------------------------------------------------------
+
+    private _ensureRenderTargetAllocated(renderTarget: RenderTarget): void {
+        // Check if already allocated at correct size
+        const firstTex = renderTarget.textures[0]?.gpuTexture;
+        if (firstTex && firstTex.width === renderTarget.width && firstTex.height === renderTarget.height) {
+            return;
+        }
+
+        // Dispose old resources
+        renderTarget.dispose();
+
+        // Allocate new GPU resources
+        const sampleCount = renderTarget.samples > 1 ? renderTarget.samples : 1;
+
+        for (const tex of renderTarget.textures) {
+            tex.gpuTexture = this.device.createTexture({
+                size: [renderTarget.width, renderTarget.height],
+                format: tex.format,
+                usage:
+                    GPUTextureUsage.RENDER_ATTACHMENT |
+                    GPUTextureUsage.TEXTURE_BINDING |
+                    GPUTextureUsage.COPY_SRC,
+                sampleCount,
+            });
+
+            // Three.js pattern: create sampler alongside texture
+            // Use linear filtering for render target textures (post-processing friendly)
+            tex.gpuSampler = this.device.createSampler({
+                magFilter: 'linear',
+                minFilter: 'linear',
+                mipmapFilter: 'linear',
+                addressModeU: 'clamp-to-edge',
+                addressModeV: 'clamp-to-edge',
+            });
+        }
+
+        if (renderTarget.depthTexture) {
+            renderTarget.depthTexture.gpuTexture = this.device.createTexture({
+                size: [renderTarget.width, renderTarget.height],
+                format: renderTarget.depthTexture.format,
+                usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+                sampleCount,
+            });
+
+            // Depth textures also need samplers for reading in post-processing
+            renderTarget.depthTexture.gpuSampler = this.device.createSampler({
+                magFilter: 'nearest',
+                minFilter: 'nearest',
+                addressModeU: 'clamp-to-edge',
+                addressModeV: 'clamp-to-edge',
+            });
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -1044,7 +1252,7 @@ export class WebGPURenderer {
 
         // Wrap outputNode so the UV varying is reachable from the color graph.
         const colorNode = new RawNode<'vec4f'>('vec4f', '$0', [outputNode, uvVarying]);
-        const mat = new Material({ position: posNode, color: colorNode, depthWrite: false, depthTest: false });
+        const mat = new Material({ vertex: posNode, fragment: colorNode, depthWrite: false, depthTest: false });
         const pipelineKey = makePipelineKey(mat, this._samples, this.format);
         return { mat, pipelineKey };
     }

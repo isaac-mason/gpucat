@@ -138,7 +138,7 @@ const baseColor = gpu.vec3(r, g, b);
 const litColor  = baseColor.mul(diffuse).mul(pulse);
 const finalColor = gpu.vec4(litColor, gpu.f32(1.0));
 
-const material = new gpu.Material({ position: clipPos, color: finalColor });
+const material = new gpu.Material({ vertex: clipPos, fragment: finalColor });
 
 // ---------------------------------------------------------------------------
 // 4. One IndirectStorageBufferAttribute with drawCount=2

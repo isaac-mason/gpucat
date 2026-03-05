@@ -19,6 +19,16 @@ export class Memory extends Tab {
     constructor(options: { name?: string; allowDetach?: boolean } = {}) {
         super('Memory', options);
 
+        // Graph pinned above the list — full width, fixed height
+        const graphContainer = document.createElement('div');
+        graphContainer.className = 'graph-container';
+
+        const graph = new Graph();
+        graph.addLine('total', 'var(--color-yellow)');
+        graphContainer.appendChild(graph.domElement);
+        this.content.appendChild(graphContainer);
+
+        // Scrollable list below the graph
         const memoryList = new List('Name', 'Count');
         memoryList.setGridStyle('minmax(200px, 2fr) 80px');
         memoryList.domElement.style.minWidth = '300px';
@@ -27,21 +37,6 @@ export class Memory extends Tab {
         scrollWrapper.className = 'list-scroll-wrapper';
         scrollWrapper.appendChild(memoryList.domElement);
         this.content.appendChild(scrollWrapper);
-
-        // Graph
-        const graphContainer = document.createElement('div');
-        graphContainer.className = 'graph-container';
-
-        const graph = new Graph();
-        graph.addLine('total', 'var(--color-yellow)');
-        graphContainer.append(graph.domElement);
-
-        const graphStats = new Item('Graph Stats', '');
-        memoryList.add(graphStats);
-
-        const graphItem = new Item(graphContainer);
-        (graphItem.itemRow.childNodes[0] as HTMLElement).style.gridColumn = '1 / -1';
-        graphStats.add(graphItem);
 
         // Stats tree
         const memoryStats = new Item('Renderer Info', '');

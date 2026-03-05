@@ -127,7 +127,7 @@ const finalColor = g.vec4(
     g.f32(1),
 );
 
-const material = new g.Material({ position: clipPos, color: finalColor });
+const material = new g.Material({ vertex: clipPos, fragment: finalColor });
 
 // ---------------------------------------------------------------------------
 // Main — init renderer (storage buffers uploaded automatically)

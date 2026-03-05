@@ -154,53 +154,70 @@ export function buildBindGroupInfo(
 
 /**
  * Build bind group info for compute pipelines.
+ * 
+ * Three.js aligned: iterates through uniformGroups and storage entries,
+ * respecting their group indices as assigned by the compiler.
  */
 export function buildComputeBindGroupInfo(
     device: GPUDevice,
     cr: ComputeCompileResult,
 ): BindGroupInfo {
-    const bindGroups: BindGroup[] = [];
-    let renderGroupIndex = -1;
-    const objectGroupIndex = -1; // Compute doesn't have object group
+    const vis = GPUShaderStage.COMPUTE;
 
-    // Group 0: Storage buffers
-    if (cr.storage.length > 0) {
-        const entries: GPUBindGroupLayoutEntry[] = cr.storage.map((s) => ({
+    // Build a map of groupIndex → entries for each bind group
+    const groupEntriesMap = new Map<number, { name: string; entries: GPUBindGroupLayoutEntry[] }>();
+
+    // Add uniform buffer entries from uniformGroups
+    for (const ug of cr.uniformGroups) {
+        if (ug.members.length === 0) continue;
+        groupEntriesMap.set(ug.groupIndex, {
+            name: ug.groupName,
+            entries: [{
+                binding: 0,
+                visibility: vis,
+                buffer: { type: 'uniform' },
+            }],
+        });
+    }
+
+    // Add storage buffers to their respective groups
+    for (const s of cr.storage) {
+        let groupData = groupEntriesMap.get(s.group);
+        if (!groupData) {
+            // Group doesn't exist yet (no uniforms) - create it
+            groupData = { name: 'storage', entries: [] };
+            groupEntriesMap.set(s.group, groupData);
+        }
+        groupData.entries.push({
             binding: s.binding,
-            visibility: GPUShaderStage.COMPUTE,
+            visibility: vis,
             buffer: {
                 type: s.access === 'read_write'
                     ? ('storage' as GPUBufferBindingType)
                     : ('read-only-storage' as GPUBufferBindingType),
             },
-        }));
-        const layout = device.createBindGroupLayout({ entries });
-        bindGroups.push({
-            name: 'storage',
-            index: bindGroups.length,
-            layout,
-            entryCount: entries.length,
         });
     }
 
-    // Group 1: Render uniforms (time) - only if used
-    const renderGroup = cr.uniformGroups.find(g => g.groupName === 'render');
-    const hasRenderGroupUniforms = renderGroup && renderGroup.members.length > 0;
+    // Sort by group index and create bind groups
+    const sortedIndices = [...groupEntriesMap.keys()].sort((a, b) => a - b);
+    const bindGroups: BindGroup[] = [];
+    let renderGroupIndex = -1;
+    const objectGroupIndex = -1; // Compute doesn't have object group
 
-    if (hasRenderGroupUniforms) {
-        const entries: GPUBindGroupLayoutEntry[] = [{
-            binding: 0,
-            visibility: GPUShaderStage.COMPUTE,
-            buffer: { type: 'uniform' },
-        }];
-        const layout = device.createBindGroupLayout({ entries });
-        renderGroupIndex = bindGroups.length;
+    for (const groupIdx of sortedIndices) {
+        const groupData = groupEntriesMap.get(groupIdx)!;
+        // Sort entries by binding index to ensure correct order
+        groupData.entries.sort((a, b) => a.binding - b.binding);
+        const layout = device.createBindGroupLayout({ entries: groupData.entries });
+        const bgIndex = bindGroups.length;
         bindGroups.push({
-            name: 'render',
-            index: renderGroupIndex,
+            name: groupData.name,
+            index: bgIndex,
             layout,
-            entryCount: entries.length,
+            entryCount: groupData.entries.length,
         });
+        if (groupData.name === 'render') renderGroupIndex = bgIndex;
     }
 
     return { bindGroups, renderGroupIndex, objectGroupIndex };
@@ -267,7 +284,12 @@ export function buildObjectGroupGPUBindGroup(
     // Textures
     for (const t of cr.textures) {
         if (t.group !== groupIndex) continue;
-        const res = t.node.resource;
+        // Get GPU texture - either from resource directly, or from value object (Three.js pattern)
+        let res = t.node.resource;
+        if (res === null && t.node.value) {
+            // RenderTargetTexture and DepthTexture have gpuTexture directly on them
+            res = (t.node.value as { gpuTexture?: GPUTexture | null }).gpuTexture ?? null;
+        }
         if (res === null) {
             throw new Error(`[buildObjectGroupGPUBindGroup] TextureNode '${t.textureId}' has no resource set`);
         }
@@ -275,12 +297,17 @@ export function buildObjectGroupGPUBindGroup(
         entries.push({ binding: t.binding, resource: view });
     }
 
-    // Samplers
+    // Samplers (Three.js pattern: sampler is on textureNode.gpuSampler, or on value object)
     for (const s of cr.samplers) {
         if (s.group !== groupIndex) continue;
-        const samp = s.node.resource;
+        // Get sampler - either from gpuSampler directly, or from value object (Three.js pattern)
+        let samp = s.textureNode.gpuSampler;
+        if (samp === null && s.textureNode.value) {
+            // RenderTargetTexture and DepthTexture have gpuSampler directly on them
+            samp = (s.textureNode.value as { gpuSampler?: GPUSampler | null }).gpuSampler ?? null;
+        }
         if (samp === null) {
-            throw new Error(`[buildObjectGroupGPUBindGroup] SamplerNode '${s.samplerId}' has no resource set`);
+            throw new Error(`[buildObjectGroupGPUBindGroup] TextureNode '${s.samplerId}' has no gpuSampler set`);
         }
         entries.push({ binding: s.binding, resource: samp });
     }
@@ -369,12 +396,12 @@ export function buildObjectGroupBindGroup(
         entries.push({ binding: t.binding, resource: view });
     }
 
-    // Samplers (binding 1+)
+    // Samplers (Three.js pattern: sampler is on textureNode.gpuSampler)
     for (const s of cr.samplers) {
         if (s.group !== 1) continue;
-        const samp = s.node.resource;
+        const samp = s.textureNode.gpuSampler;
         if (samp === null) {
-            throw new Error(`[buildObjectGroupBindGroup] SamplerNode '${s.samplerId}' has no resource set`);
+            throw new Error(`[buildObjectGroupBindGroup] TextureNode '${s.samplerId}' has no gpuSampler set`);
         }
         entries.push({ binding: s.binding, resource: samp });
     }

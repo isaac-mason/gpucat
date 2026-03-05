@@ -14,41 +14,29 @@
  */
 
 import { compile, type CompileResult } from '../nodes/compile';
-import { positionClip } from '../nodes/nodes';
+import { OutputStructNode } from '../nodes/nodes';
 import type { Node, WgslType } from '../nodes/nodes';
 import type { Material } from '../scene/material';
 import type { Geometry } from '../scene/geometry';
 import { buildBindGroupInfo, type BindGroupInfo } from './bindgroups';
 
-// ---------------------------------------------------------------------------
-// Public types
-// ---------------------------------------------------------------------------
+function getTargetCount(fragmentNode: Node<WgslType>): number {
+    if (fragmentNode instanceof OutputStructNode) {
+        return Math.max(1, fragmentNode.members.length);
+    }
+    return 1;
+}
 
 export type PipelineEntry = {
     pipeline: GPURenderPipeline;
     compileResult: CompileResult;
-    /** Bind group info (Three.js aligned - only non-empty groups). */
     bindGroupInfo: BindGroupInfo;
-    /**
-     * @deprecated Use bindGroupInfo.bindGroups[bindGroupInfo.renderGroupIndex].layout
-     * Kept for backwards compatibility during migration.
-     */
-    layout0: GPUBindGroupLayout | null;
-    /**
-     * @deprecated Use bindGroupInfo.bindGroups[bindGroupInfo.objectGroupIndex].layout
-     * Kept for backwards compatibility during migration.
-     */
-    layout1: GPUBindGroupLayout | null;
 };
 
 export type PipelineCacheStats = {
     readyCount: number;
     pendingCount: number;
 };
-
-// ---------------------------------------------------------------------------
-// PipelineCache
-// ---------------------------------------------------------------------------
 
 export class PipelineCache {
     private readonly device: GPUDevice;
@@ -149,7 +137,7 @@ export class PipelineCache {
         samples: number,
         format: GPUTextureFormat = this.format,
     ): Promise<PipelineEntry> {
-        const positionGraph: Node<WgslType> = material.vertexNode ?? positionClip;
+        const positionGraph: Node<WgslType> = material.vertexNode;
         const colorGraph: Node<WgslType> = material.fragmentNode;
 
         const cr = compile({
@@ -172,8 +160,9 @@ export class PipelineCache {
         const vertexBuffers = buildVertexBufferLayouts(cr, geometry);
 
         // Build color target state from material render state.
+        const targetCount = getTargetCount(material.fragmentNode);
         const colorTargets: GPUColorTargetState[] = [];
-        for (let i = 0; i < material.targets; i++) {
+        for (let i = 0; i < targetCount; i++) {
             colorTargets.push({
                 format,
                 blend: material.blend,
@@ -211,20 +200,10 @@ export class PipelineCache {
 
         const pipeline = await this.device.createRenderPipelineAsync(descriptor);
 
-        // Build legacy layout0/layout1 for backwards compat
-        const layout0 = bindGroupInfo.renderGroupIndex >= 0
-            ? bindGroupInfo.bindGroups[bindGroupInfo.renderGroupIndex].layout
-            : null;
-        const layout1 = bindGroupInfo.objectGroupIndex >= 0
-            ? bindGroupInfo.bindGroups[bindGroupInfo.objectGroupIndex].layout
-            : null;
-
         const entry: PipelineEntry = {
             pipeline,
             compileResult: cr,
             bindGroupInfo,
-            layout0,
-            layout1,
         };
         this.ready.set(key, entry);
         this.pending.delete(key);
@@ -337,10 +316,6 @@ function wgslTypeItemSize(type: string): number {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Pipeline cache key generation
-// ---------------------------------------------------------------------------
-
 /**
  * Stable cache key for a material + MSAA sample count.
  *
@@ -362,7 +337,7 @@ export function makePipelineKey(material: Material, samples: number, format: GPU
         material.depthCompare,
         material.cullMode,
         material.alphaToCoverage ? 1 : 0,
-        material.targets,
+        getTargetCount(material.fragmentNode),
         samples,
         format,
         material.blend ? JSON.stringify(material.blend) : 'none',

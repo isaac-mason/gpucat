@@ -59,7 +59,7 @@ const finalColor = g.vec4(
     g.f32(1.0),
 );
 
-const material = new g.Material({ position: clipPos, color: finalColor });
+const material = new g.Material({ vertex: clipPos, fragment: finalColor });
 
 async function main() {
     const renderer = new g.WebGPURenderer({ antialias: true });

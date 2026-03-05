@@ -1,16 +1,10 @@
-/**
- * collect.ts — Graph walk utilities.
- *
- * Functions here are pure: they take node objects and return plain data.
- * No GPU calls, no side effects.
- */
-
 import type {
     AssignNode,
     BinopNode,
     CallNode,
     CondNode,
     ConstructNode,
+    ConvertNode,
     FieldNode,
     FnNode,
     ForNode,
@@ -20,19 +14,12 @@ import type {
     RawNode,
     ReturnNode,
     StackNode,
+    TextureNode,
     VarNode,
     WhileNode,
     WgslType,
 } from './nodes';
 
-// ---------------------------------------------------------------------------
-// getChildren — returns direct dependency nodes for any node kind
-// ---------------------------------------------------------------------------
-
-/**
- * Returns the immediate dependency nodes of `node`.
- * The returned array is in the order they should be visited (left-to-right).
- */
 export function getChildren(node: Node<WgslType>): Node<WgslType>[] {
     switch (node.kind) {
         case 'const':
@@ -40,10 +27,18 @@ export function getChildren(node: Node<WgslType>): Node<WgslType>[] {
         case 'attribute':
         case 'buffer_attribute':
         case 'storage':
-        case 'texture':
         case 'sampler':
         case 'builtin':
             return [];
+
+        case 'texture': {
+            // TextureNode may have a uvNode child
+            const n = node as TextureNode;
+            const children: Node<WgslType>[] = [];
+            if (n.uvNode) children.push(n.uvNode);
+            if (n.referenceNode) children.push(n.referenceNode);
+            return children;
+        }
 
         case 'varying': {
             // A VaryingNode is a fragment-stage leaf — it reads from the interpolated input struct.
@@ -66,6 +61,11 @@ export function getChildren(node: Node<WgslType>): Node<WgslType>[] {
         case 'raw': {
             const n = node as RawNode<WgslType>;
             return n.deps;
+        }
+
+        case 'convert': {
+            const n = node as ConvertNode;
+            return [n.node];
         }
 
         case 'assign': {
@@ -132,7 +132,6 @@ export function getChildren(node: Node<WgslType>): Node<WgslType>[] {
             return [];
 
         case 'param':
-            // Parameters have no deps — they are leaf nodes (placeholders).
             return [];
 
         case 'return': {
@@ -148,6 +147,12 @@ export function getChildren(node: Node<WgslType>): Node<WgslType>[] {
             return [];
         }
 
+        case 'output_struct': {
+            // OutputStructNode/MRTNode — children are the member nodes
+            // The node's getChildren() method handles this
+            return node.getChildren();
+        }
+
         default: {
             // exhaustive check — TypeScript will error if a case is missing
             const _exhaustive: never = node.kind;
@@ -155,10 +160,6 @@ export function getChildren(node: Node<WgslType>): Node<WgslType>[] {
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// collectGraph — full reachable subgraph from a root node
-// ---------------------------------------------------------------------------
 
 export type NodeGraph = {
     /** All reachable nodes keyed by their content-addressed ID. */

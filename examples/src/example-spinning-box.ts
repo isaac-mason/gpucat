@@ -7,6 +7,7 @@ import {
     Mesh,
     pass,
     PerspectiveCamera,
+    positionClip,
     Scene,
     vec4,
     WebGPURenderer,
@@ -43,7 +44,8 @@ async function main() {
     });
 
     const mat = new Material({
-        color: vec4(color('#f60'), f32(1)),
+        vertex: positionClip,
+        fragment: vec4(color('#f60'), f32(1)),
     });
 
     const mesh = new Mesh(createBoxGeometry(1, 1, 1), mat);

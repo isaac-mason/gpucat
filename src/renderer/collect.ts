@@ -138,7 +138,7 @@ function isMeshVisible(mesh: Mesh): boolean {
     if (geom.boundingSphere !== undefined) {
         const ls = geom.boundingSphere;
 
-        // Transform centre: ws_centre = wm * [cx, cy, cz, 1]
+        // transform centre: ws_centre = wm * [cx, cy, cz, 1]
         const cx = ls.center[0];
         const cy = ls.center[1];
         const cz = ls.center[2];
@@ -180,12 +180,12 @@ function computeViewZ(mesh: Mesh, camera: Camera): number {
     const wm = mesh.matrixWorld;
     const vm = camera._viewMatrix;
 
-    // World position of mesh origin
+    // world position of mesh origin
     const wx = wm[12];
     const wy = wm[13];
     const wz = wm[14];
 
-    // Transform world position by view matrix (only z row needed)
+    // transform world position by view matrix (only z row needed)
     // view[2], view[6], view[10], view[14] are the z-row of the view matrix
     return vm[2] * wx + vm[6] * wy + vm[10] * wz + vm[14];
 }
