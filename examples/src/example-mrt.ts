@@ -169,8 +169,11 @@ async function main() {
         fragment: mrtOutput,
     });
 
-    // Create sphere mesh
-    const mesh = new Mesh(createSphereGeometry(1, 32, 24), mat);
+    // Create sphere geometry
+    const geometry = createSphereGeometry(1, 32, 24);
+
+    // Create mesh
+    const mesh = new Mesh(geometry, mat);
     scene.add(mesh);
 
     // -----------------------------------------------------------------------
@@ -200,28 +203,13 @@ async function main() {
     // [0.6-0.8] Emissive
     // [0.8-1.0] Diffuse
     //
-    // We use RawNode with in.uv (provided by fullscreen pass) to blend between them.
-    // The texture nodes will be sampled at the same UV coordinates.
+    // We use nested select() calls to pick the right output based on in.uv.x.
+    // The fullscreen pass provides in.uv as a varying.
     const compositeOutput = new RawNode<'vec4f'>(
         'vec4f',
-        `(func() -> vec4f {
-            let uv_x = in.uv.x;
-            let beauty = $0;
-            let linear_out = $1;
-            let normal = $2;
-            let emissive = $3;
-            let diffuse = $4;
-            
-            // Use step functions to select the appropriate output
-            // step(edge, x) returns 1 if x >= edge, else 0
-            var result = beauty;
-            result = select(result, linear_out, uv_x >= 0.2);
-            result = select(result, normal, uv_x >= 0.4);
-            result = select(result, emissive, uv_x >= 0.6);
-            result = select(result, diffuse, uv_x >= 0.8);
-            
-            return result;
-        })()`,
+        // Nested selects: select(false_val, true_val, condition)
+        // Reading right to left: if x >= 0.8 -> diffuse, elif x >= 0.6 -> emissive, etc.
+        'select(select(select(select($0, $1, in.uv.x >= 0.2), $2, in.uv.x >= 0.4), $3, in.uv.x >= 0.6), $4, in.uv.x >= 0.8)',
         [tonemappedOutput, outputTex, normalTex, emissiveTex, diffuseTex],
     );
 

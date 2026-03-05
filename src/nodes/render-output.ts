@@ -134,20 +134,16 @@ function applyToneMapping(node: Node<'vec4f'>, mode: ToneMappingMode): Node<'vec
  *
  * Applied per-channel to RGB, alpha passed through.
  * $0 = input vec4f
+ *
+ * Rewritten as a single expression to avoid WGSL IIFE (not supported).
+ * We inline c = ($0).rgb and compute the result directly.
  */
 function acesToneMapping(node: Node<'vec4f'>): Node<'vec4f'> {
-    // Inline ACES as a single WGSL expression — no helper function needed.
-    // Let c = input.rgb
-    // result = clamp((c * (2.51*c + 0.03)) / (c * (2.43*c + 0.59) + 0.14), 0.0, 1.0)
+    // Single expression: vec4f(clamp((c * (2.51*c + 0.03)) / (c * (2.43*c + 0.59) + 0.14), 0, 1), alpha)
+    // where c = ($0).rgb
     return new RawNode<'vec4f'>(
         'vec4f',
-        [
-            '(func() -> vec4f {',
-            '  let c = ($0).rgb;',
-            '  let mapped = clamp((c * (2.51 * c + vec3f(0.03))) / (c * (2.43 * c + vec3f(0.59)) + vec3f(0.14)), vec3f(0.0), vec3f(1.0));',
-            '  return vec4f(mapped, ($0).a);',
-            '})()',
-        ].join(' '),
+        'vec4f(clamp((($0).rgb * (2.51 * ($0).rgb + vec3f(0.03))) / (($0).rgb * (2.43 * ($0).rgb + vec3f(0.59)) + vec3f(0.14)), vec3f(0.0), vec3f(1.0)), ($0).a)',
         [node],
     );
 }
@@ -156,16 +152,13 @@ function acesToneMapping(node: Node<'vec4f'>): Node<'vec4f'> {
  * Reinhard tone mapping.
  * f(x) = x / (1 + x)  applied per-channel.
  * $0 = input vec4f
+ *
+ * Rewritten as a single expression to avoid WGSL IIFE (not supported).
  */
 function reinhardToneMapping(node: Node<'vec4f'>): Node<'vec4f'> {
     return new RawNode<'vec4f'>(
         'vec4f',
-        [
-            '(func() -> vec4f {',
-            '  let c = ($0).rgb;',
-            '  return vec4f(c / (vec3f(1.0) + c), ($0).a);',
-            '})()',
-        ].join(' '),
+        'vec4f(($0).rgb / (vec3f(1.0) + ($0).rgb), ($0).a)',
         [node],
     );
 }
@@ -182,19 +175,17 @@ function reinhardToneMapping(node: Node<'vec4f'>): Node<'vec4f'> {
  *
  * Applied per-channel to RGB, alpha passed through.
  * $0 = input vec4f
+ *
+ * Rewritten as a single expression to avoid WGSL IIFE (not supported).
+ * The select() picks between lo and hi based on the threshold.
  */
 function linearToSrgb(node: Node<'vec4f'>): Node<'vec4f'> {
+    // lo = c * 12.92
+    // hi = pow(clamp(c, 0, 1), 1/2.4) * 1.055 - 0.055
+    // srgb = select(hi, lo, c <= 0.0031308)
     return new RawNode<'vec4f'>(
         'vec4f',
-        [
-            '(func() -> vec4f {',
-            '  let c = ($0).rgb;',
-            '  let lo = c * 12.92;',
-            '  let hi = pow(clamp(c, vec3f(0.0), vec3f(1.0)), vec3f(1.0 / 2.4)) * 1.055 - vec3f(0.055);',
-            '  let srgb = select(hi, lo, c <= vec3f(0.0031308));',
-            '  return vec4f(srgb, ($0).a);',
-            '})()',
-        ].join(' '),
+        'vec4f(select(pow(clamp(($0).rgb, vec3f(0.0), vec3f(1.0)), vec3f(1.0 / 2.4)) * 1.055 - vec3f(0.055), ($0).rgb * 12.92, ($0).rgb <= vec3f(0.0031308)), ($0).a)',
         [node],
     );
 }
