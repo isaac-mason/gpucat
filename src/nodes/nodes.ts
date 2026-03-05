@@ -1128,7 +1128,17 @@ export class FnNode<T extends WgslType> extends Node<T> {
     }
 
     /**
-     * Execute the JS callback with fresh ParamNodes, capturing the resulting
+     * Create a ComputeNode from this FnNode.
+     *
+     * @example
+     * const kernel = Fn(() => {
+     *     const idx = globalId().x;
+     *     // ...
+     * }).compute({ dispatch: [Math.ceil(N / 64)] });
+     */
+    compute(_opts: ComputeOpts): ComputeNode { return null!; }
+
+    /**
      * StackNode body and the output expression node.
      * Returns { params, body, output } for use by the compiler.
      */
@@ -1658,15 +1668,19 @@ export function Fn<T extends WgslType, P extends readonly ParamDesc[]>(
     jsFunc: (...args: ParamDescsToNodes<P>) => Node<T>,
     layout: FnLayout<P>,
 ): (...args: ParamDescsToNodes<P>) => CallNode<T>;
-// Overload 2 — no layout: params are Node<WgslType>, user annotates manually
+// Overload 2 — no-params void body: returns the FnNode for use with .compute()
+export function Fn(
+    jsFunc: () => void,
+): FnNode<'void'>;
+// Overload 3 — no layout: params are Node<WgslType>, user annotates manually
 export function Fn<T extends WgslType>(
     jsFunc: (...args: Node<WgslType>[]) => Node<T>,
 ): (...args: Node<WgslType>[]) => CallNode<T>;
 // Implementation
 export function Fn<T extends WgslType>(
-    jsFunc: (...args: Node<WgslType>[]) => Node<T>,
+    jsFunc: ((...args: Node<WgslType>[]) => Node<T>) | (() => void),
     layout?: FnLayout<readonly ParamDesc[]>,
-): (...args: Node<WgslType>[]) => CallNode<T> {
+): ((...args: Node<WgslType>[]) => CallNode<T>) | FnNode<'void'> {
     // Build dummy ParamNodes for the dry-run trace that infers the return type.
     const paramDescs: (ParamDesc | WgslDesc<WgslType>)[] = layout?.params ?? [];
     const dummyParams = paramDescs.map((d, i) => {
@@ -1677,18 +1691,28 @@ export function Fn<T extends WgslType>(
 
     const traceStack = new StackNode();
     const prev = pushStack(traceStack);
-    let returnType: T;
+    let returnType: T | 'void';
     try {
-        const output = jsFunc(...dummyParams);
-        returnType = output.type as T;
+        const output = (jsFunc as (...args: Node<WgslType>[]) => Node<T> | undefined)(...dummyParams);
+        returnType = output != null ? (output.type as T) : 'void';
     } finally {
         popStack(prev);
     }
 
-    const fnNode = new FnNode<T>(returnType, paramDescs, jsFunc, layout?.name);
+    // No-params void-body case — return the FnNode directly for .compute() chaining.
+    if (returnType === 'void' && paramDescs.length === 0 && !layout) {
+        return new FnNode<'void'>(
+            'void',
+            [],
+            jsFunc as (...args: Node<WgslType>[]) => Node<'void'>,
+            undefined,
+        );
+    }
+
+    const fnNode = new FnNode<T>(returnType as T, paramDescs, jsFunc as (...args: Node<WgslType>[]) => Node<T>, layout?.name);
 
     return (...args: Node<WgslType>[]): CallNode<T> => {
-        return new CallNode<T>(returnType, fnNode.fnName, args, fnNode);
+        return new CallNode<T>(returnType as T, fnNode.fnName, args, fnNode);
     };
 }
 
@@ -1894,3 +1918,103 @@ export const workgroupId  = (): BuiltinNode<'vec3u'> => builtin('workgroup_id', 
 
 /** @builtin(num_workgroups) — total number of workgroups dispatched. */
 export const numWorkgroups = (): BuiltinNode<'vec3u'> => builtin('num_workgroups',        'vec3u');
+
+// ---------------------------------------------------------------------------
+// ComputeNode — lives here (same file as FnNode) so .compute() can be a real
+// method with no circular imports and no optional / any hacks.
+// ---------------------------------------------------------------------------
+
+let _computeCounter = 0;
+
+export type ComputeOpts = {
+    /**
+     * Dispatch dimensions [x, y, z] — number of workgroups to dispatch.
+     * Trailing 1s may be omitted: [N] = [N, 1, 1], [N, M] = [N, M, 1].
+     */
+    dispatch: [number, number, number] | [number, number] | [number];
+    /**
+     * Workgroup size tuple [x, y, z].
+     * Defaults to [64, 1, 1].
+     */
+    workgroupSize?: [number, number, number];
+};
+
+export type ComputeNodeOptions = ComputeOpts & {
+    /** The FnNode whose body becomes the @compute entry point. */
+    fn: FnNode<WgslType>;
+};
+
+/**
+ * A plain object representing a single WebGPU compute dispatch.
+ *
+ * Storage buffers are inferred automatically by walking the traced Fn body
+ * for StorageNode children. Binding order = encounter order (depth-first).
+ *
+ * Use `renderer.compile(node)` to pre-warm, then `renderer.compute(node)` each frame.
+ */
+export class ComputeNode {
+    readonly id: string;
+    readonly fn: FnNode<WgslType>;
+    readonly workgroupSize: [number, number, number];
+    readonly dispatch: [number, number, number];
+
+    constructor(opts: ComputeNodeOptions) {
+        this.id = `_compute_${_computeCounter++}`;
+        this.fn = opts.fn;
+        this.workgroupSize = opts.workgroupSize ?? [64, 1, 1];
+        const d = opts.dispatch;
+        this.dispatch = [d[0], d[1] ?? 1, d[2] ?? 1];
+    }
+
+    /**
+     * Trace the Fn body and infer storage buffers from the graph.
+     * Returns { body, storage } — called once by compileCompute().
+     */
+    trace(): { body: StackNode; storage: StorageNode<WgslType>[] } {
+        const { body } = this.fn.trace();
+
+        const storage: StorageNode<WgslType>[] = [];
+        const seen = new Set<string>();
+        const queue: Node<WgslType>[] = [body];
+        const visited = new Set<string>();
+
+        while (queue.length > 0) {
+            const node = queue.pop()!;
+            if (visited.has(node.id)) continue;
+            visited.add(node.id);
+            if (node.kind === 'storage') {
+                if (!seen.has(node.id)) {
+                    seen.add(node.id);
+                    storage.push(node as StorageNode<WgslType>);
+                }
+            }
+            for (const child of node.getChildren()) {
+                queue.push(child);
+            }
+        }
+
+        return { body, storage };
+    }
+}
+
+/**
+ * Create a ComputeNode from a FnNode.
+ *
+ * @example
+ * const kernel = compute(
+ *     Fn(() => { ... }),
+ *     { dispatch: [Math.ceil(N / 64)] },
+ * );
+ */
+export function compute(fn: FnNode<WgslType>, opts: ComputeOpts): ComputeNode {
+    return new ComputeNode({ fn, ...opts });
+}
+
+// ---------------------------------------------------------------------------
+// FnNode.prototype.compute — defined here, in the same file, so it is always
+// present and fully typed. No optional, no any, no side-effect augmentation.
+// ---------------------------------------------------------------------------
+
+FnNode.prototype.compute = function (this: FnNode<WgslType>, opts: ComputeOpts): ComputeNode {
+    return new ComputeNode({ fn: this, ...opts });
+};

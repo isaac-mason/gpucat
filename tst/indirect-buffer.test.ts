@@ -22,7 +22,7 @@ import { IndirectStorageBufferAttribute } from '../src/scene/indirect-storage-bu
 import { StorageNode, struct, toVar, u32 } from '../src/nodes/nodes.js';
 import * as S from '../src/nodes/schema.js';
 import { compileCompute } from '../src/nodes/compile.js';
-import { compute } from '../src/nodes/compute-node.js';
+import { compute } from '../src/nodes/nodes.js';
 
 // ---------------------------------------------------------------------------
 // User-defined struct defs (mirrors Three.js pattern — struct lives here, not

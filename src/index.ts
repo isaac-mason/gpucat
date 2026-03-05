@@ -221,8 +221,8 @@ export {
     ComputeNode,
     compute,
     type ComputeNodeOptions,
-    type ComputeBuiltins,
-} from './nodes/compute-node.js';
+    type ComputeOpts,
+} from './nodes/nodes.js';
 
 export {
     compileCompute,

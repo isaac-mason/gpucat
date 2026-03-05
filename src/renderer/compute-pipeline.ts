@@ -13,7 +13,7 @@
  */
 
 import { compileCompute, type ComputeCompileResult } from '../nodes/compile.js';
-import type { ComputeNode } from '../nodes/compute-node.js';
+import type { ComputeNode } from '../nodes/nodes.js';
 
 // ---------------------------------------------------------------------------
 // Public types

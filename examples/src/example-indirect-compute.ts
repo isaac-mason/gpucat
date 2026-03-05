@@ -94,32 +94,26 @@ const indirectNode = indirectArgs.asStorageNode();
 //    Thread 0 scans all positions, counts survivors, and writes instanceCount.
 // ---------------------------------------------------------------------------
 
-const cullNode = gpu.compute({
-    workgroupSize: [1, 1, 1],
-    dispatch: [1],
-    storage: [indirectNode, instancePositions, cullRadius],
+const cullNode = gpu.Fn(() => {
+    const count  = gpu.toVar(gpu.u32(0), 'count');
+    const radius = gpu.toVar(gpu.index(cullRadius, gpu.u32(0)), 'radius');
 
-    body() {
-        const count  = gpu.toVar(gpu.u32(0), 'count');
-        const radius = gpu.toVar(gpu.index(cullRadius, gpu.u32(0)), 'radius');
-
-        gpu.For({ end: N, type: 'u32' }, ({ i }) => {
-            const pos  = gpu.toVar(gpu.index(instancePositions, i), 'pos');
-            // Compute squared distance to avoid a sqrt — compare dist² vs radius².
-            const dx   = pos.x;
-            const dy   = pos.y;
-            const dz   = pos.z;
-            const dist2  = dx.mul(dx).add(dy.mul(dy)).add(dz.mul(dz));
-            const rad2   = radius.mul(radius);
-            gpu.If(dist2.lte(rad2), () => {
-                count.assign(count.add(gpu.u32(1)));
-            });
+    gpu.For({ end: N, type: 'u32' }, ({ i }) => {
+        const pos  = gpu.toVar(gpu.index(instancePositions, i), 'pos');
+        // Compute squared distance to avoid a sqrt — compare dist² vs radius².
+        const dx   = pos.x;
+        const dy   = pos.y;
+        const dz   = pos.z;
+        const dist2  = dx.mul(dx).add(dy.mul(dy)).add(dz.mul(dz));
+        const rad2   = radius.mul(radius);
+        gpu.If(dist2.lte(rad2), () => {
+            count.assign(count.add(gpu.u32(1)));
         });
+    });
 
-        // Write surviving count into indirect[1] = instanceCount.
-        gpu.index(indirectNode, gpu.u32(1)).assign(count);
-    },
-});
+    // Write surviving count into indirect[1] = instanceCount.
+    gpu.index(indirectNode, gpu.u32(1)).assign(count);
+}).compute({ workgroupSize: [1, 1, 1], dispatch: [1] });
 
 // ---------------------------------------------------------------------------
 // 5. Render graph — instanced boxes, indexed by instance_index into posData

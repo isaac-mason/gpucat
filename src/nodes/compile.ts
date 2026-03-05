@@ -86,7 +86,7 @@ import {
 } from './nodes.js';
 import { collectGraph, getChildren } from './collect.js';
 import { type StructDef, type StructSchema } from './nodes.js';
-import type { ComputeNode } from './compute-node.js';
+import type { ComputeNode } from './nodes.js';
 
 // ---------------------------------------------------------------------------
 // Public types — render
@@ -345,6 +345,9 @@ export class WgslBuilder {
     // All nodes seen (for expression lookup during generate)
     allNodes: Map<string, Node<WgslType>> = new Map();
 
+    // Storage nodes inferred from compute trace (encounter order)
+    _computeStorage: StorageNode<WgslType>[] = [];
+
     constructor(input: RenderInput | ComputeInput) {
         this.input = input;
     }
@@ -392,16 +395,11 @@ export class WgslBuilder {
             this.flowNodes.vertex.push(position);
             this.flowNodes.fragment.push(color);
         } else {
-            // Compute: register builtin + storage nodes into allNodes pre-setup
-            const { builtins, body } = this.input.node.trace();
-            // Store the traced result on the ComputeNode's nodeData for later
-            const data = this.getDataFromNode(this.input.node as unknown as Node<WgslType>, 'any');
-            (data as NodeStageData & { _traced?: { builtins: typeof builtins; body: typeof body } })._traced = { builtins, body };
-
-            for (const bNode of Object.values(builtins)) {
-                this.allNodes.set(bNode.id, bNode as unknown as Node<WgslType>);
-            }
-            for (const s of this.input.node.storage) {
+            // Compute: trace Fn body, infer storage nodes from graph
+            const { body, storage } = this.input.node.trace();
+            this._computeStorage = storage;
+            // Register storage nodes into allNodes so setup pass finds them
+            for (const s of storage) {
                 this.allNodes.set(s.id, s);
             }
             this.flowNodes.compute.push(body);
@@ -1026,10 +1024,10 @@ export class WgslBuilder {
         }
         if (this.structNodes.size > 0) lines.push('');
 
-        // Storage bindings (group 0)
+        // Storage bindings (group 0) — inferred in _registerRoots
         const storageEntries: ComputeStorageEntry[] = [];
-        for (let i = 0; i < this.input.node.storage.length; i++) {
-            const s = this.input.node.storage[i];
+        for (let i = 0; i < this._computeStorage.length; i++) {
+            const s = this._computeStorage[i];
             const name = this.storageNames.get(s.id) ?? `_cs${i}`;
             storageEntries.push({ node: s, name, type: s.storageType, access: s.access, binding: i });
             lines.push(`@group(0) @binding(${i}) var<storage, ${s.access}> ${name} : ${s.storageType};`);
@@ -1176,7 +1174,7 @@ compilerDefs = {
         setup: (node: StorageNode<WgslType>, b: WgslBuilder) => {
             if (!b.storageNodes.has(node.id)) {
                 if (b.input.kind === 'compute') {
-                    const idx = b.input.node.storage.findIndex((s) => s.id === node.id);
+                    const idx = b._computeStorage.findIndex((s: StorageNode<WgslType>) => s.id === node.id);
                     const name = idx >= 0 ? `_cs${idx}` : `_cs${b.storageNodes.size}`;
                     b.storageNodes.set(node.id, node as unknown as StorageNode<WgslType>);
                     b.storageNames.set(node.id, name);

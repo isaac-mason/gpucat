@@ -38,7 +38,7 @@ import { Material } from '../scene/material.js';
 import { Geometry } from '../scene/geometry.js';
 import { raw, builtin, type Node, type WgslType, VaryingNode, RawNode } from '../nodes/nodes.js';
 import { collectPassNodes, type PassNode } from '../nodes/pass-node.js';
-import { ComputeNode } from '../nodes/compute-node.js';
+import { ComputeNode } from '../nodes/nodes.js';
 import { ComputePipelineCache, type ComputePipelineEntry } from './compute-pipeline.js';
 import type { CompileResult } from '../nodes/compile.js';
 

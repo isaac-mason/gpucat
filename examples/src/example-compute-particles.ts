@@ -50,43 +50,37 @@ const velocities = gpu.storage(velocityData, S.array(S.vec4f()), 'read');
 // 2. Compute kernel — advance particles each frame
 // ---------------------------------------------------------------------------
 
-const updateParticles = gpu.compute({
-    workgroupSize: [WG, 1, 1],
-    dispatch: [Math.ceil(N / WG)],
-    storage: [positions, velocities],
+const updateParticles = gpu.Fn(() => {
+    const idx = gpu.toVar(gpu.globalId().x, 'idx');
 
-    body({ globalId }) {
-        const idx = gpu.toVar(globalId.x, 'idx');
+    // Bounds check — last workgroup may have spare threads.
+    // Use If guard instead of Return() to stay compatible with void kernels.
+    gpu.If(idx.lt(gpu.u32(N)), () => {
+        const pos = gpu.toVar(gpu.index(positions, idx), 'pos');
+        const vel = gpu.toVar(gpu.index(velocities, idx), 'vel');
 
-        // Bounds check — last workgroup may have spare threads.
-        // Use If guard instead of Return() to stay compatible with void kernels.
-        gpu.If(idx.lt(gpu.u32(N)), () => {
-            const pos = gpu.toVar(gpu.index(positions, idx), 'pos');
-            const vel = gpu.toVar(gpu.index(velocities, idx), 'vel');
+        // Advance position by velocity.
+        const newX = pos.x.add(vel.x);
+        const newY = pos.y.add(vel.y);
+        const newZ = pos.z.add(vel.z);
 
-            // Advance position by velocity.
-            const newX = pos.x.add(vel.x);
-            const newY = pos.y.add(vel.y);
-            const newZ = pos.z.add(vel.z);
+        // Decay lifetime — w counts down from 1 to 0.
+        const newW = pos.w.sub(gpu.f32(0.004));
 
-            // Decay lifetime — w counts down from 1 to 0.
-            const newW = pos.w.sub(gpu.f32(0.004));
-
-            // Respawn when lifetime expires (w <= 0).
-            gpu.If(newW.lte(gpu.f32(0)), () => {
-                // Use globalId components as a cheap deterministic hash for spawn position.
-                const seedX = gpu.f32(0).add(idx.toF32().mul(gpu.f32(0.0013)).fract().mul(gpu.f32(20)).sub(gpu.f32(10)));
-                gpu.index(positions, idx).assign(
-                    gpu.vec4(seedX, gpu.f32(-5), gpu.f32(0), gpu.f32(1)),
-                );
-            }).Else(() => {
-                gpu.index(positions, idx).assign(
-                    gpu.vec4(newX, newY, newZ, newW),
-                );
-            });
+        // Respawn when lifetime expires (w <= 0).
+        gpu.If(newW.lte(gpu.f32(0)), () => {
+            // Use globalId components as a cheap deterministic hash for spawn position.
+            const seedX = gpu.f32(0).add(idx.toF32().mul(gpu.f32(0.0013)).fract().mul(gpu.f32(20)).sub(gpu.f32(10)));
+            gpu.index(positions, idx).assign(
+                gpu.vec4(seedX, gpu.f32(-5), gpu.f32(0), gpu.f32(1)),
+            );
+        }).Else(() => {
+            gpu.index(positions, idx).assign(
+                gpu.vec4(newX, newY, newZ, newW),
+            );
         });
-    },
-});
+    });
+}).compute({ workgroupSize: [WG, 1, 1], dispatch: [Math.ceil(N / WG)] });
 
 // ---------------------------------------------------------------------------
 // 3. Render graph — instanced particles
