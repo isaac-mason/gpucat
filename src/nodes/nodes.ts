@@ -12,6 +12,7 @@
 
 import { getChildren as _getChildren } from './collect';
 import { type WgslDesc, type StructSchema, type ArrayDesc, type TextureDesc, type DepthTextureDesc, itemSizeOf, typedArrayCtorOf, isStructDef, texture2d } from './schema';
+import * as d from './schema';
 import type { RenderUpdateContext, ObjectUpdateContext } from '../renderer/render-frame';
 export { array, isArrayDesc, isStructDef, type WgslDesc, type ArrayDesc, type StructSchema, type TextureDesc, type DepthTextureDesc, itemSizeOf, typedArrayCtorOf } from './schema';
 export { type UpdateRange } from '../scene/geometry';
@@ -113,6 +114,29 @@ export type VecElement<T extends VecType> = T extends 'vec2f' | 'vec3f' | 'vec4f
 export type Vec2Of<E extends ScalarType> = E extends 'f32' ? 'vec2f' : E extends 'i32' ? 'vec2i' : E extends 'u32' ? 'vec2u' : 'vec2<bool>';
 export type Vec3Of<E extends ScalarType> = E extends 'f32' ? 'vec3f' : E extends 'i32' ? 'vec3i' : E extends 'u32' ? 'vec3u' : 'vec3<bool>';
 export type Vec4Of<E extends ScalarType> = E extends 'f32' ? 'vec4f' : E extends 'i32' ? 'vec4i' : E extends 'u32' ? 'vec4u' : 'vec4<bool>';
+
+// ---------------------------------------------------------------------------
+// Swizzle result types — maps Node<T> swizzle width to the correct output type.
+//
+// Rules:
+//   VecType   → element scalar (for width 1), vec2/3/4 of same element (for width 2/3/4)
+//   ScalarType → self (width 1 only; multi-component swizzles on scalars are invalid WGSL)
+//   anything else (texture, sampler, …) → WgslType (widened, no useful info)
+// ---------------------------------------------------------------------------
+
+export type Swizzle1<T extends WgslType> =
+    T extends VecType    ? VecElement<T> :
+    T extends ScalarType ? T :
+    WgslType;
+
+export type Swizzle2<T extends WgslType> =
+    T extends VecType ? Vec2Of<VecElement<T>> : WgslType;
+
+export type Swizzle3<T extends WgslType> =
+    T extends VecType ? Vec3Of<VecElement<T>> : WgslType;
+
+export type Swizzle4<T extends WgslType> =
+    T extends VecType ? Vec4Of<VecElement<T>> : WgslType;
 
 export type MulResult<A extends WgslType, B extends WgslType> = A extends MatType
     ? B extends VecType
@@ -388,236 +412,236 @@ export class Node<T extends WgslType> {
     }
 
     /* xyzw 1-component swizzles */
-    get x(): Node<WgslType> { return new FieldNode(vecElementTypeOrSelf(this.type), this, 'x'); }
-    get y(): Node<WgslType> { return new FieldNode(vecElementTypeOrSelf(this.type), this, 'y'); }
-    get z(): Node<WgslType> { return new FieldNode(vecElementTypeOrSelf(this.type), this, 'z'); }
-    get w(): Node<WgslType> { return new FieldNode(vecElementTypeOrSelf(this.type), this, 'w'); }
+    get x(): Node<Swizzle1<T>> { return new FieldNode(vecElementTypeOrSelf(this.type), this, 'x') as unknown as Node<Swizzle1<T>>; }
+    get y(): Node<Swizzle1<T>> { return new FieldNode(vecElementTypeOrSelf(this.type), this, 'y') as unknown as Node<Swizzle1<T>>; }
+    get z(): Node<Swizzle1<T>> { return new FieldNode(vecElementTypeOrSelf(this.type), this, 'z') as unknown as Node<Swizzle1<T>>; }
+    get w(): Node<Swizzle1<T>> { return new FieldNode(vecElementTypeOrSelf(this.type), this, 'w') as unknown as Node<Swizzle1<T>>; }
 
     /* xyzw 2-component swizzles */
-    get xx(): Node<WgslType> { return new FieldNode(vec2TypeOf(this.type), this, 'xx'); }
-    get xy(): Node<WgslType> { return new FieldNode(vec2TypeOf(this.type), this, 'xy'); }
-    get xz(): Node<WgslType> { return new FieldNode(vec2TypeOf(this.type), this, 'xz'); }
-    get xw(): Node<WgslType> { return new FieldNode(vec2TypeOf(this.type), this, 'xw'); }
-    get yx(): Node<WgslType> { return new FieldNode(vec2TypeOf(this.type), this, 'yx'); }
-    get yy(): Node<WgslType> { return new FieldNode(vec2TypeOf(this.type), this, 'yy'); }
-    get yz(): Node<WgslType> { return new FieldNode(vec2TypeOf(this.type), this, 'yz'); }
-    get yw(): Node<WgslType> { return new FieldNode(vec2TypeOf(this.type), this, 'yw'); }
-    get zx(): Node<WgslType> { return new FieldNode(vec2TypeOf(this.type), this, 'zx'); }
-    get zy(): Node<WgslType> { return new FieldNode(vec2TypeOf(this.type), this, 'zy'); }
-    get zz(): Node<WgslType> { return new FieldNode(vec2TypeOf(this.type), this, 'zz'); }
-    get zw(): Node<WgslType> { return new FieldNode(vec2TypeOf(this.type), this, 'zw'); }
-    get wx(): Node<WgslType> { return new FieldNode(vec2TypeOf(this.type), this, 'wx'); }
-    get wy(): Node<WgslType> { return new FieldNode(vec2TypeOf(this.type), this, 'wy'); }
-    get wz(): Node<WgslType> { return new FieldNode(vec2TypeOf(this.type), this, 'wz'); }
-    get ww(): Node<WgslType> { return new FieldNode(vec2TypeOf(this.type), this, 'ww'); }
+    get xx(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'xx') as unknown as Node<Swizzle2<T>>; }
+    get xy(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'xy') as unknown as Node<Swizzle2<T>>; }
+    get xz(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'xz') as unknown as Node<Swizzle2<T>>; }
+    get xw(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'xw') as unknown as Node<Swizzle2<T>>; }
+    get yx(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'yx') as unknown as Node<Swizzle2<T>>; }
+    get yy(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'yy') as unknown as Node<Swizzle2<T>>; }
+    get yz(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'yz') as unknown as Node<Swizzle2<T>>; }
+    get yw(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'yw') as unknown as Node<Swizzle2<T>>; }
+    get zx(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'zx') as unknown as Node<Swizzle2<T>>; }
+    get zy(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'zy') as unknown as Node<Swizzle2<T>>; }
+    get zz(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'zz') as unknown as Node<Swizzle2<T>>; }
+    get zw(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'zw') as unknown as Node<Swizzle2<T>>; }
+    get wx(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'wx') as unknown as Node<Swizzle2<T>>; }
+    get wy(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'wy') as unknown as Node<Swizzle2<T>>; }
+    get wz(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'wz') as unknown as Node<Swizzle2<T>>; }
+    get ww(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'ww') as unknown as Node<Swizzle2<T>>; }
 
     /* xyzw 3-component swizzles */
-    get xxx(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'xxx'); }
-    get xxy(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'xxy'); }
-    get xxz(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'xxz'); }
-    get xxw(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'xxw'); }
-    get xyx(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'xyx'); }
-    get xyy(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'xyy'); }
-    get xyz(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'xyz'); }
-    get xyw(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'xyw'); }
-    get xzx(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'xzx'); }
-    get xzy(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'xzy'); }
-    get xzz(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'xzz'); }
-    get xzw(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'xzw'); }
-    get xwx(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'xwx'); }
-    get xwy(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'xwy'); }
-    get xwz(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'xwz'); }
-    get xww(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'xww'); }
-    get yxx(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'yxx'); }
-    get yxy(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'yxy'); }
-    get yxz(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'yxz'); }
-    get yxw(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'yxw'); }
-    get yyx(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'yyx'); }
-    get yyy(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'yyy'); }
-    get yyz(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'yyz'); }
-    get yyw(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'yyw'); }
-    get yzx(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'yzx'); }
-    get yzy(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'yzy'); }
-    get yzz(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'yzz'); }
-    get yzw(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'yzw'); }
-    get ywx(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'ywx'); }
-    get ywy(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'ywy'); }
-    get ywz(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'ywz'); }
-    get yww(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'yww'); }
-    get zxx(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'zxx'); }
-    get zxy(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'zxy'); }
-    get zxz(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'zxz'); }
-    get zxw(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'zxw'); }
-    get zyx(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'zyx'); }
-    get zyy(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'zyy'); }
-    get zyz(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'zyz'); }
-    get zyw(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'zyw'); }
-    get zzx(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'zzx'); }
-    get zzy(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'zzy'); }
-    get zzz(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'zzz'); }
-    get zzw(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'zzw'); }
-    get zwx(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'zwx'); }
-    get zwy(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'zwy'); }
-    get zwz(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'zwz'); }
-    get zww(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'zww'); }
-    get wxx(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'wxx'); }
-    get wxy(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'wxy'); }
-    get wxz(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'wxz'); }
-    get wxw(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'wxw'); }
-    get wyx(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'wyx'); }
-    get wyy(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'wyy'); }
-    get wyz(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'wyz'); }
-    get wyw(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'wyw'); }
-    get wzx(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'wzx'); }
-    get wzy(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'wzy'); }
-    get wzz(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'wzz'); }
-    get wzw(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'wzw'); }
-    get wwx(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'wwx'); }
-    get wwy(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'wwy'); }
-    get wwz(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'wwz'); }
-    get www(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'www'); }
+    get xxx(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xxx') as unknown as Node<Swizzle3<T>>; }
+    get xxy(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xxy') as unknown as Node<Swizzle3<T>>; }
+    get xxz(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xxz') as unknown as Node<Swizzle3<T>>; }
+    get xxw(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xxw') as unknown as Node<Swizzle3<T>>; }
+    get xyx(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xyx') as unknown as Node<Swizzle3<T>>; }
+    get xyy(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xyy') as unknown as Node<Swizzle3<T>>; }
+    get xyz(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xyz') as unknown as Node<Swizzle3<T>>; }
+    get xyw(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xyw') as unknown as Node<Swizzle3<T>>; }
+    get xzx(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xzx') as unknown as Node<Swizzle3<T>>; }
+    get xzy(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xzy') as unknown as Node<Swizzle3<T>>; }
+    get xzz(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xzz') as unknown as Node<Swizzle3<T>>; }
+    get xzw(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xzw') as unknown as Node<Swizzle3<T>>; }
+    get xwx(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xwx') as unknown as Node<Swizzle3<T>>; }
+    get xwy(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xwy') as unknown as Node<Swizzle3<T>>; }
+    get xwz(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xwz') as unknown as Node<Swizzle3<T>>; }
+    get xww(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xww') as unknown as Node<Swizzle3<T>>; }
+    get yxx(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yxx') as unknown as Node<Swizzle3<T>>; }
+    get yxy(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yxy') as unknown as Node<Swizzle3<T>>; }
+    get yxz(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yxz') as unknown as Node<Swizzle3<T>>; }
+    get yxw(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yxw') as unknown as Node<Swizzle3<T>>; }
+    get yyx(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yyx') as unknown as Node<Swizzle3<T>>; }
+    get yyy(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yyy') as unknown as Node<Swizzle3<T>>; }
+    get yyz(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yyz') as unknown as Node<Swizzle3<T>>; }
+    get yyw(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yyw') as unknown as Node<Swizzle3<T>>; }
+    get yzx(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yzx') as unknown as Node<Swizzle3<T>>; }
+    get yzy(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yzy') as unknown as Node<Swizzle3<T>>; }
+    get yzz(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yzz') as unknown as Node<Swizzle3<T>>; }
+    get yzw(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yzw') as unknown as Node<Swizzle3<T>>; }
+    get ywx(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'ywx') as unknown as Node<Swizzle3<T>>; }
+    get ywy(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'ywy') as unknown as Node<Swizzle3<T>>; }
+    get ywz(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'ywz') as unknown as Node<Swizzle3<T>>; }
+    get yww(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yww') as unknown as Node<Swizzle3<T>>; }
+    get zxx(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zxx') as unknown as Node<Swizzle3<T>>; }
+    get zxy(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zxy') as unknown as Node<Swizzle3<T>>; }
+    get zxz(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zxz') as unknown as Node<Swizzle3<T>>; }
+    get zxw(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zxw') as unknown as Node<Swizzle3<T>>; }
+    get zyx(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zyx') as unknown as Node<Swizzle3<T>>; }
+    get zyy(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zyy') as unknown as Node<Swizzle3<T>>; }
+    get zyz(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zyz') as unknown as Node<Swizzle3<T>>; }
+    get zyw(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zyw') as unknown as Node<Swizzle3<T>>; }
+    get zzx(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zzx') as unknown as Node<Swizzle3<T>>; }
+    get zzy(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zzy') as unknown as Node<Swizzle3<T>>; }
+    get zzz(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zzz') as unknown as Node<Swizzle3<T>>; }
+    get zzw(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zzw') as unknown as Node<Swizzle3<T>>; }
+    get zwx(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zwx') as unknown as Node<Swizzle3<T>>; }
+    get zwy(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zwy') as unknown as Node<Swizzle3<T>>; }
+    get zwz(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zwz') as unknown as Node<Swizzle3<T>>; }
+    get zww(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zww') as unknown as Node<Swizzle3<T>>; }
+    get wxx(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wxx') as unknown as Node<Swizzle3<T>>; }
+    get wxy(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wxy') as unknown as Node<Swizzle3<T>>; }
+    get wxz(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wxz') as unknown as Node<Swizzle3<T>>; }
+    get wxw(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wxw') as unknown as Node<Swizzle3<T>>; }
+    get wyx(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wyx') as unknown as Node<Swizzle3<T>>; }
+    get wyy(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wyy') as unknown as Node<Swizzle3<T>>; }
+    get wyz(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wyz') as unknown as Node<Swizzle3<T>>; }
+    get wyw(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wyw') as unknown as Node<Swizzle3<T>>; }
+    get wzx(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wzx') as unknown as Node<Swizzle3<T>>; }
+    get wzy(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wzy') as unknown as Node<Swizzle3<T>>; }
+    get wzz(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wzz') as unknown as Node<Swizzle3<T>>; }
+    get wzw(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wzw') as unknown as Node<Swizzle3<T>>; }
+    get wwx(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wwx') as unknown as Node<Swizzle3<T>>; }
+    get wwy(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wwy') as unknown as Node<Swizzle3<T>>; }
+    get wwz(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wwz') as unknown as Node<Swizzle3<T>>; }
+    get www(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'www') as unknown as Node<Swizzle3<T>>; }
 
     /* xyzw 4-component swizzles (24 unique permutations only) */
-    get xyzw(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'xyzw'); }
-    get xywz(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'xywz'); }
-    get xzyw(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'xzyw'); }
-    get xzwy(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'xzwy'); }
-    get xwyz(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'xwyz'); }
-    get xwzy(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'xwzy'); }
-    get yxzw(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'yxzw'); }
-    get yxwz(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'yxwz'); }
-    get yzxw(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'yzxw'); }
-    get yzwx(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'yzwx'); }
-    get ywxz(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'ywxz'); }
-    get ywzx(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'ywzx'); }
-    get zxyw(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'zxyw'); }
-    get zxwy(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'zxwy'); }
-    get zyxw(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'zyxw'); }
-    get zywx(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'zywx'); }
-    get zwxy(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'zwxy'); }
-    get zwyx(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'zwyx'); }
-    get wxyz(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'wxyz'); }
-    get wxzy(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'wxzy'); }
-    get wyxz(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'wyxz'); }
-    get wyzx(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'wyzx'); }
-    get wzxy(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'wzxy'); }
-    get wzyx(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'wzyx'); }
+    get xyzw(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'xyzw') as unknown as Node<Swizzle4<T>>; }
+    get xywz(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'xywz') as unknown as Node<Swizzle4<T>>; }
+    get xzyw(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'xzyw') as unknown as Node<Swizzle4<T>>; }
+    get xzwy(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'xzwy') as unknown as Node<Swizzle4<T>>; }
+    get xwyz(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'xwyz') as unknown as Node<Swizzle4<T>>; }
+    get xwzy(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'xwzy') as unknown as Node<Swizzle4<T>>; }
+    get yxzw(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'yxzw') as unknown as Node<Swizzle4<T>>; }
+    get yxwz(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'yxwz') as unknown as Node<Swizzle4<T>>; }
+    get yzxw(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'yzxw') as unknown as Node<Swizzle4<T>>; }
+    get yzwx(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'yzwx') as unknown as Node<Swizzle4<T>>; }
+    get ywxz(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'ywxz') as unknown as Node<Swizzle4<T>>; }
+    get ywzx(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'ywzx') as unknown as Node<Swizzle4<T>>; }
+    get zxyw(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'zxyw') as unknown as Node<Swizzle4<T>>; }
+    get zxwy(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'zxwy') as unknown as Node<Swizzle4<T>>; }
+    get zyxw(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'zyxw') as unknown as Node<Swizzle4<T>>; }
+    get zywx(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'zywx') as unknown as Node<Swizzle4<T>>; }
+    get zwxy(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'zwxy') as unknown as Node<Swizzle4<T>>; }
+    get zwyx(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'zwyx') as unknown as Node<Swizzle4<T>>; }
+    get wxyz(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'wxyz') as unknown as Node<Swizzle4<T>>; }
+    get wxzy(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'wxzy') as unknown as Node<Swizzle4<T>>; }
+    get wyxz(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'wyxz') as unknown as Node<Swizzle4<T>>; }
+    get wyzx(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'wyzx') as unknown as Node<Swizzle4<T>>; }
+    get wzxy(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'wzxy') as unknown as Node<Swizzle4<T>>; }
+    get wzyx(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'wzyx') as unknown as Node<Swizzle4<T>>; }
 
     /* rgba 1-component swizzles */
-    get r(): Node<WgslType> { return new FieldNode(vecElementTypeOrSelf(this.type), this, 'x'); }
-    get g(): Node<WgslType> { return new FieldNode(vecElementTypeOrSelf(this.type), this, 'y'); }
-    get b(): Node<WgslType> { return new FieldNode(vecElementTypeOrSelf(this.type), this, 'z'); }
-    get a(): Node<WgslType> { return new FieldNode(vecElementTypeOrSelf(this.type), this, 'w'); }
+    get r(): Node<Swizzle1<T>> { return new FieldNode(vecElementTypeOrSelf(this.type), this, 'x') as unknown as Node<Swizzle1<T>>; }
+    get g(): Node<Swizzle1<T>> { return new FieldNode(vecElementTypeOrSelf(this.type), this, 'y') as unknown as Node<Swizzle1<T>>; }
+    get b(): Node<Swizzle1<T>> { return new FieldNode(vecElementTypeOrSelf(this.type), this, 'z') as unknown as Node<Swizzle1<T>>; }
+    get a(): Node<Swizzle1<T>> { return new FieldNode(vecElementTypeOrSelf(this.type), this, 'w') as unknown as Node<Swizzle1<T>>; }
 
     /* rgba 2-component swizzles */
-    get rr(): Node<WgslType> { return new FieldNode(vec2TypeOf(this.type), this, 'xx'); }
-    get rg(): Node<WgslType> { return new FieldNode(vec2TypeOf(this.type), this, 'xy'); }
-    get rb(): Node<WgslType> { return new FieldNode(vec2TypeOf(this.type), this, 'xz'); }
-    get ra(): Node<WgslType> { return new FieldNode(vec2TypeOf(this.type), this, 'xw'); }
-    get gr(): Node<WgslType> { return new FieldNode(vec2TypeOf(this.type), this, 'yx'); }
-    get gg(): Node<WgslType> { return new FieldNode(vec2TypeOf(this.type), this, 'yy'); }
-    get gb(): Node<WgslType> { return new FieldNode(vec2TypeOf(this.type), this, 'yz'); }
-    get ga(): Node<WgslType> { return new FieldNode(vec2TypeOf(this.type), this, 'yw'); }
-    get br(): Node<WgslType> { return new FieldNode(vec2TypeOf(this.type), this, 'zx'); }
-    get bg(): Node<WgslType> { return new FieldNode(vec2TypeOf(this.type), this, 'zy'); }
-    get bb(): Node<WgslType> { return new FieldNode(vec2TypeOf(this.type), this, 'zz'); }
-    get ba(): Node<WgslType> { return new FieldNode(vec2TypeOf(this.type), this, 'zw'); }
-    get ar(): Node<WgslType> { return new FieldNode(vec2TypeOf(this.type), this, 'wx'); }
-    get ag(): Node<WgslType> { return new FieldNode(vec2TypeOf(this.type), this, 'wy'); }
-    get ab(): Node<WgslType> { return new FieldNode(vec2TypeOf(this.type), this, 'wz'); }
-    get aa(): Node<WgslType> { return new FieldNode(vec2TypeOf(this.type), this, 'ww'); }
+    get rr(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'xx') as unknown as Node<Swizzle2<T>>; }
+    get rg(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'xy') as unknown as Node<Swizzle2<T>>; }
+    get rb(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'xz') as unknown as Node<Swizzle2<T>>; }
+    get ra(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'xw') as unknown as Node<Swizzle2<T>>; }
+    get gr(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'yx') as unknown as Node<Swizzle2<T>>; }
+    get gg(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'yy') as unknown as Node<Swizzle2<T>>; }
+    get gb(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'yz') as unknown as Node<Swizzle2<T>>; }
+    get ga(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'yw') as unknown as Node<Swizzle2<T>>; }
+    get br(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'zx') as unknown as Node<Swizzle2<T>>; }
+    get bg(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'zy') as unknown as Node<Swizzle2<T>>; }
+    get bb(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'zz') as unknown as Node<Swizzle2<T>>; }
+    get ba(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'zw') as unknown as Node<Swizzle2<T>>; }
+    get ar(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'wx') as unknown as Node<Swizzle2<T>>; }
+    get ag(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'wy') as unknown as Node<Swizzle2<T>>; }
+    get ab(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'wz') as unknown as Node<Swizzle2<T>>; }
+    get aa(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'ww') as unknown as Node<Swizzle2<T>>; }
 
     /* rgba 3-component swizzles */
-    get rrr(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'xxx'); }
-    get rrg(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'xxy'); }
-    get rrb(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'xxz'); }
-    get rra(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'xxw'); }
-    get rgr(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'xyx'); }
-    get rgg(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'xyy'); }
-    get rgb(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'xyz'); }
-    get rga(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'xyw'); }
-    get rbr(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'xzx'); }
-    get rbg(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'xzy'); }
-    get rbb(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'xzz'); }
-    get rba(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'xzw'); }
-    get rar(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'xwx'); }
-    get rag(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'xwy'); }
-    get rab(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'xwz'); }
-    get raa(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'xww'); }
-    get grr(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'yxx'); }
-    get grg(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'yxy'); }
-    get grb(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'yxz'); }
-    get gra(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'yxw'); }
-    get ggr(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'yyx'); }
-    get ggg(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'yyy'); }
-    get ggb(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'yyz'); }
-    get gga(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'yyw'); }
-    get gbr(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'yzx'); }
-    get gbg(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'yzy'); }
-    get gbb(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'yzz'); }
-    get gba(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'yzw'); }
-    get gar(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'ywx'); }
-    get gag(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'ywy'); }
-    get gab(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'ywz'); }
-    get gaa(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'yww'); }
-    get brr(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'zxx'); }
-    get brg(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'zxy'); }
-    get brb(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'zxz'); }
-    get bra(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'zxw'); }
-    get bgr(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'zyx'); }
-    get bgg(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'zyy'); }
-    get bgb(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'zyz'); }
-    get bga(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'zyw'); }
-    get bbr(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'zzx'); }
-    get bbg(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'zzy'); }
-    get bbb(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'zzz'); }
-    get bba(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'zzw'); }
-    get bar(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'zwx'); }
-    get bag(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'zwy'); }
-    get bab(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'zwz'); }
-    get baa(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'zww'); }
-    get arr(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'wxx'); }
-    get arg(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'wxy'); }
-    get arb(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'wxz'); }
-    get ara(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'wxw'); }
-    get agr(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'wyx'); }
-    get agg(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'wyy'); }
-    get agb(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'wyz'); }
-    get aga(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'wyw'); }
-    get abr(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'wzx'); }
-    get abg(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'wzy'); }
-    get abb(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'wzz'); }
-    get aba(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'wzw'); }
-    get aar(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'wwx'); }
-    get aag(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'wwy'); }
-    get aab(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'wwz'); }
-    get aaa(): Node<WgslType> { return new FieldNode(vec3TypeOf(this.type), this, 'www'); }
+    get rrr(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xxx') as unknown as Node<Swizzle3<T>>; }
+    get rrg(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xxy') as unknown as Node<Swizzle3<T>>; }
+    get rrb(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xxz') as unknown as Node<Swizzle3<T>>; }
+    get rra(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xxw') as unknown as Node<Swizzle3<T>>; }
+    get rgr(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xyx') as unknown as Node<Swizzle3<T>>; }
+    get rgg(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xyy') as unknown as Node<Swizzle3<T>>; }
+    get rgb(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xyz') as unknown as Node<Swizzle3<T>>; }
+    get rga(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xyw') as unknown as Node<Swizzle3<T>>; }
+    get rbr(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xzx') as unknown as Node<Swizzle3<T>>; }
+    get rbg(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xzy') as unknown as Node<Swizzle3<T>>; }
+    get rbb(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xzz') as unknown as Node<Swizzle3<T>>; }
+    get rba(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xzw') as unknown as Node<Swizzle3<T>>; }
+    get rar(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xwx') as unknown as Node<Swizzle3<T>>; }
+    get rag(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xwy') as unknown as Node<Swizzle3<T>>; }
+    get rab(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xwz') as unknown as Node<Swizzle3<T>>; }
+    get raa(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xww') as unknown as Node<Swizzle3<T>>; }
+    get grr(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yxx') as unknown as Node<Swizzle3<T>>; }
+    get grg(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yxy') as unknown as Node<Swizzle3<T>>; }
+    get grb(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yxz') as unknown as Node<Swizzle3<T>>; }
+    get gra(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yxw') as unknown as Node<Swizzle3<T>>; }
+    get ggr(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yyx') as unknown as Node<Swizzle3<T>>; }
+    get ggg(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yyy') as unknown as Node<Swizzle3<T>>; }
+    get ggb(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yyz') as unknown as Node<Swizzle3<T>>; }
+    get gga(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yyw') as unknown as Node<Swizzle3<T>>; }
+    get gbr(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yzx') as unknown as Node<Swizzle3<T>>; }
+    get gbg(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yzy') as unknown as Node<Swizzle3<T>>; }
+    get gbb(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yzz') as unknown as Node<Swizzle3<T>>; }
+    get gba(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yzw') as unknown as Node<Swizzle3<T>>; }
+    get gar(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'ywx') as unknown as Node<Swizzle3<T>>; }
+    get gag(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'ywy') as unknown as Node<Swizzle3<T>>; }
+    get gab(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'ywz') as unknown as Node<Swizzle3<T>>; }
+    get gaa(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yww') as unknown as Node<Swizzle3<T>>; }
+    get brr(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zxx') as unknown as Node<Swizzle3<T>>; }
+    get brg(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zxy') as unknown as Node<Swizzle3<T>>; }
+    get brb(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zxz') as unknown as Node<Swizzle3<T>>; }
+    get bra(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zxw') as unknown as Node<Swizzle3<T>>; }
+    get bgr(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zyx') as unknown as Node<Swizzle3<T>>; }
+    get bgg(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zyy') as unknown as Node<Swizzle3<T>>; }
+    get bgb(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zyz') as unknown as Node<Swizzle3<T>>; }
+    get bga(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zyw') as unknown as Node<Swizzle3<T>>; }
+    get bbr(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zzx') as unknown as Node<Swizzle3<T>>; }
+    get bbg(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zzy') as unknown as Node<Swizzle3<T>>; }
+    get bbb(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zzz') as unknown as Node<Swizzle3<T>>; }
+    get bba(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zzw') as unknown as Node<Swizzle3<T>>; }
+    get bar(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zwx') as unknown as Node<Swizzle3<T>>; }
+    get bag(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zwy') as unknown as Node<Swizzle3<T>>; }
+    get bab(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zwz') as unknown as Node<Swizzle3<T>>; }
+    get baa(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zww') as unknown as Node<Swizzle3<T>>; }
+    get arr(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wxx') as unknown as Node<Swizzle3<T>>; }
+    get arg(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wxy') as unknown as Node<Swizzle3<T>>; }
+    get arb(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wxz') as unknown as Node<Swizzle3<T>>; }
+    get ara(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wxw') as unknown as Node<Swizzle3<T>>; }
+    get agr(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wyx') as unknown as Node<Swizzle3<T>>; }
+    get agg(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wyy') as unknown as Node<Swizzle3<T>>; }
+    get agb(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wyz') as unknown as Node<Swizzle3<T>>; }
+    get aga(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wyw') as unknown as Node<Swizzle3<T>>; }
+    get abr(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wzx') as unknown as Node<Swizzle3<T>>; }
+    get abg(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wzy') as unknown as Node<Swizzle3<T>>; }
+    get abb(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wzz') as unknown as Node<Swizzle3<T>>; }
+    get aba(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wzw') as unknown as Node<Swizzle3<T>>; }
+    get aar(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wwx') as unknown as Node<Swizzle3<T>>; }
+    get aag(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wwy') as unknown as Node<Swizzle3<T>>; }
+    get aab(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wwz') as unknown as Node<Swizzle3<T>>; }
+    get aaa(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'www') as unknown as Node<Swizzle3<T>>; }
 
     /* rgba 4-component swizzles (24 unique permutations only) */
-    get rgba(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'xyzw'); }
-    get rgab(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'xywz'); }
-    get rbga(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'xzyw'); }
-    get rbag(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'xzwy'); }
-    get ragb(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'xwyz'); }
-    get rabg(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'xwzy'); }
-    get grba(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'yxzw'); }
-    get grab(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'yxwz'); }
-    get gbra(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'yzxw'); }
-    get gbar(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'yzwx'); }
-    get garb(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'ywxz'); }
-    get gabr(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'ywzx'); }
-    get brga(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'zxyw'); }
-    get brag(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'zxwy'); }
-    get bgra(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'zyxw'); }
-    get bgar(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'zywx'); }
-    get barg(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'zwxy'); }
-    get bagr(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'zwyx'); }
-    get argb(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'wxyz'); }
-    get arbg(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'wxzy'); }
-    get agrb(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'wyxz'); }
-    get agbr(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'wyzx'); }
-    get abrg(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'wzxy'); }
-    get abgr(): Node<WgslType> { return new FieldNode(vec4TypeOf(this.type), this, 'wzyx'); }
+    get rgba(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'xyzw') as unknown as Node<Swizzle4<T>>; }
+    get rgab(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'xywz') as unknown as Node<Swizzle4<T>>; }
+    get rbga(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'xzyw') as unknown as Node<Swizzle4<T>>; }
+    get rbag(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'xzwy') as unknown as Node<Swizzle4<T>>; }
+    get ragb(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'xwyz') as unknown as Node<Swizzle4<T>>; }
+    get rabg(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'xwzy') as unknown as Node<Swizzle4<T>>; }
+    get grba(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'yxzw') as unknown as Node<Swizzle4<T>>; }
+    get grab(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'yxwz') as unknown as Node<Swizzle4<T>>; }
+    get gbra(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'yzxw') as unknown as Node<Swizzle4<T>>; }
+    get gbar(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'yzwx') as unknown as Node<Swizzle4<T>>; }
+    get garb(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'ywxz') as unknown as Node<Swizzle4<T>>; }
+    get gabr(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'ywzx') as unknown as Node<Swizzle4<T>>; }
+    get brga(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'zxyw') as unknown as Node<Swizzle4<T>>; }
+    get brag(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'zxwy') as unknown as Node<Swizzle4<T>>; }
+    get bgra(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'zyxw') as unknown as Node<Swizzle4<T>>; }
+    get bgar(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'zywx') as unknown as Node<Swizzle4<T>>; }
+    get barg(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'zwxy') as unknown as Node<Swizzle4<T>>; }
+    get bagr(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'zwyx') as unknown as Node<Swizzle4<T>>; }
+    get argb(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'wxyz') as unknown as Node<Swizzle4<T>>; }
+    get arbg(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'wxzy') as unknown as Node<Swizzle4<T>>; }
+    get agrb(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'wyxz') as unknown as Node<Swizzle4<T>>; }
+    get agbr(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'wyzx') as unknown as Node<Swizzle4<T>>; }
+    get abrg(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'wzxy') as unknown as Node<Swizzle4<T>>; }
+    get abgr(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'wzyx') as unknown as Node<Swizzle4<T>>; }
 
     /**
      * Returns the immediate child nodes of this node.
@@ -1638,7 +1662,6 @@ function djb2(str: string): number {
 // DSL constructor functions
 // ---------------------------------------------------------------------------
 
-export const konst = <T extends WgslType>(type: T, value: number | number[] | string) => new ConstNode(type, value);
 /**
  * Declare a material uniform.
  *
@@ -1679,7 +1702,7 @@ export function uniform<T extends WgslType, S extends StructSchema>(
     }
     return node;
 }
-export const attribute = <T extends WgslType>(type: T, name: string) => new AttributeNode(type, name);
+export const attribute = <T extends WgslType>(type: WgslDesc<T>, name: string) => new AttributeNode<T>(type.wgslType as T, name);
 
 /**
  * Create a `StorageNode` backed by a `StorageBufferAttribute` (or subclass).
@@ -1821,8 +1844,8 @@ export const sampler = (value: TextureNode): ConvertNode => value.convert('sampl
  */
 export const samplerComparison = (value: TextureNode): ConvertNode => value.convert('sampler_comparison');
 
-export const varying = <T extends WgslType>(type: T, name: string, source: Node<WgslType>) => new VaryingNode(type, name, source);
-export const raw = <T extends WgslType>(type: T, wgsl: string, ...deps: Node<WgslType>[]) => new RawNode(type, wgsl, deps);
+export const varying = <T extends WgslType>(type: WgslDesc<T>, name: string, source: Node<WgslType>) => new VaryingNode<T>(type.wgslType as T, name, source);
+export const raw = <T extends WgslType>(type: WgslDesc<T>, wgsl: string, ...deps: Node<WgslType>[]) => new RawNode(type.wgslType as T, wgsl, deps);
 export const stack = (...body: Node<WgslType>[]) => new StackNode(body);
 export const cond = <T extends WgslType>(condition: Node<WgslType>, ifTrue: Node<T>, ifFalse?: Node<T>) =>
     new CondNode(condition, ifTrue, ifFalse);
@@ -2426,8 +2449,8 @@ export const modelNormalMatrix = /*@__PURE__*/ new UniformNode('mat3x3f', 'model
 export const instanceIndex = (): BuiltinNode<'u32'> => builtin('instance_index', 'u32');
 
 export const positionClip: Node<'vec4f'> = (() => {
-    const pos = attribute('vec3f', 'position');
-    const localPos = vec4(pos, konst('f32', 1.0));
+    const pos = attribute(d.vec3f, 'position');
+    const localPos = vec4(pos, new ConstNode('f32', 1.0));
 
     const worldPos = mul(modelWorldMatrix, localPos);
 
@@ -2588,7 +2611,7 @@ export class MRTNode extends OutputStructNode {
             // Ensure the node outputs vec4f (wrap if needed)
             let node = this.outputNodes[name];
             if (node.type !== 'vec4f') {
-                node = vec4(node as Node<'vec3f'>, konst('f32', 1));
+                node = vec4(node as Node<'vec3f'>, new ConstNode('f32', 1));
             }
             members[index] = node;
             names[index] = name;

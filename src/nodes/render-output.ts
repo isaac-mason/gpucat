@@ -42,7 +42,7 @@
  * konst(value)) to `exposure` to drive it from JavaScript.
  */
 
-import { RawNode, type Node, konst } from './nodes';
+import { RawNode, ConstNode, type Node } from './nodes';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -89,7 +89,7 @@ export function renderOutput(
 ): Node<'vec4f'> {
     const toneMapping = options.toneMapping ?? 'aces';
     const colorSpace  = options.colorSpace  ?? 'srgb';
-    const exposure    = options.exposure    ?? konst('f32', 1.0);
+    const exposure    = options.exposure    ?? new ConstNode('f32', 1.0);
 
     // Build the chain: input → exposure → tone map → gamma
     // Each step is a RawNode that substitutes $0 = previous step.

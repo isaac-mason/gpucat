@@ -4,6 +4,7 @@ import {
     cameraViewMatrix,
     color,
     createBoxGeometry,
+    d,
     f32,
     Inspector,
     Material,
@@ -18,7 +19,7 @@ import {
     varying,
     vec3,
     vec4,
-    WebGPURenderer
+    WebGPURenderer,
 } from 'gpucat';
 import { quat, type Euler } from 'mathcat';
 
@@ -51,8 +52,8 @@ async function main() {
         camera.updateProjectionMatrix();
     });
 
-    const pos = attribute('vec3f', 'position');
-    const norm = attribute('vec3f', 'normal');
+    const pos = attribute(d.vec3f, 'position');
+    const norm = attribute(d.vec3f, 'normal');
 
     const localPos = vec4(pos, f32(1));
     const worldPos = mul(modelWorldMatrix, localPos);
@@ -60,7 +61,7 @@ async function main() {
     const clipPos = mul(cameraProjectionMatrix, viewPos);
 
     const worldNorm = mul(modelNormalMatrix, vec3(norm.x, norm.y, norm.z));
-    const vNorm = varying('vec3f', 'v_norm', normalize(worldNorm));
+    const vNorm = varying(d.vec3f, 'v_norm', normalize(worldNorm));
 
     const lightDir = vec3(f32(0.6), f32(1.0), f32(0.8)).normalize();
     const diffuse = vNorm.dot(lightDir).max(f32(0.15));

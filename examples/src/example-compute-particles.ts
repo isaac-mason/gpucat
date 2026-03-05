@@ -17,7 +17,7 @@
 
 import * as g from 'gpucat';
 
-const S = g.S;
+const d = g.d;
 
 const N = 8192;
 const WG = 64; // workgroup size
@@ -35,7 +35,7 @@ for (let i = 0; i < N; i++) {
     positionData[i * 4 + 3] = Math.random();                // initial lifetime
 }
 const positionAttr = new g.StorageBufferAttribute(positionData, 4); // 4 floats per vec4f
-const positions = g.storage(positionAttr, S.array(S.vec4f()), 'read_write');
+const positions = g.storage(positionAttr, d.array(d.vec4f), 'read_write');
 
 // velocities: vec4f per particle — xyz = velocity, w = unused
 const velocityData = new Float32Array(N * 4);
@@ -46,7 +46,7 @@ for (let i = 0; i < N; i++) {
     velocityData[i * 4 + 3] = 0;
 }
 const velocityAttr = new g.StorageBufferAttribute(velocityData, 4); // 4 floats per vec4f
-const velocities = g.storage(velocityAttr, S.array(S.vec4f()), 'read');
+const velocities = g.storage(velocityAttr, d.array(d.vec4f), 'read');
 
 // ---------------------------------------------------------------------------
 // 2. Compute kernel — advance particles each frame
@@ -95,7 +95,7 @@ const iIdx    = g.instanceIndex();
 const particlePos = g.index(positions, iIdx);
 
 // Vertex: offset the geometry vertex by the particle's world position.
-const vtxPos = g.attribute('vec3f', 'position');
+const vtxPos = g.attribute(d.vec3f, 'position');
 const worldPos = g.vec4(
     vtxPos.x.add(particlePos.x),
     vtxPos.y.add(particlePos.y),
@@ -106,7 +106,7 @@ const viewPos = g.mul(g.cameraViewMatrix, worldPos);
 const clipPos = g.mul(g.cameraProjectionMatrix, viewPos);
 
 // Color: fade by lifetime (w), add a soft blue-white hue.
-const lifetime = g.varying('f32', 'v_life', particlePos.w);
+const lifetime = g.varying(d.f32, 'v_life', particlePos.w);
 const colR = lifetime.mul(g.f32(0.6)).add(g.f32(0.4));
 const colG = lifetime.mul(g.f32(0.7)).add(g.f32(0.3));
 const colB = g.f32(1.0);

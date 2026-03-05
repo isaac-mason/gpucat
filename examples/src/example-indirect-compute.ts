@@ -16,7 +16,7 @@
 
 import * as gpu from 'gpucat';
 
-const S = gpu.S;
+const d = gpu.d;
 
 // ---------------------------------------------------------------------------
 // 1. Geometry — a single triangle (3 non-indexed vertices)
@@ -79,10 +79,10 @@ for (let i = 0; i < INSTANCES; i++) {
     orientationEndData[i * 4 + 3] = w / len;
 }
 
-const attrOffset           = gpu.instancedBufferAttribute(offsetData,           S.vec3f(), 12, 0);
-const attrColor            = gpu.instancedBufferAttribute(colorData,            S.vec4f(), 16, 0);
-const attrOrientationStart = gpu.instancedBufferAttribute(orientationStartData, S.vec4f(), 16, 0);
-const attrOrientationEnd   = gpu.instancedBufferAttribute(orientationEndData,   S.vec4f(), 16, 0);
+const attrOffset           = gpu.instancedBufferAttribute(offsetData,           d.vec3f, 12, 0);
+const attrColor            = gpu.instancedBufferAttribute(colorData,            d.vec4f, 16, 0);
+const attrOrientationStart = gpu.instancedBufferAttribute(orientationStartData, d.vec4f, 16, 0);
+const attrOrientationEnd   = gpu.instancedBufferAttribute(orientationEndData,   d.vec4f, 16, 0);
 
 // ---------------------------------------------------------------------------
 // 3. Indirect draw buffer — non-indexed drawIndirect, struct-typed
@@ -95,10 +95,10 @@ const attrOrientationEnd   = gpu.instancedBufferAttribute(orientationEndData,   
 // ---------------------------------------------------------------------------
 
 const DrawBufferStruct = gpu.struct('DrawBuffer', {
-    vertexCount:   S.u32(),
-    instanceCount: S.u32(),
-    firstVertex:   S.u32(),
-    firstInstance: S.u32(),
+    vertexCount:   d.u32,
+    instanceCount: d.u32,
+    firstVertex:   d.u32,
+    firstInstance: d.u32,
 });
 
 // Non-indexed, 1 draw.
@@ -145,7 +145,7 @@ const computeUpdate = gpu.Fn(() => {
 // ---------------------------------------------------------------------------
 
 // Built-in per-vertex position.
-const vtxPos = gpu.attribute('vec3f', 'position');
+const vtxPos = gpu.attribute(d.vec3f, 'position');
 
 // Per-instance attributes.
 const offset           = attrOffset;
@@ -168,8 +168,8 @@ const crossvcV     = gpu.cross(orientation.xyz, vcV);
 const rotated      = vcV.mul(orientation.w.mul(gpu.f32(2))).add(crossvcV.mul(gpu.f32(2)).add(sphereOsc));
 
 // Varyings
-const vPosition = gpu.varying('vec3f', 'vPosition', rotated);
-const vColor    = gpu.varying('vec4f', 'vColor',    color);
+const vPosition = gpu.varying(d.vec3f, 'vPosition', rotated);
+const vColor    = gpu.varying(d.vec4f, 'vColor',    color);
 
 // Project to clip space (no model matrix — instances live in camera space units)
 const worldPos4 = gpu.vec4(rotated, gpu.f32(1));

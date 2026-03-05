@@ -28,5 +28,10 @@
         "title": "indirect-compute",
         "description": "GPU-driven indirect rendering: a compute shader writes instanceCount directly into the indirect draw buffer each frame via IndirectBuffer.asStorageNode(), culling instances by distance — no CPU readback.",
         "tags": ["webgpu", "3d", "renderer", "indirect", "compute", "culling", "node-graph"]
+    },
+    "example-mrt": {
+        "title": "mrt",
+        "description": "Multiple Render Targets (MRT): renders a sphere to 4 targets (output, normal, diffuse, emissive) and composites them side-by-side for visualization.",
+        "tags": ["webgpu", "3d", "renderer", "mrt", "post-processing", "node-graph"]
     }
 }

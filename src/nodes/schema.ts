@@ -1,11 +1,12 @@
 /**
- * schema.ts — WgslDesc type descriptors and S.* constructor namespace.
+ * schema.ts — WgslDesc type descriptors and d.* descriptor namespace.
  *
  * Import this module as:
- *   import * as S from './schema'
+ *   import * as d from './schema'
  *
- * Then use S.f32(), S.vec3f(), S.mat4x4f() etc. as WgslDesc descriptors in
+ * Then use d.f32, d.vec3f, d.mat4x4f etc. as WgslDesc descriptors in
  * struct() schemas and Fn() param lists.
+ * Parameterised types (arrays, textures) remain functions: d.array(d.vec4f).
  */
 
 export type WgslType = string;
@@ -58,33 +59,33 @@ export function isStructDef<S extends StructSchema>(field: WgslDesc<WgslType>): 
 }
 
 // ---------------------------------------------------------------------------
-// WgslDesc constructors — use as S.f32(), S.vec3f(), S.mat4x4f() etc.
+// WgslDesc descriptors — plain objects, use as d.f32, d.vec3f, d.mat4x4f etc.
 // ---------------------------------------------------------------------------
 
-export const f32    = (): WgslDesc<'f32'>    => ({ wgslType: 'f32' });
-export const i32    = (): WgslDesc<'i32'>    => ({ wgslType: 'i32' });
-export const u32    = (): WgslDesc<'u32'>    => ({ wgslType: 'u32' });
-export const bool   = (): WgslDesc<'bool'>   => ({ wgslType: 'bool' });
+export const f32:    WgslDesc<'f32'>    = { wgslType: 'f32' };
+export const i32:    WgslDesc<'i32'>    = { wgslType: 'i32' };
+export const u32:    WgslDesc<'u32'>    = { wgslType: 'u32' };
+export const bool:   WgslDesc<'bool'>   = { wgslType: 'bool' };
 
-export const vec2f  = (): WgslDesc<'vec2f'>  => ({ wgslType: 'vec2f' });
-export const vec3f  = (): WgslDesc<'vec3f'>  => ({ wgslType: 'vec3f' });
-export const vec4f  = (): WgslDesc<'vec4f'>  => ({ wgslType: 'vec4f' });
-export const vec2i  = (): WgslDesc<'vec2i'>  => ({ wgslType: 'vec2i' });
-export const vec3i  = (): WgslDesc<'vec3i'>  => ({ wgslType: 'vec3i' });
-export const vec4i  = (): WgslDesc<'vec4i'>  => ({ wgslType: 'vec4i' });
-export const vec2u  = (): WgslDesc<'vec2u'>  => ({ wgslType: 'vec2u' });
-export const vec3u  = (): WgslDesc<'vec3u'>  => ({ wgslType: 'vec3u' });
-export const vec4u  = (): WgslDesc<'vec4u'>  => ({ wgslType: 'vec4u' });
+export const vec2f:  WgslDesc<'vec2f'>  = { wgslType: 'vec2f' };
+export const vec3f:  WgslDesc<'vec3f'>  = { wgslType: 'vec3f' };
+export const vec4f:  WgslDesc<'vec4f'>  = { wgslType: 'vec4f' };
+export const vec2i:  WgslDesc<'vec2i'>  = { wgslType: 'vec2i' };
+export const vec3i:  WgslDesc<'vec3i'>  = { wgslType: 'vec3i' };
+export const vec4i:  WgslDesc<'vec4i'>  = { wgslType: 'vec4i' };
+export const vec2u:  WgslDesc<'vec2u'>  = { wgslType: 'vec2u' };
+export const vec3u:  WgslDesc<'vec3u'>  = { wgslType: 'vec3u' };
+export const vec4u:  WgslDesc<'vec4u'>  = { wgslType: 'vec4u' };
 
-export const mat2x2f = (): WgslDesc<'mat2x2f'> => ({ wgslType: 'mat2x2f' });
-export const mat2x3f = (): WgslDesc<'mat2x3f'> => ({ wgslType: 'mat2x3f' });
-export const mat2x4f = (): WgslDesc<'mat2x4f'> => ({ wgslType: 'mat2x4f' });
-export const mat3x2f = (): WgslDesc<'mat3x2f'> => ({ wgslType: 'mat3x2f' });
-export const mat3x3f = (): WgslDesc<'mat3x3f'> => ({ wgslType: 'mat3x3f' });
-export const mat3x4f = (): WgslDesc<'mat3x4f'> => ({ wgslType: 'mat3x4f' });
-export const mat4x2f = (): WgslDesc<'mat4x2f'> => ({ wgslType: 'mat4x2f' });
-export const mat4x3f = (): WgslDesc<'mat4x3f'> => ({ wgslType: 'mat4x3f' });
-export const mat4x4f = (): WgslDesc<'mat4x4f'> => ({ wgslType: 'mat4x4f' });
+export const mat2x2f: WgslDesc<'mat2x2f'> = { wgslType: 'mat2x2f' };
+export const mat2x3f: WgslDesc<'mat2x3f'> = { wgslType: 'mat2x3f' };
+export const mat2x4f: WgslDesc<'mat2x4f'> = { wgslType: 'mat2x4f' };
+export const mat3x2f: WgslDesc<'mat3x2f'> = { wgslType: 'mat3x2f' };
+export const mat3x3f: WgslDesc<'mat3x3f'> = { wgslType: 'mat3x3f' };
+export const mat3x4f: WgslDesc<'mat3x4f'> = { wgslType: 'mat3x4f' };
+export const mat4x2f: WgslDesc<'mat4x2f'> = { wgslType: 'mat4x2f' };
+export const mat4x3f: WgslDesc<'mat4x3f'> = { wgslType: 'mat4x3f' };
+export const mat4x4f: WgslDesc<'mat4x4f'> = { wgslType: 'mat4x4f' };
 
 // ---------------------------------------------------------------------------
 // Texture type descriptors

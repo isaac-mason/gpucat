@@ -35,6 +35,7 @@ import { collectDraws, type DrawCall } from './collect';
 import { Material } from '../scene/material';
 import { Geometry } from '../scene/geometry';
 import { raw, builtin, type Node, type WgslType, VaryingNode, RawNode, MRTNode } from '../nodes/nodes';
+import * as d from '../nodes/schema';
 
 import { ComputeNode } from '../nodes/nodes';
 import { ComputePipelineCache, type ComputePipelineEntry } from './compute-pipeline';
@@ -1423,7 +1424,7 @@ function _makeFullscreenPositionNode(): Node<'vec4f'> {
     // Inline: vec4f(f32((vi & 1u) * 2u) * 2.0 - 1.0,  f32(vi & 2u) * 2.0 - 1.0,  0.0, 1.0)
     // Using raw with $0 substituted for vertex_index — single expression, no let needed.
     return raw(
-        'vec4f',
+        d.vec4f,
         'vec4f(f32(($0 & 1u) * 2u) * 2.0 - 1.0, f32($0 & 2u) * 2.0 - 1.0, 0.0, 1.0)',
         vi,
     );
@@ -1443,7 +1444,7 @@ function _makeFullscreenUVVarying(): VaryingNode<'vec2f'> {
     // cy = f32(vi & 2u) * 2.0 - 1.0
     // uv = vec2f(cx * 0.5 + 0.5, 0.5 - cy * 0.5)
     const uvSource = raw(
-        'vec2f',
+        d.vec2f,
         [
             'vec2f(',
             '  (f32(($0 & 1u) * 2u) * 2.0 - 1.0) * 0.5 + 0.5,',

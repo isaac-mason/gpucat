@@ -23,7 +23,7 @@
 import * as gpu from 'gpucat';
 import { mat4, type Mat4, type Vec3, type Quat } from 'mathcat';
 
-const S = gpu.S;
+const d = gpu.d;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -97,21 +97,21 @@ for (let i = 0; i < TOTAL; i++) {
 }
 
 const stride = 16 * 4;
-const col0 = gpu.instancedBufferAttribute(instanceMatrices, S.vec4f(), stride, 0);
-const col1 = gpu.instancedBufferAttribute(instanceMatrices, S.vec4f(), stride, 16);
-const col2 = gpu.instancedBufferAttribute(instanceMatrices, S.vec4f(), stride, 32);
-const col3 = gpu.instancedBufferAttribute(instanceMatrices, S.vec4f(), stride, 48);
+const col0 = gpu.instancedBufferAttribute(instanceMatrices, d.vec4f, stride, 0);
+const col1 = gpu.instancedBufferAttribute(instanceMatrices, d.vec4f, stride, 16);
+const col2 = gpu.instancedBufferAttribute(instanceMatrices, d.vec4f, stride, 32);
+const col3 = gpu.instancedBufferAttribute(instanceMatrices, d.vec4f, stride, 48);
 const instanceTransform = gpu.mat4(col0, col1, col2, col3);
 
 // Per-instance hue as instanced attribute
-const instanceHue = gpu.instancedBufferAttribute(instanceHues, S.f32(), 4, 0);
+const instanceHue = gpu.instancedBufferAttribute(instanceHues, d.f32, 4, 0);
 
 // ---------------------------------------------------------------------------
 // 3. Node graph — shared material for both sub-meshes
 // ---------------------------------------------------------------------------
 
-const pos     = gpu.attribute('vec3f', 'position');
-const norm    = gpu.attribute('vec3f', 'normal');
+const pos     = gpu.attribute(d.vec3f, 'position');
+const norm    = gpu.attribute(d.vec3f, 'normal');
 
 const localPos = gpu.vec4(pos, gpu.f32(1.0));
 const worldPos = gpu.mul(instanceTransform, localPos);
@@ -124,8 +124,8 @@ const tformedNorm = gpu.mul(instanceTransform, worldNorm);
 
 // Simple diffuse lighting from a fixed light direction
 const lightDir  = gpu.vec3f(0.6, 1.0, 0.8).normalize();
-const vNorm     = gpu.varying('vec3f', 'v_norm', tformedNorm.xyz);
-const vHue      = gpu.varying('f32',   'v_hue',  instanceHue);
+const vNorm     = gpu.varying(d.vec3f, 'v_norm', tformedNorm.xyz);
+const vHue      = gpu.varying(d.f32,   'v_hue',  instanceHue);
 
 const diffuse   = vNorm.normalize().dot(lightDir).max(gpu.f32(0.15));
 

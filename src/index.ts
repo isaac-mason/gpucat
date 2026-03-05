@@ -58,7 +58,6 @@ export {
     MRTNode,
     mrt,
     // DSL constructors
-    konst,
     attribute,
     bufferAttribute,
     instancedBufferAttribute,
@@ -143,7 +142,7 @@ export {
     typedArrayCtorOf,
     struct,
 } from './nodes/nodes';
-export * as S from './nodes/schema';
+export * as d from './nodes/schema';
 
 /* builtins */
 export {

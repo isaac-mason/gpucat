@@ -1,7 +1,7 @@
 import * as g from 'gpucat';
 import { mat4, quat, vec3 } from 'mathcat';
 
-const S = g.S;
+const d = g.d;
 
 const COLS = 6;
 const ROWS = 5;
@@ -33,17 +33,17 @@ for (let i = 0; i < N; i++) {
 }
 
 const instanceTransformStride = 16 * 4;
-const col0 = g.instancedBufferAttribute(instanceMatrices, S.vec4f(), instanceTransformStride, 0);
-const col1 = g.instancedBufferAttribute(instanceMatrices, S.vec4f(), instanceTransformStride, 16);
-const col2 = g.instancedBufferAttribute(instanceMatrices, S.vec4f(), instanceTransformStride, 32);
-const col3 = g.instancedBufferAttribute(instanceMatrices, S.vec4f(), instanceTransformStride, 48);
+const col0 = g.instancedBufferAttribute(instanceMatrices, d.vec4f, instanceTransformStride, 0);
+const col1 = g.instancedBufferAttribute(instanceMatrices, d.vec4f, instanceTransformStride, 16);
+const col2 = g.instancedBufferAttribute(instanceMatrices, d.vec4f, instanceTransformStride, 32);
+const col3 = g.instancedBufferAttribute(instanceMatrices, d.vec4f, instanceTransformStride, 48);
 const instanceTransform = g.mat4(col0, col1, col2, col3);
 
-const instanceColor = g.instancedBufferAttribute(instanceColors, S.vec3f(), 12, 0);
+const instanceColor = g.instancedBufferAttribute(instanceColors, d.vec3f, 12, 0);
 
-const vColor = g.varying('vec3f', 'v_color', instanceColor);
+const vColor = g.varying(d.vec3f, 'v_color', instanceColor);
 
-const pos = g.attribute('vec3f', 'position');
+const pos = g.attribute(d.vec3f, 'position');
 const localPos = g.vec4(pos, g.f32(1.0));
 const worldPos = g.mul(instanceTransform, localPos);
 const viewPos  = g.mul(g.cameraViewMatrix, worldPos);

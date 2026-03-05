@@ -25,7 +25,7 @@
 import * as g from 'gpucat';
 import { mat4, quat, vec3 } from 'mathcat';
 
-const S = g.S;
+const d = g.d;
 
 const COLS = 7;
 const ROWS = 5;
@@ -71,8 +71,8 @@ for (let i = 0; i < N; i++) {
 // No manual device.createBuffer / device.queue.writeBuffer / material.uniforms.set needed.
 const matrixAttr = new g.StorageBufferAttribute(matrixData, 16); // 16 floats per mat4x4f
 const colorAttr  = new g.StorageBufferAttribute(colorData, 4);   // 4 floats per vec4f
-const instanceMatrices = g.storage(matrixAttr, S.array(S.mat4x4f()));
-const instanceColors   = g.storage(colorAttr,  S.array(S.vec4f()));
+const instanceMatrices = g.storage(matrixAttr, d.array(d.mat4x4f));
+const instanceColors   = g.storage(colorAttr,  d.array(d.vec4f));
 
 // instanceIndex() returns the built-in @builtin(instance_index) as a u32 node.
 const iIdx = g.instanceIndex();
@@ -85,7 +85,7 @@ const rawColor   = g.index(instanceColors,   iIdx);
 // Each instance gets a unique starting angle (in radians) baked into a vertex buffer.
 const spinOffsets = new Float32Array(N);
 for (let i = 0; i < N; i++) spinOffsets[i] = (i / N) * Math.PI * 2;
-const spinOffset = g.instancedBufferAttribute(spinOffsets, S.f32(), 4, 0);
+const spinOffset = g.instancedBufferAttribute(spinOffsets, d.f32, 4, 0);
 
 // Animate rotation: time.elapsed drives a per-instance spin via the storage matrix +
 // a small additional rotation sourced from the instancedBufferAttribute offset.
@@ -109,7 +109,7 @@ const rotY  = g.mat4(
     g.vec4(zero,  zero, zero,          one),
 );
 
-const pos       = g.attribute('vec3f', 'position');
+const pos       = g.attribute(d.vec3f, 'position');
 const localPos  = g.vec4(pos, g.f32(1));
 
 // Final transform: camera * storageMatrix * rotY * localPos
@@ -118,7 +118,7 @@ const viewPos   = g.mul(g.cameraViewMatrix, worldPos);
 const clipPos   = g.mul(g.cameraProjectionMatrix, viewPos);
 
 // Pass color to fragment via varying.
-const vColor    = g.varying('vec4f', 'v_color', rawColor);
+const vColor    = g.varying(d.vec4f, 'v_color', rawColor);
 
 // Pulse brightness with time
 const pulse     = g.f32(0.08).mul(g.f32(1).add(g.timeElapsed.mul(g.f32(3)).sin()));
