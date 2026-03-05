@@ -485,4 +485,27 @@ export class Material {
         this.alphaToCoverage = opts.alphaToCoverage ?? false;
     }
 
+    /**
+     * Set to true after dispose() is called.
+     * The renderer checks this flag to skip rendering and clean up GPU resources.
+     */
+    disposed: boolean = false;
+
+    /**
+     * Internal callback set by the renderer to clean up GPU resources (e.g., pipelines).
+     * @internal
+     */
+    _onDispose: (() => void) | null = null;
+
+    /**
+     * Frees GPU-related resources allocated for this material.
+     * Call this method when the material is no longer used.
+     * Mirrors Three.js Material.dispose().
+     */
+    dispose(): void {
+        if (this.disposed) return;
+        this.disposed = true;
+        this._onDispose?.();
+    }
+
 }

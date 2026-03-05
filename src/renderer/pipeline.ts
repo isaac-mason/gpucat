@@ -253,6 +253,11 @@ function buildVertexBufferLayouts(cr: CompileResult, geometry: Geometry): GPUVer
                     `[PipelineCache] geometry is missing required attribute '${attrEntry.name}' (expected by shader)`
                 );
             }
+            if (!bufAttr.format) {
+                throw new Error(
+                    `[PipelineCache] attribute '${attrEntry.name}' has no format — cannot derive from array type + itemSize`
+                );
+            }
             const stride = bufAttr.stride > 0 ? bufAttr.stride : gpuFormatByteSize(bufAttr.format);
             layouts.push({
                 arrayStride: stride,

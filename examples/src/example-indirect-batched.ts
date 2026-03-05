@@ -44,13 +44,13 @@ const SPACING = 2.0;
 const boxSource    = gpu.createBoxGeometry(0.8, 0.8, 0.8);
 const sphereSource = gpu.createSphereGeometry(0.5, 16, 8);
 
-const boxPos    = boxSource.attributes.get('position')!.data    as Float32Array;
-const boxNorm   = boxSource.attributes.get('normal')!.data      as Float32Array;
-const boxIdx    = boxSource.index!.data as Uint16Array;
+const boxPos    = boxSource.attributes.get('position')!.array    as Float32Array;
+const boxNorm   = boxSource.attributes.get('normal')!.array      as Float32Array;
+const boxIdx    = boxSource.index!.array as Uint16Array;
 
-const sphPos    = sphereSource.attributes.get('position')!.data as Float32Array;
-const sphNorm   = sphereSource.attributes.get('normal')!.data   as Float32Array;
-const sphIdx    = sphereSource.index!.data as Uint16Array;
+const sphPos    = sphereSource.attributes.get('position')!.array as Float32Array;
+const sphNorm   = sphereSource.attributes.get('normal')!.array   as Float32Array;
+const sphIdx    = sphereSource.index!.array as Uint16Array;
 
 // Merge vertex arrays
 const mergedPos  = new Float32Array(boxPos.length  + sphPos.length);
@@ -69,8 +69,8 @@ const sphIdxCount  = sphIdx.length;
 
 // One Geometry holds the merged data
 const mergedGeo = new gpu.Geometry();
-mergedGeo.attributes.set('position', new gpu.BufferAttribute(mergedPos,  'float32x3'));
-mergedGeo.attributes.set('normal',   new gpu.BufferAttribute(mergedNorm, 'float32x3'));
+mergedGeo.attributes.set('position', new gpu.BufferAttribute(mergedPos,  3));
+mergedGeo.attributes.set('normal',   new gpu.BufferAttribute(mergedNorm, 3));
 mergedGeo.index = new gpu.IndexAttribute(mergedIdx);
 
 // ---------------------------------------------------------------------------
@@ -238,12 +238,12 @@ async function main() {
         const boxCount = Number(slider.value);
         const sphCount = TOTAL - boxCount;
 
-        // Draw 0 = boxes: update instanceCount (data[1], stride=5, draw 0 → offset 1).
-        indirect.data[1] = boxCount;
+        // Draw 0 = boxes: update instanceCount (array[1], stride=5, draw 0 → offset 1).
+        indirect.array![1] = boxCount;
 
-        // Draw 1 = spheres: update instanceCount (data[6]) and firstInstance (data[9]).
-        indirect.data[6] = sphCount;
-        indirect.data[9] = boxCount;
+        // Draw 1 = spheres: update instanceCount (array[6]) and firstInstance (array[9]).
+        indirect.array![6] = sphCount;
+        indirect.array![9] = boxCount;
         indirect.needsUpdate = true;
 
         label.textContent = `boxes: ${boxCount}   spheres: ${sphCount}`;

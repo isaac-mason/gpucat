@@ -16,8 +16,8 @@ import type { IndirectStorageBufferAttribute } from 'src/scene/geometry';
 
 export class BufferCache {
     private readonly device: GPUDevice;
-    private readonly vertexMap: WeakMap<BufferAttribute, GPUBuffer> = new WeakMap();
-    private readonly indexMap: WeakMap<IndexAttribute, GPUBuffer> = new WeakMap();
+    private readonly vertexMap: WeakMap<BufferAttribute, { buf: GPUBuffer; version: number }> = new WeakMap();
+    private readonly indexMap: WeakMap<IndexAttribute, { buf: GPUBuffer; version: number }> = new WeakMap();
 
     /** Plain-object-keyed buffers (instance matrices, material UBOs, camera, time). */
     private readonly rawMap: WeakMap<object, GPUBuffer> = new WeakMap();
@@ -52,52 +52,63 @@ export class BufferCache {
 
     /**
      * Get or create a GPUBuffer for a vertex BufferAttribute.
-     * Re-uploads if needsUpdate is true.
+     * Re-uploads when attr.version advances.
      */
     uploadVertex(attr: BufferAttribute): GPUBuffer {
-        let buf = this.vertexMap.get(attr);
-        const byteLength = attr.data.byteLength;
+        const arr = attr.array;
+        if (!arr) {
+            throw new Error('[gpucat] uploadVertex: attr.array is null');
+        }
 
-        if (!buf) {
-            buf = this.device.createBuffer({
+        let entry = this.vertexMap.get(attr);
+        const byteLength = arr.byteLength;
+
+        if (!entry) {
+            const buf = this.device.createBuffer({
                 size: alignTo4(byteLength),
                 usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
             });
-            this.vertexMap.set(attr, buf);
             this._vertexCount++;
-            this.device.queue.writeBuffer(buf, 0, attr.data.buffer as ArrayBuffer, attr.data.byteOffset, attr.data.byteLength);
-            attr.needsUpdate = false;
-        } else if (attr.needsUpdate) {
-            this.device.queue.writeBuffer(buf, 0, attr.data.buffer as ArrayBuffer, attr.data.byteOffset, attr.data.byteLength);
-            attr.needsUpdate = false;
+            this.device.queue.writeBuffer(buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
+            this.vertexMap.set(attr, { buf, version: attr.version });
+            return buf;
         }
 
-        return buf;
+        if (attr.version !== entry.version) {
+            this.device.queue.writeBuffer(entry.buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
+            entry.version = attr.version;
+        }
+
+        return entry.buf;
     }
 
     /**
      * Get or create a GPUBuffer for an IndexAttribute.
-     * Re-uploads if needsUpdate is true.
+     * Re-uploads when attr.version advances.
      */
     uploadIndex(attr: IndexAttribute): GPUBuffer {
-        let buf = this.indexMap.get(attr);
-        const byteLength = attr.data.byteLength;
+        const arr = attr.array;
 
-        if (!buf) {
-            buf = this.device.createBuffer({
+        let entry = this.indexMap.get(attr);
+        const byteLength = arr.byteLength;
+
+        if (!entry) {
+            const buf = this.device.createBuffer({
                 size: alignTo4(byteLength),
                 usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
             });
-            this.indexMap.set(attr, buf);
             this._indexCount++;
-            this.device.queue.writeBuffer(buf, 0, attr.data.buffer as ArrayBuffer, attr.data.byteOffset, attr.data.byteLength);
-            attr.needsUpdate = false;
-        } else if (attr.needsUpdate) {
-            this.device.queue.writeBuffer(buf, 0, attr.data.buffer as ArrayBuffer, attr.data.byteOffset, attr.data.byteLength);
-            attr.needsUpdate = false;
+            this.device.queue.writeBuffer(buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
+            this.indexMap.set(attr, { buf, version: attr.version });
+            return buf;
         }
 
-        return buf;
+        if (attr.version !== entry.version) {
+            this.device.queue.writeBuffer(entry.buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
+            entry.version = attr.version;
+        }
+
+        return entry.buf;
     }
 
     // -----------------------------------------------------------------------

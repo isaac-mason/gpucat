@@ -23,7 +23,7 @@
  */
 
 import * as g from 'gpucat';
-import { mat4 as mc4, type Mat4, type Vec3, type Quat } from 'mathcat';
+import { mat4, quat, vec3 } from 'mathcat';
 
 const S = g.S;
 
@@ -39,20 +39,20 @@ const SPACING = 2.4;
 const matrixData  = new Float32Array(N * 16);  // mat4x4f per instance (column-major)
 const colorData   = new Float32Array(N * 4);   // vec4f per instance (rgba)
 
-const tmpMat: Mat4 = [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0];
-const tmpT: Vec3   = [0, 0, 0];
-const tmpS: Vec3   = [1, 1, 1];
-const tmpQ: Quat   = [0, 0, 0, 1];
+const _mat4 = mat4.create();
+const _translation = vec3.create();
+const _scale = vec3.fromValues(1, 1, 1);
+const _quat = quat.create();
 
 for (let i = 0; i < N; i++) {
     const col = i % COLS;
     const row = Math.floor(i / COLS);
 
-    tmpT[0] = (col - (COLS - 1) * 0.5) * SPACING;
-    tmpT[1] = (row - (ROWS - 1) * 0.5) * SPACING;
-    tmpT[2] = 0;
-    mc4.fromRotationTranslationScale(tmpMat, tmpQ, tmpT, tmpS);
-    matrixData.set(tmpMat, i * 16);
+    _translation[0] = (col - (COLS - 1) * 0.5) * SPACING;
+    _translation[1] = (row - (ROWS - 1) * 0.5) * SPACING;
+    _translation[2] = 0;
+    mat4.fromRotationTranslationScale(_mat4, _quat, _translation, _scale);
+    matrixData.set(_mat4, i * 16);
 
     // HSV → RGB: each instance gets a distinct hue
     const h = (i / N) * 360;

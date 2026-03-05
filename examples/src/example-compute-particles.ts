@@ -170,7 +170,7 @@ async function main() {
         -S2,  S2, 0,
     ]);
     const indices = new Uint16Array([0, 1, 2, 0, 2, 3]);
-    quadGeom.attributes.set('position', new gpu.BufferAttribute(verts, 'float32x3'));
+    quadGeom.attributes.set('position', new gpu.BufferAttribute(verts, 3));
     quadGeom.index = new gpu.IndexAttribute(indices);
 
     const mesh = new gpu.Mesh(quadGeom, material);

@@ -226,7 +226,7 @@ async function main() {
 
     // Geometry — non-indexed triangle, per-instance vertex buffers
     const geo = new gpu.Geometry();
-    geo.setAttribute('position', new gpu.BufferAttribute(positions, 'float32x3'));
+    geo.setAttribute('position', new gpu.BufferAttribute(positions, 3));
     geo.indirect = drawBuffer;   // use drawIndirect
 
     const mesh = new gpu.Mesh(geo, material);
