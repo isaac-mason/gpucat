@@ -15,6 +15,9 @@
  *   indexed = false → drawIndirect          4 × u32 (16 bytes) per draw, stride=4
  *   indexed = true  → drawIndexedIndirect   5 × u32 (20 bytes) per draw, stride=5
  *
+ * The renderer always allocates the GPUBuffer with STORAGE | INDIRECT | COPY_DST,
+ * matching Three.js's IndirectStorageBufferAttribute behaviour exactly.
+ *
  * Non-indexed field layout (slot offsets per draw):
  *   [draw*4 + 0] vertexCount
  *   [draw*4 + 1] instanceCount
@@ -63,16 +66,7 @@ export class IndirectStorageBufferAttribute extends StorageBufferAttribute {
     /** u32 elements per draw (4 for non-indexed, 5 for indexed). */
     readonly stride: number;
 
-    /**
-     * When true, the renderer allocates the GPUBuffer with
-     * STORAGE | INDIRECT | COPY_DST so a compute shader can write to it.
-     * Must be set before the first frame — changing it after the buffer has
-     * been created has no effect.
-     * Default: false.
-     */
-    readonly computeWritable: boolean;
-
-    /** Lazily created flat StorageNode (only when computeWritable=true). */
+    /** Lazily created flat StorageNode. */
     private _storageNode: StorageNode<'u32'> | null = null;
 
     /** Lazily created struct-typed StorageNode. */
@@ -83,16 +77,15 @@ export class IndirectStorageBufferAttribute extends StorageBufferAttribute {
      *   new IndirectStorageBufferAttribute(indexed)
      *     → single draw, array zero-initialised
      *
-     *   new IndirectStorageBufferAttribute(indexed, drawCount: number, options?)
+     *   new IndirectStorageBufferAttribute(indexed, drawCount: number)
      *     → N draws, array zero-initialised
      *
-     *   new IndirectStorageBufferAttribute(indexed, array: Uint32Array, options?)
+     *   new IndirectStorageBufferAttribute(indexed, array: Uint32Array)
      *     → array.length must equal drawCount * stride; drawCount inferred
      */
     constructor(
         indexed: boolean,
         arrayOrDrawCount?: Uint32Array | number,
-        options?: { computeWritable?: boolean },
     ) {
         const stride = indexed ? 5 : 4;
         let array: Uint32Array;
@@ -114,10 +107,9 @@ export class IndirectStorageBufferAttribute extends StorageBufferAttribute {
         // itemSize=1 (each element is a single u32) — count = total u32 slots
         super(array, 1);
 
-        this.indexed         = indexed;
-        this.stride          = stride;
-        this.drawCount       = drawCount;
-        this.computeWritable = options?.computeWritable ?? false;
+        this.indexed   = indexed;
+        this.stride    = stride;
+        this.drawCount = drawCount;
     }
 
     // -----------------------------------------------------------------------
@@ -140,12 +132,12 @@ export class IndirectStorageBufferAttribute extends StorageBufferAttribute {
     /**
      * Return a StorageNode<'u32'> backed by this buffer's Uint32Array.
      *
-     * Only valid when computeWritable=true. The returned node is cached — every
-     * call returns the same instance. Pass it to a ComputeNode's storage array
-     * so the compute shader can write the draw arguments (e.g. instanceCount).
+     * The returned node is cached — every call returns the same instance.
+     * Pass it to a ComputeNode's storage array so the compute shader can
+     * write the draw arguments (e.g. instanceCount).
      *
      * The renderer ensures the same GPUBuffer (with STORAGE | INDIRECT | COPY_DST)
-     * is used for both the compute binding and the drawIndexedIndirect call.
+     * is used for both the compute binding and the drawIndirect call.
      */
     asStorageNode(): StorageNode<'u32'>;
 
@@ -153,16 +145,12 @@ export class IndirectStorageBufferAttribute extends StorageBufferAttribute {
      * Return a StructInstance backed by this buffer's Uint32Array, typed as the
      * given StructDef.
      *
-     * Only valid when computeWritable=true. The returned instance is cached — every
-     * call returns the same underlying StorageNode (accessible as `instance.$node`).
+     * The returned instance is cached — every call returns the same underlying
+     * StorageNode (accessible as `instance.$node`).
      */
     asStorageNode<S extends StructSchema>(structDef: StructDef<S>): StructInstance<S>;
 
     asStorageNode<S extends StructSchema>(structDef?: StructDef<S>): StorageNode<'u32'> | StructInstance<S> {
-        if (!this.computeWritable) {
-            throw new Error('[gpucat] IndirectStorageBufferAttribute.asStorageNode() requires computeWritable=true');
-        }
-
         if (structDef !== undefined) {
             if (!this._structStorageNode) {
                 this._structStorageNode = new StorageNode<string>(

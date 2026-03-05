@@ -447,6 +447,25 @@ export class WebGPURenderer {
         const computePass = encoder.beginComputePass();
         computePass.setPipeline(entry.pipeline);
         computePass.setBindGroup(0, bindGroup);
+
+        // Bind group 1: time uniforms (when the shader uses timeElapsed / timeDelta).
+        if (entry.layout1 && entry.compileResult.builtinsUsed.has('time')) {
+            // Ensure time buffers are uploaded (they may not have been if compute()
+            // is called before render() this frame — e.g. the very first frame).
+            this._uploadTimeFields(this.elapsed, 0);
+            const U = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
+            const timeElapsedBuf = this.buffers.ensureRaw(this._timeElapsedKey, 4, U);
+            const timeDeltaBuf   = this.buffers.ensureRaw(this._timeDeltaKey,   4, U);
+            const timeBindGroup  = this.device.createBindGroup({
+                layout: entry.layout1,
+                entries: [
+                    { binding: 0, resource: { buffer: timeElapsedBuf } },
+                    { binding: 1, resource: { buffer: timeDeltaBuf   } },
+                ],
+            });
+            computePass.setBindGroup(1, timeBindGroup);
+        }
+
         const [dx, dy, dz] = node.dispatch;
         computePass.dispatchWorkgroups(dx, dy, dz);
         computePass.end();

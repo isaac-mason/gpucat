@@ -210,36 +210,36 @@ export class Node<T extends WgslType> {
         this.type = type;
     }
 
-    // arithmetic
-    add(b: Node<T>): Node<T> { return new BinopNode('+', this.type, this, b) as Node<T>; }
-    sub(b: Node<T>): Node<T> { return new BinopNode('-', this.type, this, b) as Node<T>; }
-    div(b: Node<T>): Node<T> { return new BinopNode('/', this.type, this, b) as Node<T>; }
+    // arithmetic — delegate to the standalone functions (source of truth)
+    add(b: Node<T>): Node<T> { return add(this, b); }
+    sub(b: Node<T>): Node<T> { return sub(this, b); }
+    div(b: Node<T>): Node<T> { return div(this, b); }
     mul<B extends ScalarType>(b: Node<B>): Node<T>;
     mul<B extends VecType>(b: Node<B>): T extends ScalarType ? Node<B> : Node<T>;
     mul<B extends VecType>(b: Node<B>): T extends MatType ? Node<B> : Node<T>;
     mul<B extends WgslType>(b: Node<B>): Node<WgslType>;
-    mul(b: Node<WgslType>): Node<WgslType> { return new BinopNode('*', mulResultType(this.type, b.type), this, b); }
+    mul(b: Node<WgslType>): Node<WgslType> { return mul(this, b); }
 
-    // math
-    abs(): Node<T> { return new CallNode(this.type, 'abs', [this]) as Node<T>; }
-    floor(): Node<T> { return new CallNode(this.type, 'floor', [this]) as Node<T>; }
-    ceil(): Node<T> { return new CallNode(this.type, 'ceil', [this]) as Node<T>; }
-    fract(): Node<T> { return new CallNode(this.type, 'fract', [this]) as Node<T>; }
-    sqrt(): Node<T> { return new CallNode(this.type, 'sqrt', [this]) as Node<T>; }
-    sin(): Node<T> { return new CallNode(this.type, 'sin', [this]) as Node<T>; }
-    cos(): Node<T> { return new CallNode(this.type, 'cos', [this]) as Node<T>; }
-    negate(): Node<T> { return new CallNode(this.type, 'negate', [this]) as Node<T>; }
-    normalize(): Node<T> { return new CallNode(this.type, 'normalize', [this]) as Node<T>; }
-    length(): Node<'f32'> { return new CallNode('f32', 'length', [this]); }
-    dot(b: Node<T>): Node<T extends VecType ? VecElement<T> : 'f32'> { return new CallNode(vecElementType(this.type), 'dot', [this, b]) as unknown as Node<T extends VecType ? VecElement<T> : 'f32'>; }
-    cross(b: Node<T>): Node<T> { return new CallNode(this.type, 'cross', [this, b]) as Node<T>; }
-    clamp(lo: Node<T>, hi: Node<T>): Node<T> { return new CallNode(this.type, 'clamp', [this, lo, hi]) as Node<T>; }
-    mix(b: Node<T>, t: Node<T>): Node<T> { return new CallNode(this.type, 'mix', [this, b, t]) as Node<T>; }
-    max(b: Node<T>): Node<T> { return new CallNode(this.type, 'max', [this, b]) as Node<T>; }
-    min(b: Node<T>): Node<T> { return new CallNode(this.type, 'min', [this, b]) as Node<T>; }
-    pow(b: Node<T>): Node<T> { return new CallNode(this.type, 'pow', [this, b]) as Node<T>; }
-    step(x: Node<T>): Node<T> { return new CallNode(this.type, 'step', [this, x]) as Node<T>; }
-    smoothstep(lo: Node<T>, hi: Node<T>): Node<T> { return new CallNode(this.type, 'smoothstep', [lo, hi, this]) as Node<T>; }
+    // math — delegate to the standalone functions (source of truth)
+    abs(): Node<T> { return abs(this); }
+    floor(): Node<T> { return floor(this); }
+    ceil(): Node<T> { return ceil(this); }
+    fract(): Node<T> { return fract(this); }
+    sqrt(): Node<T> { return sqrt(this); }
+    sin(): Node<T> { return sin(this); }
+    cos(): Node<T> { return cos(this); }
+    negate(): Node<T> { return negate(this); }
+    normalize(): Node<T> { return normalize(this); }
+    length(): Node<'f32'> { return length(this); }
+    dot(b: Node<T>): Node<T extends VecType ? VecElement<T> : 'f32'> { return dot(this, b) as unknown as Node<T extends VecType ? VecElement<T> : 'f32'>; }
+    cross(b: Node<T>): Node<T> { return cross(this, b); }
+    clamp(lo: Node<T>, hi: Node<T>): Node<T> { return clamp(this, lo, hi); }
+    mix(b: Node<T>, t: Node<T>): Node<T> { return mix(this, b, t); }
+    max(b: Node<T>): Node<T> { return max(this, b); }
+    min(b: Node<T>): Node<T> { return min(this, b); }
+    pow(b: Node<T>): Node<T> { return pow(this, b); }
+    step(x: Node<T>): Node<T> { return step(this, x); }
+    smoothstep(lo: Node<T>, hi: Node<T>): Node<T> { return smoothstep(lo, hi, this); }
 
     // struct field access — typed via explicit resultType argument
     field<R extends WgslType>(name: string, resultType: R): Node<R> { return new FieldNode(resultType, this, name); }
@@ -254,6 +254,8 @@ export class Node<T extends WgslType> {
 
     // Type conversion
     toF32(): Node<'f32'> { return new CallNode('f32', 'f32', [this]); }
+    toU32(): Node<'u32'> { return new CallNode('u32', 'u32', [this]); }
+    toI32(): Node<'i32'> { return new CallNode('i32', 'i32', [this]); }
 
     /**
      * Assign a new value to this node (used on VarNodes).
@@ -1260,24 +1262,80 @@ export function uniform<T extends WgslType, S extends StructSchema>(
 export const attribute = <T extends WgslType>(type: T, name: string) => new AttributeNode(type, name);
 
 /**
- * Create a `StorageNode` backed by an existing typed array.
+ * Create a `StorageNode` backed by a `StorageBufferAttribute` (or subclass).
  *
- * The array descriptor's element type becomes the node's TypeScript type, and
- * its `.wgslType` (e.g. `'array<mat4x4f>'`) is stored as `node.storageType` for
- * WGSL emission.  The renderer uploads `data` automatically; call
- * `node.needsUpdate = true` to trigger a re-upload.
+ * The preferred form — mirrors Three.js's `storage(bufferAttr, schema, access)`.
+ * Accepts either an `ArrayDesc` (e.g. `S.array(S.vec4f())`) or a `StructDef`
+ * (from `struct(...)`) as the schema argument.
  *
- * @example
- * import * as S from './schema.js'
- * const matrices = storage(matrixData, S.array(S.mat4x4f()))
- * // later: matrices.needsUpdate = true
+ * When a `StructDef` is passed the node's element type and storage type are
+ * both set to the struct name (e.g. `'DrawBuffer'`), matching how Three.js
+ * emits `var<storage> x : DrawBuffer`.
+ *
+ * If `attr` is an `IndirectStorageBufferAttribute`, `_indirectOwner` is wired
+ * automatically so the renderer reuses the same `STORAGE | INDIRECT | COPY_DST`
+ * GPUBuffer for both the compute binding and the `drawIndirect` call.
+ *
+ * @example — array schema
+ * const posAttr = new StorageBufferAttribute(posData, 4);
+ * const positions = storage(posAttr, S.array(S.vec4f()));
+ *
+ * @example — struct schema (mirrors Three.js)
+ * const DrawBuffer = struct('DrawBuffer', { vertexCount: S.u32(), instanceCount: S.u32(), ... });
+ * const drawAttr = new IndirectStorageBufferAttribute(false, 1);
+ * const drawStorage = storage(drawAttr, DrawBuffer, 'read_write');
  */
-export const storage = <E extends WgslType>(
+export function storage<E extends WgslType>(
+    attr: StorageBufferAttribute,
+    schema: ArrayDesc<E>,
+    access?: 'read' | 'read_write',
+): StorageNode<E>;
+export function storage<S extends StructSchema>(
+    attr: StorageBufferAttribute,
+    schema: StructDef<S>,
+    access?: 'read' | 'read_write',
+): StructInstance<S>;
+/** @deprecated Pass a `StorageBufferAttribute` as the first argument instead of a raw typed array. */
+export function storage<E extends WgslType>(
     data: GpuTypedArray,
-    arrayDesc: ArrayDesc<E>,
+    schema: ArrayDesc<E>,
+    access?: 'read' | 'read_write',
+): StorageNode<E>;
+export function storage(
+    data: GpuTypedArray | StorageBufferAttribute,
+    schema: ArrayDesc<WgslType> | StructDef<StructSchema>,
     access: 'read' | 'read_write' = 'read',
-): StorageNode<E> =>
-    new StorageNode(arrayDesc.elementDesc.wgslType, arrayDesc.wgslType, data, access);
+): StorageNode<WgslType> | StructInstance<StructSchema> {
+    const arr = (data as StorageBufferAttribute).isStorageBufferAttribute
+        ? (data as StorageBufferAttribute).array
+        : data as GpuTypedArray;
+
+    let elementType: WgslType;
+    let storageType: string;
+    if (isStructDef(schema)) {
+        elementType = schema.wgslType;
+        storageType = schema.wgslType;
+    } else {
+        const arrayDesc = schema as ArrayDesc<WgslType>;
+        elementType = arrayDesc.elementDesc.wgslType;
+        storageType = arrayDesc.wgslType;
+    }
+
+    const node = new StorageNode(elementType, storageType, arr, access);
+
+    // Wire _indirectOwner so BufferCache reuses the STORAGE|INDIRECT GPUBuffer.
+    if ((data as IndirectStorageBufferAttribute).isIndirectStorageBufferAttribute) {
+        node._indirectOwner = data as IndirectStorageBufferAttribute;
+    }
+
+    // When given a StructDef, instantiate a StructInstance so callers can do
+    // drawStorage.instanceCount.assign(...) — mirrors Three.js TSL pattern.
+    if (isStructDef(schema)) {
+        return schema.instantiate(node);
+    }
+
+    return node;
+};
 
 /**
  * Create a `StorageNode` with a zero-initialised typed array allocated internally.
@@ -1419,29 +1477,30 @@ export const uvec4 = makeVec4('vec4u');
 export const mat4 = (c0: Node<'vec4f'>, c1: Node<'vec4f'>, c2: Node<'vec4f'>, c3: Node<'vec4f'>) =>
     new ConstructNode('mat4x4f', [c0, c1, c2, c3]);
 
-// Standalone math (mirrors chaining API)
-export const add = <T extends WgslType>(a: Node<T>, b: Node<T>) => a.add(b);
-export const sub = <T extends WgslType>(a: Node<T>, b: Node<T>) => a.sub(b);
-export const div = <T extends WgslType>(a: Node<T>, b: Node<T>) => a.div(b);
-export const mul = <A extends WgslType, B extends WgslType>(a: Node<A>, b: Node<B>) => a.mul(b);
+// Standalone math — source of truth; chaining methods on Node<T> delegate to these.
+export const add = <T extends WgslType>(a: Node<T>, b: Node<T>): Node<T> => new BinopNode('+', a.type, a, b) as Node<T>;
+export const sub = <T extends WgslType>(a: Node<T>, b: Node<T>): Node<T> => new BinopNode('-', a.type, a, b) as Node<T>;
+export const div = <T extends WgslType>(a: Node<T>, b: Node<T>): Node<T> => new BinopNode('/', a.type, a, b) as Node<T>;
+export const mul = <A extends WgslType, B extends WgslType>(a: Node<A>, b: Node<B>) => new BinopNode('*', mulResultType(a.type, b.type), a, b) as Node<WgslType>;
 export const dot = (a: Node<WgslType>, b: Node<WgslType>) => new CallNode('f32', 'dot', [a, b]);
-export const cross = <T extends WgslType>(a: Node<T>, b: Node<T>) => a.cross(b);
-export const normalize = <T extends WgslType>(a: Node<T>) => a.normalize();
-export const length = (a: Node<WgslType>) => a.length();
-export const abs = <T extends WgslType>(a: Node<T>) => a.abs();
-export const floor = <T extends WgslType>(a: Node<T>) => a.floor();
-export const ceil = <T extends WgslType>(a: Node<T>) => a.ceil();
-export const fract = <T extends WgslType>(a: Node<T>) => a.fract();
-export const sqrt = <T extends WgslType>(a: Node<T>) => a.sqrt();
-export const sin = <T extends WgslType>(a: Node<T>) => a.sin();
-export const cos = <T extends WgslType>(a: Node<T>) => a.cos();
-export const pow = <T extends WgslType>(a: Node<T>, b: Node<T>) => a.pow(b);
-export const max = <T extends WgslType>(a: Node<T>, b: Node<T>) => a.max(b);
-export const min = <T extends WgslType>(a: Node<T>, b: Node<T>) => a.min(b);
-export const clamp = <T extends WgslType>(a: Node<T>, lo: Node<T>, hi: Node<T>) => a.clamp(lo, hi);
-export const mix = <T extends WgslType>(a: Node<T>, b: Node<T>, t: Node<T>) => a.mix(b, t);
-export const step = <T extends WgslType>(edge: Node<T>, x: Node<T>) => x.step(edge);
-export const smoothstep = <T extends WgslType>(lo: Node<T>, hi: Node<T>, x: Node<T>) => x.smoothstep(lo, hi);
+export const cross = <T extends WgslType>(a: Node<T>, b: Node<T>): Node<T> => new CallNode(a.type, 'cross', [a, b]) as Node<T>;
+export const normalize = <T extends WgslType>(a: Node<T>): Node<T> => new CallNode(a.type, 'normalize', [a]) as Node<T>;
+export const length = (a: Node<WgslType>): Node<'f32'> => new CallNode('f32', 'length', [a]);
+export const abs = <T extends WgslType>(a: Node<T>): Node<T> => new CallNode(a.type, 'abs', [a]) as Node<T>;
+export const floor = <T extends WgslType>(a: Node<T>): Node<T> => new CallNode(a.type, 'floor', [a]) as Node<T>;
+export const ceil = <T extends WgslType>(a: Node<T>): Node<T> => new CallNode(a.type, 'ceil', [a]) as Node<T>;
+export const fract = <T extends WgslType>(a: Node<T>): Node<T> => new CallNode(a.type, 'fract', [a]) as Node<T>;
+export const sqrt = <T extends WgslType>(a: Node<T>): Node<T> => new CallNode(a.type, 'sqrt', [a]) as Node<T>;
+export const sin = <T extends WgslType>(a: Node<T>): Node<T> => new CallNode(a.type, 'sin', [a]) as Node<T>;
+export const cos = <T extends WgslType>(a: Node<T>): Node<T> => new CallNode(a.type, 'cos', [a]) as Node<T>;
+export const negate = <T extends WgslType>(a: Node<T>): Node<T> => new CallNode(a.type, 'negate', [a]) as Node<T>;
+export const pow = <T extends WgslType>(a: Node<T>, b: Node<T>): Node<T> => new CallNode(a.type, 'pow', [a, b]) as Node<T>;
+export const max = <T extends WgslType>(a: Node<T>, b: Node<T>): Node<T> => new CallNode(a.type, 'max', [a, b]) as Node<T>;
+export const min = <T extends WgslType>(a: Node<T>, b: Node<T>): Node<T> => new CallNode(a.type, 'min', [a, b]) as Node<T>;
+export const clamp = <T extends WgslType>(a: Node<T>, lo: Node<T>, hi: Node<T>): Node<T> => new CallNode(a.type, 'clamp', [a, lo, hi]) as Node<T>;
+export const mix = <T extends WgslType>(a: Node<T>, b: Node<T>, t: Node<T>): Node<T> => new CallNode(a.type, 'mix', [a, b, t]) as Node<T>;
+export const step = <T extends WgslType>(edge: Node<T>, x: Node<T>): Node<T> => new CallNode(x.type, 'step', [edge, x]) as Node<T>;
+export const smoothstep = <T extends WgslType>(lo: Node<T>, hi: Node<T>, x: Node<T>): Node<T> => new CallNode(x.type, 'smoothstep', [lo, hi, x]) as Node<T>;
 
 // Texture helpers
 export const textureSample = (t: Node<WgslType>, s: Node<WgslType>, uv: Node<WgslType>) =>
@@ -1822,6 +1881,7 @@ export const mat4x4f = (...v: number[]): ConstNode<'mat4x4f'> => new ConstNode('
 // ---------------------------------------------------------------------------
 
 import { Color, type ColorInput } from '../utils/color.js';
+import type { StorageBufferAttribute } from '../scene/geometry.js';
 import type { IndirectStorageBufferAttribute } from '../scene/indirect-storage-buffer-attribute.js';
 
 /**

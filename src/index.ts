@@ -107,6 +107,25 @@ export {
     Continue,
     Return,
     Fn,
+    // Math functions
+    dot,
+    cross,
+    normalize,
+    length,
+    abs,
+    floor,
+    ceil,
+    fract,
+    sqrt,
+    sin,
+    cos,
+    pow,
+    max,
+    min,
+    clamp,
+    mix,
+    step,
+    smoothstep,
 } from './nodes/nodes.js';
 
 // Schema — WgslDesc constructors and struct()

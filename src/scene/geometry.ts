@@ -136,6 +136,17 @@ export class Geometry {
      * You may set this manually for custom geometry to enable frustum culling.
      */
     boundingSphere: Sphere | undefined = undefined;
+
+    /**
+     * Convenience alias for `this.attributes.set(name, attr)`.
+     *
+     * @example
+     * geo.setAttribute('position', new BufferAttribute(positions, 'float32x3'))
+     */
+    setAttribute(name: string, attr: BufferAttribute): this {
+        this.attributes.set(name, attr);
+        return this;
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -4,17 +4,16 @@
  * Covers:
  *  1. Constructor: no-arg (single draw, zero data), drawCount number, Uint32Array
  *  2. Constructor: invalid Uint32Array length throws
- *  3. data / drawCount / stride / indexed / computeWritable properties
+ *  3. data / drawCount / stride / indexed properties
  *  4. needsUpdate bumps version
- *  5. asStorageNode() throws when computeWritable=false
- *  6. asStorageNode() (no-arg) returns StorageNode<'u32'> with array<u32> storageType
- *  7. asStorageNode() is cached
- *  8. asStorageNode(structDef) returns StructInstance with correct field types
- *  9. StructInstance.$node is a StorageNode with _indirectOwner set
- * 10. asStorageNode(structDef) is cached — repeated calls return same $node
- * 11. _cachedStorageNode lifecycle
- * 12. compileCompute smoke — struct-typed binding emits struct decl + typed var
- * 13. compileCompute smoke — flat array<u32> variant
+ *  5. asStorageNode() (no-arg) returns StorageNode<'u32'> with array<u32> storageType
+ *  6. asStorageNode() is cached
+ *  7. asStorageNode(structDef) returns StructInstance with correct field types
+ *  8. StructInstance.$node is a StorageNode with _indirectOwner set
+ *  9. asStorageNode(structDef) is cached — repeated calls return same $node
+ * 10. _cachedStorageNode lifecycle
+ * 11. compileCompute smoke — struct-typed binding emits struct decl + typed var
+ * 12. compileCompute smoke — flat array<u32> variant
  */
 
 import { describe, expect, test } from 'vitest';
@@ -68,11 +67,6 @@ describe('IndirectStorageBufferAttribute constructor — no-arg', () => {
     test('data is all zeros initially', () => {
         const buf = new IndirectStorageBufferAttribute(true);
         expect(Array.from(buf.data)).toEqual([0, 0, 0, 0, 0]);
-    });
-
-    test('computeWritable defaults to false', () => {
-        const buf = new IndirectStorageBufferAttribute(true);
-        expect(buf.computeWritable).toBe(false);
     });
 });
 
@@ -151,28 +145,12 @@ describe('needsUpdate', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 5. asStorageNode() throws when computeWritable=false
-// ---------------------------------------------------------------------------
-
-describe('asStorageNode() throws when computeWritable=false', () => {
-    test('throws for flat variant', () => {
-        const buf = new IndirectStorageBufferAttribute(true);
-        expect(() => buf.asStorageNode()).toThrow(/computeWritable=true/);
-    });
-
-    test('throws for struct variant', () => {
-        const buf = new IndirectStorageBufferAttribute(true);
-        expect(() => buf.asStorageNode(DrawIndexedIndirectArgsStruct)).toThrow(/computeWritable=true/);
-    });
-});
-
-// ---------------------------------------------------------------------------
-// 6. asStorageNode() (no-arg) — flat array<u32>
+// 5. asStorageNode() (no-arg) — flat array<u32>
 // ---------------------------------------------------------------------------
 
 describe('asStorageNode() flat (no-arg)', () => {
     test('returns a StorageNode with type u32 and storageType array<u32>', () => {
-        const buf = new IndirectStorageBufferAttribute(true, undefined, { computeWritable: true });
+        const buf = new IndirectStorageBufferAttribute(true);
         const node = buf.asStorageNode();
         expect(node).toBeInstanceOf(StorageNode);
         expect(node.type).toBe('u32');
@@ -180,7 +158,7 @@ describe('asStorageNode() flat (no-arg)', () => {
     });
 
     test('_indirectOwner points back to the IndirectStorageBufferAttribute', () => {
-        const buf = new IndirectStorageBufferAttribute(true, undefined, { computeWritable: true });
+        const buf = new IndirectStorageBufferAttribute(true);
         const node = buf.asStorageNode();
         expect(node._indirectOwner).toBe(buf);
     });
@@ -192,14 +170,14 @@ describe('asStorageNode() flat (no-arg)', () => {
 
 describe('asStorageNode() caching', () => {
     test('repeated flat calls return same instance', () => {
-        const buf = new IndirectStorageBufferAttribute(false, undefined, { computeWritable: true });
+        const buf = new IndirectStorageBufferAttribute(false);
         const a = buf.asStorageNode();
         const b = buf.asStorageNode();
         expect(a).toBe(b);
     });
 
     test('repeated struct calls return same $node', () => {
-        const buf = new IndirectStorageBufferAttribute(true, undefined, { computeWritable: true });
+        const buf = new IndirectStorageBufferAttribute(true);
         const inst1 = buf.asStorageNode(DrawIndexedIndirectArgsStruct);
         const inst2 = buf.asStorageNode(DrawIndexedIndirectArgsStruct);
         expect(inst1.$node).toBe(inst2.$node);
@@ -212,7 +190,7 @@ describe('asStorageNode() caching', () => {
 
 describe('asStorageNode(structDef) struct-typed variant', () => {
     test('returns a StructInstance with all five fields for DrawIndexedIndirectArgs', () => {
-        const buf = new IndirectStorageBufferAttribute(true, undefined, { computeWritable: true });
+        const buf = new IndirectStorageBufferAttribute(true);
         const inst = buf.asStorageNode(DrawIndexedIndirectArgsStruct);
         expect(inst).toHaveProperty('indexCount');
         expect(inst).toHaveProperty('instanceCount');
@@ -222,7 +200,7 @@ describe('asStorageNode(structDef) struct-typed variant', () => {
     });
 
     test('each field node has type u32', () => {
-        const buf = new IndirectStorageBufferAttribute(true, undefined, { computeWritable: true });
+        const buf = new IndirectStorageBufferAttribute(true);
         const inst = buf.asStorageNode(DrawIndexedIndirectArgsStruct);
         for (const key of ['indexCount', 'instanceCount', 'firstIndex', 'baseVertex', 'firstInstance'] as const) {
             expect(inst[key].type).toBe('u32');
@@ -230,7 +208,7 @@ describe('asStorageNode(structDef) struct-typed variant', () => {
     });
 
     test('returns a StructInstance with all four fields for DrawIndirectArgs', () => {
-        const buf = new IndirectStorageBufferAttribute(false, undefined, { computeWritable: true });
+        const buf = new IndirectStorageBufferAttribute(false);
         const inst = buf.asStorageNode(DrawIndirectArgsStruct);
         expect(inst).toHaveProperty('vertexCount');
         expect(inst).toHaveProperty('instanceCount');
@@ -245,13 +223,13 @@ describe('asStorageNode(structDef) struct-typed variant', () => {
 
 describe('StructInstance.$node', () => {
     test('$node is a StorageNode', () => {
-        const buf = new IndirectStorageBufferAttribute(true, undefined, { computeWritable: true });
+        const buf = new IndirectStorageBufferAttribute(true);
         const inst = buf.asStorageNode(DrawIndexedIndirectArgsStruct);
         expect(inst.$node).toBeInstanceOf(StorageNode);
     });
 
     test('$node.type and storageType are both the struct name', () => {
-        const buf = new IndirectStorageBufferAttribute(true, undefined, { computeWritable: true });
+        const buf = new IndirectStorageBufferAttribute(true);
         const inst = buf.asStorageNode(DrawIndexedIndirectArgsStruct);
         const node = inst.$node as StorageNode<string>;
         expect(node.type).toBe('DrawIndexedIndirectArgs');
@@ -259,7 +237,7 @@ describe('StructInstance.$node', () => {
     });
 
     test('$node._indirectOwner points back to the IndirectStorageBufferAttribute', () => {
-        const buf = new IndirectStorageBufferAttribute(true, undefined, { computeWritable: true });
+        const buf = new IndirectStorageBufferAttribute(true);
         const inst = buf.asStorageNode(DrawIndexedIndirectArgsStruct);
         expect((inst.$node as StorageNode<string>)._indirectOwner).toBe(buf);
     });
@@ -271,18 +249,18 @@ describe('StructInstance.$node', () => {
 
 describe('_cachedStorageNode', () => {
     test('returns null before any asStorageNode call', () => {
-        const buf = new IndirectStorageBufferAttribute(true, undefined, { computeWritable: true });
+        const buf = new IndirectStorageBufferAttribute(true);
         expect(buf._cachedStorageNode).toBeNull();
     });
 
     test('returns flat node after flat asStorageNode()', () => {
-        const buf = new IndirectStorageBufferAttribute(true, undefined, { computeWritable: true });
+        const buf = new IndirectStorageBufferAttribute(true);
         const node = buf.asStorageNode();
         expect(buf._cachedStorageNode).toBe(node);
     });
 
     test('returns struct node (preferred over flat) after asStorageNode(structDef)', () => {
-        const buf = new IndirectStorageBufferAttribute(true, undefined, { computeWritable: true });
+        const buf = new IndirectStorageBufferAttribute(true);
         buf.asStorageNode(); // create flat node first
         const inst = buf.asStorageNode(DrawIndexedIndirectArgsStruct);
         // struct node takes priority
@@ -296,7 +274,7 @@ describe('_cachedStorageNode', () => {
 
 describe('compileCompute with struct-typed indirect storage', () => {
     test('struct declaration emitted in WGSL output when node is used in body', () => {
-        const buf = new IndirectStorageBufferAttribute(true, undefined, { computeWritable: true });
+        const buf = new IndirectStorageBufferAttribute(true);
         const argsNode = buf.asStorageNode(DrawIndexedIndirectArgsStruct);
         const storageNode = argsNode.$node as StorageNode<string>;
 
@@ -320,7 +298,7 @@ describe('compileCompute with struct-typed indirect storage', () => {
     });
 
     test('storage binding uses struct name not array<u32>', () => {
-        const buf = new IndirectStorageBufferAttribute(true, undefined, { computeWritable: true });
+        const buf = new IndirectStorageBufferAttribute(true);
         const argsNode = buf.asStorageNode(DrawIndexedIndirectArgsStruct);
         const storageNode = argsNode.$node as StorageNode<string>;
 
@@ -337,7 +315,7 @@ describe('compileCompute with struct-typed indirect storage', () => {
     });
 
     test('struct declaration appears before the @compute entry point', () => {
-        const buf = new IndirectStorageBufferAttribute(true, undefined, { computeWritable: true });
+        const buf = new IndirectStorageBufferAttribute(true);
         const argsNode = buf.asStorageNode(DrawIndexedIndirectArgsStruct);
         const storageNode = argsNode.$node as StorageNode<string>;
 
@@ -359,7 +337,7 @@ describe('compileCompute with struct-typed indirect storage', () => {
     });
 
     test('result.storage entry has correct type and binding', () => {
-        const buf = new IndirectStorageBufferAttribute(true, undefined, { computeWritable: true });
+        const buf = new IndirectStorageBufferAttribute(true);
         const argsNode = buf.asStorageNode(DrawIndexedIndirectArgsStruct);
         const storageNode = argsNode.$node as StorageNode<string>;
 
@@ -378,7 +356,7 @@ describe('compileCompute with struct-typed indirect storage', () => {
     });
 
     test('field access in body emits correct dot-notation in WGSL', () => {
-        const buf = new IndirectStorageBufferAttribute(true, undefined, { computeWritable: true });
+        const buf = new IndirectStorageBufferAttribute(true);
         const argsNode = buf.asStorageNode(DrawIndexedIndirectArgsStruct);
         const storageNode = argsNode.$node as StorageNode<string>;
 
@@ -403,7 +381,7 @@ describe('compileCompute with struct-typed indirect storage', () => {
 
 describe('compileCompute with flat array<u32> indirect storage', () => {
     test('flat binding emits array<u32> and no struct declaration for the indirect layout', () => {
-        const buf = new IndirectStorageBufferAttribute(true, undefined, { computeWritable: true });
+        const buf = new IndirectStorageBufferAttribute(true);
         const storageNode = buf.asStorageNode();
 
         const node = compute({
@@ -419,7 +397,7 @@ describe('compileCompute with flat array<u32> indirect storage', () => {
     });
 
     test('result.storage entry has type array<u32>', () => {
-        const buf = new IndirectStorageBufferAttribute(true, undefined, { computeWritable: true });
+        const buf = new IndirectStorageBufferAttribute(true);
         const storageNode = buf.asStorageNode();
 
         const node = compute({

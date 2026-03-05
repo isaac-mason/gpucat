@@ -22,8 +22,10 @@ import type { ComputeNode } from '../nodes/nodes.js';
 export type ComputePipelineEntry = {
     pipeline: GPUComputePipeline;
     compileResult: ComputeCompileResult;
-    /** Bind group layout for group 0 (storage buffers only). */
+    /** Bind group layout for group 0 (storage buffers). */
     layout0: GPUBindGroupLayout;
+    /** Bind group layout for group 1 (time uniforms), or null if not used. */
+    layout1: GPUBindGroupLayout | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -88,21 +90,21 @@ export class ComputePipelineCache {
     private async _compile(key: string, node: ComputeNode): Promise<ComputePipelineEntry> {
         const cr = compileCompute(node);
         const layout0 = this._buildLayout0(cr);
-        const pipelineLayout = this.device.createPipelineLayout({
-            bindGroupLayouts: [layout0],
-        });
+        const layout1 = cr.builtinsUsed.has('time') ? this._buildLayout1() : null;
+        const bindGroupLayouts: GPUBindGroupLayout[] = layout1 ? [layout0, layout1] : [layout0];
+        const pipelineLayout = this.device.createPipelineLayout({ bindGroupLayouts });
         const shaderModule = this.device.createShaderModule({ code: cr.code });
         const pipeline = await this.device.createComputePipelineAsync({
             layout: pipelineLayout,
             compute: { module: shaderModule, entryPoint: 'cs_main' },
         });
-        const entry: ComputePipelineEntry = { pipeline, compileResult: cr, layout0 };
+        const entry: ComputePipelineEntry = { pipeline, compileResult: cr, layout0, layout1 };
         this.ready.set(key, entry);
         return entry;
     }
 
     // -----------------------------------------------------------------------
-    // Bind group layout builder
+    // Bind group layout builders
     // -----------------------------------------------------------------------
 
     /**
@@ -121,6 +123,19 @@ export class ComputePipelineCache {
                         : ('read-only-storage' as GPUBufferBindingType),
                 },
             })),
+        });
+    }
+
+    /**
+     * Group 1: time uniforms — binding 0 = timeElapsed, binding 1 = timeDelta.
+     * Only created when the compute shader references timeElapsed or timeDelta.
+     */
+    private _buildLayout1(): GPUBindGroupLayout {
+        return this.device.createBindGroupLayout({
+            entries: [
+                { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' as GPUBufferBindingType } },
+                { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' as GPUBufferBindingType } },
+            ],
         });
     }
 }

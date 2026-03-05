@@ -5,7 +5,7 @@
  * Matrices are column-major number[16] tuples (mathcat Mat4 / WebGPU convention).
  */
 
-import { mat4, type Mat4, type Quat, type Vec3 } from 'mathcat';
+import { mat4, quat, type Mat4, type Quat, type Vec3 } from 'mathcat';
 
 // ---------------------------------------------------------------------------
 // Object3D
@@ -50,6 +50,26 @@ export class Object3D {
             child.parent = null;
         }
         return this;
+    }
+
+    /**
+     * Orient this object so that its -Z axis points toward `target`.
+     *
+     * Only sets `this.quaternion` — does NOT change `this.position`.
+     * This matches Three.js behaviour exactly.
+     *
+     * After calling this, call `updateWorldMatrix()` (and, for cameras,
+     * `updateViewMatrix()`) to propagate the change.
+     *
+     * @param target World-space point to look at.
+     * @param up     World up vector (default [0, 1, 0]).
+     */
+    lookAt(target: Vec3, up: Vec3 = [0, 1, 0]): void {
+        // targetTo builds a world matrix where -Z points from position toward target.
+        const tmp: Mat4 = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1];
+        mat4.targetTo(tmp, this.position, target, up);
+        // Extract only the rotation into quaternion (translation/scale stay as-is).
+        quat.fromMat4(this.quaternion, tmp);
     }
 
     /**

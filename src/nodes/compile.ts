@@ -185,6 +185,8 @@ export type ComputeCompileResult = {
     code: string;
     storage: ComputeStorageEntry[];
     workgroupSize: [number, number, number];
+    /** Set of high-level builtin categories used (e.g. 'time'). */
+    builtinsUsed: Set<string>;
 };
 
 // ---------------------------------------------------------------------------
@@ -1034,6 +1036,13 @@ export class WgslBuilder {
         }
         if (storageEntries.length > 0) lines.push('');
 
+        // Time uniforms (group 1) — only when the compute body references timeElapsed / timeDelta
+        if (this.builtinsUsed.has('time')) {
+            lines.push(`@group(1) @binding(0) var<uniform> timeElapsed : f32;`);
+            lines.push(`@group(1) @binding(1) var<uniform> timeDelta : f32;`);
+            lines.push('');
+        }
+
         // User-defined Fn declarations
         for (const { fn, traced } of this.fnNodes.values()) {
             lines.push(this._emitFnDecl(fn, traced));
@@ -1072,6 +1081,7 @@ export class WgslBuilder {
             code: lines.join('\n'),
             storage: storageEntries,
             workgroupSize: this.input.node.workgroupSize,
+            builtinsUsed: new Set(this.builtinsUsed),
         };
     }
 
@@ -1343,7 +1353,11 @@ compilerDefs = {
                 vertex_index:   'vertex_index',
             };
             const BUILTIN_VERTEX_INPUT = new Set(['instance_index', 'vertex_index']);
-            if (b.shaderStage === 'compute') return node.builtinKind;
+            if (b.shaderStage === 'compute') {
+                // In compute shaders, vertex-input builtins aren't available.
+                // Time fields are declared as group(1) uniforms — use their var names directly.
+                return BUILTIN_VAR[node.builtinKind] ?? node.builtinKind;
+            }
             if (BUILTIN_VERTEX_INPUT.has(node.builtinKind)) return `in.${BUILTIN_VAR[node.builtinKind] ?? node.builtinKind}`;
             return BUILTIN_VAR[node.builtinKind] ?? node.builtinKind;
         },

@@ -1,29 +1,17 @@
 /**
  * example-indirect-compute.ts
  *
- * GPU-driven indirect rendering — compute-shader culling.
+ * GPU-driven indirect rendering — mirrors Three.js webgpu_struct_drawindirect example.
  *
- * A compute shader runs each frame and decides how many instances are visible,
- * writing that count directly into slot [1] (instanceCount) of the indirect
- * draw buffer. No CPU readback is required — the GPU updates the draw arguments
- * in place each frame.
+ * 100 000 triangle instances, each with a random offset, color, and orientation.
+ * A compute shader updates instanceCount every frame via sin(time), so the visible
+ * count oscillates between ~100 and 100 000 with no CPU readback.
  *
- * This demonstrates IndirectStorageBufferAttribute.asStorageNode(): the same GPUBuffer used by
- * drawIndexedIndirect is bound as a writable storage buffer in the compute pass.
- *
- *   indirectArgs.asStorageNode()              →  StorageNode<'u32'> (storageType: 'array<u32>')
- *   gpu.index(indirectArgs.asStorageNode(), 1) →  instanceCount (written by GPU)
- *
- * Architecture:
- *   1. N instances are arranged in a sphere shell. Each has a world position.
- *   2. Thread 0 of the compute dispatch loops through all positions and counts
- *      how many are within a `cullRadius` of the origin. It writes that count
- *      into indirect[1] (instanceCount).
- *   3. The render shader draws exactly that many instances each frame.
- *      Instances beyond the count are never issued — no CPU-side work needed.
- *
- * A slider auto-animates (and you can drag manually) to change `cullRadius`,
- * visually confirming that drawIndexedIndirect uses the GPU-written count.
+ * Key API demonstrated:
+ *   - IndirectStorageBufferAttribute  → non-indexed drawIndirect
+ *   - gpu.struct() + gpu.storage()    → struct-typed storage buffer
+ *   - gpu.instancedBufferAttribute()  → per-instance vertex data
+ *   - Two compute dispatches per frame: init (1 thread) then update (N threads)
  */
 
 import * as gpu from 'gpucat';
@@ -31,127 +19,177 @@ import * as gpu from 'gpucat';
 const S = gpu.S;
 
 // ---------------------------------------------------------------------------
-// Constants
+// 1. Geometry — a single triangle (3 non-indexed vertices)
 // ---------------------------------------------------------------------------
 
-const N = 512;
+// Positions: three verts of a flat equilateral triangle in XY plane
+const positions = new Float32Array([
+     0.025, -0.025, 0,
+    -0.025,  0.025, 0,
+     0,       0,   0.025,
+]);
 
 // ---------------------------------------------------------------------------
-// 1. Instance world positions (static) — laid out as vec4f (xyz position + w=1)
-//    Distributed uniformly on a sphere shell of radius R.
+// 2. Per-instance attributes (100 000 instances)
 // ---------------------------------------------------------------------------
 
-const R = 20.0;
-const posData = new Float32Array(N * 4);
-for (let i = 0; i < N; i++) {
-    // Fibonacci sphere distribution for even coverage.
-    const phi   = Math.acos(1 - (2 * (i + 0.5)) / N);
-    const theta = Math.PI * (1 + Math.sqrt(5)) * i;
-    const r     = R * (0.3 + 0.7 * Math.random()); // vary depth so culling is interesting
-    posData[i * 4 + 0] = r * Math.sin(phi) * Math.cos(theta);
-    posData[i * 4 + 1] = r * Math.sin(phi) * Math.sin(theta);
-    posData[i * 4 + 2] = r * Math.cos(phi);
-    posData[i * 4 + 3] = 1;
+const INSTANCES = 100_000;
+
+const offsetData           = new Float32Array(INSTANCES * 3);
+const colorData            = new Float32Array(INSTANCES * 4);
+const orientationStartData = new Float32Array(INSTANCES * 4);
+const orientationEndData   = new Float32Array(INSTANCES * 4);
+
+for (let i = 0; i < INSTANCES; i++) {
+    // random offset in unit cube
+    offsetData[i * 3 + 0] = Math.random() - 0.5;
+    offsetData[i * 3 + 1] = Math.random() - 0.5;
+    offsetData[i * 3 + 2] = Math.random() - 0.5;
+
+    // random color (rgba)
+    colorData[i * 4 + 0] = Math.random();
+    colorData[i * 4 + 1] = Math.random();
+    colorData[i * 4 + 2] = Math.random();
+    colorData[i * 4 + 3] = Math.random();
+
+    // random unit quaternion — orientationStart
+    let [x, y, z, w] = [
+        Math.random() * 2 - 1,
+        Math.random() * 2 - 1,
+        Math.random() * 2 - 1,
+        Math.random() * 2 - 1,
+    ];
+    let len = Math.sqrt(x*x + y*y + z*z + w*w);
+    orientationStartData[i * 4 + 0] = x / len;
+    orientationStartData[i * 4 + 1] = y / len;
+    orientationStartData[i * 4 + 2] = z / len;
+    orientationStartData[i * 4 + 3] = w / len;
+
+    // random unit quaternion — orientationEnd
+    [x, y, z, w] = [
+        Math.random() * 2 - 1,
+        Math.random() * 2 - 1,
+        Math.random() * 2 - 1,
+        Math.random() * 2 - 1,
+    ];
+    len = Math.sqrt(x*x + y*y + z*z + w*w);
+    orientationEndData[i * 4 + 0] = x / len;
+    orientationEndData[i * 4 + 1] = y / len;
+    orientationEndData[i * 4 + 2] = z / len;
+    orientationEndData[i * 4 + 3] = w / len;
 }
-const instancePositions = gpu.storage(posData, S.array(S.vec4f()), 'read');
+
+const attrOffset           = gpu.instancedBufferAttribute(offsetData,           S.vec3f(), 12, 0);
+const attrColor            = gpu.instancedBufferAttribute(colorData,            S.vec4f(), 16, 0);
+const attrOrientationStart = gpu.instancedBufferAttribute(orientationStartData, S.vec4f(), 16, 0);
+const attrOrientationEnd   = gpu.instancedBufferAttribute(orientationEndData,   S.vec4f(), 16, 0);
 
 // ---------------------------------------------------------------------------
-// 2. Cull radius — a single f32 the compute shader reads each frame.
-// ---------------------------------------------------------------------------
-
-const cullRadiusData = new Float32Array([14.0]);
-const cullRadius = gpu.storage(cullRadiusData, S.array(S.f32()), 'read');
-
-// ---------------------------------------------------------------------------
-// 3. Indirect buffer — computeWritable so the GPU can write instanceCount.
+// 3. Indirect draw buffer — non-indexed drawIndirect, struct-typed
 //
-//    Layout (as u32 indices):
-//      [0] indexCount    — set once, never changed
-//      [1] instanceCount — written by compute shader each frame
-//      [2] firstIndex    — 0
-//      [3] baseVertex    — 0
-//      [4] firstInstance — 0
+//    layout (u32 slots):
+//      [0] vertexCount    — 3
+//      [1] instanceCount  — written by GPU compute each frame
+//      [2] firstVertex    — 0
+//      [3] firstInstance  — 0
 // ---------------------------------------------------------------------------
 
-const boxSource     = gpu.createBoxGeometry(0.5, 0.5, 0.5);
-const boxIndexCount = (boxSource.index!.data as Uint16Array).length;
+const DrawBufferStruct = gpu.struct('DrawBuffer', {
+    vertexCount:   S.u32(),
+    instanceCount: S.u32(),
+    firstVertex:   S.u32(),
+    firstInstance: S.u32(),
+});
 
-const indirectArgs = new gpu.IndirectStorageBufferAttribute(true, new Uint32Array([
-    boxIndexCount, // [0] indexCount
-    0,             // [1] instanceCount — GPU writes this each frame
-    0,             // [2] firstIndex
-    0,             // [3] baseVertex
-    0,             // [4] firstInstance
-]), { computeWritable: true });
+// Non-indexed, 1 draw.
+const drawBuffer  = new gpu.IndirectStorageBufferAttribute(false, 1);
 
-const indirectNode = indirectArgs.asStorageNode();
+// Struct-typed storage node — mirrors: storage(drawBuffer, drawBufferStruct, drawBuffer.count)
+const drawStorage = gpu.storage(drawBuffer, DrawBufferStruct, 'read_write');
 
 // ---------------------------------------------------------------------------
-// 4. Compute kernel — GPU culling
+// 4. Compute shaders
 //
-//    Dispatch: 1 workgroup of 1 thread (thread 0 runs a For loop over all N).
-//    This keeps the implementation simple without needing atomics.
-//    Thread 0 scans all positions, counts survivors, and writes instanceCount.
+//    computeInit  (1 thread)  — seeds the draw arguments once per frame before
+//                               computeUpdate runs. Resets instanceCount to 0
+//                               so the update can accumulate cleanly (here it
+//                               just overwrites, but the pattern is correct).
+//
+//    computeUpdate (N threads) — each frame, thread 0 calculates the desired
+//                               instanceCount from sin(time) and writes it.
+//                               (No atomics needed — single writer, single slot.)
 // ---------------------------------------------------------------------------
 
-const cullNode = gpu.Fn(() => {
-    const count  = gpu.toVar(gpu.u32(0), 'count');
-    const radius = gpu.toVar(gpu.index(cullRadius, gpu.u32(0)), 'radius');
-
-    gpu.For({ end: N, type: 'u32' }, ({ i }) => {
-        const pos  = gpu.toVar(gpu.index(instancePositions, i), 'pos');
-        // Compute squared distance to avoid a sqrt — compare dist² vs radius².
-        const dx   = pos.x;
-        const dy   = pos.y;
-        const dz   = pos.z;
-        const dist2  = dx.mul(dx).add(dy.mul(dy)).add(dz.mul(dz));
-        const rad2   = radius.mul(radius);
-        gpu.If(dist2.lte(rad2), () => {
-            count.assign(count.add(gpu.u32(1)));
-        });
-    });
-
-    // Write surviving count into indirect[1] = instanceCount.
-    gpu.index(indirectNode, gpu.u32(1)).assign(count);
+const computeInit = gpu.Fn(() => {
+    drawStorage.vertexCount.assign(gpu.u32(3));
+    drawStorage.instanceCount.assign(gpu.u32(0));
+    drawStorage.firstVertex.assign(gpu.u32(0));
+    drawStorage.firstInstance.assign(gpu.u32(0));
 }).compute({ workgroupSize: [1, 1, 1], dispatch: [1] });
 
+const computeUpdate = gpu.Fn(() => {
+    // Only thread 0 writes — avoids needing atomics.
+    gpu.If(gpu.globalId().x.eq(gpu.u32(0)), () => {
+        const halfTime     = gpu.timeElapsed.mul(gpu.f32(0.5)).sin();
+        // map sin ∈ [-1,1] → range 1→0→1 → then pow4 → count
+        const sinPlus1     = halfTime.add(gpu.f32(1));               // [0,2]
+        const raised       = gpu.pow(sinPlus1, gpu.f32(4));           // [0,16]
+        const countF       = raised.mul(gpu.f32(INSTANCES / 16));     // [0, N]
+        const instanceCount = countF.max(gpu.f32(100));               // min 100
+        drawStorage.instanceCount.assign(instanceCount.toU32());
+    });
+}).compute({ workgroupSize: [64, 1, 1], dispatch: [Math.ceil(INSTANCES / 64)] });
+
 // ---------------------------------------------------------------------------
-// 5. Render graph — instanced boxes, indexed by instance_index into posData
+// 5. Render node graph — vertex + fragment shaders
 // ---------------------------------------------------------------------------
 
-const iIdx    = gpu.instanceIndex();
+// Built-in per-vertex position.
+const vtxPos = gpu.attribute('vec3f', 'position');
 
-// World position from the instance positions buffer.
-const instPos = gpu.index(instancePositions, iIdx);
+// Per-instance attributes.
+const offset           = attrOffset;
+const color            = attrColor;
+const orientationStart = attrOrientationStart;
+const orientationEnd   = attrOrientationEnd;
 
-// Vertex position.
-const vtxPos  = gpu.attribute('vec3f', 'position');
-const vtxNorm = gpu.attribute('vec3f', 'normal');
+// Animate: halfTime ∈ [-1, 1]
+const halfTime = gpu.timeElapsed.mul(gpu.f32(0.5)).sin();
 
-const worldPos = gpu.vec4(
-    vtxPos.x.add(instPos.x),
-    vtxPos.y.add(instPos.y),
-    vtxPos.z.add(instPos.z),
-    gpu.f32(1),
+// Oscillate vertex position with offset
+const oscRange     = gpu.abs(halfTime.mul(gpu.f32(2.0)).add(gpu.f32(1.0))).max(gpu.f32(0.5));
+const sphereOsc    = offset.mul(oscRange).add(vtxPos);
+
+// Quaternion rotation: v' = v + 2w(q×v) + 2(q×(q×v))
+//   orientation = normalize(mix(orientationStart, orientationEnd, halfTime))
+const orientation  = gpu.mix(orientationStart, orientationEnd, halfTime.add(gpu.f32(1)).mul(gpu.f32(0.5))).normalize();
+const vcV          = gpu.cross(orientation.xyz, sphereOsc);
+const crossvcV     = gpu.cross(orientation.xyz, vcV);
+const rotated      = vcV.mul(orientation.w.mul(gpu.f32(2))).add(crossvcV.mul(gpu.f32(2)).add(sphereOsc));
+
+// Varyings
+const vPosition = gpu.varying('vec3f', 'vPosition', rotated);
+const vColor    = gpu.varying('vec4f', 'vColor',    color);
+
+// Project to clip space (no model matrix — instances live in camera space units)
+const worldPos4 = gpu.vec4(rotated, gpu.f32(1));
+const viewPos   = gpu.mul(gpu.cameraViewMatrix, worldPos4);
+const clipPos   = gpu.mul(gpu.cameraProjectionMatrix, viewPos);
+
+// Fragment: base color + sin ripple on x and time
+const fragColor = gpu.vec4(
+    vColor.x.add(vPosition.x.mul(gpu.f32(10)).add(gpu.timeElapsed).sin().mul(gpu.f32(0.5))),
+    vColor.y,
+    vColor.z,
+    vColor.w,
 );
-const viewPos = gpu.mul(gpu.cameraViewMatrix, worldPos);
-const clipPos = gpu.mul(gpu.cameraProjectionMatrix, viewPos);
 
-// Simple diffuse lighting.
-const lightDir = gpu.vec3f(0.6, 1.0, 0.8).normalize();
-const vNorm    = gpu.varying('vec3f', 'v_norm', vtxNorm);
-const diffuse  = vNorm.normalize().dot(lightDir).max(gpu.f32(0.15));
-
-// Color: hue based on distance from origin — blue (far) to orange (close).
-const distVal   = gpu.varying('f32', 'v_dist', instPos.xyz.length().div(gpu.f32(R)));
-const r         = distVal.mul(gpu.f32(0.9)).add(gpu.f32(0.1));
-const g         = gpu.f32(0.4).sub(distVal.mul(gpu.f32(0.3)));
-const b         = gpu.f32(1.0).sub(distVal.mul(gpu.f32(0.7)));
-const baseColor = gpu.vec3(r, g, b);
-const litColor  = baseColor.mul(diffuse);
-const finalColor = gpu.vec4(litColor, gpu.f32(1.0));
-
-const material = new gpu.Material({ position: clipPos, color: finalColor });
+const material = new gpu.Material({
+    position: clipPos,
+    color:    fragColor,
+    transparent: true,
+    cullMode: 'none',
+});
 
 // ---------------------------------------------------------------------------
 // 6. Main
@@ -163,20 +201,20 @@ async function main() {
 
     document.body.appendChild(renderer.domElement);
     renderer.setSize(window.innerWidth * devicePixelRatio, window.innerHeight * devicePixelRatio);
-    renderer.clearColor = [0.05, 0.05, 0.1, 1];
+    renderer.clearColor = [0, 0, 0.12, 1];
 
     const scene  = new gpu.Scene();
     const camera = new gpu.PerspectiveCamera(
-        Math.PI / 4,
+        50 * (Math.PI / 180),
         window.innerWidth / window.innerHeight,
         0.1,
-        300,
+        10_000,
     );
-    camera.position[2] = 55;
+    camera.position[0] = 1;
+    camera.position[1] = 1;
+    camera.position[2] = 1;
+    camera.lookAt([0, 0, 0]);
     scene.add(camera);
-    // Static scene — set matrices once after setup.
-    scene.updateWorldMatrix();
-    camera.updateViewMatrix();
 
     window.addEventListener('resize', () => {
         renderer.setSize(window.innerWidth * devicePixelRatio, window.innerHeight * devicePixelRatio);
@@ -184,77 +222,31 @@ async function main() {
         camera.updateProjectionMatrix();
     });
 
-    // Geometry — reuse boxSource.
+    // Geometry — non-indexed triangle, per-instance vertex buffers
     const geo = new gpu.Geometry();
-    geo.attributes.set('position', boxSource.attributes.get('position')!);
-    geo.attributes.set('normal',   boxSource.attributes.get('normal')!);
-    geo.index    = boxSource.index!;
-    geo.indirect = indirectArgs;    // render uses drawIndexedIndirect
+    geo.setAttribute('position', new gpu.BufferAttribute(positions, 'float32x3'));
+    geo.indirect = drawBuffer;   // use drawIndirect
 
     const mesh = new gpu.Mesh(geo, material);
-    // mesh.count is ignored when indirect is set — GPU supplies instanceCount.
     scene.add(mesh);
+
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
 
     const scenePass  = gpu.pass(scene, camera);
     const outputNode = scenePass.getTextureNode();
 
-    await renderer.compile(cullNode);
+    await renderer.compile(computeInit);
+    await renderer.compile(computeUpdate);
     await renderer.compile(outputNode);
 
-    // -------------------------------------------------------------------
-    // UI — cull radius slider
-    // -------------------------------------------------------------------
-
-    let currentRadius = 14.0;
-    let autoAnimate   = true;
-    let t = 0;
-
-    const ui = document.createElement('div');
-    ui.style.cssText = `
-        position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
-        background: rgba(0,0,0,0.6); color: #fff; padding: 12px 20px;
-        border-radius: 8px; font-family: monospace; font-size: 13px;
-        display: flex; flex-direction: column; align-items: center; gap: 8px;
-        pointer-events: all; user-select: none;
-    `;
-
-    const label = document.createElement('span');
-    label.textContent = `cull radius: ${currentRadius.toFixed(1)}  /  ${N} instances`;
-
-    const slider = document.createElement('input');
-    slider.type  = 'range';
-    slider.min   = '0';
-    slider.max   = String(R * 1.2);
-    slider.step  = '0.2';
-    slider.value = String(currentRadius);
-    slider.style.width = '240px';
-
-    slider.addEventListener('input', () => {
-        autoAnimate = false;
-        currentRadius = Number(slider.value);
-        cullRadiusData[0] = currentRadius;
-        cullRadius.needsUpdate = true;
-    });
-
-    ui.appendChild(label);
-    ui.appendChild(slider);
-    document.body.appendChild(ui);
-
     function frame() {
-        if (autoAnimate) {
-            t += 0.01;
-            currentRadius = R * 0.5 + Math.sin(t) * R * 0.5;
-            cullRadiusData[0] = currentRadius;
-            cullRadius.needsUpdate = true;
-            slider.value = currentRadius.toFixed(1);
-        }
-
-        // Dispatch the cull compute first — GPU writes instanceCount into the indirect buffer.
-        renderer.compute(cullNode);
-        // Render — drawIndexedIndirect reads the GPU-written instanceCount.
+        // 1. Seed draw args
+        renderer.compute(computeInit);
+        // 2. GPU writes instanceCount
+        renderer.compute(computeUpdate);
+        // 3. Render — drawIndirect reads GPU-written instanceCount
         renderer.render(outputNode);
-
-        label.textContent = `cull radius: ${currentRadius.toFixed(1)}  /  ${N} instances`;
         requestAnimationFrame(frame);
     }
 
