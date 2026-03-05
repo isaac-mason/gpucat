@@ -53,6 +53,10 @@ export {
     FnNode,
     ParamNode,
     ReturnNode,
+    // wgslFn — raw WGSL function support
+    WgslFnNode,
+    wgslFn,
+    type WgslFnParam,
     // MRT (Multiple Render Targets)
     OutputStructNode,
     MRTNode,

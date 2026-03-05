@@ -37,25 +37,56 @@ import {
     WebGPURenderer,
     renderOutput,
     RawNode,
-    Node,
+    wgslFn,
 } from 'gpucat';
 import { quat, type Euler } from 'mathcat';
 
 // ---------------------------------------------------------------------------
-// Helper: directionToColor
+// Helper: directionToColor using wgslFn
 // ---------------------------------------------------------------------------
 
 /**
  * Encodes a normalized direction vector [-1,1] to RGB color [0,1].
- * dir * 0.5 + 0.5
+ * Demonstrates wgslFn() for raw WGSL function definitions.
  */
-function directionToColor(dir: Node<'vec3f'>): Node<'vec3f'> {
-    return new RawNode<'vec3f'>(
-        'vec3f',
-        '($0) * vec3f(0.5) + vec3f(0.5)',
-        [dir],
-    );
+const directionToColor = wgslFn<'vec3f'>(/* wgsl */ `
+fn directionToColor(dir: vec3f) -> vec3f {
+    return dir * vec3f(0.5) + vec3f(0.5);
 }
+`);
+
+/**
+ * Composite shader: selects one of 5 textures based on UV.x position.
+ * Shows all MRT outputs side-by-side in vertical strips.
+ *
+ * Strips from left to right:
+ *   [0.0-0.2] beauty   - tonemapped final output
+ *   [0.2-0.4] output   - raw linear output
+ *   [0.4-0.6] normal   - view-space normals
+ *   [0.6-0.8] emissive - emissive contribution
+ *   [0.8-1.0] diffuse  - base material color
+ */
+const selectComposite = wgslFn<'vec4f'>(/* wgsl */ `
+fn selectComposite(
+    uv_x: f32,
+    beauty: vec4f,
+    output: vec4f,
+    normal: vec4f,
+    emissive: vec4f,
+    diffuse: vec4f
+) -> vec4f {
+    if (uv_x >= 0.8) {
+        return diffuse;
+    } else if (uv_x >= 0.6) {
+        return emissive;
+    } else if (uv_x >= 0.4) {
+        return normal;
+    } else if (uv_x >= 0.2) {
+        return output;
+    }
+    return beauty;
+}
+`);
 
 // ---------------------------------------------------------------------------
 // Main
@@ -203,14 +234,18 @@ async function main() {
     // [0.6-0.8] Emissive
     // [0.8-1.0] Diffuse
     //
-    // We use nested select() calls to pick the right output based on in.uv.x.
-    // The fullscreen pass provides in.uv as a varying.
-    const compositeOutput = new RawNode<'vec4f'>(
-        'vec4f',
-        // Nested selects: select(false_val, true_val, condition)
-        // Reading right to left: if x >= 0.8 -> diffuse, elif x >= 0.6 -> emissive, etc.
-        'select(select(select(select($0, $1, in.uv.x >= 0.2), $2, in.uv.x >= 0.4), $3, in.uv.x >= 0.6), $4, in.uv.x >= 0.8)',
-        [tonemappedOutput, outputTex, normalTex, emissiveTex, diffuseTex],
+    // Use wgslFn selectComposite to pick the right output based on UV.x.
+    // The fullscreen pass provides `in.uv` as a varying, so we read it via RawNode.
+    const uvX = new RawNode<'f32'>('f32', 'in.uv.x', []);
+
+    // Call the wgslFn composite function
+    const compositeOutput = selectComposite(
+        uvX,
+        tonemappedOutput,
+        outputTex,
+        normalTex,
+        emissiveTex,
+        diffuseTex,
     );
 
     // Final output

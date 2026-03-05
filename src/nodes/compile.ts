@@ -70,6 +70,7 @@ import {
     type NodeKind,
     type ScalarType,
     type NodeUpdateType,
+    type WgslFnNode,
     OutputStructNode,
     MRTNode,
     constLiteral,
@@ -436,6 +437,9 @@ export type CompilerState = {
 
     fnNodes: Map<string, { fn: FnNode<WgslType>; traced: TracedFn }>;
 
+    /** Raw WGSL function nodes — emit their source directly. */
+    wgslFnNodes: Map<string, WgslFnNode<WgslType>>;
+
     // All nodes seen (for expression lookup during generate)
     allNodes: Map<string, Node<WgslType>>;
 
@@ -481,6 +485,7 @@ function createCompilerState(input: RenderInput | ComputeInput): CompilerState {
         storageBindings: {},
         storageNames: new Map(),
         fnNodes: new Map(),
+        wgslFnNodes: new Map(),
         allNodes: new Map(),
         computeStorage: [],
         sequentialNodes: new Set(),
@@ -846,10 +851,35 @@ function setupFnNode(state: CompilerState, fn: FnNode<WgslType>): void {
     for (const node of bodyGraph.nodes.values()) {
         if (node.kind === 'call') {
             const cn = node as CallNode<WgslType>;
-            if (cn.fnNode && !state.fnNodes.has(cn.fnNode.id)) {
-                setupFnNode(state, cn.fnNode);
+            if (cn.fnNode) {
+                setupCallNodeFn(state, cn.fnNode);
             }
         }
+    }
+}
+
+/**
+ * Setup a WgslFnNode — raw WGSL function that gets emitted directly.
+ * Handles includes recursively.
+ */
+function setupWgslFnNode(state: CompilerState, fn: WgslFnNode<WgslType>): void {
+    if (state.wgslFnNodes.has(fn.id)) return;
+    state.wgslFnNodes.set(fn.id, fn);
+
+    // Recursively setup includes
+    for (const include of fn.includes) {
+        setupWgslFnNode(state, include);
+    }
+}
+
+/**
+ * Setup the function node for a CallNode, handling both FnNode and WgslFnNode.
+ */
+function setupCallNodeFn(state: CompilerState, fnNode: FnNode<WgslType> | WgslFnNode<WgslType>): void {
+    if (fnNode.kind === 'wgsl_fn') {
+        setupWgslFnNode(state, fnNode as WgslFnNode<WgslType>);
+    } else if (fnNode.kind === 'fn' && !state.fnNodes.has(fnNode.id)) {
+        setupFnNode(state, fnNode as FnNode<WgslType>);
     }
 }
 
@@ -865,8 +895,8 @@ function setupNodeRecursive(state: CompilerState, node: Node<WgslType>): void {
     switch (node.kind) {
         case 'call': {
             const cn = node as CallNode<WgslType>;
-            if (cn.fnNode && !state.fnNodes.has(cn.fnNode.id)) {
-                setupFnNode(state, cn.fnNode);
+            if (cn.fnNode) {
+                setupCallNodeFn(state, cn.fnNode);
             }
             break;
         }
@@ -1055,9 +1085,17 @@ function emitBindingsWGSL(state: CompilerState): string {
 /** returns user-defined function declarations */
 function getCodes(state: CompilerState): string {
     const lines: string[] = [];
+
+    // Emit raw WGSL functions (wgslFn) first, as regular FnNodes may depend on them
+    for (const wgslFn of state.wgslFnNodes.values()) {
+        lines.push(wgslFn.wgslSource);
+    }
+
+    // Emit traced JS functions (Fn)
     for (const { fn, traced } of state.fnNodes.values()) {
         lines.push(emitFnDecl(state, fn, traced));
     }
+
     return lines.join('\n\n');
 }
 
@@ -1719,8 +1757,8 @@ const compilerDefs: Record<NodeKind, NodeCompilerDef> = {
     call: {
         isStatement: false, isLeaf: false,
         setup: (node: CallNode<WgslType>, state: CompilerState) => {
-            if (node.fnNode && !state.fnNodes.has(node.fnNode.id)) {
-                setupFnNode(state, node.fnNode);
+            if (node.fnNode) {
+                setupCallNodeFn(state, node.fnNode);
             }
         },
         generate: (node: CallNode<WgslType>, state: CompilerState) => {

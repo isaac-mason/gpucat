@@ -180,6 +180,7 @@ export type NodeKind =
     | 'break'
     | 'continue'
     | 'fn'
+    | 'wgsl_fn'
     | 'param'
     | 'return'
     | 'output_struct';
@@ -1197,12 +1198,12 @@ export class BinopNode<T extends WgslType> extends Node<T> {
 }
 
 export class CallNode<T extends WgslType> extends Node<T> {
-    readonly fnNode?: FnNode<WgslType>;
+    readonly fnNode?: FnNode<WgslType> | WgslFnNode<WgslType>;
     constructor(
         type: T,
         readonly fn: string,
         readonly args: Node<WgslType>[],
-        fnNode?: FnNode<WgslType>,
+        fnNode?: FnNode<WgslType> | WgslFnNode<WgslType>,
     ) {
         super(computeId('call', { type, fn, args: args.map((n) => n.id) }), 'call', type);
         this.fnNode = fnNode;
@@ -1604,6 +1605,184 @@ export class FnNode<T extends WgslType> extends Node<T> {
         }
         return { params, body: stack, output };
     }
+}
+
+// ---------------------------------------------------------------------------
+// WgslFnNode — raw WGSL function parsed from source string
+// ---------------------------------------------------------------------------
+
+/**
+ * Parsed parameter from WGSL function signature.
+ */
+export type WgslFnParam = {
+    name: string;
+    type: WgslType;
+};
+
+/**
+ * WgslFnNode — holds raw WGSL function code parsed from a string.
+ * Unlike FnNode which traces a JS function, this emits the WGSL directly.
+ *
+ * Created via wgslFn() helper.
+ *
+ * kind: 'wgsl_fn'
+ */
+export class WgslFnNode<T extends WgslType> extends Node<T> {
+    /** WGSL function name parsed from source. */
+    readonly fnName: string;
+    /** Parameter list parsed from source. */
+    readonly params: WgslFnParam[];
+    /** The complete raw WGSL function source. */
+    readonly wgslSource: string;
+    /** Other WgslFnNodes this function depends on (includes). */
+    readonly includes: WgslFnNode<WgslType>[];
+
+    /** Type flag for runtime checking. */
+    readonly isWgslFnNode = true;
+
+    constructor(
+        fnName: string,
+        returnType: T,
+        params: WgslFnParam[],
+        wgslSource: string,
+        includes: WgslFnNode<WgslType>[] = [],
+    ) {
+        super(`wgslfn_${fnName}`, 'wgsl_fn', returnType);
+        this.fnName = fnName;
+        this.params = params;
+        this.wgslSource = wgslSource;
+        this.includes = includes;
+    }
+}
+
+// WGSL function signature regex:
+// fn name(param1: type1, param2: type2, ...) -> returnType { ... }
+const WGSL_FN_REGEX = /^\s*fn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*([\s\S]*?)\s*\)\s*(?:->\s*([a-zA-Z_][a-zA-Z0-9_<>]*))?\s*\{/;
+const WGSL_PARAM_REGEX = /([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*([a-zA-Z_][a-zA-Z0-9_<>]*)/g;
+
+/**
+ * Parse a WGSL function signature from source code.
+ * Returns { name, returnType, params } or throws if parsing fails.
+ */
+function parseWgslFnSignature(source: string): {
+    name: string;
+    returnType: WgslType;
+    params: WgslFnParam[];
+} {
+    const match = source.match(WGSL_FN_REGEX);
+    if (!match) {
+        throw new Error(
+            `[gpucat] wgslFn: Could not parse WGSL function signature. ` +
+            `Expected: fn name(params) -> returnType { ... }\n` +
+            `Got: ${source.slice(0, 100)}...`
+        );
+    }
+
+    const name = match[1];
+    const paramsStr = match[2];
+    const returnType = (match[3] ?? 'void') as WgslType;
+
+    const params: WgslFnParam[] = [];
+    let paramMatch: RegExpExecArray | null;
+    while ((paramMatch = WGSL_PARAM_REGEX.exec(paramsStr)) !== null) {
+        params.push({
+            name: paramMatch[1],
+            type: paramMatch[2] as WgslType,
+        });
+    }
+
+    return { name, returnType, params };
+}
+
+/**
+ * Create a WGSL function from raw WGSL source code.
+ *
+ * The source must be a complete WGSL function definition:
+ * ```wgsl
+ * fn myFunc(a: f32, b: vec3f) -> vec4f {
+ *     return vec4f(b * a, 1.0);
+ * }
+ * ```
+ *
+ * Returns a callable that creates CallNodes when invoked with arguments.
+ * Arguments can be passed as:
+ * - Positional: `myFunc(aNode, bNode)`
+ * - Named object: `myFunc({ a: aNode, b: bNode })`
+ *
+ * @param source - Complete WGSL function source code
+ * @param includes - Other wgslFn functions this function depends on
+ *
+ * @example
+ * const aces = wgslFn(`
+ *     fn acesToneMapping(color: vec3f) -> vec3f {
+ *         let c = color;
+ *         return clamp((c * (2.51 * c + 0.03)) / (c * (2.43 * c + 0.59) + 0.14), vec3f(0.0), vec3f(1.0));
+ *     }
+ * `);
+ *
+ * // Use in node graph:
+ * const tonemapped = aces(linearColor);
+ * // Or with named params:
+ * const tonemapped = aces({ color: linearColor });
+ */
+export function wgslFn<T extends WgslType = WgslType>(
+    source: string,
+    includes: ((...args: Node<WgslType>[]) => CallNode<WgslType>)[] = [],
+): (...args: Node<WgslType>[] | [Record<string, Node<WgslType>>]) => CallNode<T> {
+    const { name, returnType, params } = parseWgslFnSignature(source);
+
+    // Extract WgslFnNode from callable includes
+    const includeFnNodes: WgslFnNode<WgslType>[] = [];
+    for (const inc of includes) {
+        const fnNode = (inc as { fnNode?: WgslFnNode<WgslType> }).fnNode;
+        if (fnNode && fnNode.isWgslFnNode) {
+            includeFnNodes.push(fnNode);
+        }
+    }
+
+    const fnNode = new WgslFnNode<T>(
+        name,
+        returnType as T,
+        params,
+        source.trim(),
+        includeFnNodes,
+    );
+
+    // Return a callable that creates CallNodes
+    const callable = (...args: Node<WgslType>[] | [Record<string, Node<WgslType>>]): CallNode<T> => {
+        let resolvedArgs: Node<WgslType>[];
+
+        // Check if called with named object { paramName: node }
+        if (args.length === 1 && args[0] !== null && typeof args[0] === 'object' && !('type' in args[0])) {
+            const namedArgs = args[0] as Record<string, Node<WgslType>>;
+            resolvedArgs = params.map((p) => {
+                const arg = namedArgs[p.name];
+                if (!arg) {
+                    throw new Error(
+                        `[gpucat] wgslFn '${name}': Missing argument '${p.name}'. ` +
+                        `Expected params: ${params.map(p => p.name).join(', ')}`
+                    );
+                }
+                return arg;
+            });
+        } else {
+            // Positional args
+            resolvedArgs = args as Node<WgslType>[];
+            if (resolvedArgs.length !== params.length) {
+                throw new Error(
+                    `[gpucat] wgslFn '${name}': Expected ${params.length} arguments, got ${resolvedArgs.length}. ` +
+                    `Params: ${params.map(p => `${p.name}: ${p.type}`).join(', ')}`
+                );
+            }
+        }
+
+        return new CallNode<T>(returnType as T, name, resolvedArgs, fnNode);
+    };
+
+    // Attach fnNode for include resolution
+    (callable as unknown as { fnNode: WgslFnNode<T> }).fnNode = fnNode;
+
+    return callable;
 }
 
 // ---------------------------------------------------------------------------
@@ -2450,7 +2629,7 @@ export const instanceIndex = (): BuiltinNode<'u32'> => builtin('instance_index',
 
 export const positionClip: Node<'vec4f'> = (() => {
     const pos = attribute(d.vec3f, 'position');
-    const localPos = vec4(pos, new ConstNode('f32', 1.0));
+    const localPos = vec4(pos, f32(1.0));
 
     const worldPos = mul(modelWorldMatrix, localPos);
 

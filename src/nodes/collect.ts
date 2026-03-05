@@ -147,6 +147,12 @@ export function getChildren(node: Node<WgslType>): Node<WgslType>[] {
             return [];
         }
 
+        case 'wgsl_fn': {
+            // WgslFnNode holds raw WGSL — its includes are handled during compilation.
+            // No graph deps to traverse here.
+            return [];
+        }
+
         case 'output_struct': {
             // OutputStructNode/MRTNode — children are the member nodes
             // The node's getChildren() method handles this
