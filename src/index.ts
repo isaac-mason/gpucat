@@ -240,17 +240,6 @@ export {
     type TextureSource,
 } from './scene/texture';
 
-// ---------------------------------------------------------------------------
-// Layer 3 — Renderer
-// ---------------------------------------------------------------------------
-
-export { BufferCache } from './renderer/buffers';
-export { PipelineCache, makePipelineKey, type PipelineEntry } from './renderer/pipeline';
-export {
-    buildRenderGroupBindGroup,
-    buildObjectGroupBindGroup,
-} from './renderer/bindgroups';
-export { collectDraws, type DrawCall } from './renderer/collect';
 export { WebGPURenderer, type WebGPURendererOptions } from './renderer/renderer';
 export { RenderTarget, RenderTargetTexture, type RenderTargetOptions } from './renderer/render-target';
 export { pass, PassNode, type PassNodeOptions } from './nodes/pass-node';

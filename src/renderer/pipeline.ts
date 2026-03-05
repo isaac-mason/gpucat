@@ -137,12 +137,12 @@ export class PipelineCache {
         samples: number,
         format: GPUTextureFormat = this.format,
     ): Promise<PipelineEntry> {
-        const positionGraph: Node<WgslType> = material.vertexNode;
-        const colorGraph: Node<WgslType> = material.fragmentNode;
+        const vertex: Node<WgslType> = material.vertexNode;
+        const fragment: Node<WgslType> = material.fragmentNode;
 
         const cr = compile({
-            position: positionGraph,
-            color: colorGraph,
+            position: vertex,
+            color: fragment,
             mask:  material.maskNode,
             depth: material.depthNode,
         });

@@ -186,7 +186,7 @@ export const NodeUpdateType = {
     OBJECT: 'object',
 } as const;
 
-export type NodeUpdateTypeValue = typeof NodeUpdateType[keyof typeof NodeUpdateType];
+export type NodeUpdateType = typeof NodeUpdateType[keyof typeof NodeUpdateType];
 
 // ---------------------------------------------------------------------------
 // Fn layout types
@@ -237,7 +237,7 @@ export class Node<T extends WgslType> {
      * The update type for this node's update() method.
      * Determines when the update callback is invoked (none/frame/render/object).
      */
-    updateType: NodeUpdateTypeValue = NodeUpdateType.NONE;
+    updateType: NodeUpdateType = NodeUpdateType.NONE;
 
     /**
      * The update callback. Invoked based on updateType.
@@ -263,7 +263,7 @@ export class Node<T extends WgslType> {
      * @param updateType - When to invoke: 'frame', 'render', or 'object'.
      * @returns this for method chaining.
      */
-    onUpdate(callback: (context: RenderUpdateContext | ObjectUpdateContext) => unknown, updateType: NodeUpdateTypeValue): this {
+    onUpdate(callback: (context: RenderUpdateContext | ObjectUpdateContext) => unknown, updateType: NodeUpdateType): this {
         this.updateType = updateType;
         this.update = callback;
         return this;
@@ -749,7 +749,7 @@ export class UniformGroupNode {
     readonly name: string;
     readonly shared: boolean;
     readonly order: number;
-    readonly updateType: NodeUpdateTypeValue | null;
+    readonly updateType: NodeUpdateType | null;
 
     /** Dirty flag — set to true to trigger re-upload. Automatically cleared after upload. */
     needsUpdate: boolean = false;
@@ -760,7 +760,7 @@ export class UniformGroupNode {
     /** Type-testing flag. */
     readonly isUniformGroup: boolean = true;
 
-    constructor(name: string, shared: boolean, order: number, updateType: NodeUpdateTypeValue | null = null) {
+    constructor(name: string, shared: boolean, order: number, updateType: NodeUpdateType | null = null) {
         this.name = name;
         this.shared = shared;
         this.order = order;
@@ -778,11 +778,11 @@ export class UniformGroupNode {
 }
 
 /** Create a per-object (non-shared) uniform group with order=1. */
-export const uniformGroup = (name: string, order = 1, updateType: NodeUpdateTypeValue | null = null) =>
+export const uniformGroup = (name: string, order = 1, updateType: NodeUpdateType | null = null) =>
     new UniformGroupNode(name, false, order, updateType);
 
 /** Create a shared uniform group with configurable order (default 0). */
-export const sharedUniformGroup = (name: string, order = 0, updateType: NodeUpdateTypeValue | null = null) =>
+export const sharedUniformGroup = (name: string, order = 0, updateType: NodeUpdateType | null = null) =>
     new UniformGroupNode(name, true, order, updateType);
 
 /**
