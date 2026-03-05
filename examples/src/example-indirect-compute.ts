@@ -8,7 +8,7 @@
  * draw buffer. No CPU readback is required — the GPU updates the draw arguments
  * in place each frame.
  *
- * This demonstrates IndirectBuffer.asStorageNode(): the same GPUBuffer used by
+ * This demonstrates IndirectStorageBufferAttribute.asStorageNode(): the same GPUBuffer used by
  * drawIndexedIndirect is bound as a writable storage buffer in the compute pass.
  *
  *   indirectArgs.asStorageNode()              →  StorageNode<'u32'> (storageType: 'array<u32>')
@@ -76,13 +76,13 @@ const cullRadius = gpu.storage(cullRadiusData, S.array(S.f32()), 'read');
 const boxSource     = gpu.createBoxGeometry(0.5, 0.5, 0.5);
 const boxIndexCount = (boxSource.index!.data as Uint16Array).length;
 
-const indirectArgs = new gpu.IndirectBuffer(true, {
-    indexCount:    boxIndexCount,
-    instanceCount: 0,   // GPU writes this each frame
-    firstIndex:    0,
-    baseVertex:    0,
-    firstInstance: 0,
-}, { computeWritable: true });
+const indirectArgs = new gpu.IndirectStorageBufferAttribute(true, new Uint32Array([
+    boxIndexCount, // [0] indexCount
+    0,             // [1] instanceCount — GPU writes this each frame
+    0,             // [2] firstIndex
+    0,             // [3] baseVertex
+    0,             // [4] firstInstance
+]), { computeWritable: true });
 
 const indirectNode = indirectArgs.asStorageNode();
 
@@ -126,7 +126,6 @@ const cullNode = gpu.compute({
 // ---------------------------------------------------------------------------
 
 const iIdx    = gpu.instanceIndex();
-const camNode = gpu.camera();
 
 // World position from the instance positions buffer.
 const instPos = gpu.index(instancePositions, iIdx);
@@ -141,8 +140,8 @@ const worldPos = gpu.vec4(
     vtxPos.z.add(instPos.z),
     gpu.f32(1),
 );
-const viewPos = gpu.mul(camNode.viewMatrix, worldPos);
-const clipPos = gpu.mul(camNode.projectionMatrix, viewPos);
+const viewPos = gpu.mul(gpu.cameraViewMatrix, worldPos);
+const clipPos = gpu.mul(gpu.cameraProjectionMatrix, viewPos);
 
 // Simple diffuse lighting.
 const lightDir = gpu.vec3f(0.6, 1.0, 0.8).normalize();

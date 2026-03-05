@@ -87,14 +87,12 @@ const spinOffset = gpu.instancedBufferAttribute(spinOffsets, S.f32(), 4, 0);
 
 // Animate rotation: time.elapsed drives a per-instance spin via the storage matrix +
 // a small additional rotation sourced from the instancedBufferAttribute offset.
-const time      = gpu.time();
-const tElapsed  = time.elapsed;
 
 // Derive a per-instance Y-axis rotation node from the spin offset attribute.
 // We fold it into the final clip position rather than modifying the storage matrix.
 // Rotation angle = elapsed * speed + spinOffset
 const speed   = gpu.f32(0.8);
-const angle   = tElapsed.mul(speed).add(spinOffset);
+const angle   = gpu.timeElapsed.mul(speed).add(spinOffset);
 const cosA    = angle.cos();
 const sinA    = angle.sin();
 
@@ -109,20 +107,19 @@ const rotY  = gpu.mat4(
     gpu.vec4(zero,  zero, zero,          one),
 );
 
-const cam       = gpu.camera();
 const pos       = gpu.attribute('vec3f', 'position');
 const localPos  = gpu.vec4(pos, gpu.f32(1));
 
 // Final transform: camera * storageMatrix * rotY * localPos
 const worldPos  = gpu.mul(modelMat, gpu.mul(rotY, localPos));
-const viewPos   = gpu.mul(cam.viewMatrix, worldPos);
-const clipPos   = gpu.mul(cam.projectionMatrix, viewPos);
+const viewPos   = gpu.mul(gpu.cameraViewMatrix, worldPos);
+const clipPos   = gpu.mul(gpu.cameraProjectionMatrix, viewPos);
 
 // Pass color to fragment via varying.
 const vColor    = gpu.varying('vec4f', 'v_color', rawColor);
 
 // Pulse brightness with time
-const pulse     = gpu.f32(0.08).mul(gpu.f32(1).add(tElapsed.mul(gpu.f32(3)).sin()));
+const pulse     = gpu.f32(0.08).mul(gpu.f32(1).add(gpu.timeElapsed.mul(gpu.f32(3)).sin()));
 const finalColor = gpu.vec4(
     vColor.rgb.add(gpu.vec3f(1, 1, 1).mul(pulse)),
     gpu.f32(1),

@@ -4,8 +4,64 @@
  * No WebGPU imports. The renderer layer is responsible for creating GPUBuffers.
  */
 
-import type { IndirectBuffer } from './indirect-buffer.js';
+import type { IndirectStorageBufferAttribute } from './indirect-storage-buffer-attribute.js';
 import type { Box3, Sphere } from 'mathcat';
+
+// ---------------------------------------------------------------------------
+// GpuTypedArray — re-exported locally so geometry.ts stays self-contained.
+// Keep in sync with nodes.ts GpuTypedArray.
+// ---------------------------------------------------------------------------
+
+type GpuTypedArray =
+    | Float32Array
+    | Int32Array
+    | Uint32Array
+    | Int16Array
+    | Uint16Array
+    | Int8Array
+    | Uint8Array;
+
+// ---------------------------------------------------------------------------
+// StorageBufferAttribute — base for GPU-storage-accessible typed arrays.
+//
+// Mirrors Three.js StorageBufferAttribute (extends BufferAttribute, adds
+// isStorageBufferAttribute flag + array / itemSize / count / version).
+// The renderer uses isStorageBufferAttribute to determine STORAGE GPU usage.
+// ---------------------------------------------------------------------------
+
+export class StorageBufferAttribute {
+    readonly isStorageBufferAttribute: true = true;
+
+    /** CPU-side typed array. The primary data store — mirrors Three.js `.array`. */
+    array: GpuTypedArray;
+
+    /** Number of data-type components per element. */
+    readonly itemSize: number;
+
+    /** Number of elements (array.length / itemSize). */
+    readonly count: number;
+
+    /**
+     * Monotonically incremented whenever the user sets `needsUpdate = true`.
+     * The renderer compares this against its cached version to decide whether
+     * to re-upload. Starts at 0.
+     */
+    version: number = 0;
+
+    constructor(array: GpuTypedArray, itemSize: number) {
+        this.array    = array;
+        this.itemSize = itemSize;
+        this.count    = array.length / itemSize;
+    }
+
+    /**
+     * Setting needsUpdate = true increments `version`, causing the renderer to
+     * re-upload the entire `array` on the next frame.
+     */
+    set needsUpdate(_: true) {
+        this.version++;
+    }
+}
 
 // ---------------------------------------------------------------------------
 // BufferAttribute — a single named vertex buffer
@@ -67,7 +123,7 @@ export class Geometry {
      * drawIndirect / drawIndexedIndirect using this buffer instead of
      * draw / drawIndexed. `mesh.count` is ignored when this is set.
      */
-    indirect: IndirectBuffer | undefined = undefined;
+    indirect: IndirectStorageBufferAttribute | undefined = undefined;
     /**
      * Axis-aligned bounding box in local space.
      * Set by createBoxGeometry / createSphereGeometry / createPlaneGeometry.

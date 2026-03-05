@@ -43,17 +43,14 @@ const instanceColor = gpu.instancedBufferAttribute(instanceColors, S.vec3f(), 12
 
 const vColor = gpu.varying('vec3f', 'v_color', instanceColor);
 
-const cam = gpu.camera();
 const pos = gpu.attribute('vec3f', 'position');
 const localPos = gpu.vec4(pos, gpu.f32(1.0));
 const worldPos = gpu.mul(instanceTransform, localPos);
-const viewPos  = gpu.mul(cam.viewMatrix, worldPos);
-const clipPos  = gpu.mul(cam.projectionMatrix, viewPos);
-
-const time = gpu.time();
+const viewPos  = gpu.mul(gpu.cameraViewMatrix, worldPos);
+const clipPos  = gpu.mul(gpu.cameraProjectionMatrix, viewPos);
 
 // pulse: gentle brightness oscillation each second
-const tScaled = time.elapsed.mul(gpu.f32(2.0));
+const tScaled = gpu.timeElapsed.mul(gpu.f32(2.0));
 const pulse = gpu.f32(0.12).mul(
     gpu.f32(1.0).add(tScaled.sin()),
 );

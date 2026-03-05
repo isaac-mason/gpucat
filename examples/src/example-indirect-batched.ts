@@ -4,18 +4,16 @@
  * CPU-driven indirect rendering — BatchedMesh style.
  *
  * A single merged geometry holds the vertex and index data for both a box and
- * a sphere. Two Mesh objects share the same merged BufferAttributes but each
- * carries its own IndirectBuffer that selects a sub-range of the index buffer
- * via firstIndex + indexCount. This is the same pattern THREE.BatchedMesh uses
- * internally: one large GPU buffer, many draw calls each reading a slice.
+ * a sphere. One Mesh and one IndirectBuffer with drawCount=2 issue both
+ * sub-mesh draw calls from a single GPU buffer. Draw 0 selects the box
+ * sub-range; draw 1 selects the sphere sub-range.
  *
  *   merged index buffer:  [ ...box indices... | ...sphere indices... ]
- *                            ↑ firstIndex=0        ↑ firstIndex=boxIndexCount
+ *                           draw 0: firstIndex=0        draw 1: firstIndex=boxIdxCount
  *
- * Both meshes use the same instanced transform storage buffer — each instance
- * carries a 'shapeId' component. Instances with shapeId=0 render as boxes,
- * shapeId=1 as spheres. The CPU decides this at setup time via instanceCount
- * and firstInstance in the indirect buffers (no GPU culling needed).
+ * Both draws use the same instanced transform storage buffer — instances are
+ * split into two ranges. Draw 0 uses firstInstance=0 for box instances; draw 1
+ * uses firstInstance=boxCount for sphere instances.
  *
  * A slider in the UI lets you move the split point at runtime, changing how
  * many instances are boxes vs spheres — demonstrating live IndirectBuffer
@@ -76,7 +74,7 @@ mergedGeo.attributes.set('normal',   new gpu.BufferAttribute(mergedNorm, 'float3
 mergedGeo.index = new gpu.IndexAttribute(mergedIdx);
 
 // ---------------------------------------------------------------------------
-// 2. Instance data — transforms + per-instance shape color
+// 2. Instance data — transforms + per-instance hue color
 // ---------------------------------------------------------------------------
 
 const instanceMatrices = new Float32Array(TOTAL * 16);
@@ -109,18 +107,16 @@ const instanceTransform = gpu.mat4(col0, col1, col2, col3);
 const instanceHue = gpu.instancedBufferAttribute(instanceHues, S.f32(), 4, 0);
 
 // ---------------------------------------------------------------------------
-// 3. Node graph — shared material for both meshes
+// 3. Node graph — shared material for both sub-meshes
 // ---------------------------------------------------------------------------
 
-const cam     = gpu.camera();
 const pos     = gpu.attribute('vec3f', 'position');
 const norm    = gpu.attribute('vec3f', 'normal');
-const timeNode = gpu.time();
 
 const localPos = gpu.vec4(pos, gpu.f32(1.0));
 const worldPos = gpu.mul(instanceTransform, localPos);
-const viewPos  = gpu.mul(cam.viewMatrix, worldPos);
-const clipPos  = gpu.mul(cam.projectionMatrix, viewPos);
+const viewPos  = gpu.mul(gpu.cameraViewMatrix, worldPos);
+const clipPos  = gpu.mul(gpu.cameraProjectionMatrix, viewPos);
 
 // World-space normal (no non-uniform scale so instanceTransform is fine)
 const worldNorm = gpu.vec4(norm, gpu.f32(0.0));
@@ -134,7 +130,7 @@ const vHue      = gpu.varying('f32',   'v_hue',  instanceHue);
 const diffuse   = vNorm.normalize().dot(lightDir).max(gpu.f32(0.15));
 
 // HSV-like color from hue: oscillate through red→yellow→green→cyan→blue→magenta
-const pulse     = timeNode.elapsed.mul(gpu.f32(0.4)).sin().mul(gpu.f32(0.05)).add(gpu.f32(1.0));
+const pulse     = gpu.timeElapsed.mul(gpu.f32(0.4)).sin().mul(gpu.f32(0.05)).add(gpu.f32(1.0));
 const r = vHue.mul(gpu.f32(Math.PI * 2)).sin().mul(gpu.f32(0.5)).add(gpu.f32(0.5));
 const g = vHue.mul(gpu.f32(Math.PI * 2)).add(gpu.f32(Math.PI * 2 / 3)).sin().mul(gpu.f32(0.5)).add(gpu.f32(0.5));
 const b = vHue.mul(gpu.f32(Math.PI * 2)).add(gpu.f32(Math.PI * 4 / 3)).sin().mul(gpu.f32(0.5)).add(gpu.f32(0.5));
@@ -145,35 +141,33 @@ const finalColor = gpu.vec4(litColor, gpu.f32(1.0));
 const material = new gpu.Material({ position: clipPos, color: finalColor });
 
 // ---------------------------------------------------------------------------
-// 4. IndirectBuffers — box and sphere sub-mesh ranges
-//    Both start with half of TOTAL instances each.
+// 4. One IndirectStorageBufferAttribute with drawCount=2
+//    draw 0 → box sub-range    (firstIndex=0,          baseVertex=0,         firstInstance=0)
+//    draw 1 → sphere sub-range (firstIndex=boxIdxCount, baseVertex=boxVerts, firstInstance=TOTAL/2)
+//
+//    Indexed stride = 5 u32s per draw:
+//      [draw*5+0] indexCount
+//      [draw*5+1] instanceCount
+//      [draw*5+2] firstIndex
+//      [draw*5+3] baseVertex
+//      [draw*5+4] firstInstance
 // ---------------------------------------------------------------------------
 
-// boxGeo: draws the box sub-range (firstIndex=0, baseVertex=0)
-const boxGeo = new gpu.Geometry();
-boxGeo.attributes.set('position', mergedGeo.attributes.get('position')!);
-boxGeo.attributes.set('normal',   mergedGeo.attributes.get('normal')!);
-boxGeo.index = mergedGeo.index;
-boxGeo.indirect = new gpu.IndirectBuffer(true, {
-    indexCount:    boxIdxCount,
-    instanceCount: TOTAL / 2,
-    firstIndex:    0,
-    baseVertex:    0,
-    firstInstance: 0,
-});
+const indirectData = new Uint32Array(10); // 2 draws × 5 u32s
+// draw 0 — box
+indirectData[0] = boxIdxCount;   // indexCount
+indirectData[1] = TOTAL / 2;     // instanceCount
+indirectData[2] = 0;             // firstIndex
+indirectData[3] = 0;             // baseVertex
+indirectData[4] = 0;             // firstInstance
+// draw 1 — sphere
+indirectData[5] = sphIdxCount;   // indexCount
+indirectData[6] = TOTAL / 2;     // instanceCount
+indirectData[7] = boxIdxCount;   // firstIndex
+indirectData[8] = boxVertCount;  // baseVertex
+indirectData[9] = TOTAL / 2;     // firstInstance
 
-// sphGeo: draws the sphere sub-range (firstIndex=boxIdxCount, baseVertex=boxVertCount)
-const sphGeo = new gpu.Geometry();
-sphGeo.attributes.set('position', mergedGeo.attributes.get('position')!);
-sphGeo.attributes.set('normal',   mergedGeo.attributes.get('normal')!);
-sphGeo.index = mergedGeo.index;
-sphGeo.indirect = new gpu.IndirectBuffer(true, {
-    indexCount:    sphIdxCount,
-    instanceCount: TOTAL / 2,
-    firstIndex:    boxIdxCount,
-    baseVertex:    boxVertCount,
-    firstInstance: TOTAL / 2,  // spheres are the second half of the instance array
-});
+mergedGeo.indirect = new gpu.IndirectStorageBufferAttribute(true, indirectData);
 
 // ---------------------------------------------------------------------------
 // 5. Main
@@ -206,10 +200,9 @@ async function main() {
         camera.updateProjectionMatrix();
     });
 
-    const boxMesh = new gpu.Mesh(boxGeo, material);
-    const sphMesh = new gpu.Mesh(sphGeo, material);
-    scene.add(boxMesh);
-    scene.add(sphMesh);
+    // One mesh, one merged geometry, one IndirectBuffer (drawCount=2).
+    const mesh = new gpu.Mesh(mergedGeo, material);
+    scene.add(mesh);
 
     const scenePass = gpu.pass(scene, camera);
     const outputNode = scenePass.getTextureNode();
@@ -217,6 +210,8 @@ async function main() {
     // -----------------------------------------------------------------------
     // UI — slider to split instances between boxes and spheres at runtime
     // -----------------------------------------------------------------------
+
+    const indirect = mergedGeo.indirect!;
 
     const ui = document.createElement('div');
     ui.style.cssText = `
@@ -241,11 +236,13 @@ async function main() {
         const boxCount = Number(slider.value);
         const sphCount = TOTAL - boxCount;
 
-        // Re-assign instance counts and firstInstance offsets.
-        // Boxes always use the first boxCount instances; spheres use the rest.
-        boxGeo.indirect!.instanceCount = boxCount;
-        sphGeo.indirect!.instanceCount = sphCount;
-        sphGeo.indirect!.firstInstance = boxCount;
+        // Draw 0 = boxes: update instanceCount (data[1], stride=5, draw 0 → offset 1).
+        indirect.data[1] = boxCount;
+
+        // Draw 1 = spheres: update instanceCount (data[6]) and firstInstance (data[9]).
+        indirect.data[6] = sphCount;
+        indirect.data[9] = boxCount;
+        indirect.needsUpdate = true;
 
         label.textContent = `boxes: ${boxCount}   spheres: ${sphCount}`;
     });

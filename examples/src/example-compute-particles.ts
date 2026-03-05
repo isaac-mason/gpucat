@@ -93,8 +93,6 @@ const updateParticles = gpu.compute({
 // ---------------------------------------------------------------------------
 
 const iIdx    = gpu.instanceIndex();
-const camNode = gpu.camera();
-const timeNode = gpu.time();
 
 // Read this particle's world position directly from the storage buffer.
 // renderer.compute() ensures the buffer is updated before the render pass each frame.
@@ -108,8 +106,8 @@ const worldPos = gpu.vec4(
     vtxPos.z.add(particlePos.z),
     gpu.f32(1),
 );
-const viewPos = gpu.mul(camNode.viewMatrix, worldPos);
-const clipPos = gpu.mul(camNode.projectionMatrix, viewPos);
+const viewPos = gpu.mul(gpu.cameraViewMatrix, worldPos);
+const clipPos = gpu.mul(gpu.cameraProjectionMatrix, viewPos);
 
 // Color: fade by lifetime (w), add a soft blue-white hue.
 const lifetime = gpu.varying('f32', 'v_life', particlePos.w);
@@ -120,7 +118,7 @@ const a = lifetime.clamp(gpu.f32(0), gpu.f32(1));
 const particleColor = gpu.vec4(r, g, b, a);
 
 // Subtle time-driven pulse on brightness.
-const pulse = timeNode.elapsed.mul(gpu.f32(2)).sin().mul(gpu.f32(0.05)).add(gpu.f32(1));
+const pulse = gpu.timeElapsed.mul(gpu.f32(2)).sin().mul(gpu.f32(0.05)).add(gpu.f32(1));
 const finalColor = gpu.vec4(
     particleColor.rgb.mul(pulse),
     particleColor.a,

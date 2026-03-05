@@ -61,8 +61,6 @@ async function main() {
         angle += dt * 0.8;
 
         quat.fromEuler(mesh.quaternion, [0, angle, 0.2 * Math.sin(angle * 0.5), 'yxz'] as Euler);
-
-        // Mesh rotates every frame — update its world matrix.
         mesh.updateWorldMatrix();
 
         renderer.render(outputNode);

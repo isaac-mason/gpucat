@@ -574,15 +574,23 @@ export class WebGPURenderer {
                     const idxBuf = this.buffers.uploadIndex(mesh.geometry.index);
                     gpuPass.setIndexBuffer(idxBuf, mesh.geometry.index.format);
                     if (mesh.geometry.indirect) {
-                        const indBuf = this.buffers.uploadIndirect(mesh.geometry.indirect);
-                        gpuPass.drawIndexedIndirect(indBuf, 0);
+                        const indirect = mesh.geometry.indirect;
+                        const indBuf   = this.buffers.uploadIndirect(indirect);
+                        const byteStride = indirect.stride * 4; // stride u32s × 4 bytes
+                        for (let d = 0; d < indirect.drawCount; d++) {
+                            gpuPass.drawIndexedIndirect(indBuf, d * byteStride);
+                        }
                     } else {
                         gpuPass.drawIndexed(mesh.geometry.index.data.length, mesh.count);
                     }
                 } else {
                     if (mesh.geometry.indirect) {
-                        const indBuf = this.buffers.uploadIndirect(mesh.geometry.indirect);
-                        gpuPass.drawIndirect(indBuf, 0);
+                        const indirect = mesh.geometry.indirect;
+                        const indBuf   = this.buffers.uploadIndirect(indirect);
+                        const byteStride = indirect.stride * 4; // stride u32s × 4 bytes
+                        for (let d = 0; d < indirect.drawCount; d++) {
+                            gpuPass.drawIndirect(indBuf, d * byteStride);
+                        }
                     } else {
                         gpuPass.draw(mesh.geometry.vertexCount, mesh.count);
                     }

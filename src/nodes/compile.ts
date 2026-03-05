@@ -47,22 +47,42 @@
 
 import {
     StackNode,
+    type AssignNode,
     type AttributeNode,
+    type BinopNode,
+    type BreakNode,
+    type BuiltinNode,
     type CallNode,
+    type CondNode,
+    type ConstNode,
+    type ConstructNode,
+    type ContinueNode,
+    type FieldNode,
     type FnNode,
     type ForNode,
     type IfNode,
+    type IndexNode,
     type InstancedBufferAttributeNode,
     type Node,
     type ParamDesc,
+    type ParamNode,
+    type RawNode,
+    type ReturnNode,
     type SamplerNode,
     type StorageNode,
     type StructNode,
     type TextureNode,
     type UniformNode,
+    type VarNode,
     type VaryingNode,
     type WhileNode,
     type WgslType,
+    type NodeKind,
+    type ScalarType,
+    constLiteral,
+    buildForHeader,
+    lookupStructDef,
+    lookupStructDefByName,
 } from './nodes.js';
 import { collectGraph, getChildren } from './collect.js';
 import { type StructDef, type StructSchema } from './nodes.js';
@@ -213,6 +233,52 @@ type NodeData = {
 
 // Traced fn data stored alongside NodeData (keyed on fn.id in fnNodes map)
 type TracedFn = ReturnType<FnNode<WgslType>['trace']>;
+
+// ---------------------------------------------------------------------------
+// compilerDefs — per-kind compilation behaviour
+// ---------------------------------------------------------------------------
+
+type NodeOf<K extends NodeKind> =
+    K extends 'const'                    ? ConstNode<WgslType>                    :
+    K extends 'uniform'                  ? UniformNode<WgslType>                  :
+    K extends 'attribute'                ? AttributeNode<WgslType>                :
+    K extends 'instanced_buffer_attribute' ? InstancedBufferAttributeNode<WgslType> :
+    K extends 'storage'                  ? StorageNode<WgslType>                  :
+    K extends 'texture'                  ? TextureNode                            :
+    K extends 'sampler'                  ? SamplerNode                            :
+    K extends 'varying'                  ? VaryingNode<WgslType>                  :
+    K extends 'binop'                    ? BinopNode<WgslType>                    :
+    K extends 'call'                     ? CallNode<WgslType>                     :
+    K extends 'raw'                      ? RawNode<WgslType>                      :
+    K extends 'assign'                   ? Node<WgslType>                         :
+    K extends 'construct'                ? Node<WgslType>                         :
+    K extends 'struct'                   ? StructNode                             :
+    K extends 'field'                    ? FieldNode<WgslType>                    :
+    K extends 'index'                    ? IndexNode<WgslType>                    :
+    K extends 'builtin'                  ? Node<WgslType>                         :
+    K extends 'stack'                    ? StackNode                              :
+    K extends 'cond'                     ? CondNode<WgslType>                     :
+    K extends 'var'                      ? VarNode<WgslType>                      :
+    K extends 'if'                       ? IfNode                                 :
+    K extends 'for'                      ? ForNode                                :
+    K extends 'while'                    ? WhileNode                              :
+    K extends 'break'                    ? BreakNode                              :
+    K extends 'continue'                 ? ContinueNode                           :
+    K extends 'fn'                       ? FnNode<WgslType>                       :
+    K extends 'param'                    ? ParamNode<WgslType>                    :
+    K extends 'return'                   ? ReturnNode<WgslType>                   :
+    Node<WgslType>;
+
+type NodeCompilerDef<K extends NodeKind = NodeKind> = {
+    isStatement: boolean;
+    isLeaf: boolean;
+    setup: ((node: NodeOf<K>, builder: WgslBuilder) => void) | null;
+    generate: (node: NodeOf<K>, builder: WgslBuilder) => string | null;
+};
+
+// Forward-declare WgslBuilder for compilerDefs (class is defined below)
+// eslint-disable-next-line prefer-const
+let compilerDefs: Record<NodeKind, NodeCompilerDef>;
 
 // ---------------------------------------------------------------------------
 // Builder input discriminated union
@@ -510,8 +576,8 @@ export class WgslBuilder {
             this._setupNode(child);
         }
 
-        // Delegate resource registration to the node class
-        node.setup(this);
+        // Delegate resource registration to compilerDefs
+        compilerDefs[node.kind].setup?.(node as never, this);
     }
 
     _setupFnNode(fn: FnNode<WgslType>): void {
@@ -641,60 +707,23 @@ export class WgslBuilder {
 
     _generateNode(node: Node<WgslType>): string | null {
         const data = this.getDataFromNode(node);
+        const def  = compilerDefs[node.kind];
 
         // CSE hit: already emitted as a var
         if (data.propertyName !== undefined) return data.propertyName;
 
-        // Check if this is a statement-level node (should not be CSE'd)
-        const isStatement = (
-            node.kind === 'var' ||
-            node.kind === 'assign' ||
-            node.kind === 'if' ||
-            node.kind === 'for' ||
-            node.kind === 'while' ||
-            node.kind === 'break' ||
-            node.kind === 'continue' ||
-            node.kind === 'return' ||
-            node.kind === 'stack'
-        );
+        if (def.isStatement || def.isLeaf) return def.generate(node as never, this);
 
-        // Leaf nodes that produce a bare identifier (no computation) — skip CSE.
-        // Re-emitting "camera" or "in.position" is free; extracting it to a let
-        // binding would produce confusing output and break tests that check for
-        // the literal identifier in the generated code.
-        const isLeafIdentifier = (
-            node.kind === 'const' ||
-            node.kind === 'attribute' ||
-            node.kind === 'instanced_buffer_attribute' ||
-            node.kind === 'builtin' ||
-            node.kind === 'uniform' ||
-            node.kind === 'storage' ||
-            node.kind === 'texture' ||
-            node.kind === 'sampler' ||
-            node.kind === 'param' ||
-            node.kind === 'varying' ||
-            node.kind === 'struct' ||
-            node.kind === 'fn'
-        );
-
-        if (!isStatement && !isLeafIdentifier && (data.usageCount ?? 0) > 1) {
+        if ((data.usageCount ?? 0) > 1) {
             // CSE: emit a var and cache its name
-            const snippet = this._generateNodeExpr(node);
+            const snippet = def.generate(node as never, this)!;
             const varName = `_v${this.varCounter++}`;
             this.addLineFlowCode(`let ${varName} = ${snippet}`);
             data.propertyName = varName;
             return varName;
         }
 
-        return this._generateNodeExpr(node);
-    }
-
-    // -----------------------------------------------------------------------
-    // _generateNodeExpr — delegate to node.generate(this)
-    // -----------------------------------------------------------------------
-
-    _generateNodeExpr(node: Node<WgslType>): string | null {
-        return node.generate(this);
+        return def.generate(node as never, this);
     }
 
     // -----------------------------------------------------------------------
@@ -1094,6 +1123,345 @@ export class WgslBuilder {
         return null;
     }
 }
+
+// ---------------------------------------------------------------------------
+// compilerDefs — per-kind compilation behaviour (populated after WgslBuilder)
+// ---------------------------------------------------------------------------
+
+compilerDefs = {
+    const: {
+        isStatement: false, isLeaf: true,
+        setup: null,
+        generate: (node: ConstNode<WgslType>, _b: WgslBuilder) => constLiteral(node.type, node.value),
+    },
+    uniform: {
+        isStatement: false, isLeaf: true,
+        setup: (node: UniformNode<WgslType>, b: WgslBuilder) => {
+            if (node.group === 'material' && !b.uniformNodes.has(node.uniformId)) {
+                b.uniformNodes.set(node.uniformId, node as unknown as UniformNode<WgslType>);
+            }
+            const uniformDef = lookupStructDefByName(node.type);
+            if (uniformDef) b._registerStructDef(uniformDef);
+        },
+        generate: (node: UniformNode<WgslType>, _b: WgslBuilder) =>
+            node.group === 'material' ? `materialUniforms.${node.uniformId}` : node.uniformId,
+    },
+    attribute: {
+        isStatement: false, isLeaf: true,
+        setup: (node: AttributeNode<WgslType>, b: WgslBuilder) => {
+            if (!b.attributes.has(node.name)) {
+                const totalLoc = b.attributes.size + b.instancedAttrs.length;
+                b.attributes.set(node.name, { kind: 'geometry', name: node.name, type: node.type, location: totalLoc });
+            }
+        },
+        generate: (node: AttributeNode<WgslType>, _b: WgslBuilder) => `in.${node.name}`,
+    },
+    instanced_buffer_attribute: {
+        isStatement: false, isLeaf: true,
+        setup: (node: InstancedBufferAttributeNode<WgslType>, b: WgslBuilder) => {
+            if (!b.instancedAttrNames.has(node.id)) {
+                const totalLoc = b.attributes.size + b.instancedAttrs.length;
+                const name = `_inst${b.instancedAttrs.length}`;
+                b.instancedAttrNames.set(node.id, name);
+                b.instancedAttrs.push({ kind: 'instanced', node: node as unknown as InstancedBufferAttributeNode<WgslType>, name, type: node.type, location: totalLoc });
+            }
+        },
+        generate: (node: InstancedBufferAttributeNode<WgslType>, b: WgslBuilder) => {
+            const name = b.instancedAttrNames.get(node.id);
+            return name ? `in.${name}` : `/* missing instanced attr ${node.id} */`;
+        },
+    },
+    storage: {
+        isStatement: false, isLeaf: true,
+        setup: (node: StorageNode<WgslType>, b: WgslBuilder) => {
+            if (!b.storageNodes.has(node.id)) {
+                if (b.input.kind === 'compute') {
+                    const idx = b.input.node.storage.findIndex((s) => s.id === node.id);
+                    const name = idx >= 0 ? `_cs${idx}` : `_cs${b.storageNodes.size}`;
+                    b.storageNodes.set(node.id, node as unknown as StorageNode<WgslType>);
+                    b.storageNames.set(node.id, name);
+                } else {
+                    const name = `_stor${b.storageNodes.size}`;
+                    b.storageNodes.set(node.id, node as unknown as StorageNode<WgslType>);
+                    b.storageNames.set(node.id, name);
+                }
+            }
+            const storageDef = lookupStructDefByName(node.type);
+            if (storageDef) b._registerStructDef(storageDef);
+        },
+        generate: (node: StorageNode<WgslType>, b: WgslBuilder) => b.storageNames.get(node.id) ?? node.id,
+    },
+    texture: {
+        isStatement: false, isLeaf: true,
+        setup: (node: TextureNode, b: WgslBuilder) => {
+            if (!b.textureNodes.has(node.textureId)) {
+                b.textureNodes.set(node.textureId, node);
+            }
+        },
+        generate: (node: TextureNode, _b: WgslBuilder) => `${node.textureId}_tex`,
+    },
+    sampler: {
+        isStatement: false, isLeaf: true,
+        setup: (node: SamplerNode, b: WgslBuilder) => {
+            if (!b.samplerNodes.has(node.samplerId)) {
+                b.samplerNodes.set(node.samplerId, node);
+            }
+        },
+        generate: (node: SamplerNode, _b: WgslBuilder) => `${node.samplerId}_samp`,
+    },
+    varying: {
+        isStatement: false, isLeaf: true,
+        setup: (node: VaryingNode<WgslType>, b: WgslBuilder) => {
+            if (!b.varyings.has(node.name)) {
+                b.varyings.set(node.name, { name: node.name, type: node.type, location: b.varyings.size });
+            }
+            b._setupNode(node.source);
+        },
+        generate: (node: VaryingNode<WgslType>, b: WgslBuilder) => {
+            if (b.shaderStage === 'fragment') {
+                const varyingData = b.getDataFromNode(node as unknown as Node<WgslType>, 'fragment');
+                if (varyingData.propertyName === undefined) {
+                    b.flowNodeFromShaderStage('vertex', node.source);
+                    varyingData.propertyName = `in.${node.name}`;
+                }
+                return `in.${node.name}`;
+            }
+            return `in.${node.name}`;
+        },
+    },
+    binop: {
+        isStatement: false, isLeaf: false,
+        setup: null,
+        generate: (node: BinopNode<WgslType>, b: WgslBuilder) => {
+            const l = b._generateNode(node.left) ?? '/* missing */';
+            const r = b._generateNode(node.right) ?? '/* missing */';
+            return `(${l} ${node.op} ${r})`;
+        },
+    },
+    call: {
+        isStatement: false, isLeaf: false,
+        setup: (node: CallNode<WgslType>, b: WgslBuilder) => {
+            if (node.fnNode && !b.fnNodes.has(node.fnNode.id)) {
+                b._setupFnNode(node.fnNode);
+            }
+        },
+        generate: (node: CallNode<WgslType>, b: WgslBuilder) => {
+            const argExprs = node.args.map((a) => b._generateNode(a) ?? '/* missing */');
+            if (node.fn === 'negate' && argExprs.length === 1) return `(-${argExprs[0]})`;
+            if ((node.fn === 'f32' || node.fn === 'i32' || node.fn === 'u32') && argExprs.length === 1) {
+                return `${node.fn}(${argExprs[0]})`;
+            }
+            return `${node.fn}(${argExprs.join(', ')})`;
+        },
+    },
+    raw: {
+        isStatement: false, isLeaf: false,
+        setup: null,
+        generate: (node: RawNode<WgslType>, b: WgslBuilder) => {
+            const depExprs = node.deps.map((d) => b._generateNode(d) ?? '/* missing */');
+            return node.wgsl.replace(/\$(\d+)/g, (_, i) => depExprs[parseInt(i, 10)] ?? `/* dep${i} */`);
+        },
+    },
+    assign: {
+        isStatement: true, isLeaf: false,
+        setup: null,
+        generate: (node: AssignNode, b: WgslBuilder) => {
+            const tgt = b._generateNode(node.target) ?? '/* missing */';
+            const val = b._generateNode(node.value) ?? '/* missing */';
+            b.addLineFlowCode(`${tgt} = ${val}`);
+            return null;
+        },
+    },
+    construct: {
+        isStatement: false, isLeaf: false,
+        setup: null,
+        generate: (node: ConstructNode<WgslType>, b: WgslBuilder) => {
+            const argExprs = node.args.map((a) => b._generateNode(a) ?? '/* missing */');
+            return `${node.type}(${argExprs.join(', ')})`;
+        },
+    },
+    struct: {
+        isStatement: false, isLeaf: true,
+        setup: (node: StructNode, b: WgslBuilder) => {
+            const def = lookupStructDef(node);
+            if (def) {
+                b._registerStructDef(def);
+            } else if (!b.structNodes.has(node.type)) {
+                b.structNodes.set(node.type, node);
+            }
+        },
+        generate: (node: StructNode, _b: WgslBuilder) => `/* struct ${node.type} */`,
+    },
+    field: {
+        isStatement: false, isLeaf: false,
+        setup: null,
+        generate: (node: FieldNode<WgslType>, b: WgslBuilder) => {
+            const obj = b._generateNode(node.object) ?? '/* missing */';
+            return `${obj}.${node.fieldName}`;
+        },
+    },
+    index: {
+        isStatement: false, isLeaf: false,
+        setup: null,
+        generate: (node: IndexNode<WgslType>, b: WgslBuilder) => {
+            const arr = b._generateNode(node.array) ?? '/* missing */';
+            const idx = b._generateNode(node.index) ?? '/* missing */';
+            return `${arr}[${idx}]`;
+        },
+    },
+    builtin: {
+        isStatement: false, isLeaf: true,
+        setup: (node: BuiltinNode<WgslType>, b: WgslBuilder) => {
+            const CAMERA_FIELDS = new Set([
+                'cameraProjectionMatrix', 'cameraViewMatrix', 'cameraPosition',
+                'cameraNear', 'cameraFar',
+            ]);
+            const TIME_FIELDS = new Set(['timeElapsed', 'timeDelta']);
+            const MESH_FIELDS = new Set(['meshModelMatrix', 'meshNormalMatrix']);
+            if (CAMERA_FIELDS.has(node.builtinKind)) {
+                b.builtinsUsed.add('camera');
+            } else if (TIME_FIELDS.has(node.builtinKind)) {
+                b.builtinsUsed.add('time');
+            } else if (MESH_FIELDS.has(node.builtinKind)) {
+                b.builtinsUsed.add('mesh');
+            } else {
+                b.builtinsUsed.add(node.builtinKind);
+            }
+        },
+        generate: (node: BuiltinNode<WgslType>, b: WgslBuilder) => {
+            const BUILTIN_VAR: Record<string, string> = {
+                cameraProjectionMatrix: 'cameraProjectionMatrix',
+                cameraViewMatrix:       'cameraViewMatrix',
+                cameraPosition:         'cameraPosition',
+                cameraNear:             'cameraNear',
+                cameraFar:              'cameraFar',
+                timeElapsed:            'timeElapsed',
+                timeDelta:              'timeDelta',
+                meshModelMatrix:        'meshModelMatrix',
+                meshNormalMatrix:       'meshNormalMatrix',
+                mesh:           'mesh',
+                instance_index: 'instance_index',
+                instance_data:  'instanceData',
+                vertex_index:   'vertex_index',
+            };
+            const BUILTIN_VERTEX_INPUT = new Set(['instance_index', 'vertex_index']);
+            if (b.shaderStage === 'compute') return node.builtinKind;
+            if (BUILTIN_VERTEX_INPUT.has(node.builtinKind)) return `in.${BUILTIN_VAR[node.builtinKind] ?? node.builtinKind}`;
+            return BUILTIN_VAR[node.builtinKind] ?? node.builtinKind;
+        },
+    },
+    stack: {
+        isStatement: true, isLeaf: false,
+        setup: null,
+        generate: (node: StackNode, b: WgslBuilder) => {
+            for (const stmt of node.body) {
+                b._buildNode(stmt);
+            }
+            return null;
+        },
+    },
+    cond: {
+        isStatement: false, isLeaf: false,
+        setup: null,
+        generate: (node: CondNode<WgslType>, b: WgslBuilder) => {
+            const condExpr = b._generateNode(node.condition) ?? '/* missing */';
+            const trueExpr = b._generateNode(node.ifTrue) ?? '/* missing */';
+            const falseExpr = node.ifFalse
+                ? b._generateNode(node.ifFalse) ?? '/* missing */'
+                : `${node.type}()`;
+            return `select(${falseExpr}, ${trueExpr}, ${condExpr})`;
+        },
+    },
+    var: {
+        isStatement: true, isLeaf: false,
+        setup: null,
+        generate: (node: VarNode<WgslType>, b: WgslBuilder) => {
+            const name = b.getVarFromNode(node as unknown as Node<WgslType>, node.varName, node.type);
+            const initExpr = b._generateNode(node.init) ?? '/* missing */';
+            b.addLineFlowCode(`${name} = ${initExpr}`);
+            return name;
+        },
+    },
+    if: {
+        isStatement: true, isLeaf: false,
+        setup: null,
+        generate: (node: IfNode, b: WgslBuilder) => {
+            const condExpr = b._generateNode(node.condition) ?? '/* missing */';
+            b.addFlowCode(`    if (${condExpr}) {\n`);
+            b._emitStackIntoFlow(node.thenBody, '        ');
+            if (node.elseBody) {
+                b.addFlowCode(`    } else {\n`);
+                b._emitStackIntoFlow(node.elseBody, '        ');
+            }
+            b.addFlowCode(`    }\n`);
+            return null;
+        },
+    },
+    for: {
+        isStatement: true, isLeaf: false,
+        setup: null,
+        generate: (node: ForNode, b: WgslBuilder) => {
+            const iName = `i_${b.forCounter++}`;
+            const idxData = b.getDataFromNode(node.indexVar as unknown as Node<WgslType>);
+            idxData.propertyName = iName;
+            const getScalarExpr = (v: Node<WgslType> | number, _type: ScalarType) =>
+                typeof v === 'number'
+                    ? constLiteral(_type, v)
+                    : b._generateNode(v as Node<WgslType>) ?? '/* missing */';
+            const header = buildForHeader(node.range, iName, getScalarExpr);
+            b.addFlowCode(`    ${header} {\n`);
+            b._emitStackIntoFlow(node.body, '        ');
+            b.addFlowCode(`    }\n`);
+            return null;
+        },
+    },
+    while: {
+        isStatement: true, isLeaf: false,
+        setup: null,
+        generate: (node: WhileNode, b: WgslBuilder) => {
+            const condExpr = b._generateNode(node.condition) ?? '/* missing */';
+            b.addFlowCode(`    while (${condExpr}) {\n`);
+            b._emitStackIntoFlow(node.body, '        ');
+            b.addFlowCode(`    }\n`);
+            return null;
+        },
+    },
+    break: {
+        isStatement: true, isLeaf: false,
+        setup: null,
+        generate: (_node: BreakNode, b: WgslBuilder) => {
+            b.addLineFlowCode('break');
+            return null;
+        },
+    },
+    continue: {
+        isStatement: true, isLeaf: false,
+        setup: null,
+        generate: (_node: ContinueNode, b: WgslBuilder) => {
+            b.addLineFlowCode('continue');
+            return null;
+        },
+    },
+    fn: {
+        isStatement: false, isLeaf: true,
+        setup: null,
+        generate: (node: FnNode<WgslType>, _b: WgslBuilder) => `/* fn ${node.type} */`,
+    },
+    param: {
+        isStatement: false, isLeaf: true,
+        setup: null,
+        generate: (node: ParamNode<WgslType>, _b: WgslBuilder) => node.paramName ?? `p${node.paramIndex}`,
+    },
+    return: {
+        isStatement: true, isLeaf: false,
+        setup: null,
+        generate: (node: ReturnNode<WgslType>, b: WgslBuilder) => {
+            const valExpr = b._generateNode(node.value) ?? '/* missing */';
+            b.addLineFlowCode(`return ${valExpr}`);
+            return null;
+        },
+    },
+} as unknown as Record<NodeKind, NodeCompilerDef>;
 
 // ---------------------------------------------------------------------------
 // std140 layout helpers — only used by WgslBuilder._buildUniformBlock

@@ -134,6 +134,13 @@ export {
     localIndex,
     workgroupId,
     numWorkgroups,
+    cameraProjectionMatrix,
+    cameraViewMatrix,
+    cameraPosition,
+    cameraNear,
+    cameraFar,
+    timeElapsed,
+    timeDelta,
 } from './nodes/nodes.js';
 
 // Color
@@ -173,16 +180,15 @@ export {
     Geometry,
     BufferAttribute,
     IndexAttribute,
+    StorageBufferAttribute,
     createBoxGeometry,
     createSphereGeometry,
     createPlaneGeometry,
 } from './scene/geometry.js';
 
 export {
-    IndirectBuffer,
-    type DrawIndirectArgs,
-    type DrawIndexedIndirectArgs,
-} from './scene/indirect-buffer.js';
+    IndirectStorageBufferAttribute,
+} from './scene/indirect-storage-buffer-attribute.js';
 
 export {
     Material,
