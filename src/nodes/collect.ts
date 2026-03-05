@@ -23,7 +23,7 @@ import type {
     VarNode,
     WhileNode,
     WgslType,
-} from './nodes.js';
+} from './nodes';
 
 // ---------------------------------------------------------------------------
 // getChildren — returns direct dependency nodes for any node kind
@@ -38,7 +38,7 @@ export function getChildren(node: Node<WgslType>): Node<WgslType>[] {
         case 'const':
         case 'uniform':
         case 'attribute':
-        case 'instanced_buffer_attribute':
+        case 'buffer_attribute':
         case 'storage':
         case 'texture':
         case 'sampler':
@@ -199,9 +199,3 @@ export function mergeGraphs(...graphs: NodeGraph[]): Map<string, Node<WgslType>>
     }
     return merged;
 }
-
-/**
- * @deprecated Use `getChildren` instead.
- * Kept as an alias for backward compatibility with existing code and tests.
- */
-export const depsOf = getChildren;

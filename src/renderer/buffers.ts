@@ -7,9 +7,9 @@
  * also busts the cache (new WeakMap entry).
  */
 
-import type { BufferAttribute, IndexAttribute } from '../scene/geometry.js';
-import type { GpuTypedArray, StorageNode, WgslType } from '../nodes/nodes.js';
-import type { IndirectStorageBufferAttribute } from '../scene/indirect-storage-buffer-attribute.js';
+import type { BufferAttribute, IndexAttribute } from '../scene/geometry';
+import type { GpuTypedArray, StorageNode, WgslType } from '../nodes/nodes';
+import type { IndirectStorageBufferAttribute } from 'src/scene/geometry';
 // ---------------------------------------------------------------------------
 // BufferCache — vertex + index buffers
 // ---------------------------------------------------------------------------
@@ -36,6 +36,12 @@ export class BufferCache {
      */
     private readonly dataToIndirect: WeakMap<Uint32Array, IndirectStorageBufferAttribute> = new WeakMap();
 
+    // Stats counters (approximate — tracks allocations, not deallocations).
+    private _vertexCount = 0;
+    private _indexCount = 0;
+    private _storageCount = 0;
+    private _rawCount = 0;
+
     constructor(device: GPUDevice) {
         this.device = device;
     }
@@ -58,6 +64,7 @@ export class BufferCache {
                 usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
             });
             this.vertexMap.set(attr, buf);
+            this._vertexCount++;
             this.device.queue.writeBuffer(buf, 0, attr.data.buffer as ArrayBuffer, attr.data.byteOffset, attr.data.byteLength);
             attr.needsUpdate = false;
         } else if (attr.needsUpdate) {
@@ -82,6 +89,7 @@ export class BufferCache {
                 usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
             });
             this.indexMap.set(attr, buf);
+            this._indexCount++;
             this.device.queue.writeBuffer(buf, 0, attr.data.buffer as ArrayBuffer, attr.data.byteOffset, attr.data.byteLength);
             attr.needsUpdate = false;
         } else if (attr.needsUpdate) {
@@ -108,6 +116,7 @@ export class BufferCache {
             buf?.destroy();
             buf = this.device.createBuffer({ size: byteLength, usage });
             this.rawMap.set(key, buf);
+            this._rawCount++;
         }
 
         this.device.queue.writeBuffer(buf, 0, data.buffer as ArrayBuffer, data.byteOffset, data.byteLength);
@@ -144,26 +153,21 @@ export class BufferCache {
      * (full upload) or when node.updateRanges is non-empty (partial upload).
      * Automatically calls node.clearUpdateRanges() after a partial upload.
      *
-     * Special case: if the node's data array is the same Uint32Array as an
-     * IndirectStorageBufferAttribute (registered via uploadIndirect), the
-     * IndirectStorageBufferAttribute's GPUBuffer is returned and registered in storageMap so the
+     * Special case: if the node is backed by an IndirectStorageBufferAttribute,
+     * the IndirectStorageBufferAttribute's GPUBuffer is returned and registered in storageMap so the
      * compute shader binds to the same buffer that drawIndirect reads.
      */
     uploadStorage(node: StorageNode<WgslType>): GPUBuffer {
-        if (node.data === null) {
-            // Released node — GPU buffer must already exist; just return it.
-            const entry = this.storageMap.get(node);
-            if (!entry) throw new Error('[gpucat] BufferCache.uploadStorage: node has been released before its buffer was created.');
-            return entry.buf;
-        }
+        const arr = node.value.array;
 
-        // Primary check: if this StorageNode was created by IndirectStorageBufferAttribute.asStorageNode(),
+        // Primary check: if this StorageNode is backed by an IndirectStorageBufferAttribute,
         // use uploadIndirect to get (or create) the shared STORAGE|INDIRECT|COPY_DST buffer.
         // This must run before the dataToIndirect check because uploadIndirect populates
         // dataToIndirect — and compute dispatches happen before issueDraws, so dataToIndirect
         // would otherwise be empty on the first frame.
-        if (node._indirectOwner) {
-            const indBuf = this.uploadIndirect(node._indirectOwner);
+        const indirectAttr = node.indirectAttribute;
+        if (indirectAttr) {
+            const indBuf = this.uploadIndirect(indirectAttr);
             const entry = this.storageMap.get(node);
             if (!entry || entry.buf !== indBuf) {
                 this.storageMap.set(node, { buf: indBuf, version: node.version });
@@ -173,10 +177,19 @@ export class BufferCache {
             return indBuf;
         }
 
+        // If array is null, CPU memory was released via onUpload — return existing buffer.
+        if (!arr) {
+            const entry = this.storageMap.get(node);
+            if (!entry) {
+                throw new Error('[gpucat] uploadStorage: node.array is null but buffer was never created');
+            }
+            return entry.buf;
+        }
+
         // Fallback: check if this node's Uint32Array is shared with an
         // IndirectStorageBufferAttribute that was already uploaded (e.g. render ran first).
-        if (node.data instanceof Uint32Array) {
-            const indirect = this.dataToIndirect.get(node.data as Uint32Array);
+        if (arr instanceof Uint32Array) {
+            const indirect = this.dataToIndirect.get(arr);
             if (indirect) {
                 const indBuf = this.uploadIndirect(indirect);
                 // Register / refresh in storageMap so the compiler can find it.
@@ -191,7 +204,7 @@ export class BufferCache {
             }
         }
 
-        const byteLength = alignTo4(node.data.byteLength);
+        const byteLength = alignTo4(arr.byteLength);
         const entry = this.storageMap.get(node);
 
         // Create buffer if it doesn't exist or is too small.
@@ -207,9 +220,15 @@ export class BufferCache {
                 size: byteLength,
                 usage: storageUsage,
             });
+            if (!entry) this._storageCount++;
             // Full upload on creation.
-            this.device.queue.writeBuffer(buf, 0, node.data.buffer as ArrayBuffer, node.data.byteOffset, node.data.byteLength);
+            this.device.queue.writeBuffer(buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
             this.storageMap.set(node, { buf, version: node.version });
+
+            // Call onUpload after initial upload (Three.js pattern).
+            // Typically used to release CPU memory via `attr.array = null`.
+            node.value.onUpload?.();
+
             return buf;
         }
 
@@ -217,17 +236,17 @@ export class BufferCache {
 
         if (node.updateRanges.length > 0) {
             // Partial upload — ranges are flat component indices; convert to bytes.
-            const bytesPerComponent = node.data.BYTES_PER_ELEMENT;
+            const bytesPerComponent = arr.BYTES_PER_ELEMENT;
             for (const { start, count } of node.updateRanges) {
                 const byteOffset = start * bytesPerComponent;
                 const byteCount  = count * bytesPerComponent;
-                this.device.queue.writeBuffer(buf, byteOffset, node.data.buffer as ArrayBuffer, node.data.byteOffset + byteOffset, byteCount);
+                this.device.queue.writeBuffer(buf, byteOffset, arr.buffer as ArrayBuffer, arr.byteOffset + byteOffset, byteCount);
             }
             node.clearUpdateRanges();
             entry.version = node.version;
         } else if (node.version !== entry.version) {
             // Full re-upload.
-            this.device.queue.writeBuffer(buf, 0, node.data.buffer as ArrayBuffer, node.data.byteOffset, node.data.byteLength);
+            this.device.queue.writeBuffer(buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
             entry.version = node.version;
         }
 
@@ -243,18 +262,22 @@ export class BufferCache {
      */
     uploadIndirect(indirect: IndirectStorageBufferAttribute): GPUBuffer {
         const entry = this.indirectMap.get(indirect);
+        const arr = indirect.array;
 
         if (!entry) {
+            if (!arr) {
+                throw new Error('[gpucat] uploadIndirect: indirect.array is null — cannot upload');
+            }
             const buf = this.device.createBuffer({
-                size: indirect.array.byteLength, // 16 or 20 — already u32-aligned
+                size: arr.byteLength, // 16 or 20 — already u32-aligned
                 usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST,
             });
-            this.device.queue.writeBuffer(buf, 0, indirect.array.buffer as ArrayBuffer, indirect.array.byteOffset, indirect.array.byteLength);
+            this.device.queue.writeBuffer(buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
             this.indirectMap.set(indirect, { buf, version: indirect.version });
 
             // Register the data→indirect reverse-lookup so uploadStorage can detect
             // that a StorageNode backed by this Uint32Array should reuse this buffer.
-            this.dataToIndirect.set(indirect.array as Uint32Array, indirect);
+            this.dataToIndirect.set(arr as Uint32Array, indirect);
 
             return buf;
         }
@@ -262,7 +285,10 @@ export class BufferCache {
         // Buffers may be written by the GPU — skip CPU re-upload unless version
         // was explicitly bumped (e.g. initial seed values).
         if (indirect.version !== entry.version) {
-            this.device.queue.writeBuffer(entry.buf, 0, indirect.array.buffer as ArrayBuffer, indirect.array.byteOffset, indirect.array.byteLength);
+            if (!arr) {
+                throw new Error('[gpucat] uploadIndirect: indirect.array is null — cannot re-upload');
+            }
+            this.device.queue.writeBuffer(entry.buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
             entry.version = indirect.version;
         }
 
@@ -278,12 +304,36 @@ export class BufferCache {
         return this.indirectMap.get(indirect)?.buf;
     }
 
+    // -----------------------------------------------------------------------
+    // Stats — for Inspector memory tab
+    // -----------------------------------------------------------------------
+
+    /**
+     * Returns approximate buffer counts and byte totals tracked by this cache.
+     * Vertex/index/storage counts are tracked via parallel Sets.
+     */
+    getStats(): BufferCacheStats {
+        return {
+            vertexCount: this._vertexCount,
+            indexCount: this._indexCount,
+            storageCount: this._storageCount,
+            rawCount: this._rawCount,
+        };
+    }
+
     destroy(): void {
         // WeakMaps don't have iteration — buffers are GC'd with their keys.
         // Explicit destruction of raw buffers would require a separate registry;
         // for now we rely on device loss / page reload to clean up.
     }
 }
+
+export type BufferCacheStats = {
+    vertexCount: number;
+    indexCount: number;
+    storageCount: number;
+    rawCount: number;
+};
 
 // ---------------------------------------------------------------------------
 // Helpers

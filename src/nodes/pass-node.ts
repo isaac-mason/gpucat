@@ -2,7 +2,7 @@
  * pass-node.ts — PassNode: renders a Scene into an off-screen RenderTarget and
  * exposes the result as texture nodes that can feed into post-processing graphs.
  *
- * Mirrors three.js's PassNode / pass() API:
+ * Mirrors three's PassNode / pass() API:
  *
  *   const scenePass = pass(scene, camera);
  *
@@ -10,18 +10,27 @@
  *   const viewZ = scenePass.getViewZNode();            // camera-space Z from depth RT
  *   const ld    = scenePass.getLinearDepthNode();      // linear depth [0,1]
  *
- *   renderPipeline.outputNode = color;
+ *   renderer.render(color);
  *
  * RenderTarget lifecycle
  * ----------------------
  * The PassNode lazily allocates its color + depth textures on the first render and
- * auto-resizes when the renderer output dimensions change.  The pipeline calls
- * _ensureTarget(device, w, h) before rendering the scene.
+ * auto-resizes when the renderer output dimensions change.  The renderer calls
+ * updateBefore() once per frame (after compile-time discovery) which handles
+ * allocation, scene rendering, and texture resource registration.
+ *
+ * updateBefore / compile-time discovery
+ * --------------------------------------
+ * PassNode.updateBeforeType = 'frame'.  During shader compilation, WgslBuilder
+ * walks the node graph and collects all nodes with updateBeforeType !== 'none'
+ * into CompileResult.updateBeforeNodes (in post-order, so dependencies execute
+ * before the nodes that depend on them).  The renderer iterates this list once
+ * per frame with per-frame deduplication (each node runs at most once).
  *
  * UV convention
  * -------------
  * All sampling nodes assume the fragment interpolant `in.uv` (vec2f) exists in the
- * fragment shader's input struct.  The RenderPipeline's internal fullscreen material
+ * fragment shader's input struct.  The renderer's internal fullscreen material
  * provides this via a varying injected by the fullscreen vertex shader.
  *
  * Depth reconstruction
@@ -30,9 +39,10 @@
  *   viewZ = (near * far) / (depth * (near - far) + far)
  */
 
-import { Node, TextureNode, SamplerNode, RawNode, type WgslType } from './nodes.js';
-import type { Scene } from '../scene/scene.js';
-import type { Camera } from '../scene/camera.js';
+import { Node, TextureNode, SamplerNode, RawNode, cameraNear, cameraFar, type WgslType } from './nodes';
+import type { Scene } from '../scene/scene';
+import type { Camera } from '../scene/camera';
+import type { RenderFrame } from '../renderer/render-frame';
 
 // ---------------------------------------------------------------------------
 // Unique ID generator
@@ -76,7 +86,9 @@ export class PassColorTextureNode extends Node<'vec4f'> {
         this.passNode    = passNode;
         this.textureNode = textureNode;
         this.samplerNode = samplerNode;
-        this.deps        = [textureNode, samplerNode];
+        // Include passNode in deps so the compiler discovers it and calls updateBefore().
+        // Mirrors Three.js PassTextureNode.setup() which stores passNode in properties.
+        this.deps        = [textureNode, samplerNode, passNode];
     }
 }
 
@@ -87,6 +99,12 @@ export class PassColorTextureNode extends Node<'vec4f'> {
 export type PassNodeOptions = {
     /** RGBA clear color for this pass's color attachment. Defaults to [0, 0, 0, 1]. */
     clearColor?: [number, number, number, number];
+    /**
+     * GPUTextureFormat for the color render target.
+     * Use 'rgba16float' (default) for HDR pipelines.
+     * Use 'rgba8unorm' for LDR / post-sRGB output.
+     */
+    colorFormat?: GPUTextureFormat;
 };
 
 // ---------------------------------------------------------------------------
@@ -103,7 +121,34 @@ export class PassNode extends Node<'vec4f'> {
     /** Clear color for this pass's color attachment. Defaults to opaque black. */
     clearColor: [number, number, number, number];
 
-    // GPU resources — null until _ensureTarget() is called.
+    /**
+     * GPUTextureFormat for the off-screen color render target.
+     * Defaults to 'rgba16float' (HDR).
+     */
+    readonly colorFormat: GPUTextureFormat;
+
+    /**
+     * Nodes with updateBeforeType !== 'none' are collected at compile time and
+     * executed once per frame before the final composite quad.
+     * Three.js equivalent: Node.updateBeforeType = NodeUpdateType.FRAME.
+     */
+    readonly updateBeforeType: 'frame' | 'none' = 'frame';
+
+    /**
+     * Dependencies for this node — required because PassNode uses kind='raw'.
+     * PassNode itself has no node dependencies (it renders a scene, not nodes),
+     * so this is always empty.
+     */
+    readonly deps: Node<WgslType>[] = [];
+
+    /**
+     * WGSL template — required because PassNode uses kind='raw'.
+     * PassNode doesn't emit WGSL directly (it's a side-effect node), but the
+     * raw-node codepath expects this property.
+     */
+    readonly wgsl = '';
+
+    // GPU resources — null until updateBefore() is first called.
     _colorTexture: GPUTexture | null = null;
     _depthTexture: GPUTexture | null = null;
     _sampler: GPUSampler | null = null;
@@ -123,7 +168,8 @@ export class PassNode extends Node<'vec4f'> {
         this.scene  = scene;
         this.camera = camera;
         this.passId = pid;
-        this.clearColor = options.clearColor ?? [0, 0, 0, 1];
+        this.clearColor  = options.clearColor  ?? [0, 0, 0, 1];
+        this.colorFormat = options.colorFormat ?? 'rgba16float';
 
         this._colorTexNode   = new TextureNode('texture_2d<f32>',    `${pid}_color`);
         this._samplerNode    = new SamplerNode('sampler',             `${pid}_samp`);
@@ -137,7 +183,7 @@ export class PassNode extends Node<'vec4f'> {
 
     /**
      * Returns a Node<'vec4f'> that samples the color output of this pass at
-     * the current fragment UV.  Use as `renderPipeline.outputNode`.
+     * the current fragment UV.  Use as `renderer.render(scenePass.getTextureNode())`.
      */
     getTextureNode(): Node<'vec4f'> {
         return this._colorSampleNode;
@@ -146,51 +192,97 @@ export class PassNode extends Node<'vec4f'> {
     /**
      * Returns a Node<'f32'> for the camera-space Z of the nearest surface.
      * Negative in front of the camera (standard OpenGL convention).
+     *
+     * Uses the `cameraNear` and `cameraFar` builtin nodes so that depth
+     * reconstruction is always correct — even if the camera frustum changes
+     * at runtime.  (Previously near/far were baked as WGSL literals at node
+     * construction time, which broke if the camera was updated after pass().)
      */
     getViewZNode(): Node<'f32'> {
-        // Raw WGSL: sample depth, reconstruct view-Z.
-        // $0 = depth texture expr  ("..._depth_tex")
-        // $1 = sampler expr        ("..._samp_samp")
-        // near/far are injected as raw literals at render time via separate uniform nodes.
-        // For now we reference camera.near / camera.far via a closure-captured RawNode
-        // that embeds the values at compile time (recompiled when camera changes — acceptable).
-        // A future improvement: use uniform nodes for near/far.
-        const near = (this.camera as { near: number }).near ?? 0.1;
-        const far  = (this.camera as { far:  number }).far  ?? 100.0;
+        const near = cameraNear;
+        const far  = cameraFar;
         return new RawNode<'f32'>(
             'f32',
             [
                 '(func() -> f32 {',
                 `  let d = textureSample($0, $1, in.uv).r;`,
-                `  let n = ${near}f;`,
-                `  let f = ${far}f;`,
+                `  let n = $2;`,
+                `  let f = $3;`,
                 '  return (n * f) / (d * (n - f) + f);',
                 '})()',
             ].join(' '),
-            [this._depthTexNode, this._samplerNode],
+            [this._depthTexNode, this._samplerNode, near, far],
         );
     }
 
     /**
      * Returns a Node<'f32'> for linear depth in [0,1].
      * 0 = at near plane, 1 = at far plane.
+     *
+     * Uses the `cameraNear` and `cameraFar` builtin nodes so that depth
+     * reconstruction is always correct — even if the camera frustum changes
+     * at runtime.
      */
     getLinearDepthNode(): Node<'f32'> {
-        const near = (this.camera as { near: number }).near ?? 0.1;
-        const far  = (this.camera as { far:  number }).far  ?? 100.0;
+        const near = cameraNear;
+        const far  = cameraFar;
         return new RawNode<'f32'>(
             'f32',
             [
                 '(func() -> f32 {',
                 `  let d = textureSample($0, $1, in.uv).r;`,
-                `  let n = ${near}f;`,
-                `  let f = ${far}f;`,
+                `  let n = $2;`,
+                `  let f = $3;`,
                 '  let vz = (n * f) / (d * (n - f) + f);',
                 '  return (vz - n) / (n - f);',
                 '})()',
             ].join(' '),
-            [this._depthTexNode, this._samplerNode],
+            [this._depthTexNode, this._samplerNode, near, far],
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // updateBefore — called once per frame by the renderer (compile-time discovered)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Execute this pass's scene render before the final composite quad.
+     *
+     * Called by the renderer once per frame, in the order determined at compile
+     * time (post-order DFS, so leaf passes execute before passes that depend on
+     * them).  The renderer deduplicates calls — this runs at most once per frame
+     * regardless of how many downstream nodes reference this PassNode.
+     *
+     * Three.js equivalent: PassNode.updateBefore(frame) — single argument.
+     *
+     * @param frame  The current render frame context.
+     *               frame.renderer.renderScene() issues the off-screen draw.
+     *               frame.encoder / frame.width / frame.height carry the rest.
+     */
+    updateBefore(frame: RenderFrame): void {
+        // Ensure/resize color + depth textures.
+        this._ensureTarget(frame.renderer.device, frame.width, frame.height);
+
+        // Render the scene into our off-screen textures.
+        // Note: Camera state save/restore is no longer needed with the new
+        // struct-based uniform system — each compile result tracks its own
+        // version sums, and callbacks are always invoked with the current camera.
+        frame.renderer.renderScene(
+            this.scene,
+            this.camera,
+            frame.encoder,
+            this._colorTexture!,
+            this._depthTexture!,
+            this.clearColor,
+            this.colorFormat,
+        );
+
+        // Register GPU resources onto the texture/sampler nodes so that the
+        // fullscreen composite shader can sample them.
+        const { colorTexNode, samplerNode, depthTexNode } = this._getResourceNodes();
+        if (this._colorTexture) colorTexNode.resource = this._colorTexture;
+        if (this._sampler)       samplerNode.resource  = this._sampler;
+        if (this._depthTexture)  depthTexNode.resource = this._depthTexture;
     }
 
     // -----------------------------------------------------------------------
@@ -200,7 +292,6 @@ export class PassNode extends Node<'vec4f'> {
     /**
      * Returns all nodes that must be registered in the material to make the
      * sampling work: the color TextureNode, sampler, and depth TextureNode.
-     * The renderer uses these to populate material.uniforms before compiling.
      */
     _getResourceNodes(): {
         colorTexNode: TextureNode;
@@ -216,7 +307,7 @@ export class PassNode extends Node<'vec4f'> {
 
     /**
      * Ensure color + depth textures exist at the requested dimensions.
-     * Creates or resizes them as needed. Call before rendering the scene.
+     * Creates or resizes them as needed.
      */
     _ensureTarget(device: GPUDevice, width: number, height: number): void {
         if (
@@ -232,7 +323,7 @@ export class PassNode extends Node<'vec4f'> {
 
         this._colorTexture = device.createTexture({
             size: [width, height],
-            format: 'rgba8unorm',
+            format: this.colorFormat,
             usage:
                 GPUTextureUsage.RENDER_ATTACHMENT |
                 GPUTextureUsage.TEXTURE_BINDING |
@@ -277,66 +368,10 @@ export class PassNode extends Node<'vec4f'> {
  * render target.  The result feeds into post-processing node expressions.
  *
  * ```ts
- * const scenePass = pass(scene, camera, { clearColor: [0.1, 0.1, 0.1, 1] });
- * renderer.render(scenePass.getTextureNode());
+ * const scenePass = pass(scene, camera, { colorFormat: 'rgba16float' });
+ * renderer.render(renderOutput(scenePass.getTextureNode()));
  * ```
  */
 export function pass(scene: Scene, camera: Camera, options?: PassNodeOptions): PassNode {
     return new PassNode(scene, camera, options);
-}
-
-// ---------------------------------------------------------------------------
-// Graph traversal helper
-// ---------------------------------------------------------------------------
-
-/**
- * Walk a node graph (BFS) and collect all PassNodes referenced anywhere in it.
- * Used by RenderPipeline to discover which scenes to render before the quad.
- */
-export function collectPassNodes(root: Node<WgslType>): PassNode[] {
-    const visited = new Set<string>();
-    const result: PassNode[] = [];
-    const queue: Node<WgslType>[] = [root];
-
-    while (queue.length > 0) {
-        const node = queue.shift()!;
-        if (visited.has(node.id)) continue;
-        visited.add(node.id);
-
-        if (node instanceof PassNode) {
-            result.push(node);
-        } else if (node instanceof PassColorTextureNode) {
-            // Push the owning PassNode.
-            if (!visited.has(node.passNode.id)) {
-                queue.push(node.passNode);
-            }
-        }
-
-        // Traverse children based on kind.
-        const deps = depsOfNode(node);
-        for (const dep of deps) queue.push(dep);
-    }
-
-    return result;
-}
-
-/** Minimal deps extractor for graph traversal (mirrors collect.ts depsOf). */
-function depsOfNode(node: Node<WgslType>): Node<WgslType>[] {
-    const n = node as unknown as Record<string, unknown>;
-    switch (node.kind) {
-        case 'binop':  return [n['left'] as Node<WgslType>, n['right'] as Node<WgslType>];
-        case 'call':   return n['args'] as Node<WgslType>[];
-        case 'raw':    return (n['deps'] as Node<WgslType>[] | undefined) ?? [];
-        case 'field':  return [n['object'] as Node<WgslType>];
-        case 'index':  return [n['object'] as Node<WgslType>, n['index'] as Node<WgslType>];
-        case 'varying': return [n['source'] as Node<WgslType>];
-        case 'assign': return [n['target'] as Node<WgslType>, n['value'] as Node<WgslType>];
-        case 'construct': return n['args'] as Node<WgslType>[];
-        case 'if':     {
-            const deps: Node<WgslType>[] = [n['condition'] as Node<WgslType>, n['thenBody'] as Node<WgslType>];
-            if (n['elseBody']) deps.push(n['elseBody'] as Node<WgslType>);
-            return deps;
-        }
-        default:       return [];
-    }
 }

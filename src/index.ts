@@ -28,7 +28,7 @@ export {
     ConstNode,
     UniformNode,
     AttributeNode,
-    InstancedBufferAttributeNode,
+    BufferAttributeNode,
     StorageNode,
     TextureNode,
     SamplerNode,
@@ -57,6 +57,7 @@ export {
     // DSL constructors
     konst,
     attribute,
+    bufferAttribute,
     instancedBufferAttribute,
     uniform,
     storage,
@@ -126,7 +127,7 @@ export {
     mix,
     step,
     smoothstep,
-} from './nodes/nodes.js';
+} from './nodes/nodes';
 
 // Schema — WgslDesc constructors and struct()
 export {
@@ -144,8 +145,8 @@ export * as S from './nodes/schema';
 
 /* builtins */
 export {
-    meshModelMatrix,
-    meshNormalMatrix,
+    modelWorldMatrix,
+    modelNormalMatrix,
     instanceIndex,
     positionClip,
     globalId,
@@ -160,16 +161,28 @@ export {
     cameraFar,
     timeElapsed,
     timeDelta,
-} from './nodes/nodes.js';
+} from './nodes/nodes';
+
+/* Uniform groups — Three.js-aligned (PR #33047) */
+export {
+    UniformGroupNode,
+    uniformGroup,
+    sharedUniformGroup,
+    frameGroup,
+    renderGroup,
+    objectGroup,
+    NodeUpdateType,
+    type NodeUpdateTypeValue,
+} from './nodes/nodes';
 
 // Color
-export { Color, type ColorInput } from './utils/color.js';
+export { Color, type ColorInput } from './utils/color';
 
 // Frustum culling
-export { Frustum } from './utils/frustum.js';
+export { Frustum } from './utils/frustum';
 
 // Collect
-export { getChildren, depsOf, collectGraph, mergeGraphs } from './nodes/collect.js';
+export { getChildren, collectGraph, mergeGraphs } from './nodes/collect';
 
 // Compile
 export {
@@ -183,54 +196,67 @@ export {
     type StorageEntry,
     type TextureEntry,
     type SamplerEntry,
-} from './nodes/compile.js';
+    type UpdateBeforeNode,
+    type UpdateAfterNode,
+    type UpdateNode,
+} from './nodes/compile';
 
 // ---------------------------------------------------------------------------
 // Layer 2 — Scene
 // ---------------------------------------------------------------------------
 
-export { Object3D } from './scene/object3d.js';
+export { Object3D } from './scene/object3d';
 
-export { Scene } from './scene/scene.js';
+export { Scene } from './scene/scene';
 
-export { Camera, PerspectiveCamera } from './scene/camera.js';
+export { Camera, PerspectiveCamera } from './scene/camera';
 
 export {
     Geometry,
     BufferAttribute,
     IndexAttribute,
     StorageBufferAttribute,
+    InstancedBufferAttribute,
+    StorageInstancedBufferAttribute,
+    IndirectStorageBufferAttribute,
     createBoxGeometry,
     createSphereGeometry,
     createPlaneGeometry,
-} from './scene/geometry.js';
-
-export {
-    IndirectStorageBufferAttribute,
-} from './scene/indirect-storage-buffer-attribute.js';
+} from './scene/geometry';
 
 export {
     Material,
     type MaterialOptions,
-} from './scene/material.js';
+} from './scene/material';
 
-export { Mesh } from './scene/mesh.js';
+export { Mesh } from './scene/mesh';
+
+export {
+    Texture,
+    CanvasTexture,
+    DataTexture,
+    VideoTexture,
+    type WrapMode,
+    type FilterMode,
+    type MipmapFilterMode,
+    type TextureSource,
+} from './scene/texture';
 
 // ---------------------------------------------------------------------------
 // Layer 3 — Renderer
 // ---------------------------------------------------------------------------
 
-export { BufferCache } from './renderer/buffers.js';
-export { PipelineCache, makePipelineKey, type PipelineEntry } from './renderer/pipeline.js';
+export { BufferCache } from './renderer/buffers';
+export { PipelineCache, makePipelineKey, type PipelineEntry } from './renderer/pipeline';
 export {
-    buildFrameBindGroup,
-    buildMeshBindGroup,
-    packMaterialUBO,
-} from './renderer/bindgroups.js';
-export { collectDraws, type DrawCall } from './renderer/collect.js';
-export { WebGPURenderer, type WebGPURendererOptions } from './renderer/renderer.js';
-export { RenderTarget, type RenderTargetOptions } from './renderer/render-target.js';
-export { pass, PassNode, type PassNodeOptions, collectPassNodes } from './nodes/pass-node.js';
+    buildRenderGroupBindGroup,
+    buildObjectGroupBindGroup,
+} from './renderer/bindgroups';
+export { collectDraws, type DrawCall } from './renderer/collect';
+export { WebGPURenderer, type WebGPURendererOptions } from './renderer/renderer';
+export { RenderTarget, type RenderTargetOptions } from './renderer/render-target';
+export { pass, PassNode, type PassNodeOptions } from './nodes/pass-node';
+export { renderOutput, type RenderOutputOptions, type ToneMappingMode, type OutputColorSpace } from './nodes/render-output';
 
 // ---------------------------------------------------------------------------
 // Compute — ComputeNode, compile-compute, compute-pipeline
@@ -241,15 +267,23 @@ export {
     compute,
     type ComputeNodeOptions,
     type ComputeOpts,
-} from './nodes/nodes.js';
+} from './nodes/nodes';
 
 export {
     compileCompute,
     type ComputeCompileResult,
     type ComputeStorageEntry,
-} from './nodes/compile.js';
+} from './nodes/compile';
 
 export {
     ComputePipelineCache,
     type ComputePipelineEntry,
-} from './renderer/compute-pipeline.js';
+} from './renderer/compute-pipeline';
+
+// ---------------------------------------------------------------------------
+// Inspector
+// ---------------------------------------------------------------------------
+
+export { InspectorBase } from './inspector/inspector-base';
+export { RendererInspector, type FrameRecord, type PassRecord } from './inspector/renderer-inspector';
+export { Inspector } from './inspector/inspector';

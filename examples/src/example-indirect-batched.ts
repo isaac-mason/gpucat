@@ -175,9 +175,11 @@ mergedGeo.indirect = new gpu.IndirectStorageBufferAttribute(true, indirectData);
 
 async function main() {
     const renderer = new gpu.WebGPURenderer({ antialias: true });
+    renderer.inspector = new gpu.Inspector();
     await renderer.init();
 
     document.body.appendChild(renderer.domElement);
+    document.body.appendChild((renderer.inspector as gpu.Inspector).domElement);
     renderer.setSize(window.innerWidth * devicePixelRatio, window.innerHeight * devicePixelRatio);
     renderer.clearColor = [0.07, 0.07, 0.1, 1];
 

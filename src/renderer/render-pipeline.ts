@@ -12,7 +12,7 @@
  *   }
  */
 
-import type { Node, WgslType } from '../nodes/nodes.js';
+import type { Node, WgslType } from '../nodes/nodes';
 
 /**
  * Container for the top-level output node expression.

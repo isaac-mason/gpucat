@@ -2,7 +2,7 @@
  * schema.ts — WgslDesc type descriptors and S.* constructor namespace.
  *
  * Import this module as:
- *   import * as S from './schema.js'
+ *   import * as S from './schema'
  *
  * Then use S.f32(), S.vec3f(), S.mat4x4f() etc. as WgslDesc descriptors in
  * struct() schemas and Fn() param lists.
@@ -85,3 +85,140 @@ export const mat3x4f = (): WgslDesc<'mat3x4f'> => ({ wgslType: 'mat3x4f' });
 export const mat4x2f = (): WgslDesc<'mat4x2f'> => ({ wgslType: 'mat4x2f' });
 export const mat4x3f = (): WgslDesc<'mat4x3f'> => ({ wgslType: 'mat4x3f' });
 export const mat4x4f = (): WgslDesc<'mat4x4f'> => ({ wgslType: 'mat4x4f' });
+
+// ---------------------------------------------------------------------------
+// Texture type descriptors
+// ---------------------------------------------------------------------------
+
+/** Texture sample type for generic textures */
+export type TextureSampleType = 'f32' | 'i32' | 'u32';
+
+/** Texture descriptor with dimension and sample type info */
+export type TextureDesc<T extends string = string> = WgslDesc<T> & {
+    readonly isTextureDesc: true;
+    readonly dimension: '1d' | '2d' | '2d_array' | '3d' | 'cube' | 'cube_array' | 'multisampled_2d';
+    readonly sampleType: TextureSampleType;
+};
+
+export function isTextureDesc(desc: WgslDesc<WgslType>): desc is TextureDesc {
+    return 'isTextureDesc' in desc && (desc as TextureDesc).isTextureDesc === true;
+}
+
+// 2D textures (most common)
+export const texture2d = (sampleType: TextureSampleType = 'f32'): TextureDesc<`texture_2d<${TextureSampleType}>`> => ({
+    wgslType: `texture_2d<${sampleType}>`,
+    isTextureDesc: true,
+    dimension: '2d',
+    sampleType,
+});
+
+// 1D textures
+export const texture1d = (sampleType: TextureSampleType = 'f32'): TextureDesc<`texture_1d<${TextureSampleType}>`> => ({
+    wgslType: `texture_1d<${sampleType}>`,
+    isTextureDesc: true,
+    dimension: '1d',
+    sampleType,
+});
+
+// 3D textures
+export const texture3d = (sampleType: TextureSampleType = 'f32'): TextureDesc<`texture_3d<${TextureSampleType}>`> => ({
+    wgslType: `texture_3d<${sampleType}>`,
+    isTextureDesc: true,
+    dimension: '3d',
+    sampleType,
+});
+
+// Cube textures
+export const textureCube = (sampleType: TextureSampleType = 'f32'): TextureDesc<`texture_cube<${TextureSampleType}>`> => ({
+    wgslType: `texture_cube<${sampleType}>`,
+    isTextureDesc: true,
+    dimension: 'cube',
+    sampleType,
+});
+
+// 2D array textures
+export const texture2dArray = (sampleType: TextureSampleType = 'f32'): TextureDesc<`texture_2d_array<${TextureSampleType}>`> => ({
+    wgslType: `texture_2d_array<${sampleType}>`,
+    isTextureDesc: true,
+    dimension: '2d_array',
+    sampleType,
+});
+
+// Cube array textures
+export const textureCubeArray = (sampleType: TextureSampleType = 'f32'): TextureDesc<`texture_cube_array<${TextureSampleType}>`> => ({
+    wgslType: `texture_cube_array<${sampleType}>`,
+    isTextureDesc: true,
+    dimension: 'cube_array',
+    sampleType,
+});
+
+// Multisampled 2D textures
+export const textureMultisampled2d = (sampleType: TextureSampleType = 'f32'): TextureDesc<`texture_multisampled_2d<${TextureSampleType}>`> => ({
+    wgslType: `texture_multisampled_2d<${sampleType}>`,
+    isTextureDesc: true,
+    dimension: 'multisampled_2d',
+    sampleType,
+});
+
+// Depth textures (no sample type parameter)
+export type DepthTextureDesc<T extends string = string> = WgslDesc<T> & {
+    readonly isTextureDesc: true;
+    readonly isDepthTexture: true;
+    readonly dimension: '2d' | '2d_array' | 'cube' | 'cube_array' | 'multisampled_2d';
+};
+
+export const textureDepth2d = (): DepthTextureDesc<'texture_depth_2d'> => ({
+    wgslType: 'texture_depth_2d',
+    isTextureDesc: true,
+    isDepthTexture: true,
+    dimension: '2d',
+});
+
+export const textureDepth2dArray = (): DepthTextureDesc<'texture_depth_2d_array'> => ({
+    wgslType: 'texture_depth_2d_array',
+    isTextureDesc: true,
+    isDepthTexture: true,
+    dimension: '2d_array',
+});
+
+export const textureDepthCube = (): DepthTextureDesc<'texture_depth_cube'> => ({
+    wgslType: 'texture_depth_cube',
+    isTextureDesc: true,
+    isDepthTexture: true,
+    dimension: 'cube',
+});
+
+export const textureDepthCubeArray = (): DepthTextureDesc<'texture_depth_cube_array'> => ({
+    wgslType: 'texture_depth_cube_array',
+    isTextureDesc: true,
+    isDepthTexture: true,
+    dimension: 'cube_array',
+});
+
+export const textureDepthMultisampled2d = (): DepthTextureDesc<'texture_depth_multisampled_2d'> => ({
+    wgslType: 'texture_depth_multisampled_2d',
+    isTextureDesc: true,
+    isDepthTexture: true,
+    dimension: 'multisampled_2d',
+});
+
+// ---------------------------------------------------------------------------
+// Sampler type descriptors
+// ---------------------------------------------------------------------------
+
+export type SamplerDesc<T extends 'sampler' | 'sampler_comparison' = 'sampler'> = WgslDesc<T> & {
+    readonly isSamplerDesc: true;
+    readonly comparison: boolean;
+};
+
+export const samplerDesc = (): SamplerDesc<'sampler'> => ({
+    wgslType: 'sampler',
+    isSamplerDesc: true,
+    comparison: false,
+});
+
+export const samplerComparisonDesc = (): SamplerDesc<'sampler_comparison'> => ({
+    wgslType: 'sampler_comparison',
+    isSamplerDesc: true,
+    comparison: true,
+});

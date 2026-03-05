@@ -6,7 +6,7 @@
  *   compileCompute(node) → ComputeCompileResult (compute)
  *
  * Both functions create a single WgslBuilder internally. The builder follows
- * three.js NodeBuilder's three-pass architecture (setup → analyze → generate)
+ * three NodeBuilder's three-pass architecture (setup → analyze → generate)
  * and its WeakMap-based per-node state model (getDataFromNode).
  *
  * Architecture
@@ -22,14 +22,14 @@
  *              emit `let _v0 = expr;` via addLineFlowCode, cache name in
  *              nodeData.propertyName. Replaces emitGraphStmts()+letBindings map.
  *
- * Key aligned patterns from three.js NodeBuilder:
+ * Key aligned patterns from three NodeBuilder:
  *   getDataFromNode(node, stage?)  — WeakMap<Node, NodeData> per-node-per-stage
  *   increaseUsage(node)            — called in analyze pass, replaces refCount()
  *   flow / addLineFlowCode         — code accumulation buffer
  *   flowChildNode / flowNodeFromShaderStage — for VaryingNode vertex-stage emit
  *   _buildNode(node)               — single dispatch entry (parallel to node.build(builder))
  *
- * What is NOT adopted from three.js:
+ * What is NOT adopted from three:
  *   - No node.setup()/analyze()/generate() methods on node classes
  *   - No topo-sort (recursive generate visits children before parents naturally)
  *   - No open class hierarchy — the switch(node.kind) visitor stays exhaustive
@@ -62,7 +62,7 @@ import {
     type ForNode,
     type IfNode,
     type IndexNode,
-    type InstancedBufferAttributeNode,
+    type BufferAttributeNode,
     type Node,
     type ParamDesc,
     type ParamNode,
@@ -73,20 +73,91 @@ import {
     type StructNode,
     type TextureNode,
     type UniformNode,
+    type UniformGroupNode,
     type VarNode,
     type VaryingNode,
     type WhileNode,
     type WgslType,
     type NodeKind,
     type ScalarType,
+    type NodeUpdateTypeValue,
     constLiteral,
     buildForHeader,
     lookupStructDef,
     lookupStructDefByName,
-} from './nodes.js';
-import { collectGraph, getChildren } from './collect.js';
-import { type StructDef, type StructSchema } from './nodes.js';
-import type { ComputeNode } from './nodes.js';
+} from './nodes';
+import { collectGraph, getChildren } from './collect';
+import { type StructDef, type StructSchema } from './nodes';
+import type { ComputeNode } from './nodes';
+import type { RenderFrame } from '../renderer/render-frame';
+
+// ---------------------------------------------------------------------------
+// NodeUpdateType — re-export from nodes.ts for compile-level consumers
+// ---------------------------------------------------------------------------
+
+/**
+ * Controls how often a node's update method is called.
+ *
+ * Re-exported as a type alias for compatibility with UpdateBeforeNode/UpdateAfterNode interfaces.
+ * The canonical NodeUpdateType constant lives in nodes.ts.
+ */
+export type NodeUpdateType = NodeUpdateTypeValue;
+
+// ---------------------------------------------------------------------------
+// UpdateBeforeNode — interface for nodes with updateBefore() lifecycle
+// ---------------------------------------------------------------------------
+
+/**
+ * Interface for nodes that need to execute GPU work before the final composite
+ * quad each frame/render/object.
+ *
+ * Mirrors three's Node.updateBefore(frame) pattern.  The compiler discovers
+ * nodes implementing this interface during the setup pass (post-order DFS) and
+ * stores them in CompileResult.updateBeforeNodes.  The renderer iterates that
+ * list with deduplication controlled by updateBeforeType.
+ */
+export type UpdateBeforeNode = {
+    readonly id: string;
+    readonly updateBeforeType: NodeUpdateType;
+    /** Mirrors three Node.updateBefore(frame) — single argument. Returns false to cancel/revert. */
+    updateBefore(frame: RenderFrame): boolean | void;
+}
+
+// ---------------------------------------------------------------------------
+// UpdateAfterNode — interface for nodes with updateAfter() lifecycle
+// ---------------------------------------------------------------------------
+
+/**
+ * Interface for nodes that need to execute GPU work after each draw call.
+ *
+ * Mirrors three's Node.updateAfter(frame) pattern.  Stored in
+ * CompileResult.updateAfterNodes and called by the renderer after each
+ * render pass with deduplication controlled by updateAfterType.
+ */
+export type UpdateAfterNode = {
+    readonly id: string;
+    readonly updateAfterType: NodeUpdateType;
+    /** Mirrors three Node.updateAfter(frame) — single argument. Returns false to cancel/revert. */
+    updateAfter(frame: RenderFrame): boolean | void;
+}
+
+// ---------------------------------------------------------------------------
+// UpdateNode — interface for nodes with update() lifecycle (mid-frame uniform push)
+// ---------------------------------------------------------------------------
+
+/**
+ * Interface for nodes that push CPU data into GPU uniforms each frame/render/object.
+ *
+ * Mirrors three's Node.update(frame) pattern.  Stored in
+ * CompileResult.updateNodes and called by the renderer with deduplication
+ * controlled by updateType.
+ */
+export type UpdateNode = {
+    readonly id: string;
+    readonly updateType: NodeUpdateType;
+    /** Mirrors three Node.update(frame) — single argument. Returns false to cancel/revert. */
+    update(frame: RenderFrame): boolean | void;
+}
 
 // ---------------------------------------------------------------------------
 // Public types — render
@@ -100,8 +171,8 @@ export type AttributeEntry =
           location: number;
       }
     | {
-          kind: 'instanced';
-          node: InstancedBufferAttributeNode<WgslType>;
+          kind: 'buffer';
+          node: BufferAttributeNode<WgslType>;
           name: string;
           type: string;
           location: number;
@@ -126,6 +197,27 @@ export type UniformBlockEntry = {
     binding: number;
     members: UniformMember[];
     totalBytes: number;
+};
+
+/**
+ * A struct-based uniform buffer block for a UniformGroupNode.
+ * Three.js equivalent: NodeUniformsGroup + struct emission in WGSLNodeBuilder.
+ */
+export type UniformGroupBlock = {
+    /** The group name (e.g. 'render', 'object'). Becomes the WGSL struct name. */
+    groupName: string;
+    /** The @group(N) index assigned by order. */
+    groupIndex: number;
+    /** The @binding(N) index within the group (always 0 for the struct UBO). */
+    binding: number;
+    /** Whether this group is shared (one buffer for all objects) or per-object. */
+    shared: boolean;
+    /** Ordered list of uniform members in the struct. */
+    members: UniformMember[];
+    /** Total byte size of the struct (aligned to 16 for UBO). */
+    totalBytes: number;
+    /** Reference to the UniformGroupNode. */
+    groupNode: UniformGroupNode;
 };
 
 export type StorageEntry = {
@@ -157,16 +249,46 @@ export type CompileResult = {
     code: string;
     attributes: AttributeEntry[];
     varyings: VaryingEntry[];
+    /** User-defined uniform blocks (for backwards compat with tests). */
     uniforms: UniformBlockEntry[];
+    /** Struct-based uniform groups (render, object). */
+    uniformGroups: UniformGroupBlock[];
     storage: StorageEntry[];
     textures: TextureEntry[];
     samplers: SamplerEntry[];
     builtinsUsed: Set<string>;
+    /**
+     * Ordered list of nodes whose updateBefore() must run before the composite quad.
+     * Post-order (dependencies first). Dedup granularity controlled by updateBeforeType.
+     * Three equivalent: NodeBuilderState.updateBeforeNodes.
+     */
+    updateBeforeNodes: UpdateBeforeNode[];
+    /**
+     * Ordered list of nodes whose updateAfter() must run after each draw pass.
+     * Post-order (dependencies first). Dedup granularity controlled by updateAfterType.
+     * Three equivalent: NodeBuilderState.updateAfterNodes.
+     */
+    updateAfterNodes: UpdateAfterNode[];
+    /**
+     * Ordered list of nodes whose update() must run to push CPU→GPU uniform data.
+     * Dedup granularity controlled by updateType.
+     * Three equivalent: NodeBuilderState.updateNodes (sourced from builder.nodes).
+     */
+    updateNodes: UpdateNode[];
+    /**
+     * Nodes marked with .inspect() found in this compile unit.
+     * The renderer passes these to inspector.inspect() each frame.
+     */
+    inspectableNodes: Node<WgslType>[];
 };
 
 export type CompileSlots = {
     position: Node<WgslType>;
     color: Node<WgslType>;
+    /** bool node — when false, emits `discard` at the top of fs_main. */
+    mask?: Node<WgslType>;
+    /** f32 node — when present, emits `@builtin(frag_depth)` on the fragment output. */
+    depth?: Node<WgslType>;
 };
 
 // ---------------------------------------------------------------------------
@@ -185,8 +307,10 @@ export type ComputeCompileResult = {
     code: string;
     storage: ComputeStorageEntry[];
     workgroupSize: [number, number, number];
-    /** Set of high-level builtin categories used (e.g. 'time'). */
+    /** Set of high-level builtin categories used (e.g. WGSL shader builtins). */
     builtinsUsed: Set<string>;
+    /** Struct-based uniform groups (render only for compute — no object group). */
+    uniformGroups: UniformGroupBlock[];
 };
 
 // ---------------------------------------------------------------------------
@@ -215,14 +339,14 @@ const COMPUTE_BUILTIN_PARAM: Record<string, { attr: string; type: string }> = {
 };
 
 // ---------------------------------------------------------------------------
-// Per-node state types (aligned with three.js getDataFromNode)
+// Per-node state types (aligned with three getDataFromNode)
 // ---------------------------------------------------------------------------
 
 type NodeStageData = {
     usageCount?: number;       // populated in analyze pass
     propertyName?: string;     // CSE: var name when usageCount > 1
     initialized?: boolean;     // setup pass dedup guard
-    varName?: string;          // registered var name (parallel to three.js nodeData.variable)
+    varName?: string;          // registered var name (parallel to three nodeData.variable)
 };
 
 type NodeData = {
@@ -244,7 +368,7 @@ type NodeOf<K extends NodeKind> =
     K extends 'const'                    ? ConstNode<WgslType>                    :
     K extends 'uniform'                  ? UniformNode<WgslType>                  :
     K extends 'attribute'                ? AttributeNode<WgslType>                :
-    K extends 'instanced_buffer_attribute' ? InstancedBufferAttributeNode<WgslType> :
+    K extends 'buffer_attribute'         ? BufferAttributeNode<WgslType>          :
     K extends 'storage'                  ? StorageNode<WgslType>                  :
     K extends 'texture'                  ? TextureNode                            :
     K extends 'sampler'                  ? SamplerNode                            :
@@ -294,15 +418,15 @@ type ComputeInput = { kind: 'compute'; node: ComputeNode };
 // ---------------------------------------------------------------------------
 
 export class WgslBuilder {
-    // Build stage cursor (parallel to three.js NodeBuilder.buildStage)
+    // Build stage cursor (parallel to three NodeBuilder.buildStage)
     buildStage: 'setup' | 'analyze' | 'generate' | null = null;
-    // Shader stage cursor (parallel to three.js NodeBuilder.shaderStage)
+    // Shader stage cursor (parallel to three NodeBuilder.shaderStage)
     shaderStage: 'vertex' | 'fragment' | 'compute' | null = null;
 
-    // Per-node WeakMap state (parallel to three.js NodeBuilder.nodeData)
+    // Per-node WeakMap state (parallel to three NodeBuilder.nodeData)
     nodeData: WeakMap<Node<WgslType>, NodeData> = new WeakMap();
 
-    // Current writable code buffer (parallel to three.js NodeBuilder.flow)
+    // Current writable code buffer (parallel to three NodeBuilder.flow)
     flow: { code: string } = { code: '' };
     // Per-stage accumulated code (from flowChildNode calls)
     flowCode: Record<string, string> = { vertex: '', fragment: '', compute: '' };
@@ -312,7 +436,7 @@ export class WgslBuilder {
     // For-loop index counter
     forCounter = 0;
 
-    // Per-stage var declaration registry (parallel to three.js this.vars[shaderStage])
+    // Per-stage var declaration registry (parallel to three this.vars[shaderStage])
     // Each entry: { name, type } — one per registered VarNode per stage.
     // Keyed by shaderStage string ('vertex'|'fragment'|'compute'|null→'fn').
     stageVars: Record<string, { name: string; type: string }[]> = {};
@@ -332,12 +456,16 @@ export class WgslBuilder {
 
     // Collected resources (render)
     attributes: Map<string, AttributeEntry & { kind: 'geometry' }> = new Map();
-    instancedAttrs: Array<AttributeEntry & { kind: 'instanced' }> = [];
-    instancedAttrNames: Map<string, string> = new Map();
+    bufferAttrs: Array<AttributeEntry & { kind: 'buffer' }> = [];
+    bufferAttrNames: Map<string, string> = new Map();
     varyings: Map<string, VaryingEntry> = new Map();
     builtinsUsed: Set<string> = new Set();
     structNodes: Map<string, StructNode> = new Map();
-    uniformNodes: Map<string, UniformNode<WgslType>> = new Map();
+    /**
+     * Uniforms bucketed by groupNode.name (e.g. 'render', 'object').
+     * Each entry contains the groupNode and ordered list of UniformNodes.
+     */
+    uniformGroupBuckets: Map<string, { groupNode: UniformGroupNode; nodes: UniformNode<WgslType>[] }> = new Map();
     storageNodes: Map<string, StorageNode<WgslType>> = new Map();
     storageNames: Map<string, string> = new Map();
     textureNodes: Map<string, TextureNode> = new Map();
@@ -350,13 +478,22 @@ export class WgslBuilder {
     // Storage nodes inferred from compute trace (encounter order)
     _computeStorage: StorageNode<WgslType>[] = [];
 
+    // Ordered lists of nodes needing lifecycle callbacks (post-order DFS).
+    // Three equivalents: NodeBuilderState.updateBeforeNodes / updateAfterNodes / updateNodes.
+    // _sequentialNodes mirrors three's builder.sequentialNodes (object-identity dedup set).
+    // buildUpdateNodes() splits it into the three typed arrays (mirrors three buildUpdateNodes()).
+    _sequentialNodes: Set<UpdateBeforeNode | UpdateAfterNode> = new Set();
+    _updateBeforeNodes: UpdateBeforeNode[] = [];
+    _updateAfterNodes:  UpdateAfterNode[]  = [];
+    _updateNodes:       UpdateNode[]       = [];
+
     constructor(input: RenderInput | ComputeInput) {
         this.input = input;
     }
 
     // -----------------------------------------------------------------------
     // Top-level orchestrator: setup → analyze → generate → buildCode
-    // (Parallel to three.js NodeBuilder.build())
+    // (Parallel to three NodeBuilder.build())
     // -----------------------------------------------------------------------
 
     build(): this {
@@ -382,6 +519,10 @@ export class WgslBuilder {
 
         this.buildStage = null;
         this.shaderStage = null;
+
+        // Split _sequentialNodes into typed arrays (mirrors three buildUpdateNodes()).
+        this._buildUpdateNodes();
+
         return this;
     }
 
@@ -391,11 +532,15 @@ export class WgslBuilder {
 
     private _registerRoots(): void {
         if (this.input.kind === 'render') {
-            const { position, color } = this.input.slots;
+            const { position, color, mask, depth } = this.input.slots;
             // Stage validation: fragment graph must not contain vertex-only nodes
             this._validateFragmentRoot(color);
+            if (mask) this._validateFragmentRoot(mask);
+            if (depth) this._validateFragmentRoot(depth);
             this.flowNodes.vertex.push(position);
             this.flowNodes.fragment.push(color);
+            if (mask)  this.flowNodes.fragment.push(mask);
+            if (depth) this.flowNodes.fragment.push(depth);
         } else {
             // Compute: trace Fn body, infer storage nodes from graph
             const { body, storage } = this.input.node.trace();
@@ -418,9 +563,9 @@ export class WgslBuilder {
                     `in the fragment graph. Bridge it to the fragment stage with varying('${n.type}', '<name>', ${n.name}).`,
                 );
             }
-            if (node.kind === 'instanced_buffer_attribute') {
+            if (node.kind === 'buffer_attribute') {
                 throw new Error(
-                    `[gpucat] instancedBufferAttribute() is a vertex-only node and cannot be used ` +
+                    `[gpucat] bufferAttribute() / instancedBufferAttribute() is a vertex-only node and cannot be used ` +
                     `in the fragment graph. Bridge it to the fragment stage with varying('<type>', '<name>', <node>).`,
                 );
             }
@@ -429,7 +574,7 @@ export class WgslBuilder {
 
     // -----------------------------------------------------------------------
     // getDataFromNode — WeakMap per-node-per-stage state
-    // (Parallel to three.js NodeBuilder.getDataFromNode)
+    // (Parallel to three NodeBuilder.getDataFromNode)
     // -----------------------------------------------------------------------
 
     getDataFromNode(node: Node<WgslType>, stage?: string): NodeStageData {
@@ -446,7 +591,7 @@ export class WgslBuilder {
 
     // -----------------------------------------------------------------------
     // increaseUsage — called in analyze pass
-    // (Parallel to three.js NodeBuilder.increaseUsage)
+    // (Parallel to three NodeBuilder.increaseUsage)
     // -----------------------------------------------------------------------
 
     increaseUsage(node: Node<WgslType>): number {
@@ -457,7 +602,7 @@ export class WgslBuilder {
 
     // -----------------------------------------------------------------------
     // Flow accumulation helpers
-    // (Parallel to three.js NodeBuilder.addLineFlowCode / addFlowCode)
+    // (Parallel to three NodeBuilder.addLineFlowCode / addFlowCode)
     // -----------------------------------------------------------------------
 
     addLineFlowCode(code: string): void {
@@ -473,7 +618,7 @@ export class WgslBuilder {
     // vars preamble dict. Deduplicates: safe to call multiple times for the
     // same node+stage — only the first call allocates and registers.
     // Returns the WGSL variable name (e.g. "nodeVar0" or the node's own varName).
-    // (Parallel to three.js NodeBuilder.getVarFromNode)
+    // (Parallel to three NodeBuilder.getVarFromNode)
     // -----------------------------------------------------------------------
 
     getVarFromNode(node: Node<WgslType>, varName: string, type: string): string {
@@ -493,7 +638,7 @@ export class WgslBuilder {
     // -----------------------------------------------------------------------
     // getVars — serialize the per-stage vars dict to a WGSL declaration block.
     // Returns a string of "    var name : type;\n" lines (empty string if none).
-    // (Parallel to three.js WGSLNodeBuilder.getVars)
+    // (Parallel to three WGSLNodeBuilder.getVars)
     // -----------------------------------------------------------------------
 
     getVars(stage: string): string {
@@ -504,7 +649,7 @@ export class WgslBuilder {
 
     // -----------------------------------------------------------------------
     // flowChildNode — saves/installs/restores the flow buffer
-    // (Parallel to three.js NodeBuilder.flowChildNode)
+    // (Parallel to three NodeBuilder.flowChildNode)
     // -----------------------------------------------------------------------
 
     flowChildNode(node: Node<WgslType>): { code: string; result: string | null } {
@@ -519,7 +664,7 @@ export class WgslBuilder {
     // -----------------------------------------------------------------------
     // flowNodeFromShaderStage — run a node in a different shader stage
     // Used by VaryingNode to compute vertex-side expressions from fragment context.
-    // (Parallel to three.js NodeBuilder.flowNodeFromShaderStage)
+    // (Parallel to three NodeBuilder.flowNodeFromShaderStage)
     // -----------------------------------------------------------------------
 
     flowNodeFromShaderStage(
@@ -541,7 +686,7 @@ export class WgslBuilder {
 
     // -----------------------------------------------------------------------
     // _buildNode — single dispatch entry point
-    // (Parallel to node.build(builder, output) in three.js)
+    // (Parallel to node.build(builder, output) in three)
     // -----------------------------------------------------------------------
 
     _buildNode(node: Node<WgslType>): string | null {
@@ -555,6 +700,22 @@ export class WgslBuilder {
         }
         // Generate stage
         return this._generateNode(node);
+    }
+
+    // -----------------------------------------------------------------------
+    // _buildUpdateNodes — split _sequentialNodes into typed arrays
+    // Mirrors three NodeBuilder.buildUpdateNodes()
+    // -----------------------------------------------------------------------
+
+    _buildUpdateNodes(): void {
+        for (const node of this._sequentialNodes) {
+            if ('updateBeforeType' in node && (node as UpdateBeforeNode).updateBeforeType !== 'none') {
+                this._updateBeforeNodes.push(node as UpdateBeforeNode);
+            }
+            if ('updateAfterType' in node && (node as UpdateAfterNode).updateAfterType !== 'none') {
+                this._updateAfterNodes.push(node as UpdateAfterNode);
+            }
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -578,6 +739,28 @@ export class WgslBuilder {
 
         // Delegate resource registration to compilerDefs
         compilerDefs[node.kind].setup?.(node as never, this);
+
+        // Post-order: after children are set up, collect nodes needing lifecycle callbacks.
+        // Mirrors three NodeBuilder.addSequentialNode() — object-identity dedup via Set.
+        if ('updateBeforeType' in node) {
+            const n = node as unknown as UpdateBeforeNode;
+            if (n.updateBeforeType !== 'none') {
+                this._sequentialNodes.add(n);
+            }
+        }
+        if ('updateAfterType' in node) {
+            const n = node as unknown as UpdateAfterNode;
+            if (n.updateAfterType !== 'none') {
+                this._sequentialNodes.add(n);
+            }
+        }
+        // update() nodes go into a separate flat list (mirrors three builder.nodes → updateNodes)
+        if ('updateType' in node) {
+            const n = node as unknown as UpdateNode;
+            if (n.updateType !== 'none' && !this._updateNodes.includes(n)) {
+                this._updateNodes.push(n);
+            }
+        }
     }
 
     _setupFnNode(fn: FnNode<WgslType>): void {
@@ -667,14 +850,14 @@ export class WgslBuilder {
 
     // -----------------------------------------------------------------------
     // Analyze pass — count usages per stage
-    // (Parallel to three.js Node.analyze calling increaseUsage)
+    // (Parallel to three Node.analyze calling increaseUsage)
     // -----------------------------------------------------------------------
 
     private _analyzeNode(node: Node<WgslType>): void {
         const count = this.increaseUsage(node);
 
         // Only recurse into children the first time we see this node (count === 1).
-        // This is the same deduplication as three.js: if count > 1, we know we've
+        // This is the same deduplication as three: if count > 1, we know we've
         // already walked the subtree, so we only need to mark the extra usage.
         if (count !== 1) return;
 
@@ -702,7 +885,7 @@ export class WgslBuilder {
 
     // -----------------------------------------------------------------------
     // Generate pass — main dispatch + CSE
-    // (Parallel to TempNode.build in three.js)
+    // (Parallel to TempNode.build in three)
     // -----------------------------------------------------------------------
 
     _generateNode(node: Node<WgslType>): string | null {
@@ -804,42 +987,47 @@ export class WgslBuilder {
 
         const lines: string[] = [];
 
-        // Struct declarations — only user-defined structs (Mesh is now flat bindings)
+        // Struct declarations — only user-defined structs
         for (const sn of this.structNodes.values()) {
             const members = sn.members.map((m) => `    ${m.name} : ${m.type},`).join('\n');
             lines.push(`struct ${sn.type} {\n${members}\n}`);
         }
 
-        // Builtin UBO bindings — flat per-field, three.js style
-        // Camera fields: bindings 0–4 (conditional on 'camera' being used)
-        if (this.builtinsUsed.has('camera')) {
-            lines.push(`@group(0) @binding(0) var<uniform> cameraProjectionMatrix : mat4x4f;`);
-            lines.push(`@group(0) @binding(1) var<uniform> cameraViewMatrix : mat4x4f;`);
-            lines.push(`@group(0) @binding(2) var<uniform> cameraPosition : vec3f;`);
-            lines.push(`@group(0) @binding(3) var<uniform> cameraNear : f32;`);
-            lines.push(`@group(0) @binding(4) var<uniform> cameraFar : f32;`);
-        }
-        // Time fields: bindings 5–6 (conditional on 'time' being used)
-        if (this.builtinsUsed.has('time')) {
-            lines.push(`@group(0) @binding(5) var<uniform> timeElapsed : f32;`);
-            lines.push(`@group(0) @binding(6) var<uniform> timeDelta : f32;`);
-        }
-        // Mesh fields: bindings 0–1 at group 1 (conditional on 'mesh' being used)
-        if (this.builtinsUsed.has('mesh')) {
-            lines.push(`@group(1) @binding(0) var<uniform> meshModelMatrix : mat4x4f;`);
-            lines.push(`@group(1) @binding(1) var<uniform> meshNormalMatrix : mat3x3f;`);
+        // ---------------------------------------------------------------------
+        // Build uniform groups from buckets — Three.js aligned struct-based UBOs
+        // Sort groups by order, then assign @group indices
+        // ---------------------------------------------------------------------
+        const uniformGroups: UniformGroupBlock[] = [];
+        const sortedBuckets = [...this.uniformGroupBuckets.values()]
+            .sort((a, b) => a.groupNode.order - b.groupNode.order);
+
+        // Assign group indices based on sorted order
+        // render (order=0) → @group(0), object (order=1) → @group(1)
+        let groupIndex = 0;
+        for (const bucket of sortedBuckets) {
+            if (bucket.nodes.length === 0) continue;
+
+            const block = this._buildUniformGroupBlock(bucket.groupNode, bucket.nodes, groupIndex, 0);
+            uniformGroups.push(block);
+
+            // Emit struct definition + var declaration
+            // Struct type name gets "Struct" suffix to avoid shadowing the variable name
+            // (mirrors Three.js WGSLNodeBuilder._getWGSLStructBinding pattern)
+            const structTypeName = bucket.groupNode.name + 'Struct';
+            const memberLines = block.members.map(m => `    ${m.uniformId} : ${m.type},`).join('\n');
+            lines.push(`struct ${structTypeName} {\n${memberLines}\n}`);
+            lines.push(`@group(${groupIndex}) @binding(0) var<uniform> ${bucket.groupNode.name} : ${structTypeName};`);
+
+            groupIndex++;
         }
 
-        // Material resources — start at binding 2 (mesh bindings occupy 0 and 1)
-        let matBinding = 2;
-
-        const matUniforms = [...this.uniformNodes.values()];
-        let uniformBlockEntry: UniformBlockEntry | null = null;
-        if (matUniforms.length > 0) {
-            uniformBlockEntry = this._buildUniformBlock(matUniforms, 1, matBinding);
-            lines.push(this._emitMaterialUniformBlock(uniformBlockEntry));
-            matBinding++;
-        }
+        // Object group resources (textures, samplers, storage) belong to the object group.
+        // Three.js aligned: if object group has uniforms, use its assigned index.
+        // If not, textures/samplers/storage go in the next available group index.
+        const objectUniformGroup = uniformGroups.find(g => g.groupNode.name === 'object');
+        const objectGroupIndex = objectUniformGroup?.groupIndex ?? groupIndex;
+        // If object group exists, binding 0 is the uniform struct; otherwise start at 0
+        let objectBinding = objectUniformGroup ? 1 : 0;
 
         const storageEntries: StorageEntry[] = [];
         for (const sn of this.storageNodes.values()) {
@@ -849,23 +1037,23 @@ export class WgslBuilder {
             // so always emit read access in render shaders — the buffer can still be written
             // by a compute pass.  Only compute shaders get the true read_write access mode.
             const wgslAccess = 'read';
-            storageEntries.push({ node: sn, name, type: sn.storageType, access: sn.access, group: 1, binding: matBinding });
-            lines.push(`@group(1) @binding(${matBinding}) var<storage, ${wgslAccess}> ${name} : ${sn.storageType};`);
-            matBinding++;
+            storageEntries.push({ node: sn, name, type: sn.storageType, access: sn.access, group: objectGroupIndex as 0 | 1, binding: objectBinding });
+            lines.push(`@group(${objectGroupIndex}) @binding(${objectBinding}) var<storage, ${wgslAccess}> ${name} : ${sn.storageType};`);
+            objectBinding++;
         }
 
         const textureEntries: TextureEntry[] = [];
         for (const tn of this.textureNodes.values()) {
-            textureEntries.push({ textureId: tn.textureId, type: tn.type, group: 1, binding: matBinding, node: tn });
-            lines.push(`@group(1) @binding(${matBinding}) var ${tn.textureId}_tex : ${tn.type};`);
-            matBinding++;
+            textureEntries.push({ textureId: String(tn.textureId), type: tn.type, group: objectGroupIndex as 0 | 1, binding: objectBinding, node: tn });
+            lines.push(`@group(${objectGroupIndex}) @binding(${objectBinding}) var ${tn.textureId}_tex : ${tn.type};`);
+            objectBinding++;
         }
 
         const samplerEntries: SamplerEntry[] = [];
         for (const sn of this.samplerNodes.values()) {
-            samplerEntries.push({ samplerId: sn.samplerId, type: sn.type, group: 1, binding: matBinding, node: sn });
-            lines.push(`@group(1) @binding(${matBinding}) var ${sn.samplerId}_samp : ${sn.type};`);
-            matBinding++;
+            samplerEntries.push({ samplerId: String(sn.samplerId), type: sn.type, group: objectGroupIndex as 0 | 1, binding: objectBinding, node: sn });
+            lines.push(`@group(${objectGroupIndex}) @binding(${objectBinding}) var ${sn.samplerId}_samp : ${sn.type};`);
+            objectBinding++;
         }
 
         if (lines.length > 0) lines.push('');
@@ -885,19 +1073,65 @@ export class WgslBuilder {
 
         const attributes: AttributeEntry[] = [
             ...[...this.attributes.values()],
-            ...this.instancedAttrs,
+            ...this.bufferAttrs,
         ];
         const varyings = [...this.varyings.values()];
+
+        // Legacy uniforms array — extract material uniforms from object group for backwards compat
+        const objectGroup = uniformGroups.find(g => g.groupNode.name === 'object');
+        const legacyMaterialUniforms = objectGroup
+            ? objectGroup.members.filter(m =>
+                m.uniformId !== 'modelWorldMatrix' && m.uniformId !== 'modelNormalMatrix')
+            : [];
+        const legacyUniformBlockEntry: UniformBlockEntry | null = legacyMaterialUniforms.length > 0
+            ? { group: 1, binding: 0, members: legacyMaterialUniforms, totalBytes: objectGroup!.totalBytes }
+            : null;
 
         return {
             code: lines.join('\n'),
             attributes,
             varyings,
-            uniforms: uniformBlockEntry ? [uniformBlockEntry] : [],
+            uniforms: legacyUniformBlockEntry ? [legacyUniformBlockEntry] : [],
+            uniformGroups,
             storage: storageEntries,
             textures: textureEntries,
             samplers: samplerEntries,
             builtinsUsed: new Set(this.builtinsUsed),
+            updateBeforeNodes: this._updateBeforeNodes,
+            updateAfterNodes:  this._updateAfterNodes,
+            updateNodes:       this._updateNodes,
+            inspectableNodes:  [...this.allNodes.values()].filter(n => n._isInspectable),
+        };
+    }
+
+    /**
+     * Build a UniformGroupBlock from a bucket of UniformNodes.
+     * Calculates std140 layout offsets.
+     */
+    private _buildUniformGroupBlock(
+        groupNode: UniformGroupNode,
+        nodes: UniformNode<WgslType>[],
+        groupIndex: number,
+        binding: number,
+    ): UniformGroupBlock {
+        const members: UniformMember[] = [];
+        let offset = 0;
+        for (const n of nodes) {
+            const align = std140Align(n.type);
+            const size = std140Size(n.type);
+            offset = alignUp(offset, align);
+            members.push({ uniformId: n.name, type: n.type, offset, size, node: n });
+            offset += size;
+        }
+        const totalBytes = alignUp(offset, 16);
+        return {
+            groupName: groupNode.name,
+            groupIndex,
+            binding,
+            shared: groupNode.shared,
+            members,
+            totalBytes,
+            groupNode,
         };
     }
 
@@ -910,7 +1144,7 @@ export class WgslBuilder {
         for (const a of attrList) {
             lines.push(`    @location(${a.location}) ${a.name} : ${a.type},`);
         }
-        for (const a of this.instancedAttrs) {
+        for (const a of this.bufferAttrs) {
             lines.push(`    @location(${a.location}) ${a.name} : ${a.type},`);
         }
         if (this.builtinsUsed.has('instance_index')) {
@@ -983,6 +1217,11 @@ export class WgslBuilder {
         const varyingList = [...this.varyings.values()];
         const hasVaryings = varyingList.length > 0;
 
+        const slots = this.input.kind === 'render' ? this.input.slots : null;
+        const maskRoot  = slots?.mask;
+        const depthRoot = slots?.depth;
+        const hasDepth  = depthRoot !== undefined;
+
         if (hasVaryings) {
             lines.push(`struct FragmentInput {`);
             for (const v of varyingList) {
@@ -992,21 +1231,54 @@ export class WgslBuilder {
             lines.push('');
         }
 
+        // When depthNode is set, use a named output struct so we can attach
+        // @builtin(frag_depth) alongside the colour attachment.
+        if (hasDepth) {
+            lines.push(`struct FragmentOutput {`);
+            lines.push(`    @location(0) color : vec4f,`);
+            lines.push(`    @builtin(frag_depth) frag_depth : f32,`);
+            lines.push(`}`);
+            lines.push('');
+        }
+
         const inputParam = hasVaryings ? `in : FragmentInput` : ``;
+        const returnType = hasDepth ? `-> FragmentOutput` : `-> @location(0) vec4f`;
 
         lines.push(`@fragment`);
-        lines.push(`fn fs_main(${inputParam}) -> @location(0) vec4f {`);
+        lines.push(`fn fs_main(${inputParam}) ${returnType} {`);
 
         // Emit var declarations preamble (VarNode declarations for this stage)
         const fragmentVars = this.getVars('fragment');
         if (fragmentVars) lines.push(fragmentVars.replace(/\n$/, ''));
 
-        const colorRoot = this.input.kind === 'render' ? this.input.slots.color : null;
+        // maskNode: evaluate, then emit early-discard
+        if (maskRoot) {
+            const maskFlowData = this.flowResults.get(maskRoot);
+            if (maskFlowData) {
+                if (maskFlowData.code) lines.push(maskFlowData.code.replace(/\n$/, ''));
+                lines.push(`    if (!(${maskFlowData.result})) { discard; }`);
+            }
+        }
+
+        const colorRoot = slots?.color ?? null;
         if (colorRoot) {
             const flowData = this.flowResults.get(colorRoot);
             if (flowData) {
                 if (flowData.code) lines.push(flowData.code.replace(/\n$/, ''));
-                lines.push(`    return ${flowData.result};`);
+
+                if (hasDepth) {
+                    // depthNode: evaluate and emit into the output struct
+                    const depthFlowData = this.flowResults.get(depthRoot!);
+                    lines.push(`    var _out : FragmentOutput;`);
+                    lines.push(`    _out.color = ${flowData.result};`);
+                    if (depthFlowData) {
+                        if (depthFlowData.code) lines.push(depthFlowData.code.replace(/\n$/, ''));
+                        lines.push(`    _out.frag_depth = ${depthFlowData.result};`);
+                    }
+                    lines.push(`    return _out;`);
+                } else {
+                    lines.push(`    return ${flowData.result};`);
+                }
             }
         }
 
@@ -1036,12 +1308,34 @@ export class WgslBuilder {
         }
         if (storageEntries.length > 0) lines.push('');
 
-        // Time uniforms (group 1) — only when the compute body references timeElapsed / timeDelta
-        if (this.builtinsUsed.has('time')) {
-            lines.push(`@group(1) @binding(0) var<uniform> timeElapsed : f32;`);
-            lines.push(`@group(1) @binding(1) var<uniform> timeDelta : f32;`);
-            lines.push('');
+        // ---------------------------------------------------------------------
+        // Build uniform groups from buckets — same as render shaders
+        // For compute: only render group (time uniforms), no object group
+        // Storage is group 0, so uniforms go to group 1
+        // ---------------------------------------------------------------------
+        const uniformGroups: UniformGroupBlock[] = [];
+        const sortedBuckets = [...this.uniformGroupBuckets.values()]
+            .sort((a, b) => a.groupNode.order - b.groupNode.order);
+
+        // For compute shaders: group 0 = storage, group 1 = render uniforms (time)
+        let groupIndex = 1; // Start at 1 since storage is group 0
+        for (const bucket of sortedBuckets) {
+            if (bucket.nodes.length === 0) continue;
+
+            const block = this._buildUniformGroupBlock(bucket.groupNode, bucket.nodes, groupIndex, 0);
+            uniformGroups.push(block);
+
+            // Emit struct definition + var declaration
+            // Struct type name gets "Struct" suffix to avoid shadowing the variable name
+            // (mirrors Three.js WGSLNodeBuilder._getWGSLStructBinding pattern)
+            const structTypeName = bucket.groupNode.name + 'Struct';
+            const memberLines = block.members.map(m => `    ${m.uniformId} : ${m.type},`).join('\n');
+            lines.push(`struct ${structTypeName} {\n${memberLines}\n}`);
+            lines.push(`@group(${groupIndex}) @binding(0) var<uniform> ${bucket.groupNode.name} : ${structTypeName};`);
+
+            groupIndex++;
         }
+        if (uniformGroups.length > 0) lines.push('');
 
         // User-defined Fn declarations
         for (const { fn, traced } of this.fnNodes.values()) {
@@ -1082,39 +1376,8 @@ export class WgslBuilder {
             storage: storageEntries,
             workgroupSize: this.input.node.workgroupSize,
             builtinsUsed: new Set(this.builtinsUsed),
+            uniformGroups,
         };
-    }
-
-    // -----------------------------------------------------------------------
-    // Uniform block helpers
-    // -----------------------------------------------------------------------
-
-    private _buildUniformBlock(
-        nodes: UniformNode<WgslType>[],
-        group: 0 | 1,
-        binding: number,
-    ): UniformBlockEntry {
-        const members: UniformMember[] = [];
-        let offset = 0;
-        for (const n of nodes) {
-            const align = std140Align(n.type);
-            const size = std140Size(n.type);
-            offset = alignUp(offset, align);
-            members.push({ uniformId: n.uniformId, type: n.type, offset, size, node: n });
-            offset += size;
-        }
-        const totalBytes = alignUp(offset, 16);
-        return { group, binding, members, totalBytes };
-    }
-
-    private _emitMaterialUniformBlock(block: UniformBlockEntry): string {
-        const members = block.members.map((m) => `    ${m.uniformId} : ${m.type},`).join('\n');
-        return [
-            `struct MaterialUniforms {`,
-            members,
-            `}`,
-            `@group(${block.group}) @binding(${block.binding}) var<uniform> materialUniforms : MaterialUniforms;`,
-        ].join('\n');
     }
 
     // -----------------------------------------------------------------------
@@ -1145,38 +1408,48 @@ compilerDefs = {
     uniform: {
         isStatement: false, isLeaf: true,
         setup: (node: UniformNode<WgslType>, b: WgslBuilder) => {
-            if (node.group === 'material' && !b.uniformNodes.has(node.uniformId)) {
-                b.uniformNodes.set(node.uniformId, node as unknown as UniformNode<WgslType>);
+            // Bucket by groupNode.name — this is the new Three.js-aligned approach
+            const groupName = node.groupNode.name;
+            let bucket = b.uniformGroupBuckets.get(groupName);
+            if (!bucket) {
+                bucket = { groupNode: node.groupNode, nodes: [] };
+                b.uniformGroupBuckets.set(groupName, bucket);
             }
+            // Dedup by name (the WGSL field name)
+            if (!bucket.nodes.some(n => n.name === node.name)) {
+                bucket.nodes.push(node);
+            }
+
             const uniformDef = lookupStructDefByName(node.type);
             if (uniformDef) b._registerStructDef(uniformDef);
         },
         generate: (node: UniformNode<WgslType>, _b: WgslBuilder) =>
-            node.group === 'material' ? `materialUniforms.${node.uniformId}` : node.uniformId,
+            // New Three.js-aligned property access: groupName.fieldName
+            `${node.groupNode.name}.${node.name}`,
     },
     attribute: {
         isStatement: false, isLeaf: true,
         setup: (node: AttributeNode<WgslType>, b: WgslBuilder) => {
             if (!b.attributes.has(node.name)) {
-                const totalLoc = b.attributes.size + b.instancedAttrs.length;
+                const totalLoc = b.attributes.size + b.bufferAttrs.length;
                 b.attributes.set(node.name, { kind: 'geometry', name: node.name, type: node.type, location: totalLoc });
             }
         },
         generate: (node: AttributeNode<WgslType>, _b: WgslBuilder) => `in.${node.name}`,
     },
-    instanced_buffer_attribute: {
+    buffer_attribute: {
         isStatement: false, isLeaf: true,
-        setup: (node: InstancedBufferAttributeNode<WgslType>, b: WgslBuilder) => {
-            if (!b.instancedAttrNames.has(node.id)) {
-                const totalLoc = b.attributes.size + b.instancedAttrs.length;
-                const name = `_inst${b.instancedAttrs.length}`;
-                b.instancedAttrNames.set(node.id, name);
-                b.instancedAttrs.push({ kind: 'instanced', node: node as unknown as InstancedBufferAttributeNode<WgslType>, name, type: node.type, location: totalLoc });
+        setup: (node: BufferAttributeNode<WgslType>, b: WgslBuilder) => {
+            if (!b.bufferAttrNames.has(node.id)) {
+                const totalLoc = b.attributes.size + b.bufferAttrs.length;
+                const name = `_buf${b.bufferAttrs.length}`;
+                b.bufferAttrNames.set(node.id, name);
+                b.bufferAttrs.push({ kind: 'buffer', node: node as unknown as BufferAttributeNode<WgslType>, name, type: node.type, location: totalLoc });
             }
         },
-        generate: (node: InstancedBufferAttributeNode<WgslType>, b: WgslBuilder) => {
-            const name = b.instancedAttrNames.get(node.id);
-            return name ? `in.${name}` : `/* missing instanced attr ${node.id} */`;
+        generate: (node: BufferAttributeNode<WgslType>, b: WgslBuilder) => {
+            const name = b.bufferAttrNames.get(node.id);
+            return name ? `in.${name}` : `/* missing buffer attr ${node.id} */`;
         },
     },
     storage: {
@@ -1202,8 +1475,9 @@ compilerDefs = {
     texture: {
         isStatement: false, isLeaf: true,
         setup: (node: TextureNode, b: WgslBuilder) => {
-            if (!b.textureNodes.has(node.textureId)) {
-                b.textureNodes.set(node.textureId, node);
+            const key = String(node.textureId);
+            if (!b.textureNodes.has(key)) {
+                b.textureNodes.set(key, node);
             }
         },
         generate: (node: TextureNode, _b: WgslBuilder) => `${node.textureId}_tex`,
@@ -1211,8 +1485,9 @@ compilerDefs = {
     sampler: {
         isStatement: false, isLeaf: true,
         setup: (node: SamplerNode, b: WgslBuilder) => {
-            if (!b.samplerNodes.has(node.samplerId)) {
-                b.samplerNodes.set(node.samplerId, node);
+            const key = String(node.samplerId);
+            if (!b.samplerNodes.has(key)) {
+                b.samplerNodes.set(key, node);
             }
         },
         generate: (node: SamplerNode, _b: WgslBuilder) => `${node.samplerId}_samp`,
@@ -1320,42 +1595,17 @@ compilerDefs = {
     builtin: {
         isStatement: false, isLeaf: true,
         setup: (node: BuiltinNode<WgslType>, b: WgslBuilder) => {
-            const CAMERA_FIELDS = new Set([
-                'cameraProjectionMatrix', 'cameraViewMatrix', 'cameraPosition',
-                'cameraNear', 'cameraFar',
-            ]);
-            const TIME_FIELDS = new Set(['timeElapsed', 'timeDelta']);
-            const MESH_FIELDS = new Set(['meshModelMatrix', 'meshNormalMatrix']);
-            if (CAMERA_FIELDS.has(node.builtinKind)) {
-                b.builtinsUsed.add('camera');
-            } else if (TIME_FIELDS.has(node.builtinKind)) {
-                b.builtinsUsed.add('time');
-            } else if (MESH_FIELDS.has(node.builtinKind)) {
-                b.builtinsUsed.add('mesh');
-            } else {
-                b.builtinsUsed.add(node.builtinKind);
-            }
+            // Only WGSL shader builtins remain here (instance_index, vertex_index, etc.)
+            b.builtinsUsed.add(node.builtinKind);
         },
         generate: (node: BuiltinNode<WgslType>, b: WgslBuilder) => {
             const BUILTIN_VAR: Record<string, string> = {
-                cameraProjectionMatrix: 'cameraProjectionMatrix',
-                cameraViewMatrix:       'cameraViewMatrix',
-                cameraPosition:         'cameraPosition',
-                cameraNear:             'cameraNear',
-                cameraFar:              'cameraFar',
-                timeElapsed:            'timeElapsed',
-                timeDelta:              'timeDelta',
-                meshModelMatrix:        'meshModelMatrix',
-                meshNormalMatrix:       'meshNormalMatrix',
-                mesh:           'mesh',
                 instance_index: 'instance_index',
                 instance_data:  'instanceData',
                 vertex_index:   'vertex_index',
             };
             const BUILTIN_VERTEX_INPUT = new Set(['instance_index', 'vertex_index']);
             if (b.shaderStage === 'compute') {
-                // In compute shaders, vertex-input builtins aren't available.
-                // Time fields are declared as group(1) uniforms — use their var names directly.
                 return BUILTIN_VAR[node.builtinKind] ?? node.builtinKind;
             }
             if (BUILTIN_VERTEX_INPUT.has(node.builtinKind)) return `in.${BUILTIN_VAR[node.builtinKind] ?? node.builtinKind}`;

@@ -1,121 +1,361 @@
 /**
- * bindgroups.ts — GPUBindGroup construction.
+ * bindgroups.ts — GPUBindGroup construction (Three.js aligned).
  *
- * Group 0 (frame): flat per-field camera/time uniform bindings (three.js style).
- *   Bindings 0–4: cameraProjectionMatrix, cameraViewMatrix, cameraPosition, cameraNear, cameraFar
- *   Bindings 5–6: timeElapsed, timeDelta
- * Group 1 (mesh):  flat mesh bindings (0 = meshModelMatrix, 1 = meshNormalMatrix) + material
- *                  uniforms/textures/samplers starting at binding 2.
+ * Following Three.js's pattern:
+ * - BindGroup objects are created only for groups with actual bindings
+ * - Each BindGroup has a name, index (slot), and layout
+ * - The pipeline layout is built from only the non-empty bind groups
+ *
+ * Group 0 (render): Struct UBO containing camera + time uniforms (optional).
+ * Group 1 (object): Struct UBO containing mesh matrices + material uniforms,
+ *                   plus textures, samplers, and storage buffers (optional).
  *
  * The renderer calls these once per frame (group 0) and once per draw (group 1).
  */
 
-import type { CompileResult } from '../nodes/compile.js';
-import type { Mesh } from '../scene/mesh.js';
-import type { BufferCache } from './buffers.js';
+import type { CompileResult, ComputeCompileResult } from '../nodes/compile';
+import type { BufferCache } from './buffers';
 
 // ---------------------------------------------------------------------------
-// Group 0 — frame-level (camera + time flat uniforms)
+// BindGroup type (Three.js aligned)
 // ---------------------------------------------------------------------------
 
-export type FrameBuffers = {
-    /** @group(0) @binding(0) cameraProjectionMatrix : mat4x4f  (64B) */
-    camProj:    GPUBuffer | null;
-    /** @group(0) @binding(1) cameraViewMatrix : mat4x4f        (64B) */
-    camView:    GPUBuffer | null;
-    /** @group(0) @binding(2) cameraPosition : vec3f            (16B, std140 padded) */
-    camPos:     GPUBuffer | null;
-    /** @group(0) @binding(3) cameraNear : f32                  (4B, min 16B) */
-    camNear:    GPUBuffer | null;
-    /** @group(0) @binding(4) cameraFar : f32                   (4B, min 16B) */
-    camFar:     GPUBuffer | null;
-    /** @group(0) @binding(5) timeElapsed : f32                 (4B, min 16B) */
-    timeElapsed: GPUBuffer | null;
-    /** @group(0) @binding(6) timeDelta : f32                   (4B, min 16B) */
-    timeDelta:  GPUBuffer | null;
+/**
+ * A bind group represents a collection of bindings.
+ * Following Three.js's BindGroup class pattern.
+ */
+export type BindGroup = {
+    /** The bind group's name (e.g. 'render', 'object'). */
+    name: string;
+    /** The group index/slot for setBindGroup(). Assigned after sorting. */
+    index: number;
+    /** The bind group layout for this group. */
+    layout: GPUBindGroupLayout;
+    /** Number of entries in this bind group. */
+    entryCount: number;
 };
 
 /**
- * Build the frame-level bind group (group 0).
- *
- * Only includes entries for bindings declared in the shader (driven by cr.builtinsUsed).
- * The layout must have been built from the same CompileResult via _buildLayout0.
+ * Information needed to build and set bind groups at runtime.
  */
-export function buildFrameBindGroup(
-    device: GPUDevice,
-    layout: GPUBindGroupLayout,
-    cr: CompileResult,
-    bufs: FrameBuffers,
-): GPUBindGroup {
-    const entries: GPUBindGroupEntry[] = [];
-
-    if (cr.builtinsUsed.has('camera')) {
-        entries.push({ binding: 0, resource: { buffer: bufs.camProj! } });
-        entries.push({ binding: 1, resource: { buffer: bufs.camView! } });
-        entries.push({ binding: 2, resource: { buffer: bufs.camPos! } });
-        entries.push({ binding: 3, resource: { buffer: bufs.camNear! } });
-        entries.push({ binding: 4, resource: { buffer: bufs.camFar! } });
-    }
-    if (cr.builtinsUsed.has('time')) {
-        entries.push({ binding: 5, resource: { buffer: bufs.timeElapsed! } });
-        entries.push({ binding: 6, resource: { buffer: bufs.timeDelta! } });
-    }
-
-    return device.createBindGroup({ layout, entries });
-}
+export type BindGroupInfo = {
+    /** All bind groups, in order (indices match pipeline layout). */
+    bindGroups: BindGroup[];
+    /** Index of the render group in bindGroups, or -1 if not present. */
+    renderGroupIndex: number;
+    /** Index of the object group in bindGroups, or -1 if not present. */
+    objectGroupIndex: number;
+};
 
 // ---------------------------------------------------------------------------
-// Group 1 — mesh-level (flat mesh bindings + material)
+// Build BindGroupInfo from CompileResult (Three.js aligned)
 // ---------------------------------------------------------------------------
 
 /**
- * Build the per-mesh bind group (group 1).
+ * Build bind group layouts and info from a CompileResult.
  *
- * Mesh flat bindings (when 'mesh' is used by the shader):
- *   binding 0: meshModelMatrix : mat4x4f
- *   binding 1: meshNormalMatrix : mat3x3f
- * Material uniforms, textures, and samplers follow at binding 2+.
- *
- * @param device              GPUDevice
- * @param layout              Bind group layout from PipelineEntry.layout1
- * @param cr                  CompileResult for this material
- * @param _mesh               The mesh being drawn (reserved for future use)
- * @param meshModelMatrixBuf  GPUBuffer for meshModelMatrix (may be null if mesh not used)
- * @param meshNormalMatrixBuf GPUBuffer for meshNormalMatrix (may be null if mesh not used)
- * @param materialUboBuf      GPUBuffer containing the packed material uniform block (may be null)
+ * Three.js aligned: iterates through uniformGroups (already sorted by order)
+ * and creates bind group layouts at the indices specified by groupIndex.
+ * Storage/textures/samplers are added to their respective groups.
  */
-export function buildMeshBindGroup(
+export function buildBindGroupInfo(
     device: GPUDevice,
-    layout: GPUBindGroupLayout,
     cr: CompileResult,
-    _mesh: Mesh | null,
-    meshModelMatrixBuf: GPUBuffer | null,
-    meshNormalMatrixBuf: GPUBuffer | null,
-    materialUboBuf: GPUBuffer | null,
+): BindGroupInfo {
+    const vis = GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT;
+
+    // Build a map of groupIndex → entries for each bind group
+    // uniformGroups are already sorted by order in compile
+    const groupEntriesMap = new Map<number, { name: string; entries: GPUBindGroupLayoutEntry[] }>();
+
+    // Add uniform buffer entries from uniformGroups
+    for (const ug of cr.uniformGroups) {
+        if (ug.members.length === 0) continue;
+        groupEntriesMap.set(ug.groupIndex, {
+            name: ug.groupName,
+            entries: [{
+                binding: 0,
+                visibility: vis,
+                buffer: { type: 'uniform' },
+            }],
+        });
+    }
+
+    // Add storage buffers to their respective groups
+    for (const s of cr.storage) {
+        let groupData = groupEntriesMap.get(s.group);
+        if (!groupData) {
+            // Group doesn't exist yet (no uniforms) - create it
+            // Find the group name from uniformGroups or default to 'object'
+            const ug = cr.uniformGroups.find(g => g.groupIndex === s.group);
+            groupData = { name: ug?.groupName ?? 'object', entries: [] };
+            groupEntriesMap.set(s.group, groupData);
+        }
+        groupData.entries.push({
+            binding: s.binding,
+            visibility: vis,
+            buffer: { type: 'read-only-storage' },
+        });
+    }
+
+    // Add textures to their respective groups
+    for (const t of cr.textures) {
+        let groupData = groupEntriesMap.get(t.group);
+        if (!groupData) {
+            const ug = cr.uniformGroups.find(g => g.groupIndex === t.group);
+            groupData = { name: ug?.groupName ?? 'object', entries: [] };
+            groupEntriesMap.set(t.group, groupData);
+        }
+        groupData.entries.push({
+            binding: t.binding,
+            visibility: GPUShaderStage.FRAGMENT,
+            texture: {},
+        });
+    }
+
+    // Add samplers to their respective groups
+    for (const s of cr.samplers) {
+        let groupData = groupEntriesMap.get(s.group);
+        if (!groupData) {
+            const ug = cr.uniformGroups.find(g => g.groupIndex === s.group);
+            groupData = { name: ug?.groupName ?? 'object', entries: [] };
+            groupEntriesMap.set(s.group, groupData);
+        }
+        groupData.entries.push({
+            binding: s.binding,
+            visibility: GPUShaderStage.FRAGMENT,
+            sampler: {},
+        });
+    }
+
+    // Three.js aligned: bind groups are created with sequential indices 0, 1, 2...
+    // The shader @group(N) indices match these sequential indices.
+    const sortedIndices = [...groupEntriesMap.keys()].sort((a, b) => a - b);
+    const bindGroups: BindGroup[] = [];
+    let renderGroupIndex = -1;
+    let objectGroupIndex = -1;
+
+    for (const groupIdx of sortedIndices) {
+        const groupData = groupEntriesMap.get(groupIdx)!;
+        const layout = device.createBindGroupLayout({ entries: groupData.entries });
+        const bgIndex = bindGroups.length;
+        bindGroups.push({
+            name: groupData.name,
+            index: bgIndex,
+            layout,
+            entryCount: groupData.entries.length,
+        });
+        if (groupData.name === 'render') renderGroupIndex = bgIndex;
+        if (groupData.name === 'object') objectGroupIndex = bgIndex;
+    }
+
+    return { bindGroups, renderGroupIndex, objectGroupIndex };
+}
+
+/**
+ * Build bind group info for compute pipelines.
+ */
+export function buildComputeBindGroupInfo(
+    device: GPUDevice,
+    cr: ComputeCompileResult,
+): BindGroupInfo {
+    const bindGroups: BindGroup[] = [];
+    let renderGroupIndex = -1;
+    const objectGroupIndex = -1; // Compute doesn't have object group
+
+    // Group 0: Storage buffers
+    if (cr.storage.length > 0) {
+        const entries: GPUBindGroupLayoutEntry[] = cr.storage.map((s) => ({
+            binding: s.binding,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: {
+                type: s.access === 'read_write'
+                    ? ('storage' as GPUBufferBindingType)
+                    : ('read-only-storage' as GPUBufferBindingType),
+            },
+        }));
+        const layout = device.createBindGroupLayout({ entries });
+        bindGroups.push({
+            name: 'storage',
+            index: bindGroups.length,
+            layout,
+            entryCount: entries.length,
+        });
+    }
+
+    // Group 1: Render uniforms (time) - only if used
+    const renderGroup = cr.uniformGroups.find(g => g.groupName === 'render');
+    const hasRenderGroupUniforms = renderGroup && renderGroup.members.length > 0;
+
+    if (hasRenderGroupUniforms) {
+        const entries: GPUBindGroupLayoutEntry[] = [{
+            binding: 0,
+            visibility: GPUShaderStage.COMPUTE,
+            buffer: { type: 'uniform' },
+        }];
+        const layout = device.createBindGroupLayout({ entries });
+        renderGroupIndex = bindGroups.length;
+        bindGroups.push({
+            name: 'render',
+            index: renderGroupIndex,
+            layout,
+            entryCount: entries.length,
+        });
+    }
+
+    return { bindGroups, renderGroupIndex, objectGroupIndex };
+}
+
+// ---------------------------------------------------------------------------
+// Build GPUBindGroup instances at runtime
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the render group GPUBindGroup (struct UBO with camera + time).
+ *
+ * @param device      GPUDevice
+ * @param bindGroup   The BindGroup for render group
+ * @param renderBuf   GPUBuffer containing the packed render struct UBO
+ */
+export function buildRenderGroupGPUBindGroup(
+    device: GPUDevice,
+    bindGroup: BindGroup,
+    renderBuf: GPUBuffer,
+): GPUBindGroup {
+    return device.createBindGroup({
+        layout: bindGroup.layout,
+        entries: [
+            { binding: 0, resource: { buffer: renderBuf } },
+        ],
+    });
+}
+
+/**
+ * Build the object group GPUBindGroup (struct UBO + textures/samplers/storage).
+ *
+ * Three.js aligned: uses bindGroup.index to filter resources belonging to this group.
+ *
+ * @param device      GPUDevice
+ * @param bindGroup   The BindGroup for object group
+ * @param cr          CompileResult for this material
+ * @param objectBuf   GPUBuffer containing the packed object struct UBO (null if no object group uniforms)
+ * @param buffers     BufferCache for storage buffer lookups
+ */
+export function buildObjectGroupGPUBindGroup(
+    device: GPUDevice,
+    bindGroup: BindGroup,
+    cr: CompileResult,
+    objectBuf: GPUBuffer | null,
     buffers: BufferCache,
 ): GPUBindGroup {
     const entries: GPUBindGroupEntry[] = [];
+    const groupIndex = bindGroup.index;
 
-    // Flat mesh bindings
-    if (cr.builtinsUsed.has('mesh')) {
-        entries.push({ binding: 0, resource: { buffer: meshModelMatrixBuf! } });
-        entries.push({ binding: 1, resource: { buffer: meshNormalMatrixBuf! } });
+    // Object struct UBO at binding 0 (only if present)
+    const objectGroup = cr.uniformGroups.find(g => g.groupName === 'object' && g.groupIndex === groupIndex);
+    if (objectGroup && objectGroup.members.length > 0 && objectBuf) {
+        entries.push({ binding: 0, resource: { buffer: objectBuf } });
     }
 
-    // Per-material storage buffers (binding 1+)
+    // Storage buffers
     for (const s of cr.storage) {
-        if (s.group !== 1) continue;
+        if (s.group !== groupIndex) continue;
         const buf = buffers.uploadStorage(s.node);
         entries.push({ binding: s.binding, resource: { buffer: buf } });
     }
 
-    // Material uniform block (binding 1+)
-    for (const ub of cr.uniforms) {
-        if (ub.group !== 1) continue;
-        if (!materialUboBuf) {
-            throw new Error('[buildMeshBindGroup] materialUboBuf required but not provided');
+    // Textures
+    for (const t of cr.textures) {
+        if (t.group !== groupIndex) continue;
+        const res = t.node.resource;
+        if (res === null) {
+            throw new Error(`[buildObjectGroupGPUBindGroup] TextureNode '${t.textureId}' has no resource set`);
         }
-        entries.push({ binding: ub.binding, resource: { buffer: materialUboBuf } });
+        const view = res instanceof GPUTextureView ? res : (res as GPUTexture).createView();
+        entries.push({ binding: t.binding, resource: view });
+    }
+
+    // Samplers
+    for (const s of cr.samplers) {
+        if (s.group !== groupIndex) continue;
+        const samp = s.node.resource;
+        if (samp === null) {
+            throw new Error(`[buildObjectGroupGPUBindGroup] SamplerNode '${s.samplerId}' has no resource set`);
+        }
+        entries.push({ binding: s.binding, resource: samp });
+    }
+
+    return device.createBindGroup({ layout: bindGroup.layout, entries });
+}
+
+/**
+ * Build storage group GPUBindGroup for compute shaders.
+ *
+ * @param device      GPUDevice
+ * @param bindGroup   The BindGroup for storage
+ * @param cr          ComputeCompileResult
+ * @param buffers     BufferCache for storage buffer lookups
+ */
+export function buildComputeStorageGPUBindGroup(
+    device: GPUDevice,
+    bindGroup: BindGroup,
+    cr: ComputeCompileResult,
+    buffers: BufferCache,
+): GPUBindGroup {
+    const entries: GPUBindGroupEntry[] = [];
+
+    for (const s of cr.storage) {
+        const buf = buffers.uploadStorage(s.node);
+        entries.push({ binding: s.binding, resource: { buffer: buf } });
+    }
+
+    return device.createBindGroup({ layout: bindGroup.layout, entries });
+}
+
+// ---------------------------------------------------------------------------
+// Legacy exports for backwards compatibility during migration
+// (These will be removed once renderer is fully migrated)
+// ---------------------------------------------------------------------------
+
+/**
+ * @deprecated Use buildRenderGroupGPUBindGroup with BindGroup instead
+ */
+export function buildRenderGroupBindGroup(
+    device: GPUDevice,
+    layout: GPUBindGroupLayout,
+    renderBuf: GPUBuffer,
+): GPUBindGroup {
+    return device.createBindGroup({
+        layout,
+        entries: [
+            { binding: 0, resource: { buffer: renderBuf } },
+        ],
+    });
+}
+
+/**
+ * @deprecated Use buildObjectGroupGPUBindGroup with BindGroup instead
+ */
+export function buildObjectGroupBindGroup(
+    device: GPUDevice,
+    layout: GPUBindGroupLayout,
+    cr: CompileResult,
+    objectBuf: GPUBuffer | null,
+    buffers: BufferCache,
+): GPUBindGroup {
+    const entries: GPUBindGroupEntry[] = [];
+
+    // Object struct UBO at binding 0 (only if present)
+    const objectGroup = cr.uniformGroups.find(g => g.groupName === 'object');
+    if (objectGroup && objectGroup.members.length > 0 && objectBuf) {
+        entries.push({ binding: 0, resource: { buffer: objectBuf } });
+    }
+
+    // Storage buffers (binding 1+)
+    for (const s of cr.storage) {
+        if (s.group !== 1) continue;
+        const buf = buffers.uploadStorage(s.node);
+        entries.push({ binding: s.binding, resource: { buffer: buf } });
     }
 
     // Textures (binding 1+)
@@ -123,7 +363,7 @@ export function buildMeshBindGroup(
         if (t.group !== 1) continue;
         const res = t.node.resource;
         if (res === null) {
-            throw new Error(`[buildMeshBindGroup] TextureNode '${t.textureId}' has no resource set`);
+            throw new Error(`[buildObjectGroupBindGroup] TextureNode '${t.textureId}' has no resource set`);
         }
         const view = res instanceof GPUTextureView ? res : (res as GPUTexture).createView();
         entries.push({ binding: t.binding, resource: view });
@@ -134,44 +374,10 @@ export function buildMeshBindGroup(
         if (s.group !== 1) continue;
         const samp = s.node.resource;
         if (samp === null) {
-            throw new Error(`[buildMeshBindGroup] SamplerNode '${s.samplerId}' has no resource set`);
+            throw new Error(`[buildObjectGroupBindGroup] SamplerNode '${s.samplerId}' has no resource set`);
         }
         entries.push({ binding: s.binding, resource: samp });
     }
 
     return device.createBindGroup({ layout, entries });
-}
-
-// ---------------------------------------------------------------------------
-// Material UBO packing
-// ---------------------------------------------------------------------------
-
-/**
- * Pack material uniform values into a Float32Array for GPU upload.
- * Reads values from each member's node.value directly.
- * Uses byte offsets from `CompileResult.uniforms[0].members`.
- */
-export function packMaterialUBO(cr: CompileResult): Float32Array | null {
-    // Find the group-1 material uniform block
-    const ub = cr.uniforms.find((u) => u.group === 1);
-    if (!ub || ub.totalBytes === 0) return null;
-
-    const buf = new Float32Array(Math.ceil(ub.totalBytes / 4));
-    const bytes = new Uint8Array(buf.buffer);
-
-    for (const member of ub.members) {
-        const value = member.node.value;
-        if (value === null || value === undefined) continue;
-
-        if (typeof value === 'number') {
-            new DataView(bytes.buffer).setFloat32(member.offset, value, true);
-        } else if (value instanceof Float32Array) {
-            bytes.set(new Uint8Array(value.buffer, value.byteOffset, value.byteLength), member.offset);
-        } else if (Array.isArray(value)) {
-            const fa = new Float32Array(value as number[]);
-            bytes.set(new Uint8Array(fa.buffer), member.offset);
-        }
-    }
-
-    return buf;
 }

@@ -1,5 +1,10 @@
 /**
- * pipeline.ts — Async-aware GPURenderPipeline cache.
+ * pipeline.ts — Async-aware GPURenderPipeline cache (Three.js aligned).
+ *
+ * Following Three.js's pattern:
+ * - Pipeline layout is built from only non-empty bind groups
+ * - Each bind group has a dynamic index based on which groups are present
+ * - Empty bind groups are not included in the pipeline layout
  *
  * Cache key = stable hash of (positionGraph, colorGraph, renderState, samples).
  * On miss: compile node graphs → build pipeline layout → createRenderPipelineAsync.
@@ -8,11 +13,12 @@
  * Draws that need a not-yet-ready pipeline are skipped by the renderer.
  */
 
-import { compile, type CompileResult } from '../nodes/compile.js';
-import { positionClip } from '../nodes/nodes.js';
-import type { Node, WgslType } from '../nodes/nodes.js';
-import type { Material } from '../scene/material.js';
-import type { Geometry } from '../scene/geometry.js';
+import { compile, type CompileResult } from '../nodes/compile';
+import { positionClip } from '../nodes/nodes';
+import type { Node, WgslType } from '../nodes/nodes';
+import type { Material } from '../scene/material';
+import type { Geometry } from '../scene/geometry';
+import { buildBindGroupInfo, type BindGroupInfo } from './bindgroups';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -21,10 +27,23 @@ import type { Geometry } from '../scene/geometry.js';
 export type PipelineEntry = {
     pipeline: GPURenderPipeline;
     compileResult: CompileResult;
-    /** Bind group layout for group 0 (camera + time). */
-    layout0: GPUBindGroupLayout;
-    /** Bind group layout for group 1 (instance + material). */
-    layout1: GPUBindGroupLayout;
+    /** Bind group info (Three.js aligned - only non-empty groups). */
+    bindGroupInfo: BindGroupInfo;
+    /**
+     * @deprecated Use bindGroupInfo.bindGroups[bindGroupInfo.renderGroupIndex].layout
+     * Kept for backwards compatibility during migration.
+     */
+    layout0: GPUBindGroupLayout | null;
+    /**
+     * @deprecated Use bindGroupInfo.bindGroups[bindGroupInfo.objectGroupIndex].layout
+     * Kept for backwards compatibility during migration.
+     */
+    layout1: GPUBindGroupLayout | null;
+};
+
+export type PipelineCacheStats = {
+    readyCount: number;
+    pendingCount: number;
 };
 
 // ---------------------------------------------------------------------------
@@ -64,6 +83,26 @@ export class PipelineCache {
         }
 
         return undefined;
+    }
+
+    /** Returns pipeline counts for the Inspector memory/performance tabs. */
+    getStats(): PipelineCacheStats {
+        return {
+            readyCount: this.ready.size,
+            pendingCount: this.pending.size,
+        };
+    }
+
+    /**
+     * Returns the CompileResult for the given key if the pipeline is already
+     * compiled, or null otherwise.  Does NOT trigger compilation.
+     *
+     * Used by the renderer to access updateBeforeNodes synchronously — the
+     * fullscreen composite pipeline must already be compiled (via compile())
+     * before this is called.
+     */
+    getCompileResult(key: string): CompileResult | null {
+        return this.ready.get(key)?.compileResult ?? null;
     }
 
     /**
@@ -110,18 +149,22 @@ export class PipelineCache {
         samples: number,
         format: GPUTextureFormat = this.format,
     ): Promise<PipelineEntry> {
-        const positionGraph: Node<WgslType> = material.position ?? positionClip;
-        const colorGraph: Node<WgslType> = material.color;
+        const positionGraph: Node<WgslType> = material.vertexNode ?? positionClip;
+        const colorGraph: Node<WgslType> = material.fragmentNode;
 
-        const cr = compile({ position: positionGraph, color: colorGraph });
-
-        // Build bind group layouts from CompileResult.
-        const layout0 = this._buildLayout0(cr);
-        const layout1 = this._buildLayout1(cr);
-
-        const pipelineLayout = this.device.createPipelineLayout({
-            bindGroupLayouts: [layout0, layout1],
+        const cr = compile({
+            position: positionGraph,
+            color: colorGraph,
+            mask:  material.maskNode,
+            depth: material.depthNode,
         });
+
+        // Build bind group info (Three.js aligned - only non-empty groups)
+        const bindGroupInfo = buildBindGroupInfo(this.device, cr);
+
+        // Build pipeline layout from only the non-empty bind groups
+        const bindGroupLayouts = bindGroupInfo.bindGroups.map(bg => bg.layout);
+        const pipelineLayout = this.device.createPipelineLayout({ bindGroupLayouts });
 
         const shaderModule = this.device.createShaderModule({ code: cr.code });
 
@@ -168,107 +211,24 @@ export class PipelineCache {
 
         const pipeline = await this.device.createRenderPipelineAsync(descriptor);
 
-        const entry: PipelineEntry = { pipeline, compileResult: cr, layout0, layout1 };
+        // Build legacy layout0/layout1 for backwards compat
+        const layout0 = bindGroupInfo.renderGroupIndex >= 0
+            ? bindGroupInfo.bindGroups[bindGroupInfo.renderGroupIndex].layout
+            : null;
+        const layout1 = bindGroupInfo.objectGroupIndex >= 0
+            ? bindGroupInfo.bindGroups[bindGroupInfo.objectGroupIndex].layout
+            : null;
+
+        const entry: PipelineEntry = {
+            pipeline,
+            compileResult: cr,
+            bindGroupInfo,
+            layout0,
+            layout1,
+        };
         this.ready.set(key, entry);
         this.pending.delete(key);
         return entry;
-    }
-
-    // -----------------------------------------------------------------------
-    // Bind group layout builders
-    // -----------------------------------------------------------------------
-
-    /** Group 0: flat per-field camera/time uniform bindings, dynamic based on shader usage. */
-    private _buildLayout0(cr: CompileResult): GPUBindGroupLayout {
-        const entries: GPUBindGroupLayoutEntry[] = [];
-        const vis = GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT;
-
-        if (cr.builtinsUsed.has('camera')) {
-            // bindings 0–4: projectionMatrix, viewMatrix, position, near, far
-            for (let b = 0; b <= 4; b++) {
-                entries.push({ binding: b, visibility: vis, buffer: { type: 'uniform' } });
-            }
-        }
-        if (cr.builtinsUsed.has('time')) {
-            // bindings 5–6: elapsed, delta
-            entries.push({ binding: 5, visibility: vis, buffer: { type: 'uniform' } });
-            entries.push({ binding: 6, visibility: vis, buffer: { type: 'uniform' } });
-        }
-
-        return this.device.createBindGroupLayout({ entries });
-    }
-
-    /**
-     * Group 1: flat mesh bindings (0 = meshModelMatrix, 1 = meshNormalMatrix) when 'mesh' is
-     * used, then material resources (uniforms, textures, samplers) starting at binding 2.
-     *
-     * InstancedBufferAttributeNodes are vertex buffers, not bind group entries — they are
-     * NOT included here.
-     */
-    private _buildLayout1(cr: CompileResult): GPUBindGroupLayout {
-        const entries: GPUBindGroupLayoutEntry[] = [];
-
-        // Mesh flat bindings — always present when the shader references mesh fields
-        if (cr.builtinsUsed.has('mesh')) {
-            // binding 0: meshModelMatrix : mat4x4f
-            entries.push({
-                binding: 0,
-                visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-                buffer: { type: 'uniform' },
-            });
-            // binding 1: meshNormalMatrix : mat3x3f
-            entries.push({
-                binding: 1,
-                visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-                buffer: { type: 'uniform' },
-            });
-        }
-
-        // Per-material storage buffers (binding 1+)
-        // Render shaders emit all storage buffers as var<storage, read> (the WGSL module is shared
-        // between vertex and fragment stages, and read_write is forbidden in the vertex stage).
-        // The bind group layout therefore always uses read-only-storage here, regardless of the
-        // node's access field.  Read-write access is only relevant for compute passes.
-        for (const s of cr.storage) {
-            if (s.group !== 1) continue;
-            entries.push({
-                binding: s.binding,
-                visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-                buffer: { type: 'read-only-storage' },
-            });
-        }
-
-        // Material uniform blocks (binding 1+)
-        for (const ub of cr.uniforms) {
-            if (ub.group !== 1) continue;
-            entries.push({
-                binding: ub.binding,
-                visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT,
-                buffer: { type: 'uniform' },
-            });
-        }
-
-        // Textures (binding 1+)
-        for (const t of cr.textures) {
-            if (t.group !== 1) continue;
-            entries.push({
-                binding: t.binding,
-                visibility: GPUShaderStage.FRAGMENT,
-                texture: {},
-            });
-        }
-
-        // Samplers (binding 1+)
-        for (const s of cr.samplers) {
-            if (s.group !== 1) continue;
-            entries.push({
-                binding: s.binding,
-                visibility: GPUShaderStage.FRAGMENT,
-                sampler: {},
-            });
-        }
-
-        return this.device.createBindGroupLayout({ entries });
     }
 }
 
@@ -280,7 +240,7 @@ export class PipelineCache {
  * Build GPUVertexBufferLayout[] from CompileResult.attributes + Geometry.attributes.
  *
  * - kind: 'geometry' — look up format/stride/offset from geometry.attributes
- * - kind: 'instanced' — derive format from WGSL type, use node.stride/node.offset, stepMode: 'instance'
+ * - kind: 'buffer' — derive format from WGSL type, use node.stride/node.offset, stepMode from node.instanced
  */
 function buildVertexBufferLayouts(cr: CompileResult, geometry: Geometry): GPUVertexBufferLayout[] {
     const layouts: GPUVertexBufferLayout[] = [];
@@ -306,12 +266,13 @@ function buildVertexBufferLayouts(cr: CompileResult, geometry: Geometry): GPUVer
                 ],
             });
         } else {
-            // kind: 'instanced' — per-instance vertex buffer from InstancedBufferAttributeNode
+            // kind: 'buffer' — per-vertex or per-instance from BufferAttributeNode
             const node = attrEntry.node;
             const format = wgslTypeToVertexFormat(attrEntry.type);
+            const itemSize = wgslTypeItemSize(attrEntry.type);
             layouts.push({
-                arrayStride: node.stride,
-                stepMode: 'instance',
+                arrayStride: node.stride > 0 ? node.stride : itemSize * 4, // 4 bytes per component for f32/i32/u32
+                stepMode: node.instanced ? 'instance' : 'vertex',
                 attributes: [
                     {
                         shaderLocation: attrEntry.location,
@@ -360,6 +321,17 @@ function wgslTypeToVertexFormat(type: string): GPUVertexFormat {
     }
 }
 
+/** Number of components for a WGSL type. */
+function wgslTypeItemSize(type: string): number {
+    switch (type) {
+        case 'f32':   case 'i32':   case 'u32':   return 1;
+        case 'vec2f': case 'vec2i': case 'vec2u': return 2;
+        case 'vec3f': case 'vec3i': case 'vec3u': return 3;
+        case 'vec4f': case 'vec4i': case 'vec4u': return 4;
+        default: return 4;
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Pipeline cache key generation
 // ---------------------------------------------------------------------------
@@ -373,8 +345,10 @@ function wgslTypeToVertexFormat(type: string): GPUVertexFormat {
 export function makePipelineKey(material: Material, samples: number, format: GPUTextureFormat): string {
     // Node graph IDs are content-addressed — they ARE the hash of the graph.
     // We just need to extract their string IDs.
-    const posId = material.position ? nodeGraphId(material.position) : '__default__';
-    const colId = nodeGraphId(material.color);
+    const posId  = material.vertexNode  ? nodeGraphId(material.vertexNode)  : '__default__';
+    const colId  = nodeGraphId(material.fragmentNode);
+    const maskId = material.maskNode  ? nodeGraphId(material.maskNode)  : '__none__';
+    const depId  = material.depthNode ? nodeGraphId(material.depthNode) : '__none__';
 
     const rs = [
         material.transparent ? 1 : 0,
@@ -389,7 +363,7 @@ export function makePipelineKey(material: Material, samples: number, format: GPU
         material.blend ? JSON.stringify(material.blend) : 'none',
     ].join('|');
 
-    return `${posId}::${colId}::${rs}`;
+    return `${posId}::${colId}::${maskId}::${depId}::${rs}`;
 }
 
 /** Extract the stable content-addressed ID from a Node object. */

@@ -197,9 +197,11 @@ const material = new gpu.Material({
 
 async function main() {
     const renderer = new gpu.WebGPURenderer({ antialias: true });
+    renderer.inspector = new gpu.Inspector();
     await renderer.init();
 
     document.body.appendChild(renderer.domElement);
+    document.body.appendChild((renderer.inspector as gpu.Inspector).domElement);
     renderer.setSize(window.innerWidth * devicePixelRatio, window.innerHeight * devicePixelRatio);
     renderer.clearColor = [0, 0, 0.12, 1];
 
@@ -236,9 +238,8 @@ async function main() {
     const scenePass  = gpu.pass(scene, camera);
     const outputNode = scenePass.getTextureNode();
 
-    await renderer.compile(computeInit);
-    await renderer.compile(computeUpdate);
-    await renderer.compile(outputNode);
+    await renderer.compileCompute(computeInit);
+    await renderer.compileCompute(computeUpdate);
 
     function frame() {
         // 1. Seed draw args

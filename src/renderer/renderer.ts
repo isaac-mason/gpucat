@@ -16,33 +16,102 @@
  *   requestAnimationFrame(frame);
  *
  * Frame loop (inside renderer.render()):
- *   1. Advance time, upload Time UBO (group 0)
- *   2. Collect all PassNodes from outputNode graph (BFS via collectPassNodes)
- *   3. For each PassNode:
- *      a. _ensureTarget(device, w, h) — lazy texture allocation
- *      b. (transforms must be updated by the caller before renderer.render())
- *      c. collectDraws — opaque sorted by pipeline key, transparent back-to-front
- *      d. Per-mesh: upload vertex/index buffers, Mesh UBO, material UBO
- *      e. Begin render pass into passNode's color+depth textures, issue draws, end pass
+ *   1. Advance time uniforms
+ *   2. Run update() callbacks for nodes discovered at compile-time
+ *   3. Run updateBefore() callbacks (PassNodes render their scenes here)
  *   4. _renderOutputNode — compile outputNode as fullscreen quad color, render to swapchain
- *   5. queue.submit([encoder.finish()]) — one submit per frame
+ *   5. Run updateAfter() callbacks
+ *   6. queue.submit([encoder.finish()]) — one submit per frame
  */
 
-import type { Mesh } from '../scene/mesh.js';
-import { mat3 } from 'mathcat';
-import { BufferCache } from './buffers.js';
-import { PipelineCache, makePipelineKey } from './pipeline.js';
-import { buildFrameBindGroup, buildMeshBindGroup, packMaterialUBO, type FrameBuffers } from './bindgroups.js';
-import { collectDraws, type DrawCall } from './collect.js';
-import { Material } from '../scene/material.js';
-import { Geometry } from '../scene/geometry.js';
-import { raw, builtin, type Node, type WgslType, VaryingNode, RawNode } from '../nodes/nodes.js';
-import { collectPassNodes, type PassNode } from '../nodes/pass-node.js';
-import { ComputeNode } from '../nodes/nodes.js';
-import { ComputePipelineCache, type ComputePipelineEntry } from './compute-pipeline.js';
-import type { CompileResult } from '../nodes/compile.js';
+import type { Mesh } from '../scene/mesh';
+import { BufferCache } from './buffers';
+import { PipelineCache, makePipelineKey, type PipelineEntry } from './pipeline';
+import {
+    buildRenderGroupGPUBindGroup,
+    buildObjectGroupGPUBindGroup,
+} from './bindgroups';
+import { collectDraws, type DrawCall } from './collect';
+import { Material } from '../scene/material';
+import { Geometry } from '../scene/geometry';
+import { raw, builtin, type Node, type WgslType, VaryingNode, RawNode } from '../nodes/nodes';
 
-const _normalMatrix = mat3.create();
+import { ComputeNode } from '../nodes/nodes';
+import { ComputePipelineCache, type ComputePipelineEntry } from './compute-pipeline';
+import type { CompileResult, UpdateBeforeNode, UpdateAfterNode, UpdateNode, UniformGroupBlock } from '../nodes/compile';
+import type { RenderFrame, RenderUpdateContext, ObjectUpdateContext } from './render-frame';
+import type { Scene } from '../scene/scene';
+import type { Camera } from '../scene/camera';
+import { InspectorBase } from '../inspector/inspector-base';
+
+// ---------------------------------------------------------------------------
+// Uniform group packing helpers (Phase 3d)
+// ---------------------------------------------------------------------------
+
+/**
+ * Pack uniform values from a UniformGroupBlock into a Float32Array.
+ * Reads node.value for each member, handling number, number[], and Float32Array.
+ * Uses the std140 byte offsets from the block's members.
+ *
+ * mat3x3f is handled specially: in WGSL uniform address space, each column is
+ * padded to vec4 (16 bytes), so mat3x3f occupies 48 bytes (3 × 16).
+ */
+function packUniformGroup(block: UniformGroupBlock): Float32Array {
+    const buf = new Float32Array(Math.ceil(block.totalBytes / 4));
+    const bytes = new Uint8Array(buf.buffer);
+
+    for (const member of block.members) {
+        const value = member.node.value;
+        if (value === null || value === undefined) continue;
+
+        const offset = member.offset;
+
+        if (member.type === 'mat3x3f') {
+            // mat3x3f in uniform space: 3 columns × vec4 (padded) = 48 bytes
+            // Input is a flat mat3 (9 floats), output is 12 floats with padding
+            const src = value instanceof Float32Array ? value : new Float32Array(value as number[]);
+            const f32Offset = offset / 4;
+            // Column 0
+            buf[f32Offset + 0] = src[0]; buf[f32Offset + 1] = src[1]; buf[f32Offset + 2] = src[2]; buf[f32Offset + 3] = 0;
+            // Column 1
+            buf[f32Offset + 4] = src[3]; buf[f32Offset + 5] = src[4]; buf[f32Offset + 6] = src[5]; buf[f32Offset + 7] = 0;
+            // Column 2
+            buf[f32Offset + 8] = src[6]; buf[f32Offset + 9] = src[7]; buf[f32Offset + 10] = src[8]; buf[f32Offset + 11] = 0;
+        } else if (typeof value === 'number') {
+            new DataView(bytes.buffer).setFloat32(offset, value, true);
+        } else if (value instanceof Float32Array) {
+            bytes.set(new Uint8Array(value.buffer, value.byteOffset, value.byteLength), offset);
+        } else if (Array.isArray(value)) {
+            const fa = new Float32Array(value);
+            bytes.set(new Uint8Array(fa.buffer), offset);
+        }
+    }
+
+    return buf;
+}
+
+/**
+ * Invoke update callbacks on all UniformNodes in a uniform group block.
+ * - For renderGroup uniforms: pass RenderUpdateContext { camera, elapsed, delta }
+ * - For objectGroup uniforms: pass ObjectUpdateContext { object }
+ *
+ * Each callback returns the value to assign to node.value.
+ */
+function invokeUniformGroupCallbacks(
+    block: UniformGroupBlock,
+    context: RenderUpdateContext | ObjectUpdateContext,
+): void {
+    for (const member of block.members) {
+        const node = member.node;
+        if (node.update) {
+            const result = node.update(context);
+            if (result !== undefined) {
+                node.value = result as typeof node.value;
+                node.version++;
+            }
+        }
+    }
+}
 
 export type WebGPURendererOptions = {
     /** Enable 4x MSAA antialiasing. Overridden by `samples` if both set. */
@@ -76,6 +145,9 @@ export class WebGPURenderer {
     /** @internal */ pipelines!: PipelineCache;
     /** @internal */ computePipelines!: ComputePipelineCache;
 
+    /** Inspector hook. Replace with a RendererInspector or Inspector instance to enable profiling. */
+    public inspector: InspectorBase = new InspectorBase();
+
     private _initialized = false;
 
     /** Swapchain depth texture (recreated on resize). */
@@ -83,58 +155,76 @@ export class WebGPURenderer {
     /** MSAA color texture (null when samples <= 1). Only used for swapchain passes. */
     private msaaTexture: GPUTexture | null = null;
 
-    /** Reusable CPU-side Float32Arrays for per-field camera/time uploads. */
-    private readonly _camProjData:    Float32Array = new Float32Array(16);
-    private readonly _camViewData:    Float32Array = new Float32Array(16);
-    private readonly _camPosData:     Float32Array = new Float32Array(4);  // vec3f padded to 16B
-    private readonly _camNearData:    Float32Array = new Float32Array(1);
-    private readonly _camFarData:     Float32Array = new Float32Array(1);
-    private readonly _timeElapsedData: Float32Array = new Float32Array(1);
-    private readonly _timeDeltaData:   Float32Array = new Float32Array(1);
-
-    /** Stable object keys used as WeakMap identities for per-field GPU buffers. */
-    private readonly _camProjKey:     object = {};
-    private readonly _camViewKey:     object = {};
-    private readonly _camPosKey:      object = {};
-    private readonly _camNearKey:     object = {};
-    private readonly _camFarKey:      object = {};
-    private readonly _timeElapsedKey: object = {};
-    private readonly _timeDeltaKey:   object = {};
-
-    /** Last-uploaded values for per-field dirty checking. */
-    private _lastCamProj:     Float32Array | null = null;
-    private _lastCamView:     Float32Array | null = null;
-    private _lastCamPos:      Float32Array | null = null;
-    private _lastCamNear:     number | null = null;
-    private _lastCamFar:      number | null = null;
-    private _lastTimeElapsed: number | null = null;
-    private _lastTimeDelta:   number | null = null;
-
-    /** Per-mesh GPU buffer keys — keyed by Mesh object identity. */
-    private readonly meshModelMatrixKeys: WeakMap<Mesh, object> = new WeakMap();
-    private readonly meshNormalMatrixKeys: WeakMap<Mesh, object> = new WeakMap();
-    private readonly materialUBOKeys: WeakMap<Mesh, object> = new WeakMap();
-
-    /** Reusable CPU buffers for per-field mesh uploads. */
-    private readonly _meshModelMatrixData: Float32Array = new Float32Array(16);
-    /** mat3x3f in uniform address space: each column padded to vec4, 3×4 = 12 f32 (48 bytes). */
-    private readonly _meshNormalMatrixData: Float32Array = new Float32Array(12);
+    // -----------------------------------------------------------------------
+    // New uniform group buffer state (Phase 3d)
+    // -----------------------------------------------------------------------
 
     /**
-     * Per-CompileResult last-packed version sum for the material UBO dirty check.
-     * Key: CompileResult object. Value: sum of member.node.version at last pack.
+     * GPU buffer key for the shared renderGroup struct UBO.
+     * All camera + time uniforms are packed into a single buffer.
      */
-    private readonly _uboVersionSums: WeakMap<CompileResult, number> = new WeakMap();
+    private readonly _renderGroupKey: object = {};
 
     /**
-     * Per-mesh last-uploaded matrixVersion for the mesh UBO dirty check.
-     * Key: Mesh object. Value: mesh.matrixVersion at last upload.
+     * GPU buffer key for compute shader renderGroup struct UBO.
+     * Separate from render because compute shaders don't have camera.
      */
-    private readonly _meshMatrixVersions: WeakMap<Mesh, number> = new WeakMap();
+    private readonly _computeRenderGroupKey: object = {};
+
+    /**
+     * Last-uploaded version sum for the renderGroup dirty check.
+     * Key: groupName. Value: sum of member.node.version at last upload.
+     */
+    private _renderGroupVersionSum: number = 0;
+
+    /**
+     * Per-mesh GPU buffer key for the objectGroup struct UBO.
+     * Contains modelWorldMatrix, modelNormalMatrix, and user material uniforms.
+     */
+    private readonly _objectGroupKeys: WeakMap<Mesh, object> = new WeakMap();
+
+    /**
+     * Per-mesh last-uploaded version sum for objectGroup dirty check.
+     */
+    private readonly _objectGroupVersionSums: WeakMap<Mesh, number> = new WeakMap();
+
 
     /** Elapsed time in seconds. */
     private elapsed = 0;
     private lastTimestamp = 0;
+
+    /**
+     * Monotonically-incrementing frame counter. Incremented once per render() call.
+     * Used for per-frame deduplication of updateBefore() calls.
+     * Three equivalent: NodeFrame.frameId
+     */
+    frameId = 0;
+
+    /**
+     * Monotonically-incrementing render counter. Incremented once per render() call
+     * (same as frameId for now; would differ if multiple render() calls share a frame,
+     * e.g. shadow passes).
+     * Three equivalent: NodeFrame.renderId
+     */
+    renderId = 0;
+
+    /**
+     * Per-frame/render deduplication map for updateBefore() calls.
+     * Mirrors three NodeFrame.updateBeforeMap (WeakMap<node, {frameId, renderId}>).
+     */
+    private _updateBeforeMap: WeakMap<object, { frameId: number; renderId: number }> = new WeakMap();
+
+    /**
+     * Per-frame/render deduplication map for updateAfter() calls.
+     * Mirrors three NodeFrame.updateAfterMap.
+     */
+    private _updateAfterMap: WeakMap<object, { frameId: number; renderId: number }> = new WeakMap();
+
+    /**
+     * Per-frame/render deduplication map for update() calls.
+     * Mirrors three NodeFrame.updateMap.
+     */
+    private _updateMap: WeakMap<object, { frameId: number; renderId: number }> = new WeakMap();
 
     /**
      * Pending command encoder shared between compute() and render() within a single frame.
@@ -151,9 +241,6 @@ export class WebGPURenderer {
 
     /** Geometry for the internal fullscreen triangle. Created once on first use. */
     private _fullscreenGeometry: Geometry | null = null;
-
-    /** Stable key for the internal fullscreen material UBO. */
-    private readonly _fsQuadMatUBOKey: object = {};
 
     constructor(opts: WebGPURendererOptions = {}) {
         let samples = 0;
@@ -202,7 +289,7 @@ export class WebGPURenderer {
         // buffers (drawIndirect / drawIndexedIndirect). Without this feature the
         // GPU silently drops any indirect draw whose firstInstance field is non-zero,
         // which breaks multi-shape batching patterns that split instance ranges.
-        const wantedFeatures: GPUFeatureName[] = ['indirect-first-instance'];
+        const wantedFeatures: GPUFeatureName[] = ['indirect-first-instance', 'timestamp-query'];
         const requiredFeatures: GPUFeatureName[] = wantedFeatures.filter(
             (f) => adapter.features.has(f),
         );
@@ -238,6 +325,8 @@ export class WebGPURenderer {
         }
 
         this._initialized = true;
+        this.inspector.setRenderer(this);
+        this.inspector.init();
         return this;
     }
 
@@ -275,59 +364,55 @@ export class WebGPURenderer {
     // -----------------------------------------------------------------------
 
     /**
-     * Pre-compile all WebGPU pipelines reachable from `target` before the
-     * render loop starts.
+     * Pre-compile all WebGPU render pipelines for a scene before the render
+     * loop starts. This is optional — pipelines are compiled on-demand during
+     * the first render if not pre-warmed.
      *
-     * - Pass a `Node` (the same node you will give `renderer.render()`) to
-     *   pre-warm every render pipeline in the scene graph — it walks
-     *   PassNodes → scenes → meshes and also compiles the fullscreen
-     *   composite pipeline.
-     * - Pass a `ComputeNode` to pre-warm its compute pipeline.
+     * Mirrors Three.js `renderer.compileAsync(scene, camera)`.
      *
-     * Awaiting the returned Promise guarantees the first render/compute call
-     * will not skip a frame waiting for pipeline compilation.
-     * No-op for any pipeline that is already compiled.
-     *
-     * @throws if the renderer has not been initialised yet (call await renderer.init() first).
+     * @param scene  The scene containing meshes to pre-compile pipelines for.
+     * @param camera The camera used for rendering (affects frustum culling).
+     * @param samples MSAA sample count (default 1).
+     * @param format  Render target format (default 'rgba8unorm').
+     * @throws if the renderer has not been initialised yet.
      */
-    async compile(target: Node<WgslType> | ComputeNode): Promise<void> {
+    async compile(
+        scene: Scene,
+        camera: Camera,
+        samples: number = 1,
+        format: GPUTextureFormat = 'rgba8unorm',
+    ): Promise<void> {
         if (!this._initialized) {
             throw new Error('[WebGPURenderer] compile() called before init(). Await renderer.init() first.');
         }
 
-        // ComputeNode: pre-warm the compute pipeline.
-        if (target instanceof ComputeNode) {
-            await this.computePipelines.getAsync(target.id, target);
-            return;
-        }
-
-        // Node<WgslType>: walk the graph, pre-warm all render pipelines.
-        const outputNode = target as Node<WgslType>;
         const promises: Promise<unknown>[] = [];
+        const { opaque, transparent } = collectDraws(scene, camera, samples, format);
 
-        // 1. Find all PassNodes and pre-warm their scene meshes.
-        const passNodes = collectPassNodes(outputNode);
-        const PASS_SAMPLES = 1;
-        const PASS_FORMAT: GPUTextureFormat = 'rgba8unorm';
-        const fullscreenGeom = this._getFullscreenGeometry();
-
-        for (const passNode of passNodes) {
-            const { scene, camera } = passNode;
-            const { opaque, transparent } = collectDraws(scene, camera, PASS_SAMPLES, PASS_FORMAT);
-            for (const draw of [...opaque, ...transparent]) {
-                const { mesh } = draw;
-                const key = makePipelineKey(mesh.material, PASS_SAMPLES, PASS_FORMAT);
-                promises.push(
-                    this.pipelines.getAsync(key, mesh.material, mesh.geometry, PASS_SAMPLES, PASS_FORMAT),
-                );
-            }
+        for (const draw of [...opaque, ...transparent]) {
+            const { mesh } = draw;
+            const key = makePipelineKey(mesh.material, samples, format);
+            promises.push(
+                this.pipelines.getAsync(key, mesh.material, mesh.geometry, samples, format),
+            );
         }
-
-        // 2. Pre-warm the fullscreen composite pipeline.
-        const { mat, pipelineKey } = this._makeOutputMaterial(outputNode);
-        promises.push(this.pipelines.getAsync(pipelineKey, mat, fullscreenGeom, this._samples, this.format));
 
         await Promise.all(promises);
+    }
+
+    /**
+     * Pre-compile a compute pipeline before the render loop starts.
+     * This is optional — pipelines are compiled on-demand during the first
+     * dispatch if not pre-warmed.
+     *
+     * @param computeNode The ComputeNode to pre-compile.
+     * @throws if the renderer has not been initialised yet.
+     */
+    async compileCompute(computeNode: ComputeNode): Promise<void> {
+        if (!this._initialized) {
+            throw new Error('[WebGPURenderer] compileCompute() called before init(). Await renderer.init() first.');
+        }
+        await this.computePipelines.getAsync(computeNode.id, computeNode);
     }
 
     // -----------------------------------------------------------------------
@@ -378,9 +463,9 @@ export class WebGPURenderer {
 
     /**
      * Render the given node expression as a fullscreen quad to the swapchain.
-     * Collects all PassNodes reachable from outputNode (BFS), renders each
-     * scene into its off-screen render target, then composites the expression
-     * to the canvas.
+     * Runs update lifecycle callbacks for all nodes discovered at compile time,
+     * renders each scene into its off-screen render target, then composites
+     * the expression to the canvas.
      *
      * Call this once per animation frame. Any `renderer.compute()` calls made
      * earlier in the same frame will be submitted in the same command buffer.
@@ -395,8 +480,13 @@ export class WebGPURenderer {
         this.lastTimestamp = now;
         this.elapsed += delta;
 
-        // Upload per-frame Time uniforms (dirty-checked per field).
-        this._uploadTimeFields(this.elapsed, delta);
+        // Increment frame/render counters (mirrors three NodeFrame.update()).
+        this.frameId++;
+        this.renderId++;
+
+        this.inspector.begin(this.frameId);
+
+        // Time uniforms are now uploaded via _uploadRenderGroup() per compile result.
 
         // Reuse the frame encoder if compute() was called this frame; otherwise create fresh.
         const encoder = this._frameEncoder ?? this.device.createCommandEncoder();
@@ -405,16 +495,157 @@ export class WebGPURenderer {
         const w = this.domElement.width || 1;
         const h = this.domElement.height || 1;
 
-        // 1. Render each PassNode's scene into its off-screen render target.
-        const passNodes = collectPassNodes(outputNode);
-        for (const passNode of passNodes) {
-            this._renderPassNode(passNode, encoder, w, h);
+        // 1. Ensure pipeline is compiled first, so we have CompileResult for callbacks.
+        //    This is a synchronous call that compiles on first invocation.
+        const { mat, pipelineKey } = this._makeOutputMaterial(outputNode);
+        const fullscreenGeom = this._getFullscreenGeometry();
+        const entry = this.pipelines.get(pipelineKey, mat, fullscreenGeom, this._samples, this.format);
+        
+        if (!entry) {
+            // Pipeline compilation failed or is still pending async
+            this.device.queue.submit([encoder.finish()]);
+            this.inspector.finish(this.frameId);
+            return;
         }
 
-        // 2. Render the outputNode expression as a fullscreen quad to the swapchain.
-        this._renderOutputNode(outputNode, encoder, passNodes);
+        const cr = entry.compileResult;
+
+        // 2. Run update lifecycle callbacks for all nodes discovered at compile time.
+        //    Mirrors three NodeFrame.updateBeforeNode / updateAfterNode / updateNode
+        //    dedup logic: FRAME nodes fire once per frameId, RENDER nodes fire once per
+        //    renderId, OBJECT nodes fire unconditionally.
+        const frame: RenderFrame = { renderer: this, encoder, width: w, height: h };
+
+        // Notify inspector of any inspectable nodes in the compiled graph.
+        for (const node of cr.inspectableNodes) {
+            this.inspector.inspect(node);
+        }
+
+        // update() — push CPU→GPU uniform data (before draw)
+        for (const node of cr.updateNodes) {
+            this._callUpdateNode(node, frame);
+        }
+
+        // updateBefore() — off-screen passes, pre-frame GPU work
+        for (const node of cr.updateBeforeNodes) {
+            this._callUpdateBeforeNode(node, frame);
+        }
+
+        // 3. Render the outputNode expression as a fullscreen quad to the swapchain.
+        this._renderOutputNodeWithEntry(outputNode, encoder, entry);
+
+        // 4. updateAfter() — post-draw cleanup (mirrors three _renderObjectDirect updateAfter)
+        for (const node of cr.updateAfterNodes) {
+            this._callUpdateAfterNode(node, frame);
+        }
 
         this.device.queue.submit([encoder.finish()]);
+        this.inspector.finish(this.frameId);
+    }
+
+    // -----------------------------------------------------------------------
+    // NodeFrame-mirroring update dispatch helpers
+    // -----------------------------------------------------------------------
+
+    /**
+     * Dispatch updateBefore() for a node, deduplicating by frameId or renderId.
+     * Mirrors three NodeFrame.updateBeforeNode().
+     */
+    private _callUpdateBeforeNode(node: UpdateBeforeNode, frame: RenderFrame): void {
+        const type = node.updateBeforeType;
+        if (type === 'none') return;
+
+        const maps = this._getUpdateMaps(this._updateBeforeMap, node);
+
+        if (type === 'frame') {
+            if (maps.frameId !== this.frameId) {
+                const prev = maps.frameId;
+                maps.frameId = this.frameId;
+                if (node.updateBefore(frame) === false) {
+                    maps.frameId = prev;
+                }
+            }
+        } else if (type === 'render') {
+            if (maps.renderId !== this.renderId) {
+                const prev = maps.renderId;
+                maps.renderId = this.renderId;
+                if (node.updateBefore(frame) === false) {
+                    maps.renderId = prev;
+                }
+            }
+        } else if (type === 'object') {
+            node.updateBefore(frame);
+        }
+    }
+
+    /**
+     * Dispatch updateAfter() for a node, deduplicating by frameId or renderId.
+     * Mirrors three NodeFrame.updateAfterNode().
+     */
+    private _callUpdateAfterNode(node: UpdateAfterNode, frame: RenderFrame): void {
+        const type = node.updateAfterType;
+        if (type === 'none') return;
+
+        const maps = this._getUpdateMaps(this._updateAfterMap, node);
+
+        if (type === 'frame') {
+            if (maps.frameId !== this.frameId) {
+                if (node.updateAfter(frame) !== false) {
+                    maps.frameId = this.frameId;
+                }
+            }
+        } else if (type === 'render') {
+            if (maps.renderId !== this.renderId) {
+                if (node.updateAfter(frame) !== false) {
+                    maps.renderId = this.renderId;
+                }
+            }
+        } else if (type === 'object') {
+            node.updateAfter(frame);
+        }
+    }
+
+    /**
+     * Dispatch update() for a node, deduplicating by frameId or renderId.
+     * Mirrors three NodeFrame.updateNode().
+     */
+    private _callUpdateNode(node: UpdateNode, frame: RenderFrame): void {
+        const type = node.updateType;
+        if (type === 'none') return;
+
+        const maps = this._getUpdateMaps(this._updateMap, node);
+
+        if (type === 'frame') {
+            if (maps.frameId !== this.frameId) {
+                if (node.update(frame) !== false) {
+                    maps.frameId = this.frameId;
+                }
+            }
+        } else if (type === 'render') {
+            if (maps.renderId !== this.renderId) {
+                if (node.update(frame) !== false) {
+                    maps.renderId = this.renderId;
+                }
+            }
+        } else if (type === 'object') {
+            node.update(frame);
+        }
+    }
+
+    /**
+     * Get or create the {frameId, renderId} tracking record for a node in the given map.
+     * Mirrors three NodeFrame._getMaps().
+     */
+    private _getUpdateMaps(
+        map: WeakMap<object, { frameId: number; renderId: number }>,
+        node: object,
+    ): { frameId: number; renderId: number } {
+        let maps = map.get(node);
+        if (maps === undefined) {
+            maps = { frameId: 0, renderId: 0 };
+            map.set(node, maps);
+        }
+        return maps;
     }
 
     // -----------------------------------------------------------------------
@@ -429,93 +660,110 @@ export class WebGPURenderer {
         const entry: ComputePipelineEntry | undefined = this.computePipelines.get(key, node);
         if (!entry) return; // Pipeline not ready yet — skip this frame (will compile async)
 
+        const { bindGroupInfo } = entry;
+
         // Upload / ensure storage buffers for all outputs.
         const gpuBuffers: GPUBuffer[] = entry.compileResult.storage.map((s) =>
             this.buffers.uploadStorage(s.node),
         );
 
-        // Build the bind group for group 0 (storage outputs).
-        const bindGroup = this.device.createBindGroup({
-            layout: entry.layout0,
-            entries: entry.compileResult.storage.map((s, i) => ({
-                binding: s.binding,
-                resource: { buffer: gpuBuffers[i] },
-            })),
-        });
-
         // Encode the compute pass.
         const computePass = encoder.beginComputePass();
+        this.inspector.beginCompute(node.id, this.frameId);
         computePass.setPipeline(entry.pipeline);
-        computePass.setBindGroup(0, bindGroup);
 
-        // Bind group 1: time uniforms (when the shader uses timeElapsed / timeDelta).
-        if (entry.layout1 && entry.compileResult.builtinsUsed.has('time')) {
-            // Ensure time buffers are uploaded (they may not have been if compute()
-            // is called before render() this frame — e.g. the very first frame).
-            this._uploadTimeFields(this.elapsed, 0);
-            const U = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
-            const timeElapsedBuf = this.buffers.ensureRaw(this._timeElapsedKey, 4, U);
-            const timeDeltaBuf   = this.buffers.ensureRaw(this._timeDeltaKey,   4, U);
-            const timeBindGroup  = this.device.createBindGroup({
-                layout: entry.layout1,
-                entries: [
-                    { binding: 0, resource: { buffer: timeElapsedBuf } },
-                    { binding: 1, resource: { buffer: timeDeltaBuf   } },
-                ],
+        // Build and set bind groups using dynamic indices (Three.js aligned)
+        // Storage bind group
+        const storageBindGroup = bindGroupInfo.bindGroups.find(bg => bg.name === 'storage');
+        if (storageBindGroup && entry.compileResult.storage.length > 0) {
+            const gpuBindGroup = this.device.createBindGroup({
+                layout: storageBindGroup.layout,
+                entries: entry.compileResult.storage.map((s, i) => ({
+                    binding: s.binding,
+                    resource: { buffer: gpuBuffers[i] },
+                })),
             });
-            computePass.setBindGroup(1, timeBindGroup);
+            computePass.setBindGroup(storageBindGroup.index, gpuBindGroup);
+        }
+
+        // Render (time) bind group
+        const renderBindGroup = bindGroupInfo.bindGroups.find(bg => bg.name === 'render');
+        if (renderBindGroup) {
+            const renderBlock = entry.compileResult.uniformGroups.find(g => g.groupName === 'render');
+            if (renderBlock) {
+                // Create a minimal context with time values (no camera for compute)
+                const context: RenderUpdateContext = {
+                    camera: null as unknown as Camera, // Compute shaders don't use camera
+                    elapsed: this.elapsed,
+                    delta: 0, // Delta not tracked for compute currently
+                };
+                invokeUniformGroupCallbacks(renderBlock, context);
+
+                const data = packUniformGroup(renderBlock);
+                const U = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
+                this.buffers.uploadRaw(this._computeRenderGroupKey, data, U);
+
+                const renderBuf = this.buffers.getRaw(this._computeRenderGroupKey);
+                if (renderBuf) {
+                    const gpuBindGroup = buildRenderGroupGPUBindGroup(
+                        this.device,
+                        renderBindGroup,
+                        renderBuf,
+                    );
+                    computePass.setBindGroup(renderBindGroup.index, gpuBindGroup);
+                }
+            }
         }
 
         const [dx, dy, dz] = node.dispatch;
         computePass.dispatchWorkgroups(dx, dy, dz);
         computePass.end();
+        this.inspector.finishCompute(node.id, this.frameId);
     }
 
     // -----------------------------------------------------------------------
-    // _renderPassNode — render a scene into a PassNode's off-screen textures
+    // renderScene() — public entry point called by PassNode.updateBefore()
     // -----------------------------------------------------------------------
 
-    private _renderPassNode(
-        passNode: PassNode,
+    /**
+     * Render a scene + camera into caller-supplied color + depth textures.
+     * Called by PassNode.updateBefore(frame) via frame.renderer.renderScene(...).
+     *
+     * This is the same logic as the old _renderPassNode() but exposed publicly
+     * so PassNode can drive it without needing access to renderer internals.
+     */
+    renderScene(
+        scene: Scene,
+        camera: Camera,
         encoder: GPUCommandEncoder,
-        width: number,
-        height: number,
+        colorTex: GPUTexture,
+        depthTex: GPUTexture,
+        clearColor: [number, number, number, number],
+        colorFormat: GPUTextureFormat,
     ): void {
-        // Ensure the render target textures exist at the current canvas size.
-        passNode._ensureTarget(this.device, width, height);
-
-        const { scene, camera } = passNode;
-
-        // Upload Camera per-field uniforms (dirty-checked).
-        this._uploadCameraFields(camera);
-        // Collect draws.
-        // PassNode render targets are always sampleCount=1 (no MSAA off-screen) and rgba8unorm.
         const PASS_SAMPLES = 1;
-        const PASS_FORMAT: GPUTextureFormat = 'rgba8unorm';
-        const { opaque, transparent } = collectDraws(scene, camera, PASS_SAMPLES, PASS_FORMAT);
+
+        const { opaque, transparent } = collectDraws(scene, camera, PASS_SAMPLES, colorFormat);
         const allDraws = [...opaque, ...transparent];
 
-        // Per-mesh: upload geometry + UBOs.
         for (const draw of allDraws) {
-            this._prepareMesh(draw.mesh, PASS_SAMPLES, PASS_FORMAT);
+            this._prepareMesh(draw.mesh);
         }
 
-        // Build render pass descriptor targeting the passNode's off-screen textures.
-        const [cr, cg, cb, ca] = passNode.clearColor;
+        const [cr, cg, cb, ca] = clearColor;
         const colorAttachment: GPURenderPassColorAttachment = {
-            view: passNode._colorTexture!.createView(),
+            view: colorTex.createView(),
             clearValue: { r: cr, g: cg, b: cb, a: ca },
             loadOp: 'clear',
             storeOp: 'store',
         };
         const depthAttachment: GPURenderPassDepthStencilAttachment = {
-            view: passNode._depthTexture!.createView(),
+            view: depthTex.createView(),
             depthClearValue: 1.0,
             depthLoadOp: 'clear',
             depthStoreOp: 'store',
         };
 
-        // DEBUG: capture any WebGPU validation errors from this pass
         this.device.pushErrorScope('validation');
 
         const gpuPass = encoder.beginRenderPass({
@@ -523,10 +771,8 @@ export class WebGPURenderer {
             depthStencilAttachment: depthAttachment,
         });
 
-        // Issue draws.
         let currentPipelineKey: string | null = null;
-        let currentFrameBindGroup: GPUBindGroup | null = null;
-        let currentLayout0: GPUBindGroupLayout | null = null;
+        let currentRenderBindGroupIndex: number = -1;
 
         const issueDraws = (draws: DrawCall[]) => {
             for (const draw of draws) {
@@ -536,40 +782,49 @@ export class WebGPURenderer {
                     mesh.material,
                     mesh.geometry,
                     PASS_SAMPLES,
-                    PASS_FORMAT,
+                    colorFormat,
                 );
                 if (!entry) continue;
+
+                const { bindGroupInfo } = entry;
 
                 if (draw.pipelineKey !== currentPipelineKey) {
                     gpuPass.setPipeline(entry.pipeline);
                     currentPipelineKey = draw.pipelineKey;
 
-                    if (entry.layout0 !== currentLayout0) {
-                        currentLayout0 = entry.layout0;
-                        currentFrameBindGroup = buildFrameBindGroup(
-                            this.device,
-                            entry.layout0,
-                            entry.compileResult,
-                            this._makeFrameBuffers(),
-                        );
-                        gpuPass.setBindGroup(0, currentFrameBindGroup);
+                    // Set render bind group if present (Three.js aligned - use dynamic index)
+                    const renderBg = bindGroupInfo.bindGroups.find(bg => bg.name === 'render');
+                    if (renderBg && renderBg.index !== currentRenderBindGroupIndex) {
+                        currentRenderBindGroupIndex = renderBg.index;
+                        // Upload render group (camera + time) uniforms using new struct-based approach
+                        this._uploadRenderGroup(entry.compileResult, camera, this.elapsed, this.lastTimestamp === 0 ? 0 : performance.now() / 1000 - this.lastTimestamp);
+                        const renderBuf = this._getRenderGroupBuffer();
+                        if (renderBuf) {
+                            const gpuBindGroup = buildRenderGroupGPUBindGroup(
+                                this.device,
+                                renderBg,
+                                renderBuf,
+                            );
+                            gpuPass.setBindGroup(renderBg.index, gpuBindGroup);
+                        }
                     }
                 }
 
-                const meshModelMatrixBuf = this.buffers.getRaw(this._getMeshModelMatrixKey(mesh)) ?? null;
-                const meshNormalMatrixBuf = this.buffers.getRaw(this._getMeshNormalMatrixKey(mesh)) ?? null;
-                const materialUboBuf = this.buffers.getRaw(this._getMaterialUBOKey(mesh)) ?? null;
-                const meshBindGroup = buildMeshBindGroup(
-                    this.device,
-                    entry.layout1,
-                    entry.compileResult,
-                    mesh,
-                    meshModelMatrixBuf,
-                    meshNormalMatrixBuf,
-                    materialUboBuf,
-                    this.buffers,
-                );
-                gpuPass.setBindGroup(1, meshBindGroup);
+                // Upload object group (mesh matrices + material) uniforms using new struct-based approach
+                // Set object bind group if present (Three.js aligned - use dynamic index)
+                const objectBg = bindGroupInfo.bindGroups.find(bg => bg.name === 'object');
+                if (objectBg) {
+                    this._uploadObjectGroup(entry.compileResult, mesh);
+                    const objectBuf = this._getObjectGroupBuffer(mesh);
+                    const gpuBindGroup = buildObjectGroupGPUBindGroup(
+                        this.device,
+                        objectBg,
+                        entry.compileResult,
+                        objectBuf,
+                        this.buffers,
+                    );
+                    gpuPass.setBindGroup(objectBg.index, gpuBindGroup);
+                }
 
                 let slot = 0;
                 for (const attrEntry of entry.compileResult.attributes) {
@@ -580,9 +835,13 @@ export class WebGPURenderer {
                         gpuPass.setVertexBuffer(slot++, gpuBuf);
                     } else {
                         const node = attrEntry.node;
+                        const arr = node.attribute.array;
+                        if (!arr) {
+                            throw new Error(`[gpucat] BufferAttributeNode array is null for ${attrEntry.name}`);
+                        }
                         const gpuBuf = this.buffers.uploadRaw(
                             node,
-                            node.data,
+                            arr,
                             GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
                         );
                         gpuPass.setVertexBuffer(slot++, gpuBuf);
@@ -595,7 +854,7 @@ export class WebGPURenderer {
                     if (mesh.geometry.indirect) {
                         const indirect = mesh.geometry.indirect;
                         const indBuf   = this.buffers.uploadIndirect(indirect);
-                        const byteStride = indirect.stride * 4; // stride u32s × 4 bytes
+                        const byteStride = indirect.stride * 4;
                         for (let d = 0; d < indirect.drawCount; d++) {
                             gpuPass.drawIndexedIndirect(indBuf, d * byteStride);
                         }
@@ -606,7 +865,7 @@ export class WebGPURenderer {
                     if (mesh.geometry.indirect) {
                         const indirect = mesh.geometry.indirect;
                         const indBuf   = this.buffers.uploadIndirect(indirect);
-                        const byteStride = indirect.stride * 4; // stride u32s × 4 bytes
+                        const byteStride = indirect.stride * 4;
                         for (let d = 0; d < indirect.drawCount; d++) {
                             gpuPass.drawIndirect(indBuf, d * byteStride);
                         }
@@ -622,35 +881,20 @@ export class WebGPURenderer {
 
         gpuPass.end();
 
-        // DEBUG: report any validation errors from this pass
         this.device.popErrorScope().then((err) => {
-            if (err) console.error('[WebGPU pass validation error]', err.message);
+            if (err) console.error('[WebGPU renderScene validation error]', err.message);
         });
     }
 
     // -----------------------------------------------------------------------
-    // _renderOutputNode — render the outputNode expression as a fullscreen quad
+    // _renderOutputNodeWithEntry — render the outputNode expression as a fullscreen quad
     // -----------------------------------------------------------------------
 
-    private _renderOutputNode(
-        outputNode: Node<WgslType>,
+    private _renderOutputNodeWithEntry(
+        _outputNode: Node<WgslType>,
         encoder: GPUCommandEncoder,
-        passNodes: PassNode[],
+        entry: PipelineEntry,
     ): void {
-        const { mat, pipelineKey } = this._makeOutputMaterial(outputNode);
-
-        // Register passNode textures + samplers directly on the node objects.
-        for (const passNode of passNodes) {
-            const { colorTexNode, samplerNode, depthTexNode } = passNode._getResourceNodes();
-            if (passNode._colorTexture) colorTexNode.resource = passNode._colorTexture;
-            if (passNode._sampler)       samplerNode.resource  = passNode._sampler;
-            if (passNode._depthTexture)  depthTexNode.resource = passNode._depthTexture;
-        }
-
-        const fullscreenGeom = this._getFullscreenGeometry();
-        // sampleCount and format must match the swapchain render pass.
-        const entry = this.pipelines.get(pipelineKey, mat, fullscreenGeom, this._samples, this.format);
-
         // Build the swapchain render pass.
         const swapchainView = this.context.getCurrentTexture().createView();
         const [cr, cg, cb, ca] = this.clearColor;
@@ -682,118 +926,63 @@ export class WebGPURenderer {
             },
         });
 
-        if (entry) {
-            // Upload material UBO if needed (version-sum dirty check).
-            const matUBOKey = this._fsQuadMatUBOKey;
-            const cr = entry.compileResult;
-            const versionSum = _uniformVersionSum(cr);
-            if (this._uboVersionSums.get(cr) !== versionSum) {
-                const uboData = packMaterialUBO(cr);
-                if (uboData) {
-                    this.buffers.uploadRaw(
-                        matUBOKey,
-                        uboData,
-                        GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-                    );
-                }
-                this._uboVersionSums.set(cr, versionSum);
+        const { compileResult, bindGroupInfo } = entry;
+
+        // Upload render group (time uniforms) using new struct-based approach
+        // Fullscreen quads typically don't have a camera, but may use time
+        // We pass a dummy camera context — the callbacks will only be invoked
+        // if the render group exists
+        this._uploadRenderGroup(compileResult, null as unknown as Camera, this.elapsed, this.lastTimestamp === 0 ? 0 : performance.now() / 1000 - this.lastTimestamp);
+        
+        // Set render bind group if present (Three.js aligned - use dynamic index)
+        const renderBg = bindGroupInfo.bindGroups.find(bg => bg.name === 'render');
+        if (renderBg) {
+            const renderBuf = this._getRenderGroupBuffer();
+            if (renderBuf) {
+                const gpuBindGroup = buildRenderGroupGPUBindGroup(
+                    this.device,
+                    renderBg,
+                    renderBuf,
+                );
+                gpuPass.setBindGroup(renderBg.index, gpuBindGroup);
             }
+        }
 
-            const matUboBuf = this.buffers.getRaw(matUBOKey) ?? null;
-
-            const frameBindGroup = buildFrameBindGroup(
-                this.device, entry.layout0, entry.compileResult,
-                this._makeFrameBuffers(),
-            );
-            gpuPass.setBindGroup(0, frameBindGroup);
-
-            const meshBindGroup = buildMeshBindGroup(
+        // Set object bind group if present (Three.js aligned - use dynamic index)
+        const objectBg = bindGroupInfo.bindGroups.find(bg => bg.name === 'object');
+        if (objectBg) {
+            // For fullscreen quads, use _uploadFullscreenObjectGroup which handles the case
+            // where there's no mesh but there may be textures/samplers
+            this._uploadFullscreenObjectGroup(compileResult);
+            const objectBuf = this._getFullscreenObjectGroupBuffer();
+            const gpuBindGroup = buildObjectGroupGPUBindGroup(
                 this.device,
-                entry.layout1,
-                entry.compileResult,
-                null,
-                null, // meshModelMatrix — not used by fullscreen quad
-                null, // meshNormalMatrix — not used by fullscreen quad
-                matUboBuf,
+                objectBg,
+                compileResult,
+                objectBuf,
                 this.buffers,
             );
-            gpuPass.setBindGroup(1, meshBindGroup);
-
-            gpuPass.setPipeline(entry.pipeline);
-            gpuPass.draw(3, 1);
+            gpuPass.setBindGroup(objectBg.index, gpuBindGroup);
         }
+
+        gpuPass.setPipeline(entry.pipeline);
+        gpuPass.draw(3, 1);
 
         gpuPass.end();
     }
 
     // -----------------------------------------------------------------------
-    // _prepareMesh
+    // _prepareMesh — upload geometry buffers only
+    // Mesh matrices and material uniforms are handled by _uploadObjectGroup
     // -----------------------------------------------------------------------
 
-    private _prepareMesh(mesh: Mesh, samples: number = this._samples, format: GPUTextureFormat = this.format): void {
+    private _prepareMesh(mesh: Mesh): void {
         for (const attr of mesh.geometry.attributes.values()) {
             if (attr.needsUpdate) this.buffers.uploadVertex(attr);
         }
         if (mesh.geometry.index?.needsUpdate) {
             this.buffers.uploadIndex(mesh.geometry.index);
         }
-
-        const U = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
-        if (this._meshMatrixVersions.get(mesh) !== mesh.matrixVersion) {
-            // meshModelMatrix — 16 f32, 64 bytes
-            this._meshModelMatrixData.set(mesh._worldMatrix);
-            this.buffers.uploadRaw(this._getMeshModelMatrixKey(mesh), this._meshModelMatrixData, U);
-
-            // meshNormalMatrix — mat3x3f padded to 12 f32 (48 bytes, 3 × vec4 columns)
-            packMat3IntoVec4Columns(
-                mat3.normalFromMat4(_normalMatrix, mesh._worldMatrix) ?? mat3.identity(_normalMatrix),
-                this._meshNormalMatrixData,
-                0,
-            );
-            this.buffers.uploadRaw(this._getMeshNormalMatrixKey(mesh), this._meshNormalMatrixData, U);
-
-            this._meshMatrixVersions.set(mesh, mesh.matrixVersion);
-        }
-
-        const pipelineKey = makePipelineKey(mesh.material, samples, format);
-        const entry = this.pipelines.get(pipelineKey, mesh.material, mesh.geometry, samples, format);
-        if (entry) {
-            const cr = entry.compileResult;
-            const versionSum = _uniformVersionSum(cr);
-            if (this._uboVersionSums.get(cr) !== versionSum) {
-                const uboData = packMaterialUBO(cr);
-                if (uboData) {
-                    this.buffers.uploadRaw(
-                        this._getMaterialUBOKey(mesh),
-                        uboData,
-                        GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-                    );
-                }
-                this._uboVersionSums.set(cr, versionSum);
-            }
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // Per-object buffer key accessors
-    // -----------------------------------------------------------------------
-
-    private _getMeshModelMatrixKey(mesh: Mesh): object {
-        let k = this.meshModelMatrixKeys.get(mesh);
-        if (!k) { k = {}; this.meshModelMatrixKeys.set(mesh, k); }
-        return k;
-    }
-
-    private _getMeshNormalMatrixKey(mesh: Mesh): object {
-        let k = this.meshNormalMatrixKeys.get(mesh);
-        if (!k) { k = {}; this.meshNormalMatrixKeys.set(mesh, k); }
-        return k;
-    }
-
-    private _getMaterialUBOKey(mesh: Mesh): object {
-        let k = this.materialUBOKeys.get(mesh);
-        if (!k) { k = {}; this.materialUBOKeys.set(mesh, k); }
-        return k;
     }
 
     // -----------------------------------------------------------------------
@@ -861,96 +1050,147 @@ export class WebGPURenderer {
     }
 
     // -----------------------------------------------------------------------
-    // Per-field camera/time upload helpers
+    // -----------------------------------------------------------------------
+    // New uniform group upload methods (Phase 3d)
     // -----------------------------------------------------------------------
 
     /**
-     * Upload all 5 camera fields to their individual GPU buffers, dirty-checking each.
-     * Reuses pre-allocated Float32Arrays; only calls uploadRaw when the value changed.
+     * Upload the renderGroup struct UBO (camera + time uniforms).
+     * Invokes update callbacks, packs all values, and uploads to a single buffer.
+     *
+     * @param cr The CompileResult containing uniformGroups
+     * @param camera The current camera
+     * @param elapsed Elapsed time in seconds
+     * @param delta Delta time in seconds
      */
-    private _uploadCameraFields(camera: import('../scene/camera.js').Camera): void {
+    _uploadRenderGroup(cr: CompileResult, camera: Camera, elapsed: number, delta: number): void {
+        const renderBlock = cr.uniformGroups.find(g => g.groupName === 'render');
+        if (!renderBlock) return;
+
+        const context: RenderUpdateContext = { camera, elapsed, delta };
+
+        // Invoke update callbacks on all uniforms in the render group
+        invokeUniformGroupCallbacks(renderBlock, context);
+
+        // Compute version sum for dirty check
+        let versionSum = 0;
+        for (const m of renderBlock.members) {
+            versionSum += m.node.version;
+        }
+
+        // Skip upload if nothing changed
+        if (versionSum === this._renderGroupVersionSum) return;
+
+        // Pack and upload
+        const data = packUniformGroup(renderBlock);
         const U = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
-
-        // projectionMatrix (16 f32, 64B)
-        const proj = camera.projectionMatrix;
-        let projDirty = this._lastCamProj === null;
-        if (!projDirty) { for (let i = 0; i < 16; i++) if (proj[i] !== this._lastCamProj![i]) { projDirty = true; break; } }
-        if (projDirty) {
-            for (let i = 0; i < 16; i++) this._camProjData[i] = proj[i];
-            this.buffers.uploadRaw(this._camProjKey, this._camProjData, U);
-            if (!this._lastCamProj) this._lastCamProj = new Float32Array(16);
-            this._lastCamProj.set(this._camProjData);
-        }
-
-        // viewMatrix (16 f32, 64B)
-        const view = camera._viewMatrix;
-        let viewDirty = this._lastCamView === null;
-        if (!viewDirty) { for (let i = 0; i < 16; i++) if (view[i] !== this._lastCamView![i]) { viewDirty = true; break; } }
-        if (viewDirty) {
-            for (let i = 0; i < 16; i++) this._camViewData[i] = view[i];
-            this.buffers.uploadRaw(this._camViewKey, this._camViewData, U);
-            if (!this._lastCamView) this._lastCamView = new Float32Array(16);
-            this._lastCamView.set(this._camViewData);
-        }
-
-        // position (vec3f, padded to 16B)
-        const wx = camera._worldMatrix[12];
-        const wy = camera._worldMatrix[13];
-        const wz = camera._worldMatrix[14];
-        if (this._lastCamPos === null || this._lastCamPos[0] !== wx || this._lastCamPos[1] !== wy || this._lastCamPos[2] !== wz) {
-            this._camPosData[0] = wx; this._camPosData[1] = wy; this._camPosData[2] = wz; this._camPosData[3] = 0;
-            this.buffers.uploadRaw(this._camPosKey, this._camPosData, U);
-            if (!this._lastCamPos) this._lastCamPos = new Float32Array(3);
-            this._lastCamPos[0] = wx; this._lastCamPos[1] = wy; this._lastCamPos[2] = wz;
-        }
-
-        // near (f32, min 16B — uploadRaw pads)
-        if (camera.near !== this._lastCamNear) {
-            this._camNearData[0] = camera.near;
-            this.buffers.uploadRaw(this._camNearKey, this._camNearData, U);
-            this._lastCamNear = camera.near;
-        }
-
-        // far (f32)
-        if (camera.far !== this._lastCamFar) {
-            this._camFarData[0] = camera.far;
-            this.buffers.uploadRaw(this._camFarKey, this._camFarData, U);
-            this._lastCamFar = camera.far;
-        }
+        this.buffers.uploadRaw(this._renderGroupKey, data, U);
+        this._renderGroupVersionSum = versionSum;
     }
 
     /**
-     * Upload elapsed and delta time to their individual GPU buffers, dirty-checking each.
+     * Get the GPU buffer for the renderGroup struct UBO.
      */
-    private _uploadTimeFields(elapsed: number, delta: number): void {
-        const U = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
-        if (elapsed !== this._lastTimeElapsed) {
-            this._timeElapsedData[0] = elapsed;
-            this.buffers.uploadRaw(this._timeElapsedKey, this._timeElapsedData, U);
-            this._lastTimeElapsed = elapsed;
-        }
-        if (delta !== this._lastTimeDelta) {
-            this._timeDeltaData[0] = delta;
-            this.buffers.uploadRaw(this._timeDeltaKey, this._timeDeltaData, U);
-            this._lastTimeDelta = delta;
-        }
+    _getRenderGroupBuffer(): GPUBuffer | null {
+        return this.buffers.getRaw(this._renderGroupKey) ?? null;
     }
 
     /**
-     * Collect the current per-field GPU buffers into a FrameBuffers bag.
-     * Returns null for fields not yet uploaded (buffers will be allocated on first use).
+     * Upload the objectGroup struct UBO for a specific mesh.
+     * Invokes update callbacks, packs all values, and uploads to a per-mesh buffer.
+     *
+     * @param cr The CompileResult containing uniformGroups
+     * @param mesh The mesh being rendered
      */
-    private _makeFrameBuffers(): FrameBuffers {
-        return {
-            camProj:     this.buffers.getRaw(this._camProjKey)     ?? null,
-            camView:     this.buffers.getRaw(this._camViewKey)     ?? null,
-            camPos:      this.buffers.getRaw(this._camPosKey)      ?? null,
-            camNear:     this.buffers.getRaw(this._camNearKey)     ?? null,
-            camFar:      this.buffers.getRaw(this._camFarKey)      ?? null,
-            timeElapsed: this.buffers.getRaw(this._timeElapsedKey) ?? null,
-            timeDelta:   this.buffers.getRaw(this._timeDeltaKey)   ?? null,
-        };
+    _uploadObjectGroup(cr: CompileResult, mesh: Mesh): void {
+        const objectBlock = cr.uniformGroups.find(g => g.groupName === 'object');
+        if (!objectBlock) return;
+
+        const context: ObjectUpdateContext = { object: mesh };
+
+        // Invoke update callbacks on all uniforms in the object group
+        invokeUniformGroupCallbacks(objectBlock, context);
+
+        // Compute version sum for dirty check (include mesh.matrixVersion)
+        let versionSum = mesh.matrixVersion;
+        for (const m of objectBlock.members) {
+            versionSum += m.node.version;
+        }
+
+        // Get or create buffer key for this mesh
+        let key = this._objectGroupKeys.get(mesh);
+        if (!key) {
+            key = {};
+            this._objectGroupKeys.set(mesh, key);
+        }
+
+        // Skip upload if nothing changed
+        if (this._objectGroupVersionSums.get(mesh) === versionSum) return;
+
+        // Pack and upload
+        const data = packUniformGroup(objectBlock);
+        const U = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
+        this.buffers.uploadRaw(key, data, U);
+        this._objectGroupVersionSums.set(mesh, versionSum);
     }
+
+    /**
+     * Get the GPU buffer for the objectGroup struct UBO for a specific mesh.
+     */
+    _getObjectGroupBuffer(mesh: Mesh): GPUBuffer | null {
+        const key = this._objectGroupKeys.get(mesh);
+        return key ? (this.buffers.getRaw(key) ?? null) : null;
+    }
+
+    /**
+     * GPU buffer key for fullscreen quad object group.
+     * Fullscreen quads have no mesh but may have material uniforms.
+     */
+    private readonly _fullscreenObjectGroupKey: object = {};
+
+    /**
+     * Last-uploaded version sum for fullscreen object group dirty check.
+     */
+    private _fullscreenObjectGroupVersionSum: number = 0;
+
+    /**
+     * Upload the objectGroup struct UBO for the fullscreen quad.
+     * Fullscreen quads have no mesh matrices but may have user material uniforms.
+     *
+     * @param cr The CompileResult containing uniformGroups
+     */
+    _uploadFullscreenObjectGroup(cr: CompileResult): void {
+        const objectBlock = cr.uniformGroups.find(g => g.groupName === 'object');
+        if (!objectBlock || objectBlock.members.length === 0) return;
+
+        // Invoke update callbacks (no mesh context for fullscreen quads)
+        // Note: fullscreen quads shouldn't have mesh-dependent uniforms
+        // invokeUniformGroupCallbacks would need a context, so we skip it for fullscreen
+        // User uniforms should have their values set directly
+
+        // Compute version sum for dirty check
+        let versionSum = 0;
+        for (const m of objectBlock.members) {
+            versionSum += m.node.version;
+        }
+
+        // Skip upload if nothing changed
+        if (versionSum === this._fullscreenObjectGroupVersionSum) return;
+
+        // Pack and upload
+        const data = packUniformGroup(objectBlock);
+        const U = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
+        this.buffers.uploadRaw(this._fullscreenObjectGroupKey, data, U);
+        this._fullscreenObjectGroupVersionSum = versionSum;
+    }
+
+    /**
+     * Get the GPU buffer for the fullscreen quad's objectGroup struct UBO.
+     */
+    _getFullscreenObjectGroupBuffer(): GPUBuffer | null {
+        return this.buffers.getRaw(this._fullscreenObjectGroupKey) ?? null;
+    }
+
 }
 
 // ---------------------------------------------------------------------------
@@ -1005,26 +1245,4 @@ function _makeFullscreenUVVarying(): VaryingNode<'vec2f'> {
         vi,
     );
     return new VaryingNode('vec2f', 'uv', uvSource);
-}
-
-// ---------------------------------------------------------------------------
-// Module-level helpers
-// ---------------------------------------------------------------------------
-
-function packMat3IntoVec4Columns(m: ArrayLike<number>, out: Float32Array, offset: number): void {
-    out[offset + 0] = m[0]; out[offset + 1] = m[1]; out[offset + 2] = m[2]; out[offset + 3] = 0;
-    out[offset + 4] = m[3]; out[offset + 5] = m[4]; out[offset + 6] = m[5]; out[offset + 7] = 0;
-    out[offset + 8] = m[6]; out[offset + 9] = m[7]; out[offset + 10] = m[8]; out[offset + 11] = 0;
-}
-
-/**
- * Returns the sum of node.version across all uniform members in the group-1 block.
- * Used as a cheap dirty-check: if the sum changes, the UBO needs re-packing.
- */
-function _uniformVersionSum(cr: CompileResult): number {
-    const ub = cr.uniforms.find((u) => u.group === 1);
-    if (!ub) return 0;
-    let sum = 0;
-    for (const m of ub.members) sum += m.node.version;
-    return sum;
 }

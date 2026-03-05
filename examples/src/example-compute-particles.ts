@@ -34,7 +34,8 @@ for (let i = 0; i < N; i++) {
     positionData[i * 4 + 2] = (Math.random() - 0.5) * 4;   // z depth
     positionData[i * 4 + 3] = Math.random();                // initial lifetime
 }
-const positions = gpu.storage(positionData, S.array(S.vec4f()), 'read_write');
+const positionAttr = new gpu.StorageBufferAttribute(positionData, 4); // 4 floats per vec4f
+const positions = gpu.storage(positionAttr, S.array(S.vec4f()), 'read_write');
 
 // velocities: vec4f per particle — xyz = velocity, w = unused
 const velocityData = new Float32Array(N * 4);
@@ -44,7 +45,8 @@ for (let i = 0; i < N; i++) {
     velocityData[i * 4 + 2] = (Math.random() - 0.5) * 0.01;
     velocityData[i * 4 + 3] = 0;
 }
-const velocities = gpu.storage(velocityData, S.array(S.vec4f()), 'read');
+const velocityAttr = new gpu.StorageBufferAttribute(velocityData, 4); // 4 floats per vec4f
+const velocities = gpu.storage(velocityAttr, S.array(S.vec4f()), 'read');
 
 // ---------------------------------------------------------------------------
 // 2. Compute kernel — advance particles each frame
@@ -131,9 +133,11 @@ const material = new gpu.Material({
 
 async function main() {
     const renderer = new gpu.WebGPURenderer({ antialias: true });
+    renderer.inspector = new gpu.Inspector();
     await renderer.init();
 
     document.body.appendChild(renderer.domElement);
+    document.body.appendChild((renderer.inspector as gpu.Inspector).domElement);
     renderer.setSize(window.innerWidth * devicePixelRatio, window.innerHeight * devicePixelRatio);
     renderer.clearColor = [0.04, 0.04, 0.08, 1];
 
@@ -174,26 +178,15 @@ async function main() {
     scene.add(mesh);
 
     // Pre-warm the compute pipeline before the frame loop.
-    await renderer.compile(updateParticles);
+    await renderer.compileCompute(updateParticles);
 
     const scenePass = gpu.pass(scene, camera);
     const outputNode = scenePass.getTextureNode();
-
-    // Release CPU-side particle data after the first frame —
-    // all further updates happen entirely on the GPU via the compute shader.
-    let cpuReleased = false;
 
     function frame() {
         // Dispatch the compute pass first, then render.
         renderer.compute(updateParticles);
         renderer.render(outputNode);
-
-        if (!cpuReleased) {
-            positions.release();
-            velocities.release();
-            cpuReleased = true;
-        }
-
         requestAnimationFrame(frame);
     }
 

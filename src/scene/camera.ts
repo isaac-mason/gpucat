@@ -18,7 +18,7 @@
  */
 
 import { mat4, type Mat4 } from 'mathcat';
-import { Object3D } from './object3d.js';
+import { Object3D } from './object3d';
 
 export class Camera extends Object3D {
     projectionMatrix: Mat4 = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1];
@@ -29,13 +29,16 @@ export class Camera extends Object3D {
     /** View matrix = inverse of world matrix. Updated each frame by updateViewMatrix(). */
     _viewMatrix: Mat4 = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1];
 
+    /** Three.js-style alias for _viewMatrix. */
+    get matrixWorldInverse(): Mat4 { return this._viewMatrix; }
+
     constructor() {
         super();
         this.name = 'Camera';
     }
 
     updateViewMatrix(): void {
-        if (mat4.invert(this._viewMatrix, this._worldMatrix) === null) {
+        if (mat4.invert(this._viewMatrix, this.matrixWorld) === null) {
             mat4.identity(this._viewMatrix);
         }
     }

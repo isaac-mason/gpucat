@@ -10,14 +10,14 @@
  * are discarded before a DrawCall is created.
  */
 
-import type { Object3D } from '../scene/object3d.js';
-import type { Scene } from '../scene/scene.js';
-import type { Camera } from '../scene/camera.js';
+import type { Object3D } from '../scene/object3d';
+import type { Scene } from '../scene/scene';
+import type { Camera } from '../scene/camera';
 import type { Box3, Sphere } from 'mathcat';
 import { box3 } from 'mathcat';
-import { Mesh } from '../scene/mesh.js';
-import { makePipelineKey } from './pipeline.js';
-import { Frustum } from '../utils/frustum.js';
+import { Mesh } from '../scene/mesh';
+import { makePipelineKey } from './pipeline';
+import { Frustum } from '../utils/frustum';
 
 // ---------------------------------------------------------------------------
 // DrawCall
@@ -132,7 +132,7 @@ function walkObject(
  */
 function isMeshVisible(mesh: Mesh): boolean {
     const geom = mesh.geometry;
-    const wm = mesh._worldMatrix;
+    const wm = mesh.matrixWorld;
 
     // --- sphere test (preferred) ------------------------------------------
     if (geom.boundingSphere !== undefined) {
@@ -177,7 +177,7 @@ function isMeshVisible(mesh: Mesh): boolean {
  * right-handed system; we sort from largest (furthest) to smallest).
  */
 function computeViewZ(mesh: Mesh, camera: Camera): number {
-    const wm = mesh._worldMatrix;
+    const wm = mesh.matrixWorld;
     const vm = camera._viewMatrix;
 
     // World position of mesh origin

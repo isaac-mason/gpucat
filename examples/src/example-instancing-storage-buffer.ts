@@ -22,10 +22,10 @@
  *   // To update: matrixNode.needsUpdate = true  (or addUpdateRange for partial)
  */
 
-import * as gpu from 'gpucat';
+import * as g from 'gpucat';
 import { mat4 as mc4, type Mat4, type Vec3, type Quat } from 'mathcat';
 
-const S = gpu.S;
+const S = g.S;
 
 const COLS = 7;
 const ROWS = 5;
@@ -67,23 +67,25 @@ for (let i = 0; i < N; i++) {
 // Node graph — storage buffer instancing
 // ---------------------------------------------------------------------------
 
-// Storage buffer nodes: data lives on the node; renderer auto-uploads.
+// Storage buffer nodes: wrap data in StorageBufferAttribute, renderer auto-uploads.
 // No manual device.createBuffer / device.queue.writeBuffer / material.uniforms.set needed.
-const instanceMatrices = gpu.storage(matrixData, S.array(S.mat4x4f()));
-const instanceColors   = gpu.storage(colorData,  S.array(S.vec4f()));
+const matrixAttr = new g.StorageBufferAttribute(matrixData, 16); // 16 floats per mat4x4f
+const colorAttr  = new g.StorageBufferAttribute(colorData, 4);   // 4 floats per vec4f
+const instanceMatrices = g.storage(matrixAttr, S.array(S.mat4x4f()));
+const instanceColors   = g.storage(colorAttr,  S.array(S.vec4f()));
 
 // instanceIndex() returns the built-in @builtin(instance_index) as a u32 node.
-const iIdx = gpu.instanceIndex();
+const iIdx = g.instanceIndex();
 
 // Index into the storage arrays.
-const modelMat   = gpu.index(instanceMatrices, iIdx);
-const rawColor   = gpu.index(instanceColors,   iIdx);
+const modelMat   = g.index(instanceMatrices, iIdx);
+const rawColor   = g.index(instanceColors,   iIdx);
 
 // Also demo instancedBufferAttribute for the spin offset — shows both APIs together.
 // Each instance gets a unique starting angle (in radians) baked into a vertex buffer.
 const spinOffsets = new Float32Array(N);
 for (let i = 0; i < N; i++) spinOffsets[i] = (i / N) * Math.PI * 2;
-const spinOffset = gpu.instancedBufferAttribute(spinOffsets, S.f32(), 4, 0);
+const spinOffset = g.instancedBufferAttribute(spinOffsets, S.f32(), 4, 0);
 
 // Animate rotation: time.elapsed drives a per-instance spin via the storage matrix +
 // a small additional rotation sourced from the instancedBufferAttribute offset.
@@ -91,58 +93,60 @@ const spinOffset = gpu.instancedBufferAttribute(spinOffsets, S.f32(), 4, 0);
 // Derive a per-instance Y-axis rotation node from the spin offset attribute.
 // We fold it into the final clip position rather than modifying the storage matrix.
 // Rotation angle = elapsed * speed + spinOffset
-const speed   = gpu.f32(0.8);
-const angle   = gpu.timeElapsed.mul(speed).add(spinOffset);
+const speed   = g.f32(0.8);
+const angle   = g.timeElapsed.mul(speed).add(spinOffset);
 const cosA    = angle.cos();
 const sinA    = angle.sin();
 
 // Build a Y-axis rotation matrix from scalar nodes.
 // mat4x4f column-major: col0..col3
-const zero  = gpu.f32(0);
-const one   = gpu.f32(1);
-const rotY  = gpu.mat4(
-    gpu.vec4(cosA,  zero, sinA.negate(), zero),
-    gpu.vec4(zero,  one,  zero,          zero),
-    gpu.vec4(sinA,  zero, cosA,          zero),
-    gpu.vec4(zero,  zero, zero,          one),
+const zero  = g.f32(0);
+const one   = g.f32(1);
+const rotY  = g.mat4(
+    g.vec4(cosA,  zero, sinA.negate(), zero),
+    g.vec4(zero,  one,  zero,          zero),
+    g.vec4(sinA,  zero, cosA,          zero),
+    g.vec4(zero,  zero, zero,          one),
 );
 
-const pos       = gpu.attribute('vec3f', 'position');
-const localPos  = gpu.vec4(pos, gpu.f32(1));
+const pos       = g.attribute('vec3f', 'position');
+const localPos  = g.vec4(pos, g.f32(1));
 
 // Final transform: camera * storageMatrix * rotY * localPos
-const worldPos  = gpu.mul(modelMat, gpu.mul(rotY, localPos));
-const viewPos   = gpu.mul(gpu.cameraViewMatrix, worldPos);
-const clipPos   = gpu.mul(gpu.cameraProjectionMatrix, viewPos);
+const worldPos  = g.mul(modelMat, g.mul(rotY, localPos));
+const viewPos   = g.mul(g.cameraViewMatrix, worldPos);
+const clipPos   = g.mul(g.cameraProjectionMatrix, viewPos);
 
 // Pass color to fragment via varying.
-const vColor    = gpu.varying('vec4f', 'v_color', rawColor);
+const vColor    = g.varying('vec4f', 'v_color', rawColor);
 
 // Pulse brightness with time
-const pulse     = gpu.f32(0.08).mul(gpu.f32(1).add(gpu.timeElapsed.mul(gpu.f32(3)).sin()));
-const finalColor = gpu.vec4(
-    vColor.rgb.add(gpu.vec3f(1, 1, 1).mul(pulse)),
-    gpu.f32(1),
+const pulse     = g.f32(0.08).mul(g.f32(1).add(g.timeElapsed.mul(g.f32(3)).sin()));
+const finalColor = g.vec4(
+    vColor.rgb.add(g.vec3f(1, 1, 1).mul(pulse)),
+    g.f32(1),
 );
 
-const material = new gpu.Material({ position: clipPos, color: finalColor });
+const material = new g.Material({ position: clipPos, color: finalColor });
 
 // ---------------------------------------------------------------------------
 // Main — init renderer (storage buffers uploaded automatically)
 // ---------------------------------------------------------------------------
 
 async function main() {
-    const renderer = new gpu.WebGPURenderer({ antialias: true });
+    const renderer = new g.WebGPURenderer({ antialias: true });
+    renderer.inspector = new g.Inspector();
     await renderer.init();
 
     document.body.appendChild(renderer.domElement);
+    document.body.appendChild((renderer.inspector as g.Inspector).domElement);
     renderer.setSize(window.innerWidth * devicePixelRatio, window.innerHeight * devicePixelRatio);
 
     // No manual buffer creation needed — the renderer's BufferCache will call
     // uploadStorage() for instanceMatrices and instanceColors on the first frame.
 
-    const scene   = new gpu.Scene();
-    const camera  = new gpu.PerspectiveCamera(
+    const scene   = new g.Scene();
+    const camera  = new g.PerspectiveCamera(
         Math.PI / 4,
         window.innerWidth / window.innerHeight,
         0.1,
@@ -160,11 +164,11 @@ async function main() {
         camera.updateProjectionMatrix();
     });
 
-    const mesh  = new gpu.Mesh(gpu.createBoxGeometry(1, 1, 1), material);
+    const mesh  = new g.Mesh(g.createBoxGeometry(1, 1, 1), material);
     mesh.count  = N;
     scene.add(mesh);
 
-    const scenePass = gpu.pass(scene, camera);
+    const scenePass = g.pass(scene, camera);
     const outputNode = scenePass.getTextureNode();
 
     function frame() {

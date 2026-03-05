@@ -11,8 +11,11 @@
  */
 
 import { getChildren as _getChildren } from './collect';
-import { type WgslDesc, type StructSchema, type ArrayDesc, itemSizeOf, typedArrayCtorOf, isStructDef } from './schema';
-export { array, isArrayDesc, isStructDef, type WgslDesc, type ArrayDesc, type StructSchema, itemSizeOf, typedArrayCtorOf } from './schema';
+import { type WgslDesc, type StructSchema, type ArrayDesc, type TextureDesc, type DepthTextureDesc, itemSizeOf, typedArrayCtorOf, isStructDef, texture2d } from './schema';
+import type { RenderUpdateContext, ObjectUpdateContext } from '../renderer/render-frame';
+export { array, isArrayDesc, isStructDef, type WgslDesc, type ArrayDesc, type StructSchema, type TextureDesc, type DepthTextureDesc, itemSizeOf, typedArrayCtorOf } from './schema';
+export { type UpdateRange } from '../scene/geometry';
+import { InstancedBufferAttribute, StorageBufferAttribute } from '../scene/geometry';
 
 
 // ---------------------------------------------------------------------------
@@ -129,7 +132,7 @@ export type NodeKind =
     | 'const'
     | 'uniform'
     | 'attribute'
-    | 'instanced_buffer_attribute'
+    | 'buffer_attribute'
     | 'storage'
     | 'texture'
     | 'sampler'
@@ -157,16 +160,31 @@ export type NodeKind =
 
 export type StructMember = { readonly name: string; readonly type: WgslType };
 export type BuiltinKind =
-    | 'camera' | 'instance_index' | 'instance_data' | 'mesh' | 'time'
+    | 'instance_index' | 'instance_data'
     | 'vertex_index' | 'global_invocation_id' | 'local_invocation_id'
-    | 'local_invocation_index' | 'workgroup_id' | 'num_workgroups'
-    // Flat per-field camera/time builtins (three.js style)
-    | 'cameraProjectionMatrix' | 'cameraViewMatrix' | 'cameraPosition'
-    | 'cameraNear' | 'cameraFar'
-    | 'timeElapsed' | 'timeDelta'
-    // Flat per-field mesh builtins
-    | 'meshModelMatrix' | 'meshNormalMatrix';
+    | 'local_invocation_index' | 'workgroup_id' | 'num_workgroups';
 export type BinopOp = '+' | '-' | '*' | '/' | '%' | '==' | '!=' | '<' | '>' | '<=' | '>=';
+
+// ---------------------------------------------------------------------------
+// NodeUpdateType — mirrors Three.js nodes/core/constants.js
+// ---------------------------------------------------------------------------
+
+/**
+ * Update types for Node.update() callbacks.
+ * Determines when the node's update callback is invoked.
+ */
+export const NodeUpdateType = {
+    /** The update method is not executed. */
+    NONE: 'none',
+    /** The update method is executed once per frame. */
+    FRAME: 'frame',
+    /** The update method is executed per render() call. Multiple renders per frame for VR/shadows. */
+    RENDER: 'render',
+    /** The update method is executed per object/mesh that uses the node. */
+    OBJECT: 'object',
+} as const;
+
+export type NodeUpdateTypeValue = typeof NodeUpdateType[keyof typeof NodeUpdateType];
 
 // ---------------------------------------------------------------------------
 // Fn layout types
@@ -204,10 +222,92 @@ export class Node<T extends WgslType> {
     readonly kind: NodeKind;
     readonly type: T;
 
+    /** Set by .inspect() — human-readable label shown in the Inspector UI. */
+    _inspectorName: string | undefined = undefined;
+    /** True when this node has been marked for inspector preview/tracking. */
+    _isInspectable = false;
+
+    // ---------------------------------------------------------------------------
+    // Update callback system — mirrors Three.js Node.js
+    // ---------------------------------------------------------------------------
+
+    /**
+     * The update type for this node's update() method.
+     * Determines when the update callback is invoked (none/frame/render/object).
+     */
+    updateType: NodeUpdateTypeValue = NodeUpdateType.NONE;
+
+    /**
+     * The update callback. Invoked based on updateType.
+     * Set via onUpdate(), onRenderUpdate(), onObjectUpdate().
+     */
+    update?: (context: RenderUpdateContext | ObjectUpdateContext) => unknown;
+
     constructor(id: string, kind: NodeKind, type: T) {
         this.id = id;
         this.kind = kind;
         this.type = type;
+    }
+
+    // ---------------------------------------------------------------------------
+    // onUpdate() / onRenderUpdate() / onObjectUpdate() — Three.js pattern
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Set an update callback that will be invoked based on updateType.
+     * The callback receives a context object and can return a value to assign.
+     *
+     * @param callback - The update function. Receives context, returns value.
+     * @param updateType - When to invoke: 'frame', 'render', or 'object'.
+     * @returns this for method chaining.
+     */
+    onUpdate(callback: (context: RenderUpdateContext | ObjectUpdateContext) => unknown, updateType: NodeUpdateTypeValue): this {
+        this.updateType = updateType;
+        this.update = callback;
+        return this;
+    }
+
+    /**
+     * Set an update callback invoked once per render() call.
+     * Used for camera uniforms, time, etc. that are shared across all objects in a render.
+     *
+     * @param callback - Receives RenderUpdateContext { camera, elapsed, delta }.
+     * @returns this for method chaining.
+     *
+     * @example
+     * const cameraView = new UniformNode('mat4x4f', 'cameraViewMatrix', renderGroup)
+     *     .onRenderUpdate(({ camera }) => camera.matrixWorldInverse);
+     */
+    onRenderUpdate(callback: (context: RenderUpdateContext) => unknown): this {
+        return this.onUpdate(callback as (ctx: RenderUpdateContext | ObjectUpdateContext) => unknown, NodeUpdateType.RENDER);
+    }
+
+    /**
+     * Set an update callback invoked once per object/mesh.
+     * Used for model matrices, per-object material properties, etc.
+     *
+     * @param callback - Receives ObjectUpdateContext { object }.
+     * @returns this for method chaining.
+     *
+     * @example
+     * const modelMatrix = new UniformNode('mat4x4f', 'modelWorldMatrix', objectGroup)
+     *     .onObjectUpdate(({ object }) => object.matrixWorld);
+     */
+    onObjectUpdate(callback: (context: ObjectUpdateContext) => unknown): this {
+        return this.onUpdate(callback as (ctx: RenderUpdateContext | ObjectUpdateContext) => unknown, NodeUpdateType.OBJECT);
+    }
+
+    /**
+     * Mark this node as inspectable, optionally with a display name.
+     * Returns `this` for method chaining.
+     *
+     * @example
+     * const albedo = texture('texture_2d<f32>', 'albedo').inspect('Albedo');
+     */
+    inspect(name?: string): this {
+        this._isInspectable = true;
+        if (name !== undefined) this._inspectorName = name;
+        return this;
     }
 
     // arithmetic — delegate to the standalone functions (source of truth)
@@ -626,8 +726,100 @@ export class ConstNode<T extends WgslType> extends Node<T> {
 
 }
 
+// ---------------------------------------------------------------------------
+// UniformGroupNode — mirrors Three.js UniformGroupNode (PR #33047)
+// ---------------------------------------------------------------------------
+
+/**
+ * Descriptor for a uniform group — determines WGSL @group index and struct packing.
+ *
+ * Mirrors Three.js `nodes/core/UniformGroupNode.js` (as of PR #33047):
+ * - `name`       — struct name and var name in WGSL (e.g. 'render', 'object')
+ * - `shared`     — if true, one GPU buffer is shared across all materials/objects
+ * - `order`      — determines @group(N) index; groups sorted by order ascending
+ * - `updateType` — when this group should be re-uploaded (FRAME, RENDER, OBJECT)
+ *
+ * Key insight from Three.js PR #33047: instead of string-based checks like
+ * `name === 'render'`, the group carries its updateType directly, enabling
+ * event-driven dirty tracking via `needsUpdate` and `version`.
+ */
+export class UniformGroupNode {
+    readonly name: string;
+    readonly shared: boolean;
+    readonly order: number;
+    readonly updateType: NodeUpdateTypeValue | null;
+
+    /** Dirty flag — set to true to trigger re-upload. Automatically cleared after upload. */
+    needsUpdate: boolean = false;
+
+    /** Version counter — incremented each time update() is called. */
+    version: number = 0;
+
+    /** Type-testing flag. */
+    readonly isUniformGroup: boolean = true;
+
+    constructor(name: string, shared: boolean, order: number, updateType: NodeUpdateTypeValue | null = null) {
+        this.name = name;
+        this.shared = shared;
+        this.order = order;
+        this.updateType = updateType;
+    }
+
+    /**
+     * Mark this uniform group as needing an update.
+     * This will trigger re-upload on the next render pass.
+     */
+    update(): void {
+        this.needsUpdate = true;
+        this.version++;
+    }
+}
+
+/** Create a per-object (non-shared) uniform group with order=1. */
+export const uniformGroup = (name: string, order = 1, updateType: NodeUpdateTypeValue | null = null) =>
+    new UniformGroupNode(name, false, order, updateType);
+
+/** Create a shared uniform group with configurable order (default 0). */
+export const sharedUniformGroup = (name: string, order = 0, updateType: NodeUpdateTypeValue | null = null) =>
+    new UniformGroupNode(name, true, order, updateType);
+
+/**
+ * frameGroup — shared uniforms updated once per frame.
+ * Contains time uniforms (timeElapsed, timeDelta).
+ * Maps to @group(0) with FRAME update type.
+ *
+ * Note: For simplicity, gpucat currently merges frame uniforms into renderGroup.
+ * This is defined for Three.js API compatibility.
+ */
+export const frameGroup = /*@__PURE__*/ sharedUniformGroup('frame', 0, NodeUpdateType.FRAME);
+
+/**
+ * renderGroup — shared uniforms updated per render() call.
+ * Contains camera uniforms (projection, view, position, near, far).
+ * Maps to @group(0) with RENDER update type.
+ *
+ * Camera is in renderGroup (not frameGroup) because it can change between
+ * render calls within the same frame (VR stereo, shadow maps, portals).
+ */
+export const renderGroup = /*@__PURE__*/ sharedUniformGroup('render', 0, NodeUpdateType.RENDER);
+
+/**
+ * objectGroup — per-object uniforms updated per draw call.
+ * Contains mesh matrices (modelWorldMatrix, modelNormalMatrix) and user material uniforms.
+ * Maps to @group(1) with OBJECT update type.
+ */
+export const objectGroup = /*@__PURE__*/ uniformGroup('object', 1, NodeUpdateType.OBJECT);
+
 export class UniformNode<T extends WgslType> extends Node<T> {
-    readonly group: 'material' | 'frame';
+    /**
+     * Uniform group — determines @group index and struct packing.
+     */
+    readonly groupNode: UniformGroupNode;
+
+    /**
+     * Field name within the struct (e.g. 'cameraViewMatrix', 'roughness').
+     */
+    readonly name: string;
 
     /** CPU-side value. Set this to update the uniform on the GPU. */
     value: number | number[] | Float32Array | null = null;
@@ -637,11 +829,12 @@ export class UniformNode<T extends WgslType> extends Node<T> {
 
     constructor(
         type: T,
-        readonly uniformId: string,
-        group: 'material' | 'frame' = 'material',
+        name: string,
+        groupNode: UniformGroupNode = objectGroup,
     ) {
-        super(computeId('uniform', { type, uniformId, group }), 'uniform', type);
-        this.group = group;
+        super(computeId('uniform', { type, name, groupNode: groupNode.name }), 'uniform', type);
+        this.name = name;
+        this.groupNode = groupNode;
     }
 }
 
@@ -655,17 +848,36 @@ export class AttributeNode<T extends WgslType> extends Node<T> {
 }
 
 /**
- * A dirty range for partial re-upload of a StorageNode's CPU data.
- * Units: flat component indices (same convention as three.js BufferAttribute.updateRanges).
+ * StorageNode — aligns with Three.js StorageBufferNode.
+ *
+ * Holds a reference to a StorageBufferAttribute (the `value`), not a raw typed array.
+ * Version and updateRanges are delegated to the attribute, matching Three.js pattern.
+ *
+ * @see https://github.com/mrdoob/three.js/blob/dev/src/nodes/accessors/StorageBufferNode.js
  */
-export type UpdateRange = { start: number; count: number };
-
 export class StorageNode<T extends WgslType> extends Node<T> {
     /**
-     * CPU-side typed array. Null after release() — the GPU buffer lives on in
-     * BufferCache but CPU memory is freed.
+     * This flag can be used for type testing.
      */
-    data: GpuTypedArray | null;
+    readonly isStorageBufferNode: true = true;
+
+    /**
+     * The buffer attribute holding the CPU-side data.
+     * Mirrors Three.js StorageBufferNode.value.
+     */
+    readonly value: StorageBufferAttribute;
+
+    /**
+     * The buffer type (element type), e.g. 'vec4f', 'mat4x4f'.
+     * Same as node.type — provided for Three.js API compatibility.
+     */
+    readonly bufferType: T;
+
+    /**
+     * The number of elements in the buffer.
+     * Derived from value.count.
+     */
+    readonly bufferCount: number;
 
     /** The WGSL array type string, e.g. 'array<mat4x4f>'. Emitted verbatim. */
     readonly storageType: string;
@@ -673,78 +885,148 @@ export class StorageNode<T extends WgslType> extends Node<T> {
     readonly access: 'read' | 'read_write';
 
     /**
-     * Back-reference to the IndirectStorageBufferAttribute that owns this StorageNode.
-     * Set by IndirectStorageBufferAttribute.asStorageNode(). Used by BufferCache.uploadStorage()
-     * to ensure the same GPUBuffer (STORAGE | INDIRECT | COPY_DST) is used for
-     * both the compute shader binding and the drawIndirect/drawIndexedIndirect call.
+     * Whether the node is atomic or not.
+     * Mirrors Three.js StorageBufferNode.isAtomic.
      */
-    _indirectOwner: IndirectStorageBufferAttribute | null = null;
-
-    /** Monotonically-incremented upload version. Renderer re-uploads when its
-     *  stored version lags behind this. */
-    version: number = 0;
-
-    /** Pending partial-upload ranges. Units: flat component indices (same as three.js). */
-    readonly updateRanges: UpdateRange[] = [];
+    isAtomic: boolean = false;
 
     constructor(
+        /** The buffer attribute holding the data. */
+        value: StorageBufferAttribute,
         /** Element type (e.g. 'mat4x4f') — used as the node's type for downstream indexing. */
-        type: T,
+        bufferType: T,
         /** Full WGSL array type string (e.g. 'array<mat4x4f>'). */
         storageType: string,
-        data: GpuTypedArray | null,
         access: 'read' | 'read_write' = 'read',
     ) {
-        super(nextId(), 'storage', type);
+        super(nextId(), 'storage', bufferType);
+        this.value = value;
+        this.bufferType = bufferType;
+        this.bufferCount = value.count;
         this.storageType = storageType;
-        this.data = data;
         this.access = access;
     }
 
-    /** Mark data as needing re-upload on the next draw. Increments version. */
-    set needsUpdate(_value: true) {
-        if (this.data === null) {
-            throw new Error('[gpucat] StorageNode.needsUpdate: node has been released — CPU data is no longer available.');
-        }
-        this.version++;
+    /**
+     * Version number from the underlying attribute.
+     * Renderer re-uploads when its stored version lags behind this.
+     */
+    get version(): number {
+        return this.value.version;
+    }
+
+    /**
+     * Mark data as needing re-upload on the next draw.
+     * Delegates to the underlying attribute.
+     */
+    set needsUpdate(v: true) {
+        this.value.needsUpdate = v;
+    }
+
+    /**
+     * Pending partial-upload ranges from the underlying attribute.
+     * Units: flat component indices (same as Three.js BufferAttribute.updateRanges).
+     */
+    get updateRanges(): readonly { start: number; count: number }[] {
+        return this.value.updateRanges;
     }
 
     /**
      * Register a dirty range for partial re-upload.
+     * Delegates to the underlying attribute.
      * @param start  First flat component index to re-upload.
      * @param count  Number of components to re-upload.
      */
     addUpdateRange(start: number, count: number): void {
-        if (this.data === null) {
-            throw new Error('[gpucat] StorageNode.addUpdateRange: node has been released — CPU data is no longer available.');
-        }
-        this.updateRanges.push({ start, count });
-    }
-
-    /** Clear all pending update ranges. Called automatically by the renderer after a partial upload. */
-    clearUpdateRanges(): void {
-        this.updateRanges.length = 0;
+        this.value.addUpdateRange(start, count);
     }
 
     /**
-     * Drop the CPU-side typed array reference. The GPU buffer in BufferCache
-     * remains alive and bound — only the JS heap allocation is freed.
-     * After calling release(), needsUpdate and addUpdateRange will throw.
+     * Clear all pending update ranges.
+     * Called automatically by the renderer after a partial upload.
      */
-    release(): void {
-        this.data = null;
+    clearUpdateRanges(): void {
+        this.value.clearUpdateRanges();
+    }
+
+    /**
+     * Check if this is an indirect storage buffer.
+     */
+    get isIndirectStorageBuffer(): boolean {
+        return !!(this.value as IndirectStorageBufferAttribute).isIndirectStorageBufferAttribute;
+    }
+
+    /**
+     * Get the IndirectStorageBufferAttribute if this is an indirect buffer, null otherwise.
+     */
+    get indirectAttribute(): IndirectStorageBufferAttribute | null {
+        return (this.value as IndirectStorageBufferAttribute).isIndirectStorageBufferAttribute
+            ? this.value as IndirectStorageBufferAttribute
+            : null;
+    }
+
+    /**
+     * Defines whether the node is atomic or not.
+     * Mirrors Three.js StorageBufferNode.setAtomic().
+     */
+    setAtomic(value: boolean): this {
+        this.isAtomic = value;
+        return this;
+    }
+
+    /**
+     * Convenience method for making this node atomic.
+     * Mirrors Three.js StorageBufferNode.toAtomic().
+     */
+    toAtomic(): this {
+        return this.setAtomic(true);
+    }
+
+    /**
+     * Convenience method for configuring read-only access.
+     * Mirrors Three.js StorageBufferNode.toReadOnly().
+     */
+    toReadOnly(): StorageNode<T> {
+        // Note: access is readonly after construction in gpucat.
+        // This method is provided for API compatibility but requires
+        // creating a new node if access needs to change.
+        if (this.access === 'read') return this;
+        return new StorageNode(this.value, this.bufferType, this.storageType, 'read');
     }
 }
 
 export class TextureNode extends Node<TextureType> {
-    /** GPU texture resource. Set this before rendering. */
+    /**
+     * GPU texture resource. Set this before rendering.
+     * This can be set directly, OR use `value` (a Texture object) which the renderer
+     * will use to create/update the GPU texture.
+     */
     resource: GPUTexture | GPUTextureView | null = null;
+
+    /**
+     * High-level Texture wrapper (like Three.js pattern).
+     * If set, the renderer will use this to create/update the GPU texture.
+     * The `value` getter/setter provides Three.js-compatible access.
+     */
+    private _value: import('../scene/texture').Texture | null = null;
 
     constructor(
         type: TextureType,
-        readonly textureId: string,
+        readonly textureId: number | string,
     ) {
         super(computeId('texture', { type, textureId }), 'texture', type);
+    }
+
+    /**
+     * The high-level Texture object (Three.js-compatible pattern).
+     * Setting this allows automatic GPU texture management.
+     */
+    get value(): import('../scene/texture').Texture | null {
+        return this._value;
+    }
+
+    set value(tex: import('../scene/texture').Texture | null) {
+        this._value = tex;
     }
 }
 
@@ -895,28 +1177,63 @@ export type GpuTypedArray =
     | Uint8Array;
 
 /**
- * InstancedBufferAttributeNode — a per-instance vertex attribute whose data is
- * owned directly by the node (not looked up in geometry.attributes).
+ * BufferAttributeNode — a vertex attribute backed by a BufferAttribute or raw TypedArray.
  *
- * Mirrors TSL's BufferAttributeNode with instanced: true.
- * The renderer uploads `data` as a vertex buffer with stepMode: 'instance'.
+ * Mirrors Three.js BufferAttributeNode. Can be used for both regular vertex attributes
+ * and per-instance attributes (stepMode: 'instance') by setting `instanced = true`.
+ *
+ * When passed an InstancedBufferAttribute, `instanced` is auto-set to true.
  *
  * @example
- * const offsets = instancedBufferAttribute(new Float32Array([...]), S.vec3f(), 12, 0)
+ * // Instanced attribute with InstancedBufferAttribute:
+ * const attr = new InstancedBufferAttribute(new Float32Array([...]), 3);
+ * const offsets = bufferAttribute(attr, S.vec3f());  // instanced = true auto
+ *
+ * // Instanced attribute with raw TypedArray:
+ * const offsets = instancedBufferAttribute(new Float32Array([...]), S.vec3f());
+ *
+ * // Regular attribute:
+ * const colors = bufferAttribute(new Float32Array([...]), S.vec3f());
  */
-export class InstancedBufferAttributeNode<T extends WgslType> extends Node<T> {
+export class BufferAttributeNode<T extends WgslType> extends Node<T> {
+    /** The underlying BufferAttribute (StorageBufferAttribute/InstancedBufferAttribute). */
+    readonly attribute: StorageBufferAttribute | InstancedBufferAttribute;
+    /** Byte stride between consecutive elements. */
+    readonly stride: number;
+    /** Byte offset of this attribute within each element. */
+    readonly offset: number;
+    /** Whether this attribute is instanced (stepMode: 'instance'). */
+    instanced: boolean;
+
     constructor(
         type: T,
-        /** Flat CPU-side data array. Lives here; renderer uploads from this. */
-        readonly data: GpuTypedArray,
-        /** Byte stride between consecutive instances. */
-        readonly stride: number,
-        /** Byte offset of this attribute within each instance record. */
-        readonly offset: number,
+        value: StorageBufferAttribute | InstancedBufferAttribute | GpuTypedArray,
+        stride: number,
+        offset: number,
+        itemSize: number,
     ) {
         // ID is NOT content-addressed on data (too expensive to hash large arrays).
-        // Use a monotonic id so two separate instancedBufferAttribute() calls are always distinct.
-        super(nextId(), 'instanced_buffer_attribute', type);
+        // Use a monotonic id so two separate bufferAttribute() calls are always distinct.
+        super(nextId(), 'buffer_attribute', type);
+
+        // If passed a raw TypedArray, wrap it in a StorageBufferAttribute
+        if (ArrayBuffer.isView(value)) {
+            this.attribute = new StorageBufferAttribute(value as GpuTypedArray, itemSize);
+            this.instanced = false;
+        } else {
+            this.attribute = value;
+            // Auto-detect instanced from attribute type
+            this.instanced = 'isInstancedBufferAttribute' in value && value.isInstancedBufferAttribute === true;
+        }
+
+        this.stride = stride;
+        this.offset = offset;
+    }
+
+    /** Set instanced flag (chainable). */
+    setInstanced(value: boolean): this {
+        this.instanced = value;
+        return this;
     }
 }
 
@@ -1264,7 +1581,7 @@ export const attribute = <T extends WgslType>(type: T, name: string) => new Attr
 /**
  * Create a `StorageNode` backed by a `StorageBufferAttribute` (or subclass).
  *
- * The preferred form — mirrors Three.js's `storage(bufferAttr, schema, access)`.
+ * The preferred form — mirrors Three's `storage(bufferAttr, schema, access)`.
  * Accepts either an `ArrayDesc` (e.g. `S.array(S.vec4f())`) or a `StructDef`
  * (from `struct(...)`) as the schema argument.
  *
@@ -1295,21 +1612,11 @@ export function storage<S extends StructSchema>(
     schema: StructDef<S>,
     access?: 'read' | 'read_write',
 ): StructInstance<S>;
-/** @deprecated Pass a `StorageBufferAttribute` as the first argument instead of a raw typed array. */
-export function storage<E extends WgslType>(
-    data: GpuTypedArray,
-    schema: ArrayDesc<E>,
-    access?: 'read' | 'read_write',
-): StorageNode<E>;
 export function storage(
-    data: GpuTypedArray | StorageBufferAttribute,
+    attr: StorageBufferAttribute,
     schema: ArrayDesc<WgslType> | StructDef<StructSchema>,
     access: 'read' | 'read_write' = 'read',
 ): StorageNode<WgslType> | StructInstance<StructSchema> {
-    const arr = (data as StorageBufferAttribute).isStorageBufferAttribute
-        ? (data as StorageBufferAttribute).array
-        : data as GpuTypedArray;
-
     let elementType: WgslType;
     let storageType: string;
     if (isStructDef(schema)) {
@@ -1321,12 +1628,7 @@ export function storage(
         storageType = arrayDesc.wgslType;
     }
 
-    const node = new StorageNode(elementType, storageType, arr, access);
-
-    // Wire _indirectOwner so BufferCache reuses the STORAGE|INDIRECT GPUBuffer.
-    if ((data as IndirectStorageBufferAttribute).isIndirectStorageBufferAttribute) {
-        node._indirectOwner = data as IndirectStorageBufferAttribute;
-    }
+    const node = new StorageNode(attr, elementType, storageType, access);
 
     // When given a StructDef, instantiate a StructInstance so callers can do
     // drawStorage.instanceCount.assign(...) — mirrors Three.js TSL pattern.
@@ -1335,7 +1637,7 @@ export function storage(
     }
 
     return node;
-};
+}
 
 /**
  * Create a `StorageNode` with a zero-initialised typed array allocated internally.
@@ -1346,9 +1648,9 @@ export function storage(
  * - `S.array(S.mat4x4f())` → `Float32Array` of length `count * 16`
  *
  * @example
- * import * as S from './schema.js'
+ * import * as S from './schema'
  * const colors = storageArray(N, S.array(S.vec4f()), 'read_write')
- * // Modify colors.data, then: colors.needsUpdate = true
+ * // Modify colors.array, then: colors.needsUpdate = true
  */
 export const storageArray = <E extends WgslType>(
     count: number,
@@ -1358,10 +1660,28 @@ export const storageArray = <E extends WgslType>(
     const itemSize = itemSizeOf(arrayDesc.elementDesc);
     const Ctor = typedArrayCtorOf(arrayDesc.elementDesc);
     const data = new Ctor(count * itemSize);
-    return new StorageNode(arrayDesc.elementDesc.wgslType, arrayDesc.wgslType, data, access);
+    const attr = new StorageBufferAttribute(data, itemSize);
+    return new StorageNode(attr, arrayDesc.elementDesc.wgslType as E, arrayDesc.wgslType, access);
 };
 
-export const texture = (textureType: string, textureId: string) => new TextureNode(textureType, textureId);
+/**
+ * Create a texture node from a Texture object.
+ *
+ * @param tex - The Texture object containing image data
+ * @param textureDesc - Optional texture type descriptor (default: texture2d())
+ *
+ * @example
+ * const albedo = texture(myTexture);
+ * const cubeMap = texture(myCubeTexture, S.textureCube());
+ */
+export const texture = (
+    tex: import('../scene/texture').Texture,
+    textureDesc: TextureDesc | DepthTextureDesc = texture2d(),
+): TextureNode => {
+    const node = new TextureNode(textureDesc.wgslType as TextureType, tex.id);
+    node.value = tex;
+    return node;
+};
 export const sampler = (samplerId: string, opts?: { comparison?: boolean }) =>
     new SamplerNode(opts?.comparison ? 'sampler_comparison' : 'sampler', samplerId);
 export const varying = <T extends WgslType>(type: T, name: string, source: Node<WgslType>) => new VaryingNode(type, name, source);
@@ -1520,29 +1840,74 @@ export function tex(
 }
 
 // ---------------------------------------------------------------------------
-// Instanced buffer attribute DSL helpers
+// Buffer attribute DSL helpers (Three.js aligned)
 // ---------------------------------------------------------------------------
 
 /**
- * Create an InstancedBufferAttributeNode — a per-instance vertex attribute
- * whose data lives on the node and is uploaded by the renderer as a vertex
- * buffer with stepMode: 'instance'.
+ * Internal helper for creating buffer attribute nodes.
+ * Mirrors Three.js createBufferAttribute() pattern.
  *
- * @param data    Flat typed array — one record per instance.
+ * @param value     A BufferAttribute, InstancedBufferAttribute, or raw TypedArray.
+ * @param desc      WgslDesc for the attribute element type.
+ * @param stride    Byte stride between consecutive elements (default: 0 = tightly packed).
+ * @param offset    Byte offset within each element (default: 0).
+ * @param instanced Whether this is an instanced attribute.
+ */
+function createBufferAttribute<T extends WgslType>(
+    value: StorageBufferAttribute | InstancedBufferAttribute | GpuTypedArray,
+    desc: WgslDesc<T>,
+    stride = 0,
+    offset = 0,
+    instanced = false,
+): BufferAttributeNode<T> {
+    const node = new BufferAttributeNode(desc.wgslType as T, value, stride, offset, itemSizeOf(desc));
+    if (instanced) node.setInstanced(true);
+    return node;
+}
+
+/**
+ * Create a BufferAttributeNode — a vertex attribute backed by a BufferAttribute or TypedArray.
+ *
+ * @param value   A BufferAttribute, InstancedBufferAttribute, or raw TypedArray.
  * @param desc    WgslDesc for the attribute element type (e.g. `S.vec3f()`, `S.f32()`).
- * @param stride  Byte stride between consecutive instance records.
- * @param offset  Byte offset of this attribute within each instance record.
+ * @param stride  Byte stride between consecutive elements (default: 0 = tightly packed).
+ * @param offset  Byte offset within each element (default: 0).
  *
  * @example
- * const colors = instancedBufferAttribute(new Float32Array([1,0,0, 0,1,0]), S.vec3f(), 12, 0)
- * const flags  = instancedBufferAttribute(new Uint32Array([1, 0, 1, 1]),     S.u32(),   4, 0)
+ * const colors = bufferAttribute(new Float32Array([1,0,0, 0,1,0]), S.vec3f());
+ */
+export const bufferAttribute = <T extends WgslType>(
+    value: StorageBufferAttribute | InstancedBufferAttribute | GpuTypedArray,
+    desc: WgslDesc<T>,
+    stride = 0,
+    offset = 0,
+) => createBufferAttribute(value, desc, stride, offset);
+
+/**
+ * Create an instanced BufferAttributeNode — a per-instance vertex attribute
+ * uploaded by the renderer as a vertex buffer with stepMode: 'instance'.
+ *
+ * Mirrors Three.js TSL's instancedBufferAttribute() pattern.
+ *
+ * @param value   An InstancedBufferAttribute, or a raw TypedArray.
+ * @param desc    WgslDesc for the attribute element type (e.g. `S.vec3f()`, `S.f32()`).
+ * @param stride  Byte stride between consecutive instance records (default: 0 = tightly packed).
+ * @param offset  Byte offset within each instance record (default: 0).
+ *
+ * @example
+ * // With InstancedBufferAttribute:
+ * const attr = new InstancedBufferAttribute(new Float32Array([1,0,0, 0,1,0]), 3);
+ * const colors = instancedBufferAttribute(attr, S.vec3f());
+ *
+ * // With raw TypedArray:
+ * const colors = instancedBufferAttribute(new Float32Array([1,0,0, 0,1,0]), S.vec3f());
  */
 export const instancedBufferAttribute = <T extends WgslType>(
-    data: GpuTypedArray,
+    value: InstancedBufferAttribute | GpuTypedArray,
     desc: WgslDesc<T>,
-    stride: number,
-    offset: number,
-) => new InstancedBufferAttributeNode(desc.wgslType as T, data, stride, offset);
+    stride = 0,
+    offset = 0,
+) => createBufferAttribute(value, desc, stride, offset, true);
 
 // ---------------------------------------------------------------------------
 // Control-flow DSL — must be called inside a Fn body
@@ -1880,9 +2245,8 @@ export const mat4x4f = (...v: number[]): ConstNode<'mat4x4f'> => new ConstNode('
 // color() — DSL function: ColorInput → ConstNode<'vec3f'>
 // ---------------------------------------------------------------------------
 
-import { Color, type ColorInput } from '../utils/color.js';
-import type { StorageBufferAttribute } from '../scene/geometry.js';
-import type { IndirectStorageBufferAttribute } from '../scene/indirect-storage-buffer-attribute.js';
+import { Color, type ColorInput } from '../utils/color';
+import type { IndirectStorageBufferAttribute } from '../scene/geometry';
 
 /**
  * Convert any color input to a `ConstNode<'vec3f'>` (linear RGB).
@@ -1910,45 +2274,56 @@ export function color(input: ColorInput): ConstNode<'vec3f'> {
 }
 
 // ---------------------------------------------------------------------------
-// Camera — flat per-field singleton nodes (three.js style)
-// Each is a module-level singleton; users can import them directly or
-// access them via the backwards-compat camera() shim.
+// Camera — singleton uniforms in renderGroup (Three.js style)
+// Camera is in renderGroup because it can change per render call (VR, shadows).
+// The onRenderUpdate callbacks are invoked by the renderer to update .value.
 // ---------------------------------------------------------------------------
 
-/** Projection matrix of the scene camera. `mat4x4f` at @group(0) @binding(0). */
-export const cameraProjectionMatrix = /*@__PURE__*/ new BuiltinNode('cameraProjectionMatrix', 'mat4x4f');
+/** Projection matrix of the scene camera. In renderGroup. */
+export const cameraProjectionMatrix = /*@__PURE__*/ new UniformNode('mat4x4f', 'cameraProjectionMatrix', renderGroup)
+    .onRenderUpdate(({ camera }) => camera.projectionMatrix);
 
-/** View (world-to-camera) matrix. `mat4x4f` at @group(0) @binding(1). */
-export const cameraViewMatrix = /*@__PURE__*/ new BuiltinNode('cameraViewMatrix', 'mat4x4f');
+/** View (world-to-camera) matrix. In renderGroup. */
+export const cameraViewMatrix = /*@__PURE__*/ new UniformNode('mat4x4f', 'cameraViewMatrix', renderGroup)
+    .onRenderUpdate(({ camera }) => camera.matrixWorldInverse);
 
-/** Camera world-space position. `vec3f` at @group(0) @binding(2). */
-export const cameraPosition = /*@__PURE__*/ new BuiltinNode('cameraPosition', 'vec3f');
+/** Camera world-space position. In renderGroup. */
+export const cameraPosition = /*@__PURE__*/ new UniformNode('vec3f', 'cameraPosition', renderGroup)
+    .onRenderUpdate(({ camera }) => camera.position);
 
-/** Camera near plane distance. `f32` at @group(0) @binding(3). */
-export const cameraNear = /*@__PURE__*/ new BuiltinNode('cameraNear', 'f32');
+/** Camera near plane distance. In renderGroup. */
+export const cameraNear = /*@__PURE__*/ new UniformNode('f32', 'cameraNear', renderGroup)
+    .onRenderUpdate(({ camera }) => camera.near);
 
-/** Camera far plane distance. `f32` at @group(0) @binding(4). */
-export const cameraFar = /*@__PURE__*/ new BuiltinNode('cameraFar', 'f32');
-
-// ---------------------------------------------------------------------------
-// Time — flat per-field singleton nodes
-// ---------------------------------------------------------------------------
-
-/** Elapsed time in seconds. `f32` at @group(0) @binding(5). */
-export const timeElapsed = /*@__PURE__*/ new BuiltinNode('timeElapsed', 'f32');
-
-/** Frame delta time in seconds. `f32` at @group(0) @binding(6). */
-export const timeDelta = /*@__PURE__*/ new BuiltinNode('timeDelta', 'f32');
+/** Camera far plane distance. In renderGroup. */
+export const cameraFar = /*@__PURE__*/ new UniformNode('f32', 'cameraFar', renderGroup)
+    .onRenderUpdate(({ camera }) => camera.far);
 
 // ---------------------------------------------------------------------------
-// Mesh — flat per-field singleton nodes (mirrors camera/time pattern)
+// Time — singleton uniforms in renderGroup (merged with camera for simplicity)
 // ---------------------------------------------------------------------------
 
-/** Model-to-world transform matrix. `mat4x4f` at @group(1) @binding(0). */
-export const meshModelMatrix = /*@__PURE__*/ new BuiltinNode('meshModelMatrix', 'mat4x4f');
+/** Elapsed time in seconds. In renderGroup. */
+export const timeElapsed = /*@__PURE__*/ new UniformNode('f32', 'timeElapsed', renderGroup)
+    .onRenderUpdate(({ elapsed }) => elapsed);
 
-/** Normal matrix (inverse-transpose of model matrix). `mat3x3f` at @group(1) @binding(1). */
-export const meshNormalMatrix = /*@__PURE__*/ new BuiltinNode('meshNormalMatrix', 'mat3x3f');
+/** Frame delta time in seconds. In renderGroup. */
+export const timeDelta = /*@__PURE__*/ new UniformNode('f32', 'timeDelta', renderGroup)
+    .onRenderUpdate(({ delta }) => delta);
+
+// ---------------------------------------------------------------------------
+// Mesh / Model — singleton uniforms in objectGroup (Three.js naming)
+// These are per-object uniforms updated once per draw call.
+// The onObjectUpdate callbacks are invoked by the renderer to update .value.
+// ---------------------------------------------------------------------------
+
+/** Model-to-world transform matrix. In objectGroup. Three.js name: modelWorldMatrix. */
+export const modelWorldMatrix = /*@__PURE__*/ new UniformNode('mat4x4f', 'modelWorldMatrix', objectGroup)
+    .onObjectUpdate(({ object }) => object.matrixWorld);
+
+/** Normal matrix (inverse-transpose of upper-left 3x3 of model matrix). In objectGroup. */
+export const modelNormalMatrix = /*@__PURE__*/ new UniformNode('mat3x3f', 'modelNormalMatrix', objectGroup)
+    .onObjectUpdate(({ object }) => object.normalMatrix);
 
 export const instanceIndex = (): BuiltinNode<'u32'> => builtin('instance_index', 'u32');
 
@@ -1956,7 +2331,7 @@ export const positionClip: Node<'vec4f'> = (() => {
     const pos = attribute('vec3f', 'position');
     const localPos = vec4(pos, konst('f32', 1.0));
 
-    const worldPos = mul(meshModelMatrix, localPos);
+    const worldPos = mul(modelWorldMatrix, localPos);
 
     const viewPos = mul(cameraViewMatrix, worldPos);
     const clipPos = mul(cameraProjectionMatrix, viewPos);

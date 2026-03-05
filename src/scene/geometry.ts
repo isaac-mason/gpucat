@@ -1,16 +1,5 @@
-/**
- * geometry.ts — Vertex data containers and primitive geometry helpers.
- *
- * No WebGPU imports. The renderer layer is responsible for creating GPUBuffers.
- */
-
-import type { IndirectStorageBufferAttribute } from './indirect-storage-buffer-attribute.js';
 import type { Box3, Sphere } from 'mathcat';
-
-// ---------------------------------------------------------------------------
-// GpuTypedArray — re-exported locally so geometry.ts stays self-contained.
-// Keep in sync with nodes.ts GpuTypedArray.
-// ---------------------------------------------------------------------------
+import { StorageNode } from '../nodes/nodes';
 
 type GpuTypedArray =
     | Float32Array
@@ -21,19 +10,13 @@ type GpuTypedArray =
     | Int8Array
     | Uint8Array;
 
-// ---------------------------------------------------------------------------
-// StorageBufferAttribute — base for GPU-storage-accessible typed arrays.
-//
-// Mirrors Three.js StorageBufferAttribute (extends BufferAttribute, adds
-// isStorageBufferAttribute flag + array / itemSize / count / version).
-// The renderer uses isStorageBufferAttribute to determine STORAGE GPU usage.
-// ---------------------------------------------------------------------------
+export type UpdateRange = { start: number; count: number };
 
 export class StorageBufferAttribute {
     readonly isStorageBufferAttribute: true = true;
 
     /** CPU-side typed array. The primary data store — mirrors Three.js `.array`. */
-    array: GpuTypedArray;
+    array: GpuTypedArray | null;
 
     /** Number of data-type components per element. */
     readonly itemSize: number;
@@ -48,6 +31,21 @@ export class StorageBufferAttribute {
      */
     version: number = 0;
 
+    /**
+     * Pending partial-upload ranges.
+     * Units: flat component indices (same as Three.js BufferAttribute.updateRanges).
+     */
+    readonly updateRanges: UpdateRange[] = [];
+
+    /**
+     * Callback executed after the renderer uploads the data to the GPU.
+     * Can be used to release CPU memory via `this.array = null`.
+     *
+     * @example
+     * attr.onUpload = () => { attr.array = null; };
+     */
+    onUpload: (() => void) | null = null;
+
     constructor(array: GpuTypedArray, itemSize: number) {
         this.array    = array;
         this.itemSize = itemSize;
@@ -61,7 +59,142 @@ export class StorageBufferAttribute {
     set needsUpdate(_: true) {
         this.version++;
     }
+
+    /**
+     * Register a dirty range for partial re-upload.
+     * @param start  First flat component index to re-upload.
+     * @param count  Number of components to re-upload.
+     */
+    addUpdateRange(start: number, count: number): void {
+        this.updateRanges.push({ start, count });
+    }
+
+    /**
+     * Clear all pending update ranges.
+     * Called automatically by the renderer after a partial upload.
+     */
+    clearUpdateRanges(): void {
+        this.updateRanges.length = 0;
+    }
 }
+
+export class InstancedBufferAttribute extends StorageBufferAttribute {
+    readonly isInstancedBufferAttribute: true = true;
+
+    /**
+     * Defines how often a value of this buffer attribute should be repeated.
+     * A value of 1 means each value is used for a single instance.
+     * A value of 2 means each value is used for two consecutive instances, etc.
+     */
+    readonly meshPerAttribute: number;
+
+    constructor(array: GpuTypedArray, itemSize: number, meshPerAttribute = 1) {
+        super(array, itemSize);
+        this.meshPerAttribute = meshPerAttribute;
+    }
+}
+
+export class StorageInstancedBufferAttribute extends InstancedBufferAttribute {
+    readonly isStorageInstancedBufferAttribute: true = true;
+
+    /**
+     * @param count     Number of instances, OR a pre-allocated TypedArray.
+     * @param itemSize  Number of components per instance (ignored if count is a TypedArray).
+     * @param typeClass TypedArray constructor (default Float32Array).
+     */
+    constructor(
+        count: number | GpuTypedArray,
+        itemSize: number,
+        typeClass: new (length: number) => GpuTypedArray = Float32Array,
+    ) {
+        const array = ArrayBuffer.isView(count)
+            ? count as GpuTypedArray
+            : new typeClass(count * itemSize);
+        super(array, itemSize);
+    }
+}
+
+
+export class IndirectStorageBufferAttribute extends StorageBufferAttribute {
+    readonly isIndirectStorageBufferAttribute: true = true;
+
+    /** true → drawIndexedIndirect, false → drawIndirect. */
+    readonly indexed: boolean;
+
+    /** Number of packed draw structs in this buffer. */
+    readonly drawCount: number;
+
+    /** u32 elements per draw (4 for non-indexed, 5 for indexed). */
+    readonly stride: number;
+
+    /** Lazily created flat StorageNode. */
+    private _storageNode: StorageNode<'u32'> | null = null;
+
+    /** Lazily created struct-typed StorageNode. */
+    private _structStorageNode: StorageNode<string> | null = null;
+
+    /**
+     * Constructor:
+     *   new IndirectStorageBufferAttribute(indexed)
+     *     → single draw, array zero-initialised
+     *
+     *   new IndirectStorageBufferAttribute(indexed, drawCount: number)
+     *     → N draws, array zero-initialised
+     *
+     *   new IndirectStorageBufferAttribute(indexed, array: Uint32Array)
+     *     → array.length must equal drawCount * stride; drawCount inferred
+     */
+    constructor(
+        indexed: boolean,
+        arrayOrDrawCount?: Uint32Array | number
+    ) {
+        const stride = indexed ? 5 : 4;
+        let array: Uint32Array;
+        let drawCount: number;
+
+        if (arrayOrDrawCount instanceof Uint32Array) {
+            if (arrayOrDrawCount.length % stride !== 0) {
+                throw new Error(
+                    `[gpucat] IndirectStorageBufferAttribute: array.length (${arrayOrDrawCount.length}) must be a multiple of stride (${stride})`
+                );
+            }
+            array = arrayOrDrawCount;
+            drawCount = arrayOrDrawCount.length / stride;
+        } else {
+            drawCount = typeof arrayOrDrawCount === 'number' ? arrayOrDrawCount : 1;
+            array = new Uint32Array(drawCount * stride);
+        }
+
+        // itemSize=1 (each element is a single u32) — count = total u32 slots
+        super(array, 1);
+
+        this.indexed = indexed;
+        this.stride = stride;
+        this.drawCount = drawCount;
+    }
+
+    // -----------------------------------------------------------------------
+    // Typed array accessor — convenience alias consistent with the old .data API
+    // -----------------------------------------------------------------------
+    /**
+     * The raw Uint32Array backing this buffer.
+     * Same as `.array` — provided so callers that used the old IndirectBuffer.data
+     * API can migrate more easily. `.array` is the canonical name.
+     */
+    get data(): Uint32Array {
+        return this.array as Uint32Array;
+    }
+
+    /**
+     * Internal: return the cached StorageNode if it exists, without creating one.
+     * Returns the struct-typed node if present, otherwise the flat array<u32> node.
+     * Used by BufferCache to detect shared-buffer indirect nodes.
+     */
+    get _cachedStorageNode(): StorageNode<string> | StorageNode<'u32'> | null {
+        return this._structStorageNode ?? this._storageNode;
+    }
+}
+
 
 // ---------------------------------------------------------------------------
 // BufferAttribute — a single named vertex buffer
@@ -149,16 +282,7 @@ export class Geometry {
     }
 }
 
-// ---------------------------------------------------------------------------
-// createBoxGeometry() — unit box geometry with position + normal + uv
-// ---------------------------------------------------------------------------
 
-/**
- * Create a box geometry centred at the origin.
- *
- * Attributes: position (float32x3), normal (float32x3), uv (float32x2).
- * Indexed draw (Uint16 indices).
- */
 export function createBoxGeometry(width = 1, height = 1, depth = 1): Geometry {
     const hw = width  / 2;
     const hh = height / 2;
@@ -213,10 +337,6 @@ export function createBoxGeometry(width = 1, height = 1, depth = 1): Geometry {
     return geom;
 }
 
-// ---------------------------------------------------------------------------
-// createSphereGeometry() — UV sphere geometry
-// ---------------------------------------------------------------------------
-
 export function createSphereGeometry(radius = 0.5, widthSegments = 16, heightSegments = 8): Geometry {
     const positions: number[] = [];
     const normals: number[] = [];
@@ -257,10 +377,6 @@ export function createSphereGeometry(radius = 0.5, widthSegments = 16, heightSeg
     geom.boundingSphere = { center: [0, 0, 0], radius };
     return geom;
 }
-
-// ---------------------------------------------------------------------------
-// createPlaneGeometry() — XY plane geometry
-// ---------------------------------------------------------------------------
 
 export function createPlaneGeometry(width = 1, height = 1): Geometry {
     const hw = width  / 2;

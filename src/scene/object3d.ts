@@ -1,20 +1,11 @@
-/**
- * object3d.ts — Base 3D scene object with transform and hierarchy.
- *
- * Math delegated to mathcat (mat4, mat3, quat namespaces).
- * Matrices are column-major number[16] tuples (mathcat Mat4 / WebGPU convention).
- */
+import { mat4, mat3, quat, type Quat, type Vec3 } from 'mathcat';
 
-import { mat4, quat, type Mat4, type Quat, type Vec3 } from 'mathcat';
+let objectIdCounter = 0;
 
-// ---------------------------------------------------------------------------
-// Object3D
-// ---------------------------------------------------------------------------
-
-let _objectIdCounter = 0;
+const _lookAt_tmp = mat4.create();
 
 export class Object3D {
-    readonly objectId: number = _objectIdCounter++;
+    readonly objectId: number = objectIdCounter++;
 
     name: string = '';
 
@@ -25,15 +16,10 @@ export class Object3D {
     parent: Object3D | null = null;
     readonly children: Object3D[] = [];
 
-    /** Column-major Mat4 in local space (TRS). */
-    _localMatrix: Mat4 = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1];
-    /** Column-major Mat4 in world space. */
-    _worldMatrix: Mat4 = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1];
+    matrix = mat4.create();
+    matrixWorld = mat4.create();
+    normalMatrix = mat3.create();
 
-    /**
-     * Incremented each time updateWorldMatrix() runs on this node.
-     * The renderer uses this to skip the mesh UBO GPU upload when the matrix hasn't changed.
-     */
     matrixVersion: number = 0;
 
     add(child: Object3D): this {
@@ -52,40 +38,21 @@ export class Object3D {
         return this;
     }
 
-    /**
-     * Orient this object so that its -Z axis points toward `target`.
-     *
-     * Only sets `this.quaternion` — does NOT change `this.position`.
-     * This matches Three.js behaviour exactly.
-     *
-     * After calling this, call `updateWorldMatrix()` (and, for cameras,
-     * `updateViewMatrix()`) to propagate the change.
-     *
-     * @param target World-space point to look at.
-     * @param up     World up vector (default [0, 1, 0]).
-     */
     lookAt(target: Vec3, up: Vec3 = [0, 1, 0]): void {
-        // targetTo builds a world matrix where -Z points from position toward target.
-        const tmp: Mat4 = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1];
-        mat4.targetTo(tmp, this.position, target, up);
-        // Extract only the rotation into quaternion (translation/scale stay as-is).
-        quat.fromMat4(this.quaternion, tmp);
+        mat4.targetTo(_lookAt_tmp, this.position, target, up);
+        quat.fromMat4(this.quaternion, _lookAt_tmp);
     }
 
-    /**
-     * Recompute `_localMatrix` from position/quaternion/scale,
-     * then `_worldMatrix` = parent._worldMatrix * _localMatrix.
-     * Call this manually each frame for any object whose transform has changed.
-     * Children are always recursed so world matrices stay consistent.
-     */
     updateWorldMatrix(): void {
-        mat4.fromRotationTranslationScale(this._localMatrix, this.quaternion, this.position, this.scale);
+        mat4.fromRotationTranslationScale(this.matrix, this.quaternion, this.position, this.scale);
 
         if (this.parent) {
-            mat4.multiply(this._worldMatrix, this.parent._worldMatrix, this._localMatrix);
+            mat4.multiply(this.matrixWorld, this.parent.matrixWorld, this.matrix);
         } else {
-            mat4.copy(this._localMatrix, this._worldMatrix);
+            mat4.copy(this.matrix, this.matrixWorld);
         }
+
+        mat3.normalFromMat4(this.normalMatrix, this.matrixWorld);
 
         this.matrixVersion++;
 

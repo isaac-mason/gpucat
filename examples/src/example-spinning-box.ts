@@ -2,6 +2,7 @@ import {
     createBoxGeometry,
     color,
     f32,
+    Inspector,
     Material,
     Mesh,
     pass,
@@ -14,9 +15,11 @@ import { quat, type Euler } from 'mathcat';
 
 async function main() {
     const renderer = new WebGPURenderer({ antialias: true });
+    renderer.inspector = new Inspector();
     await renderer.init();
 
     document.body.appendChild(renderer.domElement);
+    document.body.appendChild((renderer.inspector as Inspector).domElement);
     renderer.setSize(window.innerWidth * devicePixelRatio, window.innerHeight * devicePixelRatio);
 
     const scene = new Scene();

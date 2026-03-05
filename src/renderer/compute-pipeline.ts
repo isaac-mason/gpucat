@@ -1,5 +1,10 @@
 /**
- * compute-pipeline.ts — Async-aware GPUComputePipeline cache.
+ * compute-pipeline.ts — Async-aware GPUComputePipeline cache (Three.js aligned).
+ *
+ * Following Three.js's pattern:
+ * - Pipeline layout is built from only non-empty bind groups
+ * - Each bind group has a dynamic index based on which groups are present
+ * - Empty bind groups are not included in the pipeline layout
  *
  * Cache key = ComputeNode.id (monotonic counter — each node is inherently unique).
  * On miss: compileCompute → build pipeline layout → createComputePipelineAsync.
@@ -12,8 +17,9 @@
  *                           ready. Used by renderer.compile() to pre-warm.
  */
 
-import { compileCompute, type ComputeCompileResult } from '../nodes/compile.js';
-import type { ComputeNode } from '../nodes/nodes.js';
+import { compileCompute, type ComputeCompileResult } from '../nodes/compile';
+import type { ComputeNode } from '../nodes/nodes';
+import { buildComputeBindGroupInfo, type BindGroupInfo } from './bindgroups';
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -22,10 +28,33 @@ import type { ComputeNode } from '../nodes/nodes.js';
 export type ComputePipelineEntry = {
     pipeline: GPUComputePipeline;
     compileResult: ComputeCompileResult;
-    /** Bind group layout for group 0 (storage buffers). */
-    layout0: GPUBindGroupLayout;
-    /** Bind group layout for group 1 (time uniforms), or null if not used. */
+    /** Bind group info (Three.js aligned - only non-empty groups). */
+    bindGroupInfo: BindGroupInfo;
+    /**
+     * @deprecated Use bindGroupInfo.bindGroups to find storage group
+     * Index of storage bind group in bindGroupInfo.bindGroups, or -1 if not present.
+     */
+    storageGroupIndex: number;
+    /**
+     * @deprecated Use bindGroupInfo.renderGroupIndex
+     * Index of render (time) bind group in bindGroupInfo.bindGroups, or -1 if not present.
+     */
+    renderGroupIndex: number;
+    /**
+     * @deprecated Use bindGroupInfo.bindGroups[storageGroupIndex].layout
+     * Bind group layout for storage buffers, or null if not present.
+     */
+    layout0: GPUBindGroupLayout | null;
+    /**
+     * @deprecated Use bindGroupInfo.bindGroups[renderGroupIndex].layout
+     * Bind group layout for time uniforms, or null if not present.
+     */
     layout1: GPUBindGroupLayout | null;
+};
+
+export type ComputePipelineCacheStats = {
+    readyCount: number;
+    pendingCount: number;
 };
 
 // ---------------------------------------------------------------------------
@@ -42,6 +71,14 @@ export class ComputePipelineCache {
 
     constructor(device: GPUDevice) {
         this.device = device;
+    }
+
+    /** Returns pipeline counts for the Inspector memory/performance tabs. */
+    getStats(): ComputePipelineCacheStats {
+        return {
+            readyCount: this.ready.size,
+            pendingCount: this.pending.size,
+        };
     }
 
     /**
@@ -89,53 +126,42 @@ export class ComputePipelineCache {
 
     private async _compile(key: string, node: ComputeNode): Promise<ComputePipelineEntry> {
         const cr = compileCompute(node);
-        const layout0 = this._buildLayout0(cr);
-        const layout1 = cr.builtinsUsed.has('time') ? this._buildLayout1() : null;
-        const bindGroupLayouts: GPUBindGroupLayout[] = layout1 ? [layout0, layout1] : [layout0];
+
+        // Build bind group info (Three.js aligned - only non-empty groups)
+        const bindGroupInfo = buildComputeBindGroupInfo(this.device, cr);
+
+        // Build pipeline layout from only the non-empty bind groups
+        const bindGroupLayouts = bindGroupInfo.bindGroups.map(bg => bg.layout);
         const pipelineLayout = this.device.createPipelineLayout({ bindGroupLayouts });
+
         const shaderModule = this.device.createShaderModule({ code: cr.code });
         const pipeline = await this.device.createComputePipelineAsync({
             layout: pipelineLayout,
             compute: { module: shaderModule, entryPoint: 'cs_main' },
         });
-        const entry: ComputePipelineEntry = { pipeline, compileResult: cr, layout0, layout1 };
+
+        // Find storage group index (it's the first group named 'storage')
+        const storageGroupIndex = bindGroupInfo.bindGroups.findIndex(bg => bg.name === 'storage');
+        const renderGroupIndex = bindGroupInfo.renderGroupIndex;
+
+        // Build legacy layout0/layout1 for backwards compat
+        const layout0 = storageGroupIndex >= 0
+            ? bindGroupInfo.bindGroups[storageGroupIndex].layout
+            : null;
+        const layout1 = renderGroupIndex >= 0
+            ? bindGroupInfo.bindGroups[renderGroupIndex].layout
+            : null;
+
+        const entry: ComputePipelineEntry = {
+            pipeline,
+            compileResult: cr,
+            bindGroupInfo,
+            storageGroupIndex,
+            renderGroupIndex,
+            layout0,
+            layout1,
+        };
         this.ready.set(key, entry);
         return entry;
-    }
-
-    // -----------------------------------------------------------------------
-    // Bind group layout builders
-    // -----------------------------------------------------------------------
-
-    /**
-     * Group 0: storage buffers, one entry per StorageNode in storage order.
-     * read_write → type: 'storage'
-     * read       → type: 'read-only-storage'
-     */
-    private _buildLayout0(cr: ComputeCompileResult): GPUBindGroupLayout {
-        return this.device.createBindGroupLayout({
-            entries: cr.storage.map((s) => ({
-                binding: s.binding,
-                visibility: GPUShaderStage.COMPUTE,
-                buffer: {
-                    type: s.access === 'read_write'
-                        ? ('storage' as GPUBufferBindingType)
-                        : ('read-only-storage' as GPUBufferBindingType),
-                },
-            })),
-        });
-    }
-
-    /**
-     * Group 1: time uniforms — binding 0 = timeElapsed, binding 1 = timeDelta.
-     * Only created when the compute shader references timeElapsed or timeDelta.
-     */
-    private _buildLayout1(): GPUBindGroupLayout {
-        return this.device.createBindGroupLayout({
-            entries: [
-                { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' as GPUBufferBindingType } },
-                { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'uniform' as GPUBufferBindingType } },
-            ],
-        });
     }
 }

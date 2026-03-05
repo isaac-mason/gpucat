@@ -1,7 +1,7 @@
-import * as gpu from 'gpucat';
-import { mat4, type Mat4, type Vec3, type Quat } from 'mathcat';
+import * as g from 'gpucat';
+import { mat4, quat, vec3 } from 'mathcat';
 
-const S = gpu.S;
+const S = g.S;
 
 const COLS = 6;
 const ROWS = 5;
@@ -11,19 +11,19 @@ const SPACING = 2.2;
 const instanceMatrices = new Float32Array(N * 16);
 const instanceColors = new Float32Array(N * 3);
 
-const tmpTranslation: Vec3 = [0, 0, 0];
-const tmpScale: Vec3 = [1, 1, 1];
-const tmpQuat: Quat = [0, 0, 0, 1];
-const tmpMat: Mat4 = [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0];
+const _translation = vec3.create();
+const _scale = vec3.fromValues(1, 1, 1);
+const _quat = quat.create();
+const _mat4 = mat4.create();
 
 for (let i = 0; i < N; i++) {
     const col = i % COLS;
     const row = Math.floor(i / COLS);
-    tmpTranslation[0] = (col - (COLS - 1) * 0.5) * SPACING;
-    tmpTranslation[1] = (row - (ROWS - 1) * 0.5) * SPACING;
-    tmpTranslation[2] = 0;
-    mat4.fromRotationTranslationScale(tmpMat, tmpQuat, tmpTranslation, tmpScale);
-    instanceMatrices.set(tmpMat, i * 16);
+    _translation[0] = (col - (COLS - 1) * 0.5) * SPACING;
+    _translation[1] = (row - (ROWS - 1) * 0.5) * SPACING;
+    _translation[2] = 0;
+    mat4.fromRotationTranslationScale(_mat4, _quat, _translation, _scale);
+    instanceMatrices.set(_mat4, i * 16);
 
     // rainbow hue per instance
     const h = i / N;
@@ -33,44 +33,47 @@ for (let i = 0; i < N; i++) {
 }
 
 const instanceTransformStride = 16 * 4;
-const col0 = gpu.instancedBufferAttribute(instanceMatrices, S.vec4f(), instanceTransformStride, 0);
-const col1 = gpu.instancedBufferAttribute(instanceMatrices, S.vec4f(), instanceTransformStride, 16);
-const col2 = gpu.instancedBufferAttribute(instanceMatrices, S.vec4f(), instanceTransformStride, 32);
-const col3 = gpu.instancedBufferAttribute(instanceMatrices, S.vec4f(), instanceTransformStride, 48);
-const instanceTransform = gpu.mat4(col0, col1, col2, col3);
+const col0 = g.instancedBufferAttribute(instanceMatrices, S.vec4f(), instanceTransformStride, 0);
+const col1 = g.instancedBufferAttribute(instanceMatrices, S.vec4f(), instanceTransformStride, 16);
+const col2 = g.instancedBufferAttribute(instanceMatrices, S.vec4f(), instanceTransformStride, 32);
+const col3 = g.instancedBufferAttribute(instanceMatrices, S.vec4f(), instanceTransformStride, 48);
+const instanceTransform = g.mat4(col0, col1, col2, col3);
 
-const instanceColor = gpu.instancedBufferAttribute(instanceColors, S.vec3f(), 12, 0);
+const instanceColor = g.instancedBufferAttribute(instanceColors, S.vec3f(), 12, 0);
 
-const vColor = gpu.varying('vec3f', 'v_color', instanceColor);
+const vColor = g.varying('vec3f', 'v_color', instanceColor);
 
-const pos = gpu.attribute('vec3f', 'position');
-const localPos = gpu.vec4(pos, gpu.f32(1.0));
-const worldPos = gpu.mul(instanceTransform, localPos);
-const viewPos  = gpu.mul(gpu.cameraViewMatrix, worldPos);
-const clipPos  = gpu.mul(gpu.cameraProjectionMatrix, viewPos);
+const pos = g.attribute('vec3f', 'position');
+const localPos = g.vec4(pos, g.f32(1.0));
+const worldPos = g.mul(instanceTransform, localPos);
+const viewPos  = g.mul(g.cameraViewMatrix, worldPos);
+const clipPos  = g.mul(g.cameraProjectionMatrix, viewPos);
 
 // pulse: gentle brightness oscillation each second
-const tScaled = gpu.timeElapsed.mul(gpu.f32(2.0));
-const pulse = gpu.f32(0.12).mul(
-    gpu.f32(1.0).add(tScaled.sin()),
+const tScaled = g.timeElapsed.mul(g.f32(2.0));
+const pulse = g.f32(0.12).mul(
+    g.f32(1.0).add(tScaled.sin()),
 );
-const finalColor = gpu.vec4(
-    vColor.add(gpu.vec3f(1, 1, 1).mul(pulse)),
-    gpu.f32(1.0),
+const finalColor = g.vec4(
+    vColor.add(g.vec3f(1, 1, 1).mul(pulse)),
+    g.f32(1.0),
 );
 
-const material = new gpu.Material({ position: clipPos, color: finalColor });
+const material = new g.Material({ position: clipPos, color: finalColor });
 
 async function main() {
-    const renderer = new gpu.WebGPURenderer({ antialias: true });
+    const renderer = new g.WebGPURenderer({ antialias: true });
+    const inspector = new g.Inspector();
+    renderer.inspector = inspector;
     await renderer.init();
 
     document.body.appendChild(renderer.domElement);
+    document.body.appendChild(inspector.domElement);
     renderer.setSize(window.innerWidth * devicePixelRatio, window.innerHeight * devicePixelRatio);
 
-    const scene = new gpu.Scene();
+    const scene = new g.Scene();
 
-    const perspCamera = new gpu.PerspectiveCamera(
+    const perspCamera = new g.PerspectiveCamera(
         Math.PI / 4,
         window.innerWidth / window.innerHeight,
         0.1,
@@ -88,11 +91,11 @@ async function main() {
         perspCamera.updateProjectionMatrix();
     });
 
-    const mesh = new gpu.Mesh(gpu.createBoxGeometry(1, 1, 1), material);
+    const mesh = new g.Mesh(g.createBoxGeometry(1, 1, 1), material);
     mesh.count = N;
     scene.add(mesh);
 
-    const scenePass = gpu.pass(scene, perspCamera);
+    const scenePass = g.pass(scene, perspCamera);
     const outputNode = scenePass.getTextureNode();
 
     function frame() {
