@@ -82,7 +82,6 @@ async function main() {
     );
     perspCamera.position[2] = 18;
     scene.add(perspCamera);
-    // Static scene — set matrices once after setup.
     scene.updateWorldMatrix();
     perspCamera.updateViewMatrix();
 

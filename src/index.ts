@@ -62,6 +62,10 @@ export {
     // base node class
     Node,
 
+    // indirect draw struct descriptors
+    DrawIndirect,
+    DrawIndexedIndirect,
+
     // types
     type BinopOp, type BuiltinKind, type ComputeNodeOptions,
     type ComputeOptions, type ForRange, type GpuTypedArray, type MatType, type NodeKind, type NumericType,
@@ -77,8 +81,11 @@ export { renderOutput, type OutputColorSpace, type RenderOutputOptions, type Ton
 
 export * as d from './nodes/schema';
 export type {
-    ArrayDesc, WgslDesc
+    ArrayDesc, WgslDesc, SizedArrayDesc,
 } from './nodes/schema';
+export { arrayOf, wgslAlignOf, wgslSizeOf, wgslStrideOf, roundUp } from './nodes/schema';
+
+export { packStruct, packStructArray, writeStructArray, f32ToF16Bits, type InferValue } from './utils/buffer-layout';
 
 export { Mesh } from './objects/mesh';
 export * from './objects/object3d';

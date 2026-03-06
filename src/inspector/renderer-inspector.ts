@@ -22,6 +22,7 @@ import { InspectorBase } from './inspector-base';
 import type { Node, WgslType } from '../nodes/nodes';
 import { getBufferCacheStats } from '../renderer/buffers';
 import * as pipelines from '../renderer/pipelines';
+import { getRenderObjectsStats } from '../renderer/render-objects';
 
 // ---------------------------------------------------------------------------
 // Frame data types
@@ -51,11 +52,12 @@ export type FrameRecord = {
     /** Snapshot of buffer/pipeline stats at frame end */
     bufferStats: { vertexCount: number; indexCount: number; storageCount: number; rawCount: number };
     pipelineStats: {
-        renderReadyCount: number;
-        renderPendingCount: number;
         computeReadyCount: number;
         computePendingCount: number;
         bindGroupLayoutCount: number;
+    };
+    renderObjectStats: {
+        total: number;
     };
     /** Inspectable nodes encountered this frame */
     inspectableNodes: Node<WgslType>[];
@@ -160,6 +162,7 @@ export class RendererInspector extends InspectorBase {
             passes: [...this._currentPasses],
             bufferStats: getBufferCacheStats(this.renderer.buffers),
             pipelineStats: pipelines.getStats(this.renderer.pipelines),
+            renderObjectStats: getRenderObjectsStats(this.renderer.renderObjects),
             inspectableNodes: [...this._pendingInspectables],
         };
 

@@ -1,17 +1,3 @@
-/**
- * example-mrt.ts — Multiple Render Targets (MRT) demonstration.
- *
- * This example demonstrates MRT support in gpucat by rendering a sphere to
- * multiple render targets simultaneously:
- *   - output: final lit color (tone-mapped for display)
- *   - normal: view-space normals encoded as RGB
- *   - diffuse: base material color (pre-lighting)
- *   - emissive: emissive contribution
- *
- * The final composite shows all four outputs side-by-side using screenUV
- * thresholds, similar to Three.js's webgpu_mrt.html example.
- */
-
 import {
     attribute,
     cameraProjectionMatrix,
@@ -40,10 +26,6 @@ import {
     wgslFn,
 } from 'gpucat';
 import { quat, type Euler } from 'mathcat';
-
-// ---------------------------------------------------------------------------
-// Helper: directionToColor using wgslFn
-// ---------------------------------------------------------------------------
 
 /**
  * Encodes a normalized direction vector [-1,1] to RGB color [0,1].
@@ -116,51 +98,44 @@ window.addEventListener('resize', () => {
     camera.updateProjectionMatrix();
 });
 
-// -----------------------------------------------------------------------
-// Build node graph for the sphere material
-// -----------------------------------------------------------------------
+/* material */
 
 const pos = attribute(d.vec3f, 'position');
 const norm = attribute(d.vec3f, 'normal');
 
-// Vertex shader: transform to clip space
+// vertex shader: transform to clip space
 const localPos = vec4(pos, f32(1));
 const worldPos = mul(modelWorldMatrix, localPos);
 const viewPos = mul(cameraViewMatrix, worldPos);
 const clipPos = mul(cameraProjectionMatrix, viewPos);
 
-// World-space normal for lighting
+// world-space normal for lighting
 const worldNorm = mul(modelNormalMatrix, vec3(norm.x, norm.y, norm.z));
 const vWorldNorm = varying(d.vec3f, 'v_worldNorm', normalize(worldNorm));
 
-// View-space normal for MRT output (computed from world normal in fragment)
-// We need view-space normal: viewNorm = (viewMatrix * vec4(worldNorm, 0)).xyz
+// view-space normal for MRT output (computed from world normal in fragment)
 const viewNorm = normalize(mul(cameraViewMatrix, vec4(vWorldNorm, f32(0)))).xyz;
 
-// Simple directional lighting
+// simple directional lighting
 const lightDir = vec3(f32(0.6), f32(1.0), f32(0.8)).normalize();
 const nDotL = vWorldNorm.dot(lightDir).max(f32(0.0));
 const ambient = f32(0.15);
 const diffuseFactor = nDotL.add(ambient);
 
-// Material colors
+// material colors
 const baseColor = color('#4488ff'); // blue diffuse
 const emissiveColor = color('#ff4400'); // orange-red emissive glow
 
-// Emissive based on view angle (rim effect)
+// emissive based on view angle (rim effect)
 const viewDir = vec3(f32(0), f32(0), f32(1)); // simplified: assume looking down -Z
 const rimFactor = f32(1.0).sub(vWorldNorm.dot(viewDir).max(f32(0.0))).pow(f32(3.0));
 const emissive = vec3(emissiveColor.x, emissiveColor.y, emissiveColor.z).mul(rimFactor);
 
-// Diffuse color (base color, no lighting)
+// diffuse color (base color, no lighting)
 const diffuseRGB = vec3(baseColor.x, baseColor.y, baseColor.z);
 
-// Final lit color (diffuse * lighting + emissive)
+// final lit color (diffuse * lighting + emissive)
 const litColor = diffuseRGB.mul(diffuseFactor).add(emissive);
-
-// -----------------------------------------------------------------------
-// MRT outputs
-// -----------------------------------------------------------------------
 
 // output: final lit color
 const outputColor = vec4(litColor, f32(1));
@@ -174,7 +149,7 @@ const diffuseOutput = vec4(diffuseRGB, f32(1));
 // emissive: emissive contribution
 const emissiveOutput = vec4(emissive, f32(1));
 
-// Create MRT node
+// create MRT node
 const mrtOutput = mrt({
     output: outputColor,
     normal: normalColor,
@@ -182,53 +157,47 @@ const mrtOutput = mrt({
     emissive: emissiveOutput,
 });
 
-// Material with MRT fragment output
+// material with MRT fragment output
 const mat = new Material({
     vertex: clipPos,
     fragment: mrtOutput,
 });
 
-// Create sphere geometry
+// create sphere geometry
 const geometry = createSphereGeometry(1, 32, 24);
 
-// Create mesh
+// create mesh
 const mesh = new Mesh(geometry, mat);
 scene.add(mesh);
 
-// -----------------------------------------------------------------------
-// Scene pass with MRT
-// -----------------------------------------------------------------------
-
+// scene pass with MRT
 const scenePass = pass(scene, camera);
 scenePass.setMRT(mrtOutput);
 
-// -----------------------------------------------------------------------
-// Composite shader: show all MRT outputs side-by-side
-// -----------------------------------------------------------------------
+/* composite shader */
 
-// Get texture nodes for each MRT output and make them inspectable
+// get texture nodes for each MRT output and make them inspectable
 const outputTex = scenePass.getTextureNode('output').inspect('Output (Linear)');
 const normalTex = scenePass.getTextureNode('normal').inspect('Normals (View Space)');
 const diffuseTex = scenePass.getTextureNode('diffuse').inspect('Diffuse');
 const emissiveTex = scenePass.getTextureNode('emissive').inspect('Emissive');
 
-// Apply tone mapping to the output texture
+// apply tone mapping to the output texture
 // renderOutput() returns a RawNode (shader math), not a texture.
-// With the new any-node inspector support, we can now inspect it!
+// with the new any-node inspector support, we can now inspect it!
 const tonemappedOutput = renderOutput(outputTex, { toneMapping: 'aces' }).inspect('Tonemapped (ACES)');
 
-// Build a composite that shows 5 vertical strips:
+// build a composite that shows 5 vertical strips:
 // [0.0-0.2] Tonemapped output (beauty)
 // [0.2-0.4] Raw linear output
 // [0.4-0.6] Normals
 // [0.6-0.8] Emissive
 // [0.8-1.0] Diffuse
 //
-// Use wgslFn selectComposite to pick the right output based on screenUV.x.
+// use wgslFn selectComposite to pick the right output based on screenUV.x.
 // screenUV provides normalized [0,1] coordinates computed from @builtin(position).
 const uvX = screenUV.x;
 
-// Call the wgslFn composite function
 const compositeOutput = selectComposite(
     uvX,
     tonemappedOutput,
@@ -238,12 +207,10 @@ const compositeOutput = selectComposite(
     diffuseTex,
 );
 
-// Final output
+// final output
 const finalOutput = compositeOutput;
 
-// -----------------------------------------------------------------------
-// Animation loop
-// -----------------------------------------------------------------------
+/* animation loop */
 
 let angle = 0;
 let prevTime = performance.now() / 1000;

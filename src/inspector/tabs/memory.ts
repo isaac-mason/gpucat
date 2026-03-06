@@ -6,6 +6,7 @@ import { createValueSpan, setText } from '../ui/utils';
 import type { InspectorBase } from '../inspector-base';
 import { getBufferCacheStats } from '../../renderer/buffers';
 import * as pipelinesModule from '../../renderer/pipelines';
+import { getRenderObjectsStats } from '../../renderer/render-objects';
 
 export class Memory extends Tab {
 
@@ -85,12 +86,13 @@ export class Memory extends Tab {
 
         const bs = getBufferCacheStats(renderer.buffers);
         const ps = pipelinesModule.getStats(renderer.pipelines);
+        const ros = getRenderObjectsStats(renderer.renderObjects);
 
         setText(this.vertexBuffers.data[1] as HTMLElement, bs.vertexCount.toString());
         setText(this.indexBuffers.data[1] as HTMLElement, bs.indexCount.toString());
         setText(this.storageBuffers.data[1] as HTMLElement, bs.storageCount.toString());
         setText(this.rawBuffers.data[1] as HTMLElement, bs.rawCount.toString());
-        setText(this.renderPipelines.data[1] as HTMLElement, `${ps.renderReadyCount} / ${ps.renderPendingCount} pending`);
+        setText(this.renderPipelines.data[1] as HTMLElement, `${ros.total} render objects`);
         setText(this.computePipelines.data[1] as HTMLElement, `${ps.computeReadyCount} / ${ps.computePendingCount} pending`);
     }
 }

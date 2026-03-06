@@ -2769,3 +2769,28 @@ export class ComputeNode {
 export function compute(fn: FnNode<WgslType>, opts: ComputeOptions): ComputeNode {
     return new ComputeNode({ fn, ...opts });
 }
+
+/**
+ * Struct descriptor for a non-indexed indirect draw call (`drawIndirect`).
+ * Memory layout (4 × u32, 16 bytes):
+ *   vertexCount, instanceCount, firstVertex, firstInstance
+ */
+export const DrawIndirect = struct('DrawIndirect', {
+    vertexCount:   d.u32,
+    instanceCount: d.u32,
+    firstVertex:   d.u32,
+    firstInstance: d.u32,
+});
+
+/**
+ * Struct descriptor for an indexed indirect draw call (`drawIndexedIndirect`).
+ * Memory layout (5 × u32, 20 bytes):
+ *   indexCount, instanceCount, firstIndex, baseVertex, firstInstance
+ */
+export const DrawIndexedIndirect = struct('DrawIndexedIndirect', {
+    indexCount:    d.u32,
+    instanceCount: d.u32,
+    firstIndex:    d.u32,
+    baseVertex:    d.u32,
+    firstInstance: d.u32,
+});

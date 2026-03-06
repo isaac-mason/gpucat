@@ -27,10 +27,6 @@
 
 import { Texture, DepthTexture, type DepthTextureFormat, type ImageSize } from '../texture/texture';
 
-// ---------------------------------------------------------------------------
-// Helper to create a render target texture
-// ---------------------------------------------------------------------------
-
 /**
  * Creates a Texture configured for use as a render target color attachment.
  * Three.js aligned: uses Texture with isRenderTargetTexture = true.
@@ -52,10 +48,6 @@ function createRenderTargetTexture(
 
     return texture;
 }
-
-// ---------------------------------------------------------------------------
-// RenderTarget
-// ---------------------------------------------------------------------------
 
 export type RenderTargetOptions = {
     /** Color attachment format. Default: 'rgba16float'. Applied to all attachments. */

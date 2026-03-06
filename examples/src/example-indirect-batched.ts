@@ -1,27 +1,5 @@
-/**
- * example-indirect-batched.ts
- *
- * CPU-driven indirect rendering — BatchedMesh style.
- *
- * A single merged geometry holds the vertex and index data for both a box and
- * a sphere. One Mesh and one IndirectBuffer with drawCount=2 issue both
- * sub-mesh draw calls from a single GPU buffer. Draw 0 selects the box
- * sub-range; draw 1 selects the sphere sub-range.
- *
- *   merged index buffer:  [ ...box indices... | ...sphere indices... ]
- *                           draw 0: firstIndex=0        draw 1: firstIndex=boxIdxCount
- *
- * Both draws use the same instanced transform storage buffer — instances are
- * split into two ranges. Draw 0 uses firstInstance=0 for box instances; draw 1
- * uses firstInstance=boxCount for sphere instances.
- *
- * A slider in the UI lets you move the split point at runtime, changing how
- * many instances are boxes vs spheres — demonstrating live IndirectBuffer
- * updates without touching geometry or recreating any GPU buffer.
- */
-
 import * as gpu from 'gpucat';
-import { d } from 'gpucat';
+import { d, packStructArray, writeStructArray } from 'gpucat';
 import { mat4, quat, vec3 } from 'mathcat';
 
 const TOTAL = 120; // total instances
@@ -94,11 +72,11 @@ const worldPos = gpu.mul(instanceTransform, localPos);
 const viewPos  = gpu.mul(gpu.cameraViewMatrix, worldPos);
 const clipPos  = gpu.mul(gpu.cameraProjectionMatrix, viewPos);
 
-// World-space normal (no non-uniform scale so instanceTransform is fine)
+// world-space normal (no non-uniform scale so instanceTransform is fine)
 const worldNorm = gpu.vec4(norm, gpu.f32(0.0));
 const tformedNorm = gpu.mul(instanceTransform, worldNorm);
 
-// Simple diffuse lighting from a fixed light direction
+// simple diffuse lighting from a fixed light direction
 const lightDir  = gpu.vec3f(0.6, 1.0, 0.8).normalize();
 const vNorm = gpu.varying(d.vec3f, 'v_norm', tformedNorm.xyz);
 const vHue = gpu.varying(d.f32,   'v_hue',  instanceHue);
@@ -129,19 +107,10 @@ const material = new gpu.Material({ vertex: clipPos, fragment: finalColor });
 //      [draw*5+4] firstInstance
 // ---------------------------------------------------------------------------
 
-const indirectData = new Uint32Array(10); // 2 draws × 5 u32s
-// draw 0 — box
-indirectData[0] = boxIdxCount;   // indexCount
-indirectData[1] = TOTAL / 2;     // instanceCount
-indirectData[2] = 0;             // firstIndex
-indirectData[3] = 0;             // baseVertex
-indirectData[4] = 0;             // firstInstance
-// draw 1 — sphere
-indirectData[5] = sphIdxCount;   // indexCount
-indirectData[6] = TOTAL / 2;     // instanceCount
-indirectData[7] = boxIdxCount;   // firstIndex
-indirectData[8] = boxVertCount;  // baseVertex
-indirectData[9] = TOTAL / 2;     // firstInstance
+const indirectData = new Uint32Array(packStructArray(gpu.DrawIndexedIndirect, [
+    { indexCount: boxIdxCount, instanceCount: TOTAL / 2, firstIndex: 0,           baseVertex: 0,           firstInstance: 0        },
+    { indexCount: sphIdxCount, instanceCount: TOTAL / 2, firstIndex: boxIdxCount, baseVertex: boxVertCount, firstInstance: TOTAL / 2 },
+]));
 
 mergedGeometry.indirect = new gpu.IndirectStorageBufferAttribute(true, indirectData);
 
@@ -215,12 +184,10 @@ async function main() {
         const boxCount = Number(slider.value);
         const sphCount = TOTAL - boxCount;
 
-        // Draw 0 = boxes: update instanceCount (array[1], stride=5, draw 0 → offset 1).
-        indirect.array![1] = boxCount;
-
-        // Draw 1 = spheres: update instanceCount (array[6]) and firstInstance (array[9]).
-        indirect.array![6] = sphCount;
-        indirect.array![9] = boxCount;
+        writeStructArray(gpu.DrawIndexedIndirect, [
+            { indexCount: boxIdxCount, instanceCount: boxCount, firstIndex: 0,           baseVertex: 0,           firstInstance: 0        },
+            { indexCount: sphIdxCount, instanceCount: sphCount, firstIndex: boxIdxCount, baseVertex: boxVertCount, firstInstance: boxCount },
+        ], indirect.array!.buffer as ArrayBuffer, 0);
         indirect.needsUpdate = true;
 
         label.textContent = `boxes: ${boxCount}   spheres: ${sphCount}`;

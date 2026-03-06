@@ -1,20 +1,3 @@
-/**
- * example-compute-particles.ts
- *
- * Demonstrates the explicit compute API: a GPU-side particle simulation where
- * renderer.compute() dispatches the update kernel each frame before the render pass.
- *
- * Architecture:
- *   1. storageArray() allocates a vec4f buffer (xyz position + w=lifetime).
- *   2. compute() defines a kernel that advances each particle per frame.
- *      - globalId.x selects the particle index.
- *      - Particles drift upward and respawn when lifetime expires.
- *   3. renderer.compile(updateParticles) pre-warms the compute pipeline.
- *   4. Each frame: renderer.compute(updateParticles) then renderer.render(outputNode).
- *
- * All per-particle state lives on the GPU after the first upload.
- */
-
 import { d, StorageBufferAttribute, storage, Fn, Var, globalId, If, index, f32, vec4, instanceIndex, attribute, mul, cameraViewMatrix, cameraProjectionMatrix, varying, timeElapsed, Material, WebGPURenderer, Inspector, Scene, PerspectiveCamera, Geometry, BufferAttribute, IndexAttribute, Mesh, pass } from 'gpucat';
 
 const N = 8192;
@@ -110,71 +93,64 @@ const material = new Material({
     depthWrite: false,
 });
 
-// ---------------------------------------------------------------------------
-// 4. Main — init renderer and scene
-// ---------------------------------------------------------------------------
+/* setup renderer and scene */
+const renderer = new WebGPURenderer({ antialias: true });
+renderer.inspector = new Inspector();
+await renderer.init();
 
-async function main() {
-    const renderer = new WebGPURenderer({ antialias: true });
-    renderer.inspector = new Inspector();
-    await renderer.init();
+document.body.appendChild(renderer.domElement);
+document.body.appendChild((renderer.inspector as Inspector).domElement);
+renderer.setPixelRatio(devicePixelRatio);
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.clearColor = [0.04, 0.04, 0.08, 1];
 
-    document.body.appendChild(renderer.domElement);
-    document.body.appendChild((renderer.inspector as Inspector).domElement);
-    renderer.setPixelRatio(devicePixelRatio);
+const scene = new Scene();
+const camera = new PerspectiveCamera(
+    Math.PI / 4,
+    window.innerWidth / window.innerHeight,
+    0.1,
+    200,
+);
+camera.position[2] = 25;
+scene.add(camera);
+// Static scene — set matrices once after setup.
+scene.updateWorldMatrix();
+camera.updateViewMatrix();
+
+window.addEventListener('resize', () => {
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.clearColor = [0.04, 0.04, 0.08, 1];
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+});
 
-    const scene = new Scene();
-    const camera = new PerspectiveCamera(
-        Math.PI / 4,
-        window.innerWidth / window.innerHeight,
-        0.1,
-        200,
-    );
-    camera.position[2] = 25;
-    scene.add(camera);
-    // Static scene — set matrices once after setup.
-    scene.updateWorldMatrix();
-    camera.updateViewMatrix();
+// Small quad geometry for each particle — a 0.15-unit square.
+const S2 = 0.075;
+const quadGeom = new Geometry();
+const verts = new Float32Array([
+    -S2, -S2, 0,
+    S2, -S2, 0,
+    S2,  S2, 0,
+    -S2,  S2, 0,
+]);
+const indices = new Uint16Array([0, 1, 2, 0, 2, 3]);
+quadGeom.attributes.set('position', new BufferAttribute(verts, 3));
+quadGeom.index = new IndexAttribute(indices);
 
-    window.addEventListener('resize', () => {
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        camera.aspect = window.innerWidth / window.innerHeight;
-        camera.updateProjectionMatrix();
-    });
+const mesh = new Mesh(quadGeom, material);
+mesh.count = N;
+scene.add(mesh);
 
-    // Small quad geometry for each particle — a 0.15-unit square.
-    const S2 = 0.075;
-    const quadGeom = new Geometry();
-    const verts = new Float32Array([
-        -S2, -S2, 0,
-         S2, -S2, 0,
-         S2,  S2, 0,
-        -S2,  S2, 0,
-    ]);
-    const indices = new Uint16Array([0, 1, 2, 0, 2, 3]);
-    quadGeom.attributes.set('position', new BufferAttribute(verts, 3));
-    quadGeom.index = new IndexAttribute(indices);
+// Pre-warm the compute pipeline before the frame loop.
+await renderer.compileCompute(updateParticles);
 
-    const mesh = new Mesh(quadGeom, material);
-    mesh.count = N;
-    scene.add(mesh);
+const scenePass = pass(scene, camera);
+const outputNode = scenePass.getTextureNode();
 
-    // Pre-warm the compute pipeline before the frame loop.
-    await renderer.compileCompute(updateParticles);
-
-    const scenePass = pass(scene, camera);
-    const outputNode = scenePass.getTextureNode();
-
-    function frame() {
-        // Dispatch the compute pass first, then render.
-        renderer.compute(updateParticles);
-        renderer.render(outputNode);
-        requestAnimationFrame(frame);
-    }
-
+function frame() {
+    // Dispatch the compute pass first, then render.
+    renderer.compute(updateParticles);
+    renderer.render(outputNode);
     requestAnimationFrame(frame);
 }
 
-main();
+requestAnimationFrame(frame);
