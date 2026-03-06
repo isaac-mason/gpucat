@@ -268,7 +268,6 @@ type BindingType = 'uniform' | 'storage' | 'texture' | 'sampler';
 
 /**
  * A single binding entry in a bind group.
- * Three.js pattern: NodeUniformsGroup, NodeSampler, NodeSampledTexture, NodeStorageBuffer
  */
 type BindingEntry = {
     type: BindingType;
@@ -282,7 +281,6 @@ type BindingEntry = {
 
 /**
  * A bind group containing multiple bindings.
- * Three.js pattern: BindGroup class
  */
 type BindGroup = {
     name: string;
@@ -828,26 +826,27 @@ function setupFnNode(state: CompilerState, fn: FnNode<WgslType>): void {
     const traced = fn.trace();
     state.fnNodes.set(fn.id, { fn, traced });
 
-    // Register param nodes into allNodes
+    // register param nodes into allNodes
     for (const p of traced.params) {
         if (!state.allNodes.has(p.id)) state.allNodes.set(p.id, p);
     }
 
-    // Walk the output expression graph
+    // walk the output expression graph
     const bodyGraph = collectGraph(traced.output);
     for (const [id, node] of bodyGraph.nodes) {
         if (!state.allNodes.has(id)) state.allNodes.set(id, node);
     }
-    // Walk statement nodes
+
+    // walk statement nodes
     const stackGraph = collectGraph(traced.body);
     for (const [id, node] of stackGraph.nodes) {
         if (!state.allNodes.has(id)) state.allNodes.set(id, node);
     }
 
-    // Recurse into body to collect nested Fns and resources
+    // recurse into body to collect nested Fns and resources
     setupStackNode(state, traced.body);
 
-    // Also recurse into the output expression
+    // also recurse into the output expression
     for (const node of bodyGraph.nodes.values()) {
         if (node.kind === 'call') {
             const cn = node as CallNode<WgslType>;

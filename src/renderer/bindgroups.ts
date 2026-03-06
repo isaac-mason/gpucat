@@ -285,7 +285,7 @@ export function buildObjectGroupGPUBindGroup(
     // textures
     for (const t of cr.textures) {
         if (t.group !== groupIndex) continue;
-        // get GPU texture - either from resource directly, or from value object (Three.js pattern)
+        // Get GPU texture from resource directly, or from value object
         let res = t.node.resource;
         if (res === null && t.node.value) {
             // RenderTargetTexture and DepthTexture have gpuTexture directly on them

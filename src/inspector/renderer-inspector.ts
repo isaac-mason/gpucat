@@ -233,7 +233,7 @@ export class RendererInspector extends InspectorBase {
 
     /**
      * Resolves GPU timestamps for a frame.
-     * Three.js pattern: Check buffer.mapState before using, skip if not 'unmapped'.
+     * Checks buffer.mapState before using, skips if not 'unmapped'.
      */
     private _resolveTimestamps(frameId: number, record: FrameRecord): void {
         const device = this.renderer!.device;
@@ -242,7 +242,7 @@ export class RendererInspector extends InspectorBase {
 
         const rb = this._readbackBuffer!;
 
-        // Three.js pattern: Check mapState before using buffer
+        // Check mapState before using buffer
         if (rb.mapState !== 'unmapped') return;
 
         const encoder = device.createCommandEncoder();
@@ -256,7 +256,7 @@ export class RendererInspector extends InspectorBase {
         );
         device.queue.submit([encoder.finish()]);
 
-        // Three.js pattern: Check mapState again after submit
+        // Check mapState again after submit
         if (rb.mapState !== 'unmapped') return;
 
         rb.mapAsync(GPUMapMode.READ, 0, slotCount * 2 * 8).then(() => {

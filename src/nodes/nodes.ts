@@ -276,10 +276,6 @@ export class Node<T extends WgslType> {
         this.type = type;
     }
 
-    // ---------------------------------------------------------------------------
-    // onUpdate() / onRenderUpdate() / onObjectUpdate() — Three.js pattern
-    // ---------------------------------------------------------------------------
-
     /**
      * Set an update callback that will be invoked based on updateType.
      * The callback receives a context object and can return a value to assign.
@@ -875,12 +871,10 @@ export class AttributeNode<T extends WgslType> extends Node<T> {
 }
 
 /**
- * StorageNode — aligns with Three.js StorageBufferNode.
+ * StorageNode — GPU storage buffer node.
  *
  * Holds a reference to a StorageBufferAttribute (the `value`), not a raw typed array.
- * Version and updateRanges are delegated to the attribute, matching Three.js pattern.
- *
- * @see https://github.com/mrdoob/three.js/blob/dev/src/nodes/accessors/StorageBufferNode.js
+ * Version and updateRanges are delegated to the attribute.
  */
 export class StorageNode<T extends WgslType> extends Node<T> {
     /**
@@ -918,9 +912,7 @@ export class StorageNode<T extends WgslType> extends Node<T> {
     isAtomic: boolean = false;
 
     /**
-     * Uniform group — determines @group index.
-     * Three.js pattern: StorageBufferNode extends BufferNode extends UniformNode,
-     * so storage buffers inherit groupNode. Defaults to objectGroup.
+     * Uniform group — determines @group index. Defaults to objectGroup.
      */
     groupNode: UniformGroupNode;
 
@@ -993,19 +985,7 @@ export class StorageNode<T extends WgslType> extends Node<T> {
         return !!(this.value as IndirectStorageBufferAttribute).isIndirectStorageBufferAttribute;
     }
 
-    /**
-     * Get the IndirectStorageBufferAttribute if this is an indirect buffer, null otherwise.
-     */
-    get indirectAttribute(): IndirectStorageBufferAttribute | null {
-        return (this.value as IndirectStorageBufferAttribute).isIndirectStorageBufferAttribute
-            ? this.value as IndirectStorageBufferAttribute
-            : null;
-    }
-
-    /**
-     * Defines whether the node is atomic or not.
-     * Mirrors Three.js StorageBufferNode.setAtomic().
-     */
+    /** defines whether the node is atomic or not */
     setAtomic(value: boolean): this {
         this.isAtomic = value;
         return this;
@@ -1013,16 +993,12 @@ export class StorageNode<T extends WgslType> extends Node<T> {
 
     /**
      * Convenience method for making this node atomic.
-     * Mirrors Three.js StorageBufferNode.toAtomic().
      */
     toAtomic(): this {
         return this.setAtomic(true);
     }
 
-    /**
-     * Convenience method for configuring read-only access.
-     * Mirrors Three.js StorageBufferNode.toReadOnly().
-     */
+    /** convenience method for configuring read-only access */
     toReadOnly(): StorageNode<T> {
         // Note: access is readonly after construction in gpucat.
         // This method is provided for API compatibility but requires
@@ -1034,7 +1010,6 @@ export class StorageNode<T extends WgslType> extends Node<T> {
 
 /**
  * TextureNode - represents a texture sample operation.
- * Three.js pattern: TextureNode generates textureSample(texture, sampler, uv).
  * 
  * When used as a value, it samples the texture at the given UV coordinates.
  * The node type is 'vec4f' (the sampled color), not the texture type.
@@ -1048,17 +1023,14 @@ export class TextureNode extends Node<'vec4f'> {
     resource: GPUTexture | GPUTextureView | null = null;
 
     /**
-     * GPU sampler resource (Three.js pattern).
-     * In Three.js, the sampler lives on the texture data and is auto-created
-     * by the builder when processing texture bindings. The renderer sets this
-     * based on the texture's sampling properties (wrap, filter, etc.).
+     * GPU sampler resource. Auto-created by the renderer based on the texture's
+     * sampling properties (wrap, filter, etc.).
      */
     gpuSampler: GPUSampler | null = null;
 
     /**
-     * High-level Texture wrapper (like Three.js pattern).
+     * High-level Texture wrapper.
      * If set, the renderer will use this to create/update the GPU texture.
-     * The `value` getter/setter provides Three.js-compatible access.
      * 
      * Can be:
      * - Texture (scene texture with image data)
@@ -1069,12 +1041,12 @@ export class TextureNode extends Node<'vec4f'> {
 
     /**
      * The UV node for texture coordinates.
-     * Three.js pattern: defaults to uv() if not specified.
+     * Defaults to uv() if not specified.
      */
     uvNode: Node<'vec2f'> | null = null;
 
     /**
-     * The reference node (Three.js pattern).
+     * The reference node
      * When sampling with different UVs, this points to the base texture node.
      */
     referenceNode: TextureNode | null = null;
@@ -1092,14 +1064,15 @@ export class TextureNode extends Node<'vec4f'> {
 
     /**
      * Uniform group — determines @group index.
-     * Three.js pattern: TextureNode extends UniformNode, so textures inherit groupNode.
      * Defaults to objectGroup.
      */
     groupNode: UniformGroupNode;
 
+    textureId: string;
+
     constructor(
         textureType: TextureType,
-        readonly textureId: number | string,
+        textureId: string,
         uvNode: Node<'vec2f'> | null = null,
         /** Uniform group — determines @group index. Defaults to objectGroup. */
         groupNode: UniformGroupNode = objectGroup,
@@ -1107,6 +1080,7 @@ export class TextureNode extends Node<'vec4f'> {
         // Node type is vec4f (the sampled color)
         super(computeId('texture', { type: textureType, textureId, uvNode: uvNode?.id }), 'texture', 'vec4f');
         this.textureType = textureType;
+        this.textureId = textureId;
         this.uvNode = uvNode;
         this.groupNode = groupNode;
     }
@@ -1141,7 +1115,6 @@ export class TextureNode extends Node<'vec4f'> {
 
     /**
      * Clone this texture node.
-     * Three.js pattern.
      */
     clone(): TextureNode {
         const cloned = new TextureNode(this.textureType, this.textureId, this.uvNode, this.groupNode);
@@ -1154,7 +1127,7 @@ export class TextureNode extends Node<'vec4f'> {
 
     /**
      * Sample the texture at the given UV coordinates.
-     * Three.js pattern: texture.sample(uvNode) returns a new TextureNode with that UV.
+     * Returns a new TextureNode with the UV set.
      */
     sample(uvNode: Node<'vec2f'>): TextureNode {
         const textureNode = this.clone();
@@ -1983,14 +1956,14 @@ export const texture = (
     tex: import('../scene/texture').Texture,
     textureDesc: TextureDesc | DepthTextureDesc = texture2d(),
 ): TextureNode => {
-    const node = new TextureNode(textureDesc.wgslType as TextureType, tex.id);
+    const node = new TextureNode(textureDesc.wgslType as TextureType, String(tex.id));
     node.value = tex;
     return node;
 };
 
 /**
- * nodeObject - wraps a value into a node if needed.
- * Three.js pattern: converts raw values (textures, numbers, etc.) to nodes.
+ * Wraps a value into a node if needed.
+ * Converts raw values (textures, numbers, etc.) to nodes.
  */
 export function nodeObject<T extends WgslType>(val: T | Node<T> | unknown): Node<WgslType> {
     if (val && typeof val === 'object' && 'isNode' in (val as Record<string, unknown>)) {
@@ -2004,22 +1977,20 @@ export function nodeObject<T extends WgslType>(val: T | Node<T> | unknown): Node
 }
 
 /**
- * TSL convert function - converts a node to a different type.
- * Three.js pattern: convert(node, 'sampler') creates a ConvertNode.
+ * Converts a node to a different type (e.g., texture to sampler).
  */
 export const convert = (node: Node<WgslType> | unknown, types: string): ConvertNode => {
     return new ConvertNode(nodeObject(node), types);
 };
 
 /**
- * TSL function - converts a texture to a sampler reference.
- * Three.js pattern: sampler(textureNode) returns ${textureId}_samp
+ * Converts a texture node to a sampler reference.
+ * Returns a RawNode that emits `${textureId}_samp`.
  */
 export const sampler = (value: TextureNode): ConvertNode => value.convert('sampler');
 
 /**
- * TSL function - converts a texture to a sampler comparison reference.
- * Three.js pattern: samplerComparison(textureNode) returns ${textureId}_samp for depth comparison
+ * Converts a texture to a sampler comparison reference for depth comparison.
  */
 export const samplerComparison = (value: TextureNode): ConvertNode => value.convert('sampler_comparison');
 
@@ -2168,16 +2139,14 @@ export const textureSampleLevel = (t: Node<WgslType>, s: Node<WgslType>, uv: Nod
 
 /**
  * Get a sampler reference for a TextureNode.
- * Three.js pattern: returns ${textureId}_samp which references the auto-generated sampler.
- * This uses a RawNode with the texture as a dep - the generated code will substitute
- * the texture name, and we manually append _samp to create the sampler reference.
+ * Returns a RawNode that emits `${textureId}_samp`.
  */
 export function samplerFor(textureNode: TextureNode): RawNode<'sampler'> {
     return new RawNode('sampler', `${String(textureNode.textureId)}_samp`, [textureNode]);
 }
 
 // ---------------------------------------------------------------------------
-// Buffer attribute DSL helpers (Three.js aligned)
+// Buffer attribute DSL helpers
 // ---------------------------------------------------------------------------
 
 /**

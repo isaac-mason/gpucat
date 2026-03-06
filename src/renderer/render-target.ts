@@ -42,7 +42,7 @@ export class RenderTargetTexture {
 
     /**
      * The GPU sampler for this texture. Managed by renderer.
-     * Three.js pattern: sampler is created alongside texture and stored on texture data.
+     * Sampler is created alongside texture.
      */
     gpuSampler: GPUSampler | null = null;
 
@@ -79,7 +79,7 @@ export class DepthTexture {
 
     /**
      * The GPU sampler for this texture. Managed by renderer.
-     * Three.js pattern: sampler is created alongside texture and stored on texture data.
+     * Sampler is created alongside texture.
      */
     gpuSampler: GPUSampler | null = null;
 
@@ -168,7 +168,7 @@ export class RenderTarget {
             this.textures.push(new RenderTargetTexture(this, this.colorFormat));
         }
 
-        // Create depth texture if depth format specified (Three.js pattern)
+        // Create depth texture if depth format specified
         if (this.depthFormat) {
             const depthTexture = new DepthTexture(this, this.depthFormat);
             depthTexture.name = 'depth';

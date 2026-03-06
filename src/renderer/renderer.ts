@@ -1151,8 +1151,7 @@ export class WebGPURenderer {
                 sampleCount,
             });
 
-            // Three.js pattern: create sampler alongside texture
-            // Use linear filtering for render target textures (post-processing friendly)
+            // Create sampler alongside texture (linear filtering for post-processing)
             tex.gpuSampler = this.device.createSampler({
                 magFilter: 'linear',
                 minFilter: 'linear',

@@ -10,33 +10,25 @@
 import type { BufferAttribute, IndexAttribute } from '../scene/geometry';
 import type { GpuTypedArray, StorageNode, WgslType } from '../nodes/nodes';
 import type { IndirectStorageBufferAttribute } from 'src/scene/geometry';
-// ---------------------------------------------------------------------------
-// BufferCache — vertex + index buffers
-// ---------------------------------------------------------------------------
 
 export class BufferCache {
     private readonly device: GPUDevice;
     private readonly vertexMap: WeakMap<BufferAttribute, { buf: GPUBuffer; version: number }> = new WeakMap();
     private readonly indexMap: WeakMap<IndexAttribute, { buf: GPUBuffer; version: number }> = new WeakMap();
 
-    /** Plain-object-keyed buffers (instance matrices, material UBOs, camera, time). */
+    /** plain-object-keyed buffers (instance matrices, material UBOs, camera, time). */
     private readonly rawMap: WeakMap<object, GPUBuffer> = new WeakMap();
 
-    /** Storage node buffers — keyed by node identity, version-gated re-upload. */
+    /** storage node buffers — keyed by node identity, version-gated re-upload. */
     private readonly storageMap: WeakMap<StorageNode<WgslType>, { buf: GPUBuffer; version: number }> = new WeakMap();
 
-    /** Indirect draw buffers — keyed by IndirectStorageBufferAttribute identity, version-gated re-upload. */
+    /** indirect draw buffers — keyed by IndirectStorageBufferAttribute identity, version-gated re-upload. */
     private readonly indirectMap: WeakMap<IndirectStorageBufferAttribute, { buf: GPUBuffer; version: number }> = new WeakMap();
 
-    /**
-     * Reverse-lookup: maps an IndirectStorageBufferAttribute's Uint32Array to the
-     * IndirectStorageBufferAttribute itself. Populated by uploadIndirect. Used by
-     * uploadStorage to detect that a StorageNode backed by the same array should
-     * reuse the indirect GPUBuffer.
-     */
+    /** map of Uint32Array -> IndirectStorageBufferAttribute. populated by uploadIndirect, used by uploadStorage to detect shared backing arrays */
     private readonly dataToIndirect: WeakMap<Uint32Array, IndirectStorageBufferAttribute> = new WeakMap();
 
-    // Stats counters (approximate — tracks allocations, not deallocations).
+    // stats counters (approximate — tracks allocations, not deallocations).
     private _vertexCount = 0;
     private _indexCount = 0;
     private _storageCount = 0;
@@ -176,8 +168,8 @@ export class BufferCache {
         // This must run before the dataToIndirect check because uploadIndirect populates
         // dataToIndirect — and compute dispatches happen before issueDraws, so dataToIndirect
         // would otherwise be empty on the first frame.
-        const indirectAttr = node.indirectAttribute;
-        if (indirectAttr) {
+        if (node.isIndirectStorageBuffer) {
+            const indirectAttr = node.value as IndirectStorageBufferAttribute;
             const indBuf = this.uploadIndirect(indirectAttr);
             const entry = this.storageMap.get(node);
             if (!entry || entry.buf !== indBuf) {
@@ -236,7 +228,7 @@ export class BufferCache {
             this.device.queue.writeBuffer(buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
             this.storageMap.set(node, { buf, version: node.version });
 
-            // Call onUpload after initial upload (Three.js pattern).
+            // Call onUpload after initial upload.
             // Typically used to release CPU memory via `attr.array = null`.
             node.value.onUpload?.();
 
