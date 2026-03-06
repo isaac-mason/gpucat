@@ -1,25 +1,27 @@
 /**
  * texture.ts — Texture class aligned with Three.js Texture.
  *
- * The Texture class is a high-level wrapper around image data that will be
- * uploaded to the GPU. It mirrors Three.js's Texture class but is simplified
- * for WebGPU.
+ * The Texture class holds sampling parameters and references a Source for image data.
+ * Multiple textures can share the same Source (same image, different sampling params).
  *
- * Key features:
- * - Version tracking via `needsUpdate` setter
- * - Filter and wrap mode configuration
- * - Support for various image sources (ImageBitmap, HTMLImageElement, etc.)
+ * Three.js aligned: uses Source for data decoupling.
  *
  * Usage:
  *   const texture = new Texture(imageBitmap);
  *   texture.wrapS = 'repeat';
  *   texture.needsUpdate = true;
  *
- *   // In material:
- *   const mat = new Material({
- *       color: textureNode(texture).sample(uv()),
- *   });
+ *   // Sharing source between textures:
+ *   const source = new Source(imageBitmap);
+ *   const texA = new Texture(source);
+ *   const texB = new Texture(source);
+ *   texB.magFilter = 'nearest';
  */
+
+import { Source, type SourceData } from './source';
+
+// Re-export for convenience
+export { Source, type SourceData, type ImageSize } from './source';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -34,25 +36,21 @@ export type FilterMode = 'nearest' | 'linear';
 /** Mipmap filter modes matching WebGPU GPUMipmapFilterMode */
 export type MipmapFilterMode = 'nearest' | 'linear';
 
-/** Supported image source types */
-export type TextureSource =
-    | ImageBitmap
-    | HTMLImageElement
-    | HTMLCanvasElement
-    | HTMLVideoElement
-    | OffscreenCanvas
-    | VideoFrame
-    | ImageData
-    | null;
+/** Depth texture formats */
+export type DepthTextureFormat = 'depth16unorm' | 'depth24plus' | 'depth24plus-stencil8' | 'depth32float' | 'depth32float-stencil8';
+
+// ---------------------------------------------------------------------------
+// Texture
+// ---------------------------------------------------------------------------
 
 let _textureId = 0;
 
 /**
  * Base texture class aligned with Three.js Texture.
  *
- * Holds image data and sampling parameters. The renderer will upload
- * the image to the GPU and create appropriate GPUTexture/GPUSampler
- * resources based on these settings.
+ * Holds sampling parameters and references a Source for image data.
+ * The renderer will upload the image to the GPU and create appropriate
+ * GPUTexture/GPUSampler resources based on these settings.
  */
 export class Texture {
     /** Type flag for runtime type checking */
@@ -65,16 +63,16 @@ export class Texture {
     name = '';
 
     /**
-     * The image data source. Can be an ImageBitmap, HTMLImageElement,
-     * canvas, video, or null.
+     * The data source for this texture.
+     * Multiple textures can share the same Source.
      */
-    image: TextureSource;
+    source: Source;
 
     /**
-     * User-provided mipmaps. If empty, mipmaps are auto-generated
+     * User-provided mipmaps as Sources. If empty, mipmaps are auto-generated
      * when `generateMipmaps` is true.
      */
-    mipmaps: TextureSource[] = [];
+    mipmaps: Source[] = [];
 
     /**
      * Horizontal wrap mode (U direction).
@@ -138,8 +136,8 @@ export class Texture {
     premultiplyAlpha = false;
 
     /**
-     * Version number, incremented when `needsUpdate` is set to true.
-     * Used for dirty checking by the renderer.
+     * Texture-level version, incremented when `needsUpdate` is set to true.
+     * Note: The Source also has its own version for data changes.
      * @readonly
      */
     version = 0;
@@ -151,54 +149,103 @@ export class Texture {
 
     /**
      * Whether this texture belongs to a render target.
-     * @readonly
+     * Set to true by RenderTarget when creating its textures.
+     * @default false
      */
     isRenderTargetTexture = false;
 
     /**
+     * Whether this is a depth texture.
+     * Set to true by DepthTexture subclass.
+     * @default false
+     */
+    isDepthTexture = false;
+
+    /**
+     * Back-reference to the owning RenderTarget, if this is a render target texture.
+     * Three.js aligned: set when texture is attached to a render target.
+     * @default null
+     */
+    renderTarget: unknown = null; // Use unknown to avoid circular import; will be RenderTarget
+
+    /**
+     * GPU texture resource. Managed by renderer for render target textures.
+     * For user textures, this is managed by the TextureCache.
+     * @default null
+     */
+    gpuTexture: GPUTexture | null = null;
+
+    /**
+     * GPU sampler resource. Managed by renderer.
+     * @default null
+     */
+    gpuSampler: GPUSampler | null = null;
+
+    /**
      * Constructs a new Texture.
      *
-     * @param image - The image source (ImageBitmap, HTMLImageElement, etc.)
+     * @param image - The image source (ImageBitmap, HTMLImageElement, Source, etc.)
      */
-    constructor(image: TextureSource = null) {
+    constructor(image: SourceData | Source = null) {
         this.id = _textureId++;
-        this.image = image;
+
+        // Accept either a Source directly or raw data (which we wrap in a Source)
+        if (image instanceof Source) {
+            this.source = image;
+        } else {
+            this.source = new Source(image);
+        }
+    }
+
+    /**
+     * Convenience getter for the source data.
+     * Three.js aligned: texture.image returns the underlying data.
+     */
+    get image(): SourceData {
+        return this.source.data;
+    }
+
+    /**
+     * Convenience setter for the source data.
+     * Three.js aligned: setting texture.image updates source.data.
+     */
+    set image(value: SourceData) {
+        this.source.data = value;
     }
 
     /**
      * Set to `true` to trigger a GPU upload on the next render.
-     * Increments the version counter.
+     * Increments both the texture version and the source version.
      */
     set needsUpdate(value: boolean) {
         if (value) {
             this.version++;
+            this.source.needsUpdate = true;
             this.onUpdate?.(this);
         }
     }
 
     /**
-     * Returns the width of the image, or 1 if no image is set.
+     * Returns the width of the source, or 1 if no data.
      */
     get width(): number {
-        if (!this.image) return 1;
-        if ('width' in this.image) return this.image.width;
-        return 1;
+        return this.source.width || 1;
     }
 
     /**
-     * Returns the height of the image, or 1 if no image is set.
+     * Returns the height of the source, or 1 if no data.
      */
     get height(): number {
-        if (!this.image) return 1;
-        if ('height' in this.image) return this.image.height;
-        return 1;
+        return this.source.height || 1;
     }
 
     /**
      * Creates a clone of this texture.
+     * Note: The clone shares the same Source by default.
+     * Use clone().source = new Source(data) if you need independent data.
      */
     clone(): Texture {
-        const tex = new Texture(this.image);
+        const tex = new Texture(this.source);
         tex.name = this.name;
         tex.mipmaps = [...this.mipmaps];
         tex.wrapS = this.wrapS;
@@ -220,12 +267,11 @@ export class Texture {
      *
      * Note: This doesn't automatically free GPU resources — the renderer
      * must handle that based on texture disposal.
+     * Note: This doesn't dispose the Source, as it may be shared.
      */
     dispose(): void {
-        // Subclasses or the renderer can hook into this
-        // For now, just clear the image reference
-        this.image = null;
         this.mipmaps = [];
+        // Don't clear source - it may be shared with other textures
     }
 }
 
@@ -273,7 +319,8 @@ export class DataTexture extends Texture {
         height: number,
         format: GPUTextureFormat = 'rgba8unorm',
     ) {
-        super(null);
+        // Create source with size info
+        super({ width, height });
         this.data = data;
         this.dataWidth = width;
         this.dataHeight = height;
@@ -330,9 +377,79 @@ export class VideoTexture extends Texture {
      * Sets needsUpdate if the video is playing and has new data.
      */
     update(): void {
-        const video = this.image as HTMLVideoElement;
+        const video = this.source.data as HTMLVideoElement;
         if (video && video.readyState >= video.HAVE_CURRENT_DATA) {
             this.needsUpdate = true;
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DepthTexture
+// ---------------------------------------------------------------------------
+
+/**
+ * A texture for storing depth information.
+ * Aligned with Three.js DepthTexture - extends Texture.
+ *
+ * Used as the depth attachment in RenderTarget, or for shadow mapping.
+ */
+export class DepthTexture extends Texture {
+    /** Type flag for runtime checking - overrides Texture.isDepthTexture */
+    override readonly isDepthTexture = true;
+
+    /** Depth compare function for shadow mapping */
+    compareFunction: GPUCompareFunction | null = null;
+
+    private _width: number;
+    private _height: number;
+
+    /**
+     * Constructs a new DepthTexture.
+     *
+     * @param width - The width of the texture
+     * @param height - The height of the texture
+     * @param format - The depth format (default: 'depth24plus')
+     */
+    constructor(width: number, height: number, format: DepthTextureFormat = 'depth24plus') {
+        // Create source with size info
+        super({ width, height });
+
+        this._width = width;
+        this._height = height;
+
+        this.format = format;
+        this.generateMipmaps = false;
+        this.flipY = false;
+        this.magFilter = 'nearest';
+        this.minFilter = 'nearest';
+
+        // Depth textures are always render target textures
+        this.isRenderTargetTexture = true;
+    }
+
+    override get width(): number {
+        return this._width;
+    }
+
+    override get height(): number {
+        return this._height;
+    }
+
+    /**
+     * Set the size of the depth texture.
+     */
+    setSize(width: number, height: number): void {
+        this._width = width;
+        this._height = height;
+        // Update the source data too
+        this.source.data = { width, height };
+    }
+
+    override clone(): DepthTexture {
+        const tex = new DepthTexture(this._width, this._height, this.format as DepthTextureFormat);
+        tex.name = this.name;
+        tex.compareFunction = this.compareFunction;
+        return tex;
     }
 }

@@ -5,6 +5,7 @@ import { Item } from '../ui/item';
 import { createValueSpan, setText } from '../ui/utils';
 import type { InspectorBase } from '../inspector-base';
 import { getBufferCacheStats } from '../../renderer/buffers';
+import * as pipelinesModule from '../../renderer/pipelines';
 
 export class Memory extends Tab {
 
@@ -83,14 +84,13 @@ export class Memory extends Tab {
         if (!renderer) return;
 
         const bs = getBufferCacheStats(renderer.buffers);
-        const ps = renderer.pipelines.getStats();
-        const cs = renderer.computePipelines.getStats();
+        const ps = pipelinesModule.getStats(renderer.pipelines);
 
         setText(this.vertexBuffers.data[1] as HTMLElement, bs.vertexCount.toString());
         setText(this.indexBuffers.data[1] as HTMLElement, bs.indexCount.toString());
         setText(this.storageBuffers.data[1] as HTMLElement, bs.storageCount.toString());
         setText(this.rawBuffers.data[1] as HTMLElement, bs.rawCount.toString());
-        setText(this.renderPipelines.data[1] as HTMLElement, `${ps.readyCount} / ${ps.pendingCount} pending`);
-        setText(this.computePipelines.data[1] as HTMLElement, `${cs.readyCount} / ${cs.pendingCount} pending`);
+        setText(this.renderPipelines.data[1] as HTMLElement, `${ps.renderReadyCount} / ${ps.renderPendingCount} pending`);
+        setText(this.computePipelines.data[1] as HTMLElement, `${ps.computeReadyCount} / ${ps.computePendingCount} pending`);
     }
 }

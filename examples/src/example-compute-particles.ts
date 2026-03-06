@@ -121,7 +121,8 @@ async function main() {
 
     document.body.appendChild(renderer.domElement);
     document.body.appendChild((renderer.inspector as Inspector).domElement);
-    renderer.setSize(window.innerWidth * devicePixelRatio, window.innerHeight * devicePixelRatio);
+    renderer.setPixelRatio(devicePixelRatio);
+    renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.clearColor = [0.04, 0.04, 0.08, 1];
 
     const scene = new Scene();
@@ -138,7 +139,7 @@ async function main() {
     camera.updateViewMatrix();
 
     window.addEventListener('resize', () => {
-        renderer.setSize(window.innerWidth * devicePixelRatio, window.innerHeight * devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight);
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
     });

@@ -6,8 +6,8 @@
  */
 
 import type { WebGPURenderer } from './renderer';
-import type { Camera } from '../scene/camera';
-import type { Mesh } from '../scene/mesh';
+import type { Camera } from '../camera/camera';
+import type { Mesh } from '../objects/mesh';
 
 /**
  * The frame context passed to node.updateBefore() / updateAfter().
@@ -32,6 +32,10 @@ export type RenderUpdateContext = {
     elapsed: number;
     /** Delta time in seconds since last frame. */
     delta: number;
+    /** Render target width in pixels. */
+    width: number;
+    /** Render target height in pixels. */
+    height: number;
 };
 
 /**

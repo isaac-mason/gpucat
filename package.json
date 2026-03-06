@@ -33,7 +33,7 @@
         "mathcat": "0.0.11"
     },
     "devDependencies": {
-        "@biomejs/biome": "^2.2.0",
+        "@biomejs/biome": "^2.4.6",
         "@rollup/plugin-node-resolve": "^16.0.1",
         "@rollup/plugin-typescript": "^12.1.4",
         "@webgpu/types": "^0.1.69",

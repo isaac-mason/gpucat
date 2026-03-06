@@ -321,15 +321,12 @@ export class Color {
         return `rgb(${toGamma(this.r)}, ${toGamma(this.g)}, ${toGamma(this.b)})`;
     }
 
-    /** Return a `[r, g, b]` float array (linear). */
+    /** return a `[r, g, b]` float array (linear). */
     toArray(): [number, number, number] {
         return [this.r, this.g, this.b];
     }
 
-    // ---------------------------------------------------------------------------
-    // Internal parser — resolves any ColorInput to [r, g, b] linear floats
-    // ---------------------------------------------------------------------------
-
+    /* resolves ColorInput to [r, g, b] linear floats. */
     private static _parse(input: ColorInput): [number, number, number] {
         // Copy constructor
         if (input instanceof Color) return [input.r, input.g, input.b];

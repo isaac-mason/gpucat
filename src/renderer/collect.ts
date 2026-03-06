@@ -10,18 +10,14 @@
  * are discarded before a DrawCall is created.
  */
 
-import type { Object3D } from '../scene/object3d';
+import type { Object3D } from '../objects/object3d';
 import type { Scene } from '../scene/scene';
-import type { Camera } from '../scene/camera';
+import type { Camera } from '../camera/camera';
 import type { Box3, Sphere } from 'mathcat';
 import { box3 } from 'mathcat';
-import { Mesh } from '../scene/mesh';
-import { makePipelineKey } from './pipeline';
-import { Frustum } from '../utils/frustum';
-
-// ---------------------------------------------------------------------------
-// DrawCall
-// ---------------------------------------------------------------------------
+import { Mesh } from '../objects/mesh';
+import { makeRenderPipelineKey } from './pipelines';
+import * as frustum from '../math/frustum';
 
 export type DrawCall = {
     mesh: Mesh;
@@ -34,20 +30,14 @@ export type DrawCall = {
     viewZ: number;
 };
 
-// ---------------------------------------------------------------------------
-// Module-level scratch objects — reused every frame to avoid GC pressure
-// ---------------------------------------------------------------------------
+/** frustum; rebuilt from VP every frame. */
+const _frustum = frustum.create();
 
-/** Reused Frustum instance; rebuilt from VP every frame. */
-const _frustum = new Frustum();
-/** Scratch world-space AABB used when transforming a local bounding box. */
+/** world-space AABB used when transforming a local bounding box. */
 const _worldBox: Box3 = [0, 0, 0, 0, 0, 0];
-/** Scratch world-space sphere used when transforming a local bounding sphere. */
-const _worldSphere: Sphere = { center: [0, 0, 0], radius: 0 };
 
-// ---------------------------------------------------------------------------
-// collectDraws
-// ---------------------------------------------------------------------------
+/** world-space sphere used when transforming a local bounding sphere. */
+const _worldSphere: Sphere = { center: [0, 0, 0], radius: 0 };
 
 /**
  * Walk `scene`, collect all `Mesh` nodes, and split into opaque / transparent lists.
@@ -72,23 +62,19 @@ export function collectDraws(
     const opaque: DrawCall[] = [];
     const transparent: DrawCall[] = [];
 
-    // Rebuild frustum planes from the current view-projection matrix.
-    _frustum.setFromViewProjectionMatrix(camera.projectionMatrix, camera._viewMatrix);
+    // rebuild frustum planes from the current view-projection matrix.
+    frustum.setFromViewProjectionMatrix(_frustum, camera.projectionMatrix, camera.matrixWorldInverse);
 
     walkObject(scene, camera, samples, format, opaque, transparent);
 
-    // Sort opaque by pipeline key — minimises GPU pipeline switches
+    // sort opaque by pipeline key — minimises GPU pipeline switches
     opaque.sort((a, b) => (a.pipelineKey < b.pipelineKey ? -1 : a.pipelineKey > b.pipelineKey ? 1 : 0));
 
-    // Sort transparent back-to-front (largest viewZ = furthest away = draw first)
+    // sort transparent back-to-front (largest viewZ = furthest away = draw first)
     transparent.sort((a, b) => b.viewZ - a.viewZ);
 
     return { opaque, transparent };
 }
-
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
 
 function walkObject(
     obj: Object3D,
@@ -100,9 +86,9 @@ function walkObject(
 ): void {
     if (obj instanceof Mesh) {
         if (!isMeshVisible(obj)) {
-            // Skip this mesh but still recurse into children
+            // skip this mesh, but still recurse into children
         } else {
-            const pipelineKey = makePipelineKey(obj.material, samples, format);
+            const pipelineKey = makeRenderPipelineKey(obj.material, samples, format);
             const viewZ = computeViewZ(obj, camera);
             const call: DrawCall = { mesh: obj, pipelineKey, viewZ };
 
@@ -153,7 +139,7 @@ function isMeshVisible(mesh: Mesh): boolean {
         const sz = Math.sqrt(wm[8]*wm[8] + wm[9]*wm[9] + wm[10]*wm[10]);
         _worldSphere.radius = ls.radius * Math.max(sx, sy, sz);
 
-        return _frustum.intersectsSphere(_worldSphere);
+        return frustum.intersectsSphere(_frustum, _worldSphere);
     }
 
     // --- AABB test (fallback) -----------------------------------------------
@@ -161,7 +147,7 @@ function isMeshVisible(mesh: Mesh): boolean {
         // Transform the local AABB by the world matrix to a world-space AABB.
         // box3.transformMat4 handles this correctly (worst-case 8-corner expansion).
         box3.transformMat4(_worldBox, geom.boundingBox, wm);
-        return _frustum.intersectsBox3(_worldBox);
+        return frustum.intersectsBox3(_frustum, _worldBox);
     }
 
     // --- no bounds — always draw -------------------------------------------
@@ -178,7 +164,7 @@ function isMeshVisible(mesh: Mesh): boolean {
  */
 function computeViewZ(mesh: Mesh, camera: Camera): number {
     const wm = mesh.matrixWorld;
-    const vm = camera._viewMatrix;
+    const vm = camera.matrixWorldInverse;
 
     // world position of mesh origin
     const wx = wm[12];

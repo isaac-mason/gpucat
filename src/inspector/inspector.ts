@@ -20,8 +20,10 @@ import { Memory } from './tabs/memory';
 import { Timeline } from './tabs/timeline';
 import { Console } from './tabs/console';
 import { Settings } from './tabs/settings';
-import { Viewer } from './tabs/viewer';
+import { Viewer, makePreviewMaterial, type CanvasData } from './tabs/viewer';
+import type { Node, WgslType } from '../nodes/nodes';
 import type { WebGPURenderer } from '../renderer/renderer';
+import { CanvasTarget } from '../renderer/canvas-target';
 
 
 type DisplayCycleEntry = { needsUpdate: boolean; duration: number; time: number };
@@ -39,6 +41,18 @@ export class Inspector extends RendererInspector {
 
     private _displayCycle: { text: DisplayCycleEntry; graph: DisplayCycleEntry };
     private _lastUpdateTime = 0;
+
+    /**
+     * Cache of CanvasData per inspectable node.
+     * Three.js aligned: mirrors Inspector.canvasNodes (Map<node, canvasData>).
+     */
+    private _canvasNodes: Map<Node<WgslType>, CanvasData> = new Map();
+
+    /**
+     * Guard flag: true while the viewer is rendering preview frames.
+     * Prevents finish() → _processFrame() → resolveViewer() → render() → finish() infinite recursion.
+     */
+    private _isRenderingViewer = false;
 
     constructor() {
         super();
@@ -178,6 +192,7 @@ export class Inspector extends RendererInspector {
 
     override finish(frameId: number): void {
         super.finish(frameId);
+        if (this._isRenderingViewer) return;
         const record = this.resolveFrame();
         if (record) this._processFrame(record);
     }
@@ -220,8 +235,64 @@ export class Inspector extends RendererInspector {
 
         if (record.inspectableNodes.length > 0) {
             this.viewer.show();
-            this.viewer.update(this, record.inspectableNodes);
+            this.resolveViewer(record.inspectableNodes);
         }
+    }
+
+    /**
+     * Build canvasData for each inspectable node and call viewer.update().
+     * Three.js aligned: mirrors Inspector.resolveViewer().
+     */
+    resolveViewer(nodes: Node<WgslType>[]): void {
+        const renderer = this.getRenderer();
+        if (!renderer) return;
+
+        const canvasDataList = nodes.map(node => this.getCanvasDataByNode(node));
+        this._isRenderingViewer = true;
+        try {
+            this.viewer.update(this, canvasDataList);
+        } finally {
+            this._isRenderingViewer = false;
+        }
+    }
+
+    /**
+     * Get or create the CanvasData for an inspectable node.
+     * Creates a 140×140 CanvasTarget, wraps the node as vec4(vec3(node), 1),
+     * and builds a fullscreen Material. Cached per node — never recreated.
+     *
+     * Three.js aligned: mirrors Inspector.getCanvasDataByNode().
+     */
+    getCanvasDataByNode(node: Node<WgslType>): CanvasData {
+        let canvasData = this._canvasNodes.get(node);
+
+        if (canvasData === undefined) {
+            const canvas = document.createElement('canvas');
+            canvas.style.display = 'block';
+            canvas.style.borderRadius = '4px';
+
+            const canvasTarget = new CanvasTarget(canvas);
+            canvasTarget.setSize(140, 140);
+
+            const id = node.id;
+            const name = node._inspectorName ?? id;
+
+            const format = navigator.gpu.getPreferredCanvasFormat();
+            const { wrappedNode, material } = makePreviewMaterial(node, format);
+
+            canvasData = {
+                id,
+                name,
+                node,
+                wrappedNode,
+                material,
+                canvasTarget,
+            };
+
+            this._canvasNodes.set(node, canvasData);
+        }
+
+        return canvasData;
     }
 
     private _tickCycle(cycle: DisplayCycleEntry, deltaMs: number): void {

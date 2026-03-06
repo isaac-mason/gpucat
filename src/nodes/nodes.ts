@@ -11,14 +11,13 @@
  */
 
 import type { ObjectUpdateContext, RenderUpdateContext } from '../renderer/render-frame';
-import { InstancedBufferAttribute, StorageBufferAttribute } from '../scene/geometry';
+import { InstancedBufferAttribute, StorageBufferAttribute } from 'src/geometry/attribute';
 import { getChildren as _getChildren } from './collect';
 import * as d from './schema';
 import { type ArrayDesc, type DepthTextureDesc, isStructDef, itemSizeOf, type StructSchema, texture2d, type TextureDesc, typedArrayCtorOf, type WgslDesc } from './schema';
-export { type UpdateRange } from '../scene/geometry';
-import { DepthTexture, RenderTargetTexture } from '../renderer/render-target';
-import type { IndirectStorageBufferAttribute } from '../scene/geometry';
-import { Texture } from '../scene/texture';
+export { type UpdateRange } from '../geometry/attribute';
+import type { IndirectStorageBufferAttribute } from 'src/geometry/attribute';
+import { Texture } from '../texture/texture';
 import { Color, type ColorInput } from '../utils/color';
 
 export type StructInstance<S extends StructSchema> = {
@@ -175,8 +174,28 @@ export type StructMember = { readonly name: string; readonly type: WgslType };
 export type BuiltinKind =
     | 'instance_index' | 'instance_data'
     | 'vertex_index' | 'global_invocation_id' | 'local_invocation_id'
-    | 'local_invocation_index' | 'workgroup_id' | 'num_workgroups';
+    | 'local_invocation_index' | 'workgroup_id' | 'num_workgroups'
+    | 'position';  // fragment position (@builtin(position) in fragment shader)
 export type BinopOp = '+' | '-' | '*' | '/' | '%' | '==' | '!=' | '<' | '>' | '<=' | '>=';
+
+/**
+ * WGSL @interpolate interpolation type.
+ *   - perspective  : values are interpolated in a perspective-correct manner (default for float types)
+ *   - linear       : values are interpolated in a linear, non-perspective-correct manner
+ *   - flat         : values are not interpolated; the value from the provoking vertex is used
+ *                    (required for integer/unsigned-integer types)
+ */
+export type InterpolationType = 'perspective' | 'linear' | 'flat';
+
+/**
+ * WGSL @interpolate sampling mode (only valid when interpolation type is 'perspective' or 'linear').
+ *   - center    : interpolation is performed at the center of the pixel (default)
+ *   - centroid  : interpolation is performed at a point inside the primitive that is also
+ *                 inside all samples covered by the fragment (avoids aliasing at primitive edges)
+ *   - sample    : interpolation is performed per-sample; the fragment shader runs once per sample
+ *   - either    : implementation may choose center or centroid (valid only with 'flat' in WGSL)
+ */
+export type InterpolationSampling = 'center' | 'centroid' | 'sample' | 'either';
 
 /**
  * Update types for Node.update() callbacks.
@@ -873,10 +892,10 @@ export class TextureNode extends Node<'vec4f'> {
      * 
      * Can be:
      * - Texture (scene texture with image data)
-     * - RenderTargetTexture (render target color attachment)
-     * - DepthTexture (render target depth attachment)
+     * - Texture with isRenderTargetTexture = true (render target color attachment)
+     * - DepthTexture (render target depth attachment, extends Texture)
      */
-    value: Texture | RenderTargetTexture | DepthTexture | null = null;
+    value: Texture | null = null;
 
     /**
      * The UV node for texture coordinates.
@@ -975,12 +994,29 @@ export class SamplerNode extends Node<SamplerType> {
 }
 
 export class VaryingNode<T extends WgslType> extends Node<T> {
+    interpolationType: InterpolationType | null = null;
+    interpolationSampling: InterpolationSampling | null = null;
+
     constructor(
         type: T,
         readonly name: string,
         readonly source: Node<WgslType>,
     ) {
         super(computeId('varying', { type, name, source: source.id }), 'varying', type);
+    }
+
+    /**
+     * Set the WGSL @interpolate qualifier for this varying.
+     *
+     * @param type     - The interpolation type ('perspective' | 'linear' | 'flat').
+     * @param sampling - Optional sampling mode ('center' | 'centroid' | 'sample' | 'either').
+     *                   Only valid when type is 'perspective' or 'linear'.
+     *                   Omit to use the WGSL default for the given type.
+     */
+    setInterpolation(type: InterpolationType, sampling?: InterpolationSampling): this {
+        this.interpolationType = type;
+        this.interpolationSampling = sampling ?? null;
+        return this;
     }
 }
 
@@ -1374,7 +1410,7 @@ export class FnNode<T extends WgslType> extends Node<T> {
      *     // ...
      * }).compute({ dispatch: [Math.ceil(N / 64)] });
      */
-    compute(opts: ComputeOpts): ComputeNode { 
+    compute(opts: ComputeOptions): ComputeNode { 
         return new ComputeNode({ fn: this, ...opts });
      }
     
@@ -1674,6 +1710,32 @@ export function uniform<T extends WgslType, S extends StructSchema>(
 export const attribute = <T extends WgslType>(type: WgslDesc<T>, name: string) => new AttributeNode<T>(type.wgslType as T, name);
 
 /**
+ * UV attribute node for texture coordinate access.
+ * 
+ * Returns an AttributeNode that reads the 'uv' vertex attribute (or 'uv1', 'uv2', etc.
+ * for additional UV channels).
+ * 
+ * This mirrors Three.js `uv()` from `UV.js`:
+ *   `export const uv = (index = 0) => attribute('uv' + (index > 0 ? index : ''), 'vec2');`
+ * 
+ * @param index - The UV channel index. Defaults to 0 (reads 'uv'). 
+ *                Index 1 reads 'uv1', index 2 reads 'uv2', etc.
+ * @returns An AttributeNode<'vec2f'> representing the UV coordinates.
+ * 
+ * @example
+ * // Default UV channel
+ * const texCoord = uv();
+ * 
+ * // Second UV channel (e.g., for lightmaps)
+ * const lightmapUV = uv(1);
+ * 
+ * // Sample a texture with UVs
+ * const color = myTexture.sample(uv());
+ */
+export const uv = (index = 0): AttributeNode<'vec2f'> => 
+    new AttributeNode<'vec2f'>('vec2f', 'uv' + (index > 0 ? index : ''));
+
+/**
  * Create a `StorageNode` backed by a `StorageBufferAttribute` (or subclass).
  *
  * The preferred form — mirrors Three's `storage(bufferAttr, schema, access)`.
@@ -1773,7 +1835,8 @@ export const texture = (
     tex: Texture,
     textureDesc: TextureDesc | DepthTextureDesc = texture2d(),
 ): TextureNode => {
-    const node = new TextureNode(textureDesc.wgslType as TextureType, String(tex.id));
+    // Prefix with 't' to ensure valid WGSL identifier (can't start with a number)
+    const node = new TextureNode(textureDesc.wgslType as TextureType, `t${tex.id}`);
     node.value = tex;
     return node;
 };
@@ -1932,7 +1995,6 @@ export const mix = <T extends WgslType>(a: Node<T>, b: Node<T>, t: Node<T>): Nod
 export const step = <T extends WgslType>(edge: Node<T>, x: Node<T>): Node<T> => new CallNode(x.type, 'step', [edge, x]) as Node<T>;
 export const smoothstep = <T extends WgslType>(lo: Node<T>, hi: Node<T>, x: Node<T>): Node<T> => new CallNode(x.type, 'smoothstep', [lo, hi, x]) as Node<T>;
 
-// Texture helpers
 export const textureSample = (t: Node<WgslType>, s: Node<WgslType>, uv: Node<WgslType>) =>
     new CallNode('vec4f', 'textureSample', [t, s, uv]);
 export const textureLoad = (t: Node<WgslType>, coord: Node<WgslType>, level: Node<WgslType>) =>
@@ -1941,25 +2003,11 @@ export const textureSampleLevel = (t: Node<WgslType>, s: Node<WgslType>, uv: Nod
     new CallNode('vec4f', 'textureSampleLevel', [t, s, uv, level]);
 
 /**
- * Get a sampler reference for a TextureNode.
- * Returns a RawNode that emits `${textureId}_samp`.
- */
-export function samplerFor(textureNode: TextureNode): RawNode<'sampler'> {
-    return new RawNode('sampler', `${String(textureNode.textureId)}_samp`, [textureNode]);
-}
-
-// ---------------------------------------------------------------------------
-// Buffer attribute DSL helpers
-// ---------------------------------------------------------------------------
-
-/**
  * Internal helper for creating buffer attribute nodes.
- * Mirrors Three.js createBufferAttribute() pattern.
- *
  * @param value     A BufferAttribute, InstancedBufferAttribute, or raw TypedArray.
  * @param desc      WgslDesc for the attribute element type.
- * @param stride    Byte stride between consecutive elements (default: 0 = tightly packed).
- * @param offset    Byte offset within each element (default: 0).
+ * @param stride    Byte stride between consecutive elements
+ * @param offset    Byte offset within each element
  * @param instanced Whether this is an instanced attribute.
  */
 function createBufferAttribute<T extends WgslType>(
@@ -2408,6 +2456,53 @@ export const workgroupId: BuiltinNode<'vec3u'> = /*@__PURE__*/ builtin('workgrou
 /** @builtin(num_workgroups) — total number of workgroups dispatched. */
 export const numWorkgroups: BuiltinNode<'vec3u'> = /*@__PURE__*/ builtin('num_workgroups', 'vec3u');
 
+/**
+ * Fragment position in window/pixel coordinates.
+ * @builtin(position) in the fragment shader — vec4f where xy are pixel coordinates.
+ *
+ * This is the raw fragment coordinate from the rasterizer.
+ * Use screenCoordinate.xy for 2D pixel position.
+ */
+export const fragCoord: BuiltinNode<'vec4f'> = /*@__PURE__*/ builtin('position', 'vec4f');
+
+/**
+ * Screen coordinate — the current fragment's xy position in pixels.
+ * Equivalent to @builtin(position).xy in WGSL.
+ *
+ * @example
+ * // Get pixel position
+ * const pixelPos = screenCoordinate;
+ */
+export const screenCoordinate = fragCoord.xy;
+
+/**
+ * Screen/viewport size in pixels. Updated per render by the renderer.
+ * In renderGroup so it's shared across all objects in a frame.
+ *
+ * @example
+ * // Get screen dimensions
+ * const size = screenSize; // vec2f(width, height)
+ */
+export const screenSize: UniformNode<'vec2f'> = /*@__PURE__*/ new UniformNode('vec2f', 'screenSize', renderGroup)
+    .onRenderUpdate(({ width, height }) => [width, height]);
+
+/**
+ * Normalized screen UV coordinates in [0, 1] range.
+ * Computed as screenCoordinate / screenSize.
+ *
+ * (0, 0) is top-left, (1, 1) is bottom-right (following WebGPU conventions).
+ *
+ * @example
+ * // Sample a texture using screen UV
+ * const color = texture.sample(screenUV);
+ *
+ * // Use x component for horizontal effects
+ * const x = screenUV.x;
+ */
+export const screenUV: Node<'vec2f'> = /*@__PURE__*/ (() => {
+    return div(screenCoordinate, screenSize) as Node<'vec2f'>;
+})();
+
 /** helper for vertex shader: compute clip-space position from vertex position attribute and camera matrices. */
 export const positionClip: Node<'vec4f'> = (() => {
     const pos = attribute(d.vec3f, 'position');
@@ -2591,7 +2686,7 @@ export function mrt(outputNodes: Record<string, Node<WgslType>>): MRTNode {
 
 let _computeCounter = 0;
 
-export type ComputeOpts = {
+export type ComputeOptions = {
     /**
      * Dispatch dimensions [x, y, z] — number of workgroups to dispatch.
      * Trailing 1s may be omitted: [N] = [N, 1, 1], [N, M] = [N, M, 1].
@@ -2604,7 +2699,7 @@ export type ComputeOpts = {
     workgroupSize?: [x: number, y: number, z: number];
 };
 
-export type ComputeNodeOptions = ComputeOpts & {
+export type ComputeNodeOptions = ComputeOptions & {
     /** The FnNode whose body becomes the @compute entry point. */
     fn: FnNode<WgslType>;
 };
@@ -2671,6 +2766,6 @@ export class ComputeNode {
  *     { dispatch: [Math.ceil(N / 64)] },
  * );
  */
-export function compute(fn: FnNode<WgslType>, opts: ComputeOpts): ComputeNode {
+export function compute(fn: FnNode<WgslType>, opts: ComputeOptions): ComputeNode {
     return new ComputeNode({ fn, ...opts });
 }

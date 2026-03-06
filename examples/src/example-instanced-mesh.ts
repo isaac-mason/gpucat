@@ -69,7 +69,8 @@ async function main() {
 
     document.body.appendChild(renderer.domElement);
     document.body.appendChild(inspector.domElement);
-    renderer.setSize(window.innerWidth * devicePixelRatio, window.innerHeight * devicePixelRatio);
+    renderer.setPixelRatio(devicePixelRatio);
+    renderer.setSize(window.innerWidth, window.innerHeight);
 
     const scene = new g.Scene();
 
@@ -86,7 +87,7 @@ async function main() {
     perspCamera.updateViewMatrix();
 
     window.addEventListener('resize', () => {
-        renderer.setSize(window.innerWidth * devicePixelRatio, window.innerHeight * devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight);
         perspCamera.aspect = window.innerWidth / window.innerHeight;
         perspCamera.updateProjectionMatrix();
     });

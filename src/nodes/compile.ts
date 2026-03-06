@@ -76,6 +76,8 @@ import {
     lookupStructDef,
     lookupStructDefByName,
     type ForRange,
+    type InterpolationType,
+    type InterpolationSampling,
 } from './nodes';
 import { collectGraph, getChildren } from './collect';
 import { type StructSchema } from './schema';
@@ -215,6 +217,8 @@ export type VaryingEntry = {
     name: string;
     type: string;
     location: number;
+    interpolationType: InterpolationType | null;
+    interpolationSampling: InterpolationSampling | null;
 };
 
 export type UniformMember = {
@@ -225,12 +229,6 @@ export type UniformMember = {
     node: UniformNode<WgslType>;
 };
 
-export type UniformBlockEntry = {
-    group: 0 | 1;
-    binding: number;
-    members: UniformMember[];
-    totalBytes: number;
-};
 
 export type UniformGroupBlock = {
     /** The group name (e.g. 'render', 'object'). Becomes the WGSL struct name. */
@@ -278,8 +276,6 @@ export type CompileResult = {
     code: string;
     attributes: AttributeEntry[];
     varyings: VaryingEntry[];
-    /** User-defined uniform blocks (for backwards compat with tests). */
-    uniforms: UniformBlockEntry[];
     /** Struct-based uniform groups (render, object). */
     uniformGroups: UniformGroupBlock[];
     storage: StorageEntry[];
@@ -1224,10 +1220,11 @@ function emitBindingsWGSL(state: CompilerState): string {
 
         for (const entry of group.bindings) {
             if (entry.type === 'uniform' && entry.uniforms) {
-                const structTypeName = entry.groupNode.name + 'Struct';
+                const varName = entry.groupNode.name;
+                const structName = varName + 'Struct';
                 const memberLines = entry.uniforms.map(u => `    ${u.name} : ${u.type},`).join('\n');
-                lines.push(`struct ${structTypeName} {\n${memberLines}\n}`);
-                lines.push(`@group(${groupIndex}) @binding(${bindingIndex}) var<uniform> ${entry.groupNode.name} : ${structTypeName};`);
+                lines.push(`struct ${structName} {\n${memberLines}\n}`);
+                lines.push(`@group(${groupIndex}) @binding(${bindingIndex}) var<uniform> ${varName} : ${structName};`);
                 bindingIndex++;
             } else if (entry.type === 'storage') {
                 const storageNode = entry.node as StorageNode<WgslType>;
@@ -1265,6 +1262,46 @@ function getCodes(state: CompilerState): string {
     return lines.join('\n\n');
 }
 
+/**
+ * Returns true if the WGSL type is an integer scalar or vector type.
+ * Such types require @interpolate(flat) — they cannot be interpolated.
+ */
+function isIntegerWgslType(type: string): boolean {
+    // Matches u32, i32, vec2u, vec3u, vec4u, vec2i, vec3i, vec4i
+    // and their angle-bracket equivalents e.g. vec2<u32>, vec3<i32>
+    return /^(u32|i32|vec[234][ui]|vec[234]<\s*(u32|i32)\s*>)$/.test(type);
+}
+
+/**
+ * Builds the @interpolate(...) WGSL attribute string for a varying entry,
+ * or returns an empty string when no attribute is needed.
+ *
+ * Rules (matching WGSL spec):
+ *   - If the user explicitly set an interpolation type, always emit it.
+ *   - Otherwise, if the type is an integer/uint scalar or vector, auto-emit
+ *     @interpolate(flat, either) — required by the WGSL spec.
+ *   - For all other cases (float/bool types) the default perspective/center
+ *     interpolation is implied and no attribute is emitted.
+ */
+function buildInterpolateAttr(v: VaryingEntry): string {
+    const itype = v.interpolationType;
+    const isampling = v.interpolationSampling;
+
+    if (itype !== null) {
+        // Explicit user override
+        return isampling !== null
+            ? ` @interpolate(${itype}, ${isampling})`
+            : ` @interpolate(${itype})`;
+    }
+
+    // Auto-flat for integer types
+    if (isIntegerWgslType(v.type)) {
+        return ' @interpolate(flat, either)';
+    }
+
+    return '';
+}
+
 function buildVertexShaderData(state: CompilerState): VertexShaderData {
     const varyingList = [...state.varyings.values()];
     const attrList = [...state.attributes.values()];
@@ -1290,7 +1327,8 @@ function buildVertexShaderData(state: CompilerState): VertexShaderData {
     const outputLines: string[] = [`struct VertexOutput {`];
     outputLines.push(`    @builtin(position) position : vec4f,`);
     for (const v of varyingList) {
-        outputLines.push(`    @location(${v.location}) ${v.name} : ${v.type},`);
+        const interpolateAttr = buildInterpolateAttr(v);
+        outputLines.push(`    @location(${v.location})${interpolateAttr} ${v.name} : ${v.type},`);
     }
     outputLines.push(`}`);
     const outputStruct = outputLines.join('\n');
@@ -1348,6 +1386,8 @@ function buildVertexShaderData(state: CompilerState): VertexShaderData {
 function buildFragmentShaderData(state: CompilerState): FragmentShaderData {
     const varyingList = [...state.varyings.values()];
     const hasVaryings = varyingList.length > 0;
+    const needsFragPosition = state.builtinsUsed.has('position');
+    const needsInputStruct = hasVaryings || needsFragPosition;
 
     const slots = state.input.kind === 'render' ? state.input.slots : null;
     const maskRoot = slots?.mask;
@@ -1360,10 +1400,15 @@ function buildFragmentShaderData(state: CompilerState): FragmentShaderData {
 
     // Build FragmentInput struct
     let inputStruct = '';
-    if (hasVaryings) {
+    if (needsInputStruct) {
         const inputLines: string[] = [`struct FragmentInput {`];
+        // Add @builtin(position) if used (fragment position / screen coordinate)
+        if (needsFragPosition) {
+            inputLines.push(`    @builtin(position) position : vec4f,`);
+        }
         for (const v of varyingList) {
-            inputLines.push(`    @location(${v.location}) ${v.name} : ${v.type},`);
+            const interpolateAttr = buildInterpolateAttr(v);
+            inputLines.push(`    @location(${v.location})${interpolateAttr} ${v.name} : ${v.type},`);
         }
         inputLines.push(`}`);
         inputStruct = inputLines.join('\n');
@@ -1458,7 +1503,7 @@ function buildFragmentShaderData(state: CompilerState): FragmentShaderData {
     const flow = flowLines.join('\n');
 
     const returnType = needsOutputStruct ? 'FragmentOutput' : '@location(0) vec4f';
-    const varyingsParam = hasVaryings ? 'in : FragmentInput' : '';
+    const varyingsParam = needsInputStruct ? 'in : FragmentInput' : '';
 
     return {
         structs: '',
@@ -1681,21 +1726,10 @@ function buildCode(state: CompilerState): void {
         ];
         const varyings = [...state.varyings.values()];
 
-        // Legacy uniforms array
-        const objectGroup = uniformGroupBlocks.find(g => g.groupNode.name === 'object');
-        const legacyMaterialUniforms = objectGroup
-            ? objectGroup.members.filter(m =>
-                m.uniformId !== 'modelWorldMatrix' && m.uniformId !== 'modelNormalMatrix')
-            : [];
-        const legacyUniformBlockEntry: UniformBlockEntry | null = legacyMaterialUniforms.length > 0
-            ? { group: 1, binding: 0, members: legacyMaterialUniforms, totalBytes: objectGroup!.totalBytes }
-            : null;
-
         state.renderResult = {
             code,
             attributes,
             varyings,
-            uniforms: legacyUniformBlockEntry ? [legacyUniformBlockEntry] : [],
             uniformGroups: uniformGroupBlocks,
             storage: storageEntries,
             textures: textureEntries,
@@ -1909,7 +1943,13 @@ const compilerDefs: Record<NodeKind, NodeCompilerDef> = {
         isStatement: false, isLeaf: true,
         setup: (node: VaryingNode<WgslType>, state: CompilerState) => {
             if (!state.varyings.has(node.name)) {
-                state.varyings.set(node.name, { name: node.name, type: node.type, location: state.varyings.size });
+                state.varyings.set(node.name, {
+                    name: node.name,
+                    type: node.type,
+                    location: state.varyings.size,
+                    interpolationType: node.interpolationType,
+                    interpolationSampling: node.interpolationSampling,
+                });
             }
             setupNode(state, node.source);
         },
@@ -2021,10 +2061,12 @@ const compilerDefs: Record<NodeKind, NodeCompilerDef> = {
                 vertex_index:   'vertex_index',
             };
             const BUILTIN_VERTEX_INPUT = new Set(['instance_index', 'vertex_index']);
+            const BUILTIN_FRAGMENT_INPUT = new Set(['position']);
             if (state.shaderStage === 'compute') {
                 return BUILTIN_VAR[node.builtinKind] ?? node.builtinKind;
             }
             if (BUILTIN_VERTEX_INPUT.has(node.builtinKind)) return `in.${BUILTIN_VAR[node.builtinKind] ?? node.builtinKind}`;
+            if (BUILTIN_FRAGMENT_INPUT.has(node.builtinKind) && state.shaderStage === 'fragment') return `in.${node.builtinKind}`;
             return BUILTIN_VAR[node.builtinKind] ?? node.builtinKind;
         },
     },
@@ -2171,11 +2213,18 @@ function std140Size(type: string): number {
 }
 
 function std140Align(type: string): number {
+    // Alignment of matCxR = alignment of its column vector vecR.
+    // vec2 → 8, vec3/vec4 → 16.
     switch (type) {
         case 'f32': case 'i32': case 'u32': case 'bool': return 4;
         case 'vec2f': case 'vec2i': case 'vec2u': case 'vec2<bool>': return 8;
         case 'vec3f': case 'vec3i': case 'vec3u': case 'vec3<bool>': return 16;
         case 'vec4f': case 'vec4i': case 'vec4u': case 'vec4<bool>': return 16;
+        // mat C×2 — column is vec2f, align = 8
+        case 'mat2x2f': case 'mat3x2f': case 'mat4x2f': return 8;
+        // mat C×3 or C×4 — column is vec3f/vec4f, align = 16
+        case 'mat2x3f': case 'mat3x3f': case 'mat4x3f': return 16;
+        case 'mat2x4f': case 'mat3x4f': case 'mat4x4f': return 16;
         default: return 16;
     }
 }

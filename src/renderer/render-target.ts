@@ -7,7 +7,8 @@
  * - setSize(width, height) for resizing
  * - Supports multiple named color attachments (MRT)
  * - Each texture has a `.name` for MRT output mapping
- * - depthTexture is a DepthTexture metadata object (like Three.js)
+ * - Uses Texture with isRenderTargetTexture = true (like Three.js)
+ * - depthTexture is a DepthTexture instance (extends Texture)
  *
  * Usage:
  *   // Create render target (no device needed)
@@ -24,81 +25,32 @@
  *   renderer.renderScene(scene, camera);
  */
 
-// ---------------------------------------------------------------------------
-// RenderTargetTexture — lightweight wrapper for texture metadata
-// ---------------------------------------------------------------------------
-
-/**
- * Represents a single texture attachment in a RenderTarget.
- * Mirrors Three.js Texture's role in RenderTarget.textures array.
- * This is a metadata container — GPU resources are managed by the renderer.
- */
-export class RenderTargetTexture {
-    /** Name used for MRT output mapping. Set this to match mrt() output keys. */
-    name = '';
-
-    /** The underlying GPU texture. Managed by renderer. */
-    gpuTexture: GPUTexture | null = null;
-
-    /**
-     * The GPU sampler for this texture. Managed by renderer.
-     * Sampler is created alongside texture.
-     */
-    gpuSampler: GPUSampler | null = null;
-
-    /** Format of this attachment. */
-    readonly format: GPUTextureFormat;
-
-    /** Back-reference to the owning RenderTarget. */
-    readonly renderTarget: RenderTarget;
-
-    /** Type flag for runtime checking. */
-    readonly isRenderTargetTexture = true;
-
-    constructor(renderTarget: RenderTarget, format: GPUTextureFormat) {
-        this.renderTarget = renderTarget;
-        this.format = format;
-    }
-}
+import { Texture, DepthTexture, type DepthTextureFormat, type ImageSize } from '../texture/texture';
 
 // ---------------------------------------------------------------------------
-// DepthTexture — lightweight wrapper for depth texture metadata
+// Helper to create a render target texture
 // ---------------------------------------------------------------------------
 
 /**
- * Represents a depth texture attachment in a RenderTarget.
- * Mirrors Three.js DepthTexture class.
- * This is a metadata container — GPU resources are managed by the renderer.
+ * Creates a Texture configured for use as a render target color attachment.
+ * Three.js aligned: uses Texture with isRenderTargetTexture = true.
  */
-export class DepthTexture {
-    /** Name for this depth texture. */
-    name = 'depth';
+function createRenderTargetTexture(
+    renderTarget: RenderTarget,
+    width: number,
+    height: number,
+    format: GPUTextureFormat,
+): Texture {
+    // Three.js pattern: create fake image object with dimensions
+    const image: ImageSize = { width, height };
+    const texture = new Texture(image);
+    texture.format = format;
+    texture.isRenderTargetTexture = true;
+    texture.renderTarget = renderTarget;
+    texture.generateMipmaps = false;
+    texture.flipY = false;
 
-    /** The underlying GPU texture. Managed by renderer. */
-    gpuTexture: GPUTexture | null = null;
-
-    /**
-     * The GPU sampler for this texture. Managed by renderer.
-     * Sampler is created alongside texture.
-     */
-    gpuSampler: GPUSampler | null = null;
-
-    /** Format of this depth attachment. */
-    readonly format: GPUTextureFormat;
-
-    /** Back-reference to the owning RenderTarget. */
-    readonly renderTarget: RenderTarget;
-
-    /** Type flag for runtime checking. */
-    readonly isDepthTexture = true;
-
-    /** Marks this as a render target texture (for compatibility). */
-    readonly isRenderTargetTexture = true;
-
-    constructor(renderTarget: RenderTarget, format: GPUTextureFormat) {
-        this.renderTarget = renderTarget;
-        this.format = format;
-    }
+    return texture;
 }
 
 // ---------------------------------------------------------------------------
@@ -106,10 +58,10 @@ export class DepthTexture {
 // ---------------------------------------------------------------------------
 
 export type RenderTargetOptions = {
-    /** Color attachment format. Default: 'rgba8unorm'. Applied to all attachments. */
+    /** Color attachment format. Default: 'rgba16float'. Applied to all attachments. */
     colorFormat?: GPUTextureFormat;
     /** Depth attachment format. `null` = no depth attachment. Default: 'depth24plus'. */
-    depthFormat?: GPUTextureFormat | null;
+    depthFormat?: DepthTextureFormat | null;
     /** MSAA sample count. Default: 1. */
     samples?: number;
     /** Number of color attachments (MRT). Default: 1. */
@@ -121,6 +73,8 @@ export type RenderTargetOptions = {
  * that is being rendered in the background. It is used in different effects,
  * such as applying postprocessing to a rendered image before displaying it
  * on the screen.
+ *
+ * Three.js aligned: textures[] contains Texture instances with isRenderTargetTexture = true.
  */
 export class RenderTarget {
     /** the width of the render target */
@@ -130,13 +84,20 @@ export class RenderTarget {
     height: number;
 
     readonly colorFormat: GPUTextureFormat;
-    readonly depthFormat: GPUTextureFormat | null;
+    readonly depthFormat: DepthTextureFormat | null;
     readonly samples: number;
 
-    /** array of color attachment textures, each has a `.name` for MRT mapping, the first texture is also accessible via the `texture` getter */
-    textures: RenderTargetTexture[];
+    /**
+     * Array of color attachment textures.
+     * Each has a `.name` for MRT mapping, the first texture is also accessible via the `texture` getter.
+     * Three.js aligned: these are Texture instances with isRenderTargetTexture = true.
+     */
+    textures: Texture[];
 
-    /** depth texture metadata, or null if no depth buffer */
+    /**
+     * Depth texture, or null if no depth buffer.
+     * Three.js aligned: DepthTexture extends Texture.
+     */
     depthTexture: DepthTexture | null = null;
 
     /** type flag for runtime checking */
@@ -146,37 +107,51 @@ export class RenderTarget {
     constructor(width: number, height: number, opts: RenderTargetOptions = {}) {
         this.width = width;
         this.height = height;
-        this.colorFormat = opts.colorFormat ?? 'rgba8unorm';
+        this.colorFormat = opts.colorFormat ?? 'rgba16float';
         this.depthFormat = opts.depthFormat !== undefined ? opts.depthFormat : 'depth24plus';
         this.samples = opts.samples ?? 1;
 
-        // create color attachment textures
+        // Create color attachment textures (Three.js aligned: Texture with isRenderTargetTexture = true)
         const count = opts.count ?? 1;
         this.textures = [];
         for (let i = 0; i < count; i++) {
-            this.textures.push(new RenderTargetTexture(this, this.colorFormat));
+            const texture = createRenderTargetTexture(this, width, height, this.colorFormat);
+            texture.name = i === 0 ? 'output' : `output${i}`;
+            this.textures.push(texture);
         }
 
-        // create depth texture if depth format specified
+        // Create depth texture if depth format specified
         if (this.depthFormat) {
-            const depthTexture = new DepthTexture(this, this.depthFormat);
+            const depthTexture = new DepthTexture(width, height, this.depthFormat);
             depthTexture.name = 'depth';
+            depthTexture.renderTarget = this;
             this.depthTexture = depthTexture;
         }
     }
 
     /** the first color attachment texture */
-    get texture(): RenderTargetTexture {
+    get texture(): Texture {
         return this.textures[0];
     }
 
-    /** sets the size of the render target, isposes existing GPU resources; renderer will reallocate on next use */
+    /** sets the size of the render target, disposes existing GPU resources; renderer will reallocate on next use */
     setSize(width: number, height: number): void {
         if (this.width === width && this.height === height) return;
 
         this.dispose();
         this.width = width;
         this.height = height;
+
+        // Update texture dimensions (Three.js pattern: update image object)
+        for (const tex of this.textures) {
+            if (tex.image && typeof tex.image === 'object' && 'width' in tex.image) {
+                (tex.image as ImageSize).width = width;
+                (tex.image as ImageSize).height = height;
+            }
+        }
+        if (this.depthTexture) {
+            this.depthTexture.setSize(width, height);
+        }
     }
 
     /** destroy the underlying GPU textures and samplers */
@@ -205,3 +180,6 @@ export class RenderTarget {
         return -1;
     }
 }
+
+// Re-export DepthTexture for convenience
+export { DepthTexture } from '../texture/texture';

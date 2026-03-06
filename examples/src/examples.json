@@ -4,6 +4,11 @@
         "description": "A flat-shaded spinning box rendered with a node-graph material and WebGPU.",
         "tags": ["webgpu", "3d", "renderer", "node-graph"]
     },
+    "example-texture": {
+        "title": "texture",
+        "description": "A textured spinning box demonstrating user-provided Texture, UV coordinates, and texture sampling.",
+        "tags": ["webgpu", "3d", "renderer", "texture", "node-graph"]
+    },
     "example-instanced-mesh": {
         "title": "instanced-mesh",
         "description": "30 instanced boxes with per-instance transforms and colours via InstancedBufferAttributeNode.",

@@ -140,7 +140,8 @@ async function main() {
 
     document.body.appendChild(renderer.domElement);
     document.body.appendChild((renderer.inspector as g.Inspector).domElement);
-    renderer.setSize(window.innerWidth * devicePixelRatio, window.innerHeight * devicePixelRatio);
+    renderer.setPixelRatio(devicePixelRatio);
+    renderer.setSize(window.innerWidth, window.innerHeight);
 
     // No manual buffer creation needed — the renderer's BufferCache will call
     // uploadStorage() for instanceMatrices and instanceColors on the first frame.
@@ -159,7 +160,7 @@ async function main() {
     camera.updateViewMatrix();
 
     window.addEventListener('resize', () => {
-        renderer.setSize(window.innerWidth * devicePixelRatio, window.innerHeight * devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight);
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
     });

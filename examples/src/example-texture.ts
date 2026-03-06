@@ -2,7 +2,6 @@ import {
     attribute,
     cameraProjectionMatrix,
     cameraViewMatrix,
-    color,
     createBoxGeometry,
     d,
     f32,
@@ -16,12 +15,31 @@ import {
     pass,
     PerspectiveCamera,
     Scene,
+    texture,
+    Texture,
     varying,
     vec3,
     vec4,
     WebGPURenderer,
 } from 'gpucat';
 import { quat, type Euler } from 'mathcat';
+
+async function createCheckerboardTexture(size = 256, squares = 8): Promise<ImageBitmap> {
+    const canvas = new OffscreenCanvas(size, size);
+    const ctx = canvas.getContext('2d')!;
+    
+    const squareSize = size / squares;
+    
+    for (let y = 0; y < squares; y++) {
+        for (let x = 0; x < squares; x++) {
+            const isWhite = (x + y) % 2 === 0;
+            ctx.fillStyle = isWhite ? '#ffffff' : '#444444';
+            ctx.fillRect(x * squareSize, y * squareSize, squareSize, squareSize);
+        }
+    }
+    
+    return createImageBitmap(canvas);
+}
 
 async function main() {
     const renderer = new WebGPURenderer({ antialias: true });
@@ -52,23 +70,35 @@ async function main() {
         camera.updateProjectionMatrix();
     });
 
+    // create checkerboard texture
+    const checkerImage = await createCheckerboardTexture(256, 8);
+    const checkerTexture = new Texture(checkerImage);
+    checkerTexture.wrapS = 'repeat';
+    checkerTexture.wrapT = 'repeat';
+    checkerTexture.needsUpdate = true;
+
+    // geometry attributes
     const position = attribute(d.vec3f, 'position');
     const normal = attribute(d.vec3f, 'normal');
+    const uv = attribute(d.vec2f, 'uv');
 
+    // vertex shader: transform position to clip space
     const localPosition = vec4(position, f32(1));
     const worldPosition = mul(modelWorldMatrix, localPosition);
     const viewPosition = mul(cameraViewMatrix, worldPosition);
     const clipPosition = mul(cameraProjectionMatrix, viewPosition);
 
+    // pass normal and UV to fragment shader via varyings
     const worldNormal = mul(modelNormalMatrix, vec3(normal.x, normal.y, normal.z));
-    
     const vNormal = varying(d.vec3f, 'v_norm', normalize(worldNormal));
+    const vUv = varying(d.vec2f, 'uv', uv);
 
+    // fragment: sample texture and apply simple lighting
+    const texNode = texture(checkerTexture);
+    const texColor = texNode.sample(vUv);
     const lightDirection = vec3(f32(0.6), f32(1.0), f32(0.8)).normalize();
-    const diffuse = vNormal.dot(lightDirection).max(f32(0.15));
-
-    const baseColor = color('#f60');
-    const litColor = vec3(baseColor.x, baseColor.y, baseColor.z).mul(diffuse);
+    const diffuse = vNormal.dot(lightDirection).max(f32(0.2));
+    const litColor = vec3(texColor.x, texColor.y, texColor.z).mul(diffuse);
 
     const material = new Material({
         vertex: clipPosition,
@@ -79,11 +109,12 @@ async function main() {
     const mesh = new Mesh(geometry, material);
     scene.add(mesh);
 
+    await renderer.compile(scene, camera);
+
     const scenePass = pass(scene, camera);
     const outputNode = scenePass.getTextureNode();
 
     let angle = 0;
-
     let prevTime = performance.now() / 1000;
 
     function frame() {
@@ -91,9 +122,9 @@ async function main() {
         const dt = now - prevTime;
         prevTime = now;
 
-        angle += dt * 0.8;
+        angle += dt * 0.5;
 
-        quat.fromEuler(mesh.quaternion, [0, angle, 0.2 * Math.sin(angle * 0.5), 'yxz'] as Euler);
+        quat.fromEuler(mesh.quaternion, [angle * 0.3, angle, 0, 'yxz'] as Euler);
         mesh.updateWorldMatrix();
 
         renderer.render(outputNode);

@@ -27,9 +27,10 @@
 
 import { Node, TextureNode, cameraNear, cameraFar, type WgslType } from './nodes';
 import type { Scene } from '../scene/scene';
-import type { Camera } from '../scene/camera';
+import type { Camera } from '../camera/camera';
 import type { RenderFrame } from '../renderer/render-frame';
-import { RenderTarget, RenderTargetTexture, DepthTexture } from '../renderer/render-target';
+import { RenderTarget } from '../renderer/render-target';
+import { Texture, type ImageSize } from '../texture/texture';
 import type { MRTNode } from './nodes';
 
 // ---------------------------------------------------------------------------
@@ -57,12 +58,13 @@ export class PassTextureNode extends TextureNode {
      * Constructs a new pass texture node.
      *
      * @param passNode - The pass node.
-     * @param texture - The output texture (RenderTargetTexture or null).
+     * @param texture - The output texture (Texture with isRenderTargetTexture=true, or DepthTexture).
+     * @param textureId - Optional custom texture ID. If not provided, uses default pass output ID.
      */
-    constructor(passNode: PassNode, texture: RenderTargetTexture | DepthTexture | null = null) {
-        // Generate unique texture ID based on pass
-        const textureId = `_pass${passNode.passId}_output`;
-        super('texture_2d<f32>', textureId);
+    constructor(passNode: PassNode, texture: Texture | null = null, textureId?: string) {
+        // Generate unique texture ID based on pass, or use provided ID
+        const id = textureId ?? `_pass${passNode.passId}_output`;
+        super('texture_2d<f32>', id);
         this.passNode = passNode;
         
         // Set GPU resources from texture if provided
@@ -106,13 +108,13 @@ export class PassMultipleTextureNode extends PassTextureNode {
      * @param previousTexture - Whether previous frame data should be used.
      */
     constructor(passNode: PassNode, textureName: string, previousTexture = false) {
-        // Pass null to super - texture is managed by updateTexture()
-        super(passNode, null);
+        // Compute the unique textureId BEFORE calling super so it's used in the node ID
+        const uniqueTextureId = `${passNode.passId}_${textureName}${previousTexture ? '_prev' : ''}`;
+        
+        // Pass the unique textureId to super so the node gets a unique ID
+        super(passNode, null, uniqueTextureId);
         this.textureName = textureName;
         this.previousTexture = previousTexture;
-        
-        // Override the textureId with the specific name
-        this.textureId = `${passNode.passId}_${textureName}${previousTexture ? '_prev' : ''}`;
     }
 
     /**
@@ -190,11 +192,11 @@ export class PassNode extends Node<'vec4f'> {
 
     private _mrt: MRTNode | null = null;
 
-    private readonly _textures: Record<string, RenderTargetTexture | DepthTexture> = {};
+    private readonly _textures: Record<string, Texture> = {};
 
     private readonly _textureNodes: Record<string, PassMultipleTextureNode> = {};
 
-    private readonly _previousTextures: Record<string, RenderTargetTexture | DepthTexture> = {};
+    private readonly _previousTextures: Record<string, Texture> = {};
 
     private readonly _previousTextureNodes: Record<string, PassMultipleTextureNode> = {};
 
@@ -286,14 +288,21 @@ export class PassNode extends Node<'vec4f'> {
     /**
      * Returns the texture for the given output name.
      * Creates a new texture slot if it doesn't exist.
+     * Three.js aligned: returns Texture with isRenderTargetTexture = true.
      */
-    getTexture(name: string): RenderTargetTexture | DepthTexture {
+    getTexture(name: string): Texture {
         let texture = this._textures[name];
 
         if (texture === undefined) {
-            // Clone the reference texture and add to render target
+            // Clone the reference texture format and create new render target texture
             const refTexture = this.renderTarget.texture;
-            texture = new RenderTargetTexture(this.renderTarget, refTexture.format);
+            const image: ImageSize = { width: this.renderTarget.width, height: this.renderTarget.height };
+            texture = new Texture(image);
+            texture.format = refTexture.format;
+            texture.isRenderTargetTexture = true;
+            texture.renderTarget = this.renderTarget;
+            texture.generateMipmaps = false;
+            texture.flipY = false;
             texture.name = name;
 
             this._textures[name] = texture;
@@ -306,14 +315,21 @@ export class PassNode extends Node<'vec4f'> {
     /**
      * Returns the texture holding the data of the previous frame for the given output name.
      * Mirrors Three.js `getPreviousTexture(name)`.
+     * Three.js aligned: returns Texture with isRenderTargetTexture = true.
      */
-    getPreviousTexture(name: string): RenderTargetTexture | DepthTexture {
+    getPreviousTexture(name: string): Texture {
         let texture = this._previousTextures[name];
 
         if (texture === undefined) {
             // Create a clone of the current texture for previous frame storage
             const currentTexture = this.getTexture(name);
-            texture = new RenderTargetTexture(this.renderTarget, currentTexture.format);
+            const image: ImageSize = { width: this.renderTarget.width, height: this.renderTarget.height };
+            texture = new Texture(image);
+            texture.format = currentTexture.format;
+            texture.isRenderTargetTexture = true;
+            texture.renderTarget = this.renderTarget;
+            texture.generateMipmaps = false;
+            texture.flipY = false;
             texture.name = name;
 
             this._previousTextures[name] = texture;
@@ -333,10 +349,10 @@ export class PassNode extends Node<'vec4f'> {
             const texture = this._textures[name];
 
             // Swap in renderTarget.textures array (only for color textures, not depth)
-            if (texture && 'isDepthTexture' in texture === false) {
-                const index = this.renderTarget.textures.indexOf(texture as RenderTargetTexture);
-                if (index !== -1 && 'isDepthTexture' in prevTexture === false) {
-                    this.renderTarget.textures[index] = prevTexture as RenderTargetTexture;
+            if (texture && !texture.isDepthTexture) {
+                const index = this.renderTarget.textures.indexOf(texture);
+                if (index !== -1 && !prevTexture.isDepthTexture) {
+                    this.renderTarget.textures[index] = prevTexture;
                 }
             }
 
@@ -511,5 +527,5 @@ export const depthPass = (scene: Scene, camera: Camera, options?: PassNodeOption
 /**
  * TSL function for creating a pass texture node.
  */
-export const passTexture = (passNode: PassNode, texture?: RenderTargetTexture | DepthTexture | null): PassTextureNode =>
+export const passTexture = (passNode: PassNode, texture?: Texture | null): PassTextureNode =>
     new PassTextureNode(passNode, texture ?? null);

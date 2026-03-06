@@ -1,76 +1,102 @@
-/**
- * bindgroups.ts — GPUBindGroup construction (Three.js aligned).
- *
- * Following Three.js's pattern:
- * - BindGroup objects are created only for groups with actual bindings
- * - Each BindGroup has a name, index (slot), and layout
- * - The pipeline layout is built from only the non-empty bind groups
- *
- * Group 0 (render): Struct UBO containing camera + time uniforms (optional).
- * Group 1 (object): Struct UBO containing mesh matrices + material uniforms,
- *                   plus textures, samplers, and storage buffers (optional).
- *
- * The renderer calls these once per frame (group 0) and once per draw (group 1).
- */
-
 import type { CompileResult, ComputeCompileResult } from '../nodes/compile';
 import type { BufferCache } from './buffers';
 import { uploadStorage } from './buffers';
-import { DepthTexture, RenderTargetTexture } from './render-target';
 
 // ---------------------------------------------------------------------------
-// BindGroup type (Three.js aligned)
+// Bind Group Layout Cache
 // ---------------------------------------------------------------------------
+
+export type BindGroupLayoutCache = {
+    cache: Map<string, GPUBindGroupLayout>;
+};
 
 /**
- * A bind group represents a collection of bindings.
- * Following Three.js's BindGroup class pattern.
+ * Create a bind group layout cache.
  */
+export function createBindGroupLayoutCache(): BindGroupLayoutCache {
+    return { cache: new Map() };
+}
+
+/**
+ * Get or create a bind group layout for the given entries.
+ * Uses a stable hash of the entries as the cache key.
+ */
+export function getBindGroupLayout(
+    cache: BindGroupLayoutCache,
+    device: GPUDevice,
+    entries: GPUBindGroupLayoutEntry[],
+): GPUBindGroupLayout {
+    const key = makeBindGroupLayoutKey(entries);
+    let layout = cache.cache.get(key);
+    if (!layout) {
+        layout = device.createBindGroupLayout({ entries });
+        cache.cache.set(key, layout);
+    }
+    return layout;
+}
+
+function makeBindGroupLayoutKey(entries: GPUBindGroupLayoutEntry[]): string {
+    const normalized = entries.map(e => ({
+        b: e.binding,
+        v: e.visibility,
+        buf: e.buffer ? { t: e.buffer.type } : null,
+        sam: e.sampler ? {} : null,
+        tex: e.texture ? { s: e.texture.sampleType, v: e.texture.viewDimension } : null,
+        stor: e.storageTexture ? { f: e.storageTexture.format, a: e.storageTexture.access, v: e.storageTexture.viewDimension } : null,
+    }));
+    return hashString(JSON.stringify(normalized));
+}
+
+function hashString(str: string): string {
+    let hash = 5381;
+    for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) + hash) + str.charCodeAt(i);
+        hash |= 0;
+    }
+    return (hash >>> 0).toString(36);
+}
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+/** bind group representing a collection of bindings */
 export type BindGroup = {
-    /** The bind group's name (e.g. 'render', 'object'). */
+    /** the bind group's name (e.g. 'render', 'object'). */
     name: string;
-    /** The group index/slot for setBindGroup(). Assigned after sorting. */
+    /** the group index/slot for setBindGroup(). assigned after sorting. */
     index: number;
-    /** The bind group layout for this group. */
+    /** the bind group layout for this group. */
     layout: GPUBindGroupLayout;
-    /** Number of entries in this bind group. */
+    /** number of entries in this bind group. */
     entryCount: number;
 };
 
-/**
- * Information needed to build and set bind groups at runtime.
- */
+/** information needed to build and set bind groups at runtime */
 export type BindGroupInfo = {
-    /** All bind groups, in order (indices match pipeline layout). */
+    /** all bind groups, in order (indices match pipeline layout). */
     bindGroups: BindGroup[];
-    /** Index of the render group in bindGroups, or -1 if not present. */
+    /** index of the render group in bindGroups, or -1 if not present. */
     renderGroupIndex: number;
-    /** Index of the object group in bindGroups, or -1 if not present. */
+    /** index of the object group in bindGroups, or -1 if not present. */
     objectGroupIndex: number;
 };
-
-// ---------------------------------------------------------------------------
-// Build BindGroupInfo from CompileResult (Three.js aligned)
-// ---------------------------------------------------------------------------
 
 /**
  * Build bind group layouts and info from a CompileResult.
  *
- * Three.js aligned: iterates through uniformGroups (already sorted by order)
- * and creates bind group layouts at the indices specified by groupIndex.
+ * iterates through uniformGroups (already sorted by order) and creates bind group layouts at the indices specified by groupIndex.
  * Storage/textures/samplers are added to their respective groups.
  */
 export function buildBindGroupInfo(
     device: GPUDevice,
     cr: CompileResult,
+    layoutCache: BindGroupLayoutCache,
 ): BindGroupInfo {
     const vis = GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT;
 
-    // Build a map of groupIndex → entries for each bind group
-    // uniformGroups are already sorted by order in compile
     const groupEntriesMap = new Map<number, { name: string; entries: GPUBindGroupLayoutEntry[] }>();
 
-    // Add uniform buffer entries from uniformGroups
     for (const ug of cr.uniformGroups) {
         if (ug.members.length === 0) continue;
         groupEntriesMap.set(ug.groupIndex, {
@@ -83,12 +109,9 @@ export function buildBindGroupInfo(
         });
     }
 
-    // Add storage buffers to their respective groups
     for (const s of cr.storage) {
         let groupData = groupEntriesMap.get(s.group);
         if (!groupData) {
-            // Group doesn't exist yet (no uniforms) - create it
-            // Find the group name from uniformGroups or default to 'object'
             const ug = cr.uniformGroups.find(g => g.groupIndex === s.group);
             groupData = { name: ug?.groupName ?? 'object', entries: [] };
             groupEntriesMap.set(s.group, groupData);
@@ -100,7 +123,6 @@ export function buildBindGroupInfo(
         });
     }
 
-    // Add textures to their respective groups
     for (const t of cr.textures) {
         let groupData = groupEntriesMap.get(t.group);
         if (!groupData) {
@@ -115,7 +137,6 @@ export function buildBindGroupInfo(
         });
     }
 
-    // Add samplers to their respective groups
     for (const s of cr.samplers) {
         let groupData = groupEntriesMap.get(s.group);
         if (!groupData) {
@@ -130,8 +151,6 @@ export function buildBindGroupInfo(
         });
     }
 
-    // Three.js aligned: bind groups are created with sequential indices 0, 1, 2...
-    // The shader @group(N) indices match these sequential indices.
     const sortedIndices = [...groupEntriesMap.keys()].sort((a, b) => a - b);
     const bindGroups: BindGroup[] = [];
     let renderGroupIndex = -1;
@@ -139,7 +158,7 @@ export function buildBindGroupInfo(
 
     for (const groupIdx of sortedIndices) {
         const groupData = groupEntriesMap.get(groupIdx)!;
-        const layout = device.createBindGroupLayout({ entries: groupData.entries });
+        const layout = getBindGroupLayout(layoutCache, device, groupData.entries);
         const bgIndex = bindGroups.length;
         bindGroups.push({
             name: groupData.name,
@@ -156,20 +175,17 @@ export function buildBindGroupInfo(
 
 /**
  * Build bind group info for compute pipelines.
- * 
- * Three.js aligned: iterates through uniformGroups and storage entries,
- * respecting their group indices as assigned by the compiler.
+ * iterates through uniformGroups and storage entries, respecting their group indices as assigned by the compiler.
  */
 export function buildComputeBindGroupInfo(
     device: GPUDevice,
     cr: ComputeCompileResult,
+    layoutCache: BindGroupLayoutCache,
 ): BindGroupInfo {
     const vis = GPUShaderStage.COMPUTE;
 
-    // Build a map of groupIndex → entries for each bind group
     const groupEntriesMap = new Map<number, { name: string; entries: GPUBindGroupLayoutEntry[] }>();
 
-    // Add uniform buffer entries from uniformGroups
     for (const ug of cr.uniformGroups) {
         if (ug.members.length === 0) continue;
         groupEntriesMap.set(ug.groupIndex, {
@@ -182,11 +198,9 @@ export function buildComputeBindGroupInfo(
         });
     }
 
-    // Add storage buffers to their respective groups
     for (const s of cr.storage) {
         let groupData = groupEntriesMap.get(s.group);
         if (!groupData) {
-            // Group doesn't exist yet (no uniforms) - create it
             groupData = { name: 'storage', entries: [] };
             groupEntriesMap.set(s.group, groupData);
         }
@@ -201,17 +215,15 @@ export function buildComputeBindGroupInfo(
         });
     }
 
-    // Sort by group index and create bind groups
     const sortedIndices = [...groupEntriesMap.keys()].sort((a, b) => a - b);
     const bindGroups: BindGroup[] = [];
     let renderGroupIndex = -1;
-    const objectGroupIndex = -1; // Compute doesn't have object group
+    const objectGroupIndex = -1;
 
     for (const groupIdx of sortedIndices) {
         const groupData = groupEntriesMap.get(groupIdx)!;
-        // Sort entries by binding index to ensure correct order
         groupData.entries.sort((a, b) => a.binding - b.binding);
-        const layout = device.createBindGroupLayout({ entries: groupData.entries });
+        const layout = getBindGroupLayout(layoutCache, device, groupData.entries);
         const bgIndex = bindGroups.length;
         bindGroups.push({
             name: groupData.name,
@@ -225,17 +237,7 @@ export function buildComputeBindGroupInfo(
     return { bindGroups, renderGroupIndex, objectGroupIndex };
 }
 
-// ---------------------------------------------------------------------------
-// Build GPUBindGroup instances at runtime
-// ---------------------------------------------------------------------------
-
-/**
- * Build the render group GPUBindGroup (struct UBO with camera + time).
- *
- * @param device      GPUDevice
- * @param bindGroup   The BindGroup for render group
- * @param renderBuf   GPUBuffer containing the packed render struct UBO
- */
+/** build the render group GPUBindGroup */
 export function buildRenderGroupGPUBindGroup(
     device: GPUDevice,
     bindGroup: BindGroup,
@@ -251,14 +253,7 @@ export function buildRenderGroupGPUBindGroup(
 
 /**
  * Build the object group GPUBindGroup (struct UBO + textures/samplers/storage).
- *
- * Three.js aligned: uses bindGroup.index to filter resources belonging to this group.
- *
- * @param device      GPUDevice
- * @param bindGroup   The BindGroup for object group
- * @param cr          CompileResult for this material
- * @param objectBuf   GPUBuffer containing the packed object struct UBO (null if no object group uniforms)
- * @param buffers     BufferCache for storage buffer lookups
+ * uses bindGroup.index to filter resources belonging to this group.
  */
 export function buildObjectGroupGPUBindGroup(
     device: GPUDevice,
@@ -270,27 +265,22 @@ export function buildObjectGroupGPUBindGroup(
     const entries: GPUBindGroupEntry[] = [];
     const groupIndex = bindGroup.index;
 
-    // object struct UBO at binding 0 (only if present)
     const objectGroup = cr.uniformGroups.find(g => g.groupName === 'object' && g.groupIndex === groupIndex);
     if (objectGroup && objectGroup.members.length > 0 && objectBuf) {
         entries.push({ binding: 0, resource: { buffer: objectBuf } });
     }
 
-    // storage buffers
     for (const s of cr.storage) {
         if (s.group !== groupIndex) continue;
         const buf = uploadStorage(buffers, s.node);
         entries.push({ binding: s.binding, resource: { buffer: buf } });
     }
 
-    // textures
     for (const t of cr.textures) {
         if (t.group !== groupIndex) continue;
-        // Get GPU texture from resource directly, or from value object
         let res = t.node.resource;
         if (res === null && t.node.value) {
-            // RenderTargetTexture and DepthTexture have gpuTexture directly on them
-            res = (t.node.value as (RenderTargetTexture | DepthTexture)).gpuTexture ?? null;
+            res = t.node.value.gpuTexture ?? null;
         }
         if (res === null) {
             throw new Error(`[buildObjectGroupGPUBindGroup] TextureNode '${t.textureId}' has no resource set`);
@@ -299,14 +289,11 @@ export function buildObjectGroupGPUBindGroup(
         entries.push({ binding: t.binding, resource: view });
     }
 
-    // samplers (sampler is on textureNode.gpuSampler, or on value object)
     for (const s of cr.samplers) {
         if (s.group !== groupIndex) continue;
-        // get sampler - either from gpuSampler directly, or from value object
         let samp = s.textureNode.gpuSampler;
         if (samp === null && s.textureNode.value) {
-            // RenderTargetTexture and DepthTexture have gpuSampler directly on them
-            samp = (s.textureNode.value as (RenderTargetTexture | DepthTexture)).gpuSampler ?? null;
+            samp = s.textureNode.value.gpuSampler ?? null;
         }
         if (samp === null) {
             throw new Error(`[buildObjectGroupGPUBindGroup] TextureNode '${s.samplerId}' has no gpuSampler set`);

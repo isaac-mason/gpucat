@@ -1,15 +1,6 @@
-/**
- * buffers.ts — GPUBuffer cache and upload helpers.
- *
- * `BufferCache` uses WeakMap-based identity to track GPUBuffers per CPU-side
- * data object. Setting needsUpdate=true on a BufferAttribute triggers a
- * writeBuffer on the next upload() call. Replacing the object entirely
- * also busts the cache (new WeakMap entry).
- */
-
-import type { BufferAttribute, IndexAttribute } from '../scene/geometry';
+import type { BufferAttribute, IndexAttribute } from 'src/geometry/attribute';
 import type { GpuTypedArray, StorageNode, WgslType } from '../nodes/nodes';
-import type { IndirectStorageBufferAttribute } from 'src/scene/geometry';
+import type { IndirectStorageBufferAttribute } from 'src/geometry/attribute';
 
 export type BufferCache = {
     /* GPUDevice is needed to create buffers and write data. */
@@ -275,7 +266,7 @@ export function uploadStorage(cache: BufferCache, node: StorageNode<WgslType>): 
  * Get or create a GPUBuffer for an IndirectStorageBufferAttribute. Re-uploads when
  * indirect.version advances (full upload — buffer is ≤ 20 bytes).
  *
- * Always allocates with STORAGE | INDIRECT | COPY_DST, matching Three.js behaviour.
+ * Always allocates with STORAGE | INDIRECT | COPY_DST.
  * The STORAGE flag allows a compute shader to write to the buffer directly.
  */
 export function uploadIndirect(cache: BufferCache, indirect: IndirectStorageBufferAttribute): GPUBuffer {

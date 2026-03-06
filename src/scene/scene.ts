@@ -2,7 +2,7 @@
  * scene.ts — Root of the 3D scene graph.
  */
 
-import { Object3D } from './object3d';
+import { Object3D } from '../objects/object3d';
 
 export class Scene extends Object3D {
     background?: [number, number, number, number];
