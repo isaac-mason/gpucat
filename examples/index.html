@@ -160,6 +160,28 @@
             line-height: 1.4;
         }
 
+        .example-source-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 11px;
+            color: #eceff1;
+            text-decoration: none;
+            align-self: flex-start;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            font-weight: 500;
+            border-bottom: 1px solid rgba(236, 239, 241, 0.25);
+            padding-bottom: 1px;
+            transition: border-color 0.2s, opacity 0.2s;
+            opacity: 0.5;
+        }
+
+        .example-source-link:hover {
+            opacity: 1;
+            border-bottom-color: #eceff1;
+        }
+
         .content {
             width: 100%;
             display: flex;
@@ -279,33 +301,6 @@
         <iframe class="example-frame" id="example-frame"></iframe>
     </div>
 
-    <a id="source-link" href="#" target="_blank" style="
-        position: fixed;
-        right: 20px;
-        bottom: 20px;
-        z-index: 2000;
-        background: #222;
-        color: #fff;
-        border: 1px solid #555;
-        border-radius: 6px;
-        padding: 8px 14px;
-        font-size: 15px;
-        text-decoration: none;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        opacity: 0.85;
-        transition: opacity 0.2s;
-      " title="View source code on GitHub">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-            stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle">
-            <path d="M9 18v-6h6v6M9 6h6" />
-            <rect x="3" y="3" width="18" height="18" rx="2" />
-        </svg>
-        <span>Source</span>
-    </a>
-
     <script type="module">
         import examples from "./src/examples.json" assert { type: "json" };
 
@@ -326,6 +321,10 @@
                         <div class="example-info">
                         <h3 class="example-title">${example.title}</h3>
                         <p class="example-description">${example.description}</p>
+                        <a class="example-source-link" href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/${key}.ts" target="_blank" onclick="event.stopPropagation()">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18v-6h6v6M9 6h6"/><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+                            source
+                        </a>
                         </div>
                     </div>
                     </div>
@@ -427,10 +426,6 @@
 
             // update URL
             window.location.hash = exampleKey;
-
-            // update source link
-            const sourceLink = document.getElementById("source-link");
-            sourceLink.href = `https://github.com/isaac-mason/gpucat/blob/main/examples/src/${exampleKey}.ts`;
 
             // close mobile sidebar
             sidebar.classList.remove("open");

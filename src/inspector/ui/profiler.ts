@@ -208,10 +208,10 @@ export class Profiler {
 
 		this.panel.classList.add(`position-${this.position}`);
 
-		if (this.position === 'right') {
-			this.toggleButton.classList.add('position-right');
-			this.miniPanel.classList.add('position-right');
-		}
+		// Toggle pill and mini-panel are always anchored top-right,
+		// independent of which direction the panel opens.
+		this.toggleButton.classList.add('position-right');
+		this.miniPanel.classList.add('position-right');
 	}
 
 	setupResizing(): void {
@@ -622,7 +622,7 @@ export class Profiler {
 		windowContent.className = 'detached-tab-content';
 		windowContent.appendChild(tab.content);
 
-		tab.content.style.display = 'block';
+		tab.content.style.display = '';
 		tab.content.classList.add('active');
 
 		const resizerTop = document.createElement('div'); resizerTop.className = 'detached-tab-resizer-top';
@@ -840,6 +840,7 @@ export class Profiler {
 		}
 
 		this.contentWrapper.appendChild(tab.content);
+		tab.content.style.display = '';
 		this.setActiveTab(tab.id);
 		this.updatePanelSize();
 		this.saveLayout();
@@ -892,8 +893,6 @@ export class Profiler {
 			this.floatingBtn.title = 'Switch to Bottom';
 			this.panel.classList.remove('position-bottom');
 			this.panel.classList.add('position-right');
-			this.toggleButton.classList.add('position-right');
-			this.miniPanel.classList.add('position-right');
 			this.panel.style.bottom = ''; this.panel.style.top = '0';
 			this.panel.style.right = '0'; this.panel.style.left = '';
 			this.panel.style.width = isMaximized ? '100vw' : `${this.lastWidthRight}px`;
@@ -905,8 +904,6 @@ export class Profiler {
 			this.floatingBtn.title = 'Switch to Right Side';
 			this.panel.classList.remove('position-right');
 			this.panel.classList.add('position-bottom');
-			this.toggleButton.classList.remove('position-right');
-			this.miniPanel.classList.remove('position-right');
 			this.panel.style.top = ''; this.panel.style.right = '';
 			this.panel.style.bottom = '0'; this.panel.style.left = '0';
 			this.panel.style.width = '100%';
@@ -990,8 +987,6 @@ export class Profiler {
 				this.floatingBtn.title = 'Switch to Bottom';
 				this.panel.classList.remove('position-bottom');
 				this.panel.classList.add('position-right');
-				this.toggleButton.classList.add('position-right');
-				this.miniPanel.classList.add('position-right');
 				this.panel.style.bottom = ''; this.panel.style.top = '0';
 				this.panel.style.right = '0'; this.panel.style.left = '';
 				this.panel.style.width = `${this.lastWidthRight}px`;

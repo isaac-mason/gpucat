@@ -1,42 +1,42 @@
 {
     "example-spinning-box": {
-        "title": "spinning-box",
+        "title": "Spinning Box",
         "description": "A flat-shaded spinning box rendered with a node-graph material and WebGPU.",
-        "tags": ["webgpu", "3d", "renderer", "node-graph"]
+        "tags": []
     },
     "example-texture": {
-        "title": "texture",
+        "title": "Texture",
         "description": "A textured spinning box demonstrating user-provided Texture, UV coordinates, and texture sampling.",
-        "tags": ["webgpu", "3d", "renderer", "texture", "node-graph"]
+        "tags": ["texture"]
     },
     "example-instanced-mesh": {
-        "title": "instanced-mesh",
+        "title": "Instanced Mesh",
         "description": "30 instanced boxes with per-instance transforms and colours via InstancedBufferAttributeNode.",
-        "tags": ["webgpu", "3d", "renderer", "instancing", "node-graph"]
+        "tags": ["instancing"]
     },
     "example-instancing-storage-buffer": {
-        "title": "instancing-storage-buffer",
+        "title": "Instancing with Storage Buffer",
         "description": "35 instanced boxes using storage buffers (mat4x4f transforms + vec4f colours) indexed by instance_index, combined with an instancedBufferAttribute for per-instance spin offset.",
-        "tags": ["webgpu", "3d", "renderer", "instancing", "storage-buffer", "node-graph"]
+        "tags": ["instancing", "storage-buffer"]
     },
     "example-compute-particles": {
-        "title": "compute-particles",
+        "title": "Compute Particles",
         "description": "8192 GPU-simulated particles updated each frame by a @compute shader (renderer.compute) and rendered as instanced quads — no CPU readback.",
-        "tags": ["webgpu", "3d", "renderer", "compute", "particles", "node-graph"]
+        "tags": ["compute", "particles"]
     },
     "example-indirect-batched": {
-        "title": "indirect-batched",
+        "title": "Indirect Batched",
         "description": "CPU-driven indirect rendering: one merged geometry holds box and sphere data; two IndirectBuffers select sub-ranges via firstIndex + instanceCount. A slider moves the box/sphere split at runtime.",
-        "tags": ["webgpu", "3d", "renderer", "indirect", "batched-mesh", "node-graph"]
+        "tags": ["indirect", "batched-mesh"]
     },
     "example-indirect-compute": {
-        "title": "indirect-compute",
+        "title": "Indirect Compute",
         "description": "GPU-driven indirect rendering: a compute shader writes instanceCount directly into the indirect draw buffer each frame via IndirectBuffer.asStorageNode(), culling instances by distance — no CPU readback.",
-        "tags": ["webgpu", "3d", "renderer", "indirect", "compute", "culling", "node-graph"]
+        "tags": ["indirect", "compute", "culling"]
     },
     "example-mrt": {
-        "title": "mrt",
+        "title": "MRT (Multiple Render Targets)",
         "description": "Multiple Render Targets (MRT): renders a sphere to 4 targets (output, normal, diffuse, emissive) and composites them side-by-side for visualization.",
-        "tags": ["webgpu", "3d", "renderer", "mrt", "post-processing", "node-graph"]
+        "tags": ["mrt", "post-processing"]
     }
 }

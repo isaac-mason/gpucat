@@ -7,6 +7,11 @@
  * - Caches nodeBuilderState, pipeline, bindings, attributes
  * - Lazily initialized - starts empty, populated on first render
  *
+ * Key Three.js pattern:
+ * - _bindings is lazily created via getBindings()
+ * - getBindings() calls NodeBuilderState.createBindings() which clones non-shared groups
+ * - This ensures shared groups (camera, time) are reused across all RenderObjects
+ *
  * Unlike Three.js, we use a plain object type with factory function
  * rather than a class.
  */
@@ -19,6 +24,8 @@ import type { Camera } from '../camera/camera';
 import type { Scene } from '../scene/scene';
 import type { RenderContext } from './render-context';
 import type { NodeBuilderState } from './node-builder-state';
+import type { BindGroup } from './bind-group';
+import { createBindings } from './node-builder-state';
 
 let renderObjectIdCounter = 0;
 
@@ -107,6 +114,14 @@ export type RenderObject = {
      * null until bindings are created.
      */
     bindGroups: GPUBindGroup[] | null;
+
+    /**
+     * BindGroup instances for this RenderObject.
+     * Lazily created via getBindings() from NodeBuilderState.createBindings().
+     * Shared groups are reused across all RenderObjects, non-shared are cloned.
+     * null until first access.
+     */
+    _bindings: BindGroup[] | null;
 
     // -------------------------------------------------------------------------
     // Attribute State
@@ -216,6 +231,7 @@ export function createRenderObject(
         nodeBuilderState: null,
         pipeline: null,
         bindGroups: null,
+        _bindings: null,
 
         // Attribute state (lazy)
         vertexBuffers: null,
@@ -277,10 +293,37 @@ export function disposeRenderObject(renderObject: RenderObject): void {
     renderObject.nodeBuilderState = null;
     renderObject.pipeline = null;
     renderObject.bindGroups = null;
+    renderObject._bindings = null;
     renderObject.vertexBuffers = null;
     renderObject.indexBuffer = null;
     renderObject.drawParams = null;
     renderObject.onDispose = null;
+}
+
+/**
+ * Get the BindGroups for a RenderObject, lazily creating them.
+ *
+ * Three.js pattern (RenderObject.getBindings):
+ * - First access calls NodeBuilderState.createBindings()
+ * - This clones non-shared groups, reuses shared groups
+ * - Subsequent accesses return the cached bindings
+ *
+ * @param renderObject - The RenderObject
+ * @returns Array of BindGroups for this RenderObject
+ * @throws Error if nodeBuilderState is not set
+ */
+export function getBindings(renderObject: RenderObject): BindGroup[] {
+    if (renderObject._bindings !== null) {
+        return renderObject._bindings;
+    }
+
+    if (renderObject.nodeBuilderState === null) {
+        throw new Error('Cannot get bindings: nodeBuilderState is not set');
+    }
+
+    // Create bindings from NodeBuilderState (clones non-shared, reuses shared)
+    renderObject._bindings = createBindings(renderObject.nodeBuilderState);
+    return renderObject._bindings;
 }
 
 /**

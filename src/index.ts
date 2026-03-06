@@ -1,5 +1,14 @@
 export * from './inspector/inspector';
 
+export { OrbitControls, MOUSE, TOUCH } from './controls/orbit-controls';
+export type {
+    OrbitControlsEvent,
+    OrbitControlsEventListener,
+    OrbitControlsEventType,
+    MouseAction,
+    TouchAction,
+} from './controls/orbit-controls';
+
 export * from './scene/scene';
 
 export * from "./camera/camera";
@@ -35,7 +44,7 @@ export {
     // node factories
     attribute, bufferAttribute, instancedBufferAttribute,
     builtin, index, uniform, storage, storageArray,
-    texture, varying, struct, raw, wgslFn, Fn, mrt,
+    texture, varying, struct, wgsl, wgslFn, Fn, mrt,
     compute,
 
     // control flow

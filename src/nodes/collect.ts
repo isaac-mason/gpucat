@@ -11,7 +11,7 @@ import type {
     IfNode,
     IndexNode,
     Node,
-    RawNode,
+    WgslNode,
     ReturnNode,
     StackNode,
     TextureNode,
@@ -58,8 +58,8 @@ export function getChildren(node: Node<WgslType>): Node<WgslType>[] {
             return n.args;
         }
 
-        case 'raw': {
-            const n = node as RawNode<WgslType>;
+        case 'wgsl': {
+            const n = node as WgslNode<WgslType>;
             return n.deps;
         }
 

@@ -456,6 +456,14 @@ const CSS = `
 	display: flex;
 	flex-direction: column;
 	min-height: 0;
+	position: relative;
+}
+
+.detached-tab-content .profiler-content {
+	position: relative;
+	top: auto; left: auto; right: auto; bottom: auto;
+	flex: 1;
+	min-height: 0;
 }
 
 /* Detached resizer handles */

@@ -17,8 +17,8 @@
 import { Tab } from '../ui/tab';
 import { List } from '../ui/list';
 import { Item } from '../ui/item';
-import { type Node, type WgslType, RawNode, VaryingNode, builtin } from '../../nodes/nodes';
-import { raw } from '../../nodes/nodes';
+import { type Node, type WgslType, VaryingNode, builtin } from '../../nodes/nodes';
+import { wgsl } from '../../nodes/nodes';
 import * as d from '../../nodes/schema';
 import type { Inspector } from '../inspector';
 import { CanvasTarget } from '../../renderer/canvas-target';
@@ -167,11 +167,7 @@ export class Viewer extends Tab {
  */
 export function makeFullscreenPositionNode(): Node<'vec4f'> {
     const vi = builtin('vertex_index', 'u32');
-    return raw(
-        d.vec4f,
-        'vec4f(f32(($0 & 1u) * 2u) * 2.0 - 1.0, f32($0 & 2u) * 2.0 - 1.0, 0.0, 1.0)',
-        vi,
-    );
+    return wgsl(d.vec4f)`vec4f(f32((${ vi } & 1u) * 2u) * 2.0 - 1.0, f32(${ vi } & 2u) * 2.0 - 1.0, 0.0, 1.0)`;
 }
 
 /**
@@ -180,16 +176,7 @@ export function makeFullscreenPositionNode(): Node<'vec4f'> {
  */
 export function makeFullscreenUVVarying(): VaryingNode<'vec2f'> {
     const vi = builtin('vertex_index', 'u32');
-    const uvSource = raw(
-        d.vec2f,
-        [
-            'vec2f(',
-            '  (f32(($0 & 1u) * 2u) * 2.0 - 1.0) * 0.5 + 0.5,',
-            '  0.5 - (f32($0 & 2u) * 2.0 - 1.0) * 0.5',
-            ')',
-        ].join(' '),
-        vi,
-    );
+    const uvSource = wgsl(d.vec2f)`vec2f((f32((${ vi } & 1u) * 2u) * 2.0 - 1.0) * 0.5 + 0.5, 0.5 - (f32(${ vi } & 2u) * 2.0 - 1.0) * 0.5)`;
     return new VaryingNode('vec2f', 'uv', uvSource);
 }
 
@@ -209,9 +196,9 @@ export function makePreviewMaterial(node: Node<WgslType>, format: GPUTextureForm
     const uvVarying = makeFullscreenUVVarying();
 
     // vec4f(node.xyz, 1.0) — clamp to opaque vec4 regardless of source type
-    const clamped = raw(d.vec4f, 'vec4f(($0).xyz, 1.0)', node);
+    const clamped = wgsl(d.vec4f)`vec4f((${ node }).xyz, 1.0)`;
     // Include UV varying in the graph so in.uv is available for texture sampling
-    const wrappedNode = new RawNode<'vec4f'>('vec4f', '$0', [clamped, uvVarying]);
+    const wrappedNode = wgsl(d.vec4f)`${ clamped }`.with(uvVarying);
 
     const material = new Material({
         vertex: posNode,

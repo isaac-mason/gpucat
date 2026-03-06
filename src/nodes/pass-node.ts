@@ -206,7 +206,7 @@ export class PassNode extends Node<'vec4f'> {
 
     constructor(scope: 'color' | 'depth', scene: Scene, camera: Camera, options: PassNodeOptions = {}) {
         const pid = `_pass${_passCount++}`;
-        super(`passnode_${pid}`, 'raw', 'vec4f');
+        super(`passnode_${pid}`, 'wgsl', 'vec4f');
 
         this.scope = scope;
         this.scene = scene;

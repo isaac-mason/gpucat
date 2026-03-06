@@ -33,7 +33,7 @@ import {
 } from './bindgroups';
 import { Material } from '../material/material';
 import { Geometry } from '../geometry/geometry';
-import { raw, builtin, type Node, type WgslType, VaryingNode, RawNode, MRTNode } from '../nodes/nodes';
+import { wgsl, builtin, type Node, type WgslType, VaryingNode, MRTNode } from '../nodes/nodes';
 import * as d from '../nodes/schema';
 
 // New Three.js-aligned systems
@@ -45,16 +45,14 @@ import { createBindingsState, type BindingsState } from './bindings';
 import { createRenderObjectsState, getRenderObject, initRenderObject, initRenderObjectAsync, updateRenderObject, type RenderObjectsState } from './render-objects';
 import { createRenderListsState, collectRenderList, type RenderListsState } from './render-lists';
 import type { RenderItem } from './render-list';
-import type { NodeBuilderState } from './node-builder-state';
 
 import { ComputeNode } from '../nodes/nodes';
-import type { CompileResult, UpdateBeforeNode, UpdateAfterNode, UpdateNode, UniformGroupBlock } from '../nodes/compile';
+import type { UpdateBeforeNode, UpdateAfterNode, UpdateNode, UniformGroupBlock } from '../nodes/compile';
 import type { RenderFrame, RenderUpdateContext, ObjectUpdateContext } from './render-frame';
 import { Scene } from '../scene/scene';
 import { Camera } from '../camera/camera';
 import { InspectorBase } from '../inspector/inspector-base';
 import type { RenderTarget } from './render-target';
-import { Texture } from '../texture/texture';
 import { GPUFeatureName } from './gpu-constants';
 import { CanvasTarget } from './canvas-target';
 
@@ -645,9 +643,8 @@ export class WebGPURenderer {
 
             const nodeState = renderObject.nodeBuilderState;
             if (nodeState) {
-                // Ensure textures are uploaded BEFORE building bind groups
-                // (bind groups reference GPU textures/samplers which must exist first)
-                this._ensureTexturesUploaded(nodeState);
+                // Note: Texture upload is now handled by the Bindings system (Three.js aligned)
+                // See bindings.ts rebuildBindGroups() - it calls updateTexture/getSampler
 
                 // Upload storage buffers
                 for (const s of nodeState.storage) {
@@ -874,9 +871,8 @@ export class WebGPURenderer {
         // Step 3: Update RenderObject uniforms and bindings
         // ---------------------------------------------------------------------
 
-        // Ensure textures are uploaded BEFORE updating bindings
-        // (bind groups reference GPU textures/samplers which must exist first)
-        this._ensureTexturesUploaded(nodeState);
+        // Note: Texture upload is now handled by the Bindings system (Three.js aligned)
+        // See bindings.ts rebuildBindGroups() - it calls updateTexture/getSampler
 
         updateRenderObject(
             this._renderObjects,
@@ -1244,9 +1240,8 @@ export class WebGPURenderer {
                 const nodeState = renderObject.nodeBuilderState;
                 if (!nodeState) continue;
 
-                // Ensure textures are uploaded BEFORE updating bindings
-                // (bind groups reference GPU textures/samplers which must exist first)
-                this._ensureTexturesUploaded(nodeState);
+                // Note: Texture upload is now handled by the Bindings system (Three.js aligned)
+                // See bindings.ts rebuildBindGroups() - it calls updateTexture/getSampler
 
                 // Update RenderObject (uniforms, bind groups)
                 updateRenderObject(
@@ -1574,53 +1569,12 @@ export class WebGPURenderer {
         const uvVarying = _makeFullscreenUVVarying();
 
         // Wrap outputNode so the UV varying is reachable from the color graph.
-        const colorNode = new RawNode<'vec4f'>('vec4f', '$0', [outputNode, uvVarying]);
+        const colorNode = wgsl(d.vec4f)`${ outputNode }`.with(uvVarying);
         const mat = new Material({ vertex: posNode, fragment: colorNode, depthWrite: false, depthTest: false });
         const pipelineKey = pipelines.makeRenderPipelineKey(mat, samples, format, depthFormat);
         const result = { mat, pipelineKey };
         this._outputMaterialCache.set(cacheKey, result);
         return result;
-    }
-
-    /**
-     * Ensure all textures referenced by a CompileResult have their GPU resources created.
-     * Three.js aligned: pre-creates GPUTexture and GPUSampler for all texture nodes.
-     *
-     * For RenderTargetTexture/DepthTexture: handled by the RenderTarget system.
-     * For user Textures: uploads image data to GPU via TextureCache.
-     *
-     * @param cr The CompileResult or NodeBuilderState containing texture references
-     */
-    private _ensureTexturesUploaded(cr: CompileResult | NodeBuilderState): void {
-        for (const t of cr.textures) {
-            const textureNode = t.node;
-            const value = textureNode.value;
-
-            if (value === null) {
-                // Resource must be set directly - nothing to pre-upload
-                continue;
-            }
-
-            // Check if it's a RenderTargetTexture or DepthTexture
-            // Note: Check the actual value, not just property existence, since Texture has isRenderTargetTexture = false
-            const isRT = 'isRenderTargetTexture' in value && (value as { isRenderTargetTexture?: boolean }).isRenderTargetTexture === true;
-            const isDT = 'isDepthTexture' in value && (value as { isDepthTexture?: boolean }).isDepthTexture === true;
-            if (isRT || isDT) {
-                // These are handled by the RenderTarget system - their gpuTexture/gpuSampler
-                // are created when the RenderTarget is allocated. We can't pre-warm these
-                // here because we need the RenderTarget reference.
-                continue;
-            }
-
-            // It's a user Texture with image data - upload via texture cache
-            const texture = value as Texture;
-            const data = textures.updateTexture(this.textures, texture);
-            const sampler = textures.getSampler(this.textures, texture);
-
-            // Update the node with GPU resources
-            textureNode.resource = data.texture;
-            textureNode.gpuSampler = sampler;
-        }
     }
 
 }
@@ -1640,13 +1594,7 @@ export class WebGPURenderer {
  */
 function _makeFullscreenPositionNode(): Node<'vec4f'> {
     const vi = builtin('vertex_index', 'u32');
-    // Inline: vec4f(f32((vi & 1u) * 2u) * 2.0 - 1.0,  f32(vi & 2u) * 2.0 - 1.0,  0.0, 1.0)
-    // Using raw with $0 substituted for vertex_index — single expression, no let needed.
-    return raw(
-        d.vec4f,
-        'vec4f(f32(($0 & 1u) * 2u) * 2.0 - 1.0, f32($0 & 2u) * 2.0 - 1.0, 0.0, 1.0)',
-        vi,
-    );
+    return wgsl(d.vec4f)`vec4f(f32((${ vi } & 1u) * 2u) * 2.0 - 1.0, f32(${ vi } & 2u) * 2.0 - 1.0, 0.0, 1.0)`;
 }
 
 /**
@@ -1659,19 +1607,7 @@ function _makeFullscreenPositionNode(): Node<'vec4f'> {
  */
 function _makeFullscreenUVVarying(): VaryingNode<'vec2f'> {
     const vi = builtin('vertex_index', 'u32');
-    // cx = f32((vi & 1u) * 2u) * 2.0 - 1.0
-    // cy = f32(vi & 2u) * 2.0 - 1.0
-    // uv = vec2f(cx * 0.5 + 0.5, 0.5 - cy * 0.5)
-    const uvSource = raw(
-        d.vec2f,
-        [
-            'vec2f(',
-            '  (f32(($0 & 1u) * 2u) * 2.0 - 1.0) * 0.5 + 0.5,',
-            '  0.5 - (f32($0 & 2u) * 2.0 - 1.0) * 0.5',
-            ')',
-        ].join(' '),
-        vi,
-    );
+    const uvSource = wgsl(d.vec2f)`vec2f((f32((${ vi } & 1u) * 2u) * 2.0 - 1.0) * 0.5 + 0.5, 0.5 - (f32(${ vi } & 2u) * 2.0 - 1.0) * 0.5)`;
     return new VaryingNode('vec2f', 'uv', uvSource);
 }
 

@@ -149,7 +149,7 @@ export type NodeKind =
     | 'varying'
     | 'binop'
     | 'call'
-    | 'raw'
+    | 'wgsl'
     | 'assign'
     | 'construct'
     | 'struct'
@@ -1044,13 +1044,22 @@ export class CallNode<T extends WgslType> extends Node<T> {
     }
 }
 
-export class RawNode<T extends WgslType> extends Node<T> {
+export class WgslNode<T extends WgslType> extends Node<T> {
     constructor(
         type: T,
         readonly wgsl: string,
         readonly deps: Node<WgslType>[],
     ) {
-        super(computeId('raw', { type, wgsl, deps: deps.map((n) => n.id) }), 'raw', type);
+        super(computeId('wgsl', { type, wgsl, deps: deps.map((n) => n.id) }), 'wgsl', type);
+    }
+
+    /**
+     * Returns a new WgslNode with additional unreferenced deps appended.
+     * Useful for pulling nodes into the graph (e.g. varyings) without
+     * emitting them in the WGSL expression string.
+     */
+    with(...extra: Node<WgslType>[]): WgslNode<T> {
+        return new WgslNode<T>(this.type as T, this.wgsl, [...this.deps, ...extra]);
     }
 }
 
@@ -1875,7 +1884,11 @@ export const sampler = (value: TextureNode): ConvertNode => value.convert('sampl
 export const samplerComparison = (value: TextureNode): ConvertNode => value.convert('sampler_comparison');
 
 export const varying = <T extends WgslType>(type: WgslDesc<T>, name: string, source: Node<WgslType>) => new VaryingNode<T>(type.wgslType as T, name, source);
-export const raw = <T extends WgslType>(type: WgslDesc<T>, wgsl: string, ...deps: Node<WgslType>[]) => new RawNode(type.wgslType as T, wgsl, deps);
+export const wgsl = <T extends WgslType>(type: WgslDesc<T>) =>
+    (strings: TemplateStringsArray, ...deps: Node<WgslType>[]): WgslNode<T> => {
+        const wgslStr = String.raw({ raw: strings }, ...deps.map((_, i) => `$${i}`));
+        return new WgslNode(type.wgslType as T, wgslStr, deps);
+    };
 export const stack = (...body: Node<WgslType>[]) => new StackNode(body);
 export const cond = <T extends WgslType>(condition: Node<WgslType>, ifTrue: Node<T>, ifFalse?: Node<T>) =>
     new CondNode(condition, ifTrue, ifFalse);

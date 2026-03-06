@@ -120,12 +120,16 @@ export function uploadIndex(cache: BufferCache, attr: IndexAttribute): GPUBuffer
 export function uploadRaw(cache: BufferCache, key: object, data: GpuTypedArray, usage: GPUBufferUsageFlags): GPUBuffer {
     let buf = cache.rawMap.get(key);
     const byteLength = alignTo4(data.byteLength);
+    const isNew = !buf;
 
     if (!buf || buf.size < byteLength) {
         buf?.destroy();
         buf = cache.device.createBuffer({ size: byteLength, usage });
         cache.rawMap.set(key, buf);
-        cache.rawCount++;
+        // Only increment count for genuinely new buffers, not resizes
+        if (isNew) {
+            cache.rawCount++;
+        }
     }
 
     cache.device.queue.writeBuffer(buf, 0, data.buffer as ArrayBuffer, data.byteOffset, data.byteLength);
@@ -147,11 +151,14 @@ export function getRaw(cache: BufferCache, key: object): GPUBuffer | undefined {
 export function ensureRaw(cache: BufferCache, key: object, byteLength: number, usage: GPUBufferUsageFlags): GPUBuffer {
     let buf = cache.rawMap.get(key);
     const aligned = alignTo4(byteLength);
+    const isNew = !buf;
 
     if (!buf || buf.size < aligned) {
         buf?.destroy();
         buf = cache.device.createBuffer({ size: aligned, usage });
         cache.rawMap.set(key, buf);
+        // Only increment count for genuinely new buffers, not resizes
+        if (isNew) cache.rawCount++;
     }
 
     return buf;

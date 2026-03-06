@@ -3,12 +3,14 @@
  *
  * Aligned with Three.js NodeBuilderState concept:
  * - Holds all compiled shader code and metadata
- * - Owned by RenderObject
+ * - Shared across RenderObjects with same material/shader config
  * - Caches binding metadata, attributes, update nodes
+ * - Template BindGroups that are cloned per-RenderObject via createBindings()
  *
- * This is essentially a subset/alias of CompileResult that's owned per-RenderObject.
- * The actual CompileResult is created by the compiler; NodeBuilderState extracts
- * what's needed for rendering.
+ * Key Three.js pattern:
+ * - NodeBuilderState.bindings holds template BindGroups
+ * - createBindings() clones non-shared groups (per-object), reuses shared groups
+ * - This allows shared uniform buffers (camera, time) across all RenderObjects
  */
 
 import type {
@@ -23,6 +25,12 @@ import type {
     UpdateNode,
 } from '../nodes/compile';
 import type { Node, WgslType } from '../nodes/nodes';
+import {
+    type BindGroup,
+    createUniformBindGroup,
+    createResourceBindGroup,
+    cloneBindGroup,
+} from './bind-group';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -35,6 +43,11 @@ import type { Node, WgslType } from '../nodes/nodes';
  * - Create render pipelines (shader code, attributes)
  * - Create bind groups (uniform groups, storage, textures, samplers)
  * - Run per-frame updates (update nodes)
+ *
+ * Three.js pattern:
+ * - `bindings` array holds template BindGroups
+ * - Shared groups (camera, time) are reused across all RenderObjects
+ * - Non-shared groups (object uniforms) are cloned per-RenderObject
  */
 export type NodeBuilderState = {
     // -------------------------------------------------------------------------
@@ -52,7 +65,7 @@ export type NodeBuilderState = {
     attributes: AttributeEntry[];
 
     // -------------------------------------------------------------------------
-    // Binding Metadata
+    // Binding Metadata (raw compile output - kept for compatibility)
     // -------------------------------------------------------------------------
 
     /** Uniform groups (render group @0, object group @1). */
@@ -66,6 +79,17 @@ export type NodeBuilderState = {
 
     /** Sampler bindings. */
     samplers: SamplerEntry[];
+
+    // -------------------------------------------------------------------------
+    // Template BindGroups (Three.js aligned)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Template BindGroups for this shader.
+     * These are cloned per-RenderObject via createBindings() for non-shared groups.
+     * Shared groups (render/camera) are reused directly.
+     */
+    bindings: BindGroup[];
 
     // -------------------------------------------------------------------------
     // Update Nodes
@@ -107,6 +131,9 @@ export type NodeBuilderState = {
 /**
  * Create a NodeBuilderState from a CompileResult.
  *
+ * This builds the template BindGroups from the compile result.
+ * Template groups are later cloned (non-shared) or reused (shared) via createBindings().
+ *
  * @param compileResult - The compiler output
  * @param cacheKey - Pipeline cache key
  */
@@ -114,6 +141,14 @@ export function createNodeBuilderState(
     compileResult: CompileResult,
     cacheKey: string,
 ): NodeBuilderState {
+    // Build template BindGroups from compile result
+    const bindings = buildTemplateBindGroups(
+        compileResult.uniformGroups,
+        compileResult.storage,
+        compileResult.textures,
+        compileResult.samplers,
+    );
+
     return {
         code: compileResult.code,
         attributes: compileResult.attributes,
@@ -121,6 +156,7 @@ export function createNodeBuilderState(
         storage: compileResult.storage,
         textures: compileResult.textures,
         samplers: compileResult.samplers,
+        bindings,
         updateBeforeNodes: compileResult.updateBeforeNodes,
         updateAfterNodes: compileResult.updateAfterNodes,
         updateNodes: compileResult.updateNodes,
@@ -128,6 +164,112 @@ export function createNodeBuilderState(
         cacheKey,
         isNodeBuilderState: true,
     };
+}
+
+/**
+ * Build template BindGroups from compile result.
+ *
+ * Creates one BindGroup per @group(N) index. Each group contains:
+ * - Uniform buffer (if present)
+ * - Storage buffers (if present)
+ * - Textures (if present)
+ * - Samplers (if present)
+ *
+ * The `shared` flag is taken from the uniform group (if present),
+ * otherwise defaults to false (per-object).
+ */
+function buildTemplateBindGroups(
+    uniformGroups: UniformGroupBlock[],
+    storage: StorageEntry[],
+    textures: TextureEntry[],
+    samplers: SamplerEntry[],
+): BindGroup[] {
+    // Collect all group indices
+    const groupIndices = new Set<number>();
+    for (const ug of uniformGroups) {
+        if (ug.members.length > 0) groupIndices.add(ug.groupIndex);
+    }
+    for (const s of storage) groupIndices.add(s.group);
+    for (const t of textures) groupIndices.add(t.group);
+    for (const s of samplers) groupIndices.add(s.group);
+
+    // Build BindGroup for each index
+    const bindGroups: BindGroup[] = [];
+    const sortedIndices = [...groupIndices].sort((a, b) => a - b);
+
+    for (const groupIdx of sortedIndices) {
+        // Find uniform group for this index
+        const uniformGroup = uniformGroups.find((g) => g.groupIndex === groupIdx && g.members.length > 0);
+
+        // Collect resources for this group
+        const groupStorage = storage.filter((s) => s.group === groupIdx);
+        const groupTextures = textures.filter((t) => t.group === groupIdx);
+        const groupSamplers = samplers.filter((s) => s.group === groupIdx);
+
+        // Determine shared flag (from uniform group if present, otherwise false)
+        const shared = uniformGroup?.shared ?? false;
+
+        if (uniformGroup && groupStorage.length === 0 && groupTextures.length === 0 && groupSamplers.length === 0) {
+            // Uniform-only group
+            bindGroups.push(createUniformBindGroup(uniformGroup));
+        } else if (uniformGroup) {
+            // Mixed group: uniform + other resources
+            // Create a combined bind group
+            const bindGroup = createUniformBindGroup(uniformGroup);
+            // Add storage/texture/sampler bindings
+            for (const s of groupStorage) {
+                bindGroup.bindings.push({ kind: 'storage', entry: s });
+            }
+            for (const t of groupTextures) {
+                bindGroup.bindings.push({ kind: 'texture', entry: t, generation: 0, lastGpuTexture: null });
+            }
+            for (const s of groupSamplers) {
+                bindGroup.bindings.push({ kind: 'sampler', entry: s, samplerKey: null });
+            }
+            bindGroups.push(bindGroup);
+        } else {
+            // Resource-only group (no uniform)
+            bindGroups.push(createResourceBindGroup(
+                `group${groupIdx}`,
+                groupIdx,
+                shared,
+                groupStorage,
+                groupTextures,
+                groupSamplers,
+            ));
+        }
+    }
+
+    return bindGroups;
+}
+
+/**
+ * Create bindings for a RenderObject from a NodeBuilderState.
+ *
+ * Three.js pattern (NodeBuilderState.createBindings):
+ * - Shared groups are reused directly (same BindGroup instance)
+ * - Non-shared groups are cloned (new BindGroup instance per RenderObject)
+ *
+ * This is the key to efficient uniform buffer sharing - camera/time buffers
+ * are shared across all RenderObjects, while object uniforms get their own.
+ *
+ * @param state - The NodeBuilderState (template)
+ * @returns Array of BindGroups for this RenderObject
+ */
+export function createBindings(state: NodeBuilderState): BindGroup[] {
+    const bindings: BindGroup[] = [];
+
+    for (const templateGroup of state.bindings) {
+        if (templateGroup.shared) {
+            // Shared: reuse the same BindGroup instance
+            bindings.push(templateGroup);
+        } else {
+            // Non-shared: clone the BindGroup
+            bindings.push(cloneBindGroup(templateGroup));
+        }
+    }
+
+    return bindings;
 }
 
 // ---------------------------------------------------------------------------

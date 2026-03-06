@@ -56,7 +56,7 @@ import {
     type Node,
     type ParamDesc,
     type ParamNode,
-    type RawNode,
+    type WgslNode,
     type ReturnNode,
     type StorageNode,
     type StructNode,
@@ -405,7 +405,7 @@ type NodeOf<K extends NodeKind> =
     K extends 'varying'                  ? VaryingNode<WgslType>                  :
     K extends 'binop'                    ? BinopNode<WgslType>                    :
     K extends 'call'                     ? CallNode<WgslType>                     :
-    K extends 'raw'                      ? RawNode<WgslType>                      :
+    K extends 'wgsl'                      ? WgslNode<WgslType>                      :
     K extends 'assign'                   ? Node<WgslType>                         :
     K extends 'construct'                ? Node<WgslType>                         :
     K extends 'struct'                   ? StructNode                             :
@@ -1990,16 +1990,12 @@ const compilerDefs: Record<NodeKind, NodeCompilerDef> = {
             return `${node.fn}(${argExprs.join(', ')})`;
         },
     },
-    raw: {
+    wgsl: {
         isStatement: false, isLeaf: false,
         setup: null,
-        generate: (node: RawNode<WgslType>, state: CompilerState) => {
-            const depExprs = node.deps.map((d) => generateNode(state, d) ?? '/* missing */');
-            return node.wgsl.replace(/\$(\d+)(?:_(\w+))?/g, (_, idx, suffix) => {
-                const dep = depExprs[parseInt(idx, 10)];
-                if (!dep) return `/* dep${idx}${suffix ? '_' + suffix : ''} */`;
-                return suffix ? `${dep}_${suffix}` : dep;
-            });
+        generate: (node: WgslNode<WgslType>, state: CompilerState) => {
+            const depExprs = node.deps.map((d: Node<WgslType>) => generateNode(state, d) ?? '/* missing */');
+            return node.wgsl.replace(/\$(\d+)/g, (_: string, idx: string) => depExprs[parseInt(idx, 10)] ?? `/* dep${idx} */`);
         },
     },
     assign: {

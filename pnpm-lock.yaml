@@ -10,7 +10,7 @@ importers:
     dependencies:
       mathcat:
         specifier: 0.0.11
-        version: 0.0.11
+        version: link:../mathcat
     devDependencies:
       '@biomejs/biome':
         specifier: ^2.4.6
@@ -2027,10 +2027,6 @@ packages:
     transitivePeerDependencies:
       - supports-color
     dev: true
-
-  /mathcat@0.0.11:
-    resolution: {integrity: sha512-HIGDmqrjy6KE4LRH9uGLdYoVl+69idwtE5OjHILnNB4IL4RE2aVNagjLAWFKWH5xlcxNH9i+AoBgRKR4VdsyFw==}
-    dev: false
 
   /mdn-data@2.27.1:
     resolution: {integrity: sha512-9Yubnt3e8A0OKwxYSXyhLymGW4sCufcLG6VdiDdUGVkPhpqLxlvP5vl1983gQjJl3tqbrM731mjaZaP68AgosQ==}
