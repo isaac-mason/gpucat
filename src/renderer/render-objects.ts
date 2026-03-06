@@ -358,13 +358,11 @@ function createPipelineForRenderObject(
     });
     shaderModule.getCompilationInfo().then((info) => {
         for (const msg of info.messages) {
-            console.warn(`[gpucat shader ${msg.type}] line ${msg.lineNum}: ${msg.message}`);
+            if (msg.type === 'error') {
+                console.error(`[gpucat shader error] line ${msg.lineNum}: ${msg.message}\n${shaderCode}`);
+            }
         }
     });
-    if (!(globalThis as any).__gpucatShaderLogged) {
-        (globalThis as any).__gpucatShaderLogged = true;
-        console.log('[gpucat] compiled WGSL:\n' + shaderCode);
-    }
 
     // Build color targets (supports MRT)
     const targetCount = getTargetCount(material.fragmentNode);

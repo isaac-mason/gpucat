@@ -181,8 +181,70 @@ export function makeFullscreenUVVarying(): VaryingNode<'vec2f'> {
 }
 
 /**
+ * Convert any node to a vec4f suitable for fullscreen preview display.
+ *
+ * Dispatch table:
+ *   scalar (f32/i32/u32/bool)  → vec4f(f32(v), f32(v), f32(v), 1.0)   grayscale
+ *   vec2f                       → vec4f(v.x, v.y, 0.0, 1.0)
+ *   vec2i / vec2u               → vec4f(f32(v.x), f32(v.y), 0.0, 1.0)
+ *   vec3f                       → vec4f(v.xyz, 1.0)
+ *   vec3i / vec3u               → vec4f(f32(v.x), f32(v.y), f32(v.z), 1.0)
+ *   vec4f                       → vec4f(v.xyz, 1.0)    (drop user alpha)
+ *   vec4i / vec4u               → vec4f(f32(v.x), f32(v.y), f32(v.z), 1.0)
+ *   mat*                        → vec4f scalar from first element
+ *   texture / sampler / other   → textureSample evaluates to vec4f; take .xyz
+ */
+function nodeToVec4f(node: Node<WgslType>): Node<'vec4f'> {
+    const t = node.type;
+
+    // ---- scalars ----
+    if (t === 'f32') {
+        return wgsl(d.vec4f)`vec4f(${ node }, ${ node }, ${ node }, 1.0)`;
+    }
+    if (t === 'i32' || t === 'u32' || t === 'bool') {
+        return wgsl(d.vec4f)`vec4f(f32(${ node }), f32(${ node }), f32(${ node }), 1.0)`;
+    }
+
+    // ---- vec2 ----
+    if (t === 'vec2f') {
+        return wgsl(d.vec4f)`vec4f((${ node }).x, (${ node }).y, 0.0, 1.0)`;
+    }
+    if (t === 'vec2i' || t === 'vec2u') {
+        return wgsl(d.vec4f)`vec4f(f32((${ node }).x), f32((${ node }).y), 0.0, 1.0)`;
+    }
+
+    // ---- vec3 ----
+    if (t === 'vec3f') {
+        return wgsl(d.vec4f)`vec4f((${ node }).xyz, 1.0)`;
+    }
+    if (t === 'vec3i' || t === 'vec3u') {
+        return wgsl(d.vec4f)`vec4f(f32((${ node }).x), f32((${ node }).y), f32((${ node }).z), 1.0)`;
+    }
+
+    // ---- vec4 ----
+    if (t === 'vec4f') {
+        return wgsl(d.vec4f)`vec4f((${ node }).xyz, 1.0)`;
+    }
+    if (t === 'vec4i' || t === 'vec4u') {
+        return wgsl(d.vec4f)`vec4f(f32((${ node }).x), f32((${ node }).y), f32((${ node }).z), 1.0)`;
+    }
+
+    // ---- matrices — show first column as RGB ----
+    if (t.startsWith('mat')) {
+        // mat NxM f: first element is a scalar representative
+        return wgsl(d.vec4f)`vec4f(f32((${ node })[0][0]), f32((${ node })[0][1]), f32((${ node })[0][2]), 1.0)`;
+    }
+
+    // ---- texture / sampler / unknown — assume textureSample gives vec4f ----
+    // The node itself generates a textureSample(...) call that returns vec4f,
+    // so (node).xyz is valid here.
+    return wgsl(d.vec4f)`vec4f((${ node }).xyz, 1.0)`;
+}
+
+/**
  * Build the wrapped output node and material for a preview canvas.
- * Wraps the inspectable node as vec4f(node.xyz, 1.0) and builds a fullscreen Material.
+ * Type-dispatches the inspectable node to a valid vec4f expression so that
+ * all node types (scalar, vec2, vec3, vec4, texture) render correctly.
  * The UV varying is included in the graph so textureSample(…, in.uv) works.
  *
  * Three.js aligned: mirrors the node wrapping in Inspector.getCanvasDataByNode()
@@ -195,8 +257,8 @@ export function makePreviewMaterial(node: Node<WgslType>, format: GPUTextureForm
     const posNode = makeFullscreenPositionNode();
     const uvVarying = makeFullscreenUVVarying();
 
-    // vec4f(node.xyz, 1.0) — clamp to opaque vec4 regardless of source type
-    const clamped = wgsl(d.vec4f)`vec4f((${ node }).xyz, 1.0)`;
+    // Convert node to vec4f, handling all WGSL types correctly
+    const clamped = nodeToVec4f(node);
     // Include UV varying in the graph so in.uv is available for texture sampling
     const wrappedNode = wgsl(d.vec4f)`${ clamped }`.with(uvVarying);
 

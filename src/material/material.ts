@@ -169,6 +169,23 @@ export class Material {
     }
 
     /**
+     * Incremented whenever the material's node graph configuration changes in a
+     * way that requires a shader recompile.  The renderer includes this in the
+     * RenderObject cache key so that bumping it triggers recompilation on the
+     * next frame.  Three.js aligned: mirrors Texture.version / Material.version.
+     */
+    version: number = 0;
+
+    /**
+     * Setting needsUpdate = true increments version, which causes the renderer
+     * to recompile the material's shader on the next frame.
+     * Three.js aligned: mirrors Material.needsUpdate setter.
+     */
+    set needsUpdate(value: boolean) {
+        if (value === true) this.version++;
+    }
+
+    /**
      * Set to true after dispose() is called.
      * The renderer checks this flag to skip rendering and clean up GPU resources.
      */

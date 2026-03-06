@@ -347,6 +347,7 @@ export function computeRenderObjectCacheKey(
     parts.push(material.depthCompare);
     parts.push(material.cullMode);
     parts.push(material.alphaToCoverage ? 'a' : '');
+    parts.push(`v${material.version}`);
 
     // Blend state (if present)
     if (material.blend) {

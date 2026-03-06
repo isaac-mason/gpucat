@@ -104,6 +104,49 @@ export function extractProbeVar(line: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// Type inference helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract the first comma-separated argument from a string that begins
+ * immediately after the opening paren of a function call.
+ * Tracks paren/bracket/angle depth so nested calls are handled correctly.
+ *
+ * e.g. `extractFirstArg("vec3f(1,2,3), 0.0, 1.0)")` → `"vec3f(1,2,3)"`
+ */
+function extractFirstArg(s: string): string | null {
+    let depth = 0;
+    for (let i = 0; i < s.length; i++) {
+        const ch = s[i];
+        if (ch === '(' || ch === '[' || ch === '<') { depth++; continue; }
+        if (ch === ')' || ch === ']' || ch === '>') {
+            if (depth === 0) return s.slice(0, i).trim() || null;
+            depth--;
+            continue;
+        }
+        if (ch === ',' && depth === 0) return s.slice(0, i).trim() || null;
+    }
+    return s.trim() || null;
+}
+
+/**
+ * Remove one layer of balanced outer parentheses if they wrap the whole string.
+ * `((a + b))` → `(a + b)` → caller will recurse again.
+ */
+function stripOuterParens(s: string): string {
+    if (!s.startsWith('(') || !s.endsWith(')')) return s;
+    let depth = 0;
+    for (let i = 0; i < s.length; i++) {
+        if (s[i] === '(') depth++;
+        else if (s[i] === ')') {
+            depth--;
+            if (depth === 0 && i < s.length - 1) return s; // closing paren is not the last char
+        }
+    }
+    return s.slice(1, -1).trim();
+}
+
+// ---------------------------------------------------------------------------
 // Type inference — figure out WGSL component type from an expression
 // ---------------------------------------------------------------------------
 
@@ -131,18 +174,30 @@ function inferType(expr: string, fullBody: string, varDecls: Map<string, string>
     // texture* functions always return vec4f
     if (/^texture(Sample|Load|Fetch)\b/.test(e)) return 'vec4f';
 
-    // Builtins that always return f32 (scalar)
-    if (/^(dot|length|distance|determinant|abs|acos|asin|atan|atan2|ceil|cos|degrees|exp|exp2|floor|fract|inverseSqrt|log|log2|max|min|pow|radians|round|sign|sin|sqrt|step|tan|trunc|fma|modf)\s*\(/.test(e)) return 'f32';
+    // Strictly scalar builtins (always return f32 regardless of arg types)
+    if (/^(dot|length|distance|determinant)\s*\(/.test(e)) return 'f32';
 
     // Builtins that return a bool
     if (/^(any|all)\s*\(/.test(e)) return 'bool';
 
-    // Builtins that return a vec* — propagate from first argument type if possible
-    // normalize/reflect/refract/cross return same type as their first arg; mix/clamp too.
-    // For now just flag the common vec3 builtins as vec3f (best-effort).
-    if (/^(normalize|reflect|refract|cross)\s*\(/.test(e)) return 'vec3f';
+    // Builtins that return same type as their first argument (polymorphic).
+    // We recurse into the first argument to propagate the type properly.
+    const polyMatch = e.match(/^(abs|acos|asin|atan|atan2|ceil|clamp|cos|degrees|exp|exp2|floor|fract|inverseSqrt|log|log2|max|min|mix|modf|normalize|pow|radians|reflect|refract|cross|round|select|sign|sin|smoothstep|sqrt|step|tan|trunc|fma)\s*\(/);
+    if (polyMatch) {
+        const afterParen = e.slice(polyMatch[0].length);
+        const firstArg = extractFirstArg(afterParen);
+        if (firstArg) {
+            const inner = inferType(firstArg, fullBody, varDecls);
+            if (inner !== 'unknown') return inner;
+        }
+    }
 
-    // Arithmetic on a known var — propagate its type
+    // Strip outer parentheses and retry (handles `((a * b) + c)` style exprs)
+    const stripped = stripOuterParens(e);
+    if (stripped !== e) return inferType(stripped, fullBody, varDecls);
+
+    // Arithmetic / compound expression — walk tokens to find a typed operand.
+    // The first word token that resolves via varDecls wins.
     const firstToken = e.match(/^(\w+)/)?.[1];
     if (firstToken && varDecls.has(firstToken)) {
         return normaliseType(varDecls.get(firstToken)!);
@@ -153,6 +208,17 @@ function inferType(expr: string, fullBody: string, varDecls: Map<string, string>
         const letRe = new RegExp(`\\blet\\s+${escapeRegex(e)}\\s*=\\s*((vec4[fi]?|vec3[fi]?|vec2[fi]?|vec4|vec3|vec2|f32|f16|i32|u32|bool)\\s*[(<])`);
         const m = fullBody.match(letRe);
         if (m) return normaliseType(m[2]);
+    }
+
+    // Scan expression for any vec constructor literal — catches `(a * vec3f(...) + b)` etc.
+    const vecInExpr = e.match(/\b(vec4[fi]?|vec3[fi]?|vec2[fi]?|vec4f|vec3f|vec2f|vec4|vec3|vec2)\s*\(/);
+    if (vecInExpr) return normaliseType(vecInExpr[1]);
+
+    // Scan expression for any var whose type we know
+    for (const [name, type] of varDecls) {
+        if (new RegExp(`\\b${escapeRegex(name)}\\b`).test(e)) {
+            return normaliseType(type);
+        }
     }
 
     return 'unknown';
@@ -176,15 +242,16 @@ function normaliseType(t: string): WgslVecKind {
 function coerceToVec4f(expr: string, kind: WgslVecKind): string {
     switch (kind) {
         case 'vec4f': return `(${expr})`;
-        case 'vec3f': return `vec4f((${expr}), 1.0)`;
-        case 'vec2f': return `vec4f((${expr}), 0.0, 1.0)`;
-        case 'f32':   return `vec4f(vec3f(${expr}), 1.0)`;
-        case 'i32':   return `vec4f(vec3f(f32(${expr})), 1.0)`;
-        case 'u32':   return `vec4f(vec3f(f32(${expr})), 1.0)`;
-        case 'bool':  return `vec4f(vec3f(f32(${expr})), 1.0)`;
-        // unknown — try vec4f cast; if the type is actually vec3/vec4 this works,
-        // if scalar this will fail but the error message will be clear.
-        default:      return `vec4f((${expr}), 1.0)`;
+        case 'vec3f': return `vec4f((${expr}), 1.0f)`;
+        case 'vec2f': return `vec4f((${expr}), 0.0f, 1.0f)`;
+        case 'f32':   return `vec4f(vec3f(${expr}), 1.0f)`;
+        case 'i32':   return `vec4f(vec3f(f32(${expr})), 1.0f)`;
+        case 'u32':   return `vec4f(vec3f(f32(${expr})), 1.0f)`;
+        case 'bool':  return `vec4f(vec3f(f32(${expr})), 1.0f)`;
+        // unknown — attempt a direct vec4f cast. Works if the expression is
+        // actually a vec4f. If it's vec3f the shader error will be clear.
+        // Explicit 1.0f avoids abstract-float overload ambiguity.
+        default:      return `vec4f((${expr}), 1.0f)`;
     }
 }
 

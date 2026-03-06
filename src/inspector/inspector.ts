@@ -72,17 +72,8 @@ export class Inspector extends RendererInspector {
     private _displayCycle: { text: DisplayCycleEntry; graph: DisplayCycleEntry };
     private _lastUpdateTime = 0;
 
-    /**
-     * Cache of CanvasData per inspectable node.
-     * Three.js aligned: mirrors Inspector.canvasNodes (Map<node, canvasData>).
-     */
+    /** Cache of CanvasData per inspectable node. */
     private _canvasNodes: Map<Node<WgslType>, CanvasData> = new Map();
-
-    /**
-     * Guard flag: true while the viewer is rendering preview frames.
-     * Prevents finish() → _processFrame() → resolveViewer() → render() → finish() infinite recursion.
-     */
-    private _isRenderingViewer = false;
 
     /** Active probe entry, if any. */
     private _activeProbe: ProbeEntry | null = null;
@@ -230,7 +221,6 @@ export class Inspector extends RendererInspector {
 
     override finish(frameId: number): void {
         super.finish(frameId);
-        if (this._isRenderingViewer) return;
         const record = this.resolveFrame();
         if (record) this._processFrame(record);
     }
@@ -414,19 +404,13 @@ export class Inspector extends RendererInspector {
 
     /**
      * Build canvasData for each inspectable node and call viewer.update().
-     * Three.js aligned: mirrors Inspector.resolveViewer().
      */
     resolveViewer(nodes: Node<WgslType>[]): void {
         const renderer = this.getRenderer();
         if (!renderer) return;
 
         const canvasDataList = nodes.map(node => this.getCanvasDataByNode(node));
-        this._isRenderingViewer = true;
-        try {
-            this.viewer.update(this, canvasDataList);
-        } finally {
-            this._isRenderingViewer = false;
-        }
+        this.viewer.update(this, canvasDataList);
     }
 
     /**

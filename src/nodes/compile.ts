@@ -33,13 +33,15 @@
  *   Group 0, binding 0, 1, … — storage buffers (declared order in ComputeNode.storage)
  */
 
+import type { RenderFrame } from '../renderer/render-frame';
+import { collectGraph, getChildren } from './collect';
+import type { ComputeNode, StructDef } from './nodes';
 import {
-    StackNode,
-    SamplerNode,
     type AssignNode,
     type AttributeNode,
     type BinopNode,
     type BreakNode,
+    type BufferAttributeNode,
     type BuiltinNode,
     type CallNode,
     type CondNode,
@@ -50,40 +52,38 @@ import {
     type FieldNode,
     type FnNode,
     type ForNode,
+    type ForRange,
     type IfNode,
     type IndexNode,
-    type BufferAttributeNode,
+    type InterpolationSampling,
+    type InterpolationType,
+    lookupStructDef,
+    lookupStructDefByName,
+    MRTNode,
     type Node,
+    type NodeKind,
+    type NodeUpdateType,
+    OutputStructNode,
     type ParamDesc,
     type ParamNode,
-    type WgslNode,
     type ReturnNode,
+    type SamplerNode,
+    type ScalarType,
+    type StackNode,
     type StorageNode,
     type StructNode,
     type TextureNode,
-    type UniformNode,
     type UniformGroupNode,
+    type UniformNode,
     type VarNode,
     type VaryingNode,
-    type WhileNode,
-    type WgslType,
-    type NodeKind,
-    type ScalarType,
-    type NodeUpdateType,
     type WgslFnNode,
-    OutputStructNode,
-    MRTNode,
-    lookupStructDef,
-    lookupStructDefByName,
-    type ForRange,
-    type InterpolationType,
-    type InterpolationSampling,
+    type WgslNode,
+    type WgslType,
+    type WhileNode,
 } from './nodes';
-import { collectGraph, getChildren } from './collect';
-import { type StructSchema } from './schema';
-import type { ComputeNode, StructDef } from './nodes';
-import type { RenderFrame } from '../renderer/render-frame';
 import { PassMultipleTextureNode } from './pass-node';
+import type { StructSchema } from './schema';
 
 // ---------------------------------------------------------------------------
 // Code-generation helpers
@@ -94,12 +94,18 @@ function constLiteral(type: string, value: number | number[] | string): string {
     if (typeof value === 'string') return value;
     if (typeof value === 'number') {
         switch (type) {
-            case 'f32': return Number.isInteger(value) ? `${value}.0` : `${value}`;
-            case 'f16': return Number.isInteger(value) ? `${value}.0h` : `${value}h`;
-            case 'i32': return `${Math.trunc(value)}i`;
-            case 'u32': return `${Math.trunc(value)}u`;
-            case 'bool': return value !== 0 ? 'true' : 'false';
-            default: return `${value}`;
+            case 'f32':
+                return Number.isInteger(value) ? `${value}.0` : `${value}`;
+            case 'f16':
+                return Number.isInteger(value) ? `${value}.0h` : `${value}h`;
+            case 'i32':
+                return `${Math.trunc(value)}i`;
+            case 'u32':
+                return `${Math.trunc(value)}u`;
+            case 'bool':
+                return value !== 0 ? 'true' : 'false';
+            default:
+                return `${value}`;
         }
     }
     const components = (value as number[]).map((v) => {
@@ -117,12 +123,7 @@ function constLiteral(type: string, value: number | number[] | string): string {
 }
 
 /** Helper for generating for-loop update snippets. */
-function buildUpdateSnippet(
-    update: ForRange['update'],
-    iName: string,
-    type: ScalarType,
-    defaultOp: '++' | '--',
-): string {
+function buildUpdateSnippet(update: ForRange['update'], iName: string, type: ScalarType, defaultOp: '++' | '--'): string {
     if (update === undefined || update === null) return `${iName}${defaultOp}`;
     if (typeof update === 'number') {
         const delta = constLiteral(type, Math.abs(update));
@@ -140,12 +141,18 @@ function buildForHeader(
 ): string {
     const type: ScalarType = range.type ?? 'u32';
 
-    const rawStart = range.start !== undefined
-        ? (typeof range.start === 'number' ? constLiteral(type, range.start) : getScalarExpr(range.start, type))
-        : undefined;
-    const rawEnd = range.end !== undefined
-        ? (typeof range.end === 'number' ? constLiteral(type, range.end) : getScalarExpr(range.end, type))
-        : undefined;
+    const rawStart =
+        range.start !== undefined
+            ? typeof range.start === 'number'
+                ? constLiteral(type, range.start)
+                : getScalarExpr(range.start, type)
+            : undefined;
+    const rawEnd =
+        range.end !== undefined
+            ? typeof range.end === 'number'
+                ? constLiteral(type, range.end)
+                : getScalarExpr(range.end, type)
+            : undefined;
 
     let startSnippet: string;
     let endSnippet: string;
@@ -167,7 +174,7 @@ function buildForHeader(
         } else {
             const numStart = typeof range.start === 'number' ? range.start : 0;
             const numEnd = typeof range.end === 'number' ? range.end : undefined;
-            condition = (numEnd !== undefined && numStart > numEnd) ? '>=' : '<';
+            condition = numEnd !== undefined && numStart > numEnd ? '>=' : '<';
         }
 
         const defaultUpdate = condition.includes('<') ? '++' : '--';
@@ -182,21 +189,21 @@ export type UpdateBeforeNode = {
     readonly id: string;
     readonly updateBeforeType: NodeUpdateType;
     updateBefore(frame: RenderFrame): boolean | void;
-}
+};
 
 /** interface for nodes that need to execute GPU work after each draw call */
 export type UpdateAfterNode = {
     readonly id: string;
     readonly updateAfterType: NodeUpdateType;
     updateAfter(frame: RenderFrame): boolean | void;
-}
+};
 
 /** interface for nodes that push CPU data into GPU uniforms each frame/render/object */
 export type UpdateNode = {
     readonly id: string;
     readonly updateType: NodeUpdateType;
     update(frame: RenderFrame): boolean | void;
-}
+};
 
 export type AttributeEntry =
     | {
@@ -228,7 +235,6 @@ export type UniformMember = {
     size: number;
     node: UniformNode<WgslType>;
 };
-
 
 export type UniformGroupBlock = {
     /** The group name (e.g. 'render', 'object'). Becomes the WGSL struct name. */
@@ -377,53 +383,80 @@ type BindGroup = {
 };
 
 type NodeStageData = {
-    usageCount?: number;       // populated in analyze pass
-    propertyName?: string;     // CSE: var name when usageCount > 1
-    initialized?: boolean;     // setup pass dedup guard
-    varName?: string;          // registered var name (parallel to three nodeData.variable)
+    usageCount?: number; // populated in analyze pass
+    propertyName?: string; // CSE: var name when usageCount > 1
+    initialized?: boolean; // setup pass dedup guard
+    varName?: string; // registered var name (parallel to three nodeData.variable)
 };
 
 type NodeData = {
     vertex?: NodeStageData;
     fragment?: NodeStageData;
     compute?: NodeStageData;
-    any?: NodeStageData;       // stage-agnostic (fn traces, etc.)
-    fn?: NodeStageData;        // inside _emitFnDecl traces (shaderStage === null → 'fn')
+    any?: NodeStageData; // stage-agnostic (fn traces, etc.)
+    fn?: NodeStageData; // inside _emitFnDecl traces (shaderStage === null → 'fn')
 };
 
 type TracedFn = ReturnType<FnNode<WgslType>['trace']>;
 
 /* node kind -> type */
-type NodeOf<K extends NodeKind> =
-    K extends 'const'                    ? ConstNode<WgslType>                    :
-    K extends 'uniform'                  ? UniformNode<WgslType>                  :
-    K extends 'attribute'                ? AttributeNode<WgslType>                :
-    K extends 'buffer_attribute'         ? BufferAttributeNode<WgslType>          :
-    K extends 'storage'                  ? StorageNode<WgslType>                  :
-    K extends 'texture'                  ? TextureNode                            :
-    K extends 'sampler'                  ? SamplerNode                            :
-    K extends 'varying'                  ? VaryingNode<WgslType>                  :
-    K extends 'binop'                    ? BinopNode<WgslType>                    :
-    K extends 'call'                     ? CallNode<WgslType>                     :
-    K extends 'wgsl'                      ? WgslNode<WgslType>                      :
-    K extends 'assign'                   ? Node<WgslType>                         :
-    K extends 'construct'                ? Node<WgslType>                         :
-    K extends 'struct'                   ? StructNode                             :
-    K extends 'field'                    ? FieldNode<WgslType>                    :
-    K extends 'index'                    ? IndexNode<WgslType>                    :
-    K extends 'builtin'                  ? Node<WgslType>                         :
-    K extends 'stack'                    ? StackNode                              :
-    K extends 'cond'                     ? CondNode<WgslType>                     :
-    K extends 'var'                      ? VarNode<WgslType>                      :
-    K extends 'if'                       ? IfNode                                 :
-    K extends 'for'                      ? ForNode                                :
-    K extends 'while'                    ? WhileNode                              :
-    K extends 'break'                    ? BreakNode                              :
-    K extends 'continue'                 ? ContinueNode                           :
-    K extends 'fn'                       ? FnNode<WgslType>                       :
-    K extends 'param'                    ? ParamNode<WgslType>                    :
-    K extends 'return'                   ? ReturnNode<WgslType>                   :
-    Node<WgslType>;
+type NodeOf<K extends NodeKind> = K extends 'const'
+    ? ConstNode<WgslType>
+    : K extends 'uniform'
+      ? UniformNode<WgslType>
+      : K extends 'attribute'
+        ? AttributeNode<WgslType>
+        : K extends 'buffer_attribute'
+          ? BufferAttributeNode<WgslType>
+          : K extends 'storage'
+            ? StorageNode<WgslType>
+            : K extends 'texture'
+              ? TextureNode
+              : K extends 'sampler'
+                ? SamplerNode
+                : K extends 'varying'
+                  ? VaryingNode<WgslType>
+                  : K extends 'binop'
+                    ? BinopNode<WgslType>
+                    : K extends 'call'
+                      ? CallNode<WgslType>
+                      : K extends 'wgsl'
+                        ? WgslNode<WgslType>
+                        : K extends 'assign'
+                          ? Node<WgslType>
+                          : K extends 'construct'
+                            ? Node<WgslType>
+                            : K extends 'struct'
+                              ? StructNode
+                              : K extends 'field'
+                                ? FieldNode<WgslType>
+                                : K extends 'index'
+                                  ? IndexNode<WgslType>
+                                  : K extends 'builtin'
+                                    ? Node<WgslType>
+                                    : K extends 'stack'
+                                      ? StackNode
+                                      : K extends 'cond'
+                                        ? CondNode<WgslType>
+                                        : K extends 'var'
+                                          ? VarNode<WgslType>
+                                          : K extends 'if'
+                                            ? IfNode
+                                            : K extends 'for'
+                                              ? ForNode
+                                              : K extends 'while'
+                                                ? WhileNode
+                                                : K extends 'break'
+                                                  ? BreakNode
+                                                  : K extends 'continue'
+                                                    ? ContinueNode
+                                                    : K extends 'fn'
+                                                      ? FnNode<WgslType>
+                                                      : K extends 'param'
+                                                        ? ParamNode<WgslType>
+                                                        : K extends 'return'
+                                                          ? ReturnNode<WgslType>
+                                                          : Node<WgslType>;
 
 type NodeCompilerDef<K extends NodeKind = NodeKind> = {
     isStatement: boolean;
@@ -608,11 +641,7 @@ function createCompilerState(input: RenderInput | ComputeInput): CompilerState {
  *
  * Mirrors Three.js WGSLNodeBuilder.enableDirective().
  */
-function enableDirective(
-    state: CompilerState,
-    name: string,
-    stage?: 'vertex' | 'fragment' | 'compute',
-): void {
+function enableDirective(state: CompilerState, name: string, stage?: 'vertex' | 'fragment' | 'compute'): void {
     if (stage) {
         state.directives[stage].add(name);
     } else {
@@ -639,7 +668,7 @@ function enableDirective(
 function getDirectives(state: CompilerState, stage: 'vertex' | 'fragment' | 'compute'): string {
     const directives = state.directives[stage];
     if (directives.size === 0) return '';
-    return [...directives].map(d => `enable ${d};`).join('\n') + '\n';
+    return [...directives].map((d) => `enable ${d};`).join('\n') + '\n';
 }
 
 /**
@@ -667,11 +696,11 @@ export function compileCompute(node: ComputeNode): ComputeCompileResult {
 
 // Builtin WGSL variable names for render stage
 const COMPUTE_BUILTIN_PARAM: Record<string, { attr: string; type: string }> = {
-    global_invocation_id:   { attr: 'global_invocation_id',   type: 'vec3u' },
-    local_invocation_id:    { attr: 'local_invocation_id',    type: 'vec3u' },
-    local_invocation_index: { attr: 'local_invocation_index', type: 'u32'   },
-    workgroup_id:           { attr: 'workgroup_id',           type: 'vec3u' },
-    num_workgroups:         { attr: 'num_workgroups',         type: 'vec3u' },
+    global_invocation_id: { attr: 'global_invocation_id', type: 'vec3u' },
+    local_invocation_id: { attr: 'local_invocation_id', type: 'vec3u' },
+    local_invocation_index: { attr: 'local_invocation_index', type: 'u32' },
+    workgroup_id: { attr: 'workgroup_id', type: 'vec3u' },
+    num_workgroups: { attr: 'num_workgroups', type: 'vec3u' },
 };
 
 /**
@@ -685,9 +714,7 @@ function build(state: CompilerState): void {
     // generate() -> stage 3: generate shader
     for (const stage of ['setup', 'analyze', 'generate'] as const) {
         state.buildStage = stage;
-        const stages = state.input.kind === 'render'
-            ? (['vertex', 'fragment'] as const)
-            : (['compute'] as const);
+        const stages = state.input.kind === 'render' ? (['vertex', 'fragment'] as const) : (['compute'] as const);
         for (const shaderStage of stages) {
             state.shaderStage = shaderStage;
             for (const node of state.flowNodes[shaderStage]) {
@@ -723,7 +750,7 @@ function registerRoots(state: CompilerState): void {
         if (depth) validateFragmentRoot(state, depth);
         state.flowNodes.vertex.push(position);
         state.flowNodes.fragment.push(color);
-        if (mask)  state.flowNodes.fragment.push(mask);
+        if (mask) state.flowNodes.fragment.push(mask);
         if (depth) state.flowNodes.fragment.push(depth);
     } else {
         // Compute: trace Fn body, infer storage nodes from graph
@@ -744,13 +771,13 @@ function validateFragmentRoot(_state: CompilerState, root: Node<WgslType>): void
             const n = node as AttributeNode<WgslType>;
             throw new Error(
                 `[gpucat] attribute('${n.type}', '${n.name}') is a vertex-only node and cannot be used ` +
-                `in the fragment graph. Bridge it to the fragment stage with varying('${n.type}', '<name>', ${n.name}).`,
+                    `in the fragment graph. Bridge it to the fragment stage with varying('${n.type}', '<name>', ${n.name}).`,
             );
         }
         if (node.kind === 'buffer_attribute') {
             throw new Error(
                 `[gpucat] bufferAttribute() / instancedBufferAttribute() is a vertex-only node and cannot be used ` +
-                `in the fragment graph. Bridge it to the fragment stage with varying('<type>', '<name>', <node>).`,
+                    `in the fragment graph. Bridge it to the fragment stage with varying('<type>', '<name>', <node>).`,
             );
         }
     }
@@ -806,21 +833,25 @@ function getVars(state: CompilerState, stage: string): string {
 }
 
 /** returns the bindings array for a group name and shader stage */
-function getBindGroupArray(state: CompilerState, groupName: string, shaderStage: 'vertex' | 'fragment' | 'compute'): BindingEntry[] {
+function getBindGroupArray(
+    state: CompilerState,
+    groupName: string,
+    shaderStage: 'vertex' | 'fragment' | 'compute',
+): BindingEntry[] {
     const stageBindings = state.bindings[shaderStage];
-    
+
     let bindGroup = stageBindings[groupName];
-    
+
     if (bindGroup === undefined) {
         if (state.bindingsIndexes[groupName] === undefined) {
             state.bindingsIndexes[groupName] = {
                 binding: 0,
-                group: Object.keys(state.bindingsIndexes).length
+                group: Object.keys(state.bindingsIndexes).length,
             };
         }
         stageBindings[groupName] = bindGroup = [];
     }
-    
+
     return bindGroup;
 }
 
@@ -831,9 +862,7 @@ function getBindings(state: CompilerState): BindGroup[] {
     }
 
     const groups: Record<string, BindingEntry[]> = {};
-    const shaderStages = state.input.kind === 'render'
-        ? ['vertex', 'fragment'] as const
-        : ['compute'] as const;
+    const shaderStages = state.input.kind === 'render' ? (['vertex', 'fragment'] as const) : (['compute'] as const);
 
     // merge bindings from all stages
     for (const shaderStage of shaderStages) {
@@ -841,7 +870,7 @@ function getBindings(state: CompilerState): BindGroup[] {
         for (const groupName in stageBindings) {
             const bindings = stageBindings[groupName];
             const groupBindings = groups[groupName] || (groups[groupName] = []);
-            
+
             for (const binding of bindings) {
                 if (!groupBindings.includes(binding)) {
                     groupBindings.push(binding);
@@ -855,7 +884,7 @@ function getBindings(state: CompilerState): BindGroup[] {
     for (const groupName in groups) {
         const bindings = groups[groupName];
         if (bindings.length === 0) continue;
-        
+
         bindGroups.push({
             name: groupName,
             index: state.bindingsIndexes[groupName]?.group ?? 0,
@@ -871,10 +900,10 @@ function getBindings(state: CompilerState): BindGroup[] {
 /** sorts bind groups by groupNode.order and assigns final group indices */
 function sortBindingGroups(state: CompilerState): void {
     const bindGroups = getBindings(state);
-    
+
     // sort by groupNode.order
     bindGroups.sort((a, b) => a.groupNode.order - b.groupNode.order);
-    
+
     // assign final group indices
     for (let i = 0; i < bindGroups.length; i++) {
         const bindGroup = bindGroups[i];
@@ -952,7 +981,10 @@ function setupNode(state: CompilerState, node: Node<WgslType>): void {
         setupNode(state, child);
     }
 
-    // Auto-detect f16 types and enable directive
+    // auto-detect f16 types and enable directive
+    if (node.type === undefined) {
+        console.error('[gpucat] node with undefined type — kind:', node.kind, 'id:', node.id, node);
+    }
     if (requiresF16Directive(node.type)) {
         enableDirective(state, 'f16');
     }
@@ -1144,7 +1176,7 @@ function analyzeNode(state: CompilerState, node: Node<WgslType>): void {
 /** generate WGSL code for a node */
 function generateNode(state: CompilerState, node: Node<WgslType>, output?: string): string | null {
     const data = getDataFromNode(state, node);
-    const def  = compilerDefs[node.kind];
+    const def = compilerDefs[node.kind];
 
     // CSE hit: already emitted as a var
     if (data.propertyName !== undefined && output === undefined) return data.propertyName;
@@ -1172,7 +1204,7 @@ function emitStackIntoFlow(state: CompilerState, stack: StackNode, indent: strin
         buildNode(state, stmt);
     }
 
-    const indented = state.flow.code.replace(/^    /gm, indent);
+    const indented = state.flow.code.replace(/^ {4}/gm, indent);
     outerFlow.code += indented;
     state.flow = outerFlow;
 }
@@ -1186,14 +1218,14 @@ function emitFnDecl(state: CompilerState, fn: FnNode<WgslType>, traced: TracedFn
         data.propertyName = p.paramName ?? `p${p.paramIndex}`;
     }
 
-    const paramList = params.map((p, i) => {
-        const name = p.paramName ?? `p${i}`;
-        const desc = fn.paramDescs[i];
-        const wgslType = 'name' in desc
-            ? (desc as ParamDesc).type.wgslType
-            : (desc as { wgslType: string }).wgslType;
-        return `${name} : ${wgslType}`;
-    }).join(', ');
+    const paramList = params
+        .map((p, i) => {
+            const name = p.paramName ?? `p${i}`;
+            const desc = fn.paramDescs[i];
+            const wgslType = 'name' in desc ? (desc as ParamDesc).type.wgslType : (desc as { wgslType: string }).wgslType;
+            return `${name} : ${wgslType}`;
+        })
+        .join(', ');
 
     // Generate the body statements
     const prevBuildStage = state.buildStage;
@@ -1243,14 +1275,16 @@ function emitBindingsWGSL(state: CompilerState): string {
             if (entry.type === 'uniform' && entry.uniforms) {
                 const varName = entry.groupNode.name;
                 const structName = varName + 'Struct';
-                const memberLines = entry.uniforms.map(u => `    ${u.name} : ${u.type},`).join('\n');
+                const memberLines = entry.uniforms.map((u) => `    ${u.name} : ${u.type},`).join('\n');
                 lines.push(`struct ${structName} {\n${memberLines}\n}`);
                 lines.push(`@group(${groupIndex}) @binding(${bindingIndex}) var<uniform> ${varName} : ${structName};`);
                 bindingIndex++;
             } else if (entry.type === 'storage') {
                 const storageNode = entry.node as StorageNode<WgslType>;
                 const access = state.input.kind === 'render' ? 'read' : storageNode.access;
-                lines.push(`@group(${groupIndex}) @binding(${bindingIndex}) var<storage, ${access}> ${entry.name} : ${storageNode.storageType};`);
+                lines.push(
+                    `@group(${groupIndex}) @binding(${bindingIndex}) var<storage, ${access}> ${entry.name} : ${storageNode.storageType};`,
+                );
                 bindingIndex++;
             } else if (entry.type === 'texture') {
                 const textureNode = entry.node as TextureNode;
@@ -1310,9 +1344,7 @@ function buildInterpolateAttr(v: VaryingEntry): string {
 
     if (itype !== null) {
         // Explicit user override
-        return isampling !== null
-            ? ` @interpolate(${itype}, ${isampling})`
-            : ` @interpolate(${itype})`;
+        return isampling !== null ? ` @interpolate(${itype}, ${isampling})` : ` @interpolate(${itype})`;
     }
 
     // Auto-flat for integer types
@@ -1417,7 +1449,7 @@ function buildFragmentShaderData(state: CompilerState): FragmentShaderData {
     const colorRoot = slots?.color ?? null;
 
     const isMRT = colorRoot instanceof OutputStructNode;
-    const mrtNode = isMRT ? colorRoot as OutputStructNode : null;
+    const mrtNode = isMRT ? (colorRoot as OutputStructNode) : null;
 
     // Build FragmentInput struct
     let inputStruct = '';
@@ -1445,9 +1477,7 @@ function buildFragmentShaderData(state: CompilerState): FragmentShaderData {
             for (let i = 0; i < mrtNode.members.length; i++) {
                 const member = mrtNode.members[i];
                 if (!member) continue;
-                const name = (mrtNode instanceof MRTNode && mrtNode._resolvedNames[i])
-                    ? mrtNode._resolvedNames[i]
-                    : `output${i}`;
+                const name = mrtNode instanceof MRTNode && mrtNode._resolvedNames[i] ? mrtNode._resolvedNames[i] : `output${i}`;
                 outputLines.push(`    @location(${i}) ${name} : vec4f,`);
             }
         } else {
@@ -1485,9 +1515,7 @@ function buildFragmentShaderData(state: CompilerState): FragmentShaderData {
                 const memberFlow = flowChildNode(state, member);
                 if (memberFlow.code) flowLines.push(memberFlow.code.replace(/\n$/, ''));
 
-                const name = (mrtNode instanceof MRTNode && mrtNode._resolvedNames[i])
-                    ? mrtNode._resolvedNames[i]
-                    : `output${i}`;
+                const name = mrtNode instanceof MRTNode && mrtNode._resolvedNames[i] ? mrtNode._resolvedNames[i] : `output${i}`;
                 flowLines.push(`    _out.${name} = ${memberFlow.result};`);
             }
 
@@ -1720,7 +1748,7 @@ function buildCode(state: CompilerState): void {
     const structs = getStructs(state);
     const bindings = emitBindingsWGSL(state);
     const codes = getCodes(state);
-    const preamble = [structs, bindings, codes].filter(s => s).join('\n\n');
+    const preamble = [structs, bindings, codes].filter((s) => s).join('\n\n');
 
     // Generate stage-specific code
     if (state.input.kind === 'render') {
@@ -1731,20 +1759,12 @@ function buildCode(state: CompilerState): void {
         const fragmentCode = getWGSLFragmentCode(fragmentShaderData);
 
         // Merge directives from both stages for combined shader module
-        const allDirectives = new Set([
-            ...state.directives.vertex,
-            ...state.directives.fragment,
-        ]);
-        const directivesCode = allDirectives.size > 0
-            ? [...allDirectives].map(d => `enable ${d};`).join('\n') + '\n\n'
-            : '';
+        const allDirectives = new Set([...state.directives.vertex, ...state.directives.fragment]);
+        const directivesCode = allDirectives.size > 0 ? [...allDirectives].map((d) => `enable ${d};`).join('\n') + '\n\n' : '';
 
-        const code = directivesCode + [preamble, vertexCode, fragmentCode].filter(s => s).join('\n\n');
+        const code = directivesCode + [preamble, vertexCode, fragmentCode].filter((s) => s).join('\n\n');
 
-        const attributes: AttributeEntry[] = [
-            ...[...state.attributes.values()],
-            ...state.bufferAttrs,
-        ];
+        const attributes: AttributeEntry[] = [...[...state.attributes.values()], ...state.bufferAttrs];
         const varyings = [...state.varyings.values()];
 
         state.renderResult = {
@@ -1759,7 +1779,7 @@ function buildCode(state: CompilerState): void {
             updateBeforeNodes: state.updateBeforeNodes,
             updateAfterNodes: state.updateAfterNodes,
             updateNodes: state.updateNodes,
-            inspectableNodes: [...state.allNodes.values()].filter(n => n._isInspectable),
+            inspectableNodes: [...state.allNodes.values()].filter((n) => n._isInspectable),
         };
     } else {
         const computeShaderData = buildComputeShaderData(state);
@@ -1769,7 +1789,7 @@ function buildCode(state: CompilerState): void {
         const directivesCode = getDirectives(state, 'compute');
         const directivesSection = directivesCode ? directivesCode + '\n' : '';
 
-        const code = directivesSection + [preamble, computeCode].filter(s => s).join('\n\n');
+        const code = directivesSection + [preamble, computeCode].filter((s) => s).join('\n\n');
 
         state.computeResult = {
             code,
@@ -1793,12 +1813,14 @@ function findVaryingNodeByName(state: CompilerState, name: string): VaryingNode<
 
 const compilerDefs: Record<NodeKind, NodeCompilerDef> = {
     const: {
-        isStatement: false, isLeaf: true,
+        isStatement: false,
+        isLeaf: true,
         setup: null,
         generate: (node: ConstNode<WgslType>, _state: CompilerState) => constLiteral(node.type, node.value),
     },
     uniform: {
-        isStatement: false, isLeaf: true,
+        isStatement: false,
+        isLeaf: true,
         setup: (node: UniformNode<WgslType>, state: CompilerState) => {
             const groupName = node.groupNode.name;
             const shaderStage = state.shaderStage ?? 'vertex';
@@ -1827,11 +1849,11 @@ const compilerDefs: Record<NodeKind, NodeCompilerDef> = {
             const uniformDef = lookupStructDefByName(node.type);
             if (uniformDef) registerStructDef(state, uniformDef);
         },
-        generate: (node: UniformNode<WgslType>, _state: CompilerState) =>
-            `${node.groupNode.name}.${node.name}`,
+        generate: (node: UniformNode<WgslType>, _state: CompilerState) => `${node.groupNode.name}.${node.name}`,
     },
     attribute: {
-        isStatement: false, isLeaf: true,
+        isStatement: false,
+        isLeaf: true,
         setup: (node: AttributeNode<WgslType>, state: CompilerState) => {
             if (!state.attributes.has(node.name)) {
                 const totalLoc = state.attributes.size + state.bufferAttrs.length;
@@ -1841,13 +1863,20 @@ const compilerDefs: Record<NodeKind, NodeCompilerDef> = {
         generate: (node: AttributeNode<WgslType>, _state: CompilerState) => `in.${node.name}`,
     },
     buffer_attribute: {
-        isStatement: false, isLeaf: true,
+        isStatement: false,
+        isLeaf: true,
         setup: (node: BufferAttributeNode<WgslType>, state: CompilerState) => {
             if (!state.bufferAttrNames.has(node.id)) {
                 const totalLoc = state.attributes.size + state.bufferAttrs.length;
                 const name = `_buf${state.bufferAttrs.length}`;
                 state.bufferAttrNames.set(node.id, name);
-                state.bufferAttrs.push({ kind: 'buffer', node: node as unknown as BufferAttributeNode<WgslType>, name, type: node.type, location: totalLoc });
+                state.bufferAttrs.push({
+                    kind: 'buffer',
+                    node: node as unknown as BufferAttributeNode<WgslType>,
+                    name,
+                    type: node.type,
+                    location: totalLoc,
+                });
             }
         },
         generate: (node: BufferAttributeNode<WgslType>, state: CompilerState) => {
@@ -1856,7 +1885,8 @@ const compilerDefs: Record<NodeKind, NodeCompilerDef> = {
         },
     },
     storage: {
-        isStatement: false, isLeaf: true,
+        isStatement: false,
+        isLeaf: true,
         setup: (node: StorageNode<WgslType>, state: CompilerState) => {
             const groupName = node.groupNode.name;
             const shaderStage = state.shaderStage ?? 'compute';
@@ -1887,7 +1917,8 @@ const compilerDefs: Record<NodeKind, NodeCompilerDef> = {
         generate: (node: StorageNode<WgslType>, state: CompilerState) => state.storageNames.get(node.id) ?? node.id,
     },
     texture: {
-        isStatement: false, isLeaf: false,
+        isStatement: false,
+        isLeaf: true,
         setup: (node: TextureNode, state: CompilerState) => {
             const base = node.referenceNode ?? node;
             const key = String(base.textureId);
@@ -1936,21 +1967,34 @@ const compilerDefs: Record<NodeKind, NodeCompilerDef> = {
         },
         generate: (node: TextureNode, state: CompilerState, output?: string) => {
             const base = node.referenceNode ?? node;
-            
+
             if (output !== undefined && /^sampler/.test(output)) {
                 return `${base.textureId}_samp`;
             }
-            
+
+            // Cache the textureSample result in a let-var (mirrors Three.js TextureNode.generate).
+            // isLeaf: true bypasses the outer CSE, so we own the caching here.
+            // First call: emit `let _vN = textureSample(...)` into flow, store the var name.
+            // Subsequent calls: return the cached var name directly.
+            const nodeData = getDataFromNode(state, node as unknown as Node<WgslType>);
+            if (nodeData.propertyName !== undefined) {
+                return nodeData.propertyName;
+            }
+
             const texName = `${base.textureId}_tex`;
             const sampName = `${base.textureId}_samp`;
-            
-            const uvExpr = node.uvNode ? generateNode(state, node.uvNode) : 'in.uv';
-            
-            return `textureSample(${texName}, ${sampName}, ${uvExpr})`;
+            const uvExpr = node.uvNode ? (generateNode(state, node.uvNode) ?? 'in.uv') : 'in.uv';
+
+            const snippet = `textureSample(${texName}, ${sampName}, ${uvExpr})`;
+            const varName = `_v${state.varCounter++}`;
+            addLineFlowCode(state, `let ${varName} = ${snippet}`);
+            nodeData.propertyName = varName;
+            return varName;
         },
     },
     convert: {
-        isStatement: false, isLeaf: false,
+        isStatement: false,
+        isLeaf: true,
         setup: (node: ConvertNode, state: CompilerState) => {
             setupNode(state, node.node);
         },
@@ -1961,7 +2005,8 @@ const compilerDefs: Record<NodeKind, NodeCompilerDef> = {
         },
     },
     varying: {
-        isStatement: false, isLeaf: true,
+        isStatement: false,
+        isLeaf: true,
         setup: (node: VaryingNode<WgslType>, state: CompilerState) => {
             if (!state.varyings.has(node.name)) {
                 state.varyings.set(node.name, {
@@ -1987,7 +2032,8 @@ const compilerDefs: Record<NodeKind, NodeCompilerDef> = {
         },
     },
     binop: {
-        isStatement: false, isLeaf: false,
+        isStatement: false,
+        isLeaf: false,
         setup: null,
         generate: (node: BinopNode<WgslType>, state: CompilerState) => {
             const l = generateNode(state, node.left) ?? '/* missing */';
@@ -1996,7 +2042,8 @@ const compilerDefs: Record<NodeKind, NodeCompilerDef> = {
         },
     },
     call: {
-        isStatement: false, isLeaf: false,
+        isStatement: false,
+        isLeaf: false,
         setup: (node: CallNode<WgslType>, state: CompilerState) => {
             if (node.fnNode) {
                 setupCallNodeFn(state, node.fnNode);
@@ -2012,7 +2059,8 @@ const compilerDefs: Record<NodeKind, NodeCompilerDef> = {
         },
     },
     wgsl: {
-        isStatement: false, isLeaf: false,
+        isStatement: false,
+        isLeaf: false,
         setup: null,
         generate: (node: WgslNode<WgslType>, state: CompilerState) => {
             const depExprs = node.deps.map((d: Node<WgslType>) => generateNode(state, d) ?? '/* missing */');
@@ -2020,7 +2068,8 @@ const compilerDefs: Record<NodeKind, NodeCompilerDef> = {
         },
     },
     assign: {
-        isStatement: true, isLeaf: false,
+        isStatement: true,
+        isLeaf: false,
         setup: null,
         generate: (node: AssignNode, state: CompilerState) => {
             const tgt = generateNode(state, node.target) ?? '/* missing */';
@@ -2030,7 +2079,8 @@ const compilerDefs: Record<NodeKind, NodeCompilerDef> = {
         },
     },
     construct: {
-        isStatement: false, isLeaf: false,
+        isStatement: false,
+        isLeaf: false,
         setup: null,
         generate: (node: ConstructNode<WgslType>, state: CompilerState) => {
             const argExprs = node.args.map((a) => generateNode(state, a) ?? '/* missing */');
@@ -2038,7 +2088,8 @@ const compilerDefs: Record<NodeKind, NodeCompilerDef> = {
         },
     },
     struct: {
-        isStatement: false, isLeaf: true,
+        isStatement: false,
+        isLeaf: true,
         setup: (node: StructNode, state: CompilerState) => {
             const def = lookupStructDef(node);
             if (def) {
@@ -2050,7 +2101,8 @@ const compilerDefs: Record<NodeKind, NodeCompilerDef> = {
         generate: (node: StructNode, _state: CompilerState) => `/* struct ${node.type} */`,
     },
     field: {
-        isStatement: false, isLeaf: false,
+        isStatement: false,
+        isLeaf: false,
         setup: null,
         generate: (node: FieldNode<WgslType>, state: CompilerState) => {
             const obj = generateNode(state, node.object) ?? '/* missing */';
@@ -2058,7 +2110,8 @@ const compilerDefs: Record<NodeKind, NodeCompilerDef> = {
         },
     },
     index: {
-        isStatement: false, isLeaf: false,
+        isStatement: false,
+        isLeaf: false,
         setup: null,
         generate: (node: IndexNode<WgslType>, state: CompilerState) => {
             const arr = generateNode(state, node.array) ?? '/* missing */';
@@ -2067,15 +2120,16 @@ const compilerDefs: Record<NodeKind, NodeCompilerDef> = {
         },
     },
     builtin: {
-        isStatement: false, isLeaf: true,
+        isStatement: false,
+        isLeaf: true,
         setup: (node: BuiltinNode<WgslType>, state: CompilerState) => {
             state.builtinsUsed.add(node.builtinKind);
         },
         generate: (node: BuiltinNode<WgslType>, state: CompilerState) => {
             const BUILTIN_VAR: Record<string, string> = {
                 instance_index: 'instance_index',
-                instance_data:  'instanceData',
-                vertex_index:   'vertex_index',
+                instance_data: 'instanceData',
+                vertex_index: 'vertex_index',
             };
             const BUILTIN_VERTEX_INPUT = new Set(['instance_index', 'vertex_index']);
             const BUILTIN_FRAGMENT_INPUT = new Set(['position']);
@@ -2088,7 +2142,8 @@ const compilerDefs: Record<NodeKind, NodeCompilerDef> = {
         },
     },
     stack: {
-        isStatement: true, isLeaf: false,
+        isStatement: true,
+        isLeaf: false,
         setup: null,
         generate: (node: StackNode, state: CompilerState) => {
             for (const stmt of node.body) {
@@ -2098,19 +2153,19 @@ const compilerDefs: Record<NodeKind, NodeCompilerDef> = {
         },
     },
     cond: {
-        isStatement: false, isLeaf: false,
+        isStatement: false,
+        isLeaf: false,
         setup: null,
         generate: (node: CondNode<WgslType>, state: CompilerState) => {
             const condExpr = generateNode(state, node.condition) ?? '/* missing */';
             const trueExpr = generateNode(state, node.ifTrue) ?? '/* missing */';
-            const falseExpr = node.ifFalse
-                ? generateNode(state, node.ifFalse) ?? '/* missing */'
-                : `${node.type}()`;
+            const falseExpr = node.ifFalse ? (generateNode(state, node.ifFalse) ?? '/* missing */') : `${node.type}()`;
             return `select(${falseExpr}, ${trueExpr}, ${condExpr})`;
         },
     },
     var: {
-        isStatement: true, isLeaf: false,
+        isStatement: true,
+        isLeaf: false,
         setup: null,
         generate: (node: VarNode<WgslType>, state: CompilerState) => {
             const name = getVarFromNode(state, node as unknown as Node<WgslType>, node.varName, node.type);
@@ -2127,7 +2182,8 @@ const compilerDefs: Record<NodeKind, NodeCompilerDef> = {
         },
     },
     if: {
-        isStatement: true, isLeaf: false,
+        isStatement: true,
+        isLeaf: false,
         setup: null,
         generate: (node: IfNode, state: CompilerState) => {
             const condExpr = generateNode(state, node.condition) ?? '/* missing */';
@@ -2142,16 +2198,15 @@ const compilerDefs: Record<NodeKind, NodeCompilerDef> = {
         },
     },
     for: {
-        isStatement: true, isLeaf: false,
+        isStatement: true,
+        isLeaf: false,
         setup: null,
         generate: (node: ForNode, state: CompilerState) => {
             const iName = `i_${state.forCounter++}`;
             const idxData = getDataFromNode(state, node.indexVar as unknown as Node<WgslType>);
             idxData.propertyName = iName;
             const getScalarExpr = (v: Node<WgslType> | number, _type: ScalarType) =>
-                typeof v === 'number'
-                    ? constLiteral(_type, v)
-                    : generateNode(state, v as Node<WgslType>) ?? '/* missing */';
+                typeof v === 'number' ? constLiteral(_type, v) : (generateNode(state, v as Node<WgslType>) ?? '/* missing */');
             const header = buildForHeader(node.range, iName, getScalarExpr);
             addFlowCode(state, `    ${header} {\n`);
             emitStackIntoFlow(state, node.body, '        ');
@@ -2160,7 +2215,8 @@ const compilerDefs: Record<NodeKind, NodeCompilerDef> = {
         },
     },
     while: {
-        isStatement: true, isLeaf: false,
+        isStatement: true,
+        isLeaf: false,
         setup: null,
         generate: (node: WhileNode, state: CompilerState) => {
             const condExpr = generateNode(state, node.condition) ?? '/* missing */';
@@ -2171,7 +2227,8 @@ const compilerDefs: Record<NodeKind, NodeCompilerDef> = {
         },
     },
     break: {
-        isStatement: true, isLeaf: false,
+        isStatement: true,
+        isLeaf: false,
         setup: null,
         generate: (_node: BreakNode, state: CompilerState) => {
             addLineFlowCode(state, 'break');
@@ -2179,7 +2236,8 @@ const compilerDefs: Record<NodeKind, NodeCompilerDef> = {
         },
     },
     continue: {
-        isStatement: true, isLeaf: false,
+        isStatement: true,
+        isLeaf: false,
         setup: null,
         generate: (_node: ContinueNode, state: CompilerState) => {
             addLineFlowCode(state, 'continue');
@@ -2187,17 +2245,20 @@ const compilerDefs: Record<NodeKind, NodeCompilerDef> = {
         },
     },
     fn: {
-        isStatement: false, isLeaf: true,
+        isStatement: false,
+        isLeaf: true,
         setup: null,
         generate: (node: FnNode<WgslType>, _state: CompilerState) => `/* fn ${node.type} */`,
     },
     param: {
-        isStatement: false, isLeaf: true,
+        isStatement: false,
+        isLeaf: true,
         setup: null,
         generate: (node: ParamNode<WgslType>, _state: CompilerState) => node.paramName ?? `p${node.paramIndex}`,
     },
     return: {
-        isStatement: true, isLeaf: false,
+        isStatement: true,
+        isLeaf: false,
         setup: null,
         generate: (node: ReturnNode<WgslType>, state: CompilerState) => {
             const valExpr = generateNode(state, node.value) ?? '/* missing */';
@@ -2206,7 +2267,8 @@ const compilerDefs: Record<NodeKind, NodeCompilerDef> = {
         },
     },
     output_struct: {
-        isStatement: false, isLeaf: false,
+        isStatement: false,
+        isLeaf: false,
         setup: (node: OutputStructNode, state: CompilerState) => {
             for (const member of node.members) {
                 if (member) setupNode(state, member);
@@ -2222,17 +2284,43 @@ const compilerDefs: Record<NodeKind, NodeCompilerDef> = {
 
 function std140Size(type: string): number {
     switch (type) {
-        case 'f32': case 'i32': case 'u32': case 'bool': return 4;
-        case 'vec2f': case 'vec2i': case 'vec2u': case 'vec2<bool>': return 8;
-        case 'vec3f': case 'vec3i': case 'vec3u': case 'vec3<bool>': return 12;
-        case 'vec4f': case 'vec4i': case 'vec4u': case 'vec4<bool>': return 16;
-        case 'mat2x2f': return 32;
-        case 'mat2x3f': case 'mat2x4f': return 32;
-        case 'mat3x2f': return 48;
-        case 'mat3x3f': case 'mat3x4f': return 48;
-        case 'mat4x2f': return 64;
-        case 'mat4x3f': case 'mat4x4f': return 64;
-        default: return 16;
+        case 'f32':
+        case 'i32':
+        case 'u32':
+        case 'bool':
+            return 4;
+        case 'vec2f':
+        case 'vec2i':
+        case 'vec2u':
+        case 'vec2<bool>':
+            return 8;
+        case 'vec3f':
+        case 'vec3i':
+        case 'vec3u':
+        case 'vec3<bool>':
+            return 12;
+        case 'vec4f':
+        case 'vec4i':
+        case 'vec4u':
+        case 'vec4<bool>':
+            return 16;
+        case 'mat2x2f':
+            return 32;
+        case 'mat2x3f':
+        case 'mat2x4f':
+            return 32;
+        case 'mat3x2f':
+            return 48;
+        case 'mat3x3f':
+        case 'mat3x4f':
+            return 48;
+        case 'mat4x2f':
+            return 64;
+        case 'mat4x3f':
+        case 'mat4x4f':
+            return 64;
+        default:
+            return 16;
     }
 }
 
@@ -2240,16 +2328,42 @@ function std140Align(type: string): number {
     // Alignment of matCxR = alignment of its column vector vecR.
     // vec2 → 8, vec3/vec4 → 16.
     switch (type) {
-        case 'f32': case 'i32': case 'u32': case 'bool': return 4;
-        case 'vec2f': case 'vec2i': case 'vec2u': case 'vec2<bool>': return 8;
-        case 'vec3f': case 'vec3i': case 'vec3u': case 'vec3<bool>': return 16;
-        case 'vec4f': case 'vec4i': case 'vec4u': case 'vec4<bool>': return 16;
+        case 'f32':
+        case 'i32':
+        case 'u32':
+        case 'bool':
+            return 4;
+        case 'vec2f':
+        case 'vec2i':
+        case 'vec2u':
+        case 'vec2<bool>':
+            return 8;
+        case 'vec3f':
+        case 'vec3i':
+        case 'vec3u':
+        case 'vec3<bool>':
+            return 16;
+        case 'vec4f':
+        case 'vec4i':
+        case 'vec4u':
+        case 'vec4<bool>':
+            return 16;
         // mat C×2 — column is vec2f, align = 8
-        case 'mat2x2f': case 'mat3x2f': case 'mat4x2f': return 8;
+        case 'mat2x2f':
+        case 'mat3x2f':
+        case 'mat4x2f':
+            return 8;
         // mat C×3 or C×4 — column is vec3f/vec4f, align = 16
-        case 'mat2x3f': case 'mat3x3f': case 'mat4x3f': return 16;
-        case 'mat2x4f': case 'mat3x4f': case 'mat4x4f': return 16;
-        default: return 16;
+        case 'mat2x3f':
+        case 'mat3x3f':
+        case 'mat4x3f':
+            return 16;
+        case 'mat2x4f':
+        case 'mat3x4f':
+        case 'mat4x4f':
+            return 16;
+        default:
+            return 16;
     }
 }
 

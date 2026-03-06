@@ -78,18 +78,19 @@ async function main() {
     checkerTexture.needsUpdate = true;
 
     // geometry attributes
-    const position = attribute(d.vec3f, 'position');
-    const normal = attribute(d.vec3f, 'normal');
-    const uv = attribute(d.vec2f, 'uv');
+    const position = attribute(d.vec3f, 'position').toVar('position');
+    const normal = attribute(d.vec3f, 'normal').toVar('normal');
+    const uv = attribute(d.vec2f, 'uv').toVar('uv');
 
     // vertex shader: transform position to clip space
-    const localPosition = vec4(position, f32(1));
-    const worldPosition = mul(modelWorldMatrix, localPosition);
-    const viewPosition = mul(cameraViewMatrix, worldPosition);
-    const clipPosition = mul(cameraProjectionMatrix, viewPosition);
+    const localPosition = vec4(position, f32(1)).toVar('localPos');
+    const worldPosition = mul(modelWorldMatrix, localPosition).toVar('worldPos');
+    const viewPosition = mul(cameraViewMatrix, worldPosition).toVar('viewPos');
+    const clipPosition = mul(cameraProjectionMatrix, viewPosition).toVar('clipPos');
 
     // pass normal and UV to fragment shader via varyings
-    const worldNormal = mul(modelNormalMatrix, vec3(normal.x, normal.y, normal.z));
+    const worldNormal = mul(modelNormalMatrix, vec3(normal.x, normal.y, normal.z)).toVar('worldNormal');
+
     const vNormal = varying(d.vec3f, 'v_norm', normalize(worldNormal));
     const vUv = varying(d.vec2f, 'uv', uv);
 
@@ -98,7 +99,7 @@ async function main() {
     const texColor = texNode.sample(vUv);
     const lightDirection = vec3(f32(0.6), f32(1.0), f32(0.8)).normalize();
     const diffuse = vNormal.dot(lightDirection).max(f32(0.2));
-    const litColor = vec3(texColor.x, texColor.y, texColor.z).mul(diffuse);
+    const litColor = texColor.xyz.mul(diffuse);
 
     const material = new Material({
         vertex: clipPosition,

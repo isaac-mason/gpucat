@@ -197,11 +197,9 @@ export class ShaderPanel {
         });
 
         codeScroll.appendChild(codeBlock);
+
         container.appendChild(toolbar);
         container.appendChild(codeScroll);
-
-        this.domElement = container;
-        this._codeBlock = codeBlock;
 
         // --- Floating probe popover (appended to body, shared across all instances) ---
         const popover = document.createElement('div');
@@ -221,6 +219,9 @@ export class ShaderPanel {
         this._popover = popover;
         this._popoverLabel = popoverLabel;
         this._popoverCanvasSlot = popoverCanvasSlot;
+
+        this.domElement = container;
+        this._codeBlock = codeBlock;
 
         // Select initial stage
         this._selectStage('vertex');
@@ -313,6 +314,13 @@ export class ShaderPanel {
         // If a selection is locked, just reposition the popover as cursor moves
         if (this._selectionLocked) {
             if (this._popoverVisible) this._positionPopover(e.clientX, e.clientY);
+            return;
+        }
+
+        // Probing only works for the fragment stage — vertex variables don't
+        // exist in fs_main, so attempts on other stages produce a broken canvas.
+        if (this._currentStage !== 'fragment') {
+            this._hidePopover();
             return;
         }
 
@@ -438,6 +446,12 @@ export class ShaderPanel {
         const sel = window.getSelection();
         if (!sel || sel.isCollapsed) {
             // No real selection — fall back to hover behaviour
+            this._selectionLocked = false;
+            return;
+        }
+
+        // Probing only works for the fragment stage
+        if (this._currentStage !== 'fragment') {
             this._selectionLocked = false;
             return;
         }
