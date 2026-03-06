@@ -90,39 +90,19 @@ export function createSphereGeometry(radius = 0.5, widthSegments = 16, heightSeg
     return geom;
 }
 
-export function createPlaneGeometry(width = 1, height = 1): Geometry {
-    const hw = width / 2;
-    const hh = height / 2;
-
-    const positions = new Float32Array([-hw, -hh, 0, hw, -hh, 0, hw, hh, 0, -hw, hh, 0]);
-    const normals = new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1]);
-    const uvsData = new Float32Array([0, 0, 1, 0, 1, 1, 0, 1]);
-    const indexData = new Uint16Array([0, 1, 2, 0, 2, 3]);
-
-    const geom = new Geometry();
-    geom.attributes.set('position', new BufferAttribute(positions, 3));
-    geom.attributes.set('normal', new BufferAttribute(normals, 3));
-    geom.attributes.set('uv', new BufferAttribute(uvsData, 2));
-    geom.index = new IndexAttribute(indexData);
-    geom.vertexCount = 4;
-    geom.boundingBox = [-hw, -hh, 0, hw, hh, 0];
-    geom.boundingSphere = { center: [0, 0, 0], radius: Math.sqrt(hw * hw + hh * hh) };
-    return geom;
-}
-
 /**
- * Creates a subdivided plane geometry in the XZ plane (Y-up), suitable for
- * vertex-displacement effects like ocean waves.
+ * Creates a plane geometry in the XZ plane (Y-up).
  *
- * Vertices are laid out in a regular grid across [-width/2, width/2] × [-height/2, height/2]
- * in the XZ plane (y = 0). UVs range [0,1] × [0,1] from the -X/-Z corner.
+ * Vertices span [-width/2, width/2] × [-height/2, height/2] in XZ, at y=0.
+ * Normals point +Y. Triangles wound CCW from above (+Y) so they are front-facing
+ * when viewed from above with the default cullMode:'back' / frontFace:'ccw' pipeline.
  *
- * @param width - Total width along the X axis. Defaults to 1.
- * @param height - Total depth along the Z axis. Defaults to 1.
- * @param widthSegments - Number of subdivisions along X. Defaults to 1.
- * @param heightSegments - Number of subdivisions along Z. Defaults to 1.
+ * @param width - Total width along X. Defaults to 1.
+ * @param height - Total depth along Z. Defaults to 1.
+ * @param widthSegments - Subdivisions along X. Defaults to 1.
+ * @param heightSegments - Subdivisions along Z. Defaults to 1.
  */
-export function createSubdividedPlaneGeometry(
+export function createPlaneGeometry(
     width = 1,
     height = 1,
     widthSegments = 1,
@@ -157,7 +137,9 @@ export function createSubdividedPlaneGeometry(
         }
     }
 
-    // Two triangles per quad, wound CCW when viewed from +Y.
+     // Two triangles per quad, wound CCW when viewed from +Y (normal points +Y).
+    // Triangle 1: a → b+1 → a+1   (CCW from above)
+    // Triangle 2: a → b   → b+1   (CCW from above)
     const indexCount = widthSegments * heightSegments * 6;
     const indices = vertexCount <= 65536
         ? new Uint16Array(indexCount)
@@ -168,11 +150,11 @@ export function createSubdividedPlaneGeometry(
             const a = iy * cols + ix;
             const b = a + cols;
             indices[i++] = a;
+            indices[i++] = b + 1;
             indices[i++] = a + 1;
-            indices[i++] = b + 1;
             indices[i++] = a;
-            indices[i++] = b + 1;
             indices[i++] = b;
+            indices[i++] = b + 1;
         }
     }
 

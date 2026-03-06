@@ -25,9 +25,37 @@ import { SceneHierarchy } from './tabs/scene-hierarchy';
 import type { Node, WgslType } from '../nodes/nodes';
 import type { WebGPURenderer } from '../renderer/renderer';
 import { CanvasTarget } from '../renderer/canvas-target';
+import { buildProbeWGSL } from './probe-wgsl';
+import type { ProbeTarget } from './probe-wgsl';
+import type { RenderObject } from '../renderer/render-object';
+import { buildVertexBufferLayouts } from '../renderer/render-objects';
+import * as buffers from '../renderer/buffers';
 
 
 type DisplayCycleEntry = { needsUpdate: boolean; duration: number; time: number };
+
+// ---------------------------------------------------------------------------
+// ProbeEntry — live shader value inspector canvas
+// ---------------------------------------------------------------------------
+
+type ProbeEntry = {
+    /** The probed expression. */
+    expr: string;
+    /** The patched WGSL source. */
+    patchedCode: string;
+    /** The probe render pipeline (patched shader + same bind group layouts). */
+    pipeline: GPURenderPipeline;
+    /** 140×140 preview canvas target. */
+    canvasTarget: CanvasTarget;
+    /** The HTML canvas element. */
+    canvas: HTMLCanvasElement;
+    /** The source RenderObject whose bind groups and vertex/index buffers are reused. */
+    sourceRO: RenderObject;
+    /** Depth texture for the probe canvas (recreated if canvas size changes). */
+    depthTexture: GPUTexture;
+    /** Stable cache key: `${varName}::${anchorKind}::${roId}` */
+    cacheKey: string;
+};
 
 export class Inspector extends RendererInspector {
 
@@ -55,6 +83,9 @@ export class Inspector extends RendererInspector {
      * Prevents finish() → _processFrame() → resolveViewer() → render() → finish() infinite recursion.
      */
     private _isRenderingViewer = false;
+
+    /** Active probe entry, if any. */
+    private _activeProbe: ProbeEntry | null = null;
 
     constructor() {
         super();
@@ -216,6 +247,132 @@ export class Inspector extends RendererInspector {
     }
 
     // -----------------------------------------------------------------------
+    // Probe API — shader value live inspector
+    // -----------------------------------------------------------------------
+
+    /**
+     * Set the active probe to the given variable expression in the given mesh's
+     * compiled WGSL.  Builds a new probe pipeline (patched WGSL + same bind
+     * group layouts), creates a 140×140 CanvasTarget, and wires it to render
+     * every frame in _processFrame.
+     *
+     * Returns the probe canvas element so the caller can display it, or null
+     * if patching / pipeline creation fails.
+     */
+    setProbe(target: ProbeTarget, sourceRO: RenderObject): HTMLCanvasElement | null {
+        const renderer = this.getRenderer();
+        if (!renderer) return null;
+
+        const code = sourceRO.nodeBuilderState?.code;
+        if (!code) return null;
+
+        const cacheKey = `${target.expr}::${target.anchorKind}::${sourceRO.id}`;
+
+        // Return existing probe canvas if already built for same key
+        if (this._activeProbe?.cacheKey === cacheKey) {
+            return this._activeProbe.canvas;
+        }
+
+        // Discard previous probe
+        this.clearProbe();
+
+        // Patch WGSL
+        const patchedCode = buildProbeWGSL(code, target);
+        if (!patchedCode) return null;
+
+        console.groupCollapsed(`[gpucat probe] patched WGSL for "${target.expr}"`);
+        console.log(patchedCode);
+        console.groupEnd();
+
+        // Build probe pipeline: same bind group layouts, patched shader
+        const bindGroupLayouts = renderer.getBindGroupLayouts(sourceRO);
+        if (bindGroupLayouts.length === 0) {
+            console.warn('[gpucat probe] bind group layouts not yet initialised — try clicking again after the first frame renders');
+            return null;
+        }
+
+        const pipelineLayout = renderer.device.createPipelineLayout({ bindGroupLayouts });
+        const shaderModule = renderer.device.createShaderModule({ code: patchedCode });
+
+        // Log WGSL compilation errors asynchronously (same pattern as render-objects.ts)
+        shaderModule.getCompilationInfo().then((info) => {
+            for (const msg of info.messages) {
+                console.error(`[gpucat probe shader ${msg.type}] line ${msg.lineNum}: ${msg.message}`);
+            }
+        });
+
+        const format = navigator.gpu.getPreferredCanvasFormat();
+        const depthFormat: GPUTextureFormat = 'depth24plus';
+
+        // Real vertex buffer layouts so the pipeline accepts the actual mesh geometry.
+        const vertexBufferLayouts = buildVertexBufferLayouts(
+            sourceRO.geometry,
+            sourceRO.nodeBuilderState!,
+        );
+
+        let pipeline: GPURenderPipeline;
+        try {
+            pipeline = renderer.device.createRenderPipeline({
+                layout: pipelineLayout,
+                vertex: {
+                    module: shaderModule,
+                    entryPoint: 'vs_main',
+                    buffers: vertexBufferLayouts,
+                },
+                fragment: {
+                    module: shaderModule,
+                    entryPoint: 'fs_main',
+                    targets: [{ format }],
+                },
+                primitive: { topology: 'triangle-list', cullMode: 'none' },
+                depthStencil: {
+                    format: depthFormat,
+                    depthWriteEnabled: true,
+                    depthCompare: 'less',
+                },
+            });
+        } catch (e) {
+            console.error('[gpucat probe] Failed to create probe pipeline:', e);
+            return null;
+        }
+
+        // Create preview canvas + depth texture
+        const canvas = document.createElement('canvas');
+        canvas.style.display = 'block';
+        canvas.style.borderRadius = '4px';
+        const canvasTarget = new CanvasTarget(canvas);
+        canvasTarget.setSize(140, 140);
+
+        const depthTexture = renderer.device.createTexture({
+            size: [140, 140, 1],
+            format: depthFormat,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        });
+
+        this._activeProbe = {
+            expr: target.expr,
+            patchedCode,
+            pipeline,
+            canvasTarget,
+            canvas,
+            sourceRO,
+            depthTexture,
+            cacheKey,
+        };
+
+        return canvas;
+    }
+
+    /** Remove the active probe. */
+    clearProbe(): void {
+        if (this._activeProbe) {
+            this._activeProbe.canvasTarget.dispose();
+            this._activeProbe.depthTexture.destroy();
+            this._activeProbe = null;
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Private: per-frame update dispatch
     // -----------------------------------------------------------------------
 
@@ -249,6 +406,10 @@ export class Inspector extends RendererInspector {
             this.sceneHierarchy.show();
             this.sceneHierarchy.update(this, record.scenes);
         }
+
+        // Render probe canvas (if active) using a fresh command encoder so we
+        // don't re-enter the main render pipeline.
+        this._renderProbe();
     }
 
     /**
@@ -313,5 +474,95 @@ export class Inspector extends RendererInspector {
             cycle.needsUpdate = true;
             cycle.time = 0;
         }
+    }
+
+    /**
+     * Encode and submit a single render pass for the active probe.
+     * Uses the real mesh vertex/index buffers and bind groups (which include
+     * camera uniforms updated this frame) so the probe renders the mesh from
+     * the camera's point of view with the chosen expression as the color output.
+     */
+    private _renderProbe(): void {
+        const probe = this._activeProbe;
+        if (!probe) return;
+
+        const renderer = this.getRenderer();
+        if (!renderer) return;
+
+        const ro = probe.sourceRO;
+
+        // Bind groups updated this frame by the main render loop (camera at [0])
+        const bindGroups = ro.bindGroups;
+        if (!bindGroups || bindGroups.length === 0) return;
+
+        // Vertex buffers must be uploaded already (main render loop does this)
+        const nodeState = ro.nodeBuilderState;
+        if (!nodeState) return;
+
+        const format = navigator.gpu.getPreferredCanvasFormat();
+        const ctx = probe.canvasTarget.getContext(renderer.device, format, 'opaque');
+        const targetTexture = ctx.getCurrentTexture();
+
+        const encoder = renderer.device.createCommandEncoder();
+        const pass = encoder.beginRenderPass({
+            colorAttachments: [{
+                view: targetTexture.createView(),
+                clearValue: { r: 0.1, g: 0.1, b: 0.1, a: 1 },
+                loadOp: 'clear',
+                storeOp: 'store',
+            }],
+            depthStencilAttachment: {
+                view: probe.depthTexture.createView(),
+                depthClearValue: 1.0,
+                depthLoadOp: 'clear',
+                depthStoreOp: 'store',
+            },
+        });
+
+        pass.setPipeline(probe.pipeline);
+
+        // Bind groups (camera, object uniforms, textures — same as main draw)
+        for (let i = 0; i < bindGroups.length; i++) {
+            pass.setBindGroup(i, bindGroups[i]);
+        }
+
+        // Vertex buffers — look up uploaded GPU buffers from the geometry
+        let slot = 0;
+        const geometry = ro.geometry;
+        const bufferCache = renderer.buffers;
+        for (const attrEntry of nodeState.attributes) {
+            if (attrEntry.kind === 'geometry') {
+                const bufAttr = geometry.attributes.get(attrEntry.name);
+                if (bufAttr) {
+                    const gpuBuf = buffers.uploadVertex(bufferCache, bufAttr);
+                    pass.setVertexBuffer(slot, gpuBuf);
+                }
+            } else {
+                const node = attrEntry.node;
+                const arr = node.attribute.array;
+                if (arr) {
+                    const gpuBuf = buffers.uploadRaw(
+                        bufferCache,
+                        node,
+                        arr,
+                        GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+                    );
+                    pass.setVertexBuffer(slot, gpuBuf);
+                }
+            }
+            slot++;
+        }
+
+        // Issue draw call matching the main render loop
+        if (geometry.index) {
+            const idxBuf = buffers.uploadIndex(bufferCache, geometry.index);
+            pass.setIndexBuffer(idxBuf, geometry.index.format);
+            pass.drawIndexed(geometry.index.array.length, ro.mesh.count);
+        } else {
+            pass.draw(geometry.vertexCount, ro.mesh.count);
+        }
+
+        pass.end();
+        renderer.device.queue.submit([encoder.finish()]);
     }
 }

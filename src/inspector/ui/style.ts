@@ -370,7 +370,6 @@ const CSS = `
 
 .profiler-content-wrapper {
 	flex: 1;
-	overflow: hidden;
 	position: relative;
 	display: flex;
 	flex-direction: column;
@@ -382,7 +381,6 @@ const CSS = `
 	flex-direction: column;
 	width: 100%;
 	height: 100%;
-	overflow: hidden;
 	position: absolute;
 	top: 0; left: 0; right: 0; bottom: 0;
 }
@@ -1057,16 +1055,37 @@ const CSS = `
 }
 
 /* ============================================================
-   Shader panel — inline WGSL viewer
+   Scene hierarchy — row layout
+   ============================================================ */
+
+.scene-hierarchy-layout {
+	display: flex;
+	flex-direction: row;
+	width: 100%;
+	height: 100%;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.scene-hierarchy-list {
+	flex-shrink: 0;
+	width: 220px;
+	min-width: 160px;
+	border-right: 1px solid var(--border-color);
+	overflow-y: auto;
+	overflow-x: hidden;
+}
+
+/* ============================================================
+   Shader panel — right-side WGSL viewer
    ============================================================ */
 
 .shader-container {
-	flex-shrink: 0;
-	border-top: 1px solid var(--border-color);
+	flex: 1;
 	display: flex;
 	flex-direction: column;
-	max-height: 50%;
-	min-height: 120px;
+	border-left: none;
+	min-width: 0;
 	overflow: hidden;
 }
 
@@ -1122,9 +1141,14 @@ const CSS = `
 	margin-left: auto;
 }
 
-pre.shader-code {
+.shader-code-scroll {
 	flex: 1;
 	overflow: auto;
+	min-height: 0;
+	min-width: 0;
+}
+
+pre.shader-code {
 	margin: 0;
 	padding: 8px 12px;
 	font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
@@ -1133,8 +1157,13 @@ pre.shader-code {
 	white-space: pre;
 	color: var(--text-primary);
 	background: var(--background-color);
-	min-height: 0;
 	tab-size: 4;
+	/* NOT overflow:auto here — scroll is on the wrapper so Chrome doesn't
+	   intercept click-drag as a scroll gesture, blocking text selection */
+	overflow: visible;
+	user-select: text;
+	-webkit-user-select: text;
+	cursor: text;
 }
 
 /* WGSL syntax highlight spans */
@@ -1144,4 +1173,47 @@ pre.shader-code {
 .wgsl-comment  { color: #546e7a; font-style: italic; }
 .wgsl-number   { color: #f78c6c; }
 .wgsl-attribute { color: #c3e88d; }
+
+/* ============================================================
+   Shader probe — hoverable lines + floating popover
+   ============================================================ */
+
+.shader-line {
+    display: block;
+    white-space: pre;
+    user-select: text;
+    -webkit-user-select: text;
+    cursor: text;
+}
+
+.shader-line:hover {
+    background: rgba(255,255,255,0.05);
+}
+
+.probe-popover {
+    position: fixed;
+    z-index: 99999;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 10px;
+    background: var(--panel-bg, #1e1e1e);
+    border: 1px solid var(--border-color, #383838);
+    border-radius: 6px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    pointer-events: none;
+    min-width: 160px;
+}
+
+.probe-popover-label {
+    font-size: 10px;
+    color: var(--text-muted, #666);
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    word-break: break-all;
+}
+
+.probe-popover-canvas canvas {
+    border-radius: 4px;
+    display: block;
+}
 `;

@@ -55,20 +55,20 @@ async function main() {
     const position = attribute(d.vec3f, 'position');
     const normal = attribute(d.vec3f, 'normal');
 
-    const localPosition = vec4(position, f32(1));
-    const worldPosition = mul(modelWorldMatrix, localPosition);
-    const viewPosition = mul(cameraViewMatrix, worldPosition);
-    const clipPosition = mul(cameraProjectionMatrix, viewPosition);
+    const localPosition = vec4(position, f32(1)).toVar('localPos');
+    const worldPosition = mul(modelWorldMatrix, localPosition).toVar('worldPos');
+    const viewPosition = mul(cameraViewMatrix, worldPosition).toVar('viewPos');
+    const clipPosition = mul(cameraProjectionMatrix, viewPosition).toVar('clipPos');
 
-    const worldNormal = mul(modelNormalMatrix, vec3(normal.x, normal.y, normal.z));
+    const worldNormal = mul(modelNormalMatrix, vec3(normal.x, normal.y, normal.z)).toVar('worldNormal');
     
     const vNormal = varying(d.vec3f, 'v_norm', normalize(worldNormal));
 
-    const lightDirection = vec3(f32(0.6), f32(1.0), f32(0.8)).normalize();
-    const diffuse = vNormal.dot(lightDirection).max(f32(0.15));
+    const lightDirection = vec3(f32(0.6), f32(1.0), f32(0.8)).normalize().toVar('lightDir').inspect('light direction');
+    const diffuse = vNormal.dot(lightDirection).max(f32(0.15)).toVar('diffuse').inspect('diffuse lighting');
 
-    const baseColor = color('#f60');
-    const litColor = vec3(baseColor.x, baseColor.y, baseColor.z).mul(diffuse);
+    const baseColor = color('#f60').toVar('baseColor');
+    const litColor = vec3(baseColor.x, baseColor.y, baseColor.z).mul(diffuse).toVar('litColor');
 
     const material = new Material({
         vertex: clipPosition,

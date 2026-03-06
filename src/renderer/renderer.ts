@@ -42,7 +42,6 @@ import { createAttributesState, incrementCallId, type AttributesState } from './
 import { createGeometriesState, type GeometriesState } from './geometries';
 import { createNodeManagerState, updateBefore, updateForRender, updateAfter, type NodeManagerState } from './node-manager';
 import { createBindingsState, getBindGroupLayouts as _getBindGroupLayouts, type BindingsState } from './bindings';
-import type { RenderObject } from './render-object';
 import { createRenderObjectsState, getRenderObject, initRenderObject, initRenderObjectAsync, updateRenderObject, type RenderObjectsState } from './render-objects';
 import { createRenderListsState, collectRenderList, type RenderListsState } from './render-lists';
 import type { RenderItem } from './render-list';
@@ -200,6 +199,15 @@ export class WebGPURenderer {
     /** Read-only access to RenderObjects state for inspection/debugging. */
     get renderObjects(): RenderObjectsState {
         return this._renderObjects;
+    }
+
+    /**
+     * Return the GPUBindGroupLayouts for a compiled RenderObject.
+     * Used by the inspector probe to build a probe pipeline with the same
+     * bind group layout as the source mesh pipeline.
+     */
+    getBindGroupLayouts(renderObject: import('./render-object').RenderObject): GPUBindGroupLayout[] {
+        return _getBindGroupLayouts(this._bindings, renderObject);
     }
 
     /** @internal RenderLists manager - caches scene collection results */
@@ -1129,10 +1137,16 @@ export class WebGPURenderer {
                     colorFormat,
                     depthFormat,
                 );
-                if (!initialized || !renderObject.pipeline) continue;
+                if (!initialized || !renderObject.pipeline) {
+                    console.warn('[gpucat] initRenderObject failed or pipeline missing', { initialized, pipeline: renderObject.pipeline });
+                    continue;
+                }
 
                 const nodeState = renderObject.nodeBuilderState;
-                if (!nodeState) continue;
+                if (!nodeState) {
+                    console.warn('[gpucat] no nodeBuilderState');
+                    continue;
+                }
 
                 // Note: Texture upload is now handled by the Bindings system (Three.js aligned)
                 // See bindings.ts rebuildBindGroups() - it calls updateTexture/getSampler

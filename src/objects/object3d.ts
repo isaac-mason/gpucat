@@ -49,7 +49,7 @@ export class Object3D {
         if (this.parent) {
             mat4.multiply(this.matrixWorld, this.parent.matrixWorld, this.matrix);
         } else {
-            mat4.copy(this.matrix, this.matrixWorld);
+            mat4.copy(this.matrixWorld, this.matrix);
         }
 
         mat3.normalFromMat4(this.normalMatrix, this.matrixWorld);

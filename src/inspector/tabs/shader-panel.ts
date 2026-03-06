@@ -8,11 +8,15 @@
  *  3. Applies basic WGSL syntax highlighting.
  *  4. Provides stage-select buttons (Vertex / Fragment) and a Copy button.
  *  5. Shows "Compiling…" when no compiled RenderObject exists yet.
+ *  6. Hovering a probeable fragment-stage line shows a floating popover with
+ *     a live 140×140 preview canvas next to the cursor.
  */
 
 import type { Inspector } from '../inspector';
 import type { SceneRecord } from '../renderer-inspector';
 import type { Mesh } from '../../objects/mesh';
+import type { RenderObject } from '../../renderer/render-object';
+import { extractProbeTarget } from '../probe-wgsl';
 
 // ---------------------------------------------------------------------------
 // WGSL Syntax Highlighting
@@ -68,14 +72,8 @@ type ShaderStages = {
  * Split combined WGSL (as emitted by compile.ts) into vertex / fragment
  * sections. The combined code has `@vertex\nfn vs_main` and
  * `@fragment\nfn fs_main` entry-point markers.
- *
- * We return the full code for each stage by finding the second @vertex /
- * @fragment attribute and everything following it to the next top-level entry.
- * If the markers are absent we fall back to the full code for both.
  */
 function splitStages(code: string): ShaderStages {
-    // Find positions of the entry-point attribute lines
-    // (the ones immediately preceding fn vs_main / fn fs_main)
     const vertexMatch = code.match(/@vertex\s*\nfn\s+vs_main/);
     const fragmentMatch = code.match(/@fragment\s*\nfn\s+fs_main/);
 
@@ -86,9 +84,7 @@ function splitStages(code: string): ShaderStages {
     const vsStart = code.indexOf(vertexMatch[0]);
     const fsStart = code.indexOf(fragmentMatch[0]);
 
-    // Vertex section: from @vertex … up to (but not including) @fragment
     const vertexSection = code.slice(vsStart, fsStart).trimEnd();
-    // Fragment section: from @fragment to end
     const fragmentSection = code.slice(fsStart).trimEnd();
 
     return {
@@ -113,6 +109,37 @@ export class ShaderPanel {
 
     private _currentStage: Stage = 'vertex';
     private _stages: ShaderStages | null = null;
+
+    /** The raw code string last written to innerHTML — skips re-render if unchanged. */
+    private _lastRenderedCode: string | null = null;
+
+    /** The RenderObject found during the last update() call. */
+    private _renderObject: RenderObject | null = null;
+
+    /** Inspector reference — set on first update() call. */
+    private _inspector: Inspector | null = null;
+
+    // -----------------------------------------------------------------------
+    // Probe popover — floats next to the cursor while hovering a probeable line
+    // -----------------------------------------------------------------------
+
+    /** Floating popover element, appended to document.body. */
+    private _popover: HTMLDivElement;
+    private _popoverLabel: HTMLSpanElement;
+    private _popoverCanvasSlot: HTMLDivElement;
+
+    /** varName currently shown in the popover (to avoid redundant setProbe calls). */
+    private _hoverVarName: string | null = null;
+
+    /** Whether the popover is currently visible. */
+    private _popoverVisible = false;
+
+    /**
+     * When true the current probe was triggered by a text selection, not a
+     * hover.  Mousemove events will NOT clear it — only a mousedown outside
+     * the code block (or a new selection) will.
+     */
+    private _selectionLocked = false;
 
     constructor() {
         const container = document.createElement('div');
@@ -144,16 +171,56 @@ export class ShaderPanel {
         toolbar.appendChild(stageGroup);
         toolbar.appendChild(copyBtn);
 
-        // --- Code block ---
+        // --- Code block (pre inside a scroll wrapper) ---
+        // The pre must NOT be a scroll container — Chrome intercepts click-drag
+        // on scrollable elements as scroll gestures, blocking text selection.
+        // Scrolling is handled by the wrapper div instead.
+        const codeScroll = document.createElement('div');
+        codeScroll.className = 'shader-code-scroll';
+
         const codeBlock = document.createElement('pre');
         codeBlock.className = 'shader-code';
         codeBlock.innerHTML = '<span class="wgsl-comment">// Compiling…</span>';
+        // Belt-and-suspenders: inline style beats any inherited user-select:none
+        codeBlock.style.userSelect = 'text';
+        (codeBlock.style as CSSStyleDeclaration & { webkitUserSelect: string }).webkitUserSelect = 'text';
 
+        codeScroll.addEventListener('mousemove', (e) => this._onLineHover(e));
+        codeScroll.addEventListener('mouseleave', () => this._onMouseLeave());
+        codeBlock.addEventListener('mouseup', () => this._onSelectionEnd());
+
+        // Clicking outside the code block dismisses a selection-locked probe
+        document.addEventListener('mousedown', (e) => {
+            if (this._selectionLocked && !this._codeBlock.contains(e.target as Node)) {
+                this._hidePopover();
+            }
+        });
+
+        codeScroll.appendChild(codeBlock);
         container.appendChild(toolbar);
-        container.appendChild(codeBlock);
+        container.appendChild(codeScroll);
 
         this.domElement = container;
         this._codeBlock = codeBlock;
+
+        // --- Floating probe popover (appended to body, shared across all instances) ---
+        const popover = document.createElement('div');
+        popover.className = 'probe-popover';
+        popover.style.display = 'none';
+
+        const popoverLabel = document.createElement('span');
+        popoverLabel.className = 'probe-popover-label';
+
+        const popoverCanvasSlot = document.createElement('div');
+        popoverCanvasSlot.className = 'probe-popover-canvas';
+
+        popover.appendChild(popoverLabel);
+        popover.appendChild(popoverCanvasSlot);
+        document.body.appendChild(popover);
+
+        this._popover = popover;
+        this._popoverLabel = popoverLabel;
+        this._popoverCanvasSlot = popoverCanvasSlot;
 
         // Select initial stage
         this._selectStage('vertex');
@@ -168,6 +235,8 @@ export class ShaderPanel {
      * Finds the compiled RenderObject in the renderer's renderObjects set.
      */
     update(inspector: Inspector, mesh: Mesh, _sceneRecord: SceneRecord): void {
+        this._inspector = inspector;
+
         const renderer = inspector.getRenderer();
         if (!renderer) {
             this._setCompiling();
@@ -175,20 +244,21 @@ export class ShaderPanel {
         }
 
         // Search the live RenderObjects set for a matching mesh
-        let code: string | null = null;
-        for (const ro of renderer.renderObjects.renderObjects) {
-            if (ro.mesh === mesh && ro.nodeBuilderState) {
-                code = ro.nodeBuilderState.code;
+        let ro: RenderObject | null = null;
+        for (const candidate of renderer.renderObjects.renderObjects) {
+            if (candidate.mesh === mesh && candidate.nodeBuilderState) {
+                ro = candidate;
                 break;
             }
         }
 
-        if (code === null) {
+        if (ro === null) {
             this._setCompiling();
             return;
         }
 
-        this._stages = splitStages(code);
+        this._renderObject = ro;
+        this._stages = splitStages(ro.nodeBuilderState!.code);
         this._renderCurrentStage();
     }
 
@@ -198,6 +268,10 @@ export class ShaderPanel {
 
     private _selectStage(stage: Stage): void {
         this._currentStage = stage;
+        this._lastRenderedCode = null;
+        this._selectionLocked = false;
+        this._hidePopover();
+        this._hoverVarName = null;
 
         for (const [s, btn] of this._stageButtons) {
             btn.classList.toggle('active', s === stage);
@@ -211,12 +285,257 @@ export class ShaderPanel {
     private _renderCurrentStage(): void {
         if (!this._stages) return;
         const code = this._stages[this._currentStage];
-        this._codeBlock.innerHTML = highlightWGSL(code);
+
+        // Don't rebuild the DOM (and wipe any text selection) if the code hasn't changed
+        if (code === this._lastRenderedCode) return;
+        this._lastRenderedCode = code;
+
+        const lines = code.split('\n');
+
+        const html = lines
+            .map((line, i) => {
+                const highlighted = highlightWGSL(line);
+                return `<span class="shader-line" data-line="${i}">${highlighted}</span>`;
+            })
+            .join('');
+
+        this._codeBlock.innerHTML = html;
+    }
+
+    private _onMouseLeave(): void {
+        // Don't dismiss a selection-locked probe when the cursor leaves
+        if (!this._selectionLocked) {
+            this._hidePopover();
+        }
+    }
+
+    private _onLineHover(e: MouseEvent): void {
+        // If a selection is locked, just reposition the popover as cursor moves
+        if (this._selectionLocked) {
+            if (this._popoverVisible) this._positionPopover(e.clientX, e.clientY);
+            return;
+        }
+
+        // Walk up from the hovered element to find the nearest .shader-line span
+        let target: HTMLElement | null = e.target as HTMLElement;
+        while (target && target !== this._codeBlock) {
+            if (target.classList.contains('shader-line')) break;
+            target = target.parentElement;
+        }
+
+        if (!target || target === this._codeBlock) {
+            this._hidePopover();
+            return;
+        }
+
+        const lineIndexStr = target.dataset['line'];
+        if (lineIndexStr === undefined) {
+            this._hidePopover();
+            return;
+        }
+        const lineIndex = parseInt(lineIndexStr, 10);
+
+        if (!this._stages) {
+            this._hidePopover();
+            return;
+        }
+
+        const code = this._stages[this._currentStage];
+        const lines = code.split('\n');
+        const lineText = lines[lineIndex] ?? '';
+        const probeTarget = extractProbeTarget(lineText);
+
+        if (!probeTarget) {
+            this._hidePopover();
+            return;
+        }
+
+        // Position the popover near the cursor, keeping it on-screen
+        this._positionPopover(e.clientX, e.clientY);
+
+        // Only rebuild the probe canvas when the hovered expression changes
+        if (probeTarget.expr === this._hoverVarName && this._popoverVisible) return;
+
+        this._hoverVarName = probeTarget.expr;
+
+        const ro = this._renderObject;
+        if (!ro || !this._inspector) {
+            this._hidePopover();
+            return;
+        }
+
+        const probeCanvas = this._inspector.setProbe(probeTarget, ro);
+        if (!probeCanvas) {
+            this._hidePopover();
+            return;
+        }
+
+        // Update popover content
+        this._popoverLabel.textContent = probeTarget.expr;
+        this._popoverCanvasSlot.innerHTML = '';
+        this._popoverCanvasSlot.appendChild(probeCanvas);
+        this._showPopover();
+    }
+
+    private _positionPopover(cursorX: number, cursorY: number): void {
+        const pop = this._popover;
+        const offset = 16;
+        const vpW = window.innerWidth;
+        const vpH = window.innerHeight;
+
+        // Temporarily show to get natural dimensions
+        const wasHidden = pop.style.display === 'none';
+        if (wasHidden) {
+            pop.style.visibility = 'hidden';
+            pop.style.display = 'flex';
+        }
+
+        const pw = pop.offsetWidth || 180;
+        const ph = pop.offsetHeight || 200;
+
+        if (wasHidden) {
+            pop.style.display = 'none';
+            pop.style.visibility = '';
+        }
+
+        let left = cursorX + offset;
+        let top = cursorY + offset;
+
+        // Flip left if it would overflow right edge
+        if (left + pw > vpW - 8) left = cursorX - pw - offset;
+        // Clamp top
+        if (top + ph > vpH - 8) top = vpH - ph - 8;
+        if (top < 8) top = 8;
+
+        pop.style.left = `${left}px`;
+        pop.style.top = `${top}px`;
+    }
+
+    private _showPopover(): void {
+        this._popover.style.display = 'flex';
+        this._popoverVisible = true;
+    }
+
+    private _hidePopover(): void {
+        this._popover.style.display = 'none';
+        this._popoverVisible = false;
+        this._hoverVarName = null;
+        this._selectionLocked = false;
+        this._inspector?.clearProbe();
+    }
+
+    /**
+     * Called on `mouseup` inside the code block.  If the user has selected
+     * a non-empty text range, treat the selected text as the probe expression.
+     *
+     * The anchor line (for body truncation) is determined by walking up from
+     * the selection's anchor node to the nearest `.shader-line[data-line]` span.
+     *
+     * The probe is "locked" — it won't be dismissed by subsequent mousemove
+     * events; only a mousedown outside the code block clears it.
+     */
+    private _onSelectionEnd(): void {
+        const sel = window.getSelection();
+        if (!sel || sel.isCollapsed) {
+            // No real selection — fall back to hover behaviour
+            this._selectionLocked = false;
+            return;
+        }
+
+        const selectedText = sel.toString().trim();
+        if (!selectedText) {
+            this._selectionLocked = false;
+            return;
+        }
+
+        // Walk up from anchorNode to find the .shader-line span
+        let node: Node | null = sel.anchorNode;
+        let lineSpan: HTMLElement | null = null;
+        while (node && node !== this._codeBlock) {
+            if (node instanceof HTMLElement && node.classList.contains('shader-line')) {
+                lineSpan = node;
+                break;
+            }
+            node = node.parentElement;
+        }
+
+        if (!lineSpan || !this._stages) {
+            this._selectionLocked = false;
+            return;
+        }
+
+        const lineIndexStr = lineSpan.dataset['line'];
+        if (lineIndexStr === undefined) {
+            this._selectionLocked = false;
+            return;
+        }
+        const lineIndex = parseInt(lineIndexStr, 10);
+
+        const code = this._stages[this._currentStage];
+        const lines = code.split('\n');
+        const anchorLineText = lines[lineIndex] ?? '';
+
+        // Build a ProbeTarget from the selection:
+        // - expr = the selected text (raw WGSL sub-expression)
+        // - anchor = the full trimmed anchor line, so the body walker stops there
+        // - anchorKind = 'assignment' to stop after that line is included
+        //
+        // Special case: if the anchor line is a `let _vN = ...` line, use
+        // `let_var` kind with the identifier as anchor for cleaner truncation.
+        const trimmedAnchor = anchorLineText.trim();
+        let probeTarget: import('../probe-wgsl').ProbeTarget;
+
+        const letAnchorMatch = trimmedAnchor.match(/^let\s+(\w+)\s*(?::\s*[\w<>, ]+\s*)?=/);
+        if (letAnchorMatch) {
+            probeTarget = {
+                expr: selectedText,
+                anchor: letAnchorMatch[1],
+                anchorKind: 'let_var',
+            };
+        } else if (trimmedAnchor.startsWith('return')) {
+            probeTarget = {
+                expr: selectedText,
+                anchor: '__return__',
+                anchorKind: 'return',
+            };
+        } else {
+            probeTarget = {
+                expr: selectedText,
+                anchor: trimmedAnchor,
+                anchorKind: 'assignment',
+            };
+        }
+
+        const ro = this._renderObject;
+        if (!ro || !this._inspector) return;
+
+        // Avoid rebuilding if same selection
+        const selKey = selectedText;
+        if (selKey === this._hoverVarName && this._selectionLocked && this._popoverVisible) return;
+
+        const probeCanvas = this._inspector.setProbe(probeTarget, ro);
+        if (!probeCanvas) return;
+
+        this._selectionLocked = true;
+        this._hoverVarName = selKey;
+
+        // Position near the selection (use caret coords as approximation)
+        const range = sel.getRangeAt(0);
+        const rect = range.getBoundingClientRect();
+        this._positionPopover(rect.right, rect.bottom);
+
+        this._popoverLabel.textContent = selectedText;
+        this._popoverCanvasSlot.innerHTML = '';
+        this._popoverCanvasSlot.appendChild(probeCanvas);
+        this._showPopover();
     }
 
     private _setCompiling(): void {
         this._stages = null;
+        this._renderObject = null;
+        this._lastRenderedCode = null;
         this._codeBlock.innerHTML = '<span class="wgsl-comment">// Compiling…</span>';
+        this._hidePopover();
     }
 
     private _copyCode(btn: HTMLButtonElement): void {

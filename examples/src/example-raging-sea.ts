@@ -2,7 +2,7 @@ import {
     attribute,
     cameraProjectionMatrix,
     cameraViewMatrix,
-    createSubdividedPlaneGeometry,
+    createPlaneGeometry,
     d,
     f32,
     Fn,
@@ -15,29 +15,23 @@ import {
     pass,
     PerspectiveCamera,
     Scene,
-    timeElapsed,
     uniform,
     vec2,
     vec3,
-    vec3f,
-    vec4,
+    timeElapsed,
     varying,
+    vec4,
     WebGPURenderer,
     wgslFn,
     type Node,
     type WgslType,
 } from 'gpucat';
 
-// ---------------------------------------------------------------------------
-// Noise — smooth hash-based 3-D value noise, implemented in raw WGSL.
-//
-// hash3 and valueNoise3D are split into separate wgslFn calls so that the
-// compiler emits them as two distinct top-level WGSL functions.  hash3 is
-// passed as an `includes` dependency of valueNoise3D so it is guaranteed to
-// appear first in the emitted shader.
-// ---------------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────────
+// Value noise (raw WGSL)
+// ─────────────────────────────────────────────────────────────────────────────
 
-const hash3 = wgslFn<'f32'>(/* wgsl */ `
+const hash3 = wgslFn<'f32'>(`
 fn hash3(p: vec3f) -> f32 {
     var q: vec3f = fract(p * vec3f(127.1, 311.7, 74.7));
     q = q + dot(q, q + 19.19);
@@ -45,9 +39,7 @@ fn hash3(p: vec3f) -> f32 {
 }
 `);
 
-// valueNoise3D declares hash3 as an include so the compiler emits hash3
-// before valueNoise3D in the final WGSL module.
-const valueNoise3D = wgslFn<'f32'>(/* wgsl */ `
+const valueNoise3D = wgslFn<'f32'>(`
 fn valueNoise3D(p: vec3f) -> f32 {
     let i = floor(p);
     let f = fract(p);
@@ -74,173 +66,147 @@ fn valueNoise3D(p: vec3f) -> f32 {
 }
 `, [hash3]);
 
-// ---------------------------------------------------------------------------
-// Wave elevation function (named, so it can be called twice for normals).
-//
-// All ten parameters come in as generic Node<WgslType> because the Fn overload
-// without a layout descriptor accepts Node<WgslType> args. We annotate
-// the correct types in the FnLayout.
-// ---------------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────────
+// Uniforms
+// ─────────────────────────────────────────────────────────────────────────────
+
+const uFreqX       = uniform(f32(3.0),  'freqX');
+const uFreqZ       = uniform(f32(1.5),  'freqZ');
+const uSpeed       = uniform(f32(1.0),  'speed');
+const uAmp         = uniform(f32(0.15), 'amplitude');
+
+const uSmallFreq   = uniform(f32(2.0),  'smallFreq');
+const uSmallSpeed  = uniform(f32(0.3),  'smallSpeed');
+const uSmallAmp    = uniform(f32(0.18), 'smallAmp');
+
+// ─────────────────────────────────────────────────────────────────────────────
+// wavesElevation: large sine + small noise octaves (via Fn)
+// ─────────────────────────────────────────────────────────────────────────────
 
 const wavesElevation = Fn(
     (
-        pos:     Node<WgslType>,
-        t:       Node<WgslType>,
-        lwFreqX: Node<WgslType>,
-        lwFreqZ: Node<WgslType>,
-        lwSpeed: Node<WgslType>,
-        lwMult:  Node<WgslType>,
-        swIter:  Node<WgslType>,
-        swFreq:  Node<WgslType>,
-        swSpeed: Node<WgslType>,
-        swMult:  Node<WgslType>,
+        pos:    Node<WgslType>,
+        t:      Node<WgslType>,
+        freqX:  Node<WgslType>,
+        freqZ:  Node<WgslType>,
+        speed:  Node<WgslType>,
+        amp:    Node<WgslType>,
+        sFreq:  Node<WgslType>,
+        sSpeed: Node<WgslType>,
+        sAmp:   Node<WgslType>,
     ) => {
-        // Cast to well-typed nodes for the methods we need.
-        const p   = pos   as Node<'vec3f'>;
-        const tm  = t     as Node<'f32'>;
-        const lfx = lwFreqX as Node<'f32'>;
-        const lfz = lwFreqZ as Node<'f32'>;
-        const ls  = lwSpeed as Node<'f32'>;
-        const lm  = lwMult  as Node<'f32'>;
-        const si  = swIter  as Node<'f32'>;
-        const sf  = swFreq  as Node<'f32'>;
-        const ss  = swSpeed as Node<'f32'>;
-        const sm  = swMult  as Node<'f32'>;
+        const p  = pos   as Node<'vec3f'>;
+        const tm = t     as Node<'f32'>;
+        const fx = freqX as Node<'f32'>;
+        const fz = freqZ as Node<'f32'>;
+        const sp = speed as Node<'f32'>;
+        const am = amp   as Node<'f32'>;
+        const sf = sFreq  as Node<'f32'>;
+        const ss = sSpeed as Node<'f32'>;
+        const sa = sAmp   as Node<'f32'>;
 
-        // Large waves: product of two orthogonal sine waves.
-        const elevation = p.x.mul(lfx).add(tm.mul(ls)).sin()
-            .mul(p.z.mul(lfz).add(tm.mul(ls)).sin())
-            .mul(lm)
-            .toVar('elevation');
+        const elev = p.x.mul(fx).add(tm.mul(sp)).sin()
+            .mul(p.z.mul(fz).add(tm.mul(sp)).sin())
+            .mul(am)
+            .toVar('elev');
 
-        // Small waves: 4 octaves of value noise (octaves beyond swIter are zeroed
-        // by multiplying with step(scale, swIter), i.e. scale <= swIter).
-        for (let octave = 1; octave <= 4; octave++) {
-            const scale = f32(octave);
-            // step(edge, x) → 1 if x >= edge, else 0.  We want active=1 when octave <= swIter.
-            const active = scale.lte(si);
+        // 3 octaves of value noise for small waves
+        for (let oct = 1; oct <= 3; oct++) {
+            const scale = f32(oct);
             const noiseInput = vec3(
                 p.xz.add(vec2(f32(2), f32(2))).mul(sf).mul(scale),
                 tm.mul(ss),
             );
-            const wave = valueNoise3D(noiseInput)
-                .mul(sm)
-                .div(scale)
-                .abs();
-            elevation.assign(elevation.sub(wave.mul(active.toF32())));
+            const wave = valueNoise3D(noiseInput).mul(sa).div(scale).abs();
+            elev.assign(elev.sub(wave));
         }
 
-        return elevation;
+        return elev;
     },
     {
         name: 'wavesElevation',
         params: [
-            { name: 'pos',     type: d.vec3f },
-            { name: 't',       type: d.f32 },
-            { name: 'lwFreqX', type: d.f32 },
-            { name: 'lwFreqZ', type: d.f32 },
-            { name: 'lwSpeed', type: d.f32 },
-            { name: 'lwMult',  type: d.f32 },
-            { name: 'swIter',  type: d.f32 },
-            { name: 'swFreq',  type: d.f32 },
-            { name: 'swSpeed', type: d.f32 },
-            { name: 'swMult',  type: d.f32 },
+            { name: 'pos',    type: d.vec3f },
+            { name: 't',      type: d.f32 },
+            { name: 'freqX',  type: d.f32 },
+            { name: 'freqZ',  type: d.f32 },
+            { name: 'speed',  type: d.f32 },
+            { name: 'amp',    type: d.f32 },
+            { name: 'sFreq',  type: d.f32 },
+            { name: 'sSpeed', type: d.f32 },
+            { name: 'sAmp',   type: d.f32 },
         ],
     },
 );
 
-// ---------------------------------------------------------------------------
-// Uniforms — tunable wave parameters (all in objectGroup by default).
-// ---------------------------------------------------------------------------
-
-const uLargeWavesFreqX = uniform(f32(3.0),  'largeWavesFreqX');
-const uLargeWavesFreqZ = uniform(f32(1.5),  'largeWavesFreqZ');
-const uLargeWavesSpeed = uniform(f32(1.25), 'largeWavesSpeed');
-const uLargeWavesMult  = uniform(f32(0.15), 'largeWavesMult');
-
-const uSmallWavesIter  = uniform(f32(3.0),  'smallWavesIter');
-const uSmallWavesFreq  = uniform(f32(2.0),  'smallWavesFreq');
-const uSmallWavesSpeed = uniform(f32(0.3),  'smallWavesSpeed');
-const uSmallWavesMult  = uniform(f32(0.18), 'smallWavesMult');
-
-const uNormalShift     = uniform(f32(0.01), 'normalShift');
-
-// vec3f uniforms for colour (constructed, not const literal — hence ConstructNode).
-const uEmissiveColor   = uniform(vec3f(1.0, 0.04, 0.50), 'emissiveColor') as Node<'vec3f'>;
-const uEmissiveLow     = uniform(f32(-0.25), 'emissiveLow');
-const uEmissiveHigh    = uniform(f32(0.2),   'emissiveHigh');
-const uEmissivePower   = uniform(f32(7.0),   'emissivePower');
-const uWaterColor      = uniform(vec3f(0.15, 0.08, 0.26), 'waterColor') as Node<'vec3f'>;
-
-// ---------------------------------------------------------------------------
-// Helper — call wavesElevation bound to all uniforms for a given position.
-// ---------------------------------------------------------------------------
-
-function elevation(pos: Node<'vec3f'>): Node<WgslType> {
+function elev(pos: Node<'vec3f'>): Node<'f32'> {
     return wavesElevation(
-        pos,
-        timeElapsed,
-        uLargeWavesFreqX,
-        uLargeWavesFreqZ,
-        uLargeWavesSpeed,
-        uLargeWavesMult,
-        uSmallWavesIter,
-        uSmallWavesFreq,
-        uSmallWavesSpeed,
-        uSmallWavesMult,
-    ) as unknown as Node<WgslType>;
+        pos, timeElapsed,
+        uFreqX, uFreqZ, uSpeed, uAmp,
+        uSmallFreq, uSmallSpeed, uSmallAmp,
+    ) as Node<'f32'>;
 }
 
-// ---------------------------------------------------------------------------
-// Vertex shader
-// ---------------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────────
+// Vertex graph
+// ─────────────────────────────────────────────────────────────────────────────
 
 const positionAttr = attribute(d.vec3f, 'position');
+const px    = positionAttr.x as Node<'f32'>;
+const pz    = positionAttr.z as Node<'f32'>;
+const shift = f32(0.01);
 
-// Displaced local-space position — wave function modifies the Y component.
-const localPos  = vec3(positionAttr.x, elevation(positionAttr) as Node<'f32'>, positionAttr.z);
-const clipPos   = mul(cameraProjectionMatrix, mul(cameraViewMatrix, mul(modelWorldMatrix, vec4(localPos, f32(1)))));
+const displacedPos = vec3(px,            elev(positionAttr as Node<'vec3f'>),                                                   pz);
+const posA         = vec3(px.add(shift), elev(vec3(px.add(shift), f32(0), pz)             as Node<'vec3f'>),  pz);
+const posB         = vec3(px,            elev(vec3(px,             f32(0), pz.sub(shift))  as Node<'vec3f'>),  pz.sub(shift));
 
-// Finite-difference normals.
-const shift = uNormalShift;
-const posA  = vec3(positionAttr.x.add(shift), elevation(vec3(positionAttr.x.add(shift), f32(0), positionAttr.z)) as Node<'f32'>,      positionAttr.z);
-const posB  = vec3(positionAttr.x,            elevation(vec3(positionAttr.x, f32(0), positionAttr.z.add(shift))) as Node<'f32'>, positionAttr.z.add(shift));
+// Tangent vectors → cross product → normal (matches Three.js toA.cross(toB))
+const toA    = posA.sub(displacedPos).normalize();
+const toB    = posB.sub(displacedPos).normalize();
+const normal = toA.cross(toB).normalize();
 
-const toA        = posA.sub(localPos).normalize();
-const toB        = posB.sub(localPos).normalize();
-const worldNormal = toA.cross(toB).normalize();
+const vNormal    = varying(d.vec3f, 'v_normal',    normal);
+const vElevation = varying(d.f32,   'v_elevation', displacedPos.y as Node<'f32'>);
 
-const vElevation = varying(d.f32,   'v_elevation', localPos.y);
-const vNormal    = varying(d.vec3f, 'v_normal',    worldNormal);
+const clipPos = mul(cameraProjectionMatrix, mul(cameraViewMatrix, mul(modelWorldMatrix, vec4(displacedPos, f32(1)))));
 
-// ---------------------------------------------------------------------------
-// Fragment shader — lambert diffuse + Blinn-Phong specular + emissive crests
-// ---------------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────────
+// Fragment graph
+// ─────────────────────────────────────────────────────────────────────────────
 
+// Diffuse
 const lightDir = vec3(f32(-0.6), f32(1.0), f32(0.8)).normalize();
-
 const diffuse  = vNormal.dot(lightDir).max(f32(0.05));
+
+// Specular
 const viewDir  = vec3(f32(0), f32(1), f32(0));
 const halfVec  = lightDir.add(viewDir).normalize();
 const specular = vNormal.dot(halfVec).max(f32(0)).pow(f32(64)).mul(f32(0.4));
 
-const litColor = uWaterColor.mul(diffuse).add(vec3(f32(1), f32(1), f32(1)).mul(specular));
+// Flat dark purple base colour (matches Three.js #271442)
+const baseColor = vec3(f32(0.153), f32(0.078), f32(0.259));
+const litColor  = baseColor.mul(diffuse).add(vec3(f32(1), f32(1), f32(1)).mul(specular));
 
-// Remap elevation [emissiveHigh → emissiveLow] → [0 → 1], then power.
-const t01     = vElevation.sub(uEmissiveHigh).div(uEmissiveLow.sub(uEmissiveHigh)).clamp(f32(0), f32(1));
-const emissive = uEmissiveColor.mul(t01.pow(uEmissivePower));
+// Emissive foam: glows at TROUGHS (low elevation) — matches Three.js remap(high, low)
+// elevation.remap(emissiveHigh, emissiveLow) = (elev - high) / (low - high), clamped 0..1
+const emissiveColor = vec3(f32(1.0), f32(0.039), f32(0.506)); // #ff0a81
+const emissiveLow   = f32(-0.25);
+const emissiveHigh  = f32(0.2);
+const emissivePower = f32(7.0);
+const emissiveT     = vElevation.sub(emissiveHigh).div(emissiveLow.sub(emissiveHigh)).clamp(f32(0), f32(1));
+const emissive      = emissiveColor.mul(emissiveT.pow(emissivePower));
 
 const finalColor = vec4(litColor.add(emissive), f32(1));
 
-// ---------------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────────
 // Material
-// ---------------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────────
 
 const material = new Material({ vertex: clipPos, fragment: finalColor });
 
-// ---------------------------------------------------------------------------
-// Scene & renderer
-// ---------------------------------------------------------------------------
+// ─────────────────────────────────────────────────────────────────────────────
+// Scene setup
+// ─────────────────────────────────────────────────────────────────────────────
 
 async function main() {
     const renderer = new WebGPURenderer({ antialias: true });
@@ -268,10 +234,8 @@ async function main() {
     scene.add(camera);
 
     const controls = new OrbitControls(camera, renderer.domElement);
-    controls.target[1] = -0.15;
+    controls.target[1] = 0;
     controls.enableDamping = true;
-    controls.minDistance = 0.5;
-    controls.maxDistance = 20;
     controls.update();
 
     window.addEventListener('resize', () => {
@@ -280,8 +244,7 @@ async function main() {
         camera.updateProjectionMatrix();
     });
 
-    // 128×128 grid — smooth enough for displacement, reasonable vertex count.
-    const geometry = createSubdividedPlaneGeometry(4, 4, 128, 128);
+    const geometry = createPlaneGeometry(4, 4, 128, 128);
     const mesh = new Mesh(geometry, material);
     scene.add(mesh);
 

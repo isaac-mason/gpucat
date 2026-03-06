@@ -1,0 +1,319 @@
+/**
+ * probe-wgsl.ts — WGSL string patching helpers for the shader value probe.
+ *
+ * The probe re-uses the source mesh's vertex shader verbatim (including camera
+ * transforms) so that the probe canvas renders the mesh from the real camera's
+ * point of view.  Only fs_main is patched to output a single vec4f showing the
+ * chosen intermediate variable.
+ */
+
+// ---------------------------------------------------------------------------
+// ProbeTarget — what to probe from a hovered line
+// ---------------------------------------------------------------------------
+
+export type ProbeTarget = {
+    /**
+     * The WGSL expression to evaluate and display.
+     * e.g. `_v3`, `textureSample(tex, samp, in.uv)`, `_v1 * 2.0`
+     */
+    expr: string;
+
+    /**
+     * The anchor identifier used to locate the cutoff line in the body.
+     * For `let _vN = expr` lines this is `_vN`.
+     * For assignment lines (`_out.color = expr`) this is the full trimmed line text
+     * so the body walker can find the exact line.
+     * For return-expression lines this is a sentinel `'__return__'`.
+     */
+    anchor: string;
+
+    /** How to find the cutoff: 'let_var' | 'assignment' | 'return' */
+    anchorKind: 'let_var' | 'assignment' | 'return';
+};
+
+// ---------------------------------------------------------------------------
+// extractProbeTarget — parse a hovered WGSL line into a ProbeTarget
+// ---------------------------------------------------------------------------
+
+/**
+ * Given the raw text of a single WGSL source line, return a ProbeTarget
+ * describing what expression to probe and where to truncate the body,
+ * or null if the line is not probeable.
+ *
+ * Supported patterns (all with optional leading whitespace):
+ *   let _vN = <expr>;               → probe _vN, anchor on let line
+ *   var name : type = <expr>;       → probe name, anchor on var line
+ *   name = <expr>;                  → probe <expr>, anchor on this line
+ *   _out.field = <expr>;            → probe <expr>, anchor on this line
+ *   out.field = <expr>;             → probe <expr>, anchor on this line
+ *   return <expr>;                  → probe <expr>, anchor on return
+ */
+export function extractProbeTarget(line: string): ProbeTarget | null {
+    const trimmed = line.trim();
+
+    // Skip blank / comments / structural lines
+    if (!trimmed) return null;
+    if (trimmed.startsWith('//') || trimmed.startsWith('/*')) return null;
+    if (
+        trimmed.startsWith('struct ') ||
+        trimmed.startsWith('@') ||
+        trimmed.startsWith('fn ') ||
+        trimmed === '{' ||
+        trimmed === '}'
+    ) return null;
+
+    // Skip lines that produce nothing useful to probe
+    if (trimmed === 'discard;' || trimmed.startsWith('if (!(')) return null;
+    if (/^var\s+\w+\s*:\s*FragmentOutput\s*;/.test(trimmed)) return null;
+    if (/^var\s+\w+\s*:\s*VertexOutput\s*;/.test(trimmed)) return null;
+
+    // `let identifier [: type] = <expr>;`
+    const letMatch = trimmed.match(/^let\s+(\w+)\s*(?::\s*[\w<>, ]+\s*)?=\s*([\s\S]+?)\s*;?\s*$/);
+    if (letMatch) {
+        return { expr: letMatch[1], anchor: letMatch[1], anchorKind: 'let_var' };
+    }
+
+    // `var identifier [: type] [= <expr>];`  — only probe if there's an initialiser
+    const varMatch = trimmed.match(/^var\s+(\w+)\s*(?::\s*[\w<>, ]+\s*)?=\s*([\s\S]+?)\s*;?\s*$/);
+    if (varMatch) {
+        return { expr: varMatch[1], anchor: varMatch[1], anchorKind: 'let_var' };
+    }
+
+    // `return <expr>;`
+    const returnMatch = trimmed.match(/^return\s+([\s\S]+?)\s*;?\s*$/);
+    if (returnMatch) {
+        const retExpr = returnMatch[1];
+        // Skip `return _out;` — _out is a FragmentOutput struct, not a vec value
+        if (/^\w+$/.test(retExpr) && retExpr.startsWith('_out')) return null;
+        return { expr: retExpr, anchor: '__return__', anchorKind: 'return' };
+    }
+
+    // `<lhs> = <rhs>;`  — any assignment: covers `_out.color = _v2`, `out.pos = _v0`, `myVar = expr`
+    const assignMatch = trimmed.match(/^([\w.[\]]+)\s*=\s*([\s\S]+?)\s*;?\s*$/);
+    if (assignMatch) {
+        const rhs = assignMatch[2];
+        return { expr: rhs, anchor: trimmed, anchorKind: 'assignment' };
+    }
+
+    return null;
+}
+
+/** Backwards-compat shim used by shader-panel hover logic. */
+export function extractProbeVar(line: string): string | null {
+    return extractProbeTarget(line)?.expr ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Type inference — figure out WGSL component type from an expression
+// ---------------------------------------------------------------------------
+
+type WgslVecKind = 'vec4f' | 'vec3f' | 'vec2f' | 'f32' | 'i32' | 'u32' | 'bool' | 'unknown';
+
+/**
+ * Infer the WGSL type of a value expression from its syntax.
+ * Scans the expression prefix and any `var name : type;` declarations
+ * found in the full WGSL body.
+ *
+ * This is intentionally best-effort — unknown falls back to vec4f coercion.
+ */
+function inferType(expr: string, fullBody: string, varDecls: Map<string, string>): WgslVecKind {
+    const e = expr.trim();
+
+    // Direct lookup from `var name : type;` declarations in the body
+    if (/^\w+$/.test(e) && varDecls.has(e)) {
+        return normaliseType(varDecls.get(e)!);
+    }
+
+    // Constructor prefix: vec4f(...), vec3f(...), vec2f(...), f32(...), etc.
+    const ctorMatch = e.match(/^(vec4[fi]?|vec3[fi]?|vec2[fi]?|vec4|vec3|vec2|f32|f16|i32|u32|bool)\s*[(<]/);
+    if (ctorMatch) return normaliseType(ctorMatch[1]);
+
+    // texture* functions always return vec4f
+    if (/^texture(Sample|Load|Fetch)\b/.test(e)) return 'vec4f';
+
+    // Builtins that always return f32 (scalar)
+    if (/^(dot|length|distance|determinant|abs|acos|asin|atan|atan2|ceil|cos|degrees|exp|exp2|floor|fract|inverseSqrt|log|log2|max|min|pow|radians|round|sign|sin|sqrt|step|tan|trunc|fma|modf)\s*\(/.test(e)) return 'f32';
+
+    // Builtins that return a bool
+    if (/^(any|all)\s*\(/.test(e)) return 'bool';
+
+    // Builtins that return a vec* — propagate from first argument type if possible
+    // normalize/reflect/refract/cross return same type as their first arg; mix/clamp too.
+    // For now just flag the common vec3 builtins as vec3f (best-effort).
+    if (/^(normalize|reflect|refract|cross)\s*\(/.test(e)) return 'vec3f';
+
+    // Arithmetic on a known var — propagate its type
+    const firstToken = e.match(/^(\w+)/)?.[1];
+    if (firstToken && varDecls.has(firstToken)) {
+        return normaliseType(varDecls.get(firstToken)!);
+    }
+
+    // Scan the full body for `let name = <constructor>(...)`
+    if (/^\w+$/.test(e)) {
+        const letRe = new RegExp(`\\blet\\s+${escapeRegex(e)}\\s*=\\s*((vec4[fi]?|vec3[fi]?|vec2[fi]?|vec4|vec3|vec2|f32|f16|i32|u32|bool)\\s*[(<])`);
+        const m = fullBody.match(letRe);
+        if (m) return normaliseType(m[2]);
+    }
+
+    return 'unknown';
+}
+
+function normaliseType(t: string): WgslVecKind {
+    if (t.startsWith('vec4')) return 'vec4f';
+    if (t.startsWith('vec3')) return 'vec3f';
+    if (t.startsWith('vec2')) return 'vec2f';
+    if (t === 'f32' || t === 'f16') return 'f32';
+    if (t === 'i32') return 'i32';
+    if (t === 'u32') return 'u32';
+    if (t === 'bool') return 'bool';
+    return 'unknown';
+}
+
+/**
+ * Emit the WGSL expression that converts a value of the given inferred type
+ * into a `vec4f` suitable for the probe render target.
+ */
+function coerceToVec4f(expr: string, kind: WgslVecKind): string {
+    switch (kind) {
+        case 'vec4f': return `(${expr})`;
+        case 'vec3f': return `vec4f((${expr}), 1.0)`;
+        case 'vec2f': return `vec4f((${expr}), 0.0, 1.0)`;
+        case 'f32':   return `vec4f(vec3f(${expr}), 1.0)`;
+        case 'i32':   return `vec4f(vec3f(f32(${expr})), 1.0)`;
+        case 'u32':   return `vec4f(vec3f(f32(${expr})), 1.0)`;
+        case 'bool':  return `vec4f(vec3f(f32(${expr})), 1.0)`;
+        // unknown — try vec4f cast; if the type is actually vec3/vec4 this works,
+        // if scalar this will fail but the error message will be clear.
+        default:      return `vec4f((${expr}), 1.0)`;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// buildProbeWGSL — patch combined WGSL to output a single probe variable
+// ---------------------------------------------------------------------------
+
+/**
+ * Patch the combined WGSL emitted by compile.ts so that:
+ *  1. Everything up to and including the original vs_main is kept verbatim.
+ *     The probe uses the real vertex shader so the mesh renders correctly
+ *     from the camera's point of view with proper transforms.
+ *  2. fs_main is truncated at the target line and its return is replaced with
+ *     a type-safe `return <coercion>;`.
+ *  3. The function return type is changed to `-> @location(0) vec4f`.
+ *  4. FragmentOutput / VertexOutput struct var declarations in the body are stripped.
+ *
+ * Returns the patched WGSL string, or null if patching fails.
+ */
+export function buildProbeWGSL(code: string, target: ProbeTarget): string | null {
+    // -----------------------------------------------------------------------
+    // 1. Locate @fragment entry-point.
+    // -----------------------------------------------------------------------
+    const fragmentAttrRe = /(?:^|\n)(@fragment\s*\n)/;
+    const fragmentAttrMatch = code.match(fragmentAttrRe);
+    if (!fragmentAttrMatch || fragmentAttrMatch.index === undefined) return null;
+    const fsStart = fragmentAttrMatch.index + (fragmentAttrMatch[0].length - fragmentAttrMatch[1].length);
+
+    // -----------------------------------------------------------------------
+    // 2. Everything before @fragment is kept verbatim (preamble + vs_main).
+    // -----------------------------------------------------------------------
+    const beforeFs = code.slice(0, fsStart).trimEnd();
+
+    // -----------------------------------------------------------------------
+    // 3. Locate fs_main body start and capture original parameter list.
+    // -----------------------------------------------------------------------
+    const fsSection = code.slice(fsStart);
+    const fnHeaderMatch = fsSection.match(/fn\s+fs_main\s*\([^)]*\)\s*->(?:[^{]*)\{/);
+    if (!fnHeaderMatch || fnHeaderMatch.index === undefined) return null;
+
+    // Keep the original parameter (e.g. "in : FragmentInput") so in.xxx refs work.
+    const fnHeaderParamMatch = fsSection.match(/fn\s+fs_main\s*\(([^)]*)\)/);
+    const fsParam = fnHeaderParamMatch ? fnHeaderParamMatch[1].trim() : '';
+
+    const bodyStart = fsStart + fnHeaderMatch.index + fnHeaderMatch[0].length;
+    const rawBody = code.slice(bodyStart);
+    const bodyLines = rawBody.split('\n');
+
+    // -----------------------------------------------------------------------
+    // 4. Build var-decl map from `var name : type;` lines in the full body.
+    // -----------------------------------------------------------------------
+    const varDecls = new Map<string, string>();
+    for (const bl of bodyLines) {
+        const vm = bl.trim().match(/^var\s+(\w+)\s*:\s*([\w<>, ]+?)\s*;/);
+        if (vm) varDecls.set(vm[1], vm[2]);
+    }
+
+    // -----------------------------------------------------------------------
+    // 5. Walk the body lines, collecting up to (and including) the target.
+    // -----------------------------------------------------------------------
+    const keptLines: string[] = [];
+    let found = false;
+
+    for (const bodyLine of bodyLines) {
+        const trimmed = bodyLine.trim();
+
+        // Stop at closing brace of fs_main
+        if (trimmed === '}') break;
+
+        // Always strip FragmentOutput / VertexOutput struct var declarations
+        if (/^var\s+\w+\s*:\s*(?:Fragment|Vertex)Output\s*;/.test(trimmed)) continue;
+
+        switch (target.anchorKind) {
+            case 'return':
+                if (trimmed.startsWith('return')) {
+                    found = true;
+                    // don't push — we inject our own return
+                } else {
+                    keptLines.push(bodyLine);
+                }
+                break;
+
+            case 'let_var': {
+                keptLines.push(bodyLine);
+                const isTarget = new RegExp(`^(?:let|var)\\s+${escapeRegex(target.anchor)}\\b`).test(trimmed);
+                if (isTarget) { found = true; }
+                break;
+            }
+
+            case 'assignment': {
+                keptLines.push(bodyLine);
+                if (trimmed === target.anchor) { found = true; }
+                break;
+            }
+        }
+
+        if (found) break;
+    }
+
+    if (!found) return null;
+
+    // -----------------------------------------------------------------------
+    // 6. Infer the type of the probed expression and emit safe coercion.
+    // -----------------------------------------------------------------------
+    const kind = inferType(target.expr, rawBody, varDecls);
+    const returnVec4 = coerceToVec4f(target.expr, kind);
+
+    // -----------------------------------------------------------------------
+    // 7. Assemble patched fs_main.
+    // -----------------------------------------------------------------------
+    const probeFsBody = keptLines.join('\n');
+    const probeFsMain = [
+        `@fragment`,
+        `fn fs_main(${fsParam}) -> @location(0) vec4f {`,
+        probeFsBody,
+        `    return ${returnVec4};`,
+        `}`,
+    ].join('\n');
+
+    // -----------------------------------------------------------------------
+    // 8. Final assembly: original preamble + vs_main, then patched fs_main.
+    // -----------------------------------------------------------------------
+    return [beforeFs, '', probeFsMain].join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function escapeRegex(s: string): string {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}

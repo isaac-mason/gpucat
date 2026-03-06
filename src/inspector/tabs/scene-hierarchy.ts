@@ -8,7 +8,7 @@
  *  - DOM is NOT rebuilt from scratch each frame.
  *    A Map<objectId, HierarchyNode> tracks live nodes. Only structural changes
  *    (add / remove) mutate the DOM; transforms etc. are updated in-place.
- *  - Clicking a Mesh row opens the shader panel inline below the hierarchy.
+ *  - Clicking a Mesh row opens the shader panel to the right of the hierarchy.
  *  - The tab auto-shows itself when scenes are present (mirrors Viewer pattern).
  */
 
@@ -88,10 +88,9 @@ export class SceneHierarchy extends Tab {
 
         const list = new List('Name', 'Type');
         list.setGridStyle('1fr auto');
-        list.domElement.style.minWidth = '300px';
 
         const scrollWrapper = document.createElement('div');
-        scrollWrapper.className = 'list-scroll-wrapper';
+        scrollWrapper.className = 'list-scroll-wrapper scene-hierarchy-list';
         scrollWrapper.appendChild(list.domElement);
 
         this._shaderPanel = new ShaderPanel();
@@ -101,8 +100,13 @@ export class SceneHierarchy extends Tab {
         this._shaderContainer.style.display = 'none';
         this._shaderContainer.appendChild(this._shaderPanel.domElement);
 
-        this.content.appendChild(scrollWrapper);
-        this.content.appendChild(this._shaderContainer);
+        // Row layout: list on the left, shader panel on the right
+        const layout = document.createElement('div');
+        layout.className = 'scene-hierarchy-layout';
+        layout.appendChild(scrollWrapper);
+        layout.appendChild(this._shaderContainer);
+
+        this.content.appendChild(layout);
 
         this.list = list;
     }
@@ -276,7 +280,7 @@ export class SceneHierarchy extends Tab {
     }
 
     private _showShaderPanel(): void {
-        this._shaderContainer.style.display = '';
+        this._shaderContainer.style.display = 'flex';
         // Will be populated on next _refreshShaderPanel call
     }
 

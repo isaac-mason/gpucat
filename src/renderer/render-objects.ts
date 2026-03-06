@@ -356,19 +356,15 @@ function createPipelineForRenderObject(
     const shaderModule = state.device.createShaderModule({
         code: shaderCode,
     });
-
-    // Debug: log shader WGSL and compilation info (remove when blank-canvas is fixed)
-    console.groupCollapsed('[gpucat] compiled shader source');
-    console.log(shaderCode);
-    console.groupEnd();
     shaderModule.getCompilationInfo().then((info) => {
         for (const msg of info.messages) {
-            console.error(`[gpucat shader ${msg.type}] line ${msg.lineNum}: ${msg.message}`);
-        }
-        if (info.messages.length === 0) {
-            console.log('[gpucat] shader compiled with no errors/warnings');
+            console.warn(`[gpucat shader ${msg.type}] line ${msg.lineNum}: ${msg.message}`);
         }
     });
+    if (!(globalThis as any).__gpucatShaderLogged) {
+        (globalThis as any).__gpucatShaderLogged = true;
+        console.log('[gpucat] compiled WGSL:\n' + shaderCode);
+    }
 
     // Build color targets (supports MRT)
     const targetCount = getTargetCount(material.fragmentNode);
@@ -493,8 +489,9 @@ async function createPipelineForRenderObjectAsync(
 
 /**
  * Build vertex buffer layouts from geometry and NodeBuilderState.
+ * Exported so the probe renderer can build a matching pipeline.
  */
-function buildVertexBufferLayouts(
+export function buildVertexBufferLayouts(
     geometry: import('../geometry/geometry').Geometry,
     nodeState: import('./node-builder-state').NodeBuilderState,
 ): GPUVertexBufferLayout[] {
