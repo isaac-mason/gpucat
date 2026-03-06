@@ -129,7 +129,7 @@ const computeInit = gpu.Fn(() => {
 
 const computeUpdate = gpu.Fn(() => {
     // Only thread 0 writes — avoids needing atomics.
-    gpu.If(gpu.globalId().x.eq(gpu.u32(0)), () => {
+    gpu.If(gpu.globalId.x.eq(gpu.u32(0)), () => {
         const halfTime     = gpu.timeElapsed.mul(gpu.f32(0.5)).sin();
         // map sin ∈ [-1,1] → range 1→0→1 → then pow4 → count
         const sinPlus1     = halfTime.add(gpu.f32(1));               // [0,2]

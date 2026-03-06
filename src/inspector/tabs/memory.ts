@@ -4,6 +4,7 @@ import { Graph } from '../ui/graph';
 import { Item } from '../ui/item';
 import { createValueSpan, setText } from '../ui/utils';
 import type { InspectorBase } from '../inspector-base';
+import { getBufferCacheStats } from '../../renderer/buffers';
 
 export class Memory extends Tab {
 
@@ -70,7 +71,7 @@ export class Memory extends Tab {
     updateGraph(inspector: InspectorBase): void {
         const renderer = inspector.getRenderer();
         if (!renderer) return;
-        const bs = renderer.buffers.getStats();
+        const bs = getBufferCacheStats(renderer.buffers);
         const total = bs.vertexCount + bs.indexCount + bs.storageCount + bs.rawCount;
         this.graph.addPoint('total', total);
         if (this.graph.limit === 0) this.graph.limit = 1;
@@ -81,7 +82,7 @@ export class Memory extends Tab {
         const renderer = inspector.getRenderer();
         if (!renderer) return;
 
-        const bs = renderer.buffers.getStats();
+        const bs = getBufferCacheStats(renderer.buffers);
         const ps = renderer.pipelines.getStats();
         const cs = renderer.computePipelines.getStats();
 

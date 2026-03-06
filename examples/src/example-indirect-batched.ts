@@ -21,25 +21,13 @@
  */
 
 import * as gpu from 'gpucat';
-import { mat4, type Mat4, type Vec3, type Quat } from 'mathcat';
+import { d } from 'gpucat';
+import { mat4, quat, vec3 } from 'mathcat';
 
-const d = gpu.d;
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const TOTAL = 120;      // total instances
+const TOTAL = 120; // total instances
 const COLS  = 12;
 const ROWS  = TOTAL / COLS;
 const SPACING = 2.0;
-
-// ---------------------------------------------------------------------------
-// 1. Build merged geometry
-//    Box:    vertices 0..boxVerts-1,    indices 0..boxIdxCount-1
-//    Sphere: vertices boxVerts..end,    indices boxIdxCount..end
-//            Uses baseVertex=boxVerts so sphere indices are 0-based internally.
-// ---------------------------------------------------------------------------
 
 const boxSource    = gpu.createBoxGeometry(0.8, 0.8, 0.8);
 const sphereSource = gpu.createSphereGeometry(0.5, 16, 8);
@@ -52,13 +40,11 @@ const sphPos    = sphereSource.attributes.get('position')!.array as Float32Array
 const sphNorm   = sphereSource.attributes.get('normal')!.array   as Float32Array;
 const sphIdx    = sphereSource.index!.array as Uint16Array;
 
-// Merge vertex arrays
 const mergedPos  = new Float32Array(boxPos.length  + sphPos.length);
 const mergedNorm = new Float32Array(boxNorm.length + sphNorm.length);
 mergedPos.set(boxPos);   mergedPos.set(sphPos,  boxPos.length);
 mergedNorm.set(boxNorm); mergedNorm.set(sphNorm, boxNorm.length);
 
-// Merge index arrays — sphere indices are 0-based and use baseVertex to offset
 const mergedIdx = new Uint16Array(boxIdx.length + sphIdx.length);
 mergedIdx.set(boxIdx);
 mergedIdx.set(sphIdx, boxIdx.length);
@@ -67,32 +53,27 @@ const boxVertCount = boxPos.length / 3;
 const boxIdxCount  = boxIdx.length;
 const sphIdxCount  = sphIdx.length;
 
-// One Geometry holds the merged data
-const mergedGeo = new gpu.Geometry();
-mergedGeo.attributes.set('position', new gpu.BufferAttribute(mergedPos,  3));
-mergedGeo.attributes.set('normal',   new gpu.BufferAttribute(mergedNorm, 3));
-mergedGeo.index = new gpu.IndexAttribute(mergedIdx);
-
-// ---------------------------------------------------------------------------
-// 2. Instance data — transforms + per-instance hue color
-// ---------------------------------------------------------------------------
+const mergedGeometry = new gpu.Geometry();
+mergedGeometry.attributes.set('position', new gpu.BufferAttribute(mergedPos,  3));
+mergedGeometry.attributes.set('normal',   new gpu.BufferAttribute(mergedNorm, 3));
+mergedGeometry.index = new gpu.IndexAttribute(mergedIdx);
 
 const instanceMatrices = new Float32Array(TOTAL * 16);
 const instanceHues     = new Float32Array(TOTAL);      // [0..1] for color
 
-const tmpT: Vec3 = [0, 0, 0];
-const tmpS: Vec3 = [1, 1, 1];
-const tmpQ: Quat = [0, 0, 0, 1];
-const tmpM: Mat4 = [0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0];
+const _translation = vec3.create();
+const _scale = vec3.fromValues(1, 1, 1);
+const _quat = quat.create();
+const _matrix = mat4.create();
 
 for (let i = 0; i < TOTAL; i++) {
     const col = i % COLS;
     const row = Math.floor(i / COLS);
-    tmpT[0] = (col - (COLS - 1) * 0.5) * SPACING;
-    tmpT[1] = (row - (ROWS - 1) * 0.5) * SPACING;
-    tmpT[2] = 0;
-    mat4.fromRotationTranslationScale(tmpM, tmpQ, tmpT, tmpS);
-    instanceMatrices.set(tmpM, i * 16);
+    _translation[0] = (col - (COLS - 1) * 0.5) * SPACING;
+    _translation[1] = (row - (ROWS - 1) * 0.5) * SPACING;
+    _translation[2] = 0;
+    mat4.fromRotationTranslationScale(_matrix, _quat, _translation, _scale);
+    instanceMatrices.set(_matrix, i * 16);
     instanceHues[i] = i / TOTAL;
 }
 
@@ -103,15 +84,10 @@ const col2 = gpu.instancedBufferAttribute(instanceMatrices, d.vec4f, stride, 32)
 const col3 = gpu.instancedBufferAttribute(instanceMatrices, d.vec4f, stride, 48);
 const instanceTransform = gpu.mat4(col0, col1, col2, col3);
 
-// Per-instance hue as instanced attribute
 const instanceHue = gpu.instancedBufferAttribute(instanceHues, d.f32, 4, 0);
 
-// ---------------------------------------------------------------------------
-// 3. Node graph — shared material for both sub-meshes
-// ---------------------------------------------------------------------------
-
-const pos     = gpu.attribute(d.vec3f, 'position');
-const norm    = gpu.attribute(d.vec3f, 'normal');
+const pos = gpu.attribute(d.vec3f, 'position');
+const norm = gpu.attribute(d.vec3f, 'normal');
 
 const localPos = gpu.vec4(pos, gpu.f32(1.0));
 const worldPos = gpu.mul(instanceTransform, localPos);
@@ -124,13 +100,13 @@ const tformedNorm = gpu.mul(instanceTransform, worldNorm);
 
 // Simple diffuse lighting from a fixed light direction
 const lightDir  = gpu.vec3f(0.6, 1.0, 0.8).normalize();
-const vNorm     = gpu.varying(d.vec3f, 'v_norm', tformedNorm.xyz);
-const vHue      = gpu.varying(d.f32,   'v_hue',  instanceHue);
+const vNorm = gpu.varying(d.vec3f, 'v_norm', tformedNorm.xyz);
+const vHue = gpu.varying(d.f32,   'v_hue',  instanceHue);
 
-const diffuse   = vNorm.normalize().dot(lightDir).max(gpu.f32(0.15));
+const diffuse = vNorm.normalize().dot(lightDir).max(gpu.f32(0.15));
 
 // HSV-like color from hue: oscillate through red→yellow→green→cyan→blue→magenta
-const pulse     = gpu.timeElapsed.mul(gpu.f32(0.4)).sin().mul(gpu.f32(0.05)).add(gpu.f32(1.0));
+const pulse = gpu.timeElapsed.mul(gpu.f32(0.4)).sin().mul(gpu.f32(0.05)).add(gpu.f32(1.0));
 const r = vHue.mul(gpu.f32(Math.PI * 2)).sin().mul(gpu.f32(0.5)).add(gpu.f32(0.5));
 const g = vHue.mul(gpu.f32(Math.PI * 2)).add(gpu.f32(Math.PI * 2 / 3)).sin().mul(gpu.f32(0.5)).add(gpu.f32(0.5));
 const b = vHue.mul(gpu.f32(Math.PI * 2)).add(gpu.f32(Math.PI * 4 / 3)).sin().mul(gpu.f32(0.5)).add(gpu.f32(0.5));
@@ -167,7 +143,7 @@ indirectData[7] = boxIdxCount;   // firstIndex
 indirectData[8] = boxVertCount;  // baseVertex
 indirectData[9] = TOTAL / 2;     // firstInstance
 
-mergedGeo.indirect = new gpu.IndirectStorageBufferAttribute(true, indirectData);
+mergedGeometry.indirect = new gpu.IndirectStorageBufferAttribute(true, indirectData);
 
 // ---------------------------------------------------------------------------
 // 5. Main
@@ -203,7 +179,7 @@ async function main() {
     });
 
     // One mesh, one merged geometry, one IndirectBuffer (drawCount=2).
-    const mesh = new gpu.Mesh(mergedGeo, material);
+    const mesh = new gpu.Mesh(mergedGeometry, material);
     scene.add(mesh);
 
     const scenePass = gpu.pass(scene, camera);
@@ -213,7 +189,7 @@ async function main() {
     // UI — slider to split instances between boxes and spheres at runtime
     // -----------------------------------------------------------------------
 
-    const indirect = mergedGeo.indirect!;
+    const indirect = mergedGeometry.indirect!;
 
     const ui = document.createElement('div');
     ui.style.cssText = `

@@ -10,18 +10,16 @@
  * exported for convenience and for use without chaining.
  */
 
-import { getChildren as _getChildren } from './collect';
-import { type WgslDesc, type StructSchema, type ArrayDesc, type TextureDesc, type DepthTextureDesc, itemSizeOf, typedArrayCtorOf, isStructDef, texture2d } from './schema';
-import * as d from './schema';
-import type { RenderUpdateContext, ObjectUpdateContext } from '../renderer/render-frame';
-export { array, isArrayDesc, isStructDef, type WgslDesc, type ArrayDesc, type StructSchema, type TextureDesc, type DepthTextureDesc, itemSizeOf, typedArrayCtorOf } from './schema';
-export { type UpdateRange } from '../scene/geometry';
+import type { ObjectUpdateContext, RenderUpdateContext } from '../renderer/render-frame';
 import { InstancedBufferAttribute, StorageBufferAttribute } from '../scene/geometry';
-
-
-// ---------------------------------------------------------------------------
-// StructDef / StructInstance — defined here so they can reference StructNode
-// ---------------------------------------------------------------------------
+import { getChildren as _getChildren } from './collect';
+import * as d from './schema';
+import { type ArrayDesc, type DepthTextureDesc, isStructDef, itemSizeOf, type StructSchema, texture2d, type TextureDesc, typedArrayCtorOf, type WgslDesc } from './schema';
+export { type UpdateRange } from '../scene/geometry';
+import { DepthTexture, RenderTargetTexture } from '../renderer/render-target';
+import type { IndirectStorageBufferAttribute } from '../scene/geometry';
+import { Texture } from '../scene/texture';
+import { Color, type ColorInput } from '../utils/color';
 
 export type StructInstance<S extends StructSchema> = {
     readonly $node: Node<WgslType>;
@@ -36,12 +34,6 @@ export type StructDef<S extends StructSchema> = WgslDesc<string> & {
     readonly nestedDefs: ReadonlyMap<string, StructDef<StructSchema>>;
     instantiate<N extends Node<WgslType>>(base: N): StructInstance<S>;
 };
-
-
-// ---------------------------------------------------------------------------
-// Struct registry + struct() — live here to avoid circular imports
-// (StructNode and FieldNode are defined later in this file)
-// ---------------------------------------------------------------------------
 
 const _structNodeRegistry: WeakMap<StructNode, StructDef<StructSchema>> = new WeakMap();
 const _structNameRegistry: Map<string, StructDef<StructSchema>> = new Map();
@@ -82,26 +74,23 @@ export function struct<S extends StructSchema>(wgslType: string, schema: S): Str
     return def;
 }
 
-
 /* wgsl type vocabulary */
 
-export type ScalarType = 'f32' | 'i32' | 'u32' | 'bool';
+export type ScalarType = 'f32' | 'i32' | 'u32' | 'bool' | 'f16';
 
-export type Vec2Type = 'vec2f' | 'vec2i' | 'vec2u' | 'vec2<bool>';
-export type Vec3Type = 'vec3f' | 'vec3i' | 'vec3u' | 'vec3<bool>';
-export type Vec4Type = 'vec4f' | 'vec4i' | 'vec4u' | 'vec4<bool>';
+export type Vec2Type = 'vec2f' | 'vec2i' | 'vec2u' | 'vec2<bool>' | 'vec2h';
+export type Vec3Type = 'vec3f' | 'vec3i' | 'vec3u' | 'vec3<bool>' | 'vec3h';
+export type Vec4Type = 'vec4f' | 'vec4i' | 'vec4u' | 'vec4<bool>' | 'vec4h';
 export type VecType = Vec2Type | Vec3Type | Vec4Type;
 
-export type MatType = 'mat2x2f' | 'mat2x3f' | 'mat2x4f' | 'mat3x2f' | 'mat3x3f' | 'mat3x4f' | 'mat4x2f' | 'mat4x3f' | 'mat4x4f';
+export type MatType =
+    | 'mat2x2f' | 'mat2x3f' | 'mat2x4f' | 'mat3x2f' | 'mat3x3f' | 'mat3x4f' | 'mat4x2f' | 'mat4x3f' | 'mat4x4f'
+    | 'mat2x2h' | 'mat2x3h' | 'mat2x4h' | 'mat3x2h' | 'mat3x3h' | 'mat3x4h' | 'mat4x2h' | 'mat4x3h' | 'mat4x4h';
 
 export type NumericType = ScalarType | VecType | MatType;
 export type SamplerType = 'sampler' | 'sampler_comparison';
 export type TextureType = string;
 export type WgslType = NumericType | SamplerType | TextureType;
-
-// ---------------------------------------------------------------------------
-// Type-level helpers
-// ---------------------------------------------------------------------------
 
 export type VecElement<T extends VecType> = T extends 'vec2f' | 'vec3f' | 'vec4f'
     ? 'f32'
@@ -109,20 +98,21 @@ export type VecElement<T extends VecType> = T extends 'vec2f' | 'vec3f' | 'vec4f
       ? 'i32'
       : T extends 'vec2u' | 'vec3u' | 'vec4u'
         ? 'u32'
-        : 'bool';
+        : T extends 'vec2h' | 'vec3h' | 'vec4h'
+          ? 'f16'
+          : 'bool';
 
-export type Vec2Of<E extends ScalarType> = E extends 'f32' ? 'vec2f' : E extends 'i32' ? 'vec2i' : E extends 'u32' ? 'vec2u' : 'vec2<bool>';
-export type Vec3Of<E extends ScalarType> = E extends 'f32' ? 'vec3f' : E extends 'i32' ? 'vec3i' : E extends 'u32' ? 'vec3u' : 'vec3<bool>';
-export type Vec4Of<E extends ScalarType> = E extends 'f32' ? 'vec4f' : E extends 'i32' ? 'vec4i' : E extends 'u32' ? 'vec4u' : 'vec4<bool>';
+export type Vec2Of<E extends ScalarType> = E extends 'f32' ? 'vec2f' : E extends 'i32' ? 'vec2i' : E extends 'u32' ? 'vec2u' : E extends 'f16' ? 'vec2h' : 'vec2<bool>';
+export type Vec3Of<E extends ScalarType> = E extends 'f32' ? 'vec3f' : E extends 'i32' ? 'vec3i' : E extends 'u32' ? 'vec3u' : E extends 'f16' ? 'vec3h' : 'vec3<bool>';
+export type Vec4Of<E extends ScalarType> = E extends 'f32' ? 'vec4f' : E extends 'i32' ? 'vec4i' : E extends 'u32' ? 'vec4u' : E extends 'f16' ? 'vec4h' : 'vec4<bool>';
 
-// ---------------------------------------------------------------------------
-// Swizzle result types — maps Node<T> swizzle width to the correct output type.
-//
+/* swizzle type utilities */
+
+// maps Node<T> swizzle width to the correct output type
 // Rules:
 //   VecType   → element scalar (for width 1), vec2/3/4 of same element (for width 2/3/4)
 //   ScalarType → self (width 1 only; multi-component swizzles on scalars are invalid WGSL)
 //   anything else (texture, sampler, …) → WgslType (widened, no useful info)
-// ---------------------------------------------------------------------------
 
 export type Swizzle1<T extends WgslType> =
     T extends VecType    ? VecElement<T> :
@@ -147,10 +137,6 @@ export type MulResult<A extends WgslType, B extends WgslType> = A extends MatTyp
       : A extends ScalarType
         ? B
         : A;
-
-// ---------------------------------------------------------------------------
-// Node kinds
-// ---------------------------------------------------------------------------
 
 export type NodeKind =
     | 'const'
@@ -192,10 +178,6 @@ export type BuiltinKind =
     | 'local_invocation_index' | 'workgroup_id' | 'num_workgroups';
 export type BinopOp = '+' | '-' | '*' | '/' | '%' | '==' | '!=' | '<' | '>' | '<=' | '>=';
 
-// ---------------------------------------------------------------------------
-// NodeUpdateType — mirrors Three.js nodes/core/constants.js
-// ---------------------------------------------------------------------------
-
 /**
  * Update types for Node.update() callbacks.
  * Determines when the node's update callback is invoked.
@@ -212,10 +194,6 @@ export const NodeUpdateType = {
 } as const;
 
 export type NodeUpdateType = typeof NodeUpdateType[keyof typeof NodeUpdateType];
-
-// ---------------------------------------------------------------------------
-// Fn layout types
-// ---------------------------------------------------------------------------
 
 /**
  * A single named + typed parameter descriptor for Fn().
@@ -240,10 +218,6 @@ export type FnLayout<P extends readonly ParamDesc[]> = {
     readonly params: [...P];
 };
 
-// ---------------------------------------------------------------------------
-// Node<T> — base class with chaining API
-// ---------------------------------------------------------------------------
-
 export class Node<T extends WgslType> {
     readonly id: string;
     readonly kind: NodeKind;
@@ -253,10 +227,6 @@ export class Node<T extends WgslType> {
     _inspectorName: string | undefined = undefined;
     /** True when this node has been marked for inspector preview/tracking. */
     _isInspectable = false;
-
-    // ---------------------------------------------------------------------------
-    // Update callback system — mirrors Three.js Node.js
-    // ---------------------------------------------------------------------------
 
     /**
      * The update type for this node's update() method.
@@ -377,6 +347,7 @@ export class Node<T extends WgslType> {
 
     // Type conversion
     toF32(): Node<'f32'> { return new CallNode('f32', 'f32', [this]); }
+    toF16(): Node<'f16'> { return new CallNode('f16', 'f16', [this]); }
     toU32(): Node<'u32'> { return new CallNode('u32', 'u32', [this]); }
     toI32(): Node<'i32'> { return new CallNode('i32', 'i32', [this]); }
 
@@ -650,92 +621,6 @@ export class Node<T extends WgslType> {
 // Use .field() for typed struct member access.
 
 // ---------------------------------------------------------------------------
-// Code-generation helpers — exported for use in compile.ts
-// ---------------------------------------------------------------------------
-
-export function constLiteral(type: string, value: number | number[] | string): string {
-    if (typeof value === 'string') return value;
-    if (typeof value === 'number') {
-        switch (type) {
-            case 'f32': return Number.isInteger(value) ? `${value}.0` : `${value}`;
-            case 'i32': return `${Math.trunc(value)}i`;
-            case 'u32': return `${Math.trunc(value)}u`;
-            case 'bool': return value !== 0 ? 'true' : 'false';
-            default: return `${value}`;
-        }
-    }
-    const components = (value as number[]).map((v) => {
-        if (type.startsWith('vec') && type.endsWith('f')) return Number.isInteger(v) ? `${v}.0` : `${v}`;
-        if (type.startsWith('vec') && type.endsWith('i')) return `${Math.trunc(v)}i`;
-        if (type.startsWith('vec') && type.endsWith('u')) return `${Math.trunc(v)}u`;
-        if (type === 'vec2<bool>' || type === 'vec3<bool>' || type === 'vec4<bool>') return v !== 0 ? 'true' : 'false';
-        if (type.startsWith('mat')) return Number.isInteger(v) ? `${v}.0` : `${v}`;
-        return `${v}`;
-    });
-    if (components.length === 0) return `${type}()`;
-    return `${type}(${components.join(', ')})`;
-}
-
-function buildUpdateSnippet(
-    update: ForRange['update'],
-    iName: string,
-    type: ScalarType,
-    defaultOp: '++' | '--',
-): string {
-    if (update === undefined || update === null) return `${iName}${defaultOp}`;
-    if (typeof update === 'number') {
-        const delta = constLiteral(type, Math.abs(update));
-        const op = defaultOp.includes('+') ? '+=' : '-=';
-        return `${iName} ${op} ${delta}`;
-    }
-    return `${iName}${defaultOp}`;
-}
-
-export function buildForHeader(
-    range: ForRange,
-    iName: string,
-    getScalarExpr: (v: Node<WgslType> | number, type: ScalarType) => string,
-): string {
-    const type: ScalarType = range.type ?? 'u32';
-
-    const rawStart = range.start !== undefined
-        ? (typeof range.start === 'number' ? constLiteral(type, range.start) : getScalarExpr(range.start, type))
-        : undefined;
-    const rawEnd = range.end !== undefined
-        ? (typeof range.end === 'number' ? constLiteral(type, range.end) : getScalarExpr(range.end, type))
-        : undefined;
-
-    let startSnippet: string;
-    let endSnippet: string;
-    let condition: string;
-    let updateSnippet: string;
-
-    if (rawStart !== undefined && rawEnd === undefined) {
-        startSnippet = `${rawStart} - ${constLiteral(type, 1)}`;
-        endSnippet = constLiteral(type, 0);
-        condition = range.condition ?? '>=';
-        const defaultUpdate = condition.includes('<') ? '++' : '--';
-        updateSnippet = buildUpdateSnippet(range.update, iName, type, defaultUpdate);
-    } else {
-        startSnippet = rawStart ?? constLiteral(type, 0);
-        endSnippet = rawEnd ?? constLiteral(type, 0);
-
-        if (range.condition !== undefined) {
-            condition = range.condition;
-        } else {
-            const numStart = typeof range.start === 'number' ? range.start : 0;
-            const numEnd = typeof range.end === 'number' ? range.end : undefined;
-            condition = (numEnd !== undefined && numStart > numEnd) ? '>=' : '<';
-        }
-
-        const defaultUpdate = condition.includes('<') ? '++' : '--';
-        updateSnippet = buildUpdateSnippet(range.update, iName, type, defaultUpdate);
-    }
-
-    return `for (var ${iName} : ${type} = ${startSnippet}; ${iName} ${condition} ${endSnippet}; ${updateSnippet})`;
-}
-
-// ---------------------------------------------------------------------------
 // Subclasses — one per node kind
 // ---------------------------------------------------------------------------
 
@@ -748,10 +633,6 @@ export class ConstNode<T extends WgslType> extends Node<T> {
     }
 
 }
-
-// ---------------------------------------------------------------------------
-// UniformGroupNode — mirrors Three.js UniformGroupNode (PR #33047)
-// ---------------------------------------------------------------------------
 
 /**
  * Descriptor for a uniform group — determines WGSL @group index and struct packing.
@@ -937,48 +818,6 @@ export class StorageNode<T extends WgslType> extends Node<T> {
     }
 
     /**
-     * Version number from the underlying attribute.
-     * Renderer re-uploads when its stored version lags behind this.
-     */
-    get version(): number {
-        return this.value.version;
-    }
-
-    /**
-     * Mark data as needing re-upload on the next draw.
-     * Delegates to the underlying attribute.
-     */
-    set needsUpdate(v: true) {
-        this.value.needsUpdate = v;
-    }
-
-    /**
-     * Pending partial-upload ranges from the underlying attribute.
-     * Units: flat component indices (same as Three.js BufferAttribute.updateRanges).
-     */
-    get updateRanges(): readonly { start: number; count: number }[] {
-        return this.value.updateRanges;
-    }
-
-    /**
-     * Register a dirty range for partial re-upload.
-     * Delegates to the underlying attribute.
-     * @param start  First flat component index to re-upload.
-     * @param count  Number of components to re-upload.
-     */
-    addUpdateRange(start: number, count: number): void {
-        this.value.addUpdateRange(start, count);
-    }
-
-    /**
-     * Clear all pending update ranges.
-     * Called automatically by the renderer after a partial upload.
-     */
-    clearUpdateRanges(): void {
-        this.value.clearUpdateRanges();
-    }
-
-    /**
      * Check if this is an indirect storage buffer.
      */
     get isIndirectStorageBuffer(): boolean {
@@ -1037,7 +876,7 @@ export class TextureNode extends Node<'vec4f'> {
      * - RenderTargetTexture (render target color attachment)
      * - DepthTexture (render target depth attachment)
      */
-    private _value: Texture | RenderTargetTexture | DepthTexture | null = null;
+    value: Texture | RenderTargetTexture | DepthTexture | null = null;
 
     /**
      * The UV node for texture coordinates.
@@ -1086,20 +925,6 @@ export class TextureNode extends Node<'vec4f'> {
     }
 
     /**
-     * The high-level Texture object (Three.js-compatible pattern).
-     * Setting this allows automatic GPU texture management.
-     * 
-     * Can be Texture, RenderTargetTexture, or DepthTexture.
-     */
-    get value(): Texture | RenderTargetTexture | DepthTexture | null {
-        return this._value;
-    }
-
-    set value(tex: Texture | RenderTargetTexture | DepthTexture | null) {
-        this._value = tex;
-    }
-
-    /**
      * Get the base texture node (follows referenceNode chain).
      */
     getBase(): TextureNode {
@@ -1118,7 +943,7 @@ export class TextureNode extends Node<'vec4f'> {
      */
     clone(): TextureNode {
         const cloned = new TextureNode(this.textureType, this.textureId, this.uvNode, this.groupNode);
-        cloned._value = this._value;
+        cloned.value = this.value;
         cloned.resource = this.resource;
         cloned.gpuSampler = this.gpuSampler;
         cloned.referenceNode = this.referenceNode;
@@ -1262,10 +1087,7 @@ export class BuiltinNode<T extends WgslType> extends Node<T> {
 
 export const builtin = <T extends WgslType>(builtinKind: BuiltinKind, type: T) => new BuiltinNode(builtinKind, type);
 
-// ---------------------------------------------------------------------------
-// Monotonic counter — used by StackNode and all statement-level nodes so that
-// two identical-looking vars/stacks/ifs are never merged.
-// ---------------------------------------------------------------------------
+/* counter used by StackNode and all statement-level nodes (VarNode, IfNode) to ensure unique IDs */
 
 let _nodeCounter = 0;
 const nextId = () => `s_${_nodeCounter++}`;
@@ -1369,10 +1191,6 @@ export class CondNode<T extends WgslType> extends Node<T> {
         this.ifFalse = ifFalse;
     }
 }
-
-// ---------------------------------------------------------------------------
-// Fn / control-flow node classes (statement-level, monotonic IDs)
-// ---------------------------------------------------------------------------
 
 /**
  * VarNode — a mutable local variable declared inside a Fn body.
@@ -1552,11 +1370,14 @@ export class FnNode<T extends WgslType> extends Node<T> {
      *
      * @example
      * const kernel = Fn(() => {
-     *     const idx = globalId().x;
+     *     const idx = globalId.x;
      *     // ...
      * }).compute({ dispatch: [Math.ceil(N / 64)] });
      */
-    compute(_opts: ComputeOpts): ComputeNode { return null!; }
+    compute(opts: ComputeOpts): ComputeNode { 
+        return new ComputeNode({ fn: this, ...opts });
+     }
+    
 
     /**
      * StackNode body and the output expression node.
@@ -1579,10 +1400,6 @@ export class FnNode<T extends WgslType> extends Node<T> {
         return { params, body: stack, output };
     }
 }
-
-// ---------------------------------------------------------------------------
-// WgslFnNode — raw WGSL function parsed from source string
-// ---------------------------------------------------------------------------
 
 /**
  * Parsed parameter from WGSL function signature.
@@ -1928,7 +1745,7 @@ export function storage(
  * @example
  * import * as S from './schema'
  * const colors = storageArray(N, S.array(S.vec4f()), 'read_write')
- * // Modify colors.array, then: colors.needsUpdate = true
+ * // Modify colors.value.array, then: colors.value.needsUpdate = true
  */
 export const storageArray = <E extends WgslType>(
     count: number,
@@ -1953,7 +1770,7 @@ export const storageArray = <E extends WgslType>(
  * const cubeMap = texture(myCubeTexture, S.textureCube());
  */
 export const texture = (
-    tex: import('../scene/texture').Texture,
+    tex: Texture,
     textureDesc: TextureDesc | DepthTextureDesc = texture2d(),
 ): TextureNode => {
     const node = new TextureNode(textureDesc.wgslType as TextureType, String(tex.id));
@@ -1971,7 +1788,7 @@ export function nodeObject<T extends WgslType>(val: T | Node<T> | unknown): Node
     }
     // For now, only handle Texture objects - others can be added later
     if (val && typeof val === 'object' && 'isTexture' in (val as Record<string, unknown>)) {
-        return texture(val as import('../scene/texture').Texture);
+        return texture(val as Texture);
     }
     throw new Error(`[gpucat] nodeObject: cannot convert ${typeof val} to Node`);
 }
@@ -2026,15 +1843,17 @@ export function isNode(v: unknown): v is Node<WgslType> {
 type Scalar = Node<WgslType> | number | boolean;
 
 /** Wrap a scalar JS value as the appropriate ConstNode for the given vec element type. */
-function wrapScalar(v: Scalar, elemType: 'f32' | 'i32' | 'u32' | 'bool'): Node<WgslType> {
+function wrapScalar(v: Scalar, elemType: 'f32' | 'f16' | 'i32' | 'u32' | 'bool'): Node<WgslType> {
     if (isNode(v)) return v;
     if (elemType === 'bool') return new ConstNode('bool', (v as boolean | number) ? 1 : 0);
     if (elemType === 'i32')  return new ConstNode('i32',  Math.trunc(v as number));
     if (elemType === 'u32')  return new ConstNode('u32',  Math.trunc(v as number));
+    if (elemType === 'f16')  return new ConstNode('f16',  v as number);
     return new ConstNode('f32', v as number);
 }
 
-function elemOf(type: Vec2Type | Vec3Type | Vec4Type): 'f32' | 'i32' | 'u32' | 'bool' {
+function elemOf(type: Vec2Type | Vec3Type | Vec4Type): 'f32' | 'f16' | 'i32' | 'u32' | 'bool' {
+    if (type.endsWith('h')) return 'f16';
     if (type.endsWith('f')) return 'f32';
     if (type.endsWith('i')) return 'i32';
     if (type.endsWith('u')) return 'u32';
@@ -2073,33 +1892,17 @@ function makeVec4<T extends Vec4Type>(type: T) {
     return ctor;
 }
 
+
 // ---------------------------------------------------------------------------
-// Type constructors — all WGSL component-packing forms, Three.js naming.
+// Type constructors — WGSL-style naming with flexible component packing.
 //
-// float (f32) variants — vec2 / vec3 / vec4
+// These accept nodes, numbers, or component packing (e.g., vec3f(vec2, f32))
 // ---------------------------------------------------------------------------
 
-/** vec2<f32> constructor: vec2(x, y) */
+// Convenience aliases — vec2/vec3/vec4 default to float (f32)
 export const vec2  = makeVec2('vec2f');
-/** vec3<f32> constructor: vec3(x, y, z) or vec3(xy, z) */
 export const vec3  = makeVec3('vec3f');
-/**
- * vec4<f32> constructor — all WGSL component-packing forms:
- *   vec4(x, y, z, w)  |  vec4(xyz, w)  |  vec4(xy, z, w)  |  vec4(xy, zw)
- */
 export const vec4  = makeVec4('vec4f');
-
-// int (i32) variants — ivec2 / ivec3 / ivec4
-export const ivec2 = makeVec2('vec2i');
-export const ivec3 = makeVec3('vec3i');
-export const ivec4 = makeVec4('vec4i');
-
-// uint (u32) variants — uvec2 / uvec3 / uvec4
-export const uvec2 = makeVec2('vec2u');
-export const uvec3 = makeVec3('vec3u');
-export const uvec4 = makeVec4('vec4u');
-
-
 
 export const mat4 = (c0: Node<'vec4f'>, c1: Node<'vec4f'>, c2: Node<'vec4f'>, c3: Node<'vec4f'>) =>
     new ConstructNode('mat4x4f', [c0, c1, c2, c3]);
@@ -2162,9 +1965,9 @@ export function samplerFor(textureNode: TextureNode): RawNode<'sampler'> {
 function createBufferAttribute<T extends WgslType>(
     value: StorageBufferAttribute | InstancedBufferAttribute | GpuTypedArray,
     desc: WgslDesc<T>,
-    stride = 0,
-    offset = 0,
-    instanced = false,
+    stride: number,
+    offset: number,
+    instanced: boolean,
 ): BufferAttributeNode<T> {
     const node = new BufferAttributeNode(desc.wgslType as T, value, stride, offset, itemSizeOf(desc));
     if (instanced) node.setInstanced(true);
@@ -2187,7 +1990,7 @@ export const bufferAttribute = <T extends WgslType>(
     desc: WgslDesc<T>,
     stride = 0,
     offset = 0,
-) => createBufferAttribute(value, desc, stride, offset);
+) => createBufferAttribute(value, desc, stride, offset, false);
 
 /**
  * Create an instanced BufferAttributeNode — a per-instance vertex attribute
@@ -2214,10 +2017,6 @@ export const instancedBufferAttribute = <T extends WgslType>(
     stride = 0,
     offset = 0,
 ) => createBufferAttribute(value, desc, stride, offset, true);
-
-// ---------------------------------------------------------------------------
-// Control-flow DSL — must be called inside a Fn body
-// ---------------------------------------------------------------------------
 
 /**
  * Declare a mutable variable initialised to `init`.
@@ -2438,13 +2237,19 @@ const VEC_ELEMENT: Record<string, ScalarType> = {
     vec2u: 'u32',
     vec3u: 'u32',
     vec4u: 'u32',
+    vec2h: 'f16',
+    vec3h: 'f16',
+    vec4h: 'f16',
 };
-const VEC2_OF: Record<string, string> = { f32: 'vec2f', i32: 'vec2i', u32: 'vec2u' };
-const VEC3_OF: Record<string, string> = { f32: 'vec3f', i32: 'vec3i', u32: 'vec3u' };
-const VEC4_OF: Record<string, string> = { f32: 'vec4f', i32: 'vec4i', u32: 'vec4u' };
-const MAT_TYPES = new Set(['mat2x2f', 'mat2x3f', 'mat2x4f', 'mat3x2f', 'mat3x3f', 'mat3x4f', 'mat4x2f', 'mat4x3f', 'mat4x4f']);
+const VEC2_OF: Record<string, string> = { f32: 'vec2f', i32: 'vec2i', u32: 'vec2u', f16: 'vec2h' };
+const VEC3_OF: Record<string, string> = { f32: 'vec3f', i32: 'vec3i', u32: 'vec3u', f16: 'vec3h' };
+const VEC4_OF: Record<string, string> = { f32: 'vec4f', i32: 'vec4i', u32: 'vec4u', f16: 'vec4h' };
+const MAT_TYPES = new Set([
+    'mat2x2f', 'mat2x3f', 'mat2x4f', 'mat3x2f', 'mat3x3f', 'mat3x4f', 'mat4x2f', 'mat4x3f', 'mat4x4f',
+    'mat2x2h', 'mat2x3h', 'mat2x4h', 'mat3x2h', 'mat3x3h', 'mat3x4h', 'mat4x2h', 'mat4x3h', 'mat4x4h',
+]);
 const VEC_TYPES = new Set(Object.keys(VEC_ELEMENT));
-const SCALAR_TYPES = new Set(['f32', 'i32', 'u32', 'bool']);
+const SCALAR_TYPES = new Set(['f32', 'i32', 'u32', 'bool', 'f16']);
 
 export const isVecType = (t: string) => VEC_TYPES.has(t);
 export const isMatType = (t: string) => MAT_TYPES.has(t);
@@ -2480,23 +2285,27 @@ export function mulResultType(a: string, b: string): WgslType {
 }
 
 export const f32    = (v = 0):                       ConstNode<'f32'>    => new ConstNode('f32',    v);
+export const f16    = (v = 0):                       ConstNode<'f16'>    => new ConstNode('f16',    v);
 export const i32    = (v = 0):                       ConstNode<'i32'>    => new ConstNode('i32',    v);
 export const u32    = (v = 0):                       ConstNode<'u32'>    => new ConstNode('u32',    v);
 export const bool   = (v: boolean):                  ConstNode<'bool'>   => new ConstNode('bool',   v ? 1 : 0);
 
-export const vec2f  = (x = 0, y = 0):               ConstNode<'vec2f'>  => new ConstNode('vec2f',  [x, y]);
-export const vec3f  = (x = 0, y = 0, z = 0):        ConstNode<'vec3f'>  => new ConstNode('vec3f',  [x, y, z]);
-export const vec4f  = (x = 0, y = 0, z = 0, w = 0): ConstNode<'vec4f'>  => new ConstNode('vec4f',  [x, y, z, w]);
-export const vec2i  = (x = 0, y = 0):               ConstNode<'vec2i'>  => new ConstNode('vec2i',  [x, y]);
-export const vec3i  = (x = 0, y = 0, z = 0):        ConstNode<'vec3i'>  => new ConstNode('vec3i',  [x, y, z]);
-export const vec4i  = (x = 0, y = 0, z = 0, w = 0): ConstNode<'vec4i'>  => new ConstNode('vec4i',  [x, y, z, w]);
-export const vec2u  = (x = 0, y = 0):               ConstNode<'vec2u'>  => new ConstNode('vec2u',  [x, y]);
-export const vec3u  = (x = 0, y = 0, z = 0):        ConstNode<'vec3u'>  => new ConstNode('vec3u',  [x, y, z]);
-export const vec4u  = (x = 0, y = 0, z = 0, w = 0): ConstNode<'vec4u'>  => new ConstNode('vec4u',  [x, y, z, w]);
+export const vec2f  = makeVec2('vec2f');
+export const vec3f  = makeVec3('vec3f');
+export const vec4f  = makeVec4('vec4f');
+export const vec2i  = makeVec2('vec2i');
+export const vec3i  = makeVec3('vec3i');
+export const vec4i  = makeVec4('vec4i');
+export const vec2u  = makeVec2('vec2u');
+export const vec3u  = makeVec3('vec3u');
+export const vec4u  = makeVec4('vec4u');
+export const vec2h  = makeVec2('vec2h');
+export const vec3h  = makeVec3('vec3h');
+export const vec4h  = makeVec4('vec4h');
 
-export const vec2b  = (x = false, y = false):                    ConstNode<'vec2<bool>'>  => new ConstNode('vec2<bool>',  [x ? 1 : 0, y ? 1 : 0]);
-export const vec3b  = (x = false, y = false, z = false):         ConstNode<'vec3<bool>'>  => new ConstNode('vec3<bool>',  [x ? 1 : 0, y ? 1 : 0, z ? 1 : 0]);
-export const vec4b  = (x = false, y = false, z = false, w = false): ConstNode<'vec4<bool>'>  => new ConstNode('vec4<bool>',  [x ? 1 : 0, y ? 1 : 0, z ? 1 : 0, w ? 1 : 0]);
+export const vec2b  = makeVec2('vec2<bool>');
+export const vec3b  = makeVec3('vec3<bool>');
+export const vec4b  = makeVec4('vec4<bool>');
 
 export const mat2x2f = (...v: number[]): ConstNode<'mat2x2f'> => new ConstNode('mat2x2f', v.length ? v : []);
 export const mat2x3f = (...v: number[]): ConstNode<'mat2x3f'> => new ConstNode('mat2x3f', v.length ? v : []);
@@ -2507,15 +2316,15 @@ export const mat3x4f = (...v: number[]): ConstNode<'mat3x4f'> => new ConstNode('
 export const mat4x2f = (...v: number[]): ConstNode<'mat4x2f'> => new ConstNode('mat4x2f', v.length ? v : []);
 export const mat4x3f = (...v: number[]): ConstNode<'mat4x3f'> => new ConstNode('mat4x3f', v.length ? v : []);
 export const mat4x4f = (...v: number[]): ConstNode<'mat4x4f'> => new ConstNode('mat4x4f', v.length ? v : []);
-
-// ---------------------------------------------------------------------------
-// color() — DSL function: ColorInput → ConstNode<'vec3f'>
-// ---------------------------------------------------------------------------
-
-import { Color, type ColorInput } from '../utils/color';
-import type { IndirectStorageBufferAttribute } from '../scene/geometry';
-import { DepthTexture, RenderTargetTexture } from '../renderer/render-target';
-import { Texture } from '../scene/texture';
+export const mat2x2h = (...v: number[]): ConstNode<'mat2x2h'> => new ConstNode('mat2x2h', v.length ? v : []);
+export const mat2x3h = (...v: number[]): ConstNode<'mat2x3h'> => new ConstNode('mat2x3h', v.length ? v : []);
+export const mat2x4h = (...v: number[]): ConstNode<'mat2x4h'> => new ConstNode('mat2x4h', v.length ? v : []);
+export const mat3x2h = (...v: number[]): ConstNode<'mat3x2h'> => new ConstNode('mat3x2h', v.length ? v : []);
+export const mat3x3h = (...v: number[]): ConstNode<'mat3x3h'> => new ConstNode('mat3x3h', v.length ? v : []);
+export const mat3x4h = (...v: number[]): ConstNode<'mat3x4h'> => new ConstNode('mat3x4h', v.length ? v : []);
+export const mat4x2h = (...v: number[]): ConstNode<'mat4x2h'> => new ConstNode('mat4x2h', v.length ? v : []);
+export const mat4x3h = (...v: number[]): ConstNode<'mat4x3h'> => new ConstNode('mat4x3h', v.length ? v : []);
+export const mat4x4h = (...v: number[]): ConstNode<'mat4x4h'> => new ConstNode('mat4x4h', v.length ? v : []);
 
 /**
  * Convert any color input to a `ConstNode<'vec3f'>` (linear RGB).
@@ -2542,12 +2351,6 @@ export function color(input: ColorInput): ConstNode<'vec3f'> {
     return new ConstNode('vec3f', [c.r, c.g, c.b]);
 }
 
-// ---------------------------------------------------------------------------
-// Camera — singleton uniforms in renderGroup (Three.js style)
-// Camera is in renderGroup because it can change per render call (VR, shadows).
-// The onRenderUpdate callbacks are invoked by the renderer to update .value.
-// ---------------------------------------------------------------------------
-
 /** Projection matrix of the scene camera. In renderGroup. */
 export const cameraProjectionMatrix = /*@__PURE__*/ new UniformNode('mat4x4f', 'cameraProjectionMatrix', renderGroup)
     .onRenderUpdate(({ camera }) => camera.projectionMatrix);
@@ -2568,10 +2371,6 @@ export const cameraNear = /*@__PURE__*/ new UniformNode('f32', 'cameraNear', ren
 export const cameraFar = /*@__PURE__*/ new UniformNode('f32', 'cameraFar', renderGroup)
     .onRenderUpdate(({ camera }) => camera.far);
 
-// ---------------------------------------------------------------------------
-// Time — singleton uniforms in renderGroup (merged with camera for simplicity)
-// ---------------------------------------------------------------------------
-
 /** Elapsed time in seconds. In renderGroup. */
 export const timeElapsed = /*@__PURE__*/ new UniformNode('f32', 'timeElapsed', renderGroup)
     .onRenderUpdate(({ elapsed }) => elapsed);
@@ -2579,12 +2378,6 @@ export const timeElapsed = /*@__PURE__*/ new UniformNode('f32', 'timeElapsed', r
 /** Frame delta time in seconds. In renderGroup. */
 export const timeDelta = /*@__PURE__*/ new UniformNode('f32', 'timeDelta', renderGroup)
     .onRenderUpdate(({ delta }) => delta);
-
-// ---------------------------------------------------------------------------
-// Mesh / Model — singleton uniforms in objectGroup (Three.js naming)
-// These are per-object uniforms updated once per draw call.
-// The onObjectUpdate callbacks are invoked by the renderer to update .value.
-// ---------------------------------------------------------------------------
 
 /** Model-to-world transform matrix. In objectGroup. Three.js name: modelWorldMatrix. */
 export const modelWorldMatrix = /*@__PURE__*/ new UniformNode('mat4x4f', 'modelWorldMatrix', objectGroup)
@@ -2594,11 +2387,31 @@ export const modelWorldMatrix = /*@__PURE__*/ new UniformNode('mat4x4f', 'modelW
 export const modelNormalMatrix = /*@__PURE__*/ new UniformNode('mat3x3f', 'modelNormalMatrix', objectGroup)
     .onObjectUpdate(({ object }) => object.normalMatrix);
 
-export const instanceIndex = (): BuiltinNode<'u32'> => builtin('instance_index', 'u32');
+/** @builtin(instance_index) — the instance index for instanced draw calls. */
+export const instanceIndex: BuiltinNode<'u32'> = /*@__PURE__*/ builtin('instance_index', 'u32');
 
+/** @builtin(vertex_index) — the vertex index in the current draw call. */
+export const vertexIndex: BuiltinNode<'u32'> = /*@__PURE__*/ builtin('vertex_index', 'u32');
+
+/** @builtin(global_invocation_id) — unique thread ID across the entire dispatch. */
+export const globalId: BuiltinNode<'vec3u'> = /*@__PURE__*/ builtin('global_invocation_id', 'vec3u');
+
+/** @builtin(local_invocation_id) — thread ID within its workgroup. */
+export const localId: BuiltinNode<'vec3u'> = /*@__PURE__*/ builtin('local_invocation_id', 'vec3u');
+
+/** @builtin(local_invocation_index) — flat 1-D index within the workgroup. */
+export const localIndex: BuiltinNode<'u32'> = /*@__PURE__*/ builtin('local_invocation_index', 'u32');
+
+/** @builtin(workgroup_id) — workgroup coordinate in the dispatch grid. */
+export const workgroupId: BuiltinNode<'vec3u'> = /*@__PURE__*/ builtin('workgroup_id', 'vec3u');
+
+/** @builtin(num_workgroups) — total number of workgroups dispatched. */
+export const numWorkgroups: BuiltinNode<'vec3u'> = /*@__PURE__*/ builtin('num_workgroups', 'vec3u');
+
+/** helper for vertex shader: compute clip-space position from vertex position attribute and camera matrices. */
 export const positionClip: Node<'vec4f'> = (() => {
     const pos = attribute(d.vec3f, 'position');
-    const localPos = vec4(pos, f32(1.0));
+    const localPos = vec4f(pos, f32(1.0));
 
     const worldPos = mul(modelWorldMatrix, localPos);
 
@@ -2607,26 +2420,6 @@ export const positionClip: Node<'vec4f'> = (() => {
 
     return clipPos as unknown as Node<'vec4f'>;
 })();
-
-/** @builtin(global_invocation_id) — unique thread ID across the entire dispatch. */
-export const globalId     = (): BuiltinNode<'vec3u'> => builtin('global_invocation_id',   'vec3u');
-
-/** @builtin(local_invocation_id) — thread ID within its workgroup. */
-export const localId      = (): BuiltinNode<'vec3u'> => builtin('local_invocation_id',    'vec3u');
-
-/** @builtin(local_invocation_index) — flat 1-D index within the workgroup. */
-export const localIndex   = (): BuiltinNode<'u32'>   => builtin('local_invocation_index', 'u32');
-
-/** @builtin(workgroup_id) — workgroup coordinate in the dispatch grid. */
-export const workgroupId  = (): BuiltinNode<'vec3u'> => builtin('workgroup_id',           'vec3u');
-
-/** @builtin(num_workgroups) — total number of workgroups dispatched. */
-export const numWorkgroups = (): BuiltinNode<'vec3u'> => builtin('num_workgroups',        'vec3u');
-
-// ---------------------------------------------------------------------------
-// OutputStructNode — base class for multi-output fragment shaders (MRT)
-// Mirrors Three.js nodes/core/OutputStructNode.js
-// ---------------------------------------------------------------------------
 
 let _outputStructCounter = 0;
 
@@ -2662,11 +2455,6 @@ export class OutputStructNode extends Node<'vec4f'> {
         return this.members;
     }
 }
-
-// ---------------------------------------------------------------------------
-// MRTNode — dictionary-based MRT output
-// Mirrors Three.js nodes/core/MRTNode.js
-// ---------------------------------------------------------------------------
 
 let _mrtCounter = 0;
 
@@ -2759,7 +2547,7 @@ export class MRTNode extends OutputStructNode {
             // Ensure the node outputs vec4f (wrap if needed)
             let node = this.outputNodes[name];
             if (node.type !== 'vec4f') {
-                node = vec4(node as Node<'vec3f'>, new ConstNode('f32', 1));
+                node = vec4f(node as Node<'vec3f'>, new ConstNode('f32', 1));
             }
             members[index] = node;
             names[index] = name;
@@ -2800,11 +2588,6 @@ export class MRTNode extends OutputStructNode {
 export function mrt(outputNodes: Record<string, Node<WgslType>>): MRTNode {
     return new MRTNode(outputNodes);
 }
-
-// ---------------------------------------------------------------------------
-// ComputeNode — lives here (same file as FnNode) so .compute() can be a real
-// method with no circular imports and no optional / any hacks.
-// ---------------------------------------------------------------------------
 
 let _computeCounter = 0;
 
@@ -2891,12 +2674,3 @@ export class ComputeNode {
 export function compute(fn: FnNode<WgslType>, opts: ComputeOpts): ComputeNode {
     return new ComputeNode({ fn, ...opts });
 }
-
-// ---------------------------------------------------------------------------
-// FnNode.prototype.compute — defined here, in the same file, so it is always
-// present and fully typed. No optional, no any, no side-effect augmentation.
-// ---------------------------------------------------------------------------
-
-FnNode.prototype.compute = function (this: FnNode<WgslType>, opts: ComputeOpts): ComputeNode {
-    return new ComputeNode({ fn: this, ...opts });
-};

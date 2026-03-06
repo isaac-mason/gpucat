@@ -34,16 +34,26 @@ export function array<E extends WgslType>(elementDesc: WgslDesc<E>): ArrayDesc<E
 
 export function itemSizeOf(desc: WgslDesc<WgslType>): number {
     const t = desc.wgslType;
-    if (t === 'f32' || t === 'i32' || t === 'u32' || t === 'bool') return 1;
-    if (t === 'vec2f' || t === 'vec2i' || t === 'vec2u' || t === 'vec2<bool>') return 2;
-    if (t === 'vec3f' || t === 'vec3i' || t === 'vec3u' || t === 'vec3<bool>') return 3;
-    if (t === 'vec4f' || t === 'vec4i' || t === 'vec4u' || t === 'vec4<bool>') return 4;
-    if (t === 'mat2x2f') return 4;
-    if (t === 'mat2x3f' || t === 'mat3x2f') return 6;
-    if (t === 'mat2x4f' || t === 'mat4x2f') return 8;
-    if (t === 'mat3x3f') return 9;
-    if (t === 'mat3x4f' || t === 'mat4x3f') return 12;
-    if (t === 'mat4x4f') return 16;
+    // Scalars (f16 counts as 1 item, though it's 2 bytes vs f32's 4 bytes)
+    if (t === 'f32' || t === 'i32' || t === 'u32' || t === 'bool' || t === 'f16') return 1;
+    // vec2
+    if (t === 'vec2f' || t === 'vec2i' || t === 'vec2u' || t === 'vec2<bool>' || t === 'vec2h') return 2;
+    // vec3
+    if (t === 'vec3f' || t === 'vec3i' || t === 'vec3u' || t === 'vec3<bool>' || t === 'vec3h') return 3;
+    // vec4
+    if (t === 'vec4f' || t === 'vec4i' || t === 'vec4u' || t === 'vec4<bool>' || t === 'vec4h') return 4;
+    // mat2x2
+    if (t === 'mat2x2f' || t === 'mat2x2h') return 4;
+    // mat2x3, mat3x2
+    if (t === 'mat2x3f' || t === 'mat3x2f' || t === 'mat2x3h' || t === 'mat3x2h') return 6;
+    // mat2x4, mat4x2
+    if (t === 'mat2x4f' || t === 'mat4x2f' || t === 'mat2x4h' || t === 'mat4x2h') return 8;
+    // mat3x3
+    if (t === 'mat3x3f' || t === 'mat3x3h') return 9;
+    // mat3x4, mat4x3
+    if (t === 'mat3x4f' || t === 'mat4x3f' || t === 'mat3x4h' || t === 'mat4x3h') return 12;
+    // mat4x4
+    if (t === 'mat4x4f' || t === 'mat4x4h') return 16;
     throw new Error(`[gpucat] itemSizeOf: unsupported type '${t}'. Use S.array() with numeric types only.`);
 }
 
@@ -67,6 +77,9 @@ export const i32:    WgslDesc<'i32'>    = { wgslType: 'i32' };
 export const u32:    WgslDesc<'u32'>    = { wgslType: 'u32' };
 export const bool:   WgslDesc<'bool'>   = { wgslType: 'bool' };
 
+// Half-precision float (requires `enable f16;` directive and `shader-f16` device feature)
+export const f16:    WgslDesc<'f16'>    = { wgslType: 'f16' };
+
 export const vec2f:  WgslDesc<'vec2f'>  = { wgslType: 'vec2f' };
 export const vec3f:  WgslDesc<'vec3f'>  = { wgslType: 'vec3f' };
 export const vec4f:  WgslDesc<'vec4f'>  = { wgslType: 'vec4f' };
@@ -77,6 +90,11 @@ export const vec2u:  WgslDesc<'vec2u'>  = { wgslType: 'vec2u' };
 export const vec3u:  WgslDesc<'vec3u'>  = { wgslType: 'vec3u' };
 export const vec4u:  WgslDesc<'vec4u'>  = { wgslType: 'vec4u' };
 
+// Half-precision vectors (requires `enable f16;` directive and `shader-f16` device feature)
+export const vec2h:  WgslDesc<'vec2h'>  = { wgslType: 'vec2h' };
+export const vec3h:  WgslDesc<'vec3h'>  = { wgslType: 'vec3h' };
+export const vec4h:  WgslDesc<'vec4h'>  = { wgslType: 'vec4h' };
+
 export const mat2x2f: WgslDesc<'mat2x2f'> = { wgslType: 'mat2x2f' };
 export const mat2x3f: WgslDesc<'mat2x3f'> = { wgslType: 'mat2x3f' };
 export const mat2x4f: WgslDesc<'mat2x4f'> = { wgslType: 'mat2x4f' };
@@ -86,6 +104,17 @@ export const mat3x4f: WgslDesc<'mat3x4f'> = { wgslType: 'mat3x4f' };
 export const mat4x2f: WgslDesc<'mat4x2f'> = { wgslType: 'mat4x2f' };
 export const mat4x3f: WgslDesc<'mat4x3f'> = { wgslType: 'mat4x3f' };
 export const mat4x4f: WgslDesc<'mat4x4f'> = { wgslType: 'mat4x4f' };
+
+// Half-precision matrices (requires `enable f16;` directive and `shader-f16` device feature)
+export const mat2x2h: WgslDesc<'mat2x2h'> = { wgslType: 'mat2x2h' };
+export const mat2x3h: WgslDesc<'mat2x3h'> = { wgslType: 'mat2x3h' };
+export const mat2x4h: WgslDesc<'mat2x4h'> = { wgslType: 'mat2x4h' };
+export const mat3x2h: WgslDesc<'mat3x2h'> = { wgslType: 'mat3x2h' };
+export const mat3x3h: WgslDesc<'mat3x3h'> = { wgslType: 'mat3x3h' };
+export const mat3x4h: WgslDesc<'mat3x4h'> = { wgslType: 'mat3x4h' };
+export const mat4x2h: WgslDesc<'mat4x2h'> = { wgslType: 'mat4x2h' };
+export const mat4x3h: WgslDesc<'mat4x3h'> = { wgslType: 'mat4x3h' };
+export const mat4x4h: WgslDesc<'mat4x4h'> = { wgslType: 'mat4x4h' };
 
 // ---------------------------------------------------------------------------
 // Texture type descriptors

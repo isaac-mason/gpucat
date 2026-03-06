@@ -15,6 +15,7 @@
 
 import type { CompileResult, ComputeCompileResult } from '../nodes/compile';
 import type { BufferCache } from './buffers';
+import { uploadStorage } from './buffers';
 import { DepthTexture, RenderTargetTexture } from './render-target';
 
 // ---------------------------------------------------------------------------
@@ -278,7 +279,7 @@ export function buildObjectGroupGPUBindGroup(
     // storage buffers
     for (const s of cr.storage) {
         if (s.group !== groupIndex) continue;
-        const buf = buffers.uploadStorage(s.node);
+        const buf = uploadStorage(buffers, s.node);
         entries.push({ binding: s.binding, resource: { buffer: buf } });
     }
 

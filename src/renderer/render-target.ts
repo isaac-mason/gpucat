@@ -121,39 +121,28 @@ export type RenderTargetOptions = {
  * that is being rendered in the background. It is used in different effects,
  * such as applying postprocessing to a rendered image before displaying it
  * on the screen.
- *
- * Mirrors Three.js RenderTarget API.
  */
 export class RenderTarget {
-    /** The width of the render target. */
+    /** the width of the render target */
     width: number;
 
-    /** The height of the render target. */
+    /** the height of the render target */
     height: number;
 
     readonly colorFormat: GPUTextureFormat;
     readonly depthFormat: GPUTextureFormat | null;
     readonly samples: number;
 
-    /**
-     * Array of color attachment textures. Each has a `.name` for MRT mapping.
-     * The first texture is also accessible via the `texture` getter.
-     */
+    /** array of color attachment textures, each has a `.name` for MRT mapping, the first texture is also accessible via the `texture` getter */
     textures: RenderTargetTexture[];
 
-    /**
-     * Depth texture metadata, or null if no depth buffer.
-     * Mirrors Three.js `renderTarget.depthTexture`.
-     */
+    /** depth texture metadata, or null if no depth buffer */
     depthTexture: DepthTexture | null = null;
 
-    /** Type flag for runtime checking. */
+    /** type flag for runtime checking */
     readonly isRenderTarget = true;
 
-    /**
-     * Constructs a new render target.
-     * Mirrors Three.js: `new RenderTarget(width, height, options)`
-     */
+    /** constructs a new render target */
     constructor(width: number, height: number, opts: RenderTargetOptions = {}) {
         this.width = width;
         this.height = height;
@@ -161,14 +150,14 @@ export class RenderTarget {
         this.depthFormat = opts.depthFormat !== undefined ? opts.depthFormat : 'depth24plus';
         this.samples = opts.samples ?? 1;
 
-        // Create color attachment textures
+        // create color attachment textures
         const count = opts.count ?? 1;
         this.textures = [];
         for (let i = 0; i < count; i++) {
             this.textures.push(new RenderTargetTexture(this, this.colorFormat));
         }
 
-        // Create depth texture if depth format specified
+        // create depth texture if depth format specified
         if (this.depthFormat) {
             const depthTexture = new DepthTexture(this, this.depthFormat);
             depthTexture.name = 'depth';
@@ -176,20 +165,12 @@ export class RenderTarget {
         }
     }
 
-    /**
-     * The first color attachment texture (convenience accessor).
-     * Mirrors Three.js RenderTarget.texture getter.
-     */
+    /** the first color attachment texture */
     get texture(): RenderTargetTexture {
         return this.textures[0];
     }
 
-    /**
-     * Sets the size of the render target.
-     * Mirrors Three.js `setSize(width, height)`.
-     *
-     * Disposes existing GPU resources; renderer will reallocate on next use.
-     */
+    /** sets the size of the render target, isposes existing GPU resources; renderer will reallocate on next use */
     setSize(width: number, height: number): void {
         if (this.width === width && this.height === height) return;
 
@@ -198,10 +179,7 @@ export class RenderTarget {
         this.height = height;
     }
 
-    /**
-     * Destroy the underlying GPU textures and samplers.
-     * Mirrors Three.js `dispose()`.
-     */
+    /** destroy the underlying GPU textures and samplers */
     dispose(): void {
         for (const tex of this.textures) {
             tex.gpuTexture?.destroy();

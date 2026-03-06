@@ -15,16 +15,12 @@
  * All per-particle state lives on the GPU after the first upload.
  */
 
-import * as g from 'gpucat';
-
-const d = g.d;
+import { d, StorageBufferAttribute, storage, Fn, Var, globalId, If, index, f32, vec4, instanceIndex, attribute, mul, cameraViewMatrix, cameraProjectionMatrix, varying, timeElapsed, Material, WebGPURenderer, Inspector, Scene, PerspectiveCamera, Geometry, BufferAttribute, IndexAttribute, Mesh, pass } from 'gpucat';
 
 const N = 8192;
-const WG = 64; // workgroup size
+const WG_SIZE = 64;
 
-// ---------------------------------------------------------------------------
-// 1. Storage buffers
-// ---------------------------------------------------------------------------
+/* storage buffers */
 
 // positions: vec4f per particle — xyz = position, w = lifetime [0..1]
 const positionData = new Float32Array(N * 4);
@@ -32,10 +28,10 @@ for (let i = 0; i < N; i++) {
     positionData[i * 4 + 0] = (Math.random() - 0.5) * 20;  // x spread
     positionData[i * 4 + 1] = (Math.random() - 0.5) * 10;  // y spread
     positionData[i * 4 + 2] = (Math.random() - 0.5) * 4;   // z depth
-    positionData[i * 4 + 3] = Math.random();                // initial lifetime
+    positionData[i * 4 + 3] = Math.random();               // initial lifetime
 }
-const positionAttr = new g.StorageBufferAttribute(positionData, 4); // 4 floats per vec4f
-const positions = g.storage(positionAttr, d.array(d.vec4f), 'read_write');
+const positionAttr = new StorageBufferAttribute(positionData, 4); // 4 floats per vec4f
+const positions = storage(positionAttr, d.array(d.vec4f), 'read_write');
 
 // velocities: vec4f per particle — xyz = velocity, w = unused
 const velocityData = new Float32Array(N * 4);
@@ -45,82 +41,69 @@ for (let i = 0; i < N; i++) {
     velocityData[i * 4 + 2] = (Math.random() - 0.5) * 0.01;
     velocityData[i * 4 + 3] = 0;
 }
-const velocityAttr = new g.StorageBufferAttribute(velocityData, 4); // 4 floats per vec4f
-const velocities = g.storage(velocityAttr, d.array(d.vec4f), 'read');
+const velocityAttr = new StorageBufferAttribute(velocityData, 4); // 4 floats per vec4f
+const velocities = storage(velocityAttr, d.array(d.vec4f), 'read');
 
-// ---------------------------------------------------------------------------
-// 2. Compute kernel — advance particles each frame
-// ---------------------------------------------------------------------------
+/* compute function */
 
-const updateParticles = g.Fn(() => {
-    const idx = g.Var(g.globalId().x, 'idx');
+const updateParticles = Fn(() => {
+    const idx = Var(globalId.x, 'idx');
+    const pos = Var(index(positions, idx), 'pos');
+    const vel = Var(index(velocities, idx), 'vel');
 
-    // Bounds check — last workgroup may have spare threads.
-    // Use If guard instead of Return() to stay compatible with void kernels.
-    g.If(idx.lt(g.u32(N)), () => {
-        const pos = g.Var(g.index(positions, idx), 'pos');
-        const vel = g.Var(g.index(velocities, idx), 'vel');
+    // advance
+    const newX = pos.x.add(vel.x);
+    const newY = pos.y.add(vel.y);
+    const newZ = pos.z.add(vel.z);
 
-        // Advance position by velocity.
-        const newX = pos.x.add(vel.x);
-        const newY = pos.y.add(vel.y);
-        const newZ = pos.z.add(vel.z);
+    // decay lifetime — w counts down from 1 to 0.
+    const newW = pos.w.sub(f32(0.004));
 
-        // Decay lifetime — w counts down from 1 to 0.
-        const newW = pos.w.sub(g.f32(0.004));
-
-        // Respawn when lifetime expires (w <= 0).
-        g.If(newW.lte(g.f32(0)), () => {
-            // Use globalId components as a cheap deterministic hash for spawn position.
-            const seedX = g.f32(0).add(idx.toF32().mul(g.f32(0.0013)).fract().mul(g.f32(20)).sub(g.f32(10)));
-            g.index(positions, idx).assign(
-                g.vec4(seedX, g.f32(-5), g.f32(0), g.f32(1)),
-            );
-        }).Else(() => {
-            g.index(positions, idx).assign(
-                g.vec4(newX, newY, newZ, newW),
-            );
-        });
+    // respawn when lifetime expires (w <= 0).
+    If(newW.lte(f32(0)), () => {
+        // use globalId components as a cheap deterministic hash for spawn position.
+        const seedX = f32(0).add(idx.toF32().mul(f32(0.0013)).fract().mul(f32(20)).sub(f32(10)));
+        index(positions, idx).assign(
+            vec4(seedX, f32(-5), f32(0), f32(1)),
+        );
+    }).Else(() => {
+        index(positions, idx).assign(
+            vec4(newX, newY, newZ, newW),
+        );
     });
-}).compute({ workgroupSize: [WG, 1, 1], dispatch: [Math.ceil(N / WG)] });
+}).compute({ workgroupSize: [WG_SIZE, 1, 1], dispatch: [Math.ceil(N / WG_SIZE)] });
 
-// ---------------------------------------------------------------------------
-// 3. Render graph — instanced particles
-// ---------------------------------------------------------------------------
+const iIdx = instanceIndex;
 
-const iIdx    = g.instanceIndex();
+const particlePos = index(positions, iIdx);
 
-// Read this particle's world position directly from the storage buffer.
-// renderer.compute() ensures the buffer is updated before the render pass each frame.
-const particlePos = g.index(positions, iIdx);
-
-// Vertex: offset the geometry vertex by the particle's world position.
-const vtxPos = g.attribute(d.vec3f, 'position');
-const worldPos = g.vec4(
+// vertex: offset the geometry vertex by the particle's world position.
+const vtxPos = attribute(d.vec3f, 'position');
+const worldPos = vec4(
     vtxPos.x.add(particlePos.x),
     vtxPos.y.add(particlePos.y),
     vtxPos.z.add(particlePos.z),
-    g.f32(1),
+    f32(1),
 );
-const viewPos = g.mul(g.cameraViewMatrix, worldPos);
-const clipPos = g.mul(g.cameraProjectionMatrix, viewPos);
+const viewPos = mul(cameraViewMatrix, worldPos);
+const clipPos = mul(cameraProjectionMatrix, viewPos);
 
-// Color: fade by lifetime (w), add a soft blue-white hue.
-const lifetime = g.varying(d.f32, 'v_life', particlePos.w);
-const colR = lifetime.mul(g.f32(0.6)).add(g.f32(0.4));
-const colG = lifetime.mul(g.f32(0.7)).add(g.f32(0.3));
-const colB = g.f32(1.0);
-const colA = lifetime.clamp(g.f32(0), g.f32(1));
-const particleColor = g.vec4(colR, colG, colB, colA);
+// fragment: fade by lifetime (w), add a soft blue-white hue.
+const lifetime = varying(d.f32, 'v_life', particlePos.w);
+const colR = lifetime.mul(f32(0.6)).add(f32(0.4));
+const colG = lifetime.mul(f32(0.7)).add(f32(0.3));
+const colB = f32(1.0);
+const colA = lifetime.clamp(f32(0), f32(1));
+const particleColor = vec4(colR, colG, colB, colA);
 
 // Subtle time-driven pulse on brightness.
-const pulse = g.timeElapsed.mul(g.f32(2)).sin().mul(g.f32(0.05)).add(g.f32(1));
-const finalColor = g.vec4(
+const pulse = timeElapsed.mul(f32(2)).sin().mul(f32(0.05)).add(f32(1));
+const finalColor = vec4(
     particleColor.rgb.mul(pulse),
     particleColor.a,
 );
 
-const material = new g.Material({
+const material = new Material({
     vertex: clipPos,
     fragment: finalColor,
     transparent: true,
@@ -132,17 +115,17 @@ const material = new g.Material({
 // ---------------------------------------------------------------------------
 
 async function main() {
-    const renderer = new g.WebGPURenderer({ antialias: true });
-    renderer.inspector = new g.Inspector();
+    const renderer = new WebGPURenderer({ antialias: true });
+    renderer.inspector = new Inspector();
     await renderer.init();
 
     document.body.appendChild(renderer.domElement);
-    document.body.appendChild((renderer.inspector as g.Inspector).domElement);
+    document.body.appendChild((renderer.inspector as Inspector).domElement);
     renderer.setSize(window.innerWidth * devicePixelRatio, window.innerHeight * devicePixelRatio);
     renderer.clearColor = [0.04, 0.04, 0.08, 1];
 
-    const scene = new g.Scene();
-    const camera = new g.PerspectiveCamera(
+    const scene = new Scene();
+    const camera = new PerspectiveCamera(
         Math.PI / 4,
         window.innerWidth / window.innerHeight,
         0.1,
@@ -162,7 +145,7 @@ async function main() {
 
     // Small quad geometry for each particle — a 0.15-unit square.
     const S2 = 0.075;
-    const quadGeom = new g.Geometry();
+    const quadGeom = new Geometry();
     const verts = new Float32Array([
         -S2, -S2, 0,
          S2, -S2, 0,
@@ -170,17 +153,17 @@ async function main() {
         -S2,  S2, 0,
     ]);
     const indices = new Uint16Array([0, 1, 2, 0, 2, 3]);
-    quadGeom.attributes.set('position', new g.BufferAttribute(verts, 3));
-    quadGeom.index = new g.IndexAttribute(indices);
+    quadGeom.attributes.set('position', new BufferAttribute(verts, 3));
+    quadGeom.index = new IndexAttribute(indices);
 
-    const mesh = new g.Mesh(quadGeom, material);
+    const mesh = new Mesh(quadGeom, material);
     mesh.count = N;
     scene.add(mesh);
 
     // Pre-warm the compute pipeline before the frame loop.
     await renderer.compileCompute(updateParticles);
 
-    const scenePass = g.pass(scene, camera);
+    const scenePass = pass(scene, camera);
     const outputNode = scenePass.getTextureNode();
 
     function frame() {

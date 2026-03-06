@@ -73,16 +73,107 @@ import {
     type WgslFnNode,
     OutputStructNode,
     MRTNode,
-    constLiteral,
-    buildForHeader,
     lookupStructDef,
     lookupStructDefByName,
+    type ForRange,
 } from './nodes';
 import { collectGraph, getChildren } from './collect';
-import { type StructDef, type StructSchema } from './nodes';
-import type { ComputeNode } from './nodes';
+import { type StructSchema } from './schema';
+import type { ComputeNode, StructDef } from './nodes';
 import type { RenderFrame } from '../renderer/render-frame';
 import { PassMultipleTextureNode } from './pass-node';
+
+// ---------------------------------------------------------------------------
+// Code-generation helpers
+// ---------------------------------------------------------------------------
+
+/** Generate a WGSL literal string for a constant value. */
+function constLiteral(type: string, value: number | number[] | string): string {
+    if (typeof value === 'string') return value;
+    if (typeof value === 'number') {
+        switch (type) {
+            case 'f32': return Number.isInteger(value) ? `${value}.0` : `${value}`;
+            case 'f16': return Number.isInteger(value) ? `${value}.0h` : `${value}h`;
+            case 'i32': return `${Math.trunc(value)}i`;
+            case 'u32': return `${Math.trunc(value)}u`;
+            case 'bool': return value !== 0 ? 'true' : 'false';
+            default: return `${value}`;
+        }
+    }
+    const components = (value as number[]).map((v) => {
+        if (type.startsWith('vec') && type.endsWith('f')) return Number.isInteger(v) ? `${v}.0` : `${v}`;
+        if (type.startsWith('vec') && type.endsWith('h')) return Number.isInteger(v) ? `${v}.0h` : `${v}h`;
+        if (type.startsWith('vec') && type.endsWith('i')) return `${Math.trunc(v)}i`;
+        if (type.startsWith('vec') && type.endsWith('u')) return `${Math.trunc(v)}u`;
+        if (type === 'vec2<bool>' || type === 'vec3<bool>' || type === 'vec4<bool>') return v !== 0 ? 'true' : 'false';
+        if (type.startsWith('mat') && type.endsWith('h')) return Number.isInteger(v) ? `${v}.0h` : `${v}h`;
+        if (type.startsWith('mat')) return Number.isInteger(v) ? `${v}.0` : `${v}`;
+        return `${v}`;
+    });
+    if (components.length === 0) return `${type}()`;
+    return `${type}(${components.join(', ')})`;
+}
+
+/** Helper for generating for-loop update snippets. */
+function buildUpdateSnippet(
+    update: ForRange['update'],
+    iName: string,
+    type: ScalarType,
+    defaultOp: '++' | '--',
+): string {
+    if (update === undefined || update === null) return `${iName}${defaultOp}`;
+    if (typeof update === 'number') {
+        const delta = constLiteral(type, Math.abs(update));
+        const op = defaultOp.includes('+') ? '+=' : '-=';
+        return `${iName} ${op} ${delta}`;
+    }
+    return `${iName}${defaultOp}`;
+}
+
+/** Generate a WGSL for-loop header string. */
+function buildForHeader(
+    range: ForRange,
+    iName: string,
+    getScalarExpr: (v: Node<WgslType> | number, type: ScalarType) => string,
+): string {
+    const type: ScalarType = range.type ?? 'u32';
+
+    const rawStart = range.start !== undefined
+        ? (typeof range.start === 'number' ? constLiteral(type, range.start) : getScalarExpr(range.start, type))
+        : undefined;
+    const rawEnd = range.end !== undefined
+        ? (typeof range.end === 'number' ? constLiteral(type, range.end) : getScalarExpr(range.end, type))
+        : undefined;
+
+    let startSnippet: string;
+    let endSnippet: string;
+    let condition: string;
+    let updateSnippet: string;
+
+    if (rawStart !== undefined && rawEnd === undefined) {
+        startSnippet = `${rawStart} - ${constLiteral(type, 1)}`;
+        endSnippet = constLiteral(type, 0);
+        condition = range.condition ?? '>=';
+        const defaultUpdate = condition.includes('<') ? '++' : '--';
+        updateSnippet = buildUpdateSnippet(range.update, iName, type, defaultUpdate);
+    } else {
+        startSnippet = rawStart ?? constLiteral(type, 0);
+        endSnippet = rawEnd ?? constLiteral(type, 0);
+
+        if (range.condition !== undefined) {
+            condition = range.condition;
+        } else {
+            const numStart = typeof range.start === 'number' ? range.start : 0;
+            const numEnd = typeof range.end === 'number' ? range.end : undefined;
+            condition = (numEnd !== undefined && numStart > numEnd) ? '>=' : '<';
+        }
+
+        const defaultUpdate = condition.includes('<') ? '++' : '--';
+        updateSnippet = buildUpdateSnippet(range.update, iName, type, defaultUpdate);
+    }
+
+    return `for (var ${iName} : ${type} = ${startSnippet}; ${iName} ${condition} ${endSnippet}; ${updateSnippet})`;
+}
 
 /** interface for nodes that need to execute GPU work before the final composite quad each frame/render/object */
 export type UpdateBeforeNode = {
@@ -392,6 +483,17 @@ export type CompilerState = {
     structNodes: Map<string, StructNode>;
 
     /**
+     * WGSL enable-directives per shader stage.
+     * E.g. directives.vertex.add('f16') → emits `enable f16;` at top of vertex shader.
+     * Mirrors Three.js WGSLNodeBuilder.directives pattern.
+     */
+    directives: {
+        vertex: Set<string>;
+        fragment: Set<string>;
+        compute: Set<string>;
+    };
+
+    /**
      * Per-stage bindings keyed by groupName.
      */
     bindings: {
@@ -474,6 +576,11 @@ function createCompilerState(input: RenderInput | ComputeInput): CompilerState {
         varyings: new Map(),
         builtinsUsed: new Set(),
         structNodes: new Map(),
+        directives: {
+            vertex: new Set(),
+            fragment: new Set(),
+            compute: new Set(),
+        },
         bindings: { vertex: {}, fragment: {}, compute: {} },
         bindingsIndexes: {},
         bindGroups: null,
@@ -493,6 +600,61 @@ function createCompilerState(input: RenderInput | ComputeInput): CompilerState {
         renderResult: null,
         computeResult: null,
     };
+}
+
+// ---------------------------------------------------------------------------
+// WGSL Enable-Directives System
+// ---------------------------------------------------------------------------
+
+/**
+ * Enable a WGSL directive (e.g. 'f16', 'subgroups') for a specific shader stage.
+ * If no stage is provided, enables for all stages in the current compilation.
+ *
+ * Mirrors Three.js WGSLNodeBuilder.enableDirective().
+ */
+function enableDirective(
+    state: CompilerState,
+    name: string,
+    stage?: 'vertex' | 'fragment' | 'compute',
+): void {
+    if (stage) {
+        state.directives[stage].add(name);
+    } else {
+        // Enable for current stage if set, otherwise all stages
+        const currentStage = state.shaderStage;
+        if (currentStage) {
+            state.directives[currentStage].add(name);
+        } else {
+            // Enable for all stages (render = vertex+fragment, compute = compute)
+            if (state.input.kind === 'render') {
+                state.directives.vertex.add(name);
+                state.directives.fragment.add(name);
+            } else {
+                state.directives.compute.add(name);
+            }
+        }
+    }
+}
+
+/**
+ * Get the WGSL enable-directive preamble for a shader stage.
+ * Returns a string like "enable f16;\nenable subgroups;\n" or empty string.
+ */
+function getDirectives(state: CompilerState, stage: 'vertex' | 'fragment' | 'compute'): string {
+    const directives = state.directives[stage];
+    if (directives.size === 0) return '';
+    return [...directives].map(d => `enable ${d};`).join('\n') + '\n';
+}
+
+/**
+ * Check if a WGSL type requires the f16 enable-directive.
+ * Returns true for f16, vec2h, vec3h, vec4h, mat*h types.
+ */
+function requiresF16Directive(wgslType: string): boolean {
+    if (wgslType === 'f16') return true;
+    if (wgslType.startsWith('vec') && wgslType.endsWith('h')) return true;
+    if (wgslType.startsWith('mat') && wgslType.endsWith('h')) return true;
+    return false;
 }
 
 export function compile(slots: CompileSlots): CompileResult {
@@ -792,6 +954,11 @@ function setupNode(state: CompilerState, node: Node<WgslType>): void {
     // visit children first (depth-first)
     for (const child of getChildren(node)) {
         setupNode(state, child);
+    }
+
+    // Auto-detect f16 types and enable directive
+    if (requiresF16Directive(node.type)) {
+        enableDirective(state, 'f16');
     }
 
     // delegate resource registration to compilerDefs
@@ -1483,7 +1650,7 @@ function buildCode(state: CompilerState): void {
         }
     }
 
-    // Build shader preamble
+    // Build shader preamble (structs, bindings, user functions)
     const structs = getStructs(state);
     const bindings = emitBindingsWGSL(state);
     const codes = getCodes(state);
@@ -1497,7 +1664,16 @@ function buildCode(state: CompilerState): void {
         const vertexCode = getWGSLVertexCode(vertexShaderData);
         const fragmentCode = getWGSLFragmentCode(fragmentShaderData);
 
-        const code = [preamble, vertexCode, fragmentCode].filter(s => s).join('\n\n');
+        // Merge directives from both stages for combined shader module
+        const allDirectives = new Set([
+            ...state.directives.vertex,
+            ...state.directives.fragment,
+        ]);
+        const directivesCode = allDirectives.size > 0
+            ? [...allDirectives].map(d => `enable ${d};`).join('\n') + '\n\n'
+            : '';
+
+        const code = directivesCode + [preamble, vertexCode, fragmentCode].filter(s => s).join('\n\n');
 
         const attributes: AttributeEntry[] = [
             ...[...state.attributes.values()],
@@ -1533,7 +1709,12 @@ function buildCode(state: CompilerState): void {
     } else {
         const computeShaderData = buildComputeShaderData(state);
         const computeCode = getWGSLComputeCode(computeShaderData);
-        const code = [preamble, computeCode].filter(s => s).join('\n\n');
+
+        // Get directives for compute stage
+        const directivesCode = getDirectives(state, 'compute');
+        const directivesSection = directivesCode ? directivesCode + '\n' : '';
+
+        const code = directivesSection + [preamble, computeCode].filter(s => s).join('\n\n');
 
         state.computeResult = {
             code,

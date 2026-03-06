@@ -6,167 +6,29 @@
 
 // Node types + DSL constructors
 export {
-    // Type vocab
-    type ScalarType,
-    type Vec2Type,
+    abs, add, AssignNode,
+    attribute, AttributeNode, BinopNode, bool, Break, BreakNode, bufferAttribute, BufferAttributeNode, builtin, BuiltinNode, CallNode, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix,
+    cameraViewMatrix, ceil, clamp, color, CondNode, ConstNode, ConstructNode, Continue, ContinueNode, cos, cross, div,
+    dot, f16, f32, FieldNode, floor, Fn, FnNode, For, ForNode, fract, globalId, i32, If, IfNode, index, IndexNode, instancedBufferAttribute, instanceIndex, length, localId,
+    localIndex, mat4, max,
+    min, mix, modelNormalMatrix, modelWorldMatrix, mrt, MRTNode, mul,
+    Node, normalize, numWorkgroups, OutputStructNode, ParamNode, positionClip, pow, raw, RawNode, Return, ReturnNode, sin, smoothstep, sqrt, StackNode, step, storage,
+    storageArray, StorageNode, struct, StructNode, sub, texture, TextureNode, timeDelta, timeElapsed, u32, uniform, UniformNode,
+    Var, VarNode, varying, VaryingNode, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgslFn,
+    WgslFnNode, While, WhileNode, workgroupId, type BinopOp, type BuiltinKind, type ForRange, type GpuTypedArray, type MatType, type NodeKind, type NumericType,
+    type SamplerType,
+    type ScalarType, type StructDef,
+    type StructInstance, type StructMember, type TextureType, type UpdateRange, type Vec2Type,
     type Vec3Type,
     type Vec4Type,
-    type VecType,
-    type MatType,
-    type NumericType,
-    type SamplerType,
-    type TextureType,
-    type WgslType,
-    type GpuTypedArray,
-    type NodeKind,
-    type BuiltinKind,
-    type BinopOp,
-    type StructMember,
-    type UpdateRange,
-    // Node classes
-    Node,
-    ConstNode,
-    UniformNode,
-    AttributeNode,
-    BufferAttributeNode,
-    StorageNode,
-    TextureNode,
-    VaryingNode,
-    BinopNode,
-    CallNode,
-    RawNode,
-    AssignNode,
-    ConstructNode,
-    StructNode,
-    FieldNode,
-    IndexNode,
-    BuiltinNode,
-    StackNode,
-    CondNode,
-    VarNode,
-    IfNode,
-    ForNode,
-    type ForRange,
-    WhileNode,
-    BreakNode,
-    ContinueNode,
-    FnNode,
-    ParamNode,
-    ReturnNode,
-    // wgslFn — raw WGSL function support
-    WgslFnNode,
-    wgslFn,
-    type WgslFnParam,
-    // MRT (Multiple Render Targets)
-    OutputStructNode,
-    MRTNode,
-    mrt,
-    // DSL constructors
-    attribute,
-    bufferAttribute,
-    instancedBufferAttribute,
-    uniform,
-    storage,
-    storageArray,
-    texture,
-    varying,
-    raw,
-    builtin,
-    index,
-    add,
-    sub,
-    mul,
-    div,
-    vec2,
-    vec3,
-    vec4,
-    ivec2,
-    ivec3,
-    ivec4,
-    uvec2,
-    uvec3,
-    uvec4,
-    mat4,
-    f32,
-    i32,
-    u32,
-    bool,
-    vec2f,
-    vec3f,
-    vec4f,
-    vec2i,
-    vec3i,
-    vec4i,
-    vec2u,
-    vec3u,
-    vec4u,
-    vec2b,
-    vec3b,
-    vec4b,
-    color,
-    // control flow
-    Var,
-    If,
-    For,
-    While,
-    Break,
-    Continue,
-    Return,
-    Fn,
-    // Math functions
-    dot,
-    cross,
-    normalize,
-    length,
-    abs,
-    floor,
-    ceil,
-    fract,
-    sqrt,
-    sin,
-    cos,
-    pow,
-    max,
-    min,
-    clamp,
-    mix,
-    step,
-    smoothstep,
-} from './nodes/nodes';
-
-// Schema — WgslDesc constructors and struct()
-export {
-    type WgslDesc,
-    type ArrayDesc,
-    type StructDef,
-    type StructInstance,
-    isArrayDesc,
-    array,
-    itemSizeOf,
-    typedArrayCtorOf,
-    struct,
+    type VecType, type WgslFnParam, type WgslType
 } from './nodes/nodes';
 export * as d from './nodes/schema';
+export type {
+    ArrayDesc, WgslDesc
+} from './nodes/schema';
 
-/* builtins */
-export {
-    modelWorldMatrix,
-    modelNormalMatrix,
-    instanceIndex,
-    positionClip,
-    globalId,
-    localId,
-    localIndex,
-    workgroupId,
-    numWorkgroups,
-    cameraProjectionMatrix,
-    cameraViewMatrix,
-    cameraPosition,
-    cameraNear,
-    cameraFar,
-    timeElapsed,
-    timeDelta,
-} from './nodes/nodes';
+
 
 // export {
 //     UniformGroupNode,
@@ -213,67 +75,53 @@ export { Scene } from './scene/scene';
 export { Camera, PerspectiveCamera } from './scene/camera';
 
 export {
-    Geometry,
-    BufferAttribute,
-    IndexAttribute,
-    StorageBufferAttribute,
-    InstancedBufferAttribute,
-    StorageInstancedBufferAttribute,
-    IndirectStorageBufferAttribute,
-    createBoxGeometry,
-    createSphereGeometry,
-    createPlaneGeometry,
+    BufferAttribute, createBoxGeometry, createPlaneGeometry, createSphereGeometry, Geometry, IndexAttribute, IndirectStorageBufferAttribute, InstancedBufferAttribute, StorageBufferAttribute, StorageInstancedBufferAttribute
 } from './scene/geometry';
 
 export {
     Material,
-    type MaterialOptions,
+    type MaterialOptions
 } from './scene/material';
 
 export { Mesh } from './scene/mesh';
 
 export {
-    Texture,
     CanvasTexture,
-    DataTexture,
-    VideoTexture,
-    type WrapMode,
-    type FilterMode,
+    DataTexture, Texture, VideoTexture, type FilterMode,
     type MipmapFilterMode,
-    type TextureSource,
+    type TextureSource, type WrapMode
 } from './scene/texture';
 
-export { WebGPURenderer, type WebGPURendererOptions } from './renderer/renderer';
-export { RenderTarget, RenderTargetTexture, type RenderTargetOptions } from './renderer/render-target';
 export { pass, PassNode, type PassNodeOptions } from './nodes/pass-node';
-export { renderOutput, type RenderOutputOptions, type ToneMappingMode, type OutputColorSpace } from './nodes/render-output';
+export { renderOutput, type OutputColorSpace, type RenderOutputOptions, type ToneMappingMode } from './nodes/render-output';
+export { RenderTarget, RenderTargetTexture, type RenderTargetOptions } from './renderer/render-target';
+export { WebGPURenderer, type WebGPURendererOptions, type DeviceLostInfo } from './renderer/renderer';
 
 // ---------------------------------------------------------------------------
 // Compute — ComputeNode, compile-compute, compute-pipeline
 // ---------------------------------------------------------------------------
 
 export {
-    ComputeNode,
-    compute,
-    type ComputeNodeOptions,
-    type ComputeOpts,
+    compute, ComputeNode, type ComputeNodeOptions,
+    type ComputeOpts
 } from './nodes/nodes';
 
 export {
     compileCompute,
     type ComputeCompileResult,
-    type ComputeStorageEntry,
+    type ComputeStorageEntry
 } from './nodes/compile';
 
 export {
     ComputePipelineCache,
-    type ComputePipelineEntry,
+    type ComputePipelineEntry
 } from './renderer/compute-pipeline';
 
 // ---------------------------------------------------------------------------
 // Inspector
 // ---------------------------------------------------------------------------
 
+export { Inspector } from './inspector/inspector';
 export { InspectorBase } from './inspector/inspector-base';
 export { RendererInspector, type FrameRecord, type PassRecord } from './inspector/renderer-inspector';
-export { Inspector } from './inspector/inspector';
+

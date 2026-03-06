@@ -42,7 +42,6 @@ async function main() {
     );
     camera.position[2] = 5;
     scene.add(camera);
-    // Initial matrix setup — camera doesn't move after this so only needed once.
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
@@ -52,29 +51,31 @@ async function main() {
         camera.updateProjectionMatrix();
     });
 
-    const pos = attribute(d.vec3f, 'position');
-    const norm = attribute(d.vec3f, 'normal');
+    const position = attribute(d.vec3f, 'position');
+    const normal = attribute(d.vec3f, 'normal');
 
-    const localPos = vec4(pos, f32(1));
-    const worldPos = mul(modelWorldMatrix, localPos);
-    const viewPos = mul(cameraViewMatrix, worldPos);
-    const clipPos = mul(cameraProjectionMatrix, viewPos);
+    const localPosition = vec4(position, f32(1));
+    const worldPosition = mul(modelWorldMatrix, localPosition);
+    const viewPosition = mul(cameraViewMatrix, worldPosition);
+    const clipPosition = mul(cameraProjectionMatrix, viewPosition);
 
-    const worldNorm = mul(modelNormalMatrix, vec3(norm.x, norm.y, norm.z));
-    const vNorm = varying(d.vec3f, 'v_norm', normalize(worldNorm));
+    const worldNormal = mul(modelNormalMatrix, vec3(normal.x, normal.y, normal.z));
+    
+    const vNormal = varying(d.vec3f, 'v_norm', normalize(worldNormal));
 
-    const lightDir = vec3(f32(0.6), f32(1.0), f32(0.8)).normalize();
-    const diffuse = vNorm.dot(lightDir).max(f32(0.15));
+    const lightDirection = vec3(f32(0.6), f32(1.0), f32(0.8)).normalize();
+    const diffuse = vNormal.dot(lightDirection).max(f32(0.15));
 
     const baseColor = color('#f60');
     const litColor = vec3(baseColor.x, baseColor.y, baseColor.z).mul(diffuse);
 
-    const mat = new Material({
-        vertex: clipPos,
+    const material = new Material({
+        vertex: clipPosition,
         fragment: vec4(litColor, f32(1)),
     });
 
-    const mesh = new Mesh(createBoxGeometry(1, 1, 1), mat);
+    const geometry = createBoxGeometry(1, 1, 1);
+    const mesh = new Mesh(geometry, material);
     scene.add(mesh);
 
     const scenePass = pass(scene, camera);

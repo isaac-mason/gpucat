@@ -16,10 +16,10 @@
  *
  * New API usage pattern:
  *   const matrixNode = gpu.storage(matrixData, S.array(S.mat4x4f()));
- *   const iIdx       = gpu.instanceIndex();
+ *   const iIdx       = gpu.instanceIndex;  // singleton builtin
  *   const modelMat   = gpu.index(matrixNode, iIdx);
  *   // The renderer auto-uploads matrixData to a GPU storage buffer.
- *   // To update: matrixNode.needsUpdate = true  (or addUpdateRange for partial)
+ *   // To update: matrixNode.value.needsUpdate = true  (or value.addUpdateRange for partial)
  */
 
 import * as g from 'gpucat';
@@ -74,8 +74,8 @@ const colorAttr  = new g.StorageBufferAttribute(colorData, 4);   // 4 floats per
 const instanceMatrices = g.storage(matrixAttr, d.array(d.mat4x4f));
 const instanceColors   = g.storage(colorAttr,  d.array(d.vec4f));
 
-// instanceIndex() returns the built-in @builtin(instance_index) as a u32 node.
-const iIdx = g.instanceIndex();
+// instanceIndex is the built-in @builtin(instance_index) as a u32 node.
+const iIdx = g.instanceIndex;
 
 // Index into the storage arrays.
 const modelMat   = g.index(instanceMatrices, iIdx);

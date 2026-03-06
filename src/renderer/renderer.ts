@@ -25,7 +25,16 @@
  */
 
 import type { Mesh } from '../scene/mesh';
-import { BufferCache } from './buffers';
+import {
+    type BufferCache,
+    createBufferCache,
+    uploadVertex,
+    uploadIndex,
+    uploadRaw,
+    getRaw,
+    uploadStorage,
+    uploadIndirect,
+} from './buffers';
 import { PipelineCache, makePipelineKey, type PipelineEntry } from './pipeline';
 import {
     buildRenderGroupGPUBindGroup,
@@ -46,75 +55,6 @@ import type { Camera } from '../scene/camera';
 import { InspectorBase } from '../inspector/inspector-base';
 import type { RenderTarget } from './render-target';
 
-// ---------------------------------------------------------------------------
-// Uniform group packing helpers (Phase 3d)
-// ---------------------------------------------------------------------------
-
-/**
- * Pack uniform values from a UniformGroupBlock into a Float32Array.
- * Reads node.value for each member, handling number, number[], and Float32Array.
- * Uses the std140 byte offsets from the block's members.
- *
- * mat3x3f is handled specially: in WGSL uniform address space, each column is
- * padded to vec4 (16 bytes), so mat3x3f occupies 48 bytes (3 × 16).
- */
-function packUniformGroup(block: UniformGroupBlock): Float32Array {
-    const buf = new Float32Array(Math.ceil(block.totalBytes / 4));
-    const bytes = new Uint8Array(buf.buffer);
-
-    for (const member of block.members) {
-        const value = member.node.value;
-        if (value === null || value === undefined) continue;
-
-        const offset = member.offset;
-
-        if (member.type === 'mat3x3f') {
-            // mat3x3f in uniform space: 3 columns × vec4 (padded) = 48 bytes
-            // Input is a flat mat3 (9 floats), output is 12 floats with padding
-            const src = value instanceof Float32Array ? value : new Float32Array(value as number[]);
-            const f32Offset = offset / 4;
-            // Column 0
-            buf[f32Offset + 0] = src[0]; buf[f32Offset + 1] = src[1]; buf[f32Offset + 2] = src[2]; buf[f32Offset + 3] = 0;
-            // Column 1
-            buf[f32Offset + 4] = src[3]; buf[f32Offset + 5] = src[4]; buf[f32Offset + 6] = src[5]; buf[f32Offset + 7] = 0;
-            // Column 2
-            buf[f32Offset + 8] = src[6]; buf[f32Offset + 9] = src[7]; buf[f32Offset + 10] = src[8]; buf[f32Offset + 11] = 0;
-        } else if (typeof value === 'number') {
-            new DataView(bytes.buffer).setFloat32(offset, value, true);
-        } else if (value instanceof Float32Array) {
-            bytes.set(new Uint8Array(value.buffer, value.byteOffset, value.byteLength), offset);
-        } else if (Array.isArray(value)) {
-            const fa = new Float32Array(value);
-            bytes.set(new Uint8Array(fa.buffer), offset);
-        }
-    }
-
-    return buf;
-}
-
-/**
- * Invoke update callbacks on all UniformNodes in a uniform group block.
- * - For renderGroup uniforms: pass RenderUpdateContext { camera, elapsed, delta }
- * - For objectGroup uniforms: pass ObjectUpdateContext { object }
- *
- * Each callback returns the value to assign to node.value.
- */
-function invokeUniformGroupCallbacks(
-    block: UniformGroupBlock,
-    context: RenderUpdateContext | ObjectUpdateContext,
-): void {
-    for (const member of block.members) {
-        const node = member.node;
-        if (node.update) {
-            const result = node.update(context);
-            if (result !== undefined) {
-                node.value = result as typeof node.value;
-                node.version++;
-            }
-        }
-    }
-}
-
 export type WebGPURendererOptions = {
     /** Enable 4x MSAA antialiasing. Overridden by `samples` if both set. */
     antialias?: boolean;
@@ -124,6 +64,21 @@ export type WebGPURendererOptions = {
     adapterOptions?: GPURequestAdapterOptions;
     /** GPUDeviceDescriptor forwarded to adapter.requestDevice(). */
     deviceDescriptor?: GPUDeviceDescriptor;
+};
+
+/**
+ * Information about a device lost event.
+ * Mirrors Three.js's device loss info structure.
+ */
+export type DeviceLostInfo = {
+    /** The API that lost the device ('WebGPU'). */
+    api: 'WebGPU';
+    /** Human-readable message about the loss. */
+    message: string;
+    /** The reason for the loss, if available. */
+    reason: GPUDeviceLostReason | null;
+    /** The original GPUDeviceLostInfo event. */
+    originalEvent: GPUDeviceLostInfo;
 };
 
 export class WebGPURenderer {
@@ -139,9 +94,9 @@ export class WebGPURenderer {
     private context!: GPUCanvasContext;
     private format!: GPUTextureFormat;
 
-    private readonly _samples: number;
-    private readonly _adapterOptions: GPURequestAdapterOptions | undefined;
-    private readonly _deviceDescriptor: GPUDeviceDescriptor | undefined;
+    private _samples: number;
+    private _adapterOptions: GPURequestAdapterOptions | undefined;
+    private _deviceDescriptor: GPUDeviceDescriptor | undefined;
 
     /** @internal */ buffers!: BufferCache;
     /** @internal */ pipelines!: PipelineCache;
@@ -152,14 +107,30 @@ export class WebGPURenderer {
 
     private _initialized = false;
 
+    /**
+     * Indicates whether the device has been lost or not.
+     * When this is set to `true`, rendering isn't possible anymore.
+     * Mirrors Three.js's `_isDeviceLost` flag.
+     */
+    private _isDeviceLost = false;
+
+    /**
+     * A callback function that is executed when a device loss occurs.
+     * Mirrors Three.js's `onDeviceLost` callback.
+     *
+     * @example
+     * renderer.onDeviceLost = (info) => {
+     *     console.error('GPU device lost:', info.message);
+     *     // Optionally: show error UI, attempt recovery, etc.
+     * };
+     */
+    onDeviceLost: ((info: DeviceLostInfo) => void) | null = null;
+
     /** Swapchain depth texture (recreated on resize). */
     private depthTexture!: GPUTexture;
+
     /** MSAA color texture (null when samples <= 1). Only used for swapchain passes. */
     private msaaTexture: GPUTexture | null = null;
-
-    // -----------------------------------------------------------------------
-    // New uniform group buffer state (Phase 3d)
-    // -----------------------------------------------------------------------
 
     /**
      * GPU buffer key for the shared renderGroup struct UBO.
@@ -171,7 +142,7 @@ export class WebGPURenderer {
      * GPU buffer key for compute shader renderGroup struct UBO.
      * Separate from render because compute shaders don't have camera.
      */
-    private readonly _computeRenderGroupKey: object = {};
+    private _computeRenderGroupKey: object = {};
 
     /**
      * Last-uploaded version sum for the renderGroup dirty check.
@@ -183,12 +154,12 @@ export class WebGPURenderer {
      * Per-mesh GPU buffer key for the objectGroup struct UBO.
      * Contains modelWorldMatrix, modelNormalMatrix, and user material uniforms.
      */
-    private readonly _objectGroupKeys: WeakMap<Mesh, object> = new WeakMap();
+    private _objectGroupKeys: WeakMap<Mesh, object> = new WeakMap();
 
     /**
      * Per-mesh last-uploaded version sum for objectGroup dirty check.
      */
-    private readonly _objectGroupVersionSums: WeakMap<Mesh, number> = new WeakMap();
+    private _objectGroupVersionSums: WeakMap<Mesh, number> = new WeakMap();
 
 
     /** Elapsed time in seconds. */
@@ -237,10 +208,6 @@ export class WebGPURenderer {
     /** Clear color for the final swapchain composite pass. Defaults to opaque black. */
     clearColor: [number, number, number, number] = [0, 0, 0, 1];
 
-    // -----------------------------------------------------------------------
-    // MRT (Multiple Render Targets) support - aligned with Three.js
-    // -----------------------------------------------------------------------
-
     /**
      * The current MRT configuration. When set, materials using mrt() nodes
      * will write to multiple color attachments.
@@ -270,10 +237,6 @@ export class WebGPURenderer {
         return this._mrt;
     }
 
-    // -----------------------------------------------------------------------
-    // Render Target support - aligned with Three.js
-    // -----------------------------------------------------------------------
-
     /**
      * The current render target. When set, render() will render to this
      * target instead of the swapchain.
@@ -299,17 +262,11 @@ export class WebGPURenderer {
     /**
      * Returns the current render target.
      *
-     * Mirrors Three.js `renderer.getRenderTarget()`.
-     *
      * @returns The current render target, or null if rendering to canvas.
      */
     getRenderTarget(): RenderTarget | null {
         return this._renderTarget;
     }
-
-    // -----------------------------------------------------------------------
-    // Internal fullscreen quad state
-    // -----------------------------------------------------------------------
 
     /** Geometry for the internal fullscreen triangle. Created once on first use. */
     private _fullscreenGeometry: Geometry | null = null;
@@ -332,10 +289,6 @@ export class WebGPURenderer {
     get samples(): number {
         return this._samples;
     }
-
-    // -----------------------------------------------------------------------
-    // init()
-    // -----------------------------------------------------------------------
 
     /**
      * Initialise the WebGPU adapter, device, and canvas context.
@@ -361,7 +314,13 @@ export class WebGPURenderer {
         // buffers (drawIndirect / drawIndexedIndirect). Without this feature the
         // GPU silently drops any indirect draw whose firstInstance field is non-zero,
         // which breaks multi-shape batching patterns that split instance ranges.
-        const wantedFeatures: GPUFeatureName[] = ['indirect-first-instance', 'timestamp-query'];
+        // 'shader-f16': enables half-precision float types (f16, vec2h, vec3h, vec4h,
+        // mat*h) in WGSL shaders. Required for `enable f16;` directive to work.
+        const wantedFeatures: GPUFeatureName[] = [
+            'indirect-first-instance',
+            'timestamp-query',
+            'shader-f16',
+        ];
         const requiredFeatures: GPUFeatureName[] = wantedFeatures.filter(
             (f) => adapter.features.has(f),
         );
@@ -378,6 +337,28 @@ export class WebGPURenderer {
 
         this.device = await adapter.requestDevice(deviceDescriptor);
 
+        // Set up device lost handler (mirrors Three.js pattern)
+        this.device.lost.then((info) => {
+            // Ignore intentional device destruction
+            if (info.reason === 'destroyed') return;
+
+            const deviceLossInfo: DeviceLostInfo = {
+                api: 'WebGPU',
+                message: info.message || 'Unknown reason',
+                reason: info.reason || null,
+                originalEvent: info,
+            };
+
+            console.error(
+                `[WebGPURenderer] WebGPU Device Lost:\n` +
+                `  Message: ${deviceLossInfo.message}\n` +
+                `  Reason: ${deviceLossInfo.reason ?? 'unknown'}`,
+            );
+
+            this._isDeviceLost = true;
+            this.onDeviceLost?.(deviceLossInfo);
+        });
+
         const context = this.domElement.getContext('webgpu');
         if (!context) throw new Error('[WebGPURenderer] Failed to get WebGPU canvas context.');
         this.context = context;
@@ -385,7 +366,7 @@ export class WebGPURenderer {
         this.format = navigator.gpu.getPreferredCanvasFormat();
         this.context.configure({ device: this.device, format: this.format, alphaMode: 'opaque' });
 
-        this.buffers = new BufferCache(this.device);
+        this.buffers = createBufferCache(this.device);
         this.pipelines = new PipelineCache(this.device, this.format);
         this.computePipelines = new ComputePipelineCache(this.device);
 
@@ -401,10 +382,6 @@ export class WebGPURenderer {
         this.inspector.init();
         return this;
     }
-
-    // -----------------------------------------------------------------------
-    // setSize()
-    // -----------------------------------------------------------------------
 
     /**
      * Resize the canvas and recreate swapchain depth/MSAA textures.
@@ -427,20 +404,24 @@ export class WebGPURenderer {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // render() — public entry point
-    // -----------------------------------------------------------------------
-
-    // -----------------------------------------------------------------------
-    // compile() — pre-warm pipelines before the render loop
-    // -----------------------------------------------------------------------
+    /**
+     * Check if a GPU feature is available on the current device.
+     *
+     * @example
+     * ```ts
+     * if (renderer.hasFeature('shader-f16')) {
+     *     // Can use f16, vec2h, vec3h, vec4h, mat*h types
+     * }
+     * ```
+     */
+    hasFeature(feature: GPUFeatureName): boolean {
+        return this.device?.features?.has(feature) ?? false;
+    }
 
     /**
      * Pre-compile all WebGPU render pipelines for a scene before the render
      * loop starts. This is optional — pipelines are compiled on-demand during
      * the first render if not pre-warmed.
-     *
-     * Mirrors Three.js `renderer.compileAsync(scene, camera)`.
      *
      * @param scene  The scene containing meshes to pre-compile pipelines for.
      * @param camera The camera used for rendering (affects frustum culling).
@@ -512,6 +493,8 @@ export class WebGPURenderer {
      * @throws if the pipeline has not been compiled yet (call renderer.compile() first).
      */
     compute(node: ComputeNode): void {
+        if (this._isDeviceLost) return;
+
         if (!this._initialized) {
             throw new Error('[WebGPURenderer] compute() called before init(). Await renderer.init() first.');
         }
@@ -529,10 +512,6 @@ export class WebGPURenderer {
         this._dispatchComputeNode(node, this._frameEncoder);
     }
 
-    // -----------------------------------------------------------------------
-    // render() — public entry point
-    // -----------------------------------------------------------------------
-
     /**
      * Render the given node expression as a fullscreen quad to the swapchain.
      * Runs update lifecycle callbacks for all nodes discovered at compile time,
@@ -543,6 +522,8 @@ export class WebGPURenderer {
      * earlier in the same frame will be submitted in the same command buffer.
      */
     render(outputNode: Node<WgslType>): void {
+        if (this._isDeviceLost) return;
+
         if (!this._initialized) {
             throw new Error('[WebGPURenderer] render() called before init(). Await renderer.init() first.');
         }
@@ -552,7 +533,7 @@ export class WebGPURenderer {
         this.lastTimestamp = now;
         this.elapsed += delta;
 
-        // Increment frame/render counters (mirrors three NodeFrame.update()).
+        // Increment frame/render counters
         this.frameId++;
         this.renderId++;
 
@@ -583,7 +564,6 @@ export class WebGPURenderer {
         const cr = entry.compileResult;
 
         // 2. Run update lifecycle callbacks for all nodes discovered at compile time.
-        //    Mirrors three NodeFrame.updateBeforeNode / updateAfterNode / updateNode
         //    dedup logic: FRAME nodes fire once per frameId, RENDER nodes fire once per
         //    renderId, OBJECT nodes fire unconditionally.
         const frame: RenderFrame = { renderer: this, encoder, width: w, height: h };
@@ -606,7 +586,7 @@ export class WebGPURenderer {
         // 3. Render the outputNode expression as a fullscreen quad to the swapchain.
         this._renderOutputNodeWithEntry(outputNode, encoder, entry);
 
-        // 4. updateAfter() — post-draw cleanup (mirrors three _renderObjectDirect updateAfter)
+        // 4. updateAfter() — post-draw cleanup
         for (const node of cr.updateAfterNodes) {
             this._callUpdateAfterNode(node, frame);
         }
@@ -615,13 +595,8 @@ export class WebGPURenderer {
         this.inspector.finish(this.frameId);
     }
 
-    // -----------------------------------------------------------------------
-    // NodeFrame-mirroring update dispatch helpers
-    // -----------------------------------------------------------------------
-
     /**
      * Dispatch updateBefore() for a node, deduplicating by frameId or renderId.
-     * Mirrors three NodeFrame.updateBeforeNode().
      */
     private _callUpdateBeforeNode(node: UpdateBeforeNode, frame: RenderFrame): void {
         const type = node.updateBeforeType;
@@ -652,7 +627,6 @@ export class WebGPURenderer {
 
     /**
      * Dispatch updateAfter() for a node, deduplicating by frameId or renderId.
-     * Mirrors three NodeFrame.updateAfterNode().
      */
     private _callUpdateAfterNode(node: UpdateAfterNode, frame: RenderFrame): void {
         const type = node.updateAfterType;
@@ -679,7 +653,6 @@ export class WebGPURenderer {
 
     /**
      * Dispatch update() for a node, deduplicating by frameId or renderId.
-     * Mirrors three NodeFrame.updateNode().
      */
     private _callUpdateNode(node: UpdateNode, frame: RenderFrame): void {
         const type = node.updateType;
@@ -706,7 +679,6 @@ export class WebGPURenderer {
 
     /**
      * Get or create the {frameId, renderId} tracking record for a node in the given map.
-     * Mirrors three NodeFrame._getMaps().
      */
     private _getUpdateMaps(
         map: WeakMap<object, { frameId: number; renderId: number }>,
@@ -720,10 +692,6 @@ export class WebGPURenderer {
         return maps;
     }
 
-    // -----------------------------------------------------------------------
-    // _dispatchComputeNode — encode a single compute dispatch
-    // -----------------------------------------------------------------------
-
     private _dispatchComputeNode(
         node: ComputeNode,
         encoder: GPUCommandEncoder,
@@ -736,7 +704,7 @@ export class WebGPURenderer {
 
         // Upload / ensure storage buffers for all outputs.
         const gpuBuffers: GPUBuffer[] = entry.compileResult.storage.map((s) =>
-            this.buffers.uploadStorage(s.node),
+            uploadStorage(this.buffers, s.node),
         );
 
         // Encode the compute pass.
@@ -773,9 +741,9 @@ export class WebGPURenderer {
 
                 const data = packUniformGroup(renderBlock);
                 const U = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
-                this.buffers.uploadRaw(this._computeRenderGroupKey, data, U);
+                uploadRaw(this.buffers, this._computeRenderGroupKey, data, U);
 
-                const renderBuf = this.buffers.getRaw(this._computeRenderGroupKey);
+                const renderBuf = getRaw(this.buffers, this._computeRenderGroupKey);
                 if (renderBuf) {
                     const gpuBindGroup = buildRenderGroupGPUBindGroup(
                         this.device,
@@ -793,18 +761,12 @@ export class WebGPURenderer {
         this.inspector.finishCompute(node.id, this.frameId);
     }
 
-    // -----------------------------------------------------------------------
-    // renderScene() — Three.js aligned render(scene, camera)
-    // -----------------------------------------------------------------------
-
     /**
      * Render a scene with a camera to the current render target.
      *
      * When `setRenderTarget()` has been called, renders to that target.
      * When `setMRT()` has been called, uses MRT output mapping.
      * Otherwise renders to the swapchain (canvas).
-     *
-     * Mirrors Three.js `renderer.render(scene, camera)`.
      *
      * @param scene The scene to render.
      * @param camera The camera to render with.
@@ -817,6 +779,8 @@ export class WebGPURenderer {
         encoder?: GPUCommandEncoder,
         passId = 'scene',
     ): void {
+        if (this._isDeviceLost) return;
+
         if (!this._initialized) {
             throw new Error('[WebGPURenderer] renderScene() called before init().');
         }
@@ -975,7 +939,7 @@ export class WebGPURenderer {
                     if (attrEntry.kind === 'geometry') {
                         const bufAttr = mesh.geometry.attributes.get(attrEntry.name);
                         if (!bufAttr) { slot++; continue; }
-                        const gpuBuf = this.buffers.uploadVertex(bufAttr);
+                        const gpuBuf = uploadVertex(this.buffers, bufAttr);
                         gpuPass.setVertexBuffer(slot++, gpuBuf);
                     } else {
                         const node = attrEntry.node;
@@ -983,7 +947,8 @@ export class WebGPURenderer {
                         if (!arr) {
                             throw new Error(`[gpucat] BufferAttributeNode array is null for ${attrEntry.name}`);
                         }
-                        const gpuBuf = this.buffers.uploadRaw(
+                        const gpuBuf = uploadRaw(
+                            this.buffers,
                             node,
                             arr,
                             GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
@@ -993,11 +958,11 @@ export class WebGPURenderer {
                 }
 
                 if (mesh.geometry.index) {
-                    const idxBuf = this.buffers.uploadIndex(mesh.geometry.index);
+                    const idxBuf = uploadIndex(this.buffers, mesh.geometry.index);
                     gpuPass.setIndexBuffer(idxBuf, mesh.geometry.index.format);
                     if (mesh.geometry.indirect) {
                         const indirect = mesh.geometry.indirect;
-                        const indBuf   = this.buffers.uploadIndirect(indirect);
+                        const indBuf   = uploadIndirect(this.buffers, indirect);
                         const byteStride = indirect.indirectStride * 4;
                         for (let d = 0; d < indirect.drawCount; d++) {
                             gpuPass.drawIndexedIndirect(indBuf, d * byteStride);
@@ -1008,7 +973,7 @@ export class WebGPURenderer {
                 } else {
                     if (mesh.geometry.indirect) {
                         const indirect = mesh.geometry.indirect;
-                        const indBuf   = this.buffers.uploadIndirect(indirect);
+                        const indBuf   = uploadIndirect(this.buffers, indirect);
                         const byteStride = indirect.indirectStride * 4;
                         for (let d = 0; d < indirect.drawCount; d++) {
                             gpuPass.drawIndirect(indBuf, d * byteStride);
@@ -1035,10 +1000,6 @@ export class WebGPURenderer {
             if (err) console.error('[WebGPU renderScene validation error]', err.message);
         });
     }
-
-    // -----------------------------------------------------------------------
-    // _renderOutputNodeWithEntry — render the outputNode expression as a fullscreen quad
-    // -----------------------------------------------------------------------
 
     private _renderOutputNodeWithEntry(
         _outputNode: Node<WgslType>,
@@ -1123,10 +1084,6 @@ export class WebGPURenderer {
         this.inspector.finishRender('composite', this.frameId);
     }
 
-    // -----------------------------------------------------------------------
-    // RenderTarget GPU allocation — managed by renderer, not RenderTarget
-    // -----------------------------------------------------------------------
-
     private _ensureRenderTargetAllocated(renderTarget: RenderTarget): void {
         // Check if already allocated at correct size
         const firstTex = renderTarget.textures[0]?.gpuTexture;
@@ -1179,23 +1136,14 @@ export class WebGPURenderer {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // _prepareMesh — upload geometry buffers only
-    // Mesh matrices and material uniforms are handled by _uploadObjectGroup
-    // -----------------------------------------------------------------------
-
     private _prepareMesh(mesh: Mesh): void {
         for (const attr of mesh.geometry.attributes.values()) {
-            if (attr.needsUpdate) this.buffers.uploadVertex(attr);
+            if (attr.needsUpdate) uploadVertex(this.buffers, attr);
         }
         if (mesh.geometry.index?.needsUpdate) {
-            this.buffers.uploadIndex(mesh.geometry.index);
+            uploadIndex(this.buffers, mesh.geometry.index);
         }
     }
-
-    // -----------------------------------------------------------------------
-    // Fullscreen geometry
-    // -----------------------------------------------------------------------
 
     private _getFullscreenGeometry(): Geometry {
         if (!this._fullscreenGeometry) {
@@ -1205,10 +1153,6 @@ export class WebGPURenderer {
         }
         return this._fullscreenGeometry;
     }
-
-    // -----------------------------------------------------------------------
-    // GPU texture helpers
-    // -----------------------------------------------------------------------
 
     private _createDepthTexture(width: number, height: number): GPUTexture {
         return this.device.createTexture({
@@ -1227,10 +1171,6 @@ export class WebGPURenderer {
             sampleCount: this._samples,
         });
     }
-
-    // -----------------------------------------------------------------------
-    // _makeOutputMaterial — build the fullscreen composite Material + pipeline key
-    // -----------------------------------------------------------------------
 
     /**
      * Constructs the synthetic fullscreen Material used for compositing
@@ -1256,11 +1196,6 @@ export class WebGPURenderer {
         const pipelineKey = makePipelineKey(mat, this._samples, this.format);
         return { mat, pipelineKey };
     }
-
-    // -----------------------------------------------------------------------
-    // -----------------------------------------------------------------------
-    // New uniform group upload methods (Phase 3d)
-    // -----------------------------------------------------------------------
 
     /**
      * Upload the renderGroup struct UBO (camera + time uniforms).
@@ -1292,7 +1227,7 @@ export class WebGPURenderer {
         // Pack and upload
         const data = packUniformGroup(renderBlock);
         const U = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
-        this.buffers.uploadRaw(this._renderGroupKey, data, U);
+        uploadRaw(this.buffers, this._renderGroupKey, data, U);
         this._renderGroupVersionSum = versionSum;
     }
 
@@ -1300,7 +1235,7 @@ export class WebGPURenderer {
      * Get the GPU buffer for the renderGroup struct UBO.
      */
     _getRenderGroupBuffer(): GPUBuffer | null {
-        return this.buffers.getRaw(this._renderGroupKey) ?? null;
+        return getRaw(this.buffers, this._renderGroupKey) ?? null;
     }
 
     /**
@@ -1338,7 +1273,7 @@ export class WebGPURenderer {
         // Pack and upload
         const data = packUniformGroup(objectBlock);
         const U = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
-        this.buffers.uploadRaw(key, data, U);
+        uploadRaw(this.buffers, key, data, U);
         this._objectGroupVersionSums.set(mesh, versionSum);
     }
 
@@ -1347,7 +1282,7 @@ export class WebGPURenderer {
      */
     _getObjectGroupBuffer(mesh: Mesh): GPUBuffer | null {
         const key = this._objectGroupKeys.get(mesh);
-        return key ? (this.buffers.getRaw(key) ?? null) : null;
+        return key ? (getRaw(this.buffers, key) ?? null) : null;
     }
 
     /**
@@ -1388,7 +1323,7 @@ export class WebGPURenderer {
         // Pack and upload
         const data = packUniformGroup(objectBlock);
         const U = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
-        this.buffers.uploadRaw(this._fullscreenObjectGroupKey, data, U);
+        uploadRaw(this.buffers, this._fullscreenObjectGroupKey, data, U);
         this._fullscreenObjectGroupVersionSum = versionSum;
     }
 
@@ -1396,14 +1331,10 @@ export class WebGPURenderer {
      * Get the GPU buffer for the fullscreen quad's objectGroup struct UBO.
      */
     _getFullscreenObjectGroupBuffer(): GPUBuffer | null {
-        return this.buffers.getRaw(this._fullscreenObjectGroupKey) ?? null;
+        return getRaw(this.buffers, this._fullscreenObjectGroupKey) ?? null;
     }
 
 }
-
-// ---------------------------------------------------------------------------
-// Internal fullscreen quad helpers
-// ---------------------------------------------------------------------------
 
 /**
  * Position node for the fullscreen triangle.
@@ -1453,4 +1384,70 @@ function _makeFullscreenUVVarying(): VaryingNode<'vec2f'> {
         vi,
     );
     return new VaryingNode('vec2f', 'uv', uvSource);
+}
+
+
+/**
+ * Pack uniform values from a UniformGroupBlock into a Float32Array.
+ * Reads node.value for each member, handling number, number[], and Float32Array.
+ * Uses the std140 byte offsets from the block's members.
+ *
+ * mat3x3f is handled specially: in WGSL uniform address space, each column is
+ * padded to vec4 (16 bytes), so mat3x3f occupies 48 bytes (3 × 16).
+ */
+function packUniformGroup(block: UniformGroupBlock): Float32Array {
+    const buf = new Float32Array(Math.ceil(block.totalBytes / 4));
+    const bytes = new Uint8Array(buf.buffer);
+
+    for (const member of block.members) {
+        const value = member.node.value;
+        if (value === null || value === undefined) continue;
+
+        const offset = member.offset;
+
+        if (member.type === 'mat3x3f') {
+            // mat3x3f in uniform space: 3 columns × vec4 (padded) = 48 bytes
+            // Input is a flat mat3 (9 floats), output is 12 floats with padding
+            const src = value instanceof Float32Array ? value : new Float32Array(value as number[]);
+            const f32Offset = offset / 4;
+            // Column 0
+            buf[f32Offset + 0] = src[0]; buf[f32Offset + 1] = src[1]; buf[f32Offset + 2] = src[2]; buf[f32Offset + 3] = 0;
+            // Column 1
+            buf[f32Offset + 4] = src[3]; buf[f32Offset + 5] = src[4]; buf[f32Offset + 6] = src[5]; buf[f32Offset + 7] = 0;
+            // Column 2
+            buf[f32Offset + 8] = src[6]; buf[f32Offset + 9] = src[7]; buf[f32Offset + 10] = src[8]; buf[f32Offset + 11] = 0;
+        } else if (typeof value === 'number') {
+            new DataView(bytes.buffer).setFloat32(offset, value, true);
+        } else if (value instanceof Float32Array) {
+            bytes.set(new Uint8Array(value.buffer, value.byteOffset, value.byteLength), offset);
+        } else if (Array.isArray(value)) {
+            const fa = new Float32Array(value);
+            bytes.set(new Uint8Array(fa.buffer), offset);
+        }
+    }
+
+    return buf;
+}
+
+/**
+ * Invoke update callbacks on all UniformNodes in a uniform group block.
+ * - For renderGroup uniforms: pass RenderUpdateContext { camera, elapsed, delta }
+ * - For objectGroup uniforms: pass ObjectUpdateContext { object }
+ *
+ * Each callback returns the value to assign to node.value.
+ */
+function invokeUniformGroupCallbacks(
+    block: UniformGroupBlock,
+    context: RenderUpdateContext | ObjectUpdateContext,
+): void {
+    for (const member of block.members) {
+        const node = member.node;
+        if (node.update) {
+            const result = node.update(context);
+            if (result !== undefined) {
+                node.value = result as typeof node.value;
+                node.version++;
+            }
+        }
+    }
 }

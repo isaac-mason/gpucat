@@ -20,6 +20,7 @@
 
 import { InspectorBase } from './inspector-base';
 import type { Node, WgslType } from '../nodes/nodes';
+import { getBufferCacheStats } from '../renderer/buffers';
 
 // ---------------------------------------------------------------------------
 // Frame data types
@@ -151,7 +152,7 @@ export class RendererInspector extends InspectorBase {
             cpuMs,
             gpuMs: null,
             passes: [...this._currentPasses],
-            bufferStats: this.renderer.buffers.getStats(),
+            bufferStats: getBufferCacheStats(this.renderer.buffers),
             pipelineStats: this.renderer.pipelines.getStats(),
             computePipelineStats: this.renderer.computePipelines.getStats(),
             inspectableNodes: [...this._pendingInspectables],
