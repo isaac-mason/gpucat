@@ -111,6 +111,86 @@ export function createPlaneGeometry(width = 1, height = 1): Geometry {
 }
 
 /**
+ * Creates a subdivided plane geometry in the XZ plane (Y-up), suitable for
+ * vertex-displacement effects like ocean waves.
+ *
+ * Vertices are laid out in a regular grid across [-width/2, width/2] × [-height/2, height/2]
+ * in the XZ plane (y = 0). UVs range [0,1] × [0,1] from the -X/-Z corner.
+ *
+ * @param width - Total width along the X axis. Defaults to 1.
+ * @param height - Total depth along the Z axis. Defaults to 1.
+ * @param widthSegments - Number of subdivisions along X. Defaults to 1.
+ * @param heightSegments - Number of subdivisions along Z. Defaults to 1.
+ */
+export function createSubdividedPlaneGeometry(
+    width = 1,
+    height = 1,
+    widthSegments = 1,
+    heightSegments = 1,
+): Geometry {
+    const hw = width / 2;
+    const hh = height / 2;
+
+    const cols = widthSegments + 1;
+    const rows = heightSegments + 1;
+    const vertexCount = cols * rows;
+
+    const positions = new Float32Array(vertexCount * 3);
+    const normals   = new Float32Array(vertexCount * 3);
+    const uvs       = new Float32Array(vertexCount * 2);
+
+    for (let iy = 0; iy < rows; iy++) {
+        const v = iy / heightSegments;
+        const z = -hh + v * height;
+        for (let ix = 0; ix < cols; ix++) {
+            const u = ix / widthSegments;
+            const x = -hw + u * width;
+            const idx = iy * cols + ix;
+            positions[idx * 3 + 0] = x;
+            positions[idx * 3 + 1] = 0;
+            positions[idx * 3 + 2] = z;
+            normals[idx * 3 + 0] = 0;
+            normals[idx * 3 + 1] = 1;
+            normals[idx * 3 + 2] = 0;
+            uvs[idx * 2 + 0] = u;
+            uvs[idx * 2 + 1] = v;
+        }
+    }
+
+    // Two triangles per quad, wound CCW when viewed from +Y.
+    const indexCount = widthSegments * heightSegments * 6;
+    const indices = vertexCount <= 65536
+        ? new Uint16Array(indexCount)
+        : new Uint32Array(indexCount);
+    let i = 0;
+    for (let iy = 0; iy < heightSegments; iy++) {
+        for (let ix = 0; ix < widthSegments; ix++) {
+            const a = iy * cols + ix;
+            const b = a + cols;
+            indices[i++] = a;
+            indices[i++] = a + 1;
+            indices[i++] = b + 1;
+            indices[i++] = a;
+            indices[i++] = b + 1;
+            indices[i++] = b;
+        }
+    }
+
+    const geom = new Geometry();
+    geom.attributes.set('position', new BufferAttribute(positions, 3));
+    geom.attributes.set('normal',   new BufferAttribute(normals,   3));
+    geom.attributes.set('uv',       new BufferAttribute(uvs,       2));
+    geom.index = new IndexAttribute(indices as Uint16Array);
+    geom.vertexCount = vertexCount;
+    geom.boundingBox  = [-hw, 0, -hh, hw, 0, hh];
+    geom.boundingSphere = {
+        center: [0, 0, 0],
+        radius: Math.sqrt(hw * hw + hh * hh),
+    };
+    return geom;
+}
+
+/**
  * Creates a fullscreen triangle geometry for post-processing passes.
  * 
  * Uses an oversized triangle technique for efficiency (3 vertices instead of 6).

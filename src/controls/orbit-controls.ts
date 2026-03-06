@@ -2,57 +2,6 @@ import { vec3, vec2, quat, spherical, type Vec3, type Vec2, type Quat, type Sphe
 import type { Camera } from '../camera/camera';
 import type { PerspectiveCamera } from '../camera/perspective-camera';
 
-// ---------------------------------------------------------------------------
-// Spherical coordinates
-// ---------------------------------------------------------------------------
-
-interface Spherical {
-    radius: number;
-    /** polar angle (from +Y axis), 0..PI */
-    phi: number;
-    /** azimuthal angle (around Y axis) */
-    theta: number;
-}
-
-function sphericalCreate(): Spherical {
-    return { radius: 1, phi: 0, theta: 0 };
-}
-
-function sphericalSet(s: Spherical, radius: number, phi: number, theta: number): void {
-    s.radius = radius;
-    s.phi = phi;
-    s.theta = theta;
-}
-
-function sphericalSetFromVec3(s: Spherical, v: Vec3): void {
-    s.radius = vec3.length(v);
-    if (s.radius === 0) {
-        s.theta = 0;
-        s.phi = 0;
-    } else {
-        s.theta = Math.atan2(v[0], v[2]);
-        s.phi = Math.acos(Math.max(-1, Math.min(1, v[1] / s.radius)));
-    }
-}
-
-/** Restrict phi so sin(phi) != 0 (avoid gimbal lock at poles). */
-function sphericalMakeSafe(s: Spherical): void {
-    const EPS = 0.000001;
-    s.phi = Math.max(EPS, Math.min(Math.PI - EPS, s.phi));
-}
-
-function sphericalToVec3(out: Vec3, s: Spherical): Vec3 {
-    const sinPhiRadius = Math.sin(s.phi) * s.radius;
-    out[0] = sinPhiRadius * Math.sin(s.theta);
-    out[1] = Math.cos(s.phi) * s.radius;
-    out[2] = sinPhiRadius * Math.cos(s.theta);
-    return out;
-}
-
-// ---------------------------------------------------------------------------
-// State enum
-// ---------------------------------------------------------------------------
-
 const STATE = {
     NONE: -1,
     ROTATE: 0,
@@ -65,10 +14,6 @@ const STATE = {
 } as const;
 
 type StateValue = (typeof STATE)[keyof typeof STATE];
-
-// ---------------------------------------------------------------------------
-// Mouse / Touch action enums
-// ---------------------------------------------------------------------------
 
 export const MOUSE = {
     ROTATE: 0,
@@ -86,10 +31,6 @@ export const TOUCH = {
 } as const;
 
 export type TouchAction = (typeof TOUCH)[keyof typeof TOUCH];
-
-// ---------------------------------------------------------------------------
-// Event types
-// ---------------------------------------------------------------------------
 
 export type OrbitControlsEventType = 'change' | 'start' | 'end';
 
@@ -257,8 +198,8 @@ export class OrbitControls {
     /** @internal */ _quat: Quat;
     /** @internal */ _quatInverse: Quat;
 
-    /** @internal */ _spherical: Spherical = sphericalCreate();
-    /** @internal */ _sphericalDelta: Spherical = sphericalCreate();
+    /** @internal */ _spherical: Spherical = spherical.create();
+    /** @internal */ _sphericalDelta: Spherical = spherical.create();
 
     /** @internal */ _scale = 1;
     /** @internal */ _panOffset: Vec3 = [0, 0, 0];
@@ -432,11 +373,11 @@ export class OrbitControls {
     // -------------------------------------------------------------------------
 
     getPolarAngle(): number {
-        return this._spherical.phi;
+        return this._spherical[2];
     }
 
     getAzimuthalAngle(): number {
-        return this._spherical.theta;
+        return this._spherical[1];
     }
 
     getDistance(): number {
@@ -527,18 +468,18 @@ export class OrbitControls {
         vec3.subtract(_v, position, this.target);
         vec3.transformQuat(_v, _v, this._quat);
 
-        sphericalSetFromVec3(this._spherical, _v);
+        spherical.setFromVec3(this._spherical, _v);
 
         if (this.autoRotate && this.state === STATE.NONE) {
             this._rotateLeft(this._getAutoRotationAngle(deltaTime));
         }
 
         if (this.enableDamping) {
-            this._spherical.theta += this._sphericalDelta.theta * this.dampingFactor;
-            this._spherical.phi += this._sphericalDelta.phi * this.dampingFactor;
+            this._spherical[1] += this._sphericalDelta[1] * this.dampingFactor;
+            this._spherical[2] += this._sphericalDelta[2] * this.dampingFactor;
         } else {
-            this._spherical.theta += this._sphericalDelta.theta;
-            this._spherical.phi += this._sphericalDelta.phi;
+            this._spherical[1] += this._sphericalDelta[1];
+            this._spherical[2] += this._sphericalDelta[2];
         }
 
         // Clamp azimuth
@@ -553,21 +494,21 @@ export class OrbitControls {
             else if (aMax > Math.PI) aMax -= _twoPI;
 
             if (aMin <= aMax) {
-                this._spherical.theta = Math.max(aMin, Math.min(aMax, this._spherical.theta));
+                this._spherical[1] = Math.max(aMin, Math.min(aMax, this._spherical[1]));
             } else {
-                this._spherical.theta =
-                    this._spherical.theta > (aMin + aMax) / 2
-                        ? Math.max(aMin, this._spherical.theta)
-                        : Math.min(aMax, this._spherical.theta);
+                this._spherical[1] =
+                    this._spherical[1] > (aMin + aMax) / 2
+                        ? Math.max(aMin, this._spherical[1])
+                        : Math.min(aMax, this._spherical[1]);
             }
         }
 
         // Clamp polar
-        this._spherical.phi = Math.max(
+        this._spherical[2] = Math.max(
             this.minPolarAngle,
-            Math.min(this.maxPolarAngle, this._spherical.phi),
+            Math.min(this.maxPolarAngle, this._spherical[2]),
         );
-        sphericalMakeSafe(this._spherical);
+        spherical.makeSafe(this._spherical, this._spherical);
 
         // Pan offset
         if (this.enableDamping) {
@@ -593,15 +534,15 @@ export class OrbitControls {
         // Radius / zoom update
         const isPerspective = _isPerspective(this.object);
         if (this.zoomToCursor && this._performCursorZoom) {
-            this._spherical.radius = this._clampDistance(this._spherical.radius);
+            this._spherical[0] = this._clampDistance(this._spherical[0]);
         } else {
-            const prevRadius = this._spherical.radius;
-            this._spherical.radius = this._clampDistance(this._spherical.radius * this._scale);
-            zoomChanged = prevRadius !== this._spherical.radius;
+            const prevRadius = this._spherical[0];
+            this._spherical[0] = this._clampDistance(this._spherical[0] * this._scale);
+            zoomChanged = prevRadius !== this._spherical[0];
         }
 
         // Convert back to Cartesian and rotate to camera-up space
-        sphericalToVec3(_v, this._spherical);
+        spherical.toVec3(_v, this._spherical);
         vec3.transformQuat(_v, _v, this._quatInverse);
 
         vec3.add(position, this.target, _v);
@@ -609,11 +550,11 @@ export class OrbitControls {
 
         // Apply damping decay
         if (this.enableDamping) {
-            this._sphericalDelta.theta *= 1 - this.dampingFactor;
-            this._sphericalDelta.phi *= 1 - this.dampingFactor;
+            this._sphericalDelta[1] *= 1 - this.dampingFactor;
+            this._sphericalDelta[2] *= 1 - this.dampingFactor;
             vec3.scale(this._panOffset, this._panOffset, 1 - this.dampingFactor);
         } else {
-            sphericalSet(this._sphericalDelta, 0, 0, 0);
+            spherical.set(this._sphericalDelta, 0, 0, 0);
             vec3.set(this._panOffset, 0, 0, 0);
         }
 
@@ -712,11 +653,11 @@ export class OrbitControls {
     }
 
     _rotateLeft(angle: number): void {
-        this._sphericalDelta.theta -= angle;
+        this._sphericalDelta[1] -= angle;
     }
 
     _rotateUp(angle: number): void {
-        this._sphericalDelta.phi -= angle;
+        this._sphericalDelta[2] -= angle;
     }
 
     /** @internal */ _panLeft(distance: number, objectMatrix: ArrayLike<number>): void {

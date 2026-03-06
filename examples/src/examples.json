@@ -38,5 +38,10 @@
         "title": "MRT (Multiple Render Targets)",
         "description": "Multiple Render Targets (MRT): renders a sphere to 4 targets (output, normal, diffuse, emissive) and composites them side-by-side for visualization.",
         "tags": ["mrt", "post-processing"]
+    },
+    "example-raging-sea": {
+        "title": "Raging Sea",
+        "description": "Animated ocean surface using sinusoidal large waves and multi-octave value noise small waves, with finite-difference normals and emissive wave crests — all computed on the GPU via vertex shader uniforms.",
+        "tags": ["geometry", "animation", "noise"]
     }
 }

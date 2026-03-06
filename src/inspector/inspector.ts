@@ -21,6 +21,7 @@ import { Timeline } from './tabs/timeline';
 import { Console } from './tabs/console';
 import { Settings } from './tabs/settings';
 import { Viewer, makePreviewMaterial, type CanvasData } from './tabs/viewer';
+import { SceneHierarchy } from './tabs/scene-hierarchy';
 import type { Node, WgslType } from '../nodes/nodes';
 import type { WebGPURenderer } from '../renderer/renderer';
 import { CanvasTarget } from '../renderer/canvas-target';
@@ -38,6 +39,7 @@ export class Inspector extends RendererInspector {
     readonly viewer: Viewer;
     readonly timeline: Timeline;
     readonly settings: Settings;
+    readonly sceneHierarchy: SceneHierarchy;
 
     private _displayCycle: { text: DisplayCycleEntry; graph: DisplayCycleEntry };
     private _lastUpdateTime = 0;
@@ -72,6 +74,10 @@ export class Inspector extends RendererInspector {
         viewer.hide();
         profiler.addTab(viewer);
 
+        const sceneHierarchy = new SceneHierarchy();
+        sceneHierarchy.hide();
+        profiler.addTab(sceneHierarchy);
+
         const performance = new Performance();
         profiler.addTab(performance);
 
@@ -101,6 +107,7 @@ export class Inspector extends RendererInspector {
         this.viewer = viewer;
         this.timeline = timeline;
         this.settings = settings;
+        this.sceneHierarchy = sceneHierarchy;
 
         this._displayCycle = {
             text:  { needsUpdate: false, duration: 250, time: 0 },
@@ -236,6 +243,11 @@ export class Inspector extends RendererInspector {
         if (record.inspectableNodes.length > 0) {
             this.viewer.show();
             this.resolveViewer(record.inspectableNodes);
+        }
+
+        if (record.scenes.length > 0) {
+            this.sceneHierarchy.show();
+            this.sceneHierarchy.update(this, record.scenes);
         }
     }
 

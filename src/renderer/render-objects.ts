@@ -357,6 +357,19 @@ function createPipelineForRenderObject(
         code: shaderCode,
     });
 
+    // Debug: log shader WGSL and compilation info (remove when blank-canvas is fixed)
+    console.groupCollapsed('[gpucat] compiled shader source');
+    console.log(shaderCode);
+    console.groupEnd();
+    shaderModule.getCompilationInfo().then((info) => {
+        for (const msg of info.messages) {
+            console.error(`[gpucat shader ${msg.type}] line ${msg.lineNum}: ${msg.message}`);
+        }
+        if (info.messages.length === 0) {
+            console.log('[gpucat] shader compiled with no errors/warnings');
+        }
+    });
+
     // Build color targets (supports MRT)
     const targetCount = getTargetCount(material.fragmentNode);
     const colorTargets: GPUColorTargetState[] = [];

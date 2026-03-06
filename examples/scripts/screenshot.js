@@ -1,5 +1,5 @@
 /**
- * Screenshot automation for gpucat examples.
+ * Screenshot automation for examples.
  *
  * Starts `pnpm run dev` (Vite dev server), navigates Playwright Chromium to
  * each example, waits for GPU rendering to settle, clips to the <canvas>
@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const examplesDir = resolve(__dirname, '..');
 
-const TIMEOUT_MS = Number(process.env.SCREENSHOT_TIMEOUT ?? 1200);
+const TIMEOUT_MS = Number(process.env.SCREENSHOT_TIMEOUT ?? 2000);
 const VIEWPORT = { width: 1280, height: 720 };
 
 // ---------------------------------------------------------------------------

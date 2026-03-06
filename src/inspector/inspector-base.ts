@@ -14,10 +14,12 @@
  *   _renderPassNode end    → inspector.finishRender(passId, frameId)
  *   _dispatchComputeNode   → inspector.beginCompute(nodeId, frameId) / finishCompute
  *   Node.inspect()         → inspector.inspect(node)
+ *   renderScene() start    → inspector.beginRenderScene(passId, scene, samples, colorFormat, frameId)
  */
 
 import type { WebGPURenderer } from '../renderer/renderer';
 import type { Node, WgslType } from '../nodes/nodes';
+import type { Scene } from '../scene/scene';
 
 export class InspectorBase {
     /** Back-reference to the renderer. Set by renderer after init(). */
@@ -64,6 +66,23 @@ export class InspectorBase {
 
     /** Called after a compute dispatch. */
     finishCompute(_nodeId: string, _frameId: number): void {}
+
+    // -----------------------------------------------------------------------
+    // Scene hooks
+    // -----------------------------------------------------------------------
+
+    /**
+     * Called at the start of renderScene(), before the GPU pass begins.
+     * Gives the inspector a reference to the scene being rendered, along with
+     * the pipeline key parameters needed to retrieve compiled WGSL later.
+     */
+    beginRenderScene(
+        _passId: string,
+        _scene: Scene,
+        _samples: number,
+        _colorFormat: GPUTextureFormat,
+        _frameId: number,
+    ): void {}
 
     // -----------------------------------------------------------------------
     // Node inspection

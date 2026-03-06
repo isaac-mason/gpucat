@@ -1009,8 +1009,20 @@ function setupFnNode(state: CompilerState, fn: FnNode<WgslType>): void {
     // recurse into body to collect nested Fns and resources
     setupStackNode(state, traced.body);
 
-    // also recurse into the output expression
+    // recurse into the output expression for call deps
     for (const node of bodyGraph.nodes.values()) {
+        if (node.kind === 'call') {
+            const cn = node as CallNode<WgslType>;
+            if (cn.fnNode) {
+                setupCallNodeFn(state, cn.fnNode);
+            }
+        }
+    }
+
+    // recurse into the statement body for call deps — call nodes here are
+    // sub-expressions of assign/var/return statements and are not visited by
+    // setupStackNode (which only looks at top-level statement kinds).
+    for (const node of stackGraph.nodes.values()) {
         if (node.kind === 'call') {
             const cn = node as CallNode<WgslType>;
             if (cn.fnNode) {
@@ -1026,12 +1038,21 @@ function setupFnNode(state: CompilerState, fn: FnNode<WgslType>): void {
  */
 function setupWgslFnNode(state: CompilerState, fn: WgslFnNode<WgslType>): void {
     if (state.wgslFnNodes.has(fn.id)) return;
-    state.wgslFnNodes.set(fn.id, fn);
+    // Guard against cycles before recursing, but insert self AFTER includes so
+    // that Map insertion order matches forward-declaration order in the emitted
+    // WGSL (dependencies appear before the functions that call them).
+    state.wgslFnNodes.set(fn.id, fn); // reserve slot to break cycles
 
-    // Recursively setup includes
+    // Recursively setup includes first (dependencies before dependents)
     for (const include of fn.includes) {
         setupWgslFnNode(state, include);
     }
+
+    // Re-insert self after includes so it appears later in iteration order.
+    // Map.set on an existing key does NOT change its position, so we need to
+    // delete and re-insert.
+    state.wgslFnNodes.delete(fn.id);
+    state.wgslFnNodes.set(fn.id, fn);
 }
 
 /**
@@ -2093,8 +2114,15 @@ const compilerDefs: Record<NodeKind, NodeCompilerDef> = {
         setup: null,
         generate: (node: VarNode<WgslType>, state: CompilerState) => {
             const name = getVarFromNode(state, node as unknown as Node<WgslType>, node.varName, node.type);
-            const initExpr = generateNode(state, node.init) ?? '/* missing */';
-            addLineFlowCode(state, `${name} = ${initExpr}`);
+            // If called as a statement (output === undefined and no explicit output arg),
+            // emit the initialization assignment.  If already initialized (propertyName set),
+            // just return the name so assign-targets and RHS references use the var name only.
+            const data = getDataFromNode(state, node as unknown as Node<WgslType>);
+            if (data.propertyName === undefined) {
+                data.propertyName = name;
+                const initExpr = generateNode(state, node.init) ?? '/* missing */';
+                addLineFlowCode(state, `${name} = ${initExpr}`);
+            }
             return name;
         },
     },

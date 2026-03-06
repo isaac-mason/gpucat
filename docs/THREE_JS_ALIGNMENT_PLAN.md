@@ -502,3 +502,316 @@ These responsibilities move to the new systems:
 - **RenderObjects**: Per-mesh state caching, disposal coordination
 - **RenderLists**: Draw call collection, sorting, object pooling
 - **RenderContexts**: Render pass configuration caching
+
+---
+
+# Alignment Audit (March 2026)
+
+## Executive Summary
+
+After implementing Phases 1-3, gpucat's renderer architecture is **substantially aligned** with Three.js WebGPURenderer. The core patterns match: ChainMap caching, DataMap pattern, BindGroup-keyed bindings, RenderObject-centric state management, and functional state objects.
+
+## Alignment Status by System
+
+### ✅ Fully Aligned
+
+| System | Three.js | gpucat | Status |
+|--------|----------|--------|--------|
+| **DataMap pattern** | `class DataMap { get() auto-creates }` | WeakMap with auto-create `getData()` | ✅ Identical |
+| **ChainMap** | `ChainMap` for composite key caching | `chain-map.ts` - same pattern | ✅ Identical |
+| **BindGroup** | `class BindGroup { name, bindings[], id }` | `type BindGroup { name, bindings[], id, groupIndex, shared }` | ✅ Aligned (gpucat has extra fields) |
+| **NodeBuilderState** | Holds compiled shaders + `createBindings()` clones non-shared groups | Same pattern - `bindings` array + `createBindings()` | ✅ Aligned |
+| **RenderObject** | Per-draw state, lazy `getBindings()` calls `createBindings()` | Same - `_bindings` field, `getBindings()` function | ✅ Aligned |
+| **RenderObjects** | ChainMap keyed by `[object, material, renderContext, lightsNode]` | ChainMap keyed by `[mesh, material, renderContext]` + passId | ✅ Aligned |
+| **Bindings** | Keys BindGroupData by BindGroup identity (shared groups share data) | Same - `WeakMap<BindGroup, BindGroupData>` | ✅ Aligned |
+| **RenderList** | Object pooling, opaque/transparent sorting | Same pattern | ✅ Aligned |
+| **RenderLists** | ChainMap per scene/camera | Same pattern | ✅ Aligned |
+| **RenderContext** | Render pass configuration container | Same type structure | ✅ Aligned |
+| **RenderContexts** | Cached by framebuffer config | Same pattern | ✅ Aligned |
+| **Attributes** | Version tracking, per-frame deduplication | Same pattern with `callId` | ✅ Aligned |
+| **Geometries** | Coordinates attribute updates for RenderObjects | Same pattern | ✅ Aligned |
+| **Textures** | WeakMap caching, version/generation tracking | Same pattern | ✅ Aligned |
+| **Render Target Texture Tracking** | `generation` field for detecting texture changes | `lastGpuTexture` field for render targets + `generation` for user textures | ✅ Aligned |
+
+### ⚠️ Minor Differences (Acceptable)
+
+| System | Three.js | gpucat | Notes |
+|--------|----------|--------|-------|
+| **Functional vs OOP** | Class-based (`class Bindings extends DataMap`) | Functional (`type BindingsState` + functions) | ✅ Deliberate choice |
+| **Backend abstraction** | Full Backend interface (WebGPU/WebGL) | WebGPU-only, direct GPU calls | ✅ Deliberate - no WebGL fallback |
+| **LightsNode in cache key** | Included in ChainMap key | Not included - deferred | ✅ Documented future work |
+| **ClippingContext** | Full clipping plane system | Not implemented | ⚠️ Future work |
+| **RenderBundles** | Bundle caching system | Not implemented | ⚠️ Future work |
+| **NodeMaterialObserver** | Monitors material for cache invalidation | Not implemented | ⚠️ Future work |
+
+### 🔴 Not Yet Implemented (Future Work)
+
+| Feature | Three.js | gpucat | Priority |
+|---------|----------|--------|----------|
+| **Lighting** | `LightsNode` in cache key, `Lighting` class | No lighting system | Medium |
+| **Shadows** | `ShadowNode`, shadow pass rendering | No shadows | Medium |
+| **Clipping Planes** | `ClippingContext` | Not implemented | Low |
+| **XR/VR** | `XRManager` | Not implemented | Low |
+| **Render Bundles** | `RenderBundles` | Not implemented | Low |
+| **Background** | `Background` class | Not implemented | Low |
+| **Info/Stats** | `Info` class with memory/render stats | Partial in buffers.ts | Low |
+
+---
+
+## Detailed System Comparison
+
+### 1. Bindings System
+
+**Three.js (`Bindings.js`):**
+```javascript
+class Bindings extends DataMap {
+  getForRender(renderObject) {
+    const bindings = renderObject.getBindings();
+    for (const bindGroup of bindings) {
+      const groupData = this.get(bindGroup);  // DataMap pattern
+      if (groupData.bindGroup === undefined) {
+        this._init(bindGroup);
+        this.backend.createBindings(bindGroup, bindings, 0);
+        groupData.bindGroup = bindGroup;
+      }
+    }
+    return bindings;
+  }
+  
+  _update(bindGroup, bindings) {
+    // Check each binding for updates
+    // Set needsBindingsUpdate = true if texture generation changed
+    // Call backend.updateBindings() if needed
+  }
+}
+```
+
+**gpucat (`bindings.ts`):**
+```typescript
+function getData(state: BindingsState, bindGroup: BindGroup): BindGroupData {
+  let data = state.data.get(bindGroup);
+  if (!data) {
+    data = { bindGroup: null, bindGroupLayout: null, needsUpdate: true };
+    state.data.set(bindGroup, data);
+  }
+  return data;
+}
+
+function updateBindings(state, renderObject, ...) {
+  const bindGroups = getRenderObjectBindings(renderObject);
+  for (const bindGroup of bindGroups) {
+    _initBindGroup(state, bindGroup, nodeState);
+    _updateBindGroup(state, bindGroup, ...);
+    if (data.needsUpdate) {
+      _rebuildGPUBindGroup(state, bindGroup, data);
+    }
+  }
+}
+```
+
+**Assessment:** ✅ Functionally identical. Both key by BindGroup identity, use DataMap/auto-create pattern.
+
+---
+
+### 2. RenderObject System
+
+**Three.js (`RenderObject.js`):**
+```javascript
+class RenderObject {
+  constructor(nodes, geometries, renderer, object, material, ...) {
+    this._bindings = null;  // Lazy
+  }
+  
+  getBindings() {
+    return this._bindings || (this._bindings = this.getNodeBuilderState().createBindings());
+  }
+  
+  getNodeBuilderState() {
+    return this._nodeBuilderState || (this._nodeBuilderState = this._nodes.getForRender(this));
+  }
+}
+```
+
+**gpucat (`render-object.ts`):**
+```typescript
+type RenderObject = {
+  _bindings: BindGroup[] | null;
+  nodeBuilderState: NodeBuilderState | null;
+  // ...
+};
+
+function getBindings(renderObject: RenderObject): BindGroup[] {
+  if (!renderObject._bindings) {
+    renderObject._bindings = createBindings(renderObject.nodeBuilderState!);
+  }
+  return renderObject._bindings;
+}
+```
+
+**Assessment:** ✅ Identical pattern - lazy initialization via `getBindings()`.
+
+---
+
+### 3. NodeBuilderState.createBindings()
+
+**Three.js (`NodeBuilderState.js`):**
+```javascript
+createBindings() {
+  const bindings = [];
+  for (const instanceGroup of this.bindings) {
+    const shared = instanceGroup.bindings[0].groupNode.shared;
+    if (shared !== true) {
+      const bindingsGroup = new BindGroup(instanceGroup.name, []);
+      for (const instanceBinding of instanceGroup.bindings) {
+        bindingsGroup.bindings.push(instanceBinding.clone());
+      }
+      bindings.push(bindingsGroup);
+    } else {
+      bindings.push(instanceGroup);  // Reuse shared group
+    }
+  }
+  return bindings;
+}
+```
+
+**gpucat (`node-builder-state.ts`):**
+```typescript
+function createBindings(state: NodeBuilderState): BindGroup[] {
+  const result: BindGroup[] = [];
+  for (const templateGroup of state.bindings) {
+    if (templateGroup.shared) {
+      result.push(templateGroup);  // Reuse shared
+    } else {
+      result.push(cloneBindGroup(templateGroup));  // Clone non-shared
+    }
+  }
+  return result;
+}
+```
+
+**Assessment:** ✅ Identical - shared groups reused, non-shared cloned.
+
+---
+
+### 4. Texture/Sampler Change Detection
+
+**Three.js (`Bindings.js`):**
+```javascript
+if (binding.isSampledTexture) {
+  const texture = binding.texture;
+  const texturesTextureData = this.textures.get(texture);
+  
+  // generation: update bindings if texture object changed
+  if (binding.generation !== texturesTextureData.generation) {
+    binding.generation = texturesTextureData.generation;
+    needsBindingsUpdate = true;
+  }
+}
+```
+
+**gpucat (`bindings.ts`):**
+```typescript
+// For user textures
+if (binding.generation !== texData.generation) {
+  binding.generation = texData.generation;
+  data.needsUpdate = true;
+}
+
+// For render target textures
+const gpuTexture = value.gpuTexture;
+if (gpuTexture !== binding.lastGpuTexture) {
+  binding.lastGpuTexture = gpuTexture;
+  data.needsUpdate = true;
+}
+```
+
+**Assessment:** ✅ Aligned - gpucat uses `lastGpuTexture` for render targets (which Three.js handles via generation tracking in Textures module).
+
+---
+
+## Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        WebGPURenderer                           │
+│  - Frame loop                                                   │
+│  - Coordinates all subsystems                                   │
+└───────────────────────────────┬─────────────────────────────────┘
+                                │
+        ┌───────────────────────┼───────────────────────┐
+        │                       │                       │
+        ▼                       ▼                       ▼
+┌───────────────┐      ┌───────────────┐      ┌───────────────┐
+│  RenderLists  │      │ RenderObjects │      │   Pipelines   │
+│  (ChainMap)   │      │  (ChainMap)   │      │    (Cache)    │
+└───────┬───────┘      └───────┬───────┘      └───────────────┘
+        │                      │
+        ▼                      ▼
+┌───────────────┐      ┌───────────────┐
+│  RenderList   │      │ RenderObject  │
+│  - opaque[]   │      │ - mesh        │
+│  - transp[]   │      │ - material    │
+└───────────────┘      │ - _bindings ──┼──────────┐
+                       └───────┬───────┘          │
+                               │                  │
+                               ▼                  ▼
+                       ┌───────────────┐  ┌───────────────┐
+                       │NodeBuilderState│  │   Bindings    │
+                       │ - bindings[]   │  │ (WeakMap by   │
+                       │ - createBindings()│ BindGroup)    │
+                       └───────────────┘  └───────────────┘
+                                                  │
+                       ┌──────────────────────────┼──────────┐
+                       │                          │          │
+                       ▼                          ▼          ▼
+               ┌───────────────┐          ┌───────────┐ ┌─────────┐
+               │   BindGroup   │          │ Buffers   │ │Textures │
+               │ (shared=true) │          │ (WeakMap) │ │(WeakMap)│
+               │   REUSED      │          └───────────┘ └─────────┘
+               └───────────────┘
+               ┌───────────────┐
+               │   BindGroup   │
+               │ (shared=false)│
+               │   CLONED      │
+               └───────────────┘
+```
+
+---
+
+## Remaining Work (Phase 4)
+
+### Completed
+- ✅ **Consolidated update deduplication** - Removed duplicate `_updateBeforeMap`, `_updateAfterMap`, `_updateMap` from renderer.ts. Now using `updateBefore()`, `updateForRender()`, `updateAfter()` from node-manager.ts with synced frameId/renderId.
+- ✅ **7 of 8 old ad-hoc patterns removed** - `_renderGroupKeys`, `_objectGroupKeys`, `collectDraws`, etc.
+
+### Acceptable Exceptions
+- **`_outputMaterialCache`** - Keeps Material instances for fullscreen output passes to prevent stack overflow from rebuilding node subgraphs every frame. This is not a duplicate of any Three.js pattern; it's needed for gpucat's `render(outputNode)` API.
+
+### Medium Priority
+1. **Lighting system** - Add `LightsNode` to cache key
+2. **Shadows** - Implement shadow pass rendering
+
+### Low Priority
+3. **ClippingContext** - Clipping plane support
+4. **Info/Stats** - Memory and render statistics
+5. **RenderBundles** - Bundle caching for static scenes
+
+---
+
+## Conclusion
+
+gpucat's renderer is now **architecturally aligned** with Three.js WebGPURenderer. The core caching and state management patterns match:
+
+- ✅ ChainMap for composite key caching (RenderObjects, RenderLists)
+- ✅ DataMap pattern (WeakMap with auto-create)
+- ✅ BindGroup-keyed bindings (shared groups reused, non-shared cloned)
+- ✅ RenderObject as central per-draw-call state
+- ✅ Lazy initialization via `getBindings()`/`getNodeBuilderState()`
+- ✅ Version/generation tracking for dirty detection
+- ✅ Render target texture change detection (fixed resize bug)
+
+The main differences are:
+1. **Functional style** (deliberate choice)
+2. **WebGPU-only** (deliberate - no WebGL fallback)
+3. **No lighting/shadows** (future work)
+4. **No clipping/XR** (future work)

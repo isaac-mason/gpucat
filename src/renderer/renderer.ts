@@ -40,14 +40,15 @@ import * as d from '../nodes/schema';
 import { createRenderContextsState, getRenderContext, type RenderContextsState } from './render-contexts';
 import { createAttributesState, incrementCallId, type AttributesState } from './attributes';
 import { createGeometriesState, type GeometriesState } from './geometries';
-import { createNodeManagerState, type NodeManagerState } from './node-manager';
-import { createBindingsState, type BindingsState } from './bindings';
+import { createNodeManagerState, updateBefore, updateForRender, updateAfter, type NodeManagerState } from './node-manager';
+import { createBindingsState, getBindGroupLayouts as _getBindGroupLayouts, type BindingsState } from './bindings';
+import type { RenderObject } from './render-object';
 import { createRenderObjectsState, getRenderObject, initRenderObject, initRenderObjectAsync, updateRenderObject, type RenderObjectsState } from './render-objects';
 import { createRenderListsState, collectRenderList, type RenderListsState } from './render-lists';
 import type { RenderItem } from './render-list';
 
 import { ComputeNode } from '../nodes/nodes';
-import type { UpdateBeforeNode, UpdateAfterNode, UpdateNode, UniformGroupBlock } from '../nodes/compile';
+import type { UniformGroupBlock } from '../nodes/compile';
 import type { RenderFrame, RenderUpdateContext, ObjectUpdateContext } from './render-frame';
 import { Scene } from '../scene/scene';
 import { Camera } from '../camera/camera';
@@ -224,15 +225,6 @@ export class WebGPURenderer {
      * Three equivalent: NodeFrame.renderId
      */
     renderId = 0;
-
-    /** per-frame/render deduplication map for updateBefore() calls */
-    private _updateBeforeMap: WeakMap<object, { frameId: number; renderId: number }> = new WeakMap();
-
-    /** per-frame/render deduplication map for updateAfter() calls */
-    private _updateAfterMap: WeakMap<object, { frameId: number; renderId: number }> = new WeakMap();
-
-    /** per-frame/render deduplication map for update() calls */
-    private _updateMap: WeakMap<object, { frameId: number; renderId: number }> = new WeakMap();
 
     /** pending command encoder shared between compute() and render() within a single frame */
     private _frameEncoder: GPUCommandEncoder | null = null;
@@ -774,9 +766,11 @@ export class WebGPURenderer {
         this.lastTimestamp = now;
         this.elapsed += delta;
 
-        // Increment frame/render counters
+        // Increment frame/render counters (sync to NodeManager for update deduplication)
         this.frameId++;
         this.renderId++;
+        this._nodes.frameId = this.frameId;
+        this._nodes.renderId = this.renderId;
 
         this.inspector.begin(this.frameId);
 
@@ -858,14 +852,10 @@ export class WebGPURenderer {
         }
 
         // update() — push CPU→GPU uniform data (before draw)
-        for (const node of nodeState.updateNodes) {
-            this._callUpdateNode(node, frame);
-        }
+        updateForRender(this._nodes, renderObject, frame);
 
         // updateBefore() — off-screen passes, pre-frame GPU work
-        for (const node of nodeState.updateBeforeNodes) {
-            this._callUpdateBeforeNode(node, frame);
-        }
+        updateBefore(this._nodes, renderObject, frame);
 
         // ---------------------------------------------------------------------
         // Step 3: Update RenderObject uniforms and bindings
@@ -892,109 +882,10 @@ export class WebGPURenderer {
         // ---------------------------------------------------------------------
         // Step 5: updateAfter() — post-draw cleanup
         // ---------------------------------------------------------------------
-        for (const node of nodeState.updateAfterNodes) {
-            this._callUpdateAfterNode(node, frame);
-        }
+        updateAfter(this._nodes, renderObject, frame);
 
         this.device.queue.submit([encoder.finish()]);
         this.inspector.finish(this.frameId);
-    }
-
-    /**
-     * Dispatch updateBefore() for a node, deduplicating by frameId or renderId.
-     */
-    private _callUpdateBeforeNode(node: UpdateBeforeNode, frame: RenderFrame): void {
-        const type = node.updateBeforeType;
-        if (type === 'none') return;
-
-        const maps = this._getUpdateMaps(this._updateBeforeMap, node);
-
-        if (type === 'frame') {
-            if (maps.frameId !== this.frameId) {
-                const prev = maps.frameId;
-                maps.frameId = this.frameId;
-                if (node.updateBefore(frame) === false) {
-                    maps.frameId = prev;
-                }
-            }
-        } else if (type === 'render') {
-            if (maps.renderId !== this.renderId) {
-                const prev = maps.renderId;
-                maps.renderId = this.renderId;
-                if (node.updateBefore(frame) === false) {
-                    maps.renderId = prev;
-                }
-            }
-        } else if (type === 'object') {
-            node.updateBefore(frame);
-        }
-    }
-
-    /**
-     * Dispatch updateAfter() for a node, deduplicating by frameId or renderId.
-     */
-    private _callUpdateAfterNode(node: UpdateAfterNode, frame: RenderFrame): void {
-        const type = node.updateAfterType;
-        if (type === 'none') return;
-
-        const maps = this._getUpdateMaps(this._updateAfterMap, node);
-
-        if (type === 'frame') {
-            if (maps.frameId !== this.frameId) {
-                if (node.updateAfter(frame) !== false) {
-                    maps.frameId = this.frameId;
-                }
-            }
-        } else if (type === 'render') {
-            if (maps.renderId !== this.renderId) {
-                if (node.updateAfter(frame) !== false) {
-                    maps.renderId = this.renderId;
-                }
-            }
-        } else if (type === 'object') {
-            node.updateAfter(frame);
-        }
-    }
-
-    /**
-     * Dispatch update() for a node, deduplicating by frameId or renderId.
-     */
-    private _callUpdateNode(node: UpdateNode, frame: RenderFrame): void {
-        const type = node.updateType;
-        if (type === 'none') return;
-
-        const maps = this._getUpdateMaps(this._updateMap, node);
-
-        if (type === 'frame') {
-            if (maps.frameId !== this.frameId) {
-                if (node.update(frame) !== false) {
-                    maps.frameId = this.frameId;
-                }
-            }
-        } else if (type === 'render') {
-            if (maps.renderId !== this.renderId) {
-                if (node.update(frame) !== false) {
-                    maps.renderId = this.renderId;
-                }
-            }
-        } else if (type === 'object') {
-            node.update(frame);
-        }
-    }
-
-    /**
-     * Get or create the {frameId, renderId} tracking record for a node in the given map.
-     */
-    private _getUpdateMaps(
-        map: WeakMap<object, { frameId: number; renderId: number }>,
-        node: object,
-    ): { frameId: number; renderId: number } {
-        let maps = map.get(node);
-        if (maps === undefined) {
-            maps = { frameId: 0, renderId: 0 };
-            map.set(node, maps);
-        }
-        return maps;
     }
 
     private _dispatchComputeNode(
@@ -1092,8 +983,6 @@ export class WebGPURenderer {
             throw new Error('[WebGPURenderer] renderScene() called before init().');
         }
 
-        this.inspector.beginRender(passId, this.frameId);
-
         const renderTarget = this._renderTarget;
         const mrt = this._mrt;
 
@@ -1110,6 +999,11 @@ export class WebGPURenderer {
         // Determine render target parameters
         const samples = renderTarget?.samples ?? this._samples;
         const colorFormat = renderTarget?.colorFormat ?? 'rgba8unorm';
+
+        // Notify inspector of this scene render (before beginRender so scene data is
+        // available when the frame is sealed in finish()).
+        this.inspector.beginRenderScene(passId, scene, samples, colorFormat, this.frameId);
+        this.inspector.beginRender(passId, this.frameId);
         const depthFormat = this.pipelines.depthFormat;
         const width = this.domElement.width || 1;
         const height = this.domElement.height || 1;

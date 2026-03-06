@@ -20,6 +20,7 @@
 
 import { InspectorBase } from './inspector-base';
 import type { Node, WgslType } from '../nodes/nodes';
+import type { Scene } from '../scene/scene';
 import { getBufferCacheStats } from '../renderer/buffers';
 import * as pipelines from '../renderer/pipelines';
 import { getRenderObjectsStats } from '../renderer/render-objects';
@@ -39,6 +40,22 @@ export type PassRecord = {
     gpuMs: number | null;
     /** Monotonic query slot index (pair: begin=slot*2, end=slot*2+1) */
     querySlot: number;
+};
+
+/**
+ * Snapshot of a single renderScene() call within a frame.
+ * Carries the scene reference and the pipeline-key parameters needed to
+ * look up compiled WGSL from the pipeline cache.
+ */
+export type SceneRecord = {
+    /** Pass ID that owns this scene render (matches PassRecord.id). */
+    passId: string;
+    /** The scene being rendered. */
+    scene: Scene;
+    /** MSAA sample count used for pipeline key lookup. */
+    samples: number;
+    /** Color attachment format used for pipeline key lookup. */
+    colorFormat: GPUTextureFormat;
 };
 
 export type FrameRecord = {
@@ -61,6 +78,8 @@ export type FrameRecord = {
     };
     /** Inspectable nodes encountered this frame */
     inspectableNodes: Node<WgslType>[];
+    /** Scene render calls encountered this frame, one entry per renderScene() call. */
+    scenes: SceneRecord[];
 };
 
 const FRAME_HISTORY = 512;
@@ -106,6 +125,7 @@ export class RendererInspector extends InspectorBase {
     private _passStarts: Map<string, number> = new Map();
     private _currentQuerySlot = 0;
     private _pendingInspectables: Node<WgslType>[] = [];
+    private _pendingScenes: SceneRecord[] = [];
 
     override init(): void {
         if (!this.renderer) return;
@@ -138,6 +158,7 @@ export class RendererInspector extends InspectorBase {
         this._passStarts.clear();
         this._currentQuerySlot = 0;
         this._pendingInspectables = [];
+        this._pendingScenes = [];
         void frameId;
     }
 
@@ -164,6 +185,7 @@ export class RendererInspector extends InspectorBase {
             pipelineStats: pipelines.getStats(this.renderer.pipelines),
             renderObjectStats: getRenderObjectsStats(this.renderer.renderObjects),
             inspectableNodes: [...this._pendingInspectables],
+            scenes: [...this._pendingScenes],
         };
 
         this.frameHead = (this.frameHead + 1) % FRAME_HISTORY;
@@ -213,6 +235,24 @@ export class RendererInspector extends InspectorBase {
 
     override inspect(node: Node<WgslType>): void {
         this._pendingInspectables.push(node);
+    }
+
+    override beginRenderScene(
+        passId: string,
+        scene: Scene,
+        samples: number,
+        colorFormat: GPUTextureFormat,
+        _frameId: number,
+    ): void {
+        // Deduplicate: if the same passId fires more than once this frame (shouldn't
+        // happen, but be safe) just overwrite so we always have the latest.
+        const existing = this._pendingScenes.findIndex(s => s.passId === passId);
+        const record: SceneRecord = { passId, scene, samples, colorFormat };
+        if (existing >= 0) {
+            this._pendingScenes[existing] = record;
+        } else {
+            this._pendingScenes.push(record);
+        }
     }
 
     // -----------------------------------------------------------------------

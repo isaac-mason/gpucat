@@ -1695,9 +1695,10 @@ function djb2(str: string): number {
  * calls with the same arguments return the same node object.
  */
 export function uniform<S extends StructSchema>(def: StructDef<S>, name: string): StructInstance<S>;
+export function uniform<T extends WgslType>(init: ConstructNode<T>, name?: string): UniformNode<T>;
 export function uniform<T extends WgslType>(init: ConstNode<T>, name?: string): UniformNode<T>;
 export function uniform<T extends WgslType, S extends StructSchema>(
-    init: ConstNode<T> | StructDef<S>,
+    init: ConstNode<T> | ConstructNode<T> | StructDef<S>,
     name?: string,
 ): UniformNode<T> | StructInstance<S> {
     if ('schema' in init) {
@@ -1707,12 +1708,14 @@ export function uniform<T extends WgslType, S extends StructSchema>(
         const node = new UniformNode<string>(def.wgslType, uniformId);
         return def.instantiate(node);
     }
-    // Scalar / vector / matrix form: init is a ConstNode
-    const constNode = init as ConstNode<T>;
-    const uniformId = name ?? constNode.type;
-    const node = new UniformNode(constNode.type, uniformId);
-    if (node.value === null && constNode.value !== null) {
-        node.value = constNode.value as number | number[];
+    // Scalar / vector / matrix form: init is a ConstNode or ConstructNode.
+    // ConstNode carries a .value; ConstructNode carries .args — we only seed
+    // the initial CPU-side value for ConstNodes (scalars / literal vectors).
+    const initNode = init as ConstNode<T> | ConstructNode<T>;
+    const uniformId = name ?? initNode.type;
+    const node = new UniformNode(initNode.type, uniformId);
+    if (node.value === null && 'value' in initNode && initNode.value !== null) {
+        node.value = initNode.value as number | number[];
     }
     return node;
 }

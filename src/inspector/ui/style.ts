@@ -1015,4 +1015,133 @@ const CSS = `
 	text-align: center;
 	padding: 16px;
 }
+
+/* ============================================================
+   Scene Hierarchy tab — type badges + selection highlight
+   ============================================================ */
+
+.hierarchy-type-badge {
+	display: inline-block;
+	font-size: 10px;
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	padding: 1px 5px;
+	border-radius: 3px;
+	white-space: nowrap;
+	text-transform: uppercase;
+	background: rgba(255,255,255,0.07);
+	color: var(--text-muted);
+}
+
+.hierarchy-type-badge--mesh {
+	background: rgba(74,158,255,0.15);
+	color: var(--accent-color);
+}
+
+.hierarchy-type-badge--scene {
+	background: rgba(76,175,80,0.15);
+	color: var(--color-green);
+}
+
+.hierarchy-type-badge--object3d {
+	background: rgba(255,152,0,0.12);
+	color: var(--color-orange);
+}
+
+.list-item-row.hierarchy-selected {
+	background: rgba(74,158,255,0.12);
+}
+
+.list-item-row.hierarchy-selected:hover {
+	background: rgba(74,158,255,0.18);
+}
+
+/* ============================================================
+   Shader panel — inline WGSL viewer
+   ============================================================ */
+
+.shader-container {
+	flex-shrink: 0;
+	border-top: 1px solid var(--border-color);
+	display: flex;
+	flex-direction: column;
+	max-height: 50%;
+	min-height: 120px;
+	overflow: hidden;
+}
+
+.shader-panel {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	min-height: 0;
+	background: var(--background-color);
+}
+
+.shader-toolbar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 4px 8px;
+	background: var(--header-bg);
+	border-bottom: 1px solid var(--border-color);
+	flex-shrink: 0;
+	gap: 6px;
+}
+
+.shader-stage-group {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+}
+
+.shader-stage-btn {
+	background: none;
+	border: 1px solid transparent;
+	border-radius: 4px;
+	color: var(--text-secondary);
+	cursor: pointer;
+	font-family: inherit;
+	font-size: 11px;
+	padding: 3px 8px;
+	line-height: 1;
+	transition: color 0.1s;
+}
+
+.shader-stage-btn:hover {
+	background: rgba(255,255,255,0.06);
+	color: var(--text-primary);
+}
+
+.shader-stage-btn.active {
+	border-color: var(--accent-color);
+	color: var(--accent-color);
+}
+
+.shader-copy-btn {
+	margin-left: auto;
+}
+
+pre.shader-code {
+	flex: 1;
+	overflow: auto;
+	margin: 0;
+	padding: 8px 12px;
+	font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+	font-size: 11px;
+	line-height: 1.55;
+	white-space: pre;
+	color: var(--text-primary);
+	background: var(--background-color);
+	min-height: 0;
+	tab-size: 4;
+}
+
+/* WGSL syntax highlight spans */
+.wgsl-keyword  { color: #c792ea; }
+.wgsl-type     { color: #82aaff; }
+.wgsl-builtin  { color: #89ddff; }
+.wgsl-comment  { color: #546e7a; font-style: italic; }
+.wgsl-number   { color: #f78c6c; }
+.wgsl-attribute { color: #c3e88d; }
 `;
