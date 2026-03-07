@@ -173,6 +173,7 @@ export function getBindGroupLayouts(
     // Get BindGroups for this RenderObject
     const bindGroups = getRenderObjectBindings(renderObject);
 
+    // Build layouts array - array index matches @group(N) since groups are sorted
     const layouts: GPUBindGroupLayout[] = [];
     for (const bindGroup of bindGroups) {
         const data = getData(state, bindGroup);

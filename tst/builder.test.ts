@@ -780,6 +780,9 @@ describe('texture sampling', () => {
         const result = compile({ position: pos, color: texNode });
         
         // Should declare texture and sampler bindings
+        // Following Three.js pattern: textures go to objectGroup, but group index is 
+        // determined by sorted position (not order value). When only objectGroup is used,
+        // it becomes @group(0) since it's the only group.
         expectContains(result.code, '@group(0) @binding');
         expectContains(result.code, 'texture_2d<f32>');
         expectContains(result.code, 'sampler');
@@ -819,15 +822,18 @@ describe('texture sampling', () => {
         const result = compile({ position: pos, color: texNode });
         
         // Check that textures array contains the texture entry with correct binding
+        // Following Three.js pattern: textures go to objectGroup, but group index is
+        // determined by sorted position. When only objectGroup is used, it becomes
+        // @group(0) since it's the only group.
         expect(result.textures.length).toBe(1);
         expect(result.textures[0].type).toBe('texture_2d<f32>');
-        expect(result.textures[0].group).toBe(0);
-        expect(result.textures[0].binding).toBe(0); // First binding
+        expect(result.textures[0].group).toBe(0); // Only group used → sorted position 0
+        expect(result.textures[0].binding).toBe(0); // First binding in group
         
         // Check that samplers array contains the sampler entry with correct binding
         expect(result.samplers.length).toBe(1);
-        expect(result.samplers[0].group).toBe(0);
-        expect(result.samplers[0].binding).toBe(1); // Second binding (after texture)
+        expect(result.samplers[0].group).toBe(0); // Only group used → sorted position 0
+        expect(result.samplers[0].binding).toBe(1); // Second binding in group (after texture)
         
         // Verify WGSL has matching bindings
         expectContains(result.code, '@group(0) @binding(0)');

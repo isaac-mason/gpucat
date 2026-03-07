@@ -44,6 +44,7 @@ import {
     ParamNode,
     pushStack,
     popStack,
+    lookupStructDefByName,
 } from './nodes';
 import type { StructSchema } from './schema';
 import { constLiteral } from './wgsl-utils';
@@ -70,6 +71,10 @@ export function compile(slots: CompileSlots): CompileResult {
     fragmentCtx.fnDefs = vertexCtx.fnDefs;
     fragmentCtx.wgslFnDefs = vertexCtx.wgslFnDefs;
     
+    // collect struct definitions needed by storage bindings
+    collectStructDefs(roots, vertexCtx);
+    fragmentCtx.structDefs = vertexCtx.structDefs;
+    
     // pre-collect varyings from fragment roots (so vertex shader knows what to output)
     // fragment uses: color, mask (when present)
     const fragmentRoots: Node<WgslType>[] = [slots.color];
@@ -88,10 +93,8 @@ export function compile(slots: CompileSlots): CompileResult {
     for (const [k, v] of fragmentCtx.textures) vertexCtx.textures.set(k, v);
     for (const [k, v] of fragmentCtx.samplers) vertexCtx.samplers.set(k, v);
     
-    // emit bindings
-    const { wgsl: uniformWgsl, blocks: uniformBlocks } = emitUniformBlocks(vertexCtx);
-    const { wgsl: storageWgsl, entries: storageEntries } = emitStorageBindings(vertexCtx, uniformBlocks.length);
-    const { wgsl: textureWgsl, textures, samplers } = emitTextureBindings(vertexCtx, uniformBlocks.length + storageEntries.length);
+    // emit all bindings using Three.js pattern (each group gets its own @group index)
+    const { wgsl: bindingsWgsl, uniformBlocks, storageEntries, textureEntries: textures, samplerEntries: samplers } = emitAllBindings(vertexCtx);
     
     // emit functions
     const wgslFnsCode = emitWgslFunctions(vertexCtx);
@@ -99,12 +102,8 @@ export function compile(slots: CompileSlots): CompileResult {
     
     // assemble full shader
     const code = [
-        '// Uniforms',
-        uniformWgsl,
-        '// Storage',
-        storageWgsl,
-        '// Textures & Samplers',
-        textureWgsl,
+        '// Bindings (uniforms, storage, textures, samplers)',
+        bindingsWgsl,
         '// WGSL Functions',
         wgslFnsCode,
         '// DSL Functions',
@@ -146,11 +145,25 @@ export function compile(slots: CompileSlots): CompileResult {
         });
     }
     
+    // Build attributes array including buffer attributes
+    const allAttributes: AttributeEntry[] = Array.from(vertexCtx.attributes.values());
+    for (const bufAttr of vertexCtx.bufferAttributes) {
+        const bufName = vertexCtx.bufferAttrNames.get(bufAttr.id)!;
+        const location = vertexCtx.attributes.size + vertexCtx.bufferAttributes.indexOf(bufAttr);
+        allAttributes.push({
+            kind: 'buffer',
+            node: bufAttr,
+            name: bufName,
+            type: bufAttr.type,
+            location,
+        });
+    }
+    
     return {
         code,
         vertexEntryPoint: 'vs_main',
         fragmentEntryPoint: 'fs_main',
-        attributes: Array.from(vertexCtx.attributes.values()),
+        attributes: allAttributes,
         varyings: varyingEntries,
         uniformGroups: uniformBlocks,
         storage: storageEntries,
@@ -182,13 +195,14 @@ export function compileCompute(node: ComputeNode): ComputeCompileResult {
     // collect function definitions
     collectFunctions(roots, ctx.fnDefs, ctx.wgslFnDefs);
     
+    // collect struct definitions needed by storage bindings
+    collectStructDefs(roots, ctx);
+    
     // generate compute shader body
     const computeBody = generateComputeShader(node, ctx);
     
-    // emit bindings
-    const { wgsl: uniformWgsl, blocks: uniformBlocks } = emitUniformBlocks(ctx);
-    const { wgsl: storageWgsl, entries: storageEntries } = emitStorageBindings(ctx, uniformBlocks.length);
-    const { wgsl: textureWgsl } = emitTextureBindings(ctx, uniformBlocks.length + storageEntries.length);
+    // emit all bindings using Three.js pattern (each group gets its own @group index)
+    const { wgsl: bindingsWgsl, uniformBlocks, storageEntries } = emitAllBindings(ctx);
     
     // emit functions
     const wgslFnsCode = emitWgslFunctions(ctx);
@@ -196,12 +210,8 @@ export function compileCompute(node: ComputeNode): ComputeCompileResult {
     
     // assemble full shader
     const code = [
-        '// Uniforms',
-        uniformWgsl,
-        '// Storage',
-        storageWgsl,
-        '// Textures',
-        textureWgsl,
+        '// Bindings (uniforms, storage, textures, samplers)',
+        bindingsWgsl,
         '// WGSL Functions',
         wgslFnsCode,
         '// DSL Functions',
@@ -211,7 +221,7 @@ export function compileCompute(node: ComputeNode): ComputeCompileResult {
     ].filter(Boolean).join('\n');
     
     // convert storage entries to compute format
-    const computeStorage: ComputeStorageEntry[] = storageEntries.map(e => ({
+    const computeStorage: ComputeStorageEntry[] = storageEntries.map((e) => ({
         node: e.node,
         name: e.name,
         type: e.type,
@@ -297,14 +307,14 @@ export type StorageEntry = {
     name: string;
     type: string;
     access: 'read' | 'read_write';
-    group: 0 | 1;
+    group: number;
     binding: number;
 };
 
 export type TextureEntry = {
     textureId: string;
     type: string;
-    group: 0 | 1;
+    group: number;
     binding: number;
     node: TextureNode;
 };
@@ -312,7 +322,7 @@ export type TextureEntry = {
 export type SamplerEntry = {
     samplerId: string;
     type: 'sampler' | 'sampler_comparison';
-    group: 0 | 1;
+    group: number;
     binding: number;
     textureNode: TextureNode;
 };
@@ -494,6 +504,16 @@ function getChildren(node: Node<WgslType>): Node<WgslType>[] {
         } else {
             children.push(...Object.values(params));
         }
+    } else if (node instanceof TextureNode) {
+        // TextureNode may have a uvNode that contains VaryingNode
+        if (node.uvNode) {
+            children.push(node.uvNode);
+        }
+    } else if (node instanceof MRTNode) {
+        // MRTNode stores outputs in outputNodes dict (members only populated post-resolve)
+        children.push(...Object.values(node.outputNodes));
+    } else if (node instanceof OutputStructNode) {
+        children.push(...node.members);
     }
 
     // Note: IfNode, LoopNode, StackNode bodies are handled specially during traversal
@@ -661,6 +681,47 @@ function collectVaryings(roots: Node<WgslType>[], ctx: BuildContext): void {
     }
 }
 
+/** Pre-collect StructDefs referenced by StorageNodes so we can emit them before their bindings */
+function collectStructDefs(roots: Node<WgslType>[], ctx: BuildContext): void {
+    const visited = new Set<string>();
+
+    function registerDef(def: StructDef<StructSchema>): void {
+        if (ctx.structDefs.has(def.wgslType)) return;
+        // register nested defs first (topological order)
+        for (const nested of def.nestedDefs.values()) {
+            registerDef(nested);
+        }
+        ctx.structDefs.set(def.wgslType, def);
+    }
+
+    function visit(node: Node<WgslType>) {
+        if (visited.has(node.id)) return;
+        visited.add(node.id);
+
+        if (node instanceof StorageNode) {
+            const def = lookupStructDefByName(node.storageType);
+            if (def) registerDef(def);
+        }
+
+        for (const child of getChildren(node)) {
+            visit(child);
+        }
+
+        if (node instanceof IfNode) {
+            for (const n of node.thenBody.body) visit(n);
+            if (node.elseBody) {
+                for (const n of node.elseBody.body) visit(n);
+            }
+        } else if (node instanceof StackNode) {
+            for (const n of node.body) visit(n);
+        }
+    }
+
+    for (const root of roots) {
+        visit(root);
+    }
+}
+
 function wgslAlign(type: string): number {
     if (type === 'f32' || type === 'i32' || type === 'u32') return 4;
     if (type === 'f16') return 2;
@@ -802,7 +863,13 @@ function isSimpleExpr(node: Node<WgslType>): boolean {
         node instanceof VarNode ||
         node instanceof ParamNode ||
         node instanceof BuiltinNode ||
-        node instanceof FieldNode
+        node instanceof FieldNode ||
+        // binding references are global names — never extract into a let
+        node instanceof StorageNode ||
+        node instanceof UniformNode ||
+        node instanceof TextureNode ||
+        node instanceof SamplerNode ||
+        node instanceof BufferAttributeNode
     );
 }
 
@@ -1201,129 +1268,209 @@ function generateLoopStmt(ctx: BuildContext, node: LoopNode): void {
 
 /* wgsl code assembly */
 
-function emitUniformBlocks(ctx: BuildContext): { wgsl: string; blocks: UniformGroupBlock[] } {
-    const lines: string[] = [];
-    const blocks: UniformGroupBlock[] = [];
-    
-    // group uniforms by their group
-    const groups = new Map<string, { group: UniformGroupNode; uniforms: UniformNode<WgslType>[] }>();
-    
-    for (const [_name, { node, group }] of ctx.uniforms) {
-        const groupName = group.name;
-        if (!groups.has(groupName)) {
-            groups.set(groupName, { group, uniforms: [] });
-        }
-        groups.get(groupName)!.uniforms.push(node);
-    }
-    
-    let bindingIndex = 0;
-    for (const [groupName, { group, uniforms }] of groups) {
-        // build struct
-        lines.push(`struct Uniforms_${groupName} {`);
-        
-        const members: UniformMember[] = [];
-        let offset = 0;
-        
-        for (const u of uniforms) {
-            const align = wgslAlign(u.type);
-            const size = wgslSize(u.type);
-            
-            // align offset
-            offset = Math.ceil(offset / align) * align;
-            
-            lines.push(`    ${u.name}: ${u.type},`);
-            members.push({
-                uniformId: u.name,
-                type: u.type,
-                offset,
-                size,
-                node: u,
+/**
+ * Binding group data structure for collecting all bindings per @group(N).
+ * each named group gets its own @group index.
+ */
+type BindingGroupData = {
+    groupNode: UniformGroupNode;
+    groupIndex: number;
+    uniforms: UniformNode<WgslType>[];
+    storages: { name: string; node: StorageNode<WgslType> }[];
+    textures: { name: string; node: TextureNode }[];
+    samplers: { name: string; node: TextureNode }[];
+};
+
+/**
+ * Emit all bindings (uniforms, storage, textures, samplers) following Three.js pattern.
+ * 
+ * Three.js pattern:
+ * - Each named group (render, object, etc.) gets its own @group(N) index
+ * - Groups are sorted by UniformGroupNode.order
+ * - The @group(N) index is the SORTED ARRAY POSITION, not the order value directly
+ * - Within each group, bindings get sequential @binding(M) indices starting from 0
+ */
+function emitAllBindings(ctx: BuildContext): {
+    wgsl: string;
+    uniformBlocks: UniformGroupBlock[];
+    storageEntries: StorageEntry[];
+    textureEntries: TextureEntry[];
+    samplerEntries: SamplerEntry[];
+} {
+    // step 1: collect all resources by their group
+    const groupsByName = new Map<string, BindingGroupData>();
+
+    // helper to get or create a group
+    const getGroup = (groupNode: UniformGroupNode): BindingGroupData => {
+        const name = groupNode.name;
+        if (!groupsByName.has(name)) {
+            groupsByName.set(name, {
+                groupNode,
+                groupIndex: groupNode.order, // temporary, will be reassigned after sorting
+                uniforms: [],
+                storages: [],
+                textures: [],
+                samplers: [],
             });
-            
-            offset += size;
         }
-        
-        lines.push(`}`);
-        lines.push(`@group(0) @binding(${bindingIndex}) var<uniform> uniforms_${groupName}: Uniforms_${groupName};`);
-        lines.push('');
-        
-        blocks.push({
-            groupName,
-            groupIndex: 0,
-            binding: bindingIndex,
-            shared: group.shared,
-            members,
-            totalBytes: offset,
-            groupNode: group,
-        });
-        
-        bindingIndex++;
-    }
-    
-    return { wgsl: lines.join('\n'), blocks };
-}
+        return groupsByName.get(name)!;
+    };
 
-function emitStorageBindings(ctx: BuildContext, startBinding: number): { wgsl: string; entries: StorageEntry[] } {
-    const lines: string[] = [];
-    const entries: StorageEntry[] = [];
-    
-    let binding = startBinding;
+    // collect uniforms
+    for (const [_name, { node, group }] of ctx.uniforms) {
+        getGroup(group).uniforms.push(node);
+    }
+
+    // collect storage buffers
     for (const [name, node] of ctx.storages) {
-        const access = ctx.stage === 'compute' ? node.access : 'read';
-        const accessStr = access === 'read_write' ? 'read_write' : 'read';
-        
-        lines.push(`@group(0) @binding(${binding}) var<storage, ${accessStr}> ${name}: ${node.storageType};`);
-        
-        entries.push({
-            node,
-            name,
-            type: node.storageType,
-            access,
-            group: 0,
-            binding,
-        });
-        
-        binding++;
+        getGroup(node.groupNode).storages.push({ name, node });
     }
-    
-    return { wgsl: lines.join('\n'), entries };
-}
 
-function emitTextureBindings(ctx: BuildContext, startBinding: number): { wgsl: string; textures: TextureEntry[]; samplers: SamplerEntry[] } {
-    const lines: string[] = [];
-    const textures: TextureEntry[] = [];
-    const samplers: SamplerEntry[] = [];
-    
-    let binding = startBinding;
+    // collect textures and samplers
     for (const [name, node] of ctx.textures) {
-        lines.push(`@group(0) @binding(${binding}) var ${name}: ${node.textureType};`);
-        textures.push({
-            textureId: name,
-            type: node.textureType,
-            group: 0,
-            binding,
-            node,
-        });
-        binding++;
-        
-        // Add sampler if needed
+        getGroup(node.groupNode).textures.push({ name, node });
         if (ctx.samplers.has(name)) {
-            // Depth textures use sampler_comparison, others use sampler
+            getGroup(node.groupNode).samplers.push({ name, node });
+        }
+    }
+
+    // step 2: sort groups by their order, then assign sequential group indices
+    // This follows Three.js pattern: @group(N) is the sorted array position
+    const sortedGroups = [...groupsByName.values()].sort((a, b) => a.groupNode.order - b.groupNode.order);
+    
+    // Reassign groupIndex to be the sorted array position
+    for (let i = 0; i < sortedGroups.length; i++) {
+        sortedGroups[i].groupIndex = i;
+    }
+
+    // step 3: emit WGSL and build result arrays
+    const lines: string[] = [];
+    const uniformBlocks: UniformGroupBlock[] = [];
+    const storageEntries: StorageEntry[] = [];
+    const textureEntries: TextureEntry[] = [];
+    const samplerEntries: SamplerEntry[] = [];
+
+    // emit struct definitions required by storage bindings (topological order)
+    for (const [_typeName, def] of ctx.structDefs) {
+        lines.push(`struct ${def.wgslType} {`);
+        for (const member of def.members) {
+            lines.push(`    ${member.name}: ${member.type},`);
+        }
+        lines.push(`}`);
+        lines.push('');
+    }
+
+    for (const group of sortedGroups) {
+        const groupIndex = group.groupIndex;
+        const groupName = group.groupNode.name;
+        let bindingIndex = 0;
+
+        // emit uniform struct and binding (if any uniforms)
+        if (group.uniforms.length > 0) {
+            lines.push(`struct Uniforms_${groupName} {`);
+
+            const members: UniformMember[] = [];
+            let offset = 0;
+
+            for (const u of group.uniforms) {
+                const align = wgslAlign(u.type);
+                const size = wgslSize(u.type);
+
+                // align offset
+                offset = Math.ceil(offset / align) * align;
+
+                lines.push(`    ${u.name}: ${u.type},`);
+                members.push({
+                    uniformId: u.name,
+                    type: u.type,
+                    offset,
+                    size,
+                    node: u,
+                });
+
+                offset += size;
+            }
+
+            lines.push(`}`);
+            lines.push(`@group(${groupIndex}) @binding(${bindingIndex}) var<uniform> uniforms_${groupName}: Uniforms_${groupName};`);
+            lines.push('');
+
+            // Compute struct alignment (max alignment of all members)
+            let structAlign = 4;
+            for (const u of group.uniforms) {
+                structAlign = Math.max(structAlign, wgslAlign(u.type));
+            }
+            // Round up totalBytes to struct alignment
+            const totalBytes = Math.ceil(offset / structAlign) * structAlign;
+
+            uniformBlocks.push({
+                groupName,
+                groupIndex,
+                binding: bindingIndex,
+                shared: group.groupNode.shared,
+                members,
+                totalBytes,
+                groupNode: group.groupNode,
+            });
+
+            bindingIndex++;
+        }
+
+        // emit storage bindings
+        for (const { name, node } of group.storages) {
+            const access = ctx.stage === 'compute' ? node.access : 'read';
+            const accessStr = access === 'read_write' ? 'read_write' : 'read';
+
+            lines.push(`@group(${groupIndex}) @binding(${bindingIndex}) var<storage, ${accessStr}> ${name}: ${node.storageType};`);
+
+            storageEntries.push({
+                node,
+                name,
+                type: node.storageType,
+                access,
+                group: groupIndex,
+                binding: bindingIndex,
+            });
+
+            bindingIndex++;
+        }
+
+        // emit texture and sampler bindings
+        for (const { name, node } of group.textures) {
+            lines.push(`@group(${groupIndex}) @binding(${bindingIndex}) var ${name}: ${node.textureType};`);
+            textureEntries.push({
+                textureId: name,
+                type: node.textureType,
+                group: groupIndex,
+                binding: bindingIndex,
+                node,
+            });
+            bindingIndex++;
+        }
+
+        for (const { name, node } of group.samplers) {
+            // depth textures use sampler_comparison, others use sampler
             const isDepth = node.textureType.includes('depth');
             const samplerType = isDepth ? 'sampler_comparison' : 'sampler';
-            lines.push(`@group(0) @binding(${binding}) var ${name}_sampler: ${samplerType};`);
-            samplers.push({
+            lines.push(`@group(${groupIndex}) @binding(${bindingIndex}) var ${name}_sampler: ${samplerType};`);
+            samplerEntries.push({
                 samplerId: `${name}_sampler`,
                 type: samplerType,
-                group: 0,
-                binding,
+                group: groupIndex,
+                binding: bindingIndex,
                 textureNode: node,
             });
-            binding++;
+            bindingIndex++;
         }
     }
-    
-    return { wgsl: lines.join('\n'), textures, samplers };
+
+    return {
+        wgsl: lines.join('\n'),
+        uniformBlocks,
+        storageEntries,
+        textureEntries,
+        samplerEntries,
+    };
 }
 
 function emitWgslFunctions(ctx: BuildContext): string {
@@ -1400,16 +1547,22 @@ function generateVertexShader(slots: CompileSlots, ctx: BuildContext): string {
     // generate position expression
     const posExpr = generateExpr(ctx, slots.position);
     
-    // check if we have any vertex inputs (attributes or builtins)
+    // check if we have any vertex inputs (attributes, buffer attributes, or builtins)
     const hasVertexIndex = ctx.builtins.has('vertex_index');
     const hasInstanceIndex = ctx.builtins.has('instance_index');
-    const hasInputs = ctx.attributes.size > 0 || hasVertexIndex || hasInstanceIndex;
+    const hasInputs = ctx.attributes.size > 0 || ctx.bufferAttributes.length > 0 || hasVertexIndex || hasInstanceIndex;
     
     // emit input struct only if we have inputs (WGSL structs must have at least one member)
     if (hasInputs) {
         lines.push('struct VertexInput {');
         for (const [name, attr] of ctx.attributes) {
             lines.push(`    @location(${attr.location}) ${name}: ${attr.type},`);
+        }
+        // emit buffer attributes
+        for (const bufAttr of ctx.bufferAttributes) {
+            const bufName = ctx.bufferAttrNames.get(bufAttr.id)!;
+            const location = ctx.attributes.size + ctx.bufferAttributes.indexOf(bufAttr);
+            lines.push(`    @location(${location}) ${bufName}: ${bufAttr.type},`);
         }
         if (hasVertexIndex) {
             lines.push(`    @builtin(vertex_index) vertex_index: u32,`);
@@ -1508,14 +1661,36 @@ function generateFragmentShader(slots: CompileSlots, ctx: BuildContext, varyings
     const isMRT = slots.color instanceof MRTNode;
     const mrtNode = isMRT ? slots.color as MRTNode : null;
     
+    // Pre-generate all MRT output expressions NOW so that CSE let-declarations
+    // are pushed into ctx.code before we emit the function body.
+    // (For non-MRT, colorExpr above already did this.)
+    let mrtExprs: { name: string; expr: string }[] | null = null;
     if (isMRT && mrtNode) {
-        // Generate MRT output struct with all outputs
+        mrtExprs = [];
+        if (mrtNode.members.length > 0) {
+            for (let i = 0; i < mrtNode.members.length; i++) {
+                const member = mrtNode.members[i];
+                if (!member) continue;
+                const name = mrtNode._resolvedNames[i] || `output_${i}`;
+                const expr = generateExpr(ctx, member);
+                mrtExprs.push({ name, expr });
+            }
+        } else {
+            for (const name in mrtNode.outputNodes) {
+                const expr = generateExpr(ctx, mrtNode.outputNodes[name]);
+                mrtExprs.push({ name, expr });
+            }
+        }
+    }
+
+    if (isMRT && mrtNode) {
+        // generate MRT output struct with all outputs
         lines.push('struct FragmentOutput {');
         
-        // Use members array (populated by resolveOutputs) for @location order
-        // Fall back to outputNodes keys if members not resolved yet
+        // use members array (populated by resolveOutputs) for @location order
+        // fall back to outputNodes keys if members not resolved yet
         if (mrtNode.members.length > 0) {
-            // Members are resolved - use them in order
+            // members are resolved - use them in order
             for (let i = 0; i < mrtNode.members.length; i++) {
                 const member = mrtNode.members[i];
                 if (!member) continue; // sparse array possible
@@ -1524,7 +1699,7 @@ function generateFragmentShader(slots: CompileSlots, ctx: BuildContext, varyings
                 lines.push(`    @location(${i}) ${name}: ${wgslType},`);
             }
         } else {
-            // Fallback: use outputNodes directly (unresolved order)
+            // fallback: use outputNodes directly (unresolved order)
             let loc = 0;
             for (const name in mrtNode.outputNodes) {
                 lines.push(`    @location(${loc}) ${name}: vec4f,`);
@@ -1556,24 +1731,10 @@ function generateFragmentShader(slots: CompileSlots, ctx: BuildContext, varyings
     
     lines.push(...ctx.code);
     
-    if (isMRT && mrtNode) {
-        // Generate assignments for each MRT output
-        if (mrtNode.members.length > 0) {
-            // Members are resolved - use them in order
-            for (let i = 0; i < mrtNode.members.length; i++) {
-                const member = mrtNode.members[i];
-                if (!member) continue;
-                const name = mrtNode._resolvedNames[i] || `output_${i}`;
-                const expr = generateExpr(ctx, member);
-                lines.push(`    output.${name} = ${expr};`);
-            }
-        } else {
-            // Fallback: use outputNodes directly (unresolved order)
-            for (const name in mrtNode.outputNodes) {
-                const node = mrtNode.outputNodes[name];
-                const expr = generateExpr(ctx, node);
-                lines.push(`    output.${name} = ${expr};`);
-            }
+    if (isMRT && mrtExprs) {
+        // Use pre-generated expressions (generated before ctx.code was emitted)
+        for (const { name, expr } of mrtExprs) {
+            lines.push(`    output.${name} = ${expr};`);
         }
         lines.push('    return output;');
     } else {
@@ -1610,7 +1771,7 @@ function generateComputeShader(node: ComputeNode, ctx: BuildContext): string {
     
     // emit main function
     lines.push(`@compute @workgroup_size(${wgSize[0]}, ${wgSize[1]}, ${wgSize[2]})`);
-    lines.push('fn main(');
+    lines.push('fn cs_main(');
     
     const builtinParams: string[] = [];
     if (ctx.builtins.has('global_invocation_id')) {
