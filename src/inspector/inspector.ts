@@ -20,8 +20,9 @@ import { Memory } from './tabs/memory';
 import { Timeline } from './tabs/timeline';
 import { Console } from './tabs/console';
 import { Settings } from './tabs/settings';
-import { Viewer, makePreviewMaterial, type CanvasData } from './tabs/viewer';
+import { Viewer, makePreviewMaterial, splitCamelCase, splitPath, type CanvasData } from './tabs/viewer';
 import { SceneHierarchy } from './tabs/scene-hierarchy';
+import { DrawCalls } from './tabs/draw-calls';
 import type { Node, WgslType } from '../nodes/nodes';
 import type { WebGPURenderer } from '../renderer/renderer';
 import { CanvasTarget } from '../renderer/canvas-target';
@@ -68,6 +69,7 @@ export class Inspector extends RendererInspector {
     readonly timeline: Timeline;
     readonly settings: Settings;
     readonly sceneHierarchy: SceneHierarchy;
+    readonly drawCalls: DrawCalls;
 
     private _displayCycle: { text: DisplayCycleEntry; graph: DisplayCycleEntry };
     private _lastUpdateTime = 0;
@@ -100,6 +102,10 @@ export class Inspector extends RendererInspector {
         sceneHierarchy.hide();
         profiler.addTab(sceneHierarchy);
 
+        const drawCalls = new DrawCalls();
+        drawCalls.hide();
+        profiler.addTab(drawCalls);
+
         const performance = new Performance();
         profiler.addTab(performance);
 
@@ -130,6 +136,7 @@ export class Inspector extends RendererInspector {
         this.timeline = timeline;
         this.settings = settings;
         this.sceneHierarchy = sceneHierarchy;
+        this.drawCalls = drawCalls;
 
         this._displayCycle = {
             text:  { needsUpdate: false, duration: 250, time: 0 },
@@ -287,7 +294,8 @@ export class Inspector extends RendererInspector {
         // Log WGSL compilation errors asynchronously (same pattern as render-objects.ts)
         shaderModule.getCompilationInfo().then((info) => {
             for (const msg of info.messages) {
-                console.error(`[gpucat probe shader ${msg.type}] line ${msg.lineNum}: ${msg.message}`);
+                const log = msg.type === 'error' ? console.error : console.warn;
+                log(`[gpucat probe shader ${msg.type}] line ${msg.lineNum}: ${msg.message}`);
             }
         });
 
@@ -363,6 +371,16 @@ export class Inspector extends RendererInspector {
     }
 
     // -----------------------------------------------------------------------
+    // navigateToRO — jump to a RenderObject in the Draw Calls tab
+    // -----------------------------------------------------------------------
+
+    navigateToRO(ro: RenderObject): void {
+        this.profiler.setActiveTab(this.drawCalls.id);
+        if (!this.drawCalls.isVisible) this.drawCalls.show();
+        this.drawCalls.selectRO(ro, this);
+    }
+
+    // -----------------------------------------------------------------------
     // Private: per-frame update dispatch
     // -----------------------------------------------------------------------
 
@@ -397,6 +415,12 @@ export class Inspector extends RendererInspector {
             this.sceneHierarchy.update(this, record.scenes);
         }
 
+        const renderer = this.getRenderer();
+        if (renderer && renderer.renderObjects.renderObjects.size > 0) {
+            this.drawCalls.show();
+            this.drawCalls.update(this, renderer);
+        }
+
         // Render probe canvas (if active) using a fresh command encoder so we
         // don't re-enter the main render pipeline.
         this._renderProbe();
@@ -419,6 +443,8 @@ export class Inspector extends RendererInspector {
      * and builds a fullscreen Material. Cached per node — never recreated.
      *
      * Three.js aligned: mirrors Inspector.getCanvasDataByNode().
+     * - setPixelRatio(window.devicePixelRatio) on the canvas target
+     * - splitCamelCase + splitPath to derive { path, name } from the node label
      */
     getCanvasDataByNode(node: Node<WgslType>): CanvasData {
         let canvasData = this._canvasNodes.get(node);
@@ -429,10 +455,16 @@ export class Inspector extends RendererInspector {
             canvas.style.borderRadius = '4px';
 
             const canvasTarget = new CanvasTarget(canvas);
+            // Three.js aligned: set pixel ratio for crisp preview thumbnails
+            canvasTarget.setPixelRatio(window.devicePixelRatio);
             canvasTarget.setSize(140, 140);
 
             const id = node.id;
-            const name = node._inspectorName ?? id;
+
+            // Three.js aligned: splitPath(splitCamelCase(node.getName()))
+            // to derive folder path and leaf name from the inspector label.
+            const rawName = node._inspectorName ?? id;
+            const { path, name } = splitPath(splitCamelCase(rawName));
 
             const format = navigator.gpu.getPreferredCanvasFormat();
             const { wrappedNode, material } = makePreviewMaterial(node, format);
@@ -440,6 +472,7 @@ export class Inspector extends RendererInspector {
             canvasData = {
                 id,
                 name,
+                path,
                 node,
                 wrappedNode,
                 material,
@@ -537,13 +570,35 @@ export class Inspector extends RendererInspector {
             slot++;
         }
 
-        // Issue draw call matching the main render loop
+        // Issue draw call — mirrors renderer.ts issueDraws exactly, including
+        // indirect draw support.  The indirect GPU buffer was already written by
+        // the compute pass this frame; getIndirect() does a non-uploading lookup.
         if (geometry.index) {
             const idxBuf = buffers.uploadIndex(bufferCache, geometry.index);
             pass.setIndexBuffer(idxBuf, geometry.index.format);
-            pass.drawIndexed(geometry.index.array.length, ro.mesh.count);
+            if (geometry.indirect) {
+                const indBuf = buffers.getIndirect(bufferCache, geometry.indirect);
+                if (indBuf) {
+                    const byteStride = geometry.indirect.indirectStride * 4;
+                    for (let d = 0; d < geometry.indirect.drawCount; d++) {
+                        pass.drawIndexedIndirect(indBuf, d * byteStride);
+                    }
+                }
+            } else {
+                pass.drawIndexed(geometry.index.array.length, ro.mesh.count);
+            }
         } else {
-            pass.draw(geometry.vertexCount, ro.mesh.count);
+            if (geometry.indirect) {
+                const indBuf = buffers.getIndirect(bufferCache, geometry.indirect);
+                if (indBuf) {
+                    const byteStride = geometry.indirect.indirectStride * 4;
+                    for (let d = 0; d < geometry.indirect.drawCount; d++) {
+                        pass.drawIndirect(indBuf, d * byteStride);
+                    }
+                }
+            } else {
+                pass.draw(geometry.vertexCount, ro.mesh.count);
+            }
         }
 
         pass.end();

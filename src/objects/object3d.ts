@@ -14,7 +14,7 @@ export class Object3D {
     scale: Vec3 = [1, 1, 1];
 
     parent: Object3D | null = null;
-    readonly children: Object3D[] = [];
+    children: Object3D[] = [];
 
     matrix = mat4.create();
     matrixWorld = mat4.create();
@@ -37,6 +37,14 @@ export class Object3D {
         }
         return this;
     }
+
+	removeFromParent() {
+		const parent = this.parent;
+		if (parent !== null) {
+			parent.remove(this);
+		}
+		return this;
+	}
 
     lookAt(target: Vec3, up: Vec3 = [0, 1, 0]): void {
         mat4.targetTo(_lookAt_tmp, this.position, target, up);

@@ -159,6 +159,13 @@ export function getChildren(node: Node<WgslType>): Node<WgslType>[] {
             return node.getChildren();
         }
 
+        case 'inspector': {
+            // InspectorNode wraps another node — return the wrapped node as a dependency
+            // Access via the wrappedNode property (InspectorNode<T>.wrappedNode)
+            const n = node as { wrappedNode?: Node<WgslType> };
+            return n.wrappedNode ? [n.wrappedNode] : [];
+        }
+
         default: {
             // exhaustive check — TypeScript will error if a case is missing
             const _exhaustive: never = node.kind;

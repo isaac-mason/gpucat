@@ -1089,6 +1089,10 @@ const CSS = `
 	overflow: hidden;
 }
 
+.mesh-detail-panel {
+	overflow-y: auto;
+}
+
 .shader-panel {
 	display: flex;
 	flex-direction: column;
@@ -1203,18 +1207,121 @@ pre.shader-code {
     box-shadow: 0 4px 20px rgba(0,0,0,0.5);
     pointer-events: none;
     min-width: 160px;
+    max-width: 180px;
 }
 
 .probe-popover-label {
     font-size: 10px;
     color: var(--text-muted, #666);
     font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-    word-break: break-all;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .probe-popover-canvas canvas {
     border-radius: 4px;
     display: block;
+}
+
+/* ============================================================
+   Draw Calls tab — detail panel, kv tables, nav link
+   ============================================================ */
+
+.dc-detail-panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.dc-detail-toolbar {
+    display: flex;
+    align-items: center;
+    padding: 4px 8px;
+    background: var(--header-bg);
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+    gap: 6px;
+}
+
+/* Sub-tab panes: hidden by default, flex-column when active */
+.dc-detail-pane {
+    display: none;
+    flex: 1;
+    flex-direction: column;
+    overflow: auto;
+    min-height: 0;
+}
+
+.dc-detail-pane.active {
+    display: flex;
+}
+
+/* The ShaderPanel inside the Shader pane needs to fill height */
+.dc-detail-pane .shader-panel {
+    flex: 1;
+    min-height: 0;
+}
+
+.dc-kv-table {
+    width: 100%;
+    padding: 8px;
+    flex-shrink: 0;
+}
+
+.dc-kv-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    padding: 3px 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.dc-kv-key {
+    color: var(--text-muted);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dc-kv-val {
+    color: var(--text-primary);
+    font-size: 11px;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.dc-section-header {
+    padding: 6px 8px;
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    background: var(--header-bg);
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+.dc-nav-link {
+    font-size: 10px;
+    color: var(--accent-color);
+    cursor: pointer;
+    padding: 2px 6px;
+    border: 1px solid var(--accent-dim);
+    border-radius: 3px;
+    background: none;
+    font-family: inherit;
+    flex-shrink: 0;
+    margin-left: 6px;
+    line-height: 1;
+}
+
+.dc-nav-link:hover {
+    background: var(--accent-dim);
 }
 `;
 

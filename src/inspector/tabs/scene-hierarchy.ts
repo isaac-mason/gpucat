@@ -8,14 +8,15 @@
  *  - DOM is NOT rebuilt from scratch each frame.
  *    A Map<objectId, HierarchyNode> tracks live nodes. Only structural changes
  *    (add / remove) mutate the DOM; transforms etc. are updated in-place.
- *  - Clicking a Mesh row opens the shader panel to the right of the hierarchy.
+ *  - Clicking a Mesh row opens a detail panel to the right of the hierarchy
+ *    showing geometry info, material render state, instance count, and a
+ *    "→ Draw Call" navigation button.
  *  - The tab auto-shows itself when scenes are present (mirrors Viewer pattern).
  */
 
 import { Tab } from '../ui/tab';
 import { List } from '../ui/list';
 import { Item } from '../ui/item';
-import { ShaderPanel } from './shader-panel';
 import type { Inspector } from '../inspector';
 import type { SceneRecord } from '../renderer-inspector';
 import { Mesh } from '../../objects/mesh';
@@ -59,6 +60,32 @@ function makeTypeBadge(label: string): HTMLSpanElement {
     return badge;
 }
 
+/** Create a section header div using the dc-section-header class. */
+function makeSectionHeader(text: string): HTMLDivElement {
+    const el = document.createElement('div');
+    el.className = 'dc-section-header';
+    el.textContent = text;
+    return el;
+}
+
+/** Create a key/value row using the dc-kv-* classes. */
+function makeKVRow(key: string, value: string): HTMLDivElement {
+    const row = document.createElement('div');
+    row.className = 'dc-kv-row';
+
+    const k = document.createElement('span');
+    k.className = 'dc-kv-key';
+    k.textContent = key;
+
+    const v = document.createElement('span');
+    v.className = 'dc-kv-val';
+    v.textContent = value;
+
+    row.appendChild(k);
+    row.appendChild(v);
+    return row;
+}
+
 // ---------------------------------------------------------------------------
 // SceneHierarchy Tab
 // ---------------------------------------------------------------------------
@@ -73,15 +100,14 @@ export class SceneHierarchy extends Tab {
     /** Item roots, one per scene (keyed by passId) */
     private _sceneRoots: Map<string, Item> = new Map();
 
-    /** Currently selected mesh (for shader display) */
+    /** Currently selected mesh */
     private _selectedMesh: Mesh | null = null;
-    private _selectedSceneRecord: SceneRecord | null = null;
 
-    /** Inline shader panel below the hierarchy list */
-    private _shaderPanel: ShaderPanel;
+    /** The inspector reference passed into update() — used for navigation */
+    private _inspector: Inspector | null = null;
 
-    /** Wrapper element for the shader panel */
-    private _shaderContainer: HTMLDivElement;
+    /** Right-side detail panel — shown when a Mesh is selected */
+    private _detailPanel: HTMLDivElement;
 
     constructor() {
         super('Scene');
@@ -93,18 +119,15 @@ export class SceneHierarchy extends Tab {
         scrollWrapper.className = 'list-scroll-wrapper scene-hierarchy-list';
         scrollWrapper.appendChild(list.domElement);
 
-        this._shaderPanel = new ShaderPanel();
+        this._detailPanel = document.createElement('div');
+        this._detailPanel.className = 'shader-container mesh-detail-panel';
+        this._detailPanel.style.display = 'none';
 
-        this._shaderContainer = document.createElement('div');
-        this._shaderContainer.className = 'shader-container';
-        this._shaderContainer.style.display = 'none';
-        this._shaderContainer.appendChild(this._shaderPanel.domElement);
-
-        // Row layout: list on the left, shader panel on the right
+        // Row layout: list on the left, detail panel on the right
         const layout = document.createElement('div');
         layout.className = 'scene-hierarchy-layout';
         layout.appendChild(scrollWrapper);
-        layout.appendChild(this._shaderContainer);
+        layout.appendChild(this._detailPanel);
 
         this.content.appendChild(layout);
 
@@ -120,6 +143,7 @@ export class SceneHierarchy extends Tab {
      * Diffs the tree against the current DOM state and updates in-place.
      */
     update(inspector: Inspector, scenes: SceneRecord[]): void {
+        this._inspector = inspector;
         // Build the set of passIds we expect to show
         const activePassIds = new Set(scenes.map(s => s.passId));
 
@@ -140,11 +164,6 @@ export class SceneHierarchy extends Tab {
         // Sync each scene
         for (const sr of scenes) {
             this._syncScene(inspector, sr);
-        }
-
-        // Refresh shader panel if a mesh is selected
-        if (this._selectedMesh && this._selectedSceneRecord) {
-            this._refreshShaderPanel(inspector);
         }
     }
 
@@ -252,10 +271,10 @@ export class SceneHierarchy extends Tab {
     }
 
     // -----------------------------------------------------------------------
-    // Selection & shader panel
+    // Selection & detail panel
     // -----------------------------------------------------------------------
 
-    private _onItemClick(obj: Object3D, sr: SceneRecord, item: Item): void {
+    private _onItemClick(obj: Object3D, _sr: SceneRecord, item: Item): void {
         // Clear previous selection highlight
         if (this._selectedMesh) {
             const prevHn = this._nodes.get(this._selectedMesh.objectId);
@@ -264,27 +283,128 @@ export class SceneHierarchy extends Tab {
 
         if (obj instanceof Mesh) {
             this._selectedMesh = obj;
-            this._selectedSceneRecord = sr;
             item.itemRow.classList.add('hierarchy-selected');
-            this._showShaderPanel();
+            this._buildMeshDetail(obj);
+            this._detailPanel.style.display = 'flex';
         } else {
             this._selectedMesh = null;
-            this._selectedSceneRecord = null;
-            this._hideShaderPanel();
+            this._detailPanel.innerHTML = '';
+            this._detailPanel.style.display = 'none';
         }
     }
 
-    private _refreshShaderPanel(inspector: Inspector): void {
-        if (!this._selectedMesh || !this._selectedSceneRecord) return;
-        this._shaderPanel.update(inspector, this._selectedMesh, this._selectedSceneRecord);
-    }
+    /**
+     * Populate `_detailPanel` with geometry info, material render state,
+     * instance count, and a "→ Draw Call" navigation button for `mesh`.
+     * The panel is rebuilt from scratch on each selection change.
+     */
+    private _buildMeshDetail(mesh: Mesh): void {
+        const panel = this._detailPanel;
+        panel.innerHTML = '';
 
-    private _showShaderPanel(): void {
-        this._shaderContainer.style.display = 'flex';
-        // Will be populated on next _refreshShaderPanel call
-    }
+        const geo = mesh.geometry;
+        const mat = mesh.material;
 
-    private _hideShaderPanel(): void {
-        this._shaderContainer.style.display = 'none';
+        // ------------------------------------------------------------------
+        // Geometry section
+        // ------------------------------------------------------------------
+        panel.appendChild(makeSectionHeader('Geometry'));
+
+        const table = document.createElement('div');
+        table.className = 'dc-kv-table';
+
+        table.appendChild(makeKVRow('vertices', String(geo.vertexCount)));
+
+        // Index info
+        if (geo.index) {
+            table.appendChild(makeKVRow('indices', String(geo.index.array.length)));
+            table.appendChild(makeKVRow('index format', geo.index.format));
+        } else {
+            table.appendChild(makeKVRow('indices', 'none'));
+        }
+
+        // Attributes
+        const attrNames = Array.from(geo.attributes.keys());
+        if (attrNames.length > 0) {
+            for (const name of attrNames) {
+                const attr = geo.attributes.get(name)!;
+                const fmt = attr.format ?? `itemSize=${attr.itemSize}`;
+                table.appendChild(makeKVRow(`attr: ${name}`, fmt));
+            }
+        } else {
+            table.appendChild(makeKVRow('attributes', 'none'));
+        }
+
+        // Bounding box — Box3 is [minX, minY, minZ, maxX, maxY, maxZ]
+        if (geo.boundingBox) {
+            const bb = geo.boundingBox;
+            const minStr = `(${bb[0].toFixed(2)}, ${bb[1].toFixed(2)}, ${bb[2].toFixed(2)})`;
+            const maxStr = `(${bb[3].toFixed(2)}, ${bb[4].toFixed(2)}, ${bb[5].toFixed(2)})`;
+            table.appendChild(makeKVRow('bbox min', minStr));
+            table.appendChild(makeKVRow('bbox max', maxStr));
+        }
+
+        panel.appendChild(table);
+
+        // ------------------------------------------------------------------
+        // Material section
+        // ------------------------------------------------------------------
+        panel.appendChild(makeSectionHeader('Material'));
+
+        const matTable = document.createElement('div');
+        matTable.className = 'dc-kv-table';
+
+        matTable.appendChild(makeKVRow('transparent', String(mat.transparent)));
+        matTable.appendChild(makeKVRow('depthTest', String(mat.depthTest)));
+        matTable.appendChild(makeKVRow('depthWrite', String(mat.depthWrite)));
+        matTable.appendChild(makeKVRow('depthCompare', mat.depthCompare));
+        matTable.appendChild(makeKVRow('cullMode', mat.cullMode));
+        matTable.appendChild(makeKVRow('alphaToCoverage', String(mat.alphaToCoverage)));
+
+        if (mat.blend) {
+            const b = mat.blend;
+            const colorOp = b.color ? `${b.color.operation ?? 'add'} (src:${b.color.srcFactor ?? 'one'} dst:${b.color.dstFactor ?? 'zero'})` : 'default';
+            const alphaOp = b.alpha ? `${b.alpha.operation ?? 'add'} (src:${b.alpha.srcFactor ?? 'one'} dst:${b.alpha.dstFactor ?? 'zero'})` : 'default';
+            matTable.appendChild(makeKVRow('blend.color', colorOp));
+            matTable.appendChild(makeKVRow('blend.alpha', alphaOp));
+        } else {
+            matTable.appendChild(makeKVRow('blend', 'none'));
+        }
+
+        panel.appendChild(matTable);
+
+        // ------------------------------------------------------------------
+        // Instance section
+        // ------------------------------------------------------------------
+        panel.appendChild(makeSectionHeader('Instance'));
+
+        const instTable = document.createElement('div');
+        instTable.className = 'dc-kv-table';
+        instTable.appendChild(makeKVRow('count', String(mesh.count)));
+        panel.appendChild(instTable);
+
+        // ------------------------------------------------------------------
+        // Navigation button
+        // ------------------------------------------------------------------
+        const navBtn = document.createElement('button');
+        navBtn.className = 'dc-nav-link';
+        navBtn.title = "Jump to this mesh's draw call";
+        navBtn.textContent = '→ Draw Call';
+        navBtn.style.margin = '12px 8px 8px';
+
+        navBtn.addEventListener('click', () => {
+            const inspector = this._inspector;
+            if (!inspector) return;
+            const renderer = inspector.getRenderer();
+            if (!renderer) return;
+            for (const ro of renderer.renderObjects.renderObjects) {
+                if (ro.mesh === mesh) {
+                    inspector.navigateToRO(ro);
+                    return;
+                }
+            }
+        });
+
+        panel.appendChild(navBtn);
     }
 }

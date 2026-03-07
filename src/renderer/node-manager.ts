@@ -1,40 +1,29 @@
 /**
  * node-manager.ts - Node compilation and update scheduling.
  *
- * Aligned with Three.js Nodes/NodeFrame concepts:
- * - Manages node compilation per RenderObject
- * - Schedules update callbacks (updateBefore, update, updateAfter)
- * - Handles frame/render/object-level deduplication
+ * Three.js aligned: mirrors renderers/common/nodes/NodeManager.js
  *
  * The NodeManager coordinates:
  * 1. Getting/creating NodeBuilderState for RenderObjects
  * 2. Running update lifecycle callbacks at appropriate times
  * 3. Detecting when recompilation is needed
+ *
+ * The NodeFrame instance is owned by the NodeManager and carries:
+ * - Timing state (frameId, renderId, time, deltaTime)
+ * - Render context (renderer, camera, object, scene, material)
+ * - Deduplication maps for update calls
  */
 
 import type { RenderObject } from './render-object';
-import type { RenderFrame } from './render-frame';
+import { NodeFrame, createNodeFrame } from './node-frame';
 import type { NodeBuilderState } from './node-builder-state';
-import type {
-    CompileResult,
-    UpdateBeforeNode,
-    UpdateAfterNode,
-    UpdateNode,
-} from '../nodes/compile';
+import type { CompileResult } from '../nodes/compile';
 import { compile } from '../nodes/compile';
 import { createNodeBuilderState } from './node-builder-state';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-/**
- * Update tracking maps for deduplication.
- */
-type UpdateMaps = {
-    frameId: number;
-    renderId: number;
-};
 
 /**
  * NodeManager state - manages node compilation and updates.
@@ -47,35 +36,16 @@ export type NodeManagerState = {
     nodeStates: WeakMap<RenderObject, NodeBuilderState>;
 
     /**
-     * Update deduplication maps for updateBefore nodes.
+     * The NodeFrame instance for this manager.
+     * Three.js aligned: NodeManager owns a single NodeFrame.
      */
-    updateBeforeMap: WeakMap<UpdateBeforeNode, UpdateMaps>;
-
-    /**
-     * Update deduplication maps for updateAfter nodes.
-     */
-    updateAfterMap: WeakMap<UpdateAfterNode, UpdateMaps>;
-
-    /**
-     * Update deduplication maps for update nodes.
-     */
-    updateMap: WeakMap<UpdateNode, UpdateMaps>;
+    nodeFrame: NodeFrame;
 
     /**
      * Environment cache key - invalidated when global state changes.
      * (e.g., lighting, fog, environment maps - deferred for now)
      */
     environmentCacheKey: number;
-
-    /**
-     * Current frame ID for deduplication.
-     */
-    frameId: number;
-
-    /**
-     * Current render ID for deduplication (incremented per render() call).
-     */
-    renderId: number;
 };
 
 // ---------------------------------------------------------------------------
@@ -88,31 +58,41 @@ export type NodeManagerState = {
 export function createNodeManagerState(): NodeManagerState {
     return {
         nodeStates: new WeakMap(),
-        updateBeforeMap: new WeakMap(),
-        updateAfterMap: new WeakMap(),
-        updateMap: new WeakMap(),
+        nodeFrame: createNodeFrame(),
         environmentCacheKey: 0,
-        frameId: 0,
-        renderId: 0,
     };
 }
 
 // ---------------------------------------------------------------------------
-// Frame/Render ID Management
+// NodeFrame Access
 // ---------------------------------------------------------------------------
 
 /**
- * Increment frame ID at the start of each animation frame.
+ * Get the NodeFrame for rendering a specific RenderObject.
+ * Sets the frame's context properties from the RenderObject.
+ *
+ * Three.js aligned: NodeManager.getNodeFrameForRender()
  */
-export function incrementFrameId(state: NodeManagerState): void {
-    state.frameId++;
+export function getNodeFrameForRender(
+    state: NodeManagerState,
+    renderObject: RenderObject,
+): NodeFrame {
+    const frame = state.nodeFrame;
+    frame.object = renderObject.mesh;
+    frame.camera = renderObject.camera;
+    frame.material = renderObject.material;
+    frame.scene = renderObject.scene;
+    // renderer, encoder, width, height are set by the renderer before calling
+    return frame;
 }
 
 /**
- * Increment render ID at the start of each render() call.
+ * Get the NodeFrame with minimal context (for compute or non-object renders).
+ *
+ * Three.js aligned: NodeManager.getNodeFrame()
  */
-export function incrementRenderId(state: NodeManagerState): void {
-    state.renderId++;
+export function getNodeFrame(state: NodeManagerState): NodeFrame {
+    return state.nodeFrame;
 }
 
 // ---------------------------------------------------------------------------
@@ -205,23 +185,8 @@ export function deleteNodeState(
 }
 
 // ---------------------------------------------------------------------------
-// Update Lifecycle
+// Update Lifecycle (Three.js aligned)
 // ---------------------------------------------------------------------------
-
-/**
- * Get or create update maps for deduplication.
- */
-function getUpdateMaps<T extends object>(
-    map: WeakMap<T, UpdateMaps>,
-    node: T,
-): UpdateMaps {
-    let maps = map.get(node);
-    if (!maps) {
-        maps = { frameId: -1, renderId: -1 };
-        map.set(node, maps);
-    }
-    return maps;
-}
 
 /**
  * Run updateBefore for a RenderObject's nodes.
@@ -229,88 +194,47 @@ function getUpdateMaps<T extends object>(
  * updateBefore is called before the draw call for nodes that need to
  * perform GPU work (compute passes, render to texture, etc.)
  *
+ * Three.js aligned: NodeManager.updateBefore()
+ *
  * @param state - The NodeManager state
  * @param renderObject - The RenderObject
- * @param frame - The render frame context
  */
 export function updateBefore(
     state: NodeManagerState,
     renderObject: RenderObject,
-    frame: RenderFrame,
 ): void {
     const nodeState = renderObject.nodeBuilderState;
     if (!nodeState) return;
 
+    const frame = getNodeFrameForRender(state, renderObject);
+
     for (const node of nodeState.updateBeforeNodes) {
-        const updateType = node.updateBeforeType;
-        if (updateType === 'none') continue;
-
-        const maps = getUpdateMaps(state.updateBeforeMap, node);
-
-        if (updateType === 'frame') {
-            if (maps.frameId !== state.frameId) {
-                const prev = maps.frameId;
-                maps.frameId = state.frameId;
-                if (node.updateBefore(frame) === false) {
-                    maps.frameId = prev;
-                }
-            }
-        } else if (updateType === 'render') {
-            if (maps.renderId !== state.renderId) {
-                const prev = maps.renderId;
-                maps.renderId = state.renderId;
-                if (node.updateBefore(frame) === false) {
-                    maps.renderId = prev;
-                }
-            }
-        } else if (updateType === 'object') {
-            node.updateBefore(frame);
-        }
+        frame.updateBeforeNode(node);
     }
 }
 
 /**
  * Run update for a RenderObject's nodes.
  *
- * update is called to push CPU data into GPU uniforms before drawing.
+ * update is called to execute node logic each frame/render/object.
+ * (e.g., InspectorNode registering with inspector)
+ *
+ * Three.js aligned: NodeManager.updateForRender()
  *
  * @param state - The NodeManager state
  * @param renderObject - The RenderObject
- * @param frame - The render frame context
  */
 export function updateForRender(
     state: NodeManagerState,
     renderObject: RenderObject,
-    frame: RenderFrame,
 ): void {
     const nodeState = renderObject.nodeBuilderState;
     if (!nodeState) return;
 
+    const frame = getNodeFrameForRender(state, renderObject);
+
     for (const node of nodeState.updateNodes) {
-        const updateType = node.updateType;
-        if (updateType === 'none') continue;
-
-        const maps = getUpdateMaps(state.updateMap, node);
-
-        if (updateType === 'frame') {
-            if (maps.frameId !== state.frameId) {
-                const prev = maps.frameId;
-                maps.frameId = state.frameId;
-                if (node.update(frame) === false) {
-                    maps.frameId = prev;
-                }
-            }
-        } else if (updateType === 'render') {
-            if (maps.renderId !== state.renderId) {
-                const prev = maps.renderId;
-                maps.renderId = state.renderId;
-                if (node.update(frame) === false) {
-                    maps.renderId = prev;
-                }
-            }
-        } else if (updateType === 'object') {
-            node.update(frame);
-        }
+        frame.updateNode(node);
     }
 }
 
@@ -319,43 +243,22 @@ export function updateForRender(
  *
  * updateAfter is called after the draw call for cleanup, readback, etc.
  *
+ * Three.js aligned: NodeManager.updateAfter()
+ *
  * @param state - The NodeManager state
  * @param renderObject - The RenderObject
- * @param frame - The render frame context
  */
 export function updateAfter(
     state: NodeManagerState,
     renderObject: RenderObject,
-    frame: RenderFrame,
 ): void {
     const nodeState = renderObject.nodeBuilderState;
     if (!nodeState) return;
 
+    const frame = getNodeFrameForRender(state, renderObject);
+
     for (const node of nodeState.updateAfterNodes) {
-        const updateType = node.updateAfterType;
-        if (updateType === 'none') continue;
-
-        const maps = getUpdateMaps(state.updateAfterMap, node);
-
-        if (updateType === 'frame') {
-            if (maps.frameId !== state.frameId) {
-                const prev = maps.frameId;
-                maps.frameId = state.frameId;
-                if (node.updateAfter(frame) === false) {
-                    maps.frameId = prev;
-                }
-            }
-        } else if (updateType === 'render') {
-            if (maps.renderId !== state.renderId) {
-                const prev = maps.renderId;
-                maps.renderId = state.renderId;
-                if (node.updateAfter(frame) === false) {
-                    maps.renderId = prev;
-                }
-            }
-        } else if (updateType === 'object') {
-            node.updateAfter(frame);
-        }
+        frame.updateAfterNode(node);
     }
 }
 

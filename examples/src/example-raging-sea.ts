@@ -27,9 +27,7 @@ import {
     type WgslType,
 } from 'gpucat';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Gradient (Perlin-style) noise — C1 continuous, no sharp zero-crossings
-// ─────────────────────────────────────────────────────────────────────────────
+// gradient (Perlin-style) noise — C1 continuous, no sharp zero-crossings
 
 const noiseHash = wgslFn<'u32'>(`
 fn noiseHash(n: i32) -> u32 {
@@ -77,9 +75,7 @@ fn gradNoise3D(p: vec3f) -> f32 {
 }
 `, [noiseHash, noiseGrad]);
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Uniforms
-// ─────────────────────────────────────────────────────────────────────────────
+// uniforms
 
 const uFreqX       = uniform(f32(3.0),  'freqX');
 const uFreqZ       = uniform(f32(1.5),  'freqZ');
@@ -90,10 +86,7 @@ const uSmallFreq   = uniform(f32(2.0),  'smallFreq');
 const uSmallSpeed  = uniform(f32(0.3),  'smallSpeed');
 const uSmallAmp    = uniform(f32(0.18), 'smallAmp');
 
-// ─────────────────────────────────────────────────────────────────────────────
 // wavesElevation: large sine + small noise octaves (via Fn)
-// ─────────────────────────────────────────────────────────────────────────────
-
 const wavesElevation = Fn(
     (
         pos:    Node<WgslType>,
@@ -158,9 +151,7 @@ function elev(pos: Node<'vec3f'>): Node<'f32'> {
     ) as Node<'f32'>;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Vertex graph
-// ─────────────────────────────────────────────────────────────────────────────
+/* vertex */
 
 const positionAttr = attribute(d.vec3f, 'position');
 const px    = positionAttr.x as Node<'f32'>;
@@ -171,7 +162,7 @@ const displacedPos = vec3(px,            elev(positionAttr as Node<'vec3f'>),   
 const posA         = vec3(px.add(shift), elev(vec3(px.add(shift), f32(0), pz)             as Node<'vec3f'>),  pz);
 const posB         = vec3(px,            elev(vec3(px,             f32(0), pz.sub(shift))  as Node<'vec3f'>),  pz.sub(shift));
 
-// Tangent vectors → cross product → normal (matches Three.js toA.cross(toB))
+// tangent vectors → cross product → normal (matches Three.js toA.cross(toB))
 const toA    = posA.sub(displacedPos).normalize();
 const toB    = posB.sub(displacedPos).normalize();
 const normal = toA.cross(toB).normalize();
@@ -181,24 +172,22 @@ const vElevation = varying(d.f32,   'v_elevation', displacedPos.y as Node<'f32'>
 
 const clipPos = mul(cameraProjectionMatrix, mul(cameraViewMatrix, mul(modelWorldMatrix, vec4(displacedPos, f32(1)))));
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Fragment graph
-// ─────────────────────────────────────────────────────────────────────────────
+/* fragment */
 
-// Diffuse
+// diffuse
 const lightDir   = vec3(f32(-0.6), f32(1.0), f32(0.8)).normalize().toVar('lightDir');
 const diffuse    = vNormal.dot(lightDir).max(f32(0.05)).toVar('diffuse');
 
-// Specular
+// specular
 const viewDir    = vec3(f32(0), f32(1), f32(0)).toVar('viewDir');
 const halfVec    = lightDir.add(viewDir).normalize().toVar('halfVec');
 const specular   = vNormal.dot(halfVec).max(f32(0)).pow(f32(64)).mul(f32(0.4)).toVar('specular');
 
-// Flat dark purple base colour (matches Three.js #271442)
+// flat dark purple base colour (matches Three.js #271442)
 const baseColor  = vec3(f32(0.153), f32(0.078), f32(0.259)).toVar('baseColor');
 const litColor   = baseColor.mul(diffuse).add(vec3(f32(1), f32(1), f32(1)).mul(specular)).toVar('litColor');
 
-// Emissive foam: glows at TROUGHS (low elevation) — matches Three.js remap(high, low)
+// emissive foam: glows at TROUGHS (low elevation) — matches Three.js remap(high, low)
 // elevation.remap(emissiveHigh, emissiveLow) = (elev - high) / (low - high), clamped 0..1
 const emissiveColor = vec3(f32(1.0), f32(0.039), f32(0.506)).toVar('emissiveColor'); // #ff0a81
 const emissiveLow   = f32(-0.25);
@@ -209,71 +198,61 @@ const emissive      = emissiveColor.mul(emissiveT.pow(emissivePower)).toVar('emi
 
 const finalColor = vec4(litColor.add(emissive), f32(1)).toVar('finalColor');
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Material
-// ─────────────────────────────────────────────────────────────────────────────
-
 const material = new Material({ vertex: clipPos, fragment: finalColor });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Scene setup
-// ─────────────────────────────────────────────────────────────────────────────
+/* renderer and scene */
 
-async function main() {
-    const renderer = new WebGPURenderer({ antialias: true });
-    renderer.inspector = new Inspector();
-    await renderer.init();
+const renderer = new WebGPURenderer({ antialias: true });
+renderer.inspector = new Inspector();
+await renderer.init();
 
-    document.body.appendChild(renderer.domElement);
-    document.body.appendChild((renderer.inspector as Inspector).domElement);
-    renderer.setPixelRatio(devicePixelRatio);
+document.body.appendChild(renderer.domElement);
+document.body.appendChild((renderer.inspector as Inspector).domElement);
+renderer.setPixelRatio(devicePixelRatio);
+renderer.setSize(window.innerWidth, window.innerHeight);
+
+renderer.clearColor = [0.05, 0.04, 0.10, 1];
+
+const scene = new Scene();
+
+const camera = new PerspectiveCamera(
+    Math.PI / 4,
+    window.innerWidth / window.innerHeight,
+    0.1,
+    50,
+);
+camera.position[0] = 1.4;
+camera.position[1] = 1.2;
+camera.position[2] = 1.4;
+scene.add(camera);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target[1] = 0;
+controls.enableDamping = true;
+controls.update();
+
+window.addEventListener('resize', () => {
     renderer.setSize(window.innerWidth, window.innerHeight);
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+});
 
-    renderer.clearColor = [0.05, 0.04, 0.10, 1];
+const geometry = createPlaneGeometry(4, 4, 256, 256);
+const mesh = new Mesh(geometry, material);
+scene.add(mesh);
 
-    const scene = new Scene();
+scene.updateWorldMatrix();
+camera.updateViewMatrix();
 
-    const camera = new PerspectiveCamera(
-        Math.PI / 4,
-        window.innerWidth / window.innerHeight,
-        0.1,
-        50,
-    );
-    camera.position[0] = 1.4;
-    camera.position[1] = 1.2;
-    camera.position[2] = 1.4;
-    scene.add(camera);
+const scenePass  = pass(scene, camera);
+const outputNode = scenePass.getTextureNode();
 
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.target[1] = 0;
-    controls.enableDamping = true;
+function frame() {
     controls.update();
-
-    window.addEventListener('resize', () => {
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        camera.aspect = window.innerWidth / window.innerHeight;
-        camera.updateProjectionMatrix();
-    });
-
-    const geometry = createPlaneGeometry(4, 4, 256, 256);
-    const mesh = new Mesh(geometry, material);
-    scene.add(mesh);
-
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
-
-    const scenePass  = pass(scene, camera);
-    const outputNode = scenePass.getTextureNode();
-
-    function frame() {
-        controls.update();
-        scene.updateWorldMatrix();
-        camera.updateViewMatrix();
-        renderer.render(outputNode);
-        requestAnimationFrame(frame);
-    }
-
+    renderer.render(outputNode);
     requestAnimationFrame(frame);
 }
 
-main().catch(console.error);
+requestAnimationFrame(frame);

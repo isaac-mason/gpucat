@@ -23,6 +23,7 @@ import type { GeometriesState } from './geometries';
 import type { BindingsState } from './bindings';
 import type { PipelineCache } from './pipelines';
 import type { RenderObject, GeometryGroup } from './render-object';
+import type { NodeFrame } from './node-frame';
 
 import { OutputStructNode, type Node, type WgslType } from '../nodes/nodes';
 import { createRenderObject, disposeRenderObject, computeRenderObjectCacheKey } from './render-object';
@@ -135,6 +136,9 @@ export function getRenderObject(
         // Compute and store initial cache key
         renderObject.initialCacheKey = computeRenderObjectCacheKey(material, mesh.geometry, renderContext);
 
+        // Tag with the pass this RO belongs to
+        renderObject.passId = passId;
+
         // Set up disposal callback
         renderObject.onDispose = () => {
             chainMap.del(map, keys);
@@ -148,6 +152,7 @@ export function getRenderObject(
         // Update mutable references that may have changed
         renderObject.camera = camera;
         renderObject.scene = scene;
+        renderObject.passId = passId;
     }
 
     return renderObject;
@@ -241,21 +246,13 @@ export function initRenderObject(
 export function updateRenderObject(
     state: RenderObjectsState,
     renderObject: RenderObject,
-    camera: Camera,
-    elapsed: number,
-    delta: number,
-    width: number,
-    height: number,
+    frame: NodeFrame,
 ): void {
     // Update bindings (uniforms, bind groups)
     updateBindings(
         state.bindings,
         renderObject,
-        camera,
-        elapsed,
-        delta,
-        width,
-        height,
+        frame,
     );
 
     // Update geometry if needed
@@ -724,9 +721,10 @@ export function getRenderObjectsStats(state: RenderObjectsState): {
     }
 
     // Count from the set
-    for (const _ro of state.renderObjects) {
-        // We don't track passId on RenderObject currently
-        // This could be added if needed
+    for (const ro of state.renderObjects) {
+        const p = ro.passId || 'default';
+        if (p in perPass) perPass[p]++;
+        else perPass[p] = 1;
     }
 
     return {

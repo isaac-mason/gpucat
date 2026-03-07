@@ -28,7 +28,7 @@
 import { Node, TextureNode, cameraNear, cameraFar, type WgslType } from './nodes';
 import type { Scene } from '../scene/scene';
 import type { Camera } from '../camera/camera';
-import type { RenderFrame } from '../renderer/render-frame';
+import type { NodeFrame } from '../renderer/node-frame';
 import { RenderTarget } from '../renderer/render-target';
 import { Texture, type ImageSize } from '../texture/texture';
 import type { MRTNode } from './nodes';
@@ -455,8 +455,9 @@ export class PassNode extends Node<'vec4f'> {
     /**
      * Execute this pass's scene render before the final composite quad.
      */
-    updateBefore(frame: RenderFrame): void {
-        const { renderer } = frame;
+    updateBefore(frame: NodeFrame): void {
+        const renderer = frame.renderer!;
+        const encoder = frame.encoder!;
         const { scene, camera } = this;
 
         this._pixelRatio = 1;
@@ -481,7 +482,7 @@ export class PassNode extends Node<'vec4f'> {
         renderer.setMRT(this._mrt);
         renderer.clearColor = this.clearColor;
 
-        renderer.renderScene(scene, camera, frame.encoder, this.passId);
+        renderer.renderScene(scene, camera, encoder, this.passId);
 
         // State restore
         renderer.setRenderTarget(currentRenderTarget);

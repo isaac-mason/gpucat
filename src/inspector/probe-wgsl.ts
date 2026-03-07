@@ -271,11 +271,29 @@ function inferType(
     // Builtins that return a bool
     if (/^(any|all)\s*\(/.test(e)) return 'bool';
 
+    // Builtins that only accept float scalars/vectors and return the same type.
+    // When the argument resolves to 'unknown' we fall back to 'f32' rather than
+    // propagating 'unknown', because these functions are never called on non-float
+    // types in generated WGSL and a bare `(expr)` would produce a type mismatch.
+    const scalarFloatBuiltins = /^(sin|cos|tan|asin|acos|atan|exp|exp2|log|log2|sqrt|inverseSqrt|degrees|radians|ceil|floor|round|trunc|fract|sign|abs)\s*\(/;
+    const scalarFloatMatch = e.match(scalarFloatBuiltins);
+    if (scalarFloatMatch) {
+        const afterOpen = e.slice(scalarFloatMatch[0].length);
+        const closeIdx = afterOpen.indexOf(')');
+        const arg = closeIdx >= 0 ? afterOpen.slice(0, closeIdx).trim() : afterOpen.trim();
+        if (arg) {
+            const t = inferType(arg, fullBody, varDecls, structFields);
+            if (t !== 'unknown') return t;
+        }
+        // Argument unresolvable — these builtins always return f32 in our context
+        return 'f32';
+    }
+
     // Builtins that return same type as their first argument (polymorphic).
     // We recurse into ALL arguments until we find a non-unknown type, because
     // the first arg may itself be unresolvable (e.g. a raw literal like 0.0
     // is abstract-float, but the second arg might be a typed variable).
-    const polyMatch = e.match(/^(abs|acos|asin|atan|atan2|ceil|clamp|cos|degrees|exp|exp2|floor|fract|inverseSqrt|log|log2|max|min|mix|modf|normalize|pow|radians|reflect|refract|cross|round|select|sign|sin|smoothstep|sqrt|step|tan|trunc|fma)\s*\(/);
+    const polyMatch = e.match(/^(atan2|ceil|clamp|cross|fma|max|min|mix|modf|normalize|pow|reflect|refract|round|select|smoothstep|step)\s*\(/);
     if (polyMatch) {
         const afterOpen = e.slice(polyMatch[0].length);
         // Walk comma-separated args (depth-aware) and return first resolved type.
@@ -318,11 +336,20 @@ function inferType(
         return normaliseType(varDecls.get(firstToken)!);
     }
 
-    // Scan the full body for `let name = <constructor>(...)`
+    // Scan the full body for `let name [: type] = <rhs>;`
+    // Try constructor prefix first; if that fails, recurse into the RHS expression.
     if (/^\w+$/.test(e)) {
-        const letRe = new RegExp(`\\blet\\s+${escapeRegex(e)}\\s*=\\s*((vec4[fi]?|vec3[fi]?|vec2[fi]?|vec4|vec3|vec2|f32|f16|i32|u32|bool)\\s*[(<])`);
-        const m = fullBody.match(letRe);
-        if (m) return normaliseType(m[2]);
+        const letRe = new RegExp(`\\blet\\s+${escapeRegex(e)}\\s*(?::\\s*[\\w<>, ]+?\\s*)?=\\s*([^;]+?)\\s*;`);
+        const lm = fullBody.match(letRe);
+        if (lm) {
+            const rhs = lm[1].trim();
+            // Fast path: obvious constructor prefix
+            const ctorMatch = rhs.match(/^(vec4[fi]?|vec3[fi]?|vec2[fi]?|vec4|vec3|vec2|f32|f16|i32|u32|bool)\s*[(<]/);
+            if (ctorMatch) return normaliseType(ctorMatch[1]);
+            // Slow path: recurse into the RHS (guards against infinite loop via varDecls check above)
+            const rhsKind = inferType(rhs, fullBody, varDecls, structFields);
+            if (rhsKind !== 'unknown') return rhsKind;
+        }
     }
 
     // Scan expression for any vec constructor literal — catches `(a * vec3f(...) + b)` etc.
@@ -424,8 +451,22 @@ export function buildProbeWGSL(code: string, target: ProbeTarget): string | null
     // -----------------------------------------------------------------------
     const varDecls = new Map<string, string>();
     for (const bl of bodyLines) {
-        const vm = bl.trim().match(/^var\s+(\w+)\s*:\s*([\w<>, ]+?)\s*;/);
-        if (vm) varDecls.set(vm[1], vm[2]);
+        const trimmed = bl.trim();
+        // `var name : type;`
+        const vm = trimmed.match(/^var\s+(\w+)\s*:\s*([\w<>, ]+?)\s*;/);
+        if (vm) { varDecls.set(vm[1], vm[2]); continue; }
+        // `let name [: type] = <rhs>;` — infer type from explicit annotation or RHS constructor
+        const lm = trimmed.match(/^let\s+(\w+)\s*(?::\s*([\w<>, ]+?)\s*)?=\s*([\s\S]+?)\s*;?\s*$/);
+        if (lm) {
+            const [, name, explicitType, rhs] = lm;
+            if (explicitType) {
+                varDecls.set(name, explicitType);
+            } else {
+                // Infer from obvious RHS constructor prefix (vec4f(...), vec3f(...), etc.)
+                const ctorMatch = rhs.trim().match(/^(vec4[fi]?|vec3[fi]?|vec2[fi]?|vec4|vec3|vec2|f32|f16|i32|u32|bool)\s*[(<]/);
+                if (ctorMatch) varDecls.set(name, ctorMatch[1]);
+            }
+        }
     }
     const structFields = buildStructFieldMap(code);
 
@@ -453,17 +494,24 @@ export function buildProbeWGSL(code: string, target: ProbeTarget): string | null
     const injectedReturn = `    return ${returnVec4};`;
 
     // -----------------------------------------------------------------------
-    // 6. Walk ALL body lines using inject-and-early-return strategy.
+    // 6. Walk body lines, truncating at the anchor.
     //
-    //    Rather than truncating the function at the target line (which loses
-    //    variable initialisations that appear later but are referenced in the
-    //    probed expression), we keep every line and inject our `return` right
-    //    after the anchor line.  Everything after the injected return is dead
-    //    code — WGSL allows unreachable statements after a return.
+    //    We emit lines up to and including the anchor, inject our return
+    //    immediately after, then stop.  This avoids dead-code warnings and
+    //    the MRT-specific type error where `return _out;` (type FragmentOutput)
+    //    would conflict with the patched `-> @location(0) vec4f` return type.
     //
-    //    This mirrors fragcoord.xyz's approach (insert fragColor = coerce(expr)
-    //    at the cursor line, then keep the rest as dead code).
+    //    Variables in WGSL are always declared before use, so truncation never
+    //    loses a definition that the probed expression depends on.
+    //
+    //    Special cases:
+    //    - `var _out : FragmentOutput;` is kept only when the probed expression
+    //      references `_out` (e.g. user selected `_out.diffuse`).
+    //    - `return _out;` and other FragmentOutput returns are always dropped
+    //      — they appear at the end of the body, past our injected return.
     // -----------------------------------------------------------------------
+    const exprUsesOut = /\b_out\b/.test(target.expr);
+
     const keptLines: string[] = [];
     let found = false;
 
@@ -473,17 +521,26 @@ export function buildProbeWGSL(code: string, target: ProbeTarget): string | null
         // Stop at closing brace of fs_main
         if (trimmed === '}') break;
 
-        // Always strip FragmentOutput / VertexOutput struct var declarations
-        if (/^var\s+\w+\s*:\s*(?:Fragment|Vertex)Output\s*;/.test(trimmed)) continue;
+        // Once we've injected our return, stop emitting — no dead code.
+        if (found) break;
+
+        // Strip `var _out : FragmentOutput;` unless the probe expr uses `_out`.
+        if (/^var\s+\w+\s*:\s*(?:Fragment|Vertex)Output\s*;/.test(trimmed)) {
+            if (!exprUsesOut) continue;
+        }
+
+        // Drop `return _out;` — MRT body always ends with this, it returns
+        // FragmentOutput which is incompatible with our patched `-> vec4f`.
+        // extractProbeTarget already blocks probing this line directly, so
+        // we only ever hit it as a trailing line we need to skip.
+        if (/^return\s+_out\s*;/.test(trimmed)) continue;
 
         switch (target.anchorKind) {
             case 'return':
                 if (trimmed.startsWith('return')) {
-                    // Skip the original return line; inject ours in its place.
-                    if (!found) {
-                        keptLines.push(injectedReturn);
-                        found = true;
-                    }
+                    // Replace the original return with our probe return.
+                    keptLines.push(injectedReturn);
+                    found = true;
                 } else {
                     keptLines.push(bodyLine);
                 }
@@ -491,19 +548,17 @@ export function buildProbeWGSL(code: string, target: ProbeTarget): string | null
 
             case 'let_var': {
                 keptLines.push(bodyLine);
-                if (!found) {
-                    const isTarget = new RegExp(`^(?:let|var)\\s+${escapeRegex(target.anchor)}\\b`).test(trimmed);
-                    if (isTarget) {
-                        keptLines.push(injectedReturn);
-                        found = true;
-                    }
+                const isTarget = new RegExp(`^(?:let|var)\\s+${escapeRegex(target.anchor)}\\b`).test(trimmed);
+                if (isTarget) {
+                    keptLines.push(injectedReturn);
+                    found = true;
                 }
                 break;
             }
 
             case 'assignment': {
                 keptLines.push(bodyLine);
-                if (!found && trimmed === target.anchor) {
+                if (trimmed === target.anchor) {
                     keptLines.push(injectedReturn);
                     found = true;
                 }

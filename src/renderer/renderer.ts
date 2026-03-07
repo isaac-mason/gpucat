@@ -48,7 +48,7 @@ import type { RenderItem } from './render-list';
 
 import { ComputeNode } from '../nodes/nodes';
 import type { UniformGroupBlock } from '../nodes/compile';
-import type { RenderFrame, RenderUpdateContext, ObjectUpdateContext } from './render-frame';
+import { NodeFrame } from './node-frame';
 import { Scene } from '../scene/scene';
 import { Camera } from '../camera/camera';
 import { InspectorBase } from '../inspector/inspector-base';
@@ -679,14 +679,19 @@ export class WebGPURenderer {
 
             // Upload uniforms and rebuild bind groups
             // (must be after texture upload so bind groups can reference GPU resources)
+            // For pre-warming, we create a temporary frame context
+            const preWarmFrame = this._nodes.nodeFrame;
+            preWarmFrame.renderer = this;
+            preWarmFrame.camera = camera;
+            preWarmFrame.object = renderObject.mesh;
+            preWarmFrame.scene = renderObject.scene;
+            preWarmFrame.material = renderObject.material;
+            preWarmFrame.width = width;
+            preWarmFrame.height = height;
             updateRenderObject(
                 this._renderObjects,
                 renderObject,
-                camera,
-                0, // elapsed - dummy value for pre-warming
-                0, // delta - dummy value for pre-warming
-                width,
-                height,
+                preWarmFrame,
             );
 
             // Yield to main thread between objects to keep animations smooth
@@ -774,11 +779,17 @@ export class WebGPURenderer {
         this.lastTimestamp = now;
         this.elapsed += delta;
 
-        // Increment frame/render counters (sync to NodeManager for update deduplication)
-        this.frameId++;
-        this.renderId++;
-        this._nodes.frameId = this.frameId;
-        this._nodes.renderId = this.renderId;
+        // Increment frame/render counters on the NodeFrame
+        const frame = this._nodes.nodeFrame;
+        frame.update(); // Increments frameId, updates time/deltaTime
+        frame.renderId++;
+        
+        // Sync local counters for inspector
+        this.frameId = frame.frameId;
+        this.renderId = frame.renderId;
+
+        // Set GPU context on frame
+        frame.renderer = this;
 
         this.inspector.begin(this.frameId);
 
@@ -852,7 +863,13 @@ export class WebGPURenderer {
         // ---------------------------------------------------------------------
         // Step 2: Run update lifecycle callbacks
         // ---------------------------------------------------------------------
-        const frame: RenderFrame = { renderer: this, encoder, width: w, height: h };
+        // Set remaining frame context for this render
+        frame.encoder = encoder;
+        frame.width = w;
+        frame.height = h;
+        frame.camera = fullscreenCamera;
+        frame.object = fullscreenMesh;
+        frame.scene = fullscreenScene;
 
         // Notify inspector of any inspectable nodes in the compiled graph.
         for (const node of nodeState.inspectableNodes) {
@@ -860,10 +877,10 @@ export class WebGPURenderer {
         }
 
         // update() — push CPU→GPU uniform data (before draw)
-        updateForRender(this._nodes, renderObject, frame);
+        updateForRender(this._nodes, renderObject);
 
         // updateBefore() — off-screen passes, pre-frame GPU work
-        updateBefore(this._nodes, renderObject, frame);
+        updateBefore(this._nodes, renderObject);
 
         // ---------------------------------------------------------------------
         // Step 3: Update RenderObject uniforms and bindings
@@ -875,11 +892,7 @@ export class WebGPURenderer {
         updateRenderObject(
             this._renderObjects,
             renderObject,
-            fullscreenCamera,
-            this.elapsed,
-            delta,
-            w,
-            h,
+            frame,
         );
 
         // ---------------------------------------------------------------------
@@ -890,7 +903,7 @@ export class WebGPURenderer {
         // ---------------------------------------------------------------------
         // Step 5: updateAfter() — post-draw cleanup
         // ---------------------------------------------------------------------
-        updateAfter(this._nodes, renderObject, frame);
+        updateAfter(this._nodes, renderObject);
 
         this.device.queue.submit([encoder.finish()]);
         this.inspector.finish(this.frameId);
@@ -935,15 +948,14 @@ export class WebGPURenderer {
         if (renderBindGroup) {
             const renderBlock = entry.compileResult.uniformGroups.find((g: { groupName: string }) => g.groupName === 'render');
             if (renderBlock) {
-                // Create a minimal context with time values (no camera for compute)
-                const context: RenderUpdateContext = {
-                    camera: null as unknown as Camera, // Compute shaders don't use camera
-                    elapsed: this.elapsed,
-                    delta: 0, // Delta not tracked for compute currently
-                    width: this.domElement.width || 1,
-                    height: this.domElement.height || 1,
-                };
-                invokeUniformGroupCallbacks(renderBlock, context);
+                // Use the NodeFrame for compute uniforms (time values, no camera)
+                const frame = this._nodes.nodeFrame;
+                // Ensure time is updated (may have already been called this frame)
+                frame.renderer = this;
+                frame.width = this.domElement.width || 1;
+                frame.height = this.domElement.height || 1;
+                // camera stays null for compute
+                invokeUniformGroupCallbacks(renderBlock, frame);
 
                 const data = packUniformGroup(renderBlock);
                 const U = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
@@ -965,6 +977,144 @@ export class WebGPURenderer {
         computePass.dispatchWorkgroups(dx, dy, dz);
         computePass.end();
         this.inspector.finishCompute(node.id, this.frameId);
+    }
+
+    // -------------------------------------------------------------------------
+    // Renderer state save / restore (Three.js RendererUtils aligned)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Save the current renderer state into a plain object and return it.
+     * Mirrors Three.js `RendererUtils.saveRendererState()`.
+     */
+    saveRendererState(): {
+        renderTarget: ReturnType<WebGPURenderer['getRenderTarget']>;
+        mrt: MRTNode | null;
+        clearColor: [number, number, number, number];
+    } {
+        return {
+            renderTarget: this.getRenderTarget(),
+            mrt: this.getMRT(),
+            clearColor: [...this.clearColor] as [number, number, number, number],
+        };
+    }
+
+    /**
+     * Restore renderer state previously saved with `saveRendererState()`.
+     * Mirrors Three.js `RendererUtils.restoreRendererState()`.
+     */
+    restoreRendererState(state: ReturnType<WebGPURenderer['saveRendererState']>): void {
+        this.setRenderTarget(state.renderTarget);
+        this.setMRT(state.mrt);
+        this.clearColor = state.clearColor;
+    }
+
+    // -------------------------------------------------------------------------
+    // QuadMesh-equivalent: renderQuad (no updateBefore, for inspector viewer)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Render a fullscreen triangle to the **current** `_canvasTarget` using
+     * the given material, writing into the provided command encoder.
+     *
+     * This is the equivalent of Three.js `QuadMesh.render(renderer)`:
+     * it goes directly to the GPU without running `updateBefore()` on any
+     * node, so PassNodes in the main scene graph are never recursively
+     * triggered.  Used exclusively by the inspector Viewer.
+     *
+     * @param material  Pre-built fullscreen material (from `makePreviewMaterial`).
+     * @param encoder   The GPUCommandEncoder to record into.
+     */
+    renderQuad(material: Material, encoder: GPUCommandEncoder): void {
+        if (this._isDeviceLost) return;
+
+        const canvasTarget = this._canvasTarget;
+        const targetFormat = this.format;
+        // No MSAA for inspector preview canvases — they are always non-default targets.
+        const targetSamples = 1;
+
+        const w = canvasTarget.domElement.width || 1;
+        const h = canvasTarget.domElement.height || 1;
+
+        // Get fullscreen resources
+        const fullscreenMesh = this._getFullscreenMesh(material);
+        const fullscreenScene = this._getFullscreenScene();
+        const fullscreenCamera = this._getFullscreenCamera();
+
+        // Get/create RenderContext for this quad pass (no depth — inspector previews don't need it)
+        const renderContext = getRenderContext(this._renderContexts, null, null, 0);
+        renderContext.sampleCount = targetSamples;
+        renderContext.width = w;
+        renderContext.height = h;
+        renderContext.camera = fullscreenCamera;
+        const [cr, cg, cb, ca] = this.clearColor;
+        renderContext.clearColorValue = { r: cr, g: cg, b: cb, a: ca };
+
+        // Get/create RenderObject (compile shader + pipeline if needed)
+        const renderObject = getRenderObject(
+            this._renderObjects,
+            fullscreenMesh,
+            material,
+            fullscreenScene,
+            fullscreenCamera,
+            renderContext,
+            'quad',
+        );
+
+        const initialized = initRenderObject(
+            this._renderObjects,
+            renderObject,
+            targetFormat,
+            null, // no depth format for preview quads
+        );
+
+        if (!initialized || !renderObject.pipeline || !renderObject.nodeBuilderState) {
+            return;
+        }
+
+        // Update uniforms / bind groups (textures sampled by the preview material
+        // are already uploaded by the main render loop).
+        // Set up frame context for quad render
+        const frame = this._nodes.nodeFrame;
+        frame.renderer = this;
+        frame.camera = fullscreenCamera;
+        frame.object = fullscreenMesh;
+        frame.scene = fullscreenScene;
+        frame.material = material;
+        frame.encoder = encoder;
+        frame.width = w;
+        frame.height = h;
+        updateRenderObject(
+            this._renderObjects,
+            renderObject,
+            frame,
+        );
+
+        // Build color attachment — write to the current canvas target directly.
+        const ctx = canvasTarget.getContext(this.device, this.format, 'opaque');
+        const swapchainView = ctx.getCurrentTexture().createView();
+
+        const gpuPass = encoder.beginRenderPass({
+            colorAttachments: [{
+                view: swapchainView,
+                clearValue: { r: cr, g: cg, b: cb, a: ca },
+                loadOp: 'clear',
+                storeOp: 'store',
+            }],
+            // No depth stencil — inspector preview quads use depthTest: false
+        });
+
+        gpuPass.setPipeline(renderObject.pipeline);
+
+        const bindGroups = renderObject.bindGroups;
+        if (bindGroups) {
+            for (let i = 0; i < bindGroups.length; i++) {
+                gpuPass.setBindGroup(i, bindGroups[i]);
+            }
+        }
+
+        gpuPass.draw(3, 1);
+        gpuPass.end();
     }
 
     /**
@@ -1015,8 +1165,16 @@ export class WebGPURenderer {
         const depthFormat = this.pipelines.depthFormat;
         const width = this.domElement.width || 1;
         const height = this.domElement.height || 1;
-        const delta = this.lastTimestamp === 0 ? 0 : performance.now() / 1000 - this.lastTimestamp;
         const [cr, cg, cb, ca] = this.clearColor;
+
+        // Set up frame context for this renderScene call
+        const frame = this._nodes.nodeFrame;
+        frame.renderer = this;
+        frame.camera = camera;
+        frame.scene = scene;
+        frame.encoder = encoder;
+        frame.width = width;
+        frame.height = height;
 
         // Increment call ID for attribute deduplication
         incrementCallId(this._attributes);
@@ -1148,18 +1306,23 @@ export class WebGPURenderer {
                     continue;
                 }
 
+                // Notify inspector of any inspectable nodes in this mesh's compiled graph
+                for (const node of nodeState.inspectableNodes) {
+                    this.inspector.inspect(node);
+                }
+
                 // Note: Texture upload is now handled by the Bindings system (Three.js aligned)
                 // See bindings.ts rebuildBindGroups() - it calls updateTexture/getSampler
 
                 // Update RenderObject (uniforms, bind groups)
+                // Update frame context for this specific mesh
+                const frame = this._nodes.nodeFrame;
+                frame.object = mesh;
+                frame.material = material;
                 updateRenderObject(
                     this._renderObjects,
                     renderObject,
-                    camera,
-                    this.elapsed,
-                    delta,
-                    width,
-                    height,
+                    frame,
                 );
 
                 // Set pipeline if changed
@@ -1564,19 +1727,18 @@ function packUniformGroup(block: UniformGroupBlock): Float32Array {
 
 /**
  * Invoke update callbacks on all UniformNodes in a uniform group block.
- * - For renderGroup uniforms: pass RenderUpdateContext { camera, elapsed, delta }
- * - For objectGroup uniforms: pass ObjectUpdateContext { object }
+ * The NodeFrame carries all context: camera, time, deltaTime, object, etc.
  *
  * Each callback returns the value to assign to node.value.
  */
 function invokeUniformGroupCallbacks(
     block: UniformGroupBlock,
-    context: RenderUpdateContext | ObjectUpdateContext,
+    frame: NodeFrame,
 ): void {
     for (const member of block.members) {
         const node = member.node;
         if (node.update) {
-            const result = node.update(context);
+            const result = node.update(frame);
             if (result !== undefined) {
                 node.value = result as typeof node.value;
                 node.version++;

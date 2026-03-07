@@ -263,6 +263,26 @@ export class ShaderPanel {
         this._renderCurrentStage();
     }
 
+    /**
+     * Update the panel directly from a RenderObject.
+     * Used by the DrawCalls tab where we already have the RO.
+     */
+    updateFromRO(inspector: Inspector, ro: RenderObject): void {
+        this._inspector = inspector;
+
+        if (!ro.nodeBuilderState) {
+            this._setCompiling();
+            return;
+        }
+
+        // Skip expensive re-render if the RO and code haven't changed
+        if (this._renderObject === ro) return;
+
+        this._renderObject = ro;
+        this._stages = splitStages(ro.nodeBuilderState.code);
+        this._renderCurrentStage();
+    }
+
     // -----------------------------------------------------------------------
     // Private
     // -----------------------------------------------------------------------

@@ -10,7 +10,7 @@
  * exported for convenience and for use without chaining.
  */
 
-import type { ObjectUpdateContext, RenderUpdateContext } from '../renderer/render-frame';
+import type { NodeFrame } from '../renderer/node-frame';
 import { InstancedBufferAttribute, StorageBufferAttribute } from 'src/geometry/attribute';
 import { getChildren as _getChildren } from './collect';
 import * as d from './schema';
@@ -168,7 +168,8 @@ export type NodeKind =
     | 'wgsl_fn'
     | 'param'
     | 'return'
-    | 'output_struct';
+    | 'output_struct'
+    | 'inspector';
 
 export type StructMember = { readonly name: string; readonly type: WgslType };
 export type BuiltinKind =
@@ -257,7 +258,7 @@ export class Node<T extends WgslType> {
      * The update callback. Invoked based on updateType.
      * Set via onUpdate(), onRenderUpdate(), onObjectUpdate().
      */
-    update?: (context: RenderUpdateContext | ObjectUpdateContext) => unknown;
+    update?: (frame: NodeFrame) => unknown;
 
     constructor(id: string, kind: NodeKind, type: T) {
         this.id = id;
@@ -267,13 +268,13 @@ export class Node<T extends WgslType> {
 
     /**
      * Set an update callback that will be invoked based on updateType.
-     * The callback receives a context object and can return a value to assign.
+     * The callback receives a NodeFrame and can return a value to assign.
      *
-     * @param callback - The update function. Receives context, returns value.
+     * @param callback - The update function. Receives NodeFrame, returns value.
      * @param updateType - When to invoke: 'frame', 'render', or 'object'.
      * @returns this for method chaining.
      */
-    onUpdate(callback: (context: RenderUpdateContext | ObjectUpdateContext) => unknown, updateType: NodeUpdateType): this {
+    onUpdate(callback: (frame: NodeFrame) => unknown, updateType: NodeUpdateType): this {
         this.updateType = updateType;
         this.update = callback;
         return this;
@@ -283,30 +284,30 @@ export class Node<T extends WgslType> {
      * Set an update callback invoked once per render() call.
      * Used for camera uniforms, time, etc. that are shared across all objects in a render.
      *
-     * @param callback - Receives RenderUpdateContext { camera, elapsed, delta }.
+     * @param callback - Receives NodeFrame. Access camera, time, deltaTime from frame.
      * @returns this for method chaining.
      *
      * @example
      * const cameraView = new UniformNode('mat4x4f', 'cameraViewMatrix', renderGroup)
-     *     .onRenderUpdate(({ camera }) => camera.matrixWorldInverse);
+     *     .onRenderUpdate((frame) => frame.camera!.matrixWorldInverse);
      */
-    onRenderUpdate(callback: (context: RenderUpdateContext) => unknown): this {
-        return this.onUpdate(callback as (ctx: RenderUpdateContext | ObjectUpdateContext) => unknown, NodeUpdateType.RENDER);
+    onRenderUpdate(callback: (frame: NodeFrame) => unknown): this {
+        return this.onUpdate(callback, NodeUpdateType.RENDER);
     }
 
     /**
      * Set an update callback invoked once per object/mesh.
      * Used for model matrices, per-object material properties, etc.
      *
-     * @param callback - Receives ObjectUpdateContext { object }.
+     * @param callback - Receives NodeFrame. Access object from frame.
      * @returns this for method chaining.
      *
      * @example
      * const modelMatrix = new UniformNode('mat4x4f', 'modelWorldMatrix', objectGroup)
-     *     .onObjectUpdate(({ object }) => object.matrixWorld);
+     *     .onObjectUpdate((frame) => frame.object!.matrixWorld);
      */
-    onObjectUpdate(callback: (context: ObjectUpdateContext) => unknown): this {
-        return this.onUpdate(callback as (ctx: RenderUpdateContext | ObjectUpdateContext) => unknown, NodeUpdateType.OBJECT);
+    onObjectUpdate(callback: (frame: NodeFrame) => unknown): this {
+        return this.onUpdate(callback, NodeUpdateType.OBJECT);
     }
 
     /**
@@ -2417,39 +2418,39 @@ export function color(input: ColorInput): ConstNode<'vec3f'> {
 
 /** Projection matrix of the scene camera. In renderGroup. */
 export const cameraProjectionMatrix = /*@__PURE__*/ new UniformNode('mat4x4f', 'cameraProjectionMatrix', renderGroup)
-    .onRenderUpdate(({ camera }) => camera.projectionMatrix);
+    .onRenderUpdate((frame) => frame.camera!.projectionMatrix);
 
 /** View (world-to-camera) matrix. In renderGroup. */
 export const cameraViewMatrix = /*@__PURE__*/ new UniformNode('mat4x4f', 'cameraViewMatrix', renderGroup)
-    .onRenderUpdate(({ camera }) => camera.matrixWorldInverse);
+    .onRenderUpdate((frame) => frame.camera!.matrixWorldInverse);
 
 /** Camera world-space position. In renderGroup. */
 export const cameraPosition = /*@__PURE__*/ new UniformNode('vec3f', 'cameraPosition', renderGroup)
-    .onRenderUpdate(({ camera }) => camera.position);
+    .onRenderUpdate((frame) => frame.camera!.position);
 
 /** Camera near plane distance. In renderGroup. */
 export const cameraNear = /*@__PURE__*/ new UniformNode('f32', 'cameraNear', renderGroup)
-    .onRenderUpdate(({ camera }) => camera.near);
+    .onRenderUpdate((frame) => frame.camera!.near);
 
 /** Camera far plane distance. In renderGroup. */
 export const cameraFar = /*@__PURE__*/ new UniformNode('f32', 'cameraFar', renderGroup)
-    .onRenderUpdate(({ camera }) => camera.far);
+    .onRenderUpdate((frame) => frame.camera!.far);
 
 /** Elapsed time in seconds. In renderGroup. */
 export const timeElapsed = /*@__PURE__*/ new UniformNode('f32', 'timeElapsed', renderGroup)
-    .onRenderUpdate(({ elapsed }) => elapsed);
+    .onRenderUpdate((frame) => frame.time);
 
 /** Frame delta time in seconds. In renderGroup. */
 export const timeDelta = /*@__PURE__*/ new UniformNode('f32', 'timeDelta', renderGroup)
-    .onRenderUpdate(({ delta }) => delta);
+    .onRenderUpdate((frame) => frame.deltaTime);
 
 /** Model-to-world transform matrix. In objectGroup. Three.js name: modelWorldMatrix. */
 export const modelWorldMatrix = /*@__PURE__*/ new UniformNode('mat4x4f', 'modelWorldMatrix', objectGroup)
-    .onObjectUpdate(({ object }) => object.matrixWorld);
+    .onObjectUpdate((frame) => frame.object!.matrixWorld);
 
 /** Normal matrix (inverse-transpose of upper-left 3x3 of model matrix). In objectGroup. */
 export const modelNormalMatrix = /*@__PURE__*/ new UniformNode('mat3x3f', 'modelNormalMatrix', objectGroup)
-    .onObjectUpdate(({ object }) => object.normalMatrix);
+    .onObjectUpdate((frame) => frame.object!.normalMatrix);
 
 /** @builtin(instance_index) — the instance index for instanced draw calls. */
 export const instanceIndex: BuiltinNode<'u32'> = /*@__PURE__*/ builtin('instance_index', 'u32');

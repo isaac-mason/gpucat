@@ -33,7 +33,7 @@
  *   Group 0, binding 0, 1, … — storage buffers (declared order in ComputeNode.storage)
  */
 
-import type { RenderFrame } from '../renderer/render-frame';
+import type { NodeFrame } from '../renderer/node-frame';
 import { collectGraph, getChildren } from './collect';
 import type { ComputeNode, StructDef } from './nodes';
 import {
@@ -188,21 +188,21 @@ function buildForHeader(
 export type UpdateBeforeNode = {
     readonly id: string;
     readonly updateBeforeType: NodeUpdateType;
-    updateBefore(frame: RenderFrame): boolean | void;
+    updateBefore(frame: NodeFrame): boolean | void;
 };
 
 /** interface for nodes that need to execute GPU work after each draw call */
 export type UpdateAfterNode = {
     readonly id: string;
     readonly updateAfterType: NodeUpdateType;
-    updateAfter(frame: RenderFrame): boolean | void;
+    updateAfter(frame: NodeFrame): boolean | void;
 };
 
 /** interface for nodes that push CPU data into GPU uniforms each frame/render/object */
 export type UpdateNode = {
     readonly id: string;
     readonly updateType: NodeUpdateType;
-    update(frame: RenderFrame): boolean | void;
+    update(frame: NodeFrame): boolean | void;
 };
 
 export type AttributeEntry =
@@ -880,10 +880,14 @@ function getBindings(state: CompilerState): BindGroup[] {
     }
 
     // create BindGroup objects
+    const BINDING_ORDER: Record<BindingEntry['type'], number> = { uniform: 0, storage: 1, texture: 2, sampler: 3 };
     const bindGroups: BindGroup[] = [];
     for (const groupName in groups) {
         const bindings = groups[groupName];
         if (bindings.length === 0) continue;
+
+        // sort so uniform is always first — binding 0 is hardcoded for uniforms in the renderer
+        bindings.sort((a, b) => BINDING_ORDER[a.type] - BINDING_ORDER[b.type]);
 
         bindGroups.push({
             name: groupName,
@@ -984,6 +988,7 @@ function setupNode(state: CompilerState, node: Node<WgslType>): void {
     // auto-detect f16 types and enable directive
     if (node.type === undefined) {
         console.error('[gpucat] node with undefined type — kind:', node.kind, 'id:', node.id, node);
+        return;
     }
     if (requiresF16Directive(node.type)) {
         enableDirective(state, 'f16');

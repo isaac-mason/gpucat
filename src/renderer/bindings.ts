@@ -18,9 +18,8 @@ import { getBindings as getRenderObjectBindings } from './render-object';
 import type { NodeBuilderState } from './node-builder-state';
 import type { BufferCache } from './buffers';
 import type { TextureCache } from './textures';
-import type { RenderUpdateContext, ObjectUpdateContext } from './render-frame';
+import type { NodeFrame } from './node-frame';
 import type { UniformGroupBlock } from '../nodes/compile';
-import type { Camera } from '../camera/camera';
 import { uploadStorage, uploadRaw, getRaw } from './buffers';
 import { updateTexture, getSampler } from './textures';
 import {
@@ -130,20 +129,12 @@ function getData(state: BindingsState, bindGroup: BindGroup): BindGroupData {
  *
  * @param state - The Bindings state
  * @param renderObject - The RenderObject to update
- * @param camera - Current camera (for render group)
- * @param elapsed - Elapsed time
- * @param delta - Delta time
- * @param width - Render width
- * @param height - Render height
+ * @param frame - NodeFrame with camera, time, object, etc.
  */
 export function updateBindings(
     state: BindingsState,
     renderObject: RenderObject,
-    camera: Camera,
-    elapsed: number,
-    delta: number,
-    width: number,
-    height: number,
+    frame: NodeFrame,
 ): void {
     const nodeState = renderObject.nodeBuilderState;
     if (!nodeState) return;
@@ -159,7 +150,7 @@ export function updateBindings(
         _initBindGroup(state, bindGroup, nodeState);
 
         // Update uniforms and check if bind group needs rebuild
-        _updateBindGroup(state, bindGroup, renderObject, camera, elapsed, delta, width, height);
+        _updateBindGroup(state, bindGroup, renderObject, frame);
 
         // Rebuild GPU bind group if needed
         const data = getData(state, bindGroup);
@@ -371,20 +362,15 @@ function _buildLayoutEntries(
 function _updateBindGroup(
     state: BindingsState,
     bindGroup: BindGroup,
-    renderObject: RenderObject,
-    camera: Camera,
-    elapsed: number,
-    delta: number,
-    width: number,
-    height: number,
+    _renderObject: RenderObject,
+    frame: NodeFrame,
 ): void {
     const data = getData(state, bindGroup);
-    const mesh = renderObject.mesh;
 
     for (const binding of bindGroup.bindings) {
         switch (binding.kind) {
             case 'uniform':
-                _updateUniformBinding(state, binding, bindGroup, mesh, camera, elapsed, delta, width, height, data);
+                _updateUniformBinding(state, binding, bindGroup, frame, data);
                 break;
 
             case 'texture':
@@ -409,30 +395,19 @@ function _updateUniformBinding(
     state: BindingsState,
     binding: UniformBinding,
     _bindGroup: BindGroup,
-    mesh: import('../objects/mesh').Mesh,
-    camera: Camera,
-    elapsed: number,
-    delta: number,
-    width: number,
-    height: number,
+    frame: NodeFrame,
     data: BindGroupData,
 ): void {
     const block = binding.block;
 
-    // Create update context based on group type
-    if (block.groupName === 'render') {
-        const context: RenderUpdateContext = { camera, elapsed, delta, width, height };
-        _invokeUniformGroupCallbacks(block, context);
-    } else {
-        const context: ObjectUpdateContext = { object: mesh };
-        _invokeUniformGroupCallbacks(block, context);
-    }
+    // Invoke update callbacks with the NodeFrame
+    _invokeUniformGroupCallbacks(block, frame);
 
     // Compute version sum
     let versionSum = 0;
     if (block.groupName === 'object') {
         // Include mesh matrix version for object group
-        versionSum = mesh.matrixVersion ?? 0;
+        versionSum = frame.object?.matrixVersion ?? 0;
     }
     for (const m of block.members) {
         versionSum += m.node.version;
@@ -615,12 +590,12 @@ function _rebuildGPUBindGroup(
  */
 function _invokeUniformGroupCallbacks(
     block: UniformGroupBlock,
-    context: RenderUpdateContext | ObjectUpdateContext,
+    frame: NodeFrame,
 ): void {
     for (const m of block.members) {
         const node = m.node;
         if (node.update) {
-            const result = node.update(context);
+            const result = node.update(frame);
             // If callback returns a value, assign it to the node and bump version
             if (result !== undefined) {
                 node.value = result as typeof node.value;

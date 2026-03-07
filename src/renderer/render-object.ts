@@ -90,6 +90,9 @@ export type RenderObject = {
     /** The render context (framebuffer config). */
     renderContext: RenderContext;
 
+    /** The render pass this RenderObject belongs to (e.g. 'default', 'shadow'). */
+    passId: string;
+
     /** Optional geometry group for multi-material meshes. */
     group: GeometryGroup | null;
 
@@ -225,6 +228,7 @@ export function createRenderObject(
         camera,
         scene,
         renderContext,
+        passId: '',
         group,
 
         // Compiled state (lazy)
