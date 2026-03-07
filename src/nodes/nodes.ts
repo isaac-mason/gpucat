@@ -170,74 +170,6 @@ export class Node<T extends WgslType> {
         return this.before(new InspectorNode(this, name) as Node<WgslType>);
     }
 
-    /**
-     * Generator function that can be used to iterate over the child nodes.
-     *
-     * @yields A child node.
-     */
-    *getChildren(): Generator<Node<WgslType>> {
-        for (const { childNode } of this._getChildren()) {
-            yield childNode;
-        }
-    }
-
-    /**
-     * Can be used to traverse through the node's hierarchy.
-     *
-     * @param callback - A callback that is executed per node.
-     */
-    traverse(callback: (node: Node<WgslType>) => void): void {
-        callback(this);
-        for (const childNode of this.getChildren()) {
-            childNode.traverse(callback);
-        }
-    }
-
-    /**
-     * Returns the child nodes of this node.
-     *
-     * @param ignores - A set of nodes to ignore during the search to avoid circular references.
-     * @returns An array of objects describing the child nodes.
-     */
-    _getChildren(ignores: Set<Node<WgslType>> = new Set()): Array<{ property: string; index?: number | string; childNode: Node<WgslType> }> {
-        const children: Array<{ property: string; index?: number | string; childNode: Node<WgslType> }> = [];
-
-        // avoid circular references
-        ignores.add(this);
-
-        for (const property of Object.getOwnPropertyNames(this)) {
-            const object = (this as Record<string, unknown>)[property];
-
-            // Ignore private properties and ignored nodes.
-            if (property.startsWith('_') === true || ignores.has(object as Node<WgslType>)) continue;
-
-            if (Array.isArray(object) === true) {
-                for (let i = 0; i < object.length; i++) {
-                    const child = object[i];
-
-                    if (child && (child as Node<WgslType>).isNode === true) {
-                        children.push({ property, index: i, childNode: child as Node<WgslType> });
-                    }
-                }
-            } else if (object && (object as Node<WgslType>).isNode === true) {
-                children.push({ property, childNode: object as Node<WgslType> });
-            } else if (object && Object.getPrototypeOf(object) === Object.prototype) {
-                for (const subProperty in object as object) {
-                    // Ignore private sub-properties.
-                    if (subProperty.startsWith('_') === true) continue;
-
-                    const child = (object as Record<string, unknown>)[subProperty];
-
-                    if (child && (child as Node<WgslType>).isNode === true) {
-                        children.push({ property, index: subProperty, childNode: child as Node<WgslType> });
-                    }
-                }
-            }
-        }
-
-        return children;
-    }
-
     // arithmetic — delegate to the standalone functions (source of truth)
     add<B extends WgslType>(b: Node<B>): Node<ArithResult<T, B>> { return add(this, b); }
     sub<B extends WgslType>(b: Node<B>): Node<ArithResult<T, B>> { return sub(this, b); }
@@ -1209,16 +1141,6 @@ export class VaryingNode<T extends WgslType> extends Node<T> {
         this.interpolationType = type;
         this.interpolationSampling = sampling ?? null;
         return this;
-    }
-
-    /**
-     * Override _getChildren to return empty.
-     * VaryingNode bridges vertex → fragment stages. The source node (this.node)
-     * is vertex-stage data and should NOT be traversed as a child during
-     * fragment-stage validation or traversal.
-     */
-    override _getChildren(): Array<{ property: string; index?: number | string; childNode: Node<WgslType> }> {
-        return [];
     }
 }
 
@@ -3059,10 +2981,6 @@ export class OutputStructNode extends Node<'vec4f'> {
         super(id ?? `_output_struct_${_outputStructCounter++}`, 'output_struct', 'vec4f');
         this.members = members;
     }
-
-    override _getChildren(): Array<{ property: string; index?: number | string; childNode: Node<WgslType> }> {
-        return this.members.map((m, i) => ({ property: 'members', index: i, childNode: m }));
-    }
 }
 
 let _mrtCounter = 0;
@@ -3165,20 +3083,6 @@ export class MRTNode extends OutputStructNode {
         this.members = members;
         this._resolvedNames = names;
     }
-
-    override _getChildren(): Array<{ property: string; index?: number | string; childNode: Node<WgslType> }> {
-        // Before setup, return outputNodes values; after setup, use members
-        if (this.members.length > 0) {
-            return this.members
-                .filter(Boolean)
-                .map((m, i) => ({ property: 'members', index: i, childNode: m }));
-        }
-        return Object.entries(this.outputNodes).map(([key, node]) => ({
-            property: 'outputNodes',
-            index: key,
-            childNode: node,
-        }));
-    }
 }
 
 /**
@@ -3244,36 +3148,6 @@ export class ComputeNode {
         this.workgroupSize = opts.workgroupSize ?? [64, 1, 1];
         const d = opts.dispatch;
         this.dispatch = [d[0], d[1] ?? 1, d[2] ?? 1];
-    }
-
-    /**
-     * Trace the Fn body and infer storage buffers from the graph.
-     * Returns { body, storage } — called once by compileCompute().
-     */
-    trace(): { body: StackNode; storage: StorageNode<WgslType>[] } {
-        const { body } = this.fn.trace();
-
-        const storage: StorageNode<WgslType>[] = [];
-        const seen = new Set<string>();
-        const queue: Node<WgslType>[] = [body];
-        const visited = new Set<string>();
-
-        while (queue.length > 0) {
-            const node = queue.pop()!;
-            if (visited.has(node.id)) continue;
-            visited.add(node.id);
-            if (node.kind === 'storage') {
-                if (!seen.has(node.id)) {
-                    seen.add(node.id);
-                    storage.push(node as StorageNode<WgslType>);
-                }
-            }
-            for (const child of node.getChildren()) {
-                queue.push(child);
-            }
-        }
-
-        return { body, storage };
     }
 }
 
