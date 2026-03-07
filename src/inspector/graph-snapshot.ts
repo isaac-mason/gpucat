@@ -19,7 +19,7 @@
  */
 
 import type { Node, NodeKind, WgslType } from '../nodes/nodes';
-import type { NodeGraphInfo } from '../nodes/node-builder';
+import type { NodeGraphInfo } from '../nodes/builder';
 
 // Re-export NodeGraphInfo so consumers only import from graph-snapshot.ts.
 export type { NodeGraphInfo };
@@ -95,6 +95,9 @@ export function nodeKindGroup(kind: NodeKind): NodeKindGroup {
         case 'loop':
         case 'fn':
         case 'wgsl_fn':
+        case 'code':
+        case 'function':
+        case 'functionCall':
         case 'break':
         case 'continue':
         case 'return':

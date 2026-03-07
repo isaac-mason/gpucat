@@ -1,9 +1,32 @@
 import type { RenderObject } from './render-object';
 import { NodeFrame, createNodeFrame } from './node-frame';
 import type { NodeBuilderState } from './node-builder-state';
-import type { CompileResult } from '../nodes/node-builder';
-import { compile } from '../nodes/node-builder';
+import type { CompileResult, ComputeCompileResult, UpdateNode } from '../nodes/builder';
+import { compile, compileCompute } from '../nodes/builder';
 import { createNodeBuilderState } from './node-builder-state';
+import type { ComputeNode } from '../nodes/nodes';
+
+/**
+ * ComputeBuilderState - Compiled shader state for a ComputeNode.
+ * 
+ * Similar to NodeBuilderState but for compute shaders.
+ * Contains everything needed to create compute pipelines and run updates.
+ */
+export type ComputeBuilderState = {
+    /** WGSL compute shader code. */
+    code: string;
+
+    /** The compute compile result (storage, uniforms, etc.). */
+    compileResult: ComputeCompileResult;
+
+    /** Nodes to update during compute dispatch. */
+    updateNodes: UpdateNode[];
+
+    /** Version of the ComputeNode when compiled. */
+    version: number;
+
+    readonly isComputeBuilderState: true;
+};
 
 /** node compilation and updates state */
 export type NodeManagerState = {
@@ -13,22 +36,22 @@ export type NodeManagerState = {
      */
     nodeStates: WeakMap<RenderObject, NodeBuilderState>;
 
+    /**
+     * Per-ComputeNode ComputeBuilderState.
+     * Keyed by ComputeNode id string.
+     */
+    computeStates: Map<string, ComputeBuilderState>;
+
     /** the NodeFrame instance for this manager */
     nodeFrame: NodeFrame;
-
-    /**
-     * Environment cache key - invalidated when global state changes.
-     * (e.g., lighting, fog, environment maps - deferred for now)
-     */
-    environmentCacheKey: number;
 };
 
 /** create a new NodeManager state */
 export function createNodeManagerState(): NodeManagerState {
     return {
         nodeStates: new WeakMap(),
+        computeStates: new Map(),
         nodeFrame: createNodeFrame(),
-        environmentCacheKey: 0,
     };
 }
 
@@ -82,10 +105,10 @@ export function setNodeBuilderState(
 /**
  * Compile and set the NodeBuilderState for a RenderObject.
  *
- * @param state - The NodeManager state
- * @param renderObject - The RenderObject to compile for
- * @param cacheKey - The pipeline cache key
- * @returns The compiled NodeBuilderState and the raw CompileResult
+ * @param state the NodeManager state
+ * @param renderObject the RenderObject to compile for
+ * @param cacheKey the pipeline cache key
+ * @returns the compiled NodeBuilderState and the raw CompileResult
  */
 export function compileNodeState(
     state: NodeManagerState,
@@ -94,7 +117,7 @@ export function compileNodeState(
 ): { nodeState: NodeBuilderState; compileResult: CompileResult } {
     const material = renderObject.material;
 
-    // Compile the material's node graph
+    // compile the material's node graph
     const compileResult: CompileResult = compile({
         position: material.vertexNode,
         color: material.fragmentNode,
@@ -102,10 +125,10 @@ export function compileNodeState(
         depth: material.depthNode,
     });
 
-    // Create NodeBuilderState from compile result
+    // create NodeBuilderState from compile result
     const nodeState = createNodeBuilderState(compileResult, cacheKey);
 
-    // Store in manager and on render object
+    // store in manager and on render object
     setNodeBuilderState(state, renderObject, nodeState);
 
     return { nodeState, compileResult };
@@ -143,8 +166,8 @@ export function deleteNodeState(
  * updateBefore is called before the draw call for nodes that need to
  * perform GPU work (compute passes, render to texture, etc.)
  *
- * @param state - The NodeManager state
- * @param renderObject - The RenderObject
+ * @param state the NodeManager state
+ * @param renderObject the RenderObject
  */
 export function updateBefore(
     state: NodeManagerState,
@@ -166,8 +189,8 @@ export function updateBefore(
  * update is called to execute node logic each frame/render/object.
  * (e.g., InspectorNode registering with inspector)
  *
- * @param state - The NodeManager state
- * @param renderObject - The RenderObject
+ * @param state the NodeManager state
+ * @param renderObject the RenderObject
  */
 export function updateForRender(
     state: NodeManagerState,
@@ -188,8 +211,8 @@ export function updateForRender(
  *
  * updateAfter is called after the draw call for cleanup, readback, etc.
  *
- * @param state - The NodeManager state
- * @param renderObject - The RenderObject
+ * @param state the NodeManager state
+ * @param renderObject the RenderObject
  */
 export function updateAfter(
     state: NodeManagerState,
@@ -206,18 +229,107 @@ export function updateAfter(
 }
 
 /**
- * Invalidate the environment cache key.
+ * Get the ComputeBuilderState for a ComputeNode.
+ * Compiles the compute shader if not already compiled.
  *
- * Call this when global state changes (lighting, fog, environment maps).
- * This will cause all RenderObjects to recompile.
+ * @param state the NodeManager state
+ * @param computeNode the ComputeNode
+ * @returns the ComputeBuilderState
  */
-export function invalidateEnvironment(state: NodeManagerState): void {
-    state.environmentCacheKey++;
+export function getForCompute(
+    state: NodeManagerState,
+    computeNode: ComputeNode,
+): ComputeBuilderState {
+    let computeState = state.computeStates.get(computeNode.id);
+
+    if (!computeState) {
+        computeState = compileComputeNode(state, computeNode);
+    }
+
+    return computeState;
 }
 
 /**
- * Get the current environment cache key.
+ * Compile a ComputeNode and cache the result.
+ *
+ * @param state the NodeManager state
+ * @param computeNode the ComputeNode to compile
+ * @returns the compiled ComputeBuilderState
  */
-export function getEnvironmentCacheKey(state: NodeManagerState): number {
-    return state.environmentCacheKey;
+function compileComputeNode(
+    state: NodeManagerState,
+    computeNode: ComputeNode,
+): ComputeBuilderState {
+    const compileResult = compileCompute(computeNode);
+
+    // extract update nodes from the compile result
+    // for compute, we use the uniform update callbacks
+    const updateNodes: UpdateNode[] = [];
+    for (const ug of compileResult.uniformGroups) {
+        for (const member of ug.members) {
+            const node = member.node;
+            if (node.update) {
+                updateNodes.push({
+                    id: node.id,
+                    updateType: node.updateType ?? 'frame',
+                    update: (frame) => {
+                        const result = node.update!(frame);
+                        if (result !== undefined) {
+                            node.value = result as typeof node.value;
+                            node.version++;
+                        }
+                        return true;
+                    },
+                });
+            }
+        }
+    }
+
+    const computeState: ComputeBuilderState = {
+        code: compileResult.code,
+        compileResult,
+        updateNodes,
+        version: 0, // ComputeNode doesn't have version tracking yet
+        isComputeBuilderState: true,
+    };
+
+    state.computeStates.set(computeNode.id, computeState);
+
+    return computeState;
+}
+
+/**
+ * Run update for a ComputeNode's nodes.
+ *
+ * update is called to execute node logic each frame/render.
+ * (e.g., time uniforms)
+ *
+ * @param state the NodeManager state
+ * @param computeNode the ComputeNode
+ */
+export function updateForCompute(
+    state: NodeManagerState,
+    computeNode: ComputeNode,
+): void {
+    const computeState = state.computeStates.get(computeNode.id);
+    if (!computeState) return;
+
+    const frame = getNodeFrame(state);
+
+    for (const node of computeState.updateNodes) {
+        frame.updateNode(node);
+    }
+}
+
+/**
+ * Delete the ComputeBuilderState for a ComputeNode.
+ *
+ * @param state the NodeManager state
+ * @param computeNode the ComputeNode
+ */
+export function deleteComputeState(
+    state: NodeManagerState,
+    computeNode: ComputeNode,
+): void {
+    state.computeStates.delete(computeNode.id);
 }

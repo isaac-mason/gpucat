@@ -1,16 +1,10 @@
-import type { CompileResult, ComputeCompileResult } from '../nodes/node-builder';
-
-// ---------------------------------------------------------------------------
-// Bind Group Layout Cache
-// ---------------------------------------------------------------------------
+import type { ComputeCompileResult } from '../nodes/builder';
 
 export type BindGroupLayoutCache = {
     cache: Map<string, GPUBindGroupLayout>;
 };
 
-/**
- * Create a bind group layout cache.
- */
+/** create a bind group layout cache */
 export function createBindGroupLayoutCache(): BindGroupLayoutCache {
     return { cache: new Map() };
 }
@@ -54,10 +48,6 @@ function hashString(str: string): string {
     return (hash >>> 0).toString(36);
 }
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 /** bind group representing a collection of bindings */
 export type BindGroup = {
     /** the bind group's name (e.g. 'render', 'object'). */
@@ -81,97 +71,6 @@ export type BindGroupInfo = {
 };
 
 /**
- * Build bind group layouts and info from a CompileResult.
- *
- * iterates through uniformGroups (already sorted by order) and creates bind group layouts at the indices specified by groupIndex.
- * Storage/textures/samplers are added to their respective groups.
- */
-export function buildBindGroupInfo(
-    device: GPUDevice,
-    cr: CompileResult,
-    layoutCache: BindGroupLayoutCache,
-): BindGroupInfo {
-    const vis = GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT;
-
-    const groupEntriesMap = new Map<number, { name: string; entries: GPUBindGroupLayoutEntry[] }>();
-
-    for (const ug of cr.uniformGroups) {
-        if (ug.members.length === 0) continue;
-        groupEntriesMap.set(ug.groupIndex, {
-            name: ug.groupName,
-            entries: [{
-                binding: 0,
-                visibility: vis,
-                buffer: { type: 'uniform' },
-            }],
-        });
-    }
-
-    for (const s of cr.storage) {
-        let groupData = groupEntriesMap.get(s.group);
-        if (!groupData) {
-            const ug = cr.uniformGroups.find(g => g.groupIndex === s.group);
-            groupData = { name: ug?.groupName ?? 'object', entries: [] };
-            groupEntriesMap.set(s.group, groupData);
-        }
-        groupData.entries.push({
-            binding: s.binding,
-            visibility: vis,
-            buffer: { type: 'read-only-storage' },
-        });
-    }
-
-    for (const t of cr.textures) {
-        let groupData = groupEntriesMap.get(t.group);
-        if (!groupData) {
-            const ug = cr.uniformGroups.find(g => g.groupIndex === t.group);
-            groupData = { name: ug?.groupName ?? 'object', entries: [] };
-            groupEntriesMap.set(t.group, groupData);
-        }
-        groupData.entries.push({
-            binding: t.binding,
-            visibility: GPUShaderStage.FRAGMENT,
-            texture: {},
-        });
-    }
-
-    for (const s of cr.samplers) {
-        let groupData = groupEntriesMap.get(s.group);
-        if (!groupData) {
-            const ug = cr.uniformGroups.find(g => g.groupIndex === s.group);
-            groupData = { name: ug?.groupName ?? 'object', entries: [] };
-            groupEntriesMap.set(s.group, groupData);
-        }
-        groupData.entries.push({
-            binding: s.binding,
-            visibility: GPUShaderStage.FRAGMENT,
-            sampler: {},
-        });
-    }
-
-    const sortedIndices = [...groupEntriesMap.keys()].sort((a, b) => a - b);
-    const bindGroups: BindGroup[] = [];
-    let renderGroupIndex = -1;
-    let objectGroupIndex = -1;
-
-    for (const groupIdx of sortedIndices) {
-        const groupData = groupEntriesMap.get(groupIdx)!;
-        const layout = getBindGroupLayout(layoutCache, device, groupData.entries);
-        const bgIndex = bindGroups.length;
-        bindGroups.push({
-            name: groupData.name,
-            index: bgIndex,
-            layout,
-            entryCount: groupData.entries.length,
-        });
-        if (groupData.name === 'render') renderGroupIndex = bgIndex;
-        if (groupData.name === 'object') objectGroupIndex = bgIndex;
-    }
-
-    return { bindGroups, renderGroupIndex, objectGroupIndex };
-}
-
-/**
  * Build bind group info for compute pipelines.
  * iterates through uniformGroups and storage entries, respecting their group indices as assigned by the compiler.
  */
@@ -189,7 +88,7 @@ export function buildComputeBindGroupInfo(
         groupEntriesMap.set(ug.groupIndex, {
             name: ug.groupName,
             entries: [{
-                binding: 0,
+                binding: ug.binding,
                 visibility: vis,
                 buffer: { type: 'uniform' },
             }],

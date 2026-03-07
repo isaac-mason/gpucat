@@ -92,7 +92,7 @@ export class Memory extends Tab {
         setText(this.indexBuffers.data[1] as HTMLElement, bs.indexCount.toString());
         setText(this.storageBuffers.data[1] as HTMLElement, bs.storageCount.toString());
         setText(this.rawBuffers.data[1] as HTMLElement, bs.rawCount.toString());
-        setText(this.renderPipelines.data[1] as HTMLElement, `${ros.total} render objects`);
-        setText(this.computePipelines.data[1] as HTMLElement, `${ps.computeReadyCount} / ${ps.computePendingCount} pending`);
+        setText(this.renderPipelines.data[1] as HTMLElement, `${ps.renderCount} render, ${ros.total} objects`);
+        setText(this.computePipelines.data[1] as HTMLElement, `${ps.computeCount} compute`);
     }
 }

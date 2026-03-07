@@ -13,7 +13,8 @@
  * 5. Updates version tracking (textureData.version = texture.version)
  */
 
-import type { Texture, DataTexture } from '../texture/texture';
+import type { Texture } from '../texture/texture';
+import type { DataTexture } from 'src/texture/data-texture';
 
 // ---------------------------------------------------------------------------
 // Types

@@ -45,10 +45,6 @@
 import { ConstNode, wgsl, type Node } from './nodes';
 import * as d from './schema';
 
-// ---------------------------------------------------------------------------
-// Public types
-// ---------------------------------------------------------------------------
-
 export type ToneMappingMode = 'aces' | 'reinhard' | 'linear' | 'none';
 export type OutputColorSpace = 'srgb' | 'linear';
 
@@ -73,10 +69,6 @@ export type RenderOutputOptions = {
      */
     exposure?: Node<'f32'>;
 };
-
-// ---------------------------------------------------------------------------
-// renderOutput()
-// ---------------------------------------------------------------------------
 
 /**
  * Wrap `inputNode` in tone-mapping and color-space conversion.
@@ -108,10 +100,6 @@ export function renderOutput(
         return tonemapped;
     }
 }
-
-// ---------------------------------------------------------------------------
-// Tone mapping implementations
-// ---------------------------------------------------------------------------
 
 function applyToneMapping(node: Node<'vec4f'>, mode: ToneMappingMode): Node<'vec4f'> {
     switch (mode) {
@@ -148,10 +136,6 @@ function acesToneMapping(node: Node<'vec4f'>): Node<'vec4f'> {
 function reinhardToneMapping(node: Node<'vec4f'>): Node<'vec4f'> {
     return wgsl(d.vec4f)`vec4f((${ node }).rgb / (vec3f(1.0) + (${ node }).rgb), (${ node }).a)`;
 }
-
-// ---------------------------------------------------------------------------
-// Color space conversion
-// ---------------------------------------------------------------------------
 
 /**
  * Linear → sRGB conversion.

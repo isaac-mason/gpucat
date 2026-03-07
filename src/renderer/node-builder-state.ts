@@ -1,18 +1,3 @@
-/**
- * node-builder-state.ts - Formalized compile result state.
- *
- * Aligned with Three.js NodeBuilderState concept:
- * - Holds all compiled shader code and metadata
- * - Shared across RenderObjects with same material/shader config
- * - Caches binding metadata, attributes, update nodes
- * - Template BindGroups that are cloned per-RenderObject via createBindings()
- *
- * Key Three.js pattern:
- * - NodeBuilderState.bindings holds template BindGroups
- * - createBindings() clones non-shared groups (per-object), reuses shared groups
- * - This allows shared uniform buffers (camera, time) across all RenderObjects
- */
-
 import type {
     CompileResult,
     AttributeEntry,
@@ -23,17 +8,13 @@ import type {
     UpdateBeforeNode,
     UpdateAfterNode,
     UpdateNode,
-} from '../nodes/node-builder';
+} from '../nodes/builder';
 import {
     type BindGroup,
     createUniformBindGroup,
     createResourceBindGroup,
     cloneBindGroup,
 } from './bind-group';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 /**
  * NodeBuilderState - Compiled shader state for a RenderObject.
@@ -43,29 +24,17 @@ import {
  * - Create bind groups (uniform groups, storage, textures, samplers)
  * - Run per-frame updates (update nodes)
  *
- * Three.js pattern:
- * - `bindings` array holds template BindGroups
- * - Shared groups (camera, time) are reused across all RenderObjects
- * - Non-shared groups (object uniforms) are cloned per-RenderObject
+ * 
+ * `bindings` array holds template BindGroups
+ * Shared groups (camera, time) are reused across all RenderObjects
+ * Non-shared groups (object uniforms) are cloned per-RenderObject
  */
 export type NodeBuilderState = {
-    // -------------------------------------------------------------------------
-    // Shader Code
-    // -------------------------------------------------------------------------
-
     /** Combined WGSL shader code (vertex + fragment). */
     code: string;
 
-    // -------------------------------------------------------------------------
-    // Attribute Metadata
-    // -------------------------------------------------------------------------
-
     /** Vertex attribute entries for pipeline layout. */
     attributes: AttributeEntry[];
-
-    // -------------------------------------------------------------------------
-    // Binding Metadata (raw compile output - kept for compatibility)
-    // -------------------------------------------------------------------------
 
     /** Uniform groups (render group @0, object group @1). */
     uniformGroups: UniformGroupBlock[];
@@ -79,20 +48,12 @@ export type NodeBuilderState = {
     /** Sampler bindings. */
     samplers: SamplerEntry[];
 
-    // -------------------------------------------------------------------------
-    // Template BindGroups (Three.js aligned)
-    // -------------------------------------------------------------------------
-
     /**
      * Template BindGroups for this shader.
      * These are cloned per-RenderObject via createBindings() for non-shared groups.
      * Shared groups (render/camera) are reused directly.
      */
     bindings: BindGroup[];
-
-    // -------------------------------------------------------------------------
-    // Update Nodes
-    // -------------------------------------------------------------------------
 
     /** Nodes to update before rendering (e.g., compute passes). */
     updateBeforeNodes: UpdateBeforeNode[];
@@ -103,26 +64,14 @@ export type NodeBuilderState = {
     /** Nodes to update during rendering (per-frame uniforms). */
     updateNodes: UpdateNode[];
 
-    // -------------------------------------------------------------------------
-    // Cache Key
-    // -------------------------------------------------------------------------
-
     /**
      * Cache key for pipeline lookup.
      * Derived from material + geometry configuration.
      */
     cacheKey: string;
 
-    // -------------------------------------------------------------------------
-    // Type Flag
-    // -------------------------------------------------------------------------
-
     readonly isNodeBuilderState: true;
 };
-
-// ---------------------------------------------------------------------------
-// Factory
-// ---------------------------------------------------------------------------
 
 /**
  * Create a NodeBuilderState from a CompileResult.
@@ -137,7 +86,7 @@ export function createNodeBuilderState(
     compileResult: CompileResult,
     cacheKey: string,
 ): NodeBuilderState {
-    // Build template BindGroups from compile result
+    // build template BindGroups from compile result
     const bindings = buildTemplateBindGroups(
         compileResult.uniformGroups,
         compileResult.storage,
@@ -179,7 +128,7 @@ function buildTemplateBindGroups(
     textures: TextureEntry[],
     samplers: SamplerEntry[],
 ): BindGroup[] {
-    // Collect all group indices
+    // collect all group indices
     const groupIndices = new Set<number>();
     for (const ug of uniformGroups) {
         if (ug.members.length > 0) groupIndices.add(ug.groupIndex);
@@ -188,30 +137,30 @@ function buildTemplateBindGroups(
     for (const t of textures) groupIndices.add(t.group);
     for (const s of samplers) groupIndices.add(s.group);
 
-    // Build BindGroup for each index
+    // build BindGroup for each index
     const bindGroups: BindGroup[] = [];
     const sortedIndices = [...groupIndices].sort((a, b) => a - b);
 
     for (const groupIdx of sortedIndices) {
-        // Find uniform group for this index
+        // find uniform group for this index
         const uniformGroup = uniformGroups.find((g) => g.groupIndex === groupIdx && g.members.length > 0);
 
-        // Collect resources for this group
+        // collect resources for this group
         const groupStorage = storage.filter((s) => s.group === groupIdx);
         const groupTextures = textures.filter((t) => t.group === groupIdx);
         const groupSamplers = samplers.filter((s) => s.group === groupIdx);
 
-        // Determine shared flag (from uniform group if present, otherwise false)
+        // determine shared flag (from uniform group if present, otherwise false)
         const shared = uniformGroup?.shared ?? false;
 
         if (uniformGroup && groupStorage.length === 0 && groupTextures.length === 0 && groupSamplers.length === 0) {
-            // Uniform-only group
+            // uniform-only group
             bindGroups.push(createUniformBindGroup(uniformGroup));
         } else if (uniformGroup) {
-            // Mixed group: uniform + other resources
-            // Create a combined bind group
+            // mixed group: uniform + other resources
+            // create a combined bind group
             const bindGroup = createUniformBindGroup(uniformGroup);
-            // Add storage/texture/sampler bindings
+            // add storage/texture/sampler bindings
             for (const s of groupStorage) {
                 bindGroup.bindings.push({ kind: 'storage', entry: s });
             }
@@ -223,7 +172,7 @@ function buildTemplateBindGroups(
             }
             bindGroups.push(bindGroup);
         } else {
-            // Resource-only group (no uniform)
+            // resource-only group (no uniform)
             bindGroups.push(createResourceBindGroup(
                 `group${groupIdx}`,
                 groupIdx,
@@ -241,25 +190,24 @@ function buildTemplateBindGroups(
 /**
  * Create bindings for a RenderObject from a NodeBuilderState.
  *
- * Three.js pattern (NodeBuilderState.createBindings):
- * - Shared groups are reused directly (same BindGroup instance)
- * - Non-shared groups are cloned (new BindGroup instance per RenderObject)
+ * Shared groups are reused directly (same BindGroup instance)
+ * Non-shared groups are cloned (new BindGroup instance per RenderObject)
  *
  * This is the key to efficient uniform buffer sharing - camera/time buffers
  * are shared across all RenderObjects, while object uniforms get their own.
  *
- * @param state - The NodeBuilderState (template)
- * @returns Array of BindGroups for this RenderObject
+ * @param state the NodeBuilderState (template)
+ * @returns array of BindGroups for this RenderObject
  */
 export function createBindings(state: NodeBuilderState): BindGroup[] {
     const bindings: BindGroup[] = [];
 
     for (const templateGroup of state.bindings) {
         if (templateGroup.shared) {
-            // Shared: reuse the same BindGroup instance
+            // shared: reuse the same BindGroup instance
             bindings.push(templateGroup);
         } else {
-            // Non-shared: clone the BindGroup
+            // non-shared: clone the BindGroup
             bindings.push(cloneBindGroup(templateGroup));
         }
     }
@@ -267,18 +215,14 @@ export function createBindings(state: NodeBuilderState): BindGroup[] {
     return bindings;
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 /**
  * Check if the NodeBuilderState needs to be recompiled.
  *
  * This compares the current cache key against a new one computed from
  * the material and geometry configuration.
  *
- * @param state - The current NodeBuilderState
- * @param newCacheKey - The newly computed cache key
+ * @param state the current NodeBuilderState
+ * @param newCacheKey the newly computed cache key
  * @returns true if recompilation is needed
  */
 export function needsRecompile(state: NodeBuilderState, newCacheKey: string): boolean {
@@ -288,9 +232,9 @@ export function needsRecompile(state: NodeBuilderState, newCacheKey: string): bo
 /**
  * Get the uniform group by name.
  *
- * @param state - The NodeBuilderState
- * @param groupName - 'render' or 'object'
- * @returns The uniform group block or undefined
+ * @param state the NodeBuilderState
+ * @param groupName 'render' or 'object'
+ * @returns the uniform group block or undefined
  */
 export function getUniformGroup(
     state: NodeBuilderState,
@@ -299,9 +243,7 @@ export function getUniformGroup(
     return state.uniformGroups.find((g) => g.groupName === groupName);
 }
 
-/**
- * Check if the state has any update nodes.
- */
+/** Check if the state has any update nodes */
 export function hasUpdateNodes(state: NodeBuilderState): boolean {
     return (
         state.updateNodes.length > 0 ||
@@ -310,16 +252,12 @@ export function hasUpdateNodes(state: NodeBuilderState): boolean {
     );
 }
 
-/**
- * Check if the state has any storage bindings.
- */
+/** Check if the state has any storage bindings */
 export function hasStorageBindings(state: NodeBuilderState): boolean {
     return state.storage.length > 0;
 }
 
-/**
- * Check if the state has any texture bindings.
- */
+/** Check if the state has any texture bindings */
 export function hasTextureBindings(state: NodeBuilderState): boolean {
     return state.textures.length > 0;
 }

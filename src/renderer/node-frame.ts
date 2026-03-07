@@ -3,7 +3,7 @@ import type { Camera } from '../camera/camera';
 import type { Mesh } from '../objects/mesh';
 import type { Scene } from '../scene/scene';
 import type { Material } from '../material/material';
-import type { UpdateBeforeNode, UpdateAfterNode, UpdateNode } from '../nodes/node-builder';
+import type { UpdateBeforeNode, UpdateAfterNode, UpdateNode } from '../nodes/builder';
 
 /**
  * Update tracking maps for deduplication.

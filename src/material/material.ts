@@ -1,62 +1,27 @@
-/**
- * material.ts — Material class: shader slot graphs + render state.
- *
- * This is a low-level, minimal Material API (similar to Three.js RawShaderMaterial).
- * Users build their own clip-space position and fragment output — no magic pipeline.
- *
- * Slots consumed by the compiler:
- *
- *   VERTEX
- *     vertexNode    — vec4f clip-space position (required unless using default positionClip)
- *
- *   FRAGMENT
- *     fragmentNode  — vec4f fragment output, OR an OutputStructNode/MRTNode for MRT
- *     maskNode      — bool discard mask (discard when false)
- *     depthNode     — f32 override for @builtin(frag_depth)
- *
- * For MRT (Multiple Render Targets), pass an mrt() node as fragmentNode:
- *
- *   const mat = new Material({
- *       vertex: clipPos,
- *       fragment: mrt({
- *           color: outputColor,
- *           normal: viewNormal,
- *       }),
- *   });
- *
- * No WebGPU imports. GPU resource creation lives in the renderer layer.
- */
-
 import type { Node, WgslType } from '../nodes/nodes';
 
 export interface MaterialOptions {
-    // ---- Vertex stage --------------------------------------------------
-
     /**
      * vec4f clip-space position graph.
      * Use `positionClip` for standard MVP transform.
      */
     vertex: Node<WgslType>;
 
-    // ---- Fragment stage ------------------------------------------------
-
     /**
      * Fragment output. Can be:
      * - A vec4f node for single color output
      * - An OutputStructNode/MRTNode for multiple render targets
-     *
-     * Required.
      */
     fragment: Node<WgslType>;
 
     /**
-     * bool discard mask. When this node evaluates to false, the fragment is
+     * An optional `bool` discard mask. When this node evaluates to false, the fragment is
      * discarded. Evaluated before all other fragment logic.
      */
     mask?: Node<WgslType>;
 
     /**
-     * f32 override for the fragment depth written to the depth buffer.
+     * An optional `f32` override for the fragment depth written to the depth buffer.
      * When set, the compiler emits `@builtin(frag_depth)` on the fragment
      * output and assigns this value.
      */
@@ -115,10 +80,6 @@ export class Material {
      */
     depthNode: Node<WgslType> | undefined;
 
-    // -----------------------------------------------------------------------
-    // Render state
-    // -----------------------------------------------------------------------
-
     /** Controls draw sort order (opaque vs transparent) AND the default for depthWrite. */
     transparent: boolean;
 
@@ -141,23 +102,11 @@ export class Material {
     alphaToCoverage: boolean;
 
     constructor(opts: MaterialOptions) {
-        // Vertex is required
-        if (!opts.vertex) {
-            throw new Error('[Material] vertex is required. Use positionClip for standard MVP transform.');
-        }
         this.vertexNode = opts.vertex;
-
-        // Fragment is required
-        if (!opts.fragment) {
-            throw new Error('[Material] fragment is required.');
-        }
         this.fragmentNode = opts.fragment;
-
-        // Fragment slots
         this.maskNode = opts.mask;
         this.depthNode = opts.depth;
 
-        // Render state
         const transparent = opts.transparent ?? false;
         this.transparent = transparent;
         this.blend = opts.blend;
@@ -172,14 +121,13 @@ export class Material {
      * Incremented whenever the material's node graph configuration changes in a
      * way that requires a shader recompile.  The renderer includes this in the
      * RenderObject cache key so that bumping it triggers recompilation on the
-     * next frame.  Three.js aligned: mirrors Texture.version / Material.version.
+     * next frame. 
      */
     version: number = 0;
 
     /**
      * Setting needsUpdate = true increments version, which causes the renderer
      * to recompile the material's shader on the next frame.
-     * Three.js aligned: mirrors Material.needsUpdate setter.
      */
     set needsUpdate(value: boolean) {
         if (value === true) this.version++;

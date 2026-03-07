@@ -71,8 +71,8 @@ export type FrameRecord = {
     /** Snapshot of buffer/pipeline stats at frame end */
     bufferStats: { vertexCount: number; indexCount: number; storageCount: number; rawCount: number };
     pipelineStats: {
-        computeReadyCount: number;
-        computePendingCount: number;
+        renderCount: number;
+        computeCount: number;
         bindGroupLayoutCount: number;
     };
     renderObjectStats: {

@@ -1,14 +1,3 @@
-/**
- * geometries.ts - Geometry state coordination for RenderObjects.
- *
- * Aligned with Three.js Geometries class:
- * - Coordinates attribute updates for render objects
- * - Handles wireframe index generation
- * - Tracks geometry initialization state
- *
- * This is a higher-level system that uses Attributes for GPU buffer management.
- */
-
 import type { Geometry } from '../geometry/geometry';
 import type { BufferAttribute, IndexAttribute } from '../core/attribute';
 import { IndexAttribute as IndexAttributeClass } from '../core/attribute';
@@ -16,27 +5,19 @@ import type { RenderObject } from './render-object';
 import type { AttributesState } from './attributes';
 import * as attributes from './attributes';
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-/**
- * Per-geometry tracking data.
- */
+/** Per-geometry tracking data */
 export type GeometryData = {
     /** Whether the geometry has been initialized (attributes uploaded). */
     initialized: boolean;
 
-    /** Cached attribute version sums for dirty checking. */
-    attributeVersionSum: number;
+    /** Cached per-attribute versions for dirty checking. */
+    attributeVersions: Map<string, number>;
 
     /** Cached index version for dirty checking. */
     indexVersion: number;
 };
 
-/**
- * Geometries state - manages geometry attribute coordination.
- */
+/** Geometries state - manages geometry attribute coordination. */
 export type GeometriesState = {
     /** Reference to the Attributes system. */
     attributes: AttributesState;
@@ -53,14 +34,9 @@ export type GeometriesState = {
     };
 };
 
-// ---------------------------------------------------------------------------
-// Factory
-// ---------------------------------------------------------------------------
-
 /**
  * Create a new Geometries state.
- *
- * @param attributesState - The Attributes system state
+ * @param attributesState the Attributes system state
  */
 export function createGeometriesState(attributesState: AttributesState): GeometriesState {
     return {
@@ -73,46 +49,40 @@ export function createGeometriesState(attributesState: AttributesState): Geometr
     };
 }
 
-// ---------------------------------------------------------------------------
-// Initialization
-// ---------------------------------------------------------------------------
-
 /**
  * Initialize a geometry for rendering.
  *
  * This uploads all vertex attributes and the index buffer (if present).
  * Called once when a geometry is first encountered.
  *
- * @param state - The Geometries state
- * @param geometry - The geometry to initialize
+ * @param state the Geometries state
+ * @param geometry the geometry to initialize
  */
 export function initGeometry(state: GeometriesState, geometry: Geometry): void {
     let data = state.data.get(geometry);
 
     if (data && data.initialized) {
-        return; // Already initialized
+        return; // already initialized
     }
 
-    // Create tracking data
+    // create tracking data
     if (!data) {
         data = {
             initialized: false,
-            attributeVersionSum: 0,
+            attributeVersions: new Map(),
             indexVersion: 0,
         };
         state.data.set(geometry, data);
         state.memory.geometries++;
     }
 
-    // Upload all vertex attributes
-    let versionSum = 0;
-    for (const [_name, attr] of geometry.attributes) {
+    // upload all vertex attributes and record their versions
+    for (const [name, attr] of geometry.attributes) {
         attributes.updateAttribute(state.attributes, attr, 'vertex');
-        versionSum += attr.version;
+        data.attributeVersions.set(name, attr.version);
     }
-    data.attributeVersionSum = versionSum;
 
-    // Upload index buffer if present
+    // upload index buffer if present
     if (geometry.index) {
         attributes.updateAttribute(
             state.attributes,
@@ -122,7 +92,7 @@ export function initGeometry(state: GeometriesState, geometry: Geometry): void {
         data.indexVersion = geometry.index.version;
     }
 
-    // Upload indirect buffer if present
+    // upload indirect buffer if present
     if (geometry.indirect) {
         attributes.updateAttribute(
             state.attributes,
@@ -133,15 +103,11 @@ export function initGeometry(state: GeometriesState, geometry: Geometry): void {
 
     data.initialized = true;
 
-    // Set up disposal callback
+    // set up disposal callback
     geometry._onDispose = () => {
         disposeGeometry(state, geometry);
     };
 }
-
-// ---------------------------------------------------------------------------
-// Per-Frame Updates
-// ---------------------------------------------------------------------------
 
 /**
  * Update a geometry for rendering.
@@ -149,35 +115,29 @@ export function initGeometry(state: GeometriesState, geometry: Geometry): void {
  * This checks for version changes and re-uploads modified attributes.
  * Called every frame for each visible geometry.
  *
- * @param state - The Geometries state
- * @param renderObject - The RenderObject containing the geometry
+ * @param state the Geometries state
+ * @param renderObject the RenderObject containing the geometry
  */
 export function updateForRender(state: GeometriesState, renderObject: RenderObject): void {
     const geometry = renderObject.geometry;
     let data = state.data.get(geometry);
 
-    // Initialize if needed
+    // initialize if needed
     if (!data || !data.initialized) {
         initGeometry(state, geometry);
         data = state.data.get(geometry)!;
     }
 
-    // Check for vertex attribute version changes
-    let versionSum = 0;
-    for (const [_name, attr] of geometry.attributes) {
-        versionSum += attr.version;
-    }
-
-    if (versionSum !== data.attributeVersionSum) {
-        // One or more attributes changed - re-upload all
-        // (A more sophisticated system could track per-attribute versions)
-        for (const [_name, attr] of geometry.attributes) {
+    // check for vertex attribute version changes and re-upload only dirty attributes
+    for (const [name, attr] of geometry.attributes) {
+        const knownVersion = data.attributeVersions.get(name);
+        if (knownVersion === undefined || attr.version !== knownVersion) {
             attributes.updateAttribute(state.attributes, attr, 'vertex');
+            data.attributeVersions.set(name, attr.version);
         }
-        data.attributeVersionSum = versionSum;
     }
 
-    // Check for index buffer version changes
+    // check for index buffer version changes
     if (geometry.index && geometry.index.version !== data.indexVersion) {
         attributes.updateAttribute(
             state.attributes,
@@ -187,7 +147,7 @@ export function updateForRender(state: GeometriesState, renderObject: RenderObje
         data.indexVersion = geometry.index.version;
     }
 
-    // Check for indirect buffer version changes
+    // check for indirect buffer version changes
     if (geometry.indirect) {
         attributes.updateAttribute(
             state.attributes,
@@ -197,20 +157,16 @@ export function updateForRender(state: GeometriesState, renderObject: RenderObje
     }
 }
 
-// ---------------------------------------------------------------------------
-// Index Buffer Access
-// ---------------------------------------------------------------------------
-
 /**
  * Get the index buffer for a RenderObject.
  *
  * For wireframe rendering, this returns a generated wireframe index buffer.
  * Otherwise, returns the geometry's index buffer.
  *
- * @param state - The Geometries state
- * @param renderObject - The RenderObject
- * @param wireframe - Whether wireframe mode is active
- * @returns The index buffer or null for non-indexed geometry
+ * @param state the Geometries state
+ * @param renderObject the RenderObject
+ * @param wireframe whether wireframe mode is active
+ * @returns the index buffer or null for non-indexed geometry
  */
 export function getIndex(
     state: GeometriesState,
@@ -220,13 +176,13 @@ export function getIndex(
     const geometry = renderObject.geometry;
 
     if (wireframe) {
-        // Get or generate wireframe indices
+        // get or generate wireframe indices
         let wireframeIndex = state.wireframes.get(geometry);
         if (!wireframeIndex) {
             wireframeIndex = generateWireframeIndices(geometry);
             state.wireframes.set(geometry, wireframeIndex);
 
-            // Upload wireframe index buffer
+            // upload wireframe index buffer
             attributes.updateAttribute(
                 state.attributes,
                 wireframeIndex as unknown as BufferAttribute,
@@ -238,10 +194,6 @@ export function getIndex(
 
     return geometry.index ?? null;
 }
-
-// ---------------------------------------------------------------------------
-// Wireframe Index Generation
-// ---------------------------------------------------------------------------
 
 /**
  * Generate wireframe indices for a geometry.
@@ -263,7 +215,7 @@ function generateWireframeIndices(geometry: Geometry): IndexAttribute {
         throw new Error('[Geometries] Cannot generate wireframe: no position attribute');
     }
 
-    // Determine number of triangles
+    // determine number of triangles
     let numTriangles: number;
     let getIndex: (i: number) => number;
 
@@ -275,7 +227,7 @@ function generateWireframeIndices(geometry: Geometry): IndexAttribute {
         getIndex = (i: number) => i;
     }
 
-    // Each triangle produces 3 lines = 6 indices
+    // each triangle produces 3 lines = 6 indices
     const wireframeIndices = new Uint32Array(numTriangles * 6);
 
     let wireframeIdx = 0;
@@ -284,15 +236,15 @@ function generateWireframeIndices(geometry: Geometry): IndexAttribute {
         const b = getIndex(i * 3 + 1);
         const c = getIndex(i * 3 + 2);
 
-        // Line a-b
+        // line a-b
         wireframeIndices[wireframeIdx++] = a;
         wireframeIndices[wireframeIdx++] = b;
 
-        // Line b-c
+        // line b-c
         wireframeIndices[wireframeIdx++] = b;
         wireframeIndices[wireframeIdx++] = c;
 
-        // Line c-a
+        // line c-a
         wireframeIndices[wireframeIdx++] = c;
         wireframeIndices[wireframeIdx++] = a;
     }
@@ -300,49 +252,39 @@ function generateWireframeIndices(geometry: Geometry): IndexAttribute {
     return new IndexAttributeClass(wireframeIndices);
 }
 
-// ---------------------------------------------------------------------------
-// Disposal
-// ---------------------------------------------------------------------------
-
 /**
  * Dispose a geometry and clean up GPU resources.
  *
- * @param state - The Geometries state
- * @param geometry - The geometry to dispose
+ * @param state the Geometries state
+ * @param geometry the geometry to dispose
  */
 export function disposeGeometry(state: GeometriesState, geometry: Geometry): void {
     const data = state.data.get(geometry);
     if (!data) return;
 
-    // Delete vertex attribute GPU buffers
+    // delete vertex attribute GPU buffers
     for (const [_name, attr] of geometry.attributes) {
         attributes.deleteAttribute(state.attributes, attr);
     }
 
-    // Delete index buffer
+    // delete index buffer
     if (geometry.index) {
         attributes.deleteAttribute(state.attributes, geometry.index);
     }
 
-    // Delete wireframe index buffer if it exists
+    // delete wireframe index buffer if it exists
     const wireframeIndex = state.wireframes.get(geometry);
     if (wireframeIndex) {
         attributes.deleteAttribute(state.attributes, wireframeIndex);
         state.wireframes.delete(geometry);
     }
 
-    // Remove tracking data
+    // remove tracking data
     state.data.delete(geometry);
     state.memory.geometries--;
 }
 
-// ---------------------------------------------------------------------------
-// Statistics
-// ---------------------------------------------------------------------------
-
-/**
- * Get geometry memory statistics.
- */
+/** Get geometry memory statistics */
 export function getGeometriesStats(state: GeometriesState): { geometries: number } {
     return { ...state.memory };
 }

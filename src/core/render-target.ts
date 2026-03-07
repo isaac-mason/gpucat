@@ -1,61 +1,17 @@
-/**
- * render-target.ts — Off-screen render target (color + optional depth textures).
- *
- * Aligned with Three.js RenderTarget:
- * - Constructor takes (width, height, options) — no device required
- * - GPU resources managed by renderer (not RenderTarget)
- * - setSize(width, height) for resizing
- * - Supports multiple named color attachments (MRT)
- * - Each texture has a `.name` for MRT output mapping
- * - Uses Texture with isRenderTargetTexture = true (like Three.js)
- * - depthTexture is a DepthTexture instance (extends Texture)
- *
- * Usage:
- *   // Create render target (no device needed)
- *   const rt = new RenderTarget(1024, 1024);
- *
- *   // MRT - multiple named color attachments
- *   const rt = new RenderTarget(1024, 1024, { count: 3 });
- *   rt.textures[0].name = 'color';
- *   rt.textures[1].name = 'normal';
- *   rt.textures[2].name = 'velocity';
- *
- *   // Renderer handles GPU allocation automatically
- *   renderer.setRenderTarget(rt);
- *   renderer.renderScene(scene, camera);
- */
-
-import { Texture, DepthTexture, type DepthTextureFormat, type ImageSize } from '../texture/texture';
-
-/**
- * Creates a Texture configured for use as a render target color attachment.
- * Three.js aligned: uses Texture with isRenderTargetTexture = true.
- */
-function createRenderTargetTexture(
-    renderTarget: RenderTarget,
-    width: number,
-    height: number,
-    format: GPUTextureFormat,
-): Texture {
-    // Three.js pattern: create fake image object with dimensions
-    const image: ImageSize = { width, height };
-    const texture = new Texture(image);
-    texture.format = format;
-    texture.isRenderTargetTexture = true;
-    texture.renderTarget = renderTarget;
-    texture.generateMipmaps = false;
-    texture.flipY = false;
-
-    return texture;
-}
+import { type ImageSize } from '../texture/source';
+import { Texture, type DepthTextureFormat } from '../texture/texture';
+import { DepthTexture } from 'src/texture/depth-texture';
 
 export type RenderTargetOptions = {
     /** Color attachment format. Default: 'rgba16float'. Applied to all attachments. */
     colorFormat?: GPUTextureFormat;
+
     /** Depth attachment format. `null` = no depth attachment. Default: 'depth24plus'. */
     depthFormat?: DepthTextureFormat | null;
+
     /** MSAA sample count. Default: 1. */
     samples?: number;
+
     /** Number of color attachments (MRT). Default: 1. */
     count?: number;
 };
@@ -65,8 +21,6 @@ export type RenderTargetOptions = {
  * that is being rendered in the background. It is used in different effects,
  * such as applying postprocessing to a rendered image before displaying it
  * on the screen.
- *
- * Three.js aligned: textures[] contains Texture instances with isRenderTargetTexture = true.
  */
 export class RenderTarget {
     /** the width of the render target */
@@ -75,20 +29,24 @@ export class RenderTarget {
     /** the height of the render target */
     height: number;
 
+    /** the color format of the render target's texture(s) */
     readonly colorFormat: GPUTextureFormat;
+
+    /** the depth format of the render target's depth texture, or null if no depth attachment */
     readonly depthFormat: DepthTextureFormat | null;
+
+    /** the MSAA sample count of the render target */
     readonly samples: number;
 
     /**
      * Array of color attachment textures.
      * Each has a `.name` for MRT mapping, the first texture is also accessible via the `texture` getter.
-     * Three.js aligned: these are Texture instances with isRenderTargetTexture = true.
+     * these are Texture instances with isRenderTargetTexture = true.
      */
     textures: Texture[];
 
     /**
      * Depth texture, or null if no depth buffer.
-     * Three.js aligned: DepthTexture extends Texture.
      */
     depthTexture: DepthTexture | null = null;
 
@@ -103,7 +61,7 @@ export class RenderTarget {
         this.depthFormat = opts.depthFormat !== undefined ? opts.depthFormat : 'depth24plus';
         this.samples = opts.samples ?? 1;
 
-        // Create color attachment textures (Three.js aligned: Texture with isRenderTargetTexture = true)
+        // Create color attachment textures
         const count = opts.count ?? 1;
         this.textures = [];
         for (let i = 0; i < count; i++) {
@@ -134,7 +92,7 @@ export class RenderTarget {
         this.width = width;
         this.height = height;
 
-        // Update texture dimensions (Three.js pattern: update image object)
+        // update texture dimensions
         for (const tex of this.textures) {
             if (tex.image && typeof tex.image === 'object' && 'width' in tex.image) {
                 (tex.image as ImageSize).width = width;
@@ -171,4 +129,24 @@ export class RenderTarget {
         }
         return -1;
     }
+}
+
+/** creates a Texture configured for use as a render target color attachment */
+function createRenderTargetTexture(
+    renderTarget: RenderTarget,
+    width: number,
+    height: number,
+    format: GPUTextureFormat,
+): Texture {
+    // create placeholder image object with dimensions
+    const image: ImageSize = { width, height };
+
+    const texture = new Texture(image);
+    texture.format = format;
+    texture.isRenderTargetTexture = true;
+    texture.renderTarget = renderTarget;
+    texture.generateMipmaps = false;
+    texture.flipY = false;
+
+    return texture;
 }

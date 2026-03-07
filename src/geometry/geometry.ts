@@ -1,7 +1,6 @@
 import type { Box3, Sphere } from 'mathcat';
 import { BufferAttribute, IndexAttribute, IndirectStorageBufferAttribute } from '../core/attribute';
 
-
 export class Geometry {
     /** Named vertex buffer attributes. Standard names: position, normal, uv, tangent. */
     readonly attributes: Map<string, BufferAttribute> = new Map();
@@ -59,7 +58,6 @@ export class Geometry {
     /**
      * Frees GPU-related resources allocated for this geometry.
      * Call this method when the geometry is no longer used.
-     * Mirrors Three.js BufferGeometry.dispose().
      */
     dispose(): void {
         if (this.disposed) return;

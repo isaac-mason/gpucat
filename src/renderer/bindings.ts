@@ -1,39 +1,24 @@
-/**
- * bindings.ts - GPU bind group management for RenderObjects.
- *
- * Aligned with Three.js Bindings class:
- * - Keys BindingData by BindGroup object identity (not RenderObject)
- * - Shared groups (camera, time) reuse the same GPU resources
- * - Non-shared groups (object uniforms) have their own GPU resources
- * - Uses DataMap pattern (WeakMap with auto-create get())
- *
- * Key Three.js pattern:
- * - getForRender(renderObject) iterates RenderObject.getBindings()
- * - For each BindGroup, calls _init() (first time) and _update() (every frame)
- * - Shared groups are only updated once per frame (via version tracking)
- */
-
-import type { RenderObject } from './render-object';
-import { getBindings as getRenderObjectBindings } from './render-object';
-import type { NodeBuilderState } from './node-builder-state';
-import type { BufferCache } from './buffers';
-import type { TextureCache } from './textures';
-import type { NodeFrame } from './node-frame';
-import type { UniformGroupBlock } from '../nodes/node-builder';
-import { uploadStorage, uploadRaw, getRaw } from './buffers';
-import { updateTexture, getSampler } from './textures';
+import type { UniformGroupBlock } from '../nodes/builder';
+import type { Texture } from '../texture/texture';
+import type {
+    BindGroup,
+    SamplerBinding,
+    TextureBinding,
+    UniformBinding,
+} from './bind-group';
 import {
     createBindGroupLayoutCache,
     getBindGroupLayout,
     type BindGroupLayoutCache,
 } from './bindgroups';
-import type { Texture } from '../texture/texture';
-import type {
-    BindGroup,
-    UniformBinding,
-    TextureBinding,
-    SamplerBinding,
-} from './bind-group';
+import type { BufferCache } from './buffers';
+import { getRaw, uploadRaw, uploadStorage } from './buffers';
+import type { NodeBuilderState } from './node-builder-state';
+import type { NodeFrame } from './node-frame';
+import type { RenderObject } from './render-object';
+import { getBindings as getRenderObjectBindings } from './render-object';
+import type { TextureCache } from './textures';
+import { getSampler, updateTexture } from './textures';
 
 /**
  * Per-BindGroup data (GPU resources).
@@ -50,9 +35,7 @@ export type BindGroupData = {
     needsUpdate: boolean;
 };
 
-/**
- * Bindings state - manages per-BindGroup GPU resources.
- */
+/** Bindings state - manages per-BindGroup GPU resources */
 export type BindingsState = {
     /** GPU device reference. */
     device: GPUDevice;
@@ -73,13 +56,7 @@ export type BindingsState = {
     data: WeakMap<BindGroup, BindGroupData>;
 };
 
-// ---------------------------------------------------------------------------
-// Factory
-// ---------------------------------------------------------------------------
-
-/**
- * Create a new Bindings state.
- */
+/** Create a new Bindings state */
 export function createBindingsState(
     device: GPUDevice,
     bufferCache: BufferCache,
@@ -93,10 +70,6 @@ export function createBindingsState(
         data: new WeakMap(),
     };
 }
-
-// ---------------------------------------------------------------------------
-// DataMap Pattern
-// ---------------------------------------------------------------------------
 
 /**
  * Get or create BindGroupData for a BindGroup.
@@ -147,15 +120,15 @@ export function updateBindings(
 
     for (const bindGroup of bindGroups) {
         // Initialize bind group layout if needed
-        _initBindGroup(state, bindGroup, nodeState);
+        initBindGroup(state, bindGroup, nodeState);
 
         // Update uniforms and check if bind group needs rebuild
-        _updateBindGroup(state, bindGroup, renderObject, frame);
+        updateBindGroup(state, bindGroup, renderObject, frame);
 
         // Rebuild GPU bind group if needed
         const data = getData(state, bindGroup);
         if (data.needsUpdate || !data.bindGroup) {
-            _rebuildGPUBindGroup(state, bindGroup, data);
+            rebuildGPUBindGroup(state, bindGroup, data);
             data.needsUpdate = false;
         }
 
@@ -170,13 +143,6 @@ export function updateBindings(
 
 /**
  * Initialize bindings for a RenderObject.
- *
- * This creates bind group layouts for all BindGroups.
- * Called once per RenderObject during initialization.
- *
- * Note: This is now idempotent - can be called multiple times safely.
- * The actual initialization happens lazily in updateBindings().
- *
  * @param state - The Bindings state
  * @param renderObject - The RenderObject to initialize
  */
@@ -192,14 +158,11 @@ export function initBindings(
 
     // Initialize each BindGroup
     for (const bindGroup of bindGroups) {
-        _initBindGroup(state, bindGroup, nodeState);
+        initBindGroup(state, bindGroup, nodeState);
     }
 }
 
-/**
- * Get the bind group layouts for a RenderObject.
- * Used for pipeline creation.
- */
+/** Get the bind group layouts for a RenderObject. Used for pipeline creation */
 export function getBindGroupLayouts(
     state: BindingsState,
     renderObject: RenderObject,
@@ -221,9 +184,7 @@ export function getBindGroupLayouts(
     return layouts;
 }
 
-/**
- * Get the bind groups for a RenderObject.
- */
+/** Get the bind groups for a RenderObject */
 export function getBindGroups(
     state: BindingsState,
     renderObject: RenderObject,
@@ -241,9 +202,7 @@ export function getBindGroups(
     return gpuBindGroups;
 }
 
-/**
- * Delete bindings for a RenderObject.
- */
+/** Delete bindings for a RenderObject */
 export function deleteBindings(
     _state: BindingsState,
     renderObject: RenderObject,
@@ -255,11 +214,7 @@ export function deleteBindings(
     renderObject._bindings = null;
 }
 
-/**
- * Mark a RenderObject's bindings as needing rebuild.
- *
- * Call this when textures or other resources change.
- */
+/** Mark a RenderObject's bindings as needing rebuild. Call this when textures or other resources change. */
 export function invalidateBindings(
     state: BindingsState,
     renderObject: RenderObject,
@@ -275,35 +230,26 @@ export function invalidateBindings(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Internal: Initialization
-// ---------------------------------------------------------------------------
-
-/**
- * Initialize a BindGroup (create layout).
- * Called once per BindGroup.
- */
-function _initBindGroup(
+/** Initialize a BindGroup (create layout). Called once per BindGroup. */
+function initBindGroup(
     state: BindingsState,
     bindGroup: BindGroup,
     _nodeState: NodeBuilderState,
 ): void {
     const data = getData(state, bindGroup);
 
-    // Already initialized
+    // already initialized
     if (data.bindGroupLayout) return;
 
-    // Build bind group layout entries
-    const entries = _buildLayoutEntries(bindGroup);
+    // build bind group layout entries
+    const entries = buildLayoutEntries(bindGroup);
 
-    // Get or create the layout
+    // get or create the layout
     data.bindGroupLayout = getBindGroupLayout(state.layoutCache, state.device, entries);
 }
 
-/**
- * Build bind group layout entries for a BindGroup.
- */
-function _buildLayoutEntries(
+/** Build bind group layout entries for a BindGroup. */
+function buildLayoutEntries(
     bindGroup: BindGroup,
 ): GPUBindGroupLayoutEntry[] {
     const vis = GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT;
@@ -313,7 +259,7 @@ function _buildLayoutEntries(
         switch (binding.kind) {
             case 'uniform':
                 entries.push({
-                    binding: 0,
+                    binding: binding.block.binding,
                     visibility: vis,
                     buffer: { type: 'uniform' },
                 });
@@ -351,15 +297,8 @@ function _buildLayoutEntries(
     return entries;
 }
 
-// ---------------------------------------------------------------------------
-// Internal: Update
-// ---------------------------------------------------------------------------
-
-/**
- * Update a BindGroup (uniforms, textures, etc.).
- * Called every frame.
- */
-function _updateBindGroup(
+/** Update a BindGroup (uniforms, textures, etc.).  Called every frame */
+function updateBindGroup(
     state: BindingsState,
     bindGroup: BindGroup,
     _renderObject: RenderObject,
@@ -370,28 +309,26 @@ function _updateBindGroup(
     for (const binding of bindGroup.bindings) {
         switch (binding.kind) {
             case 'uniform':
-                _updateUniformBinding(state, binding, bindGroup, frame, data);
+                updateUniformBinding(state, binding, bindGroup, frame, data);
                 break;
 
             case 'texture':
-                _updateTextureBinding(state, binding, data);
+                updateTextureBinding(state, binding, data);
                 break;
 
             case 'sampler':
-                _updateSamplerBinding(state, binding, data);
+                updateSamplerBinding(state, binding, data);
                 break;
 
             case 'storage':
-                // Storage buffers are uploaded via uploadStorage in rebuildGPUBindGroup
+                // NOTE: storage buffers are uploaded via uploadStorage in rebuildGPUBindGroup
                 break;
         }
     }
 }
 
-/**
- * Update a uniform binding.
- */
-function _updateUniformBinding(
+/** Update a uniform binding */
+function updateUniformBinding(
     state: BindingsState,
     binding: UniformBinding,
     _bindGroup: BindGroup,
@@ -400,27 +337,27 @@ function _updateUniformBinding(
 ): void {
     const block = binding.block;
 
-    // Invoke update callbacks with the NodeFrame
-    _invokeUniformGroupCallbacks(block, frame);
+    // invoke update callbacks with the NodeFrame
+    invokeUniformGroupCallbacks(block, frame);
 
-    // Compute version sum
+    // compute version sum
     let versionSum = 0;
     if (block.groupName === 'object') {
-        // Include mesh matrix version for object group
+        // include mesh matrix version for object group
         versionSum = frame.object?.matrixVersion ?? 0;
     }
     for (const m of block.members) {
         versionSum += m.node.version;
     }
 
-    // Upload if changed
+    // upload if changed
     if (versionSum !== binding.versionSum) {
-        // Create buffer key if needed
+        // create buffer key if needed
         if (!binding.bufferKey) {
             binding.bufferKey = {};
         }
 
-        const packed = _packUniformGroup(block);
+        const packed = packUniformGroup(block);
         const U = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
         uploadRaw(state.bufferCache, binding.bufferKey, packed, U);
 
@@ -429,10 +366,8 @@ function _updateUniformBinding(
     }
 }
 
-/**
- * Update a texture binding.
- */
-function _updateTextureBinding(
+/** Update a texture binding. */
+function updateTextureBinding(
     state: BindingsState,
     binding: TextureBinding,
     data: BindGroupData,
@@ -469,10 +404,8 @@ function _updateTextureBinding(
     }
 }
 
-/**
- * Update a sampler binding.
- */
-function _updateSamplerBinding(
+/** Update a sampler binding. */
+function updateSamplerBinding(
     state: BindingsState,
     binding: SamplerBinding,
     data: BindGroupData,
@@ -509,14 +442,8 @@ function _updateSamplerBinding(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Internal: Rebuild GPU Bind Group
-// ---------------------------------------------------------------------------
-
-/**
- * Rebuild the GPU bind group for a BindGroup.
- */
-function _rebuildGPUBindGroup(
+/** Rebuild the GPU bind group for a BindGroup */
+function rebuildGPUBindGroup(
     state: BindingsState,
     bindGroup: BindGroup,
     data: BindGroupData,
@@ -531,7 +458,7 @@ function _rebuildGPUBindGroup(
                 if (binding.bufferKey) {
                     const buffer = getRaw(state.bufferCache, binding.bufferKey);
                     if (buffer) {
-                        entries.push({ binding: 0, resource: { buffer } });
+                        entries.push({ binding: binding.block.binding, resource: { buffer } });
                     }
                 }
                 break;
@@ -581,14 +508,8 @@ function _rebuildGPUBindGroup(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Internal: Uniform Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Invoke update callbacks on uniform nodes in a group.
- */
-function _invokeUniformGroupCallbacks(
+/** Invoke update callbacks on uniform nodes in a group. */
+function invokeUniformGroupCallbacks(
     block: UniformGroupBlock,
     frame: NodeFrame,
 ): void {
@@ -611,7 +532,7 @@ function _invokeUniformGroupCallbacks(
  * mat3x3f is handled specially: in WGSL uniform address space, each column is
  * padded to vec4 (16 bytes), so mat3x3f occupies 48 bytes (3 × 16).
  */
-function _packUniformGroup(block: UniformGroupBlock): Float32Array {
+function packUniformGroup(block: UniformGroupBlock): Float32Array {
     const buf = new Float32Array(Math.ceil(block.totalBytes / 4));
     const bytes = new Uint8Array(buf.buffer);
 

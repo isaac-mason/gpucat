@@ -1,24 +1,6 @@
-/**
- * bind-group.ts - BindGroup type representing a group of GPU bindings.
- *
- * Aligned with Three.js BindGroup concept:
- * - Groups uniform buffers, textures, samplers for a single @group(N)
- * - Can be shared (same instance across all RenderObjects) or per-object (cloned)
- * - Serves as cache key for GPU bind group creation
- *
- * Three.js pattern:
- * - NodeBuilderState.bindings holds template BindGroups
- * - createBindings() clones non-shared groups, reuses shared groups
- * - Bindings system keys GPU resources by BindGroup object identity
- */
-
-import type { UniformGroupBlock, StorageEntry, TextureEntry, SamplerEntry } from '../nodes/node-builder';
+import type { UniformGroupBlock, StorageEntry, TextureEntry, SamplerEntry } from '../nodes/builder';
 
 let bindGroupIdCounter = 0;
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 /**
  * A single binding within a BindGroup.
@@ -30,9 +12,7 @@ export type Binding =
     | TextureBinding
     | SamplerBinding;
 
-/**
- * Uniform buffer binding (UBO).
- */
+/** Uniform buffer binding (UBO) */
 export type UniformBinding = {
     readonly kind: 'uniform';
     /** The uniform group block from compilation. */
@@ -43,18 +23,14 @@ export type UniformBinding = {
     versionSum: number;
 };
 
-/**
- * Storage buffer binding (SSBO).
- */
+/** Storage buffer binding (SSBO) */
 export type StorageBinding = {
     readonly kind: 'storage';
     /** The storage entry from compilation. */
     entry: StorageEntry;
 };
 
-/**
- * Texture binding.
- */
+/** Texture binding */
 export type TextureBinding = {
     readonly kind: 'texture';
     /** The texture entry from compilation. */
@@ -65,9 +41,7 @@ export type TextureBinding = {
     lastGpuTexture: GPUTexture | null;
 };
 
-/**
- * Sampler binding.
- */
+/** Sampler binding */
 export type SamplerBinding = {
     readonly kind: 'sampler';
     /** The sampler entry from compilation. */
@@ -79,7 +53,7 @@ export type SamplerBinding = {
 /**
  * BindGroup - A collection of bindings for a single @group(N).
  *
- * This is the cache key for GPU bind group creation. Three.js pattern:
+ * This is the cache key for GPU bind group creation.
  * - Shared groups are reused across all RenderObjects (one instance)
  * - Non-shared groups are cloned per RenderObject (separate instances)
  */
@@ -103,13 +77,7 @@ export type BindGroup = {
     readonly isBindGroup: true;
 };
 
-// ---------------------------------------------------------------------------
-// Factory Functions
-// ---------------------------------------------------------------------------
-
-/**
- * Create a BindGroup from uniform group block.
- */
+/** Create a BindGroup from uniform group block */
 export function createUniformBindGroup(block: UniformGroupBlock): BindGroup {
     const binding: UniformBinding = {
         kind: 'uniform',
@@ -128,9 +96,7 @@ export function createUniformBindGroup(block: UniformGroupBlock): BindGroup {
     };
 }
 
-/**
- * Create a BindGroup for storage/texture/sampler bindings in a group.
- */
+/** Create a BindGroup for storage/texture/sampler bindings in a group */
 export function createResourceBindGroup(
     name: string,
     groupIndex: number,
@@ -208,9 +174,7 @@ export function cloneBindGroup(source: BindGroup): BindGroup {
     };
 }
 
-/**
- * Get the uniform binding from a BindGroup (if it has one).
- */
+/** Get the uniform binding from a BindGroup (if it has one) */
 export function getUniformBinding(bindGroup: BindGroup): UniformBinding | null {
     for (const binding of bindGroup.bindings) {
         if (binding.kind === 'uniform') {
@@ -220,23 +184,17 @@ export function getUniformBinding(bindGroup: BindGroup): UniformBinding | null {
     return null;
 }
 
-/**
- * Get all storage bindings from a BindGroup.
- */
+/** Get all storage bindings from a BindGroup */
 export function getStorageBindings(bindGroup: BindGroup): StorageBinding[] {
     return bindGroup.bindings.filter((b): b is StorageBinding => b.kind === 'storage');
 }
 
-/**
- * Get all texture bindings from a BindGroup.
- */
+/** Get all texture bindings from a BindGroup */
 export function getTextureBindings(bindGroup: BindGroup): TextureBinding[] {
     return bindGroup.bindings.filter((b): b is TextureBinding => b.kind === 'texture');
 }
 
-/**
- * Get all sampler bindings from a BindGroup.
- */
+/** Get all sampler bindings from a BindGroup */
 export function getSamplerBindings(bindGroup: BindGroup): SamplerBinding[] {
     return bindGroup.bindings.filter((b): b is SamplerBinding => b.kind === 'sampler');
 }

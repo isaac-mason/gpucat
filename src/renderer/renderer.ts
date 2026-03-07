@@ -20,7 +20,6 @@ import * as renderLists from './render-lists';
 import type { RenderItem } from './render-list';
 
 import { ComputeNode } from '../nodes/nodes';
-import type { UniformGroupBlock } from '../nodes/node-builder';
 import { NodeFrame } from './node-frame';
 import { Scene } from '../scene/scene';
 import { Camera } from '../camera/camera';
@@ -28,6 +27,7 @@ import { InspectorBase } from '../inspector/inspector-base';
 import type { RenderTarget } from '../core/render-target';
 import { GPUFeatureName } from './gpu-constants';
 import { CanvasTarget } from './canvas-target';
+import { UniformGroupBlock } from '../nodes/builder';
 
 // declare scheduler.yield(), available in most modern browsers
 declare global {
@@ -94,7 +94,7 @@ export class WebGPURenderer {
     textures!: textures.TextureCache;
     
     /** @internal Unified pipeline cache for render and compute pipelines. */
-    pipelines!: pipelines.PipelineCache;
+    pipelines!: pipelines.PipelinesState;
 
     /** Inspector hook. Replace with a RendererInspector or Inspector instance to enable profiling. */
     public inspector: InspectorBase = new InspectorBase();
@@ -407,14 +407,14 @@ export class WebGPURenderer {
 
         this.buffers = buffers.createBufferCache(this.device);
         this.textures = textures.createTextureCache(this.device);
-        this.pipelines = pipelines.createPipelineCache(this.device, this.format);
 
-        // Initialize Three.js-aligned subsystems
+        // initialize Three.js-aligned subsystems
         this._renderContexts = renderContexts.createRenderContextsState();
         this._attributes = attributes.createAttributesState(this.buffers);
         this._geometries = geometries.createGeometriesState(this._attributes);
         this._nodes = nodeManager.createNodeManagerState();
         this._bindings = bindings.createBindingsState(this.device, this.buffers, this.textures);
+        this.pipelines = pipelines.createPipelinesState(this.device, this.format, this._nodes);
         this._renderObjects = renderObjects.createRenderObjectsState({
             nodes: this._nodes,
             geometries: this._geometries,
@@ -527,14 +527,14 @@ export class WebGPURenderer {
             throw new Error('[WebGPURenderer] compile() called before init(). Await renderer.init() first.');
         }
 
-        // Use new RenderLists system to collect visible meshes
+        // use new RenderLists system to collect visible meshes
         const renderList = renderLists.collectRenderList(this._renderLists, scene, camera);
         const allItems = [...renderList.opaque, ...renderList.transparent];
 
         if (allItems.length === 0) return;
 
-        // Create a temporary RenderContext for compilation
-        // This is needed because RenderObjects are cached by (mesh, material, renderContext)
+        // create a temporary RenderContext for compilation
+        // this is needed because RenderObjects are cached by (mesh, material, renderContext)
         const compileContext = renderContexts.getRenderContext(this._renderContexts, null, null, 0);
         compileContext.sampleCount = samples;
         compileContext.width = this.domElement.width || 1;
@@ -544,13 +544,13 @@ export class WebGPURenderer {
         const width = compileContext.width;
         const height = compileContext.height;
 
-        // Phase 1: Kick off all async pipeline compilations in parallel
-        const initPromises: Promise<boolean>[] = [];
+        // phase 1: Kick off all async pipeline compilations in parallel
+        const initPromises: Promise<void>[] = [];
 
         for (const item of allItems) {
             if (!item.mesh || !item.material || !item.geometry) continue;
 
-            // Get or create RenderObject
+            // get or create RenderObject
             const renderObject = renderObjects.getRenderObject(
                 this._renderObjects,
                 item.mesh,
@@ -562,23 +562,23 @@ export class WebGPURenderer {
                 item.group,
             );
 
-            // Kick off async initialization (compiles shader, creates pipeline)
-            initPromises.push(
-                renderObjects.initRenderObjectAsync(this._renderObjects, renderObject, format, depthFormat),
-            );
+            // kick off async initialization (compiles shader, creates pipeline)
+            const pipelinePromises: Promise<void>[] = [];
+            renderObjects.initRenderObjectWithPromises(this._renderObjects, renderObject, format, depthFormat, pipelinePromises);
+            initPromises.push(...pipelinePromises);
         }
 
-        // Wait for all pipelines to compile
+        // wait for all pipelines to compile
         await Promise.all(initPromises);
 
-        // Phase 2: Pre-upload all GPU resources, yielding between objects
+        // phase 2: pre-upload all GPU resources, yielding between objects
         for (const item of allItems) {
             if (!item.mesh || !item.material || !item.geometry) continue;
 
             const mesh = item.mesh;
             const geometry = item.geometry;
 
-            // Get the existing RenderObject (already created and initialized above)
+            // get the existing RenderObject (already created and initialized above)
             const renderObject = renderObjects.getRenderObject(
                 this._renderObjects,
                 mesh,
@@ -592,14 +592,14 @@ export class WebGPURenderer {
 
             const nodeState = renderObject.nodeBuilderState;
             if (nodeState) {
-                // See bindings.ts rebuildBindGroups() - it calls updateTexture/getSampler
+                // see bindings.ts rebuildBindGroups() - it calls updateTexture/getSampler
 
-                // Upload storage buffers
+                // upload storage buffers
                 for (const s of nodeState.storage) {
                     buffers.uploadStorage(this.buffers, s.node);
                 }
 
-                // Upload vertex buffers
+                // upload vertex buffers
                 for (const attrEntry of nodeState.attributes) {
                     if (attrEntry.kind === 'geometry') {
                         const bufAttr = geometry.attributes.get(attrEntry.name);
@@ -619,15 +619,15 @@ export class WebGPURenderer {
                     }
                 }
 
-                // Upload index buffer if present
+                // upload index buffer if present
                 if (geometry.index) {
                     buffers.uploadIndex(this.buffers, geometry.index);
                 }
             }
 
-            // Upload uniforms and rebuild bind groups
+            // upload uniforms and rebuild bind groups
             // (must be after texture upload so bind groups can reference GPU resources)
-            // For pre-warming, we create a temporary frame context
+            // for pre-warming, we create a temporary frame context
             const preWarmFrame = this._nodes.nodeFrame;
             preWarmFrame.renderer = this;
             preWarmFrame.camera = camera;
@@ -642,7 +642,7 @@ export class WebGPURenderer {
                 preWarmFrame,
             );
 
-            // Yield to main thread between objects to keep animations smooth
+            // yield to main thread between objects to keep animations smooth
             await yieldToMain();
         }
     }
@@ -659,7 +659,9 @@ export class WebGPURenderer {
         if (!this._initialized) {
             throw new Error('[WebGPURenderer] compileCompute() called before init(). Await renderer.init() first.');
         }
-        await pipelines.getComputeAsync(this.pipelines, computeNode.id, computeNode);
+        const promises: Promise<void>[] = [];
+        pipelines.getForCompute(this.pipelines, computeNode, promises);
+        await Promise.all(promises);
     }
 
     /**
@@ -689,9 +691,9 @@ export class WebGPURenderer {
             throw new Error('[WebGPURenderer] compute() called before init(). Await renderer.init() first.');
         }
 
-        const entry = pipelines.getCompute(this.pipelines, node.id, node);
+        const entry = pipelines.getForCompute(this.pipelines, node);
 
-        if (!entry) {
+        if (!entry.pipeline) {
             throw new Error(
                 `[WebGPURenderer] compute() called for node "${node.id}" before its pipeline was compiled. ` +
                 'Await renderer.compile(node) before entering the frame loop.',
@@ -851,9 +853,8 @@ export class WebGPURenderer {
         node: ComputeNode,
         encoder: GPUCommandEncoder,
     ): void {
-        const key = node.id;
-        const entry: pipelines.ComputePipelineEntry | undefined = pipelines.getCompute(this.pipelines, key, node);
-        if (!entry) return; // Pipeline not ready yet — skip this frame (will compile async)
+        const entry = pipelines.getForCompute(this.pipelines, node);
+        if (!entry.pipeline) return; // Pipeline not ready yet — skip this frame (will compile async)
 
         const { bindGroupInfo } = entry;
 

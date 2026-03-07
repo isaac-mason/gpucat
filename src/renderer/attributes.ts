@@ -96,10 +96,6 @@ export function createAttributesState(bufferCache: buffers.BufferCache): Attribu
     };
 }
 
-// ---------------------------------------------------------------------------
-// Call ID Management
-// ---------------------------------------------------------------------------
-
 /**
  * Increment the call ID at the start of each render call.
  * This enables per-frame deduplication.
@@ -107,10 +103,6 @@ export function createAttributesState(bufferCache: buffers.BufferCache): Attribu
 export function incrementCallId(state: AttributesState): void {
     state.currentCallId++;
 }
-
-// ---------------------------------------------------------------------------
-// Attribute Updates
-// ---------------------------------------------------------------------------
 
 /**
  * Update an attribute, uploading to GPU if needed.

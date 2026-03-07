@@ -11,29 +11,24 @@ export type GpuTypedArray = Float32Array |
 export type UpdateRange = { start: number; count: number; };
 
 /**
- * Base class for buffer attributes. Stores data for vertex attributes, storage
- * buffers, etc. Aligned with Three.js BufferAttribute.
+ * Base class for buffer attributes. Stores data for vertex attributes, storage buffers, etc.
  */
-
 export class BufferAttribute {
     readonly isBufferAttribute: true = true;
 
-    /** CPU-side typed array. May be null after onUpload releases memory. */
+    /** cpu-side typed array. May be null after onUpload releases memory. */
     array: GpuTypedArray | null;
 
-    /** Number of data-type components per element (e.g., 3 for vec3). */
+    /** number of data-type components per element (e.g., 3 for vec3). */
     readonly itemSize: number;
 
-    /** Number of elements (array.length / itemSize). */
+    /** number of elements (array.length / itemSize). */
     readonly count: number;
 
-    /**
-     * Monotonically incremented whenever needsUpdate is set to true.
-     * The renderer compares against its cached version to decide re-upload.
-     */
+    /** version, compared against renderer's cached version for dirty checking. incremented when needsUpdate is set */
     version: number = 0;
 
-    /** Pending partial-upload ranges (flat component indices). */
+    /** pending partial-upload ranges (flat component indices). */
     readonly updateRanges: UpdateRange[] = [];
 
     /**
@@ -42,22 +37,13 @@ export class BufferAttribute {
      */
     onUpload: (() => void) | null = null;
 
-    /**
-     * Byte stride between elements. 0 = tightly packed.
-     * Used for interleaved vertex buffers.
-     */
+    /** byte stride between elements. 0 = tightly packed. used for interleaved vertex buffers */
     stride: number = 0;
 
-    /**
-     * Byte offset within each stride.
-     * Used for interleaved vertex buffers.
-     */
+    /** byte offset within each stride. used for interleaved vertex buffers */
     offset: number = 0;
 
-    /**
-     * GPUVertexFormat for vertex buffers (e.g., 'float32x3').
-     * Set explicitly or derived from array type + itemSize.
-     */
+    /** the GPUVertexFormat for vertex buffers (e.g., 'float32x3'). set explicitly or derived from array type + itemSize */
     format: GPUVertexFormat | undefined;
 
     constructor(array: GpuTypedArray, itemSize: number, format?: GPUVertexFormat) {
@@ -67,26 +53,24 @@ export class BufferAttribute {
         this.format = format ?? deriveVertexFormat(array, itemSize);
     }
 
-    /** Setting needsUpdate = true increments version. */
     set needsUpdate(_: true) {
         this.version++;
     }
 
-    /** Register a dirty range for partial re-upload. */
+    /** registers a dirty range for partial re-upload */
     addUpdateRange(start: number, count: number): void {
         this.updateRanges.push({ start, count });
     }
 
-    /** Clear all pending update ranges. Called by renderer after upload. */
+    /** clears all pending update ranges. called by renderer after upload */
     clearUpdateRanges(): void {
         this.updateRanges.length = 0;
     }
 }
-/**
- * Buffer attribute for storage buffers. Extends BufferAttribute.
- * Aligned with Three.js StorageBufferAttribute.
- */
 
+/**
+ * Buffer attribute for storage buffers.
+ */
 export class StorageBufferAttribute extends BufferAttribute {
     readonly isStorageBufferAttribute: true = true;
 
@@ -128,9 +112,9 @@ export class StorageInstancedBufferAttribute extends InstancedBufferAttribute {
     readonly isStorageBufferAttribute: true = true;
 
     /**
-     * @param count     Number of instances, OR a pre-allocated TypedArray.
-     * @param itemSize  Number of components per instance (ignored if count is a TypedArray).
-     * @param typeClass TypedArray constructor (default Float32Array).
+     * @param count number of instances, OR a pre-allocated TypedArray.
+     * @param itemSize number of components per instance (ignored if count is a TypedArray).
+     * @param typeClass typed array constructor (default Float32Array).
      */
     constructor(
         count: number | GpuTypedArray,
@@ -228,10 +212,8 @@ export class IndexAttribute {
         this.version++;
     }
 }
-/**
- * Derive GPUVertexFormat from typed array type and itemSize.
- */
 
+/** derive GPUVertexFormat from typed array type and itemSize */
 export function deriveVertexFormat(array: GpuTypedArray, itemSize: number): GPUVertexFormat | undefined {
     if (array instanceof Float32Array) {
         switch (itemSize) {

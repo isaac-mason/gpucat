@@ -1,47 +1,13 @@
-/**
- * pass-node.ts — PassNode: renders a Scene into an off-screen RenderTarget and
- * exposes the result as texture nodes that can feed into post-processing graphs.
- *
- * Fully mirrors Three.js PassNode API structure:
- * - PassTextureNode extends TextureNode pattern
- * - PassMultipleTextureNode for named texture outputs
- * - PassNode with scope, static COLOR/DEPTH constants
- * - RenderTarget created in constructor (not lazily)
- * - _textures, _textureNodes, _previousTextures dictionaries
- * - _viewZNodes, _linearDepthNodes caching
- * - getTexture(), getPreviousTexture(), toggleTexture()
- * - getTextureNode(), getPreviousTextureNode()
- * - getViewZNode(), getLinearDepthNode()
- * - Full state save/restore in updateBefore()
- *
- * Usage:
- *   const scenePass = pass(scene, camera);
- *   const depth = depthPass(scene, camera);
- *
- *   const color = scenePass.getTextureNode();
- *   const viewZ = scenePass.getViewZNode();
- *   const linearDepth = scenePass.getLinearDepthNode();
- *
- *   renderer.render(color);
- */
-
-import { Node, TextureNode, cameraNear, cameraFar, type WgslType } from './nodes';
-import type { Scene } from '../scene/scene';
 import type { Camera } from '../camera/camera';
-import type { NodeFrame } from '../renderer/node-frame';
 import { RenderTarget } from '../core/render-target';
-import { Texture, type ImageSize } from '../texture/texture';
+import type { NodeFrame } from '../renderer/node-frame';
+import type { Scene } from '../scene/scene';
+import { type ImageSize } from '../texture/source';
+import { Texture } from '../texture/texture';
 import type { MRTNode } from './nodes';
-
-// ---------------------------------------------------------------------------
-// Unique ID generator
-// ---------------------------------------------------------------------------
+import { Node, TextureNode, cameraFar, cameraNear, type WgslType } from './nodes';
 
 let _passCount = 0;
-
-// ---------------------------------------------------------------------------
-// PassTextureNode
-// ---------------------------------------------------------------------------
 
 /**
  * Represents the texture of a pass node.
@@ -53,6 +19,9 @@ export class PassTextureNode extends TextureNode {
 
     /** This flag can be used for type testing. */
     readonly isPassTextureNode = true;
+
+    /** Delegates to passNode's updateBefore - renders the scene to texture. */
+    readonly updateBeforeType: 'frame' | 'none' = 'frame';
 
     /**
      * Constructs a new pass texture node.
@@ -75,16 +44,19 @@ export class PassTextureNode extends TextureNode {
     }
 
     /**
+     * Delegates to passNode.updateBefore() to render the scene to texture.
+     */
+    updateBefore(frame: NodeFrame): void {
+        this.passNode.updateBefore(frame);
+    }
+
+    /**
      * Clone this node.
      */
     clone(): PassTextureNode {
         return new PassTextureNode(this.passNode, null);
     }
 }
-
-// ---------------------------------------------------------------------------
-// PassMultipleTextureNode
-// ---------------------------------------------------------------------------
 
 /**
  * An extension of PassTextureNode which allows to manage more than one
@@ -266,10 +238,6 @@ export class PassNode extends Node<'vec4f'> {
         this.setSize(this._width, this._height);
     }
 
-    // -----------------------------------------------------------------------
-    // MRT API
-    // -----------------------------------------------------------------------
-
     /** Sets the given MRT node to setup MRT for this pass. */
     setMRT(mrt: MRTNode | null): this {
         this._mrt = mrt;
@@ -280,10 +248,6 @@ export class PassNode extends Node<'vec4f'> {
     getMRT(): MRTNode | null {
         return this._mrt;
     }
-
-    // -----------------------------------------------------------------------
-    // Texture API
-    // -----------------------------------------------------------------------
 
     /**
      * Returns the texture for the given output name.
@@ -448,10 +412,6 @@ export class PassNode extends Node<'vec4f'> {
         return linearDepthNode;
     }
 
-    // -----------------------------------------------------------------------
-    // updateBefore
-    // -----------------------------------------------------------------------
-
     /**
      * Execute this pass's scene render before the final composite quad.
      */
@@ -513,20 +473,17 @@ export class PassNode extends Node<'vec4f'> {
     }
 }
 
-/**
- * TSL function for creating a pass node.
- */
-export const pass = (scene: Scene, camera: Camera, options?: PassNodeOptions): PassNode =>
-    new PassNode(PassNode.COLOR, scene, camera, options);
+/** creates a pass node */
+export const pass = (scene: Scene, camera: Camera, options?: PassNodeOptions): PassNode => {
+    return new PassNode(PassNode.COLOR, scene, camera, options);
+}
 
-/**
- * TSL function for creating a depth pass node.
- */
-export const depthPass = (scene: Scene, camera: Camera, options?: PassNodeOptions): PassNode =>
-    new PassNode(PassNode.DEPTH, scene, camera, options);
+/** creates a depth pass node */
+export const depthPass = (scene: Scene, camera: Camera, options?: PassNodeOptions): PassNode => {
+    return new PassNode(PassNode.DEPTH, scene, camera, options);
+}
 
-/**
- * TSL function for creating a pass texture node.
- */
-export const passTexture = (passNode: PassNode, texture?: Texture | null): PassTextureNode =>
-    new PassTextureNode(passNode, texture ?? null);
+/** creates a pass texture node */
+export const passTexture = (passNode: PassNode, texture?: Texture | null): PassTextureNode => {
+    return new PassTextureNode(passNode, texture ?? null);
+}

@@ -15,7 +15,6 @@
 
 import type { Camera } from '../camera/camera';
 import type { Material } from '../material/material';
-import { type Node, OutputStructNode, type WgslType } from '../nodes/nodes';
 import type { Mesh } from '../objects/mesh';
 import type { Scene } from '../scene/scene';
 import type { BindingsState } from './bindings';
@@ -26,12 +25,13 @@ import { updateForRender as updateGeometry } from './geometries';
 import type { NodeFrame } from './node-frame';
 import type { NodeManagerState } from './node-manager';
 import { compileNodeState, needsNodeUpdate } from './node-manager';
-import type { PipelineCache } from './pipelines';
+import * as pipelines from './pipelines';
 import type { RenderContext } from './render-context';
 import type { GeometryGroup, RenderObject } from './render-object';
 import { computeRenderObjectCacheKey, createRenderObject, disposeRenderObject } from './render-object';
 // [graph-tab] import for graph snapshot callback type
 import type { GraphSnapshot } from '../inspector/graph-snapshot';
+import { CompileResult } from '../nodes/builder';
 
 /**
  * RenderObjects state - manages RenderObject creation and caching.
@@ -47,7 +47,7 @@ export type RenderObjectsState = {
     bindings: BindingsState;
 
     /** Pipeline cache for pipeline creation. */
-    pipelines: PipelineCache;
+    pipelines: pipelines.PipelinesState;
 
     /** GPU device reference. */
     device: GPUDevice;
@@ -74,7 +74,7 @@ export function createRenderObjectsState(deps: {
     nodes: NodeManagerState;
     geometries: GeometriesState;
     bindings: BindingsState;
-    pipelines: PipelineCache;
+    pipelines: pipelines.PipelinesState;
     device: GPUDevice;
 }): RenderObjectsState {
     return {
@@ -217,18 +217,16 @@ export function initRenderObject(
 
     // Check if we need to create/update pipeline
     if (!renderObject.pipeline) {
-        // Create pipeline using the pipeline cache
-        // Note: This integrates with the existing pipeline system
-        // The actual pipeline creation is delegated to pipelines.ts
-        const pipeline = createPipelineForRenderObject(
-            state,
+        // Create pipeline using the unified pipelines system (sync)
+        const entry = pipelines.getForRender(
+            state.pipelines,
             renderObject,
-            nodeState.code,
             bindGroupLayouts,
             colorFormat,
             depthFormat,
+            null, // sync
         );
-        renderObject.pipeline = pipeline;
+        renderObject.pipeline = entry.pipeline;
     }
 
     // Update geometry attributes
@@ -261,24 +259,26 @@ export function updateRenderObject(state: RenderObjectsState, renderObject: Rend
 }
 
 /**
- * Initialize a RenderObject asynchronously for pre-warming.
+ * Initialize a RenderObject for pre-warming with async pipeline compilation.
  *
- * This is similar to initRenderObject but uses createRenderPipelineAsync()
- * for non-blocking pipeline compilation. Use this in renderer.compile() to
- * pre-warm all pipelines without blocking the main thread.
+ * This is similar to initRenderObject but collects pipeline compilation promises
+ * for non-blocking compilation. Use this in renderer.compile() to pre-warm all
+ * pipelines without blocking the main thread.
  *
  * @param state - The RenderObjects state
  * @param renderObject - The RenderObject to initialize
  * @param colorFormat - The color texture format for pipeline creation
  * @param depthFormat - The depth texture format for pipeline creation
- * @returns Promise that resolves to true if initialization succeeded
+ * @param promises - Array to collect async compilation promises
+ * @returns true if initialization succeeded (pipeline may still be compiling)
  */
-export async function initRenderObjectAsync(
+export function initRenderObjectWithPromises(
     state: RenderObjectsState,
     renderObject: RenderObject,
     colorFormat: GPUTextureFormat,
     depthFormat: GPUTextureFormat | null,
-): Promise<boolean> {
+    promises: Promise<void>[],
+): boolean {
     const material = renderObject.material;
     const geometry = renderObject.geometry;
     const renderContext = renderObject.renderContext;
@@ -310,16 +310,24 @@ export async function initRenderObjectAsync(
 
     // Check if we need to create/update pipeline
     if (!renderObject.pipeline) {
-        // Create pipeline asynchronously
-        const pipeline = await createPipelineForRenderObjectAsync(
-            state,
+        // Create pipeline asynchronously using the unified pipelines system
+        const entry = pipelines.getForRender(
+            state.pipelines,
             renderObject,
-            nodeState.code,
             bindGroupLayouts,
             colorFormat,
             depthFormat,
+            promises, // async - will push promise to array
         );
-        renderObject.pipeline = pipeline;
+        // Pipeline will be set when promise resolves, but we track the entry
+        // The actual pipeline assignment happens after promises resolve
+        promises.push(
+            Promise.resolve().then(() => {
+                if (entry.pipeline) {
+                    renderObject.pipeline = entry.pipeline;
+                }
+            }),
+        );
     }
 
     // Update geometry attributes
@@ -330,7 +338,7 @@ export async function initRenderObjectAsync(
 
 // [graph-tab] Build a GraphSnapshot from a CompileResult + cacheKey.
 // This is the only place in render-objects.ts that touches graph-tab types.
-function _buildGraphSnapshot(label: string, compileResult: import('../nodes/node-builder').CompileResult): GraphSnapshot {
+function _buildGraphSnapshot(label: string, compileResult: CompileResult): GraphSnapshot {
     const inspectableIds = new Set<string>();
     for (const [id, node] of compileResult.graphNodes) {
         if (node.kind === 'inspector') inspectableIds.add(id);
@@ -344,336 +352,8 @@ function _buildGraphSnapshot(label: string, compileResult: import('../nodes/node
     };
 }
 
-/**
- * Create a render pipeline for a RenderObject.
- */
-function createPipelineForRenderObject(
-    state: RenderObjectsState,
-    renderObject: RenderObject,
-    shaderCode: string,
-    bindGroupLayouts: GPUBindGroupLayout[],
-    colorFormat: GPUTextureFormat,
-    depthFormat: GPUTextureFormat | null,
-): GPURenderPipeline {
-    const material = renderObject.material;
-    const geometry = renderObject.geometry;
-    const renderContext = renderObject.renderContext;
-
-    // Build vertex buffer layouts from geometry attributes
-    const vertexBufferLayouts = buildVertexBufferLayouts(geometry, renderObject.nodeBuilderState!);
-
-    // Create pipeline layout
-    const pipelineLayout = state.device.createPipelineLayout({
-        bindGroupLayouts,
-    });
-
-    // Create shader module
-    const shaderModule = state.device.createShaderModule({
-        code: shaderCode,
-    });
-    shaderModule.getCompilationInfo().then((info) => {
-        for (const msg of info.messages) {
-            if (msg.type === 'error') {
-                console.error(`[gpucat shader error] line ${msg.lineNum}: ${msg.message}\n${shaderCode}`);
-            }
-        }
-    });
-
-    // Build color targets (supports MRT)
-    const targetCount = getTargetCount(material.fragmentNode);
-    const colorTargets: GPUColorTargetState[] = [];
-    for (let i = 0; i < targetCount; i++) {
-        colorTargets.push({
-            format: colorFormat,
-            blend: material.transparent ? getDefaultBlendState() : undefined,
-            writeMask: GPUColorWrite.ALL,
-        });
-    }
-
-    // Build pipeline descriptor
-    const descriptor: GPURenderPipelineDescriptor = {
-        layout: pipelineLayout,
-        vertex: {
-            module: shaderModule,
-            entryPoint: 'vs_main',
-            buffers: vertexBufferLayouts,
-        },
-        fragment: {
-            module: shaderModule,
-            entryPoint: 'fs_main',
-            targets: colorTargets,
-        },
-        primitive: {
-            topology: 'triangle-list',
-            cullMode: material.cullMode,
-            frontFace: 'ccw',
-        },
-        depthStencil: depthFormat
-            ? {
-                  format: depthFormat,
-                  depthWriteEnabled: material.depthWrite,
-                  depthCompare: material.depthTest ? material.depthCompare : 'always',
-              }
-            : undefined,
-        multisample: {
-            count: renderContext.sampleCount >= 4 ? 4 : 1,
-            alphaToCoverageEnabled: material.alphaToCoverage,
-        },
-    };
-
-    return state.device.createRenderPipeline(descriptor);
-}
-
-/**
- * Create a render pipeline asynchronously for a RenderObject.
- *
- * Uses createRenderPipelineAsync() for non-blocking pipeline compilation.
- * Used by compile() to pre-warm pipelines without blocking the main thread.
- */
-async function createPipelineForRenderObjectAsync(
-    state: RenderObjectsState,
-    renderObject: RenderObject,
-    shaderCode: string,
-    bindGroupLayouts: GPUBindGroupLayout[],
-    colorFormat: GPUTextureFormat,
-    depthFormat: GPUTextureFormat | null,
-): Promise<GPURenderPipeline> {
-    const material = renderObject.material;
-    const geometry = renderObject.geometry;
-    const renderContext = renderObject.renderContext;
-
-    // Build vertex buffer layouts from geometry attributes
-    const vertexBufferLayouts = buildVertexBufferLayouts(geometry, renderObject.nodeBuilderState!);
-
-    // Create pipeline layout
-    const pipelineLayout = state.device.createPipelineLayout({
-        bindGroupLayouts,
-    });
-
-    // Create shader module
-    const shaderModule = state.device.createShaderModule({
-        code: shaderCode,
-    });
-
-    // Build color targets (supports MRT)
-    const targetCount = getTargetCount(material.fragmentNode);
-    const colorTargets: GPUColorTargetState[] = [];
-    for (let i = 0; i < targetCount; i++) {
-        colorTargets.push({
-            format: colorFormat,
-            blend: material.transparent ? getDefaultBlendState() : undefined,
-            writeMask: GPUColorWrite.ALL,
-        });
-    }
-
-    // Build pipeline descriptor
-    const descriptor: GPURenderPipelineDescriptor = {
-        layout: pipelineLayout,
-        vertex: {
-            module: shaderModule,
-            entryPoint: 'vs_main',
-            buffers: vertexBufferLayouts,
-        },
-        fragment: {
-            module: shaderModule,
-            entryPoint: 'fs_main',
-            targets: colorTargets,
-        },
-        primitive: {
-            topology: 'triangle-list',
-            cullMode: material.cullMode,
-            frontFace: 'ccw',
-        },
-        depthStencil: depthFormat
-            ? {
-                  format: depthFormat,
-                  depthWriteEnabled: material.depthWrite,
-                  depthCompare: material.depthTest ? material.depthCompare : 'always',
-              }
-            : undefined,
-        multisample: {
-            count: renderContext.sampleCount >= 4 ? 4 : 1,
-            alphaToCoverageEnabled: material.alphaToCoverage,
-        },
-    };
-
-    return state.device.createRenderPipelineAsync(descriptor);
-}
-
-/**
- * Build vertex buffer layouts from geometry and NodeBuilderState.
- * Exported so the probe renderer can build a matching pipeline.
- */
-export function buildVertexBufferLayouts(
-    geometry: import('../geometry/geometry').Geometry,
-    nodeState: import('./node-builder-state').NodeBuilderState,
-): GPUVertexBufferLayout[] {
-    const layouts: GPUVertexBufferLayout[] = [];
-
-    for (const attrEntry of nodeState.attributes) {
-        if (attrEntry.kind === 'geometry') {
-            // Geometry attribute (position, normal, uv, etc.)
-            const attr = geometry.attributes.get(attrEntry.name);
-            if (!attr) continue;
-
-            const bytesPerElement = getBytesPerElement(attr.format);
-            const arrayStride = attr.stride > 0 ? attr.stride : bytesPerElement;
-
-            layouts.push({
-                arrayStride,
-                stepMode: 'vertex',
-                attributes: [
-                    {
-                        format: attr.format!,
-                        offset: attr.offset,
-                        shaderLocation: attrEntry.location,
-                    },
-                ],
-            });
-        } else {
-            // Buffer attribute (including instanced buffer attributes)
-            const node = attrEntry.node;
-            const format = wgslTypeToVertexFormat(attrEntry.type);
-            const itemSize = wgslTypeItemSize(attrEntry.type);
-            const arrayStride = node.stride > 0 ? node.stride : itemSize * 4;
-
-            layouts.push({
-                arrayStride,
-                stepMode: node.instanced ? 'instance' : 'vertex',
-                attributes: [
-                    {
-                        format,
-                        offset: node.offset,
-                        shaderLocation: attrEntry.location,
-                    },
-                ],
-            });
-        }
-    }
-
-    return layouts;
-}
-
-/**
- * Get bytes per element for a vertex format.
- */
-function getBytesPerElement(format: GPUVertexFormat | undefined): number {
-    if (!format) return 16; // Default to vec4
-
-    const formatSizes: Record<string, number> = {
-        float32: 4,
-        float32x2: 8,
-        float32x3: 12,
-        float32x4: 16,
-        sint32: 4,
-        sint32x2: 8,
-        sint32x3: 12,
-        sint32x4: 16,
-        uint32: 4,
-        uint32x2: 8,
-        uint32x3: 12,
-        uint32x4: 16,
-        sint16x2: 4,
-        sint16x4: 8,
-        uint16x2: 4,
-        uint16x4: 8,
-        sint8x2: 2,
-        sint8x4: 4,
-        uint8x2: 2,
-        uint8x4: 4,
-    };
-
-    return formatSizes[format] ?? 16;
-}
-
-/**
- * Get the number of color targets for MRT support.
- * OutputStructNode (used for MRT) has multiple members; regular shaders have 1 target.
- */
-function getTargetCount(fragmentNode: Node<WgslType>): number {
-    if (fragmentNode instanceof OutputStructNode) {
-        return Math.max(1, fragmentNode.members.length);
-    }
-    return 1;
-}
-
-/**
- * Convert WGSL type to GPU vertex format.
- */
-function wgslTypeToVertexFormat(type: string): GPUVertexFormat {
-    switch (type) {
-        case 'f32':
-            return 'float32';
-        case 'vec2f':
-            return 'float32x2';
-        case 'vec3f':
-            return 'float32x3';
-        case 'vec4f':
-            return 'float32x4';
-        case 'i32':
-            return 'sint32';
-        case 'vec2i':
-            return 'sint32x2';
-        case 'vec3i':
-            return 'sint32x3';
-        case 'vec4i':
-            return 'sint32x4';
-        case 'u32':
-            return 'uint32';
-        case 'vec2u':
-            return 'uint32x2';
-        case 'vec3u':
-            return 'uint32x3';
-        case 'vec4u':
-            return 'uint32x4';
-        default:
-            return 'float32x4';
-    }
-}
-
-/**
- * Get the item size (number of components) for a WGSL type.
- */
-function wgslTypeItemSize(type: string): number {
-    switch (type) {
-        case 'f32':
-        case 'i32':
-        case 'u32':
-            return 1;
-        case 'vec2f':
-        case 'vec2i':
-        case 'vec2u':
-            return 2;
-        case 'vec3f':
-        case 'vec3i':
-        case 'vec3u':
-            return 3;
-        case 'vec4f':
-        case 'vec4i':
-        case 'vec4u':
-            return 4;
-        default:
-            return 4;
-    }
-}
-
-/**
- * Get default blend state for transparent materials.
- */
-function getDefaultBlendState(): GPUBlendState {
-    return {
-        color: {
-            srcFactor: 'src-alpha',
-            dstFactor: 'one-minus-src-alpha',
-            operation: 'add',
-        },
-        alpha: {
-            srcFactor: 'one',
-            dstFactor: 'one-minus-src-alpha',
-            operation: 'add',
-        },
-    };
-}
+// Re-export buildVertexBufferLayouts from pipelines.ts for backwards compatibility
+export { buildVertexBufferLayouts } from './pipelines';
 
 /**
  * Dispose a specific RenderObject.

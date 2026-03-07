@@ -1,17 +1,6 @@
 /**
- * canvas-target.ts — CanvasTarget class for redirecting renderer output.
- *
- * Three.js aligned: mirrors three/src/renderers/common/CanvasTarget.js
- *
- * The renderer always has a _canvasTarget. It is initialized in the constructor
- * wrapping the main canvas. setCanvasTarget() replaces it entirely (swap + re-attach
- * resize listener), as the inspector viewer does per-preview-canvas.
- *
- * Emits:
- *   'resize'  — when setSize() / setDrawingBufferSize() changes the canvas dimensions
- *   'dispose' — when dispose() is called
+ * The HTMLCanvasElement target for the renderer to draw into. Wraps a canvas and its WebGPU context.
  */
-
 export class CanvasTarget extends EventTarget {
     /** The canvas element this target wraps. */
     readonly domElement: HTMLCanvasElement;
@@ -19,7 +8,7 @@ export class CanvasTarget extends EventTarget {
     /**
      * True when this is the renderer's default (main) canvas target.
      * Set by the renderer after construction; the inspector preview targets are not default.
-     * Three.js aligned: renderer sets isDefaultCanvasTarget = true on the initial target.
+     * The renderer sets isDefaultCanvasTarget = true on the initial target.
      */
     isDefaultCanvasTarget: boolean = false;
 
@@ -45,11 +34,11 @@ export class CanvasTarget extends EventTarget {
     /**
      * Get (or lazily create) the WebGPU canvas context and configure it.
      * Safe to call multiple times — returns the cached context after first call.
-     * Three.js aligned: WebGPUBackend lazily reads the context from the current canvasTarget.
+     * WebGPURenderer lazily reads the context from the current canvasTarget.
      *
-     * @param device  The GPUDevice to configure the context with.
-     * @param format  The preferred canvas format (e.g. 'bgra8unorm').
-     * @param alphaMode  The alpha mode for the context (default 'opaque').
+     * @param device the GPUDevice to configure the context with.
+     * @param format the preferred canvas format (e.g. 'bgra8unorm').
+     * @param alphaMode the alpha mode for the context (default 'opaque').
      */
     getContext(
         device: GPUDevice,
@@ -80,7 +69,6 @@ export class CanvasTarget extends EventTarget {
 
     /**
      * Get the pixel ratio.
-     * Three.js aligned: CanvasTarget.getPixelRatio()
      */
     getPixelRatio(): number {
         return this._pixelRatio;
@@ -88,7 +76,6 @@ export class CanvasTarget extends EventTarget {
 
     /**
      * Set the pixel ratio and resize the canvas to match.
-     * Three.js aligned: CanvasTarget.setPixelRatio()
      */
     setPixelRatio(value: number): void {
         if (this._pixelRatio === value) return;
@@ -98,7 +85,6 @@ export class CanvasTarget extends EventTarget {
 
     /**
      * Returns the drawing buffer size in physical pixels (honors pixel ratio).
-     * Three.js aligned: CanvasTarget.getDrawingBufferSize()
      */
     getDrawingBufferSize(): { width: number; height: number } {
         return {
@@ -109,7 +95,6 @@ export class CanvasTarget extends EventTarget {
 
     /**
      * Returns the size in logical pixels (does not honor pixel ratio).
-     * Three.js aligned: CanvasTarget.getSize()
      */
     getSize(): { width: number; height: number } {
         return { width: this._width, height: this._height };
@@ -118,7 +103,6 @@ export class CanvasTarget extends EventTarget {
     /**
      * Set the size of the canvas in logical pixels.
      * Updates domElement.width/height (physical) and fires 'resize'.
-     * Three.js aligned: CanvasTarget.setSize()
      */
     setSize(width: number, height: number, updateStyle: boolean = true): void {
         this._width = width;
@@ -137,7 +121,6 @@ export class CanvasTarget extends EventTarget {
 
     /**
      * Set the drawing buffer size directly (width, height, pixelRatio all at once).
-     * Three.js aligned: CanvasTarget.setDrawingBufferSize()
      */
     setDrawingBufferSize(width: number, height: number, pixelRatio: number): void {
         this._width = width;
@@ -152,7 +135,6 @@ export class CanvasTarget extends EventTarget {
 
     /**
      * Fires a 'resize' event.
-     * Three.js aligned: CanvasTarget._dispatchResize()
      */
     private _dispatchResize(): void {
         this.dispatchEvent(new Event('resize'));
@@ -160,7 +142,6 @@ export class CanvasTarget extends EventTarget {
 
     /**
      * Dispose this target: unconfigure the GPU context and fire 'dispose'.
-     * Three.js aligned: CanvasTarget.dispose()
      */
     dispose(): void {
         this.unconfigure();

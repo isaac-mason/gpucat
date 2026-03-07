@@ -16,7 +16,7 @@ export * from "./camera/perspective-camera";
 
 export * from "./core/attribute";
 export * from "./geometry/geometry";
-export * from "./geometry/helpers";
+export * from "./geometry/geometry-helpers";
 
 export * from "./material/material";
 export * from './material/material';
@@ -33,6 +33,9 @@ export {
     abs, add, sub, mul, div, min, max, clamp, mix, step, smoothstep,
     ceil, floor, fract, sqrt, pow, length, normalize, dot, cross,
     sin, cos, transpose,
+
+    // comparison operators
+    greaterThan, lessThan, greaterThanEqual, lessThanEqual, equal, notEqual,
 
     // constructors
     f16, f32, i32, u32, bool, color,
@@ -82,11 +85,13 @@ export {
 
     // types
     type BinopOp, type BuiltinKind, type ComputeNodeOptions,
-    type ComputeOptions, type ForRange, type GpuTypedArray, type MatType, type NodeKind, type NumericType,
+    type ComputeOptions, type GpuTypedArray, type MatType, type NodeKind, type NumericType,
     type SamplerType, type ScalarType, type StructDef,
     type StructInstance, type StructMember, type TextureType, type UpdateRange, type Vec2Type,
-    type Vec3Type, type Vec4Type, type VecType, type WgslFnParam, type WgslType,
+    type Vec3Type, type Vec4Type, type VecType, type WgslType,
     type InterpolationType, type InterpolationSampling,
+    // Function types (Three.js aligned)
+    type NodeFunction, type NodeFunctionInput, type ParamDesc, type FnLayout,
     VaryingNode,
 } from './nodes/nodes';
 

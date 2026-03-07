@@ -43,7 +43,7 @@ const updateParticles = Fn(() => {
     const newW = pos.w.sub(f32(0.004));
 
     // respawn when lifetime expires (w <= 0).
-    If(newW.lte(f32(0)), () => {
+    If(newW.lessThanEqual(f32(0)), () => {
         // use globalId components as a cheap deterministic hash for spawn position.
         const seedX = f32(0).add(idx.toF32().mul(f32(0.0013)).fract().mul(f32(20)).sub(f32(10)));
         index(positions, idx).assign(

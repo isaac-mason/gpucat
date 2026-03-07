@@ -132,7 +132,7 @@ const computeInit = Fn(() => {
 
 const computeUpdate = Fn(() => {
     // only thread 0 writes — avoids needing atomics.
-    If(globalId.x.eq(u32(0)), () => {
+    If(globalId.x.equal(u32(0)), () => {
         const halfTime = timeElapsed.mul(f32(0.5)).sin();
         // map sin ∈ [-1,1] → range 1→0→1 → then pow4 → count
         const sinPlus1 = halfTime.add(f32(1)); // [0,2]

@@ -1,31 +1,4 @@
-/**
- * texture.ts — Texture class aligned with Three.js Texture.
- *
- * The Texture class holds sampling parameters and references a Source for image data.
- * Multiple textures can share the same Source (same image, different sampling params).
- *
- * Three.js aligned: uses Source for data decoupling.
- *
- * Usage:
- *   const texture = new Texture(imageBitmap);
- *   texture.wrapS = 'repeat';
- *   texture.needsUpdate = true;
- *
- *   // Sharing source between textures:
- *   const source = new Source(imageBitmap);
- *   const texA = new Texture(source);
- *   const texB = new Texture(source);
- *   texB.magFilter = 'nearest';
- */
-
 import { Source, type SourceData } from './source';
-
-// Re-export for convenience
-export { Source, type SourceData, type ImageSize } from './source';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 /** Wrap modes matching WebGPU GPUAddressMode */
 export type WrapMode = 'clamp-to-edge' | 'repeat' | 'mirror-repeat';
@@ -38,10 +11,6 @@ export type MipmapFilterMode = 'nearest' | 'linear';
 
 /** Depth texture formats */
 export type DepthTextureFormat = 'depth16unorm' | 'depth24plus' | 'depth24plus-stencil8' | 'depth32float' | 'depth32float-stencil8';
-
-// ---------------------------------------------------------------------------
-// Texture
-// ---------------------------------------------------------------------------
 
 let _textureId = 0;
 
@@ -262,194 +231,17 @@ export class Texture {
     }
 
     /**
-     * Disposes of the texture. Call this when you no longer need the texture
-     * to free up memory.
+     * Disposes of the texture. Call this when you no longer need the texture to free up memory.
      *
      * Note: This doesn't automatically free GPU resources — the renderer
      * must handle that based on texture disposal.
+     *
      * Note: This doesn't dispose the Source, as it may be shared.
      */
     dispose(): void {
         this.mipmaps = [];
-        // Don't clear source - it may be shared with other textures
+        // don't clear source - it may be shared with other textures
     }
 }
 
-// ---------------------------------------------------------------------------
-// CanvasTexture
-// ---------------------------------------------------------------------------
 
-/**
- * A texture created from a canvas element.
- * Convenience subclass that sets appropriate defaults.
- */
-export class CanvasTexture extends Texture {
-    readonly isCanvasTexture = true;
-
-    constructor(canvas: HTMLCanvasElement | OffscreenCanvas) {
-        super(canvas);
-        // Canvas textures typically don't need mipmaps and shouldn't flip
-        this.generateMipmaps = false;
-        this.flipY = false;
-    }
-}
-
-// ---------------------------------------------------------------------------
-// DataTexture
-// ---------------------------------------------------------------------------
-
-/**
- * A texture created from raw typed array data.
- */
-export class DataTexture extends Texture {
-    readonly isDataTexture = true;
-
-    /** raw pixel data */
-    data: ArrayBufferView | null;
-
-    /** explicit width */
-    readonly dataWidth: number;
-
-    /** explicit height */
-    readonly dataHeight: number;
-
-    constructor(
-        data: ArrayBufferView | null,
-        width: number,
-        height: number,
-        format: GPUTextureFormat = 'rgba8unorm',
-    ) {
-        // Create source with size info
-        super({ width, height });
-        this.data = data;
-        this.dataWidth = width;
-        this.dataHeight = height;
-        this.format = format;
-        this.generateMipmaps = false;
-    }
-
-    override get width(): number {
-        return this.dataWidth;
-    }
-
-    override get height(): number {
-        return this.dataHeight;
-    }
-
-    override clone(): DataTexture {
-        const tex = new DataTexture(
-            this.data ? new (this.data.constructor as new (buffer: ArrayBufferLike) => ArrayBufferView)(
-                this.data.buffer.slice(0),
-            ) : null,
-            this.dataWidth,
-            this.dataHeight,
-            this.format ?? 'rgba8unorm',
-        );
-        tex.name = this.name;
-        tex.wrapS = this.wrapS;
-        tex.wrapT = this.wrapT;
-        tex.magFilter = this.magFilter;
-        tex.minFilter = this.minFilter;
-        return tex;
-    }
-}
-
-// ---------------------------------------------------------------------------
-// VideoTexture
-// ---------------------------------------------------------------------------
-
-/**
- * A texture created from a video element.
- * Automatically updates each frame.
- */
-export class VideoTexture extends Texture {
-    readonly isVideoTexture = true;
-
-    constructor(video: HTMLVideoElement) {
-        super(video);
-        // Video textures need frequent updates
-        this.generateMipmaps = false;
-        this.flipY = false;
-    }
-
-    /**
-     * Call this each frame to check if the video needs updating.
-     * Sets needsUpdate if the video is playing and has new data.
-     */
-    update(): void {
-        const video = this.source.data as HTMLVideoElement;
-        if (video && video.readyState >= video.HAVE_CURRENT_DATA) {
-            this.needsUpdate = true;
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// DepthTexture
-// ---------------------------------------------------------------------------
-
-/**
- * A texture for storing depth information.
- * Aligned with Three.js DepthTexture - extends Texture.
- *
- * Used as the depth attachment in RenderTarget, or for shadow mapping.
- */
-export class DepthTexture extends Texture {
-    /** Type flag for runtime checking - overrides Texture.isDepthTexture */
-    override readonly isDepthTexture = true;
-
-    /** Depth compare function for shadow mapping */
-    compareFunction: GPUCompareFunction | null = null;
-
-    private _width: number;
-    private _height: number;
-
-    /**
-     * Constructs a new DepthTexture.
-     *
-     * @param width - The width of the texture
-     * @param height - The height of the texture
-     * @param format - The depth format (default: 'depth24plus')
-     */
-    constructor(width: number, height: number, format: DepthTextureFormat = 'depth24plus') {
-        // Create source with size info
-        super({ width, height });
-
-        this._width = width;
-        this._height = height;
-
-        this.format = format;
-        this.generateMipmaps = false;
-        this.flipY = false;
-        this.magFilter = 'nearest';
-        this.minFilter = 'nearest';
-
-        // Depth textures are always render target textures
-        this.isRenderTargetTexture = true;
-    }
-
-    override get width(): number {
-        return this._width;
-    }
-
-    override get height(): number {
-        return this._height;
-    }
-
-    /**
-     * Set the size of the depth texture.
-     */
-    setSize(width: number, height: number): void {
-        this._width = width;
-        this._height = height;
-        // Update the source data too
-        this.source.data = { width, height };
-    }
-
-    override clone(): DepthTexture {
-        const tex = new DepthTexture(this._width, this._height, this.format as DepthTextureFormat);
-        tex.name = this.name;
-        tex.compareFunction = this.compareFunction;
-        return tex;
-    }
-}
