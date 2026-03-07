@@ -23,7 +23,7 @@ import { Settings } from './tabs/settings';
 import { Viewer, makePreviewMaterial, splitCamelCase, splitPath, type CanvasData } from './tabs/viewer';
 import { SceneHierarchy } from './tabs/scene-hierarchy';
 import { DrawCalls } from './tabs/draw-calls';
-import type { Node, WgslType } from '../nodes/nodes';
+import type { InspectorNode, WgslType } from '../nodes/nodes';
 import type { WebGPURenderer } from '../renderer/renderer';
 import { CanvasTarget } from '../renderer/canvas-target';
 import { buildProbeWGSL } from './probe-wgsl';
@@ -75,7 +75,7 @@ export class Inspector extends RendererInspector {
     private _lastUpdateTime = 0;
 
     /** Cache of CanvasData per inspectable node. */
-    private _canvasNodes: Map<Node<WgslType>, CanvasData> = new Map();
+    private _canvasNodes: Map<InspectorNode<WgslType>, CanvasData> = new Map();
 
     /** Active probe entry, if any. */
     private _activeProbe: ProbeEntry | null = null;
@@ -226,6 +226,60 @@ export class Inspector extends RendererInspector {
         }
     }
 
+    override setPipeline(label: string): void {
+        if (this.timeline.isRecording) {
+            this.timeline.onCall('setPipeline', label);
+        }
+    }
+
+    override setBindGroup(index: number, label: string): void {
+        if (this.timeline.isRecording) {
+            this.timeline.onCall('setBindGroup', `[${index}] ${label}`);
+        }
+    }
+
+    override setVertexBuffer(slot: number): void {
+        if (this.timeline.isRecording) {
+            this.timeline.onCall('setVertexBuffer', String(slot));
+        }
+    }
+
+    override setIndexBuffer(): void {
+        if (this.timeline.isRecording) {
+            this.timeline.onCall('setIndexBuffer', '');
+        }
+    }
+
+    override draw(vertexCount: number, instanceCount: number): void {
+        if (this.timeline.isRecording) {
+            this.timeline.onCall('draw', `${vertexCount}v × ${instanceCount}i`);
+        }
+    }
+
+    override drawIndexed(indexCount: number, instanceCount: number): void {
+        if (this.timeline.isRecording) {
+            this.timeline.onCall('drawIndexed', `${indexCount}idx × ${instanceCount}i`);
+        }
+    }
+
+    override drawIndirect(): void {
+        if (this.timeline.isRecording) {
+            this.timeline.onCall('drawIndirect', '');
+        }
+    }
+
+    override drawIndexedIndirect(): void {
+        if (this.timeline.isRecording) {
+            this.timeline.onCall('drawIndexedIndirect', '');
+        }
+    }
+
+    override dispatchWorkgroups(x: number, y: number, z: number): void {
+        if (this.timeline.isRecording) {
+            this.timeline.onCall('dispatchWorkgroups', `${x}×${y}×${z}`);
+        }
+    }
+
     override finish(frameId: number): void {
         super.finish(frameId);
         const record = this.resolveFrame();
@@ -237,9 +291,12 @@ export class Inspector extends RendererInspector {
     // -----------------------------------------------------------------------
 
     createParameters(name: string): ReturnType<Parameters['createGroup']> {
-        if (!this.parameters.isVisible) {
-            this.parameters.show();
-        }
+        // Activate the mini-panel (top-right floating panel) without showing
+        // the Parameters tab inside the main profiler panel.  showBuiltin()
+        // moves the list content into the mini-panel overlay and makes it
+        // visible, while leaving isVisible=false so the tab button never
+        // appears in the docked panel's tab bar.
+        this.parameters.showBuiltin();
         return this.parameters.createGroup(name);
     }
 
@@ -263,7 +320,7 @@ export class Inspector extends RendererInspector {
         const code = sourceRO.nodeBuilderState?.code;
         if (!code) return null;
 
-        const cacheKey = `${target.expr}::${target.anchorKind}::${sourceRO.id}`;
+        const cacheKey = `${target.expr}::${target.anchorKind}::${sourceRO.id}::gen`;
 
         // Return existing probe canvas if already built for same key
         if (this._activeProbe?.cacheKey === cacheKey) {
@@ -429,7 +486,7 @@ export class Inspector extends RendererInspector {
     /**
      * Build canvasData for each inspectable node and call viewer.update().
      */
-    resolveViewer(nodes: Node<WgslType>[]): void {
+    resolveViewer(nodes: InspectorNode<WgslType>[]): void {
         const renderer = this.getRenderer();
         if (!renderer) return;
 
@@ -446,7 +503,7 @@ export class Inspector extends RendererInspector {
      * - setPixelRatio(window.devicePixelRatio) on the canvas target
      * - splitCamelCase + splitPath to derive { path, name } from the node label
      */
-    getCanvasDataByNode(node: Node<WgslType>): CanvasData {
+    getCanvasDataByNode(node: InspectorNode<WgslType>): CanvasData {
         let canvasData = this._canvasNodes.get(node);
 
         if (canvasData === undefined) {
@@ -463,11 +520,11 @@ export class Inspector extends RendererInspector {
 
             // Three.js aligned: splitPath(splitCamelCase(node.getName()))
             // to derive folder path and leaf name from the inspector label.
-            const rawName = node._inspectorName ?? id;
+            const rawName = node.getName();
             const { path, name } = splitPath(splitCamelCase(rawName));
 
             const format = navigator.gpu.getPreferredCanvasFormat();
-            const { wrappedNode, material } = makePreviewMaterial(node, format);
+            const { wrappedNode, material } = makePreviewMaterial(node.wrappedNode, format);
 
             canvasData = {
                 id,

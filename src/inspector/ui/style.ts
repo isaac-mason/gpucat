@@ -157,8 +157,9 @@ const CSS = `
 	background: var(--panel-bg);
 	border: 1px solid var(--border-color);
 	border-radius: 6px 6px 0 0;
-	min-width: 240px;
-	max-height: 320px;
+	min-width: 300px;
+	max-width: 420px;
+	max-height: 80vh;
 	display: none;
 	overflow: hidden;
 	flex-direction: column;
@@ -171,10 +172,11 @@ const CSS = `
 
 #profiler-mini-panel.position-right {
 	bottom: auto;
-	top: 0;
+	top: 32px;
 	left: auto;
-	right: 28px;
+	right: 0;
 	border-radius: 0 0 6px 6px;
+	box-shadow: 0 4px 16px rgba(0,0,0,0.4);
 }
 
 #profiler-mini-panel.panel-open {

@@ -14,7 +14,7 @@
  */
 
 import type { Camera } from '../camera/camera';
-import type { RenderTarget } from './render-target';
+import type { RenderTarget } from '../core/render-target';
 import type { MRTNode } from '../nodes/nodes';
 
 // ---------------------------------------------------------------------------

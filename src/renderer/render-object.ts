@@ -17,7 +17,7 @@
  */
 
 import type { Geometry } from '../geometry/geometry';
-import type { BufferAttribute, IndexAttribute } from '../geometry/attribute';
+import type { BufferAttribute, IndexAttribute } from '../core/attribute';
 import type { Material } from '../material/material';
 import type { Mesh } from '../objects/mesh';
 import type { Camera } from '../camera/camera';

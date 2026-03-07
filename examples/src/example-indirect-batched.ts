@@ -1,4 +1,4 @@
-import * as gpu from 'gpucat';
+import * as g from 'gpucat';
 import { d, packStructArray, writeStructArray } from 'gpucat';
 import { mat4, quat, vec3 } from 'mathcat';
 
@@ -7,8 +7,8 @@ const COLS  = 12;
 const ROWS  = TOTAL / COLS;
 const SPACING = 2.0;
 
-const boxSource    = gpu.createBoxGeometry(0.8, 0.8, 0.8);
-const sphereSource = gpu.createSphereGeometry(0.5, 16, 8);
+const boxSource    = g.createBoxGeometry(0.8, 0.8, 0.8);
+const sphereSource = g.createSphereGeometry(0.5, 16, 8);
 
 const boxPos    = boxSource.attributes.get('position')!.array    as Float32Array;
 const boxNorm   = boxSource.attributes.get('normal')!.array      as Float32Array;
@@ -31,10 +31,10 @@ const boxVertCount = boxPos.length / 3;
 const boxIdxCount  = boxIdx.length;
 const sphIdxCount  = sphIdx.length;
 
-const mergedGeometry = new gpu.Geometry();
-mergedGeometry.attributes.set('position', new gpu.BufferAttribute(mergedPos,  3));
-mergedGeometry.attributes.set('normal',   new gpu.BufferAttribute(mergedNorm, 3));
-mergedGeometry.index = new gpu.IndexAttribute(mergedIdx);
+const mergedGeometry = new g.Geometry();
+mergedGeometry.attributes.set('position', new g.BufferAttribute(mergedPos,  3));
+mergedGeometry.attributes.set('normal',   new g.BufferAttribute(mergedNorm, 3));
+mergedGeometry.index = new g.IndexAttribute(mergedIdx);
 
 const instanceMatrices = new Float32Array(TOTAL * 16);
 const instanceHues     = new Float32Array(TOTAL);      // [0..1] for color
@@ -56,43 +56,43 @@ for (let i = 0; i < TOTAL; i++) {
 }
 
 const stride = 16 * 4;
-const col0 = gpu.instancedBufferAttribute(instanceMatrices, d.vec4f, stride, 0);
-const col1 = gpu.instancedBufferAttribute(instanceMatrices, d.vec4f, stride, 16);
-const col2 = gpu.instancedBufferAttribute(instanceMatrices, d.vec4f, stride, 32);
-const col3 = gpu.instancedBufferAttribute(instanceMatrices, d.vec4f, stride, 48);
-const instanceTransform = gpu.mat4(col0, col1, col2, col3);
+const col0 = g.instancedBufferAttribute(instanceMatrices, d.vec4f, stride, 0);
+const col1 = g.instancedBufferAttribute(instanceMatrices, d.vec4f, stride, 16);
+const col2 = g.instancedBufferAttribute(instanceMatrices, d.vec4f, stride, 32);
+const col3 = g.instancedBufferAttribute(instanceMatrices, d.vec4f, stride, 48);
+const instanceTransform = g.mat4(col0, col1, col2, col3);
 
-const instanceHue = gpu.instancedBufferAttribute(instanceHues, d.f32, 4, 0);
+const instanceHue = g.instancedBufferAttribute(instanceHues, d.f32, 4, 0);
 
-const pos = gpu.attribute(d.vec3f, 'position');
-const norm = gpu.attribute(d.vec3f, 'normal');
+const pos = g.attribute(d.vec3f, 'position');
+const norm = g.attribute(d.vec3f, 'normal');
 
-const localPos = gpu.vec4(pos, gpu.f32(1.0));
-const worldPos = gpu.mul(instanceTransform, localPos);
-const viewPos  = gpu.mul(gpu.cameraViewMatrix, worldPos);
-const clipPos  = gpu.mul(gpu.cameraProjectionMatrix, viewPos);
+const localPos = g.vec4(pos, g.f32(1.0));
+const worldPos = g.mul(instanceTransform, localPos);
+const viewPos  = g.mul(g.cameraViewMatrix, worldPos);
+const clipPos  = g.mul(g.cameraProjectionMatrix, viewPos);
 
 // world-space normal (no non-uniform scale so instanceTransform is fine)
-const worldNorm = gpu.vec4(norm, gpu.f32(0.0));
-const tformedNorm = gpu.mul(instanceTransform, worldNorm);
+const worldNorm = g.vec4(norm, g.f32(0.0));
+const tformedNorm = g.mul(instanceTransform, worldNorm);
 
 // simple diffuse lighting from a fixed light direction
-const lightDir  = gpu.vec3f(0.6, 1.0, 0.8).normalize();
-const vNorm = gpu.varying(d.vec3f, 'v_norm', tformedNorm.xyz);
-const vHue = gpu.varying(d.f32,   'v_hue',  instanceHue);
+const lightDir  = g.vec3f(0.6, 1.0, 0.8).normalize();
+const vNorm = g.varying(tformedNorm.xyz, 'v_norm');
+const vHue = g.varying(instanceHue, 'v_hue');
 
-const diffuse = vNorm.normalize().dot(lightDir).max(gpu.f32(0.15));
+const diffuse = vNorm.normalize().dot(lightDir).max(g.f32(0.15));
 
 // HSV-like color from hue: oscillate through red→yellow→green→cyan→blue→magenta
-const pulse = gpu.timeElapsed.mul(gpu.f32(0.4)).sin().mul(gpu.f32(0.05)).add(gpu.f32(1.0));
-const r = vHue.mul(gpu.f32(Math.PI * 2)).sin().mul(gpu.f32(0.5)).add(gpu.f32(0.5));
-const g = vHue.mul(gpu.f32(Math.PI * 2)).add(gpu.f32(Math.PI * 2 / 3)).sin().mul(gpu.f32(0.5)).add(gpu.f32(0.5));
-const b = vHue.mul(gpu.f32(Math.PI * 2)).add(gpu.f32(Math.PI * 4 / 3)).sin().mul(gpu.f32(0.5)).add(gpu.f32(0.5));
-const baseColor = gpu.vec3(r, g, b);
+const pulse = g.timeElapsed.mul(g.f32(0.4)).sin().mul(g.f32(0.05)).add(g.f32(1.0));
+const colR = vHue.mul(g.f32(Math.PI * 2)).sin().mul(g.f32(0.5)).add(g.f32(0.5));
+const colG = vHue.mul(g.f32(Math.PI * 2)).add(g.f32(Math.PI * 2 / 3)).sin().mul(g.f32(0.5)).add(g.f32(0.5));
+const colB = vHue.mul(g.f32(Math.PI * 2)).add(g.f32(Math.PI * 4 / 3)).sin().mul(g.f32(0.5)).add(g.f32(0.5));
+const baseColor = g.vec3(colR, colG, colB);
 const litColor  = baseColor.mul(diffuse).mul(pulse);
-const finalColor = gpu.vec4(litColor, gpu.f32(1.0));
+const finalColor = g.vec4(litColor, g.f32(1.0));
 
-const material = new gpu.Material({ vertex: clipPos, fragment: finalColor });
+const material = new g.Material({ vertex: clipPos, fragment: finalColor });
 
 // ---------------------------------------------------------------------------
 // 4. One IndirectStorageBufferAttribute with drawCount=2
@@ -107,30 +107,30 @@ const material = new gpu.Material({ vertex: clipPos, fragment: finalColor });
 //      [draw*5+4] firstInstance
 // ---------------------------------------------------------------------------
 
-const indirectData = new Uint32Array(packStructArray(gpu.DrawIndexedIndirect, [
+const indirectData = new Uint32Array(packStructArray(g.DrawIndexedIndirect, [
     { indexCount: boxIdxCount, instanceCount: TOTAL / 2, firstIndex: 0,           baseVertex: 0,           firstInstance: 0        },
     { indexCount: sphIdxCount, instanceCount: TOTAL / 2, firstIndex: boxIdxCount, baseVertex: boxVertCount, firstInstance: TOTAL / 2 },
 ]));
 
-mergedGeometry.indirect = new gpu.IndirectStorageBufferAttribute(true, indirectData);
+mergedGeometry.indirect = new g.IndirectStorageBufferAttribute(true, indirectData);
 
 // ---------------------------------------------------------------------------
 // 5. Main
 // ---------------------------------------------------------------------------
 
 async function main() {
-    const renderer = new gpu.WebGPURenderer({ antialias: true });
-    renderer.inspector = new gpu.Inspector();
+    const renderer = new g.WebGPURenderer({ antialias: true });
+    renderer.inspector = new g.Inspector();
     await renderer.init();
 
     document.body.appendChild(renderer.domElement);
-    document.body.appendChild((renderer.inspector as gpu.Inspector).domElement);
+    document.body.appendChild((renderer.inspector as g.Inspector).domElement);
     renderer.setPixelRatio(devicePixelRatio);
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.clearColor = [0.07, 0.07, 0.1, 1];
 
-    const scene = new gpu.Scene();
-    const camera = new gpu.PerspectiveCamera(
+    const scene = new g.Scene();
+    const camera = new g.PerspectiveCamera(
         Math.PI / 4,
         window.innerWidth / window.innerHeight,
         0.1,
@@ -149,10 +149,10 @@ async function main() {
     });
 
     // One mesh, one merged geometry, one IndirectBuffer (drawCount=2).
-    const mesh = new gpu.Mesh(mergedGeometry, material);
+    const mesh = new g.Mesh(mergedGeometry, material);
     scene.add(mesh);
 
-    const scenePass = gpu.pass(scene, camera);
+    const scenePass = g.pass(scene, camera);
     const outputNode = scenePass.getTextureNode();
 
     // -----------------------------------------------------------------------
@@ -184,7 +184,7 @@ async function main() {
         const boxCount = Number(slider.value);
         const sphCount = TOTAL - boxCount;
 
-        writeStructArray(gpu.DrawIndexedIndirect, [
+        writeStructArray(g.DrawIndexedIndirect, [
             { indexCount: boxIdxCount, instanceCount: boxCount, firstIndex: 0,           baseVertex: 0,           firstInstance: 0        },
             { indexCount: sphIdxCount, instanceCount: sphCount, firstIndex: boxIdxCount, baseVertex: boxVertCount, firstInstance: boxCount },
         ], indirect.array!.buffer as ArrayBuffer, 0);

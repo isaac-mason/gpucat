@@ -300,7 +300,7 @@ export function makeFullscreenPositionNode(): Node<'vec4f'> {
 export function makeFullscreenUVVarying(): VaryingNode<'vec2f'> {
     const vi = builtin('vertex_index', 'u32');
     const uvSource = wgsl(d.vec2f)`vec2f((f32((${ vi } & 1u) * 2u) * 2.0 - 1.0) * 0.5 + 0.5, 0.5 - (f32(${ vi } & 2u) * 2.0 - 1.0) * 0.5)`;
-    return new VaryingNode('vec2f', 'uv', uvSource);
+    return new VaryingNode<'vec2f'>(uvSource, 'uv');
 }
 
 /**

@@ -19,7 +19,7 @@ import type { NodeBuilderState } from './node-builder-state';
 import type { BufferCache } from './buffers';
 import type { TextureCache } from './textures';
 import type { NodeFrame } from './node-frame';
-import type { UniformGroupBlock } from '../nodes/compile';
+import type { UniformGroupBlock } from '../nodes/node-builder';
 import { uploadStorage, uploadRaw, getRaw } from './buffers';
 import { updateTexture, getSampler } from './textures';
 import {

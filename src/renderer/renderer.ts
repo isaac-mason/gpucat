@@ -1,29 +1,3 @@
-/**
- * renderer.ts — WebGPU renderer.
- *
- * Usage:
- *   const renderer = new WebGPURenderer({ antialias: true });
- *   await renderer.init();
- *   document.body.appendChild(renderer.domElement);
- *   renderer.setSize(window.innerWidth, window.innerHeight);
- *
- *   const scenePass = pass(scene, camera);
- *
- *   function frame() {
- *       renderer.render(scenePass.getTextureNode());
- *       requestAnimationFrame(frame);
- *   }
- *   requestAnimationFrame(frame);
- *
- * Frame loop (inside renderer.render()):
- *   1. Advance time uniforms
- *   2. Run update() callbacks for nodes discovered at compile-time
- *   3. Run updateBefore() callbacks (PassNodes render their scenes here)
- *   4. _renderOutputNode — compile outputNode as fullscreen quad color, render to swapchain
- *   5. Run updateAfter() callbacks
- *   6. queue.submit([encoder.finish()]) — one submit per frame
- */
-
 import { Mesh } from '../objects/mesh';
 import * as buffers from './buffers';
 import * as textures from './textures';
@@ -36,23 +10,22 @@ import { Geometry } from '../geometry/geometry';
 import { wgsl, builtin, type Node, type WgslType, VaryingNode, MRTNode } from '../nodes/nodes';
 import * as d from '../nodes/schema';
 
-// New Three.js-aligned systems
-import { createRenderContextsState, getRenderContext, type RenderContextsState } from './render-contexts';
-import { createAttributesState, incrementCallId, type AttributesState } from './attributes';
-import { createGeometriesState, type GeometriesState } from './geometries';
-import { createNodeManagerState, updateBefore, updateForRender, updateAfter, type NodeManagerState } from './node-manager';
-import { createBindingsState, getBindGroupLayouts as _getBindGroupLayouts, type BindingsState } from './bindings';
-import { createRenderObjectsState, getRenderObject, initRenderObject, initRenderObjectAsync, updateRenderObject, type RenderObjectsState } from './render-objects';
-import { createRenderListsState, collectRenderList, type RenderListsState } from './render-lists';
+import * as renderContexts from './render-contexts';
+import * as attributes from './attributes';
+import * as geometries from './geometries';
+import * as nodeManager from './node-manager';
+import * as bindings from './bindings';
+import * as renderObjects from './render-objects';
+import * as renderLists from './render-lists';
 import type { RenderItem } from './render-list';
 
 import { ComputeNode } from '../nodes/nodes';
-import type { UniformGroupBlock } from '../nodes/compile';
+import type { UniformGroupBlock } from '../nodes/node-builder';
 import { NodeFrame } from './node-frame';
 import { Scene } from '../scene/scene';
 import { Camera } from '../camera/camera';
 import { InspectorBase } from '../inspector/inspector-base';
-import type { RenderTarget } from './render-target';
+import type { RenderTarget } from '../core/render-target';
 import { GPUFeatureName } from './gpu-constants';
 import { CanvasTarget } from './canvas-target';
 
@@ -65,11 +38,6 @@ declare global {
     var scheduler: Scheduler | undefined;
 }
 
-/**
- * Yield to the main thread to allow animations to continue.
- * Three.js aligned: uses scheduler.yield() if available, falls back to setTimeout.
- * This prevents long-running compile operations from blocking the UI.
- */
 function yieldToMain(): Promise<void> {
     // Modern browsers: scheduler.yield() is the most efficient way to yield
     if (typeof scheduler !== 'undefined' && typeof scheduler.yield === 'function') {
@@ -106,18 +74,11 @@ export type DeviceLostInfo = {
 };
 
 export class WebGPURenderer {
-    /**
-     * The canvas element managed by this renderer.
-     * Three.js aligned: domElement is a getter that reads from _canvasTarget.
-     */
     get domElement(): HTMLCanvasElement {
         return this._canvasTarget.domElement;
     }
 
-    /** The GPUAdapter, available after init(). */
     adapter!: GPUAdapter;
-
-    /** The GPUDevice, available after init(). */
     device!: GPUDevice;
 
     private format!: GPUTextureFormat;
@@ -174,30 +135,26 @@ export class WebGPURenderer {
      */
     private _outputMaterialCache: Map<string, { mat: Material; pipelineKey: string }> = new Map();
 
-    // -------------------------------------------------------------------------
-    // Three.js-aligned subsystems (Phase 4)
-    // -------------------------------------------------------------------------
-
     /** @internal RenderContexts manager - caches render pass configurations */
-    private _renderContexts!: RenderContextsState;
+    private _renderContexts!: renderContexts.RenderContextsState;
 
     /** @internal Attributes system - manages vertex/index buffer uploads with deduplication */
-    private _attributes!: AttributesState;
+    private _attributes!: attributes.AttributesState;
 
     /** @internal Geometries system - coordinates geometry state for RenderObjects */
-    private _geometries!: GeometriesState;
+    private _geometries!: geometries.GeometriesState;
 
     /** @internal NodeManager - handles node compilation and update lifecycle */
-    private _nodes!: NodeManagerState;
+    private _nodes!: nodeManager.NodeManagerState;
 
     /** @internal Bindings system - manages per-RenderObject bind groups */
-    private _bindings!: BindingsState;
+    private _bindings!: bindings.BindingsState;
 
     /** @internal RenderObjects manager - caches RenderObjects per (mesh, material, context) */
-    private _renderObjects!: RenderObjectsState;
+    private _renderObjects!: renderObjects.RenderObjectsState;
 
     /** Read-only access to RenderObjects state for inspection/debugging. */
-    get renderObjects(): RenderObjectsState {
+    get renderObjects(): renderObjects.RenderObjectsState {
         return this._renderObjects;
     }
 
@@ -207,11 +164,11 @@ export class WebGPURenderer {
      * bind group layout as the source mesh pipeline.
      */
     getBindGroupLayouts(renderObject: import('./render-object').RenderObject): GPUBindGroupLayout[] {
-        return _getBindGroupLayouts(this._bindings, renderObject);
+        return bindings.getBindGroupLayouts(this._bindings, renderObject);
     }
 
     /** @internal RenderLists manager - caches scene collection results */
-    private _renderLists!: RenderListsState;
+    private _renderLists!: renderLists.RenderListsState;
 
     /** elapsed time in seconds. */
     private elapsed = 0;
@@ -299,21 +256,18 @@ export class WebGPURenderer {
     /**
      * The current canvas target. Always non-null — initialized in constructor with the main canvas.
      * The inspector viewer swaps this via setCanvasTarget() around each preview render.
-     * Three.js aligned: _canvasTarget is the single source of truth for the output canvas.
      * @internal
      */
     private _canvasTarget!: CanvasTarget;
 
     /**
      * Bound handler for canvas resize events. Added/removed in setCanvasTarget().
-     * Three.js aligned: _onCanvasTargetResize
      */
     private _onCanvasTargetResize: (() => void) | null = null;
 
     /**
      * Sets the current canvas target.
      * Removes the resize listener from the old target, attaches it to the new one.
-     * Three.js aligned: full swap, never a secondary override.
      *
      * @param canvasTarget - The new canvas target.
      * @returns This renderer for chaining.
@@ -338,7 +292,6 @@ export class WebGPURenderer {
 
     /**
      * Returns the current canvas target.
-     * Three.js aligned: renderer.getCanvasTarget()
      */
     getCanvasTarget(): CanvasTarget {
         return this._canvasTarget;
@@ -368,7 +321,6 @@ export class WebGPURenderer {
         this._deviceDescriptor = opts.deviceDescriptor;
 
         // Create the main canvas and wrap it as the default CanvasTarget.
-        // Three.js aligned: _canvasTarget is never null, always initialized in constructor.
         const canvas = document.createElement('canvas');
         canvas.style.display = 'block';
         this._canvasTarget = new CanvasTarget(canvas);
@@ -443,12 +395,10 @@ export class WebGPURenderer {
         });
 
         // Initialize the main canvas target context.
-        // Three.js aligned: the backend lazily configures the context from the current canvasTarget.
         this.format = navigator.gpu.getPreferredCanvasFormat();
         this._canvasTarget.getContext(this.device, this.format, 'opaque');
 
         // Set up canvas resize handler.
-        // Three.js aligned: _onCanvasTargetResize is bound in constructor and added here.
         this._onCanvasTargetResize = () => {
             const { width, height } = this._canvasTarget.getDrawingBufferSize();
             this._onResize(width, height);
@@ -460,19 +410,19 @@ export class WebGPURenderer {
         this.pipelines = pipelines.createPipelineCache(this.device, this.format);
 
         // Initialize Three.js-aligned subsystems
-        this._renderContexts = createRenderContextsState();
-        this._attributes = createAttributesState(this.buffers);
-        this._geometries = createGeometriesState(this._attributes);
-        this._nodes = createNodeManagerState();
-        this._bindings = createBindingsState(this.device, this.buffers, this.textures);
-        this._renderObjects = createRenderObjectsState({
+        this._renderContexts = renderContexts.createRenderContextsState();
+        this._attributes = attributes.createAttributesState(this.buffers);
+        this._geometries = geometries.createGeometriesState(this._attributes);
+        this._nodes = nodeManager.createNodeManagerState();
+        this._bindings = bindings.createBindingsState(this.device, this.buffers, this.textures);
+        this._renderObjects = renderObjects.createRenderObjectsState({
             nodes: this._nodes,
             geometries: this._geometries,
             bindings: this._bindings,
             pipelines: this.pipelines,
             device: this.device,
         });
-        this._renderLists = createRenderListsState();
+        this._renderLists = renderLists.createRenderListsState();
 
         const w = this.domElement.width || 1;
         const h = this.domElement.height || 1;
@@ -483,6 +433,8 @@ export class WebGPURenderer {
 
         this._initialized = true;
         this.inspector.setRenderer(this);
+        // [graph-tab] wire compiled graph snapshots into the inspector
+        this._renderObjects.onGraphSnapshot = (s) => this.inspector.inspectGraph(s);
         this.inspector.init();
         return this;
     }
@@ -503,7 +455,6 @@ export class WebGPURenderer {
 
     /**
      * Set the device pixel ratio. Call before setSize().
-     * Three.js aligned: renderer.setPixelRatio()
      *
      * @param value - The pixel ratio (e.g. window.devicePixelRatio).
      */
@@ -515,7 +466,6 @@ export class WebGPURenderer {
      * Resize the canvas to logical pixel dimensions. The physical canvas size is
      * logical × pixelRatio (set via setPixelRatio()).
      *
-     * Three.js aligned: renderer.setSize() expects logical pixels.
      * Usage: renderer.setPixelRatio(window.devicePixelRatio); renderer.setSize(window.innerWidth, window.innerHeight);
      *
      * The caller is responsible for updating camera.aspect and calling
@@ -553,7 +503,6 @@ export class WebGPURenderer {
      * for a scene before the render loop starts. This is optional — resources
      * are created on-demand during the first render if not pre-warmed.
      *
-     * Three.js aligned: performs full pre-warming including:
      * - Async pipeline compilation (shader modules, render pipelines)
      * - Geometry buffer uploads (vertex, index)
      * - Uniform buffer uploads (render group, object group)
@@ -579,14 +528,14 @@ export class WebGPURenderer {
         }
 
         // Use new RenderLists system to collect visible meshes
-        const renderList = collectRenderList(this._renderLists, scene, camera);
+        const renderList = renderLists.collectRenderList(this._renderLists, scene, camera);
         const allItems = [...renderList.opaque, ...renderList.transparent];
 
         if (allItems.length === 0) return;
 
         // Create a temporary RenderContext for compilation
         // This is needed because RenderObjects are cached by (mesh, material, renderContext)
-        const compileContext = getRenderContext(this._renderContexts, null, null, 0);
+        const compileContext = renderContexts.getRenderContext(this._renderContexts, null, null, 0);
         compileContext.sampleCount = samples;
         compileContext.width = this.domElement.width || 1;
         compileContext.height = this.domElement.height || 1;
@@ -602,7 +551,7 @@ export class WebGPURenderer {
             if (!item.mesh || !item.material || !item.geometry) continue;
 
             // Get or create RenderObject
-            const renderObject = getRenderObject(
+            const renderObject = renderObjects.getRenderObject(
                 this._renderObjects,
                 item.mesh,
                 item.material,
@@ -615,7 +564,7 @@ export class WebGPURenderer {
 
             // Kick off async initialization (compiles shader, creates pipeline)
             initPromises.push(
-                initRenderObjectAsync(this._renderObjects, renderObject, format, depthFormat),
+                renderObjects.initRenderObjectAsync(this._renderObjects, renderObject, format, depthFormat),
             );
         }
 
@@ -630,7 +579,7 @@ export class WebGPURenderer {
             const geometry = item.geometry;
 
             // Get the existing RenderObject (already created and initialized above)
-            const renderObject = getRenderObject(
+            const renderObject = renderObjects.getRenderObject(
                 this._renderObjects,
                 mesh,
                 item.material,
@@ -643,7 +592,6 @@ export class WebGPURenderer {
 
             const nodeState = renderObject.nodeBuilderState;
             if (nodeState) {
-                // Note: Texture upload is now handled by the Bindings system (Three.js aligned)
                 // See bindings.ts rebuildBindGroups() - it calls updateTexture/getSampler
 
                 // Upload storage buffers
@@ -688,7 +636,7 @@ export class WebGPURenderer {
             preWarmFrame.material = renderObject.material;
             preWarmFrame.width = width;
             preWarmFrame.height = height;
-            updateRenderObject(
+            renderObjects.updateRenderObject(
                 this._renderObjects,
                 renderObject,
                 preWarmFrame,
@@ -799,7 +747,6 @@ export class WebGPURenderer {
         const encoder = this._frameEncoder ?? this.device.createCommandEncoder();
         this._frameEncoder = null;
 
-        // Three.js aligned: _canvasTarget is always non-null.
         // For the default target, use MSAA. For inspector preview targets, no MSAA.
         const canvasTarget = this._canvasTarget;
         const isDefaultTarget = canvasTarget.isDefaultCanvasTarget;
@@ -811,7 +758,7 @@ export class WebGPURenderer {
         const h = canvasTarget.domElement.height || 1;
 
         // Increment call ID for attribute deduplication
-        incrementCallId(this._attributes);
+        attributes.incrementCallId(this._attributes);
 
         // ---------------------------------------------------------------------
         // Step 1: Create material and get RenderObject for fullscreen quad
@@ -824,7 +771,7 @@ export class WebGPURenderer {
         const fullscreenCamera = this._getFullscreenCamera();
 
         // Get/create RenderContext for the fullscreen pass
-        const renderContext = getRenderContext(this._renderContexts, null, null, 0);
+        const renderContext = renderContexts.getRenderContext(this._renderContexts, null, null, 0);
         renderContext.sampleCount = targetSamples;
         renderContext.width = w;
         renderContext.height = h;
@@ -833,7 +780,7 @@ export class WebGPURenderer {
         renderContext.clearColorValue = { r: cr, g: cg, b: cb, a: ca };
 
         // Get/create RenderObject for fullscreen quad
-        const renderObject = getRenderObject(
+        const renderObject = renderObjects.getRenderObject(
             this._renderObjects,
             fullscreenMesh,
             mat,
@@ -844,7 +791,7 @@ export class WebGPURenderer {
         );
 
         // Initialize RenderObject (compile shaders, create pipeline, bindings)
-        const initialized = initRenderObject(
+        const initialized = renderObjects.initRenderObject(
             this._renderObjects,
             renderObject,
             targetFormat,
@@ -858,8 +805,6 @@ export class WebGPURenderer {
             return;
         }
 
-        const nodeState = renderObject.nodeBuilderState;
-
         // ---------------------------------------------------------------------
         // Step 2: Run update lifecycle callbacks
         // ---------------------------------------------------------------------
@@ -871,25 +816,18 @@ export class WebGPURenderer {
         frame.object = fullscreenMesh;
         frame.scene = fullscreenScene;
 
-        // Notify inspector of any inspectable nodes in the compiled graph.
-        for (const node of nodeState.inspectableNodes) {
-            this.inspector.inspect(node);
-        }
-
         // update() — push CPU→GPU uniform data (before draw)
-        updateForRender(this._nodes, renderObject);
+        // InspectorNode.update() will automatically call inspector.inspect() via the node update system
+        nodeManager.updateForRender(this._nodes, renderObject);
 
         // updateBefore() — off-screen passes, pre-frame GPU work
-        updateBefore(this._nodes, renderObject);
+        nodeManager.updateBefore(this._nodes, renderObject);
 
         // ---------------------------------------------------------------------
         // Step 3: Update RenderObject uniforms and bindings
         // ---------------------------------------------------------------------
 
-        // Note: Texture upload is now handled by the Bindings system (Three.js aligned)
-        // See bindings.ts rebuildBindGroups() - it calls updateTexture/getSampler
-
-        updateRenderObject(
+        renderObjects.updateRenderObject(
             this._renderObjects,
             renderObject,
             frame,
@@ -903,7 +841,7 @@ export class WebGPURenderer {
         // ---------------------------------------------------------------------
         // Step 5: updateAfter() — post-draw cleanup
         // ---------------------------------------------------------------------
-        updateAfter(this._nodes, renderObject);
+        nodeManager.updateAfter(this._nodes, renderObject);
 
         this.device.queue.submit([encoder.finish()]);
         this.inspector.finish(this.frameId);
@@ -929,7 +867,7 @@ export class WebGPURenderer {
         this.inspector.beginCompute(node.id, this.frameId);
         computePass.setPipeline(entry.pipeline);
 
-        // Build and set bind groups using dynamic indices (Three.js aligned)
+        // Build and set bind groups using dynamic indices
         // Storage bind group
         const storageBindGroup = bindGroupInfo.bindGroups.find((bg: { name: string }) => bg.name === 'storage');
         if (storageBindGroup && entry.compileResult.storage.length > 0) {
@@ -974,7 +912,7 @@ export class WebGPURenderer {
         }
 
         const [dx, dy, dz] = node.dispatch;
-        computePass.dispatchWorkgroups(dx, dy, dz);
+        computeDispatchWorkgroups(computePass, this.inspector, dx, dy, dz);
         computePass.end();
         this.inspector.finishCompute(node.id, this.frameId);
     }
@@ -1042,7 +980,7 @@ export class WebGPURenderer {
         const fullscreenCamera = this._getFullscreenCamera();
 
         // Get/create RenderContext for this quad pass (no depth — inspector previews don't need it)
-        const renderContext = getRenderContext(this._renderContexts, null, null, 0);
+        const renderContext = renderContexts.getRenderContext(this._renderContexts, null, null, 0);
         renderContext.sampleCount = targetSamples;
         renderContext.width = w;
         renderContext.height = h;
@@ -1051,7 +989,7 @@ export class WebGPURenderer {
         renderContext.clearColorValue = { r: cr, g: cg, b: cb, a: ca };
 
         // Get/create RenderObject (compile shader + pipeline if needed)
-        const renderObject = getRenderObject(
+        const renderObject = renderObjects.getRenderObject(
             this._renderObjects,
             fullscreenMesh,
             material,
@@ -1061,7 +999,7 @@ export class WebGPURenderer {
             'quad',
         );
 
-        const initialized = initRenderObject(
+        const initialized = renderObjects.initRenderObject(
             this._renderObjects,
             renderObject,
             targetFormat,
@@ -1084,7 +1022,7 @@ export class WebGPURenderer {
         frame.encoder = encoder;
         frame.width = w;
         frame.height = h;
-        updateRenderObject(
+        renderObjects.updateRenderObject(
             this._renderObjects,
             renderObject,
             frame,
@@ -1146,7 +1084,7 @@ export class WebGPURenderer {
 
         // Setup MRT if active - resolve output names to texture indices
         if (mrt && renderTarget) {
-            mrt.setup((name: string) => renderTarget.getTextureIndex(name));
+            mrt.resolveOutputs((name: string) => renderTarget.getTextureIndex(name));
         }
 
         const ownEncoder = !encoder;
@@ -1177,12 +1115,12 @@ export class WebGPURenderer {
         frame.height = height;
 
         // Increment call ID for attribute deduplication
-        incrementCallId(this._attributes);
+        attributes.incrementCallId(this._attributes);
 
         // ---------------------------------------------------------------------
         // Step 1: Get/create RenderContext for this pass
         // ---------------------------------------------------------------------
-        const renderContext = getRenderContext(this._renderContexts, renderTarget, mrt, 0);
+        const renderContext = renderContexts.getRenderContext(this._renderContexts, renderTarget, mrt, 0);
         // Update RenderContext with current pass configuration
         renderContext.sampleCount = samples;
         renderContext.width = width;
@@ -1193,7 +1131,7 @@ export class WebGPURenderer {
         // ---------------------------------------------------------------------
         // Step 2: Collect visible meshes using new RenderLists system
         // ---------------------------------------------------------------------
-        const renderList = collectRenderList(this._renderLists, scene, camera);
+        const renderList = renderLists.collectRenderList(this._renderLists, scene, camera);
 
         // ---------------------------------------------------------------------
         // Step 3: Build color attachments
@@ -1277,7 +1215,7 @@ export class WebGPURenderer {
                 const geometry = item.geometry;
 
                 // Get or create RenderObject for this (mesh, material, renderContext)
-                const renderObject = getRenderObject(
+                const renderObject = renderObjects.getRenderObject(
                     this._renderObjects,
                     mesh,
                     material,
@@ -1289,7 +1227,7 @@ export class WebGPURenderer {
                 );
 
                 // Initialize RenderObject (compile shaders, create pipeline, bindings)
-                const initialized = initRenderObject(
+                const initialized = renderObjects.initRenderObject(
                     this._renderObjects,
                     renderObject,
                     colorFormat,
@@ -1306,20 +1244,16 @@ export class WebGPURenderer {
                     continue;
                 }
 
-                // Notify inspector of any inspectable nodes in this mesh's compiled graph
-                for (const node of nodeState.inspectableNodes) {
-                    this.inspector.inspect(node);
-                }
-
-                // Note: Texture upload is now handled by the Bindings system (Three.js aligned)
+                // Note: Texture upload is now handled by the Bindings system
                 // See bindings.ts rebuildBindGroups() - it calls updateTexture/getSampler
 
                 // Update RenderObject (uniforms, bind groups)
                 // Update frame context for this specific mesh
+                // InspectorNode.update() is automatically called via updateForRender() in the node update system
                 const frame = this._nodes.nodeFrame;
                 frame.object = mesh;
                 frame.material = material;
-                updateRenderObject(
+                renderObjects.updateRenderObject(
                     this._renderObjects,
                     renderObject,
                     frame,
@@ -1327,7 +1261,7 @@ export class WebGPURenderer {
 
                 // Set pipeline if changed
                 if (renderObject.pipeline !== currentPipeline) {
-                    gpuPass.setPipeline(renderObject.pipeline);
+                    passSetPipeline(gpuPass, this.inspector, renderObject.pipeline, mesh.name || material.constructor.name);
                     currentPipeline = renderObject.pipeline;
                 }
 
@@ -1335,7 +1269,7 @@ export class WebGPURenderer {
                 const bindGroups = renderObject.bindGroups;
                 if (bindGroups) {
                     for (let i = 0; i < bindGroups.length; i++) {
-                        gpuPass.setBindGroup(i, bindGroups[i]);
+                        passSetBindGroup(gpuPass, this.inspector, i, bindGroups[i], mesh.name || '');
                     }
                 }
 
@@ -1346,7 +1280,7 @@ export class WebGPURenderer {
                         const bufAttr = geometry.attributes.get(attrEntry.name);
                         if (!bufAttr) { slot++; continue; }
                         const gpuBuf = buffers.uploadVertex(this.buffers, bufAttr);
-                        gpuPass.setVertexBuffer(slot++, gpuBuf);
+                        passSetVertexBuffer(gpuPass, this.inspector, slot++, gpuBuf);
                     } else {
                         const node = attrEntry.node;
                         const arr = node.attribute.array;
@@ -1359,23 +1293,23 @@ export class WebGPURenderer {
                             arr,
                             GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
                         );
-                        gpuPass.setVertexBuffer(slot++, gpuBuf);
+                        passSetVertexBuffer(gpuPass, this.inspector, slot++, gpuBuf);
                     }
                 }
 
                 // Issue draw call
                 if (geometry.index) {
                     const idxBuf = buffers.uploadIndex(this.buffers, geometry.index);
-                    gpuPass.setIndexBuffer(idxBuf, geometry.index.format);
+                    passSetIndexBuffer(gpuPass, this.inspector, idxBuf, geometry.index.format);
                     if (geometry.indirect) {
                         const indirect = geometry.indirect;
                         const indBuf = buffers.uploadIndirect(this.buffers, indirect);
                         const byteStride = indirect.indirectStride * 4;
                         for (let d = 0; d < indirect.drawCount; d++) {
-                            gpuPass.drawIndexedIndirect(indBuf, d * byteStride);
+                            passDrawIndexedIndirect(gpuPass, this.inspector, indBuf, d * byteStride);
                         }
                     } else {
-                        gpuPass.drawIndexed(geometry.index.array.length, mesh.count);
+                        passDrawIndexed(gpuPass, this.inspector, geometry.index.array.length, mesh.count);
                     }
                 } else {
                     if (geometry.indirect) {
@@ -1383,10 +1317,10 @@ export class WebGPURenderer {
                         const indBuf = buffers.uploadIndirect(this.buffers, indirect);
                         const byteStride = indirect.indirectStride * 4;
                         for (let d = 0; d < indirect.drawCount; d++) {
-                            gpuPass.drawIndirect(indBuf, d * byteStride);
+                            passDrawIndirect(gpuPass, this.inspector, indBuf, d * byteStride);
                         }
                     } else {
-                        gpuPass.draw(geometry.vertexCount, mesh.count);
+                        passDraw(gpuPass, this.inspector, geometry.vertexCount, mesh.count);
                     }
                 }
             }
@@ -1426,10 +1360,6 @@ export class WebGPURenderer {
     ): void {
         this.inspector.beginRender('composite', this.frameId);
 
-        // Three.js aligned: _canvasTarget is always non-null. Get the GPU context
-        // from the current canvas target — this is the key to the swap pattern.
-        // When the inspector viewer calls setCanvasTarget(previewTarget), render()
-        // will write to the preview canvas instead of the main canvas.
         const canvasTarget = this._canvasTarget;
         const isDefault = canvasTarget.isDefaultCanvasTarget;
 
@@ -1472,18 +1402,18 @@ export class WebGPURenderer {
         });
 
         // Set pipeline from RenderObject
-        gpuPass.setPipeline(renderObject.pipeline!);
+        passSetPipeline(gpuPass, this.inspector, renderObject.pipeline!, 'composite');
 
         // Set bind groups from RenderObject
         const bindGroups = renderObject.bindGroups;
         if (bindGroups) {
             for (let i = 0; i < bindGroups.length; i++) {
-                gpuPass.setBindGroup(i, bindGroups[i]);
+                passSetBindGroup(gpuPass, this.inspector, i, bindGroups[i], 'composite');
             }
         }
 
         // Draw fullscreen triangle (3 vertices, 1 instance)
-        gpuPass.draw(3, 1);
+        passDraw(gpuPass, this.inspector, 3, 1);
 
         gpuPass.end();
         this.inspector.finishRender('composite', this.frameId);
@@ -1679,7 +1609,7 @@ function _makeFullscreenPositionNode(): Node<'vec4f'> {
 function _makeFullscreenUVVarying(): VaryingNode<'vec2f'> {
     const vi = builtin('vertex_index', 'u32');
     const uvSource = wgsl(d.vec2f)`vec2f((f32((${ vi } & 1u) * 2u) * 2.0 - 1.0) * 0.5 + 0.5, 0.5 - (f32(${ vi } & 2u) * 2.0 - 1.0) * 0.5)`;
-    return new VaryingNode('vec2f', 'uv', uvSource);
+    return new VaryingNode<'vec2f'>(uvSource, 'uv');
 }
 
 
@@ -1745,4 +1675,102 @@ function invokeUniformGroupCallbacks(
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Pass-command helpers — issue the real GPU encoder call AND the inspector hook
+// in one place so neither renderer.ts call sites nor the inspector interface
+// accumulate per-command boilerplate.
+// ---------------------------------------------------------------------------
+
+function passSetPipeline(
+    pass: GPURenderPassEncoder,
+    inspector: InspectorBase,
+    pipeline: GPURenderPipeline,
+    label: string,
+): void {
+    pass.setPipeline(pipeline);
+    inspector.setPipeline(label);
+}
+
+function passSetBindGroup(
+    pass: GPURenderPassEncoder,
+    inspector: InspectorBase,
+    index: number,
+    bindGroup: GPUBindGroup,
+    label: string,
+): void {
+    pass.setBindGroup(index, bindGroup);
+    inspector.setBindGroup(index, label);
+}
+
+function passSetVertexBuffer(
+    pass: GPURenderPassEncoder,
+    inspector: InspectorBase,
+    slot: number,
+    buffer: GPUBuffer,
+): void {
+    pass.setVertexBuffer(slot, buffer);
+    inspector.setVertexBuffer(slot);
+}
+
+function passSetIndexBuffer(
+    pass: GPURenderPassEncoder,
+    inspector: InspectorBase,
+    buffer: GPUBuffer,
+    format: GPUIndexFormat,
+): void {
+    pass.setIndexBuffer(buffer, format);
+    inspector.setIndexBuffer();
+}
+
+function passDraw(
+    pass: GPURenderPassEncoder,
+    inspector: InspectorBase,
+    vertexCount: number,
+    instanceCount: number,
+): void {
+    pass.draw(vertexCount, instanceCount);
+    inspector.draw(vertexCount, instanceCount);
+}
+
+function passDrawIndexed(
+    pass: GPURenderPassEncoder,
+    inspector: InspectorBase,
+    indexCount: number,
+    instanceCount: number,
+): void {
+    pass.drawIndexed(indexCount, instanceCount);
+    inspector.drawIndexed(indexCount, instanceCount);
+}
+
+function passDrawIndirect(
+    pass: GPURenderPassEncoder,
+    inspector: InspectorBase,
+    indirectBuffer: GPUBuffer,
+    indirectOffset: number,
+): void {
+    pass.drawIndirect(indirectBuffer, indirectOffset);
+    inspector.drawIndirect();
+}
+
+function passDrawIndexedIndirect(
+    pass: GPURenderPassEncoder,
+    inspector: InspectorBase,
+    indirectBuffer: GPUBuffer,
+    indirectOffset: number,
+): void {
+    pass.drawIndexedIndirect(indirectBuffer, indirectOffset);
+    inspector.drawIndexedIndirect();
+}
+
+function computeDispatchWorkgroups(
+    pass: GPUComputePassEncoder,
+    inspector: InspectorBase,
+    x: number,
+    y: number,
+    z: number,
+): void {
+    pass.dispatchWorkgroups(x, y, z);
+    inspector.dispatchWorkgroups(x, y, z);
 }

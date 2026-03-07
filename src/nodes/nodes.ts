@@ -1,22 +1,11 @@
-/**
- * nodes.ts — WGSL node graph: type vocab, node classes, DSL constructors, helpers.
- *
- * Node<T> is a base class. Each node kind is a subclass carrying its own data fields.
- * The chaining API (add, mul, normalize, etc.) and all swizzle getters (x/y/z/w and
- * r/g/b/a sets) live directly on Node<T> as hardcoded TypeScript getters — no runtime
- * prototype mutation, no index signatures.
- *
- * Standalone DSL functions (konst, attr, uniform, ...) are thin subclass constructors
- * exported for convenience and for use without chaining.
- */
-
 import type { NodeFrame } from '../renderer/node-frame';
-import { InstancedBufferAttribute, StorageBufferAttribute } from 'src/geometry/attribute';
-import { getChildren as _getChildren } from './collect';
+import type { NodeBuilder, VaryingData } from './node-builder';
+import { constLiteral } from './wgsl-utils';
+import { InstancedBufferAttribute, StorageBufferAttribute, StorageInstancedBufferAttribute } from 'src/core/attribute';
 import * as d from './schema';
 import { type ArrayDesc, type DepthTextureDesc, isStructDef, itemSizeOf, type StructSchema, texture2d, type TextureDesc, typedArrayCtorOf, type WgslDesc } from './schema';
-export { type UpdateRange } from '../geometry/attribute';
-import type { IndirectStorageBufferAttribute } from 'src/geometry/attribute';
+export { type UpdateRange } from '../core/attribute';
+import type { IndirectStorageBufferAttribute } from 'src/core/attribute';
 import { Texture } from '../texture/texture';
 import { Color, type ColorInput } from '../utils/color';
 
@@ -147,6 +136,7 @@ export type NodeKind =
     | 'sampler'
     | 'convert'
     | 'varying'
+    | 'subBuild'
     | 'binop'
     | 'call'
     | 'wgsl'
@@ -160,12 +150,15 @@ export type NodeKind =
     | 'cond'
     | 'var'
     | 'if'
-    | 'for'
-    | 'while'
+    | 'loop'
+    | 'expression'
     | 'break'
     | 'continue'
     | 'fn'
     | 'wgsl_fn'
+    | 'code'
+    | 'function'
+    | 'functionCall'
     | 'param'
     | 'return'
     | 'output_struct'
@@ -238,21 +231,62 @@ export type FnLayout<P extends readonly ParamDesc[]> = {
     readonly params: [...P];
 };
 
+/**
+ * Maps build stage to its parent stage.
+ * Three.js aligned: used to force parent stages if skipped.
+ */
+const _parentBuildStage: Record<string, string | undefined> = {
+    analyze: 'setup',
+    generate: 'analyze',
+};
+
 export class Node<T extends WgslType> {
     readonly id: string;
     readonly kind: NodeKind;
     readonly type: T;
 
-    /** Set by .inspect() — human-readable label shown in the Inspector UI. */
-    _inspectorName: string | undefined = undefined;
-    /** True when this node has been marked for inspector preview/tracking. */
-    _isInspectable = false;
+    /**
+     * Nodes that should be built before this node.
+     * Three.js aligned: used by InspectorNode via node.before().
+     * Null by default for memory efficiency.
+     */
+    _beforeNodes: Node<WgslType>[] | null = null;
 
     /**
      * The update type for this node's update() method.
      * Determines when the update callback is invoked (none/frame/render/object).
      */
     updateType: NodeUpdateType = NodeUpdateType.NONE;
+
+    /**
+     * The update type for this node's updateBefore() method.
+     * Three.js aligned.
+     */
+    updateBeforeType: NodeUpdateType = NodeUpdateType.NONE;
+
+    /**
+     * The update type for this node's updateAfter() method.
+     * Three.js aligned.
+     */
+    updateAfterType: NodeUpdateType = NodeUpdateType.NONE;
+
+    /**
+     * Whether this node is global (should use globalCache).
+     * Three.js aligned.
+     */
+    global: boolean = false;
+
+    /**
+     * Whether to track parent nodes during build.
+     * Three.js aligned.
+     */
+    parents: boolean = false;
+
+    /**
+     * This flag can be used for type testing.
+     * Three.js aligned: isNode = true.
+     */
+    readonly isNode: boolean = true;
 
     /**
      * The update callback. Invoked based on updateType.
@@ -311,27 +345,391 @@ export class Node<T extends WgslType> {
     }
 
     /**
+     * Add a node to be built before this node.
+     * Three.js aligned: Node.before() method.
+     *
+     * Used by InspectorNode to attach itself to the node being inspected,
+     * ensuring the InspectorNode gets built and its update() is called.
+     *
+     * @param node - The node to build before this one
+     * @returns this for method chaining
+     */
+    before(node: Node<WgslType>): this {
+        if (this._beforeNodes === null) this._beforeNodes = [];
+        this._beforeNodes.push(node);
+        return this;
+    }
+
+    /**
      * Mark this node as inspectable, optionally with a display name.
+     * Creates an InspectorNode wrapper and attaches it via before().
      * Returns `this` for method chaining.
+     *
+     * Three.js aligned: mirrors the inspector() factory function.
      *
      * @example
      * const albedo = texture('texture_2d<f32>', 'albedo').inspect('Albedo');
      */
     inspect(name?: string): this {
-        this._isInspectable = true;
-        if (name !== undefined) this._inspectorName = name;
+        return this.before(new InspectorNode(this, name) as Node<WgslType>);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Three.js-aligned build system methods (exact naming)
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Nodes might refer to other objects like materials. This method allows to dynamically update the reference
+     * to such objects based on a given state (e.g. the current node frame or builder).
+     * Three.js aligned: Node.updateReference().
+     *
+     * @param _state - This method can be invoked in different contexts so state can refer to any object type.
+     * @return The updated reference.
+     */
+    updateReference(_state: unknown): this {
         return this;
+    }
+
+    /**
+     * Returns the hash of the node which is used to identify the node.
+     * Three.js aligned: Node.getHash() returns a unique identifier.
+     *
+     * @param _builder - The NodeBuilder instance (unused in base implementation)
+     * @returns The hash string (defaults to node id)
+     */
+    getHash(_builder: NodeBuilder): string {
+        return this.id;
+    }
+
+    /**
+     * Returns a shared node if one exists with the same hash.
+     * Three.js aligned: Node.getShared() for node deduplication.
+     *
+     * @param builder - The NodeBuilder instance
+     * @returns The shared node if found, otherwise this
+     */
+    getShared(builder: NodeBuilder): Node<WgslType> {
+        const hash = this.getHash(builder);
+        const nodeFromHash = builder.getNodeFromHash(hash);
+        return nodeFromHash || this;
+    }
+
+    /**
+     * Returns the node's type.
+     * Three.js aligned: Node.getNodeType().
+     *
+     * @param builder - The current node builder.
+     * @param output - The output of the node.
+     * @return The type of the node.
+     */
+    getNodeType(builder: NodeBuilder, output: string | null = null): string {
+        const nodeData = builder.getDataFromNode(this);
+
+        let type: string | undefined;
+
+        if (output !== null) {
+            nodeData.typeFromOutput = nodeData.typeFromOutput || {};
+            type = nodeData.typeFromOutput[output];
+
+            if (type === undefined) {
+                type = this.generateNodeType(builder, output);
+                nodeData.typeFromOutput[output] = type;
+            }
+        } else {
+            type = nodeData.type;
+
+            if (type === undefined) {
+                type = this.generateNodeType(builder);
+                nodeData.type = type;
+            }
+        }
+
+        return type;
+    }
+
+    /**
+     * Generates the node's type.
+     * Three.js aligned: Node.generateNodeType().
+     *
+     * @param builder - The current node builder.
+     * @param output - The output of the node.
+     * @return The type of the node.
+     */
+    generateNodeType(builder: NodeBuilder, output: string | null = null): string {
+        const nodeProperties = builder.getNodeProperties(this);
+
+        if (nodeProperties.outputNode) {
+            return (nodeProperties.outputNode as Node<WgslType>).getNodeType(builder, output);
+        }
+
+        return this.type;
+    }
+
+    /**
+     * Build this node for the current stage.
+     * Three.js aligned: Node.build() orchestrates setup/analyze/generate based on buildStage.
+     *
+     * This method:
+     * 1. Checks for shared nodes (deduplication via getShared)
+     * 2. Builds _beforeNodes first
+     * 3. Forces parent build stages if skipped (setup before analyze, analyze before generate)
+     * 4. Dispatches to setup/analyze/generate based on buildStage
+     *
+     * @param builder - The NodeBuilder instance
+     * @param output - Optional output type for type conversion
+     * @returns WGSL code snippet, output node, or null depending on stage
+     */
+    build(builder: NodeBuilder, output?: string | Node<WgslType>): string | Node<WgslType> | null {
+        // Three.js: check for shared node (deduplication)
+        const refNode = this.getShared(builder);
+        if (this !== refNode) {
+            return refNode.build(builder, output);
+        }
+
+        // Three.js: build _beforeNodes first
+        if (this._beforeNodes !== null) {
+            const currentBeforeNodes = this._beforeNodes;
+            this._beforeNodes = null;
+            for (const beforeNode of currentBeforeNodes) {
+                beforeNode.build(builder, output);
+            }
+            this._beforeNodes = currentBeforeNodes;
+        }
+
+        // Three.js: track build stages to avoid double-building
+        const nodeData = builder.getDataFromNode(this);
+        nodeData.buildStages = nodeData.buildStages || {};
+        nodeData.buildStages[builder.buildStage!] = true;
+
+        // Three.js: force parent build stage if skipped
+        const parentBuildStage = _parentBuildStage[builder.buildStage!];
+        if (parentBuildStage && nodeData.buildStages[parentBuildStage] !== true) {
+            const previousBuildStage = builder.getBuildStage();
+            builder.setBuildStage(parentBuildStage as 'setup' | 'analyze' | 'generate');
+            this.build(builder);
+            builder.setBuildStage(previousBuildStage);
+        }
+
+        // Three.js: add to chain for cycle detection
+        builder.addChain(this);
+
+        let result: string | Node<WgslType> | null = null;
+        const buildStage = builder.getBuildStage();
+
+        if (buildStage === 'setup') {
+            // Three.js: add node to builder's node list
+            builder.addNode(this);
+
+            this.updateReference(builder);
+
+            const properties = builder.getNodeProperties(this);
+
+            if (properties.initialized !== true) {
+                properties.initialized = true;
+                properties.outputNode = this.setup(builder) || properties.outputNode || null;
+
+                // Three.js: build child nodes from properties
+                for (const childNode of Object.values(properties)) {
+                    if (childNode && typeof childNode === 'object' && 'isNode' in childNode && (childNode as Node<WgslType>).isNode === true) {
+                        // Track parents if requested
+                        if ((childNode as Node<WgslType>).parents === true) {
+                            const childProperties = builder.getNodeProperties(childNode as Node<WgslType>);
+                            childProperties.parents = childProperties.parents || [];
+                            (childProperties.parents as Node<WgslType>[]).push(this);
+                        }
+                        (childNode as Node<WgslType>).build(builder);
+                    }
+                }
+
+                // Three.js: add to sequential nodes for update callbacks
+                builder.addSequentialNode(this);
+            }
+
+            result = properties.outputNode ?? null;
+
+        } else if (buildStage === 'analyze') {
+            this.analyze(builder, output as Node<WgslType> | null);
+
+        } else if (buildStage === 'generate') {
+            // Three.js: check if generate takes only one argument (no output handling)
+            const isGenerateOnce = this.generate.length < 2;
+
+            if (isGenerateOnce) {
+                const type = this.getNodeType(builder);
+                const nodeData = builder.getDataFromNode(this);
+
+                let snippet = nodeData.snippet;
+
+                if (snippet === undefined) {
+                    if (nodeData.generated === undefined) {
+                        nodeData.generated = true;
+                        snippet = this.generate(builder) || '';
+                        nodeData.snippet = snippet;
+                    } else {
+                        // Recursion detected
+                        console.warn('[gpucat] Node: Recursion detected.', this);
+                        snippet = '/* Recursion detected. */';
+                    }
+                }
+
+                result = builder.format(snippet, type, output as string | undefined);
+            } else {
+                result = this.generate(builder, output as string | undefined) || '';
+            }
+        }
+
+        builder.removeChain(this);
+
+        return result;
+    }
+
+    /**
+     * Setup phase: register resources, return outputNode if transforming.
+     * Three.js: Node.setup() prepares the node for compilation.
+     *
+     * Default implementation discovers children via reflection and stores
+     * them in properties. Override for custom setup behavior.
+     *
+     * @param builder - The NodeBuilder instance
+     * @returns A replacement output node, or null to use this node
+     */
+    setup(builder: NodeBuilder): Node<WgslType> | null {
+        const nodeProperties = builder.getNodeProperties(this);
+
+        let index = 0;
+
+        for (const childNode of this.getChildren()) {
+            nodeProperties['node' + index++] = childNode;
+        }
+
+        // return a outputNode if exists or null
+        return nodeProperties.outputNode || null;
+    }
+
+    /**
+     * Represents the analyze stage which is the second step of the build process.
+     * This stage analyzes the node hierarchy and ensures descendent nodes are built.
+     *
+     * @param builder - The current node builder.
+     * @param output - The target output node.
+     */
+    analyze(builder: NodeBuilder, output: Node<WgslType> | null = null): void {
+        const usageCount = builder.increaseUsage(this);
+
+        if (this.parents === true) {
+            const nodeData = builder.getDataFromNode(this, 'any');
+            nodeData.stages = nodeData.stages || {};
+            nodeData.stages[builder.shaderStage!] = nodeData.stages[builder.shaderStage!] || [];
+            nodeData.stages[builder.shaderStage!].push(output!);
+        }
+
+        if (usageCount === 1) {
+            // node flow children
+            const nodeProperties = builder.getNodeProperties(this);
+
+            for (const childNode of Object.values(nodeProperties)) {
+                if (childNode && (childNode as Node<WgslType>).isNode === true) {
+                    (childNode as Node<WgslType>).build(builder, this);
+                }
+            }
+        }
+    }
+
+    /**
+     * Represents the generate stage which is the third step of the build process.
+     * This state builds the output node and returns the resulting shader string.
+     *
+     * @param builder - The current node builder.
+     * @param output - Can be used to define the output type.
+     * @return The generated shader string.
+     */
+    generate(builder: NodeBuilder, output?: string): string | null {
+        const { outputNode } = builder.getNodeProperties(this);
+
+        if (outputNode && (outputNode as Node<WgslType>).isNode === true) {
+            return (outputNode as Node<WgslType>).build(builder, output) as string | null;
+        }
+
+        return null;
+    }
+
+    /**
+     * Generator function that can be used to iterate over the child nodes.
+     * Three.js: Node.getChildren() yields child nodes.
+     *
+     * @yields A child node.
+     */
+    *getChildren(): Generator<Node<WgslType>> {
+        for (const { childNode } of this._getChildren()) {
+            yield childNode;
+        }
+    }
+
+    /**
+     * Can be used to traverse through the node's hierarchy.
+     * Three.js: Node.traverse() calls callback for this and all descendants.
+     *
+     * @param callback - A callback that is executed per node.
+     */
+    traverse(callback: (node: Node<WgslType>) => void): void {
+        callback(this);
+        for (const childNode of this.getChildren()) {
+            childNode.traverse(callback);
+        }
+    }
+
+    /**
+     * Returns the child nodes of this node.
+     * Three.js aligned: exact copy of Node._getChildren().
+     *
+     * @param ignores - A set of nodes to ignore during the search to avoid circular references.
+     * @returns An array of objects describing the child nodes.
+     */
+    _getChildren(ignores: Set<Node<WgslType>> = new Set()): Array<{ property: string; index?: number | string; childNode: Node<WgslType> }> {
+        const children: Array<{ property: string; index?: number | string; childNode: Node<WgslType> }> = [];
+
+        // avoid circular references
+        ignores.add(this);
+
+        for (const property of Object.getOwnPropertyNames(this)) {
+            const object = (this as Record<string, unknown>)[property];
+
+            // Ignore private properties and ignored nodes.
+            if (property.startsWith('_') === true || ignores.has(object as Node<WgslType>)) continue;
+
+            if (Array.isArray(object) === true) {
+                for (let i = 0; i < object.length; i++) {
+                    const child = object[i];
+
+                    if (child && (child as Node<WgslType>).isNode === true) {
+                        children.push({ property, index: i, childNode: child as Node<WgslType> });
+                    }
+                }
+            } else if (object && (object as Node<WgslType>).isNode === true) {
+                children.push({ property, childNode: object as Node<WgslType> });
+            } else if (object && Object.getPrototypeOf(object) === Object.prototype) {
+                for (const subProperty in object as object) {
+                    // Ignore private sub-properties.
+                    if (subProperty.startsWith('_') === true) continue;
+
+                    const child = (object as Record<string, unknown>)[subProperty];
+
+                    if (child && (child as Node<WgslType>).isNode === true) {
+                        children.push({ property, index: subProperty, childNode: child as Node<WgslType> });
+                    }
+                }
+            }
+        }
+
+        return children;
     }
 
     // arithmetic — delegate to the standalone functions (source of truth)
     add(b: Node<T>): Node<T> { return add(this, b); }
     sub(b: Node<T>): Node<T> { return sub(this, b); }
     div(b: Node<T>): Node<T> { return div(this, b); }
-    mul<B extends ScalarType>(b: Node<B>): Node<T>;
-    mul<B extends VecType>(b: Node<B>): T extends ScalarType ? Node<B> : Node<T>;
-    mul<B extends VecType>(b: Node<B>): T extends MatType ? Node<B> : Node<T>;
-    mul<B extends WgslType>(b: Node<B>): Node<WgslType>;
-    mul(b: Node<WgslType>): Node<WgslType> { return mul(this, b); }
+    mul<B extends WgslType>(b: Node<B>): Node<MulResult<T, B>> { return mul(this, b); }
+    // mul(b: Node<WgslType>): Node<WgslType> { return mul(this, b); }
 
     // math — delegate to the standalone functions (source of truth)
     abs(): Node<T> { return abs(this); }
@@ -393,6 +791,27 @@ export class Node<T extends WgslType> {
     toVar(label?: string): VarNode<T> {
         const varName = label ? `var_${_nodeCounter}_${label}` : `var_${_nodeCounter}`;
         const v = new VarNode(this.type as T, varName, this);
+        if (currentStack !== null) {
+            currentStack.push(v as Node<WgslType>);
+        }
+        return v;
+    }
+
+    /**
+     * Declare an immutable local constant initialized to this node's value.
+     * Equivalent to the standalone `Const(this, label)`.
+     *
+     * When called inside a `Fn` body, the VarNode is pushed onto the current
+     * stack so it is declared at the point of use.
+     *
+     * When called **outside** any `Fn` body (e.g. at module scope to build a
+     * shared sub-graph), the VarNode is created but not added to any stack.
+     * It will be emitted inline into whichever shader-stage function body first
+     * references it during the generate pass.
+     */
+    toConst(label?: string): VarNode<T> {
+        const varName = label ? `const_${_nodeCounter}_${label}` : `const_${_nodeCounter}`;
+        const v = new VarNode(this.type as T, varName, this, true);
         if (currentStack !== null) {
             currentStack.push(v as Node<WgslType>);
         }
@@ -630,15 +1049,156 @@ export class Node<T extends WgslType> {
     get agbr(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'wyzx') as unknown as Node<Swizzle4<T>>; }
     get abrg(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'wzxy') as unknown as Node<Swizzle4<T>>; }
     get abgr(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'wzyx') as unknown as Node<Swizzle4<T>>; }
+}
+
+// ---------------------------------------------------------------------------
+// InspectorNode — wraps a node for inspector registration
+// ---------------------------------------------------------------------------
+
+let _inspectorNodeCounter = 0;
+
+/**
+ * InspectorNode wraps a node and registers it with the inspector every frame.
+ *
+ * Three.js aligned: mirrors src/nodes/core/InspectorNode.js
+ *
+ * Instead of flagging nodes with _isInspectable and manually iterating in the renderer,
+ * InspectorNode leverages the existing node update system (updateType = FRAME) to
+ * automatically call inspector.inspect() every frame.
+ *
+ * Key properties:
+ * - `wrappedNode`: The original node being inspected
+ * - `inspectorName`: Display name for the inspector UI
+ * - `updateType = FRAME`: Ensures update() is called once per frame
+ *
+ * Usage:
+ *   const albedo = texture('texture_2d<f32>', 'albedo').inspect('Albedo');
+ *
+ * The .inspect() method on Node creates an InspectorNode wrapper and attaches it
+ * via node.before(), so it gets built and updated alongside the original node.
+ */
+export class InspectorNode<T extends WgslType> extends Node<T> {
+    /** The original node being inspected. */
+    readonly wrappedNode: Node<T>;
+
+    /** Display name for the inspector UI. */
+    readonly inspectorName: string;
+
+    /** Marker for type checking. */
+    readonly isInspectorNode = true;
+
+    constructor(node: Node<T>, name?: string) {
+        // Generate a unique ID for this inspector node
+        const id = `inspector_${_inspectorNodeCounter++}_${node.id}`;
+        super(id, 'inspector', node.type);
+
+        this.wrappedNode = node;
+        this.inspectorName = name ?? node.id;
+
+        // Key: use the FRAME update type so update() is called every frame
+        this.updateType = NodeUpdateType.FRAME;
+    }
 
     /**
-     * Returns the immediate child nodes of this node.
-     * Delegates to the module-level getChildren() from collect.ts.
+     * Called by the node update system every frame.
+     * Registers this node with the renderer's inspector.
      */
-    getChildren(): Node<WgslType>[] { return _getChildren(this); }
+    override update = (frame: NodeFrame): void => {
+        frame.renderer!.inspector.inspect(this as unknown as InspectorNode<WgslType>);
+    };
+
+    /**
+     * Returns the display name for the inspector.
+     * Three.js aligned: getName() method.
+     */
+    getName(): string {
+        return this.inspectorName;
+    }
+
+    override setup(builder: NodeBuilder): Node<WgslType> | null {
+        // Setup the wrapped node - Three.js aligned: call build() which handles stage
+        this.wrappedNode.build(builder);
+        return null;
+    }
+
+    override generate(builder: NodeBuilder, output?: string): string | null {
+        // InspectorNode passes through to its wrapped node for code generation
+        return this.wrappedNode.build(builder, output) as string | null;
+    }
 }
 
 // Use .field() for typed struct member access.
+
+// ---------------------------------------------------------------------------
+// TempNode — base class for expression nodes with automatic CSE
+// ---------------------------------------------------------------------------
+
+/**
+ * TempNode is a base class for nodes that may need temporary variable extraction.
+ * When a TempNode is used multiple times (usageCount > 1), it automatically creates
+ * a `let` variable to avoid recomputing the expression.
+ *
+ * Three.js aligned: Mirrors src/nodes/core/TempNode.js
+ *
+ * Expression nodes that produce values (BinopNode, CallNode, ConstructNode, etc.)
+ * should extend TempNode instead of Node to get automatic CSE.
+ */
+export class TempNode<T extends WgslType> extends Node<T> {
+    /** Type marker for runtime checking */
+    readonly isTempNode = true;
+
+    constructor(id: string, kind: NodeKind, type: T) {
+        super(id, kind, type);
+    }
+
+    /**
+     * Check if this node has multiple usages and needs a temp variable.
+     * Three.js aligned: TempNode.hasDependencies()
+     */
+    hasDependencies(builder: NodeBuilder): boolean {
+        return builder.getUsageCount(this as unknown as Node<WgslType>) > 1;
+    }
+
+    /**
+     * Build this node with automatic temporary variable extraction.
+     * If usageCount > 1, creates a `let` variable and returns the variable name.
+     *
+     * Three.js aligned: TempNode.build()
+     */
+    override build(builder: NodeBuilder, output?: string): string | null {
+        if (builder.getBuildStage() === 'generate') {
+            const type = this.type;
+            const nodeData = builder.getDataFromNode(this as unknown as Node<WgslType>);
+
+            // Already cached? Return the variable name
+            if (nodeData.propertyName !== undefined) {
+                return builder.format(nodeData.propertyName, type, output);
+            }
+
+            // Need temp var? (type isn't void AND has multiple usages)
+            if (type !== 'void' && output !== 'void' && this.hasDependencies(builder)) {
+                // Generate the expression
+                const snippet = this.generate(builder, type);
+                if (snippet === null) return null;
+
+                // Create a variable for it
+                const varName = builder.getVarFromNode(this as unknown as Node<WgslType>, null, type);
+
+                // Emit: `let varName = snippet;`
+                builder.addLineFlowCode(`let ${varName} = ${snippet}`);
+
+                // Cache for future references
+                nodeData.snippet = snippet;
+                nodeData.propertyName = varName;
+
+                return builder.format(varName, type, output);
+            }
+        }
+
+        // No CSE needed - just generate the code directly
+        return this.generate(builder, output);
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Subclasses — one per node kind
@@ -652,6 +1212,12 @@ export class ConstNode<T extends WgslType> extends Node<T> {
         super(computeId('const', { type, value }), 'const', type);
     }
 
+    /**
+     * Generate WGSL literal for this constant.
+     */
+    override generate(_builder: NodeBuilder, _output?: string): string {
+        return constLiteral(this.type, this.value);
+    }
 }
 
 /**
@@ -760,6 +1326,47 @@ export class UniformNode<T extends WgslType> extends Node<T> {
         this.name = name;
         this.groupNode = groupNode;
     }
+
+    /**
+     * Setup: register uniform binding.
+     */
+    override setup(builder: NodeBuilder): Node<WgslType> | null {
+        const groupName = this.groupNode.name;
+        const shaderStage = builder.shaderStage ?? 'vertex';
+        const bindings = builder.getBindGroupArray(groupName, shaderStage);
+
+        let uniformEntry = builder.uniformGroups[groupName];
+        if (uniformEntry === undefined) {
+            uniformEntry = {
+                type: 'uniform',
+                name: groupName,
+                groupNode: this.groupNode,
+                node: this,
+                uniforms: [],
+            };
+            builder.uniformGroups[groupName] = uniformEntry;
+        }
+
+        if (!bindings.includes(uniformEntry)) {
+            bindings.push(uniformEntry);
+        }
+
+        if (!uniformEntry.uniforms!.some((n: UniformNode<WgslType>) => n.name === this.name)) {
+            uniformEntry.uniforms!.push(this);
+        }
+
+        const uniformDef = lookupStructDefByName(this.type);
+        if (uniformDef) builder.registerStructDef(uniformDef);
+        
+        return null;
+    }
+
+    /**
+     * Generate: emit uniform access expression.
+     */
+    override generate(_builder: NodeBuilder, _output?: string): string {
+        return `${this.groupNode.name}.${this.name}`;
+    }
 }
 
 export class AttributeNode<T extends WgslType> extends Node<T> {
@@ -768,6 +1375,24 @@ export class AttributeNode<T extends WgslType> extends Node<T> {
         readonly name: string,
     ) {
         super(computeId('attribute', { type, name }), 'attribute', type);
+    }
+
+    /**
+     * Setup: register attribute.
+     */
+    override setup(builder: NodeBuilder): Node<WgslType> | null {
+        if (!builder.attributes.has(this.name)) {
+            const totalLoc = builder.attributes.size + builder.bufferAttrs.length;
+            builder.attributes.set(this.name, { kind: 'geometry', name: this.name, type: this.type, location: totalLoc });
+        }
+        return null;
+    }
+
+    /**
+     * Generate: emit attribute access expression.
+     */
+    override generate(_builder: NodeBuilder, _output?: string): string {
+        return `in.${this.name}`;
     }
 }
 
@@ -864,6 +1489,46 @@ export class StorageNode<T extends WgslType> extends Node<T> {
         // creating a new node if access needs to change.
         if (this.access === 'read') return this;
         return new StorageNode(this.value, this.bufferType, this.storageType, 'read');
+    }
+
+    /**
+     * Setup: register storage binding.
+     */
+    override setup(builder: NodeBuilder): Node<WgslType> | null {
+        const groupName = this.groupNode.name;
+        const shaderStage = builder.shaderStage ?? 'compute';
+        const bindings = builder.getBindGroupArray(groupName, shaderStage);
+
+        let storEntry = builder.storageBindings[this.id];
+        if (storEntry === undefined) {
+            const existingStorageCount = Object.keys(builder.storageBindings).length;
+            const name = `_stor${existingStorageCount}`;
+            builder.storageNames.set(this.id, name);
+
+            storEntry = {
+                type: 'storage',
+                name,
+                groupNode: this.groupNode,
+                node: this,
+            };
+            builder.storageBindings[this.id] = storEntry;
+
+            const storageDef = lookupStructDefByName(this.type);
+            if (storageDef) builder.registerStructDef(storageDef);
+        }
+
+        if (!bindings.includes(storEntry)) {
+            bindings.push(storEntry);
+        }
+        
+        return null;
+    }
+
+    /**
+     * Generate: emit storage buffer name.
+     */
+    override generate(builder: NodeBuilder, _output?: string): string {
+        return builder.storageNames.get(this.id) ?? this.id;
     }
 }
 
@@ -980,6 +1645,89 @@ export class TextureNode extends Node<'vec4f'> {
         textureNode.referenceNode = this.getBase();
         return textureNode;
     }
+
+    /**
+     * Setup: register texture and sampler bindings.
+     */
+    override setup(builder: NodeBuilder): Node<WgslType> | null {
+        const base = this.referenceNode ?? this;
+        const key = String(base.textureId);
+
+        const groupName = base.groupNode.name;
+        const shaderStage = builder.shaderStage ?? 'fragment';
+        const bindings = builder.getBindGroupArray(groupName, shaderStage);
+
+        // Handle PassMultipleTextureNode if present
+        if ('updateTexture' in base && typeof base.updateTexture === 'function') {
+            (base as { updateTexture: () => void }).updateTexture();
+            if ('passNode' in base) {
+                const passNode = (base as { passNode: { updateBeforeType: string } }).passNode;
+                if (passNode.updateBeforeType !== 'none') {
+                    builder.sequentialNodes.add(passNode as import('./node-builder').UpdateBeforeNode);
+                }
+            }
+        }
+
+        let texEntry = builder.textureBindings[key];
+        if (texEntry === undefined) {
+            texEntry = {
+                type: 'texture',
+                name: key,
+                groupNode: base.groupNode,
+                node: base,
+            };
+            builder.textureBindings[key] = texEntry;
+        }
+
+        if (!bindings.includes(texEntry)) {
+            bindings.push(texEntry);
+        }
+
+        let sampEntry = builder.samplerBindings[key];
+        if (sampEntry === undefined) {
+            sampEntry = {
+                type: 'sampler',
+                name: key,
+                groupNode: base.groupNode,
+                node: base,
+            };
+            builder.samplerBindings[key] = sampEntry;
+        }
+
+        if (!bindings.includes(sampEntry)) {
+            bindings.push(sampEntry);
+        }
+        
+        return null;
+    }
+
+    /**
+     * Generate: emit texture sample expression with caching.
+     */
+    override generate(builder: NodeBuilder, output?: string): string {
+        const base = this.referenceNode ?? this;
+
+        // Handle sampler output type
+        if (output !== undefined && /^sampler/.test(output)) {
+            return `${base.textureId}_samp`;
+        }
+
+        // Cache the textureSample result in a let-var (mirrors Three.js TextureNode.generate).
+        const nodeData = builder.getDataFromNode(this as unknown as Node<WgslType>);
+        if (nodeData.propertyName !== undefined) {
+            return nodeData.propertyName;
+        }
+
+        const texName = `${base.textureId}_tex`;
+        const sampName = `${base.textureId}_samp`;
+        const uvExpr = this.uvNode ? (builder.generateNode(this.uvNode) ?? 'in.uv') : 'in.uv';
+
+        const snippet = `textureSample(${texName}, ${sampName}, ${uvExpr})`;
+        const varName = builder.getUniqueVarName();
+        builder.addLineFlowCode(`let ${varName} = ${snippet}`);
+        nodeData.propertyName = varName;
+        return varName;
+    }
 }
 
 export class SamplerNode extends Node<SamplerType> {
@@ -994,30 +1742,189 @@ export class SamplerNode extends Node<SamplerType> {
     }
 }
 
+/**
+ * SubBuildNode - wraps a node to build it in a specific sub-build context.
+ * Three.js aligned: src/nodes/core/SubBuildNode.js
+ * 
+ * Used by VaryingNode to ensure source nodes are built in VERTEX stage.
+ */
+export class SubBuildNode<T extends WgslType> extends Node<T> {
+    readonly isSubBuildNode = true;
+
+    constructor(
+        readonly node: Node<T>,
+        readonly subBuildName: string,
+        nodeType: T | null = null,
+    ) {
+        super(
+            computeId('subBuild', { node: node.id, name: subBuildName }),
+            'subBuild',
+            nodeType ?? node.type,
+        );
+    }
+
+    override generateNodeType(builder: NodeBuilder): WgslType {
+        if (this.type !== null) return this.type;
+
+        builder.addSubBuild(this.subBuildName);
+        const nodeType = this.node.getNodeType(builder);
+        builder.removeSubBuild();
+
+        return nodeType;
+    }
+
+    override build(builder: NodeBuilder, output?: string): string | Node<WgslType> | null {
+        builder.addSubBuild(this.subBuildName);
+        const result = this.node.build(builder, output);
+        builder.removeSubBuild();
+        return result;
+    }
+}
+
+/**
+ * Creates a SubBuildNode wrapper.
+ * Three.js aligned: subBuild() factory function.
+ */
+export function subBuild<T extends WgslType>(
+    node: Node<T>,
+    name: string,
+    type: T | null = null,
+): SubBuildNode<T> {
+    return new SubBuildNode(node, name, type);
+}
+
+/**
+ * VaryingNode - represents shader varyings that pass data from vertex to fragment stage.
+ * Three.js aligned: src/nodes/core/VaryingNode.js
+ */
 export class VaryingNode<T extends WgslType> extends Node<T> {
+    readonly isVaryingNode = true;
+
+    /** The source node wrapped with subBuild('VERTEX') */
+    readonly node: SubBuildNode<T>;
+
+    /** The name of the varying in the shader (auto-generated if null) */
+    name: string | null;
+
+    /** Interpolation type */
     interpolationType: InterpolationType | null = null;
+
+    /** Interpolation sampling */
     interpolationSampling: InterpolationSampling | null = null;
 
     constructor(
-        type: T,
-        readonly name: string,
-        readonly source: Node<WgslType>,
+        source: Node<T>,
+        name: string | null = null,
     ) {
-        super(computeId('varying', { type, name, source: source.id }), 'varying', type);
+        super(
+            computeId('varying', { source: source.id, name }),
+            'varying',
+            source.type,
+        );
+        // Wrap source in SubBuildNode for VERTEX stage (Three.js pattern)
+        this.node = subBuild(source, 'VERTEX');
+        this.name = name;
+        // Use global cache for varyings (Three.js pattern)
+        this.global = true;
     }
 
     /**
      * Set the WGSL @interpolate qualifier for this varying.
-     *
-     * @param type     - The interpolation type ('perspective' | 'linear' | 'flat').
-     * @param sampling - Optional sampling mode ('center' | 'centroid' | 'sample' | 'either').
-     *                   Only valid when type is 'perspective' or 'linear'.
-     *                   Omit to use the WGSL default for the given type.
      */
     setInterpolation(type: InterpolationType, sampling?: InterpolationSampling): this {
         this.interpolationType = type;
         this.interpolationSampling = sampling ?? null;
         return this;
+    }
+
+    override getHash(builder: NodeBuilder): string {
+        return this.name || super.getHash(builder);
+    }
+
+    override generateNodeType(builder: NodeBuilder): WgslType {
+        // VaryingNode is auto type - delegate to wrapped node
+        return this.node.getNodeType(builder);
+    }
+
+    /**
+     * Override _getChildren to return empty.
+     * VaryingNode bridges vertex → fragment stages. The source node (this.node)
+     * is vertex-stage data and should NOT be traversed as a child during
+     * fragment-stage validation or traversal.
+     */
+    override _getChildren(): Array<{ property: string; index?: number | string; childNode: Node<WgslType> }> {
+        return [];
+    }
+
+    /**
+     * Sets up the varying with the node builder.
+     */
+    setupVarying(builder: NodeBuilder): VaryingData {
+        const properties = builder.getNodeProperties(this as unknown as Node<WgslType>);
+
+        let varying = properties.varying as VaryingData | undefined;
+
+        if (varying === undefined) {
+            const name = this.name;
+            const type = this.getNodeType(builder);
+            const interpolationType = this.interpolationType;
+            const interpolationSampling = this.interpolationSampling;
+
+            // Register varying with builder
+            varying = builder.getVaryingFromNode(
+                this as unknown as Node<WgslType>,
+                name,
+                type,
+                interpolationType,
+                interpolationSampling,
+            );
+            properties.varying = varying;
+            // Three.js: properties.node = subBuild(this.node, 'VERTEX')
+            // this.node is already a SubBuildNode, wrap it again for properties.node
+            properties.node = subBuild(this.node, 'VERTEX');
+        }
+
+        // Track if interpolation is needed (used in fragment stage)
+        varying.needsInterpolation ||= builder.shaderStage === 'fragment';
+
+        return varying;
+    }
+
+    override setup(builder: NodeBuilder): Node<WgslType> | null {
+        this.setupVarying(builder);
+        builder.flowNodeFromShaderStage('vertex', this.node as unknown as Node<WgslType>);
+        return null;
+    }
+
+    override analyze(builder: NodeBuilder): void {
+        this.setupVarying(builder);
+        builder.flowNodeFromShaderStage('vertex', this.node as unknown as Node<WgslType>);
+    }
+
+    override generate(builder: NodeBuilder, _output?: string): string {
+        const properties = builder.getNodeProperties(this as unknown as Node<WgslType>);
+        const varying = this.setupVarying(builder);
+
+        // Use a property key scoped to the current stack (for sub-builds)
+        const propertyKey = 'property'; // Simplified - Three.js uses getSubBuildProperty
+
+        if (properties[propertyKey] === undefined) {
+            const type = this.getNodeType(builder);
+            const propertyName = `out.${varying.name}`;
+
+            // Force node to run in vertex stage
+            builder.flowNodeFromShaderStage(
+                'vertex',
+                properties.node as unknown as Node<WgslType>,
+                type,
+                propertyName,
+            );
+
+            properties[propertyKey] = propertyName;
+        }
+
+        // Return the varying access for current stage
+        return `in.${varying.name}`;
     }
 }
 
@@ -1030,21 +1937,62 @@ export class BinopNode<T extends WgslType> extends Node<T> {
     ) {
         super(computeId('binop', { type, op, a: left.id, b: right.id }), 'binop', type);
     }
+
+    override generate(builder: NodeBuilder, _output?: string): string {
+        const l = builder.generateNode(this.left) ?? '/* missing */';
+        const r = builder.generateNode(this.right) ?? '/* missing */';
+        return `(${l} ${this.op} ${r})`;
+    }
 }
 
 export class CallNode<T extends WgslType> extends Node<T> {
-    readonly fnNode?: FnNode<WgslType> | WgslFnNode<WgslType>;
+    readonly fnNode?: FnNode<WgslType>;
     constructor(
         type: T,
         readonly fn: string,
         readonly args: Node<WgslType>[],
-        fnNode?: FnNode<WgslType> | WgslFnNode<WgslType>,
+        fnNode?: FnNode<WgslType>,
     ) {
         super(computeId('call', { type, fn, args: args.map((n) => n.id) }), 'call', type);
         this.fnNode = fnNode;
     }
+
+    override generate(builder: NodeBuilder, _output?: string): string {
+        // Build fnNode if present (Three.js aligned: call build() on the node)
+        if (this.fnNode) {
+            (this.fnNode as Node<WgslType>).build(builder);
+        }
+        
+        const argExprs = this.args.map((a) => builder.generateNode(a) ?? '/* missing */');
+        if (this.fn === 'negate' && argExprs.length === 1) return `(-${argExprs[0]})`;
+        if ((this.fn === 'f32' || this.fn === 'i32' || this.fn === 'u32') && argExprs.length === 1) {
+            return `${this.fn}(${argExprs[0]})`;
+        }
+        // Atomic functions require pointer reference (&) for first argument
+        const atomicFns = [
+            'atomicAdd', 'atomicSub', 'atomicMax', 'atomicMin',
+            'atomicAnd', 'atomicOr', 'atomicXor',
+            'atomicStore', 'atomicLoad', 'atomicExchange', 'atomicCompareExchangeWeak',
+        ];
+        if (atomicFns.includes(this.fn) && argExprs.length >= 1) {
+            const [ptrArg, ...restArgs] = argExprs;
+            const argsWithPtr = [`&${ptrArg}`, ...restArgs];
+            return `${this.fn}(${argsWithPtr.join(', ')})`;
+        }
+        return `${this.fn}(${argExprs.join(', ')})`;
+    }
 }
 
+/**
+ * Inline WGSL expression node.
+ * 
+ * Used for embedding raw WGSL expressions with node dependencies.
+ * The wgsl string uses $0, $1, etc. as placeholders for deps.
+ * 
+ * @example
+ * const expr = new WgslNode('f32', 'dot($0, $1)', [a, b]);
+ * // generates: dot(a_expr, b_expr)
+ */
 export class WgslNode<T extends WgslType> extends Node<T> {
     constructor(
         type: T,
@@ -1062,6 +2010,16 @@ export class WgslNode<T extends WgslType> extends Node<T> {
     with(...extra: Node<WgslType>[]): WgslNode<T> {
         return new WgslNode<T>(this.type as T, this.wgsl, [...this.deps, ...extra]);
     }
+
+    override generate(builder: NodeBuilder, _output?: string): string {
+        // Build all deps and substitute $0, $1, etc.
+        let result = this.wgsl;
+        for (let i = 0; i < this.deps.length; i++) {
+            const depExpr = builder.generateNode(this.deps[i]) ?? '/* missing */';
+            result = result.replace(new RegExp(`\\$${i}`, 'g'), depExpr);
+        }
+        return result;
+    }
 }
 
 export class ConvertNode extends Node<WgslType> {
@@ -1070,6 +2028,10 @@ export class ConvertNode extends Node<WgslType> {
         readonly convertTo: string,
     ) {
         super(computeId('convert', { node: node.id, convertTo }), 'convert', convertTo as WgslType);
+    }
+
+    override generate(builder: NodeBuilder, _output?: string): string | null {
+        return builder.generateNode(this.node, this.convertTo);
     }
 }
 
@@ -1080,6 +2042,13 @@ export class AssignNode extends Node<'void'> {
     ) {
         super(computeId('assign', { target: target.id, value: value.id }), 'assign', 'void');
     }
+
+    override generate(builder: NodeBuilder, _output?: string): null {
+        const tgt = builder.generateNode(this.target) ?? '/* missing */';
+        const val = builder.generateNode(this.value) ?? '/* missing */';
+        builder.addLineFlowCode(`${tgt} = ${val}`);
+        return null;
+    }
 }
 
 export class ConstructNode<T extends WgslType> extends Node<T> {
@@ -1089,6 +2058,11 @@ export class ConstructNode<T extends WgslType> extends Node<T> {
     ) {
         super(computeId('construct', { type, args: args.map((n) => n.id) }), 'construct', type);
     }
+
+    override generate(builder: NodeBuilder, _output?: string): string {
+        const argExprs = this.args.map((a) => builder.generateNode(a) ?? '/* missing */');
+        return `${this.type}(${argExprs.join(', ')})`;
+    }
 }
 
 export class StructNode extends Node<string> {
@@ -1097,6 +2071,20 @@ export class StructNode extends Node<string> {
         readonly members: StructMember[],
     ) {
         super(computeId('struct', { type: typeName, members }), 'struct', typeName);
+    }
+
+    override setup(builder: NodeBuilder): Node<WgslType> | null {
+        const def = lookupStructDef(this);
+        if (def) {
+            builder.registerStructDef(def);
+        } else if (!builder.structNodes.has(this.type)) {
+            builder.structNodes.set(this.type, this);
+        }
+        return null;
+    }
+
+    override generate(_builder: NodeBuilder, _output?: string): string {
+        return `/* struct ${this.type} */`;
     }
 }
 
@@ -1108,6 +2096,11 @@ export class FieldNode<T extends WgslType> extends Node<T> {
     ) {
         super(computeId('field', { type, object: object.id, field: fieldName }), 'field', type);
     }
+
+    override generate(builder: NodeBuilder, _output?: string): string {
+        const obj = builder.generateNode(this.object) ?? '/* missing */';
+        return `${obj}.${this.fieldName}`;
+    }
 }
 
 export class IndexNode<T extends WgslType> extends Node<T> {
@@ -1117,6 +2110,12 @@ export class IndexNode<T extends WgslType> extends Node<T> {
         readonly index: Node<WgslType>,
     ) {
         super(computeId('index', { type, array: array.id, index: index.id }), 'index', type);
+    }
+
+    override generate(builder: NodeBuilder, _output?: string): string {
+        const arr = builder.generateNode(this.array) ?? '/* missing */';
+        const idx = builder.generateNode(this.index) ?? '/* missing */';
+        return `${arr}[${idx}]`;
     }
 }
 
@@ -1128,6 +2127,27 @@ export class BuiltinNode<T extends WgslType> extends Node<T> {
         type: T,
     ) {
         super(computeId('builtin', { builtinKind, type }), 'builtin', type);
+    }
+
+    override setup(builder: NodeBuilder): Node<WgslType> | null {
+        builder.builtinsUsed.add(this.builtinKind);
+        return null;
+    }
+
+    override generate(builder: NodeBuilder, _output?: string): string {
+        const BUILTIN_VAR: Record<string, string> = {
+            instance_index: 'instance_index',
+            instance_data: 'instanceData',
+            vertex_index: 'vertex_index',
+        };
+        const BUILTIN_VERTEX_INPUT = new Set(['instance_index', 'vertex_index']);
+        const BUILTIN_FRAGMENT_INPUT = new Set(['position']);
+        if (builder.shaderStage === 'compute') {
+            return BUILTIN_VAR[this.builtinKind] ?? this.builtinKind;
+        }
+        if (BUILTIN_VERTEX_INPUT.has(this.builtinKind)) return `in.${BUILTIN_VAR[this.builtinKind] ?? this.builtinKind}`;
+        if (BUILTIN_FRAGMENT_INPUT.has(this.builtinKind) && builder.shaderStage === 'fragment') return `in.${this.builtinKind}`;
+        return BUILTIN_VAR[this.builtinKind] ?? this.builtinKind;
     }
 }
 
@@ -1210,6 +2230,27 @@ export class BufferAttributeNode<T extends WgslType> extends Node<T> {
         this.instanced = value;
         return this;
     }
+
+    override setup(builder: NodeBuilder): Node<WgslType> | null {
+        if (!builder.bufferAttrNames.has(this.id)) {
+            const totalLoc = builder.attributes.size + builder.bufferAttrs.length;
+            const name = `_buf${builder.bufferAttrs.length}`;
+            builder.bufferAttrNames.set(this.id, name);
+            builder.bufferAttrs.push({
+                kind: 'buffer',
+                node: this as unknown as BufferAttributeNode<WgslType>,
+                name,
+                type: this.type,
+                location: totalLoc,
+            });
+        }
+        return null;
+    }
+
+    override generate(builder: NodeBuilder, _output?: string): string {
+        const name = builder.bufferAttrNames.get(this.id);
+        return name ? `in.${name}` : `/* missing buffer attr ${this.id} */`;
+    }
 }
 
 export class StackNode extends Node<'void'> {
@@ -1224,6 +2265,13 @@ export class StackNode extends Node<'void'> {
     push(node: Node<WgslType>): void {
         this.body.push(node);
     }
+
+    override generate(builder: NodeBuilder, _output?: string): null {
+        for (const stmt of this.body) {
+            stmt.build(builder);
+        }
+        return null;
+    }
 }
 
 export class CondNode<T extends WgslType> extends Node<T> {
@@ -1235,6 +2283,13 @@ export class CondNode<T extends WgslType> extends Node<T> {
     ) {
         super(computeId('cond', { condition: condition.id, ifTrue: ifTrue.id, ifFalse: ifFalse?.id }), 'cond', ifTrue.type);
         this.ifFalse = ifFalse;
+    }
+
+    override generate(builder: NodeBuilder, _output?: string): string {
+        const condExpr = builder.generateNode(this.condition) ?? '/* missing */';
+        const trueExpr = builder.generateNode(this.ifTrue) ?? '/* missing */';
+        const falseExpr = this.ifFalse ? (builder.generateNode(this.ifFalse) ?? '/* missing */') : `${this.type}()`;
+        return `select(${falseExpr}, ${trueExpr}, ${condExpr})`;
     }
 }
 
@@ -1250,8 +2305,24 @@ export class VarNode<T extends WgslType> extends Node<T> {
         type: T,
         readonly varName: string,
         readonly init: Node<T>,
+        readonly isConst: boolean = false,
     ) {
         super(nextId(), 'var', type);
+    }
+
+    override generate(builder: NodeBuilder, _output?: string): string {
+        const data = builder.getDataFromNode(this as unknown as Node<WgslType>);
+        if (data.propertyName === undefined) {
+            data.propertyName = this.varName;
+            const initExpr = builder.generateNode(this.init) ?? '/* missing */';
+            if (this.isConst) {
+                builder.addLineFlowCode(`let ${this.varName} = ${initExpr}`);
+            } else {
+                const name = builder.getVarFromNode(this as unknown as Node<WgslType>, this.varName, this.type);
+                builder.addLineFlowCode(`${name} = ${initExpr}`);
+            }
+        }
+        return this.varName;
     }
 }
 
@@ -1270,65 +2341,227 @@ export class IfNode extends Node<'void'> {
     ) {
         super(nextId(), 'if', 'void');
     }
-}
 
-/**
- * ForRange — describes the iteration space for a ForNode.
- *
- * - `start`     — initial value (default: `0u` for u32, `0i` for i32, etc.)
- * - `end`       — exclusive/inclusive upper/lower bound depending on `condition`
- * - `type`      — WGSL scalar type of the index variable (default: `'u32'`)
- * - `condition` — comparison operator (auto-inferred when omitted)
- * - `update`    — step per iteration as a node or number (default: `++` / `--`)
- *
- * Auto-inference rules (mirroring Three.js TSL LoopNode):
- *   - `end` given, no `start`  → forward:   `start=0`, `condition='<'`,  `update=1`
- *   - `start` given, no `end`  → backwards: `end=0`,   `condition='>='`, `update=-1`
- *   - both given               → compare numerically to pick direction when `condition` omitted
- */
-export type ForRange = {
-    /** Inclusive start value. Node<WgslType> or plain number. Default: 0. */
-    start?: Node<WgslType> | number;
-    /** End bound. Node<WgslType> or plain number. Required unless `start` is given alone (backwards). */
-    end?: Node<WgslType> | number;
-    /** WGSL scalar type for the index variable. Default: `'u32'`. */
-    type?: ScalarType;
-    /** Comparison operator. Auto-inferred when omitted. */
-    condition?: '<' | '<=' | '>' | '>=';
-    /** Per-iteration step as a Node or number. Auto-inferred when omitted. */
-    update?: Node<WgslType> | number;
-};
-
-/**
- * ForNode — statement-form counted loop with a configurable range.
- * Created by `For({ end: n }, ({ i }) => { ... })`.
- *
- * The `range` descriptor drives WGSL codegen. See `ForRange` for full options.
- *
- * kind: 'for'
- */
-export class ForNode extends Node<'void'> {
-    constructor(
-        readonly range: ForRange,
-        readonly indexVar: ParamNode<WgslType>,
-        readonly body: StackNode,
-    ) {
-        super(nextId(), 'for', 'void');
+    override generate(builder: NodeBuilder, _output?: string): null {
+        const condExpr = builder.generateNode(this.condition) ?? '/* missing */';
+        builder.addFlowCode(`${builder.tab}if (${condExpr}) {\n`);
+        builder.emitStackIntoFlow(this.thenBody, builder.tab + '    ');
+        if (this.elseBody) {
+            builder.addFlowCode(`${builder.tab}} else {\n`);
+            builder.emitStackIntoFlow(this.elseBody, builder.tab + '    ');
+        }
+        builder.addFlowCode(`${builder.tab}}\n`);
+        return null;
     }
 }
 
 /**
- * WhileNode — statement-form while loop driven by a boolean expression.
- * Created by `While(conditionNode, () => { ... })`.
+ * LoopParam describes a single loop level in a Loop/For construct.
+ * Matches Three.js TSL LoopNode param format exactly.
  *
- * kind: 'while'
+ * Can be:
+ * - A plain number (count from 0 to n-1)
+ * - A Node (count from 0 to node-1, or while-loop if boolean type)
+ * - A config object with start/end/type/condition/update/name
  */
-export class WhileNode extends Node<'void'> {
-    constructor(
-        readonly condition: Node<WgslType>,
-        readonly body: StackNode,
-    ) {
-        super(nextId(), 'while', 'void');
+export type LoopParam = Node<WgslType> | number | {
+    /** Inclusive start value. Node<WgslType> or plain number. Default: 0. */
+    start?: Node<WgslType> | number;
+    /** End bound. Node<WgslType> or plain number. */
+    end?: Node<WgslType> | number;
+    /** WGSL scalar type for the index variable. Default: 'i32' to match Three.js. */
+    type?: ScalarType;
+    /** Comparison operator. Auto-inferred when omitted. */
+    condition?: '<' | '<=' | '>' | '>=';
+    /** Per-iteration step as a Node, number, string, or function. */
+    update?: Node<WgslType> | number | string | ((...args: unknown[]) => void);
+    /** Variable name override. Default: auto-generated (i, j, k, ...). */
+    name?: string;
+};
+
+/** Legacy ForRange type - alias for LoopParam config object for backwards compat during transition. */
+export type ForRange = Exclude<LoopParam, Node<WgslType> | number>;
+
+/** Helper for generating loop update snippets. */
+function buildLoopUpdateSnippet(
+    update: unknown,
+    iName: string,
+    type: ScalarType,
+    defaultOp: '++' | '--',
+    builder: NodeBuilder,
+): string {
+    if (update === null || update === undefined) return `${iName}${defaultOp}`;
+    if (typeof update === 'number') {
+        const delta = constLiteral(type, Math.abs(update));
+        const op = defaultOp.includes('+') ? '+=' : '-=';
+        return `${iName} ${op} ${delta}`;
+    }
+    if (typeof update === 'string') {
+        // String update like '+= 2' or '++'
+        return `${iName} ${update}`;
+    }
+    if (update instanceof Node) {
+        // Node update - generate the node expression
+        const nodeExpr = builder.generateNode(update as Node<WgslType>) ?? '1';
+        const op = defaultOp.includes('+') ? '+=' : '-=';
+        return `${iName} ${op} ${nodeExpr}`;
+    }
+    // Function update - not supported at generate time (should have been handled in setup)
+    return `${iName}${defaultOp}`;
+}
+
+/**
+ * LoopNode — statement-form loop supporting all Three.js TSL Loop forms.
+ * 
+ * **Matches Three.js TSL exactly:**
+ * - Stores raw params array (loop descriptors + callback)
+ * - Callback execution is deferred to compile time
+ * - Supports all Three.js Loop forms:
+ *   - Simple count: `Loop(count, ({i}) => ...)`
+ *   - Config object: `Loop({start, end, type, condition, update, name}, ({i}) => ...)`
+ *   - Nested loops: `Loop(10, 5, ({i, j}) => ...)`
+ *   - Boolean while: `Loop(boolNode, () => ...)` (when node type is 'bool')
+ *   - Backwards: `Loop({start: 10}, () => {})` (only start given, counts down)
+ *
+ * kind: 'loop'
+ */
+export class LoopNode extends Node<'void'> {
+    /**
+     * Raw params array. All elements except the last are loop level descriptors.
+     * The last element is the callback function.
+     */
+    readonly params: unknown[];
+    
+    constructor(params: unknown[] = []) {
+        super(nextId(), 'loop', 'void');
+        this.params = params;
+    }
+    
+    /**
+     * Returns a loop variable name based on an index. The pattern is
+     * `0` = `i`, `1`= `j`, `2`= `k` and so on.
+     * Matches Three.js TSL LoopNode.getVarName()
+     */
+    getVarName(index: number): string {
+        return String.fromCharCode('i'.charCodeAt(0) + index);
+    }
+    
+    /**
+     * Add this node to the current stack.
+     * Matches Three.js TSL .toStack() method.
+     */
+    toStack(): this {
+        addToStack(this);
+        return this;
+    }
+
+    override generate(builder: NodeBuilder, _output?: string): null {
+        // Get the stack that was created during setup (deferred callback execution)
+        // Matches Three.js: const stackNode = properties.stackNode;
+        const data = builder.getDataFromNode(this as unknown as Node<WgslType>);
+        const stackNode = data.stackNode as StackNode | undefined;
+        if (!stackNode) {
+            builder.addFlowCode(`${builder.tab}/* loop: missing stack */\n`);
+            return null;
+        }
+
+        const params = this.params;
+        const numLoops = params.length - 1;
+
+        // Generate nested loop headers for each level (matches Three.js LoopNode.generate)
+        for (let i = 0; i < numLoops; i++) {
+            const param = params[i];
+
+            let loopSnippet: string;
+
+            if (param instanceof Node) {
+                // Node parameter
+                const paramType = param.type;
+
+                if (paramType === 'bool') {
+                    // While-style loop with boolean condition
+                    const condExpr = builder.generateNode(param) ?? 'true';
+                    loopSnippet = `while (${condExpr})`;
+                } else {
+                    // For-style loop: 0 to node-1
+                    const name = this.getVarName(i);
+                    const type: ScalarType = 'i32';
+                    const endExpr = builder.generateNode(param) ?? '0';
+                    loopSnippet = `for (var ${name} : ${type} = 0i; ${name} < ${endExpr}; ${name}++)`;
+                }
+            } else if (typeof param === 'number') {
+                // Simple count: 0 to param-1
+                const name = this.getVarName(i);
+                const type: ScalarType = 'i32';
+                const endExpr = constLiteral(type, param);
+                loopSnippet = `for (var ${name} : ${type} = 0i; ${name} < ${endExpr}; ${name}++)`;
+            } else if (typeof param === 'object' && param !== null) {
+                // Config object with start/end/type/condition/update/name
+                const cfg = param as {
+                    start?: Node<WgslType> | number;
+                    end?: Node<WgslType> | number;
+                    type?: ScalarType;
+                    condition?: '<' | '<=' | '>' | '>=';
+                    update?: unknown;
+                    name?: string;
+                };
+
+                const type: ScalarType = cfg.type ?? 'i32';
+                const name = cfg.name ?? this.getVarName(i);
+                const start = cfg.start;
+                const end = cfg.end;
+                let condition = cfg.condition;
+
+                // Handle start/end inference (matches Three.js logic)
+                const getExpr = (v: Node<WgslType> | number | undefined): string | undefined => {
+                    if (v === undefined) return undefined;
+                    if (typeof v === 'number') return constLiteral(type, v);
+                    return builder.generateNode(v) ?? '0';
+                };
+
+                let startExpr = getExpr(start);
+                let endExpr = getExpr(end);
+
+                // Backwards loop: only start given
+                if (startExpr !== undefined && endExpr === undefined) {
+                    startExpr = `${startExpr} - 1i`;
+                    endExpr = '0i';
+                    condition = '>=';
+                } else if (endExpr !== undefined && startExpr === undefined) {
+                    startExpr = '0i';
+                    condition = '<';
+                }
+
+                // Default condition based on start/end values
+                if (condition === undefined) {
+                    const startNum = typeof start === 'number' ? start : 0;
+                    const endNum = typeof end === 'number' ? end : 1;
+                    condition = startNum > endNum ? '>=' : '<';
+                }
+
+                const defaultOp = condition.includes('<') ? '++' : '--';
+                const updateSnippet = buildLoopUpdateSnippet(cfg.update, name, type, defaultOp, builder);
+
+                loopSnippet = `for (var ${name} : ${type} = ${startExpr ?? '0i'}; ${name} ${condition} ${endExpr ?? '0i'}; ${updateSnippet})`;
+            } else {
+                // Fallback
+                loopSnippet = `/* unknown loop param type */`;
+            }
+
+            builder.addFlowCode(`${builder.tab}${loopSnippet} {\n`);
+            builder.addFlowTab();
+        }
+
+        // Emit body at the innermost nesting level
+        builder.emitStackIntoFlow(stackNode, builder.tab);
+
+        // Close all loop braces (innermost to outermost)
+        for (let i = numLoops - 1; i >= 0; i--) {
+            builder.removeFlowTab();
+            builder.addFlowCode(`${builder.tab}}\n`);
+        }
+
+        return null;
     }
 }
 
@@ -1342,6 +2575,11 @@ export class BreakNode extends Node<'void'> {
     constructor() {
         super(nextId(), 'break', 'void');
     }
+
+    override generate(builder: NodeBuilder, _output?: string): null {
+        builder.addLineFlowCode('break');
+        return null;
+    }
 }
 
 /**
@@ -1353,6 +2591,44 @@ export class BreakNode extends Node<'void'> {
 export class ContinueNode extends Node<'void'> {
     constructor() {
         super(nextId(), 'continue', 'void');
+    }
+
+    override generate(builder: NodeBuilder, _output?: string): null {
+        builder.addLineFlowCode('continue');
+        return null;
+    }
+}
+
+/**
+ * ExpressionNode — inline WGSL snippet node.
+ * Matches Three.js TSL ExpressionNode exactly.
+ *
+ * Used for:
+ * - Loop index variables: `expression('i', 'i32')` → generates `i`
+ * - Control flow: `expression('continue')` → generates `continue;`
+ * - Any raw WGSL snippet that needs to be embedded
+ *
+ * kind: 'expression'
+ */
+export class ExpressionNode<T extends WgslType> extends Node<T> {
+    constructor(
+        /** The native WGSL code snippet */
+        readonly snippet: string,
+        /** The node type (default 'void') */
+        type: T = 'void' as T,
+    ) {
+        super(nextId(), 'expression', type);
+    }
+
+    override generate(builder: NodeBuilder, _output?: string): string | null {
+        // Matches Three.js ExpressionNode.generate() exactly:
+        // - If type is 'void', add as flow code line (statement)
+        // - Otherwise return the snippet as an expression
+        if (this.type === 'void') {
+            builder.addLineFlowCode(this.snippet);
+            return null;
+        }
+        return this.snippet;
     }
 }
 
@@ -1371,11 +2647,21 @@ export class ParamNode<T extends WgslType> extends Node<T> {
     ) {
         super(nextId(), 'param', type);
     }
+
+    override generate(_builder: NodeBuilder, _output?: string): string {
+        return this.paramName ?? `p${this.paramIndex}`;
+    }
 }
 
 export class ReturnNode<T extends WgslType> extends Node<T> {
     constructor(readonly value: Node<T>) {
         super(nextId(), 'return', value.type);
+    }
+
+    override generate(builder: NodeBuilder, _output?: string): null {
+        const valExpr = builder.generateNode(this.value) ?? '/* missing */';
+        builder.addLineFlowCode(`return ${valExpr}`);
+        return null;
     }
 }
 
@@ -1445,89 +2731,332 @@ export class FnNode<T extends WgslType> extends Node<T> {
         }
         return { params, body: stack, output };
     }
+
+    override generate(_builder: NodeBuilder, _output?: string): string {
+        // FnNode itself just returns a placeholder - actual function call 
+        // generation is handled by CallNode.generate()
+        return `/* fn ${this.type} */`;
+    }
 }
 
+// ---------------------------------------------------------------------------
+// CodeNode / FunctionNode / FunctionCallNode — Three.js TSL aligned
+// ---------------------------------------------------------------------------
+
 /**
- * Parsed parameter from WGSL function signature.
+ * Parsed WGSL function info returned by parseWgslFunction().
+ * Three.js aligned: mirrors WGSLNodeFunction structure.
  */
-export type WgslFnParam = {
+export type NodeFunctionInput = {
     name: string;
-    type: WgslType;
+    type: string;
+    pointer?: boolean;
+};
+
+export type NodeFunction = {
+    type: string;
+    inputs: NodeFunctionInput[];
+    name: string;
+    inputsCode: string;
+    blockCode: string;
+    outputType: string;
+    getCode(name?: string): string;
 };
 
 /**
- * WgslFnNode — holds raw WGSL function code parsed from a string.
- * Unlike FnNode which traces a JS function, this emits the WGSL directly.
- *
- * Created via wgslFn() helper.
- *
- * kind: 'wgsl_fn'
+ * Parse WGSL function source into a NodeFunction.
+ * Three.js aligned: mirrors WGSLNodeFunction parsing.
  */
-export class WgslFnNode<T extends WgslType> extends Node<T> {
-    /** WGSL function name parsed from source. */
-    readonly fnName: string;
-    /** Parameter list parsed from source. */
-    readonly params: WgslFnParam[];
-    /** The complete raw WGSL function source. */
-    readonly wgslSource: string;
-    /** Other WgslFnNodes this function depends on (includes). */
-    readonly includes: WgslFnNode<WgslType>[];
+function parseWgslFunction(source: string): NodeFunction {
+    source = source.trim();
 
-    /** Type flag for runtime checking. */
-    readonly isWgslFnNode = true;
+    const declarationRegexp = /^[fn]*\s*([a-z_0-9]+)?\s*\(([\s\S]*?)\)\s*[-]*[>]*\s*([a-z_0-9]+(?:<[\s\S]+?>)?)?/i;
+    const propertiesRegexp = /([a-z_0-9]+)\s*:\s*([a-z_0-9]+(?:<[\s\S]+?>)?)/ig;
 
-    constructor(
-        fnName: string,
-        returnType: T,
-        params: WgslFnParam[],
-        wgslSource: string,
-        includes: WgslFnNode<WgslType>[] = [],
-    ) {
-        super(`wgslfn_${fnName}`, 'wgsl_fn', returnType);
-        this.fnName = fnName;
-        this.params = params;
-        this.wgslSource = wgslSource;
+    const declaration = source.match(declarationRegexp);
+
+    if (declaration === null || declaration.length < 2) {
+        throw new Error(`[gpucat] FunctionNode: Could not parse WGSL function.\n${source.slice(0, 100)}...`);
+    }
+
+    const inputsCode = declaration[2] || '';
+    const propsMatches: { name: string; type: string }[] = [];
+    let match: RegExpExecArray | null = null;
+
+    while ((match = propertiesRegexp.exec(inputsCode)) !== null) {
+        propsMatches.push({ name: match[1], type: match[2] });
+    }
+
+    const inputs: NodeFunctionInput[] = [];
+    for (const { name, type } of propsMatches) {
+        let resolvedType = type;
+        let pointer = false;
+
+        if (resolvedType.startsWith('ptr')) {
+            resolvedType = 'pointer';
+            pointer = true;
+        }
+
+        inputs.push({ name, type: resolvedType, pointer });
+    }
+
+    // Find where function body starts (after the signature)
+    const bodyStart = source.indexOf('{');
+    const blockCode = bodyStart >= 0 ? source.substring(bodyStart) : '{}';
+    const outputType = declaration[3] || 'void';
+
+    const name = declaration[1] !== undefined ? declaration[1] : '';
+    const type = outputType; // Keep WGSL type as-is
+
+    return {
+        type,
+        inputs,
+        name,
+        inputsCode,
+        blockCode,
+        outputType,
+        getCode(fnName = name): string {
+            const outputPart = outputType !== 'void' ? `-> ${outputType}` : '';
+            return `fn ${fnName}(${inputsCode.trim()}) ${outputPart}${blockCode}`;
+        },
+    };
+}
+
+/**
+ * CodeNode — base class for native shader code sections.
+ * 
+ * Three.js aligned: three/src/nodes/code/CodeNode.js
+ * 
+ * kind: 'code'
+ */
+export class CodeNode extends Node<'code'> {
+    /** Type marker for runtime checking */
+    readonly isCodeNode = true;
+
+    /** Global nodes use globalCache for deduplication */
+    override global = true;
+
+    /** The native shader code */
+    code: string;
+
+    /** Array of included CodeNodes/FunctionNodes */
+    includes: CodeNode[];
+
+    /** The language ('wgsl') */
+    language: string;
+
+    constructor(code = '', includes: CodeNode[] = [], language = 'wgsl') {
+        super(computeId('code', { code, language }), 'code', 'code');
+        this.code = code;
         this.includes = includes;
+        this.language = language;
+    }
+
+    setIncludes(includes: CodeNode[]): this {
+        this.includes = includes;
+        return this;
+    }
+
+    getIncludes(_builder: NodeBuilder): CodeNode[] {
+        return this.includes;
+    }
+
+    override generate(builder: NodeBuilder): string {
+        const includes = this.getIncludes(builder);
+
+        // Build all includes first (registers them into codes[shaderStage])
+        for (const include of includes) {
+            include.build(builder);
+        }
+
+        // Register this code into the builder's codes list
+        const nodeCode = builder.getCodeFromNode(this, this.getNodeType(builder));
+        nodeCode.code = this.code;
+
+        return nodeCode.code;
     }
 }
 
-// WGSL function signature regex:
-// fn name(param1: type1, param2: type2, ...) -> returnType { ... }
-const WGSL_FN_REGEX = /^\s*fn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(\s*([\s\S]*?)\s*\)\s*(?:->\s*([a-zA-Z_][a-zA-Z0-9_<>]*))?\s*\{/;
-const WGSL_PARAM_REGEX = /([a-zA-Z_][a-zA-Z0-9_]*)\s*:\s*([a-zA-Z_][a-zA-Z0-9_<>]*)/g;
+/**
+ * FunctionNode — represents a native WGSL function.
+ * 
+ * Three.js aligned: three/src/nodes/code/FunctionNode.js
+ * 
+ * kind: 'function'
+ */
+export class FunctionNode extends CodeNode {
+    /** Type marker for runtime checking */
+    readonly isFunctionNode = true;
+
+    constructor(code = '', includes: CodeNode[] = [], language = 'wgsl') {
+        super(code, includes, language);
+        // Override kind for FunctionNode
+        (this as { kind: NodeKind }).kind = 'function';
+    }
+
+    /**
+     * Get the node function (parsed WGSL) for this function node.
+     * Cached in nodeData.
+     */
+    getNodeFunction(builder: NodeBuilder): NodeFunction {
+        const nodeData = builder.getDataFromNode(this as unknown as Node<WgslType>);
+
+        let nodeFunction = nodeData.nodeFunction as NodeFunction | undefined;
+
+        if (nodeFunction === undefined) {
+            nodeFunction = parseWgslFunction(this.code);
+            nodeData.nodeFunction = nodeFunction;
+        }
+
+        return nodeFunction;
+    }
+
+    /**
+     * Returns the inputs (parameters) of this function.
+     */
+    getInputs(builder: NodeBuilder): NodeFunctionInput[] {
+        return this.getNodeFunction(builder).inputs;
+    }
+
+    /**
+     * Returns the return type of this function.
+     */
+    override getNodeType(builder: NodeBuilder): string {
+        return this.getNodeFunction(builder).type;
+    }
+
+    override generate(builder: NodeBuilder, output?: string): string {
+        // Build includes first
+        super.generate(builder);
+
+        const nodeFunction = this.getNodeFunction(builder);
+        const name = nodeFunction.name;
+        const type = nodeFunction.type;
+
+        // Register into codes
+        const nodeCode = builder.getCodeFromNode(this as unknown as Node<WgslType>, type);
+
+        if (name !== '') {
+            nodeCode.name = name;
+        }
+
+        const propertyName = nodeCode.name;
+        const code = nodeFunction.getCode(propertyName);
+
+        nodeCode.code = code + '\n';
+
+        if (output === 'property') {
+            // Return just the function name
+            return propertyName;
+        } else {
+            // Return a call to the function with no args
+            return `${propertyName}()`;
+        }
+    }
+
+    /**
+     * Create a FunctionCallNode that calls this function.
+     * Three.js aligned: FunctionNode can be called via fn.call(...params)
+     */
+    call(...params: (Node<WgslType> | Record<string, Node<WgslType>>)[]): FunctionCallNode {
+        // If single object param, treat as named parameters
+        if (params.length === 1 && params[0] !== null && typeof params[0] === 'object' && !('isNode' in params[0])) {
+            return new FunctionCallNode(this, params[0] as Record<string, Node<WgslType>>);
+        }
+        // Otherwise treat as positional array
+        return new FunctionCallNode(this, params as Node<WgslType>[]);
+    }
+}
 
 /**
- * Parse a WGSL function signature from source code.
- * Returns { name, returnType, params } or throws if parsing fails.
+ * FunctionCallNode — represents a call to a FunctionNode.
+ * 
+ * Three.js aligned: three/src/nodes/code/FunctionCallNode.js
+ * 
+ * kind: 'functionCall'
  */
-function parseWgslFnSignature(source: string): {
-    name: string;
-    returnType: WgslType;
-    params: WgslFnParam[];
-} {
-    const match = source.match(WGSL_FN_REGEX);
-    if (!match) {
-        throw new Error(
-            `[gpucat] wgslFn: Could not parse WGSL function signature. ` +
-            `Expected: fn name(params) -> returnType { ... }\n` +
-            `Got: ${source.slice(0, 100)}...`
-        );
+export class FunctionCallNode extends TempNode<WgslType> {
+    /** Type marker for runtime checking */
+    readonly isFunctionCallNode = true;
+
+    /** The function node being called */
+    functionNode: FunctionNode;
+
+    /** Parameters for the function call (array or named object) */
+    parameters: Node<WgslType>[] | Record<string, Node<WgslType>>;
+
+    constructor(
+        functionNode: FunctionNode,
+        parameters: Node<WgslType>[] | Record<string, Node<WgslType>> = [],
+    ) {
+        const id = computeId('functionCall', { fn: functionNode.code, params: Array.isArray(parameters) ? parameters.length : Object.keys(parameters).length });
+        super(id, 'functionCall', 'void'); // Type will be determined dynamically
+        this.functionNode = functionNode;
+        this.parameters = parameters;
     }
 
-    const name = match[1];
-    const paramsStr = match[2];
-    const returnType = (match[3] ?? 'void') as WgslType;
-
-    const params: WgslFnParam[] = [];
-    let paramMatch: RegExpExecArray | null;
-    while ((paramMatch = WGSL_PARAM_REGEX.exec(paramsStr)) !== null) {
-        params.push({
-            name: paramMatch[1],
-            type: paramMatch[2] as WgslType,
-        });
+    setParameters(parameters: Node<WgslType>[] | Record<string, Node<WgslType>>): this {
+        this.parameters = parameters;
+        return this;
     }
 
-    return { name, returnType, params };
+    getParameters(): Node<WgslType>[] | Record<string, Node<WgslType>> {
+        return this.parameters;
+    }
+
+    /**
+     * Get the return type from the function node.
+     */
+    override getNodeType(builder: NodeBuilder): string {
+        return this.functionNode.getNodeType(builder);
+    }
+
+    override generate(builder: NodeBuilder): string {
+        const params: string[] = [];
+        const functionNode = this.functionNode;
+        const inputs = functionNode.getInputs(builder);
+        const parameters = this.parameters;
+
+        const generateInput = (node: Node<WgslType>, inputNode: NodeFunctionInput): string => {
+            const pointer = inputNode.pointer;
+            const built = node.build(builder, inputNode.type);
+            const expr = (typeof built === 'string' ? built : null) ?? '/* missing */';
+
+            if (pointer) {
+                return '&' + expr;
+            }
+            return expr;
+        };
+
+        if (Array.isArray(parameters)) {
+            // Positional parameters
+            for (let i = 0; i < inputs.length; i++) {
+                const node = parameters[i];
+                if (node !== undefined) {
+                    params.push(generateInput(node, inputs[i]));
+                } else {
+                    console.warn(`[gpucat] FunctionCallNode: Missing parameter at index ${i}`);
+                    params.push('0.0'); // fallback
+                }
+            }
+        } else {
+            // Named parameters
+            for (const inputNode of inputs) {
+                const node = parameters[inputNode.name];
+                if (node !== undefined) {
+                    params.push(generateInput(node, inputNode));
+                } else {
+                    console.warn(`[gpucat] FunctionCallNode: Missing parameter '${inputNode.name}'`);
+                    params.push('0.0'); // fallback
+                }
+            }
+        }
+
+        // Build the function (registers it into codes) and get the function name
+        const functionName = functionNode.build(builder, 'property');
+
+        return `${functionName}(${params.join(', ')})`;
+    }
 }
 
 /**
@@ -1540,10 +3069,12 @@ function parseWgslFnSignature(source: string): {
  * }
  * ```
  *
- * Returns a callable that creates CallNodes when invoked with arguments.
+ * Returns a callable that creates FunctionCallNodes when invoked with arguments.
  * Arguments can be passed as:
  * - Positional: `myFunc(aNode, bNode)`
  * - Named object: `myFunc({ a: aNode, b: bNode })`
+ *
+ * Three.js aligned: mirrors three/src/nodes/code/FunctionNode.js nativeFn/wgslFn
  *
  * @param source - Complete WGSL function source code
  * @param includes - Other wgslFn functions this function depends on
@@ -1561,65 +3092,43 @@ function parseWgslFnSignature(source: string): {
  * // Or with named params:
  * const tonemapped = aces({ color: linearColor });
  */
-export function wgslFn<T extends WgslType = WgslType>(
+export function wgslFn(
     source: string,
-    includes: ((...args: Node<WgslType>[]) => CallNode<WgslType>)[] = [],
-): (...args: Node<WgslType>[] | [Record<string, Node<WgslType>>]) => CallNode<T> {
-    const { name, returnType, params } = parseWgslFnSignature(source);
-
-    // Extract WgslFnNode from callable includes
-    const includeFnNodes: WgslFnNode<WgslType>[] = [];
-    for (const inc of includes) {
-        const fnNode = (inc as { fnNode?: WgslFnNode<WgslType> }).fnNode;
-        if (fnNode && fnNode.isWgslFnNode) {
-            includeFnNodes.push(fnNode);
+    includes: (WgslFnCallable | FunctionNode)[] = [],
+): WgslFnCallable {
+    // Extract FunctionNode from callable includes (Three.js pattern)
+    const includeNodes: CodeNode[] = [];
+    for (let i = 0; i < includes.length; i++) {
+        const include = includes[i];
+        // If it's a callable from wgslFn, extract the functionNode
+        if (typeof include === 'function') {
+            const fn = (include as WgslFnCallable).functionNode;
+            if (fn) {
+                includeNodes.push(fn);
+            }
+        } else if (include instanceof FunctionNode) {
+            includeNodes.push(include);
         }
     }
 
-    const fnNode = new WgslFnNode<T>(
-        name,
-        returnType as T,
-        params,
-        source.trim(),
-        includeFnNodes,
-    );
+    const functionNode = new FunctionNode(source.trim(), includeNodes, 'wgsl');
 
-    // Return a callable that creates CallNodes
-    const callable = (...args: Node<WgslType>[] | [Record<string, Node<WgslType>>]): CallNode<T> => {
-        let resolvedArgs: Node<WgslType>[];
-
-        // Check if called with named object { paramName: node }
-        if (args.length === 1 && args[0] !== null && typeof args[0] === 'object' && !('type' in args[0])) {
-            const namedArgs = args[0] as Record<string, Node<WgslType>>;
-            resolvedArgs = params.map((p) => {
-                const arg = namedArgs[p.name];
-                if (!arg) {
-                    throw new Error(
-                        `[gpucat] wgslFn '${name}': Missing argument '${p.name}'. ` +
-                        `Expected params: ${params.map(p => p.name).join(', ')}`
-                    );
-                }
-                return arg;
-            });
-        } else {
-            // Positional args
-            resolvedArgs = args as Node<WgslType>[];
-            if (resolvedArgs.length !== params.length) {
-                throw new Error(
-                    `[gpucat] wgslFn '${name}': Expected ${params.length} arguments, got ${resolvedArgs.length}. ` +
-                    `Params: ${params.map(p => `${p.name}: ${p.type}`).join(', ')}`
-                );
-            }
-        }
-
-        return new CallNode<T>(returnType as T, name, resolvedArgs, fnNode);
+    // Return a callable that creates FunctionCallNodes
+    const fn = (...params: (Node<WgslType> | Record<string, Node<WgslType>>)[]): FunctionCallNode => {
+        return functionNode.call(...params);
     };
 
-    // Attach fnNode for include resolution
-    (callable as unknown as { fnNode: WgslFnNode<T> }).fnNode = fnNode;
+    // Attach functionNode for include resolution (Three.js pattern)
+    fn.functionNode = functionNode;
 
-    return callable;
+    return fn as WgslFnCallable;
 }
+
+/** Type for the callable returned by wgslFn (Three.js aligned) */
+export type WgslFnCallable = {
+    (...params: (Node<WgslType> | Record<string, Node<WgslType>>)[]): FunctionCallNode;
+    functionNode: FunctionNode;
+};
 
 // ---------------------------------------------------------------------------
 // currentStack — module-level tracing context
@@ -1627,13 +3136,22 @@ export function wgslFn<T extends WgslType = WgslType>(
 
 let currentStack: StackNode | null = null;
 
-function pushStack(stack: StackNode): StackNode | null {
+/**
+ * Push a new stack onto the stack context.
+ * Returns the previous stack so it can be restored with popStack().
+ * Exported for use by the compiler during deferred loop callback execution.
+ */
+export function pushStack(stack: StackNode): StackNode | null {
     const prev = currentStack;
     currentStack = stack;
     return prev;
 }
 
-function popStack(prev: StackNode | null): void {
+/**
+ * Restore the previous stack context.
+ * Exported for use by the compiler during deferred loop callback execution.
+ */
+export function popStack(prev: StackNode | null): void {
     currentStack = prev;
 }
 
@@ -1835,6 +3353,55 @@ export const storageArray = <E extends WgslType>(
 };
 
 /**
+ * Create a storage buffer node backed by a StorageInstancedBufferAttribute.
+ * Useful for per-instance data in compute and render shaders, similar to Three.js's `instancedArray`.
+ *
+ * Accepts either:
+ * - A count (number) and an array descriptor — creates a zeroed buffer of that size
+ * - A pre-filled TypedArray and an array descriptor — uses the provided data
+ *
+ * @param countOrData - Number of instances, or a pre-filled TypedArray
+ * @param arrayDesc - Array type descriptor (e.g. `d.array(d.vec4f)`, or a StructDef)
+ * @param access - Storage access mode: 'read' (default) or 'read_write'
+ *
+ * @example
+ * // Create storage for 1024 particles with vec4f (position + w)
+ * const particles = instancedArray(1024, d.array(d.vec4f), 'read_write');
+ *
+ * // With a struct type:
+ * const ParticleStruct = struct('Particle', {
+ *     position: d.vec3f,
+ *     velocity: d.vec3f,
+ *     C: d.mat3x3f,
+ * });
+ * const particleBuffer = instancedArray(maxParticles, d.array(ParticleStruct), 'read_write');
+ *
+ * // With pre-filled data:
+ * const initialData = new Float32Array(1024 * 4);
+ * // ... fill data ...
+ * const particles = instancedArray(initialData, d.array(d.vec4f), 'read_write');
+ */
+export const instancedArray = <E extends WgslType>(
+    countOrData: number | Float32Array | Int32Array | Uint32Array,
+    arrayDesc: ArrayDesc<E>,
+    access: 'read' | 'read_write' = 'read',
+): StorageNode<E> => {
+    const itemSize = itemSizeOf(arrayDesc.elementDesc);
+    const Ctor = typedArrayCtorOf(arrayDesc.elementDesc);
+
+    let attr: StorageInstancedBufferAttribute;
+    if (typeof countOrData === 'number') {
+        // Create new zeroed buffer
+        attr = new StorageInstancedBufferAttribute(countOrData, itemSize, Ctor);
+    } else {
+        // Use provided data
+        attr = new StorageInstancedBufferAttribute(countOrData, itemSize);
+    }
+
+    return new StorageNode(attr, arrayDesc.elementDesc.wgslType as E, arrayDesc.wgslType, access);
+};
+
+/**
  * Create a texture node from a Texture object.
  *
  * @param tex - The Texture object containing image data
@@ -1887,11 +3454,28 @@ export const sampler = (value: TextureNode): ConvertNode => value.convert('sampl
  */
 export const samplerComparison = (value: TextureNode): ConvertNode => value.convert('sampler_comparison');
 
-export const varying = <T extends WgslType>(type: WgslDesc<T>, name: string, source: Node<WgslType>) => new VaryingNode<T>(type.wgslType as T, name, source);
-export const wgsl = <T extends WgslType>(type: WgslDesc<T>) =>
+export const varying = <T extends WgslType>(source: Node<T>, name?: string) => new VaryingNode<T>(source, name ?? null);
+
+/**
+ * Create an inline WGSL expression node using a tagged template literal.
+ * 
+ * @param type - Either a WgslType string ('f32', 'vec3f', etc.) or a WgslDesc
+ * 
+ * @example
+ * // With type string:
+ * const expr = wgsl('f32')`dot(${a}, ${b})`;
+ * 
+ * // With WgslDesc:
+ * const expr = wgsl(d.vec4f)`vec4f(${rgb}, 1.0)`;
+ * 
+ * // Preserving input type:
+ * const sinNode = <T extends WgslType>(a: Node<T>) => wgsl(a.type)`sin(${a})`;
+ */
+export const wgsl = <T extends WgslType>(type: T | WgslDesc<T>) =>
     (strings: TemplateStringsArray, ...deps: Node<WgslType>[]): WgslNode<T> => {
         const wgslStr = String.raw({ raw: strings }, ...deps.map((_, i) => `$${i}`));
-        return new WgslNode(type.wgslType as T, wgslStr, deps);
+        const resolvedType = typeof type === 'string' ? type : type.wgslType;
+        return new WgslNode(resolvedType as T, wgslStr, deps);
     };
 export const stack = (...body: Node<WgslType>[]) => new StackNode(body);
 export const cond = <T extends WgslType>(condition: Node<WgslType>, ifTrue: Node<T>, ifFalse?: Node<T>) =>
@@ -1979,10 +3563,10 @@ function makeVec4<T extends Vec4Type>(type: T) {
 // These accept nodes, numbers, or component packing (e.g., vec3f(vec2, f32))
 // ---------------------------------------------------------------------------
 
-// Convenience aliases — vec2/vec3/vec4 default to float (f32)
-export const vec2  = makeVec2('vec2f');
-export const vec3  = makeVec3('vec3f');
-export const vec4  = makeVec4('vec4f');
+// aliases
+export const vec2 = makeVec2('vec2f');
+export const vec3 = makeVec3('vec3f');
+export const vec4 = makeVec4('vec4f');
 
 export const mat4 = (c0: Node<'vec4f'>, c1: Node<'vec4f'>, c2: Node<'vec4f'>, c3: Node<'vec4f'>) =>
     new ConstructNode('mat4x4f', [c0, c1, c2, c3]);
@@ -1991,7 +3575,7 @@ export const mat4 = (c0: Node<'vec4f'>, c1: Node<'vec4f'>, c2: Node<'vec4f'>, c3
 export const add = <T extends WgslType>(a: Node<T>, b: Node<T>): Node<T> => new BinopNode('+', a.type, a, b) as Node<T>;
 export const sub = <T extends WgslType>(a: Node<T>, b: Node<T>): Node<T> => new BinopNode('-', a.type, a, b) as Node<T>;
 export const div = <T extends WgslType>(a: Node<T>, b: Node<T>): Node<T> => new BinopNode('/', a.type, a, b) as Node<T>;
-export const mul = <A extends WgslType, B extends WgslType>(a: Node<A>, b: Node<B>) => new BinopNode('*', mulResultType(a.type, b.type), a, b) as Node<WgslType>;
+export const mul = <A extends WgslType, B extends WgslType>(a: Node<A>, b: Node<B>) => new BinopNode('*', mulResultType(a.type, b.type), a, b) as unknown as Node<MulResult<A, B>>;
 export const dot = (a: Node<WgslType>, b: Node<WgslType>) => new CallNode('f32', 'dot', [a, b]);
 export const cross = <T extends WgslType>(a: Node<T>, b: Node<T>): Node<T> => new CallNode(a.type, 'cross', [a, b]) as Node<T>;
 export const normalize = <T extends WgslType>(a: Node<T>): Node<T> => new CallNode(a.type, 'normalize', [a]) as Node<T>;
@@ -2011,6 +3595,9 @@ export const clamp = <T extends WgslType>(a: Node<T>, lo: Node<T>, hi: Node<T>):
 export const mix = <T extends WgslType>(a: Node<T>, b: Node<T>, t: Node<T>): Node<T> => new CallNode(a.type, 'mix', [a, b, t]) as Node<T>;
 export const step = <T extends WgslType>(edge: Node<T>, x: Node<T>): Node<T> => new CallNode(x.type, 'step', [edge, x]) as Node<T>;
 export const smoothstep = <T extends WgslType>(lo: Node<T>, hi: Node<T>, x: Node<T>): Node<T> => new CallNode(x.type, 'smoothstep', [lo, hi, x]) as Node<T>;
+
+/** Transpose a matrix. Returns the transposed matrix with swapped row/column type. */
+export const transpose = <T extends MatType>(m: Node<T>): Node<T> => new CallNode(m.type, 'transpose', [m]) as Node<T>;
 
 export const textureSample = (t: Node<WgslType>, s: Node<WgslType>, uv: Node<WgslType>) =>
     new CallNode('vec4f', 'textureSample', [t, s, uv]);
@@ -2104,6 +3691,26 @@ export function Var<T extends WgslType>(init: Node<T>, label?: string): VarNode<
     return init.toVar(label);
 }
 
+/**
+ * Declare an immutable constant initialized to `init`.
+ *
+ * @param init    Initial value node — element type T is inferred from this.
+ * @param label   Optional debug label — appended to the generated const name.
+ * @returns       A VarNode with isConst=true that can NOT be assigned to.
+ *
+ * **Inside a `Fn` body** — the declaration is emitted as WGSL `let` at the call site.
+ *
+ * **Outside any `Fn` body** — the VarNode is created but not pushed onto a stack.
+ * It will be emitted inline into whatever shader-stage function body first references it
+ * during the generate pass.
+ *
+ * @example
+ * const result = Const(f32(0.0), 'result')
+ */
+export function Const<T extends WgslType>(init: Node<T>, label?: string): VarNode<T> {
+    return init.toConst(label);
+}
+
 /** Chainable object returned by `If()` so `.Else()` can be chained. */
 export type IfChain = { Else(body: () => void): IfChain };
 
@@ -2150,53 +3757,58 @@ export function If(condition: Node<WgslType>, thenBody: () => void): IfChain {
 }
 
 /**
- * Statement-form loop with a configurable range, inside a Fn body.
+ * Loop — statement-form loop matching Three.js TSL exactly.
+ * 
+ * Creates a LoopNode with raw params and adds it to the current stack.
+ * The callback is NOT executed immediately - execution is deferred to compile time.
+ * This matches Three.js TSL's lazy evaluation approach.
  *
- * **Simple forward loop** (0 to `end`, exclusive):
+ * **Simple count** (0 to n-1):
  * ```ts
- * For({ end: n }, ({ i }) => { ... })
+ * Loop(count, ({ i }) => { ... })
  * ```
  *
- * **Custom range and step**:
+ * **Config object**:
  * ```ts
- * For({ start: u32(4), end: u32(16), condition: '<', update: 2 }, ({ i }) => { ... })
+ * Loop({ start: 0, end: 10, type: 'i32' }, ({ i }) => { ... })
  * ```
  *
- * **Backwards** (start only — counts down to 0):
+ * **Nested loops**:
  * ```ts
- * For({ start: u32(10) }, ({ i }) => { ... })
- * // → for (var i : u32 = 10u - 1u; i >= 0u; i--)
+ * Loop(10, 5, ({ i, j }) => { ... })
  * ```
  *
- * **Signed integer index**:
+ * **Boolean while-style**:
  * ```ts
- * For({ start: i32(-4), end: i32(4), type: 'i32' }, ({ i }) => { ... })
+ * Loop(value.lessThan(10), () => { value.addAssign(1); })
  * ```
  *
- * Use `Break()` and `Continue()` inside the body for early exit / skip.
+ * **Backwards** (start only):
+ * ```ts
+ * Loop({ start: 10 }, ({ i }) => { ... })
+ * ```
+ *
+ * Use `Break()` and `Continue()` inside the body for loop control.
  */
-export function For(range: ForRange, body: (args: { i: ParamNode<WgslType> }) => void): void {
-    const idxType: ScalarType = range.type ?? 'u32';
-    const indexVar = new ParamNode<WgslType>(idxType, 0);
-    const loopStack = new StackNode();
-    const prev = pushStack(loopStack);
-    try {
-        body({ i: indexVar });
-    } finally {
-        popStack(prev);
-    }
-    addToStack(new ForNode(range, indexVar, loopStack));
+export function Loop(...params: unknown[]): LoopNode {
+    // Convert params to nodes where appropriate (matching nodeArray behavior)
+    // Numbers are kept as-is, nodes are kept as-is, objects are kept as-is
+    // This matches Three.js: nodeArray(params, 'int')
+    return new LoopNode(params).toStack();
 }
 
+/**
+ * For — alias for Loop, matching Three.js TSL.
+ * @see Loop
+ */
+export const For = Loop;
+
+/**
+ * While — convenience wrapper for boolean while-style loops.
+ * Equivalent to `Loop(condition, () => { ... })`.
+ */
 export function While(condition: Node<WgslType>, body: () => void): void {
-    const loopStack = new StackNode();
-    const prev = pushStack(loopStack);
-    try {
-        body();
-    } finally {
-        popStack(prev);
-    }
-    addToStack(new WhileNode(condition, loopStack));
+    Loop(condition, body);
 }
 
 export function Return<T extends WgslType>(value: Node<T>): void {
@@ -2209,6 +3821,22 @@ export function Break(): void {
 
 export function Continue(): void {
     addToStack(new ContinueNode());
+}
+
+/**
+ * Create an inline WGSL expression node.
+ * Matches Three.js TSL `expression()` exactly.
+ *
+ * Used for:
+ * - Loop index variables: `expression('i', 'i32')` → generates `i`
+ * - Control flow: `expression('continue')` → generates `continue;`
+ * - Any raw WGSL snippet
+ *
+ * @param snippet - The native WGSL code snippet
+ * @param nodeType - The node type (default 'void')
+ */
+export function expression<T extends WgslType = 'void'>(snippet: string, nodeType?: T): ExpressionNode<T> {
+    return new ExpressionNode<T>(snippet, nodeType);
 }
 
 /**
@@ -2349,24 +3977,27 @@ export function mulResultType(a: string, b: string): WgslType {
     return a as WgslType;
 }
 
-export const f32    = (v = 0):                       ConstNode<'f32'>    => new ConstNode('f32',    v);
-export const f16    = (v = 0):                       ConstNode<'f16'>    => new ConstNode('f16',    v);
-export const i32    = (v = 0):                       ConstNode<'i32'>    => new ConstNode('i32',    v);
-export const u32    = (v = 0):                       ConstNode<'u32'>    => new ConstNode('u32',    v);
-export const bool   = (v: boolean):                  ConstNode<'bool'>   => new ConstNode('bool',   v ? 1 : 0);
+export const f32  = (v = 0):                       ConstNode<'f32'>    => new ConstNode('f32',    v);
+export const f16  = (v = 0):                       ConstNode<'f16'>    => new ConstNode('f16',    v);
+export const i32  = (v = 0):                       ConstNode<'i32'>    => new ConstNode('i32',    v);
+export const u32  = (v = 0):                       ConstNode<'u32'>    => new ConstNode('u32',    v);
+export const bool = (v: boolean):                  ConstNode<'bool'>   => new ConstNode('bool',   v ? 1 : 0);
 
-export const vec2f  = makeVec2('vec2f');
-export const vec3f  = makeVec3('vec3f');
-export const vec4f  = makeVec4('vec4f');
-export const vec2i  = makeVec2('vec2i');
-export const vec3i  = makeVec3('vec3i');
-export const vec4i  = makeVec4('vec4i');
-export const vec2u  = makeVec2('vec2u');
-export const vec3u  = makeVec3('vec3u');
-export const vec4u  = makeVec4('vec4u');
-export const vec2h  = makeVec2('vec2h');
-export const vec3h  = makeVec3('vec3h');
-export const vec4h  = makeVec4('vec4h');
+export const vec2f = makeVec2('vec2f');
+export const vec3f = makeVec3('vec3f');
+export const vec4f = makeVec4('vec4f');
+
+export const vec2i = makeVec2('vec2i');
+export const vec3i = makeVec3('vec3i');
+export const vec4i = makeVec4('vec4i');
+
+export const vec2u = makeVec2('vec2u');
+export const vec3u = makeVec3('vec3u');
+export const vec4u = makeVec4('vec4u');
+
+export const vec2h = makeVec2('vec2h');
+export const vec3h = makeVec3('vec3h');
+export const vec4h = makeVec4('vec4h');
 
 export const vec2b  = makeVec2('vec2<bool>');
 export const vec3b  = makeVec3('vec3<bool>');
@@ -2563,8 +4194,20 @@ export class OutputStructNode extends Node<'vec4f'> {
         this.members = members;
     }
 
-    override getChildren(): Node<WgslType>[] {
-        return this.members;
+    override _getChildren(): Array<{ property: string; index?: number | string; childNode: Node<WgslType> }> {
+        return this.members.map((m, i) => ({ property: 'members', index: i, childNode: m }));
+    }
+
+    override setup(builder: NodeBuilder): Node<WgslType> | null {
+        // Setup all members - Three.js aligned: call build() on each
+        for (const member of this.members) {
+            if (member) member.build(builder);
+        }
+        return null;
+    }
+
+    override generate(_builder: NodeBuilder, _output?: string): string {
+        return `/* output_struct ${this.id} */`;
     }
 }
 
@@ -2646,7 +4289,7 @@ export class MRTNode extends OutputStructNode {
      *
      * @param getTextureIndex - Function that maps texture name to index (from RenderTarget)
      */
-    setup(getTextureIndex: (name: string) => number): void {
+    resolveOutputs(getTextureIndex: (name: string) => number): void {
         const members: Node<WgslType>[] = [];
         const names: string[] = [];
 
@@ -2669,12 +4312,18 @@ export class MRTNode extends OutputStructNode {
         this._resolvedNames = names;
     }
 
-    override getChildren(): Node<WgslType>[] {
+    override _getChildren(): Array<{ property: string; index?: number | string; childNode: Node<WgslType> }> {
         // Before setup, return outputNodes values; after setup, use members
         if (this.members.length > 0) {
-            return this.members.filter(Boolean);
+            return this.members
+                .filter(Boolean)
+                .map((m, i) => ({ property: 'members', index: i, childNode: m }));
         }
-        return Object.values(this.outputNodes);
+        return Object.entries(this.outputNodes).map(([key, node]) => ({
+            property: 'outputNodes',
+            index: key,
+            childNode: node,
+        }));
     }
 }
 
@@ -2785,6 +4434,181 @@ export class ComputeNode {
  */
 export function compute(fn: FnNode<WgslType>, opts: ComputeOptions): ComputeNode {
     return new ComputeNode({ fn, ...opts });
+}
+
+// ---------------------------------------------------------------------------
+// Atomic operations
+//
+// WebGPU only supports atomic operations on i32 and u32 types.
+// These functions create CallNodes for the WGSL atomic built-in functions.
+// They operate on storage buffer elements marked as atomic.
+// ---------------------------------------------------------------------------
+
+/**
+ * Atomically adds `value` to the atomic value at `ptr` and returns the old value.
+ *
+ * In WGSL: `atomicAdd(&ptr, value) -> i32/u32`
+ *
+ * @param ptr - A node representing an atomic storage location (must be i32 or u32)
+ * @param value - The value to add
+ * @returns The old value before the addition
+ *
+ * @example
+ * const grid = storageArray(GRID_SIZE, S.array(S.i32()), 'read_write');
+ * const cellIdx = computeCellIndex();
+ * const oldVal = atomicAdd(grid.element(cellIdx), i32(100));
+ */
+export function atomicAdd<T extends 'i32' | 'u32'>(ptr: Node<T>, value: Node<T>): Node<T> {
+    return new CallNode(ptr.type as T, 'atomicAdd', [ptr, value]);
+}
+
+/**
+ * Atomically stores `value` to the atomic location at `ptr`.
+ *
+ * In WGSL: `atomicStore(&ptr, value)`
+ *
+ * @param ptr - A node representing an atomic storage location (must be i32 or u32)
+ * @param value - The value to store
+ *
+ * @example
+ * const grid = storageArray(GRID_SIZE, S.array(S.i32()), 'read_write');
+ * const cellIdx = computeCellIndex();
+ * atomicStore(grid.element(cellIdx), i32(0));
+ */
+export function atomicStore<T extends 'i32' | 'u32'>(ptr: Node<T>, value: Node<T>): void {
+    addToStack(new CallNode('void', 'atomicStore', [ptr, value]) as Node<WgslType>);
+}
+
+/**
+ * Atomically loads the value from the atomic location at `ptr`.
+ *
+ * In WGSL: `atomicLoad(&ptr) -> i32/u32`
+ *
+ * @param ptr - A node representing an atomic storage location (must be i32 or u32)
+ * @returns The current value at the atomic location
+ *
+ * @example
+ * const grid = storageArray(GRID_SIZE, S.array(S.i32()), 'read_write');
+ * const cellIdx = computeCellIndex();
+ * const val = atomicLoad(grid.element(cellIdx));
+ */
+export function atomicLoad<T extends 'i32' | 'u32'>(ptr: Node<T>): Node<T> {
+    return new CallNode(ptr.type as T, 'atomicLoad', [ptr]);
+}
+
+/**
+ * Atomically subtracts `value` from the atomic value at `ptr` and returns the old value.
+ *
+ * In WGSL: `atomicSub(&ptr, value) -> i32/u32`
+ *
+ * @param ptr - A node representing an atomic storage location (must be i32 or u32)
+ * @param value - The value to subtract
+ * @returns The old value before the subtraction
+ */
+export function atomicSub<T extends 'i32' | 'u32'>(ptr: Node<T>, value: Node<T>): Node<T> {
+    return new CallNode(ptr.type as T, 'atomicSub', [ptr, value]);
+}
+
+/**
+ * Atomically computes the maximum of the atomic value and `value`, stores it, and returns the old value.
+ *
+ * In WGSL: `atomicMax(&ptr, value) -> i32/u32`
+ *
+ * @param ptr - A node representing an atomic storage location (must be i32 or u32)
+ * @param value - The value to compare with
+ * @returns The old value before the operation
+ */
+export function atomicMax<T extends 'i32' | 'u32'>(ptr: Node<T>, value: Node<T>): Node<T> {
+    return new CallNode(ptr.type as T, 'atomicMax', [ptr, value]);
+}
+
+/**
+ * Atomically computes the minimum of the atomic value and `value`, stores it, and returns the old value.
+ *
+ * In WGSL: `atomicMin(&ptr, value) -> i32/u32`
+ *
+ * @param ptr - A node representing an atomic storage location (must be i32 or u32)
+ * @param value - The value to compare with
+ * @returns The old value before the operation
+ */
+export function atomicMin<T extends 'i32' | 'u32'>(ptr: Node<T>, value: Node<T>): Node<T> {
+    return new CallNode(ptr.type as T, 'atomicMin', [ptr, value]);
+}
+
+/**
+ * Atomically computes the bitwise AND of the atomic value and `value`, stores it, and returns the old value.
+ *
+ * In WGSL: `atomicAnd(&ptr, value) -> i32/u32`
+ *
+ * @param ptr - A node representing an atomic storage location (must be i32 or u32)
+ * @param value - The value to AND with
+ * @returns The old value before the operation
+ */
+export function atomicAnd<T extends 'i32' | 'u32'>(ptr: Node<T>, value: Node<T>): Node<T> {
+    return new CallNode(ptr.type as T, 'atomicAnd', [ptr, value]);
+}
+
+/**
+ * Atomically computes the bitwise OR of the atomic value and `value`, stores it, and returns the old value.
+ *
+ * In WGSL: `atomicOr(&ptr, value) -> i32/u32`
+ *
+ * @param ptr - A node representing an atomic storage location (must be i32 or u32)
+ * @param value - The value to OR with
+ * @returns The old value before the operation
+ */
+export function atomicOr<T extends 'i32' | 'u32'>(ptr: Node<T>, value: Node<T>): Node<T> {
+    return new CallNode(ptr.type as T, 'atomicOr', [ptr, value]);
+}
+
+/**
+ * Atomically computes the bitwise XOR of the atomic value and `value`, stores it, and returns the old value.
+ *
+ * In WGSL: `atomicXor(&ptr, value) -> i32/u32`
+ *
+ * @param ptr - A node representing an atomic storage location (must be i32 or u32)
+ * @param value - The value to XOR with
+ * @returns The old value before the operation
+ */
+export function atomicXor<T extends 'i32' | 'u32'>(ptr: Node<T>, value: Node<T>): Node<T> {
+    return new CallNode(ptr.type as T, 'atomicXor', [ptr, value]);
+}
+
+/**
+ * Atomically exchanges the value at `ptr` with `value` and returns the old value.
+ *
+ * In WGSL: `atomicExchange(&ptr, value) -> i32/u32`
+ *
+ * @param ptr - A node representing an atomic storage location (must be i32 or u32)
+ * @param value - The new value to store
+ * @returns The old value before the exchange
+ */
+export function atomicExchange<T extends 'i32' | 'u32'>(ptr: Node<T>, value: Node<T>): Node<T> {
+    return new CallNode(ptr.type as T, 'atomicExchange', [ptr, value]);
+}
+
+/**
+ * Atomically compares the value at `ptr` with `comparator` and if equal, stores `value`.
+ * Returns the old value (regardless of whether the exchange happened).
+ *
+ * In WGSL: `atomicCompareExchangeWeak(&ptr, comparator, value) -> __atomic_compare_exchange_result<T>`
+ *
+ * Note: WGSL returns a struct { old_value: T, exchanged: bool }. This function returns the struct type
+ * which you need to access via .old_value and .exchanged fields.
+ *
+ * @param ptr - A node representing an atomic storage location (must be i32 or u32)
+ * @param comparator - The expected current value
+ * @param value - The new value to store if comparison succeeds
+ * @returns A struct node with old_value and exchanged fields
+ */
+export function atomicCompareExchangeWeak<T extends 'i32' | 'u32'>(
+    ptr: Node<T>,
+    comparator: Node<T>,
+    value: Node<T>,
+): Node<WgslType> {
+    // WGSL returns __atomic_compare_exchange_result<T> which is a struct
+    // For now we type it as WgslType; users access .old_value and .exchanged via .field()
+    return new CallNode('void' as WgslType, 'atomicCompareExchangeWeak', [ptr, comparator, value]);
 }
 
 /**

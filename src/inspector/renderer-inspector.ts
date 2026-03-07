@@ -19,11 +19,13 @@
  */
 
 import { InspectorBase } from './inspector-base';
-import type { Node, WgslType } from '../nodes/nodes';
+import type { InspectorNode, WgslType } from '../nodes/nodes';
 import type { Scene } from '../scene/scene';
 import { getBufferCacheStats } from '../renderer/buffers';
 import * as pipelines from '../renderer/pipelines';
 import { getRenderObjectsStats } from '../renderer/render-objects';
+// [graph-tab] graph snapshot type for FrameRecord.graphSnapshots
+import type { GraphSnapshot } from './graph-snapshot';
 
 // ---------------------------------------------------------------------------
 // Frame data types
@@ -77,9 +79,11 @@ export type FrameRecord = {
         total: number;
     };
     /** Inspectable nodes encountered this frame */
-    inspectableNodes: Node<WgslType>[];
+    inspectableNodes: InspectorNode<WgslType>[];
     /** Scene render calls encountered this frame, one entry per renderScene() call. */
     scenes: SceneRecord[];
+    // [graph-tab] compiled graph snapshots, one per distinct material compile this frame
+    graphSnapshots: GraphSnapshot[];
 };
 
 const FRAME_HISTORY = 512;
@@ -124,7 +128,7 @@ export class RendererInspector extends InspectorBase {
     private _currentPasses: PassRecord[] = [];
     private _passStarts: Map<string, number> = new Map();
     private _currentQuerySlot = 0;
-    private _pendingInspectables: Node<WgslType>[] = [];
+    private _pendingInspectables: InspectorNode<WgslType>[] = [];
     private _pendingScenes: SceneRecord[] = [];
 
     override init(): void {
@@ -186,6 +190,7 @@ export class RendererInspector extends InspectorBase {
             renderObjectStats: getRenderObjectsStats(this.renderer.renderObjects),
             inspectableNodes: [...this._pendingInspectables],
             scenes: [...this._pendingScenes],
+            graphSnapshots: [],
         };
 
         this.frameHead = (this.frameHead + 1) % FRAME_HISTORY;
@@ -233,7 +238,7 @@ export class RendererInspector extends InspectorBase {
         this._clearPassRef(nodeId);
     }
 
-    override inspect(node: Node<WgslType>): void {
+    override inspect(node: InspectorNode<WgslType>): void {
         this._pendingInspectables.push(node);
     }
 

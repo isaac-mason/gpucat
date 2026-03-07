@@ -1,5 +1,5 @@
 import type { Box3, Sphere } from 'mathcat';
-import { BufferAttribute, IndexAttribute, IndirectStorageBufferAttribute } from './attribute';
+import { BufferAttribute, IndexAttribute, IndirectStorageBufferAttribute } from '../core/attribute';
 
 
 export class Geometry {

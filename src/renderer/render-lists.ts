@@ -9,7 +9,7 @@
 
 import type { Scene } from '../scene/scene';
 import type { Camera } from '../camera/camera';
-import type { Object3D } from '../objects/object3d';
+import type { Object3D } from '../core/object3d';
 import type { Box3, Sphere } from 'mathcat';
 import { box3 } from 'mathcat';
 import { Mesh } from '../objects/mesh';

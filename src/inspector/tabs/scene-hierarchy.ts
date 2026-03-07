@@ -20,7 +20,7 @@ import { Item } from '../ui/item';
 import type { Inspector } from '../inspector';
 import type { SceneRecord } from '../renderer-inspector';
 import { Mesh } from '../../objects/mesh';
-import type { Object3D } from '../../objects/object3d';
+import type { Object3D } from '../../core/object3d';
 
 // ---------------------------------------------------------------------------
 // Internal node record — one per live Object3D in the tree

@@ -13,24 +13,25 @@
  * - Pipeline cache (pipeline creation)
  */
 
-import type { Mesh } from '../objects/mesh';
-import type { Material } from '../material/material';
-import type { Scene } from '../scene/scene';
 import type { Camera } from '../camera/camera';
-import type { RenderContext } from './render-context';
-import type { NodeManagerState } from './node-manager';
-import type { GeometriesState } from './geometries';
+import type { Material } from '../material/material';
+import { type Node, OutputStructNode, type WgslType } from '../nodes/nodes';
+import type { Mesh } from '../objects/mesh';
+import type { Scene } from '../scene/scene';
 import type { BindingsState } from './bindings';
-import type { PipelineCache } from './pipelines';
-import type { RenderObject, GeometryGroup } from './render-object';
-import type { NodeFrame } from './node-frame';
-
-import { OutputStructNode, type Node, type WgslType } from '../nodes/nodes';
-import { createRenderObject, disposeRenderObject, computeRenderObjectCacheKey } from './render-object';
+import { getBindGroupLayouts, initBindings, updateBindings } from './bindings';
 import * as chainMap from './chain-map';
-import { compileNodeState, needsNodeUpdate } from './node-manager';
+import type { GeometriesState } from './geometries';
 import { updateForRender as updateGeometry } from './geometries';
-import { updateBindings, initBindings, getBindGroupLayouts } from './bindings';
+import type { NodeFrame } from './node-frame';
+import type { NodeManagerState } from './node-manager';
+import { compileNodeState, needsNodeUpdate } from './node-manager';
+import type { PipelineCache } from './pipelines';
+import type { RenderContext } from './render-context';
+import type { GeometryGroup, RenderObject } from './render-object';
+import { computeRenderObjectCacheKey, createRenderObject, disposeRenderObject } from './render-object';
+// [graph-tab] import for graph snapshot callback type
+import type { GraphSnapshot } from '../inspector/graph-snapshot';
 
 /**
  * RenderObjects state - manages RenderObject creation and caching.
@@ -61,6 +62,9 @@ export type RenderObjectsState = {
      * All active RenderObjects (for iteration/disposal).
      */
     renderObjects: Set<RenderObject>;
+
+    // [graph-tab] Called after each compile with the compiled node graph.
+    onGraphSnapshot: ((s: GraphSnapshot) => void) | null;
 };
 
 /**
@@ -81,6 +85,7 @@ export function createRenderObjectsState(deps: {
         device: deps.device,
         chainMaps: new Map(),
         renderObjects: new Set(),
+        onGraphSnapshot: null, // [graph-tab] wired in renderer.ts
     };
 }
 
@@ -191,7 +196,11 @@ export function initRenderObject(
     // Check if we need to (re)compile
     if (needsNodeUpdate(state.nodes, renderObject, cacheKey)) {
         // Compile node graph
-        compileNodeState(state.nodes, renderObject, cacheKey);
+        const { compileResult } = compileNodeState(state.nodes, renderObject, cacheKey);
+        // [graph-tab] fire snapshot callback after compile
+        if (state.onGraphSnapshot) {
+            state.onGraphSnapshot(_buildGraphSnapshot(cacheKey, compileResult));
+        }
     }
 
     const nodeState = renderObject.nodeBuilderState;
@@ -243,17 +252,9 @@ export function initRenderObject(
  * @param width - Render width
  * @param height - Render height
  */
-export function updateRenderObject(
-    state: RenderObjectsState,
-    renderObject: RenderObject,
-    frame: NodeFrame,
-): void {
+export function updateRenderObject(state: RenderObjectsState, renderObject: RenderObject, frame: NodeFrame): void {
     // Update bindings (uniforms, bind groups)
-    updateBindings(
-        state.bindings,
-        renderObject,
-        frame,
-    );
+    updateBindings(state.bindings, renderObject, frame);
 
     // Update geometry if needed
     updateGeometry(state.geometries, renderObject);
@@ -288,7 +289,11 @@ export async function initRenderObjectAsync(
     // Check if we need to (re)compile
     if (needsNodeUpdate(state.nodes, renderObject, cacheKey)) {
         // Compile node graph (sync - this is fast)
-        compileNodeState(state.nodes, renderObject, cacheKey);
+        const { compileResult } = compileNodeState(state.nodes, renderObject, cacheKey);
+        // [graph-tab] fire snapshot callback after compile
+        if (state.onGraphSnapshot) {
+            state.onGraphSnapshot(_buildGraphSnapshot(cacheKey, compileResult));
+        }
     }
 
     const nodeState = renderObject.nodeBuilderState;
@@ -323,11 +328,24 @@ export async function initRenderObjectAsync(
     return true;
 }
 
+// [graph-tab] Build a GraphSnapshot from a CompileResult + cacheKey.
+// This is the only place in render-objects.ts that touches graph-tab types.
+function _buildGraphSnapshot(label: string, compileResult: import('../nodes/node-builder').CompileResult): GraphSnapshot {
+    const inspectableIds = new Set<string>();
+    for (const [id, node] of compileResult.graphNodes) {
+        if (node.kind === 'inspector') inspectableIds.add(id);
+    }
+    return {
+        label,
+        allNodes: compileResult.graphNodes,
+        edges: compileResult.graphEdges,
+        info: compileResult.graphInfo,
+        inspectableIds,
+    };
+}
+
 /**
  * Create a render pipeline for a RenderObject.
- *
- * This wraps the existing pipeline cache integration.
- * The actual pipeline creation logic lives in pipelines.ts.
  */
 function createPipelineForRenderObject(
     state: RenderObjectsState,
@@ -398,7 +416,7 @@ function createPipelineForRenderObject(
               }
             : undefined,
         multisample: {
-            count: renderContext.sampleCount,
+            count: renderContext.sampleCount >= 4 ? 4 : 1,
             alphaToCoverageEnabled: material.alphaToCoverage,
         },
     };
@@ -474,7 +492,7 @@ async function createPipelineForRenderObjectAsync(
               }
             : undefined,
         multisample: {
-            count: renderContext.sampleCount,
+            count: renderContext.sampleCount >= 4 ? 4 : 1,
             alphaToCoverageEnabled: material.alphaToCoverage,
         },
     };
@@ -660,20 +678,14 @@ function getDefaultBlendState(): GPUBlendState {
 /**
  * Dispose a specific RenderObject.
  */
-export function disposeRenderObjectFromState(
-    _state: RenderObjectsState,
-    renderObject: RenderObject,
-): void {
+export function disposeRenderObjectFromState(_state: RenderObjectsState, renderObject: RenderObject): void {
     disposeRenderObject(renderObject);
 }
 
 /**
  * Dispose all RenderObjects for a specific mesh.
  */
-export function disposeRenderObjectsForMesh(
-    state: RenderObjectsState,
-    mesh: Mesh,
-): void {
+export function disposeRenderObjectsForMesh(state: RenderObjectsState, mesh: Mesh): void {
     for (const renderObject of state.renderObjects) {
         if (renderObject.mesh === mesh) {
             disposeRenderObject(renderObject);
@@ -684,10 +696,7 @@ export function disposeRenderObjectsForMesh(
 /**
  * Dispose all RenderObjects for a specific material.
  */
-export function disposeRenderObjectsForMaterial(
-    state: RenderObjectsState,
-    material: Material,
-): void {
+export function disposeRenderObjectsForMaterial(state: RenderObjectsState, material: Material): void {
     for (const renderObject of state.renderObjects) {
         if (renderObject.material === material) {
             disposeRenderObject(renderObject);

@@ -29,7 +29,7 @@ import { Node, TextureNode, cameraNear, cameraFar, type WgslType } from './nodes
 import type { Scene } from '../scene/scene';
 import type { Camera } from '../camera/camera';
 import type { NodeFrame } from '../renderer/node-frame';
-import { RenderTarget } from '../renderer/render-target';
+import { RenderTarget } from '../core/render-target';
 import { Texture, type ImageSize } from '../texture/texture';
 import type { MRTNode } from './nodes';
 

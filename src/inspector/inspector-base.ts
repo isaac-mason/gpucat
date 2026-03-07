@@ -15,11 +15,25 @@
  *   _dispatchComputeNode   → inspector.beginCompute(nodeId, frameId) / finishCompute
  *   Node.inspect()         → inspector.inspect(node)
  *   renderScene() start    → inspector.beginRenderScene(passId, scene, samples, colorFormat, frameId)
+ *
+ * Per-draw-call hooks (inside a render pass):
+ *   issueDrawsForItems      → inspector.setPipeline(label)
+ *                           → inspector.setBindGroup(index, label)
+ *                           → inspector.setVertexBuffer(slot)
+ *                           → inspector.setIndexBuffer()
+ *                           → inspector.draw(vertexCount, instanceCount)
+ *                           → inspector.drawIndexed(indexCount, instanceCount)
+ *                           → inspector.drawIndirect()
+ *                           → inspector.drawIndexedIndirect()
+ *
+ * Per-dispatch hooks (inside a compute pass):
+ *   _dispatchComputeNode    → inspector.dispatchWorkgroups(x, y, z)
  */
 
 import type { WebGPURenderer } from '../renderer/renderer';
-import type { Node, WgslType } from '../nodes/nodes';
+import type { InspectorNode, WgslType } from '../nodes/nodes';
 import type { Scene } from '../scene/scene';
+import type { GraphSnapshot } from './graph-snapshot';
 
 export class InspectorBase {
     /** Back-reference to the renderer. Set by renderer after init(). */
@@ -92,7 +106,73 @@ export class InspectorBase {
      * Called when a node marked with .inspect() is encountered during rendering.
      * Subclasses override this to register the node for Viewer tab preview.
      */
-    inspect(_node: Node<WgslType>): void {}
+    inspect(_node: InspectorNode<WgslType>): void {}
+
+    /**
+     * Called after a material's node graph is compiled (once per RenderObject,
+     * on first compile and on recompile). Subclasses override this to feed the
+     * Graph tab with compiled graph data.
+     *
+     * Isolated behind this hook so the Graph tab can be removed by deleting
+     * graph-snapshot.ts, graph-layout.ts, tabs/graph.ts and this one call site.
+     */
+    inspectGraph(_snapshot: GraphSnapshot): void {}
+
+    // -----------------------------------------------------------------------
+    // Per-draw-call hooks (inside a render pass)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Called whenever a new pipeline is bound (i.e. renderObject.pipeline changed).
+     * `label` is the mesh/material label for the object that triggered the switch.
+     */
+    setPipeline(_label: string): void {}
+
+    /**
+     * Called for each setBindGroup() issued to the GPU pass encoder.
+     * `index` is the bind group slot index; `label` is an optional debug label.
+     */
+    setBindGroup(_index: number, _label: string): void {}
+
+    /**
+     * Called for each setVertexBuffer() issued to the GPU pass encoder.
+     * `slot` is the vertex buffer slot index.
+     */
+    setVertexBuffer(_slot: number): void {}
+
+    /**
+     * Called whenever setIndexBuffer() is issued for an indexed draw.
+     */
+    setIndexBuffer(): void {}
+
+    /**
+     * Called for each non-indexed draw().
+     */
+    draw(_vertexCount: number, _instanceCount: number): void {}
+
+    /**
+     * Called for each indexed drawIndexed().
+     */
+    drawIndexed(_indexCount: number, _instanceCount: number): void {}
+
+    /**
+     * Called for each drawIndirect() (non-indexed indirect draw).
+     */
+    drawIndirect(): void {}
+
+    /**
+     * Called for each drawIndexedIndirect() (indexed indirect draw).
+     */
+    drawIndexedIndirect(): void {}
+
+    // -----------------------------------------------------------------------
+    // Per-dispatch hooks (inside a compute pass)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Called for each dispatchWorkgroups() issued in a compute pass.
+     */
+    dispatchWorkgroups(_x: number, _y: number, _z: number): void {}
 
     /** Returns the renderer reference (null until setRenderer() is called). */
     getRenderer(): WebGPURenderer | null {

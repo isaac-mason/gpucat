@@ -1,4 +1,4 @@
-import { Object3D } from './object3d';
+import { Object3D } from '../core/object3d';
 import type { Geometry } from 'src/geometry/geometry';
 import type { Material } from '../material/material';
 

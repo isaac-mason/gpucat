@@ -72,7 +72,7 @@ const viewPos = mul(cameraViewMatrix, worldPos);
 const clipPos = mul(cameraProjectionMatrix, viewPos);
 
 // fragment: fade by lifetime (w), add a soft blue-white hue.
-const lifetime = varying(d.f32, 'v_life', particlePos.w);
+const lifetime = varying(particlePos.w, 'v_life');
 const colR = lifetime.mul(f32(0.6)).add(f32(0.4));
 const colG = lifetime.mul(f32(0.7)).add(f32(0.3));
 const colB = f32(1.0);

@@ -9,7 +9,7 @@
  * This wraps the lower-level buffers.ts functions with deduplication logic.
  */
 
-import type { BufferAttribute, IndexAttribute, IndirectStorageBufferAttribute } from '../geometry/attribute';
+import type { BufferAttribute, IndexAttribute, IndirectStorageBufferAttribute } from '../core/attribute';
 import type { StorageNode, WgslType } from '../nodes/nodes';
 import * as buffers from './buffers';
 

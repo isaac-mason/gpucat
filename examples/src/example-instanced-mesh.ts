@@ -41,7 +41,7 @@ const instanceTransform = g.mat4(col0, col1, col2, col3);
 
 const instanceColor = g.instancedBufferAttribute(instanceColors, d.vec3f, 12, 0);
 
-const vColor = g.varying(d.vec3f, 'v_color', instanceColor);
+const vColor = g.varying(instanceColor, 'v_color');
 
 const pos = g.attribute(d.vec3f, 'position');
 const localPos = g.vec4(pos, g.f32(1.0));

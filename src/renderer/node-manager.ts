@@ -1,33 +1,11 @@
-/**
- * node-manager.ts - Node compilation and update scheduling.
- *
- * Three.js aligned: mirrors renderers/common/nodes/NodeManager.js
- *
- * The NodeManager coordinates:
- * 1. Getting/creating NodeBuilderState for RenderObjects
- * 2. Running update lifecycle callbacks at appropriate times
- * 3. Detecting when recompilation is needed
- *
- * The NodeFrame instance is owned by the NodeManager and carries:
- * - Timing state (frameId, renderId, time, deltaTime)
- * - Render context (renderer, camera, object, scene, material)
- * - Deduplication maps for update calls
- */
-
 import type { RenderObject } from './render-object';
 import { NodeFrame, createNodeFrame } from './node-frame';
 import type { NodeBuilderState } from './node-builder-state';
-import type { CompileResult } from '../nodes/compile';
-import { compile } from '../nodes/compile';
+import type { CompileResult } from '../nodes/node-builder';
+import { compile } from '../nodes/node-builder';
 import { createNodeBuilderState } from './node-builder-state';
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-/**
- * NodeManager state - manages node compilation and updates.
- */
+/** node compilation and updates state */
 export type NodeManagerState = {
     /**
      * Per-RenderObject NodeBuilderState.
@@ -35,10 +13,7 @@ export type NodeManagerState = {
      */
     nodeStates: WeakMap<RenderObject, NodeBuilderState>;
 
-    /**
-     * The NodeFrame instance for this manager.
-     * Three.js aligned: NodeManager owns a single NodeFrame.
-     */
+    /** the NodeFrame instance for this manager */
     nodeFrame: NodeFrame;
 
     /**
@@ -48,13 +23,7 @@ export type NodeManagerState = {
     environmentCacheKey: number;
 };
 
-// ---------------------------------------------------------------------------
-// Factory
-// ---------------------------------------------------------------------------
-
-/**
- * Create a new NodeManager state.
- */
+/** create a new NodeManager state */
 export function createNodeManagerState(): NodeManagerState {
     return {
         nodeStates: new WeakMap(),
@@ -63,15 +32,9 @@ export function createNodeManagerState(): NodeManagerState {
     };
 }
 
-// ---------------------------------------------------------------------------
-// NodeFrame Access
-// ---------------------------------------------------------------------------
-
 /**
  * Get the NodeFrame for rendering a specific RenderObject.
  * Sets the frame's context properties from the RenderObject.
- *
- * Three.js aligned: NodeManager.getNodeFrameForRender()
  */
 export function getNodeFrameForRender(
     state: NodeManagerState,
@@ -88,16 +51,10 @@ export function getNodeFrameForRender(
 
 /**
  * Get the NodeFrame with minimal context (for compute or non-object renders).
- *
- * Three.js aligned: NodeManager.getNodeFrame()
  */
 export function getNodeFrame(state: NodeManagerState): NodeFrame {
     return state.nodeFrame;
 }
-
-// ---------------------------------------------------------------------------
-// Node State Access
-// ---------------------------------------------------------------------------
 
 /**
  * Get the NodeBuilderState for a RenderObject.
@@ -128,13 +85,13 @@ export function setNodeBuilderState(
  * @param state - The NodeManager state
  * @param renderObject - The RenderObject to compile for
  * @param cacheKey - The pipeline cache key
- * @returns The compiled NodeBuilderState
+ * @returns The compiled NodeBuilderState and the raw CompileResult
  */
 export function compileNodeState(
     state: NodeManagerState,
     renderObject: RenderObject,
     cacheKey: string,
-): NodeBuilderState {
+): { nodeState: NodeBuilderState; compileResult: CompileResult } {
     const material = renderObject.material;
 
     // Compile the material's node graph
@@ -151,12 +108,8 @@ export function compileNodeState(
     // Store in manager and on render object
     setNodeBuilderState(state, renderObject, nodeState);
 
-    return nodeState;
+    return { nodeState, compileResult };
 }
-
-// ---------------------------------------------------------------------------
-// Recompilation Detection
-// ---------------------------------------------------------------------------
 
 /**
  * Check if a RenderObject needs node recompilation.
@@ -184,17 +137,11 @@ export function deleteNodeState(
     state.nodeStates.delete(renderObject);
 }
 
-// ---------------------------------------------------------------------------
-// Update Lifecycle (Three.js aligned)
-// ---------------------------------------------------------------------------
-
 /**
  * Run updateBefore for a RenderObject's nodes.
  *
  * updateBefore is called before the draw call for nodes that need to
  * perform GPU work (compute passes, render to texture, etc.)
- *
- * Three.js aligned: NodeManager.updateBefore()
  *
  * @param state - The NodeManager state
  * @param renderObject - The RenderObject
@@ -219,8 +166,6 @@ export function updateBefore(
  * update is called to execute node logic each frame/render/object.
  * (e.g., InspectorNode registering with inspector)
  *
- * Three.js aligned: NodeManager.updateForRender()
- *
  * @param state - The NodeManager state
  * @param renderObject - The RenderObject
  */
@@ -243,8 +188,6 @@ export function updateForRender(
  *
  * updateAfter is called after the draw call for cleanup, readback, etc.
  *
- * Three.js aligned: NodeManager.updateAfter()
- *
  * @param state - The NodeManager state
  * @param renderObject - The RenderObject
  */
@@ -261,10 +204,6 @@ export function updateAfter(
         frame.updateAfterNode(node);
     }
 }
-
-// ---------------------------------------------------------------------------
-// Environment Cache Key
-// ---------------------------------------------------------------------------
 
 /**
  * Invalidate the environment cache key.

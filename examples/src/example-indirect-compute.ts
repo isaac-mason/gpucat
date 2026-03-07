@@ -178,8 +178,8 @@ const rotated = vcV
     .add(crossvcV.mul(f32(2)).add(sphereOsc));
 
 // varyings
-const vPosition = varying(d.vec3f, "vPosition", rotated);
-const vColor = varying(d.vec4f, "vColor", color);
+const vPosition = varying(rotated, "vPosition");
+const vColor = varying(color, "vColor");
 
 // project to clip space (no model matrix — instances live in camera space units)
 const worldPos4 = vec4(rotated, f32(1));

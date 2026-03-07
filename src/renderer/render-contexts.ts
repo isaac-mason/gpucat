@@ -9,7 +9,7 @@
  * Functional pattern: state object + functions.
  */
 
-import type { RenderTarget } from './render-target';
+import type { RenderTarget } from '../core/render-target';
 import type { MRTNode } from '../nodes/nodes';
 import { createRenderContext, type RenderContext } from './render-context';
 

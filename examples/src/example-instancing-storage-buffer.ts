@@ -86,7 +86,7 @@ const viewPos   = g.mul(g.cameraViewMatrix, worldPos);
 const clipPos   = g.mul(g.cameraProjectionMatrix, viewPos);
 
 // pass color to fragment via varying.
-const vColor    = g.varying(d.vec4f, 'v_color', rawColor);
+const vColor    = g.varying(rawColor, 'v_color');
 
 // pulse brightness with time
 const pulse     = g.f32(0.08).mul(g.f32(1).add(g.timeElapsed.mul(g.f32(3)).sin()));

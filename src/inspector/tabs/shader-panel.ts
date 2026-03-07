@@ -1,14 +1,12 @@
 /**
- * shader-panel.ts — Inline WGSL shader viewer for the Scene Hierarchy tab.
+ * shader-panel.ts — Inline WGSL shader viewer for the Inspector.
  *
- * Given a Mesh + SceneRecord, it:
- *  1. Finds the first compiled RenderObject for that mesh in the renderer's
- *     renderObjects set and reads nodeBuilderState.code (combined WGSL).
- *  2. Splits the code into vertex/fragment sections on the fn markers.
- *  3. Applies basic WGSL syntax highlighting.
- *  4. Provides stage-select buttons (Vertex / Fragment) and a Copy button.
- *  5. Shows "Compiling…" when no compiled RenderObject exists yet.
- *  6. Hovering a probeable fragment-stage line shows a floating popover with
+ * Given a RenderObject, it:
+ *  1. Splits nodeBuilderState.code into vertex/fragment sections.
+ *  2. Applies basic WGSL syntax highlighting in a <pre> display layer.
+ *  3. Provides stage-select buttons (Vertex / Fragment / Full) and Copy button.
+ *  4. Shows "Compiling…" when no compiled RenderObject exists yet.
+ *  5. Hovering a probeable fragment-stage line shows a floating popover with
  *     a live 140×140 preview canvas next to the cursor.
  */
 
@@ -171,17 +169,13 @@ export class ShaderPanel {
         toolbar.appendChild(stageGroup);
         toolbar.appendChild(copyBtn);
 
-        // --- Code block (pre inside a scroll wrapper) ---
-        // The pre must NOT be a scroll container — Chrome intercepts click-drag
-        // on scrollable elements as scroll gestures, blocking text selection.
-        // Scrolling is handled by the wrapper div instead.
+        // --- Code area ---
         const codeScroll = document.createElement('div');
         codeScroll.className = 'shader-code-scroll';
 
         const codeBlock = document.createElement('pre');
         codeBlock.className = 'shader-code';
         codeBlock.innerHTML = '<span class="wgsl-comment">// Compiling…</span>';
-        // Belt-and-suspenders: inline style beats any inherited user-select:none
         codeBlock.style.userSelect = 'text';
         (codeBlock.style as CSSStyleDeclaration & { webkitUserSelect: string }).webkitUserSelect = 'text';
 
@@ -189,9 +183,9 @@ export class ShaderPanel {
         codeScroll.addEventListener('mouseleave', () => this._onMouseLeave());
         codeBlock.addEventListener('mouseup', () => this._onSelectionEnd());
 
-        // Clicking outside the code block dismisses a selection-locked probe
+        // Clicking outside the panel dismisses a selection-locked probe.
         document.addEventListener('mousedown', (e) => {
-            if (this._selectionLocked && !this._codeBlock.contains(e.target as Node)) {
+            if (this._selectionLocked && !container.contains(e.target as Node)) {
                 this._hidePopover();
             }
         });
@@ -283,8 +277,15 @@ export class ShaderPanel {
         this._renderCurrentStage();
     }
 
+    /**
+     * The stage currently shown in the panel.
+     */
+    get currentStage(): Stage {
+        return this._currentStage;
+    }
+
     // -----------------------------------------------------------------------
-    // Private
+    // Private — stage selection
     // -----------------------------------------------------------------------
 
     private _selectStage(stage: Stage): void {
@@ -305,6 +306,7 @@ export class ShaderPanel {
 
     private _renderCurrentStage(): void {
         if (!this._stages) return;
+
         const code = this._stages[this._currentStage];
 
         // Don't rebuild the DOM (and wipe any text selection) if the code hasn't changed
@@ -323,8 +325,11 @@ export class ShaderPanel {
         this._codeBlock.innerHTML = html;
     }
 
+    // -----------------------------------------------------------------------
+    // Private — hover / probe
+    // -----------------------------------------------------------------------
+
     private _onMouseLeave(): void {
-        // Don't dismiss a selection-locked probe when the cursor leaves
         if (!this._selectionLocked) {
             this._hidePopover();
         }
@@ -368,8 +373,7 @@ export class ShaderPanel {
             return;
         }
 
-        const code = this._stages[this._currentStage];
-        const lines = code.split('\n');
+        const lines = this._stages[this._currentStage].split('\n');
         const lineText = lines[lineIndex] ?? '';
         const probeTarget = extractProbeTarget(lineText);
 
@@ -455,17 +459,10 @@ export class ShaderPanel {
     /**
      * Called on `mouseup` inside the code block.  If the user has selected
      * a non-empty text range, treat the selected text as the probe expression.
-     *
-     * The anchor line (for body truncation) is determined by walking up from
-     * the selection's anchor node to the nearest `.shader-line[data-line]` span.
-     *
-     * The probe is "locked" — it won't be dismissed by subsequent mousemove
-     * events; only a mousedown outside the code block clears it.
      */
     private _onSelectionEnd(): void {
         const sel = window.getSelection();
         if (!sel || sel.isCollapsed) {
-            // No real selection — fall back to hover behaviour
             this._selectionLocked = false;
             return;
         }
@@ -505,17 +502,9 @@ export class ShaderPanel {
         }
         const lineIndex = parseInt(lineIndexStr, 10);
 
-        const code = this._stages[this._currentStage];
-        const lines = code.split('\n');
+        const lines = this._stages[this._currentStage].split('\n');
         const anchorLineText = lines[lineIndex] ?? '';
 
-        // Build a ProbeTarget from the selection:
-        // - expr = the selected text (raw WGSL sub-expression)
-        // - anchor = the full trimmed anchor line, so the body walker stops there
-        // - anchorKind = 'assignment' to stop after that line is included
-        //
-        // Special case: if the anchor line is a `let _vN = ...` line, use
-        // `let_var` kind with the identifier as anchor for cleaner truncation.
         const trimmedAnchor = anchorLineText.trim();
         let probeTarget: import('../probe-wgsl').ProbeTarget;
 
@@ -573,9 +562,9 @@ export class ShaderPanel {
     }
 
     private _copyCode(btn: HTMLButtonElement): void {
-        if (!this._stages) return;
-        const text = this._stages[this._currentStage];
-        navigator.clipboard.writeText(text);
+        const src = this._stages ? this._stages[this._currentStage] : null;
+        if (!src) return;
+        navigator.clipboard.writeText(src);
         btn.classList.add('copied');
         setTimeout(() => btn.classList.remove('copied'), 350);
     }

@@ -111,7 +111,7 @@ const clipPos = mul(cameraProjectionMatrix, viewPos);
 
 // world-space normal for lighting
 const worldNorm = mul(modelNormalMatrix, vec3(norm.x, norm.y, norm.z));
-const vWorldNorm = varying(d.vec3f, 'v_worldNorm', normalize(worldNorm));
+const vWorldNorm = varying(normalize(worldNorm), 'v_worldNorm');
 
 // view-space normal for MRT output (computed from world normal in fragment)
 const viewNorm = normalize(mul(cameraViewMatrix, vec4(vWorldNorm, f32(0)))).xyz;

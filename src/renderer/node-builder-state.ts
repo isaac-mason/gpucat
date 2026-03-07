@@ -23,8 +23,7 @@ import type {
     UpdateBeforeNode,
     UpdateAfterNode,
     UpdateNode,
-} from '../nodes/compile';
-import type { Node, WgslType } from '../nodes/nodes';
+} from '../nodes/node-builder';
 import {
     type BindGroup,
     createUniformBindGroup,
@@ -104,9 +103,6 @@ export type NodeBuilderState = {
     /** Nodes to update during rendering (per-frame uniforms). */
     updateNodes: UpdateNode[];
 
-    /** Nodes that support inspector inspection. */
-    inspectableNodes: Node<WgslType>[];
-
     // -------------------------------------------------------------------------
     // Cache Key
     // -------------------------------------------------------------------------
@@ -160,7 +156,6 @@ export function createNodeBuilderState(
         updateBeforeNodes: compileResult.updateBeforeNodes,
         updateAfterNodes: compileResult.updateAfterNodes,
         updateNodes: compileResult.updateNodes,
-        inspectableNodes: compileResult.inspectableNodes,
         cacheKey,
         isNodeBuilderState: true,
     };

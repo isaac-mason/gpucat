@@ -26,7 +26,7 @@ import type {
     StorageEntry,
     TextureEntry,
     SamplerEntry,
-} from '../../nodes/compile';
+} from '../../nodes/node-builder';
 
 // ---------------------------------------------------------------------------
 // Internal record — one per live RenderObject

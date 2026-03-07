@@ -1,4 +1,4 @@
-import { BufferAttribute, IndexAttribute } from './attribute';
+import { BufferAttribute, IndexAttribute } from '../core/attribute';
 import { Geometry } from './geometry';
 
 export function createBoxGeometry(width = 1, height = 1, depth = 1): Geometry {

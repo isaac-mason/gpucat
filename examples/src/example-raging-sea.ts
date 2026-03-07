@@ -167,8 +167,8 @@ const toA    = posA.sub(displacedPos).normalize();
 const toB    = posB.sub(displacedPos).normalize();
 const normal = toA.cross(toB).normalize();
 
-const vNormal    = varying(d.vec3f, 'v_normal',    normal);
-const vElevation = varying(d.f32,   'v_elevation', displacedPos.y as Node<'f32'>);
+const vNormal    = varying(normal, 'v_normal');
+const vElevation = varying(displacedPos.y, 'v_elevation');
 
 const clipPos = mul(cameraProjectionMatrix, mul(cameraViewMatrix, mul(modelWorldMatrix, vec4(displacedPos, f32(1)))));
 
@@ -243,6 +243,20 @@ scene.add(mesh);
 
 scene.updateWorldMatrix();
 camera.updateViewMatrix();
+
+const inspector = renderer.inspector as Inspector;
+
+// TODO: what is going on???
+
+const waveParams = inspector.createParameters('Waves');
+waveParams.add(uFreqX as unknown as Record<string, unknown>, 'value', 0.1, 10, 0.1);
+waveParams.add(uFreqZ as unknown as Record<string, unknown>, 'value', 0.1, 10, 0.1);
+waveParams.add(uSpeed as unknown as Record<string, unknown>, 'value', 0.0, 5.0, 0.05);
+waveParams.add(uAmp   as unknown as Record<string, unknown>, 'value', 0.0, 1.0, 0.01);
+const smallParams = inspector.createParameters('Small Waves');
+smallParams.add(uSmallFreq  as unknown as Record<string, unknown>, 'value', 0.1, 10, 0.1);
+smallParams.add(uSmallSpeed as unknown as Record<string, unknown>, 'value', 0.0, 5.0, 0.05);
+smallParams.add(uSmallAmp   as unknown as Record<string, unknown>, 'value', 0.0, 1.0, 0.01);
 
 const scenePass  = pass(scene, camera);
 const outputNode = scenePass.getTextureNode();

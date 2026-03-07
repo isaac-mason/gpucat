@@ -14,7 +14,7 @@ export * from './scene/scene';
 export * from "./camera/camera";
 export * from "./camera/perspective-camera";
 
-export * from "./geometry/attribute";
+export * from "./core/attribute";
 export * from "./geometry/geometry";
 export * from "./geometry/helpers";
 
@@ -32,7 +32,7 @@ export {
     // math/operators
     abs, add, sub, mul, div, min, max, clamp, mix, step, smoothstep,
     ceil, floor, fract, sqrt, pow, length, normalize, dot, cross,
-    sin, cos,
+    sin, cos, transpose,
 
     // constructors
     f16, f32, i32, u32, bool, color,
@@ -43,9 +43,14 @@ export {
 
     // node factories
     attribute, bufferAttribute, instancedBufferAttribute,
-    builtin, index, uniform, storage, storageArray,
+    builtin, index, uniform, storage, storageArray, instancedArray,
     texture, varying, struct, wgsl, wgslFn, Fn, mrt,
     compute,
+
+    // atomic operations
+    atomicAdd, atomicStore, atomicLoad, atomicSub,
+    atomicMax, atomicMin, atomicAnd, atomicOr, atomicXor,
+    atomicExchange, atomicCompareExchangeWeak,
 
     // control flow
     Var, If, For, While, Break, Continue, Return,
@@ -97,8 +102,8 @@ export { arrayOf, wgslAlignOf, wgslSizeOf, wgslStrideOf, roundUp } from './nodes
 export { packStruct, packStructArray, writeStructArray, f32ToF16Bits, type InferValue } from './utils/buffer-layout';
 
 export { Mesh } from './objects/mesh';
-export * from './objects/object3d';
+export * from './core/object3d';
 
-export { DepthTexture, RenderTarget, type RenderTargetOptions } from './renderer/render-target';
+export * from './core/render-target';
 
 export { WebGPURenderer, type DeviceLostInfo, type WebGPURendererOptions } from './renderer/renderer';

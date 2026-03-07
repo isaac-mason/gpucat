@@ -12,7 +12,7 @@
  * - Bindings system keys GPU resources by BindGroup object identity
  */
 
-import type { UniformGroupBlock, StorageEntry, TextureEntry, SamplerEntry } from '../nodes/compile';
+import type { UniformGroupBlock, StorageEntry, TextureEntry, SamplerEntry } from '../nodes/node-builder';
 
 let bindGroupIdCounter = 0;
 

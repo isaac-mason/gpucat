@@ -91,8 +91,8 @@ async function main() {
     // pass normal and UV to fragment shader via varyings
     const worldNormal = mul(modelNormalMatrix, vec3(normal.x, normal.y, normal.z)).toVar('worldNormal');
 
-    const vNormal = varying(d.vec3f, 'v_norm', normalize(worldNormal));
-    const vUv = varying(d.vec2f, 'uv', uv);
+    const vNormal = varying(normalize(worldNormal), 'v_norm');
+    const vUv = varying(uv, 'v_uv');
 
     // fragment: sample texture and apply simple lighting
     const texNode = texture(checkerTexture);

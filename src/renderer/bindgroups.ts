@@ -1,4 +1,4 @@
-import type { CompileResult, ComputeCompileResult } from '../nodes/compile';
+import type { CompileResult, ComputeCompileResult } from '../nodes/node-builder';
 
 // ---------------------------------------------------------------------------
 // Bind Group Layout Cache

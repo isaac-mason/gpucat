@@ -10,8 +10,8 @@
  */
 
 import type { Geometry } from '../geometry/geometry';
-import type { BufferAttribute, IndexAttribute } from '../geometry/attribute';
-import { IndexAttribute as IndexAttributeClass } from '../geometry/attribute';
+import type { BufferAttribute, IndexAttribute } from '../core/attribute';
+import { IndexAttribute as IndexAttributeClass } from '../core/attribute';
 import type { RenderObject } from './render-object';
 import type { AttributesState } from './attributes';
 import * as attributes from './attributes';

@@ -172,6 +172,3 @@ export class RenderTarget {
         return -1;
     }
 }
-
-// Re-export DepthTexture for convenience
-export { DepthTexture } from '../texture/texture';

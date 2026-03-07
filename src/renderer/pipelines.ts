@@ -21,7 +21,7 @@
  * This module only handles compute pipelines.
  */
 
-import { compileCompute, type ComputeCompileResult } from '../nodes/compile';
+import { compileCompute, type ComputeCompileResult } from '../nodes/node-builder';
 import { OutputStructNode } from '../nodes/nodes';
 import type { Node, WgslType, ComputeNode } from '../nodes/nodes';
 import type { Material } from '../material/material';

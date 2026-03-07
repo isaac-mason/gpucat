@@ -546,7 +546,10 @@ export class Timeline extends Tab {
     private _getColorForMethod(method: string): string {
         if (method.startsWith('begin'))   return 'var(--color-green)';
         if (method.startsWith('finish') || method.startsWith('destroy')) return 'var(--color-red)';
-        if (method.startsWith('draw') || method.startsWith('compute') || method.startsWith('create') || method.startsWith('generate')) return 'var(--color-yellow)';
+        if (method.startsWith('draw') || method.startsWith('drawIndexed') || method.startsWith('drawIndirect') || method.startsWith('drawIndexedIndirect')) return 'var(--color-yellow)';
+        if (method.startsWith('dispatch')) return 'var(--color-yellow)';
+        if (method.startsWith('compute') || method.startsWith('create') || method.startsWith('generate')) return 'var(--color-yellow)';
+        if (method.startsWith('set')) return 'var(--color-fps)';
         return 'var(--text-secondary)';
     }
 }

@@ -1,23 +1,9 @@
-/**
- * node-frame.ts — Unified frame context for node updates.
- *
- * Three.js aligned: mirrors src/nodes/core/NodeFrame.js
- *
- * NodeFrame is a stateful class that carries all context needed for node updates:
- * - Timing: time, deltaTime, frameId, renderId
- * - Render context: renderer, camera, object, scene, material
- * - GPU context: encoder, width, height
- *
- * The same NodeFrame instance is reused each frame, with context properties
- * updated before each update cycle.
- */
-
 import type { WebGPURenderer } from './renderer';
 import type { Camera } from '../camera/camera';
 import type { Mesh } from '../objects/mesh';
 import type { Scene } from '../scene/scene';
 import type { Material } from '../material/material';
-import type { UpdateBeforeNode, UpdateAfterNode, UpdateNode } from '../nodes/compile';
+import type { UpdateBeforeNode, UpdateAfterNode, UpdateNode } from '../nodes/node-builder';
 
 /**
  * Update tracking maps for deduplication.
@@ -30,8 +16,6 @@ type UpdateMaps = {
 
 /**
  * NodeFrame — unified frame context for all node update callbacks.
- *
- * Three.js aligned: mirrors NodeFrame class.
  *
  * Properties are set by the renderer/NodeManager before calling update methods.
  * Nodes access whatever context they need from the frame.
@@ -123,7 +107,7 @@ export class NodeFrame {
     private _lastTime: number | undefined = undefined;
 
     // -----------------------------------------------------------------------
-    // Deduplication Maps (Three.js aligned)
+    // Deduplication Maps
     // -----------------------------------------------------------------------
 
     /**
@@ -180,12 +164,11 @@ export class NodeFrame {
     }
 
     // -----------------------------------------------------------------------
-    // Update Methods (Three.js aligned)
+    // Update Methods
     // -----------------------------------------------------------------------
 
     /**
      * Execute updateBefore for a node, respecting its updateBeforeType.
-     * Three.js aligned: NodeFrame.updateBeforeNode()
      */
     updateBeforeNode(node: UpdateBeforeNode): void {
         const updateType = node.updateBeforeType;
@@ -216,7 +199,6 @@ export class NodeFrame {
 
     /**
      * Execute update for a node, respecting its updateType.
-     * Three.js aligned: NodeFrame.updateNode()
      */
     updateNode(node: UpdateNode): void {
         const updateType = node.updateType;
@@ -247,7 +229,6 @@ export class NodeFrame {
 
     /**
      * Execute updateAfter for a node, respecting its updateAfterType.
-     * Three.js aligned: NodeFrame.updateAfterNode()
      */
     updateAfterNode(node: UpdateAfterNode): void {
         const updateType = node.updateAfterType;

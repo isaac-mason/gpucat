@@ -1,5 +1,5 @@
 import { mat4 } from 'mathcat';
-import { Object3D } from '../objects/object3d';
+import { Object3D } from '../core/object3d';
 
 export class Camera extends Object3D {
     near = 0.1;
