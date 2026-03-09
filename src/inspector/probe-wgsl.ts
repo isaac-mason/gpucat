@@ -212,18 +212,26 @@ function inferType(
         return normaliseType(varDecls.get(e)!);
     }
 
-    // Swizzle access: `in.v_norm.xyz`, `someVec.xy`, `_v0.x`, etc.
-    // Resolve the base object type, then derive the swizzle result type.
-    const swizzleMatch = e.match(/^([\w.]+)\.([xyzwrgba]{1,4})$/);
-    if (swizzleMatch) {
-        const [, base, swizzle] = swizzleMatch;
-        const baseKind = inferType(base, fullBody, varDecls, structFields);
-        if (baseKind !== 'unknown') {
-            const swLen = swizzle.length;
-            if (swLen === 1) return 'f32';
-            if (swLen === 2) return 'vec2f';
-            if (swLen === 3) return 'vec3f';
-            if (swLen === 4) return 'vec4f';
+    // Swizzle access: `in.v_norm.xyz`, `someVec.xy`, `_v0.x`,
+    // `textureSample(t, s, uv).xyz`, `someCall(a, b).w`, etc.
+    //
+    // We can't use a simple regex because the base may contain parentheses
+    // (function calls, nested exprs).  Instead we scan from the end: if the
+    // expression ends with `.<swizzle>` and the swizzle chars are all valid
+    // xyzw/rgba components, split there and recurse on the base.
+    const trailingSwizzle = e.match(/\.([xyzwrgba]{1,4})$/);
+    if (trailingSwizzle) {
+        const swizzle = trailingSwizzle[1];
+        const base = e.slice(0, e.length - swizzle.length - 1); // drop ".<swizzle>"
+        if (base.length > 0) {
+            const baseKind = inferType(base, fullBody, varDecls, structFields);
+            if (baseKind !== 'unknown') {
+                const swLen = swizzle.length;
+                if (swLen === 1) return 'f32';
+                if (swLen === 2) return 'vec2f';
+                if (swLen === 3) return 'vec3f';
+                if (swLen === 4) return 'vec4f';
+            }
         }
     }
 
@@ -336,11 +344,11 @@ function inferType(
         return normaliseType(varDecls.get(firstToken)!);
     }
 
-    // Scan the full body for `let name [: type] = <rhs>;`
+    // Scan the full body for `let name [: type] = <rhs>;` or `var name [: type] = <rhs>;`
     // Try constructor prefix first; if that fails, recurse into the RHS expression.
     if (/^\w+$/.test(e)) {
-        const letRe = new RegExp(`\\blet\\s+${escapeRegex(e)}\\s*(?::\\s*[\\w<>, ]+?\\s*)?=\\s*([^;]+?)\\s*;`);
-        const lm = fullBody.match(letRe);
+        const declRe = new RegExp(`\\b(?:let|var)\\s+${escapeRegex(e)}\\s*(?::\\s*[\\w<>, ]+?\\s*)?=\\s*([^;]+?)\\s*;`);
+        const lm = fullBody.match(declRe);
         if (lm) {
             const rhs = lm[1].trim();
             // Fast path: obvious constructor prefix
@@ -452,9 +460,21 @@ export function buildProbeWGSL(code: string, target: ProbeTarget): string | null
     const varDecls = new Map<string, string>();
     for (const bl of bodyLines) {
         const trimmed = bl.trim();
-        // `var name : type;`
-        const vm = trimmed.match(/^var\s+(\w+)\s*:\s*([\w<>, ]+?)\s*;/);
-        if (vm) { varDecls.set(vm[1], vm[2]); continue; }
+        // `var name : type;` — explicit type, no initializer
+        const vmNoInit = trimmed.match(/^var\s+(\w+)\s*:\s*([\w<>, ]+?)\s*;/);
+        if (vmNoInit) { varDecls.set(vmNoInit[1], vmNoInit[2]); continue; }
+        // `var name [: type] = <rhs>;` — explicit type annotation OR infer from RHS constructor
+        const vmInit = trimmed.match(/^var\s+(\w+)\s*(?::\s*([\w<>, ]+?)\s*)?=\s*([\s\S]+?)\s*;?\s*$/);
+        if (vmInit) {
+            const [, name, explicitType, rhs] = vmInit;
+            if (explicitType) {
+                varDecls.set(name, explicitType);
+            } else {
+                const ctorMatch = rhs.trim().match(/^(vec4[fi]?|vec3[fi]?|vec2[fi]?|vec4|vec3|vec2|f32|f16|i32|u32|bool)\s*[(<]/);
+                if (ctorMatch) varDecls.set(name, ctorMatch[1]);
+            }
+            continue;
+        }
         // `let name [: type] = <rhs>;` — infer type from explicit annotation or RHS constructor
         const lm = trimmed.match(/^let\s+(\w+)\s*(?::\s*([\w<>, ]+?)\s*)?=\s*([\s\S]+?)\s*;?\s*$/);
         if (lm) {
