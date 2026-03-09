@@ -25,6 +25,13 @@ export class Geometry {
     indirect: IndirectStorageBufferAttribute | undefined = undefined;
 
     /**
+     * Byte offset into the indirect buffer where draw parameters begin.
+     * Useful when non-indirect data precedes the DrawIndirect/DrawIndexedIndirect structs.
+     * Defaults to 0.
+     */
+    indirectOffset: number = 0;
+
+    /**
      * Axis-aligned bounding box in local space.
      * Set by createBoxGeometry / createSphereGeometry / createPlaneGeometry.
      * You may set this manually for custom geometry to enable frustum culling.

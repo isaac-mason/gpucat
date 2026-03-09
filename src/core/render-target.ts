@@ -1,6 +1,6 @@
 import { type ImageSize } from '../texture/source';
 import { Texture, type DepthTextureFormat } from '../texture/texture';
-import { DepthTexture } from 'src/texture/depth-texture';
+import { DepthTexture } from '../texture/depth-texture';
 
 export type RenderTargetOptions = {
     /** Color attachment format. Default: 'rgba16float'. Applied to all attachments. */

@@ -731,16 +731,18 @@ export class WebGPURenderer {
      * await renderer.compile(updateParticles);
      *
      * function frame() {
-     *     renderer.compute(updateParticles);
+     *     renderer.compute(updateParticles, [particleCount / 64, 1, 1]);
      *     renderer.render(outputNode);
      *     requestAnimationFrame(frame);
      * }
      * ```
      *
+     * @param node The ComputeNode to dispatch.
+     * @param dispatch Workgroup counts [x, y, z] to dispatch.
      * @throws if the renderer has not been initialised.
      * @throws if the pipeline has not been compiled yet (call renderer.compile() first).
      */
-    compute(node: ComputeNode): void {
+    compute(node: ComputeNode, dispatch: [number, number, number]): void {
         if (this._isDeviceLost) return;
 
         if (!this._initialized) {
@@ -761,7 +763,7 @@ export class WebGPURenderer {
             this._frameEncoder = this.device.createCommandEncoder();
         }
 
-        this._dispatchComputeNode(node, this._frameEncoder);
+        this._dispatchComputeNode(node, this._frameEncoder, dispatch);
     }
 
     /**
@@ -914,6 +916,7 @@ export class WebGPURenderer {
     private _dispatchComputeNode(
         node: ComputeNode,
         encoder: GPUCommandEncoder,
+        dispatch: [number, number, number],
     ): void {
         const entry = pipelines.getForCompute(this.pipelines, node);
         if (!entry.pipeline) return; // Pipeline not ready yet — skip this frame (will compile async)
@@ -974,7 +977,7 @@ export class WebGPURenderer {
             }
         }
 
-        const [dx, dy, dz] = node.dispatch;
+        const [dx, dy, dz] = dispatch;
         computeDispatchWorkgroups(computePass, this.inspector, dx, dy, dz);
         computePass.end();
         this.inspector.finishCompute(node.id, this.frameId);
@@ -1385,9 +1388,10 @@ export class WebGPURenderer {
                     if (geometry.indirect) {
                         const indirect = geometry.indirect;
                         const indBuf = buffers.uploadIndirect(this.buffers, indirect);
-                        const byteStride = indirect.indirectStride * 4;
-                        for (let d = 0; d < indirect.drawCount; d++) {
-                            passDrawIndexedIndirect(gpuPass, this.inspector, indBuf, d * byteStride);
+                        const byteStride = indirect.itemSize * 4;
+                        const baseOffset = geometry.indirectOffset;
+                        for (let d = 0; d < indirect.count; d++) {
+                            passDrawIndexedIndirect(gpuPass, this.inspector, indBuf, baseOffset + d * byteStride);
                         }
                     } else {
                         passDrawIndexed(gpuPass, this.inspector, geometry.index.array.length, mesh.count);
@@ -1396,9 +1400,10 @@ export class WebGPURenderer {
                     if (geometry.indirect) {
                         const indirect = geometry.indirect;
                         const indBuf = buffers.uploadIndirect(this.buffers, indirect);
-                        const byteStride = indirect.indirectStride * 4;
-                        for (let d = 0; d < indirect.drawCount; d++) {
-                            passDrawIndirect(gpuPass, this.inspector, indBuf, d * byteStride);
+                        const byteStride = indirect.itemSize * 4;
+                        const baseOffset = geometry.indirectOffset;
+                        for (let d = 0; d < indirect.count; d++) {
+                            passDrawIndirect(gpuPass, this.inspector, indBuf, baseOffset + d * byteStride);
                         }
                     } else {
                         passDraw(gpuPass, this.inspector, geometry.vertexCount, mesh.count);

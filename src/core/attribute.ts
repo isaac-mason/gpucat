@@ -1,6 +1,3 @@
-import { StorageNode } from 'src/nodes/lib/storage';
-import * as d from 'src/nodes/schema';
-
 export type GpuTypedArray = Float32Array |
     Int32Array |
     Uint32Array |
@@ -129,71 +126,20 @@ export class StorageInstancedBufferAttribute extends InstancedBufferAttribute {
     }
 }
 
+/**
+ * Storage buffer attribute for indirect draw/dispatch operations.
+ * Just a StorageBufferAttribute that enforces Uint32Array and sets a flag.
+ * Matches three.js IndirectStorageBufferAttribute.
+ */
 export class IndirectStorageBufferAttribute extends StorageBufferAttribute {
     readonly isIndirectStorageBufferAttribute: true = true;
 
-    /** true → drawIndexedIndirect, false → drawIndirect. */
-    readonly indexed: boolean;
-
-    /** Number of packed draw structs in this buffer. */
-    readonly drawCount: number;
-
-    /** u32 elements per draw (4 for non-indexed, 5 for indexed). */
-    readonly indirectStride: number;
-
-    /** Lazily created flat StorageNode. */
-    private _storageNode: StorageNode<d.u32> | null = null;
-
-    /** Lazily created struct-typed StorageNode. */
-    private _structStorageNode: StorageNode<d.Any> | null = null;
-
     /**
-     * Constructor:
-     *   new IndirectStorageBufferAttribute(indexed)
-     *     → single draw, array zero-initialised
-     *
-     *   new IndirectStorageBufferAttribute(indexed, drawCount: number)
-     *     → N draws, array zero-initialised
-     *
-     *   new IndirectStorageBufferAttribute(indexed, array: Uint32Array)
-     *     → array.length must equal drawCount * stride; drawCount inferred
+     * @param count  Number of elements (e.g., 1 for single draw), OR a pre-allocated Uint32Array.
+     * @param itemSize  Components per element (e.g., 4 for DrawIndirect, 5 for DrawIndexedIndirect).
      */
-    constructor(
-        indexed: boolean,
-        arrayOrDrawCount?: Uint32Array | number
-    ) {
-        const indirectStride = indexed ? 5 : 4;
-        let array: Uint32Array;
-        let drawCount: number;
-
-        if (arrayOrDrawCount instanceof Uint32Array) {
-            if (arrayOrDrawCount.length % indirectStride !== 0) {
-                throw new Error(
-                    `[gpucat] IndirectStorageBufferAttribute: array.length (${arrayOrDrawCount.length}) must be a multiple of stride (${indirectStride})`
-                );
-            }
-            array = arrayOrDrawCount;
-            drawCount = arrayOrDrawCount.length / indirectStride;
-        } else {
-            drawCount = typeof arrayOrDrawCount === 'number' ? arrayOrDrawCount : 1;
-            array = new Uint32Array(drawCount * indirectStride);
-        }
-
-        // itemSize=1 (each element is a single u32) — count = total u32 slots
-        super(array, 1);
-
-        this.indexed = indexed;
-        this.indirectStride = indirectStride;
-        this.drawCount = drawCount;
-    }
-
-    /**
-     * Internal: return the cached StorageNode if it exists, without creating one.
-     * Returns the struct-typed node if present, otherwise the flat array<u32> node.
-     * Used by BufferCache to detect shared-buffer indirect nodes.
-     */
-    get _cachedStorageNode(): StorageNode<d.Any> | StorageNode<d.u32> | null {
-        return this._structStorageNode ?? this._storageNode;
+    constructor(count: number | Uint32Array, itemSize: number) {
+        super(count, itemSize, Uint32Array);
     }
 }
 

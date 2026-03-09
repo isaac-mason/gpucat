@@ -1,6 +1,6 @@
 import { Node, type StructDef, type StructInstance, computeId, ConstructNode, NodeUpdateType, ConstNode } from './core';
 import type { StructSchema, Any } from '../schema';
-import type { NodeFrame } from 'src/renderer/node-frame';
+import type { NodeFrame } from '../../renderer/node-frame';
 
 /**
  * Descriptor for a uniform group — determines WGSL @group index and struct packing.

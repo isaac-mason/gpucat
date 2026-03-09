@@ -14,7 +14,7 @@
  */
 
 import type { Texture } from '../texture/texture';
-import type { DataTexture } from 'src/texture/data-texture';
+import type { DataTexture } from '../texture/data-texture';
 
 // ---------------------------------------------------------------------------
 // Types

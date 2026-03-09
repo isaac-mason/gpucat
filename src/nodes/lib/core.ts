@@ -1049,8 +1049,7 @@ export function assign<D extends Any>(target: Node<D>, value: Node<D>): void { a
 // ── Compute ───────────────────────────────────────────────────────────────────
 
 export type ComputeOptions = {
-    dispatch: [x: number, y: number, z: number] | [x: number, y: number] | [x: number];
-    workgroupSize?: [x: number, y: number, z: number];
+    workgroupSize: [x: number, y: number, z: number];
 };
 export type ComputeNodeOptions = ComputeOptions & { fn: FnNode<any> }; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -1060,13 +1059,10 @@ export class ComputeNode {
     readonly id: string;
     readonly fn: FnNode<Any>;
     readonly workgroupSize: [number, number, number];
-    readonly dispatch: [number, number, number];
     constructor(opts: ComputeNodeOptions) {
         this.id = `_compute_${_computeCounter++}`;
         this.fn = opts.fn;
-        this.workgroupSize = opts.workgroupSize ?? [64, 1, 1];
-        const disp = opts.dispatch;
-        this.dispatch = [disp[0], disp[1] ?? 1, disp[2] ?? 1];
+        this.workgroupSize = opts.workgroupSize;
     }
 }
 

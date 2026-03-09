@@ -112,7 +112,7 @@ const indirectData = new Uint32Array(packStructArray(g.DrawIndexedIndirect, [
     { indexCount: sphIdxCount, instanceCount: TOTAL / 2, firstIndex: boxIdxCount, baseVertex: boxVertCount, firstInstance: TOTAL / 2 },
 ]));
 
-mergedGeometry.indirect = new g.IndirectStorageBufferAttribute(true, indirectData);
+mergedGeometry.indirect = new g.IndirectStorageBufferAttribute(indirectData, 5);
 
 // ---------------------------------------------------------------------------
 // 5. Main

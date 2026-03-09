@@ -1,5 +1,5 @@
 import { Object3D } from '../core/object3d';
-import type { Geometry } from 'src/geometry/geometry';
+import type { Geometry } from '../geometry/geometry';
 import type { Material } from '../material/material';
 
 export class Mesh extends Object3D {

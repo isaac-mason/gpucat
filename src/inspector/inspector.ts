@@ -652,8 +652,8 @@ export class Inspector extends RendererInspector {
             if (geometry.indirect) {
                 const indBuf = buffers.getIndirect(bufferCache, geometry.indirect);
                 if (indBuf) {
-                    const byteStride = geometry.indirect.indirectStride * 4;
-                    for (let d = 0; d < geometry.indirect.drawCount; d++) {
+                    const byteStride = geometry.indirect.itemSize * 4;
+                    for (let d = 0; d < geometry.indirect.count; d++) {
                         pass.drawIndexedIndirect(indBuf, d * byteStride);
                     }
                 }
@@ -664,8 +664,8 @@ export class Inspector extends RendererInspector {
             if (geometry.indirect) {
                 const indBuf = buffers.getIndirect(bufferCache, geometry.indirect);
                 if (indBuf) {
-                    const byteStride = geometry.indirect.indirectStride * 4;
-                    for (let d = 0; d < geometry.indirect.drawCount; d++) {
+                    const byteStride = geometry.indirect.itemSize * 4;
+                    for (let d = 0; d < geometry.indirect.count; d++) {
                         pass.drawIndirect(indBuf, d * byteStride);
                     }
                 }

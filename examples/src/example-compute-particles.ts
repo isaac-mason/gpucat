@@ -54,7 +54,7 @@ const updateParticles = Fn(() => {
             vec4(newX, newY, newZ, newW),
         );
     });
-}).compute({ workgroupSize: [WG_SIZE, 1, 1], dispatch: [Math.ceil(N / WG_SIZE)] });
+}).compute({ workgroupSize: [WG_SIZE, 1, 1] });
 
 const iIdx = instanceIndex;
 
@@ -148,7 +148,7 @@ const outputNode = scenePass.getTextureNode();
 
 function frame() {
     // Dispatch the compute pass first, then render.
-    renderer.compute(updateParticles);
+    renderer.compute(updateParticles, [Math.ceil(N / WG_SIZE), 1, 1]);
     renderer.render(outputNode);
     requestAnimationFrame(frame);
 }

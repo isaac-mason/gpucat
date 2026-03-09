@@ -106,8 +106,8 @@ const attrOrientationEnd = instancedBufferAttribute(
 //      [2] firstVertex    — 0
 //      [3] firstInstance  — 0
 
-// non-indexed, 1 draw.
-const drawBuffer = new IndirectStorageBufferAttribute(false, 1);
+// non-indexed, 1 draw. itemSize=4 for DrawIndirect struct (vertexCount, instanceCount, firstVertex, firstInstance)
+const drawBuffer = new IndirectStorageBufferAttribute(1, 4);
 
 // struct-typed storage node — mirrors: storage(drawBuffer, DrawIndirect, drawBuffer.count)
 const drawStorage = storage(drawBuffer, DrawIndirect, "read_write");
@@ -128,7 +128,7 @@ const computeInit = Fn(() => {
     drawStorage.instanceCount.assign(u32(0));
     drawStorage.firstVertex.assign(u32(0));
     drawStorage.firstInstance.assign(u32(0));
-}).compute({ workgroupSize: [1, 1, 1], dispatch: [1] });
+}).compute({ workgroupSize: [1, 1, 1] });
 
 const computeUpdate = Fn(() => {
     // only thread 0 writes — avoids needing atomics.
@@ -143,7 +143,6 @@ const computeUpdate = Fn(() => {
     });
 }).compute({
     workgroupSize: [64, 1, 1],
-    dispatch: [Math.ceil(INSTANCES / 64)],
 });
 
 /* render node graph */
@@ -249,9 +248,9 @@ await renderer.compileCompute(computeUpdate);
 
 function frame() {
     // seed draw args
-    renderer.compute(computeInit);
+    renderer.compute(computeInit, [1, 1, 1]);
     // GPU writes instanceCount
-    renderer.compute(computeUpdate);
+    renderer.compute(computeUpdate, [Math.ceil(INSTANCES / 64), 1, 1]);
     // render — drawIndirect reads GPU-written instanceCount
     renderer.render(outputNode);
 

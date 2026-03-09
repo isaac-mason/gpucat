@@ -15,7 +15,7 @@
 
 import type { Camera } from '../camera/camera';
 import type { RenderTarget } from '../core/render-target';
-import type { MRTNode } from 'src/nodes/lib/mrt';
+import type { MRTNode } from '../nodes/lib/mrt';
 
 // ---------------------------------------------------------------------------
 // RenderContext ID counter
