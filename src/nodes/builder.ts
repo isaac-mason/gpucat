@@ -53,19 +53,18 @@ export function compile(slots: CompileSlots): CompileResult {
     if (slots.mask) roots.push(slots.mask);
     if (slots.depth) roots.push(slots.depth);
     
-    // count usages across all roots
-    const usages = countUsages(roots);
-    vertexCtx.usageCount = usages;
-    fragmentCtx.usageCount = usages;
-    
-    // collect function definitions
-    collectFunctions(roots, vertexCtx.fnDefs, vertexCtx.wgslFnDefs);
-    fragmentCtx.fnDefs = vertexCtx.fnDefs;
-    fragmentCtx.wgslFnDefs = vertexCtx.wgslFnDefs;
-    
-    // collect struct definitions needed by storage bindings
-    collectStructDefs(roots, vertexCtx);
-    fragmentCtx.structDefs = vertexCtx.structDefs;
+    // single discovery pass across all roots
+    const discovered = discover(roots);
+    vertexCtx.usageCount = discovered.usageCount;
+    vertexCtx.mutatedNodes = discovered.mutatedNodes;
+    vertexCtx.fnDefs = discovered.fnDefs;
+    vertexCtx.wgslFnDefs = discovered.wgslFnDefs;
+    vertexCtx.structDefs = discovered.structDefs;
+    fragmentCtx.usageCount = discovered.usageCount;
+    fragmentCtx.mutatedNodes = discovered.mutatedNodes;
+    fragmentCtx.fnDefs = discovered.fnDefs;
+    fragmentCtx.wgslFnDefs = discovered.wgslFnDefs;
+    fragmentCtx.structDefs = discovered.structDefs;
     
     // pre-collect varyings from fragment roots (so vertex shader knows what to output)
     // fragment uses: color, mask (when present)
@@ -112,14 +111,13 @@ export function compile(slots: CompileSlots): CompileResult {
     const graphEdges = new Map<string, readonly string[]>();
     const graphInfo = new Map<string, NodeGraphInfo>();
     
-    const allNodes = collectNodes(roots);
-    for (const [id, node] of allNodes) {
+    for (const [id, node] of discovered.allNodes) {
         graphNodes.set(id, node);
         graphEdges.set(id, getChildren(node).map(c => c.id));
         graphInfo.set(id, {
             stages: [],
             cseVar: vertexCtx.nodeVars.get(id) ?? fragmentCtx.nodeVars.get(id),
-            usageCount: usages.get(id) ?? 0,
+            usageCount: discovered.usageCount.get(id) ?? 0,
             expression: undefined,
         });
     }
@@ -181,14 +179,13 @@ export function compileCompute(node: ComputeNode): ComputeCompileResult {
     // filter out undefined (void functions have no output)
     const roots: Node<d.Any>[] = [traced.body, traced.output].filter((n): n is Node<d.Any> => n != null);
     
-    // count usages
-    ctx.usageCount = countUsages(roots);
-    
-    // collect function definitions
-    collectFunctions(roots, ctx.fnDefs, ctx.wgslFnDefs);
-    
-    // collect struct definitions needed by storage bindings
-    collectStructDefs(roots, ctx);
+    // single discovery pass
+    const discovered = discover(roots);
+    ctx.usageCount = discovered.usageCount;
+    ctx.mutatedNodes = discovered.mutatedNodes;
+    ctx.fnDefs = discovered.fnDefs;
+    ctx.wgslFnDefs = discovered.wgslFnDefs;
+    ctx.structDefs = discovered.structDefs;
     
     // generate compute shader body
     const computeBody = generateComputeShader(node, ctx);
@@ -401,6 +398,7 @@ interface BuildContext {
     
     // CSE state
     usageCount: Map<string, number>;
+    mutatedNodes: Set<string>;
     nodeVars: Map<string, string>;
     varCounter: number;
     
@@ -442,6 +440,7 @@ function createContext(stage: ShaderStage, isRender: boolean): BuildContext {
         structs: new Map(),
         structDefs: new Map(),
         usageCount: new Map(),
+        mutatedNodes: new Set(),
         nodeVars: new Map(),
         varCounter: 0,
         indentLevel: 1,
@@ -516,81 +515,72 @@ function getChildren(node: Node<d.Any>): Node<d.Any>[] {
     return children;
 }
 
-/** Count usages of all nodes via DFS */
-function countUsages(roots: Node<d.Any>[]): Map<string, number> {
-    const counts = new Map<string, number>();
-    const visited = new Set<string>();
-    
-    function visit(node: Node<d.Any>) {
-        counts.set(node.id, (counts.get(node.id) ?? 0) + 1);
-        
-        if (visited.has(node.id)) return;
-        visited.add(node.id);
-        
-        for (const child of getChildren(node)) {
-            visit(child);
-        }
-    }
-    
-    for (const root of roots) {
-        visit(root);
-    }
-    
-    return counts;
+/** Single DFS pass that discovers all metadata needed before code generation. */
+interface DiscoverResult {
+    usageCount: Map<string, number>;
+    mutatedNodes: Set<string>;
+    fnDefs: Map<string, { fn: FnNode<d.Any>; traced: TracedFn }>;
+    wgslFnDefs: Map<string, WgslFunctionNode>;
+    structDefs: Map<string, StructDef<StructSchema>>;
+    allNodes: Map<string, Node<d.Any>>;
 }
 
-/** Collect all nodes into a map */
-function collectNodes(roots: Node<d.Any>[]): Map<string, Node<d.Any>> {
-    const nodes = new Map<string, Node<d.Any>>();
+function discover(roots: Node<d.Any>[]): DiscoverResult {
+    const usageCount = new Map<string, number>();
+    const mutatedNodes = new Set<string>();
+    const fnDefs = new Map<string, { fn: FnNode<d.Any>; traced: TracedFn }>();
+    const wgslFnDefs = new Map<string, WgslFunctionNode>();
+    const structDefs = new Map<string, StructDef<StructSchema>>(); 
+    const allNodes = new Map<string, Node<d.Any>>();
     const visited = new Set<string>();
-    
-    function visit(node: Node<d.Any>) {
-        if (visited.has(node.id)) return;
-        visited.add(node.id);
-        nodes.set(node.id, node);
-        
-        for (const child of getChildren(node)) {
-            visit(child);
+
+    function registerStructDef(def: StructDef<StructSchema>): void {
+        if (structDefs.has(def.wgslType)) return;
+        for (const nested of def.nestedDefs.values()) {
+            registerStructDef(nested);
+        }
+        structDefs.set(def.wgslType, def);
+    }
+
+    function markTargetChain(node: Node<d.Any>) {
+        mutatedNodes.add(node.id);
+        if (node instanceof FieldNode) {
+            markTargetChain(node.object);
+        } else if (node instanceof IndexNode) {
+            markTargetChain(node.array);
         }
     }
-    
-    for (const root of roots) {
-        visit(root);
-    }
-    
-    return nodes;
-}
 
-/** Collect FnNode and FunctionNode (wgslFn) definitions */
-function collectFunctions(
-    roots: Node<d.Any>[],
-    fnDefs: Map<string, { fn: FnNode<d.Any>; traced: TracedFn }>,
-    wgslFnDefs: Map<string, WgslFunctionNode>,
-) {
-    const visited = new Set<string>();
-    
     function visit(node: Node<d.Any>) {
+        // usge counting
+        usageCount.set(node.id, (usageCount.get(node.id) ?? 0) + 1);
+
+        // exit if visited
         if (visited.has(node.id)) return;
         visited.add(node.id);
-        
-        // check for FnNode references in CallNode
+
+        // collect all nodes
+        allNodes.set(node.id, node);
+
+        // mutated nodes: walk assignment target chains
+        if (node instanceof AssignNode) {
+            markTargetChain(node.target);
+        }
+
+        // function discovery
         if (node instanceof CallNode && node.fnNode) {
             const fn = node.fnNode;
             if (!fnDefs.has(fn.fnName)) {
                 const traced = fn.trace();
                 fnDefs.set(fn.fnName, { fn, traced });
-                // recursively visit the function body
                 visit(traced.body);
                 visit(traced.output);
             }
         }
-        
-        // Check for WgslFunctionNode references in CallNode
         if (node instanceof CallNode && node.wgslFnNode) {
             const fn = node.wgslFnNode as WgslFunctionNode;
             if (!wgslFnDefs.has(fn.code)) {
                 wgslFnDefs.set(fn.code, fn);
-                // also collect includes
                 for (const inc of fn.includes) {
                     if (inc instanceof WgslFunctionNode && !wgslFnDefs.has(inc.code)) {
                         wgslFnDefs.set(inc.code, inc);
@@ -598,15 +588,23 @@ function collectFunctions(
                 }
             }
         }
-        
+
+        // struct definition discovery
+        if (node instanceof StorageNode && d.isStructDef(node.bufferType)) {
+            registerStructDef(node.bufferType as unknown as StructDef<StructSchema>);
+        }
+
+        // visit children
         for (const child of getChildren(node)) {
             visit(child);
         }
     }
-    
+
     for (const root of roots) {
         visit(root);
     }
+
+    return { usageCount, mutatedNodes, fnDefs, wgslFnDefs, structDefs, allNodes };
 }
 
 /** Pre-collect VaryingNodes from roots and generate their vertex expressions */
@@ -637,36 +635,6 @@ function collectVaryings(roots: Node<d.Any>[], ctx: BuildContext): void {
     }
 }
 
-/** Pre-collect StructDefs referenced by StorageNodes so we can emit them before their bindings */
-function collectStructDefs(roots: Node<d.Any>[], ctx: BuildContext): void {
-    const visited = new Set<string>();
-
-    function registerDef(def: StructDef<StructSchema>): void {
-        if (ctx.structDefs.has(def.wgslType)) return;
-        // register nested defs first (topological order)
-        for (const nested of def.nestedDefs.values()) {
-            registerDef(nested);
-        }
-        ctx.structDefs.set(def.wgslType, def);
-    }
-
-    function visit(node: Node<d.Any>) {
-        if (visited.has(node.id)) return;
-        visited.add(node.id);
-
-        if (node instanceof StorageNode && d.isStructDef(node.bufferType)) {
-            registerDef(node.bufferType as unknown as StructDef<StructSchema>);
-        }
-
-        for (const child of getChildren(node)) {
-            visit(child);
-        }
-    }
-
-    for (const root of roots) {
-        visit(root);
-    }
-}
 
 function wgslAlign(type: string): number {
     if (type === 'f32' || type === 'i32' || type === 'u32') return 4;
@@ -784,7 +752,8 @@ function generateExpr(ctx: BuildContext, node: Node<d.Any>): string {
     const usage = ctx.usageCount.get(node.id) ?? 1;
     if (usage > 1 && !ctx.nodeVars.has(node.id) && !isTrivialExpr(node) && !isNonCopyable(node)) {
         const varName = `_v${ctx.varCounter++}`;
-        ctx.code.push(`    let ${varName} = ${expr};`);
+        const keyword = ctx.mutatedNodes.has(node.id) ? 'var' : 'let';
+        ctx.code.push(`    ${keyword} ${varName} = ${expr};`);
         ctx.nodeVars.set(node.id, varName);
         
         // record CSE info for graph

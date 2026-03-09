@@ -805,8 +805,9 @@ export function mat3(
     if (c1 !== undefined && c2 !== undefined) {
         return new ConstructNode(d.mat3x3f, [c0, c1, c2]);
     }
-    // scalar diagonal: mat3x3f(diag)
-    return new ConstructNode(d.mat3x3f, [c0]);
+    // scalar diagonal: expand to 9 scalars (WGSL has no single-scalar matrix constructor)
+    const z = new ConstNode(d.f32, 0);
+    return new ConstructNode(d.mat3x3f, [c0, z, z, z, c0, z, z, z, c0]);
 }
 
 // ── Standalone math functions ─────────────────────────────────────────────────
