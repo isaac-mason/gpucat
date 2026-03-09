@@ -10,10 +10,8 @@ import {
     Material, WebGPURenderer, Inspector, Scene, PerspectiveCamera,
     Geometry, BufferAttribute, IndexAttribute, Mesh, pass,
     OrbitControls,
-    type Node,
+    Node,
 } from 'gpucat';
-import { ArithResultDesc } from '../../dist/nodes/schema';
-import { VarNode } from '../../dist/nodes/nodes';
 
 // ── Simulation constants ──────────────────────────────────────────────────────
 
@@ -67,8 +65,8 @@ const gravityUniform          = uniform(vec3f(0, -(9.81 * 9.81), 0));
 // ── Fixed-point helpers ───────────────────────────────────────────────────────
 // WebGPU only supports integer atomics, so we encode floats as scaled i32.
 
-const encodeFixedPoint = (v: Node<d.f32>): Node<d.i32> => i32(v.mul(f32(FIXED)));
-const decodeFixedPoint = (v: Node<d.i32 | d.u32>): Node<d.f32> => f32(v).div(f32(FIXED));
+const encodeFixedPoint = <D extends d.f32>(v: Node<D>) => i32(v.mul(f32(FIXED)));
+const decodeFixedPoint = <D extends d.i32 | d.u32>(v: Node<D>) => f32(v).div(f32(FIXED));
 
 // ── Compute kernels ───────────────────────────────────────────────────────────
 
@@ -81,7 +79,8 @@ const clearGridKernel = Fn(() => {
     atomicStore(c.y,    i32(0));
     atomicStore(c.z,    i32(0));
     atomicStore(c.mass, i32(0));
-}).compute({ workgroupSize: [workgroupSize, 1, 1], dispatch: [Math.ceil(cellCount / workgroupSize)] });
+}).compute({ workgroupSize: [workgroupSize, 1, 1] });
+const clearGridDispatch: [number, number, number] = [Math.ceil(cellCount / workgroupSize), 1, 1];
 
 // 2. Particle-to-grid pass 1: scatter velocity×mass and mass to grid.
 const p2g1Kernel = Fn(() => {
@@ -119,7 +118,8 @@ const p2g1Kernel = Fn(() => {
             });
         });
     });
-}).compute({ workgroupSize: [workgroupSize, 1, 1], dispatch: [Math.ceil(maxParticles / workgroupSize)] });
+}).compute({ workgroupSize: [workgroupSize, 1, 1] });
+const p2g1Dispatch: [number, number, number] = [Math.ceil(maxParticles / workgroupSize), 1, 1];
 
 // 3. Particle-to-grid pass 2: scatter pressure + viscosity forces.
 const p2g2Kernel = Fn(() => {
@@ -174,7 +174,8 @@ const p2g2Kernel = Fn(() => {
             });
         });
     });
-}).compute({ workgroupSize: [workgroupSize, 1, 1], dispatch: [Math.ceil(maxParticles / workgroupSize)] });
+}).compute({ workgroupSize: [workgroupSize, 1, 1] });
+const p2g2Dispatch: [number, number, number] = [Math.ceil(maxParticles / workgroupSize), 1, 1];
 
 // 4. Update grid: normalise by mass, apply boundary conditions, write to float buffer.
 const updateGridKernel = Fn(() => {
@@ -197,7 +198,8 @@ const updateGridKernel = Fn(() => {
     If(gz.lessThan(i32(1)).or(gz.greaterThan(i32(gridSize1d - 2))), () => { vz.assign(f32(0)); });
 
     index(cellBufferFloat, instanceIndex).assign(vec4(vx, vy, vz, mass));
-}).compute({ workgroupSize: [workgroupSize, 1, 1], dispatch: [Math.ceil(cellCount / workgroupSize)] });
+}).compute({ workgroupSize: [workgroupSize, 1, 1] });
+const updateGridDispatch: [number, number, number] = [Math.ceil(cellCount / workgroupSize), 1, 1];
 
 // 5. Grid-to-particle: gather velocity, update C, integrate position.
 const g2pKernel = Fn(() => {
@@ -261,7 +263,8 @@ const g2pKernel = Fn(() => {
     pVel.mulAssign(gridSizeUniform);
     p.position.assign(pos);
     p.velocity.assign(pVel);
-}).compute({ workgroupSize: [workgroupSize, 1, 1], dispatch: [Math.ceil(maxParticles / workgroupSize)] });
+}).compute({ workgroupSize: [workgroupSize, 1, 1] });
+const g2pDispatch: [number, number, number] = [Math.ceil(maxParticles / workgroupSize), 1, 1];
 
 // ── Render material ───────────────────────────────────────────────────────────
 
@@ -325,7 +328,7 @@ window.addEventListener('resize', () => {
     camera.updateProjectionMatrix();
 });
 
-// Pre-compile all five kernels.
+// pre-compile all five kernels.
 await Promise.all([
     renderer.compileCompute(clearGridKernel),
     renderer.compileCompute(p2g1Kernel),
@@ -340,11 +343,11 @@ const outputNode = scenePass.getTextureNode();
 function frame() {
     dtUniform.value = 1 / 60;
 
-    renderer.compute(clearGridKernel);
-    renderer.compute(p2g1Kernel);
-    renderer.compute(p2g2Kernel);
-    renderer.compute(updateGridKernel);
-    renderer.compute(g2pKernel);
+    renderer.compute(clearGridKernel, clearGridDispatch);
+    renderer.compute(p2g1Kernel, p2g1Dispatch);
+    renderer.compute(p2g2Kernel, p2g2Dispatch);
+    renderer.compute(updateGridKernel, updateGridDispatch);
+    renderer.compute(g2pKernel, g2pDispatch);
     renderer.render(outputNode);
     requestAnimationFrame(frame);
 }

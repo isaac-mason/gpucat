@@ -3,7 +3,6 @@ import {
     type Node,
     type ComputeNode,
     type StructDef,
-    lookupStructDefByName,
     StackNode,
     pushStack,
     popStack,
@@ -684,9 +683,8 @@ function collectStructDefs(roots: Node<d.Any>[], ctx: BuildContext): void {
         if (visited.has(node.id)) return;
         visited.add(node.id);
 
-        if (node instanceof StorageNode) {
-            const def = lookupStructDefByName(node.storageType);
-            if (def) registerDef(def);
+        if (node instanceof StorageNode && d.isStructDef(node.bufferType)) {
+            registerDef(node.bufferType as unknown as StructDef<StructSchema>);
         }
 
         for (const child of getChildren(node)) {
