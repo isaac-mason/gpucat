@@ -4,8 +4,6 @@ import {
     type ComputeNode,
     type StructDef,
     StackNode,
-    pushStack,
-    popStack,
     BinopNode,
     CallNode,
     ConstructNode,
@@ -499,9 +497,21 @@ function getChildren(node: Node<d.Any>): Node<d.Any>[] {
         children.push(...Object.values(node.outputNodes));
     } else if (node instanceof OutputStructNode) {
         children.push(...node.members);
+    } else if (node instanceof LoopNode) {
+        children.push(node.body);
+    } else if (node instanceof IfNode) {
+        children.push(node.condition);
+        children.push(...node.thenBody.body);
+        for (const branch of node.elseIfBranches) {
+            children.push(branch.condition);
+            children.push(...branch.body.body);
+        }
+        if (node.elseBody) {
+            children.push(...node.elseBody.body);
+        }
+    } else if (node instanceof StackNode) {
+        children.push(...node.body);
     }
-
-    // Note: IfNode, LoopNode, StackNode bodies are handled specially during traversal
     
     return children;
 }
@@ -520,18 +530,6 @@ function countUsages(roots: Node<d.Any>[]): Map<string, number> {
         for (const child of getChildren(node)) {
             visit(child);
         }
-        
-        // special handling for IfNode/LoopNode bodies
-        if (node instanceof IfNode) {
-            for (const n of node.thenBody.body) visit(n);
-            if (node.elseBody) {
-                for (const n of node.elseBody.body) visit(n);
-            }
-        } else if (node instanceof StackNode) {
-            for (const n of node.body) visit(n);
-        }
-
-        // NOTE: the LoopNode bodies are handled at compile time via callback execution
     }
     
     for (const root of roots) {
@@ -553,15 +551,6 @@ function collectNodes(roots: Node<d.Any>[]): Map<string, Node<d.Any>> {
         
         for (const child of getChildren(node)) {
             visit(child);
-        }
-        
-        if (node instanceof IfNode) {
-            for (const n of node.thenBody.body) visit(n);
-            if (node.elseBody) {
-                for (const n of node.elseBody.body) visit(n);
-            }
-        } else if (node instanceof StackNode) {
-            for (const n of node.body) visit(n);
         }
     }
     
@@ -613,15 +602,6 @@ function collectFunctions(
         for (const child of getChildren(node)) {
             visit(child);
         }
-        
-        if (node instanceof IfNode) {
-            for (const n of node.thenBody.body) visit(n);
-            if (node.elseBody) {
-                for (const n of node.elseBody.body) visit(n);
-            }
-        } else if (node instanceof StackNode) {
-            for (const n of node.body) visit(n);
-        }
     }
     
     for (const root of roots) {
@@ -649,15 +629,6 @@ function collectVaryings(roots: Node<d.Any>[], ctx: BuildContext): void {
         
         for (const child of getChildren(node)) {
             visit(child);
-        }
-        
-        if (node instanceof IfNode) {
-            for (const n of node.thenBody.body) visit(n);
-            if (node.elseBody) {
-                for (const n of node.elseBody.body) visit(n);
-            }
-        } else if (node instanceof StackNode) {
-            for (const n of node.body) visit(n);
         }
     }
     
@@ -689,17 +660,6 @@ function collectStructDefs(roots: Node<d.Any>[], ctx: BuildContext): void {
 
         for (const child of getChildren(node)) {
             visit(child);
-        }
-
-        if (node instanceof IfNode) {
-            for (const n of node.thenBody.body) visit(n);
-            if (node.elseBody) {
-                for (const n of node.elseBody.body) visit(n);
-            }
-        } else if (node instanceof StackNode) {
-            for (const n of node.body) visit(n);
-        } else if (node instanceof LoopNode) {
-            for (const n of node.body.body) visit(n);
         }
     }
 
@@ -1161,60 +1121,33 @@ function generateIfStmt(ctx: BuildContext, node: IfNode): void {
 }
 
 function generateLoopStmt(ctx: BuildContext, node: LoopNode): void {
-    // LoopNode params: [range, callback]
-    const params = node.params;
-    if (params.length !== 2) {
-        const ind = '    '.repeat(ctx.indentLevel);
-        ctx.code.push(`${ind}/* invalid loop: expected [range, callback] */`);
-        return;
-    }
+    const { config, loopVar, body } = node;
     
-    const [range, callback] = params as [unknown, (vars: Record<string, ParamNode<d.Any>>) => void];
-    
-    if (typeof callback !== 'function') {
-        const ind = '    '.repeat(ctx.indentLevel);
-        ctx.code.push(`${ind}/* empty loop */`);
-        return;
-    }
-    
-    // Generate a unique internal name for the loop variable.
+    // Generate a unique WGSL variable name for this loop
     const depth = ctx.indentLevel - 1;
-    const autoName = `i_${depth}_${ctx.varCounter++}`;
-
-    // Build loop header and the single ParamNode used in the callback.
+    const wgslVarName = `i_${depth}_${ctx.varCounter++}`;
+    
+    // Register the loop variable so references resolve to the WGSL name
+    ctx.nodeVars.set(loopVar.id, wgslVarName);
+    
+    // Build loop header based on config type
     let loopHeader: string;
-    let loopVarNode: ParamNode<d.Any>;
-    let callbackKey: string;
-
-    if (typeof range === 'number') {
-        loopVarNode = new ParamNode(d.i32, 0, autoName);
-        ctx.nodeVars.set(loopVarNode.id, autoName);
-        callbackKey = 'i';
-        loopHeader = `for (var ${autoName}: i32 = 0i; ${autoName} < ${range}i; ${autoName}++)`;
-    } else if (range instanceof ConstNode || range instanceof UniformNode) {
-        loopVarNode = new ParamNode(d.i32, 0, autoName);
-        ctx.nodeVars.set(loopVarNode.id, autoName);
-        callbackKey = 'i';
-        const endExpr = generateExpr(ctx, range as Node<d.Any>);
-        loopHeader = `for (var ${autoName}: i32 = 0i; ${autoName} < ${endExpr}; ${autoName}++)`;
-    } else if (typeof range === 'object' && range !== null && !(range instanceof ConstNode)) {
-        const cfg = range as {
+    
+    if (typeof config === 'number') {
+        loopHeader = `for (var ${wgslVarName}: i32 = 0i; ${wgslVarName} < ${config}i; ${wgslVarName}++)`;
+    } else if (config instanceof ConstNode || config instanceof UniformNode) {
+        const endExpr = generateExpr(ctx, config as Node<d.Any>);
+        loopHeader = `for (var ${wgslVarName}: i32 = 0i; ${wgslVarName} < ${endExpr}; ${wgslVarName}++)`;
+    } else if (typeof config === 'object' && config !== null && !(config instanceof ConstNode) && !(config instanceof UniformNode)) {
+        const cfg = config as {
             start?: Node<d.Any> | number;
             end?: Node<d.Any> | number;
             type?: d.ScalarType;
             condition?: '<' | '<=' | '>' | '>=';
-            update?: unknown;
             name?: string;
         };
 
         const type = cfg.type ?? 'i32';
-        // When a custom name is given, use it verbatim so the WGSL var name matches
-        // the key the callback destructures — e.g. Loop({name:'gx',...}, ({gx})=>...).
-        const varName = cfg.name ?? autoName;
-        callbackKey = cfg.name ?? 'i';
-
-        loopVarNode = new ParamNode(d.descFromWgslType(type), 0, varName);
-        ctx.nodeVars.set(loopVarNode.id, varName);
 
         const getExpr = (v: Node<d.Any> | number | undefined): string | undefined => {
             if (v === undefined) return undefined;
@@ -1226,29 +1159,17 @@ function generateLoopStmt(ctx: BuildContext, node: LoopNode): void {
         const endExpr = getExpr(cfg.end) ?? '0i';
         const condition = cfg.condition ?? '<';
 
-        loopHeader = `for (var ${varName}: ${type} = ${startExpr}; ${varName} ${condition} ${endExpr}; ${varName}++)`;
+        loopHeader = `for (var ${wgslVarName}: ${type} = ${startExpr}; ${wgslVarName} ${condition} ${endExpr}; ${wgslVarName}++)`;
     } else {
-        loopVarNode = new ParamNode(d.i32, 0, autoName);
-        ctx.nodeVars.set(loopVarNode.id, autoName);
-        callbackKey = 'i';
         loopHeader = `/* unknown loop range type */`;
     }
-
-    // Execute callback to capture body statements.
-    const bodyStack = new StackNode();
-    const prevStack = pushStack(bodyStack);
-    try {
-        callback({ [callbackKey]: loopVarNode });
-    } finally {
-        popStack(prevStack);
-    }
     
-    // Emit loop
+    // Emit loop with pre-captured body
     const ind = '    '.repeat(ctx.indentLevel);
     ctx.code.push(`${ind}${loopHeader} {`);
     ctx.indentLevel++;
     
-    for (const stmt of bodyStack.body) {
+    for (const stmt of body.body) {
         generateStmt(ctx, stmt);
     }
     

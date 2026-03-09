@@ -921,11 +921,17 @@ export type LoopParam = Node<Any> | number | {
     name?: string;
 };
 
+let _loopVarCounter = 0;
+
 export class LoopNode extends Node<d.VoidDesc> {
-    readonly params: unknown[];
-    constructor(params: unknown[] = []) { super(nextId(), d.voidDesc); this.params = params; }
-    getVarName(index: number): string { return String.fromCharCode('i'.charCodeAt(0) + index); }
-    toStack(): this { addToStack(this); return this; }
+    constructor(
+        readonly config: LoopParam,
+        readonly loopVar: ParamNode<Any>,
+        readonly callbackKey: string,
+        readonly body: StackNode
+    ) {
+        super(nextId(), d.voidDesc);
+    }
 }
 
 export class BreakNode    extends Node<d.VoidDesc> { constructor() { super(nextId(), d.voidDesc); } }
@@ -959,12 +965,37 @@ export function If(condition: Node<Any>, thenBody: () => void): IfChain {
     return chain;
 }
 
-export type LoopVars = Record<string, Node<d.i32>>;
+export type LoopVars = Record<string, Node<Any>>;
 
 export function Loop(range: number, callback: (vars: LoopVars) => void): LoopNode;
 export function Loop(o: LoopParam, callback: (vars: LoopVars) => void): LoopNode;
 export function Loop(o: number | LoopParam, callback: (vars: LoopVars) => void): LoopNode {
-    return new LoopNode([o, callback]).toStack();
+    // Determine loop variable type and name from config
+    let loopVarType: Any = d.i32;
+    let callbackKey = 'i';
+    const varName = `_loop_${_loopVarCounter++}`;
+
+    if (typeof o === 'object' && o !== null && !(o instanceof Node)) {
+        const cfg = o as { type?: ScalarType; name?: string };
+        if (cfg.type) loopVarType = d.descFromWgslType(cfg.type);
+        if (cfg.name) callbackKey = cfg.name;
+    }
+
+    // Create the loop variable ParamNode
+    const loopVar = new ParamNode(loopVarType, 0, varName);
+
+    // Eagerly capture the body (like If does)
+    const bodyStack = new StackNode();
+    const prev = pushStack(bodyStack);
+    try {
+        callback({ [callbackKey]: loopVar } as LoopVars);
+    } finally {
+        popStack(prev);
+    }
+
+    const node = new LoopNode(o, loopVar, callbackKey, bodyStack);
+    addToStack(node);
+    return node;
 }
 export const For = Loop;
 

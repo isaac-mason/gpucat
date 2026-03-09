@@ -58,7 +58,7 @@ describe('packStruct', () => {
             health: d.f32,
         });
 
-        const structSize = d.wgslSizeOf(Particle as unknown as d.WgslDesc<string>);
+        const structSize = d.wgslSizeOf(Particle);
         expect(structSize).toBe(16);
 
         const buf = packStruct(Particle, {
@@ -82,7 +82,7 @@ describe('packStruct', () => {
         // b: offset=16, size=12 → next at 28
         // struct align=16, size=roundUp(28, 16)=32
         const S = struct('Vec3PairStruct', { a: d.vec3f, b: d.vec3f });
-        const sz = d.wgslSizeOf(S as unknown as d.WgslDesc<string>);
+        const sz = d.wgslSizeOf(S);
         expect(sz).toBe(32);
 
         const buf = packStruct(S, { a: [1, 2, 3], b: [4, 5, 6] });
@@ -140,7 +140,7 @@ describe('packStructArray', () => {
         }));
 
         const buf = packStructArray(Particle, items);
-        const stride = d.wgslStrideOf(Particle as unknown as d.WgslDesc<string>);
+        const stride = d.wgslStrideOf(Particle);
         expect(buf.byteLength).toBe(count * stride);
 
         // Each element's position.x should be i * 1.0
@@ -177,7 +177,7 @@ describe('packStructArray', () => {
 describe('writeStructArray', () => {
     test('writes at byteOffset', () => {
         const S = struct('SWS', { x: d.f32 });
-        const stride = d.wgslStrideOf(S as unknown as d.WgslDesc<string>); // 4
+        const stride = d.wgslStrideOf(S); // 4
         const buf = new ArrayBuffer(stride * 3 + 4); // room for 3 items + 4 byte header
         writeStructArray(S, [{ x: 10 }, { x: 20 }, { x: 30 }], buf, 4);
 
@@ -203,7 +203,7 @@ describe('arrayOf', () => {
     test('wgslType contains count', () => {
         const desc = d.arrayOf(d.vec3f, 100);
         expect(desc.wgslType).toBe('array<vec3f, 100>');
-        expect(desc.count).toBe(100);
+        expect(desc.length).toBe(100);
     });
 
     test('isSizedArrayDesc guard', () => {
