@@ -164,6 +164,11 @@ export class InspectorBase {
      */
     dispatchWorkgroups(_x: number, _y: number, _z: number): void {}
 
+    /**
+     * Called for each dispatchWorkgroupsIndirect() issued in a compute pass.
+     */
+    dispatchWorkgroupsIndirect(_buffer: GPUBuffer, _offset: number): void {}
+
     /** Returns the renderer reference (null until setRenderer() is called). */
     getRenderer(): WebGPURenderer | null {
         return this.renderer;

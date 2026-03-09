@@ -281,6 +281,12 @@ export class Inspector extends RendererInspector {
         }
     }
 
+    override dispatchWorkgroupsIndirect(_buffer: GPUBuffer, offset: number): void {
+        if (this.timeline.isRecording) {
+            this.timeline.onCall('dispatchWorkgroupsIndirect', `offset=${offset}`);
+        }
+    }
+
     override finish(frameId: number): void {
         super.finish(frameId);
         const record = this.resolveFrame();

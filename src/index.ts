@@ -79,17 +79,19 @@ export {
     modelWorldMatrix, modelNormalMatrix,
 
     // builtins
-    instanceIndex, vertexIndex, globalId, localId, localIndex, workgroupId, numWorkgroups, computeIndex,
+    instanceIndex, vertexIndex, globalId, localId, localIndex, workgroupId, numWorkgroups,
 
     // screen/viewport
     fragCoord, screenCoordinate, screenSize, screenUV,
 
+    // compute
+    computeIndex,
+
     // helpers
     positionClip,
 
-    // draw indirect
-    DrawIndirect,
-    DrawIndexedIndirect,
+    // indirect
+    DrawIndirect, DrawIndexedIndirect,
 
     // types
     type BinopOp, type BuiltinKind, type ComputeNodeOptions,

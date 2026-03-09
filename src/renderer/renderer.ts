@@ -2,10 +2,8 @@ import { Mesh } from '../objects/mesh';
 import * as buffers from './buffers';
 import * as textures from './textures';
 import * as pipelines from './pipelines';
-import {
-    buildRenderGroupGPUBindGroup,
-} from './bindgroups';
 import { Material } from '../material/material';
+import { IndirectStorageBufferAttribute } from '../core/attribute';
 import { Geometry } from '../geometry/geometry';
 import {
     type Node,
@@ -165,7 +163,6 @@ export class WebGPURenderer {
      * GPU buffer key for compute shader renderGroup struct UBO.
      * Separate from render because compute shaders don't have camera.
      */
-    private _computeRenderGroupKey: object = {};
 
     /**
      * Cache for _makeOutputMaterial results, keyed by `${outputNode.id}:${format}:${samples}`.
@@ -742,7 +739,24 @@ export class WebGPURenderer {
      * @throws if the renderer has not been initialised.
      * @throws if the pipeline has not been compiled yet (call renderer.compile() first).
      */
-    compute(node: ComputeNode, dispatch: [number, number, number]): void {
+    compute(node: ComputeNode, dispatch: [number, number, number]): void;
+
+    /**
+     * Encode an indirect compute dispatch. Workgroup counts are read from
+     * the GPU buffer backing `indirectAttr` — no CPU-side dispatch count needed.
+     *
+     * The `IndirectStorageBufferAttribute` must hold `[countX, countY, countZ]`
+     * as u32 values (same layout as `dispatchWorkgroupsIndirect`).
+     *
+     * Typically the indirect buffer is written by a small "workgroup kernel"
+     * compute shader earlier in the frame.
+     *
+     * @param node The ComputeNode to dispatch.
+     * @param indirectAttr The indirect buffer attribute holding GPU-side dispatch counts.
+     */
+    compute(node: ComputeNode, indirectAttr: IndirectStorageBufferAttribute): void;
+
+    compute(node: ComputeNode, dispatchOrIndirect: [number, number, number] | IndirectStorageBufferAttribute): void {
         if (this._isDeviceLost) return;
 
         if (!this._initialized) {
@@ -763,7 +777,12 @@ export class WebGPURenderer {
             this._frameEncoder = this.device.createCommandEncoder();
         }
 
-        this._dispatchComputeNode(node, this._frameEncoder, dispatch);
+        if (dispatchOrIndirect instanceof IndirectStorageBufferAttribute) {
+            const gpuBuf = buffers.uploadIndirect(this.buffers, dispatchOrIndirect);
+            this._dispatchComputeNode(node, this._frameEncoder, undefined, gpuBuf, 0);
+        } else {
+            this._dispatchComputeNode(node, this._frameEncoder, dispatchOrIndirect, undefined, undefined);
+        }
     }
 
     /**
@@ -916,81 +935,83 @@ export class WebGPURenderer {
     private _dispatchComputeNode(
         node: ComputeNode,
         encoder: GPUCommandEncoder,
-        dispatch: [number, number, number],
+        dispatch: [number, number, number] | undefined,
+        indirectBuffer: GPUBuffer | undefined,
+        indirectOffset: number | undefined,
     ): void {
         const entry = pipelines.getForCompute(this.pipelines, node);
-        if (!entry.pipeline) return; // Pipeline not ready yet — skip this frame (will compile async)
+        if (!entry.pipeline) return;
 
-        const { bindGroupInfo } = entry;
+        const { bindGroupInfo, compileResult: cr } = entry;
+        const frame = this._nodes.nodeFrame;
+        frame.renderer = this;
+        frame.width = this.domElement.width || 1;
+        frame.height = this.domElement.height || 1;
 
-        // Upload / ensure storage buffers for all outputs.
-        const gpuBuffers: GPUBuffer[] = entry.compileResult.storage.map((s: { node: Parameters<typeof buffers.uploadStorage>[1] }) =>
-            buffers.uploadStorage(this.buffers, s.node),
-        );
+        // Upload / ensure storage buffers
+        const storageGpuBuffers = new Map<number, GPUBuffer>();
+        for (let i = 0; i < cr.storage.length; i++) {
+            const s = cr.storage[i];
+            storageGpuBuffers.set(i, buffers.uploadStorage(this.buffers, s.node));
+        }
 
-        // Encode the compute pass.
+        // Upload / pack all uniform groups
+        const uniformGpuBuffers = new Map<number, GPUBuffer>();
+        for (const ug of cr.uniformGroups) {
+            if (ug.members.length === 0) continue;
+            bindings.invokeUniformGroupCallbacks(ug, frame);
+            const data = bindings.packUniformGroup(ug);
+            const U = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
+            buffers.uploadRaw(this.buffers, ug, data, U);
+            const buf = buffers.getRaw(this.buffers, ug);
+            if (buf) uniformGpuBuffers.set(ug.groupIndex, buf);
+        }
+
+        // Encode the compute pass
         const computePass = encoder.beginComputePass();
         this.inspector.beginCompute(node.id, this.frameId);
         computePass.setPipeline(entry.pipeline);
 
-        // Build and set bind groups using dynamic indices
-        // Storage bind group
-        const storageBindGroup = bindGroupInfo.bindGroups.find((bg: { name: string }) => bg.name === 'storage');
-        if (storageBindGroup && entry.compileResult.storage.length > 0) {
-            const gpuBindGroup = this.device.createBindGroup({
-                layout: storageBindGroup.layout,
-                entries: entry.compileResult.storage.map((s: { binding: number }, i: number) => ({
-                    binding: s.binding,
-                    resource: { buffer: gpuBuffers[i] },
-                })),
-            });
-            computePass.setBindGroup(storageBindGroup.index, gpuBindGroup);
-        }
+        // Build and set bind groups generically — like three.js, iterate all groups
+        for (const bg of bindGroupInfo.bindGroups) {
+            const entries: GPUBindGroupEntry[] = [];
 
-        // Render (time) bind group
-        const renderBindGroup = bindGroupInfo.bindGroups.find((bg: { name: string }) => bg.name === 'render');
-        if (renderBindGroup) {
-            const renderBlock = entry.compileResult.uniformGroups.find((g: { groupName: string }) => g.groupName === 'render');
-            if (renderBlock) {
-                // Use the NodeFrame for compute uniforms (time values, no camera)
-                const frame = this._nodes.nodeFrame;
-                // Ensure time is updated (may have already been called this frame)
-                frame.renderer = this;
-                frame.width = this.domElement.width || 1;
-                frame.height = this.domElement.height || 1;
-                // camera stays null for compute
-                bindings.invokeUniformGroupCallbacks(renderBlock, frame);
-
-                const data = bindings.packUniformGroup(renderBlock);
-                const U = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
-                buffers.uploadRaw(this.buffers, this._computeRenderGroupKey, data, U);
-
-                const renderBuf = buffers.getRaw(this.buffers, this._computeRenderGroupKey);
-                if (renderBuf) {
-                    const gpuBindGroup = buildRenderGroupGPUBindGroup(
-                        this.device,
-                        renderBindGroup,
-                        renderBuf,
-                    );
-                    computePass.setBindGroup(renderBindGroup.index, gpuBindGroup);
+            // Add uniform buffer entry if this group has one
+            const uniformBuf = uniformGpuBuffers.get(bg.index);
+            if (uniformBuf) {
+                const ug = cr.uniformGroups.find(u => u.groupIndex === bg.index);
+                if (ug) {
+                    entries.push({ binding: ug.binding, resource: { buffer: uniformBuf } });
                 }
             }
+
+            // Add storage buffer entries for this group
+            for (let i = 0; i < cr.storage.length; i++) {
+                const s = cr.storage[i];
+                if (s.group === bg.index) {
+                    const buf = storageGpuBuffers.get(i)!;
+                    entries.push({ binding: s.binding, resource: { buffer: buf } });
+                }
+            }
+
+            const gpuBindGroup = this.device.createBindGroup({
+                layout: bg.layout,
+                entries,
+            });
+            computePass.setBindGroup(bg.index, gpuBindGroup);
         }
 
-        const [dx, dy, dz] = dispatch;
-        computeDispatchWorkgroups(computePass, this.inspector, dx, dy, dz);
+        if (indirectBuffer) {
+            computeDispatchWorkgroupsIndirect(computePass, this.inspector, indirectBuffer, indirectOffset ?? 0);
+        } else {
+            const [dx, dy, dz] = dispatch!;
+            computeDispatchWorkgroups(computePass, this.inspector, dx, dy, dz);
+        }
         computePass.end();
         this.inspector.finishCompute(node.id, this.frameId);
     }
 
-    // -------------------------------------------------------------------------
-    // Renderer state save / restore (Three.js RendererUtils aligned)
-    // -------------------------------------------------------------------------
-
-    /**
-     * Save the current renderer state into a plain object and return it.
-     * Mirrors Three.js `RendererUtils.saveRendererState()`.
-     */
+    /** save the current renderer state into a plain object and return it */
     saveRendererState(): {
         renderTarget: ReturnType<WebGPURenderer['getRenderTarget']>;
         mrt: MRTNode | null;
@@ -1003,10 +1024,7 @@ export class WebGPURenderer {
         };
     }
 
-    /**
-     * Restore renderer state previously saved with `saveRendererState()`.
-     * Mirrors Three.js `RendererUtils.restoreRendererState()`.
-     */
+    /** restore renderer state previously saved with `saveRendererState()` */
     restoreRendererState(state: ReturnType<WebGPURenderer['saveRendererState']>): void {
         this.setRenderTarget(state.renderTarget);
         this.setMRT(state.mrt);
@@ -1794,4 +1812,14 @@ function computeDispatchWorkgroups(
 ): void {
     pass.dispatchWorkgroups(x, y, z);
     inspector.dispatchWorkgroups(x, y, z);
+}
+
+function computeDispatchWorkgroupsIndirect(
+    pass: GPUComputePassEncoder,
+    inspector: InspectorBase,
+    indirectBuffer: GPUBuffer,
+    offset: number,
+): void {
+    pass.dispatchWorkgroupsIndirect(indirectBuffer, offset);
+    inspector.dispatchWorkgroupsIndirect(indirectBuffer, offset);
 }
