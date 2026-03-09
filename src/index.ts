@@ -79,7 +79,7 @@ export {
     modelWorldMatrix, modelNormalMatrix,
 
     // builtins
-    instanceIndex, vertexIndex, globalId, localId, localIndex, workgroupId, numWorkgroups,
+    instanceIndex, vertexIndex, globalId, localId, localIndex, workgroupId, numWorkgroups, computeIndex,
 
     // screen/viewport
     fragCoord, screenCoordinate, screenSize, screenUV,

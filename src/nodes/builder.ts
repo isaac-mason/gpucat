@@ -38,7 +38,7 @@ import { StorageNode } from './lib/storage';
 import { UniformNode, UniformGroupNode } from './lib/uniform';
 import { WgslFunctionNode } from './lib/wgsl-fn';
 import { OutputStructNode, MRTNode } from './lib/mrt';
-import { BuiltinNode } from './lib/builtin';
+import { BuiltinNode, ComputeIndexNode } from './lib/builtin';
 import * as d from './schema';
 import type { StructSchema } from './schema';
 import { constLiteral } from './wgsl-utils';
@@ -698,6 +698,8 @@ function collectStructDefs(roots: Node<d.Any>[], ctx: BuildContext): void {
             }
         } else if (node instanceof StackNode) {
             for (const n of node.body) visit(n);
+        } else if (node instanceof LoopNode) {
+            for (const n of node.body.body) visit(n);
         }
     }
 
@@ -777,6 +779,8 @@ function generateExpr(ctx: BuildContext, node: Node<d.Any>): string {
         expr = `${arr}[${idx}]`;
     } else if (node instanceof BuiltinNode) {
         expr = generateBuiltin(ctx, node);
+    } else if (node instanceof ComputeIndexNode) {
+        expr = 'computeIndex';
     } else if (node instanceof CondNode) {
         const cond = generateExpr(ctx, node.condition);
         const t = generateExpr(ctx, node.ifTrue);
@@ -818,7 +822,7 @@ function generateExpr(ctx: BuildContext, node: Node<d.Any>): string {
     
     // CSE: if multi-use, extract to variable
     const usage = ctx.usageCount.get(node.id) ?? 1;
-    if (usage > 1 && !ctx.nodeVars.has(node.id) && !isSimpleExpr(node)) {
+    if (usage > 1 && !ctx.nodeVars.has(node.id) && !isTrivialExpr(node) && !isNonCopyable(node)) {
         const varName = `_v${ctx.varCounter++}`;
         ctx.code.push(`    let ${varName} = ${expr};`);
         ctx.nodeVars.set(node.id, varName);
@@ -835,21 +839,40 @@ function generateExpr(ctx: BuildContext, node: Node<d.Any>): string {
     return expr;
 }
 
-/** Check if expression is simple enough to not need CSE extraction */
-function isSimpleExpr(node: Node<d.Any>): boolean {
+/** Check if a type descriptor contains atomic types (recursively) */
+function containsAtomics(desc: d.Any): boolean {
+    if (d.isAtomicDesc(desc)) return true;
+    if (d.isStructDesc(desc)) {
+        for (const fieldDesc of Object.values(desc.fields)) {
+            if (containsAtomics(fieldDesc as d.Any)) return true;
+        }
+    }
+    if (d.isArrayDesc(desc) || d.isSizedArrayDesc(desc)) {
+        return containsAtomics(desc.element);
+    }
+    return false;
+}
+
+/** Check if expression is trivial enough that repeating it is cheap (no need to extract) */
+function isTrivialExpr(node: Node<d.Any>): boolean {
     return (
         node instanceof ConstNode ||
         node instanceof VarNode ||
         node instanceof ParamNode ||
         node instanceof BuiltinNode ||
         node instanceof FieldNode ||
-        // binding references are global names — never extract into a let
+        // binding references are global names
         node instanceof StorageNode ||
         node instanceof UniformNode ||
         node instanceof TextureNode ||
         node instanceof SamplerNode ||
         node instanceof BufferAttributeNode
     );
+}
+
+/** Check if a node's type cannot be copied into a let binding */
+function isNonCopyable(node: Node<d.Any>): boolean {
+    return containsAtomics(node.type);
 }
 
 /* binding generation */
@@ -1083,8 +1106,12 @@ function generateStmt(ctx: BuildContext, node: Node<d.Any>): void {
     } else if (node instanceof ContinueNode) {
         ctx.code.push(`${ind}continue;`);
     } else if (node instanceof ReturnNode) {
-        const val = generateExpr(ctx, node.value);
-        ctx.code.push(`${ind}return ${val};`);
+        if (node.value.type.wgslType === 'void') {
+            ctx.code.push(`${ind}return;`);
+        } else {
+            const val = generateExpr(ctx, node.value);
+            ctx.code.push(`${ind}return ${val};`);
+        }
     } else if (node instanceof StackNode) {
         for (const child of node.body) {
             generateStmt(ctx, child);
@@ -1731,9 +1758,18 @@ function generateComputeShader(node: ComputeNode, ctx: BuildContext): string {
     
     // build workgroup size
     const wgSize = node.workgroupSize ?? [64, 1, 1];
+    const [WX, WY, WZ] = wgSize;
+    
+    // computeIndex requires global_invocation_id and num_workgroups
+    ctx.builtins.add('global_invocation_id');
+    ctx.builtins.add('num_workgroups');
+    
+    // emit private variable for computeIndex (like three.js instanceIndex)
+    lines.push('var<private> computeIndex: u32;');
+    lines.push('');
     
     // emit main function
-    lines.push(`@compute @workgroup_size(${wgSize[0]}, ${wgSize[1]}, ${wgSize[2]})`);
+    lines.push(`@compute @workgroup_size(${WX}, ${WY}, ${WZ})`);
     lines.push('fn cs_main(');
     
     const builtinParams: string[] = [];
@@ -1755,6 +1791,11 @@ function generateComputeShader(node: ComputeNode, ctx: BuildContext): string {
     
     lines.push(builtinParams.join(',\n'));
     lines.push(') {');
+    
+    // compute linearized index at start of function (like three.js)
+    // computeIndex = global_id.x + global_id.y * (WX * num_workgroups.x) + global_id.z * (WX * num_workgroups.x) * (WY * num_workgroups.y)
+    lines.push(`    computeIndex = global_id.x + global_id.y * (${WX}u * num_workgroups.x) + global_id.z * (${WX}u * num_workgroups.x) * (${WY}u * num_workgroups.y);`);
+    
     lines.push(...ctx.code);
     lines.push('}');
     

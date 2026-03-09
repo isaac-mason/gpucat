@@ -1,5 +1,5 @@
 import {
-    d, struct, instancedArray, instanceIndex, uniform, index,
+    d, struct, instancedArray, instanceIndex, computeIndex, uniform, index,
     f32, i32, u32, vec3f, vec3i, vec4,
     array, mat3,
     clamp, max, pow, step,
@@ -72,9 +72,9 @@ const decodeFixedPoint = <D extends d.i32 | d.u32>(v: Node<D>) => f32(v).div(f32
 
 // 1. Clear all grid cells before each p2g pass.
 const clearGridKernel = Fn(() => {
-    If(instanceIndex.greaterThanEqual(u32(cellCount)), () => { Return(); });
+    If(computeIndex.greaterThanEqual(u32(cellCount)), () => { Return(); });
 
-    const c = CellStruct.instantiate(index(cellBuffer, instanceIndex));
+    const c = CellStruct.instantiate(index(cellBuffer, computeIndex));
     atomicStore(c.x,    i32(0));
     atomicStore(c.y,    i32(0));
     atomicStore(c.z,    i32(0));
@@ -84,9 +84,9 @@ const clearGridDispatch: [number, number, number] = [Math.ceil(cellCount / workg
 
 // 2. Particle-to-grid pass 1: scatter velocity×mass and mass to grid.
 const p2g1Kernel = Fn(() => {
-    If(instanceIndex.greaterThanEqual(particleCountUniform), () => { Return(); });
+    If(computeIndex.greaterThanEqual(particleCountUniform), () => { Return(); });
 
-    const p          = ParticleStruct.instantiate(index(particleBuffer, instanceIndex));
+    const p          = ParticleStruct.instantiate(index(particleBuffer, computeIndex));
     const pos        = p.position.toConst('pos');
     const vel        = p.velocity.toConst('vel');
     const C          = p.C.toConst('C');
@@ -123,9 +123,9 @@ const p2g1Dispatch: [number, number, number] = [Math.ceil(maxParticles / workgro
 
 // 3. Particle-to-grid pass 2: scatter pressure + viscosity forces.
 const p2g2Kernel = Fn(() => {
-    If(instanceIndex.greaterThanEqual(particleCountUniform), () => { Return(); });
+    If(computeIndex.greaterThanEqual(particleCountUniform), () => { Return(); });
 
-    const p        = ParticleStruct.instantiate(index(particleBuffer, instanceIndex));
+    const p        = ParticleStruct.instantiate(index(particleBuffer, computeIndex));
     const pos      = p.position.toConst('pos');
     const gridPos  = pos.mul(gridSizeUniform).toVar('gridPos');
     const cellIdx  = vec3i(gridPos).sub(vec3i(i32(1), i32(1), i32(1))).toConst('cellIdx');
@@ -179,9 +179,9 @@ const p2g2Dispatch: [number, number, number] = [Math.ceil(maxParticles / workgro
 
 // 4. Update grid: normalise by mass, apply boundary conditions, write to float buffer.
 const updateGridKernel = Fn(() => {
-    If(instanceIndex.greaterThanEqual(u32(cellCount)), () => { Return(); });
+    If(computeIndex.greaterThanEqual(u32(cellCount)), () => { Return(); });
 
-    const cell = CellStruct.instantiate(index(cellBuffer, instanceIndex));
+    const cell = CellStruct.instantiate(index(cellBuffer, computeIndex));
     const mass = decodeFixedPoint(atomicLoad(cell.mass)).toConst('mass');
     If(mass.lessThanEqual(f32(0)), () => { Return(); });
 
@@ -190,22 +190,22 @@ const updateGridKernel = Fn(() => {
     const vz = decodeFixedPoint(atomicLoad(cell.z)).div(mass).toVar('vz');
 
     // Boundary: zero velocity on grid faces.
-    const gx = i32(instanceIndex).div(i32(gridSize1d * gridSize1d));
-    const gy = i32(instanceIndex).div(i32(gridSize1d)).mod(i32(gridSize1d));
-    const gz = i32(instanceIndex).mod(i32(gridSize1d));
+    const gx = i32(computeIndex).div(i32(gridSize1d * gridSize1d));
+    const gy = i32(computeIndex).div(i32(gridSize1d)).mod(i32(gridSize1d));
+    const gz = i32(computeIndex).mod(i32(gridSize1d));
     If(gx.lessThan(i32(1)).or(gx.greaterThan(i32(gridSize1d - 2))), () => { vx.assign(f32(0)); });
     If(gy.lessThan(i32(1)).or(gy.greaterThan(i32(gridSize1d - 2))), () => { vy.assign(f32(0)); });
     If(gz.lessThan(i32(1)).or(gz.greaterThan(i32(gridSize1d - 2))), () => { vz.assign(f32(0)); });
 
-    index(cellBufferFloat, instanceIndex).assign(vec4(vx, vy, vz, mass));
+    index(cellBufferFloat, computeIndex).assign(vec4(vx, vy, vz, mass));
 }).compute({ workgroupSize: [workgroupSize, 1, 1] });
 const updateGridDispatch: [number, number, number] = [Math.ceil(cellCount / workgroupSize), 1, 1];
 
 // 5. Grid-to-particle: gather velocity, update C, integrate position.
 const g2pKernel = Fn(() => {
-    If(instanceIndex.greaterThanEqual(particleCountUniform), () => { Return(); });
+    If(computeIndex.greaterThanEqual(particleCountUniform), () => { Return(); });
 
-    const p        = ParticleStruct.instantiate(index(particleBuffer, instanceIndex));
+    const p        = ParticleStruct.instantiate(index(particleBuffer, computeIndex));
     const pos      = p.position.toVar('pos');
     const gridPos  = pos.mul(gridSizeUniform).toVar('gridPos');
     const pVel     = vec3f(f32(0), f32(0), f32(0)).toVar('pVel');

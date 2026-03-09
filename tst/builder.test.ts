@@ -465,7 +465,7 @@ describe('If statements', () => {
         });
         
         // Use the FnNode for compute
-        const result = compileCompute(myFn.compute({ dispatch: [1], workgroupSize: [64, 1, 1] }));
+        const result = compileCompute(myFn.compute({  workgroupSize: [64, 1, 1] }));
         
         expectContains(result.code, 'if (');
     });
@@ -483,7 +483,7 @@ describe('If statements', () => {
             });
         });
         
-        const result = compileCompute(myFn.compute({ dispatch: [1], workgroupSize: [64, 1, 1] }));
+        const result = compileCompute(myFn.compute({  workgroupSize: [64, 1, 1] }));
         
         expectContains(result.code, 'if (');
         expectContains(result.code, '} else {');
@@ -505,7 +505,7 @@ describe('If statements', () => {
             });
         });
         
-        const result = compileCompute(myFn.compute({ dispatch: [1], workgroupSize: [64, 1, 1] }));
+        const result = compileCompute(myFn.compute({  workgroupSize: [64, 1, 1] }));
         
         // Should have nested if statements
         const ifCount = result.code.match(/if \(/g)?.length ?? 0;
@@ -527,7 +527,7 @@ describe('Loop statements', () => {
             });
         });
         
-        const result = compileCompute(myFn.compute({ dispatch: [1], workgroupSize: [64, 1, 1] }));
+        const result = compileCompute(myFn.compute({  workgroupSize: [64, 1, 1] }));
         
         expectContains(result.code, 'for (');
     });
@@ -544,7 +544,7 @@ describe('Loop statements', () => {
             });
         });
         
-        const result = compileCompute(myFn.compute({ dispatch: [1], workgroupSize: [64, 1, 1] }));
+        const result = compileCompute(myFn.compute({  workgroupSize: [64, 1, 1] }));
         
         expectContains(result.code, 'break');
     });
@@ -561,7 +561,7 @@ describe('Loop statements', () => {
             });
         });
         
-        const result = compileCompute(myFn.compute({ dispatch: [1], workgroupSize: [64, 1, 1] }));
+        const result = compileCompute(myFn.compute({  workgroupSize: [64, 1, 1] }));
         
         expectContains(result.code, 'continue');
     });
@@ -581,7 +581,7 @@ describe('Loop statements', () => {
             });
         });
         
-        const result = compileCompute(myFn.compute({ dispatch: [1], workgroupSize: [64, 1, 1] }));
+        const result = compileCompute(myFn.compute({  workgroupSize: [64, 1, 1] }));
         
         // Should have two for loops with unique variable names
         const forCount = result.code.match(/for \(/g)?.length ?? 0;
@@ -612,7 +612,7 @@ describe('Loop statements', () => {
             });
         });
         
-        const result = compileCompute(myFn.compute({ dispatch: [1], workgroupSize: [64, 1, 1] }));
+        const result = compileCompute(myFn.compute({  workgroupSize: [64, 1, 1] }));
         
         // Should have three for loops
         const forCount = result.code.match(/for \(/g)?.length ?? 0;
@@ -653,7 +653,7 @@ describe('Loop statements', () => {
             });
         });
         
-        const result = compileCompute(myFn.compute({ dispatch: [1], workgroupSize: [64, 1, 1] }));
+        const result = compileCompute(myFn.compute({  workgroupSize: [64, 1, 1] }));
         
         // Should have two for loops
         const forCount = result.code.match(/for \(/g)?.length ?? 0;
@@ -753,7 +753,7 @@ describe('compute shaders', () => {
             // Just an empty compute shader
         });
         
-        const result = compileCompute(myFn.compute({ dispatch: [1], workgroupSize: [64, 1, 1] }));
+        const result = compileCompute(myFn.compute({  workgroupSize: [64, 1, 1] }));
         
         expectContains(result.code, '@compute');
         expectContains(result.code, '@workgroup_size(64, 1, 1)');
@@ -775,7 +775,7 @@ describe('texture sampling', () => {
         
         // Create a texture using the DSL and sample with UVs
         const myTexture = new Texture();
-        const texNode = texture(myTexture).sample(vUv as Node<'vec2f'>);
+        const texNode = texture(myTexture).sample(vUv);
         
         const result = compile({ position: pos, color: texNode });
         
@@ -817,7 +817,7 @@ describe('texture sampling', () => {
         const vUv = varying(uvAttr, 'v_uv');
         
         const myTexture = new Texture();
-        const texNode = texture(myTexture).sample(vUv as Node<'vec2f'>);
+        const texNode = texture(myTexture).sample(vUv);
         
         const result = compile({ position: pos, color: texNode });
         
@@ -849,11 +849,11 @@ describe('texture sampling', () => {
         const vUv = varying(uvAttr, 'v_uv');
         
         const myTexture = new Texture();
-        const texNode = texture(myTexture).sample(vUv as Node<'vec2f'>);
+        const texNode = texture(myTexture).sample(vUv);
         
         // Wrap the texture in a WgslNode, similar to _makeOutputMaterial
         // This pattern: wgsl(d.vec4f)`${ outputNode }`.with(uvVarying)
-        const wrappedColor = wgsl(S.vec4f)`${texNode}`.with(vUv as Node<'vec2f'>);
+        const wrappedColor = wgsl(S.vec4f)`${texNode}`.with(vUv);
         
         const result = compile({ position: pos, color: wrappedColor });
         

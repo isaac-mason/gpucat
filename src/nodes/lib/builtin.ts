@@ -47,3 +47,23 @@ export const numWorkgroups: BuiltinNode<d.vec3u> = /*@__PURE__*/ builtin('num_wo
  * Use screenCoordinate.xy for 2D pixel position.
  */
 export const fragCoord: BuiltinNode<d.vec4f> = /*@__PURE__*/ builtin('position', d.vec4f);
+
+/**
+ * Linearized compute invocation index across the entire dispatch grid.
+ * 
+ * For a dispatch of size (Dx, Dy, Dz) workgroups with workgroup size (Wx, Wy, Wz),
+ * this computes:
+ *   globalId.x + globalId.y * (Wx * Dx) + globalId.z * (Wx * Dx) * (Wy * Dy)
+ * 
+ * This gives each thread a unique u32 index from 0 to (Dx*Wx * Dy*Wy * Dz*Wz - 1).
+ * 
+ * Use this in compute shaders where you need a linear index into a buffer,
+ * similar to how instanceIndex works in vertex shaders.
+ */
+export class ComputeIndexNode extends Node<d.u32> {
+    constructor() {
+        super(computeId('compute_index', {}), d.u32);
+    }
+}
+
+export const computeIndex: ComputeIndexNode = /*@__PURE__*/ new ComputeIndexNode();
