@@ -33,7 +33,7 @@
 import type { WebGPURenderer } from '../renderer/renderer';
 import type { InspectorNode } from '../nodes/nodes';
 import type { Scene } from '../scene/scene';
-import { WgslDesc } from '../nodes/schema';
+import { Any } from '../nodes/schema';
 
 export class InspectorBase {
     /** Back-reference to the renderer. Set by renderer after init(). */
@@ -106,7 +106,7 @@ export class InspectorBase {
      * Called when a node marked with .inspect() is encountered during rendering.
      * Subclasses override this to register the node for Viewer tab preview.
      */
-    inspect(_node: InspectorNode<WgslDesc>): void {}
+    inspect(_node: InspectorNode<Any>): void {}
 
     // -----------------------------------------------------------------------
     // Per-draw-call hooks (inside a render pass)

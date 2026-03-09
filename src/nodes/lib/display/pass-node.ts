@@ -127,7 +127,7 @@ export type PassNodeOptions = {
  * This pass produces a render for the given scene and camera and can provide multiple outputs
  * via MRT for further processing.
  */
-export class PassNode extends Node<d.Vec4fDesc> {
+export class PassNode extends Node<d.vec4f> {
     /** @static */
     static readonly COLOR: 'color' = 'color';
 
@@ -157,7 +157,7 @@ export class PassNode extends Node<d.Vec4fDesc> {
 
     readonly updateBeforeType: 'frame' | 'none' = 'frame';
 
-    readonly deps: Node<d.WgslDesc>[] = [];
+    readonly deps: Node<d.Any>[] = [];
     readonly wgsl = '';
 
     private _pixelRatio = 1;
@@ -175,9 +175,9 @@ export class PassNode extends Node<d.Vec4fDesc> {
 
     private readonly _previousTextureNodes: Record<string, PassMultipleTextureNode> = {};
 
-    private readonly _viewZNodes: Record<string, Node<d.F32Desc>> = {};
+    private readonly _viewZNodes: Record<string, Node<d.f32>> = {};
 
-    private readonly _linearDepthNodes: Record<string, Node<d.F32Desc>> = {};
+    private readonly _linearDepthNodes: Record<string, Node<d.f32>> = {};
 
     constructor(scope: 'color' | 'depth', scene: Scene, camera: Camera, options: PassNodeOptions = {}) {
         const pid = `_pass${_passCount++}`;
@@ -365,20 +365,20 @@ export class PassNode extends Node<d.Vec4fDesc> {
      * Returns a viewZ node of this pass.
      * Uses cameraNear/cameraFar builtin nodes for correct depth reconstruction.
      */
-    getViewZNode(name = 'depth'): Node<d.F32Desc> {
+    getViewZNode(name = 'depth'): Node<d.f32> {
         let viewZNode = this._viewZNodes[name];
 
         if (viewZNode === undefined) {
             const depthTextureNode = this.getTextureNode(name);
 
             // Get depth value from texture (TextureNode generates textureSample())
-            const depth = depthTextureNode.r as Node<d.F32Desc>;
+            const depth = depthTextureNode.r as Node<d.f32>;
 
             // perspectiveDepthToViewZ formula (non-reversed depth buffer):
             // viewZ = near.mul(far).div(far.sub(near).mul(depth).sub(far))
             viewZNode = cameraNear
                 .mul(cameraFar)
-                .div(cameraFar.sub(cameraNear).mul(depth).sub(cameraFar)) as Node<d.F32Desc>;
+                .div(cameraFar.sub(cameraNear).mul(depth).sub(cameraFar)) as Node<d.f32>;
 
             this._viewZNodes[name] = viewZNode;
         }
@@ -390,7 +390,7 @@ export class PassNode extends Node<d.Vec4fDesc> {
      * Returns a linear depth node of this pass.
      * Uses cameraNear/cameraFar builtin nodes for correct depth reconstruction.
      */
-    getLinearDepthNode(name = 'depth'): Node<d.F32Desc> {
+    getLinearDepthNode(name = 'depth'): Node<d.f32> {
         let linearDepthNode = this._linearDepthNodes[name];
 
         if (linearDepthNode === undefined) {
@@ -400,7 +400,7 @@ export class PassNode extends Node<d.Vec4fDesc> {
             // linearDepth = viewZ.add(near).div(near.sub(far))
             linearDepthNode = viewZNode
                 .add(cameraNear)
-                .div(cameraNear.sub(cameraFar)) as Node<d.F32Desc>;
+                .div(cameraNear.sub(cameraFar)) as Node<d.f32>;
 
             this._linearDepthNodes[name] = linearDepthNode;
         }

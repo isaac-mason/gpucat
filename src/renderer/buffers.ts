@@ -1,6 +1,6 @@
 import type { BufferAttribute, IndexAttribute, IndirectStorageBufferAttribute } from '../core/attribute';
 import type { GpuTypedArray, StorageNode } from '../nodes/nodes';
-import type { WgslDesc } from '../nodes/schema';
+import type { Any } from '../nodes/schema';
 
 export type BufferCache = {
     /* GPUDevice is needed to create buffers and write data. */
@@ -14,7 +14,7 @@ export type BufferCache = {
     rawMap: WeakMap<object, GPUBuffer>;
 
     /* storage node buffers — keyed by node identity, version-gated re-upload. */
-    storageMap: WeakMap<StorageNode<WgslDesc>, { buf: GPUBuffer; version: number }>;
+    storageMap: WeakMap<StorageNode<Any>, { buf: GPUBuffer; version: number }>;
 
     /* indirect draw buffers — keyed by IndirectStorageBufferAttribute identity, version-gated re-upload. */
     indirectMap: WeakMap<IndirectStorageBufferAttribute, { buf: GPUBuffer; version: number }>;
@@ -165,7 +165,7 @@ export function getRaw(cache: BufferCache, key: object): GPUBuffer | undefined {
  * the IndirectStorageBufferAttribute's GPUBuffer is returned and registered in storageMap so the
  * compute shader binds to the same buffer that drawIndirect reads.
  */
-export function uploadStorage(cache: BufferCache, node: StorageNode<WgslDesc>): GPUBuffer {
+export function uploadStorage(cache: BufferCache, node: StorageNode<Any>): GPUBuffer {
     const arr = node.value.array;
 
     // Primary check: if this StorageNode is backed by an IndirectStorageBufferAttribute,

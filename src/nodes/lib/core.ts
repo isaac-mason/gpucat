@@ -1,5 +1,5 @@
 import type { NodeFrame } from '../../renderer/node-frame';
-import type { WgslDesc, WgslType } from '../schema';
+import type { Any, WgslType } from '../schema';
 import { isStructDef } from '../schema';
 import * as d from '../schema';
 
@@ -117,7 +117,7 @@ export function pushStack(stack: StackNode): StackNode | null {
     return prev;
 }
 export function popStack(prev: StackNode | null): void { currentStack = prev; }
-export function addToStack(node: Node<WgslDesc>): void {
+export function addToStack(node: Node<Any>): void {
     if (currentStack === null) throw new Error(
         `[gpucat] Control flow (toVar, If, For, Return) must be called inside a Fn body. ` +
         `You are calling it outside of any Fn — wrap your code in Fn([...], () => { ... }).`
@@ -135,11 +135,11 @@ export const NodeUpdateType = {
 } as const;
 export type NodeUpdateType = (typeof NodeUpdateType)[keyof typeof NodeUpdateType];
 
-export class Node<D extends WgslDesc> {
+export class Node<D extends Any> {
     readonly id: string;
     readonly type: D;
 
-    _beforeNodes: Node<WgslDesc>[] | null = null;
+    _beforeNodes: Node<Any>[] | null = null;
     updateType: NodeUpdateType = NodeUpdateType.NONE;
     updateBeforeType: NodeUpdateType = NodeUpdateType.NONE;
     updateAfterType: NodeUpdateType = NodeUpdateType.NONE;
@@ -161,34 +161,34 @@ export class Node<D extends WgslDesc> {
     onRenderUpdate(callback: (frame: NodeFrame) => unknown): this { return this.onUpdate(callback, NodeUpdateType.RENDER); }
     onObjectUpdate(callback: (frame: NodeFrame) => unknown): this { return this.onUpdate(callback, NodeUpdateType.OBJECT); }
 
-    before(node: Node<WgslDesc>): this {
+    before(node: Node<Any>): this {
         if (this._beforeNodes === null) this._beforeNodes = [];
         this._beforeNodes.push(node);
         return this;
     }
 
     // ── Type conversions ──────────────────────────────────────────────────────
-    toF32(): Node<d.F32Desc>  { return new CallNode(d.f32, 'f32', [this]); }
-    toF16(): Node<d.F16Desc>  { return new CallNode(d.f16, 'f16', [this]); }
-    toU32(): Node<d.U32Desc>  { return new CallNode(d.u32, 'u32', [this]); }
-    toI32(): Node<d.I32Desc>  { return new CallNode(d.i32, 'i32', [this]); }
+    toF32(): Node<d.f32>  { return new CallNode(d.f32, 'f32', [this]); }
+    toF16(): Node<d.f16>  { return new CallNode(d.f16, 'f16', [this]); }
+    toU32(): Node<d.u32>  { return new CallNode(d.u32, 'u32', [this]); }
+    toI32(): Node<d.i32>  { return new CallNode(d.i32, 'i32', [this]); }
 
     // ── Field access ──────────────────────────────────────────────────────────
-    field<RD extends WgslDesc>(name: string, resultType: RD): Node<RD> { return new FieldNode(resultType, this, name); }
+    field<RD extends Any>(name: string, resultType: RD): Node<RD> { return new FieldNode(resultType, this, name); }
 
     // ── Comparisons ───────────────────────────────────────────────────────────
-    greaterThan(b: Node<D>): Node<d.BoolDesc>      { return new BinopNode('>', d.bool, this, b); }
-    lessThan(b: Node<D>): Node<d.BoolDesc>         { return new BinopNode('<', d.bool, this, b); }
-    greaterThanEqual(b: Node<D>): Node<d.BoolDesc> { return new BinopNode('>=', d.bool, this, b); }
-    lessThanEqual(b: Node<D>): Node<d.BoolDesc>    { return new BinopNode('<=', d.bool, this, b); }
-    equal(b: Node<D>): Node<d.BoolDesc>            { return new BinopNode('==', d.bool, this, b); }
-    notEqual(b: Node<D>): Node<d.BoolDesc>         { return new BinopNode('!=', d.bool, this, b); }
+    greaterThan(b: Node<D>): Node<d.bool>      { return new BinopNode('>', d.bool, this, b); }
+    lessThan(b: Node<D>): Node<d.bool>         { return new BinopNode('<', d.bool, this, b); }
+    greaterThanEqual(b: Node<D>): Node<d.bool> { return new BinopNode('>=', d.bool, this, b); }
+    lessThanEqual(b: Node<D>): Node<d.bool>    { return new BinopNode('<=', d.bool, this, b); }
+    equal(b: Node<D>): Node<d.bool>            { return new BinopNode('==', d.bool, this, b); }
+    notEqual(b: Node<D>): Node<d.bool>         { return new BinopNode('!=', d.bool, this, b); }
 
     // ── Math ──────────────────────────────────────────────────────────────────
-    add<BD extends WgslDesc>(b: Node<BD>): Node<WgslDesc>  { return add(this, b); }
-    sub<BD extends WgslDesc>(b: Node<BD>): Node<WgslDesc>  { return sub(this, b); }
-    div<BD extends WgslDesc>(b: Node<BD>): Node<WgslDesc>  { return div(this, b); }
-    mul<BD extends WgslDesc>(b: Node<BD>): Node<WgslDesc>  { return mul(this, b); }
+    add<BD extends Any>(b: Node<BD>): Node<Any>  { return add(this, b); }
+    sub<BD extends Any>(b: Node<BD>): Node<Any>  { return sub(this, b); }
+    div<BD extends Any>(b: Node<BD>): Node<Any>  { return div(this, b); }
+    mul<BD extends Any>(b: Node<BD>): Node<Any>  { return mul(this, b); }
     abs(): Node<D>                   { return new CallNode(this.type, 'abs',       [this]) as Node<D>; }
     floor(): Node<D>                 { return new CallNode(this.type, 'floor',     [this]) as Node<D>; }
     ceil(): Node<D>                  { return new CallNode(this.type, 'ceil',      [this]) as Node<D>; }
@@ -198,8 +198,8 @@ export class Node<D extends WgslDesc> {
     cos(): Node<D>                   { return new CallNode(this.type, 'cos',       [this]) as Node<D>; }
     negate(): Node<D>                { return new CallNode(this.type, 'negate',    [this]) as Node<D>; }
     normalize(): Node<D>             { return new CallNode(this.type, 'normalize', [this]) as Node<D>; }
-    length(): Node<d.F32Desc>        { return new CallNode(d.f32,     'length',    [this]); }
-    dot(b: Node<D>): Node<d.F32Desc> {
+    length(): Node<d.f32>        { return new CallNode(d.f32,     'length',    [this]); }
+    dot(b: Node<D>): Node<d.f32> {
         return new CallNode(d.f32, 'dot', [this, b]);
     }
     cross(b: Node<D>): Node<D>                                   { return new CallNode(this.type, 'cross',      [this, b]) as Node<D>; }
@@ -212,7 +212,7 @@ export class Node<D extends WgslDesc> {
     smoothstep(hi: Node<D>, x: Node<D>): Node<D>                 { return new CallNode(this.type, 'smoothstep', [this, hi, x]) as Node<D>; }
 
     // ── Element access ────────────────────────────────────────────────────────
-    element(idx: Node<WgslDesc>): Node<d.DescElement<D>> {
+    element(idx: Node<Any>): Node<d.DescElement<D>> {
         const elementDesc = (this.type as d.ArrayDesc | d.SizedArrayDesc).element as d.DescElement<D>;
         return new IndexNode(elementDesc, this, idx);
     }
@@ -222,30 +222,30 @@ export class Node<D extends WgslDesc> {
     toVar(label?: string): VarNode<D>      { return Var(this, label); }
     toConst(label?: string): VarNode<D>    { return Const(this, label); }
 
-    addAssign<BD extends WgslDesc>(v: Node<BD>): void { addToStack(new AssignNode(this, add(this, v) as unknown as Node<D>)); }
-    subAssign<BD extends WgslDesc>(v: Node<BD>): void { addToStack(new AssignNode(this, sub(this, v) as unknown as Node<D>)); }
-    mulAssign<BD extends WgslDesc>(v: Node<BD>): void { addToStack(new AssignNode(this, mul(this, v) as unknown as Node<D>)); }
-    divAssign<BD extends WgslDesc>(v: Node<BD>): void { addToStack(new AssignNode(this, div(this, v) as unknown as Node<D>)); }
+    addAssign<BD extends Any>(v: Node<BD>): void { addToStack(new AssignNode(this, add(this, v) as unknown as Node<D>)); }
+    subAssign<BD extends Any>(v: Node<BD>): void { addToStack(new AssignNode(this, sub(this, v) as unknown as Node<D>)); }
+    mulAssign<BD extends Any>(v: Node<BD>): void { addToStack(new AssignNode(this, mul(this, v) as unknown as Node<D>)); }
+    divAssign<BD extends Any>(v: Node<BD>): void { addToStack(new AssignNode(this, div(this, v) as unknown as Node<D>)); }
 
     sign(): Node<D>          { return sign(this) as Node<D>; }
     mod(b: Node<D>): Node<D> { return mod(this, b) as Node<D>; }
 
     oneMinus(): Node<D> { return sub(new ConstNode(this.type, 1), this) as unknown as Node<D>; }
 
-    or(b: Node<d.BoolDesc>): Node<d.BoolDesc>  { return or(this as unknown as Node<d.BoolDesc>, b); }
-    and(b: Node<d.BoolDesc>): Node<d.BoolDesc> { return and(this as unknown as Node<d.BoolDesc>, b); }
+    or(b: Node<d.bool>): Node<d.bool>  { return or(this as unknown as Node<d.bool>, b); }
+    and(b: Node<d.bool>): Node<d.bool> { return and(this as unknown as Node<d.bool>, b); }
 
     transpose(): Node<D> { return new CallNode(this.type, 'transpose', [this]) as unknown as Node<D>; }
 
     // ── Swizzles ──────────────────────────────────────────────────────────────
-    get x(): Node<WgslDesc> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'x'); }
-    get y(): Node<WgslDesc> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'y'); }
-    get z(): Node<WgslDesc> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'z'); }
-    get w(): Node<WgslDesc> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'w'); }
-    get r(): Node<WgslDesc> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'x'); }
-    get g(): Node<WgslDesc> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'y'); }
-    get b(): Node<WgslDesc> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'z'); }
-    get a(): Node<WgslDesc> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'w'); }
+    get x(): Node<Any> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'x'); }
+    get y(): Node<Any> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'y'); }
+    get z(): Node<Any> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'z'); }
+    get w(): Node<Any> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'w'); }
+    get r(): Node<Any> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'x'); }
+    get g(): Node<Any> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'y'); }
+    get b(): Node<Any> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'z'); }
+    get a(): Node<Any> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'w'); }
 
     get xx(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'xx'); }
     get xy(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'xy'); }
@@ -466,7 +466,7 @@ export class Node<D extends WgslDesc> {
     }
 }
 
-export function isNode(v: unknown): v is Node<WgslDesc> { return v instanceof Node; }
+export function isNode(v: unknown): v is Node<Any> { return v instanceof Node; }
 
 // ─── InspectorNode ────────────────────────────────────────────────────────────
 
@@ -490,7 +490,7 @@ let _inspectorNodeCounter = 0;
  * The .inspect() method on Node creates an InspectorNode wrapper and attaches it
  * via node.before(), so it gets built and updated alongside the original node.
  */
-export class InspectorNode<D extends WgslDesc> extends Node<D> {
+export class InspectorNode<D extends Any> extends Node<D> {
     /** The original node being inspected. */
     readonly wrappedNode: Node<D>;
 
@@ -517,7 +517,7 @@ export class InspectorNode<D extends WgslDesc> extends Node<D> {
      * Registers this node with the renderer's inspector.
      */
     override update = (frame: NodeFrame): void => {
-        frame.renderer!.inspector.inspect(this as unknown as InspectorNode<WgslDesc>);
+        frame.renderer!.inspector.inspect(this as unknown as InspectorNode<Any>);
     };
 
     /**
@@ -530,13 +530,13 @@ export class InspectorNode<D extends WgslDesc> extends Node<D> {
 
 // ─── Expr nodes ───────────────────────────────────────────────────────────────
 
-export class ConstNode<D extends WgslDesc> extends Node<D> {
+export class ConstNode<D extends Any> extends Node<D> {
     constructor(type: D, readonly value: number | number[] | string) {
         super(computeId('const', { type: type.wgslType, value }), type);
     }
 }
 
-export class VarNode<D extends WgslDesc> extends Node<D> {
+export class VarNode<D extends Any> extends Node<D> {
     constructor(
         type: D,
         readonly varName: string,
@@ -548,17 +548,17 @@ export class VarNode<D extends WgslDesc> extends Node<D> {
 }
 
 export class AssignNode extends Node<d.VoidDesc> {
-    constructor(readonly target: Node<WgslDesc>, readonly value: Node<WgslDesc>) {
+    constructor(readonly target: Node<Any>, readonly value: Node<Any>) {
         super(computeId('assign', { target: target.id, value: value.id }), d.voidDesc);
     }
 }
 
-export class BinopNode<D extends WgslDesc> extends Node<D> {
+export class BinopNode<D extends Any> extends Node<D> {
     constructor(
         readonly op: BinopOp,
         type: D,
-        readonly left: Node<WgslDesc>,
-        readonly right: Node<WgslDesc>
+        readonly left: Node<Any>,
+        readonly right: Node<Any>
     ) {
         super(computeId('binop', { type: type.wgslType, op, a: left.id, b: right.id }), type);
     }
@@ -571,24 +571,24 @@ export interface WgslFunctionNodeRef {
     getNodeFunction(): { outputType: string; name: string };
 }
 
-export class CallNode<D extends WgslDesc> extends Node<D> {
+export class CallNode<D extends Any> extends Node<D> {
     readonly fnNode?: FnNode<any>; // eslint-disable-line @typescript-eslint/no-explicit-any
     readonly wgslFnNode?: WgslFunctionNodeRef;
-    constructor(type: D, readonly fn: string, readonly args: Node<WgslDesc>[], fnNode?: FnNode<any>, wgslFnNode?: WgslFunctionNodeRef) {
+    constructor(type: D, readonly fn: string, readonly args: Node<Any>[], fnNode?: FnNode<any>, wgslFnNode?: WgslFunctionNodeRef) {
         super(computeId('call', { type: type.wgslType, fn, args: args.map((n) => n.id) }), type);
         this.fnNode = fnNode;
         this.wgslFnNode = wgslFnNode;
     }
 }
 
-export class ConstructNode<D extends WgslDesc> extends Node<D> {
-    constructor(type: D, readonly args: Node<WgslDesc>[]) {
+export class ConstructNode<D extends Any> extends Node<D> {
+    constructor(type: D, readonly args: Node<Any>[]) {
         super(computeId('construct', { type: type.wgslType, args: args.map((n) => n.id) }), type);
     }
 }
 
-export class FieldNode<D extends WgslDesc> extends Node<D> {
-    constructor(type: D, readonly object: Node<WgslDesc>, readonly fieldName: string) {
+export class FieldNode<D extends Any> extends Node<D> {
+    constructor(type: D, readonly object: Node<Any>, readonly fieldName: string) {
         super(computeId('field', { type: type.wgslType, object: object.id, field: fieldName }), type);
     }
 }
@@ -599,7 +599,7 @@ export class FieldNode<D extends WgslDesc> extends Node<D> {
  * Use `array([e0, e1, e2])` to construct, then `.element(idx)` to index into it.
  * This corresponds to WGSL's array value constructor expression.
  */
-export class ArrayNode<E extends WgslDesc> extends Node<d.SizedArrayDesc> {
+export class ArrayNode<E extends Any> extends Node<d.SizedArrayDesc> {
     readonly elementType: E;
     readonly elements: Node<E>[];
     constructor(elementType: E, elements: Node<E>[]) {
@@ -617,32 +617,32 @@ export class ArrayNode<E extends WgslDesc> extends Node<d.SizedArrayDesc> {
         this.elements = elements;
     }
 
-    override element(idx: Node<WgslDesc>): Node<E> {
+    override element(idx: Node<Any>): Node<E> {
         return new IndexNode(this.elementType, this, idx);
     }
 }
 
-export class IndexNode<D extends WgslDesc> extends Node<D> {
-    constructor(type: D, readonly array: Node<WgslDesc>, readonly index: Node<WgslDesc>) {
+export class IndexNode<D extends Any> extends Node<D> {
+    constructor(type: D, readonly array: Node<Any>, readonly index: Node<Any>) {
         super(computeId('index', { type: type.wgslType, array: array.id, index: index.id }), type);
     }
 }
 
 // ── Standalone expr functions ─────────────────────────────────────────────────
 
-export const field  = <D extends WgslDesc, RD extends WgslDesc>(node: Node<D>, name: string, resultType: RD): Node<RD> => new FieldNode(resultType, node, name);
-export const toF32  = <D extends WgslDesc>(node: Node<D>): Node<d.F32Desc> => new CallNode(d.f32, 'f32', [node]);
-export const toF16  = <D extends WgslDesc>(node: Node<D>): Node<d.F16Desc> => new CallNode(d.f16, 'f16', [node]);
-export const toU32  = <D extends WgslDesc>(node: Node<D>): Node<d.U32Desc> => new CallNode(d.u32, 'u32', [node]);
-export const toI32  = <D extends WgslDesc>(node: Node<D>): Node<d.I32Desc> => new CallNode(d.i32, 'i32', [node]);
+export const field  = <D extends Any, RD extends Any>(node: Node<D>, name: string, resultType: RD): Node<RD> => new FieldNode(resultType, node, name);
+export const toF32  = <D extends Any>(node: Node<D>): Node<d.f32> => new CallNode(d.f32, 'f32', [node]);
+export const toF16  = <D extends Any>(node: Node<D>): Node<d.f16> => new CallNode(d.f16, 'f16', [node]);
+export const toU32  = <D extends Any>(node: Node<D>): Node<d.u32> => new CallNode(d.u32, 'u32', [node]);
+export const toI32  = <D extends Any>(node: Node<D>): Node<d.i32> => new CallNode(d.i32, 'i32', [node]);
 
-export const greaterThan      = <D extends WgslDesc>(a: Node<D>, b: Node<D>): Node<d.BoolDesc> => new BinopNode('>', d.bool, a, b);
-export const lessThan         = <D extends WgslDesc>(a: Node<D>, b: Node<D>): Node<d.BoolDesc> => new BinopNode('<', d.bool, a, b);
-export const greaterThanEqual = <D extends WgslDesc>(a: Node<D>, b: Node<D>): Node<d.BoolDesc> => new BinopNode('>=', d.bool, a, b);
-export const lessThanEqual    = <D extends WgslDesc>(a: Node<D>, b: Node<D>): Node<d.BoolDesc> => new BinopNode('<=', d.bool, a, b);
-export const equal            = <D extends WgslDesc>(a: Node<D>, b: Node<D>): Node<d.BoolDesc> => new BinopNode('==', d.bool, a, b);
-export const notEqual         = <D extends WgslDesc>(a: Node<D>, b: Node<D>): Node<d.BoolDesc> => new BinopNode('!=', d.bool, a, b);
-export const index = <D extends WgslDesc>(array: Node<D>, idx: Node<WgslDesc>) => new IndexNode(array.type, array, idx);
+export const greaterThan      = <D extends Any>(a: Node<D>, b: Node<D>): Node<d.bool> => new BinopNode('>', d.bool, a, b);
+export const lessThan         = <D extends Any>(a: Node<D>, b: Node<D>): Node<d.bool> => new BinopNode('<', d.bool, a, b);
+export const greaterThanEqual = <D extends Any>(a: Node<D>, b: Node<D>): Node<d.bool> => new BinopNode('>=', d.bool, a, b);
+export const lessThanEqual    = <D extends Any>(a: Node<D>, b: Node<D>): Node<d.bool> => new BinopNode('<=', d.bool, a, b);
+export const equal            = <D extends Any>(a: Node<D>, b: Node<D>): Node<d.bool> => new BinopNode('==', d.bool, a, b);
+export const notEqual         = <D extends Any>(a: Node<D>, b: Node<D>): Node<d.bool> => new BinopNode('!=', d.bool, a, b);
+export const index = <D extends Any>(array: Node<D>, idx: Node<Any>) => new IndexNode(array.type, array, idx);
 
 /**
  * Create an inline fixed-size array of nodes, emitted as `array<E, N>(e0, e1, ..., eN-1)`.
@@ -653,46 +653,46 @@ export const index = <D extends WgslDesc>(array: Node<D>, idx: Node<WgslDesc>) =
  * const weights = array([w0, w1, w2]);
  * const w = weights.element(gx);
  */
-export function array<E extends WgslDesc>(elements: [Node<E>, ...Node<E>[]]): ArrayNode<E> {
+export function array<E extends Any>(elements: [Node<E>, ...Node<E>[]]): ArrayNode<E> {
     return new ArrayNode(elements[0].type, elements);
 }
 
 // ── Const constructors ────────────────────────────────────────────────────────
 
-export function f32(v?: number): ConstNode<d.F32Desc>;
-export function f32(v: Node<WgslDesc>): Node<d.F32Desc>;
-export function f32(v: number | Node<WgslDesc> = 0): ConstNode<d.F32Desc> | Node<d.F32Desc> {
+export function f32(v?: number): ConstNode<d.f32>;
+export function f32(v: Node<Any>): Node<d.f32>;
+export function f32(v: number | Node<Any> = 0): ConstNode<d.f32> | Node<d.f32> {
     if (isNode(v)) return new CallNode(d.f32, 'f32', [v]);
     return new ConstNode(d.f32, v);
 }
 
-export function f16(v?: number): ConstNode<d.F16Desc>;
-export function f16(v: Node<WgslDesc>): Node<d.F16Desc>;
-export function f16(v: number | Node<WgslDesc> = 0): ConstNode<d.F16Desc> | Node<d.F16Desc> {
+export function f16(v?: number): ConstNode<d.f16>;
+export function f16(v: Node<Any>): Node<d.f16>;
+export function f16(v: number | Node<Any> = 0): ConstNode<d.f16> | Node<d.f16> {
     if (isNode(v)) return new CallNode(d.f16, 'f16', [v]);
     return new ConstNode(d.f16, v);
 }
 
-export function i32(v?: number): ConstNode<d.I32Desc>;
-export function i32(v: Node<WgslDesc>): Node<d.I32Desc>;
-export function i32(v: number | Node<WgslDesc> = 0): ConstNode<d.I32Desc> | Node<d.I32Desc> {
+export function i32(v?: number): ConstNode<d.i32>;
+export function i32(v: Node<Any>): Node<d.i32>;
+export function i32(v: number | Node<Any> = 0): ConstNode<d.i32> | Node<d.i32> {
     if (isNode(v)) return new CallNode(d.i32, 'i32', [v]);
     return new ConstNode(d.i32, Math.trunc(v as number));
 }
 
-export function u32(v?: number): ConstNode<d.U32Desc>;
-export function u32(v: Node<WgslDesc>): Node<d.U32Desc>;
-export function u32(v: number | Node<WgslDesc> = 0): ConstNode<d.U32Desc> | Node<d.U32Desc> {
+export function u32(v?: number): ConstNode<d.u32>;
+export function u32(v: Node<Any>): Node<d.u32>;
+export function u32(v: number | Node<Any> = 0): ConstNode<d.u32> | Node<d.u32> {
     if (isNode(v)) return new CallNode(d.u32, 'u32', [v]);
     return new ConstNode(d.u32, Math.trunc(v as number));
 }
 
-export const bool = (v: boolean): ConstNode<d.BoolDesc> => new ConstNode(d.bool, v ? 1 : 0);
+export const bool = (v: boolean): ConstNode<d.bool> => new ConstNode(d.bool, v ? 1 : 0);
 
-type Scalar = Node<WgslDesc> | number | boolean;
+type Scalar = Node<Any> | number | boolean;
 type ScalarElemType = 'f32' | 'f16' | 'i32' | 'u32' | 'bool';
 
-function wrapScalar(v: Scalar, elemType: ScalarElemType): Node<WgslDesc> {
+function wrapScalar(v: Scalar, elemType: ScalarElemType): Node<Any> {
     if (isNode(v)) return v;
     if (elemType === 'bool') return new ConstNode(d.bool, (v as boolean | number) ? 1 : 0);
     if (elemType === 'i32')  return new ConstNode(d.i32, Math.trunc(v as number));
@@ -714,9 +714,9 @@ function descForVec(type: string): d.Vec2Desc | d.Vec3Desc | d.Vec4Desc {
 
 export function makeVec2<T extends Vec2Type>(type: T) {
     const desc = descForVec(type) as d.Vec2Desc;
-    function ctor(v: Node<WgslDesc>): ConstructNode<d.Vec2Desc>;
+    function ctor(v: Node<Any>): ConstructNode<d.Vec2Desc>;
     function ctor(x: Scalar, y: Scalar): ConstructNode<d.Vec2Desc>;
-    function ctor(a: Scalar | Node<WgslDesc>, b?: Scalar): ConstructNode<d.Vec2Desc> {
+    function ctor(a: Scalar | Node<Any>, b?: Scalar): ConstructNode<d.Vec2Desc> {
         if (b === undefined) return new ConstructNode(desc, [wrapScalar(a, elemOf(type))]);
         return new ConstructNode(desc, [wrapScalar(a, elemOf(type)), wrapScalar(b, elemOf(type))]);
     }
@@ -724,8 +724,8 @@ export function makeVec2<T extends Vec2Type>(type: T) {
 }
 export function makeVec3<T extends Vec3Type>(type: T) {
     const desc = descForVec(type) as d.Vec3Desc;
-    function ctor(v: Node<WgslDesc>): ConstructNode<d.Vec3Desc>;
-    function ctor(xy: Node<WgslDesc>, z: Scalar): ConstructNode<d.Vec3Desc>;
+    function ctor(v: Node<Any>): ConstructNode<d.Vec3Desc>;
+    function ctor(xy: Node<Any>, z: Scalar): ConstructNode<d.Vec3Desc>;
     function ctor(x: Scalar, y: Scalar, z: Scalar): ConstructNode<d.Vec3Desc>;
     function ctor(a: Scalar, b?: Scalar, c?: Scalar): ConstructNode<d.Vec3Desc> {
         const e = elemOf(type);
@@ -737,9 +737,9 @@ export function makeVec3<T extends Vec3Type>(type: T) {
 }
 export function makeVec4<T extends Vec4Type>(type: T) {
     const desc = descForVec(type) as d.Vec4Desc;
-    function ctor(xy: Node<WgslDesc>, zw: Node<WgslDesc>): ConstructNode<d.Vec4Desc>;
-    function ctor(xy: Node<WgslDesc>, z: Scalar, w: Scalar): ConstructNode<d.Vec4Desc>;
-    function ctor(xyz: Node<WgslDesc>, w: Scalar): ConstructNode<d.Vec4Desc>;
+    function ctor(xy: Node<Any>, zw: Node<Any>): ConstructNode<d.Vec4Desc>;
+    function ctor(xy: Node<Any>, z: Scalar, w: Scalar): ConstructNode<d.Vec4Desc>;
+    function ctor(xyz: Node<Any>, w: Scalar): ConstructNode<d.Vec4Desc>;
     function ctor(x: Scalar, y: Scalar, z: Scalar, w: Scalar): ConstructNode<d.Vec4Desc>;
     function ctor(a: Scalar, b: Scalar, c?: Scalar, dVal?: Scalar): ConstructNode<d.Vec4Desc> {
         const e = elemOf(type);
@@ -790,18 +790,18 @@ export const mat4x4h = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d
 
 export const mat4 = (c0: Node<d.Vec4Desc>, c1: Node<d.Vec4Desc>, c2: Node<d.Vec4Desc>, c3: Node<d.Vec4Desc>) => new ConstructNode(d.mat4x4f, [c0, c1, c2, c3]);
 export function mat3(c0: Node<d.Vec3Desc>, c1: Node<d.Vec3Desc>, c2: Node<d.Vec3Desc>): Node<d.MatDesc>;
-export function mat3(diag: Node<d.F32Desc>): Node<d.MatDesc>;
+export function mat3(diag: Node<d.f32>): Node<d.MatDesc>;
 export function mat3(
-    s00: Node<d.F32Desc>, s01: Node<d.F32Desc>, s02: Node<d.F32Desc>,
-    s10: Node<d.F32Desc>, s11: Node<d.F32Desc>, s12: Node<d.F32Desc>,
-    s20: Node<d.F32Desc>, s21: Node<d.F32Desc>, s22: Node<d.F32Desc>
+    s00: Node<d.f32>, s01: Node<d.f32>, s02: Node<d.f32>,
+    s10: Node<d.f32>, s11: Node<d.f32>, s12: Node<d.f32>,
+    s20: Node<d.f32>, s21: Node<d.f32>, s22: Node<d.f32>
 ): Node<d.MatDesc>;
 export function mat3(
-    c0: Node<d.Vec3Desc> | Node<d.F32Desc>,
-    c1?: Node<d.Vec3Desc> | Node<d.F32Desc>,
-    c2?: Node<d.Vec3Desc> | Node<d.F32Desc>,
-    s10?: Node<d.F32Desc>, s11?: Node<d.F32Desc>, s12?: Node<d.F32Desc>,
-    s20?: Node<d.F32Desc>, s21?: Node<d.F32Desc>, s22?: Node<d.F32Desc>
+    c0: Node<d.Vec3Desc> | Node<d.f32>,
+    c1?: Node<d.Vec3Desc> | Node<d.f32>,
+    c2?: Node<d.Vec3Desc> | Node<d.f32>,
+    s10?: Node<d.f32>, s11?: Node<d.f32>, s12?: Node<d.f32>,
+    s20?: Node<d.f32>, s21?: Node<d.f32>, s22?: Node<d.f32>
 ): Node<d.MatDesc> {
     // 9-scalar overload: mat3x3f(s00..s22) — column-major scalars
     if (s10 !== undefined) {
@@ -817,55 +817,55 @@ export function mat3(
 
 // ── Standalone math functions ─────────────────────────────────────────────────
 
-export const add        = <A extends WgslDesc, B extends WgslDesc>(a: Node<A>, b: Node<B>) => new BinopNode('+', d.arithResultDesc(a.type, b.type), a, b);
-export const sub        = <A extends WgslDesc, B extends WgslDesc>(a: Node<A>, b: Node<B>) => new BinopNode('-', d.arithResultDesc(a.type, b.type), a, b);
-export const div        = <A extends WgslDesc, B extends WgslDesc>(a: Node<A>, b: Node<B>) => new BinopNode('/', d.arithResultDesc(a.type, b.type), a, b);
-export const mul        = <A extends WgslDesc, B extends WgslDesc>(a: Node<A>, b: Node<B>) => new BinopNode('*', d.mulResultDesc(a.type, b.type), a, b);
-export const dot        = (a: Node<WgslDesc>, b: Node<WgslDesc>): Node<d.F32Desc> => new CallNode(d.f32, 'dot', [a, b]);
-export const cross      = <D extends WgslDesc>(a: Node<D>, b: Node<D>): Node<D> => new CallNode(a.type, 'cross', [a, b]);
-export const normalize  = <D extends WgslDesc>(a: Node<D>): Node<D> => new CallNode(a.type, 'normalize', [a]);
-export const length     = (a: Node<WgslDesc>): Node<d.F32Desc> => new CallNode(d.f32, 'length', [a]);
-export const abs        = <D extends WgslDesc>(a: Node<D>): Node<D> => new CallNode(a.type, 'abs', [a]);
-export const floor      = <D extends WgslDesc>(a: Node<D>): Node<D> => new CallNode(a.type, 'floor', [a]);
-export const ceil       = <D extends WgslDesc>(a: Node<D>): Node<D> => new CallNode(a.type, 'ceil', [a]);
-export const fract      = <D extends WgslDesc>(a: Node<D>): Node<D> => new CallNode(a.type, 'fract', [a]);
-export const sqrt       = <D extends WgslDesc>(a: Node<D>): Node<D> => new CallNode(a.type, 'sqrt', [a]);
-export const sin        = <D extends WgslDesc>(a: Node<D>): Node<D> => new CallNode(a.type, 'sin', [a]);
-export const cos        = <D extends WgslDesc>(a: Node<D>): Node<D> => new CallNode(a.type, 'cos', [a]);
-export const negate     = <D extends WgslDesc>(a: Node<D>): Node<D> => new CallNode(a.type, 'negate', [a]);
-export const pow        = <D extends WgslDesc>(a: Node<D>, b: Node<D>): Node<D> => new CallNode(a.type, 'pow', [a, b]);
-export const max        = <D extends WgslDesc>(a: Node<D>, b: Node<D>): Node<D> => new CallNode(a.type, 'max', [a, b]);
-export const min        = <D extends WgslDesc>(a: Node<D>, b: Node<D>): Node<D> => new CallNode(a.type, 'min', [a, b]);
-export const clamp      = <D extends WgslDesc>(a: Node<D>, lo: Node<D>, hi: Node<D>): Node<D> => new CallNode(a.type, 'clamp', [a, lo, hi]);
-export const mix        = <D extends WgslDesc>(a: Node<D>, b: Node<D>, t: Node<D>): Node<D> => new CallNode(a.type, 'mix', [a, b, t]);
-export const step       = <D extends WgslDesc>(edge: Node<D>, x: Node<D>): Node<D> => new CallNode(x.type, 'step', [edge, x]);
-export const smoothstep = <D extends WgslDesc>(lo: Node<D>, hi: Node<D>, x: Node<D>): Node<D> => new CallNode(x.type, 'smoothstep', [lo, hi, x]);
-export const sign       = <D extends WgslDesc>(a: Node<D>): Node<D> => new CallNode(a.type, 'sign', [a]);
-export const mod        = <D extends WgslDesc>(a: Node<D>, b: Node<D>): Node<D> => new BinopNode('%', a.type, a, b);
-export const or         = (a: Node<d.BoolDesc>, b: Node<d.BoolDesc>): Node<d.BoolDesc> => new BinopNode('||', d.bool, a, b);
-export const and        = (a: Node<d.BoolDesc>, b: Node<d.BoolDesc>): Node<d.BoolDesc> => new BinopNode('&&', d.bool, a, b);
+export const add        = <A extends Any, B extends Any>(a: Node<A>, b: Node<B>) => new BinopNode('+', d.arithResultDesc(a.type, b.type), a, b);
+export const sub        = <A extends Any, B extends Any>(a: Node<A>, b: Node<B>) => new BinopNode('-', d.arithResultDesc(a.type, b.type), a, b);
+export const div        = <A extends Any, B extends Any>(a: Node<A>, b: Node<B>) => new BinopNode('/', d.arithResultDesc(a.type, b.type), a, b);
+export const mul        = <A extends Any, B extends Any>(a: Node<A>, b: Node<B>) => new BinopNode('*', d.mulResultDesc(a.type, b.type), a, b);
+export const dot        = (a: Node<Any>, b: Node<Any>): Node<d.f32> => new CallNode(d.f32, 'dot', [a, b]);
+export const cross      = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new CallNode(a.type, 'cross', [a, b]);
+export const normalize  = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'normalize', [a]);
+export const length     = (a: Node<Any>): Node<d.f32> => new CallNode(d.f32, 'length', [a]);
+export const abs        = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'abs', [a]);
+export const floor      = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'floor', [a]);
+export const ceil       = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'ceil', [a]);
+export const fract      = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'fract', [a]);
+export const sqrt       = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'sqrt', [a]);
+export const sin        = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'sin', [a]);
+export const cos        = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'cos', [a]);
+export const negate     = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'negate', [a]);
+export const pow        = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new CallNode(a.type, 'pow', [a, b]);
+export const max        = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new CallNode(a.type, 'max', [a, b]);
+export const min        = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new CallNode(a.type, 'min', [a, b]);
+export const clamp      = <D extends Any>(a: Node<D>, lo: Node<D>, hi: Node<D>): Node<D> => new CallNode(a.type, 'clamp', [a, lo, hi]);
+export const mix        = <D extends Any>(a: Node<D>, b: Node<D>, t: Node<D>): Node<D> => new CallNode(a.type, 'mix', [a, b, t]);
+export const step       = <D extends Any>(edge: Node<D>, x: Node<D>): Node<D> => new CallNode(x.type, 'step', [edge, x]);
+export const smoothstep = <D extends Any>(lo: Node<D>, hi: Node<D>, x: Node<D>): Node<D> => new CallNode(x.type, 'smoothstep', [lo, hi, x]);
+export const sign       = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'sign', [a]);
+export const mod        = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new BinopNode('%', a.type, a, b);
+export const or         = (a: Node<d.bool>, b: Node<d.bool>): Node<d.bool> => new BinopNode('||', d.bool, a, b);
+export const and        = (a: Node<d.bool>, b: Node<d.bool>): Node<d.bool> => new BinopNode('&&', d.bool, a, b);
 export const transpose  = <D extends d.MatDesc>(m: Node<D>): Node<D> => new CallNode(m.type, 'transpose', [m]);
 
 // ── Lang ──────────────────────────────────────────────────────────────────────
 
 export class StackNode extends Node<d.VoidDesc> {
-    readonly body: Node<WgslDesc>[];
-    constructor(initial?: Node<WgslDesc>[]) {
+    readonly body: Node<Any>[];
+    constructor(initial?: Node<Any>[]) {
         super(nextId(), d.voidDesc);
         this.body = initial ? [...initial] : [];
     }
-    push(node: Node<WgslDesc>): void { this.body.push(node); }
+    push(node: Node<Any>): void { this.body.push(node); }
 }
 
-export class FnNode<D extends WgslDesc> extends Node<D> {
+export class FnNode<D extends Any> extends Node<D> {
     readonly fnName: string;
-    readonly paramDescs: (ParamDesc | WgslDesc)[];
-    readonly jsFunc: (...args: Node<WgslDesc>[]) => Node<D>;
+    readonly paramDescs: (ParamDesc | Any)[];
+    readonly jsFunc: (...args: Node<Any>[]) => Node<D>;
 
     constructor(
         returnType: D,
-        paramDescs: (ParamDesc | WgslDesc)[],
-        jsFunc: (...args: Node<WgslDesc>[]) => Node<D>,
+        paramDescs: (ParamDesc | Any)[],
+        jsFunc: (...args: Node<Any>[]) => Node<D>,
         fnName?: string
     ) {
         super(nextId(), returnType);
@@ -876,10 +876,10 @@ export class FnNode<D extends WgslDesc> extends Node<D> {
 
     compute(opts: ComputeOptions): ComputeNode { return new ComputeNode({ fn: this, ...opts }); }
 
-    trace(): { params: ParamNode<WgslDesc>[]; body: StackNode; output: Node<D> } {
+    trace(): { params: ParamNode<Any>[]; body: StackNode; output: Node<D> } {
         const params = this.paramDescs.map((pd, i) => {
             const paramName = 'name' in pd ? (pd as ParamDesc).name : undefined;
-            const desc = 'name' in pd ? (pd as ParamDesc).type : (pd as WgslDesc);
+            const desc = 'name' in pd ? (pd as ParamDesc).type : (pd as Any);
             return new ParamNode(desc, i, paramName);
         });
         const stack = new StackNode();
@@ -890,40 +890,40 @@ export class FnNode<D extends WgslDesc> extends Node<D> {
     }
 }
 
-export class ParamNode<D extends WgslDesc> extends Node<D> {
+export class ParamNode<D extends Any> extends Node<D> {
     constructor(type: D, readonly paramIndex: number, readonly paramName?: string) {
         super(nextId(), type);
     }
 }
 
-export class ReturnNode<D extends WgslDesc> extends Node<D> {
+export class ReturnNode<D extends Any> extends Node<D> {
     constructor(readonly value: Node<D>) { super(nextId(), value.type); }
 }
 
-export class CondNode<D extends WgslDesc> extends Node<D> {
-    readonly ifFalse?: Node<WgslDesc>;
-    constructor(readonly condition: Node<WgslDesc>, readonly ifTrue: Node<D>, ifFalse?: Node<D>) {
+export class CondNode<D extends Any> extends Node<D> {
+    readonly ifFalse?: Node<Any>;
+    constructor(readonly condition: Node<Any>, readonly ifTrue: Node<D>, ifFalse?: Node<D>) {
         super(computeId('cond', { condition: condition.id, ifTrue: ifTrue.id, ifFalse: ifFalse?.id }), ifTrue.type);
         this.ifFalse = ifFalse;
     }
 }
 
-export type ElseIfBranch = { condition: Node<WgslDesc>; body: StackNode; };
+export type ElseIfBranch = { condition: Node<Any>; body: StackNode; };
 
 export class IfNode extends Node<d.VoidDesc> {
     elseIfBranches: ElseIfBranch[] = [];
     elseBody: StackNode | null = null;
-    constructor(readonly condition: Node<WgslDesc>, readonly thenBody: StackNode) {
+    constructor(readonly condition: Node<Any>, readonly thenBody: StackNode) {
         super(nextId(), d.voidDesc);
     }
 }
 
-export type LoopParam = Node<WgslDesc> | number | {
-    start?: Node<WgslDesc> | number;
-    end?: Node<WgslDesc> | number;
+export type LoopParam = Node<Any> | number | {
+    start?: Node<Any> | number;
+    end?: Node<Any> | number;
     type?: ScalarType;
     condition?: '<' | '<=' | '>' | '>=';
-    update?: Node<WgslDesc> | number | string | ((...args: unknown[]) => void);
+    update?: Node<Any> | number | string | ((...args: unknown[]) => void);
     name?: string;
 };
 
@@ -938,18 +938,18 @@ export class BreakNode    extends Node<d.VoidDesc> { constructor() { super(nextI
 export class ContinueNode extends Node<d.VoidDesc> { constructor() { super(nextId(), d.voidDesc); } }
 
 export type IfChain = {
-    ElseIf(condition: Node<WgslDesc>, body: () => void): IfChain;
+    ElseIf(condition: Node<Any>, body: () => void): IfChain;
     Else(body: () => void): IfChain;
 };
 
-export function If(condition: Node<WgslDesc>, thenBody: () => void): IfChain {
+export function If(condition: Node<Any>, thenBody: () => void): IfChain {
     const thenStack = new StackNode();
     const prev = pushStack(thenStack);
     try { thenBody(); } finally { popStack(prev); }
     const ifNode = new IfNode(condition, thenStack);
     addToStack(ifNode);
     const chain: IfChain = {
-        ElseIf(c: Node<WgslDesc>, body: () => void): IfChain {
+        ElseIf(c: Node<Any>, body: () => void): IfChain {
             const s = new StackNode(); const f = pushStack(s);
             try { body(); } finally { popStack(f); }
             ifNode.elseIfBranches.push({ condition: c, body: s });
@@ -965,7 +965,7 @@ export function If(condition: Node<WgslDesc>, thenBody: () => void): IfChain {
     return chain;
 }
 
-export type LoopVars = Record<string, Node<d.I32Desc>>;
+export type LoopVars = Record<string, Node<d.i32>>;
 
 export function Loop(range: number, callback: (vars: LoopVars) => void): LoopNode;
 export function Loop(o: LoopParam, callback: (vars: LoopVars) => void): LoopNode;
@@ -974,22 +974,22 @@ export function Loop(o: number | LoopParam, callback: (vars: LoopVars) => void):
 }
 export const For = Loop;
 
-export function While(condition: Node<WgslDesc>, body: () => void): void { Loop(condition, body); }
+export function While(condition: Node<Any>, body: () => void): void { Loop(condition, body); }
 export function Return(): void;
-export function Return<D extends WgslDesc>(value: Node<D>): void;
-export function Return<D extends WgslDesc>(value?: Node<D>): void {
+export function Return<D extends Any>(value: Node<D>): void;
+export function Return<D extends Any>(value?: Node<D>): void {
     if (value !== undefined) addToStack(new ReturnNode(value));
     else addToStack(new ReturnNode(new ConstNode(d.voidDesc, 0) as Node<d.VoidDesc>));
 }
 export function Break(): void    { addToStack(new BreakNode()); }
 export function Continue(): void { addToStack(new ContinueNode()); }
 
-export type ParamDesc = { readonly name: string; readonly type: WgslDesc; };
+export type ParamDesc = { readonly name: string; readonly type: Any; };
 export type ParamDescsToNodes<P extends readonly ParamDesc[]> = { [K in keyof P]: P[K] extends ParamDesc ? Node<P[K]['type']> : never; };
 export type FnLayout<P extends readonly ParamDesc[]> = { readonly name: string; readonly params: [...P]; };
 
 // Overload 1 — with layout
-export function Fn<D extends WgslDesc, P extends readonly ParamDesc[]>(
+export function Fn<D extends Any, P extends readonly ParamDesc[]>(
     jsFunc: (...args: ParamDescsToNodes<P>) => Node<D>,
     layout: FnLayout<P>
 ): (...args: ParamDescsToNodes<P>) => CallNode<D>;
@@ -998,53 +998,53 @@ export function Fn<D extends WgslDesc, P extends readonly ParamDesc[]>(
 export function Fn(jsFunc: () => void): FnNode<d.VoidDesc>;
 
 // Overload 3 — no layout
-export function Fn<D extends WgslDesc>(
-    jsFunc: (...args: Node<WgslDesc>[]) => Node<D>
-): (...args: Node<WgslDesc>[]) => CallNode<D>;
+export function Fn<D extends Any>(
+    jsFunc: (...args: Node<Any>[]) => Node<D>
+): (...args: Node<Any>[]) => CallNode<D>;
 
 // Implementation
-export function Fn<D extends WgslDesc>(
-    jsFunc: ((...args: Node<WgslDesc>[]) => Node<D>) | (() => void),
+export function Fn<D extends Any>(
+    jsFunc: ((...args: Node<Any>[]) => Node<D>) | (() => void),
     layout?: FnLayout<readonly ParamDesc[]>
-): ((...args: Node<WgslDesc>[]) => CallNode<D>) | FnNode<d.VoidDesc> {
-    const paramDescs: (ParamDesc | WgslDesc)[] = layout?.params ?? [];
+): ((...args: Node<Any>[]) => CallNode<D>) | FnNode<d.VoidDesc> {
+    const paramDescs: (ParamDesc | Any)[] = layout?.params ?? [];
     const dummyParams = paramDescs.map((pd, i) => {
         const paramName = 'name' in pd ? (pd as ParamDesc).name : undefined;
-        const desc = 'name' in pd ? (pd as ParamDesc).type : (pd as WgslDesc);
+        const desc = 'name' in pd ? (pd as ParamDesc).type : (pd as Any);
         return new ParamNode(desc, i, paramName);
     });
     const traceStack = new StackNode();
     const prev = pushStack(traceStack);
     let returnType: D | d.VoidDesc;
     try {
-        const output = (jsFunc as (...args: Node<WgslDesc>[]) => Node<D> | undefined)(...dummyParams);
+        const output = (jsFunc as (...args: Node<Any>[]) => Node<D> | undefined)(...dummyParams);
         returnType = output != null ? output.type : d.voidDesc;
     } finally { popStack(prev); }
 
     if (returnType === d.voidDesc && paramDescs.length === 0 && !layout) {
-        return new FnNode<d.VoidDesc>(d.voidDesc, [], jsFunc as (...args: Node<WgslDesc>[]) => Node<d.VoidDesc>, undefined);
+        return new FnNode<d.VoidDesc>(d.voidDesc, [], jsFunc as (...args: Node<Any>[]) => Node<d.VoidDesc>, undefined);
     }
-    const fnNode = new FnNode<D>(returnType as D, paramDescs, jsFunc as (...args: Node<WgslDesc>[]) => Node<D>, layout?.name);
-    return (...args: Node<WgslDesc>[]): CallNode<D> => new CallNode<D>(returnType as D, fnNode.fnName, args, fnNode);
+    const fnNode = new FnNode<D>(returnType as D, paramDescs, jsFunc as (...args: Node<Any>[]) => Node<D>, layout?.name);
+    return (...args: Node<Any>[]): CallNode<D> => new CallNode<D>(returnType as D, fnNode.fnName, args, fnNode);
 }
 
-export const cond = <D extends WgslDesc>(condition: Node<WgslDesc>, ifTrue: Node<D>, ifFalse?: Node<D>) => new CondNode(condition, ifTrue, ifFalse);
+export const cond = <D extends Any>(condition: Node<Any>, ifTrue: Node<D>, ifFalse?: Node<D>) => new CondNode(condition, ifTrue, ifFalse);
 
-export function Var<D extends WgslDesc>(init: Node<D>, label?: string): VarNode<D> {
+export function Var<D extends Any>(init: Node<D>, label?: string): VarNode<D> {
     const varName = label ? `var_${_nodeCounter}_${label}` : `var_${_nodeCounter}`;
     const v = new VarNode(init.type, varName, init);
     if (currentStack !== null) currentStack.push(v);
     return v;
 }
 
-export function Const<D extends WgslDesc>(init: Node<D>, label?: string): VarNode<D> {
+export function Const<D extends Any>(init: Node<D>, label?: string): VarNode<D> {
     const varName = label ? `const_${_nodeCounter}_${label}` : `const_${_nodeCounter}`;
     const v = new VarNode(init.type, varName, init, true);
     if (currentStack !== null) currentStack.push(v);
     return v;
 }
 
-export function assign<D extends WgslDesc>(target: Node<D>, value: Node<D>): void { addToStack(new AssignNode(target, value)); }
+export function assign<D extends Any>(target: Node<D>, value: Node<D>): void { addToStack(new AssignNode(target, value)); }
 
 // ── Compute ───────────────────────────────────────────────────────────────────
 
@@ -1058,7 +1058,7 @@ let _computeCounter = 0;
 
 export class ComputeNode {
     readonly id: string;
-    readonly fn: FnNode<WgslDesc>;
+    readonly fn: FnNode<Any>;
     readonly workgroupSize: [number, number, number];
     readonly dispatch: [number, number, number];
     constructor(opts: ComputeNodeOptions) {
@@ -1070,12 +1070,12 @@ export class ComputeNode {
     }
 }
 
-export function compute(fn: FnNode<WgslDesc>, opts: ComputeOptions): ComputeNode { return new ComputeNode({ fn, ...opts }); }
+export function compute(fn: FnNode<Any>, opts: ComputeOptions): ComputeNode { return new ComputeNode({ fn, ...opts }); }
 
 // ── Struct ────────────────────────────────────────────────────────────────────
 
 export type StructInstance<S extends d.StructSchema> = { readonly $node: Node<d.StructDesc> } & { readonly [K in keyof S]: Node<S[K]> };
-export type StructMember = { readonly name: string; readonly type: WgslDesc };
+export type StructMember = { readonly name: string; readonly type: Any };
 export type StructDef<S extends d.StructSchema> = {
     readonly type: 'struct';
     readonly wgslType: string;
@@ -1084,7 +1084,7 @@ export type StructDef<S extends d.StructSchema> = {
     readonly members: StructMember[];
     readonly node: StructNode<S>;
     readonly nestedDefs: ReadonlyMap<string, StructDef<d.StructSchema>>;
-    instantiate<N extends Node<WgslDesc>>(base: N): StructInstance<S>;
+    instantiate<N extends Node<Any>>(base: N): StructInstance<S>;
 };
 
 const _structNodeRegistry: WeakMap<StructNode<d.StructSchema>, StructDef<d.StructSchema>> = new WeakMap();
@@ -1101,8 +1101,8 @@ export function struct<S extends d.StructSchema>(name: string, fields: S): Struc
     for (const desc of Object.values(fields)) {
         if (isStructDef(desc)) nestedDefs.set(desc.wgslType, desc as unknown as StructDef<d.StructSchema>);
     }
-    function instantiate<N extends Node<WgslDesc>>(base: N): StructInstance<S> {
-        const result: Record<string, Node<WgslDesc>> = { $node: base as unknown as Node<d.StructDesc> };
+    function instantiate<N extends Node<Any>>(base: N): StructInstance<S> {
+        const result: Record<string, Node<Any>> = { $node: base as unknown as Node<d.StructDesc> };
         for (const [fieldName, fieldDesc] of Object.entries(fields)) {
             result[fieldName] = new FieldNode(fieldDesc, base, fieldName);
         }

@@ -16,165 +16,178 @@
 // Scalar descriptors
 // ---------------------------------------------------------------------------
 
-export type F32Desc = {
+export const f32: f32 = { type: 'f32',  wgslType: 'f32'  };
+
+export type f32 = {
     readonly type: 'f32';
     readonly wgslType: 'f32';
 };
 
-export type I32Desc = {
+export const i32: i32 = { type: 'i32',  wgslType: 'i32'  };
+
+export type i32 = {
     readonly type: 'i32';
     readonly wgslType: 'i32';
 };
+export const u32: u32 = { type: 'u32',  wgslType: 'u32'  };
 
-export type U32Desc = {
+export type u32 = {
     readonly type: 'u32';
     readonly wgslType: 'u32';
 };
 
-export type BoolDesc = {
+export const bool: bool = { type: 'bool', wgslType: 'bool' };
+
+export type bool = {
     readonly type: 'bool';
     readonly wgslType: 'bool';
 };
 
-export type F16Desc = {
+export const f16: f16 = { type: 'f16',  wgslType: 'f16'  };
+
+export type f16 = {
     readonly type: 'f16';
     readonly wgslType: 'f16';
 };
 
-export type ScalarDesc = F32Desc | I32Desc | U32Desc | BoolDesc | F16Desc;
+export type ScalarDesc = f32 | i32 | u32 | bool | f16;
 
 // ---------------------------------------------------------------------------
 // Vec2 descriptors
 // ---------------------------------------------------------------------------
 
-export type Vec2fDesc = {
-    readonly type: 'vec2f';
-    readonly wgslType: 'vec2f';
-};
+export type vec2f = { readonly type: 'vec2f'; readonly wgslType: 'vec2f'; };
+export const vec2f: vec2f = { type: 'vec2f', wgslType: 'vec2f' };
 
-export type Vec2iDesc = {
-    readonly type: 'vec2i';
-    readonly wgslType: 'vec2i';
-};
+export type vec2i = { readonly type: 'vec2i'; readonly wgslType: 'vec2i'; };
+export const vec2i: vec2i = { type: 'vec2i', wgslType: 'vec2i' };
 
-export type Vec2uDesc = {
-    readonly type: 'vec2u';
-    readonly wgslType: 'vec2u';
-};
+export type vec2u = { readonly type: 'vec2u'; readonly wgslType: 'vec2u'; };
+export const vec2u: vec2u = { type: 'vec2u', wgslType: 'vec2u' };
 
-export type Vec2boolDesc = {
-    readonly type: 'vec2<bool>';
-    readonly wgslType: 'vec2<bool>';
-};
+export type vec2bool = { readonly type: 'vec2<bool>'; readonly wgslType: 'vec2<bool>'; };
+export const vec2bool: vec2bool = { type: 'vec2<bool>', wgslType: 'vec2<bool>' };
 
-export type Vec2hDesc = {
-    readonly type: 'vec2h';
-    readonly wgslType: 'vec2h';
-};
+export type vec2h = { readonly type: 'vec2h'; readonly wgslType: 'vec2h'; };
+export const vec2h: vec2h = { type: 'vec2h', wgslType: 'vec2h' };
 
-export type Vec2Desc = Vec2fDesc | Vec2iDesc | Vec2uDesc | Vec2boolDesc | Vec2hDesc;
+export type Vec2Desc = vec2f | vec2i | vec2u | vec2bool | vec2h;
 
 // ---------------------------------------------------------------------------
 // Vec3 descriptors
 // ---------------------------------------------------------------------------
 
-export type Vec3fDesc = {
-    readonly type: 'vec3f';
-    readonly wgslType: 'vec3f';
-};
+export type vec3f = { readonly type: 'vec3f'; readonly wgslType: 'vec3f'; };
+export const vec3f: vec3f = { type: 'vec3f', wgslType: 'vec3f' };
 
-export type Vec3iDesc = {
-    readonly type: 'vec3i';
-    readonly wgslType: 'vec3i';
-};
+export type vec3i = { readonly type: 'vec3i'; readonly wgslType: 'vec3i'; };
+export const vec3i: vec3i = { type: 'vec3i', wgslType: 'vec3i' };
 
-export type Vec3uDesc = {
-    readonly type: 'vec3u';
-    readonly wgslType: 'vec3u';
-};
+export type vec3u = { readonly type: 'vec3u'; readonly wgslType: 'vec3u'; };
+export const vec3u: vec3u = { type: 'vec3u', wgslType: 'vec3u' };
 
-export type Vec3boolDesc = {
-    readonly type: 'vec3<bool>';
-    readonly wgslType: 'vec3<bool>';
-};
+export type vec3bool = { readonly type: 'vec3<bool>'; readonly wgslType: 'vec3<bool>'; };
+export const vec3bool: vec3bool = { type: 'vec3<bool>', wgslType: 'vec3<bool>' };
 
-export type Vec3hDesc = {
-    readonly type: 'vec3h';
-    readonly wgslType: 'vec3h';
-};
+export type vec3h = { readonly type: 'vec3h'; readonly wgslType: 'vec3h'; };
+export const vec3h: vec3h = { type: 'vec3h', wgslType: 'vec3h' };
 
-export type Vec3Desc = Vec3fDesc | Vec3iDesc | Vec3uDesc | Vec3boolDesc | Vec3hDesc;
+export type Vec3Desc = vec3f | vec3i | vec3u | vec3bool | vec3h;
 
 // ---------------------------------------------------------------------------
 // Vec4 descriptors
 // ---------------------------------------------------------------------------
 
-export type Vec4fDesc = {
-    readonly type: 'vec4f';
-    readonly wgslType: 'vec4f';
-};
+export type vec4f = { readonly type: 'vec4f'; readonly wgslType: 'vec4f'; };
+export const vec4f: vec4f = { type: 'vec4f', wgslType: 'vec4f' };
 
-export type Vec4iDesc = {
-    readonly type: 'vec4i';
-    readonly wgslType: 'vec4i';
-};
+export type vec4i = { readonly type: 'vec4i'; readonly wgslType: 'vec4i'; };
+export const vec4i: vec4i = { type: 'vec4i', wgslType: 'vec4i' };
 
-export type Vec4uDesc = {
-    readonly type: 'vec4u';
-    readonly wgslType: 'vec4u';
-};
+export type vec4u = { readonly type: 'vec4u'; readonly wgslType: 'vec4u'; };
+export const vec4u: vec4u = { type: 'vec4u', wgslType: 'vec4u' };
 
-export type Vec4boolDesc = {
-    readonly type: 'vec4<bool>';
-    readonly wgslType: 'vec4<bool>';
-};
+export type vec4bool = { readonly type: 'vec4<bool>'; readonly wgslType: 'vec4<bool>'; };
+export const vec4bool: vec4bool = { type: 'vec4<bool>', wgslType: 'vec4<bool>' };
 
-export type Vec4hDesc = {
-    readonly type: 'vec4h';
-    readonly wgslType: 'vec4h';
-};
+export type vec4h = { readonly type: 'vec4h'; readonly wgslType: 'vec4h'; };
+export const vec4h: vec4h = { type: 'vec4h', wgslType: 'vec4h' };
 
-export type Vec4Desc = Vec4fDesc | Vec4iDesc | Vec4uDesc | Vec4boolDesc | Vec4hDesc;
+export type Vec4Desc = vec4f | vec4i | vec4u | vec4bool | vec4h;
 
-export type VecDesc = Vec2Desc | Vec3Desc | Vec4Desc;
+export type anyVec = Vec2Desc | Vec3Desc | Vec4Desc;
 
 // ---------------------------------------------------------------------------
 // Matrix descriptors — f32
 // ---------------------------------------------------------------------------
 
-export type Mat2x2fDesc = { readonly type: 'mat2x2f'; readonly wgslType: 'mat2x2f'; };
-export type Mat2x3fDesc = { readonly type: 'mat2x3f'; readonly wgslType: 'mat2x3f'; };
-export type Mat2x4fDesc = { readonly type: 'mat2x4f'; readonly wgslType: 'mat2x4f'; };
-export type Mat3x2fDesc = { readonly type: 'mat3x2f'; readonly wgslType: 'mat3x2f'; };
-export type Mat3x3fDesc = { readonly type: 'mat3x3f'; readonly wgslType: 'mat3x3f'; };
-export type Mat3x4fDesc = { readonly type: 'mat3x4f'; readonly wgslType: 'mat3x4f'; };
-export type Mat4x2fDesc = { readonly type: 'mat4x2f'; readonly wgslType: 'mat4x2f'; };
-export type Mat4x3fDesc = { readonly type: 'mat4x3f'; readonly wgslType: 'mat4x3f'; };
-export type Mat4x4fDesc = { readonly type: 'mat4x4f'; readonly wgslType: 'mat4x4f'; };
+export type mat2x2f = { readonly type: 'mat2x2f'; readonly wgslType: 'mat2x2f'; };
+export const mat2x2f: mat2x2f = { type: 'mat2x2f', wgslType: 'mat2x2f' };
+
+export type mat2x3f = { readonly type: 'mat2x3f'; readonly wgslType: 'mat2x3f'; };
+export const mat2x3f: mat2x3f = { type: 'mat2x3f', wgslType: 'mat2x3f' };
+
+export type mat2x4f = { readonly type: 'mat2x4f'; readonly wgslType: 'mat2x4f'; };
+export const mat2x4f: mat2x4f = { type: 'mat2x4f', wgslType: 'mat2x4f' };
+
+export type mat3x2f = { readonly type: 'mat3x2f'; readonly wgslType: 'mat3x2f'; };
+export const mat3x2f: mat3x2f = { type: 'mat3x2f', wgslType: 'mat3x2f' };
+
+export type mat3x3f = { readonly type: 'mat3x3f'; readonly wgslType: 'mat3x3f'; };
+export const mat3x3f: mat3x3f = { type: 'mat3x3f', wgslType: 'mat3x3f' };
+
+export type mat3x4f = { readonly type: 'mat3x4f'; readonly wgslType: 'mat3x4f'; };
+export const mat3x4f: mat3x4f = { type: 'mat3x4f', wgslType: 'mat3x4f' };
+
+export type mat4x2f = { readonly type: 'mat4x2f'; readonly wgslType: 'mat4x2f'; };
+export const mat4x2f: mat4x2f = { type: 'mat4x2f', wgslType: 'mat4x2f' };
+
+export type mat4x3f = { readonly type: 'mat4x3f'; readonly wgslType: 'mat4x3f'; };
+export const mat4x3f: mat4x3f = { type: 'mat4x3f', wgslType: 'mat4x3f' };
+
+export type mat4x4f = { readonly type: 'mat4x4f'; readonly wgslType: 'mat4x4f'; };
+export const mat4x4f: mat4x4f = { type: 'mat4x4f', wgslType: 'mat4x4f' };
 
 export type MatfDesc =
-    | Mat2x2fDesc | Mat2x3fDesc | Mat2x4fDesc
-    | Mat3x2fDesc | Mat3x3fDesc | Mat3x4fDesc
-    | Mat4x2fDesc | Mat4x3fDesc | Mat4x4fDesc;
+    | mat2x2f | mat2x3f | mat2x4f
+    | mat3x2f | mat3x3f | mat3x4f
+    | mat4x2f | mat4x3f | mat4x4f;
 
 // ---------------------------------------------------------------------------
 // Matrix descriptors — f16
 // ---------------------------------------------------------------------------
 
-export type Mat2x2hDesc = { readonly type: 'mat2x2h'; readonly wgslType: 'mat2x2h'; };
-export type Mat2x3hDesc = { readonly type: 'mat2x3h'; readonly wgslType: 'mat2x3h'; };
-export type Mat2x4hDesc = { readonly type: 'mat2x4h'; readonly wgslType: 'mat2x4h'; };
-export type Mat3x2hDesc = { readonly type: 'mat3x2h'; readonly wgslType: 'mat3x2h'; };
-export type Mat3x3hDesc = { readonly type: 'mat3x3h'; readonly wgslType: 'mat3x3h'; };
-export type Mat3x4hDesc = { readonly type: 'mat3x4h'; readonly wgslType: 'mat3x4h'; };
-export type Mat4x2hDesc = { readonly type: 'mat4x2h'; readonly wgslType: 'mat4x2h'; };
-export type Mat4x3hDesc = { readonly type: 'mat4x3h'; readonly wgslType: 'mat4x3h'; };
-export type Mat4x4hDesc = { readonly type: 'mat4x4h'; readonly wgslType: 'mat4x4h'; };
+export type mat2x2h = { readonly type: 'mat2x2h'; readonly wgslType: 'mat2x2h'; };
+export const mat2x2h: mat2x2h = { type: 'mat2x2h', wgslType: 'mat2x2h' };
+
+export type mat2x3h = { readonly type: 'mat2x3h'; readonly wgslType: 'mat2x3h'; };
+export const mat2x3h: mat2x3h = { type: 'mat2x3h', wgslType: 'mat2x3h' };
+
+export type mat2x4h = { readonly type: 'mat2x4h'; readonly wgslType: 'mat2x4h'; };
+export const mat2x4h: mat2x4h = { type: 'mat2x4h', wgslType: 'mat2x4h' };
+
+export type mat3x2h = { readonly type: 'mat3x2h'; readonly wgslType: 'mat3x2h'; };
+export const mat3x2h: mat3x2h = { type: 'mat3x2h', wgslType: 'mat3x2h' };
+
+export type mat3x3h = { readonly type: 'mat3x3h'; readonly wgslType: 'mat3x3h'; };
+export const mat3x3h: mat3x3h = { type: 'mat3x3h', wgslType: 'mat3x3h' };
+
+export type mat3x4h = { readonly type: 'mat3x4h'; readonly wgslType: 'mat3x4h'; };
+export const mat3x4h: mat3x4h = { type: 'mat3x4h', wgslType: 'mat3x4h' };
+
+export type mat4x2h = { readonly type: 'mat4x2h'; readonly wgslType: 'mat4x2h'; };
+export const mat4x2h: mat4x2h = { type: 'mat4x2h', wgslType: 'mat4x2h' };
+
+export type mat4x3h = { readonly type: 'mat4x3h'; readonly wgslType: 'mat4x3h'; };
+export const mat4x3h: mat4x3h = { type: 'mat4x3h', wgslType: 'mat4x3h' };
+
+export type mat4x4h = { readonly type: 'mat4x4h'; readonly wgslType: 'mat4x4h'; };
+export const mat4x4h: mat4x4h = { type: 'mat4x4h', wgslType: 'mat4x4h' };
 
 export type MathDesc =
-    | Mat2x2hDesc | Mat2x3hDesc | Mat2x4hDesc
-    | Mat3x2hDesc | Mat3x3hDesc | Mat3x4hDesc
-    | Mat4x2hDesc | Mat4x3hDesc | Mat4x4hDesc;
+    | mat2x2h | mat2x3h | mat2x4h
+    | mat3x2h | mat3x3h | mat3x4h
+    | mat4x2h | mat4x3h | mat4x4h;
 
 export type MatDesc = MatfDesc | MathDesc;
 
@@ -182,25 +195,25 @@ export type MatDesc = MatfDesc | MathDesc;
 // Primitive descriptor union
 // ---------------------------------------------------------------------------
 
-export type PrimDesc = ScalarDesc | VecDesc | MatDesc;
+export type PrimDesc = ScalarDesc | anyVec | MatDesc;
 
 // ---------------------------------------------------------------------------
 // Atomic descriptors
 // ---------------------------------------------------------------------------
 
-export type AtomicI32Desc = {
+export type atomicI32 = {
     readonly type: 'atomic';
     readonly wgslType: 'atomic<i32>';
-    readonly inner: I32Desc;
+    readonly inner: i32;
 };
 
-export type AtomicU32Desc = {
+export type atomicU32 = {
     readonly type: 'atomic';
     readonly wgslType: 'atomic<u32>';
-    readonly inner: U32Desc;
+    readonly inner: u32;
 };
 
-export type AtomicDesc = AtomicI32Desc | AtomicU32Desc;
+export type anyAtomic = atomicI32 | atomicU32;
 
 // ---------------------------------------------------------------------------
 // Struct descriptor — fields uses Record<string, WgslDesc> like packcat
@@ -208,7 +221,7 @@ export type AtomicDesc = AtomicI32Desc | AtomicU32Desc;
 
 // Struct schema is a record of field names to descriptors
 // Defined with inline type to avoid circular reference
-export type StructSchema = { readonly [key: string]: WgslDesc };
+export type StructSchema = { readonly [key: string]: Any };
 
 export type StructDesc<S extends StructSchema = StructSchema> = {
     readonly type: 'struct';
@@ -224,14 +237,14 @@ export type StructDesc<S extends StructSchema = StructSchema> = {
 export type ArrayDesc = {
     readonly type: 'array';
     readonly wgslType: `array<${string}>`;
-    readonly element: WgslDesc;
+    readonly element: Any;
     readonly length?: undefined;
 };
 
 export type SizedArrayDesc = {
     readonly type: 'sized-array';
     readonly wgslType: `array<${string}, ${number}>`;
-    readonly element: WgslDesc;
+    readonly element: Any;
     readonly length: number;
 };
 
@@ -261,86 +274,82 @@ export type DepthTextureDesc<T extends string = string> = {
 // Sampler descriptors
 // ---------------------------------------------------------------------------
 
-export type SamplerDesc = {
-    readonly type: 'sampler';
-    readonly wgslType: 'sampler';
-};
+export type sampler = { readonly type: 'sampler'; readonly wgslType: 'sampler'; };
+export const sampler: sampler = { type: 'sampler', wgslType: 'sampler' };
+export type SamplerDesc = sampler;
 
-export type SamplerComparisonDesc = {
-    readonly type: 'sampler_comparison';
-    readonly wgslType: 'sampler_comparison';
-};
+export type samplerComparison = { readonly type: 'sampler_comparison'; readonly wgslType: 'sampler_comparison'; };
+export const samplerComparison: samplerComparison = { type: 'sampler_comparison', wgslType: 'sampler_comparison' };
+export type SamplerComparisonDesc = samplerComparison;
 
 // ---------------------------------------------------------------------------
 // Void descriptor (for control flow nodes)
 // ---------------------------------------------------------------------------
 
-export type VoidDesc = {
-    readonly type: 'void';
-    readonly wgslType: 'void';
-};
+export type voidDesc = { readonly type: 'void'; readonly wgslType: 'void'; };
+export const voidDesc: voidDesc = { type: 'void', wgslType: 'void' };
+export type VoidDesc = voidDesc;
 
 // ---------------------------------------------------------------------------
 // WgslFn descriptor (for function definition nodes)
 // ---------------------------------------------------------------------------
 
-export type WgslFnDesc = {
-    readonly type: 'wgslfn';
-    readonly wgslType: 'wgslfn';
-};
+export type wgslfn = { readonly type: 'wgslfn'; readonly wgslType: 'wgslfn'; };
+export const wgslfn: wgslfn = { type: 'wgslfn', wgslType: 'wgslfn' };
+export type WgslFnDesc = wgslfn;
 
 // ---------------------------------------------------------------------------
 // WgslDesc — the master union of all descriptor types
 // ---------------------------------------------------------------------------
 
-export type WgslDesc =
+export type Any =
     // Scalars
-    | F32Desc
-    | I32Desc
-    | U32Desc
-    | BoolDesc
-    | F16Desc
+    | f32
+    | i32
+    | u32
+    | bool
+    | f16
     // Vec2
-    | Vec2fDesc
-    | Vec2iDesc
-    | Vec2uDesc
-    | Vec2boolDesc
-    | Vec2hDesc
+    | vec2f
+    | vec2i
+    | vec2u
+    | vec2bool
+    | vec2h
     // Vec3
-    | Vec3fDesc
-    | Vec3iDesc
-    | Vec3uDesc
-    | Vec3boolDesc
-    | Vec3hDesc
+    | vec3f
+    | vec3i
+    | vec3u
+    | vec3bool
+    | vec3h
     // Vec4
-    | Vec4fDesc
-    | Vec4iDesc
-    | Vec4uDesc
-    | Vec4boolDesc
-    | Vec4hDesc
+    | vec4f
+    | vec4i
+    | vec4u
+    | vec4bool
+    | vec4h
     // Matrices f32
-    | Mat2x2fDesc
-    | Mat2x3fDesc
-    | Mat2x4fDesc
-    | Mat3x2fDesc
-    | Mat3x3fDesc
-    | Mat3x4fDesc
-    | Mat4x2fDesc
-    | Mat4x3fDesc
-    | Mat4x4fDesc
+    | mat2x2f
+    | mat2x3f
+    | mat2x4f
+    | mat3x2f
+    | mat3x3f
+    | mat3x4f
+    | mat4x2f
+    | mat4x3f
+    | mat4x4f
     // Matrices f16
-    | Mat2x2hDesc
-    | Mat2x3hDesc
-    | Mat2x4hDesc
-    | Mat3x2hDesc
-    | Mat3x3hDesc
-    | Mat3x4hDesc
-    | Mat4x2hDesc
-    | Mat4x3hDesc
-    | Mat4x4hDesc
+    | mat2x2h
+    | mat2x3h
+    | mat2x4h
+    | mat3x2h
+    | mat3x3h
+    | mat3x4h
+    | mat4x2h
+    | mat4x3h
+    | mat4x4h
     // Atomics
-    | AtomicI32Desc
-    | AtomicU32Desc
+    | atomicI32
+    | atomicU32
     // Composites
     | StructDesc
     | ArrayDesc
@@ -383,40 +392,40 @@ export type WgslType = PrimType | AtomicType | `array<${string}>` | `array<${str
 // Type guards
 // ---------------------------------------------------------------------------
 
-export function isAtomicDesc(desc: WgslDesc): desc is AtomicDesc {
+export function isAtomicDesc(desc: Any): desc is anyAtomic {
     return desc.type === 'atomic';
 }
 
-export function isStructDesc(desc: WgslDesc): desc is StructDesc {
+export function isStructDesc(desc: Any): desc is StructDesc {
     return desc.type === 'struct';
 }
 
-export function isArrayDesc(desc: WgslDesc): desc is ArrayDesc {
+export function isArrayDesc(desc: Any): desc is ArrayDesc {
     return desc.type === 'array';
 }
 
-export function isSizedArrayDesc(desc: WgslDesc): desc is SizedArrayDesc {
+export function isSizedArrayDesc(desc: Any): desc is SizedArrayDesc {
     return desc.type === 'sized-array';
 }
 
-export function isTextureDesc(desc: WgslDesc): desc is TextureDesc {
+export function isTextureDesc(desc: Any): desc is TextureDesc {
     return desc.type === 'texture';
 }
 
-export function isDepthTextureDesc(desc: WgslDesc): desc is DepthTextureDesc {
+export function isDepthTextureDesc(desc: Any): desc is DepthTextureDesc {
     return desc.type === 'depth-texture';
 }
 
-export function isSamplerDesc(desc: WgslDesc): desc is SamplerDesc {
+export function isSamplerDesc(desc: Any): desc is SamplerDesc {
     return desc.type === 'sampler';
 }
 
-export function isSamplerComparisonDesc(desc: WgslDesc): desc is SamplerComparisonDesc {
+export function isSamplerComparisonDesc(desc: Any): desc is SamplerComparisonDesc {
     return desc.type === 'sampler_comparison';
 }
 
 // Legacy alias
-export function isStructDef(desc: WgslDesc): desc is StructDesc {
+export function isStructDef(desc: Any): desc is StructDesc {
     return isStructDesc(desc);
 }
 
@@ -424,27 +433,27 @@ export function isStructDef(desc: WgslDesc): desc is StructDesc {
 // Factory functions
 // ---------------------------------------------------------------------------
 
-export function atomic(inner: I32Desc): AtomicI32Desc;
-export function atomic(inner: U32Desc): AtomicU32Desc;
-export function atomic(inner: I32Desc | U32Desc): AtomicDesc {
+export function atomic(inner: i32): atomicI32;
+export function atomic(inner: u32): atomicU32;
+export function atomic(inner: i32 | u32): anyAtomic {
     if (inner.type === 'i32') {
         return { type: 'atomic', wgslType: 'atomic<i32>', inner };
     }
     return { type: 'atomic', wgslType: 'atomic<u32>', inner };
 }
 
-export function struct<S extends Record<string, WgslDesc>, Name extends string>(
+export function struct<S extends Record<string, Any>, Name extends string>(
     name: Name,
     fields: S,
 ): { readonly type: 'struct'; readonly wgslType: Name; readonly name: Name; readonly fields: S } {
     return { type: 'struct', wgslType: name, name, fields };
 }
 
-export function array<E extends WgslDesc>(element: E): { readonly type: 'array'; readonly wgslType: `array<${E['wgslType']}>`; readonly element: E; readonly length?: undefined } {
+export function array<E extends Any>(element: E): { readonly type: 'array'; readonly wgslType: `array<${E['wgslType']}>`; readonly element: E; readonly length?: undefined } {
     return { type: 'array', wgslType: `array<${element.wgslType}>`, element };
 }
 
-export function arrayOf<E extends WgslDesc, N extends number>(element: E, length: N): { readonly type: 'sized-array'; readonly wgslType: `array<${E['wgslType']}, ${N}>`; readonly element: E; readonly length: N } {
+export function arrayOf<E extends Any, N extends number>(element: E, length: N): { readonly type: 'sized-array'; readonly wgslType: `array<${E['wgslType']}, ${N}>`; readonly element: E; readonly length: N } {
     return { type: 'sized-array', wgslType: `array<${element.wgslType}, ${length}>`, element, length };
 }
 
@@ -516,15 +525,15 @@ export const samplerComparisonDesc = (): SamplerComparisonDesc => ({
 // Infer<D> — maps a descriptor to its JS value type
 // ---------------------------------------------------------------------------
 
-export type Infer<D extends WgslDesc> =
+export type Infer<D extends Any> =
     // Struct — match structurally
-    D extends { readonly type: 'struct'; readonly fields: infer S extends Record<string, WgslDesc> }
+    D extends { readonly type: 'struct'; readonly fields: infer S extends Record<string, Any> }
         ? { [K in keyof S]: Infer<S[K]> }
     // Atomic
-    : D extends AtomicDesc
+    : D extends anyAtomic
         ? number
     // Scalars
-    : D extends F32Desc | I32Desc | U32Desc | BoolDesc | F16Desc
+    : D extends f32 | i32 | u32 | bool | f16
         ? number
     // Vec2
     : D extends Vec2Desc
@@ -536,28 +545,28 @@ export type Infer<D extends WgslDesc> =
     : D extends Vec4Desc
         ? [number, number, number, number]
     // Mat2x2
-    : D extends Mat2x2fDesc | Mat2x2hDesc
+    : D extends mat2x2f | mat2x2h
         ? [number, number, number, number]
     // Mat3x3
-    : D extends Mat3x3fDesc | Mat3x3hDesc
+    : D extends mat3x3f | mat3x3h
         ? [number, number, number, number, number, number, number, number, number]
     // Mat4x4
-    : D extends Mat4x4fDesc | Mat4x4hDesc
+    : D extends mat4x4f | mat4x4h
         ? [number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number]
     // Mat2x3, Mat3x2
-    : D extends Mat2x3fDesc | Mat2x3hDesc | Mat3x2fDesc | Mat3x2hDesc
+    : D extends mat2x3f | mat2x3h | mat3x2f | mat3x2h
         ? [number, number, number, number, number, number]
     // Mat2x4, Mat4x2
-    : D extends Mat2x4fDesc | Mat2x4hDesc | Mat4x2fDesc | Mat4x2hDesc
+    : D extends mat2x4f | mat2x4h | mat4x2f | mat4x2h
         ? [number, number, number, number, number, number, number, number]
     // Mat3x4, Mat4x3
-    : D extends Mat3x4fDesc | Mat3x4hDesc | Mat4x3fDesc | Mat4x3hDesc
+    : D extends mat3x4f | mat3x4h | mat4x3f | mat4x3h
         ? [number, number, number, number, number, number, number, number, number, number, number, number]
     // SizedArray — match structurally
-    : D extends { readonly type: 'sized-array'; readonly element: infer E extends WgslDesc }
+    : D extends { readonly type: 'sized-array'; readonly element: infer E extends Any }
         ? Infer<E>[]
     // Array — match structurally
-    : D extends { readonly type: 'array'; readonly element: infer E extends WgslDesc }
+    : D extends { readonly type: 'array'; readonly element: infer E extends Any }
         ? Infer<E>[]
     : never;
 
@@ -565,13 +574,13 @@ export type Infer<D extends WgslDesc> =
 // DescElement / DescFields — type utilities for Node<D> method signatures
 // ---------------------------------------------------------------------------
 
-export type DescElement<D extends WgslDesc> =
-    D extends { readonly type: 'array'; readonly element: infer E extends WgslDesc } ? E :
-    D extends { readonly type: 'sized-array'; readonly element: infer E extends WgslDesc } ? E :
+export type DescElement<D extends Any> =
+    D extends { readonly type: 'array'; readonly element: infer E extends Any } ? E :
+    D extends { readonly type: 'sized-array'; readonly element: infer E extends Any } ? E :
     never;
 
-export type DescFields<D extends WgslDesc> =
-    D extends { readonly type: 'struct'; readonly fields: infer S extends Record<string, WgslDesc> } ? S : never;
+export type DescFields<D extends Any> =
+    D extends { readonly type: 'struct'; readonly fields: infer S extends Record<string, Any> } ? S : never;
 
 // ---------------------------------------------------------------------------
 // WGSL std430 layout utilities
@@ -581,7 +590,7 @@ export function roundUp(n: number, align: number): number {
     return Math.ceil(n / align) * align;
 }
 
-export function wgslAlignOf(desc: WgslDesc): number {
+export function wgslAlignOf(desc: Any): number {
     if (isStructDesc(desc)) {
         let maxAlign = 4;
         for (const field of Object.values(desc.fields)) {
@@ -613,7 +622,7 @@ export function wgslAlignOf(desc: WgslDesc): number {
     throw new Error(`[gpucat] wgslAlignOf: unsupported type '${t}'`);
 }
 
-export function wgslSizeOf(desc: WgslDesc): number {
+export function wgslSizeOf(desc: Any): number {
     if (isStructDesc(desc)) {
         const structAlign = wgslAlignOf(desc);
         let offset = 0;
@@ -661,7 +670,7 @@ export function wgslSizeOf(desc: WgslDesc): number {
     throw new Error(`[gpucat] wgslSizeOf: unsupported type '${t}'`);
 }
 
-export function wgslStrideOf(desc: WgslDesc): number {
+export function wgslStrideOf(desc: Any): number {
     return roundUp(wgslSizeOf(desc), wgslAlignOf(desc));
 }
 
@@ -669,7 +678,7 @@ export function wgslStrideOf(desc: WgslDesc): number {
 // Buffer packing helpers
 // ---------------------------------------------------------------------------
 
-export function itemSizeOf(desc: WgslDesc): number {
+export function itemSizeOf(desc: Any): number {
     const t = desc.wgslType;
     if (t === 'f32' || t === 'i32' || t === 'u32' || t === 'bool' || t === 'f16') return 1;
     if (t === 'vec2f' || t === 'vec2i' || t === 'vec2u' || t === 'vec2<bool>' || t === 'vec2h') return 2;
@@ -684,7 +693,7 @@ export function itemSizeOf(desc: WgslDesc): number {
     throw new Error(`[gpucat] itemSizeOf: unsupported type '${t}'`);
 }
 
-export function typedArrayCtorOf(desc: WgslDesc): new (length: number) => Float32Array | Int32Array | Uint32Array {
+export function typedArrayCtorOf(desc: Any): new (length: number) => Float32Array | Int32Array | Uint32Array {
     const t = desc.wgslType;
     if (t === 'i32' || t === 'vec2i' || t === 'vec3i' || t === 'vec4i') return Int32Array;
     if (t === 'u32' || t === 'vec2u' || t === 'vec3u' || t === 'vec4u') return Uint32Array;
@@ -692,60 +701,10 @@ export function typedArrayCtorOf(desc: WgslDesc): new (length: number) => Float3
 }
 
 // ---------------------------------------------------------------------------
-// Primitive descriptor singletons
-// ---------------------------------------------------------------------------
-
-export const f32:  F32Desc  = { type: 'f32',  wgslType: 'f32'  };
-export const i32:  I32Desc  = { type: 'i32',  wgslType: 'i32'  };
-export const u32:  U32Desc  = { type: 'u32',  wgslType: 'u32'  };
-export const bool: BoolDesc = { type: 'bool', wgslType: 'bool' };
-export const f16:  F16Desc  = { type: 'f16',  wgslType: 'f16'  };
-
-export const vec2f: Vec2fDesc = { type: 'vec2f', wgslType: 'vec2f' };
-export const vec3f: Vec3fDesc = { type: 'vec3f', wgslType: 'vec3f' };
-export const vec4f: Vec4fDesc = { type: 'vec4f', wgslType: 'vec4f' };
-export const vec2i: Vec2iDesc = { type: 'vec2i', wgslType: 'vec2i' };
-export const vec3i: Vec3iDesc = { type: 'vec3i', wgslType: 'vec3i' };
-export const vec4i: Vec4iDesc = { type: 'vec4i', wgslType: 'vec4i' };
-export const vec2u: Vec2uDesc = { type: 'vec2u', wgslType: 'vec2u' };
-export const vec3u: Vec3uDesc = { type: 'vec3u', wgslType: 'vec3u' };
-export const vec4u: Vec4uDesc = { type: 'vec4u', wgslType: 'vec4u' };
-export const vec2h: Vec2hDesc = { type: 'vec2h', wgslType: 'vec2h' };
-export const vec3h: Vec3hDesc = { type: 'vec3h', wgslType: 'vec3h' };
-export const vec4h: Vec4hDesc = { type: 'vec4h', wgslType: 'vec4h' };
-
-export const mat2x2f: Mat2x2fDesc = { type: 'mat2x2f', wgslType: 'mat2x2f' };
-export const mat2x3f: Mat2x3fDesc = { type: 'mat2x3f', wgslType: 'mat2x3f' };
-export const mat2x4f: Mat2x4fDesc = { type: 'mat2x4f', wgslType: 'mat2x4f' };
-export const mat3x2f: Mat3x2fDesc = { type: 'mat3x2f', wgslType: 'mat3x2f' };
-export const mat3x3f: Mat3x3fDesc = { type: 'mat3x3f', wgslType: 'mat3x3f' };
-export const mat3x4f: Mat3x4fDesc = { type: 'mat3x4f', wgslType: 'mat3x4f' };
-export const mat4x2f: Mat4x2fDesc = { type: 'mat4x2f', wgslType: 'mat4x2f' };
-export const mat4x3f: Mat4x3fDesc = { type: 'mat4x3f', wgslType: 'mat4x3f' };
-export const mat4x4f: Mat4x4fDesc = { type: 'mat4x4f', wgslType: 'mat4x4f' };
-
-export const mat2x2h: Mat2x2hDesc = { type: 'mat2x2h', wgslType: 'mat2x2h' };
-export const mat2x3h: Mat2x3hDesc = { type: 'mat2x3h', wgslType: 'mat2x3h' };
-export const mat2x4h: Mat2x4hDesc = { type: 'mat2x4h', wgslType: 'mat2x4h' };
-export const mat3x2h: Mat3x2hDesc = { type: 'mat3x2h', wgslType: 'mat3x2h' };
-export const mat3x3h: Mat3x3hDesc = { type: 'mat3x3h', wgslType: 'mat3x3h' };
-export const mat3x4h: Mat3x4hDesc = { type: 'mat3x4h', wgslType: 'mat3x4h' };
-export const mat4x2h: Mat4x2hDesc = { type: 'mat4x2h', wgslType: 'mat4x2h' };
-export const mat4x3h: Mat4x3hDesc = { type: 'mat4x3h', wgslType: 'mat4x3h' };
-export const mat4x4h: Mat4x4hDesc = { type: 'mat4x4h', wgslType: 'mat4x4h' };
-
-export const sampler: SamplerDesc = { type: 'sampler', wgslType: 'sampler' };
-export const samplerComparison: SamplerComparisonDesc = { type: 'sampler_comparison', wgslType: 'sampler_comparison' };
-
-export const voidDesc: VoidDesc = { type: 'void', wgslType: 'void' };
-
-export const wgslfn: WgslFnDesc = { type: 'wgslfn', wgslType: 'wgslfn' };
-
-// ---------------------------------------------------------------------------
 // Lookup descriptor by WGSL type string
 // ---------------------------------------------------------------------------
 
-const WGSL_TYPE_TO_DESC: Record<string, WgslDesc> = {
+const WGSL_TYPE_TO_DESC: Record<string, Any> = {
     'f32': f32, 'i32': i32, 'u32': u32, 'bool': bool, 'f16': f16,
     'vec2f': vec2f, 'vec3f': vec3f, 'vec4f': vec4f,
     'vec2i': vec2i, 'vec3i': vec3i, 'vec4i': vec4i,
@@ -764,11 +723,11 @@ const WGSL_TYPE_TO_DESC: Record<string, WgslDesc> = {
     'void': voidDesc,
 };
 
-export function descFromWgslType(wgslType: string): WgslDesc {
+export function descFromWgslType(wgslType: string): Any {
     const desc = WGSL_TYPE_TO_DESC[wgslType];
     if (desc) return desc;
     // For custom types (structs, arrays, textures), return a generic descriptor
-    return { type: 'string', wgslType } as unknown as WgslDesc;
+    return { type: 'string', wgslType } as unknown as Any;
 }
 
 // ---------------------------------------------------------------------------
@@ -798,22 +757,22 @@ const VEC4_DESC: Record<string, Vec4Desc> = {
 
 const SCALAR_DESC: Record<string, ScalarDesc> = { f32, i32, u32, bool, f16 };
 
-export function vecElementDescOrSelf(desc: WgslDesc): WgslDesc {
+export function vecElementDescOrSelf(desc: Any): Any {
     const elem = VEC_ELEMENT_DESC[desc.wgslType];
     return elem ?? desc;
 }
 
-export function vec2DescOf(desc: WgslDesc): Vec2Desc {
+export function vec2DescOf(desc: Any): Vec2Desc {
     const elem = VEC_ELEMENT_DESC[desc.wgslType] ?? SCALAR_DESC[desc.wgslType];
     return VEC2_DESC[elem?.wgslType ?? 'f32'] ?? vec2f;
 }
 
-export function vec3DescOf(desc: WgslDesc): Vec3Desc {
+export function vec3DescOf(desc: Any): Vec3Desc {
     const elem = VEC_ELEMENT_DESC[desc.wgslType] ?? SCALAR_DESC[desc.wgslType];
     return VEC3_DESC[elem?.wgslType ?? 'f32'] ?? vec3f;
 }
 
-export function vec4DescOf(desc: WgslDesc): Vec4Desc {
+export function vec4DescOf(desc: Any): Vec4Desc {
     const elem = VEC_ELEMENT_DESC[desc.wgslType] ?? SCALAR_DESC[desc.wgslType];
     return VEC4_DESC[elem?.wgslType ?? 'f32'] ?? vec4f;
 }
@@ -830,14 +789,14 @@ const MAT_TYPES_SET = new Set([
 const VEC_TYPES_SET = new Set(Object.keys(VEC_ELEMENT_DESC));
 const SCALAR_TYPES_SET = new Set(['f32', 'i32', 'u32', 'bool', 'f16']);
 
-export function mulResultDesc(a: WgslDesc, b: WgslDesc): WgslDesc {
+export function mulResultDesc(a: Any, b: Any): Any {
     if (MAT_TYPES_SET.has(a.wgslType)) return VEC_TYPES_SET.has(b.wgslType) ? b : a;
     if (SCALAR_TYPES_SET.has(b.wgslType)) return a;
     if (SCALAR_TYPES_SET.has(a.wgslType)) return b;
     return a;
 }
 
-export function arithResultDesc(a: WgslDesc, b: WgslDesc): WgslDesc {
+export function arithResultDesc(a: Any, b: Any): Any {
     if (SCALAR_TYPES_SET.has(a.wgslType)) return SCALAR_TYPES_SET.has(b.wgslType) ? a : b;
     return a;
 }

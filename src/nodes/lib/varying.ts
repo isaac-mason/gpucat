@@ -1,5 +1,5 @@
 import { computeId, Node } from './core';
-import type { WgslDesc } from '../schema';
+import type { Any } from '../schema';
 import { SubBuildNode, subBuild } from './sub-build';
 
 /**
@@ -24,7 +24,7 @@ export type InterpolationSampling = 'center' | 'centroid' | 'sample' | 'either';
 /**
  * VaryingNode - represents shader varyings that pass data from vertex to fragment stage.
  */
-export class VaryingNode<D extends WgslDesc> extends Node<D> {
+export class VaryingNode<D extends Any> extends Node<D> {
     readonly isVaryingNode = true;
 
     /** The source node wrapped with subBuild('VERTEX') */
@@ -64,5 +64,5 @@ export class VaryingNode<D extends WgslDesc> extends Node<D> {
     }
 }
 
-export const varying = <D extends WgslDesc>(source: Node<D>, name?: string) => new VaryingNode<D>(source, name ?? null);
+export const varying = <D extends Any>(source: Node<D>, name?: string) => new VaryingNode<D>(source, name ?? null);
 

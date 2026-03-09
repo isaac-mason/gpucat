@@ -72,7 +72,7 @@ export function compile(slots: CompileSlots): CompileResult {
     
     // pre-collect varyings from fragment roots (so vertex shader knows what to output)
     // fragment uses: color, mask (when present)
-    const fragmentRoots: Node<d.WgslDesc>[] = [slots.color];
+    const fragmentRoots: Node<d.Any>[] = [slots.color];
     if (slots.mask) fragmentRoots.push(slots.mask);
     collectVaryings(fragmentRoots, vertexCtx);
     
@@ -111,7 +111,7 @@ export function compile(slots: CompileSlots): CompileResult {
     ].filter(Boolean).join('\n');
     
     // collect graph info
-    const graphNodes = new Map<string, Node<d.WgslDesc>>();
+    const graphNodes = new Map<string, Node<d.Any>>();
     const graphEdges = new Map<string, readonly string[]>();
     const graphInfo = new Map<string, NodeGraphInfo>();
     
@@ -182,7 +182,7 @@ export function compileCompute(node: ComputeNode): ComputeCompileResult {
     const traced = fn.trace();
     
     // filter out undefined (void functions have no output)
-    const roots: Node<d.WgslDesc>[] = [traced.body, traced.output].filter((n): n is Node<d.WgslDesc> => n != null);
+    const roots: Node<d.Any>[] = [traced.body, traced.output].filter((n): n is Node<d.Any> => n != null);
     
     // count usages
     ctx.usageCount = countUsages(roots);
@@ -265,7 +265,7 @@ export type AttributeEntry =
       }
     | {
           kind: 'buffer';
-          node: BufferAttributeNode<d.WgslDesc>;
+          node: BufferAttributeNode<d.Any>;
           name: string;
           type: string;
           location: number;
@@ -284,7 +284,7 @@ export type UniformMember = {
     type: string;
     offset: number;
     size: number;
-    node: UniformNode<d.WgslDesc>;
+    node: UniformNode<d.Any>;
 };
 
 export type UniformGroupBlock = {
@@ -298,7 +298,7 @@ export type UniformGroupBlock = {
 };
 
 export type StorageEntry = {
-    node: StorageNode<d.WgslDesc>;
+    node: StorageNode<d.Any>;
     name: string;
     type: string;
     access: 'read' | 'read_write';
@@ -323,7 +323,7 @@ export type SamplerEntry = {
 };
 
 export type ComputeStorageEntry = {
-    node: StorageNode<d.WgslDesc>;
+    node: StorageNode<d.Any>;
     name: string;
     type: string;
     access: 'read' | 'read_write';
@@ -339,10 +339,10 @@ export type NodeGraphInfo = {
 };
 
 export type CompileSlots = {
-    position: Node<d.WgslDesc>;
-    color: Node<d.WgslDesc>;
-    mask?: Node<d.WgslDesc>;
-    depth?: Node<d.WgslDesc>;
+    position: Node<d.Any>;
+    color: Node<d.Any>;
+    mask?: Node<d.Any>;
+    depth?: Node<d.Any>;
 };
 
 export type CompileResult = {
@@ -359,7 +359,7 @@ export type CompileResult = {
     updateBeforeNodes: UpdateBeforeNode[];
     updateAfterNodes: UpdateAfterNode[];
     updateNodes: UpdateNode[];
-    graphNodes: ReadonlyMap<string, Node<d.WgslDesc>>;
+    graphNodes: ReadonlyMap<string, Node<d.Any>>;
     graphEdges: ReadonlyMap<string, readonly string[]>;
     graphInfo: ReadonlyMap<string, NodeGraphInfo>;
 };
@@ -376,9 +376,9 @@ type ShaderStage = 'vertex' | 'fragment' | 'compute';
 
 /** Traced FnNode data */
 type TracedFn = {
-    params: ParamNode<d.WgslDesc>[];
+    params: ParamNode<d.Any>[];
     body: StackNode;
-    output: Node<d.WgslDesc>;
+    output: Node<d.Any>;
 };
 
 /** Build context - carries all state during code generation */
@@ -387,15 +387,15 @@ interface BuildContext {
     isRender: boolean;
     
     // Collected bindings
-    uniforms: Map<string, { node: UniformNode<d.WgslDesc>; group: UniformGroupNode }>;
-    storages: Map<string, StorageNode<d.WgslDesc>>;
+    uniforms: Map<string, { node: UniformNode<d.Any>; group: UniformGroupNode }>;
+    storages: Map<string, StorageNode<d.Any>>;
     storageNames: Map<string, string>; // node.id -> generated name
     textures: Map<string, TextureNode>;
     samplers: Map<string, TextureNode>; // sampler entries reference their texture
     attributes: Map<string, AttributeEntry>;
-    bufferAttributes: BufferAttributeNode<d.WgslDesc>[];
+    bufferAttributes: BufferAttributeNode<d.Any>[];
     bufferAttrNames: Map<string, string>; // node.id -> generated name
-    varyings: Map<string, { node: VaryingNode<d.WgslDesc>; vertexExpr: string }>;
+    varyings: Map<string, { node: VaryingNode<d.Any>; vertexExpr: string }>;
     builtins: Set<string>;
     
     // Struct definitions
@@ -414,7 +414,7 @@ interface BuildContext {
     code: string[];
     
     // Function definitions (FnNode + WgslFnNode/FunctionNode)
-    fnDefs: Map<string, { fn: FnNode<d.WgslDesc>; traced: TracedFn }>;
+    fnDefs: Map<string, { fn: FnNode<d.Any>; traced: TracedFn }>;
     wgslFnDefs: Map<string, WgslFunctionNode>;
     
     // Update nodes
@@ -423,7 +423,7 @@ interface BuildContext {
     updateNodes: UpdateNode[];
     
     // Graph info for inspector
-    graphNodes: Map<string, Node<d.WgslDesc>>;
+    graphNodes: Map<string, Node<d.Any>>;
     graphEdges: Map<string, string[]>;
     graphInfo: Map<string, NodeGraphInfo>;
 }
@@ -461,8 +461,8 @@ function createContext(stage: ShaderStage, isRender: boolean): BuildContext {
 }
 
 /** Get all child nodes for traversal */
-function getChildren(node: Node<d.WgslDesc>): Node<d.WgslDesc>[] {
-    const children: Node<d.WgslDesc>[] = [];
+function getChildren(node: Node<d.Any>): Node<d.Any>[] {
+    const children: Node<d.Any>[] = [];
     
     if (node instanceof BinopNode) {
         children.push(node.left, node.right);
@@ -476,7 +476,7 @@ function getChildren(node: Node<d.WgslDesc>): Node<d.WgslDesc>[] {
         children.push(node.array, node.index);
     } else if (node instanceof VaryingNode) {
         // VaryingNode.node is a SubBuildNode wrapping the source
-        children.push(node.node as unknown as Node<d.WgslDesc>);
+        children.push(node.node as unknown as Node<d.Any>);
     } else if (node instanceof AssignNode) {
         children.push(node.target, node.value);
     } else if (node instanceof VarNode) {
@@ -508,11 +508,11 @@ function getChildren(node: Node<d.WgslDesc>): Node<d.WgslDesc>[] {
 }
 
 /** Count usages of all nodes via DFS */
-function countUsages(roots: Node<d.WgslDesc>[]): Map<string, number> {
+function countUsages(roots: Node<d.Any>[]): Map<string, number> {
     const counts = new Map<string, number>();
     const visited = new Set<string>();
     
-    function visit(node: Node<d.WgslDesc>) {
+    function visit(node: Node<d.Any>) {
         counts.set(node.id, (counts.get(node.id) ?? 0) + 1);
         
         if (visited.has(node.id)) return;
@@ -543,11 +543,11 @@ function countUsages(roots: Node<d.WgslDesc>[]): Map<string, number> {
 }
 
 /** Collect all nodes into a map */
-function collectNodes(roots: Node<d.WgslDesc>[]): Map<string, Node<d.WgslDesc>> {
-    const nodes = new Map<string, Node<d.WgslDesc>>();
+function collectNodes(roots: Node<d.Any>[]): Map<string, Node<d.Any>> {
+    const nodes = new Map<string, Node<d.Any>>();
     const visited = new Set<string>();
     
-    function visit(node: Node<d.WgslDesc>) {
+    function visit(node: Node<d.Any>) {
         if (visited.has(node.id)) return;
         visited.add(node.id);
         nodes.set(node.id, node);
@@ -575,13 +575,13 @@ function collectNodes(roots: Node<d.WgslDesc>[]): Map<string, Node<d.WgslDesc>> 
 
 /** Collect FnNode and FunctionNode (wgslFn) definitions */
 function collectFunctions(
-    roots: Node<d.WgslDesc>[],
-    fnDefs: Map<string, { fn: FnNode<d.WgslDesc>; traced: TracedFn }>,
+    roots: Node<d.Any>[],
+    fnDefs: Map<string, { fn: FnNode<d.Any>; traced: TracedFn }>,
     wgslFnDefs: Map<string, WgslFunctionNode>,
 ) {
     const visited = new Set<string>();
     
-    function visit(node: Node<d.WgslDesc>) {
+    function visit(node: Node<d.Any>) {
         if (visited.has(node.id)) return;
         visited.add(node.id);
         
@@ -631,10 +631,10 @@ function collectFunctions(
 }
 
 /** Pre-collect VaryingNodes from roots and generate their vertex expressions */
-function collectVaryings(roots: Node<d.WgslDesc>[], ctx: BuildContext): void {
+function collectVaryings(roots: Node<d.Any>[], ctx: BuildContext): void {
     const visited = new Set<string>();
     
-    function visit(node: Node<d.WgslDesc>) {
+    function visit(node: Node<d.Any>) {
         if (visited.has(node.id)) return;
         visited.add(node.id);
         
@@ -668,7 +668,7 @@ function collectVaryings(roots: Node<d.WgslDesc>[], ctx: BuildContext): void {
 }
 
 /** Pre-collect StructDefs referenced by StorageNodes so we can emit them before their bindings */
-function collectStructDefs(roots: Node<d.WgslDesc>[], ctx: BuildContext): void {
+function collectStructDefs(roots: Node<d.Any>[], ctx: BuildContext): void {
     const visited = new Set<string>();
 
     function registerDef(def: StructDef<StructSchema>): void {
@@ -680,7 +680,7 @@ function collectStructDefs(roots: Node<d.WgslDesc>[], ctx: BuildContext): void {
         ctx.structDefs.set(def.wgslType, def);
     }
 
-    function visit(node: Node<d.WgslDesc>) {
+    function visit(node: Node<d.Any>) {
         if (visited.has(node.id)) return;
         visited.add(node.id);
 
@@ -731,7 +731,7 @@ function wgslSize(type: string): number {
 
 /* expression generation */
 
-function generateExpr(ctx: BuildContext, node: Node<d.WgslDesc>): string {
+function generateExpr(ctx: BuildContext, node: Node<d.Any>): string {
     // Record node for graph
     ctx.graphNodes.set(node.id, node);
     
@@ -743,7 +743,7 @@ function generateExpr(ctx: BuildContext, node: Node<d.WgslDesc>): string {
     let expr: string;
     
     if (node instanceof ConstNode) {
-        expr = constLiteral(node.type, node.value);
+        expr = constLiteral(node.type.wgslType, node.value);
     } else if (node instanceof UniformNode) {
         expr = generateUniform(ctx, node);
     } else if (node instanceof AttributeNode) {
@@ -769,7 +769,7 @@ function generateExpr(ctx: BuildContext, node: Node<d.WgslDesc>): string {
         expr = `array<${node.elementType}, ${node.elements.length}>(${args.join(', ')})`;
     } else if (node instanceof ConstructNode) {
         const args = node.args.map(a => generateExpr(ctx, a));
-        expr = `${node.type}(${args.join(', ')})`;
+        expr = `${node.type.wgslType}(${args.join(', ')})`;
     } else if (node instanceof FieldNode) {
         const obj = generateExpr(ctx, node.object);
         expr = `${obj}.${node.fieldName}`;
@@ -782,7 +782,7 @@ function generateExpr(ctx: BuildContext, node: Node<d.WgslDesc>): string {
     } else if (node instanceof CondNode) {
         const cond = generateExpr(ctx, node.condition);
         const t = generateExpr(ctx, node.ifTrue);
-        const f = node.ifFalse ? generateExpr(ctx, node.ifFalse) : `${node.type}()`;
+        const f = node.ifFalse ? generateExpr(ctx, node.ifFalse) : `${node.type.wgslType}()`;
         expr = `select(${f}, ${t}, ${cond})`;
     } else if (node instanceof WgslNode) {
         // inline WGSL with $0, $1, ... placeholders
@@ -838,7 +838,7 @@ function generateExpr(ctx: BuildContext, node: Node<d.WgslDesc>): string {
 }
 
 /** Check if expression is simple enough to not need CSE extraction */
-function isSimpleExpr(node: Node<d.WgslDesc>): boolean {
+function isSimpleExpr(node: Node<d.Any>): boolean {
     return (
         node instanceof ConstNode ||
         node instanceof VarNode ||
@@ -856,7 +856,7 @@ function isSimpleExpr(node: Node<d.WgslDesc>): boolean {
 
 /* binding generation */
 
-function generateUniform(ctx: BuildContext, node: UniformNode<d.WgslDesc>): string {
+function generateUniform(ctx: BuildContext, node: UniformNode<d.Any>): string {
     const name = node.name;
     const group = node.groupNode;
     ctx.uniforms.set(name, { node, group });
@@ -872,7 +872,7 @@ function generateUniform(ctx: BuildContext, node: UniformNode<d.WgslDesc>): stri
     return `uniforms_${group.name}.${name}`;
 }
 
-function generateAttribute(ctx: BuildContext, node: AttributeNode<d.WgslDesc>): string {
+function generateAttribute(ctx: BuildContext, node: AttributeNode<d.Any>): string {
     if (ctx.stage !== 'vertex') {
         throw new Error(`[builder] AttributeNode used outside vertex stage`);
     }
@@ -890,7 +890,7 @@ function generateAttribute(ctx: BuildContext, node: AttributeNode<d.WgslDesc>): 
     return `input.${name}`;
 }
 
-function generateBufferAttribute(ctx: BuildContext, node: BufferAttributeNode<d.WgslDesc>): string {
+function generateBufferAttribute(ctx: BuildContext, node: BufferAttributeNode<d.Any>): string {
     // check if already registered
     let name = ctx.bufferAttrNames.get(node.id);
     if (name) {
@@ -905,7 +905,7 @@ function generateBufferAttribute(ctx: BuildContext, node: BufferAttributeNode<d.
     return `input.${name}`;
 }
 
-function generateStorage(ctx: BuildContext, node: StorageNode<d.WgslDesc>): string {
+function generateStorage(ctx: BuildContext, node: StorageNode<d.Any>): string {
     // check if already registered
     let name = ctx.storageNames.get(node.id);
     if (name) {
@@ -971,7 +971,7 @@ function generateSampler(_ctx: BuildContext, node: SamplerNode): string {
     return `${node.samplerId}_sampler`;
 }
 
-function generateVarying(ctx: BuildContext, node: VaryingNode<d.WgslDesc>): string {
+function generateVarying(ctx: BuildContext, node: VaryingNode<d.Any>): string {
     if (ctx.stage === 'compute') {
         throw new Error(`[builder] VaryingNode not allowed in compute shaders`);
     }
@@ -994,7 +994,7 @@ function generateVarying(ctx: BuildContext, node: VaryingNode<d.WgslDesc>): stri
     }
 }
 
-function generateBuiltin(ctx: BuildContext, node: BuiltinNode<d.WgslDesc>): string {
+function generateBuiltin(ctx: BuildContext, node: BuiltinNode<d.Any>): string {
     ctx.builtins.add(node.builtinKind);
     
     const builtinMap: Record<string, string> = {
@@ -1013,7 +1013,7 @@ function generateBuiltin(ctx: BuildContext, node: BuiltinNode<d.WgslDesc>): stri
 
 /* function call generation */
 
-function generateCall(ctx: BuildContext, node: CallNode<d.WgslDesc>): string {
+function generateCall(ctx: BuildContext, node: CallNode<d.Any>): string {
     // if this calls an FnNode, make sure it's registered
     if (node.fnNode) {
         const fn = node.fnNode;
@@ -1061,7 +1061,7 @@ function generateCall(ctx: BuildContext, node: CallNode<d.WgslDesc>): string {
 
 /* statement generation */
 
-function generateStmt(ctx: BuildContext, node: Node<d.WgslDesc>): void {
+function generateStmt(ctx: BuildContext, node: Node<d.Any>): void {
     const ind = '    '.repeat(ctx.indentLevel);
     
     if (node instanceof VarNode) {
@@ -1144,7 +1144,7 @@ function generateLoopStmt(ctx: BuildContext, node: LoopNode): void {
         return;
     }
     
-    const [range, callback] = params as [unknown, (vars: Record<string, ParamNode<d.WgslDesc>>) => void];
+    const [range, callback] = params as [unknown, (vars: Record<string, ParamNode<d.Any>>) => void];
     
     if (typeof callback !== 'function') {
         const ind = '    '.repeat(ctx.indentLevel);
@@ -1158,7 +1158,7 @@ function generateLoopStmt(ctx: BuildContext, node: LoopNode): void {
 
     // Build loop header and the single ParamNode used in the callback.
     let loopHeader: string;
-    let loopVarNode: ParamNode<d.WgslDesc>;
+    let loopVarNode: ParamNode<d.Any>;
     let callbackKey: string;
 
     if (typeof range === 'number') {
@@ -1170,12 +1170,12 @@ function generateLoopStmt(ctx: BuildContext, node: LoopNode): void {
         loopVarNode = new ParamNode(d.i32, 0, autoName);
         ctx.nodeVars.set(loopVarNode.id, autoName);
         callbackKey = 'i';
-        const endExpr = generateExpr(ctx, range as Node<d.WgslDesc>);
+        const endExpr = generateExpr(ctx, range as Node<d.Any>);
         loopHeader = `for (var ${autoName}: i32 = 0i; ${autoName} < ${endExpr}; ${autoName}++)`;
     } else if (typeof range === 'object' && range !== null && !(range instanceof ConstNode)) {
         const cfg = range as {
-            start?: Node<d.WgslDesc> | number;
-            end?: Node<d.WgslDesc> | number;
+            start?: Node<d.Any> | number;
+            end?: Node<d.Any> | number;
             type?: d.ScalarType;
             condition?: '<' | '<=' | '>' | '>=';
             update?: unknown;
@@ -1191,10 +1191,10 @@ function generateLoopStmt(ctx: BuildContext, node: LoopNode): void {
         loopVarNode = new ParamNode(d.descFromWgslType(type), 0, varName);
         ctx.nodeVars.set(loopVarNode.id, varName);
 
-        const getExpr = (v: Node<d.WgslDesc> | number | undefined): string | undefined => {
+        const getExpr = (v: Node<d.Any> | number | undefined): string | undefined => {
             if (v === undefined) return undefined;
             if (typeof v === 'number') return constLiteral(type, v);
-            return generateExpr(ctx, v as Node<d.WgslDesc>);
+            return generateExpr(ctx, v as Node<d.Any>);
         };
 
         const startExpr = getExpr(cfg.start) ?? '0i';
@@ -1240,8 +1240,8 @@ function generateLoopStmt(ctx: BuildContext, node: LoopNode): void {
 type BindingGroupData = {
     groupNode: UniformGroupNode;
     groupIndex: number;
-    uniforms: UniformNode<d.WgslDesc>[];
-    storages: { name: string; node: StorageNode<d.WgslDesc> }[];
+    uniforms: UniformNode<d.Any>[];
+    storages: { name: string; node: StorageNode<d.Any> }[];
     textures: { name: string; node: TextureNode }[];
     samplers: { name: string; node: TextureNode }[];
 };
@@ -1319,7 +1319,7 @@ function emitAllBindings(ctx: BuildContext): {
     for (const [_typeName, def] of ctx.structDefs) {
         lines.push(`struct ${def.wgslType} {`);
         for (const member of def.members) {
-            lines.push(`    ${member.name}: ${member.type},`);
+            lines.push(`    ${member.name}: ${member.type.wgslType},`);
         }
         lines.push(`}`);
         lines.push('');
@@ -1470,7 +1470,7 @@ function emitDslFunctions(ctx: BuildContext): string {
         // build parameter list
         const params = traced.params.map((p, i) => {
             const pName = p.paramName ?? `p${i}`;
-            return `${pName}: ${p.type}`;
+            return `${pName}: ${p.type.wgslType}`;
         }).join(', ');
         
         // generate function body
@@ -1527,7 +1527,7 @@ function generateVertexShader(slots: CompileSlots, ctx: BuildContext): string {
         for (const bufAttr of ctx.bufferAttributes) {
             const bufName = ctx.bufferAttrNames.get(bufAttr.id)!;
             const location = ctx.attributes.size + ctx.bufferAttributes.indexOf(bufAttr);
-            lines.push(`    @location(${location}) ${bufName}: ${bufAttr.type},`);
+            lines.push(`    @location(${location}) ${bufName}: ${bufAttr.type.wgslType},`);
         }
         if (hasVertexIndex) {
             lines.push(`    @builtin(vertex_index) vertex_index: u32,`);
@@ -1552,7 +1552,7 @@ function generateVertexShader(slots: CompileSlots, ctx: BuildContext): string {
             }
             interp += ')';
         }
-        lines.push(`    @location(${varyingLoc})${interp} ${name}: ${node.type},`);
+        lines.push(`    @location(${varyingLoc})${interp} ${name}: ${node.type.wgslType},`);
         varyingLoc++;
     }
     lines.push('}');
@@ -1582,7 +1582,7 @@ function generateVertexShader(slots: CompileSlots, ctx: BuildContext): string {
 
 /* fragment shader generation */
 
-function generateFragmentShader(slots: CompileSlots, ctx: BuildContext, varyings: Map<string, { node: VaryingNode<d.WgslDesc>; vertexExpr: string }>): string {
+function generateFragmentShader(slots: CompileSlots, ctx: BuildContext, varyings: Map<string, { node: VaryingNode<d.Any>; vertexExpr: string }>): string {
     const lines: string[] = [];
     
     // copy varyings from vertex stage
@@ -1615,7 +1615,7 @@ function generateFragmentShader(slots: CompileSlots, ctx: BuildContext, varyings
                 }
                 interp += ')';
             }
-            lines.push(`    @location(${varyingLoc})${interp} ${name}: ${node.type},`);
+            lines.push(`    @location(${varyingLoc})${interp} ${name}: ${node.type.wgslType},`);
             varyingLoc++;
         }
         lines.push('}');

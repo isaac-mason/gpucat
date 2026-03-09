@@ -1,5 +1,5 @@
 import { Node, type StructDef, type StructInstance, computeId, ConstructNode, NodeUpdateType, ConstNode } from './core';
-import type { StructSchema, WgslDesc } from '../schema';
+import type { StructSchema, Any } from '../schema';
 import type { NodeFrame } from 'src/renderer/node-frame';
 
 /**
@@ -30,7 +30,7 @@ export class UniformGroupNode {
     }
 }
 
-export class UniformNode<D extends WgslDesc> extends Node<D> {
+export class UniformNode<D extends Any> extends Node<D> {
     /**
      * Uniform group — determines @group index and struct packing.
      */
@@ -127,9 +127,9 @@ export const objectGroup = /*@__PURE__*/ uniformGroup('object', 1, NodeUpdateTyp
  * calls with the same arguments return the same node object.
  */
 export function uniform<S extends StructSchema>(def: StructDef<S>, name: string): StructInstance<S>;
-export function uniform<D extends WgslDesc>(init: ConstructNode<D>, name?: string): UniformNode<D>;
-export function uniform<D extends WgslDesc>(init: ConstNode<D>, name?: string): UniformNode<D>;
-export function uniform<D extends WgslDesc, S extends StructSchema>(
+export function uniform<D extends Any>(init: ConstructNode<D>, name?: string): UniformNode<D>;
+export function uniform<D extends Any>(init: ConstNode<D>, name?: string): UniformNode<D>;
+export function uniform<D extends Any, S extends StructSchema>(
     init: ConstNode<D> | ConstructNode<D> | StructDef<S>,
     name?: string
 ): UniformNode<D> | StructInstance<S> {

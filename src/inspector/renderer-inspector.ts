@@ -24,7 +24,7 @@ import type { Scene } from '../scene/scene';
 import { getBufferCacheStats } from '../renderer/buffers';
 import * as pipelines from '../renderer/pipelines';
 import { getRenderObjectsStats } from '../renderer/render-objects';
-import { WgslDesc } from '../nodes/schema';
+import { Any } from '../nodes/schema';
 
 // ---------------------------------------------------------------------------
 // Frame data types
@@ -78,7 +78,7 @@ export type FrameRecord = {
         total: number;
     };
     /** Inspectable nodes encountered this frame */
-    inspectableNodes: InspectorNode<WgslDesc>[];
+    inspectableNodes: InspectorNode<Any>[];
     /** Scene render calls encountered this frame, one entry per renderScene() call. */
     scenes: SceneRecord[];
 };
@@ -125,7 +125,7 @@ export class RendererInspector extends InspectorBase {
     private _currentPasses: PassRecord[] = [];
     private _passStarts: Map<string, number> = new Map();
     private _currentQuerySlot = 0;
-    private _pendingInspectables: InspectorNode<WgslDesc>[] = [];
+    private _pendingInspectables: InspectorNode<Any>[] = [];
     private _pendingScenes: SceneRecord[] = [];
 
     override init(): void {
@@ -234,7 +234,7 @@ export class RendererInspector extends InspectorBase {
         this._clearPassRef(nodeId);
     }
 
-    override inspect(node: InspectorNode<WgslDesc>): void {
+    override inspect(node: InspectorNode<Any>): void {
         this._pendingInspectables.push(node);
     }
 

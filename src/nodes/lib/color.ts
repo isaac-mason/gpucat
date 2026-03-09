@@ -24,7 +24,7 @@ import * as d from '../schema';
  * color(new Color('red'));
  */
 
-export function color(input: ColorInput): ConstNode<d.Vec3fDesc> {
+export function color(input: ColorInput): ConstNode<d.vec3f> {
     const c = input instanceof Color ? input : new Color(input);
     return new ConstNode(d.vec3f, [c.r, c.g, c.b]);
 }

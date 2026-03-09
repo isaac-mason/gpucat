@@ -15,7 +15,7 @@
 
 import type { ComputeCompileResult } from '../nodes/builder';
 import { type Node, type ComputeNode, OutputStructNode } from '../nodes/nodes';
-import type { WgslDesc } from '../nodes/schema';
+import type { Any } from '../nodes/schema';
 import type { Material } from '../material/material';
 import type { Geometry } from '../geometry/geometry';
 import type { RenderObject } from './render-object';
@@ -340,7 +340,7 @@ export function isComputeReady(state: PipelinesState, node: ComputeNode): boolea
 /**
  * Get the number of render targets for a fragment node.
  */
-function getTargetCount(fragmentNode: Node<WgslDesc>): number {
+function getTargetCount(fragmentNode: Node<Any>): number {
     if (fragmentNode instanceof OutputStructNode) {
         return Math.max(1, fragmentNode.members.length);
     }

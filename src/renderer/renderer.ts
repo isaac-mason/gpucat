@@ -773,7 +773,7 @@ export class WebGPURenderer {
      * Call this once per animation frame. Any `renderer.compute()` calls made
      * earlier in the same frame will be submitted in the same command buffer.
      */
-    render(outputNode: Node<d.WgslDesc>): void {
+    render(outputNode: Node<d.Any>): void {
         if (this._isDeviceLost) return;
 
         if (!this._initialized) {
@@ -1435,7 +1435,7 @@ export class WebGPURenderer {
      * @param renderObject - The RenderObject for the fullscreen quad
      */
     private _renderOutputNodeWithRenderObject(
-        _outputNode: Node<d.WgslDesc>,
+        _outputNode: Node<d.Any>,
         encoder: GPUCommandEncoder,
         renderObject: import('./render-object').RenderObject,
     ): void {
@@ -1632,7 +1632,7 @@ export class WebGPURenderer {
      * @param samples - MSAA sample count (defaults to renderer's sample count).
      */
     private _makeOutputMaterial(
-        outputNode: Node<d.WgslDesc>,
+        outputNode: Node<d.Any>,
         format: GPUTextureFormat = this.format,
         samples: number = this._samples,
         depthFormat: GPUTextureFormat | undefined = this.pipelines.depthFormat,
@@ -1674,7 +1674,7 @@ export class WebGPURenderer {
  * WGSL does not support anonymous IIFEs, so the logic is expressed as a
  * named helper function emitted via FnNode, then called with CallNode.
  */
-function _makeFullscreenPositionNode(): Node<d.Vec4fDesc> {
+function _makeFullscreenPositionNode(): Node<d.vec4f> {
     const vi = builtin('vertex_index', d.u32);
     return wgsl(d.vec4f)`vec4f(f32((${ vi } & 1u) * 2u) * 2.0 - 1.0, f32(${ vi } & 2u) * 2.0 - 1.0, 0.0, 1.0)`;
 }
@@ -1687,10 +1687,10 @@ function _makeFullscreenPositionNode(): Node<d.Vec4fDesc> {
  * Standard over-sized-triangle UV: x = clip.x * 0.5 + 0.5, y = 0.5 - clip.y * 0.5
  * Inlined as a single expression — WGSL IIFEs are not valid.
  */
-function _makeFullscreenUVVarying(): VaryingNode<d.Vec2fDesc> {
+function _makeFullscreenUVVarying(): VaryingNode<d.vec2f> {
     const vi = builtin('vertex_index', d.u32);
     const uvSource = wgsl(d.vec2f)`vec2f((f32((${ vi } & 1u) * 2u) * 2.0 - 1.0) * 0.5 + 0.5, 0.5 - (f32(${ vi } & 2u) * 2.0 - 1.0) * 0.5)`;
-    return new VaryingNode<d.Vec2fDesc>(uvSource, 'uv');
+    return new VaryingNode<d.vec2f>(uvSource, 'uv');
 }
 
 // ---------------------------------------------------------------------------

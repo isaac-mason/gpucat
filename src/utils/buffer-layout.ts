@@ -25,7 +25,7 @@
  */
 
 import {
-    type WgslDesc,
+    type Any,
     type StructDesc,
     type Infer,
     isStructDesc,
@@ -43,7 +43,7 @@ import {
  * Infer the JS value type from a WgslDesc.
  * Re-exported from schema.ts for convenience.
  */
-export type InferValue<D extends WgslDesc> = Infer<D>;
+export type InferValue<D extends Any> = Infer<D>;
 
 // ---------------------------------------------------------------------------
 // Internal writer
@@ -58,7 +58,7 @@ export type InferValue<D extends WgslDesc> = Infer<D>;
 function writeValue(
     view: DataView,
     offset: number,
-    desc: WgslDesc,
+    desc: Any,
     value: unknown,
     littleEndian = true,
 ): number {

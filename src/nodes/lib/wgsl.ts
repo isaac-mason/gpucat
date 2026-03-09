@@ -11,11 +11,11 @@ import * as d from '../schema';
  * const expr = new WgslNode(d.f32, 'dot($0, $1)', [a, b]);
  * // generates: dot(a_expr, b_expr)
  */
-export class WgslNode<D extends d.WgslDesc> extends Node<D> {
+export class WgslNode<D extends d.Any> extends Node<D> {
     constructor(
         type: D,
         readonly wgsl: string,
-        readonly deps: Node<d.WgslDesc>[]
+        readonly deps: Node<d.Any>[]
     ) {
         super(computeId('wgsl', { type: type.wgslType, wgsl, deps: deps.map((n) => n.id) }), type);
     }
@@ -25,7 +25,7 @@ export class WgslNode<D extends d.WgslDesc> extends Node<D> {
      * Useful for pulling nodes into the graph (e.g. varyings) without
      * emitting them in the WGSL expression string.
      */
-    with(...extra: Node<d.WgslDesc>[]): WgslNode<D> {
+    with(...extra: Node<d.Any>[]): WgslNode<D> {
         return new WgslNode<D>(this.type, this.wgsl, [...this.deps, ...extra]);
     }
 }
@@ -43,8 +43,8 @@ export class WgslNode<D extends d.WgslDesc> extends Node<D> {
  * // Preserving input type:
  * const sinNode = <D extends d.WgslDesc>(a: Node<D>) => wgsl(a.type)`sin(${a})`;
  */
-export function wgsl<D extends d.WgslDesc>(desc: D): (strings: TemplateStringsArray, ...deps: Node<d.WgslDesc>[]) => WgslNode<D> {
-    return (strings: TemplateStringsArray, ...deps: Node<d.WgslDesc>[]): WgslNode<D> => {
+export function wgsl<D extends d.Any>(desc: D): (strings: TemplateStringsArray, ...deps: Node<d.Any>[]) => WgslNode<D> {
+    return (strings: TemplateStringsArray, ...deps: Node<d.Any>[]): WgslNode<D> => {
         const wgslStr = String.raw({ raw: strings }, ...deps.map((_, i) => `$${i}`));
         return new WgslNode(desc, wgslStr, deps);
     };

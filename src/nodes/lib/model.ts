@@ -13,14 +13,14 @@ export const modelNormalMatrix = /*@__PURE__*/ new UniformNode(d.mat3x3f, 'model
     .onObjectUpdate((frame) => frame.object!.normalMatrix);
 
 /** helper for vertex shader: compute clip-space position from vertex position attribute and camera matrices. */
-export const positionClip: Node<d.Vec4fDesc> = (() => {
+export const positionClip: Node<d.vec4f> = (() => {
     const pos = attribute(d.vec3f, 'position');
     const localPos = vec4f(pos, f32(1.0));
 
     const worldPos = mul(modelWorldMatrix, localPos);
 
     const viewPos = mul(cameraViewMatrix, worldPos);
-    const clipPos = mul(cameraProjectionMatrix, viewPos) as unknown as Node<d.Vec4fDesc>;
+    const clipPos = mul(cameraProjectionMatrix, viewPos) as unknown as Node<d.vec4f>;
 
     return clipPos;
 })();

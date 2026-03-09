@@ -104,7 +104,7 @@ export {
 
 export * as d from './nodes/schema';
 export type {
-    ArrayDesc, WgslDesc, SizedArrayDesc,
+    ArrayDesc, Any as WgslDesc, SizedArrayDesc,
 } from './nodes/schema';
 export { arrayOf, wgslAlignOf, wgslSizeOf, wgslStrideOf, roundUp } from './nodes/schema';
 

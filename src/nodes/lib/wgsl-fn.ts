@@ -128,7 +128,7 @@ export class WgslFunctionNode extends Node<d.WgslFnDesc> {
      * Create a CallNode that calls this function.
      * @param args - Arguments to pass (positional or named object)
      */
-    call(...args: Node<d.WgslDesc>[]): CallNode<d.WgslDesc> {
+    call(...args: Node<d.Any>[]): CallNode<d.Any> {
         const nodeFunc = this.getNodeFunction();
         const fnName = nodeFunc.name;
         const returnType = d.descFromWgslType(nodeFunc.outputType);
@@ -187,7 +187,7 @@ export function wgslFn(
     const returnType = d.descFromWgslType(nodeFunc.outputType);
 
     // Return a callable that creates CallNodes
-    const fn = (...args: Node<d.WgslDesc>[]): CallNode<d.WgslDesc> => {
+    const fn = (...args: Node<d.Any>[]): CallNode<d.Any> => {
         return new CallNode(returnType, fnName, args, undefined, functionNode);
     };
 
@@ -199,6 +199,6 @@ export function wgslFn(
 
 /** Type for the callable returned by wgslFn */
 export type WgslFnCallable = {
-    (...args: Node<d.WgslDesc>[]): CallNode<d.WgslDesc>;
+    (...args: Node<d.Any>[]): CallNode<d.Any>;
     functionNode: WgslFunctionNode;
 };

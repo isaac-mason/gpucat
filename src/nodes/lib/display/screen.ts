@@ -23,7 +23,7 @@ export const screenCoordinate = fragCoord.xy;
  * const size = screenSize; // vec2f(width, height)
  */
 
-export const screenSize: UniformNode<d.Vec2fDesc> = /*@__PURE__*/ new UniformNode(d.vec2f, 'screenSize', renderGroup)
+export const screenSize: UniformNode<d.vec2f> = /*@__PURE__*/ new UniformNode(d.vec2f, 'screenSize', renderGroup)
     .onRenderUpdate(({ width, height }) => [width, height]);
 
 /**
@@ -40,6 +40,6 @@ export const screenSize: UniformNode<d.Vec2fDesc> = /*@__PURE__*/ new UniformNod
  * const x = screenUV.x;
  */
 
-export const screenUV: Node<d.Vec2fDesc> = /*@__PURE__*/ (() => {
-    return div(screenCoordinate, screenSize) as unknown as Node<d.Vec2fDesc>;
+export const screenUV: Node<d.vec2f> = /*@__PURE__*/ (() => {
+    return div(screenCoordinate, screenSize) as unknown as Node<d.vec2f>;
 })();

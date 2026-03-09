@@ -142,10 +142,10 @@ export class IndirectStorageBufferAttribute extends StorageBufferAttribute {
     readonly indirectStride: number;
 
     /** Lazily created flat StorageNode. */
-    private _storageNode: StorageNode<d.U32Desc> | null = null;
+    private _storageNode: StorageNode<d.u32> | null = null;
 
     /** Lazily created struct-typed StorageNode. */
-    private _structStorageNode: StorageNode<d.WgslDesc> | null = null;
+    private _structStorageNode: StorageNode<d.Any> | null = null;
 
     /**
      * Constructor:
@@ -192,7 +192,7 @@ export class IndirectStorageBufferAttribute extends StorageBufferAttribute {
      * Returns the struct-typed node if present, otherwise the flat array<u32> node.
      * Used by BufferCache to detect shared-buffer indirect nodes.
      */
-    get _cachedStorageNode(): StorageNode<d.WgslDesc> | StorageNode<d.U32Desc> | null {
+    get _cachedStorageNode(): StorageNode<d.Any> | StorageNode<d.u32> | null {
         return this._structStorageNode ?? this._storageNode;
     }
 }

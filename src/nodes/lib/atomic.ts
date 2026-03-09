@@ -1,5 +1,5 @@
 import { addToStack, CallNode, Node } from './core';
-import type { WgslDesc } from '../schema';
+import type { Any } from '../schema';
 import * as d from '../schema';
 
 /* atomic operations for i32 and u32 types */
@@ -7,11 +7,11 @@ import * as d from '../schema';
 // `atomic<i32>`/`atomic<u32>` nodes (e.g. struct fields declared with d.atomic()).
 // The operations always return/accept the underlying scalar type.
 
-type AtomicPtrDesc = d.I32Desc | d.U32Desc | d.AtomicI32Desc | d.AtomicU32Desc;
-type ScalarResultDesc = d.I32Desc | d.U32Desc;
+type AtomicPtrDesc = d.i32 | d.u32 | d.atomicI32 | d.atomicU32;
+type ScalarResultDesc = d.i32 | d.u32;
 
 /** Strip `atomic<…>` wrapper to get the underlying scalar type descriptor at runtime. */
-function scalarDescOf(desc: WgslDesc): ScalarResultDesc {
+function scalarDescOf(desc: Any): ScalarResultDesc {
     if (desc.wgslType === 'atomic<i32>' || desc.wgslType === 'i32') return d.i32;
     return d.u32;
 }
@@ -21,7 +21,7 @@ function scalarDescOf(desc: WgslDesc): ScalarResultDesc {
  *
  * In WGSL: `atomicAdd(&ptr, value) -> i32/u32`
  */
-export function atomicAdd<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.I32Desc | d.U32Desc>): Node<ScalarResultDesc> {
+export function atomicAdd<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): Node<ScalarResultDesc> {
     return new CallNode(scalarDescOf(ptr.type), 'atomicAdd', [ptr, value]);
 }
 
@@ -30,7 +30,7 @@ export function atomicAdd<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.I
  *
  * In WGSL: `atomicStore(&ptr, value)`
  */
-export function atomicStore<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.I32Desc | d.U32Desc>): void {
+export function atomicStore<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): void {
     addToStack(new CallNode(d.voidDesc, 'atomicStore', [ptr, value]));
 }
 
@@ -48,7 +48,7 @@ export function atomicLoad<D extends AtomicPtrDesc>(ptr: Node<D>): Node<ScalarRe
  *
  * In WGSL: `atomicSub(&ptr, value) -> i32/u32`
  */
-export function atomicSub<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.I32Desc | d.U32Desc>): Node<ScalarResultDesc> {
+export function atomicSub<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): Node<ScalarResultDesc> {
     return new CallNode(scalarDescOf(ptr.type), 'atomicSub', [ptr, value]);
 }
 
@@ -57,7 +57,7 @@ export function atomicSub<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.I
  *
  * In WGSL: `atomicMax(&ptr, value) -> i32/u32`
  */
-export function atomicMax<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.I32Desc | d.U32Desc>): Node<ScalarResultDesc> {
+export function atomicMax<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): Node<ScalarResultDesc> {
     return new CallNode(scalarDescOf(ptr.type), 'atomicMax', [ptr, value]);
 }
 
@@ -66,7 +66,7 @@ export function atomicMax<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.I
  *
  * In WGSL: `atomicMin(&ptr, value) -> i32/u32`
  */
-export function atomicMin<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.I32Desc | d.U32Desc>): Node<ScalarResultDesc> {
+export function atomicMin<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): Node<ScalarResultDesc> {
     return new CallNode(scalarDescOf(ptr.type), 'atomicMin', [ptr, value]);
 }
 
@@ -75,7 +75,7 @@ export function atomicMin<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.I
  *
  * In WGSL: `atomicAnd(&ptr, value) -> i32/u32`
  */
-export function atomicAnd<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.I32Desc | d.U32Desc>): Node<ScalarResultDesc> {
+export function atomicAnd<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): Node<ScalarResultDesc> {
     return new CallNode(scalarDescOf(ptr.type), 'atomicAnd', [ptr, value]);
 }
 
@@ -84,7 +84,7 @@ export function atomicAnd<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.I
  *
  * In WGSL: `atomicOr(&ptr, value) -> i32/u32`
  */
-export function atomicOr<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.I32Desc | d.U32Desc>): Node<ScalarResultDesc> {
+export function atomicOr<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): Node<ScalarResultDesc> {
     return new CallNode(scalarDescOf(ptr.type), 'atomicOr', [ptr, value]);
 }
 
@@ -93,7 +93,7 @@ export function atomicOr<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.I3
  *
  * In WGSL: `atomicXor(&ptr, value) -> i32/u32`
  */
-export function atomicXor<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.I32Desc | d.U32Desc>): Node<ScalarResultDesc> {
+export function atomicXor<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): Node<ScalarResultDesc> {
     return new CallNode(scalarDescOf(ptr.type), 'atomicXor', [ptr, value]);
 }
 
@@ -102,7 +102,7 @@ export function atomicXor<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.I
  *
  * In WGSL: `atomicExchange(&ptr, value) -> i32/u32`
  */
-export function atomicExchange<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.I32Desc | d.U32Desc>): Node<ScalarResultDesc> {
+export function atomicExchange<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): Node<ScalarResultDesc> {
     return new CallNode(scalarDescOf(ptr.type), 'atomicExchange', [ptr, value]);
 }
 
@@ -117,8 +117,8 @@ export function atomicExchange<D extends AtomicPtrDesc>(ptr: Node<D>, value: Nod
  */
 export function atomicCompareExchangeWeak<D extends AtomicPtrDesc>(
     ptr: Node<D>,
-    comparator: Node<d.I32Desc | d.U32Desc>,
-    value: Node<d.I32Desc | d.U32Desc>
-): Node<WgslDesc> {
+    comparator: Node<d.i32 | d.u32>,
+    value: Node<d.i32 | d.u32>
+): Node<Any> {
     return new CallNode(d.voidDesc, 'atomicCompareExchangeWeak', [ptr, comparator, value]);
 }

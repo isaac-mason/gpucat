@@ -1,6 +1,6 @@
 import { StorageBufferAttribute, InstancedBufferAttribute } from '../../core/attribute';
 import { Node, computeId, nextId, type GpuTypedArray } from './core';
-import { itemSizeOf, type WgslDesc } from '../schema';
+import { itemSizeOf, type Any } from '../schema';
 import * as d from '../schema';
 
 /**
@@ -21,7 +21,7 @@ import * as d from '../schema';
  * // Regular attribute:
  * const colors = bufferAttribute(new Float32Array([...]), S.vec3f());
  */
-export class BufferAttributeNode<D extends WgslDesc> extends Node<D> {
+export class BufferAttributeNode<D extends Any> extends Node<D> {
     /** The underlying BufferAttribute (StorageBufferAttribute/InstancedBufferAttribute). */
     readonly attribute: StorageBufferAttribute | InstancedBufferAttribute;
     /** Byte stride between consecutive elements. */
@@ -63,7 +63,7 @@ export class BufferAttributeNode<D extends WgslDesc> extends Node<D> {
     }
 }
 
-export class AttributeNode<D extends WgslDesc> extends Node<D> {
+export class AttributeNode<D extends Any> extends Node<D> {
     constructor(
         desc: D,
         readonly name: string
@@ -72,7 +72,7 @@ export class AttributeNode<D extends WgslDesc> extends Node<D> {
     }
 }
 
-export const attribute = <D extends WgslDesc>(desc: D, name: string) => new AttributeNode<D>(desc, name);
+export const attribute = <D extends Any>(desc: D, name: string) => new AttributeNode<D>(desc, name);
 
 /**
  * Internal helper for creating buffer attribute nodes.
@@ -82,7 +82,7 @@ export const attribute = <D extends WgslDesc>(desc: D, name: string) => new Attr
  * @param offset    Byte offset within each element
  * @param instanced Whether this is an instanced attribute.
  */
-function createBufferAttribute<D extends WgslDesc>(
+function createBufferAttribute<D extends Any>(
     value: StorageBufferAttribute | InstancedBufferAttribute | GpuTypedArray,
     desc: D,
     stride: number,
@@ -105,7 +105,7 @@ function createBufferAttribute<D extends WgslDesc>(
  * @example
  * const colors = bufferAttribute(new Float32Array([1,0,0, 0,1,0]), S.vec3f());
  */
-export const bufferAttribute = <D extends WgslDesc>(
+export const bufferAttribute = <D extends Any>(
     value: StorageBufferAttribute | InstancedBufferAttribute | GpuTypedArray,
     desc: D,
     stride = 0,
@@ -129,7 +129,7 @@ export const bufferAttribute = <D extends WgslDesc>(
  * // With raw TypedArray:
  * const colors = instancedBufferAttribute(new Float32Array([1,0,0, 0,1,0]), S.vec3f());
  */
-export const instancedBufferAttribute = <D extends WgslDesc>(
+export const instancedBufferAttribute = <D extends Any>(
     value: InstancedBufferAttribute | GpuTypedArray,
     desc: D,
     stride = 0,
@@ -157,4 +157,4 @@ export const instancedBufferAttribute = <D extends WgslDesc>(
  * // Sample a texture with UVs
  * const color = myTexture.sample(uv());
  */
-export const uv = (index = 0): AttributeNode<d.Vec2fDesc> => new AttributeNode<d.Vec2fDesc>(d.vec2f, 'uv' + (index > 0 ? index : ''));
+export const uv = (index = 0): AttributeNode<d.vec2f> => new AttributeNode<d.vec2f>(d.vec2f, 'uv' + (index > 0 ? index : ''));

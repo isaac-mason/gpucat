@@ -1,5 +1,5 @@
 import { StorageBufferAttribute, StorageInstancedBufferAttribute, type IndirectStorageBufferAttribute } from '../../core/attribute';
-import { itemSizeOf, typedArrayCtorOf, wgslSizeOf, type ArrayDesc, type SizedArrayDesc, type WgslDesc, type StructSchema } from '../schema';
+import { itemSizeOf, typedArrayCtorOf, wgslSizeOf, type ArrayDesc, type SizedArrayDesc, type Any, type StructSchema } from '../schema';
 import { Node, nextId, type StructDef, type StructInstance } from './core';
 import { UniformGroupNode, objectGroup } from './uniform';
 
@@ -22,7 +22,7 @@ function isStructDef(desc: unknown): desc is StructDef<StructSchema> {
  * Holds a reference to a StorageBufferAttribute (the `value`).
  * Version and updateRanges are delegated to the attribute.
  */
-export class StorageNode<D extends WgslDesc> extends Node<D> {
+export class StorageNode<D extends Any> extends Node<D> {
     /**
      * The buffer attribute holding the CPU-side data.
      */
@@ -101,12 +101,12 @@ export class StorageNode<D extends WgslDesc> extends Node<D> {
 }
 
 /** Type predicate for ArrayDesc or SizedArrayDesc */
-function isArrayLikeDesc(desc: WgslDesc): desc is ArrayDesc | SizedArrayDesc {
+function isArrayLikeDesc(desc: Any): desc is ArrayDesc | SizedArrayDesc {
     return desc.type === 'array' || desc.type === 'sized-array';
 }
 
 /** Get the element descriptor from an array-like descriptor */
-function getArrayElement(desc: ArrayDesc | SizedArrayDesc): WgslDesc {
+function getArrayElement(desc: ArrayDesc | SizedArrayDesc): Any {
     return desc.element;
 }
 
@@ -143,17 +143,17 @@ export function storage(
     attr: StorageBufferAttribute,
     schema: ArrayDesc | SizedArrayDesc,
     access?: 'read' | 'read_write'
-): StorageNode<WgslDesc>;
+): StorageNode<Any>;
 
 export function storage(
     attr: StorageBufferAttribute,
     schema: ArrayDesc | SizedArrayDesc | StructDef<StructSchema>,
     access: 'read' | 'read_write' = 'read'
-): StorageNode<WgslDesc> | StructInstance<StructSchema> {
-    let elementDesc: WgslDesc;
+): StorageNode<Any> | StructInstance<StructSchema> {
+    let elementDesc: Any;
     let storageType: string;
     if (isStructDef(schema)) {
-        elementDesc = schema as unknown as WgslDesc;
+        elementDesc = schema as unknown as Any;
         storageType = schema.wgslType;
     } else if (isArrayLikeDesc(schema)) {
         elementDesc = getArrayElement(schema);
@@ -180,7 +180,7 @@ export function storage(
  */
 function elementItemSize(arrayDesc: ArrayDesc | SizedArrayDesc): number {
     const element = getArrayElement(arrayDesc);
-    if (isStructDef(element)) return wgslSizeOf(element as unknown as WgslDesc) / 4;
+    if (isStructDef(element)) return wgslSizeOf(element as unknown as Any) / 4;
     return itemSizeOf(element);
 }
 
@@ -200,7 +200,7 @@ export const storageArray = (
     count: number,
     arrayDesc: ArrayDesc | SizedArrayDesc,
     access: 'read' | 'read_write' = 'read'
-): StorageNode<WgslDesc> => {
+): StorageNode<Any> => {
     const itemSize = elementItemSize(arrayDesc);
     const element = getArrayElement(arrayDesc);
     const Ctor = isStructDef(element) ? Float32Array : typedArrayCtorOf(element);
@@ -242,7 +242,7 @@ export const instancedArray = (
     countOrData: number | Float32Array | Int32Array | Uint32Array,
     arrayDesc: ArrayDesc | SizedArrayDesc,
     access: 'read' | 'read_write' = 'read'
-): StorageNode<WgslDesc> => {
+): StorageNode<Any> => {
     const itemSize = elementItemSize(arrayDesc);
     const element = getArrayElement(arrayDesc);
     const Ctor = isStructDef(element) ? Float32Array : typedArrayCtorOf(element);
