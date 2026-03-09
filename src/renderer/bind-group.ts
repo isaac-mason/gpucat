@@ -27,6 +27,11 @@ export type UniformBinding = {
      * of shared groups within the same frame/render pass.
      */
     lastProcessedVersion: number;
+    /**
+     * Cached Float32Array for packing uniforms.
+     * Reused across frames to avoid allocation overhead.
+     */
+    packedBuffer: Float32Array | null;
 };
 
 /** Storage buffer binding (SSBO) */
@@ -91,6 +96,7 @@ export function createUniformBindGroup(block: UniformGroupBlock): BindGroup {
         bufferKey: null,
         versionSum: -1,
         lastProcessedVersion: -1,
+        packedBuffer: null,
     };
 
     return {
@@ -145,27 +151,28 @@ export function cloneBindGroup(source: BindGroup): BindGroup {
         switch (binding.kind) {
             case 'uniform':
                 return {
-                    kind: 'uniform',
+                    kind: 'uniform' as const,
                     block: binding.block,
                     bufferKey: null, // New buffer key for cloned group
                     versionSum: -1,
                     lastProcessedVersion: -1,
+                    packedBuffer: null,
                 };
             case 'storage':
                 return {
-                    kind: 'storage',
+                    kind: 'storage' as const,
                     entry: binding.entry,
                 };
             case 'texture':
                 return {
-                    kind: 'texture',
+                    kind: 'texture' as const,
                     entry: binding.entry,
                     generation: 0,
                     lastGpuTexture: null,
                 };
             case 'sampler':
                 return {
-                    kind: 'sampler',
+                    kind: 'sampler' as const,
                     entry: binding.entry,
                     samplerKey: null,
                 };
@@ -182,27 +189,4 @@ export function cloneBindGroup(source: BindGroup): BindGroup {
     };
 }
 
-/** Get the uniform binding from a BindGroup (if it has one) */
-export function getUniformBinding(bindGroup: BindGroup): UniformBinding | null {
-    for (const binding of bindGroup.bindings) {
-        if (binding.kind === 'uniform') {
-            return binding;
-        }
-    }
-    return null;
-}
 
-/** Get all storage bindings from a BindGroup */
-export function getStorageBindings(bindGroup: BindGroup): StorageBinding[] {
-    return bindGroup.bindings.filter((b): b is StorageBinding => b.kind === 'storage');
-}
-
-/** Get all texture bindings from a BindGroup */
-export function getTextureBindings(bindGroup: BindGroup): TextureBinding[] {
-    return bindGroup.bindings.filter((b): b is TextureBinding => b.kind === 'texture');
-}
-
-/** Get all sampler bindings from a BindGroup */
-export function getSamplerBindings(bindGroup: BindGroup): SamplerBinding[] {
-    return bindGroup.bindings.filter((b): b is SamplerBinding => b.kind === 'sampler');
-}

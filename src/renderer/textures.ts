@@ -84,17 +84,6 @@ export function createTextureCache(device: GPUDevice): TextureCache {
 // ---------------------------------------------------------------------------
 
 /**
- * Get texture data for a texture, creating cache entry if needed.
- * Does NOT upload — use updateTexture for that.
- */
-export function getTextureData(
-    cache: TextureCache,
-    texture: Texture,
-): TextureData | undefined {
-    return cache.textureMap.get(texture);
-}
-
-/**
  * Update a texture — checks source version and uploads if needed.
  * Three.js aligned: called during binding updates before draw.
  *
@@ -355,73 +344,6 @@ export function getSampler(cache: TextureCache, texture: Texture): GPUSampler {
     cache.samplerCount++;
 
     return sampler;
-}
-
-/**
- * Get a sampler for render target textures (uses default sampling params).
- */
-export function getDefaultSampler(cache: TextureCache): GPUSampler {
-    const key = 'linear-linear-linear-clamp-to-edge-clamp-to-edge-1';
-
-    let data = cache.samplerCache.get(key);
-    if (data) {
-        return data.sampler;
-    }
-
-    const sampler = cache.device.createSampler({
-        magFilter: 'linear',
-        minFilter: 'linear',
-        mipmapFilter: 'linear',
-        addressModeU: 'clamp-to-edge',
-        addressModeV: 'clamp-to-edge',
-    });
-
-    cache.samplerCache.set(key, { sampler, usedTimes: 1 });
-    cache.samplerCount++;
-
-    return sampler;
-}
-
-// ---------------------------------------------------------------------------
-// Render target texture registration
-// ---------------------------------------------------------------------------
-
-/**
- * Register a render target texture in the cache.
- * Called when a RenderTarget is allocated — the GPU texture is created externally.
- * Three.js aligned: accepts Texture with isRenderTargetTexture = true (or DepthTexture).
- */
-export function registerRenderTargetTexture(
-    cache: TextureCache,
-    texture: Texture,
-    gpuTexture: GPUTexture,
-): TextureData {
-    let data = cache.textureMap.get(texture);
-
-    // Render target textures don't need version tracking (they're managed externally)
-    // Use texture.version for consistency with Three.js pattern
-    const version = texture.version;
-
-    if (!data) {
-        data = {
-            texture: gpuTexture,
-            version,
-            generation: 0,
-            initialized: true,
-            isDefaultTexture: false,
-        };
-        cache.textureMap.set(texture, data);
-        cache.textureCount++;
-    } else {
-        // Update if texture changed (e.g., resize)
-        if (data.texture !== gpuTexture) {
-            data.texture = gpuTexture;
-            data.generation++;
-        }
-        data.initialized = true;
-    }
-
-    return data;
 }
 
 // ---------------------------------------------------------------------------

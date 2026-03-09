@@ -371,12 +371,20 @@ function updateUniformBinding(
             binding.bufferKey = {};
         }
 
-        const packed = packUniformGroup(block);
+        // Pack uniforms, reusing cached buffer to avoid allocation
+        const packed = packUniformGroup(block, binding.packedBuffer);
+        binding.packedBuffer = packed;
+
         const U = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
-        uploadRaw(state.bufferCache, binding.bufferKey, packed, U);
+        const result = uploadRaw(state.bufferCache, binding.bufferKey, packed, U);
 
         binding.versionSum = versionSum;
-        data.needsUpdate = true;
+        
+        // Only rebuild bind group if buffer was created/resized (not just written to)
+        // This is a critical optimization: writeBuffer doesn't require bind group rebuild
+        if (result.created) {
+            data.needsUpdate = true;
+        }
     }
 }
 
@@ -545,9 +553,25 @@ export function invokeUniformGroupCallbacks(
  *
  * mat3x3f is handled specially: in WGSL uniform address space, each column is
  * padded to vec4 (16 bytes), so mat3x3f occupies 48 bytes (3 × 16).
+ *
+ * @param block - The uniform group block to pack
+ * @param existingBuffer - Optional existing buffer to reuse (avoids allocation)
+ * @returns The packed Float32Array (may be the same as existingBuffer if size matches)
  */
-export function packUniformGroup(block: UniformGroupBlock): Float32Array {
-    const buf = new Float32Array(Math.ceil(block.totalBytes / 4));
+export function packUniformGroup(
+    block: UniformGroupBlock,
+    existingBuffer: Float32Array | null = null,
+): Float32Array {
+    const requiredLength = Math.ceil(block.totalBytes / 4);
+
+    // Reuse existing buffer if it's the right size, otherwise allocate
+    let buf: Float32Array;
+    if (existingBuffer && existingBuffer.length === requiredLength) {
+        buf = existingBuffer;
+    } else {
+        buf = new Float32Array(requiredLength);
+    }
+
     const bytes = new Uint8Array(buf.buffer);
 
     for (const m of block.members) {

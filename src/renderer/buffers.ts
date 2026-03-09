@@ -113,18 +113,30 @@ export function uploadIndex(cache: BufferCache, attr: IndexAttribute): GPUBuffer
 }
 
 /**
+ * Result of uploadRaw - includes buffer and whether it was newly created.
+ */
+export type UploadRawResult = {
+    buffer: GPUBuffer;
+    /** True if the buffer was newly created (requires bind group rebuild) */
+    created: boolean;
+};
+
+/**
  * Get or create a uniform/storage GPUBuffer identified by a JS object key.
  * Always writes `data` to the buffer (caller decides when to call this).
+ * Returns both the buffer and whether it was newly created/resized.
  */
-export function uploadRaw(cache: BufferCache, key: object, data: GpuTypedArray, usage: GPUBufferUsageFlags): GPUBuffer {
+export function uploadRaw(cache: BufferCache, key: object, data: GpuTypedArray, usage: GPUBufferUsageFlags): UploadRawResult {
     let buf = cache.rawMap.get(key);
     const byteLength = alignTo4(data.byteLength);
     const isNew = !buf;
+    let created = false;
 
     if (!buf || buf.size < byteLength) {
         buf?.destroy();
         buf = cache.device.createBuffer({ size: byteLength, usage });
         cache.rawMap.set(key, buf);
+        created = true;
         // Only increment count for genuinely new buffers, not resizes
         if (isNew) {
             cache.rawCount++;
@@ -132,7 +144,7 @@ export function uploadRaw(cache: BufferCache, key: object, data: GpuTypedArray, 
     }
 
     cache.device.queue.writeBuffer(buf, 0, data.buffer as ArrayBuffer, data.byteOffset, data.byteLength);
-    return buf;
+    return { buffer: buf, created };
 }
 
 /**
@@ -141,26 +153,6 @@ export function uploadRaw(cache: BufferCache, key: object, data: GpuTypedArray, 
  */
 export function getRaw(cache: BufferCache, key: object): GPUBuffer | undefined {
     return cache.rawMap.get(key);
-}
-
-/**
- * Ensure a raw buffer of at least `byteLength` bytes exists for `key`.
- * Creates it if absent; does NOT write data.
- */
-export function ensureRaw(cache: BufferCache, key: object, byteLength: number, usage: GPUBufferUsageFlags): GPUBuffer {
-    let buf = cache.rawMap.get(key);
-    const aligned = alignTo4(byteLength);
-    const isNew = !buf;
-
-    if (!buf || buf.size < aligned) {
-        buf?.destroy();
-        buf = cache.device.createBuffer({ size: aligned, usage });
-        cache.rawMap.set(key, buf);
-        // Only increment count for genuinely new buffers, not resizes
-        if (isNew) cache.rawCount++;
-    }
-
-    return buf;
 }
 
 /**

@@ -18,6 +18,7 @@ import { type WgslType, type Node, type ComputeNode, OutputStructNode } from '..
 import type { Material } from '../material/material';
 import type { Geometry } from '../geometry/geometry';
 import type { RenderObject } from './render-object';
+import { getCachedPipelineKey } from './render-object';
 import type { NodeBuilderState } from './node-builder-state';
 import type { NodeManagerState } from './node-manager';
 import { getForCompute as nodeManagerGetForCompute } from './node-manager';
@@ -124,11 +125,12 @@ export function getForRender(
     depthFormat: GPUTextureFormat | null,
     promises: Promise<void>[] | null = null,
 ): RenderPipelineEntry {
-    const cacheKey = makeRenderPipelineKey(
-        renderObject.material,
+    const cacheKey = getCachedPipelineKey(
+        renderObject,
         renderObject.renderContext.sampleCount,
         colorFormat,
         depthFormat ?? undefined,
+        makeRenderPipelineKey,
     );
 
     let entry = state.renderPipelines.get(cacheKey);
@@ -174,11 +176,12 @@ export function getForRender(
  * Check if a render pipeline is ready for rendering.
  */
 export function isReady(state: PipelinesState, renderObject: RenderObject, colorFormat: GPUTextureFormat, depthFormat: GPUTextureFormat | null): boolean {
-    const cacheKey = makeRenderPipelineKey(
-        renderObject.material,
+    const cacheKey = getCachedPipelineKey(
+        renderObject,
         renderObject.renderContext.sampleCount,
         colorFormat,
         depthFormat ?? undefined,
+        makeRenderPipelineKey,
     );
     const entry = state.renderPipelines.get(cacheKey);
     return entry !== undefined && entry.pipeline !== null;

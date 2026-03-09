@@ -190,11 +190,10 @@ export function initRenderObject(
     const geometry = renderObject.geometry;
     const renderContext = renderObject.renderContext;
 
-    // Compute current cache key
-    const cacheKey = computeRenderObjectCacheKey(material, geometry, renderContext);
-
-    // Check if we need to (re)compile
-    if (needsNodeUpdate(state.nodes, renderObject, cacheKey)) {
+    // Check if we need to (re)compile using fast version comparison
+    if (needsNodeUpdate(state.nodes, renderObject)) {
+        // Only compute cache key when we actually need to recompile
+        const cacheKey = computeRenderObjectCacheKey(material, geometry, renderContext);
         // Compile node graph
         compileNodeState(state.nodes, renderObject, cacheKey);
     }
@@ -279,11 +278,10 @@ export function initRenderObjectWithPromises(
     const geometry = renderObject.geometry;
     const renderContext = renderObject.renderContext;
 
-    // Compute current cache key
-    const cacheKey = computeRenderObjectCacheKey(material, geometry, renderContext);
-
-    // Check if we need to (re)compile
-    if (needsNodeUpdate(state.nodes, renderObject, cacheKey)) {
+    // Check if we need to (re)compile using fast version comparison
+    if (needsNodeUpdate(state.nodes, renderObject)) {
+        // Only compute cache key when we actually need to recompile
+        const cacheKey = computeRenderObjectCacheKey(material, geometry, renderContext);
         // Compile node graph (sync - this is fast)
         compileNodeState(state.nodes, renderObject, cacheKey);
     }
@@ -330,13 +328,6 @@ export function initRenderObjectWithPromises(
 
 // Re-export buildVertexBufferLayouts from pipelines.ts for backwards compatibility
 export { buildVertexBufferLayouts } from './pipelines';
-
-/**
- * Dispose a specific RenderObject.
- */
-export function disposeRenderObjectFromState(_state: RenderObjectsState, renderObject: RenderObject): void {
-    disposeRenderObject(renderObject);
-}
 
 /**
  * Dispose all RenderObjects for a specific mesh.

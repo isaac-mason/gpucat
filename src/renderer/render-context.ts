@@ -1,16 +1,16 @@
 /**
- * render-context.ts — Render pass configuration state container.
+ * render-context.ts — Render pass configuration and caching.
  *
- * Aligned with Three.js RenderContext:
+ * Merged from render-context.ts + render-contexts.ts.
+ *
+ * Aligned with Three.js RenderContext + RenderContexts:
  * - Stores framebuffer configuration (attachments, dimensions, samples)
  * - Stores clear state (color, depth, stencil values)
  * - Stores viewport/scissor state
  * - References render target and camera
+ * - Caches render contexts by framebuffer configuration
  *
- * Unlike Three.js, we use a functional pattern:
- * - Pure type definition
- * - Factory function for creation
- * - Explicit update functions
+ * Functional pattern: state object + functions.
  */
 
 import type { Camera } from '../camera/camera';
@@ -183,6 +183,23 @@ export type RenderContext = {
     readonly isRenderContext: true;
 };
 
+/**
+ * RenderContextsState - manages render context caching.
+ */
+export type RenderContextsState = {
+    /**
+     * Cache of render contexts keyed by configuration string.
+     * Key format: `{attachmentState}-{mrtId}-{callDepth}`
+     */
+    contexts: Map<string, RenderContext>;
+
+    /**
+     * Default clear values from renderer settings.
+     */
+    defaultClearDepth: number;
+    defaultClearStencil: number;
+};
+
 // ---------------------------------------------------------------------------
 // Factory Functions
 // ---------------------------------------------------------------------------
@@ -239,6 +256,17 @@ export function createRenderContext(): RenderContext {
     };
 }
 
+/**
+ * Create a new RenderContexts state.
+ */
+export function createRenderContextsState(): RenderContextsState {
+    return {
+        contexts: new Map(),
+        defaultClearDepth: 1,
+        defaultClearStencil: 0,
+    };
+}
+
 // ---------------------------------------------------------------------------
 // Cache Key Computation
 // ---------------------------------------------------------------------------
@@ -265,70 +293,91 @@ export function getRenderContextCacheKey(context: RenderContext): number {
     return hash;
 }
 
+/**
+ * Build the attachment state portion of the cache key.
+ *
+ * For default framebuffer, returns 'default'.
+ * For render targets, returns: `{count}:{format}:{type}:{samples}:{depth}:{stencil}`
+ */
+function buildAttachmentState(renderTarget: RenderTarget | null): string {
+    if (renderTarget === null) {
+        return 'default';
+    }
+
+    const format = renderTarget.colorFormat;
+    const count = renderTarget.textures.length;
+    const samples = renderTarget.samples;
+    const depth = renderTarget.depthFormat !== null;
+    const stencil = false; // TODO: Add stencil support to RenderTarget
+
+    return `${count}:${format}:${samples}:${depth}:${stencil}`;
+}
+
+/**
+ * Build the MRT state portion of the cache key.
+ */
+function buildMrtState(mrt: MRTNode | null): string {
+    if (mrt === null) {
+        return 'default';
+    }
+    return String(mrt.id);
+}
+
+/**
+ * Build the full cache key for a render context.
+ */
+function buildCacheKey(
+    renderTarget: RenderTarget | null,
+    mrt: MRTNode | null,
+    callDepth: number,
+): string {
+    const attachmentState = buildAttachmentState(renderTarget);
+    const mrtState = buildMrtState(mrt);
+    return `${attachmentState}-${mrtState}-${callDepth}`;
+}
+
 // ---------------------------------------------------------------------------
-// Update Helpers
+// Context Retrieval
 // ---------------------------------------------------------------------------
 
 /**
- * Reset clear state to defaults (clear everything).
+ * Get or create a RenderContext for the given configuration.
+ *
+ * Aligned with Three.js RenderContexts.get():
+ * - Returns cached context if configuration matches
+ * - Creates new context if not found
+ * - Updates dynamic values (clear values, sample count) on each access
+ *
+ * @param state - The RenderContexts state
+ * @param renderTarget - The render target, or null for default framebuffer
+ * @param mrt - The MRT node, or null
+ * @param callDepth - Nesting depth for recursive render calls
+ * @returns The render context for this configuration
  */
-export function resetClearState(context: RenderContext): void {
-    context.clearColor = true;
-    context.clearColorValue = { r: 0, g: 0, b: 0, a: 1 };
-    context.clearDepth = true;
-    context.clearDepthValue = 1;
-    context.clearStencil = true;
-    context.clearStencilValue = 0;
-}
+export function getRenderContext(
+    state: RenderContextsState,
+    renderTarget: RenderTarget | null,
+    mrt: MRTNode | null,
+    callDepth: number,
+): RenderContext {
+    const cacheKey = buildCacheKey(renderTarget, mrt, callDepth);
 
-/**
- * Set viewport from x, y, width, height values.
- */
-export function setViewport(
-    context: RenderContext,
-    x: number,
-    y: number,
-    width: number,
-    height: number,
-    minDepth = 0,
-    maxDepth = 1,
-): void {
-    context.viewport = true;
-    context.viewportValue.x = x;
-    context.viewportValue.y = y;
-    context.viewportValue.width = width;
-    context.viewportValue.height = height;
-    context.viewportValue.minDepth = minDepth;
-    context.viewportValue.maxDepth = maxDepth;
-}
+    let context = state.contexts.get(cacheKey);
 
-/**
- * Set scissor rectangle.
- */
-export function setScissor(
-    context: RenderContext,
-    x: number,
-    y: number,
-    width: number,
-    height: number,
-): void {
-    context.scissor = true;
-    context.scissorValue.x = x;
-    context.scissorValue.y = y;
-    context.scissorValue.width = width;
-    context.scissorValue.height = height;
-}
+    if (context === undefined) {
+        context = createRenderContext();
+        context.mrt = mrt;
+        state.contexts.set(cacheKey, context);
+    }
 
-/**
- * Clear viewport (use full framebuffer).
- */
-export function clearViewport(context: RenderContext): void {
-    context.viewport = false;
-}
+    // Update dynamic values on each access
+    if (renderTarget !== null) {
+        context.sampleCount = renderTarget.samples === 0 ? 1 : renderTarget.samples;
+        context.depth = renderTarget.depthFormat !== null;
+    }
 
-/**
- * Clear scissor (no scissor test).
- */
-export function clearScissor(context: RenderContext): void {
-    context.scissor = false;
+    context.clearDepthValue = state.defaultClearDepth;
+    context.clearStencilValue = state.defaultClearStencil;
+
+    return context;
 }

@@ -273,20 +273,6 @@ export function createBindings(state: NodeBuilderState): BindGroup[] {
 }
 
 /**
- * Check if the NodeBuilderState needs to be recompiled.
- *
- * This compares the current cache key against a new one computed from
- * the material and geometry configuration.
- *
- * @param state the current NodeBuilderState
- * @param newCacheKey the newly computed cache key
- * @returns true if recompilation is needed
- */
-export function needsRecompile(state: NodeBuilderState, newCacheKey: string): boolean {
-    return state.cacheKey !== newCacheKey;
-}
-
-/**
  * Get the uniform group by name.
  *
  * @param state the NodeBuilderState
@@ -298,23 +284,4 @@ export function getUniformGroup(
     groupName: 'render' | 'object',
 ): UniformGroupBlock | undefined {
     return state.uniformGroups.find((g) => g.groupName === groupName);
-}
-
-/** Check if the state has any update nodes */
-export function hasUpdateNodes(state: NodeBuilderState): boolean {
-    return (
-        state.updateNodes.length > 0 ||
-        state.updateBeforeNodes.length > 0 ||
-        state.updateAfterNodes.length > 0
-    );
-}
-
-/** Check if the state has any storage bindings */
-export function hasStorageBindings(state: NodeBuilderState): boolean {
-    return state.storage.length > 0;
-}
-
-/** Check if the state has any texture bindings */
-export function hasTextureBindings(state: NodeBuilderState): boolean {
-    return state.textures.length > 0;
 }

@@ -131,33 +131,32 @@ export function compileNodeState(
     // store in manager and on render object
     setNodeBuilderState(state, renderObject, nodeState);
 
+    // record versions at compilation time for change detection
+    renderObject.materialVersion = material.version;
+    renderObject.geometryVersion = renderObject.geometry.version;
+
     return { nodeState, compileResult };
 }
 
 /**
  * Check if a RenderObject needs node recompilation.
  *
- * This compares the current cache key against the stored one.
+ * Uses version comparison instead of string key comparison for performance.
+ * Recompilation is needed when material or geometry version has changed
+ * since last compilation.
  */
 export function needsNodeUpdate(
-    state: NodeManagerState,
+    _state: NodeManagerState,
     renderObject: RenderObject,
-    newCacheKey: string,
 ): boolean {
-    const nodeState = state.nodeStates.get(renderObject);
-    if (!nodeState) return true;
+    // No nodeBuilderState means never compiled
+    if (!renderObject.nodeBuilderState) return true;
 
-    return nodeState.cacheKey !== newCacheKey;
-}
-
-/**
- * Delete the NodeBuilderState for a RenderObject.
- */
-export function deleteNodeState(
-    state: NodeManagerState,
-    renderObject: RenderObject,
-): void {
-    state.nodeStates.delete(renderObject);
+    // Check if material or geometry has changed since last compilation
+    return (
+        renderObject.material.version !== renderObject.materialVersion ||
+        renderObject.geometry.version !== renderObject.geometryVersion
+    );
 }
 
 /**
@@ -298,38 +297,4 @@ function compileComputeNode(
     return computeState;
 }
 
-/**
- * Run update for a ComputeNode's nodes.
- *
- * update is called to execute node logic each frame/render.
- * (e.g., time uniforms)
- *
- * @param state the NodeManager state
- * @param computeNode the ComputeNode
- */
-export function updateForCompute(
-    state: NodeManagerState,
-    computeNode: ComputeNode,
-): void {
-    const computeState = state.computeStates.get(computeNode.id);
-    if (!computeState) return;
 
-    const frame = getNodeFrame(state);
-
-    for (const node of computeState.updateNodes) {
-        frame.updateNode(node);
-    }
-}
-
-/**
- * Delete the ComputeBuilderState for a ComputeNode.
- *
- * @param state the NodeManager state
- * @param computeNode the ComputeNode
- */
-export function deleteComputeState(
-    state: NodeManagerState,
-    computeNode: ComputeNode,
-): void {
-    state.computeStates.delete(computeNode.id);
-}

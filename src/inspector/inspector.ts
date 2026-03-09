@@ -449,17 +449,32 @@ export class Inspector extends RendererInspector {
         this._tickCycle(this._displayCycle.text, deltaMs);
         this._tickCycle(this._displayCycle.graph, deltaMs);
 
+        // Check if main panel is visible (expanded)
+        const panelVisible = this.profiler.panel.classList.contains('visible');
+
         if (this._displayCycle.text.needsUpdate) {
+            // Always update FPS counter (visible in toggle button)
             setText('fps-counter', this.fps.toFixed());
-            this.performance.updateText(this, record);
-            this.memory.updateText(this);
+            // Only update detailed stats when panel is visible
+            if (panelVisible) {
+                this.performance.updateText(this, record);
+                this.memory.updateText(this);
+            }
             this._displayCycle.text.needsUpdate = false;
         }
 
         if (this._displayCycle.graph.needsUpdate) {
-            this.performance.updateGraph(this);
-            this.memory.updateGraph(this);
+            // Only update graphs when panel is visible
+            if (panelVisible) {
+                this.performance.updateGraph(this);
+                this.memory.updateGraph(this);
+            }
             this._displayCycle.graph.needsUpdate = false;
+        }
+
+        // Skip expensive tree traversals when panel is collapsed
+        if (!panelVisible) {
+            return;
         }
 
         if (record.inspectableNodes.length > 0) {
@@ -620,7 +635,7 @@ export class Inspector extends RendererInspector {
                         node,
                         arr,
                         GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-                    );
+                    ).buffer;
                     pass.setVertexBuffer(slot, gpuBuf);
                 }
             }

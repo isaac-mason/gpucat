@@ -12,6 +12,12 @@ export class Geometry {
     vertexCount: number = 0;
 
     /**
+     * Version counter. Auto-incremented when attributes are added/removed.
+     * The renderer uses this to detect when shader recompilation is needed.
+     */
+    version: number = 0;
+
+    /**
      * Optional indirect draw buffer. When set, the renderer calls
      * drawIndirect / drawIndexedIndirect using this buffer instead of
      * draw / drawIndexed. `mesh.count` is ignored when this is set.
@@ -45,13 +51,29 @@ export class Geometry {
     _onDispose: (() => void) | null = null;
 
     /**
-     * Convenience alias for `this.attributes.set(name, attr)`.
+     * Add or replace a vertex attribute.
+     * Automatically bumps version when a new attribute name is added.
      *
      * @example
      * geo.setAttribute('position', new BufferAttribute(positions, 3))
      */
     setAttribute(name: string, attr: BufferAttribute): this {
+        const isNew = !this.attributes.has(name);
         this.attributes.set(name, attr);
+        if (isNew) {
+            this.version++;
+        }
+        return this;
+    }
+
+    /**
+     * Remove a vertex attribute by name.
+     * Automatically bumps version when an attribute is removed.
+     */
+    deleteAttribute(name: string): this {
+        if (this.attributes.delete(name)) {
+            this.version++;
+        }
         return this;
     }
 

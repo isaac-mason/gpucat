@@ -20,13 +20,12 @@ import {
 } from '../nodes/nodes';
 import * as d from '../nodes/schema';
 
-import * as renderContexts from './render-contexts';
-import * as attributes from './attributes';
+import * as RenderContext from './render-context';
 import * as geometries from './geometries';
 import * as nodeManager from './node-manager';
 import * as bindings from './bindings';
 import * as renderObjects from './render-objects';
-import * as renderLists from './render-lists';
+import * as renderLists from './render-list';
 import type { RenderItem } from './render-list';
 
 import { Scene } from '../scene/scene';
@@ -176,12 +175,9 @@ export class WebGPURenderer {
     private _outputMaterialCache: Map<string, { mat: Material; pipelineKey: string }> = new Map();
 
     /** @internal RenderContexts manager - caches render pass configurations */
-    private _renderContexts!: renderContexts.RenderContextsState;
+    private _renderContexts!: RenderContext.RenderContextsState;
 
-    /** @internal Attributes system - manages vertex/index buffer uploads with deduplication */
-    private _attributes!: attributes.AttributesState;
-
-    /** @internal Geometries system - coordinates geometry state for RenderObjects */
+    /** @internal Geometries system - manages geometry and attribute state with deduplication */
     private _geometries!: geometries.GeometriesState;
 
     /** @internal NodeManager - handles node compilation and update lifecycle */
@@ -473,9 +469,8 @@ export class WebGPURenderer {
         this.textures = textures.createTextureCache(this.device);
 
         // initialize Three.js-aligned subsystems
-        this._renderContexts = renderContexts.createRenderContextsState();
-        this._attributes = attributes.createAttributesState(this.buffers);
-        this._geometries = geometries.createGeometriesState(this._attributes);
+        this._renderContexts = RenderContext.createRenderContextsState();
+        this._geometries = geometries.createGeometriesState(this.buffers);
         this._nodes = nodeManager.createNodeManagerState();
         this._bindings = bindings.createBindingsState(this.device, this.buffers, this.textures);
         this.pipelines = pipelines.createPipelinesState(this.device, this.format, this._nodes);
@@ -597,7 +592,7 @@ export class WebGPURenderer {
 
         // create a temporary RenderContext for compilation
         // this is needed because RenderObjects are cached by (mesh, material, renderContext)
-        const compileContext = renderContexts.getRenderContext(this._renderContexts, null, null, 0);
+        const compileContext = RenderContext.getRenderContext(this._renderContexts, null, null, 0);
         compileContext.sampleCount = samples;
         compileContext.width = this.domElement.width || 1;
         compileContext.height = this.domElement.height || 1;
@@ -828,7 +823,7 @@ export class WebGPURenderer {
         const h = canvasTarget.domElement.height || 1;
 
         // Increment call ID for attribute deduplication
-        attributes.incrementCallId(this._attributes);
+        geometries.incrementCallId(this._geometries);
 
         // ---------------------------------------------------------------------
         // Step 1: Create material and get RenderObject for fullscreen quad
@@ -841,13 +836,13 @@ export class WebGPURenderer {
         const fullscreenCamera = this._getFullscreenCamera();
 
         // Get/create RenderContext for the fullscreen pass
-        const renderContext = renderContexts.getRenderContext(this._renderContexts, null, null, 0);
-        renderContext.sampleCount = targetSamples;
-        renderContext.width = w;
-        renderContext.height = h;
-        renderContext.camera = fullscreenCamera;
+        const ctx = RenderContext.getRenderContext(this._renderContexts, null, null, 0);
+        ctx.sampleCount = targetSamples;
+        ctx.width = w;
+        ctx.height = h;
+        ctx.camera = fullscreenCamera;
         const [cr, cg, cb, ca] = this.clearColor;
-        renderContext.clearColorValue = { r: cr, g: cg, b: cb, a: ca };
+        ctx.clearColorValue = { r: cr, g: cg, b: cb, a: ca };
 
         // Get/create RenderObject for fullscreen quad
         const renderObject = renderObjects.getRenderObject(
@@ -856,7 +851,7 @@ export class WebGPURenderer {
             mat,
             fullscreenScene,
             fullscreenCamera,
-            renderContext,
+            ctx,
             'composite',
         );
 
@@ -1049,13 +1044,13 @@ export class WebGPURenderer {
         const fullscreenCamera = this._getFullscreenCamera();
 
         // Get/create RenderContext for this quad pass (no depth — inspector previews don't need it)
-        const renderContext = renderContexts.getRenderContext(this._renderContexts, null, null, 0);
-        renderContext.sampleCount = targetSamples;
-        renderContext.width = w;
-        renderContext.height = h;
-        renderContext.camera = fullscreenCamera;
+        const passCtx = RenderContext.getRenderContext(this._renderContexts, null, null, 0);
+        passCtx.sampleCount = targetSamples;
+        passCtx.width = w;
+        passCtx.height = h;
+        passCtx.camera = fullscreenCamera;
         const [cr, cg, cb, ca] = this.clearColor;
-        renderContext.clearColorValue = { r: cr, g: cg, b: cb, a: ca };
+        passCtx.clearColorValue = { r: cr, g: cg, b: cb, a: ca };
 
         // Get/create RenderObject (compile shader + pipeline if needed)
         const renderObject = renderObjects.getRenderObject(
@@ -1064,7 +1059,7 @@ export class WebGPURenderer {
             material,
             fullscreenScene,
             fullscreenCamera,
-            renderContext,
+            passCtx,
             'quad',
         );
 
@@ -1184,18 +1179,18 @@ export class WebGPURenderer {
         frame.height = height;
 
         // Increment call ID for attribute deduplication
-        attributes.incrementCallId(this._attributes);
+        geometries.incrementCallId(this._geometries);
 
         // ---------------------------------------------------------------------
         // Step 1: Get/create RenderContext for this pass
         // ---------------------------------------------------------------------
-        const renderContext = renderContexts.getRenderContext(this._renderContexts, renderTarget, mrt, 0);
+        const passCtx = RenderContext.getRenderContext(this._renderContexts, renderTarget, mrt, 0);
         // Update RenderContext with current pass configuration
-        renderContext.sampleCount = samples;
-        renderContext.width = width;
-        renderContext.height = height;
-        renderContext.camera = camera;
-        renderContext.clearColorValue = { r: cr, g: cg, b: cb, a: ca };
+        passCtx.sampleCount = samples;
+        passCtx.width = width;
+        passCtx.height = height;
+        passCtx.camera = camera;
+        passCtx.clearColorValue = { r: cr, g: cg, b: cb, a: ca };
 
         // ---------------------------------------------------------------------
         // Step 2: Collect visible meshes using new RenderLists system
@@ -1289,14 +1284,14 @@ export class WebGPURenderer {
                 const material = item.material;
                 const geometry = item.geometry;
 
-                // Get or create RenderObject for this (mesh, material, renderContext)
+                // Get or create RenderObject for this (mesh, material, passCtx)
                 const renderObject = renderObjects.getRenderObject(
                     this._renderObjects,
                     mesh,
                     material,
                     scene,
                     camera,
-                    renderContext,
+                    passCtx,
                     passId,
                     item.group,
                 );
@@ -1372,7 +1367,7 @@ export class WebGPURenderer {
                             node,
                             arr,
                             GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-                        );
+                        ).buffer;
                     }
                     if (currentSets.attributes[slot] !== gpuBuf) {
                         passSetVertexBuffer(gpuPass, this.inspector, slot, gpuBuf);

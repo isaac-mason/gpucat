@@ -180,6 +180,22 @@ export type RenderObject = {
     geometryVersion: number;
 
     // -------------------------------------------------------------------------
+    // Pipeline Key Cache
+    // -------------------------------------------------------------------------
+
+    /**
+     * Cached pipeline key to avoid recomputation every frame.
+     * null until first computation.
+     */
+    _cachedPipelineKey: string | null;
+
+    /**
+     * Material version when pipeline key was last computed.
+     * Used to invalidate cache when material changes.
+     */
+    _pipelineKeyVersion: number;
+
+    // -------------------------------------------------------------------------
     // Disposal
     // -------------------------------------------------------------------------
 
@@ -250,6 +266,10 @@ export function createRenderObject(
         materialVersion: 0,
         geometryVersion: 0,
 
+        // Pipeline key cache
+        _cachedPipelineKey: null,
+        _pipelineKeyVersion: 0,
+
         // Disposal
         onDispose: null,
         disposed: false,
@@ -264,24 +284,6 @@ export function createRenderObject(
  */
 export function isInitialized(renderObject: RenderObject): boolean {
     return renderObject.nodeBuilderState !== null && renderObject.pipeline !== null;
-}
-
-/**
- * Check if the RenderObject needs recompilation due to material changes.
- */
-export function needsMaterialUpdate(_renderObject: RenderObject): boolean {
-    // For now, we don't have a material version tracking system
-    // This will be expanded when we integrate with the compiler
-    return false;
-}
-
-/**
- * Check if the RenderObject needs geometry attribute updates.
- */
-export function needsGeometryUpdate(_renderObject: RenderObject): boolean {
-    // Check geometry attributes for version changes
-    // This will be handled by the Geometries system
-    return false;
 }
 
 /**
@@ -379,4 +381,45 @@ export function computeRenderObjectCacheKey(
     parts.push(renderContext.stencil ? 'S' : '');
 
     return parts.join('|');
+}
+
+/**
+ * Get or compute the cached pipeline key for a RenderObject.
+ *
+ * The pipeline key is used for:
+ * 1. Pipeline cache lookup (avoid recomputing expensive key strings)
+ * 2. Opaque sorting by pipeline (minimize setPipeline calls)
+ *
+ * The key is invalidated when material.version changes.
+ *
+ * @param renderObject - The RenderObject
+ * @param samples - MSAA sample count
+ * @param colorFormat - Color texture format
+ * @param depthFormat - Depth texture format (undefined for no depth)
+ * @param makeKeyFn - Function to compute the pipeline key (from pipelines.ts)
+ * @returns The cached or newly computed pipeline key
+ */
+export function getCachedPipelineKey(
+    renderObject: RenderObject,
+    samples: number,
+    colorFormat: GPUTextureFormat,
+    depthFormat: GPUTextureFormat | undefined,
+    makeKeyFn: (material: Material, samples: number, format: GPUTextureFormat, depthFormat?: GPUTextureFormat) => string,
+): string {
+    const currentVersion = renderObject.material.version;
+
+    // Check if cache is valid
+    if (
+        renderObject._cachedPipelineKey !== null &&
+        renderObject._pipelineKeyVersion === currentVersion
+    ) {
+        return renderObject._cachedPipelineKey;
+    }
+
+    // Recompute and cache
+    const key = makeKeyFn(renderObject.material, samples, colorFormat, depthFormat);
+    renderObject._cachedPipelineKey = key;
+    renderObject._pipelineKeyVersion = currentVersion;
+
+    return key;
 }
