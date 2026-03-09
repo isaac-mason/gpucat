@@ -65,8 +65,8 @@ const gravityUniform          = uniform(vec3f(0, -(9.81 * 9.81), 0));
 // ── Fixed-point helpers ───────────────────────────────────────────────────────
 // WebGPU only supports integer atomics, so we encode floats as scaled i32.
 
-const encodeFixedPoint = (v: Node<'f32'>): Node<'i32'> => i32(v.mul(f32(FIXED)));
-const decodeFixedPoint = (v: Node<'i32' | 'u32'>): Node<'f32'> => f32(v).div(f32(FIXED));
+const encodeFixedPoint = (v: Node<d.f32>): Node<d.i32> => i32(v.mul(f32(FIXED)));
+const decodeFixedPoint = (v: Node<d.i32 | d.u32>): Node<d.f32> => f32(v).div(f32(FIXED));
 
 // ── Compute kernels ───────────────────────────────────────────────────────────
 

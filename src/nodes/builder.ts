@@ -766,7 +766,7 @@ function generateExpr(ctx: BuildContext, node: Node<d.Any>): string {
         expr = generateCall(ctx, node);
     } else if (node instanceof ArrayNode) {
         const args = node.elements.map(e => generateExpr(ctx, e));
-        expr = `array<${node.elementType}, ${node.elements.length}>(${args.join(', ')})`;
+        expr = `array<${node.type.element.wgslType}, ${node.elements.length}>(${args.join(', ')})`;
     } else if (node instanceof ConstructNode) {
         const args = node.args.map(a => generateExpr(ctx, a));
         expr = `${node.type.wgslType}(${args.join(', ')})`;

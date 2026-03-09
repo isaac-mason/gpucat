@@ -1,5 +1,5 @@
 import type { NodeFrame } from '../../renderer/node-frame';
-import type { Any, WgslType } from '../schema';
+import type { Any, WgslType, MulResultDesc, ArithResultDesc, StructField, StructKeys, VecElementDesc } from '../schema';
 import { isStructDef } from '../schema';
 import * as d from '../schema';
 
@@ -37,9 +37,6 @@ export type Swizzle1<T extends WgslType> = T extends VecType ? VecElement<T> : T
 export type Swizzle2<T extends WgslType> = T extends VecType ? Vec2Of<VecElement<T>> : WgslType;
 export type Swizzle3<T extends WgslType> = T extends VecType ? Vec3Of<VecElement<T>> : WgslType;
 export type Swizzle4<T extends WgslType> = T extends VecType ? Vec4Of<VecElement<T>> : WgslType;
-
-export type MulResult<A extends WgslType, B extends WgslType> = [A] extends [MatType] ? [B] extends [VecType] ? B : A : [B] extends [ScalarType] ? A : [A] extends [ScalarType] ? B : A;
-export type ArithResult<A extends WgslType, B extends WgslType> = [A] extends [B] ? A : [B] extends [A] ? B : [A] extends [ScalarType] ? B : A;
 
 // ─── Descriptor-based math result types ───────────────────────────────────────
 
@@ -185,10 +182,10 @@ export class Node<D extends Any> {
     notEqual(b: Node<D>): Node<d.bool>         { return new BinopNode('!=', d.bool, this, b); }
 
     // ── Math ──────────────────────────────────────────────────────────────────
-    add<BD extends Any>(b: Node<BD>): Node<Any>  { return add(this, b); }
-    sub<BD extends Any>(b: Node<BD>): Node<Any>  { return sub(this, b); }
-    div<BD extends Any>(b: Node<BD>): Node<Any>  { return div(this, b); }
-    mul<BD extends Any>(b: Node<BD>): Node<Any>  { return mul(this, b); }
+    add<BD extends Any>(b: Node<BD>): Node<ArithResultDesc<D, BD>>  { return add(this, b); }
+    sub<BD extends Any>(b: Node<BD>): Node<ArithResultDesc<D, BD>>  { return sub(this, b); }
+    div<BD extends Any>(b: Node<BD>): Node<ArithResultDesc<D, BD>>  { return div(this, b); }
+    mul<BD extends Any>(b: Node<BD>): Node<MulResultDesc<D, BD>>    { return mul(this, b); }
     abs(): Node<D>                   { return new CallNode(this.type, 'abs',       [this]) as Node<D>; }
     floor(): Node<D>                 { return new CallNode(this.type, 'floor',     [this]) as Node<D>; }
     ceil(): Node<D>                  { return new CallNode(this.type, 'ceil',      [this]) as Node<D>; }
@@ -238,14 +235,14 @@ export class Node<D extends Any> {
     transpose(): Node<D> { return new CallNode(this.type, 'transpose', [this]) as unknown as Node<D>; }
 
     // ── Swizzles ──────────────────────────────────────────────────────────────
-    get x(): Node<Any> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'x'); }
-    get y(): Node<Any> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'y'); }
-    get z(): Node<Any> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'z'); }
-    get w(): Node<Any> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'w'); }
-    get r(): Node<Any> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'x'); }
-    get g(): Node<Any> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'y'); }
-    get b(): Node<Any> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'z'); }
-    get a(): Node<Any> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'w'); }
+    get x(): Node<VecElementDesc<D>> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'x') as unknown as Node<VecElementDesc<D>>; }
+    get y(): Node<VecElementDesc<D>> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'y') as unknown as Node<VecElementDesc<D>>; }
+    get z(): Node<VecElementDesc<D>> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'z') as unknown as Node<VecElementDesc<D>>; }
+    get w(): Node<VecElementDesc<D>> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'w') as unknown as Node<VecElementDesc<D>>; }
+    get r(): Node<VecElementDesc<D>> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'x') as unknown as Node<VecElementDesc<D>>; }
+    get g(): Node<VecElementDesc<D>> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'y') as unknown as Node<VecElementDesc<D>>; }
+    get b(): Node<VecElementDesc<D>> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'z') as unknown as Node<VecElementDesc<D>>; }
+    get a(): Node<VecElementDesc<D>> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'w') as unknown as Node<VecElementDesc<D>>; }
 
     get xx(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'xx'); }
     get xy(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'xy'); }
@@ -594,18 +591,17 @@ export class FieldNode<D extends Any> extends Node<D> {
 }
 
 /**
- * A fixed-size inline array of nodes, emitted as `array<E, N>(e0, e1, ..., eN-1)`.
+ * Represents an inline fixed-size array expression in WGSL.
  *
  * Use `array([e0, e1, e2])` to construct, then `.element(idx)` to index into it.
  * This corresponds to WGSL's array value constructor expression.
  */
-export class ArrayNode<E extends Any> extends Node<d.SizedArrayDesc> {
-    readonly elementType: E;
+export class ArrayNode<E extends Any> extends Node<{ readonly type: 'sized-array'; readonly wgslType: `array<${string}, ${number}>`; readonly element: E; readonly length: number }> {
     readonly elements: Node<E>[];
     constructor(elementType: E, elements: Node<E>[]) {
-        const sizedArrayDesc: d.SizedArrayDesc = {
-            type: 'sized-array',
-            wgslType: `array<${elementType.wgslType}, ${elements.length}>`,
+        const sizedArrayDesc = {
+            type: 'sized-array' as const,
+            wgslType: `array<${elementType.wgslType}, ${elements.length}>` as const,
             element: elementType,
             length: elements.length,
         };
@@ -613,12 +609,11 @@ export class ArrayNode<E extends Any> extends Node<d.SizedArrayDesc> {
             computeId('array', { elementType: elementType.wgslType, elements: elements.map(n => n.id) }),
             sizedArrayDesc
         );
-        this.elementType = elementType;
         this.elements = elements;
     }
 
     override element(idx: Node<Any>): Node<E> {
-        return new IndexNode(this.elementType, this, idx);
+        return new IndexNode(this.type.element, this, idx);
     }
 }
 
@@ -630,7 +625,12 @@ export class IndexNode<D extends Any> extends Node<D> {
 
 // ── Standalone expr functions ─────────────────────────────────────────────────
 
-export const field  = <D extends Any, RD extends Any>(node: Node<D>, name: string, resultType: RD): Node<RD> => new FieldNode(resultType, node, name);
+/** Type-safe field access for structs - infers the field type from the struct descriptor */
+export const field = <D extends Any, K extends StructKeys<D>>(node: Node<D>, name: K): Node<StructField<D, K>> => {
+    const structDesc = node.type as d.StructDesc;
+    const fieldType = structDesc.fields[name as string];
+    return new FieldNode(fieldType, node, name as string) as unknown as Node<StructField<D, K>>;
+};
 export const toF32  = <D extends Any>(node: Node<D>): Node<d.f32> => new CallNode(d.f32, 'f32', [node]);
 export const toF16  = <D extends Any>(node: Node<D>): Node<d.f16> => new CallNode(d.f16, 'f16', [node]);
 export const toU32  = <D extends Any>(node: Node<D>): Node<d.u32> => new CallNode(d.u32, 'u32', [node]);
@@ -653,8 +653,8 @@ export const index = <D extends Any>(array: Node<D>, idx: Node<Any>) => new Inde
  * const weights = array([w0, w1, w2]);
  * const w = weights.element(gx);
  */
-export function array<E extends Any>(elements: [Node<E>, ...Node<E>[]]): ArrayNode<E> {
-    return new ArrayNode(elements[0].type, elements);
+export function array<E extends Any>(elements: [Node<E>, ...Node<E>[]]): Node<{ readonly type: 'sized-array'; readonly wgslType: `array<${string}, ${number}>`; readonly element: E; readonly length: number }> {
+    return new ArrayNode(elements[0].type, elements) as unknown as Node<{ readonly type: 'sized-array'; readonly wgslType: `array<${string}, ${number}>`; readonly element: E; readonly length: number }>;
 }
 
 // ── Const constructors ────────────────────────────────────────────────────────
@@ -817,10 +817,10 @@ export function mat3(
 
 // ── Standalone math functions ─────────────────────────────────────────────────
 
-export const add        = <A extends Any, B extends Any>(a: Node<A>, b: Node<B>) => new BinopNode('+', d.arithResultDesc(a.type, b.type), a, b);
-export const sub        = <A extends Any, B extends Any>(a: Node<A>, b: Node<B>) => new BinopNode('-', d.arithResultDesc(a.type, b.type), a, b);
-export const div        = <A extends Any, B extends Any>(a: Node<A>, b: Node<B>) => new BinopNode('/', d.arithResultDesc(a.type, b.type), a, b);
-export const mul        = <A extends Any, B extends Any>(a: Node<A>, b: Node<B>) => new BinopNode('*', d.mulResultDesc(a.type, b.type), a, b);
+export const add        = <A extends Any, B extends Any>(a: Node<A>, b: Node<B>): Node<ArithResultDesc<A, B>> => new BinopNode('+', d.arithResultDesc(a.type, b.type), a, b) as unknown as Node<ArithResultDesc<A, B>>;
+export const sub        = <A extends Any, B extends Any>(a: Node<A>, b: Node<B>): Node<ArithResultDesc<A, B>> => new BinopNode('-', d.arithResultDesc(a.type, b.type), a, b) as unknown as Node<ArithResultDesc<A, B>>;
+export const div        = <A extends Any, B extends Any>(a: Node<A>, b: Node<B>): Node<ArithResultDesc<A, B>> => new BinopNode('/', d.arithResultDesc(a.type, b.type), a, b) as unknown as Node<ArithResultDesc<A, B>>;
+export const mul        = <A extends Any, B extends Any>(a: Node<A>, b: Node<B>): Node<MulResultDesc<A, B>> => new BinopNode('*', d.mulResultDesc(a.type, b.type), a, b) as unknown as Node<MulResultDesc<A, B>>;
 export const dot        = (a: Node<Any>, b: Node<Any>): Node<d.f32> => new CallNode(d.f32, 'dot', [a, b]);
 export const cross      = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new CallNode(a.type, 'cross', [a, b]);
 export const normalize  = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'normalize', [a]);

@@ -366,6 +366,38 @@ export type Any =
     | WgslFnDesc;
 
 // ---------------------------------------------------------------------------
+// Type-level helpers for struct field access and arithmetic result types
+// ---------------------------------------------------------------------------
+
+/** Extract the descriptor type for a field K from struct descriptor D */
+export type StructField<D extends Any, K extends string> =
+    D extends StructDesc<infer S> ? (K extends keyof S ? S[K] : never) : never;
+
+/** Extract keys from a struct descriptor */
+export type StructKeys<D extends Any> = D extends StructDesc<infer S> ? keyof S & string : never;
+
+/** Type-level mul result: mat*vec→vec, scalar*T→T, T*scalar→T, else A */
+export type MulResultDesc<A extends Any, B extends Any> =
+    A extends MatDesc ? (B extends anyVec ? B : A) :
+    B extends ScalarDesc ? A :
+    A extends ScalarDesc ? B :
+    A;
+
+/** Type-level add/sub/div result: scalar op T→T, else A */
+export type ArithResultDesc<A extends Any, B extends Any> =
+    A extends ScalarDesc ? (B extends ScalarDesc ? A : B) : A;
+
+/** Extract the element descriptor from a vec descriptor, or return self for scalars */
+export type VecElementDesc<D extends Any> =
+    D extends vec2f | vec3f | vec4f ? f32 :
+    D extends vec2i | vec3i | vec4i ? i32 :
+    D extends vec2u | vec3u | vec4u ? u32 :
+    D extends vec2h | vec3h | vec4h ? f16 :
+    D extends vec2bool | vec3bool | vec4bool ? bool :
+    D extends ScalarDesc ? D :
+    Any;
+
+// ---------------------------------------------------------------------------
 // WgslType — string-literal union of all WGSL type strings
 // ---------------------------------------------------------------------------
 
