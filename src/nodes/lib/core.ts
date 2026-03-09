@@ -757,9 +757,9 @@ function elemOf(type: Vec2Type | Vec3Type | Vec4Type): ScalarElemType {
 
 export function makeVec2<D extends d.Vec2Desc>(desc: D) {
     const e = elemOf(desc.wgslType);
-    function ctor(v: Node<Any>): ConstructNode<D>;
+    function ctor(v: Scalar): ConstructNode<D>;
     function ctor(x: Scalar, y: Scalar): ConstructNode<D>;
-    function ctor(a: Scalar | Node<Any>, b?: Scalar): ConstructNode<D> {
+    function ctor(a: Scalar, b?: Scalar): ConstructNode<D> {
         if (b === undefined) return new ConstructNode(desc, [wrapScalar(a, e)]);
         return new ConstructNode(desc, [wrapScalar(a, e), wrapScalar(b, e)]);
     }
@@ -767,7 +767,7 @@ export function makeVec2<D extends d.Vec2Desc>(desc: D) {
 }
 export function makeVec3<D extends d.Vec3Desc>(desc: D) {
     const e = elemOf(desc.wgslType);
-    function ctor(v: Node<Any>): ConstructNode<D>;
+    function ctor(v: Scalar): ConstructNode<D>;
     function ctor(xy: Node<Any>, z: Scalar): ConstructNode<D>;
     function ctor(x: Scalar, y: Scalar, z: Scalar): ConstructNode<D>;
     function ctor(a: Scalar, b?: Scalar, c?: Scalar): ConstructNode<D> {
@@ -779,11 +779,13 @@ export function makeVec3<D extends d.Vec3Desc>(desc: D) {
 }
 export function makeVec4<D extends d.Vec4Desc>(desc: D) {
     const e = elemOf(desc.wgslType);
+    function ctor(v: Scalar): ConstructNode<D>;
     function ctor(xy: Node<Any>, zw: Node<Any>): ConstructNode<D>;
     function ctor(xy: Node<Any>, z: Scalar, w: Scalar): ConstructNode<D>;
     function ctor(xyz: Node<Any>, w: Scalar): ConstructNode<D>;
     function ctor(x: Scalar, y: Scalar, z: Scalar, w: Scalar): ConstructNode<D>;
-    function ctor(a: Scalar, b: Scalar, c?: Scalar, dVal?: Scalar): ConstructNode<D> {
+    function ctor(a: Scalar, b?: Scalar, c?: Scalar, dVal?: Scalar): ConstructNode<D> {
+        if (b === undefined) return new ConstructNode(desc, [wrapScalar(a, e)]);
         if (c === undefined) return new ConstructNode(desc, [wrapScalar(a, e), wrapScalar(b, e)]);
         if (dVal === undefined) return new ConstructNode(desc, [wrapScalar(a, e), wrapScalar(b, e), wrapScalar(c, e)]);
         return new ConstructNode(desc, [wrapScalar(a, e), wrapScalar(b, e), wrapScalar(c, e), wrapScalar(dVal, e)]);

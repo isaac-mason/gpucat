@@ -12,6 +12,7 @@ import {
     OrbitControls,
     type Node,
 } from 'gpucat';
+import { mat4, vec4 as mcVec4 } from 'mathcat';
 
 // ── Simulation constants ──────────────────────────────────────────────────────
 
@@ -373,20 +374,24 @@ function setupMouse() {
         const ndcY = -(event.clientY / window.innerHeight) * 2 + 1;
 
         // Unproject ray from camera
-        const invProj = new Float32Array(16);
-        const invView = new Float32Array(16);
-        invertMatrix4(camera.projectionMatrix, invProj);
-        invertMatrix4(camera.viewMatrix, invView);
+        const invProj = mat4.create();
+        mat4.invert(invProj, camera.projectionMatrix);
+        // camera.matrixWorldInverse is the view matrix, so matrixWorld is its inverse
+        const invView = camera.matrixWorld;
 
         // Ray in clip space → view space → world space
-        const nearClip = [ndcX, ndcY, -1, 1] as [number, number, number, number];
-        const farClip  = [ndcX, ndcY,  1, 1] as [number, number, number, number];
-        const nearView = mulMat4Vec4(invProj, nearClip);
-        const farView  = mulMat4Vec4(invProj, farClip);
+        const nearClip = mcVec4.fromValues(ndcX, ndcY, -1, 1);
+        const farClip  = mcVec4.fromValues(ndcX, ndcY,  1, 1);
+        const nearView = mcVec4.create();
+        const farView  = mcVec4.create();
+        mcVec4.transformMat4(nearView, nearClip, invProj);
+        mcVec4.transformMat4(farView, farClip, invProj);
         perspDiv(nearView);
         perspDiv(farView);
-        const nearWorld = mulMat4Vec4(invView, nearView);
-        const farWorld  = mulMat4Vec4(invView, farView);
+        const nearWorld = mcVec4.create();
+        const farWorld  = mcVec4.create();
+        mcVec4.transformMat4(nearWorld, nearView, invView);
+        mcVec4.transformMat4(farWorld, farView, invView);
         perspDiv(nearWorld);
         perspDiv(farWorld);
 
@@ -417,58 +422,7 @@ function setupMouse() {
     });
 }
 
-function invertMatrix4(src: Float32Array, dst: Float32Array): void {
-    const m = src;
-    const a00 = m[0], a01 = m[1], a02 = m[2], a03 = m[3];
-    const a10 = m[4], a11 = m[5], a12 = m[6], a13 = m[7];
-    const a20 = m[8], a21 = m[9], a22 = m[10], a23 = m[11];
-    const a30 = m[12], a31 = m[13], a32 = m[14], a33 = m[15];
-
-    const b00 = a00 * a11 - a01 * a10;
-    const b01 = a00 * a12 - a02 * a10;
-    const b02 = a00 * a13 - a03 * a10;
-    const b03 = a01 * a12 - a02 * a11;
-    const b04 = a01 * a13 - a03 * a11;
-    const b05 = a02 * a13 - a03 * a12;
-    const b06 = a20 * a31 - a21 * a30;
-    const b07 = a20 * a32 - a22 * a30;
-    const b08 = a20 * a33 - a23 * a30;
-    const b09 = a21 * a32 - a22 * a31;
-    const b10 = a21 * a33 - a23 * a31;
-    const b11 = a22 * a33 - a23 * a32;
-
-    let det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
-    if (Math.abs(det) < 1e-10) return;
-    det = 1.0 / det;
-
-    dst[0]  = (a11 * b11 - a12 * b10 + a13 * b09) * det;
-    dst[1]  = (a02 * b10 - a01 * b11 - a03 * b09) * det;
-    dst[2]  = (a31 * b05 - a32 * b04 + a33 * b03) * det;
-    dst[3]  = (a22 * b04 - a21 * b05 - a23 * b03) * det;
-    dst[4]  = (a12 * b08 - a10 * b11 - a13 * b07) * det;
-    dst[5]  = (a00 * b11 - a02 * b08 + a03 * b07) * det;
-    dst[6]  = (a32 * b02 - a30 * b05 - a33 * b01) * det;
-    dst[7]  = (a20 * b05 - a22 * b02 + a23 * b01) * det;
-    dst[8]  = (a10 * b10 - a11 * b08 + a13 * b06) * det;
-    dst[9]  = (a01 * b08 - a00 * b10 - a03 * b06) * det;
-    dst[10] = (a30 * b04 - a31 * b02 + a33 * b00) * det;
-    dst[11] = (a21 * b02 - a20 * b04 - a23 * b00) * det;
-    dst[12] = (a11 * b07 - a10 * b09 - a12 * b06) * det;
-    dst[13] = (a00 * b09 - a01 * b07 + a02 * b06) * det;
-    dst[14] = (a31 * b01 - a30 * b03 - a32 * b00) * det;
-    dst[15] = (a20 * b03 - a21 * b01 + a22 * b00) * det;
-}
-
-function mulMat4Vec4(m: Float32Array, v: [number, number, number, number]): [number, number, number, number] {
-    return [
-        m[0] * v[0] + m[4] * v[1] + m[8]  * v[2] + m[12] * v[3],
-        m[1] * v[0] + m[5] * v[1] + m[9]  * v[2] + m[13] * v[3],
-        m[2] * v[0] + m[6] * v[1] + m[10] * v[2] + m[14] * v[3],
-        m[3] * v[0] + m[7] * v[1] + m[11] * v[2] + m[15] * v[3],
-    ];
-}
-
-function perspDiv(v: [number, number, number, number]): void {
+function perspDiv(v: mcVec4.Vec4): void {
     const w = v[3];
     v[0] /= w; v[1] /= w; v[2] /= w; v[3] = 1;
 }

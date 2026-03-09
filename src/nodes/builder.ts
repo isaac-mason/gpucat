@@ -590,8 +590,13 @@ function discover(roots: Node<d.Any>[]): DiscoverResult {
         }
 
         // struct definition discovery
-        if (node instanceof StorageNode && d.isStructDef(node.bufferType)) {
-            registerStructDef(node.bufferType as unknown as StructDef<StructSchema>);
+        if (node instanceof StorageNode) {
+            const bufType = node.bufferType;
+            if (d.isStructDef(bufType)) {
+                registerStructDef(bufType as unknown as StructDef<StructSchema>);
+            } else if ((d.isArrayDesc(bufType) || d.isSizedArrayDesc(bufType)) && d.isStructDef(bufType.element)) {
+                registerStructDef(bufType.element as unknown as StructDef<StructSchema>);
+            }
         }
 
         // visit children

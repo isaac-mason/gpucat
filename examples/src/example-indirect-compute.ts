@@ -30,7 +30,6 @@ import {
     vec4,
     WebGPURenderer,
 } from "gpucat";
-import { fields } from "../../dist/nodes/nodes";
 
 // positions: three verts of a flat equilateral triangle in XY plane
 const positions = new Float32Array([
