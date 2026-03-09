@@ -30,6 +30,7 @@ import {
     vec4,
     WebGPURenderer,
 } from "gpucat";
+import { fields } from "../../dist/nodes/nodes";
 
 // positions: three verts of a flat equilateral triangle in XY plane
 const positions = new Float32Array([
@@ -111,6 +112,7 @@ const drawBuffer = new IndirectStorageBufferAttribute(1, 4);
 
 // struct-typed storage node — mirrors: storage(drawBuffer, DrawIndirect, drawBuffer.count)
 const drawStorage = storage(drawBuffer, DrawIndirect, "read_write");
+const drawStorageInstance = drawStorage.fields();
 
 /* compute shaders */
 //
@@ -124,10 +126,10 @@ const drawStorage = storage(drawBuffer, DrawIndirect, "read_write");
 //                               (No atomics needed — single writer, single slot.)
 
 const computeInit = Fn(() => {
-    drawStorage.vertexCount.assign(u32(3));
-    drawStorage.instanceCount.assign(u32(0));
-    drawStorage.firstVertex.assign(u32(0));
-    drawStorage.firstInstance.assign(u32(0));
+    drawStorageInstance.vertexCount.assign(u32(3));
+    drawStorageInstance.instanceCount.assign(u32(0));
+    drawStorageInstance.firstVertex.assign(u32(0));
+    drawStorageInstance.firstInstance.assign(u32(0));
 }).compute({ workgroupSize: [1, 1, 1] });
 
 const computeUpdate = Fn(() => {
@@ -139,7 +141,7 @@ const computeUpdate = Fn(() => {
         const raised = pow(sinPlus1, f32(4)); // [0,16]
         const countF = raised.mul(f32(INSTANCES / 16)); // [0, N]
         const instanceCount = countF.max(f32(100)); // min 100
-        drawStorage.instanceCount.assign(instanceCount.toU32());
+        drawStorageInstance.instanceCount.assign(instanceCount.toU32());
     });
 }).compute({
     workgroupSize: [64, 1, 1],

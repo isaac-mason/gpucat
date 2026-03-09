@@ -376,6 +376,9 @@ export type StructField<D extends Any, K extends string> =
 /** Extract keys from a struct descriptor */
 export type StructKeys<D extends Any> = D extends StructDesc<infer S> ? keyof S & string : never;
 
+/** Extract the schema type from a struct descriptor (or StructDef which extends StructDesc) */
+export type StructSchemaOf<D extends Any> = D extends StructDesc<infer S> ? S : never;
+
 // Helper to check if a descriptor is scalar by its type discriminant
 type IsScalar<D extends Any> = D extends { type: 'f32' | 'i32' | 'u32' | 'bool' | 'f16' } ? true : false;
 
@@ -621,15 +624,15 @@ export type Infer<D extends Any> =
     : never;
 
 // ---------------------------------------------------------------------------
-// DescElement / DescFields — type utilities for Node<D> method signatures
+// ArrayElement / StructFields — type utilities for Node<D> method signatures
 // ---------------------------------------------------------------------------
 
-export type DescElement<D extends Any> =
+export type ArrayElement<D extends Any> =
     D extends { readonly type: 'array'; readonly element: infer E extends Any } ? E :
     D extends { readonly type: 'sized-array'; readonly element: infer E extends Any } ? E :
     never;
 
-export type DescFields<D extends Any> =
+export type StructFields<D extends Any> =
     D extends { readonly type: 'struct'; readonly fields: infer S extends Record<string, Any> } ? S : never;
 
 // ---------------------------------------------------------------------------

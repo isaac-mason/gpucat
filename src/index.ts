@@ -53,7 +53,7 @@ export {
 
     // node factories
     attribute, bufferAttribute, instancedBufferAttribute,
-    builtin, index, uniform, storage, storageArray, instancedArray,
+    builtin, index, field, fields, uniform, storage, storageArray, instancedArray,
     array,
     texture, varying, struct, wgsl, wgslFn, Fn, mrt,
     compute,

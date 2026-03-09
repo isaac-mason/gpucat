@@ -1,6 +1,6 @@
 import { StorageBufferAttribute, StorageInstancedBufferAttribute, type IndirectStorageBufferAttribute } from '../../core/attribute';
-import { itemSizeOf, typedArrayCtorOf, wgslSizeOf, type Any, type StructSchema } from '../schema';
-import { Node, nextId, type StructDef, type StructInstance } from './core';
+import { ArrayDesc, itemSizeOf, typedArrayCtorOf, wgslSizeOf, type Any, type StructSchema } from '../schema';
+import { Node, nextId, type StructDef } from './core';
 import { UniformGroupNode, objectGroup } from './uniform';
 
 /** Type predicate for StructDef (from core.ts) */
@@ -97,73 +97,32 @@ export class StorageNode<D extends Any> extends Node<D> {
     }
 }
 
-/** Type predicate for array descriptor */
-function isArrayDesc(desc: unknown): desc is { type: 'array'; element: Any; wgslType: string } {
-    return typeof desc === 'object' && desc !== null && 'type' in desc && (desc as { type: unknown }).type === 'array';
-}
-
 /**
  * Create a `StorageNode` backed by a `StorageBufferAttribute` (or subclass).
  *
- * `storage(bufferAttr, schema, access)`.
- * Accepts either an `ArrayDesc` (e.g. `d.array(d.vec4f)`) or a `StructDef`
- * (from `struct(...)`) as the schema argument.
- *
- * When a `StructDef` is passed the node's element type and storage type are
- * both set to the struct name (e.g. `'DrawBuffer'`).
- *
- * If `attr` is an `IndirectStorageBufferAttribute`, `_indirectOwner` is wired
- * automatically so the renderer reuses the same `STORAGE | INDIRECT | COPY_DST`
- * GPUBuffer for both the compute binding and the `drawIndirect` call.
+ * The schema type `D` becomes the node's type directly:
+ * - `d.array(d.vec4f)` → `StorageNode<ArrayDesc>` (use `index()` to access elements)
+ * - `MyStruct` (a StructDef) → `StorageNode<StructDef<S>>` (use `fields()` for field access)
  *
  * @example — array schema
  * const posAttr = new StorageBufferAttribute(posData, 4);
  * const positions = storage(posAttr, d.array(d.vec4f));
+ * const pos0 = index(positions, u32(0)); // Node<vec4f>
  *
  * @example — struct schema
  * const DrawBuffer = struct('DrawBuffer', { vertexCount: d.u32, instanceCount: d.u32, ... });
  * const drawAttr = new IndirectStorageBufferAttribute(false, 1);
  * const drawStorage = storage(drawAttr, DrawBuffer, 'read_write');
+ * const { vertexCount } = fields(drawStorage); // use fields() for access
+ * vertexCount.assign(u32(6));
  */
-export function storage<S extends StructSchema>(
+export function storage<D extends Any>(
     attr: StorageBufferAttribute,
-    schema: StructDef<S>,
-    access?: 'read' | 'read_write'
-): StructInstance<S>;
-
-export function storage<E extends Any>(
-    attr: StorageBufferAttribute,
-    schema: { type: 'array'; element: E; wgslType: string },
-    access?: 'read' | 'read_write'
-): StorageNode<E>;
-
-export function storage(
-    attr: StorageBufferAttribute,
-    schema: { type: 'array'; element: Any; wgslType: string } | StructDef<StructSchema>,
+    schema: D,
     access: 'read' | 'read_write' = 'read'
-): StorageNode<Any> | StructInstance<StructSchema> {
-    let elementDesc: Any;
-    let storageType: string;
-
-    if (isStructDef(schema)) {
-        elementDesc = schema as unknown as Any;
-        storageType = schema.wgslType;
-    } else if (isArrayDesc(schema)) {
-        elementDesc = schema.element;
-        storageType = schema.wgslType;
-    } else {
-        throw new Error('[gpucat] storage: invalid schema — expected array descriptor or StructDef');
-    }
-
-    const node = new StorageNode(attr, elementDesc, storageType, access, objectGroup);
-
-    // When given a StructDef, instantiate a StructInstance so callers can do
-    // drawStorage.instanceCount.assign(...)
-    if (isStructDef(schema)) {
-        return schema.instantiate(node);
-    }
-
-    return node;
+): StorageNode<D> {
+    const storageType = (schema as { wgslType: string }).wgslType;
+    return new StorageNode(attr, schema, storageType, access, objectGroup);
 }
 
 /**
@@ -189,18 +148,21 @@ function elementItemSize<E extends Any>(arrayDesc: { element: E }): number {
  * const colors = storageArray(N, d.array(d.vec4f), 'read_write')
  * // Modify colors.value.array, then: colors.value.needsUpdate = true
  */
-export const storageArray = <E extends Any>(
+export const storageArray = <D extends ArrayDesc>(
     count: number,
-    arrayDesc: { type: 'array'; element: E; wgslType: string },
+    arrayDesc: D,
     access: 'read' | 'read_write' = 'read'
-): StorageNode<E> => {
+): StorageNode<D> => {
+    if (arrayDesc.type !== 'array') {
+        throw new Error(`[gpucat] storageArray only accepts array descriptors (type: 'array'), but got type '${arrayDesc.type}'.`);
+    }
+
     const itemSize = elementItemSize(arrayDesc);
-    const element = arrayDesc.element;
-    const Ctor = isStructDef(element) ? Float32Array : typedArrayCtorOf(element);
+    const Ctor = isStructDef(arrayDesc.element) ? Float32Array : typedArrayCtorOf(arrayDesc.element);
     const data = new Ctor(count * itemSize);
     const attr = new StorageBufferAttribute(data, itemSize);
 
-    return new StorageNode(attr, element, arrayDesc.wgslType, access, objectGroup);
+    return new StorageNode<D>(attr, arrayDesc, arrayDesc.wgslType, access, objectGroup)
 };
 
 /**
@@ -232,14 +194,13 @@ export const storageArray = <E extends Any>(
  * // ... fill data ...
  * const particles = instancedArray(initialData, d.array(d.vec4f), 'read_write');
  */
-export const instancedArray = <E extends Any>(
+export const instancedArray = <D extends ArrayDesc>(
     countOrData: number | Float32Array | Int32Array | Uint32Array,
-    arrayDesc: { type: 'array'; element: E; wgslType: string },
+    arrayDesc: D,
     access: 'read' | 'read_write' = 'read'
-): StorageNode<E> => {
+): StorageNode<D> => {
     const itemSize = elementItemSize(arrayDesc);
-    const element = arrayDesc.element;
-    const Ctor = isStructDef(element) ? Float32Array : typedArrayCtorOf(element);
+    const Ctor = isStructDef(arrayDesc.element) ? Float32Array : typedArrayCtorOf(arrayDesc.element);
 
     let attr: StorageInstancedBufferAttribute;
     if (typeof countOrData === 'number') {
@@ -248,5 +209,5 @@ export const instancedArray = <E extends Any>(
         attr = new StorageInstancedBufferAttribute(countOrData, itemSize);
     }
 
-    return new StorageNode(attr, element, arrayDesc.wgslType, access, objectGroup);
+    return new StorageNode(attr, arrayDesc, arrayDesc.wgslType, access, objectGroup);
 };

@@ -1,5 +1,5 @@
 import type { NodeFrame } from '../../renderer/node-frame';
-import type { Any, WgslType, MulResultDesc, ArithResultDesc, StructField, StructKeys, VecElementDesc } from '../schema';
+import type { Any, WgslType, MulResultDesc, ArithResultDesc, StructField, StructKeys, StructSchemaOf, VecElementDesc } from '../schema';
 import { isStructDef } from '../schema';
 import * as d from '../schema';
 
@@ -171,7 +171,22 @@ export class Node<D extends Any> {
     toI32(): Node<d.i32>  { return new CallNode(d.i32, 'i32', [this]); }
 
     // ── Field access ──────────────────────────────────────────────────────────
-    field<RD extends Any>(name: string, resultType: RD): Node<RD> { return new FieldNode(resultType, this, name); }
+    field<K extends string>(name: K): Node<Any> {
+        return field(this as Node<Any>, name as StructKeys<Any>);
+    }
+
+    fields(): Fields<StructSchemaOf<D>> {
+        const desc = this.type;
+        if (!desc || typeof desc !== 'object' || !('fields' in desc)) {
+            throw new Error('[gpucat] .fields() requires a struct-typed node');
+        }
+        const structFields = (desc as { fields: d.StructSchema }).fields;
+        const result: Record<string, Node<Any>> = {};
+        for (const [fieldName, fieldDesc] of Object.entries(structFields)) {
+            result[fieldName] = new FieldNode(fieldDesc as Any, this, fieldName);
+        }
+        return result as Fields<StructSchemaOf<D>>;
+    }
 
     // ── Comparisons ───────────────────────────────────────────────────────────
     greaterThan(b: Node<D>): Node<d.bool>      { return new BinopNode('>', d.bool, this, b); }
@@ -204,14 +219,16 @@ export class Node<D extends Any> {
     max(b: Node<D>): Node<D>                                     { return new CallNode(this.type, 'max',        [this, b]) as Node<D>; }
     min(b: Node<D>): Node<D>                                     { return new CallNode(this.type, 'min',        [this, b]) as Node<D>; }
     clamp(lo: Node<D>, hi: Node<D>): Node<D>                     { return new CallNode(this.type, 'clamp',      [this, lo, hi]) as Node<D>; }
-    mix(b: Node<D>, t: Node<D>): Node<D>                         { return new CallNode(this.type, 'mix',        [this, b, t]) as Node<D>; }
+    mix(b: Node<D>, t: Node<d.ScalarDesc>): Node<D>                         { return new CallNode(this.type, 'mix',        [this, b, t]) as Node<D>; }
     step(x: Node<D>): Node<D>                                    { return new CallNode(this.type, 'step',       [this, x]) as Node<D>; }
     smoothstep(hi: Node<D>, x: Node<D>): Node<D>                 { return new CallNode(this.type, 'smoothstep', [this, hi, x]) as Node<D>; }
 
     // ── Element access ────────────────────────────────────────────────────────
-    element(idx: Node<Any>): Node<d.DescElement<D>> {
-        const elementDesc = (this.type as d.ArrayDesc | d.SizedArrayDesc).element as d.DescElement<D>;
-        return new IndexNode(elementDesc, this, idx);
+    element(idx: Node<Any>): Node<d.ArrayElement<D>> {
+        if (this.type.type !== 'array' && this.type.type !== 'sized-array') {
+            throw new Error(`[gpucat] Cannot index into type ${this.type} — only array and sized-array types are indexable.`);
+        }
+        return new IndexNode(this.type.element, this, idx) as unknown as Node<d.ArrayElement<D>>;
     }
 
     // ── Lang ──────────────────────────────────────────────────────────────────
@@ -611,10 +628,6 @@ export class ArrayNode<E extends Any> extends Node<{ readonly type: 'sized-array
         );
         this.elements = elements;
     }
-
-    override element(idx: Node<Any>): Node<E> {
-        return new IndexNode(this.type.element, this, idx);
-    }
 }
 
 export class IndexNode<D extends Any> extends Node<D> {
@@ -631,6 +644,41 @@ export const field = <D extends Any, K extends StructKeys<D>>(node: Node<D>, nam
     const fieldType = structDesc.fields[name as string];
     return new FieldNode(fieldType, node, name as string) as unknown as Node<StructField<D, K>>;
 };
+
+export const index = <N extends Node<Any>>(
+    array: N, idx: Node<Any>
+): Node<d.ArrayElement<N["type"]>> => {
+    const elementDesc = (array.type as d.SizedArrayDesc).element;
+    return new IndexNode(elementDesc, array, idx) as unknown as Node<d.ArrayElement<N["type"]>>;
+};
+
+/** Type for field accessor object returned by fields() */
+export type Fields<S extends d.StructSchema> = { readonly [K in keyof S]: Node<S[K]> };
+
+/**
+ * Create field accessor object for a struct node.
+ * Returns an object with typed Node properties for each field.
+ * 
+ * @example
+ * const particle = index(particleBuffer, computeIndex);
+ * const { position, velocity } = fields(particle);
+ * position.assign(newPos);
+ */
+export function fields<S extends d.StructSchema>(node: Node<StructDef<S>>): Fields<S>;
+export function fields<S extends d.StructSchema>(node: Node<d.StructDesc<S>>): Fields<S>;
+export function fields(node: Node<Any>): Record<string, Node<Any>> {
+    const desc = node.type;
+    if (!desc || typeof desc !== 'object' || !('fields' in desc)) {
+        throw new Error('[gpucat] fields() requires a struct-typed node');
+    }
+    const structFields = (desc as { fields: d.StructSchema }).fields;
+    const result: Record<string, Node<Any>> = {};
+    for (const [fieldName, fieldDesc] of Object.entries(structFields)) {
+        result[fieldName] = new FieldNode(fieldDesc as Any, node, fieldName);
+    }
+    return result;
+}
+
 export const toF32  = <D extends Any>(node: Node<D>): Node<d.f32> => new CallNode(d.f32, 'f32', [node]);
 export const toF16  = <D extends Any>(node: Node<D>): Node<d.f16> => new CallNode(d.f16, 'f16', [node]);
 export const toU32  = <D extends Any>(node: Node<D>): Node<d.u32> => new CallNode(d.u32, 'u32', [node]);
@@ -642,7 +690,6 @@ export const greaterThanEqual = <D extends Any>(a: Node<D>, b: Node<D>): Node<d.
 export const lessThanEqual    = <D extends Any>(a: Node<D>, b: Node<D>): Node<d.bool> => new BinopNode('<=', d.bool, a, b);
 export const equal            = <D extends Any>(a: Node<D>, b: Node<D>): Node<d.bool> => new BinopNode('==', d.bool, a, b);
 export const notEqual         = <D extends Any>(a: Node<D>, b: Node<D>): Node<d.bool> => new BinopNode('!=', d.bool, a, b);
-export const index = <D extends Any>(array: Node<D>, idx: Node<Any>) => new IndexNode(array.type, array, idx);
 
 /**
  * Create an inline fixed-size array of nodes, emitted as `array<E, N>(e0, e1, ..., eN-1)`.
@@ -832,7 +879,7 @@ export const pow        = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => ne
 export const max        = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new CallNode(a.type, 'max', [a, b]);
 export const min        = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new CallNode(a.type, 'min', [a, b]);
 export const clamp      = <D extends Any>(a: Node<D>, lo: Node<D>, hi: Node<D>): Node<D> => new CallNode(a.type, 'clamp', [a, lo, hi]);
-export const mix        = <D extends Any>(a: Node<D>, b: Node<D>, t: Node<D>): Node<D> => new CallNode(a.type, 'mix', [a, b, t]);
+export const mix        = <D extends Any>(a: Node<D>, b: Node<D>, t: Node<d.ScalarDesc>): Node<D> => new CallNode(a.type, 'mix', [a, b, t]);
 export const step       = <D extends Any>(edge: Node<D>, x: Node<D>): Node<D> => new CallNode(x.type, 'step', [edge, x]);
 export const smoothstep = <D extends Any>(lo: Node<D>, hi: Node<D>, x: Node<D>): Node<D> => new CallNode(x.type, 'smoothstep', [lo, hi, x]);
 export const sign       = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'sign', [a]);
