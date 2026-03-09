@@ -12,6 +12,8 @@ import {
     OrbitControls,
     type Node,
 } from 'gpucat';
+import { ArithResultDesc } from '../../dist/nodes/schema';
+import { VarNode } from '../../dist/nodes/nodes';
 
 // ── Simulation constants ──────────────────────────────────────────────────────
 

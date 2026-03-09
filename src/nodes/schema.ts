@@ -376,16 +376,34 @@ export type StructField<D extends Any, K extends string> =
 /** Extract keys from a struct descriptor */
 export type StructKeys<D extends Any> = D extends StructDesc<infer S> ? keyof S & string : never;
 
+// Helper to check if a descriptor is scalar by its type discriminant
+type IsScalar<D extends Any> = D extends { type: 'f32' | 'i32' | 'u32' | 'bool' | 'f16' } ? true : false;
+
+type IsMat<D extends Any> = D extends { type: 
+    | 'mat2x2f' | 'mat2x3f' | 'mat2x4f'
+    | 'mat3x2f' | 'mat3x3f' | 'mat3x4f'
+    | 'mat4x2f' | 'mat4x3f' | 'mat4x4f'
+    | 'mat2x2h' | 'mat2x3h' | 'mat2x4h'
+    | 'mat3x2h' | 'mat3x3h' | 'mat3x4h'
+    | 'mat4x2h' | 'mat4x3h' | 'mat4x4h'
+} ? true : false;
+
+type IsVec<D extends Any> = D extends { type: 
+    | 'vec2f' | 'vec2i' | 'vec2u' | 'vec2<bool>' | 'vec2h'
+    | 'vec3f' | 'vec3i' | 'vec3u' | 'vec3<bool>' | 'vec3h'
+    | 'vec4f' | 'vec4i' | 'vec4u' | 'vec4<bool>' | 'vec4h'
+} ? true : false;
+
 /** Type-level mul result: mat*vec→vec, scalar*T→T, T*scalar→T, else A */
 export type MulResultDesc<A extends Any, B extends Any> =
-    A extends MatDesc ? (B extends anyVec ? B : A) :
-    B extends ScalarDesc ? A :
-    A extends ScalarDesc ? B :
+    IsMat<A> extends true ? (IsVec<B> extends true ? B : A) :
+    IsScalar<B> extends true ? A :
+    IsScalar<A> extends true ? B :
     A;
 
 /** Type-level add/sub/div result: scalar op T→T, else A */
 export type ArithResultDesc<A extends Any, B extends Any> =
-    A extends ScalarDesc ? (B extends ScalarDesc ? A : B) : A;
+    IsScalar<A> extends true ? (IsScalar<B> extends true ? A : B) : A;
 
 /** Extract the element descriptor from a vec descriptor, or return self for scalars */
 export type VecElementDesc<D extends Any> =

@@ -182,10 +182,10 @@ export class Node<D extends Any> {
     notEqual(b: Node<D>): Node<d.bool>         { return new BinopNode('!=', d.bool, this, b); }
 
     // ── Math ──────────────────────────────────────────────────────────────────
-    add<BD extends Any>(b: Node<BD>): Node<ArithResultDesc<D, BD>>  { return add(this, b); }
-    sub<BD extends Any>(b: Node<BD>): Node<ArithResultDesc<D, BD>>  { return sub(this, b); }
-    div<BD extends Any>(b: Node<BD>): Node<ArithResultDesc<D, BD>>  { return div(this, b); }
-    mul<BD extends Any>(b: Node<BD>): Node<MulResultDesc<D, BD>>    { return mul(this, b); }
+    add<N extends Node<Any>>(b: N): Node<ArithResultDesc<D, N['type']>>  { return add(this, b) as Node<ArithResultDesc<D, N['type']>>; }
+    sub<N extends Node<Any>>(b: N): Node<ArithResultDesc<D, N['type']>>  { return sub(this, b) as Node<ArithResultDesc<D, N['type']>>; }
+    div<N extends Node<Any>>(b: N): Node<ArithResultDesc<D, N['type']>>  { return div(this, b) as Node<ArithResultDesc<D, N['type']>>; }
+    mul<N extends Node<Any>>(b: N): Node<MulResultDesc<D, N['type']>>    { return mul(this, b) as Node<MulResultDesc<D, N['type']>>; }
     abs(): Node<D>                   { return new CallNode(this.type, 'abs',       [this]) as Node<D>; }
     floor(): Node<D>                 { return new CallNode(this.type, 'floor',     [this]) as Node<D>; }
     ceil(): Node<D>                  { return new CallNode(this.type, 'ceil',      [this]) as Node<D>; }
@@ -219,10 +219,10 @@ export class Node<D extends Any> {
     toVar(label?: string): VarNode<D>      { return Var(this, label); }
     toConst(label?: string): VarNode<D>    { return Const(this, label); }
 
-    addAssign<BD extends Any>(v: Node<BD>): void { addToStack(new AssignNode(this, add(this, v) as unknown as Node<D>)); }
-    subAssign<BD extends Any>(v: Node<BD>): void { addToStack(new AssignNode(this, sub(this, v) as unknown as Node<D>)); }
-    mulAssign<BD extends Any>(v: Node<BD>): void { addToStack(new AssignNode(this, mul(this, v) as unknown as Node<D>)); }
-    divAssign<BD extends Any>(v: Node<BD>): void { addToStack(new AssignNode(this, div(this, v) as unknown as Node<D>)); }
+    addAssign<N extends Node<Any>>(v: N): void { addToStack(new AssignNode(this, add(this, v) as unknown as Node<D>)); }
+    subAssign<N extends Node<Any>>(v: N): void { addToStack(new AssignNode(this, sub(this, v) as unknown as Node<D>)); }
+    mulAssign<N extends Node<Any>>(v: N): void { addToStack(new AssignNode(this, mul(this, v) as unknown as Node<D>)); }
+    divAssign<N extends Node<Any>>(v: N): void { addToStack(new AssignNode(this, div(this, v) as unknown as Node<D>)); }
 
     sign(): Node<D>          { return sign(this) as Node<D>; }
     mod(b: Node<D>): Node<D> { return mod(this, b) as Node<D>; }
@@ -708,41 +708,35 @@ function elemOf(type: Vec2Type | Vec3Type | Vec4Type): ScalarElemType {
     return 'bool';
 }
 
-function descForVec(type: string): d.Vec2Desc | d.Vec3Desc | d.Vec4Desc {
-    return d.descFromWgslType(type) as d.Vec2Desc | d.Vec3Desc | d.Vec4Desc;
-}
-
-export function makeVec2<T extends Vec2Type>(type: T) {
-    const desc = descForVec(type) as d.Vec2Desc;
-    function ctor(v: Node<Any>): ConstructNode<d.Vec2Desc>;
-    function ctor(x: Scalar, y: Scalar): ConstructNode<d.Vec2Desc>;
-    function ctor(a: Scalar | Node<Any>, b?: Scalar): ConstructNode<d.Vec2Desc> {
-        if (b === undefined) return new ConstructNode(desc, [wrapScalar(a, elemOf(type))]);
-        return new ConstructNode(desc, [wrapScalar(a, elemOf(type)), wrapScalar(b, elemOf(type))]);
+export function makeVec2<D extends d.Vec2Desc>(desc: D) {
+    const e = elemOf(desc.wgslType);
+    function ctor(v: Node<Any>): ConstructNode<D>;
+    function ctor(x: Scalar, y: Scalar): ConstructNode<D>;
+    function ctor(a: Scalar | Node<Any>, b?: Scalar): ConstructNode<D> {
+        if (b === undefined) return new ConstructNode(desc, [wrapScalar(a, e)]);
+        return new ConstructNode(desc, [wrapScalar(a, e), wrapScalar(b, e)]);
     }
     return ctor;
 }
-export function makeVec3<T extends Vec3Type>(type: T) {
-    const desc = descForVec(type) as d.Vec3Desc;
-    function ctor(v: Node<Any>): ConstructNode<d.Vec3Desc>;
-    function ctor(xy: Node<Any>, z: Scalar): ConstructNode<d.Vec3Desc>;
-    function ctor(x: Scalar, y: Scalar, z: Scalar): ConstructNode<d.Vec3Desc>;
-    function ctor(a: Scalar, b?: Scalar, c?: Scalar): ConstructNode<d.Vec3Desc> {
-        const e = elemOf(type);
+export function makeVec3<D extends d.Vec3Desc>(desc: D) {
+    const e = elemOf(desc.wgslType);
+    function ctor(v: Node<Any>): ConstructNode<D>;
+    function ctor(xy: Node<Any>, z: Scalar): ConstructNode<D>;
+    function ctor(x: Scalar, y: Scalar, z: Scalar): ConstructNode<D>;
+    function ctor(a: Scalar, b?: Scalar, c?: Scalar): ConstructNode<D> {
         if (b === undefined) return new ConstructNode(desc, [wrapScalar(a, e)]);
         if (c === undefined) return new ConstructNode(desc, [wrapScalar(a, e), wrapScalar(b, e)]);
         return new ConstructNode(desc, [wrapScalar(a, e), wrapScalar(b, e), wrapScalar(c, e)]);
     }
     return ctor;
 }
-export function makeVec4<T extends Vec4Type>(type: T) {
-    const desc = descForVec(type) as d.Vec4Desc;
-    function ctor(xy: Node<Any>, zw: Node<Any>): ConstructNode<d.Vec4Desc>;
-    function ctor(xy: Node<Any>, z: Scalar, w: Scalar): ConstructNode<d.Vec4Desc>;
-    function ctor(xyz: Node<Any>, w: Scalar): ConstructNode<d.Vec4Desc>;
-    function ctor(x: Scalar, y: Scalar, z: Scalar, w: Scalar): ConstructNode<d.Vec4Desc>;
-    function ctor(a: Scalar, b: Scalar, c?: Scalar, dVal?: Scalar): ConstructNode<d.Vec4Desc> {
-        const e = elemOf(type);
+export function makeVec4<D extends d.Vec4Desc>(desc: D) {
+    const e = elemOf(desc.wgslType);
+    function ctor(xy: Node<Any>, zw: Node<Any>): ConstructNode<D>;
+    function ctor(xy: Node<Any>, z: Scalar, w: Scalar): ConstructNode<D>;
+    function ctor(xyz: Node<Any>, w: Scalar): ConstructNode<D>;
+    function ctor(x: Scalar, y: Scalar, z: Scalar, w: Scalar): ConstructNode<D>;
+    function ctor(a: Scalar, b: Scalar, c?: Scalar, dVal?: Scalar): ConstructNode<D> {
         if (c === undefined) return new ConstructNode(desc, [wrapScalar(a, e), wrapScalar(b, e)]);
         if (dVal === undefined) return new ConstructNode(desc, [wrapScalar(a, e), wrapScalar(b, e), wrapScalar(c, e)]);
         return new ConstructNode(desc, [wrapScalar(a, e), wrapScalar(b, e), wrapScalar(c, e), wrapScalar(dVal, e)]);
@@ -750,59 +744,59 @@ export function makeVec4<T extends Vec4Type>(type: T) {
     return ctor;
 }
 
-export const vec2  = makeVec2('vec2f');
-export const vec3  = makeVec3('vec3f');
-export const vec4  = makeVec4('vec4f');
-export const vec2f = makeVec2('vec2f');
-export const vec3f = makeVec3('vec3f');
-export const vec4f = makeVec4('vec4f');
-export const vec2i = makeVec2('vec2i');
-export const vec3i = makeVec3('vec3i');
-export const vec4i = makeVec4('vec4i');
-export const vec2u = makeVec2('vec2u');
-export const vec3u = makeVec3('vec3u');
-export const vec4u = makeVec4('vec4u');
-export const vec2h = makeVec2('vec2h');
-export const vec3h = makeVec3('vec3h');
-export const vec4h = makeVec4('vec4h');
-export const vec2b = makeVec2('vec2<bool>');
-export const vec3b = makeVec3('vec3<bool>');
-export const vec4b = makeVec4('vec4<bool>');
+export const vec2  = makeVec2(d.vec2f);
+export const vec3  = makeVec3(d.vec3f);
+export const vec4  = makeVec4(d.vec4f);
+export const vec2f = makeVec2(d.vec2f);
+export const vec3f = makeVec3(d.vec3f);
+export const vec4f = makeVec4(d.vec4f);
+export const vec2i = makeVec2(d.vec2i);
+export const vec3i = makeVec3(d.vec3i);
+export const vec4i = makeVec4(d.vec4i);
+export const vec2u = makeVec2(d.vec2u);
+export const vec3u = makeVec3(d.vec3u);
+export const vec4u = makeVec4(d.vec4u);
+export const vec2h = makeVec2(d.vec2h);
+export const vec3h = makeVec3(d.vec3h);
+export const vec4h = makeVec4(d.vec4h);
+export const vec2b = makeVec2(d.vec2bool);
+export const vec3b = makeVec3(d.vec3bool);
+export const vec4b = makeVec4(d.vec4bool);
 
-export const mat2x2f = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat2x2f, v.length ? v : []);
-export const mat2x3f = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat2x3f, v.length ? v : []);
-export const mat2x4f = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat2x4f, v.length ? v : []);
-export const mat3x2f = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat3x2f, v.length ? v : []);
-export const mat3x3f = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat3x3f, v.length ? v : []);
-export const mat3x4f = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat3x4f, v.length ? v : []);
-export const mat4x2f = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat4x2f, v.length ? v : []);
-export const mat4x3f = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat4x3f, v.length ? v : []);
-export const mat4x4f = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat4x4f, v.length ? v : []);
-export const mat2x2h = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat2x2h, v.length ? v : []);
-export const mat2x3h = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat2x3h, v.length ? v : []);
-export const mat2x4h = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat2x4h, v.length ? v : []);
-export const mat3x2h = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat3x2h, v.length ? v : []);
-export const mat3x3h = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat3x3h, v.length ? v : []);
-export const mat3x4h = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat3x4h, v.length ? v : []);
-export const mat4x2h = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat4x2h, v.length ? v : []);
-export const mat4x3h = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat4x3h, v.length ? v : []);
-export const mat4x4h = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat4x4h, v.length ? v : []);
+export const mat2x2f = (...v: number[]): ConstNode<d.mat2x2f> => new ConstNode(d.mat2x2f, v.length ? v : []);
+export const mat2x3f = (...v: number[]): ConstNode<d.mat2x3f> => new ConstNode(d.mat2x3f, v.length ? v : []);
+export const mat2x4f = (...v: number[]): ConstNode<d.mat2x4f> => new ConstNode(d.mat2x4f, v.length ? v : []);
+export const mat3x2f = (...v: number[]): ConstNode<d.mat3x2f> => new ConstNode(d.mat3x2f, v.length ? v : []);
+export const mat3x3f = (...v: number[]): ConstNode<d.mat3x3f> => new ConstNode(d.mat3x3f, v.length ? v : []);
+export const mat3x4f = (...v: number[]): ConstNode<d.mat3x4f> => new ConstNode(d.mat3x4f, v.length ? v : []);
+export const mat4x2f = (...v: number[]): ConstNode<d.mat4x2f> => new ConstNode(d.mat4x2f, v.length ? v : []);
+export const mat4x3f = (...v: number[]): ConstNode<d.mat4x3f> => new ConstNode(d.mat4x3f, v.length ? v : []);
+export const mat4x4f = (...v: number[]): ConstNode<d.mat4x4f> => new ConstNode(d.mat4x4f, v.length ? v : []);
+export const mat2x2h = (...v: number[]): ConstNode<d.mat2x2h> => new ConstNode(d.mat2x2h, v.length ? v : []);
+export const mat2x3h = (...v: number[]): ConstNode<d.mat2x3h> => new ConstNode(d.mat2x3h, v.length ? v : []);
+export const mat2x4h = (...v: number[]): ConstNode<d.mat2x4h> => new ConstNode(d.mat2x4h, v.length ? v : []);
+export const mat3x2h = (...v: number[]): ConstNode<d.mat3x2h> => new ConstNode(d.mat3x2h, v.length ? v : []);
+export const mat3x3h = (...v: number[]): ConstNode<d.mat3x3h> => new ConstNode(d.mat3x3h, v.length ? v : []);
+export const mat3x4h = (...v: number[]): ConstNode<d.mat3x4h> => new ConstNode(d.mat3x4h, v.length ? v : []);
+export const mat4x2h = (...v: number[]): ConstNode<d.mat4x2h> => new ConstNode(d.mat4x2h, v.length ? v : []);
+export const mat4x3h = (...v: number[]): ConstNode<d.mat4x3h> => new ConstNode(d.mat4x3h, v.length ? v : []);
+export const mat4x4h = (...v: number[]): ConstNode<d.mat4x4h> => new ConstNode(d.mat4x4h, v.length ? v : []);
 
 export const mat4 = (c0: Node<d.Vec4Desc>, c1: Node<d.Vec4Desc>, c2: Node<d.Vec4Desc>, c3: Node<d.Vec4Desc>) => new ConstructNode(d.mat4x4f, [c0, c1, c2, c3]);
-export function mat3(c0: Node<d.Vec3Desc>, c1: Node<d.Vec3Desc>, c2: Node<d.Vec3Desc>): Node<d.MatDesc>;
-export function mat3(diag: Node<d.f32>): Node<d.MatDesc>;
+export function mat3(c0: Node<d.Vec3Desc>, c1: Node<d.Vec3Desc>, c2: Node<d.Vec3Desc>): Node<d.mat3x3f>;
+export function mat3(diag: Node<d.f32>): Node<d.mat3x3f>;
 export function mat3(
     s00: Node<d.f32>, s01: Node<d.f32>, s02: Node<d.f32>,
     s10: Node<d.f32>, s11: Node<d.f32>, s12: Node<d.f32>,
     s20: Node<d.f32>, s21: Node<d.f32>, s22: Node<d.f32>
-): Node<d.MatDesc>;
+): Node<d.mat3x3f>;
 export function mat3(
     c0: Node<d.Vec3Desc> | Node<d.f32>,
     c1?: Node<d.Vec3Desc> | Node<d.f32>,
     c2?: Node<d.Vec3Desc> | Node<d.f32>,
     s10?: Node<d.f32>, s11?: Node<d.f32>, s12?: Node<d.f32>,
     s20?: Node<d.f32>, s21?: Node<d.f32>, s22?: Node<d.f32>
-): Node<d.MatDesc> {
+): Node<d.mat3x3f> {
     // 9-scalar overload: mat3x3f(s00..s22) — column-major scalars
     if (s10 !== undefined) {
         return new ConstructNode(d.mat3x3f, [c0, c1!, c2!, s10, s11!, s12!, s20!, s21!, s22!]);
@@ -817,10 +811,10 @@ export function mat3(
 
 // ── Standalone math functions ─────────────────────────────────────────────────
 
-export const add        = <A extends Any, B extends Any>(a: Node<A>, b: Node<B>): Node<ArithResultDesc<A, B>> => new BinopNode('+', d.arithResultDesc(a.type, b.type), a, b) as unknown as Node<ArithResultDesc<A, B>>;
-export const sub        = <A extends Any, B extends Any>(a: Node<A>, b: Node<B>): Node<ArithResultDesc<A, B>> => new BinopNode('-', d.arithResultDesc(a.type, b.type), a, b) as unknown as Node<ArithResultDesc<A, B>>;
-export const div        = <A extends Any, B extends Any>(a: Node<A>, b: Node<B>): Node<ArithResultDesc<A, B>> => new BinopNode('/', d.arithResultDesc(a.type, b.type), a, b) as unknown as Node<ArithResultDesc<A, B>>;
-export const mul        = <A extends Any, B extends Any>(a: Node<A>, b: Node<B>): Node<MulResultDesc<A, B>> => new BinopNode('*', d.mulResultDesc(a.type, b.type), a, b) as unknown as Node<MulResultDesc<A, B>>;
+export const add        = <NA extends Node<Any>, NB extends Node<Any>>(a: NA, b: NB): Node<ArithResultDesc<NA['type'], NB['type']>> => new BinopNode('+', d.arithResultDesc(a.type, b.type), a, b) as unknown as Node<ArithResultDesc<NA['type'], NB['type']>>;
+export const sub        = <NA extends Node<Any>, NB extends Node<Any>>(a: NA, b: NB): Node<ArithResultDesc<NA['type'], NB['type']>> => new BinopNode('-', d.arithResultDesc(a.type, b.type), a, b) as unknown as Node<ArithResultDesc<NA['type'], NB['type']>>;
+export const div        = <NA extends Node<Any>, NB extends Node<Any>>(a: NA, b: NB): Node<ArithResultDesc<NA['type'], NB['type']>> => new BinopNode('/', d.arithResultDesc(a.type, b.type), a, b) as unknown as Node<ArithResultDesc<NA['type'], NB['type']>>;
+export const mul        = <NA extends Node<Any>, NB extends Node<Any>>(a: NA, b: NB): Node<MulResultDesc<NA['type'], NB['type']>> => new BinopNode('*', d.mulResultDesc(a.type, b.type), a, b) as unknown as Node<MulResultDesc<NA['type'], NB['type']>>;
 export const dot        = (a: Node<Any>, b: Node<Any>): Node<d.f32> => new CallNode(d.f32, 'dot', [a, b]);
 export const cross      = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new CallNode(a.type, 'cross', [a, b]);
 export const normalize  = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'normalize', [a]);

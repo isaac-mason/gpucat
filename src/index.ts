@@ -35,6 +35,12 @@ export {
     vec3, vec3f, vec3h, vec3i, vec3u, vec3b,
     vec4, vec4f, vec4h, vec4i, vec4u, vec4b,
     mat3, mat4,
+    mat2x2f, mat2x3f, mat2x4f,
+    mat3x2f, mat3x3f, mat3x4f,
+    mat4x2f, mat4x3f, mat4x4f,
+    mat2x2h, mat2x3h, mat2x4h,
+    mat3x2h, mat3x3h, mat3x4h,
+    mat4x2h, mat4x3h, mat4x4h,
 
     // math/operators
     abs, add, sub, mul, div, mod, min, max, clamp, mix, step, smoothstep,
