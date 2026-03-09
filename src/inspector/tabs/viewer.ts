@@ -25,7 +25,7 @@
 import { Tab } from '../ui/tab';
 import { List } from '../ui/list';
 import { Item } from '../ui/item';
-import { type WgslType, type Node, VaryingNode, builtin, wgsl } from '../../nodes/nodes';
+import { type Node, VaryingNode, builtin, wgsl } from '../../nodes/nodes';
 import * as d from '../../nodes/schema';
 import type { Inspector } from '../inspector';
 import { CanvasTarget } from '../../renderer/canvas-target';
@@ -41,9 +41,9 @@ export type CanvasData = {
     /** Stable ID (= node.id) */
     id: string;
     /** The original inspectable node */
-    node: Node<WgslType>;
+    node: Node<d.WgslDesc>;
     /** Wrapped node: vec4f(node.xyz, 1.0) embedded in the fullscreen material graph */
-    wrappedNode: Node<'vec4f'>;
+    wrappedNode: Node<d.Vec4fDesc>;
     /** Fullscreen material built from wrappedNode */
     material: Material;
     /** 140×140 CanvasTarget the viewer renders into */
@@ -287,8 +287,8 @@ export function splitPath(str: string): { path: string | undefined; name: string
  * Position node for the fullscreen triangle.
  * Uses @builtin(vertex_index) to generate clip-space positions.
  */
-export function makeFullscreenPositionNode(): Node<'vec4f'> {
-    const vi = builtin('vertex_index', 'u32');
+export function makeFullscreenPositionNode(): Node<d.Vec4fDesc> {
+    const vi = builtin('vertex_index', d.u32);
     return wgsl(d.vec4f)`vec4f(f32((${ vi } & 1u) * 2u) * 2.0 - 1.0, f32(${ vi } & 2u) * 2.0 - 1.0, 0.0, 1.0)`;
 }
 
@@ -296,10 +296,10 @@ export function makeFullscreenPositionNode(): Node<'vec4f'> {
  * UV varying node for fullscreen triangle.
  * Computes UV from clip position so textureSample() calls work.
  */
-export function makeFullscreenUVVarying(): VaryingNode<'vec2f'> {
-    const vi = builtin('vertex_index', 'u32');
+export function makeFullscreenUVVarying(): VaryingNode<d.Vec2fDesc> {
+    const vi = builtin('vertex_index', d.u32);
     const uvSource = wgsl(d.vec2f)`vec2f((f32((${ vi } & 1u) * 2u) * 2.0 - 1.0) * 0.5 + 0.5, 0.5 - (f32(${ vi } & 2u) * 2.0 - 1.0) * 0.5)`;
-    return new VaryingNode<'vec2f'>(uvSource, 'uv');
+    return new VaryingNode<d.Vec2fDesc>(uvSource, 'uv');
 }
 
 /**
@@ -316,8 +316,8 @@ export function makeFullscreenUVVarying(): VaryingNode<'vec2f'> {
  *   mat*                        → vec4f scalar from first element
  *   texture / sampler / other   → textureSample evaluates to vec4f; take .xyz
  */
-function nodeToVec4f(node: Node<WgslType>): Node<'vec4f'> {
-    const t = node.type;
+function nodeToVec4f(node: Node<d.WgslDesc>): Node<d.Vec4fDesc> {
+    const t = node.type.wgslType;
 
     // ---- scalars ----
     if (t === 'f32') {
@@ -371,8 +371,8 @@ function nodeToVec4f(node: Node<WgslType>): Node<'vec4f'> {
  *
  * Three.js aligned: mirrors the node wrapping in Inspector.getCanvasDataByNode()
  */
-export function makePreviewMaterial(node: Node<WgslType>, format: GPUTextureFormat): {
-    wrappedNode: Node<'vec4f'>;
+export function makePreviewMaterial(node: Node<d.WgslDesc>, format: GPUTextureFormat): {
+    wrappedNode: Node<d.Vec4fDesc>;
     material: Material;
     pipelineKey: string;
 } {

@@ -1,31 +1,32 @@
-import type { WgslType, Node } from '../nodes/nodes';
+import type { Node } from '../nodes/nodes';
+import type { WgslDesc } from '../nodes/schema';
 
 export interface MaterialOptions {
     /**
      * vec4f clip-space position graph.
      * Use `positionClip` for standard MVP transform.
      */
-    vertex: Node<WgslType>;
+    vertex: Node<WgslDesc>;
 
     /**
      * Fragment output. Can be:
      * - A vec4f node for single color output
      * - An OutputStructNode/MRTNode for multiple render targets
      */
-    fragment: Node<WgslType>;
+    fragment: Node<WgslDesc>;
 
     /**
      * An optional `bool` discard mask. When this node evaluates to false, the fragment is
      * discarded. Evaluated before all other fragment logic.
      */
-    mask?: Node<WgslType>;
+    mask?: Node<WgslDesc>;
 
     /**
      * An optional `f32` override for the fragment depth written to the depth buffer.
      * When set, the compiler emits `@builtin(frag_depth)` on the fragment
      * output and assigns this value.
      */
-    depth?: Node<WgslType>;
+    depth?: Node<WgslDesc>;
 
     /** Controls draw sort order (opaque vs transparent) AND the default for depthWrite. */
     transparent?: boolean;
@@ -53,16 +54,16 @@ export class Material {
     /**
      * vec4f clip-space position.
      */
-    vertexNode: Node<WgslType>;
+    vertexNode: Node<WgslDesc>;
 
     /** Fragment output. Can be vec4f or OutputStructNode for MRT */
-    fragmentNode: Node<WgslType>;
+    fragmentNode: Node<WgslDesc>;
 
     /** bool discard mask — fragment is discarded when false */
-    maskNode: Node<WgslType> | undefined;
+    maskNode: Node<WgslDesc> | undefined;
 
     /** f32 depth override — written to @builtin(frag_depth) */
-    depthNode: Node<WgslType> | undefined;
+    depthNode: Node<WgslDesc> | undefined;
 
     /** Controls draw sort order (opaque vs transparent) AND the default for depthWrite. */
     transparent: boolean;

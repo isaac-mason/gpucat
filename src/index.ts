@@ -34,19 +34,21 @@ export {
     vec2, vec2f, vec2h, vec2i, vec2u, vec2b,
     vec3, vec3f, vec3h, vec3i, vec3u, vec3b,
     vec4, vec4f, vec4h, vec4i, vec4u, vec4b,
-    mat4,
+    mat3, mat4,
 
     // math/operators
-    abs, add, sub, mul, div, min, max, clamp, mix, step, smoothstep,
+    abs, add, sub, mul, div, mod, min, max, clamp, mix, step, smoothstep,
     ceil, floor, fract, sqrt, pow, length, normalize, dot, cross,
-    sin, cos, transpose,
+    sign, sin, cos, transpose,
 
     // comparison
     greaterThan, lessThan, greaterThanEqual, lessThanEqual, equal, notEqual,
+    or, and,
 
     // node factories
     attribute, bufferAttribute, instancedBufferAttribute,
     builtin, index, uniform, storage, storageArray, instancedArray,
+    array,
     texture, varying, struct, wgsl, wgslFn, Fn, mrt,
     compute,
 
@@ -59,7 +61,7 @@ export {
     Var, Const,
 
     // control flow
-    If, For, While, Break, Continue, Return,
+    If, Loop, For, While, Break, Continue, Return,
 
     // camera uniforms
     cameraProjectionMatrix, cameraViewMatrix, cameraPosition, cameraNear, cameraFar,
@@ -89,6 +91,7 @@ export {
     type SamplerType, type ScalarType, type StructDef,
     type StructInstance, type StructMember, type TextureType, type Vec2Type,
     type Vec3Type, type Vec4Type, type VecType, type WgslType,
+    type Node,
     type InterpolationType, type InterpolationSampling,
     type WgslNodeFunction as NodeFunction, type WgslNodeFunctionInput as NodeFunctionInput, type ParamDesc, type FnLayout,
 

@@ -1,4 +1,5 @@
-import { computeId, Node, type WgslType } from './core';
+import { computeId, Node } from './core';
+import type { WgslDesc } from '../schema';
 
 
 /**
@@ -6,13 +7,13 @@ import { computeId, Node, type WgslType } from './core';
  * Used by VaryingNode to ensure source nodes are built in VERTEX stage.
  */
 
-export class SubBuildNode<T extends WgslType> extends Node<T> {
+export class SubBuildNode<D extends WgslDesc> extends Node<D> {
     readonly isSubBuildNode = true;
 
     constructor(
-        readonly node: Node<T>,
+        readonly node: Node<D>,
         readonly subBuildName: string,
-        nodeType: T | null = null
+        nodeType: D | null = null
     ) {
         super(
             computeId('subBuild', { node: node.id, name: subBuildName }),
@@ -25,10 +26,10 @@ export class SubBuildNode<T extends WgslType> extends Node<T> {
  * Creates a SubBuildNode wrapper.
  */
 
-export function subBuild<T extends WgslType>(
-    node: Node<T>,
+export function subBuild<D extends WgslDesc>(
+    node: Node<D>,
     name: string,
-    type: T | null = null
-): SubBuildNode<T> {
+    type: D | null = null
+): SubBuildNode<D> {
     return new SubBuildNode(node, name, type);
 }

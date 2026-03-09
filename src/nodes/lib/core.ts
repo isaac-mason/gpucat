@@ -1,10 +1,15 @@
 import type { NodeFrame } from '../../renderer/node-frame';
-import type { WgslDesc, StructSchema } from '../schema';
+import type { WgslDesc, WgslType } from '../schema';
 import { isStructDef } from '../schema';
+import * as d from '../schema';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+// Re-export WgslType from schema for backwards compat in external files
+export type { WgslType } from '../schema';
+
 export type ScalarType = 'f32' | 'i32' | 'u32' | 'bool' | 'f16';
+export type AtomicType = 'atomic<i32>' | 'atomic<u32>';
 
 export type Vec2Type = 'vec2f' | 'vec2i' | 'vec2u' | 'vec2<bool>' | 'vec2h';
 export type Vec3Type = 'vec3f' | 'vec3i' | 'vec3u' | 'vec3<bool>' | 'vec3h';
@@ -17,7 +22,10 @@ export type MatType = 'mat2x2f' | 'mat2x3f' | 'mat2x4f' | 'mat3x2f' | 'mat3x3f' 
 export type NumericType = ScalarType | VecType | MatType;
 export type SamplerType = 'sampler' | 'sampler_comparison';
 export type TextureType = string;
-export type WgslType = NumericType | SamplerType | TextureType;
+
+export type GpuTypedArray = Float32Array | Int32Array | Uint32Array | Int16Array | Uint16Array | Int8Array | Uint8Array;
+
+// ─── Type-level helpers (for return type inference) ───────────────────────────
 
 export type VecElement<T extends VecType> = T extends 'vec2f' | 'vec3f' | 'vec4f' ? 'f32' : T extends 'vec2i' | 'vec3i' | 'vec4i' ? 'i32' : T extends 'vec2u' | 'vec3u' | 'vec4u' ? 'u32' : T extends 'vec2h' | 'vec3h' | 'vec4h' ? 'f16' : 'bool';
 
@@ -30,13 +38,12 @@ export type Swizzle2<T extends WgslType> = T extends VecType ? Vec2Of<VecElement
 export type Swizzle3<T extends WgslType> = T extends VecType ? Vec3Of<VecElement<T>> : WgslType;
 export type Swizzle4<T extends WgslType> = T extends VecType ? Vec4Of<VecElement<T>> : WgslType;
 
-export type GpuTypedArray = Float32Array | Int32Array | Uint32Array | Int16Array | Uint16Array | Int8Array | Uint8Array;
-
-// ─── Math result types ────────────────────────────────────────────────────────
-
 export type MulResult<A extends WgslType, B extends WgslType> = [A] extends [MatType] ? [B] extends [VecType] ? B : A : [B] extends [ScalarType] ? A : [A] extends [ScalarType] ? B : A;
 export type ArithResult<A extends WgslType, B extends WgslType> = [A] extends [B] ? A : [B] extends [A] ? B : [A] extends [ScalarType] ? B : A;
-export type BinopOp = '+' | '-' | '*' | '/' | '%' | '==' | '!=' | '<' | '>' | '<=' | '>=';
+
+// ─── Descriptor-based math result types ───────────────────────────────────────
+
+export type BinopOp = '+' | '-' | '*' | '/' | '%' | '==' | '!=' | '<' | '>' | '<=' | '>=' | '||' | '&&';
 
 // ─── Node id utilities ────────────────────────────────────────────────────────
 
@@ -110,7 +117,7 @@ export function pushStack(stack: StackNode): StackNode | null {
     return prev;
 }
 export function popStack(prev: StackNode | null): void { currentStack = prev; }
-export function addToStack(node: Node<WgslType>): void {
+export function addToStack(node: Node<WgslDesc>): void {
     if (currentStack === null) throw new Error(
         `[gpucat] Control flow (toVar, If, For, Return) must be called inside a Fn body. ` +
         `You are calling it outside of any Fn — wrap your code in Fn([...], () => { ... }).`
@@ -128,11 +135,11 @@ export const NodeUpdateType = {
 } as const;
 export type NodeUpdateType = (typeof NodeUpdateType)[keyof typeof NodeUpdateType];
 
-export class Node<T extends WgslType> {
+export class Node<D extends WgslDesc> {
     readonly id: string;
-    readonly type: T;
+    readonly type: D;
 
-    _beforeNodes: Node<WgslType>[] | null = null;
+    _beforeNodes: Node<WgslDesc>[] | null = null;
     updateType: NodeUpdateType = NodeUpdateType.NONE;
     updateBeforeType: NodeUpdateType = NodeUpdateType.NONE;
     updateAfterType: NodeUpdateType = NodeUpdateType.NONE;
@@ -141,7 +148,7 @@ export class Node<T extends WgslType> {
     readonly isNode: boolean = true;
     update?: (frame: NodeFrame) => unknown;
 
-    constructor(id: string, type: T) {
+    constructor(id: string, type: D) {
         this.id = id;
         this.type = type;
     }
@@ -154,291 +161,312 @@ export class Node<T extends WgslType> {
     onRenderUpdate(callback: (frame: NodeFrame) => unknown): this { return this.onUpdate(callback, NodeUpdateType.RENDER); }
     onObjectUpdate(callback: (frame: NodeFrame) => unknown): this { return this.onUpdate(callback, NodeUpdateType.OBJECT); }
 
-    before(node: Node<WgslType>): this {
+    before(node: Node<WgslDesc>): this {
         if (this._beforeNodes === null) this._beforeNodes = [];
         this._beforeNodes.push(node);
         return this;
     }
 
     // ── Type conversions ──────────────────────────────────────────────────────
-    toF32(): Node<'f32'>  { return new CallNode('f32', 'f32', [this]); }
-    toF16(): Node<'f16'>  { return new CallNode('f16', 'f16', [this]); }
-    toU32(): Node<'u32'>  { return new CallNode('u32', 'u32', [this]); }
-    toI32(): Node<'i32'>  { return new CallNode('i32', 'i32', [this]); }
+    toF32(): Node<d.F32Desc>  { return new CallNode(d.f32, 'f32', [this]); }
+    toF16(): Node<d.F16Desc>  { return new CallNode(d.f16, 'f16', [this]); }
+    toU32(): Node<d.U32Desc>  { return new CallNode(d.u32, 'u32', [this]); }
+    toI32(): Node<d.I32Desc>  { return new CallNode(d.i32, 'i32', [this]); }
 
     // ── Field access ──────────────────────────────────────────────────────────
-    field<R extends WgslType>(name: string, resultType: R): Node<R> { return new FieldNode(resultType, this, name); }
+    field<RD extends WgslDesc>(name: string, resultType: RD): Node<RD> { return new FieldNode(resultType, this, name); }
 
     // ── Comparisons ───────────────────────────────────────────────────────────
-    greaterThan(b: Node<T>): Node<'bool'>      { return new BinopNode('>', 'bool', this, b); }
-    lessThan(b: Node<T>): Node<'bool'>         { return new BinopNode('<', 'bool', this, b); }
-    greaterThanEqual(b: Node<T>): Node<'bool'> { return new BinopNode('>=', 'bool', this, b); }
-    lessThanEqual(b: Node<T>): Node<'bool'>    { return new BinopNode('<=', 'bool', this, b); }
-    equal(b: Node<T>): Node<'bool'>            { return new BinopNode('==', 'bool', this, b); }
-    notEqual(b: Node<T>): Node<'bool'>         { return new BinopNode('!=', 'bool', this, b); }
+    greaterThan(b: Node<D>): Node<d.BoolDesc>      { return new BinopNode('>', d.bool, this, b); }
+    lessThan(b: Node<D>): Node<d.BoolDesc>         { return new BinopNode('<', d.bool, this, b); }
+    greaterThanEqual(b: Node<D>): Node<d.BoolDesc> { return new BinopNode('>=', d.bool, this, b); }
+    lessThanEqual(b: Node<D>): Node<d.BoolDesc>    { return new BinopNode('<=', d.bool, this, b); }
+    equal(b: Node<D>): Node<d.BoolDesc>            { return new BinopNode('==', d.bool, this, b); }
+    notEqual(b: Node<D>): Node<d.BoolDesc>         { return new BinopNode('!=', d.bool, this, b); }
 
     // ── Math ──────────────────────────────────────────────────────────────────
-    add<B extends WgslType>(b: Node<B>): Node<ArithResult<T, B>>  { return add(this, b); }
-    sub<B extends WgslType>(b: Node<B>): Node<ArithResult<T, B>>  { return sub(this, b); }
-    div<B extends WgslType>(b: Node<B>): Node<ArithResult<T, B>>  { return div(this, b); }
-    mul<B extends WgslType>(b: Node<B>): Node<MulResult<T, B>>    { return mul(this, b); }
-    abs(): Node<T>                   { return new CallNode(this.type, 'abs',       [this]) as Node<T>; }
-    floor(): Node<T>                 { return new CallNode(this.type, 'floor',     [this]) as Node<T>; }
-    ceil(): Node<T>                  { return new CallNode(this.type, 'ceil',      [this]) as Node<T>; }
-    fract(): Node<T>                 { return new CallNode(this.type, 'fract',     [this]) as Node<T>; }
-    sqrt(): Node<T>                  { return new CallNode(this.type, 'sqrt',      [this]) as Node<T>; }
-    sin(): Node<T>                   { return new CallNode(this.type, 'sin',       [this]) as Node<T>; }
-    cos(): Node<T>                   { return new CallNode(this.type, 'cos',       [this]) as Node<T>; }
-    negate(): Node<T>                { return new CallNode(this.type, 'negate',    [this]) as Node<T>; }
-    normalize(): Node<T>             { return new CallNode(this.type, 'normalize', [this]) as Node<T>; }
-    length(): Node<'f32'>            { return new CallNode('f32',     'length',    [this]); }
-    dot(b: Node<T>): Node<T extends VecType ? VecElement<T> : 'f32'> {
-        return new CallNode('f32', 'dot', [this, b]) as unknown as Node<T extends VecType ? VecElement<T> : 'f32'>;
+    add<BD extends WgslDesc>(b: Node<BD>): Node<WgslDesc>  { return add(this, b); }
+    sub<BD extends WgslDesc>(b: Node<BD>): Node<WgslDesc>  { return sub(this, b); }
+    div<BD extends WgslDesc>(b: Node<BD>): Node<WgslDesc>  { return div(this, b); }
+    mul<BD extends WgslDesc>(b: Node<BD>): Node<WgslDesc>  { return mul(this, b); }
+    abs(): Node<D>                   { return new CallNode(this.type, 'abs',       [this]) as Node<D>; }
+    floor(): Node<D>                 { return new CallNode(this.type, 'floor',     [this]) as Node<D>; }
+    ceil(): Node<D>                  { return new CallNode(this.type, 'ceil',      [this]) as Node<D>; }
+    fract(): Node<D>                 { return new CallNode(this.type, 'fract',     [this]) as Node<D>; }
+    sqrt(): Node<D>                  { return new CallNode(this.type, 'sqrt',      [this]) as Node<D>; }
+    sin(): Node<D>                   { return new CallNode(this.type, 'sin',       [this]) as Node<D>; }
+    cos(): Node<D>                   { return new CallNode(this.type, 'cos',       [this]) as Node<D>; }
+    negate(): Node<D>                { return new CallNode(this.type, 'negate',    [this]) as Node<D>; }
+    normalize(): Node<D>             { return new CallNode(this.type, 'normalize', [this]) as Node<D>; }
+    length(): Node<d.F32Desc>        { return new CallNode(d.f32,     'length',    [this]); }
+    dot(b: Node<D>): Node<d.F32Desc> {
+        return new CallNode(d.f32, 'dot', [this, b]);
     }
-    cross(b: Node<T>): Node<T>                                   { return new CallNode(this.type, 'cross',      [this, b]) as Node<T>; }
-    pow(b: Node<T>): Node<T>                                     { return new CallNode(this.type, 'pow',        [this, b]) as Node<T>; }
-    max(b: Node<T>): Node<T>                                     { return new CallNode(this.type, 'max',        [this, b]) as Node<T>; }
-    min(b: Node<T>): Node<T>                                     { return new CallNode(this.type, 'min',        [this, b]) as Node<T>; }
-    clamp(lo: Node<T>, hi: Node<T>): Node<T>                     { return new CallNode(this.type, 'clamp',      [this, lo, hi]) as Node<T>; }
-    mix(b: Node<T>, t: Node<T>): Node<T>                         { return new CallNode(this.type, 'mix',        [this, b, t]) as Node<T>; }
-    step(x: Node<T>): Node<T>                                    { return new CallNode(this.type, 'step',       [this, x]) as Node<T>; }
-    smoothstep(hi: Node<T>, x: Node<T>): Node<T>                 { return new CallNode(this.type, 'smoothstep', [this, hi, x]) as Node<T>; }
+    cross(b: Node<D>): Node<D>                                   { return new CallNode(this.type, 'cross',      [this, b]) as Node<D>; }
+    pow(b: Node<D>): Node<D>                                     { return new CallNode(this.type, 'pow',        [this, b]) as Node<D>; }
+    max(b: Node<D>): Node<D>                                     { return new CallNode(this.type, 'max',        [this, b]) as Node<D>; }
+    min(b: Node<D>): Node<D>                                     { return new CallNode(this.type, 'min',        [this, b]) as Node<D>; }
+    clamp(lo: Node<D>, hi: Node<D>): Node<D>                     { return new CallNode(this.type, 'clamp',      [this, lo, hi]) as Node<D>; }
+    mix(b: Node<D>, t: Node<D>): Node<D>                         { return new CallNode(this.type, 'mix',        [this, b, t]) as Node<D>; }
+    step(x: Node<D>): Node<D>                                    { return new CallNode(this.type, 'step',       [this, x]) as Node<D>; }
+    smoothstep(hi: Node<D>, x: Node<D>): Node<D>                 { return new CallNode(this.type, 'smoothstep', [this, hi, x]) as Node<D>; }
+
+    // ── Element access ────────────────────────────────────────────────────────
+    element(idx: Node<WgslDesc>): Node<d.DescElement<D>> {
+        const elementDesc = (this.type as d.ArrayDesc | d.SizedArrayDesc).element as d.DescElement<D>;
+        return new IndexNode(elementDesc, this, idx);
+    }
 
     // ── Lang ──────────────────────────────────────────────────────────────────
-    assign(value: Node<T>): void           { addToStack(new AssignNode(this, value)); }
-    toVar(label?: string): VarNode<T>      { return Var(this, label); }
-    toConst(label?: string): VarNode<T>    { return Const(this, label); }
+    assign(value: Node<D>): void           { addToStack(new AssignNode(this, value)); }
+    toVar(label?: string): VarNode<D>      { return Var(this, label); }
+    toConst(label?: string): VarNode<D>    { return Const(this, label); }
+
+    addAssign<BD extends WgslDesc>(v: Node<BD>): void { addToStack(new AssignNode(this, add(this, v) as unknown as Node<D>)); }
+    subAssign<BD extends WgslDesc>(v: Node<BD>): void { addToStack(new AssignNode(this, sub(this, v) as unknown as Node<D>)); }
+    mulAssign<BD extends WgslDesc>(v: Node<BD>): void { addToStack(new AssignNode(this, mul(this, v) as unknown as Node<D>)); }
+    divAssign<BD extends WgslDesc>(v: Node<BD>): void { addToStack(new AssignNode(this, div(this, v) as unknown as Node<D>)); }
+
+    sign(): Node<D>          { return sign(this) as Node<D>; }
+    mod(b: Node<D>): Node<D> { return mod(this, b) as Node<D>; }
+
+    oneMinus(): Node<D> { return sub(new ConstNode(this.type, 1), this) as unknown as Node<D>; }
+
+    or(b: Node<d.BoolDesc>): Node<d.BoolDesc>  { return or(this as unknown as Node<d.BoolDesc>, b); }
+    and(b: Node<d.BoolDesc>): Node<d.BoolDesc> { return and(this as unknown as Node<d.BoolDesc>, b); }
+
+    transpose(): Node<D> { return new CallNode(this.type, 'transpose', [this]) as unknown as Node<D>; }
 
     // ── Swizzles ──────────────────────────────────────────────────────────────
-    get x(): Node<Swizzle1<T>> { return new FieldNode(vecElementTypeOrSelf(this.type), this, 'x') as unknown as Node<Swizzle1<T>>; }
-    get y(): Node<Swizzle1<T>> { return new FieldNode(vecElementTypeOrSelf(this.type), this, 'y') as unknown as Node<Swizzle1<T>>; }
-    get z(): Node<Swizzle1<T>> { return new FieldNode(vecElementTypeOrSelf(this.type), this, 'z') as unknown as Node<Swizzle1<T>>; }
-    get w(): Node<Swizzle1<T>> { return new FieldNode(vecElementTypeOrSelf(this.type), this, 'w') as unknown as Node<Swizzle1<T>>; }
-    get r(): Node<Swizzle1<T>> { return new FieldNode(vecElementTypeOrSelf(this.type), this, 'x') as unknown as Node<Swizzle1<T>>; }
-    get g(): Node<Swizzle1<T>> { return new FieldNode(vecElementTypeOrSelf(this.type), this, 'y') as unknown as Node<Swizzle1<T>>; }
-    get b(): Node<Swizzle1<T>> { return new FieldNode(vecElementTypeOrSelf(this.type), this, 'z') as unknown as Node<Swizzle1<T>>; }
-    get a(): Node<Swizzle1<T>> { return new FieldNode(vecElementTypeOrSelf(this.type), this, 'w') as unknown as Node<Swizzle1<T>>; }
+    get x(): Node<WgslDesc> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'x'); }
+    get y(): Node<WgslDesc> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'y'); }
+    get z(): Node<WgslDesc> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'z'); }
+    get w(): Node<WgslDesc> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'w'); }
+    get r(): Node<WgslDesc> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'x'); }
+    get g(): Node<WgslDesc> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'y'); }
+    get b(): Node<WgslDesc> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'z'); }
+    get a(): Node<WgslDesc> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'w'); }
 
-    get xx(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'xx') as unknown as Node<Swizzle2<T>>; }
-    get xy(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'xy') as unknown as Node<Swizzle2<T>>; }
-    get xz(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'xz') as unknown as Node<Swizzle2<T>>; }
-    get xw(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'xw') as unknown as Node<Swizzle2<T>>; }
-    get yx(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'yx') as unknown as Node<Swizzle2<T>>; }
-    get yy(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'yy') as unknown as Node<Swizzle2<T>>; }
-    get yz(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'yz') as unknown as Node<Swizzle2<T>>; }
-    get yw(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'yw') as unknown as Node<Swizzle2<T>>; }
-    get zx(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'zx') as unknown as Node<Swizzle2<T>>; }
-    get zy(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'zy') as unknown as Node<Swizzle2<T>>; }
-    get zz(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'zz') as unknown as Node<Swizzle2<T>>; }
-    get zw(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'zw') as unknown as Node<Swizzle2<T>>; }
-    get wx(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'wx') as unknown as Node<Swizzle2<T>>; }
-    get wy(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'wy') as unknown as Node<Swizzle2<T>>; }
-    get wz(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'wz') as unknown as Node<Swizzle2<T>>; }
-    get ww(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'ww') as unknown as Node<Swizzle2<T>>; }
-    get rr(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'xx') as unknown as Node<Swizzle2<T>>; }
-    get rg(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'xy') as unknown as Node<Swizzle2<T>>; }
-    get rb(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'xz') as unknown as Node<Swizzle2<T>>; }
-    get ra(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'xw') as unknown as Node<Swizzle2<T>>; }
-    get gr(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'yx') as unknown as Node<Swizzle2<T>>; }
-    get gg(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'yy') as unknown as Node<Swizzle2<T>>; }
-    get gb(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'yz') as unknown as Node<Swizzle2<T>>; }
-    get ga(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'yw') as unknown as Node<Swizzle2<T>>; }
-    get br(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'zx') as unknown as Node<Swizzle2<T>>; }
-    get bg(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'zy') as unknown as Node<Swizzle2<T>>; }
-    get bb(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'zz') as unknown as Node<Swizzle2<T>>; }
-    get ba(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'zw') as unknown as Node<Swizzle2<T>>; }
-    get ar(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'wx') as unknown as Node<Swizzle2<T>>; }
-    get ag(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'wy') as unknown as Node<Swizzle2<T>>; }
-    get ab(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'wz') as unknown as Node<Swizzle2<T>>; }
-    get aa(): Node<Swizzle2<T>> { return new FieldNode(vec2TypeOf(this.type), this, 'ww') as unknown as Node<Swizzle2<T>>; }
+    get xx(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'xx'); }
+    get xy(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'xy'); }
+    get xz(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'xz'); }
+    get xw(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'xw'); }
+    get yx(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'yx'); }
+    get yy(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'yy'); }
+    get yz(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'yz'); }
+    get yw(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'yw'); }
+    get zx(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'zx'); }
+    get zy(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'zy'); }
+    get zz(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'zz'); }
+    get zw(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'zw'); }
+    get wx(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'wx'); }
+    get wy(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'wy'); }
+    get wz(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'wz'); }
+    get ww(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'ww'); }
+    get rr(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'xx'); }
+    get rg(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'xy'); }
+    get rb(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'xz'); }
+    get ra(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'xw'); }
+    get gr(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'yx'); }
+    get gg(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'yy'); }
+    get gb(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'yz'); }
+    get ga(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'yw'); }
+    get br(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'zx'); }
+    get bg(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'zy'); }
+    get bb(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'zz'); }
+    get ba(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'zw'); }
+    get ar(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'wx'); }
+    get ag(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'wy'); }
+    get ab(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'wz'); }
+    get aa(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'ww'); }
 
-    get xxx(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xxx') as unknown as Node<Swizzle3<T>>; }
-    get xxy(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xxy') as unknown as Node<Swizzle3<T>>; }
-    get xxz(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xxz') as unknown as Node<Swizzle3<T>>; }
-    get xxw(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xxw') as unknown as Node<Swizzle3<T>>; }
-    get xyx(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xyx') as unknown as Node<Swizzle3<T>>; }
-    get xyy(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xyy') as unknown as Node<Swizzle3<T>>; }
-    get xyz(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xyz') as unknown as Node<Swizzle3<T>>; }
-    get xyw(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xyw') as unknown as Node<Swizzle3<T>>; }
-    get xzx(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xzx') as unknown as Node<Swizzle3<T>>; }
-    get xzy(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xzy') as unknown as Node<Swizzle3<T>>; }
-    get xzz(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xzz') as unknown as Node<Swizzle3<T>>; }
-    get xzw(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xzw') as unknown as Node<Swizzle3<T>>; }
-    get xwx(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xwx') as unknown as Node<Swizzle3<T>>; }
-    get xwy(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xwy') as unknown as Node<Swizzle3<T>>; }
-    get xwz(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xwz') as unknown as Node<Swizzle3<T>>; }
-    get xww(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xww') as unknown as Node<Swizzle3<T>>; }
-    get yxx(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yxx') as unknown as Node<Swizzle3<T>>; }
-    get yxy(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yxy') as unknown as Node<Swizzle3<T>>; }
-    get yxz(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yxz') as unknown as Node<Swizzle3<T>>; }
-    get yxw(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yxw') as unknown as Node<Swizzle3<T>>; }
-    get yyx(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yyx') as unknown as Node<Swizzle3<T>>; }
-    get yyy(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yyy') as unknown as Node<Swizzle3<T>>; }
-    get yyz(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yyz') as unknown as Node<Swizzle3<T>>; }
-    get yyw(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yyw') as unknown as Node<Swizzle3<T>>; }
-    get yzx(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yzx') as unknown as Node<Swizzle3<T>>; }
-    get yzy(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yzy') as unknown as Node<Swizzle3<T>>; }
-    get yzz(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yzz') as unknown as Node<Swizzle3<T>>; }
-    get yzw(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yzw') as unknown as Node<Swizzle3<T>>; }
-    get ywx(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'ywx') as unknown as Node<Swizzle3<T>>; }
-    get ywy(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'ywy') as unknown as Node<Swizzle3<T>>; }
-    get ywz(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'ywz') as unknown as Node<Swizzle3<T>>; }
-    get yww(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yww') as unknown as Node<Swizzle3<T>>; }
-    get zxx(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zxx') as unknown as Node<Swizzle3<T>>; }
-    get zxy(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zxy') as unknown as Node<Swizzle3<T>>; }
-    get zxz(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zxz') as unknown as Node<Swizzle3<T>>; }
-    get zxw(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zxw') as unknown as Node<Swizzle3<T>>; }
-    get zyx(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zyx') as unknown as Node<Swizzle3<T>>; }
-    get zyy(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zyy') as unknown as Node<Swizzle3<T>>; }
-    get zyz(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zyz') as unknown as Node<Swizzle3<T>>; }
-    get zyw(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zyw') as unknown as Node<Swizzle3<T>>; }
-    get zzx(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zzx') as unknown as Node<Swizzle3<T>>; }
-    get zzy(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zzy') as unknown as Node<Swizzle3<T>>; }
-    get zzz(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zzz') as unknown as Node<Swizzle3<T>>; }
-    get zzw(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zzw') as unknown as Node<Swizzle3<T>>; }
-    get zwx(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zwx') as unknown as Node<Swizzle3<T>>; }
-    get zwy(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zwy') as unknown as Node<Swizzle3<T>>; }
-    get zwz(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zwz') as unknown as Node<Swizzle3<T>>; }
-    get zww(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zww') as unknown as Node<Swizzle3<T>>; }
-    get wxx(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wxx') as unknown as Node<Swizzle3<T>>; }
-    get wxy(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wxy') as unknown as Node<Swizzle3<T>>; }
-    get wxz(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wxz') as unknown as Node<Swizzle3<T>>; }
-    get wxw(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wxw') as unknown as Node<Swizzle3<T>>; }
-    get wyx(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wyx') as unknown as Node<Swizzle3<T>>; }
-    get wyy(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wyy') as unknown as Node<Swizzle3<T>>; }
-    get wyz(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wyz') as unknown as Node<Swizzle3<T>>; }
-    get wyw(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wyw') as unknown as Node<Swizzle3<T>>; }
-    get wzx(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wzx') as unknown as Node<Swizzle3<T>>; }
-    get wzy(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wzy') as unknown as Node<Swizzle3<T>>; }
-    get wzz(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wzz') as unknown as Node<Swizzle3<T>>; }
-    get wzw(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wzw') as unknown as Node<Swizzle3<T>>; }
-    get wwx(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wwx') as unknown as Node<Swizzle3<T>>; }
-    get wwy(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wwy') as unknown as Node<Swizzle3<T>>; }
-    get wwz(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wwz') as unknown as Node<Swizzle3<T>>; }
-    get www(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'www') as unknown as Node<Swizzle3<T>>; }
-    get rrr(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xxx') as unknown as Node<Swizzle3<T>>; }
-    get rrg(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xxy') as unknown as Node<Swizzle3<T>>; }
-    get rrb(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xxz') as unknown as Node<Swizzle3<T>>; }
-    get rra(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xxw') as unknown as Node<Swizzle3<T>>; }
-    get rgr(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xyx') as unknown as Node<Swizzle3<T>>; }
-    get rgg(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xyy') as unknown as Node<Swizzle3<T>>; }
-    get rgb(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xyz') as unknown as Node<Swizzle3<T>>; }
-    get rga(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xyw') as unknown as Node<Swizzle3<T>>; }
-    get rbr(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xzx') as unknown as Node<Swizzle3<T>>; }
-    get rbg(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xzy') as unknown as Node<Swizzle3<T>>; }
-    get rbb(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xzz') as unknown as Node<Swizzle3<T>>; }
-    get rba(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xzw') as unknown as Node<Swizzle3<T>>; }
-    get rar(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xwx') as unknown as Node<Swizzle3<T>>; }
-    get rag(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xwy') as unknown as Node<Swizzle3<T>>; }
-    get rab(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xwz') as unknown as Node<Swizzle3<T>>; }
-    get raa(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'xww') as unknown as Node<Swizzle3<T>>; }
-    get grr(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yxx') as unknown as Node<Swizzle3<T>>; }
-    get grg(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yxy') as unknown as Node<Swizzle3<T>>; }
-    get grb(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yxz') as unknown as Node<Swizzle3<T>>; }
-    get gra(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yxw') as unknown as Node<Swizzle3<T>>; }
-    get ggr(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yyx') as unknown as Node<Swizzle3<T>>; }
-    get ggg(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yyy') as unknown as Node<Swizzle3<T>>; }
-    get ggb(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yyz') as unknown as Node<Swizzle3<T>>; }
-    get gga(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yyw') as unknown as Node<Swizzle3<T>>; }
-    get gbr(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yzx') as unknown as Node<Swizzle3<T>>; }
-    get gbg(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yzy') as unknown as Node<Swizzle3<T>>; }
-    get gbb(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yzz') as unknown as Node<Swizzle3<T>>; }
-    get gba(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yzw') as unknown as Node<Swizzle3<T>>; }
-    get gar(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'ywx') as unknown as Node<Swizzle3<T>>; }
-    get gag(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'ywy') as unknown as Node<Swizzle3<T>>; }
-    get gab(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'ywz') as unknown as Node<Swizzle3<T>>; }
-    get gaa(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'yww') as unknown as Node<Swizzle3<T>>; }
-    get brr(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zxx') as unknown as Node<Swizzle3<T>>; }
-    get brg(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zxy') as unknown as Node<Swizzle3<T>>; }
-    get brb(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zxz') as unknown as Node<Swizzle3<T>>; }
-    get bra(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zxw') as unknown as Node<Swizzle3<T>>; }
-    get bgr(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zyx') as unknown as Node<Swizzle3<T>>; }
-    get bgg(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zyy') as unknown as Node<Swizzle3<T>>; }
-    get bgb(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zyz') as unknown as Node<Swizzle3<T>>; }
-    get bga(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zyw') as unknown as Node<Swizzle3<T>>; }
-    get bbr(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zzx') as unknown as Node<Swizzle3<T>>; }
-    get bbg(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zzy') as unknown as Node<Swizzle3<T>>; }
-    get bbb(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zzz') as unknown as Node<Swizzle3<T>>; }
-    get bba(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zzw') as unknown as Node<Swizzle3<T>>; }
-    get bar(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zwx') as unknown as Node<Swizzle3<T>>; }
-    get bag(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zwy') as unknown as Node<Swizzle3<T>>; }
-    get bab(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zwz') as unknown as Node<Swizzle3<T>>; }
-    get baa(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'zww') as unknown as Node<Swizzle3<T>>; }
-    get arr(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wxx') as unknown as Node<Swizzle3<T>>; }
-    get arg(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wxy') as unknown as Node<Swizzle3<T>>; }
-    get arb(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wxz') as unknown as Node<Swizzle3<T>>; }
-    get ara(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wxw') as unknown as Node<Swizzle3<T>>; }
-    get agr(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wyx') as unknown as Node<Swizzle3<T>>; }
-    get agg(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wyy') as unknown as Node<Swizzle3<T>>; }
-    get agb(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wyz') as unknown as Node<Swizzle3<T>>; }
-    get aga(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wyw') as unknown as Node<Swizzle3<T>>; }
-    get abr(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wzx') as unknown as Node<Swizzle3<T>>; }
-    get abg(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wzy') as unknown as Node<Swizzle3<T>>; }
-    get abb(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wzz') as unknown as Node<Swizzle3<T>>; }
-    get aba(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wzw') as unknown as Node<Swizzle3<T>>; }
-    get aar(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wwx') as unknown as Node<Swizzle3<T>>; }
-    get aag(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wwy') as unknown as Node<Swizzle3<T>>; }
-    get aab(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'wwz') as unknown as Node<Swizzle3<T>>; }
-    get aaa(): Node<Swizzle3<T>> { return new FieldNode(vec3TypeOf(this.type), this, 'www') as unknown as Node<Swizzle3<T>>; }
+    get xxx(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xxx'); }
+    get xxy(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xxy'); }
+    get xxz(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xxz'); }
+    get xxw(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xxw'); }
+    get xyx(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xyx'); }
+    get xyy(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xyy'); }
+    get xyz(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xyz'); }
+    get xyw(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xyw'); }
+    get xzx(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xzx'); }
+    get xzy(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xzy'); }
+    get xzz(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xzz'); }
+    get xzw(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xzw'); }
+    get xwx(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xwx'); }
+    get xwy(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xwy'); }
+    get xwz(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xwz'); }
+    get xww(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xww'); }
+    get yxx(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yxx'); }
+    get yxy(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yxy'); }
+    get yxz(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yxz'); }
+    get yxw(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yxw'); }
+    get yyx(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yyx'); }
+    get yyy(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yyy'); }
+    get yyz(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yyz'); }
+    get yyw(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yyw'); }
+    get yzx(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yzx'); }
+    get yzy(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yzy'); }
+    get yzz(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yzz'); }
+    get yzw(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yzw'); }
+    get ywx(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'ywx'); }
+    get ywy(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'ywy'); }
+    get ywz(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'ywz'); }
+    get yww(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yww'); }
+    get zxx(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zxx'); }
+    get zxy(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zxy'); }
+    get zxz(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zxz'); }
+    get zxw(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zxw'); }
+    get zyx(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zyx'); }
+    get zyy(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zyy'); }
+    get zyz(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zyz'); }
+    get zyw(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zyw'); }
+    get zzx(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zzx'); }
+    get zzy(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zzy'); }
+    get zzz(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zzz'); }
+    get zzw(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zzw'); }
+    get zwx(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zwx'); }
+    get zwy(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zwy'); }
+    get zwz(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zwz'); }
+    get zww(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zww'); }
+    get wxx(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wxx'); }
+    get wxy(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wxy'); }
+    get wxz(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wxz'); }
+    get wxw(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wxw'); }
+    get wyx(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wyx'); }
+    get wyy(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wyy'); }
+    get wyz(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wyz'); }
+    get wyw(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wyw'); }
+    get wzx(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wzx'); }
+    get wzy(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wzy'); }
+    get wzz(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wzz'); }
+    get wzw(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wzw'); }
+    get wwx(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wwx'); }
+    get wwy(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wwy'); }
+    get wwz(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wwz'); }
+    get www(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'www'); }
+    get rrr(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xxx'); }
+    get rrg(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xxy'); }
+    get rrb(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xxz'); }
+    get rra(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xxw'); }
+    get rgr(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xyx'); }
+    get rgg(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xyy'); }
+    get rgb(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xyz'); }
+    get rga(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xyw'); }
+    get rbr(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xzx'); }
+    get rbg(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xzy'); }
+    get rbb(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xzz'); }
+    get rba(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xzw'); }
+    get rar(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xwx'); }
+    get rag(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xwy'); }
+    get rab(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xwz'); }
+    get raa(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xww'); }
+    get grr(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yxx'); }
+    get grg(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yxy'); }
+    get grb(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yxz'); }
+    get gra(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yxw'); }
+    get ggr(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yyx'); }
+    get ggg(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yyy'); }
+    get ggb(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yyz'); }
+    get gga(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yyw'); }
+    get gbr(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yzx'); }
+    get gbg(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yzy'); }
+    get gbb(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yzz'); }
+    get gba(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yzw'); }
+    get gar(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'ywx'); }
+    get gag(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'ywy'); }
+    get gab(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'ywz'); }
+    get gaa(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yww'); }
+    get brr(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zxx'); }
+    get brg(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zxy'); }
+    get brb(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zxz'); }
+    get bra(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zxw'); }
+    get bgr(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zyx'); }
+    get bgg(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zyy'); }
+    get bgb(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zyz'); }
+    get bga(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zyw'); }
+    get bbr(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zzx'); }
+    get bbg(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zzy'); }
+    get bbb(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zzz'); }
+    get bba(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zzw'); }
+    get bar(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zwx'); }
+    get bag(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zwy'); }
+    get bab(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zwz'); }
+    get baa(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zww'); }
+    get arr(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wxx'); }
+    get arg(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wxy'); }
+    get arb(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wxz'); }
+    get ara(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wxw'); }
+    get agr(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wyx'); }
+    get agg(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wyy'); }
+    get agb(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wyz'); }
+    get aga(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wyw'); }
+    get abr(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wzx'); }
+    get abg(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wzy'); }
+    get abb(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wzz'); }
+    get aba(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wzw'); }
+    get aar(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wwx'); }
+    get aag(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wwy'); }
+    get aab(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wwz'); }
+    get aaa(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'www'); }
 
-    get xyzw(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'xyzw') as unknown as Node<Swizzle4<T>>; }
-    get xywz(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'xywz') as unknown as Node<Swizzle4<T>>; }
-    get xzyw(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'xzyw') as unknown as Node<Swizzle4<T>>; }
-    get xzwy(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'xzwy') as unknown as Node<Swizzle4<T>>; }
-    get xwyz(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'xwyz') as unknown as Node<Swizzle4<T>>; }
-    get xwzy(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'xwzy') as unknown as Node<Swizzle4<T>>; }
-    get yxzw(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'yxzw') as unknown as Node<Swizzle4<T>>; }
-    get yxwz(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'yxwz') as unknown as Node<Swizzle4<T>>; }
-    get yzxw(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'yzxw') as unknown as Node<Swizzle4<T>>; }
-    get yzwx(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'yzwx') as unknown as Node<Swizzle4<T>>; }
-    get ywxz(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'ywxz') as unknown as Node<Swizzle4<T>>; }
-    get ywzx(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'ywzx') as unknown as Node<Swizzle4<T>>; }
-    get zxyw(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'zxyw') as unknown as Node<Swizzle4<T>>; }
-    get zxwy(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'zxwy') as unknown as Node<Swizzle4<T>>; }
-    get zyxw(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'zyxw') as unknown as Node<Swizzle4<T>>; }
-    get zywx(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'zywx') as unknown as Node<Swizzle4<T>>; }
-    get zwxy(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'zwxy') as unknown as Node<Swizzle4<T>>; }
-    get zwyx(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'zwyx') as unknown as Node<Swizzle4<T>>; }
-    get wxyz(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'wxyz') as unknown as Node<Swizzle4<T>>; }
-    get wxzy(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'wxzy') as unknown as Node<Swizzle4<T>>; }
-    get wyxz(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'wyxz') as unknown as Node<Swizzle4<T>>; }
-    get wyzx(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'wyzx') as unknown as Node<Swizzle4<T>>; }
-    get wzxy(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'wzxy') as unknown as Node<Swizzle4<T>>; }
-    get wzyx(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'wzyx') as unknown as Node<Swizzle4<T>>; }
-    get rgba(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'xyzw') as unknown as Node<Swizzle4<T>>; }
-    get rgab(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'xywz') as unknown as Node<Swizzle4<T>>; }
-    get rbga(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'xzyw') as unknown as Node<Swizzle4<T>>; }
-    get rbag(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'xzwy') as unknown as Node<Swizzle4<T>>; }
-    get ragb(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'xwyz') as unknown as Node<Swizzle4<T>>; }
-    get rabg(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'xwzy') as unknown as Node<Swizzle4<T>>; }
-    get grba(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'yxzw') as unknown as Node<Swizzle4<T>>; }
-    get grab(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'yxwz') as unknown as Node<Swizzle4<T>>; }
-    get gbra(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'yzxw') as unknown as Node<Swizzle4<T>>; }
-    get gbar(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'yzwx') as unknown as Node<Swizzle4<T>>; }
-    get garb(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'ywxz') as unknown as Node<Swizzle4<T>>; }
-    get gabr(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'ywzx') as unknown as Node<Swizzle4<T>>; }
-    get brga(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'zxyw') as unknown as Node<Swizzle4<T>>; }
-    get brag(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'zxwy') as unknown as Node<Swizzle4<T>>; }
-    get bgra(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'zyxw') as unknown as Node<Swizzle4<T>>; }
-    get bgar(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'zywx') as unknown as Node<Swizzle4<T>>; }
-    get barg(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'zwxy') as unknown as Node<Swizzle4<T>>; }
-    get bagr(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'zwyx') as unknown as Node<Swizzle4<T>>; }
-    get argb(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'wxyz') as unknown as Node<Swizzle4<T>>; }
-    get arbg(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'wxzy') as unknown as Node<Swizzle4<T>>; }
-    get agrb(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'wyxz') as unknown as Node<Swizzle4<T>>; }
-    get agbr(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'wyzx') as unknown as Node<Swizzle4<T>>; }
-    get abrg(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'wzxy') as unknown as Node<Swizzle4<T>>; }
-    get abgr(): Node<Swizzle4<T>> { return new FieldNode(vec4TypeOf(this.type), this, 'wzyx') as unknown as Node<Swizzle4<T>>; }
+    get xyzw(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'xyzw'); }
+    get xywz(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'xywz'); }
+    get xzyw(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'xzyw'); }
+    get xzwy(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'xzwy'); }
+    get xwyz(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'xwyz'); }
+    get xwzy(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'xwzy'); }
+    get yxzw(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'yxzw'); }
+    get yxwz(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'yxwz'); }
+    get yzxw(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'yzxw'); }
+    get yzwx(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'yzwx'); }
+    get ywxz(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'ywxz'); }
+    get ywzx(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'ywzx'); }
+    get zxyw(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'zxyw'); }
+    get zxwy(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'zxwy'); }
+    get zyxw(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'zyxw'); }
+    get zywx(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'zywx'); }
+    get zwxy(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'zwxy'); }
+    get zwyx(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'zwyx'); }
+    get wxyz(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'wxyz'); }
+    get wxzy(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'wxzy'); }
+    get wyxz(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'wyxz'); }
+    get wyzx(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'wyzx'); }
+    get wzxy(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'wzxy'); }
+    get wzyx(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'wzyx'); }
+    get rgba(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'xyzw'); }
+    get rgab(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'xywz'); }
+    get rbga(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'xzyw'); }
+    get rbag(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'xzwy'); }
+    get ragb(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'xwyz'); }
+    get rabg(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'xwzy'); }
+    get grba(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'yxzw'); }
+    get grab(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'yxwz'); }
+    get gbra(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'yzxw'); }
+    get gbar(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'yzwx'); }
+    get garb(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'ywxz'); }
+    get gabr(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'ywzx'); }
+    get brga(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'zxyw'); }
+    get brag(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'zxwy'); }
+    get bgra(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'zyxw'); }
+    get bgar(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'zywx'); }
+    get barg(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'zwxy'); }
+    get bagr(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'zwyx'); }
+    get argb(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'wxyz'); }
+    get arbg(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'wxzy'); }
+    get agrb(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'wyxz'); }
+    get agbr(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'wyzx'); }
+    get abrg(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'wzxy'); }
+    get abgr(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'wzyx'); }
 
     // ── Inspector ─────────────────────────────────────────────────────────────
     inspect(name?: string): this {
         const inspector = new InspectorNode(this, name);
-        this.before(inspector as unknown as Node<WgslType>);
+        this.before(inspector);
         return this;
     }
 }
 
-export function isNode(v: unknown): v is Node<WgslType> { return v instanceof Node; }
+export function isNode(v: unknown): v is Node<WgslDesc> { return v instanceof Node; }
 
 // ─── InspectorNode ────────────────────────────────────────────────────────────
 
@@ -462,9 +490,9 @@ let _inspectorNodeCounter = 0;
  * The .inspect() method on Node creates an InspectorNode wrapper and attaches it
  * via node.before(), so it gets built and updated alongside the original node.
  */
-export class InspectorNode<T extends WgslType> extends Node<T> {
+export class InspectorNode<D extends WgslDesc> extends Node<D> {
     /** The original node being inspected. */
-    readonly wrappedNode: Node<T>;
+    readonly wrappedNode: Node<D>;
 
     /** Display name for the inspector UI. */
     readonly inspectorName: string;
@@ -472,7 +500,7 @@ export class InspectorNode<T extends WgslType> extends Node<T> {
     /** Marker for type checking. */
     readonly isInspectorNode = true;
 
-    constructor(node: Node<T>, name?: string) {
+    constructor(node: Node<D>, name?: string) {
         // Generate a unique ID for this inspector node
         const id = `inspector_${_inspectorNodeCounter++}_${node.id}`;
         super(id, node.type);
@@ -489,7 +517,7 @@ export class InspectorNode<T extends WgslType> extends Node<T> {
      * Registers this node with the renderer's inspector.
      */
     override update = (frame: NodeFrame): void => {
-        frame.renderer!.inspector.inspect(this as unknown as InspectorNode<WgslType>);
+        frame.renderer!.inspector.inspect(this as unknown as InspectorNode<WgslDesc>);
     };
 
     /**
@@ -502,37 +530,37 @@ export class InspectorNode<T extends WgslType> extends Node<T> {
 
 // ─── Expr nodes ───────────────────────────────────────────────────────────────
 
-export class ConstNode<T extends WgslType> extends Node<T> {
-    constructor(type: T, readonly value: number | number[] | string) {
-        super(computeId('const', { type, value }), type);
+export class ConstNode<D extends WgslDesc> extends Node<D> {
+    constructor(type: D, readonly value: number | number[] | string) {
+        super(computeId('const', { type: type.wgslType, value }), type);
     }
 }
 
-export class VarNode<T extends WgslType> extends Node<T> {
+export class VarNode<D extends WgslDesc> extends Node<D> {
     constructor(
-        type: T,
+        type: D,
         readonly varName: string,
-        readonly init: Node<T>,
+        readonly init: Node<D>,
         readonly isConst: boolean = false
     ) {
         super(nextId(), type);
     }
 }
 
-export class AssignNode extends Node<'void'> {
-    constructor(readonly target: Node<WgslType>, readonly value: Node<WgslType>) {
-        super(computeId('assign', { target: target.id, value: value.id }), 'void');
+export class AssignNode extends Node<d.VoidDesc> {
+    constructor(readonly target: Node<WgslDesc>, readonly value: Node<WgslDesc>) {
+        super(computeId('assign', { target: target.id, value: value.id }), d.voidDesc);
     }
 }
 
-export class BinopNode<T extends WgslType> extends Node<T> {
+export class BinopNode<D extends WgslDesc> extends Node<D> {
     constructor(
         readonly op: BinopOp,
-        type: T,
-        readonly left: Node<WgslType>,
-        readonly right: Node<WgslType>
+        type: D,
+        readonly left: Node<WgslDesc>,
+        readonly right: Node<WgslDesc>
     ) {
-        super(computeId('binop', { type, op, a: left.id, b: right.id }), type);
+        super(computeId('binop', { type: type.wgslType, op, a: left.id, b: right.id }), type);
     }
 }
 
@@ -543,69 +571,136 @@ export interface WgslFunctionNodeRef {
     getNodeFunction(): { outputType: string; name: string };
 }
 
-export class CallNode<T extends WgslType> extends Node<T> {
+export class CallNode<D extends WgslDesc> extends Node<D> {
     readonly fnNode?: FnNode<any>; // eslint-disable-line @typescript-eslint/no-explicit-any
     readonly wgslFnNode?: WgslFunctionNodeRef;
-    constructor(type: T, readonly fn: string, readonly args: Node<WgslType>[], fnNode?: FnNode<any>, wgslFnNode?: WgslFunctionNodeRef) {
-        super(computeId('call', { type, fn, args: args.map((n) => n.id) }), type);
+    constructor(type: D, readonly fn: string, readonly args: Node<WgslDesc>[], fnNode?: FnNode<any>, wgslFnNode?: WgslFunctionNodeRef) {
+        super(computeId('call', { type: type.wgslType, fn, args: args.map((n) => n.id) }), type);
         this.fnNode = fnNode;
         this.wgslFnNode = wgslFnNode;
     }
 }
 
-export class ConstructNode<T extends WgslType> extends Node<T> {
-    constructor(type: T, readonly args: Node<WgslType>[]) {
-        super(computeId('construct', { type, args: args.map((n) => n.id) }), type);
+export class ConstructNode<D extends WgslDesc> extends Node<D> {
+    constructor(type: D, readonly args: Node<WgslDesc>[]) {
+        super(computeId('construct', { type: type.wgslType, args: args.map((n) => n.id) }), type);
     }
 }
 
-export class FieldNode<T extends WgslType> extends Node<T> {
-    constructor(type: T, readonly object: Node<WgslType>, readonly fieldName: string) {
-        super(computeId('field', { type, object: object.id, field: fieldName }), type);
+export class FieldNode<D extends WgslDesc> extends Node<D> {
+    constructor(type: D, readonly object: Node<WgslDesc>, readonly fieldName: string) {
+        super(computeId('field', { type: type.wgslType, object: object.id, field: fieldName }), type);
     }
 }
 
-export class IndexNode<T extends WgslType> extends Node<T> {
-    constructor(type: T, readonly array: Node<WgslType>, readonly index: Node<WgslType>) {
-        super(computeId('index', { type, array: array.id, index: index.id }), type);
+/**
+ * A fixed-size inline array of nodes, emitted as `array<E, N>(e0, e1, ..., eN-1)`.
+ *
+ * Use `array([e0, e1, e2])` to construct, then `.element(idx)` to index into it.
+ * This corresponds to WGSL's array value constructor expression.
+ */
+export class ArrayNode<E extends WgslDesc> extends Node<d.SizedArrayDesc> {
+    readonly elementType: E;
+    readonly elements: Node<E>[];
+    constructor(elementType: E, elements: Node<E>[]) {
+        const sizedArrayDesc: d.SizedArrayDesc = {
+            type: 'sized-array',
+            wgslType: `array<${elementType.wgslType}, ${elements.length}>`,
+            element: elementType,
+            length: elements.length,
+        };
+        super(
+            computeId('array', { elementType: elementType.wgslType, elements: elements.map(n => n.id) }),
+            sizedArrayDesc
+        );
+        this.elementType = elementType;
+        this.elements = elements;
+    }
+
+    override element(idx: Node<WgslDesc>): Node<E> {
+        return new IndexNode(this.elementType, this, idx);
+    }
+}
+
+export class IndexNode<D extends WgslDesc> extends Node<D> {
+    constructor(type: D, readonly array: Node<WgslDesc>, readonly index: Node<WgslDesc>) {
+        super(computeId('index', { type: type.wgslType, array: array.id, index: index.id }), type);
     }
 }
 
 // ── Standalone expr functions ─────────────────────────────────────────────────
 
-export const field  = <T extends WgslType, R extends WgslType>(node: Node<T>, name: string, resultType: R): Node<R> => new FieldNode(resultType, node, name);
-export const toF32  = <T extends WgslType>(node: Node<T>): Node<'f32'> => new CallNode('f32', 'f32', [node]);
-export const toF16  = <T extends WgslType>(node: Node<T>): Node<'f16'> => new CallNode('f16', 'f16', [node]);
-export const toU32  = <T extends WgslType>(node: Node<T>): Node<'u32'> => new CallNode('u32', 'u32', [node]);
-export const toI32  = <T extends WgslType>(node: Node<T>): Node<'i32'> => new CallNode('i32', 'i32', [node]);
+export const field  = <D extends WgslDesc, RD extends WgslDesc>(node: Node<D>, name: string, resultType: RD): Node<RD> => new FieldNode(resultType, node, name);
+export const toF32  = <D extends WgslDesc>(node: Node<D>): Node<d.F32Desc> => new CallNode(d.f32, 'f32', [node]);
+export const toF16  = <D extends WgslDesc>(node: Node<D>): Node<d.F16Desc> => new CallNode(d.f16, 'f16', [node]);
+export const toU32  = <D extends WgslDesc>(node: Node<D>): Node<d.U32Desc> => new CallNode(d.u32, 'u32', [node]);
+export const toI32  = <D extends WgslDesc>(node: Node<D>): Node<d.I32Desc> => new CallNode(d.i32, 'i32', [node]);
 
-export const greaterThan      = <T extends WgslType>(a: Node<T>, b: Node<T>): Node<'bool'> => new BinopNode('>', 'bool', a, b);
-export const lessThan         = <T extends WgslType>(a: Node<T>, b: Node<T>): Node<'bool'> => new BinopNode('<', 'bool', a, b);
-export const greaterThanEqual = <T extends WgslType>(a: Node<T>, b: Node<T>): Node<'bool'> => new BinopNode('>=', 'bool', a, b);
-export const lessThanEqual    = <T extends WgslType>(a: Node<T>, b: Node<T>): Node<'bool'> => new BinopNode('<=', 'bool', a, b);
-export const equal            = <T extends WgslType>(a: Node<T>, b: Node<T>): Node<'bool'> => new BinopNode('==', 'bool', a, b);
-export const notEqual         = <T extends WgslType>(a: Node<T>, b: Node<T>): Node<'bool'> => new BinopNode('!=', 'bool', a, b);
-export const index            = <T extends WgslType>(array: Node<T>, idx: Node<WgslType>) => new IndexNode(array.type, array, idx);
+export const greaterThan      = <D extends WgslDesc>(a: Node<D>, b: Node<D>): Node<d.BoolDesc> => new BinopNode('>', d.bool, a, b);
+export const lessThan         = <D extends WgslDesc>(a: Node<D>, b: Node<D>): Node<d.BoolDesc> => new BinopNode('<', d.bool, a, b);
+export const greaterThanEqual = <D extends WgslDesc>(a: Node<D>, b: Node<D>): Node<d.BoolDesc> => new BinopNode('>=', d.bool, a, b);
+export const lessThanEqual    = <D extends WgslDesc>(a: Node<D>, b: Node<D>): Node<d.BoolDesc> => new BinopNode('<=', d.bool, a, b);
+export const equal            = <D extends WgslDesc>(a: Node<D>, b: Node<D>): Node<d.BoolDesc> => new BinopNode('==', d.bool, a, b);
+export const notEqual         = <D extends WgslDesc>(a: Node<D>, b: Node<D>): Node<d.BoolDesc> => new BinopNode('!=', d.bool, a, b);
+export const index = <D extends WgslDesc>(array: Node<D>, idx: Node<WgslDesc>) => new IndexNode(array.type, array, idx);
+
+/**
+ * Create an inline fixed-size array of nodes, emitted as `array<E, N>(e0, e1, ..., eN-1)`.
+ * All elements must share the same WGSL type.
+ * Use `.element(idx)` to index into the result.
+ *
+ * @example
+ * const weights = array([w0, w1, w2]);
+ * const w = weights.element(gx);
+ */
+export function array<E extends WgslDesc>(elements: [Node<E>, ...Node<E>[]]): ArrayNode<E> {
+    return new ArrayNode(elements[0].type, elements);
+}
 
 // ── Const constructors ────────────────────────────────────────────────────────
 
-export const f32  = (v = 0): ConstNode<'f32'>  => new ConstNode('f32', v);
-export const f16  = (v = 0): ConstNode<'f16'>  => new ConstNode('f16', v);
-export const i32  = (v = 0): ConstNode<'i32'>  => new ConstNode('i32', v);
-export const u32  = (v = 0): ConstNode<'u32'>  => new ConstNode('u32', v);
-export const bool = (v: boolean): ConstNode<'bool'> => new ConstNode('bool', v ? 1 : 0);
-
-type Scalar = Node<WgslType> | number | boolean;
-
-function wrapScalar(v: Scalar, elemType: 'f32' | 'f16' | 'i32' | 'u32' | 'bool'): Node<WgslType> {
-    if (isNode(v)) return v;
-    if (elemType === 'bool') return new ConstNode('bool', (v as boolean | number) ? 1 : 0);
-    if (elemType === 'i32')  return new ConstNode('i32', Math.trunc(v as number));
-    if (elemType === 'u32')  return new ConstNode('u32', Math.trunc(v as number));
-    if (elemType === 'f16')  return new ConstNode('f16', v as number);
-    return new ConstNode('f32', v as number);
+export function f32(v?: number): ConstNode<d.F32Desc>;
+export function f32(v: Node<WgslDesc>): Node<d.F32Desc>;
+export function f32(v: number | Node<WgslDesc> = 0): ConstNode<d.F32Desc> | Node<d.F32Desc> {
+    if (isNode(v)) return new CallNode(d.f32, 'f32', [v]);
+    return new ConstNode(d.f32, v);
 }
-function elemOf(type: Vec2Type | Vec3Type | Vec4Type): 'f32' | 'f16' | 'i32' | 'u32' | 'bool' {
+
+export function f16(v?: number): ConstNode<d.F16Desc>;
+export function f16(v: Node<WgslDesc>): Node<d.F16Desc>;
+export function f16(v: number | Node<WgslDesc> = 0): ConstNode<d.F16Desc> | Node<d.F16Desc> {
+    if (isNode(v)) return new CallNode(d.f16, 'f16', [v]);
+    return new ConstNode(d.f16, v);
+}
+
+export function i32(v?: number): ConstNode<d.I32Desc>;
+export function i32(v: Node<WgslDesc>): Node<d.I32Desc>;
+export function i32(v: number | Node<WgslDesc> = 0): ConstNode<d.I32Desc> | Node<d.I32Desc> {
+    if (isNode(v)) return new CallNode(d.i32, 'i32', [v]);
+    return new ConstNode(d.i32, Math.trunc(v as number));
+}
+
+export function u32(v?: number): ConstNode<d.U32Desc>;
+export function u32(v: Node<WgslDesc>): Node<d.U32Desc>;
+export function u32(v: number | Node<WgslDesc> = 0): ConstNode<d.U32Desc> | Node<d.U32Desc> {
+    if (isNode(v)) return new CallNode(d.u32, 'u32', [v]);
+    return new ConstNode(d.u32, Math.trunc(v as number));
+}
+
+export const bool = (v: boolean): ConstNode<d.BoolDesc> => new ConstNode(d.bool, v ? 1 : 0);
+
+type Scalar = Node<WgslDesc> | number | boolean;
+type ScalarElemType = 'f32' | 'f16' | 'i32' | 'u32' | 'bool';
+
+function wrapScalar(v: Scalar, elemType: ScalarElemType): Node<WgslDesc> {
+    if (isNode(v)) return v;
+    if (elemType === 'bool') return new ConstNode(d.bool, (v as boolean | number) ? 1 : 0);
+    if (elemType === 'i32')  return new ConstNode(d.i32, Math.trunc(v as number));
+    if (elemType === 'u32')  return new ConstNode(d.u32, Math.trunc(v as number));
+    if (elemType === 'f16')  return new ConstNode(d.f16, v as number);
+    return new ConstNode(d.f32, v as number);
+}
+function elemOf(type: Vec2Type | Vec3Type | Vec4Type): ScalarElemType {
     if (type.endsWith('h')) return 'f16';
     if (type.endsWith('f')) return 'f32';
     if (type.endsWith('i')) return 'i32';
@@ -613,29 +708,44 @@ function elemOf(type: Vec2Type | Vec3Type | Vec4Type): 'f32' | 'f16' | 'i32' | '
     return 'bool';
 }
 
+function descForVec(type: string): d.Vec2Desc | d.Vec3Desc | d.Vec4Desc {
+    return d.descFromWgslType(type) as d.Vec2Desc | d.Vec3Desc | d.Vec4Desc;
+}
+
 export function makeVec2<T extends Vec2Type>(type: T) {
-    return (x: Scalar, y: Scalar): ConstructNode<T> => new ConstructNode(type, [wrapScalar(x, elemOf(type)), wrapScalar(y, elemOf(type))]);
+    const desc = descForVec(type) as d.Vec2Desc;
+    function ctor(v: Node<WgslDesc>): ConstructNode<d.Vec2Desc>;
+    function ctor(x: Scalar, y: Scalar): ConstructNode<d.Vec2Desc>;
+    function ctor(a: Scalar | Node<WgslDesc>, b?: Scalar): ConstructNode<d.Vec2Desc> {
+        if (b === undefined) return new ConstructNode(desc, [wrapScalar(a, elemOf(type))]);
+        return new ConstructNode(desc, [wrapScalar(a, elemOf(type)), wrapScalar(b, elemOf(type))]);
+    }
+    return ctor;
 }
 export function makeVec3<T extends Vec3Type>(type: T) {
-    function ctor(xy: Node<WgslType>, z: Scalar): ConstructNode<T>;
-    function ctor(x: Scalar, y: Scalar, z: Scalar): ConstructNode<T>;
-    function ctor(a: Scalar, b: Scalar, c?: Scalar): ConstructNode<T> {
+    const desc = descForVec(type) as d.Vec3Desc;
+    function ctor(v: Node<WgslDesc>): ConstructNode<d.Vec3Desc>;
+    function ctor(xy: Node<WgslDesc>, z: Scalar): ConstructNode<d.Vec3Desc>;
+    function ctor(x: Scalar, y: Scalar, z: Scalar): ConstructNode<d.Vec3Desc>;
+    function ctor(a: Scalar, b?: Scalar, c?: Scalar): ConstructNode<d.Vec3Desc> {
         const e = elemOf(type);
-        if (c === undefined) return new ConstructNode(type, [wrapScalar(a, e), wrapScalar(b, e)]);
-        return new ConstructNode(type, [wrapScalar(a, e), wrapScalar(b, e), wrapScalar(c, e)]);
+        if (b === undefined) return new ConstructNode(desc, [wrapScalar(a, e)]);
+        if (c === undefined) return new ConstructNode(desc, [wrapScalar(a, e), wrapScalar(b, e)]);
+        return new ConstructNode(desc, [wrapScalar(a, e), wrapScalar(b, e), wrapScalar(c, e)]);
     }
     return ctor;
 }
 export function makeVec4<T extends Vec4Type>(type: T) {
-    function ctor(xy: Node<WgslType>, zw: Node<WgslType>): ConstructNode<T>;
-    function ctor(xy: Node<WgslType>, z: Scalar, w: Scalar): ConstructNode<T>;
-    function ctor(xyz: Node<WgslType>, w: Scalar): ConstructNode<T>;
-    function ctor(x: Scalar, y: Scalar, z: Scalar, w: Scalar): ConstructNode<T>;
-    function ctor(a: Scalar, b: Scalar, c?: Scalar, d?: Scalar): ConstructNode<T> {
+    const desc = descForVec(type) as d.Vec4Desc;
+    function ctor(xy: Node<WgslDesc>, zw: Node<WgslDesc>): ConstructNode<d.Vec4Desc>;
+    function ctor(xy: Node<WgslDesc>, z: Scalar, w: Scalar): ConstructNode<d.Vec4Desc>;
+    function ctor(xyz: Node<WgslDesc>, w: Scalar): ConstructNode<d.Vec4Desc>;
+    function ctor(x: Scalar, y: Scalar, z: Scalar, w: Scalar): ConstructNode<d.Vec4Desc>;
+    function ctor(a: Scalar, b: Scalar, c?: Scalar, dVal?: Scalar): ConstructNode<d.Vec4Desc> {
         const e = elemOf(type);
-        if (c === undefined) return new ConstructNode(type, [wrapScalar(a, e), wrapScalar(b, e)]);
-        if (d === undefined) return new ConstructNode(type, [wrapScalar(a, e), wrapScalar(b, e), wrapScalar(c, e)]);
-        return new ConstructNode(type, [wrapScalar(a, e), wrapScalar(b, e), wrapScalar(c, e), wrapScalar(d, e)]);
+        if (c === undefined) return new ConstructNode(desc, [wrapScalar(a, e), wrapScalar(b, e)]);
+        if (dVal === undefined) return new ConstructNode(desc, [wrapScalar(a, e), wrapScalar(b, e), wrapScalar(c, e)]);
+        return new ConstructNode(desc, [wrapScalar(a, e), wrapScalar(b, e), wrapScalar(c, e), wrapScalar(dVal, e)]);
     }
     return ctor;
 }
@@ -659,74 +769,103 @@ export const vec2b = makeVec2('vec2<bool>');
 export const vec3b = makeVec3('vec3<bool>');
 export const vec4b = makeVec4('vec4<bool>');
 
-export const mat2x2f = (...v: number[]): ConstNode<'mat2x2f'> => new ConstNode('mat2x2f', v.length ? v : []);
-export const mat2x3f = (...v: number[]): ConstNode<'mat2x3f'> => new ConstNode('mat2x3f', v.length ? v : []);
-export const mat2x4f = (...v: number[]): ConstNode<'mat2x4f'> => new ConstNode('mat2x4f', v.length ? v : []);
-export const mat3x2f = (...v: number[]): ConstNode<'mat3x2f'> => new ConstNode('mat3x2f', v.length ? v : []);
-export const mat3x3f = (...v: number[]): ConstNode<'mat3x3f'> => new ConstNode('mat3x3f', v.length ? v : []);
-export const mat3x4f = (...v: number[]): ConstNode<'mat3x4f'> => new ConstNode('mat3x4f', v.length ? v : []);
-export const mat4x2f = (...v: number[]): ConstNode<'mat4x2f'> => new ConstNode('mat4x2f', v.length ? v : []);
-export const mat4x3f = (...v: number[]): ConstNode<'mat4x3f'> => new ConstNode('mat4x3f', v.length ? v : []);
-export const mat4x4f = (...v: number[]): ConstNode<'mat4x4f'> => new ConstNode('mat4x4f', v.length ? v : []);
-export const mat2x2h = (...v: number[]): ConstNode<'mat2x2h'> => new ConstNode('mat2x2h', v.length ? v : []);
-export const mat2x3h = (...v: number[]): ConstNode<'mat2x3h'> => new ConstNode('mat2x3h', v.length ? v : []);
-export const mat2x4h = (...v: number[]): ConstNode<'mat2x4h'> => new ConstNode('mat2x4h', v.length ? v : []);
-export const mat3x2h = (...v: number[]): ConstNode<'mat3x2h'> => new ConstNode('mat3x2h', v.length ? v : []);
-export const mat3x3h = (...v: number[]): ConstNode<'mat3x3h'> => new ConstNode('mat3x3h', v.length ? v : []);
-export const mat3x4h = (...v: number[]): ConstNode<'mat3x4h'> => new ConstNode('mat3x4h', v.length ? v : []);
-export const mat4x2h = (...v: number[]): ConstNode<'mat4x2h'> => new ConstNode('mat4x2h', v.length ? v : []);
-export const mat4x3h = (...v: number[]): ConstNode<'mat4x3h'> => new ConstNode('mat4x3h', v.length ? v : []);
-export const mat4x4h = (...v: number[]): ConstNode<'mat4x4h'> => new ConstNode('mat4x4h', v.length ? v : []);
+export const mat2x2f = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat2x2f, v.length ? v : []);
+export const mat2x3f = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat2x3f, v.length ? v : []);
+export const mat2x4f = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat2x4f, v.length ? v : []);
+export const mat3x2f = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat3x2f, v.length ? v : []);
+export const mat3x3f = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat3x3f, v.length ? v : []);
+export const mat3x4f = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat3x4f, v.length ? v : []);
+export const mat4x2f = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat4x2f, v.length ? v : []);
+export const mat4x3f = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat4x3f, v.length ? v : []);
+export const mat4x4f = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat4x4f, v.length ? v : []);
+export const mat2x2h = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat2x2h, v.length ? v : []);
+export const mat2x3h = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat2x3h, v.length ? v : []);
+export const mat2x4h = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat2x4h, v.length ? v : []);
+export const mat3x2h = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat3x2h, v.length ? v : []);
+export const mat3x3h = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat3x3h, v.length ? v : []);
+export const mat3x4h = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat3x4h, v.length ? v : []);
+export const mat4x2h = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat4x2h, v.length ? v : []);
+export const mat4x3h = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat4x3h, v.length ? v : []);
+export const mat4x4h = (...v: number[]): ConstNode<d.MatDesc> => new ConstNode(d.mat4x4h, v.length ? v : []);
 
-export const mat4 = (c0: Node<'vec4f'>, c1: Node<'vec4f'>, c2: Node<'vec4f'>, c3: Node<'vec4f'>) => new ConstructNode('mat4x4f', [c0, c1, c2, c3]);
+export const mat4 = (c0: Node<d.Vec4Desc>, c1: Node<d.Vec4Desc>, c2: Node<d.Vec4Desc>, c3: Node<d.Vec4Desc>) => new ConstructNode(d.mat4x4f, [c0, c1, c2, c3]);
+export function mat3(c0: Node<d.Vec3Desc>, c1: Node<d.Vec3Desc>, c2: Node<d.Vec3Desc>): Node<d.MatDesc>;
+export function mat3(diag: Node<d.F32Desc>): Node<d.MatDesc>;
+export function mat3(
+    s00: Node<d.F32Desc>, s01: Node<d.F32Desc>, s02: Node<d.F32Desc>,
+    s10: Node<d.F32Desc>, s11: Node<d.F32Desc>, s12: Node<d.F32Desc>,
+    s20: Node<d.F32Desc>, s21: Node<d.F32Desc>, s22: Node<d.F32Desc>
+): Node<d.MatDesc>;
+export function mat3(
+    c0: Node<d.Vec3Desc> | Node<d.F32Desc>,
+    c1?: Node<d.Vec3Desc> | Node<d.F32Desc>,
+    c2?: Node<d.Vec3Desc> | Node<d.F32Desc>,
+    s10?: Node<d.F32Desc>, s11?: Node<d.F32Desc>, s12?: Node<d.F32Desc>,
+    s20?: Node<d.F32Desc>, s21?: Node<d.F32Desc>, s22?: Node<d.F32Desc>
+): Node<d.MatDesc> {
+    // 9-scalar overload: mat3x3f(s00..s22) — column-major scalars
+    if (s10 !== undefined) {
+        return new ConstructNode(d.mat3x3f, [c0, c1!, c2!, s10, s11!, s12!, s20!, s21!, s22!]);
+    }
+    // 3-column overload
+    if (c1 !== undefined && c2 !== undefined) {
+        return new ConstructNode(d.mat3x3f, [c0, c1, c2]);
+    }
+    // scalar diagonal: mat3x3f(diag)
+    return new ConstructNode(d.mat3x3f, [c0]);
+}
 
 // ── Standalone math functions ─────────────────────────────────────────────────
 
-export const add        = <A extends WgslType, B extends WgslType>(a: Node<A>, b: Node<B>) => new BinopNode('+', arithResultType(a.type, b.type), a, b) as unknown as Node<ArithResult<A, B>>;
-export const sub        = <A extends WgslType, B extends WgslType>(a: Node<A>, b: Node<B>) => new BinopNode('-', arithResultType(a.type, b.type), a, b) as unknown as Node<ArithResult<A, B>>;
-export const div        = <A extends WgslType, B extends WgslType>(a: Node<A>, b: Node<B>) => new BinopNode('/', arithResultType(a.type, b.type), a, b) as unknown as Node<ArithResult<A, B>>;
-export const mul        = <A extends WgslType, B extends WgslType>(a: Node<A>, b: Node<B>) => new BinopNode('*', mulResultType(a.type, b.type), a, b) as unknown as Node<MulResult<A, B>>;
-export const dot        = (a: Node<WgslType>, b: Node<WgslType>): Node<'f32'> => new CallNode('f32', 'dot', [a, b]);
-export const cross      = <T extends WgslType>(a: Node<T>, b: Node<T>): Node<T> => new CallNode(a.type, 'cross', [a, b]) as Node<T>;
-export const normalize  = <T extends WgslType>(a: Node<T>): Node<T> => new CallNode(a.type, 'normalize', [a]) as Node<T>;
-export const length     = (a: Node<WgslType>): Node<'f32'> => new CallNode('f32', 'length', [a]);
-export const abs        = <T extends WgslType>(a: Node<T>): Node<T> => new CallNode(a.type, 'abs', [a]) as Node<T>;
-export const floor      = <T extends WgslType>(a: Node<T>): Node<T> => new CallNode(a.type, 'floor', [a]) as Node<T>;
-export const ceil       = <T extends WgslType>(a: Node<T>): Node<T> => new CallNode(a.type, 'ceil', [a]) as Node<T>;
-export const fract      = <T extends WgslType>(a: Node<T>): Node<T> => new CallNode(a.type, 'fract', [a]) as Node<T>;
-export const sqrt       = <T extends WgslType>(a: Node<T>): Node<T> => new CallNode(a.type, 'sqrt', [a]) as Node<T>;
-export const sin        = <T extends WgslType>(a: Node<T>): Node<T> => new CallNode(a.type, 'sin', [a]) as Node<T>;
-export const cos        = <T extends WgslType>(a: Node<T>): Node<T> => new CallNode(a.type, 'cos', [a]) as Node<T>;
-export const negate     = <T extends WgslType>(a: Node<T>): Node<T> => new CallNode(a.type, 'negate', [a]) as Node<T>;
-export const pow        = <T extends WgslType>(a: Node<T>, b: Node<T>): Node<T> => new CallNode(a.type, 'pow', [a, b]) as Node<T>;
-export const max        = <T extends WgslType>(a: Node<T>, b: Node<T>): Node<T> => new CallNode(a.type, 'max', [a, b]) as Node<T>;
-export const min        = <T extends WgslType>(a: Node<T>, b: Node<T>): Node<T> => new CallNode(a.type, 'min', [a, b]) as Node<T>;
-export const clamp      = <T extends WgslType>(a: Node<T>, lo: Node<T>, hi: Node<T>): Node<T> => new CallNode(a.type, 'clamp', [a, lo, hi]) as Node<T>;
-export const mix        = <T extends WgslType>(a: Node<T>, b: Node<T>, t: Node<T>): Node<T> => new CallNode(a.type, 'mix', [a, b, t]) as Node<T>;
-export const step       = <T extends WgslType>(edge: Node<T>, x: Node<T>): Node<T> => new CallNode(x.type, 'step', [edge, x]) as Node<T>;
-export const smoothstep = <T extends WgslType>(lo: Node<T>, hi: Node<T>, x: Node<T>): Node<T> => new CallNode(x.type, 'smoothstep', [lo, hi, x]) as Node<T>;
-export const transpose  = <T extends MatType>(m: Node<T>): Node<T> => new CallNode(m.type, 'transpose', [m]) as Node<T>;
+export const add        = <A extends WgslDesc, B extends WgslDesc>(a: Node<A>, b: Node<B>) => new BinopNode('+', d.arithResultDesc(a.type, b.type), a, b);
+export const sub        = <A extends WgslDesc, B extends WgslDesc>(a: Node<A>, b: Node<B>) => new BinopNode('-', d.arithResultDesc(a.type, b.type), a, b);
+export const div        = <A extends WgslDesc, B extends WgslDesc>(a: Node<A>, b: Node<B>) => new BinopNode('/', d.arithResultDesc(a.type, b.type), a, b);
+export const mul        = <A extends WgslDesc, B extends WgslDesc>(a: Node<A>, b: Node<B>) => new BinopNode('*', d.mulResultDesc(a.type, b.type), a, b);
+export const dot        = (a: Node<WgslDesc>, b: Node<WgslDesc>): Node<d.F32Desc> => new CallNode(d.f32, 'dot', [a, b]);
+export const cross      = <D extends WgslDesc>(a: Node<D>, b: Node<D>): Node<D> => new CallNode(a.type, 'cross', [a, b]);
+export const normalize  = <D extends WgslDesc>(a: Node<D>): Node<D> => new CallNode(a.type, 'normalize', [a]);
+export const length     = (a: Node<WgslDesc>): Node<d.F32Desc> => new CallNode(d.f32, 'length', [a]);
+export const abs        = <D extends WgslDesc>(a: Node<D>): Node<D> => new CallNode(a.type, 'abs', [a]);
+export const floor      = <D extends WgslDesc>(a: Node<D>): Node<D> => new CallNode(a.type, 'floor', [a]);
+export const ceil       = <D extends WgslDesc>(a: Node<D>): Node<D> => new CallNode(a.type, 'ceil', [a]);
+export const fract      = <D extends WgslDesc>(a: Node<D>): Node<D> => new CallNode(a.type, 'fract', [a]);
+export const sqrt       = <D extends WgslDesc>(a: Node<D>): Node<D> => new CallNode(a.type, 'sqrt', [a]);
+export const sin        = <D extends WgslDesc>(a: Node<D>): Node<D> => new CallNode(a.type, 'sin', [a]);
+export const cos        = <D extends WgslDesc>(a: Node<D>): Node<D> => new CallNode(a.type, 'cos', [a]);
+export const negate     = <D extends WgslDesc>(a: Node<D>): Node<D> => new CallNode(a.type, 'negate', [a]);
+export const pow        = <D extends WgslDesc>(a: Node<D>, b: Node<D>): Node<D> => new CallNode(a.type, 'pow', [a, b]);
+export const max        = <D extends WgslDesc>(a: Node<D>, b: Node<D>): Node<D> => new CallNode(a.type, 'max', [a, b]);
+export const min        = <D extends WgslDesc>(a: Node<D>, b: Node<D>): Node<D> => new CallNode(a.type, 'min', [a, b]);
+export const clamp      = <D extends WgslDesc>(a: Node<D>, lo: Node<D>, hi: Node<D>): Node<D> => new CallNode(a.type, 'clamp', [a, lo, hi]);
+export const mix        = <D extends WgslDesc>(a: Node<D>, b: Node<D>, t: Node<D>): Node<D> => new CallNode(a.type, 'mix', [a, b, t]);
+export const step       = <D extends WgslDesc>(edge: Node<D>, x: Node<D>): Node<D> => new CallNode(x.type, 'step', [edge, x]);
+export const smoothstep = <D extends WgslDesc>(lo: Node<D>, hi: Node<D>, x: Node<D>): Node<D> => new CallNode(x.type, 'smoothstep', [lo, hi, x]);
+export const sign       = <D extends WgslDesc>(a: Node<D>): Node<D> => new CallNode(a.type, 'sign', [a]);
+export const mod        = <D extends WgslDesc>(a: Node<D>, b: Node<D>): Node<D> => new BinopNode('%', a.type, a, b);
+export const or         = (a: Node<d.BoolDesc>, b: Node<d.BoolDesc>): Node<d.BoolDesc> => new BinopNode('||', d.bool, a, b);
+export const and        = (a: Node<d.BoolDesc>, b: Node<d.BoolDesc>): Node<d.BoolDesc> => new BinopNode('&&', d.bool, a, b);
+export const transpose  = <D extends d.MatDesc>(m: Node<D>): Node<D> => new CallNode(m.type, 'transpose', [m]);
 
 // ── Lang ──────────────────────────────────────────────────────────────────────
 
-export class StackNode extends Node<'void'> {
-    readonly body: Node<WgslType>[];
-    constructor(initial?: Node<WgslType>[]) {
-        super(nextId(), 'void');
+export class StackNode extends Node<d.VoidDesc> {
+    readonly body: Node<WgslDesc>[];
+    constructor(initial?: Node<WgslDesc>[]) {
+        super(nextId(), d.voidDesc);
         this.body = initial ? [...initial] : [];
     }
-    push(node: Node<WgslType>): void { this.body.push(node); }
+    push(node: Node<WgslDesc>): void { this.body.push(node); }
 }
 
-export class FnNode<T extends WgslType> extends Node<T> {
+export class FnNode<D extends WgslDesc> extends Node<D> {
     readonly fnName: string;
-    readonly paramDescs: (ParamDesc | WgslDesc<WgslType>)[];
-    readonly jsFunc: (...args: Node<WgslType>[]) => Node<T>;
+    readonly paramDescs: (ParamDesc | WgslDesc)[];
+    readonly jsFunc: (...args: Node<WgslDesc>[]) => Node<D>;
 
     constructor(
-        returnType: T,
-        paramDescs: (ParamDesc | WgslDesc<WgslType>)[],
-        jsFunc: (...args: Node<WgslType>[]) => Node<T>,
+        returnType: D,
+        paramDescs: (ParamDesc | WgslDesc)[],
+        jsFunc: (...args: Node<WgslDesc>[]) => Node<D>,
         fnName?: string
     ) {
         super(nextId(), returnType);
@@ -737,80 +876,80 @@ export class FnNode<T extends WgslType> extends Node<T> {
 
     compute(opts: ComputeOptions): ComputeNode { return new ComputeNode({ fn: this, ...opts }); }
 
-    trace(): { params: ParamNode<WgslType>[]; body: StackNode; output: Node<T> } {
-        const params = this.paramDescs.map((d, i) => {
-            const paramName = 'name' in d ? (d as ParamDesc).name : undefined;
-            const wgslType = 'name' in d ? (d as ParamDesc).type.wgslType : (d as WgslDesc<WgslType>).wgslType;
-            return new ParamNode(wgslType, i, paramName);
+    trace(): { params: ParamNode<WgslDesc>[]; body: StackNode; output: Node<D> } {
+        const params = this.paramDescs.map((pd, i) => {
+            const paramName = 'name' in pd ? (pd as ParamDesc).name : undefined;
+            const desc = 'name' in pd ? (pd as ParamDesc).type : (pd as WgslDesc);
+            return new ParamNode(desc, i, paramName);
         });
         const stack = new StackNode();
         const prev = pushStack(stack);
-        let output: Node<T>;
+        let output: Node<D>;
         try { output = this.jsFunc(...params); } finally { popStack(prev); }
         return { params, body: stack, output };
     }
 }
 
-export class ParamNode<T extends WgslType> extends Node<T> {
-    constructor(type: T, readonly paramIndex: number, readonly paramName?: string) {
+export class ParamNode<D extends WgslDesc> extends Node<D> {
+    constructor(type: D, readonly paramIndex: number, readonly paramName?: string) {
         super(nextId(), type);
     }
 }
 
-export class ReturnNode<T extends WgslType> extends Node<T> {
-    constructor(readonly value: Node<T>) { super(nextId(), value.type); }
+export class ReturnNode<D extends WgslDesc> extends Node<D> {
+    constructor(readonly value: Node<D>) { super(nextId(), value.type); }
 }
 
-export class CondNode<T extends WgslType> extends Node<T> {
-    readonly ifFalse?: Node<WgslType>;
-    constructor(readonly condition: Node<WgslType>, readonly ifTrue: Node<T>, ifFalse?: Node<T>) {
+export class CondNode<D extends WgslDesc> extends Node<D> {
+    readonly ifFalse?: Node<WgslDesc>;
+    constructor(readonly condition: Node<WgslDesc>, readonly ifTrue: Node<D>, ifFalse?: Node<D>) {
         super(computeId('cond', { condition: condition.id, ifTrue: ifTrue.id, ifFalse: ifFalse?.id }), ifTrue.type);
         this.ifFalse = ifFalse;
     }
 }
 
-export type ElseIfBranch = { condition: Node<WgslType>; body: StackNode; };
+export type ElseIfBranch = { condition: Node<WgslDesc>; body: StackNode; };
 
-export class IfNode extends Node<'void'> {
+export class IfNode extends Node<d.VoidDesc> {
     elseIfBranches: ElseIfBranch[] = [];
     elseBody: StackNode | null = null;
-    constructor(readonly condition: Node<WgslType>, readonly thenBody: StackNode) {
-        super(nextId(), 'void');
+    constructor(readonly condition: Node<WgslDesc>, readonly thenBody: StackNode) {
+        super(nextId(), d.voidDesc);
     }
 }
 
-export type LoopParam = Node<WgslType> | number | {
-    start?: Node<WgslType> | number;
-    end?: Node<WgslType> | number;
+export type LoopParam = Node<WgslDesc> | number | {
+    start?: Node<WgslDesc> | number;
+    end?: Node<WgslDesc> | number;
     type?: ScalarType;
     condition?: '<' | '<=' | '>' | '>=';
-    update?: Node<WgslType> | number | string | ((...args: unknown[]) => void);
+    update?: Node<WgslDesc> | number | string | ((...args: unknown[]) => void);
     name?: string;
 };
 
-export class LoopNode extends Node<'void'> {
+export class LoopNode extends Node<d.VoidDesc> {
     readonly params: unknown[];
-    constructor(params: unknown[] = []) { super(nextId(), 'void'); this.params = params; }
+    constructor(params: unknown[] = []) { super(nextId(), d.voidDesc); this.params = params; }
     getVarName(index: number): string { return String.fromCharCode('i'.charCodeAt(0) + index); }
     toStack(): this { addToStack(this); return this; }
 }
 
-export class BreakNode    extends Node<'void'> { constructor() { super(nextId(), 'void'); } }
-export class ContinueNode extends Node<'void'> { constructor() { super(nextId(), 'void'); } }
+export class BreakNode    extends Node<d.VoidDesc> { constructor() { super(nextId(), d.voidDesc); } }
+export class ContinueNode extends Node<d.VoidDesc> { constructor() { super(nextId(), d.voidDesc); } }
 
 export type IfChain = {
-    ElseIf(condition: Node<WgslType>, body: () => void): IfChain;
+    ElseIf(condition: Node<WgslDesc>, body: () => void): IfChain;
     Else(body: () => void): IfChain;
 };
 
-export function If(condition: Node<WgslType>, thenBody: () => void): IfChain {
+export function If(condition: Node<WgslDesc>, thenBody: () => void): IfChain {
     const thenStack = new StackNode();
     const prev = pushStack(thenStack);
     try { thenBody(); } finally { popStack(prev); }
     const ifNode = new IfNode(condition, thenStack);
     addToStack(ifNode);
     const chain: IfChain = {
-        ElseIf(c: Node<WgslType>, body: () => void): IfChain {
+        ElseIf(c: Node<WgslDesc>, body: () => void): IfChain {
             const s = new StackNode(); const f = pushStack(s);
             try { body(); } finally { popStack(f); }
             ifNode.elseIfBranches.push({ condition: c, body: s });
@@ -826,7 +965,7 @@ export function If(condition: Node<WgslType>, thenBody: () => void): IfChain {
     return chain;
 }
 
-export type LoopVars = { i: Node<'i32'> };
+export type LoopVars = Record<string, Node<d.I32Desc>>;
 
 export function Loop(range: number, callback: (vars: LoopVars) => void): LoopNode;
 export function Loop(o: LoopParam, callback: (vars: LoopVars) => void): LoopNode;
@@ -835,72 +974,77 @@ export function Loop(o: number | LoopParam, callback: (vars: LoopVars) => void):
 }
 export const For = Loop;
 
-export function While(condition: Node<WgslType>, body: () => void): void { Loop(condition, body); }
-export function Return<T extends WgslType>(value: Node<T>): void   { addToStack(new ReturnNode(value) as Node<WgslType>); }
+export function While(condition: Node<WgslDesc>, body: () => void): void { Loop(condition, body); }
+export function Return(): void;
+export function Return<D extends WgslDesc>(value: Node<D>): void;
+export function Return<D extends WgslDesc>(value?: Node<D>): void {
+    if (value !== undefined) addToStack(new ReturnNode(value));
+    else addToStack(new ReturnNode(new ConstNode(d.voidDesc, 0) as Node<d.VoidDesc>));
+}
 export function Break(): void    { addToStack(new BreakNode()); }
 export function Continue(): void { addToStack(new ContinueNode()); }
 
-export type ParamDesc<T extends WgslType = WgslType> = { readonly name: string; readonly type: WgslDesc<T>; };
-export type ParamDescsToNodes<P extends readonly ParamDesc[]> = { [K in keyof P]: P[K] extends ParamDesc<infer U> ? Node<U> : never; };
+export type ParamDesc = { readonly name: string; readonly type: WgslDesc; };
+export type ParamDescsToNodes<P extends readonly ParamDesc[]> = { [K in keyof P]: P[K] extends ParamDesc ? Node<P[K]['type']> : never; };
 export type FnLayout<P extends readonly ParamDesc[]> = { readonly name: string; readonly params: [...P]; };
 
 // Overload 1 — with layout
-export function Fn<T extends WgslType, P extends readonly ParamDesc[]>(
-    jsFunc: (...args: ParamDescsToNodes<P>) => Node<T>,
+export function Fn<D extends WgslDesc, P extends readonly ParamDesc[]>(
+    jsFunc: (...args: ParamDescsToNodes<P>) => Node<D>,
     layout: FnLayout<P>
-): (...args: ParamDescsToNodes<P>) => CallNode<T>;
+): (...args: ParamDescsToNodes<P>) => CallNode<D>;
 
 // Overload 2 — no-params void body
-export function Fn(jsFunc: () => void): FnNode<'void'>;
+export function Fn(jsFunc: () => void): FnNode<d.VoidDesc>;
 
 // Overload 3 — no layout
-export function Fn<T extends WgslType>(
-    jsFunc: (...args: Node<WgslType>[]) => Node<T>
-): (...args: Node<WgslType>[]) => CallNode<T>;
+export function Fn<D extends WgslDesc>(
+    jsFunc: (...args: Node<WgslDesc>[]) => Node<D>
+): (...args: Node<WgslDesc>[]) => CallNode<D>;
 
 // Implementation
-export function Fn<T extends WgslType>(
-    jsFunc: ((...args: Node<WgslType>[]) => Node<T>) | (() => void),
+export function Fn<D extends WgslDesc>(
+    jsFunc: ((...args: Node<WgslDesc>[]) => Node<D>) | (() => void),
     layout?: FnLayout<readonly ParamDesc[]>
-): ((...args: Node<WgslType>[]) => CallNode<T>) | FnNode<'void'> {
-    const paramDescs: (ParamDesc | WgslDesc<WgslType>)[] = layout?.params ?? [];
-    const dummyParams = paramDescs.map((d, i) => {
-        const paramName = 'name' in d ? (d as ParamDesc).name : undefined;
-        const wgslType = 'name' in d ? (d as ParamDesc).type.wgslType : (d as WgslDesc<WgslType>).wgslType;
-        return new ParamNode(wgslType, i, paramName);
+): ((...args: Node<WgslDesc>[]) => CallNode<D>) | FnNode<d.VoidDesc> {
+    const paramDescs: (ParamDesc | WgslDesc)[] = layout?.params ?? [];
+    const dummyParams = paramDescs.map((pd, i) => {
+        const paramName = 'name' in pd ? (pd as ParamDesc).name : undefined;
+        const desc = 'name' in pd ? (pd as ParamDesc).type : (pd as WgslDesc);
+        return new ParamNode(desc, i, paramName);
     });
     const traceStack = new StackNode();
     const prev = pushStack(traceStack);
-    let returnType: T | 'void';
+    let returnType: D | d.VoidDesc;
     try {
-        const output = (jsFunc as (...args: Node<WgslType>[]) => Node<T> | undefined)(...dummyParams);
-        returnType = output != null ? (output.type as T) : 'void';
+        const output = (jsFunc as (...args: Node<WgslDesc>[]) => Node<D> | undefined)(...dummyParams);
+        returnType = output != null ? output.type : d.voidDesc;
     } finally { popStack(prev); }
 
-    if (returnType === 'void' && paramDescs.length === 0 && !layout) {
-        return new FnNode<'void'>('void', [], jsFunc as (...args: Node<WgslType>[]) => Node<'void'>, undefined);
+    if (returnType === d.voidDesc && paramDescs.length === 0 && !layout) {
+        return new FnNode<d.VoidDesc>(d.voidDesc, [], jsFunc as (...args: Node<WgslDesc>[]) => Node<d.VoidDesc>, undefined);
     }
-    const fnNode = new FnNode<T>(returnType as T, paramDescs, jsFunc as (...args: Node<WgslType>[]) => Node<T>, layout?.name);
-    return (...args: Node<WgslType>[]): CallNode<T> => new CallNode<T>(returnType as T, fnNode.fnName, args, fnNode);
+    const fnNode = new FnNode<D>(returnType as D, paramDescs, jsFunc as (...args: Node<WgslDesc>[]) => Node<D>, layout?.name);
+    return (...args: Node<WgslDesc>[]): CallNode<D> => new CallNode<D>(returnType as D, fnNode.fnName, args, fnNode);
 }
 
-export const cond = <T extends WgslType>(condition: Node<WgslType>, ifTrue: Node<T>, ifFalse?: Node<T>) => new CondNode(condition, ifTrue, ifFalse);
+export const cond = <D extends WgslDesc>(condition: Node<WgslDesc>, ifTrue: Node<D>, ifFalse?: Node<D>) => new CondNode(condition, ifTrue, ifFalse);
 
-export function Var<T extends WgslType>(init: Node<T>, label?: string): VarNode<T> {
+export function Var<D extends WgslDesc>(init: Node<D>, label?: string): VarNode<D> {
     const varName = label ? `var_${_nodeCounter}_${label}` : `var_${_nodeCounter}`;
-    const v = new VarNode(init.type as T, varName, init);
-    if (currentStack !== null) currentStack.push(v as Node<WgslType>);
+    const v = new VarNode(init.type, varName, init);
+    if (currentStack !== null) currentStack.push(v);
     return v;
 }
 
-export function Const<T extends WgslType>(init: Node<T>, label?: string): VarNode<T> {
+export function Const<D extends WgslDesc>(init: Node<D>, label?: string): VarNode<D> {
     const varName = label ? `const_${_nodeCounter}_${label}` : `const_${_nodeCounter}`;
-    const v = new VarNode(init.type as T, varName, init, true);
-    if (currentStack !== null) currentStack.push(v as Node<WgslType>);
+    const v = new VarNode(init.type, varName, init, true);
+    if (currentStack !== null) currentStack.push(v);
     return v;
 }
 
-export function assign<T extends WgslType>(target: Node<T>, value: Node<T>): void { addToStack(new AssignNode(target, value)); }
+export function assign<D extends WgslDesc>(target: Node<D>, value: Node<D>): void { addToStack(new AssignNode(target, value)); }
 
 // ── Compute ───────────────────────────────────────────────────────────────────
 
@@ -914,58 +1058,64 @@ let _computeCounter = 0;
 
 export class ComputeNode {
     readonly id: string;
-    readonly fn: FnNode<WgslType>;
+    readonly fn: FnNode<WgslDesc>;
     readonly workgroupSize: [number, number, number];
     readonly dispatch: [number, number, number];
     constructor(opts: ComputeNodeOptions) {
         this.id = `_compute_${_computeCounter++}`;
         this.fn = opts.fn;
         this.workgroupSize = opts.workgroupSize ?? [64, 1, 1];
-        const d = opts.dispatch;
-        this.dispatch = [d[0], d[1] ?? 1, d[2] ?? 1];
+        const disp = opts.dispatch;
+        this.dispatch = [disp[0], disp[1] ?? 1, disp[2] ?? 1];
     }
 }
 
-export function compute(fn: FnNode<WgslType>, opts: ComputeOptions): ComputeNode { return new ComputeNode({ fn, ...opts }); }
+export function compute(fn: FnNode<WgslDesc>, opts: ComputeOptions): ComputeNode { return new ComputeNode({ fn, ...opts }); }
 
 // ── Struct ────────────────────────────────────────────────────────────────────
 
-export type StructInstance<S extends StructSchema> = { readonly $node: Node<WgslType> } & { readonly [K in keyof S]: Node<S[K]['wgslType'] & WgslType> };
-export type StructMember = { readonly name: string; readonly type: WgslType };
-export type StructDef<S extends StructSchema> = WgslDesc<string> & {
-    readonly schema: S;
+export type StructInstance<S extends d.StructSchema> = { readonly $node: Node<d.StructDesc> } & { readonly [K in keyof S]: Node<S[K]> };
+export type StructMember = { readonly name: string; readonly type: WgslDesc };
+export type StructDef<S extends d.StructSchema> = {
+    readonly type: 'struct';
+    readonly wgslType: string;
+    readonly name: string;
+    readonly fields: S;
     readonly members: StructMember[];
-    readonly node: StructNode;
-    readonly nestedDefs: ReadonlyMap<string, StructDef<StructSchema>>;
-    instantiate<N extends Node<WgslType>>(base: N): StructInstance<S>;
+    readonly node: StructNode<S>;
+    readonly nestedDefs: ReadonlyMap<string, StructDef<d.StructSchema>>;
+    instantiate<N extends Node<WgslDesc>>(base: N): StructInstance<S>;
 };
 
-const _structNodeRegistry: WeakMap<StructNode, StructDef<StructSchema>> = new WeakMap();
-const _structNameRegistry: Map<string, StructDef<StructSchema>> = new Map();
+const _structNodeRegistry: WeakMap<StructNode<d.StructSchema>, StructDef<d.StructSchema>> = new WeakMap();
+const _structNameRegistry: Map<string, StructDef<d.StructSchema>> = new Map();
 
-export function lookupStructDef(node: StructNode): StructDef<StructSchema> | undefined { return _structNodeRegistry.get(node); }
-export function lookupStructDefByName(wgslType: string): StructDef<StructSchema> | undefined { return _structNameRegistry.get(wgslType); }
+export function lookupStructDef(node: StructNode<d.StructSchema>): StructDef<d.StructSchema> | undefined { return _structNodeRegistry.get(node); }
+export function lookupStructDefByName(wgslType: string): StructDef<d.StructSchema> | undefined { return _structNameRegistry.get(wgslType); }
 
-export function struct<S extends StructSchema>(wgslType: string, schema: S): StructDef<S> {
-    const members: StructMember[] = Object.entries(schema).map(([name, f]) => ({ name, type: f.wgslType }));
-    const node = new StructNode(wgslType, members);
-    const nestedDefs: Map<string, StructDef<StructSchema>> = new Map();
-    for (const f of Object.values(schema)) {
-        if (isStructDef(f)) nestedDefs.set(f.wgslType, f as unknown as StructDef<StructSchema>);
+export function struct<S extends d.StructSchema>(name: string, fields: S): StructDef<S> {
+    const members: StructMember[] = Object.entries(fields).map(([n, desc]) => ({ name: n, type: desc }));
+    const structDesc: d.StructDesc<S> = { type: 'struct', wgslType: name, name, fields };
+    const node = new StructNode<S>(structDesc, members);
+    const nestedDefs: Map<string, StructDef<d.StructSchema>> = new Map();
+    for (const desc of Object.values(fields)) {
+        if (isStructDef(desc)) nestedDefs.set(desc.wgslType, desc as unknown as StructDef<d.StructSchema>);
     }
-    function instantiate<N extends Node<WgslType>>(base: N): StructInstance<S> {
-        const result: Record<string, Node<WgslType>> = { $node: base };
-        for (const [name, f] of Object.entries(schema)) result[name] = new FieldNode(f.wgslType as WgslType, base, name);
+    function instantiate<N extends Node<WgslDesc>>(base: N): StructInstance<S> {
+        const result: Record<string, Node<WgslDesc>> = { $node: base as unknown as Node<d.StructDesc> };
+        for (const [fieldName, fieldDesc] of Object.entries(fields)) {
+            result[fieldName] = new FieldNode(fieldDesc, base, fieldName);
+        }
         return result as StructInstance<S>;
     }
-    const def: StructDef<S> = { wgslType, schema, members, node, nestedDefs, instantiate };
+    const def: StructDef<S> = { type: 'struct', wgslType: name, name, fields, members, node, nestedDefs, instantiate };
     _structNodeRegistry.set(node, def);
-    _structNameRegistry.set(wgslType, def);
+    _structNameRegistry.set(name, def);
     return def;
 }
 
-export class StructNode extends Node<string> {
-    constructor(typeName: string, readonly members: StructMember[]) {
-        super(computeId('struct', { type: typeName, members }), typeName);
+export class StructNode<S extends d.StructSchema = d.StructSchema> extends Node<d.StructDesc<S>> {
+    constructor(desc: d.StructDesc<S>, readonly members: StructMember[]) {
+        super(computeId('struct', { type: desc.wgslType, members }), desc);
     }
 }

@@ -11,7 +11,6 @@ export * from "./lib/draw-indirect";
 export * from "./lib/model";
 export * from "./lib/mrt";
 export * from "./lib/storage";
-export * from "./lib/sub-build";
 export * from "./lib/texture";
 export * from "./lib/time";
 export * from "./lib/uniform";

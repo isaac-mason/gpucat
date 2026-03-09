@@ -6,8 +6,9 @@ import { type ImageSize } from '../../../texture/source';
 import { Texture } from '../../../texture/texture';
 import type { MRTNode } from '../mrt';
 import { TextureNode } from '../texture';
-import { type WgslType, Node } from '../core';
+import { Node } from '../core';
 import { cameraFar, cameraNear } from '../camera';
+import * as d from '../../schema';
 
 let _passCount = 0;
 
@@ -126,7 +127,7 @@ export type PassNodeOptions = {
  * This pass produces a render for the given scene and camera and can provide multiple outputs
  * via MRT for further processing.
  */
-export class PassNode extends Node<'vec4f'> {
+export class PassNode extends Node<d.Vec4fDesc> {
     /** @static */
     static readonly COLOR: 'color' = 'color';
 
@@ -156,7 +157,7 @@ export class PassNode extends Node<'vec4f'> {
 
     readonly updateBeforeType: 'frame' | 'none' = 'frame';
 
-    readonly deps: Node<WgslType>[] = [];
+    readonly deps: Node<d.WgslDesc>[] = [];
     readonly wgsl = '';
 
     private _pixelRatio = 1;
@@ -174,13 +175,13 @@ export class PassNode extends Node<'vec4f'> {
 
     private readonly _previousTextureNodes: Record<string, PassMultipleTextureNode> = {};
 
-    private readonly _viewZNodes: Record<string, Node<'f32'>> = {};
+    private readonly _viewZNodes: Record<string, Node<d.F32Desc>> = {};
 
-    private readonly _linearDepthNodes: Record<string, Node<'f32'>> = {};
+    private readonly _linearDepthNodes: Record<string, Node<d.F32Desc>> = {};
 
     constructor(scope: 'color' | 'depth', scene: Scene, camera: Camera, options: PassNodeOptions = {}) {
         const pid = `_pass${_passCount++}`;
-        super(`passnode_${pid}`, 'vec4f');
+        super(`passnode_${pid}`, d.vec4f);
 
         this.scope = scope;
         this.scene = scene;
@@ -364,20 +365,20 @@ export class PassNode extends Node<'vec4f'> {
      * Returns a viewZ node of this pass.
      * Uses cameraNear/cameraFar builtin nodes for correct depth reconstruction.
      */
-    getViewZNode(name = 'depth'): Node<'f32'> {
+    getViewZNode(name = 'depth'): Node<d.F32Desc> {
         let viewZNode = this._viewZNodes[name];
 
         if (viewZNode === undefined) {
             const depthTextureNode = this.getTextureNode(name);
 
             // Get depth value from texture (TextureNode generates textureSample())
-            const depth = depthTextureNode.r as Node<'f32'>;
+            const depth = depthTextureNode.r as Node<d.F32Desc>;
 
             // perspectiveDepthToViewZ formula (non-reversed depth buffer):
             // viewZ = near.mul(far).div(far.sub(near).mul(depth).sub(far))
             viewZNode = cameraNear
                 .mul(cameraFar)
-                .div(cameraFar.sub(cameraNear).mul(depth).sub(cameraFar));
+                .div(cameraFar.sub(cameraNear).mul(depth).sub(cameraFar)) as Node<d.F32Desc>;
 
             this._viewZNodes[name] = viewZNode;
         }
@@ -389,7 +390,7 @@ export class PassNode extends Node<'vec4f'> {
      * Returns a linear depth node of this pass.
      * Uses cameraNear/cameraFar builtin nodes for correct depth reconstruction.
      */
-    getLinearDepthNode(name = 'depth'): Node<'f32'> {
+    getLinearDepthNode(name = 'depth'): Node<d.F32Desc> {
         let linearDepthNode = this._linearDepthNodes[name];
 
         if (linearDepthNode === undefined) {
@@ -399,7 +400,7 @@ export class PassNode extends Node<'vec4f'> {
             // linearDepth = viewZ.add(near).div(near.sub(far))
             linearDepthNode = viewZNode
                 .add(cameraNear)
-                .div(cameraNear.sub(cameraFar)) as Node<'f32'>;
+                .div(cameraNear.sub(cameraFar)) as Node<d.F32Desc>;
 
             this._linearDepthNodes[name] = linearDepthNode;
         }

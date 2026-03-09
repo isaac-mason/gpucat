@@ -26,9 +26,9 @@
 
 import {
     type WgslDesc,
-    type WgslType,
-    type StructSchema,
-    isStructDef,
+    type StructDesc,
+    type Infer,
+    isStructDesc,
     wgslAlignOf,
     wgslSizeOf,
     wgslStrideOf,
@@ -40,36 +40,10 @@ import {
 // ---------------------------------------------------------------------------
 
 /**
- * Any descriptor that has a `schema` property — i.e. a StructDef<S> from
- * nodes.ts.  We match structurally so this file does not import from nodes.ts
- * (avoiding circular dependency concerns).
+ * Infer the JS value type from a WgslDesc.
+ * Re-exported from schema.ts for convenience.
  */
-type StructLike<S extends StructSchema> = WgslDesc<string> & {
-    readonly schema: S;
-};
-
-/**
- * Infer the JS value type from a WgslDesc or StructLike.
- * Mirrors d.Infer<D> — re-declared here to keep the util self-contained.
- */
-export type InferValue<D> =
-    D extends { readonly schema: infer S extends StructSchema }
-        ? { [K in keyof S]: InferValue<S[K]> }
-    : D extends WgslDesc<'f32'> | WgslDesc<'i32'> | WgslDesc<'u32'> | WgslDesc<'bool'> | WgslDesc<'f16'>
-        ? number
-    : D extends WgslDesc<'vec2f'> | WgslDesc<'vec2i'> | WgslDesc<'vec2u'> | WgslDesc<'vec2h'>
-        ? [number, number]
-    : D extends WgslDesc<'vec3f'> | WgslDesc<'vec3i'> | WgslDesc<'vec3u'> | WgslDesc<'vec3h'>
-        ? [number, number, number]
-    : D extends WgslDesc<'vec4f'> | WgslDesc<'vec4i'> | WgslDesc<'vec4u'> | WgslDesc<'vec4h'>
-        ? [number, number, number, number]
-    : D extends WgslDesc<'mat2x2f'> | WgslDesc<'mat2x2h'>
-        ? [number, number, number, number]
-    : D extends WgslDesc<'mat3x3f'> | WgslDesc<'mat3x3h'>
-        ? [number, number, number, number, number, number, number, number, number]
-    : D extends WgslDesc<'mat4x4f'> | WgslDesc<'mat4x4h'>
-        ? [number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number]
-    : never;
+export type InferValue<D extends WgslDesc> = Infer<D>;
 
 // ---------------------------------------------------------------------------
 // Internal writer
@@ -84,17 +58,17 @@ export type InferValue<D> =
 function writeValue(
     view: DataView,
     offset: number,
-    desc: WgslDesc<WgslType>,
+    desc: WgslDesc,
     value: unknown,
     littleEndian = true,
 ): number {
     // Nested struct
-    if (isStructDef(desc)) {
-        const schema = (desc as StructLike<StructSchema>).schema;
+    if (isStructDesc(desc)) {
+        const fields = desc.fields;
         const structAlign = wgslAlignOf(desc);
         let fieldOffset = offset;
         const obj = value as Record<string, unknown>;
-        for (const [key, fieldDesc] of Object.entries(schema)) {
+        for (const [key, fieldDesc] of Object.entries(fields)) {
             const fieldAlign = wgslAlignOf(fieldDesc);
             fieldOffset = roundUp(fieldOffset, fieldAlign);
             writeValue(view, fieldOffset, fieldDesc, obj[key], littleEndian);
@@ -316,23 +290,22 @@ export function f32ToF16Bits(value: number): number {
  * Pack a single JS struct object into an `ArrayBuffer` sized according to
  * the struct's WGSL memory layout (std430 / storage-buffer rules).
  *
- * @param structDef - A `StructDef<S>` (from `struct()` in nodes.ts) — anything
- *                   with a `schema: StructSchema` property.
- * @param value     - A JS object whose fields match `d.Infer<typeof structDef>`.
+ * @param structDef - A `StructDesc` (from `struct()` in schema.ts or nodes.ts).
+ * @param value     - A JS object whose fields match `Infer<typeof structDef>`.
  *
  * @example
  * const Particle = struct('Particle', { pos: d.vec3f, hp: d.f32 });
  * const buf = packStruct(Particle, { pos: [1, 2, 3], hp: 100 });
  * device.queue.writeBuffer(gpuBuffer, 0, buf);
  */
-export function packStruct<S extends StructSchema>(
-    structDef: StructLike<S>,
-    value: InferValue<StructLike<S>>,
+export function packStruct<D extends StructDesc>(
+    structDef: D,
+    value: Infer<D>,
 ): ArrayBuffer {
-    const size = wgslSizeOf(structDef as WgslDesc<WgslType>);
+    const size = wgslSizeOf(structDef);
     const buf  = new ArrayBuffer(size);
     const view = new DataView(buf);
-    writeValue(view, 0, structDef as WgslDesc<WgslType>, value);
+    writeValue(view, 0, structDef, value);
     return buf;
 }
 
@@ -343,8 +316,8 @@ export function packStruct<S extends StructSchema>(
  * Each element is written at stride = `roundUp(sizeof(S), alignof(S))`,
  * which guarantees correct alignment for every element in the array.
  *
- * @param structDef - A `StructDef<S>` (from `struct()` in nodes.ts).
- * @param items     - Array of JS objects matching `d.Infer<typeof structDef>`.
+ * @param structDef - A `StructDesc` (from `struct()` in schema.ts or nodes.ts).
+ * @param items     - Array of JS objects matching `Infer<typeof structDef>`.
  *
  * @example
  * import * as d from '../nodes/schema';
@@ -370,16 +343,15 @@ export function packStruct<S extends StructSchema>(
  * const buf  = packStructArray(Particle, Array.from({ length: 100 }, makeParticle));
  * const attr = new StorageBufferAttribute(new Uint8Array(buf), 1);
  */
-export function packStructArray<S extends StructSchema>(
-    structDef: StructLike<S>,
-    items: InferValue<StructLike<S>>[],
+export function packStructArray<D extends StructDesc>(
+    structDef: D,
+    items: Infer<D>[],
 ): ArrayBuffer {
-    const desc     = structDef as WgslDesc<WgslType>;
-    const stride   = wgslStrideOf(desc);
+    const stride   = wgslStrideOf(structDef);
     const buf      = new ArrayBuffer(stride * items.length);
     const view     = new DataView(buf);
     for (let i = 0; i < items.length; i++) {
-        writeValue(view, i * stride, desc, items[i]);
+        writeValue(view, i * stride, structDef, items[i]);
     }
     return buf;
 }
@@ -390,19 +362,18 @@ export function packStructArray<S extends StructSchema>(
  *
  * Does not resize the buffer — throws if there is not enough space.
  *
- * @param structDef   - StructDef<S> from `struct()`.
+ * @param structDef   - StructDesc from `struct()`.
  * @param items       - JS objects to write.
  * @param dest        - Target ArrayBuffer.
  * @param byteOffset  - Byte offset within `dest` to start writing. Default 0.
  */
-export function writeStructArray<S extends StructSchema>(
-    structDef: StructLike<S>,
-    items: InferValue<StructLike<S>>[],
+export function writeStructArray<D extends StructDesc>(
+    structDef: D,
+    items: Infer<D>[],
     dest: ArrayBuffer,
     byteOffset = 0,
 ): void {
-    const desc   = structDef as WgslDesc<WgslType>;
-    const stride = wgslStrideOf(desc);
+    const stride = wgslStrideOf(structDef);
     const needed = byteOffset + stride * items.length;
     if (needed > dest.byteLength) {
         throw new RangeError(
@@ -411,6 +382,6 @@ export function writeStructArray<S extends StructSchema>(
     }
     const view = new DataView(dest);
     for (let i = 0; i < items.length; i++) {
-        writeValue(view, byteOffset + i * stride, desc, items[i]);
+        writeValue(view, byteOffset + i * stride, structDef, items[i]);
     }
 }

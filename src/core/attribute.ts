@@ -1,4 +1,5 @@
 import { StorageNode } from 'src/nodes/lib/storage';
+import * as d from 'src/nodes/schema';
 
 export type GpuTypedArray = Float32Array |
     Int32Array |
@@ -141,10 +142,10 @@ export class IndirectStorageBufferAttribute extends StorageBufferAttribute {
     readonly indirectStride: number;
 
     /** Lazily created flat StorageNode. */
-    private _storageNode: StorageNode<'u32'> | null = null;
+    private _storageNode: StorageNode<d.U32Desc> | null = null;
 
     /** Lazily created struct-typed StorageNode. */
-    private _structStorageNode: StorageNode<string> | null = null;
+    private _structStorageNode: StorageNode<d.WgslDesc> | null = null;
 
     /**
      * Constructor:
@@ -191,7 +192,7 @@ export class IndirectStorageBufferAttribute extends StorageBufferAttribute {
      * Returns the struct-typed node if present, otherwise the flat array<u32> node.
      * Used by BufferCache to detect shared-buffer indirect nodes.
      */
-    get _cachedStorageNode(): StorageNode<string> | StorageNode<'u32'> | null {
+    get _cachedStorageNode(): StorageNode<d.WgslDesc> | StorageNode<d.U32Desc> | null {
         return this._structStorageNode ?? this._storageNode;
     }
 }

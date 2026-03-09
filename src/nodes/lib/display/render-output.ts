@@ -21,25 +21,25 @@ export type RenderOutputOptions = {
 
     /**
      * Scene exposure multiplier, applied before tone mapping.
-     * Pass a UniformNode<'f32'> to animate it.
+     * Pass a UniformNode<d.F32Desc> to animate it.
      * @default konst(1.0)
      */
-    exposure?: Node<'f32'>;
+    exposure?: Node<d.F32Desc>;
 };
 
 /**
  * Wrap `inputNode` in tone-mapping and color-space conversion.
  *
- * Returns a `Node<'vec4f'>` that can be used directly as
+ * Returns a `Node<d.Vec4fDesc>` that can be used directly as
  * `renderer.render(renderOutput(scenePass.getTextureNode()))`.
  */
 export function renderOutput(
-    inputNode: Node<'vec4f'>,
+    inputNode: Node<d.Vec4fDesc>,
     options: RenderOutputOptions = {},
-): Node<'vec4f'> {
+): Node<d.Vec4fDesc> {
     const toneMapping = options.toneMapping ?? 'aces';
     const colorSpace  = options.colorSpace  ?? 'srgb';
-    const exposure    = options.exposure    ?? new ConstNode('f32', 1.0);
+    const exposure    = options.exposure    ?? new ConstNode(d.f32, 1.0);
 
     // Build the chain: input → exposure → tone map → gamma
     // Each step is a RawNode that substitutes $0 = previous step.
@@ -58,7 +58,7 @@ export function renderOutput(
     }
 }
 
-function applyToneMapping(node: Node<'vec4f'>, mode: ToneMappingMode): Node<'vec4f'> {
+function applyToneMapping(node: Node<d.Vec4fDesc>, mode: ToneMappingMode): Node<d.Vec4fDesc> {
     switch (mode) {
         case 'aces':     return acesToneMapping(node);
         case 'reinhard': return reinhardToneMapping(node);
@@ -79,7 +79,7 @@ function applyToneMapping(node: Node<'vec4f'>, mode: ToneMappingMode): Node<'vec
  * Rewritten as a single expression to avoid WGSL IIFE (not supported).
  * We inline c = ($0).rgb and compute the result directly.
  */
-function acesToneMapping(node: Node<'vec4f'>): Node<'vec4f'> {
+function acesToneMapping(node: Node<d.Vec4fDesc>): Node<d.Vec4fDesc> {
     return wgsl(d.vec4f)`vec4f(clamp(((${ node }).rgb * (2.51 * (${ node }).rgb + vec3f(0.03))) / ((${ node }).rgb * (2.43 * (${ node }).rgb + vec3f(0.59)) + vec3f(0.14)), vec3f(0.0), vec3f(1.0)), (${ node }).a)`;
 }
 
@@ -90,7 +90,7 @@ function acesToneMapping(node: Node<'vec4f'>): Node<'vec4f'> {
  *
  * Rewritten as a single expression to avoid WGSL IIFE (not supported).
  */
-function reinhardToneMapping(node: Node<'vec4f'>): Node<'vec4f'> {
+function reinhardToneMapping(node: Node<d.Vec4fDesc>): Node<d.Vec4fDesc> {
     return wgsl(d.vec4f)`vec4f((${ node }).rgb / (vec3f(1.0) + (${ node }).rgb), (${ node }).a)`;
 }
 
@@ -106,6 +106,6 @@ function reinhardToneMapping(node: Node<'vec4f'>): Node<'vec4f'> {
  * Rewritten as a single expression to avoid WGSL IIFE (not supported).
  * The select() picks between lo and hi based on the threshold.
  */
-function linearToSrgb(node: Node<'vec4f'>): Node<'vec4f'> {
+function linearToSrgb(node: Node<d.Vec4fDesc>): Node<d.Vec4fDesc> {
     return wgsl(d.vec4f)`vec4f(select(pow(clamp((${ node }).rgb, vec3f(0.0), vec3f(1.0)), vec3f(1.0 / 2.4)) * 1.055 - vec3f(0.055), (${ node }).rgb * 12.92, (${ node }).rgb <= vec3f(0.0031308)), (${ node }).a)`;
 }

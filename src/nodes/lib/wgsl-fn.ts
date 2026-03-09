@@ -1,5 +1,6 @@
 
-import { CallNode, computeId, Node, type WgslType } from './core';
+import * as d from '../schema';
+import { CallNode, computeId, Node } from './core';
 
 /**
  * Parsed WGSL function info returned by parseWgslFunction().
@@ -78,7 +79,7 @@ function parseWgslFunction(source: string): WgslNodeFunction {
     };
 }
 
-export class WgslFunctionNode extends Node<'wgslfn'> {
+export class WgslFunctionNode extends Node<d.WgslFnDesc> {
     /** Type marker for runtime checking */
     readonly isCodeNode = true;
 
@@ -95,7 +96,7 @@ export class WgslFunctionNode extends Node<'wgslfn'> {
     readonly isFunctionNode = true;
 
     constructor(code = '', includes: WgslFunctionNode[] = []) {
-        super(computeId('wgslfn', { code }), 'wgslfn');
+        super(computeId('wgslfn', { code }), d.wgslfn);
         this.code = code;
         this.includes = includes;
     }
@@ -127,10 +128,10 @@ export class WgslFunctionNode extends Node<'wgslfn'> {
      * Create a CallNode that calls this function.
      * @param args - Arguments to pass (positional or named object)
      */
-    call(...args: Node<WgslType>[]): CallNode<WgslType> {
+    call(...args: Node<d.WgslDesc>[]): CallNode<d.WgslDesc> {
         const nodeFunc = this.getNodeFunction();
         const fnName = nodeFunc.name;
-        const returnType = nodeFunc.outputType as WgslType;
+        const returnType = d.descFromWgslType(nodeFunc.outputType);
         return new CallNode(returnType, fnName, args, undefined, this);
     }
 }
@@ -161,17 +162,17 @@ export class WgslFunctionNode extends Node<'wgslfn'> {
  * // Use in node graph:
  * const tonemapped = aces(linearColor);
  */
-export function wgslFn<T extends WgslType = WgslType>(
+export function wgslFn(
     source: string,
-    includes: (WgslFnCallable<WgslType> | WgslFunctionNode)[] = []
-): WgslFnCallable<T> {
+    includes: (WgslFnCallable | WgslFunctionNode)[] = []
+): WgslFnCallable {
     // Extract FunctionNode from callable includes
     const includeNodes: WgslFunctionNode[] = [];
     for (let i = 0; i < includes.length; i++) {
         const include = includes[i];
         // If it's a callable from wgslFn, extract the functionNode
         if (typeof include === 'function') {
-            const fn = (include as WgslFnCallable<WgslType>).functionNode;
+            const fn = (include as WgslFnCallable).functionNode;
             if (fn) {
                 includeNodes.push(fn);
             }
@@ -183,21 +184,21 @@ export function wgslFn<T extends WgslType = WgslType>(
     const functionNode = new WgslFunctionNode(source.trim(), includeNodes);
     const nodeFunc = functionNode.getNodeFunction();
     const fnName = nodeFunc.name;
-    const returnType = nodeFunc.outputType as T;
+    const returnType = d.descFromWgslType(nodeFunc.outputType);
 
     // Return a callable that creates CallNodes
-    const fn = (...args: Node<WgslType>[]): CallNode<T> => {
+    const fn = (...args: Node<d.WgslDesc>[]): CallNode<d.WgslDesc> => {
         return new CallNode(returnType, fnName, args, undefined, functionNode);
     };
 
     // Attach functionNode for include resolution
     fn.functionNode = functionNode;
 
-    return fn as WgslFnCallable<T>;
+    return fn as WgslFnCallable;
 }
 
 /** Type for the callable returned by wgslFn */
-export type WgslFnCallable<T extends WgslType = WgslType> = {
-    (...args: Node<WgslType>[]): CallNode<T>;
+export type WgslFnCallable = {
+    (...args: Node<d.WgslDesc>[]): CallNode<d.WgslDesc>;
     functionNode: WgslFunctionNode;
 };

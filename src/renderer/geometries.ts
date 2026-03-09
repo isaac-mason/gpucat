@@ -1,27 +1,8 @@
-/**
- * geometries.ts — Geometry and attribute management with deduplication.
- *
- * Merged from geometries.ts + attributes.ts to eliminate redundant version tracking.
- *
- * Responsibilities:
- * - Per-frame deduplication (each attribute updated at most once per frame)
- * - Geometry initialization and disposal
- * - Wireframe index generation
- * - Storage node buffer management
- *
- * Version tracking is handled solely by buffers.ts — no duplicate tracking here.
- */
-
 import type { Geometry } from '../geometry/geometry';
 import type { BufferAttribute, IndexAttribute, IndirectStorageBufferAttribute } from '../core/attribute';
 import { IndexAttribute as IndexAttributeClass } from '../core/attribute';
 import type { RenderObject } from './render-object';
-import type { StorageNode, WgslType } from '../nodes/nodes';
 import * as buffers from './buffers';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 /**
  * Attribute type for routing to correct buffer upload function.
@@ -74,10 +55,6 @@ export type GeometriesState = {
     };
 };
 
-// ---------------------------------------------------------------------------
-// Factory
-// ---------------------------------------------------------------------------
-
 /**
  * Create a new Geometries state.
  *
@@ -101,10 +78,6 @@ export function createGeometriesState(bufferCache: buffers.BufferCache): Geometr
     };
 }
 
-// ---------------------------------------------------------------------------
-// Per-Frame Deduplication
-// ---------------------------------------------------------------------------
-
 /**
  * Increment the call ID at the start of each render call.
  * This enables per-frame deduplication.
@@ -112,10 +85,6 @@ export function createGeometriesState(bufferCache: buffers.BufferCache): Geometr
 export function incrementCallId(state: GeometriesState): void {
     state.currentCallId++;
 }
-
-// ---------------------------------------------------------------------------
-// Attribute Updates (with per-frame deduplication)
-// ---------------------------------------------------------------------------
 
 /**
  * Update an attribute, uploading to GPU if needed.
@@ -162,21 +131,6 @@ export function updateAttribute(
 }
 
 /**
- * Update a storage node's buffer.
- * Storage nodes are keyed by the node itself, not by a BufferAttribute.
- *
- * @param state - The Geometries state
- * @param node - The storage node to update
- * @returns The GPU buffer
- */
-export function updateStorageNode(
-    state: GeometriesState,
-    node: StorageNode<WgslType>,
-): GPUBuffer {
-    return buffers.uploadStorage(state.bufferCache, node);
-}
-
-/**
  * Get the GPU buffer for an indirect attribute.
  * Returns undefined if not uploaded yet.
  */
@@ -200,10 +154,6 @@ export function deleteAttribute(
 ): void {
     state.attributeCall.delete(attribute);
 }
-
-// ---------------------------------------------------------------------------
-// Geometry Management
-// ---------------------------------------------------------------------------
 
 /**
  * Initialize a geometry for rendering.
@@ -417,10 +367,6 @@ export function disposeGeometry(state: GeometriesState, geometry: Geometry): voi
     state.memory.geometries--;
 }
 
-// ---------------------------------------------------------------------------
-// Statistics
-// ---------------------------------------------------------------------------
-
 /** Get geometry and attribute memory statistics */
 export function getGeometriesStats(state: GeometriesState): {
     geometries: number;
@@ -431,12 +377,3 @@ export function getGeometriesStats(state: GeometriesState): {
 } {
     return { ...state.memory };
 }
-
-// ---------------------------------------------------------------------------
-// Backwards Compatibility Exports
-// ---------------------------------------------------------------------------
-
-// Re-export types for consumers that imported from attributes.ts
-export type AttributesState = GeometriesState;
-export const createAttributesState = createGeometriesState;
-export const getAttributesStats = getGeometriesStats;

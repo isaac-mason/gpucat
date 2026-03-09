@@ -1,5 +1,5 @@
-import { type WgslType, Node, type StructDef, type StructInstance, computeId, ConstructNode, NodeUpdateType, ConstNode } from './core';
-import type { StructSchema } from '../schema';
+import { Node, type StructDef, type StructInstance, computeId, ConstructNode, NodeUpdateType, ConstNode } from './core';
+import type { StructSchema, WgslDesc } from '../schema';
 import type { NodeFrame } from 'src/renderer/node-frame';
 
 /**
@@ -30,7 +30,7 @@ export class UniformGroupNode {
     }
 }
 
-export class UniformNode<T extends WgslType> extends Node<T> {
+export class UniformNode<D extends WgslDesc> extends Node<D> {
     /**
      * Uniform group — determines @group index and struct packing.
      */
@@ -48,11 +48,11 @@ export class UniformNode<T extends WgslType> extends Node<T> {
     version: number = 0;
 
     constructor(
-        type: T,
+        desc: D,
         name: string,
         groupNode: UniformGroupNode = objectGroup
     ) {
-        super(computeId('uniform', { type, name, groupNode: groupNode.name }), type);
+        super(computeId('uniform', { type: desc.wgslType, name, groupNode: groupNode.name }), desc);
         this.name = name;
         this.groupNode = groupNode;
     }
@@ -127,24 +127,24 @@ export const objectGroup = /*@__PURE__*/ uniformGroup('object', 1, NodeUpdateTyp
  * calls with the same arguments return the same node object.
  */
 export function uniform<S extends StructSchema>(def: StructDef<S>, name: string): StructInstance<S>;
-export function uniform<T extends WgslType>(init: ConstructNode<T>, name?: string): UniformNode<T>;
-export function uniform<T extends WgslType>(init: ConstNode<T>, name?: string): UniformNode<T>;
-export function uniform<T extends WgslType, S extends StructSchema>(
-    init: ConstNode<T> | ConstructNode<T> | StructDef<S>,
+export function uniform<D extends WgslDesc>(init: ConstructNode<D>, name?: string): UniformNode<D>;
+export function uniform<D extends WgslDesc>(init: ConstNode<D>, name?: string): UniformNode<D>;
+export function uniform<D extends WgslDesc, S extends StructSchema>(
+    init: ConstNode<D> | ConstructNode<D> | StructDef<S>,
     name?: string
-): UniformNode<T> | StructInstance<S> {
-    if ('schema' in init) {
+): UniformNode<D> | StructInstance<S> {
+    if ('fields' in init && 'instantiate' in init) {
         // Struct form: init is a StructDef
         const def = init as StructDef<S>;
         const uniformId = name ?? def.wgslType;
-        const node = new UniformNode<string>(def.wgslType, uniformId);
+        const node = new UniformNode(def as unknown as D, uniformId);
         return def.instantiate(node);
     }
     // Scalar / vector / matrix form: init is a ConstNode or ConstructNode.
     // ConstNode carries a .value; ConstructNode carries .args — we only seed
     // the initial CPU-side value for ConstNodes (scalars / literal vectors).
-    const initNode = init as ConstNode<T> | ConstructNode<T>;
-    const uniformId = name ?? initNode.type;
+    const initNode = init as ConstNode<D> | ConstructNode<D>;
+    const uniformId = name ?? initNode.type.wgslType;
     const node = new UniformNode(initNode.type, uniformId);
     if (node.value === null && 'value' in initNode && initNode.value !== null) {
         node.value = initNode.value as number | number[];

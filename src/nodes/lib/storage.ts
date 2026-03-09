@@ -1,7 +1,20 @@
 import { StorageBufferAttribute, StorageInstancedBufferAttribute, type IndirectStorageBufferAttribute } from '../../core/attribute';
-import { isStructDef, itemSizeOf, typedArrayCtorOf, type ArrayDesc, type StructSchema } from '../schema';
-import { Node, nextId, type WgslType, type StructDef, type StructInstance } from './core';
+import { itemSizeOf, typedArrayCtorOf, wgslSizeOf, type ArrayDesc, type SizedArrayDesc, type WgslDesc, type StructSchema } from '../schema';
+import { Node, nextId, type StructDef, type StructInstance } from './core';
 import { UniformGroupNode, objectGroup } from './uniform';
+
+// TODO: simplify, surely
+/** Type predicate for StructDef (from core.ts, not StructDesc from schema.ts) */
+function isStructDef(desc: unknown): desc is StructDef<StructSchema> {
+    return (
+        typeof desc === 'object' &&
+        desc !== null &&
+        'type' in desc &&
+        (desc as { type: unknown }).type === 'struct' &&
+        'fields' in desc &&
+        'instantiate' in desc
+    );
+}
 
 /**
  * StorageNode — GPU storage buffer node.
@@ -9,22 +22,17 @@ import { UniformGroupNode, objectGroup } from './uniform';
  * Holds a reference to a StorageBufferAttribute (the `value`).
  * Version and updateRanges are delegated to the attribute.
  */
-export class StorageNode<T extends WgslType> extends Node<T> {
-    /**
-     * This flag can be used for type testing.
-     */
-    readonly isStorageBufferNode: true = true;
-
+export class StorageNode<D extends WgslDesc> extends Node<D> {
     /**
      * The buffer attribute holding the CPU-side data.
      */
     readonly value: StorageBufferAttribute;
 
     /**
-     * The buffer type (element type), e.g. 'vec4f', 'mat4x4f'.
-     * Same as node.type — provided for Three.js API compatibility.
+     * The buffer type descriptor (element type), e.g. vec4f, mat4x4f.
+     * Same as node.type — provided for API compatibility.
      */
-    readonly bufferType: T;
+    readonly bufferType: D;
 
     /** The number of elements in the buffer. Derived from value.count */
     readonly bufferCount: number;
@@ -44,8 +52,8 @@ export class StorageNode<T extends WgslType> extends Node<T> {
     constructor(
         /** The buffer attribute holding the data. */
         value: StorageBufferAttribute,
-        /** Element type (e.g. 'mat4x4f') — used as the node's type for downstream indexing. */
-        bufferType: T,
+        /** Element type descriptor (e.g. vec4f) — used as the node's type for downstream indexing. */
+        bufferType: D,
         /** Full WGSL array type string (e.g. 'array<mat4x4f>'). */
         storageType: string,
         /** Access mode for the storage buffer. Defaults to 'read_write'. */
@@ -83,7 +91,7 @@ export class StorageNode<T extends WgslType> extends Node<T> {
     }
 
     /** convenience method for configuring read-only access */
-    toReadOnly(): StorageNode<T> {
+    toReadOnly(): StorageNode<D> {
         // Note: access is readonly after construction in gpucat.
         // This method is provided for API compatibility but requires
         // creating a new node if access needs to change.
@@ -91,11 +99,22 @@ export class StorageNode<T extends WgslType> extends Node<T> {
         return new StorageNode(this.value, this.bufferType, this.storageType, 'read');
     }
 }
+
+/** Type predicate for ArrayDesc or SizedArrayDesc */
+function isArrayLikeDesc(desc: WgslDesc): desc is ArrayDesc | SizedArrayDesc {
+    return desc.type === 'array' || desc.type === 'sized-array';
+}
+
+/** Get the element descriptor from an array-like descriptor */
+function getArrayElement(desc: ArrayDesc | SizedArrayDesc): WgslDesc {
+    return desc.element;
+}
+
 /**
  * Create a `StorageNode` backed by a `StorageBufferAttribute` (or subclass).
  *
  * `storage(bufferAttr, schema, access)`.
- * Accepts either an `ArrayDesc` (e.g. `S.array(S.vec4f())`) or a `StructDef`
+ * Accepts either an `ArrayDesc` (e.g. `d.array(d.vec4f)`) or a `StructDef`
  * (from `struct(...)`) as the schema argument.
  *
  * When a `StructDef` is passed the node's element type and storage type are
@@ -107,19 +126,13 @@ export class StorageNode<T extends WgslType> extends Node<T> {
  *
  * @example — array schema
  * const posAttr = new StorageBufferAttribute(posData, 4);
- * const positions = storage(posAttr, S.array(S.vec4f()));
+ * const positions = storage(posAttr, d.array(d.vec4f));
  *
  * @example — struct schema
- * const DrawBuffer = struct('DrawBuffer', { vertexCount: S.u32(), instanceCount: S.u32(), ... });
+ * const DrawBuffer = struct('DrawBuffer', { vertexCount: d.u32, instanceCount: d.u32, ... });
  * const drawAttr = new IndirectStorageBufferAttribute(false, 1);
  * const drawStorage = storage(drawAttr, DrawBuffer, 'read_write');
  */
-export function storage<E extends WgslType>(
-    attr: StorageBufferAttribute,
-    schema: ArrayDesc<E>,
-    access?: 'read' | 'read_write'
-): StorageNode<E>;
-
 export function storage<S extends StructSchema>(
     attr: StorageBufferAttribute,
     schema: StructDef<S>,
@@ -128,21 +141,28 @@ export function storage<S extends StructSchema>(
 
 export function storage(
     attr: StorageBufferAttribute,
-    schema: ArrayDesc<WgslType> | StructDef<StructSchema>,
+    schema: ArrayDesc | SizedArrayDesc,
+    access?: 'read' | 'read_write'
+): StorageNode<WgslDesc>;
+
+export function storage(
+    attr: StorageBufferAttribute,
+    schema: ArrayDesc | SizedArrayDesc | StructDef<StructSchema>,
     access: 'read' | 'read_write' = 'read'
-): StorageNode<WgslType> | StructInstance<StructSchema> {
-    let elementType: WgslType;
+): StorageNode<WgslDesc> | StructInstance<StructSchema> {
+    let elementDesc: WgslDesc;
     let storageType: string;
     if (isStructDef(schema)) {
-        elementType = schema.wgslType;
+        elementDesc = schema as unknown as WgslDesc;
+        storageType = schema.wgslType;
+    } else if (isArrayLikeDesc(schema)) {
+        elementDesc = getArrayElement(schema);
         storageType = schema.wgslType;
     } else {
-        const arrayDesc = schema as ArrayDesc<WgslType>;
-        elementType = arrayDesc.elementDesc.wgslType;
-        storageType = arrayDesc.wgslType;
+        throw new Error('[gpucat] storage: invalid schema — expected ArrayDesc, SizedArrayDesc, or StructDef');
     }
 
-    const node = new StorageNode(attr, elementType, storageType, access);
+    const node = new StorageNode(attr, elementDesc, storageType, access);
 
     // When given a StructDef, instantiate a StructInstance so callers can do
     // drawStorage.instanceCount.assign(...)
@@ -154,28 +174,39 @@ export function storage(
 }
 
 /**
- * Create a `StorageNode` with a zero-initialised typed array allocated internally.
+ * Return the number of f32-sized slots occupied by one element of `arrayDesc`.
+ * For primitive/vector/matrix types this is the same as `itemSizeOf`.
+ * For struct types it is `wgslSizeOf(element) / 4` (byte size divided by 4).
+ */
+function elementItemSize(arrayDesc: ArrayDesc | SizedArrayDesc): number {
+    const element = getArrayElement(arrayDesc);
+    if (isStructDef(element)) return wgslSizeOf(element as unknown as WgslDesc) / 4;
+    return itemSizeOf(element);
+}
+
+/**
  *
  * The element type and TypedArray kind are derived from `arrayDesc`:
- * - `S.array(S.vec4f())`   → `Float32Array` of length `count * 4`
- * - `S.array(S.u32())`     → `Uint32Array`  of length `count * 1`
- * - `S.array(S.mat4x4f())` → `Float32Array` of length `count * 16`
+ * - `d.array(d.vec4f)`   → `Float32Array` of length `count * 4`
+ * - `d.array(d.u32)`     → `Uint32Array`  of length `count * 1`
+ * - `d.array(d.mat4x4f)` → `Float32Array` of length `count * 16`
  *
  * @example
- * import * as S from './schema'
- * const colors = storageArray(N, S.array(S.vec4f()), 'read_write')
+ * import * as d from './schema'
+ * const colors = storageArray(N, d.array(d.vec4f), 'read_write')
  * // Modify colors.value.array, then: colors.value.needsUpdate = true
  */
-export const storageArray = <E extends WgslType>(
+export const storageArray = (
     count: number,
-    arrayDesc: ArrayDesc<E>,
+    arrayDesc: ArrayDesc | SizedArrayDesc,
     access: 'read' | 'read_write' = 'read'
-): StorageNode<E> => {
-    const itemSize = itemSizeOf(arrayDesc.elementDesc);
-    const Ctor = typedArrayCtorOf(arrayDesc.elementDesc);
+): StorageNode<WgslDesc> => {
+    const itemSize = elementItemSize(arrayDesc);
+    const element = getArrayElement(arrayDesc);
+    const Ctor = isStructDef(element) ? Float32Array : typedArrayCtorOf(element);
     const data = new Ctor(count * itemSize);
     const attr = new StorageBufferAttribute(data, itemSize);
-    return new StorageNode(attr, arrayDesc.elementDesc.wgslType as E, arrayDesc.wgslType, access);
+    return new StorageNode(attr, element, arrayDesc.wgslType, access);
 };
 
 /**
@@ -207,22 +238,21 @@ export const storageArray = <E extends WgslType>(
  * // ... fill data ...
  * const particles = instancedArray(initialData, d.array(d.vec4f), 'read_write');
  */
-export const instancedArray = <E extends WgslType>(
+export const instancedArray = (
     countOrData: number | Float32Array | Int32Array | Uint32Array,
-    arrayDesc: ArrayDesc<E>,
+    arrayDesc: ArrayDesc | SizedArrayDesc,
     access: 'read' | 'read_write' = 'read'
-): StorageNode<E> => {
-    const itemSize = itemSizeOf(arrayDesc.elementDesc);
-    const Ctor = typedArrayCtorOf(arrayDesc.elementDesc);
+): StorageNode<WgslDesc> => {
+    const itemSize = elementItemSize(arrayDesc);
+    const element = getArrayElement(arrayDesc);
+    const Ctor = isStructDef(element) ? Float32Array : typedArrayCtorOf(element);
 
     let attr: StorageInstancedBufferAttribute;
     if (typeof countOrData === 'number') {
-        // create new zeroed buffer
-        attr = new StorageInstancedBufferAttribute(countOrData, itemSize, Ctor);
+        attr = new StorageInstancedBufferAttribute(countOrData, itemSize, Ctor as new (n: number) => Float32Array | Int32Array | Uint32Array);
     } else {
-        // use provided data
         attr = new StorageInstancedBufferAttribute(countOrData, itemSize);
     }
 
-    return new StorageNode(attr, arrayDesc.elementDesc.wgslType as E, arrayDesc.wgslType, access);
+    return new StorageNode(attr, element, arrayDesc.wgslType, access);
 };

@@ -23,7 +23,7 @@ import { Settings } from './tabs/settings';
 import { Viewer, makePreviewMaterial, splitCamelCase, splitPath, type CanvasData } from './tabs/viewer';
 import { SceneHierarchy } from './tabs/scene-hierarchy';
 import { DrawCalls } from './tabs/draw-calls';
-import type { InspectorNode, WgslType } from '../nodes/nodes';
+import type { InspectorNode } from '../nodes/nodes';
 import type { WebGPURenderer } from '../renderer/renderer';
 import { CanvasTarget } from '../renderer/canvas-target';
 import { buildProbeWGSL } from './probe-wgsl';
@@ -31,6 +31,7 @@ import type { ProbeTarget } from './probe-wgsl';
 import type { RenderObject } from '../renderer/render-object';
 import { buildVertexBufferLayouts } from '../renderer/render-objects';
 import * as buffers from '../renderer/buffers';
+import { WgslDesc } from '../nodes/schema';
 
 
 type DisplayCycleEntry = { needsUpdate: boolean; duration: number; time: number };
@@ -75,7 +76,7 @@ export class Inspector extends RendererInspector {
     private _lastUpdateTime = 0;
 
     /** Cache of CanvasData per inspectable node. */
-    private _canvasNodes: Map<InspectorNode<WgslType>, CanvasData> = new Map();
+    private _canvasNodes: Map<InspectorNode<WgslDesc>, CanvasData> = new Map();
 
     /** Active probe entry, if any. */
     private _activeProbe: ProbeEntry | null = null;
@@ -501,7 +502,7 @@ export class Inspector extends RendererInspector {
     /**
      * Build canvasData for each inspectable node and call viewer.update().
      */
-    resolveViewer(nodes: InspectorNode<WgslType>[]): void {
+    resolveViewer(nodes: InspectorNode<WgslDesc>[]): void {
         const renderer = this.getRenderer();
         if (!renderer) return;
 
@@ -518,7 +519,7 @@ export class Inspector extends RendererInspector {
      * - setPixelRatio(window.devicePixelRatio) on the canvas target
      * - splitCamelCase + splitPath to derive { path, name } from the node label
      */
-    getCanvasDataByNode(node: InspectorNode<WgslType>): CanvasData {
+    getCanvasDataByNode(node: InspectorNode<WgslDesc>): CanvasData {
         let canvasData = this._canvasNodes.get(node);
 
         if (canvasData === undefined) {

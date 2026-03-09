@@ -1,4 +1,5 @@
-import { ConstNode, vec4f, type WgslType, Node } from './core';
+import { ConstNode, vec4f, Node } from './core';
+import * as d from '../schema';
 
 let _outputStructCounter = 0;
 
@@ -16,18 +17,18 @@ let _outputStructCounter = 0;
  * // Typically created via mrt() helper instead.
  */
 
-export class OutputStructNode extends Node<'vec4f'> {
+export class OutputStructNode extends Node<d.Vec4fDesc> {
     /**
      * Array of output nodes. Each node maps to @location(index).
      * All nodes should produce vec4f values.
      */
-    members: Node<WgslType>[];
+    members: Node<d.WgslDesc>[];
 
     /** Type flag for runtime checking. */
     readonly isOutputStructNode = true;
 
-    constructor(members: Node<WgslType>[] = [], id?: string) {
-        super(id ?? `_output_struct_${_outputStructCounter++}`, 'vec4f');
+    constructor(members: Node<d.WgslDesc>[] = [], id?: string) {
+        super(id ?? `_output_struct_${_outputStructCounter++}`, d.vec4f);
         this.members = members;
     }
 }
@@ -66,7 +67,7 @@ export class MRTNode extends OutputStructNode {
      * Dictionary of named outputs. Keys are texture names,
      * values are nodes producing vec4f values.
      */
-    outputNodes: Record<string, Node<WgslType>>;
+    outputNodes: Record<string, Node<d.WgslDesc>>;
 
     /** Type flag for runtime checking. */
     readonly isMRTNode = true;
@@ -78,7 +79,7 @@ export class MRTNode extends OutputStructNode {
      */
     _resolvedNames: string[] = [];
 
-    constructor(outputNodes: Record<string, Node<WgslType>>) {
+    constructor(outputNodes: Record<string, Node<d.WgslDesc>>) {
         super([], `_mrt_${_mrtCounter++}`);
         this.outputNodes = outputNodes;
     }
@@ -93,7 +94,7 @@ export class MRTNode extends OutputStructNode {
     /**
      * Returns the output node for the given name.
      */
-    get(name: string): Node<WgslType> | undefined {
+    get(name: string): Node<d.WgslDesc> | undefined {
         return this.outputNodes[name];
     }
 
@@ -112,7 +113,7 @@ export class MRTNode extends OutputStructNode {
      * @param getTextureIndex - Function that maps texture name to index (from RenderTarget)
      */
     resolveOutputs(getTextureIndex: (name: string) => number): void {
-        const members: Node<WgslType>[] = [];
+        const members: Node<d.WgslDesc>[] = [];
         const names: string[] = [];
 
         for (const name in this.outputNodes) {
@@ -123,8 +124,8 @@ export class MRTNode extends OutputStructNode {
             }
             // Ensure the node outputs vec4f (wrap if needed)
             let node = this.outputNodes[name];
-            if (node.type !== 'vec4f') {
-                node = vec4f(node as Node<'vec3f'>, new ConstNode('f32', 1));
+            if (node.type.wgslType !== 'vec4f') {
+                node = vec4f(node as Node<d.Vec3fDesc>, new ConstNode(d.f32, 1));
             }
             members[index] = node;
             names[index] = name;
@@ -154,6 +155,6 @@ export class MRTNode extends OutputStructNode {
  * });
  */
 
-export function mrt(outputNodes: Record<string, Node<WgslType>>): MRTNode {
+export function mrt(outputNodes: Record<string, Node<d.WgslDesc>>): MRTNode {
     return new MRTNode(outputNodes);
 }

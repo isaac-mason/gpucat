@@ -1,6 +1,7 @@
 import { Texture } from '../../texture/texture';
-import { computeId, CallNode, Node, type TextureType, type SamplerType, type WgslType } from './core';
-import { type TextureDesc, type DepthTextureDesc, texture2d } from '../schema';
+import { computeId, CallNode, Node } from './core';
+import { type TextureDesc, type DepthTextureDesc, type WgslDesc, texture2d } from '../schema';
+import * as d from '../schema';
 import { UniformGroupNode, objectGroup } from './uniform';
 
 /**
@@ -9,7 +10,7 @@ import { UniformGroupNode, objectGroup } from './uniform';
  * When used as a value, it samples the texture at the given UV coordinates.
  * The node type is 'vec4f' (the sampled color), not the texture type.
  */
-export class TextureNode extends Node<'vec4f'> {
+export class TextureNode extends Node<d.Vec4fDesc> {
     /**
      * GPU texture resource. Set this before rendering.
      * This can be set directly, OR use `value` (a Texture object) which the renderer
@@ -38,7 +39,7 @@ export class TextureNode extends Node<'vec4f'> {
      * The UV node for texture coordinates.
      * Defaults to uv() if not specified.
      */
-    uvNode: Node<'vec2f'> | null = null;
+    uvNode: Node<d.Vec2fDesc> | null = null;
 
     /**
      * The reference node
@@ -47,10 +48,10 @@ export class TextureNode extends Node<'vec4f'> {
     referenceNode: TextureNode | null = null;
 
     /**
-     * The WGSL texture type (e.g., 'texture_2d<f32>').
+     * The WGSL texture type string (e.g., 'texture_2d<f32>').
      * Used for binding declarations.
      */
-    readonly textureType: TextureType;
+    readonly textureType: string;
 
     /** Uniform group — determines @group index. Defaults to objectGroup */
     groupNode: UniformGroupNode;
@@ -59,14 +60,14 @@ export class TextureNode extends Node<'vec4f'> {
     textureId: string;
 
     constructor(
-        textureType: TextureType,
+        textureType: string,
         textureId: string,
-        uvNode: Node<'vec2f'> | null = null,
+        uvNode: Node<d.Vec2fDesc> | null = null,
         /** Uniform group — determines @group index. Defaults to objectGroup. */
         groupNode: UniformGroupNode = objectGroup
     ) {
         // Node type is vec4f (the sampled color)
-        super(computeId('texture', { type: textureType, textureId, uvNode: uvNode?.id }), 'vec4f');
+        super(computeId('texture', { type: textureType, textureId, uvNode: uvNode?.id }), d.vec4f);
         this.textureType = textureType;
         this.textureId = textureId;
         this.uvNode = uvNode;
@@ -79,8 +80,9 @@ export class TextureNode extends Node<'vec4f'> {
     }
 
     /** Convert this texture node to a sampler type */
-    convert(type: 'sampler' | 'sampler_comparison'): CallNode<SamplerType> {
-        return new CallNode(type as SamplerType, type, [this]);
+    convert(type: 'sampler' | 'sampler_comparison'): CallNode<d.SamplerDesc | d.SamplerComparisonDesc> {
+        const desc = type === 'sampler' ? d.sampler : d.samplerComparison;
+        return new CallNode(desc, type, [this]);
     }
 
     /** Clone this texture node */
@@ -94,7 +96,7 @@ export class TextureNode extends Node<'vec4f'> {
     }
 
     /** Sample the texture at the given UV coordinates, returns a new TextureNode with the UV and reference node set */
-    sample(uvNode: Node<'vec2f'>): TextureNode {
+    sample(uvNode: Node<d.Vec2fDesc>): TextureNode {
         const textureNode = this.clone();
         textureNode.uvNode = uvNode;
         textureNode.referenceNode = this.getBase();
@@ -103,15 +105,15 @@ export class TextureNode extends Node<'vec4f'> {
 
 }
 
-export class SamplerNode extends Node<SamplerType> {
+export class SamplerNode<D extends d.SamplerDesc | d.SamplerComparisonDesc = d.SamplerDesc> extends Node<D> {
     /** GPU sampler resource. Set this before rendering. */
     resource: GPUSampler | null = null;
 
     constructor(
-        type: SamplerType,
+        desc: D,
         readonly samplerId: string
     ) {
-        super(computeId('sampler', { type, samplerId }), type);
+        super(computeId('sampler', { type: desc.wgslType, samplerId }), desc);
     }
 }
 
@@ -129,13 +131,13 @@ export const texture = (
     tex: Texture,
     textureDesc: TextureDesc | DepthTextureDesc = texture2d()
 ): TextureNode => {
-    const node = new TextureNode(textureDesc.wgslType as TextureType, `t${tex.id}`);
+    const node = new TextureNode(textureDesc.wgslType, `t${tex.id}`);
     node.value = tex;
     return node;
 };
 
-export const textureSample = (t: Node<WgslType>, s: Node<WgslType>, uv: Node<WgslType>) => new CallNode('vec4f', 'textureSample', [t, s, uv]);
+export const textureSample = (t: Node<WgslDesc>, s: Node<WgslDesc>, uv: Node<WgslDesc>) => new CallNode(d.vec4f, 'textureSample', [t, s, uv]);
 
-export const textureLoad = (t: Node<WgslType>, coord: Node<WgslType>, level: Node<WgslType>) => new CallNode('vec4f', 'textureLoad', [t, coord, level]);
+export const textureLoad = (t: Node<WgslDesc>, coord: Node<WgslDesc>, level: Node<WgslDesc>) => new CallNode(d.vec4f, 'textureLoad', [t, coord, level]);
 
-export const textureSampleLevel = (t: Node<WgslType>, s: Node<WgslType>, uv: Node<WgslType>, level: Node<WgslType>) => new CallNode('vec4f', 'textureSampleLevel', [t, s, uv, level]);
+export const textureSampleLevel = (t: Node<WgslDesc>, s: Node<WgslDesc>, uv: Node<WgslDesc>, level: Node<WgslDesc>) => new CallNode(d.vec4f, 'textureSampleLevel', [t, s, uv, level]);

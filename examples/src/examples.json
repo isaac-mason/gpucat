@@ -43,5 +43,10 @@
         "title": "Raging Sea",
         "description": "Animated ocean surface using sinusoidal large waves and multi-octave value noise small waves, with finite-difference normals and emissive wave crests — all computed on the GPU via vertex shader uniforms.",
         "tags": ["geometry", "animation", "noise"]
+    },
+    "example-compute-fluid": {
+        "title": "Compute Fluid",
+        "description": "Compute fluid",
+        "tags": []
     }
 }
