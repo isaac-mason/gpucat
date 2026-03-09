@@ -44,7 +44,6 @@ export class VaryingNode<T extends WgslType> extends Node<T> {
     ) {
         super(
             computeId('varying', { source: source.id, name }),
-            'varying',
             source.type
         );
         // wrap source in SubBuildNode for VERTEX stage

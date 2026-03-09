@@ -21,10 +21,6 @@ type UpdateMaps = {
  * Nodes access whatever context they need from the frame.
  */
 export class NodeFrame {
-    // -----------------------------------------------------------------------
-    // Timing
-    // -----------------------------------------------------------------------
-
     /**
      * Elapsed time in seconds since renderer start.
      * Updated each frame.
@@ -147,10 +143,6 @@ export class NodeFrame {
         this.time += this.deltaTime;
     }
 
-    // -----------------------------------------------------------------------
-    // Private: Get or create update maps
-    // -----------------------------------------------------------------------
-
     private _getMaps<T extends object>(
         map: WeakMap<T, UpdateMaps>,
         node: T,
@@ -162,10 +154,6 @@ export class NodeFrame {
         }
         return maps;
     }
-
-    // -----------------------------------------------------------------------
-    // Update Methods
-    // -----------------------------------------------------------------------
 
     /**
      * Execute updateBefore for a node, respecting its updateBeforeType.

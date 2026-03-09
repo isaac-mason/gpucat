@@ -52,7 +52,7 @@ export class UniformNode<T extends WgslType> extends Node<T> {
         name: string,
         groupNode: UniformGroupNode = objectGroup
     ) {
-        super(computeId('uniform', { type, name, groupNode: groupNode.name }), 'uniform', type);
+        super(computeId('uniform', { type, name, groupNode: groupNode.name }), type);
         this.name = name;
         this.groupNode = groupNode;
     }

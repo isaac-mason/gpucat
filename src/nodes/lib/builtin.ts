@@ -10,7 +10,7 @@ export class BuiltinNode<T extends WgslType> extends Node<T> {
         readonly builtinKind: BuiltinKind,
         type: T
     ) {
-        super(computeId('builtin', { builtinKind, type }), 'builtin', type);
+        super(computeId('builtin', { builtinKind, type }), type);
     }
 }
 

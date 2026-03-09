@@ -53,7 +53,7 @@ export class StorageNode<T extends WgslType> extends Node<T> {
         /** Uniform group — determines @group index. Defaults to objectGroup. */
         groupNode: UniformGroupNode = objectGroup
     ) {
-        super(nextId(), 'storage', bufferType);
+        super(nextId(), bufferType);
         this.value = value;
         this.bufferType = bufferType;
         this.bufferCount = value.count;

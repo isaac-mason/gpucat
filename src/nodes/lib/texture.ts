@@ -66,7 +66,7 @@ export class TextureNode extends Node<'vec4f'> {
         groupNode: UniformGroupNode = objectGroup
     ) {
         // Node type is vec4f (the sampled color)
-        super(computeId('texture', { type: textureType, textureId, uvNode: uvNode?.id }), 'texture', 'vec4f');
+        super(computeId('texture', { type: textureType, textureId, uvNode: uvNode?.id }), 'vec4f');
         this.textureType = textureType;
         this.textureId = textureId;
         this.uvNode = uvNode;
@@ -111,7 +111,7 @@ export class SamplerNode extends Node<SamplerType> {
         type: SamplerType,
         readonly samplerId: string
     ) {
-        super(computeId('sampler', { type, samplerId }), 'sampler', type);
+        super(computeId('sampler', { type, samplerId }), type);
     }
 }
 

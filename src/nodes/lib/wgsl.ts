@@ -17,7 +17,7 @@ export class WgslNode<T extends WgslType> extends Node<T> {
         readonly wgsl: string,
         readonly deps: Node<WgslType>[]
     ) {
-        super(computeId('wgsl', { type, wgsl, deps: deps.map((n) => n.id) }), 'wgsl', type);
+        super(computeId('wgsl', { type, wgsl, deps: deps.map((n) => n.id) }), type);
     }
 
     /**

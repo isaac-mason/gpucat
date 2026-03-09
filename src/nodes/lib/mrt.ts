@@ -27,7 +27,7 @@ export class OutputStructNode extends Node<'vec4f'> {
     readonly isOutputStructNode = true;
 
     constructor(members: Node<WgslType>[] = [], id?: string) {
-        super(id ?? `_output_struct_${_outputStructCounter++}`, 'output_struct', 'vec4f');
+        super(id ?? `_output_struct_${_outputStructCounter++}`, 'vec4f');
         this.members = members;
     }
 }

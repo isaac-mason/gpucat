@@ -130,7 +130,6 @@ export type NodeUpdateType = (typeof NodeUpdateType)[keyof typeof NodeUpdateType
 
 export class Node<T extends WgslType> {
     readonly id: string;
-    readonly kind: string;
     readonly type: T;
 
     _beforeNodes: Node<WgslType>[] | null = null;
@@ -142,9 +141,8 @@ export class Node<T extends WgslType> {
     readonly isNode: boolean = true;
     update?: (frame: NodeFrame) => unknown;
 
-    constructor(id: string, kind: string, type: T) {
+    constructor(id: string, type: T) {
         this.id = id;
-        this.kind = kind;
         this.type = type;
     }
 
@@ -477,7 +475,7 @@ export class InspectorNode<T extends WgslType> extends Node<T> {
     constructor(node: Node<T>, name?: string) {
         // Generate a unique ID for this inspector node
         const id = `inspector_${_inspectorNodeCounter++}_${node.id}`;
-        super(id, 'inspector', node.type);
+        super(id, node.type);
 
         this.wrappedNode = node;
         this.inspectorName = name ?? node.id;
@@ -506,7 +504,7 @@ export class InspectorNode<T extends WgslType> extends Node<T> {
 
 export class ConstNode<T extends WgslType> extends Node<T> {
     constructor(type: T, readonly value: number | number[] | string) {
-        super(computeId('const', { type, value }), 'const', type);
+        super(computeId('const', { type, value }), type);
     }
 }
 
@@ -517,13 +515,13 @@ export class VarNode<T extends WgslType> extends Node<T> {
         readonly init: Node<T>,
         readonly isConst: boolean = false
     ) {
-        super(nextId(), 'var', type);
+        super(nextId(), type);
     }
 }
 
 export class AssignNode extends Node<'void'> {
     constructor(readonly target: Node<WgslType>, readonly value: Node<WgslType>) {
-        super(computeId('assign', { target: target.id, value: value.id }), 'assign', 'void');
+        super(computeId('assign', { target: target.id, value: value.id }), 'void');
     }
 }
 
@@ -534,7 +532,7 @@ export class BinopNode<T extends WgslType> extends Node<T> {
         readonly left: Node<WgslType>,
         readonly right: Node<WgslType>
     ) {
-        super(computeId('binop', { type, op, a: left.id, b: right.id }), 'binop', type);
+        super(computeId('binop', { type, op, a: left.id, b: right.id }), type);
     }
 }
 
@@ -549,7 +547,7 @@ export class CallNode<T extends WgslType> extends Node<T> {
     readonly fnNode?: FnNode<any>; // eslint-disable-line @typescript-eslint/no-explicit-any
     readonly wgslFnNode?: WgslFunctionNodeRef;
     constructor(type: T, readonly fn: string, readonly args: Node<WgslType>[], fnNode?: FnNode<any>, wgslFnNode?: WgslFunctionNodeRef) {
-        super(computeId('call', { type, fn, args: args.map((n) => n.id) }), 'call', type);
+        super(computeId('call', { type, fn, args: args.map((n) => n.id) }), type);
         this.fnNode = fnNode;
         this.wgslFnNode = wgslFnNode;
     }
@@ -557,19 +555,19 @@ export class CallNode<T extends WgslType> extends Node<T> {
 
 export class ConstructNode<T extends WgslType> extends Node<T> {
     constructor(type: T, readonly args: Node<WgslType>[]) {
-        super(computeId('construct', { type, args: args.map((n) => n.id) }), 'construct', type);
+        super(computeId('construct', { type, args: args.map((n) => n.id) }), type);
     }
 }
 
 export class FieldNode<T extends WgslType> extends Node<T> {
     constructor(type: T, readonly object: Node<WgslType>, readonly fieldName: string) {
-        super(computeId('field', { type, object: object.id, field: fieldName }), 'field', type);
+        super(computeId('field', { type, object: object.id, field: fieldName }), type);
     }
 }
 
 export class IndexNode<T extends WgslType> extends Node<T> {
     constructor(type: T, readonly array: Node<WgslType>, readonly index: Node<WgslType>) {
-        super(computeId('index', { type, array: array.id, index: index.id }), 'index', type);
+        super(computeId('index', { type, array: array.id, index: index.id }), type);
     }
 }
 
@@ -714,7 +712,7 @@ export const transpose  = <T extends MatType>(m: Node<T>): Node<T> => new CallNo
 export class StackNode extends Node<'void'> {
     readonly body: Node<WgslType>[];
     constructor(initial?: Node<WgslType>[]) {
-        super(nextId(), 'stack', 'void');
+        super(nextId(), 'void');
         this.body = initial ? [...initial] : [];
     }
     push(node: Node<WgslType>): void { this.body.push(node); }
@@ -731,7 +729,7 @@ export class FnNode<T extends WgslType> extends Node<T> {
         jsFunc: (...args: Node<WgslType>[]) => Node<T>,
         fnName?: string
     ) {
-        super(nextId(), 'fn', returnType);
+        super(nextId(), returnType);
         this.fnName = fnName ?? `fn_${this.id}`;
         this.paramDescs = paramDescs;
         this.jsFunc = jsFunc;
@@ -755,18 +753,18 @@ export class FnNode<T extends WgslType> extends Node<T> {
 
 export class ParamNode<T extends WgslType> extends Node<T> {
     constructor(type: T, readonly paramIndex: number, readonly paramName?: string) {
-        super(nextId(), 'param', type);
+        super(nextId(), type);
     }
 }
 
 export class ReturnNode<T extends WgslType> extends Node<T> {
-    constructor(readonly value: Node<T>) { super(nextId(), 'return', value.type); }
+    constructor(readonly value: Node<T>) { super(nextId(), value.type); }
 }
 
 export class CondNode<T extends WgslType> extends Node<T> {
     readonly ifFalse?: Node<WgslType>;
     constructor(readonly condition: Node<WgslType>, readonly ifTrue: Node<T>, ifFalse?: Node<T>) {
-        super(computeId('cond', { condition: condition.id, ifTrue: ifTrue.id, ifFalse: ifFalse?.id }), 'cond', ifTrue.type);
+        super(computeId('cond', { condition: condition.id, ifTrue: ifTrue.id, ifFalse: ifFalse?.id }), ifTrue.type);
         this.ifFalse = ifFalse;
     }
 }
@@ -777,7 +775,7 @@ export class IfNode extends Node<'void'> {
     elseIfBranches: ElseIfBranch[] = [];
     elseBody: StackNode | null = null;
     constructor(readonly condition: Node<WgslType>, readonly thenBody: StackNode) {
-        super(nextId(), 'if', 'void');
+        super(nextId(), 'void');
     }
 }
 
@@ -792,13 +790,13 @@ export type LoopParam = Node<WgslType> | number | {
 
 export class LoopNode extends Node<'void'> {
     readonly params: unknown[];
-    constructor(params: unknown[] = []) { super(nextId(), 'loop', 'void'); this.params = params; }
+    constructor(params: unknown[] = []) { super(nextId(), 'void'); this.params = params; }
     getVarName(index: number): string { return String.fromCharCode('i'.charCodeAt(0) + index); }
     toStack(): this { addToStack(this); return this; }
 }
 
-export class BreakNode    extends Node<'void'> { constructor() { super(nextId(), 'break',    'void'); } }
-export class ContinueNode extends Node<'void'> { constructor() { super(nextId(), 'continue', 'void'); } }
+export class BreakNode    extends Node<'void'> { constructor() { super(nextId(), 'void'); } }
+export class ContinueNode extends Node<'void'> { constructor() { super(nextId(), 'void'); } }
 
 export type IfChain = {
     ElseIf(condition: Node<WgslType>, body: () => void): IfChain;
@@ -968,6 +966,6 @@ export function struct<S extends StructSchema>(wgslType: string, schema: S): Str
 
 export class StructNode extends Node<string> {
     constructor(typeName: string, readonly members: StructMember[]) {
-        super(computeId('struct', { type: typeName, members }), 'struct', typeName);
+        super(computeId('struct', { type: typeName, members }), typeName);
     }
 }

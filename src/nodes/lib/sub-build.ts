@@ -16,7 +16,6 @@ export class SubBuildNode<T extends WgslType> extends Node<T> {
     ) {
         super(
             computeId('subBuild', { node: node.id, name: subBuildName }),
-            'subBuild',
             nodeType ?? node.type
         );
     }

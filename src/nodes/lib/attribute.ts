@@ -39,7 +39,7 @@ export class BufferAttributeNode<T extends WgslType> extends Node<T> {
     ) {
         // ID is NOT content-addressed on data (too expensive to hash large arrays).
         // Use a monotonic id so two separate bufferAttribute() calls are always distinct.
-        super(nextId(), 'buffer_attribute', type);
+        super(nextId(), type);
 
         // If passed a raw TypedArray, wrap it in a StorageBufferAttribute
         if (ArrayBuffer.isView(value)) {
@@ -67,7 +67,7 @@ export class AttributeNode<T extends WgslType> extends Node<T> {
         type: T,
         readonly name: string
     ) {
-        super(computeId('attribute', { type, name }), 'attribute', type);
+        super(computeId('attribute', { type, name }), type);
     }
 }
 

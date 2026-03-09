@@ -95,7 +95,7 @@ export class WgslFunctionNode extends Node<'wgslfn'> {
     readonly isFunctionNode = true;
 
     constructor(code = '', includes: WgslFunctionNode[] = []) {
-        super(computeId('wgslfn', { code }), 'wgslfn', 'wgslfn');
+        super(computeId('wgslfn', { code }), 'wgslfn');
         this.code = code;
         this.includes = includes;
     }

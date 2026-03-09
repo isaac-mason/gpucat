@@ -42,7 +42,7 @@ async function main() {
         0.1,
         100,
     );
-    camera.position[2] = 30;
+    camera.position[2] = 50;
     scene.add(camera);
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
@@ -81,8 +81,8 @@ async function main() {
     const geometry = createBoxGeometry(1, 1, 1);
 
     const meshes: Mesh[] = [];
-    const rows = 15;
-    const cols = 15;
+    const rows = 30;
+    const cols = 30;
     for (let x = 0; x < cols; x++) {
         for (let y = 0; y < rows; y++) {
             const mesh = new Mesh(geometry, material);
