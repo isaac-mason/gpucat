@@ -24,8 +24,6 @@ import type { Scene } from '../scene/scene';
 import { getBufferCacheStats } from '../renderer/buffers';
 import * as pipelines from '../renderer/pipelines';
 import { getRenderObjectsStats } from '../renderer/render-objects';
-// [graph-tab] graph snapshot type for FrameRecord.graphSnapshots
-import type { GraphSnapshot } from './graph-snapshot';
 
 // ---------------------------------------------------------------------------
 // Frame data types
@@ -82,8 +80,6 @@ export type FrameRecord = {
     inspectableNodes: InspectorNode<WgslType>[];
     /** Scene render calls encountered this frame, one entry per renderScene() call. */
     scenes: SceneRecord[];
-    // [graph-tab] compiled graph snapshots, one per distinct material compile this frame
-    graphSnapshots: GraphSnapshot[];
 };
 
 const FRAME_HISTORY = 512;
@@ -190,7 +186,6 @@ export class RendererInspector extends InspectorBase {
             renderObjectStats: getRenderObjectsStats(this.renderer.renderObjects),
             inspectableNodes: [...this._pendingInspectables],
             scenes: [...this._pendingScenes],
-            graphSnapshots: [],
         };
 
         this.frameHead = (this.frameHead + 1) % FRAME_HISTORY;

@@ -125,8 +125,8 @@ export function compileNodeState(
         depth: material.depthNode,
     });
 
-    // create NodeBuilderState from compile result
-    const nodeState = createNodeBuilderState(compileResult, cacheKey);
+    // create NodeBuilderState from compile result (pass renderContext for shared bind group caching)
+    const nodeState = createNodeBuilderState(compileResult, cacheKey, renderObject.renderContext);
 
     // store in manager and on render object
     setNodeBuilderState(state, renderObject, nodeState);

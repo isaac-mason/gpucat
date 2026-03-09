@@ -10,7 +10,7 @@
  */
 
 import type { RenderTarget } from '../core/render-target';
-import type { MRTNode } from '../nodes/nodes';
+import type { MRTNode } from 'src/nodes/lib/mrt';
 import { createRenderContext, type RenderContext } from './render-context';
 
 // ---------------------------------------------------------------------------

@@ -7,7 +7,17 @@ import {
 } from './bindgroups';
 import { Material } from '../material/material';
 import { Geometry } from '../geometry/geometry';
-import { wgsl, builtin, type Node, type WgslType, VaryingNode, MRTNode } from '../nodes/nodes';
+import {
+    type WgslType,
+    type Node,
+    ComputeNode,
+    wgsl,
+    VaryingNode,
+    MRTNode,
+    builtin,
+    frameGroup,
+    renderGroup
+} from '../nodes/nodes';
 import * as d from '../nodes/schema';
 
 import * as renderContexts from './render-contexts';
@@ -19,15 +29,27 @@ import * as renderObjects from './render-objects';
 import * as renderLists from './render-lists';
 import type { RenderItem } from './render-list';
 
-import { ComputeNode } from '../nodes/nodes';
-import { NodeFrame } from './node-frame';
 import { Scene } from '../scene/scene';
 import { Camera } from '../camera/camera';
 import { InspectorBase } from '../inspector/inspector-base';
 import type { RenderTarget } from '../core/render-target';
 import { GPUFeatureName } from './gpu-constants';
 import { CanvasTarget } from './canvas-target';
-import { UniformGroupBlock } from '../nodes/builder';
+
+/**
+ * Tracks currently set GPU state to avoid redundant setBindGroup/setVertexBuffer/setIndexBuffer calls.
+ * Follows Three.js pattern - reset at the start of each render pass.
+ */
+type CurrentSets = {
+    /** Currently bound bind group IDs by slot index. -1 = not set. */
+    bindingGroups: number[];
+    /** Currently bound vertex buffers by slot index. */
+    attributes: (GPUBuffer | null)[];
+    /** Currently bound index buffer. */
+    index: GPUBuffer | null;
+    /** Current pipeline (already tracked separately). */
+    pipeline: GPURenderPipeline | null;
+};
 
 // declare scheduler.yield(), available in most modern browsers
 declare global {
@@ -56,6 +78,24 @@ export type WebGPURendererOptions = {
     adapterOptions?: GPURequestAdapterOptions;
     /** GPUDeviceDescriptor forwarded to adapter.requestDevice(). */
     deviceDescriptor?: GPUDeviceDescriptor;
+    /**
+     * Pre-created GPUDevice. When provided, skips navigator.gpu initialization.
+     * Useful for sharing a device across renderers or for testing.
+     */
+    device?: GPUDevice;
+    /**
+     * Pre-created GPUAdapter. Required when `device` is provided.
+     */
+    adapter?: GPUAdapter;
+    /**
+     * Canvas texture format. Defaults to navigator.gpu.getPreferredCanvasFormat()
+     * or 'bgra8unorm' when using a pre-created device.
+     */
+    format?: GPUTextureFormat;
+    /**
+     * Canvas element to render into. If not provided, one will be created.
+     */
+    canvas?: HTMLCanvasElement;
 };
 
 /**
@@ -309,6 +349,13 @@ export class WebGPURenderer {
     /** Dummy camera for fullscreen quad rendering. Created once on first use. */
     private _fullscreenCamera: Camera | null = null;
 
+    /** @internal Pre-created device (for device sharing or testing) */
+    private _preDevice?: GPUDevice;
+    /** @internal Pre-created adapter */
+    private _preAdapter?: GPUAdapter;
+    /** @internal Pre-specified format */
+    private _preFormat?: GPUTextureFormat;
+
     constructor(opts: WebGPURendererOptions = {}) {
         let samples = 0;
         if (opts.samples !== undefined) {
@@ -319,10 +366,16 @@ export class WebGPURenderer {
         this._samples = samples;
         this._adapterOptions = opts.adapterOptions;
         this._deviceDescriptor = opts.deviceDescriptor;
+        this._preDevice = opts.device;
+        this._preAdapter = opts.adapter;
+        this._preFormat = opts.format;
 
         // Create the main canvas and wrap it as the default CanvasTarget.
-        const canvas = document.createElement('canvas');
-        canvas.style.display = 'block';
+        // Use provided canvas if given, otherwise create one.
+        const canvas = opts.canvas ?? document.createElement('canvas');
+        if (!opts.canvas) {
+            canvas.style.display = 'block';
+        }
         this._canvasTarget = new CanvasTarget(canvas);
         this._canvasTarget.isDefaultCanvasTarget = true;
     }
@@ -340,63 +393,74 @@ export class WebGPURenderer {
     async init(): Promise<this> {
         if (this._initialized) return this;
 
-        if (!navigator.gpu) {
-            throw new Error('[WebGPURenderer] WebGPU is not supported in this environment.');
-        }
+        // Use pre-created device if provided, otherwise use navigator.gpu
+        if (this._preDevice) {
+            this.device = this._preDevice;
+            this.adapter = this._preAdapter!;
+            this.format = this._preFormat ?? 'bgra8unorm';
 
-        const adapter = await navigator.gpu.requestAdapter(this._adapterOptions);
-        if (!adapter) {
-            throw new Error('[WebGPURenderer] No WebGPU adapter found. Is WebGPU enabled?');
-        }
-        this.adapter = adapter;
+            // Skip canvas context initialization - caller is responsible
+            // (or it's a stub for testing)
+        } else {
+            // Normal mode: use navigator.gpu
+            if (!navigator.gpu) {
+                throw new Error('[WebGPURenderer] WebGPU is not supported in this environment.');
+            }
 
-        // Request every feature the adapter supports. This mirrors Three.js's
-        // greedy approach: iterate all known GPUFeatureName values, filter to
-        // those the adapter advertises, and pass them all into requiredFeatures.
-        // This future-proofs the device against new code paths that use features
-        // we haven't explicitly listed, and keeps us aligned with the spec as it
-        // evolves without needing to update an explicit allowlist here.
-        const requiredFeatures = Object.values(GPUFeatureName).filter(
-            (f) => adapter.features.has(f),
-        ) as GPUFeatureName[];
+            const adapter = await navigator.gpu.requestAdapter(this._adapterOptions);
+            if (!adapter) {
+                throw new Error('[WebGPURenderer] No WebGPU adapter found. Is WebGPU enabled?');
+            }
+            this.adapter = adapter;
 
-        // Merge with any caller-supplied descriptor, deduplicating features.
-        const callerFeatures = this._deviceDescriptor?.requiredFeatures ?? [];
-        const mergedFeatures = [
-            ...new Set([...requiredFeatures, ...callerFeatures]),
-        ] as GPUFeatureName[];
-        const deviceDescriptor: GPUDeviceDescriptor = {
-            ...this._deviceDescriptor,
-            requiredFeatures: mergedFeatures,
-        };
+            // Request every feature the adapter supports. This mirrors Three.js's
+            // greedy approach: iterate all known GPUFeatureName values, filter to
+            // those the adapter advertises, and pass them all into requiredFeatures.
+            // This future-proofs the device against new code paths that use features
+            // we haven't explicitly listed, and keeps us aligned with the spec as it
+            // evolves without needing to update an explicit allowlist here.
+            const requiredFeatures = Object.values(GPUFeatureName).filter(
+                (f) => adapter.features.has(f),
+            ) as GPUFeatureName[];
 
-        this.device = await adapter.requestDevice(deviceDescriptor);
-
-        // Set up device lost handler (mirrors Three.js pattern)
-        this.device.lost.then((info) => {
-            // Ignore intentional device destruction
-            if (info.reason === 'destroyed') return;
-
-            const deviceLossInfo: DeviceLostInfo = {
-                api: 'WebGPU',
-                message: info.message || 'Unknown reason',
-                reason: info.reason || null,
-                originalEvent: info,
+            // Merge with any caller-supplied descriptor, deduplicating features.
+            const callerFeatures = this._deviceDescriptor?.requiredFeatures ?? [];
+            const mergedFeatures = [
+                ...new Set([...requiredFeatures, ...callerFeatures]),
+            ] as GPUFeatureName[];
+            const deviceDescriptor: GPUDeviceDescriptor = {
+                ...this._deviceDescriptor,
+                requiredFeatures: mergedFeatures,
             };
 
-            console.error(
-                `[WebGPURenderer] WebGPU Device Lost:\n` +
-                `  Message: ${deviceLossInfo.message}\n` +
-                `  Reason: ${deviceLossInfo.reason ?? 'unknown'}`,
-            );
+            this.device = await adapter.requestDevice(deviceDescriptor);
 
-            this._isDeviceLost = true;
-            this.onDeviceLost?.(deviceLossInfo);
-        });
+            // Set up device lost handler (mirrors Three.js pattern)
+            this.device.lost.then((info) => {
+                // Ignore intentional device destruction
+                if (info.reason === 'destroyed') return;
 
-        // Initialize the main canvas target context.
-        this.format = navigator.gpu.getPreferredCanvasFormat();
-        this._canvasTarget.getContext(this.device, this.format, 'opaque');
+                const deviceLossInfo: DeviceLostInfo = {
+                    api: 'WebGPU',
+                    message: info.message || 'Unknown reason',
+                    reason: info.reason || null,
+                    originalEvent: info,
+                };
+
+                console.error(
+                    `[WebGPURenderer] WebGPU Device Lost:\n` +
+                    `  Message: ${deviceLossInfo.message}\n` +
+                    `  Reason: ${deviceLossInfo.reason ?? 'unknown'}`,
+                );
+
+                this._isDeviceLost = true;
+                this.onDeviceLost?.(deviceLossInfo);
+            });
+
+            // Initialize the main canvas target context.
+            this.format = navigator.gpu.getPreferredCanvasFormat();
+            this._canvasTarget.getContext(this.device, this.format, 'opaque');
+        }
 
         // Set up canvas resize handler.
         this._onCanvasTargetResize = () => {
@@ -433,8 +497,6 @@ export class WebGPURenderer {
 
         this._initialized = true;
         this.inspector.setRenderer(this);
-        // [graph-tab] wire compiled graph snapshots into the inspector
-        this._renderObjects.onGraphSnapshot = (s) => this.inspector.inspectGraph(s);
         this.inspector.init();
         return this;
     }
@@ -734,6 +796,12 @@ export class WebGPURenderer {
         frame.update(); // Increments frameId, updates time/deltaTime
         frame.renderId++;
         
+        // Bump shared uniform group versions for deduplication gating.
+        // This allows updateUniformBinding() to skip re-processing if
+        // binding.lastProcessedVersion === groupNode.version.
+        frameGroup.version++;
+        renderGroup.version++;
+        
         // Sync local counters for inspector
         this.frameId = frame.frameId;
         this.renderId = frame.renderId;
@@ -894,9 +962,9 @@ export class WebGPURenderer {
                 frame.width = this.domElement.width || 1;
                 frame.height = this.domElement.height || 1;
                 // camera stays null for compute
-                invokeUniformGroupCallbacks(renderBlock, frame);
+                bindings.invokeUniformGroupCallbacks(renderBlock, frame);
 
-                const data = packUniformGroup(renderBlock);
+                const data = bindings.packUniformGroup(renderBlock);
                 const U = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
                 buffers.uploadRaw(this.buffers, this._computeRenderGroupKey, data, U);
 
@@ -1205,7 +1273,13 @@ export class WebGPURenderer {
         // ---------------------------------------------------------------------
         // Step 4: Render items using RenderObjects system
         // ---------------------------------------------------------------------
-        let currentPipeline: GPURenderPipeline | null = null;
+        // Track currently set GPU state to avoid redundant calls (Three.js pattern)
+        const currentSets: CurrentSets = {
+            bindingGroups: [],
+            attributes: [],
+            index: null,
+            pipeline: null,
+        };
 
         const issueDrawsForItems = (items: RenderItem[]) => {
             for (const item of items) {
@@ -1261,47 +1335,59 @@ export class WebGPURenderer {
                 );
 
                 // Set pipeline if changed
-                if (renderObject.pipeline !== currentPipeline) {
+                if (renderObject.pipeline !== currentSets.pipeline) {
                     passSetPipeline(gpuPass, this.inspector, renderObject.pipeline, mesh.name || material.constructor.name);
-                    currentPipeline = renderObject.pipeline;
+                    currentSets.pipeline = renderObject.pipeline;
                 }
 
-                // Set bind groups
+                // Set bind groups (skip if already bound - Three.js pattern)
                 const bindGroups = renderObject.bindGroups;
-                if (bindGroups) {
+                const logicalBindGroups = renderObject._bindings;
+                if (bindGroups && logicalBindGroups) {
                     for (let i = 0; i < bindGroups.length; i++) {
-                        passSetBindGroup(gpuPass, this.inspector, i, bindGroups[i], mesh.name || '');
+                        const bindGroupId = logicalBindGroups[i]?.id ?? -1;
+                        if (currentSets.bindingGroups[i] !== bindGroupId) {
+                            passSetBindGroup(gpuPass, this.inspector, i, bindGroups[i], mesh.name || '');
+                            currentSets.bindingGroups[i] = bindGroupId;
+                        }
                     }
                 }
 
-                // Set vertex buffers based on nodeBuilderState.attributes
+                // Set vertex buffers based on nodeBuilderState.attributes (skip if unchanged)
                 let slot = 0;
                 for (const attrEntry of nodeState.attributes) {
+                    let gpuBuf: GPUBuffer;
                     if (attrEntry.kind === 'geometry') {
                         const bufAttr = geometry.attributes.get(attrEntry.name);
                         if (!bufAttr) { slot++; continue; }
-                        const gpuBuf = buffers.uploadVertex(this.buffers, bufAttr);
-                        passSetVertexBuffer(gpuPass, this.inspector, slot++, gpuBuf);
+                        gpuBuf = buffers.uploadVertex(this.buffers, bufAttr);
                     } else {
                         const node = attrEntry.node;
                         const arr = node.attribute.array;
                         if (!arr) {
                             throw new Error(`[gpucat] BufferAttributeNode array is null for ${attrEntry.name}`);
                         }
-                        const gpuBuf = buffers.uploadRaw(
+                        gpuBuf = buffers.uploadRaw(
                             this.buffers,
                             node,
                             arr,
                             GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
                         );
-                        passSetVertexBuffer(gpuPass, this.inspector, slot++, gpuBuf);
                     }
+                    if (currentSets.attributes[slot] !== gpuBuf) {
+                        passSetVertexBuffer(gpuPass, this.inspector, slot, gpuBuf);
+                        currentSets.attributes[slot] = gpuBuf;
+                    }
+                    slot++;
                 }
 
-                // Issue draw call
+                // Issue draw call (skip index buffer if unchanged)
                 if (geometry.index) {
                     const idxBuf = buffers.uploadIndex(this.buffers, geometry.index);
-                    passSetIndexBuffer(gpuPass, this.inspector, idxBuf, geometry.index.format);
+                    if (currentSets.index !== idxBuf) {
+                        passSetIndexBuffer(gpuPass, this.inspector, idxBuf, geometry.index.format);
+                        currentSets.index = idxBuf;
+                    }
                     if (geometry.indirect) {
                         const indirect = geometry.indirect;
                         const indBuf = buffers.uploadIndirect(this.buffers, indirect);
@@ -1611,71 +1697,6 @@ function _makeFullscreenUVVarying(): VaryingNode<'vec2f'> {
     const vi = builtin('vertex_index', 'u32');
     const uvSource = wgsl(d.vec2f)`vec2f((f32((${ vi } & 1u) * 2u) * 2.0 - 1.0) * 0.5 + 0.5, 0.5 - (f32(${ vi } & 2u) * 2.0 - 1.0) * 0.5)`;
     return new VaryingNode<'vec2f'>(uvSource, 'uv');
-}
-
-
-/**
- * Pack uniform values from a UniformGroupBlock into a Float32Array.
- * Reads node.value for each member, handling number, number[], and Float32Array.
- * Uses the std140 byte offsets from the block's members.
- *
- * mat3x3f is handled specially: in WGSL uniform address space, each column is
- * padded to vec4 (16 bytes), so mat3x3f occupies 48 bytes (3 × 16).
- */
-function packUniformGroup(block: UniformGroupBlock): Float32Array {
-    const buf = new Float32Array(Math.ceil(block.totalBytes / 4));
-    const bytes = new Uint8Array(buf.buffer);
-
-    for (const member of block.members) {
-        const value = member.node.value;
-        if (value === null || value === undefined) continue;
-
-        const offset = member.offset;
-
-        if (member.type === 'mat3x3f') {
-            // mat3x3f in uniform space: 3 columns × vec4 (padded) = 48 bytes
-            // Input is a flat mat3 (9 floats), output is 12 floats with padding
-            const src = value instanceof Float32Array ? value : new Float32Array(value as number[]);
-            const f32Offset = offset / 4;
-            // Column 0
-            buf[f32Offset + 0] = src[0]; buf[f32Offset + 1] = src[1]; buf[f32Offset + 2] = src[2]; buf[f32Offset + 3] = 0;
-            // Column 1
-            buf[f32Offset + 4] = src[3]; buf[f32Offset + 5] = src[4]; buf[f32Offset + 6] = src[5]; buf[f32Offset + 7] = 0;
-            // Column 2
-            buf[f32Offset + 8] = src[6]; buf[f32Offset + 9] = src[7]; buf[f32Offset + 10] = src[8]; buf[f32Offset + 11] = 0;
-        } else if (typeof value === 'number') {
-            new DataView(bytes.buffer).setFloat32(offset, value, true);
-        } else if (value instanceof Float32Array) {
-            bytes.set(new Uint8Array(value.buffer, value.byteOffset, value.byteLength), offset);
-        } else if (Array.isArray(value)) {
-            const fa = new Float32Array(value);
-            bytes.set(new Uint8Array(fa.buffer), offset);
-        }
-    }
-
-    return buf;
-}
-
-/**
- * Invoke update callbacks on all UniformNodes in a uniform group block.
- * The NodeFrame carries all context: camera, time, deltaTime, object, etc.
- *
- * Each callback returns the value to assign to node.value.
- */
-function invokeUniformGroupCallbacks(
-    block: UniformGroupBlock,
-    frame: NodeFrame,
-): void {
-    for (const member of block.members) {
-        const node = member.node;
-        if (node.update) {
-            const result = node.update(frame);
-            if (result !== undefined) {
-                node.value = result as typeof node.value;
-                node.version++;
-            }
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------

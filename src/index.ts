@@ -29,20 +29,20 @@ export * as frustum from './math/frustum';
 export { type Frustum } from './math/frustum';
 
 export {
-    // math/operators
-    abs, add, sub, mul, div, min, max, clamp, mix, step, smoothstep,
-    ceil, floor, fract, sqrt, pow, length, normalize, dot, cross,
-    sin, cos, transpose,
-
-    // comparison operators
-    greaterThan, lessThan, greaterThanEqual, lessThanEqual, equal, notEqual,
-
     // constructors
     f16, f32, i32, u32, bool, color,
     vec2, vec2f, vec2h, vec2i, vec2u, vec2b,
     vec3, vec3f, vec3h, vec3i, vec3u, vec3b,
     vec4, vec4f, vec4h, vec4i, vec4u, vec4b,
     mat4,
+
+    // math/operators
+    abs, add, sub, mul, div, min, max, clamp, mix, step, smoothstep,
+    ceil, floor, fract, sqrt, pow, length, normalize, dot, cross,
+    sin, cos, transpose,
+
+    // comparison
+    greaterThan, lessThan, greaterThanEqual, lessThanEqual, equal, notEqual,
 
     // node factories
     attribute, bufferAttribute, instancedBufferAttribute,
@@ -55,8 +55,11 @@ export {
     atomicMax, atomicMin, atomicAnd, atomicOr, atomicXor,
     atomicExchange, atomicCompareExchangeWeak,
 
+    // variables
+    Var, Const,
+
     // control flow
-    Var, If, For, While, Break, Continue, Return,
+    If, For, While, Break, Continue, Return,
 
     // camera uniforms
     cameraProjectionMatrix, cameraViewMatrix, cameraPosition, cameraNear, cameraFar,
@@ -76,27 +79,25 @@ export {
     // helpers
     positionClip,
 
-    // base node class
-    Node,
-
-    // indirect draw struct descriptors
+    // draw indirect
     DrawIndirect,
     DrawIndexedIndirect,
 
     // types
     type BinopOp, type BuiltinKind, type ComputeNodeOptions,
-    type ComputeOptions, type GpuTypedArray, type MatType, type NodeKind, type NumericType,
+    type ComputeOptions, type GpuTypedArray, type MatType, type NumericType,
     type SamplerType, type ScalarType, type StructDef,
-    type StructInstance, type StructMember, type TextureType, type UpdateRange, type Vec2Type,
+    type StructInstance, type StructMember, type TextureType, type Vec2Type,
     type Vec3Type, type Vec4Type, type VecType, type WgslType,
     type InterpolationType, type InterpolationSampling,
-    // Function types (Three.js aligned)
-    type NodeFunction, type NodeFunctionInput, type ParamDesc, type FnLayout,
-    VaryingNode,
-} from './nodes/nodes';
+    type WgslNodeFunction as NodeFunction, type WgslNodeFunctionInput as NodeFunctionInput, type ParamDesc, type FnLayout,
 
-export { pass, type PassNodeOptions } from './nodes/pass-node';
-export { renderOutput, type OutputColorSpace, type RenderOutputOptions, type ToneMappingMode } from './nodes/render-output';
+    // render pass
+    pass, type PassNodeOptions,
+
+    // render output
+    renderOutput, type OutputColorSpace, type RenderOutputOptions, type ToneMappingMode
+} from './nodes/nodes';
 
 export * as d from './nodes/schema';
 export type {

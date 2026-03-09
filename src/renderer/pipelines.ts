@@ -14,8 +14,7 @@
  */
 
 import type { ComputeCompileResult } from '../nodes/builder';
-import type { Node, WgslType, ComputeNode } from '../nodes/nodes';
-import { OutputStructNode } from '../nodes/nodes';
+import { type WgslType, type Node, type ComputeNode, OutputStructNode } from '../nodes/nodes';
 import type { Material } from '../material/material';
 import type { Geometry } from '../geometry/geometry';
 import type { RenderObject } from './render-object';

@@ -69,6 +69,16 @@ export class Timeline extends Tab {
         clearButton.style.alignItems = 'center';
         clearButton.addEventListener('click', () => this.clear());
 
+        const exportButton = document.createElement('button');
+        exportButton.className = 'console-copy-button';
+        exportButton.title = 'Export Timeline Data';
+        exportButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>';
+        exportButton.style.padding = '0 10px';
+        exportButton.style.lineHeight = '24px';
+        exportButton.style.display = 'flex';
+        exportButton.style.alignItems = 'center';
+        exportButton.addEventListener('click', () => this.exportTimeline());
+
         this.viewModeButton = document.createElement('button');
         this.viewModeButton.className = 'console-copy-button';
         this.viewModeButton.title = 'Toggle View Mode';
@@ -105,6 +115,7 @@ export class Timeline extends Tab {
         buttonsGroup.appendChild(this.recordButton);
         buttonsGroup.appendChild(this.recordRefreshButton);
         buttonsGroup.appendChild(clearButton);
+        buttonsGroup.appendChild(exportButton);
 
         header.style.display = 'flex';
         header.style.justifyContent = 'space-between';
@@ -387,6 +398,24 @@ export class Timeline extends Tab {
         this.graph.lines['fps'].points = [];
         this.graph.resetLimit();
         this.graph.update();
+    }
+
+    exportTimeline(): void {
+        if (this.frames.length === 0) {
+            console.warn('[gpucat] No timeline data to export');
+            return;
+        }
+
+        const data = JSON.stringify(this.frames, null, 2);
+        const blob = new Blob([data], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `gpucat-timeline-${Date.now()}.json`;
+        a.click();
+
+        URL.revokeObjectURL(url);
     }
 
     private _showEmptyHint(): void {

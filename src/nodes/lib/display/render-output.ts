@@ -1,49 +1,6 @@
-/**
- * render-output.ts — renderOutput(): tone mapping + linear→sRGB conversion.
- *
- * This is a pure shader-level node — no render targets, no GPU passes, just
- * WGSL math inlined into the fragment shader.  It mirrors three's
- * RenderOutputNode.
- *
- * Usage
- * -----
- *
- *   // Default: ACES filmic tone mapping + automatic linear→sRGB conversion.
- *   const output = renderOutput(scenePass.getTextureNode());
- *   renderer.render(output);
- *
- *   // FXAA requires sRGB input, so place renderOutput() BEFORE fxaa():
- *   renderPipeline.outputColorTransform = false;          // three.js equivalent
- *   const tonemapped  = renderOutput(scenePass.getTextureNode());
- *   const antialiased = fxaa(tonemapped);
- *   renderer.render(antialiased);
- *
- *   // Disable tone mapping, keep gamma correction only:
- *   renderOutput(node, { toneMapping: 'none' });
- *
- *   // Disable everything (pass linear HDR straight to canvas):
- *   renderOutput(node, { toneMapping: 'none', colorSpace: 'linear' });
- *
- * Tone mapping operators
- * ----------------------
- *   'aces'     — ACES filmic (default, cinematic look)
- *   'reinhard' — classic Reinhard
- *   'linear'   — no tone mapping, just exposure scaling
- *   'none'     — identity (no tone mapping, no exposure)
- *
- * Color space
- * -----------
- *   'srgb'   — apply linear→sRGB gamma conversion (default)
- *   'linear' — no conversion (output stays in linear light)
- *
- * Implementation note
- * -------------------
- * The exposure uniform defaults to 1.0.  Pass a UniformNode<'f32'> (or just
- * konst(value)) to `exposure` to drive it from JavaScript.
- */
-
-import { ConstNode, wgsl, type Node } from './nodes';
-import * as d from './schema';
+import { wgsl } from '../wgsl';
+import { ConstNode, type Node } from '../core';
+import * as d from '../../schema';
 
 export type ToneMappingMode = 'aces' | 'reinhard' | 'linear' | 'none';
 export type OutputColorSpace = 'srgb' | 'linear';

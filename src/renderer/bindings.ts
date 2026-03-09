@@ -338,6 +338,19 @@ function updateUniformBinding(
 ): void {
     const block = binding.block;
 
+    // Version gate: skip if this binding was already processed at the current group version.
+    // Only applies to shared groups (renderGroup, frameGroup) where all RenderObjects share
+    // the same binding object - the first one to process it sets lastProcessedVersion and
+    // all others skip. Per-object groups are processed every time since their content
+    // changes per-mesh (matrix, material uniforms).
+    if (block.groupNode.shared) {
+        const groupVersion = block.groupNode.version;
+        if (binding.lastProcessedVersion === groupVersion) {
+            return;
+        }
+        binding.lastProcessedVersion = groupVersion;
+    }
+
     // invoke update callbacks with the NodeFrame
     invokeUniformGroupCallbacks(block, frame);
 
@@ -510,19 +523,19 @@ function rebuildGPUBindGroup(
 }
 
 /** Invoke update callbacks on uniform nodes in a group. */
-function invokeUniformGroupCallbacks(
+export function invokeUniformGroupCallbacks(
     block: UniformGroupBlock,
     frame: NodeFrame,
 ): void {
     for (const m of block.members) {
         const node = m.node;
         if (node.update) {
-            const result = node.update(frame);
-            // If callback returns a value, assign it to the node and bump version
-            if (result !== undefined) {
-                node.value = result as typeof node.value;
-                node.version++;
-            }
+            // Use NodeFrame's updateNode which respects updateType and deduplicates:
+            // - FRAME: runs once per frameId
+            // - RENDER: runs once per renderId  
+            // - OBJECT: runs every time (per mesh)
+            // The callback itself assigns node.value and bumps node.version (see UniformNode.onUpdate)
+            frame.updateNode(node as unknown as Parameters<typeof frame.updateNode>[0]);
         }
     }
 }
@@ -533,7 +546,7 @@ function invokeUniformGroupCallbacks(
  * mat3x3f is handled specially: in WGSL uniform address space, each column is
  * padded to vec4 (16 bytes), so mat3x3f occupies 48 bytes (3 × 16).
  */
-function packUniformGroup(block: UniformGroupBlock): Float32Array {
+export function packUniformGroup(block: UniformGroupBlock): Float32Array {
     const buf = new Float32Array(Math.ceil(block.totalBytes / 4));
     const bytes = new Uint8Array(buf.buffer);
 

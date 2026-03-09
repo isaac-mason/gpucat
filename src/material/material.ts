@@ -1,4 +1,4 @@
-import type { Node, WgslType } from '../nodes/nodes';
+import type { WgslType, Node } from '../nodes/nodes';
 
 export interface MaterialOptions {
     /**
@@ -27,8 +27,6 @@ export interface MaterialOptions {
      */
     depth?: Node<WgslType>;
 
-    // ---- Render state --------------------------------------------------
-
     /** Controls draw sort order (opaque vs transparent) AND the default for depthWrite. */
     transparent?: boolean;
 
@@ -52,32 +50,18 @@ export interface MaterialOptions {
 }
 
 export class Material {
-    // -----------------------------------------------------------------------
-    // Vertex stage
-    // -----------------------------------------------------------------------
-
     /**
      * vec4f clip-space position.
      */
     vertexNode: Node<WgslType>;
 
-    // -----------------------------------------------------------------------
-    // Fragment stage
-    // -----------------------------------------------------------------------
-
-    /**
-     * Fragment output. Can be vec4f or OutputStructNode for MRT.
-     */
+    /** Fragment output. Can be vec4f or OutputStructNode for MRT */
     fragmentNode: Node<WgslType>;
 
-    /**
-     * bool discard mask — fragment is discarded when false.
-     */
+    /** bool discard mask — fragment is discarded when false */
     maskNode: Node<WgslType> | undefined;
 
-    /**
-     * f32 depth override — written to @builtin(frag_depth).
-     */
+    /** f32 depth override — written to @builtin(frag_depth) */
     depthNode: Node<WgslType> | undefined;
 
     /** Controls draw sort order (opaque vs transparent) AND the default for depthWrite. */

@@ -21,6 +21,12 @@ export type UniformBinding = {
     bufferKey: object | null;
     /** Current version sum for dirty tracking. */
     versionSum: number;
+    /**
+     * Last processed group version for deduplication.
+     * Compared against groupNode.version to skip redundant processing
+     * of shared groups within the same frame/render pass.
+     */
+    lastProcessedVersion: number;
 };
 
 /** Storage buffer binding (SSBO) */
@@ -84,6 +90,7 @@ export function createUniformBindGroup(block: UniformGroupBlock): BindGroup {
         block,
         bufferKey: null,
         versionSum: -1,
+        lastProcessedVersion: -1,
     };
 
     return {
@@ -142,6 +149,7 @@ export function cloneBindGroup(source: BindGroup): BindGroup {
                     block: binding.block,
                     bufferKey: null, // New buffer key for cloned group
                     versionSum: -1,
+                    lastProcessedVersion: -1,
                 };
             case 'storage':
                 return {

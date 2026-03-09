@@ -33,7 +33,6 @@
 import type { WebGPURenderer } from '../renderer/renderer';
 import type { InspectorNode, WgslType } from '../nodes/nodes';
 import type { Scene } from '../scene/scene';
-import type { GraphSnapshot } from './graph-snapshot';
 
 export class InspectorBase {
     /** Back-reference to the renderer. Set by renderer after init(). */
@@ -107,16 +106,6 @@ export class InspectorBase {
      * Subclasses override this to register the node for Viewer tab preview.
      */
     inspect(_node: InspectorNode<WgslType>): void {}
-
-    /**
-     * Called after a material's node graph is compiled (once per RenderObject,
-     * on first compile and on recompile). Subclasses override this to feed the
-     * Graph tab with compiled graph data.
-     *
-     * Isolated behind this hook so the Graph tab can be removed by deleting
-     * graph-snapshot.ts, graph-layout.ts, tabs/graph.ts and this one call site.
-     */
-    inspectGraph(_snapshot: GraphSnapshot): void {}
 
     // -----------------------------------------------------------------------
     // Per-draw-call hooks (inside a render pass)

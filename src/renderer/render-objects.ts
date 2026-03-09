@@ -29,9 +29,6 @@ import * as pipelines from './pipelines';
 import type { RenderContext } from './render-context';
 import type { GeometryGroup, RenderObject } from './render-object';
 import { computeRenderObjectCacheKey, createRenderObject, disposeRenderObject } from './render-object';
-// [graph-tab] import for graph snapshot callback type
-import type { GraphSnapshot } from '../inspector/graph-snapshot';
-import { CompileResult } from '../nodes/builder';
 
 /**
  * RenderObjects state - manages RenderObject creation and caching.
@@ -62,9 +59,6 @@ export type RenderObjectsState = {
      * All active RenderObjects (for iteration/disposal).
      */
     renderObjects: Set<RenderObject>;
-
-    // [graph-tab] Called after each compile with the compiled node graph.
-    onGraphSnapshot: ((s: GraphSnapshot) => void) | null;
 };
 
 /**
@@ -85,7 +79,6 @@ export function createRenderObjectsState(deps: {
         device: deps.device,
         chainMaps: new Map(),
         renderObjects: new Set(),
-        onGraphSnapshot: null, // [graph-tab] wired in renderer.ts
     };
 }
 
@@ -150,6 +143,13 @@ export function getRenderObject(
             state.renderObjects.delete(renderObject!);
         };
 
+        // Set up material disposal callback (like geometries.ts does for geometry)
+        if (!material._onDispose) {
+            material._onDispose = () => {
+                disposeRenderObjectsForMaterial(state, material);
+            };
+        }
+
         // Cache it
         chainMap.set(map, keys, renderObject);
         state.renderObjects.add(renderObject);
@@ -196,11 +196,7 @@ export function initRenderObject(
     // Check if we need to (re)compile
     if (needsNodeUpdate(state.nodes, renderObject, cacheKey)) {
         // Compile node graph
-        const { compileResult } = compileNodeState(state.nodes, renderObject, cacheKey);
-        // [graph-tab] fire snapshot callback after compile
-        if (state.onGraphSnapshot) {
-            state.onGraphSnapshot(_buildGraphSnapshot(cacheKey, compileResult));
-        }
+        compileNodeState(state.nodes, renderObject, cacheKey);
     }
 
     const nodeState = renderObject.nodeBuilderState;
@@ -289,11 +285,7 @@ export function initRenderObjectWithPromises(
     // Check if we need to (re)compile
     if (needsNodeUpdate(state.nodes, renderObject, cacheKey)) {
         // Compile node graph (sync - this is fast)
-        const { compileResult } = compileNodeState(state.nodes, renderObject, cacheKey);
-        // [graph-tab] fire snapshot callback after compile
-        if (state.onGraphSnapshot) {
-            state.onGraphSnapshot(_buildGraphSnapshot(cacheKey, compileResult));
-        }
+        compileNodeState(state.nodes, renderObject, cacheKey);
     }
 
     const nodeState = renderObject.nodeBuilderState;
@@ -334,22 +326,6 @@ export function initRenderObjectWithPromises(
     updateGeometry(state.geometries, renderObject);
 
     return true;
-}
-
-// [graph-tab] Build a GraphSnapshot from a CompileResult + cacheKey.
-// This is the only place in render-objects.ts that touches graph-tab types.
-function _buildGraphSnapshot(label: string, compileResult: CompileResult): GraphSnapshot {
-    const inspectableIds = new Set<string>();
-    for (const [id, node] of compileResult.graphNodes) {
-        if (node.kind === 'inspector') inspectableIds.add(id);
-    }
-    return {
-        label,
-        allNodes: compileResult.graphNodes,
-        edges: compileResult.graphEdges,
-        info: compileResult.graphInfo,
-        inspectableIds,
-    };
 }
 
 // Re-export buildVertexBufferLayouts from pipelines.ts for backwards compatibility

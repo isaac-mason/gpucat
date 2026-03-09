@@ -15,6 +15,33 @@ import {
     createResourceBindGroup,
     cloneBindGroup,
 } from './bind-group';
+import type { RenderContext } from './render-context';
+
+/**
+ * Global cache for shared BindGroups (Three.js pattern: _bindingGroupsCache).
+ *
+ * Structure: WeakMap<RenderContext, Map<cacheKey, BindGroup>>
+ *
+ * - Outer WeakMap is keyed by RenderContext, allowing GC when context is disposed
+ * - Inner Map is keyed by a hash of uniform node IDs in the shared group
+ * - All compilations using the same shared uniforms get the same BindGroup instance
+ *
+ * This ensures currentSets comparison works correctly - shared groups have the same `id`.
+ */
+const _bindingGroupsCache = new WeakMap<RenderContext, Map<string, BindGroup>>();
+
+/**
+ * Simple string hash function (matches Three.js hashString pattern).
+ */
+function hashString(str: string): string {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash |= 0; // Convert to 32bit integer
+    }
+    return hash.toString(36);
+}
 
 /**
  * NodeBuilderState - Compiled shader state for a RenderObject.
@@ -81,10 +108,12 @@ export type NodeBuilderState = {
  *
  * @param compileResult - The compiler output
  * @param cacheKey - Pipeline cache key
+ * @param renderContext - The render context (for shared bind group caching)
  */
 export function createNodeBuilderState(
     compileResult: CompileResult,
     cacheKey: string,
+    renderContext: RenderContext,
 ): NodeBuilderState {
     // build template BindGroups from compile result
     const bindings = buildTemplateBindGroups(
@@ -92,6 +121,7 @@ export function createNodeBuilderState(
         compileResult.storage,
         compileResult.textures,
         compileResult.samplers,
+        renderContext,
     );
 
     return {
@@ -121,13 +151,24 @@ export function createNodeBuilderState(
  *
  * The `shared` flag is taken from the uniform group (if present),
  * otherwise defaults to false (per-object).
+ *
+ * For shared uniform-only groups, uses _bindingGroupsCache to return the same
+ * BindGroup instance across all compilations (Three.js pattern).
  */
 function buildTemplateBindGroups(
     uniformGroups: UniformGroupBlock[],
     storage: StorageEntry[],
     textures: TextureEntry[],
     samplers: SamplerEntry[],
+    renderContext: RenderContext,
 ): BindGroup[] {
+    // Get or create the cache for this render context
+    let contextCache = _bindingGroupsCache.get(renderContext);
+    if (contextCache === undefined) {
+        contextCache = new Map();
+        _bindingGroupsCache.set(renderContext, contextCache);
+    }
+
     // collect all group indices
     const groupIndices = new Set<number>();
     for (const ug of uniformGroups) {
@@ -155,10 +196,26 @@ function buildTemplateBindGroups(
 
         if (uniformGroup && groupStorage.length === 0 && groupTextures.length === 0 && groupSamplers.length === 0) {
             // uniform-only group
-            bindGroups.push(createUniformBindGroup(uniformGroup));
+            if (shared) {
+                // Shared group: use cache (Three.js pattern)
+                // Build cache key from sorted uniform node IDs
+                const members = [...uniformGroup.members].sort((a, b) => a.node.id.localeCompare(b.node.id));
+                const cacheKeyString = members.map(m => m.node.id).join(',');
+                const cacheKey = hashString(cacheKeyString);
+
+                let bindGroup = contextCache.get(cacheKey);
+                if (bindGroup === undefined) {
+                    bindGroup = createUniformBindGroup(uniformGroup);
+                    contextCache.set(cacheKey, bindGroup);
+                }
+                bindGroups.push(bindGroup);
+            } else {
+                // Non-shared: always create new
+                bindGroups.push(createUniformBindGroup(uniformGroup));
+            }
         } else if (uniformGroup) {
             // mixed group: uniform + other resources
-            // create a combined bind group
+            // create a combined bind group (not cached - has textures/storage which vary)
             const bindGroup = createUniformBindGroup(uniformGroup);
             // add storage/texture/sampler bindings
             for (const s of groupStorage) {

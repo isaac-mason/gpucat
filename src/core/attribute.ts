@@ -1,4 +1,4 @@
-import { StorageNode } from '../nodes/nodes';
+import { StorageNode } from 'src/nodes/lib/storage';
 
 export type GpuTypedArray = Float32Array |
     Int32Array |

@@ -25,8 +25,7 @@
 import { Tab } from '../ui/tab';
 import { List } from '../ui/list';
 import { Item } from '../ui/item';
-import { type Node, type WgslType, VaryingNode, builtin } from '../../nodes/nodes';
-import { wgsl } from '../../nodes/nodes';
+import { type WgslType, type Node, VaryingNode, builtin, wgsl } from '../../nodes/nodes';
 import * as d from '../../nodes/schema';
 import type { Inspector } from '../inspector';
 import { CanvasTarget } from '../../renderer/canvas-target';

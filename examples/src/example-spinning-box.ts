@@ -13,6 +13,7 @@ import {
     modelWorldMatrix,
     mul,
     normalize,
+    OrbitControls,
     pass,
     PerspectiveCamera,
     Scene,
@@ -41,10 +42,12 @@ async function main() {
         0.1,
         100,
     );
-    camera.position[2] = 5;
+    camera.position[2] = 30;
     scene.add(camera);
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
+
+    const controls = new OrbitControls(camera, renderer.domElement);
 
     window.addEventListener('resize', () => {
         renderer.setSize(window.innerWidth, window.innerHeight);
@@ -76,8 +79,19 @@ async function main() {
     });
 
     const geometry = createBoxGeometry(1, 1, 1);
-    const mesh = new Mesh(geometry, material);
-    scene.add(mesh);
+
+    const meshes: Mesh[] = [];
+    const rows = 15;
+    const cols = 15;
+    for (let x = 0; x < cols; x++) {
+        for (let y = 0; y < rows; y++) {
+            const mesh = new Mesh(geometry, material);
+            mesh.position[0] = (x - cols / 2) * 1.5;
+            mesh.position[1] = (y - rows / 2) * 1.5;
+            scene.add(mesh);
+            meshes.push(mesh);
+        }
+    }
 
     const scenePass = pass(scene, camera);
     const outputNode = scenePass.getTextureNode();
@@ -93,10 +107,13 @@ async function main() {
 
         angle += dt * 0.8;
 
-        quat.fromEuler(mesh.quaternion, [0, angle, 0.2 * Math.sin(angle * 0.5), 'yxz'] as Euler);
-        mesh.updateWorldMatrix();
+        for (const mesh of meshes) {
+            quat.fromEuler(mesh.quaternion, [0, angle, 0.2 * Math.sin(angle * 0.5), 'yxz'] as Euler);
+            mesh.updateWorldMatrix();
+        }
 
         renderer.render(outputNode);
+        controls.update();
         requestAnimationFrame(frame);
     }
 

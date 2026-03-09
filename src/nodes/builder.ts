@@ -2,50 +2,45 @@ import type { NodeFrame } from '../renderer/node-frame';
 import {
     type Node,
     type WgslType,
-    type ComputeNode,
-    type InterpolationType,
-    type InterpolationSampling,
-    type StructDef,
     type ScalarType,
-    ConstNode,
-    UniformNode,
-    AttributeNode,
-    StorageNode,
-    TextureNode,
-    SamplerNode,
-    VaryingNode,
+    type ComputeNode,
+    type StructDef,
+    lookupStructDefByName,
+    StackNode,
+    pushStack,
+    popStack,
     BinopNode,
     CallNode,
-    WgslNode,
-    ConvertNode,
-    AssignNode,
     ConstructNode,
-    StructNode,
     FieldNode,
     IndexNode,
-    BuiltinNode,
-    BufferAttributeNode,
-    CondNode,
+    StructNode,
+    AssignNode,
+    InspectorNode,
+    ConstNode,
     VarNode,
     IfNode,
     LoopNode,
     BreakNode,
     ContinueNode,
-    ExpressionNode,
+    CondNode,
     ReturnNode,
-    OutputStructNode,
-    MRTNode,
-    InspectorNode,
-    FunctionNode,
-    FunctionCallNode,
-    UniformGroupNode,
     FnNode,
-    StackNode,
-    ParamNode,
-    pushStack,
-    popStack,
-    lookupStructDefByName,
-} from './nodes';
+    ParamNode
+} from './lib/core';
+import {
+    type InterpolationType,
+    type InterpolationSampling,
+    VaryingNode
+} from './lib/varying';
+import { WgslNode } from './lib/wgsl';
+import { AttributeNode, BufferAttributeNode } from './lib/attribute';
+import { TextureNode, SamplerNode } from './lib/texture';
+import { StorageNode } from './lib/storage';
+import { UniformNode, UniformGroupNode } from './lib/uniform';
+import { WgslFunctionNode } from './lib/wgsl-fn';
+import { OutputStructNode, MRTNode } from './lib/mrt';
+import { BuiltinNode } from './lib/builtin';
 import type { StructSchema } from './schema';
 import { constLiteral } from './wgsl-utils';
 
@@ -420,7 +415,7 @@ interface BuildContext {
     
     // Function definitions (FnNode + WgslFnNode/FunctionNode)
     fnDefs: Map<string, { fn: FnNode<WgslType>; traced: TracedFn }>;
-    wgslFnDefs: Map<string, FunctionNode>;
+    wgslFnDefs: Map<string, WgslFunctionNode>;
     
     // Update nodes
     updateBeforeNodes: UpdateBeforeNode[];
@@ -491,19 +486,10 @@ function getChildren(node: Node<WgslType>): Node<WgslType>[] {
         if (node.ifFalse) children.push(node.ifFalse);
     } else if (node instanceof WgslNode) {
         children.push(...node.deps);
-    } else if (node instanceof ConvertNode) {
-        children.push(node.node);
     } else if (node instanceof ReturnNode) {
         children.push(node.value);
     } else if (node instanceof InspectorNode) {
         children.push(node.wrappedNode);
-    } else if (node instanceof FunctionCallNode) {
-        const params = node.parameters;
-        if (Array.isArray(params)) {
-            children.push(...params);
-        } else {
-            children.push(...Object.values(params));
-        }
     } else if (node instanceof TextureNode) {
         // TextureNode may have a uvNode that contains VaryingNode
         if (node.uvNode) {
@@ -591,7 +577,7 @@ function collectNodes(roots: Node<WgslType>[]): Map<string, Node<WgslType>> {
 function collectFunctions(
     roots: Node<WgslType>[],
     fnDefs: Map<string, { fn: FnNode<WgslType>; traced: TracedFn }>,
-    wgslFnDefs: Map<string, FunctionNode>,
+    wgslFnDefs: Map<string, WgslFunctionNode>,
 ) {
     const visited = new Set<string>();
     
@@ -611,14 +597,14 @@ function collectFunctions(
             }
         }
         
-        // Check for FunctionNode (wgslFn) references in FunctionCallNode
-        if (node instanceof FunctionCallNode) {
-            const fn = node.functionNode;
+        // Check for WgslFunctionNode references in CallNode
+        if (node instanceof CallNode && node.wgslFnNode) {
+            const fn = node.wgslFnNode as WgslFunctionNode;
             if (!wgslFnDefs.has(fn.code)) {
                 wgslFnDefs.set(fn.code, fn);
                 // also collect includes
                 for (const inc of fn.includes) {
-                    if (inc instanceof FunctionNode && !wgslFnDefs.has(inc.code)) {
+                    if (inc instanceof WgslFunctionNode && !wgslFnDefs.has(inc.code)) {
                         wgslFnDefs.set(inc.code, inc);
                     }
                 }
@@ -803,9 +789,6 @@ function generateExpr(ctx: BuildContext, node: Node<WgslType>): string {
             wgsl = wgsl.replace(new RegExp(`\\$${i}`, 'g'), depExpr);
         }
         expr = wgsl;
-    } else if (node instanceof ConvertNode) {
-        const inner = generateExpr(ctx, node.node);
-        expr = `${node.type}(${inner})`;
     } else if (node instanceof VarNode) {
         // VarNode as expression returns the variable name
         // If not yet declared (e.g., toVar() called outside Fn body), emit the declaration now
@@ -824,17 +807,12 @@ function generateExpr(ctx: BuildContext, node: Node<WgslType>): string {
     } else if (node instanceof InspectorNode) {
         // inspector is transparent - just generate the wrapped node
         expr = generateExpr(ctx, node.wrappedNode);
-    } else if (node instanceof FunctionCallNode) {
-        expr = generateFunctionCall(ctx, node);
-    } else if (node instanceof ExpressionNode) {
-        // expressionNode contains a raw WGSL snippet
-        expr = node.snippet;
     } else if (node instanceof OutputStructNode || node instanceof MRTNode) {
         // these are handled specially at the fragment output level
         expr = `/* OutputStruct */`;
     } else {
-        console.warn(`[builder] Unknown node kind for expr: ${node.kind}`, node);
-        expr = `/* unknown: ${node.kind} */`;
+        console.warn(`[builder] Unknown node kind for expr: ${node.constructor.name}`, node);
+        expr = `/* unknown: ${node.constructor.name} */`;
     }
     
     // CSE: if multi-use, extract to variable
@@ -1042,6 +1020,20 @@ function generateCall(ctx: BuildContext, node: CallNode<WgslType>): string {
         }
     }
     
+    // if this calls a WgslFunctionNode, make sure it's registered
+    if (node.wgslFnNode) {
+        const fn = node.wgslFnNode as WgslFunctionNode;
+        if (!ctx.wgslFnDefs.has(fn.code)) {
+            ctx.wgslFnDefs.set(fn.code, fn);
+            // also register includes
+            for (const inc of fn.includes) {
+                if (inc instanceof WgslFunctionNode && !ctx.wgslFnDefs.has(inc.code)) {
+                    ctx.wgslFnDefs.set(inc.code, inc);
+                }
+            }
+        }
+    }
+    
     const args = node.args.map(a => generateExpr(ctx, a));
     
     // handle special cases
@@ -1062,41 +1054,6 @@ function generateCall(ctx: BuildContext, node: CallNode<WgslType>): string {
     }
     
     return `${node.fn}(${args.join(', ')})`;
-}
-
-function generateFunctionCall(ctx: BuildContext, node: FunctionCallNode): string {
-    const fn = node.functionNode;
-    
-    // register the function
-    if (!ctx.wgslFnDefs.has(fn.code)) {
-        ctx.wgslFnDefs.set(fn.code, fn);
-        // also register includes
-        for (const inc of fn.includes) {
-            if (inc instanceof FunctionNode && !ctx.wgslFnDefs.has(inc.code)) {
-                ctx.wgslFnDefs.set(inc.code, inc);
-            }
-        }
-    }
-    
-    // parse function name from code
-    const match = fn.code.match(/fn\s+(\w+)/);
-    const fnName = match ? match[1] : 'unknown_fn';
-    
-    // generate arguments
-    const params = node.parameters;
-    const args: string[] = [];
-    
-    if (Array.isArray(params)) {
-        for (const p of params) {
-            args.push(generateExpr(ctx, p));
-        }
-    } else {
-        for (const p of Object.values(params)) {
-            args.push(generateExpr(ctx, p));
-        }
-    }
-    
-    return `${fnName}(${args.join(', ')})`;
 }
 
 /* statement generation */
@@ -1127,14 +1084,6 @@ function generateStmt(ctx: BuildContext, node: Node<WgslType>): void {
     } else if (node instanceof ReturnNode) {
         const val = generateExpr(ctx, node.value);
         ctx.code.push(`${ind}return ${val};`);
-    } else if (node instanceof ExpressionNode) {
-        // ExpressionNode with void type is a statement
-        if (node.type === 'void') {
-            ctx.code.push(`${ind}${node.snippet};`);
-        } else {
-            const expr = generateExpr(ctx, node as unknown as Node<WgslType>);
-            ctx.code.push(`${ind}${expr};`);
-        }
     } else if (node instanceof StackNode) {
         for (const child of node.body) {
             generateStmt(ctx, child);
@@ -1481,7 +1430,7 @@ function emitWgslFunctions(ctx: BuildContext): string {
     for (const [_code, fn] of ctx.wgslFnDefs) {
         // emit includes first
         for (const inc of fn.includes) {
-            if (inc instanceof FunctionNode && !emitted.has(inc.code)) {
+            if (inc instanceof WgslFunctionNode && !emitted.has(inc.code)) {
                 lines.push(inc.code.trim());
                 lines.push('');
                 emitted.add(inc.code);

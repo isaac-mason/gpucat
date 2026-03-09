@@ -1,11 +1,13 @@
-import type { Camera } from '../camera/camera';
-import { RenderTarget } from '../core/render-target';
-import type { NodeFrame } from '../renderer/node-frame';
-import type { Scene } from '../scene/scene';
-import { type ImageSize } from '../texture/source';
-import { Texture } from '../texture/texture';
-import type { MRTNode } from './nodes';
-import { Node, TextureNode, cameraFar, cameraNear, type WgslType } from './nodes';
+import type { Camera } from '../../../camera/camera';
+import { RenderTarget } from '../../../core/render-target';
+import type { NodeFrame } from '../../../renderer/node-frame';
+import type { Scene } from '../../../scene/scene';
+import { type ImageSize } from '../../../texture/source';
+import { Texture } from '../../../texture/texture';
+import type { MRTNode } from '../mrt';
+import { TextureNode } from '../texture';
+import { type WgslType, Node } from '../core';
+import { cameraFar, cameraNear } from '../camera';
 
 let _passCount = 0;
 
@@ -220,7 +222,6 @@ export class PassNode extends Node<'vec4f'> {
 
     /**
      * Sets the size of the pass's render target. Honors the pixel ratio.
-     * Mirrors Three.js PassNode.setSize() — directly calls renderTarget.setSize().
      */
     setSize(width: number, height: number): void {
         this._width = width;
@@ -252,7 +253,6 @@ export class PassNode extends Node<'vec4f'> {
     /**
      * Returns the texture for the given output name.
      * Creates a new texture slot if it doesn't exist.
-     * Three.js aligned: returns Texture with isRenderTargetTexture = true.
      */
     getTexture(name: string): Texture {
         let texture = this._textures[name];
@@ -278,8 +278,6 @@ export class PassNode extends Node<'vec4f'> {
 
     /**
      * Returns the texture holding the data of the previous frame for the given output name.
-     * Mirrors Three.js `getPreviousTexture(name)`.
-     * Three.js aligned: returns Texture with isRenderTargetTexture = true.
      */
     getPreviousTexture(name: string): Texture {
         let texture = this._previousTextures[name];
@@ -304,7 +302,6 @@ export class PassNode extends Node<'vec4f'> {
 
     /**
      * Switches current and previous textures for the given output name.
-     * Mirrors Three.js `toggleTexture(name)`.
      */
     toggleTexture(name: string): void {
         const prevTexture = this._previousTextures[name];
@@ -330,7 +327,6 @@ export class PassNode extends Node<'vec4f'> {
 
     /**
      * Returns the texture node for the given output name.
-     * Mirrors Three.js `getTextureNode(name)`.
      */
     getTextureNode(name = 'output'): PassMultipleTextureNode {
         let textureNode = this._textureNodes[name];
@@ -346,7 +342,6 @@ export class PassNode extends Node<'vec4f'> {
 
     /**
      * Returns the previous texture node for the given output name.
-     * Mirrors Three.js `getPreviousTextureNode(name)`.
      */
     getPreviousTextureNode(name = 'output'): PassMultipleTextureNode {
         let textureNode = this._previousTextureNodes[name];
@@ -453,10 +448,6 @@ export class PassNode extends Node<'vec4f'> {
         this._updateTextureResources();
     }
 
-    // -----------------------------------------------------------------------
-    // Internal
-    // -----------------------------------------------------------------------
-
     private _updateTextureResources(): void {
         // Update all texture nodes with current GPU textures
         for (const name in this._textureNodes) {
@@ -466,7 +457,6 @@ export class PassNode extends Node<'vec4f'> {
 
     /**
      * Frees internal resources. Should be called when the node is no longer in use.
-     * Mirrors Three.js `dispose()`.
      */
     dispose(): void {
         this.renderTarget.dispose();

@@ -1,6 +1,5 @@
-import type { BufferAttribute, IndexAttribute } from 'src/core/attribute';
-import type { GpuTypedArray, StorageNode, WgslType } from '../nodes/nodes';
-import type { IndirectStorageBufferAttribute } from 'src/core/attribute';
+import type { BufferAttribute, IndexAttribute, IndirectStorageBufferAttribute } from '../core/attribute';
+import type { GpuTypedArray, WgslType, StorageNode } from '../nodes/nodes';
 
 export type BufferCache = {
     /* GPUDevice is needed to create buffers and write data. */
