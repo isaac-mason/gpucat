@@ -13,7 +13,6 @@
  *   - isReady(state, renderObject) → boolean
  */
 
-import type { ComputeCompileResult } from '../nodes/builder';
 import { type Node, type ComputeNode, OutputStructNode } from '../nodes/nodes';
 import type { Any } from '../nodes/schema';
 import type { Material } from '../material/material';
@@ -22,13 +21,13 @@ import type { RenderObject } from './render-object';
 import { getCachedPipelineKey } from './render-object';
 import type { NodeBuilderState } from './node-builder-state';
 import type { NodeManagerState } from './node-manager';
-import { getForCompute as nodeManagerGetForCompute } from './node-manager';
+import type { ComputeContext } from './pass-context';
+import * as NodeManager from './node-manager';
 import {
-    buildComputeBindGroupInfo,
-    type BindGroupInfo,
     type BindGroupLayoutCache,
     createBindGroupLayoutCache,
-} from './bindgroups';
+    buildComputeBindGroupLayouts,
+} from './bind-group-layout';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -36,8 +35,8 @@ import {
 
 export type ComputePipelineEntry = {
     pipeline: GPUComputePipeline | null;
-    compileResult: ComputeCompileResult;
-    bindGroupInfo: BindGroupInfo;
+    /** NodeBuilderState for this compute node. Contains bindings, uniforms, storage info. */
+    nodeBuilderState: NodeBuilderState;
 };
 
 export type RenderPipelineEntry = {
@@ -208,14 +207,15 @@ function buildRenderPipelineDescriptor(
         bindGroupLayouts,
     });
 
-    // Create shader module
+    // Create shader module (vertexCode contains combined vertex+fragment shader)
+    const shaderCode = nodeState.vertexCode!;
     const shaderModule = device.createShaderModule({
-        code: nodeState.code,
+        code: shaderCode,
     });
     shaderModule.getCompilationInfo().then((info) => {
         for (const msg of info.messages) {
             if (msg.type === 'error') {
-                console.error(`[gpucat shader error] line ${msg.lineNum}: ${msg.message}\n${nodeState.code}`);
+                console.error(`[gpucat shader error] line ${msg.lineNum}: ${msg.message}\n${shaderCode}`);
             }
         }
     });
@@ -272,12 +272,14 @@ function buildRenderPipelineDescriptor(
  *
  * @param state - The pipelines state
  * @param node - The ComputeNode
+ * @param computeContext - The ComputeContext for bind group caching
  * @param promises - Optional array to collect async compilation promises (for compileAsync)
  * @returns The compute pipeline entry
  */
 export function getForCompute(
     state: PipelinesState,
     node: ComputeNode,
+    computeContext: ComputeContext,
     promises: Promise<void>[] | null = null,
 ): ComputePipelineEntry {
     const key = node.id;
@@ -285,20 +287,30 @@ export function getForCompute(
     let entry = state.computePipelines.get(key);
     if (entry) return entry;
 
-    // Use NodeManager to get compiled compute state
-    const computeState = nodeManagerGetForCompute(state.nodes, node);
-    const cr = computeState.compileResult;
+    // Set up disposal callback if not already set
+    if (!node._onDispose) {
+        node._onDispose = () => {
+            NodeManager.deleteForCompute(state.nodes, node);
+            state.computePipelines.delete(node.id);
+        };
+    }
 
-    const bindGroupInfo = buildComputeBindGroupInfo(state.device, cr, state.bindGroupLayoutCache);
-    const bindGroupLayouts = bindGroupInfo.bindGroups.map((bg) => bg.layout);
+    // Use NodeManager to get compiled compute state (pass context for bind group caching)
+    const nodeBuilderState = NodeManager.getForCompute(state.nodes, node, computeContext);
+
+    // Build bind group layouts from NodeBuilderState bindings
+    const bindGroupLayouts = buildComputeBindGroupLayouts(
+        state.device,
+        nodeBuilderState.bindings,
+        state.bindGroupLayoutCache,
+    );
     const pipelineLayout = state.device.createPipelineLayout({ bindGroupLayouts });
 
-    const shaderModule = state.device.createShaderModule({ code: cr.code });
+    const shaderModule = state.device.createShaderModule({ code: nodeBuilderState.computeCode! });
 
     entry = {
         pipeline: null,
-        compileResult: cr,
-        bindGroupInfo,
+        nodeBuilderState,
     };
     state.computePipelines.set(key, entry);
 
@@ -331,6 +343,18 @@ export function getForCompute(
 export function isComputeReady(state: PipelinesState, node: ComputeNode): boolean {
     const entry = state.computePipelines.get(node.id);
     return entry !== undefined && entry.pipeline !== null;
+}
+
+/**
+ * Look up an existing compute pipeline entry without compiling.
+ * Returns null if the pipeline hasn't been created yet.
+ *
+ * @param state - The pipelines state
+ * @param node - The ComputeNode
+ * @returns The compute pipeline entry, or null if not compiled yet
+ */
+export function lookupCompute(state: PipelinesState, node: ComputeNode): ComputePipelineEntry | null {
+    return state.computePipelines.get(node.id) ?? null;
 }
 
 // ---------------------------------------------------------------------------

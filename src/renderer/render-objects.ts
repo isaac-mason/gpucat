@@ -26,7 +26,7 @@ import type { NodeFrame } from './node-frame';
 import type { NodeManagerState } from './node-manager';
 import { compileNodeState, needsNodeUpdate } from './node-manager';
 import * as pipelines from './pipelines';
-import type { RenderContext } from './render-context';
+import type { RenderContext } from './pass-context';
 import type { GeometryGroup, RenderObject } from './render-object';
 import { computeRenderObjectCacheKey, createRenderObject, disposeRenderObject } from './render-object';
 

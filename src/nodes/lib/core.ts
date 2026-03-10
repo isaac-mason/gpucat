@@ -1134,10 +1134,33 @@ export class ComputeNode {
     readonly id: string;
     readonly fn: FnNode<Any>;
     readonly workgroupSize: [number, number, number];
+
+    /**
+     * Set to true after dispose() is called.
+     * The renderer checks this flag to skip dispatch and clean up GPU resources.
+     */
+    disposed: boolean = false;
+
+    /**
+     * Internal callback set by the renderer to clean up GPU resources (pipelines, caches).
+     * @internal
+     */
+    _onDispose: (() => void) | null = null;
+
     constructor(opts: ComputeNodeOptions) {
         this.id = `_compute_${_computeCounter++}`;
         this.fn = opts.fn;
         this.workgroupSize = opts.workgroupSize;
+    }
+
+    /**
+     * Frees GPU-related resources allocated for this compute node.
+     * Call this method when the compute node is no longer used.
+     */
+    dispose(): void {
+        if (this.disposed) return;
+        this.disposed = true;
+        this._onDispose?.();
     }
 }
 

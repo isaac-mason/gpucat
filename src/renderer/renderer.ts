@@ -17,7 +17,7 @@ import {
 } from '../nodes/nodes';
 import * as d from '../nodes/schema';
 
-import * as RenderContext from './render-context';
+import * as RenderContext from './pass-context';
 import * as geometries from './geometries';
 import * as nodeManager from './node-manager';
 import * as bindings from './bindings';
@@ -32,10 +32,7 @@ import type { RenderTarget } from '../core/render-target';
 import { GPUFeatureName } from './gpu-constants';
 import { CanvasTarget } from './canvas-target';
 
-/**
- * Tracks currently set GPU state to avoid redundant setBindGroup/setVertexBuffer/setIndexBuffer calls.
- * Follows Three.js pattern - reset at the start of each render pass.
- */
+/** tracks currently set GPU state to avoid redundant setBindGroup/setVertexBuffer/setIndexBuffer calls */
 type CurrentSets = {
     /** Currently bound bind group IDs by slot index. -1 = not set. */
     bindingGroups: number[];
@@ -57,11 +54,11 @@ declare global {
 }
 
 function yieldToMain(): Promise<void> {
-    // Modern browsers: scheduler.yield() is the most efficient way to yield
+    // modern browsers: scheduler.yield() is the most efficient way to yield
     if (typeof scheduler !== 'undefined' && typeof scheduler.yield === 'function') {
         return scheduler.yield();
     }
-    // Fallback: setTimeout with 0ms delay yields to the event loop
+    // fallback: setTimeout with 0ms delay yields to the event loop
     return new Promise(resolve => setTimeout(resolve, 0));
 }
 
@@ -173,6 +170,9 @@ export class WebGPURenderer {
     /** @internal RenderContexts manager - caches render pass configurations */
     private _renderContexts!: RenderContext.RenderContextsState;
 
+    /** @internal ComputeContext - context for compute passes (used for bind group caching) */
+    private _computeContext!: RenderContext.ComputeContext;
+
     /** @internal Geometries system - manages geometry and attribute state with deduplication */
     private _geometries!: geometries.GeometriesState;
 
@@ -207,21 +207,6 @@ export class WebGPURenderer {
 
     /** the last timestamp used for time delta calculation, in milliseconds. updated on each render call. */
     private lastTimestamp = 0;
-
-    /**
-     * Monotonically-incrementing frame counter. Incremented once per render() call.
-     * Used for per-frame deduplication of updateBefore() calls.
-     * Three equivalent: NodeFrame.frameId
-     */
-    frameId = 0;
-
-    /**
-     * Monotonically-incrementing render counter. Incremented once per render() call
-     * (same as frameId for now; would differ if multiple render() calls share a frame,
-     * e.g. shadow passes).
-     * Three equivalent: NodeFrame.renderId
-     */
-    renderId = 0;
 
     /** pending command encoder shared between compute() and render() within a single frame */
     private _frameEncoder: GPUCommandEncoder | null = null;
@@ -466,6 +451,7 @@ export class WebGPURenderer {
 
         // initialize Three.js-aligned subsystems
         this._renderContexts = RenderContext.createRenderContextsState();
+        this._computeContext = RenderContext.createComputeContext();
         this._geometries = geometries.createGeometriesState(this.buffers);
         this._nodes = nodeManager.createNodeManagerState();
         this._bindings = bindings.createBindingsState(this.device, this.buffers, this.textures);
@@ -713,7 +699,7 @@ export class WebGPURenderer {
             throw new Error('[WebGPURenderer] compileCompute() called before init(). Await renderer.init() first.');
         }
         const promises: Promise<void>[] = [];
-        pipelines.getForCompute(this.pipelines, computeNode, promises);
+        pipelines.getForCompute(this.pipelines, computeNode, this._computeContext, promises);
         await Promise.all(promises);
     }
 
@@ -763,7 +749,7 @@ export class WebGPURenderer {
             throw new Error('[WebGPURenderer] compute() called before init(). Await renderer.init() first.');
         }
 
-        const entry = pipelines.getForCompute(this.pipelines, node);
+        const entry = pipelines.getForCompute(this.pipelines, node, this._computeContext);
 
         if (!entry.pipeline) {
             throw new Error(
@@ -816,15 +802,11 @@ export class WebGPURenderer {
         // binding.lastProcessedVersion === groupNode.version.
         frameGroup.version++;
         renderGroup.version++;
-        
-        // Sync local counters for inspector
-        this.frameId = frame.frameId;
-        this.renderId = frame.renderId;
 
         // Set GPU context on frame
         frame.renderer = this;
 
-        this.inspector.begin(this.frameId);
+        this.inspector.begin(frame.frameId);
 
         // Time uniforms are now uploaded via the Bindings system per RenderObject.
 
@@ -886,7 +868,7 @@ export class WebGPURenderer {
         if (!initialized || !renderObject.pipeline || !renderObject.nodeBuilderState) {
             // Pipeline compilation failed
             this.device.queue.submit([encoder.finish()]);
-            this.inspector.finish(this.frameId);
+            this.inspector.finish(this._nodes.nodeFrame.frameId);
             return;
         }
 
@@ -929,7 +911,7 @@ export class WebGPURenderer {
         nodeManager.updateAfter(this._nodes, renderObject);
 
         this.device.queue.submit([encoder.finish()]);
-        this.inspector.finish(this.frameId);
+        this.inspector.finish(this._nodes.nodeFrame.frameId);
     }
 
     private _dispatchComputeNode(
@@ -939,66 +921,30 @@ export class WebGPURenderer {
         indirectBuffer: GPUBuffer | undefined,
         indirectOffset: number | undefined,
     ): void {
-        const entry = pipelines.getForCompute(this.pipelines, node);
+        // Get or create the compute pipeline, passing ComputeContext for bind group caching
+        const entry = pipelines.getForCompute(this.pipelines, node, this._computeContext);
         if (!entry.pipeline) return;
 
-        const { bindGroupInfo, compileResult: cr } = entry;
+        const { nodeBuilderState } = entry;
         const frame = this._nodes.nodeFrame;
         frame.renderer = this;
         frame.width = this.domElement.width || 1;
         frame.height = this.domElement.height || 1;
 
-        // Upload / ensure storage buffers
-        const storageGpuBuffers = new Map<number, GPUBuffer>();
-        for (let i = 0; i < cr.storage.length; i++) {
-            const s = cr.storage[i];
-            storageGpuBuffers.set(i, buffers.uploadStorage(this.buffers, s.node));
-        }
+        // Update node uniforms
+        nodeManager.updateForCompute(this._nodes, node);
 
-        // Upload / pack all uniform groups
-        const uniformGpuBuffers = new Map<number, GPUBuffer>();
-        for (const ug of cr.uniformGroups) {
-            if (ug.members.length === 0) continue;
-            bindings.invokeUniformGroupCallbacks(ug, frame);
-            const data = bindings.packUniformGroup(ug);
-            const U = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
-            buffers.uploadRaw(this.buffers, ug, data, U);
-            const buf = buffers.getRaw(this.buffers, ug);
-            if (buf) uniformGpuBuffers.set(ug.groupIndex, buf);
-        }
+        // Update all bindings and get GPUBindGroups
+        const gpuBindGroups = bindings.updateForCompute(this._bindings, nodeBuilderState, frame);
 
         // Encode the compute pass
         const computePass = encoder.beginComputePass();
-        this.inspector.beginCompute(node.id, this.frameId);
+        this.inspector.beginCompute(node, this._nodes.nodeFrame.frameId);
         computePass.setPipeline(entry.pipeline);
 
-        // Build and set bind groups generically — like three.js, iterate all groups
-        for (const bg of bindGroupInfo.bindGroups) {
-            const entries: GPUBindGroupEntry[] = [];
-
-            // Add uniform buffer entry if this group has one
-            const uniformBuf = uniformGpuBuffers.get(bg.index);
-            if (uniformBuf) {
-                const ug = cr.uniformGroups.find(u => u.groupIndex === bg.index);
-                if (ug) {
-                    entries.push({ binding: ug.binding, resource: { buffer: uniformBuf } });
-                }
-            }
-
-            // Add storage buffer entries for this group
-            for (let i = 0; i < cr.storage.length; i++) {
-                const s = cr.storage[i];
-                if (s.group === bg.index) {
-                    const buf = storageGpuBuffers.get(i)!;
-                    entries.push({ binding: s.binding, resource: { buffer: buf } });
-                }
-            }
-
-            const gpuBindGroup = this.device.createBindGroup({
-                layout: bg.layout,
-                entries,
-            });
-            computePass.setBindGroup(bg.index, gpuBindGroup);
+        // Set bind groups
+        for (let i = 0; i < gpuBindGroups.length; i++) {
+            computePass.setBindGroup(i, gpuBindGroups[i]);
         }
 
         if (indirectBuffer) {
@@ -1008,7 +954,7 @@ export class WebGPURenderer {
             computeDispatchWorkgroups(computePass, this.inspector, dx, dy, dz);
         }
         computePass.end();
-        this.inspector.finishCompute(node.id, this.frameId);
+        this.inspector.finishCompute(node.id, this._nodes.nodeFrame.frameId);
     }
 
     /** save the current renderer state into a plain object and return it */
@@ -1182,8 +1128,8 @@ export class WebGPURenderer {
 
         // Notify inspector of this scene render (before beginRender so scene data is
         // available when the frame is sealed in finish()).
-        this.inspector.beginRenderScene(passId, scene, samples, colorFormat, this.frameId);
-        this.inspector.beginRender(passId, this.frameId);
+        this.inspector.beginRenderScene(passId, scene, samples, colorFormat, this._nodes.nodeFrame.frameId);
+        this.inspector.beginRender(passId, this._nodes.nodeFrame.frameId);
         const depthFormat = this.pipelines.depthFormat;
         const width = this.domElement.width || 1;
         const height = this.domElement.height || 1;
@@ -1435,7 +1381,7 @@ export class WebGPURenderer {
         issueDrawsForItems(renderList.transparent);
 
         gpuPass.end();
-        this.inspector.finishRender(passId, this.frameId);
+        this.inspector.finishRender(passId, this._nodes.nodeFrame.frameId);
 
         // If we created the encoder ourselves, submit it now
         if (ownEncoder) {
@@ -1462,7 +1408,7 @@ export class WebGPURenderer {
         encoder: GPUCommandEncoder,
         renderObject: import('./render-object').RenderObject,
     ): void {
-        this.inspector.beginRender('composite', this.frameId);
+        this.inspector.beginRender('composite', this._nodes.nodeFrame.frameId);
 
         const canvasTarget = this._canvasTarget;
         const isDefault = canvasTarget.isDefaultCanvasTarget;
@@ -1520,7 +1466,7 @@ export class WebGPURenderer {
         passDraw(gpuPass, this.inspector, 3, 1);
 
         gpuPass.end();
-        this.inspector.finishRender('composite', this.frameId);
+        this.inspector.finishRender('composite', this._nodes.nodeFrame.frameId);
     }
 
     private _ensureRenderTargetAllocated(renderTarget: RenderTarget): void {

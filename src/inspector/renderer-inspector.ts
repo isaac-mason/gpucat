@@ -19,7 +19,7 @@
  */
 
 import { InspectorBase } from './inspector-base';
-import type { InspectorNode } from '../nodes/nodes';
+import type { InspectorNode, ComputeNode } from '../nodes/nodes';
 import type { Scene } from '../scene/scene';
 import { getBufferCacheStats } from '../renderer/buffers';
 import * as pipelines from '../renderer/pipelines';
@@ -96,6 +96,9 @@ export class RendererInspector extends InspectorBase {
 
     /** Index of the most recently completed frame in the ring buffer. */
     frameHead = -1;
+
+    /** Live registry of compute nodes seen by the inspector. */
+    readonly computeNodes: Map<string, ComputeNode> = new Map();
 
     // GPU timestamp state
     protected hasTimestamps = false;
@@ -217,7 +220,9 @@ export class RendererInspector extends InspectorBase {
         this._clearPassRef(passId);
     }
 
-    override beginCompute(nodeId: string, _frameId: number): void {
+    override beginCompute(node: ComputeNode, _frameId: number): void {
+        const nodeId = node.id;
+        this.computeNodes.set(nodeId, node);
         const slot = this._currentQuerySlot++;
         this._passStarts.set(nodeId, performance.now());
         const pass: PassRecord = { kind: 'compute', id: nodeId, cpuMs: 0, gpuMs: null, querySlot: slot };

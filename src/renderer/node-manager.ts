@@ -1,32 +1,10 @@
 import type { RenderObject } from './render-object';
 import { NodeFrame, createNodeFrame } from './node-frame';
-import type { NodeBuilderState } from './node-builder-state';
-import type { CompileResult, ComputeCompileResult, UpdateNode } from '../nodes/builder';
+import type { NodeBuilderState, BindingContext } from './node-builder-state';
+import type { CompileResult, UpdateNode } from '../nodes/builder';
 import { compile, compileCompute } from '../nodes/builder';
-import { createNodeBuilderState } from './node-builder-state';
+import { createNodeBuilderState, createNodeBuilderStateForCompute } from './node-builder-state';
 import type { ComputeNode } from '../nodes/nodes';
-
-/**
- * ComputeBuilderState - Compiled shader state for a ComputeNode.
- * 
- * Similar to NodeBuilderState but for compute shaders.
- * Contains everything needed to create compute pipelines and run updates.
- */
-export type ComputeBuilderState = {
-    /** WGSL compute shader code. */
-    code: string;
-
-    /** The compute compile result (storage, uniforms, etc.). */
-    compileResult: ComputeCompileResult;
-
-    /** Nodes to update during compute dispatch. */
-    updateNodes: UpdateNode[];
-
-    /** Version of the ComputeNode when compiled. */
-    version: number;
-
-    readonly isComputeBuilderState: true;
-};
 
 /** node compilation and updates state */
 export type NodeManagerState = {
@@ -37,10 +15,10 @@ export type NodeManagerState = {
     nodeStates: WeakMap<RenderObject, NodeBuilderState>;
 
     /**
-     * Per-ComputeNode ComputeBuilderState.
+     * Per-ComputeNode NodeBuilderState.
      * Keyed by ComputeNode id string.
      */
-    computeStates: Map<string, ComputeBuilderState>;
+    computeStates: Map<string, NodeBuilderState>;
 
     /** the NodeFrame instance for this manager */
     nodeFrame: NodeFrame;
@@ -228,24 +206,49 @@ export function updateAfter(
 }
 
 /**
- * Get the ComputeBuilderState for a ComputeNode.
+ * Get the NodeBuilderState for a ComputeNode.
  * Compiles the compute shader if not already compiled.
  *
  * @param state the NodeManager state
  * @param computeNode the ComputeNode
- * @returns the ComputeBuilderState
+ * @param context the BindingContext for shared bind group caching
+ * @returns the NodeBuilderState
  */
 export function getForCompute(
     state: NodeManagerState,
     computeNode: ComputeNode,
-): ComputeBuilderState {
-    let computeState = state.computeStates.get(computeNode.id);
+    context: BindingContext,
+): NodeBuilderState {
+    let nodeState = state.computeStates.get(computeNode.id);
 
-    if (!computeState) {
-        computeState = compileComputeNode(state, computeNode);
+    if (!nodeState) {
+        nodeState = compileComputeNode(state, computeNode, context);
     }
 
-    return computeState;
+    return nodeState;
+}
+
+/**
+ * Update uniform nodes for a ComputeNode before dispatch.
+ * Calls the update() method on all updateNodes.
+ *
+ * Note: The node must already be compiled via getForCompute().
+ *
+ * @param state the NodeManager state
+ * @param computeNode the ComputeNode
+ */
+export function updateForCompute(
+    state: NodeManagerState,
+    computeNode: ComputeNode,
+): void {
+    const nodeState = state.computeStates.get(computeNode.id);
+    if (!nodeState) return; // Not compiled yet - should not happen in normal flow
+    
+    const frame = state.nodeFrame;
+
+    for (const node of nodeState.updateNodes) {
+        frame.updateNode(node);
+    }
 }
 
 /**
@@ -253,12 +256,14 @@ export function getForCompute(
  *
  * @param state the NodeManager state
  * @param computeNode the ComputeNode to compile
- * @returns the compiled ComputeBuilderState
+ * @param context the BindingContext for shared bind group caching
+ * @returns the compiled NodeBuilderState
  */
 function compileComputeNode(
     state: NodeManagerState,
     computeNode: ComputeNode,
-): ComputeBuilderState {
+    context: BindingContext,
+): NodeBuilderState {
     const compileResult = compileCompute(computeNode);
 
     // extract update nodes from the compile result
@@ -284,17 +289,26 @@ function compileComputeNode(
         }
     }
 
-    const computeState: ComputeBuilderState = {
-        code: compileResult.code,
-        compileResult,
-        updateNodes,
-        version: 0, // ComputeNode doesn't have version tracking yet
-        isComputeBuilderState: true,
-    };
+    // Create NodeBuilderState for compute with context for shared bind group caching
+    const nodeState = createNodeBuilderStateForCompute(compileResult, context);
+    
+    // Inject the extracted updateNodes
+    (nodeState as { updateNodes: UpdateNode[] }).updateNodes = updateNodes;
 
-    state.computeStates.set(computeNode.id, computeState);
+    state.computeStates.set(computeNode.id, nodeState);
 
-    return computeState;
+    return nodeState;
+}
+
+/**
+ * Remove the cached NodeBuilderState for a ComputeNode.
+ * Called when a ComputeNode is disposed.
+ *
+ * @param state the NodeManager state
+ * @param computeNode the ComputeNode being disposed
+ */
+export function deleteForCompute(state: NodeManagerState, computeNode: ComputeNode): void {
+    state.computeStates.delete(computeNode.id);
 }
 
 

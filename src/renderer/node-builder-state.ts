@@ -1,5 +1,6 @@
 import type {
     CompileResult,
+    ComputeCompileResult,
     AttributeEntry,
     UniformGroupBlock,
     StorageEntry,
@@ -15,20 +16,26 @@ import {
     createResourceBindGroup,
     cloneBindGroup,
 } from './bind-group';
-import type { RenderContext } from './render-context';
+import type { RenderContext, ComputeContext } from './pass-context';
+
+/**
+ * Context type for bind group caching.
+ * RenderContext for render passes, ComputeContext for compute passes.
+ */
+export type BindingContext = RenderContext | ComputeContext;
 
 /**
  * Global cache for shared BindGroups (Three.js pattern: _bindingGroupsCache).
  *
- * Structure: WeakMap<RenderContext, Map<cacheKey, BindGroup>>
+ * Structure: WeakMap<BindingContext, Map<cacheKey, BindGroup>>
  *
- * - Outer WeakMap is keyed by RenderContext, allowing GC when context is disposed
+ * - Outer WeakMap is keyed by context (RenderContext or ComputeContext), allowing GC when context is disposed
  * - Inner Map is keyed by a hash of uniform node IDs in the shared group
  * - All compilations using the same shared uniforms get the same BindGroup instance
  *
  * This ensures currentSets comparison works correctly - shared groups have the same `id`.
  */
-const _bindingGroupsCache = new WeakMap<RenderContext, Map<string, BindGroup>>();
+const _bindingGroupsCache = new WeakMap<BindingContext, Map<string, BindGroup>>();
 
 /**
  * Simple string hash function (matches Three.js hashString pattern).
@@ -44,76 +51,82 @@ function hashString(str: string): string {
 }
 
 /**
- * NodeBuilderState - Compiled shader state for a RenderObject.
+ * NodeBuilderState - Compiled shader state for both render and compute.
+ *
+ * Follows three.js pattern: single monomorphic type with all fields present.
+ * For render: vertexCode/fragmentCode populated, computeCode null
+ * For compute: computeCode populated, vertexCode/fragmentCode null
  *
  * Contains everything needed to:
- * - Create render pipelines (shader code, attributes)
+ * - Create pipelines (shader code, attributes)
  * - Create bind groups (uniform groups, storage, textures, samplers)
  * - Run per-frame updates (update nodes)
- *
- * 
- * `bindings` array holds template BindGroups
- * Shared groups (camera, time) are reused across all RenderObjects
- * Non-shared groups (object uniforms) are cloned per-RenderObject
  */
 export type NodeBuilderState = {
-    /** Combined WGSL shader code (vertex + fragment). */
-    code: string;
+    // === Render shaders (null for compute) ===
+    /** Vertex shader code. Null for compute. */
+    vertexCode: string | null;
+    /** Fragment shader code. Null for compute. */
+    fragmentCode: string | null;
 
-    /** Vertex attribute entries for pipeline layout. */
+    // === Compute shader (null for render) ===
+    /** Compute shader code. Null for render. */
+    computeCode: string | null;
+    /** Workgroup size [x, y, z]. Null for render. */
+    workgroupSize: [number, number, number] | null;
+
+    // === Shared (populated for both) ===
+    /** Vertex attribute entries for pipeline layout. Empty for compute. */
     attributes: AttributeEntry[];
 
-    /** Uniform groups (render group @0, object group @1). */
+    /** Uniform groups. */
     uniformGroups: UniformGroupBlock[];
 
     /** Storage buffer bindings. */
     storage: StorageEntry[];
 
-    /** Texture bindings. */
+    /** Texture bindings. Empty for compute (for now). */
     textures: TextureEntry[];
 
-    /** Sampler bindings. */
+    /** Sampler bindings. Empty for compute (for now). */
     samplers: SamplerEntry[];
 
     /**
      * Template BindGroups for this shader.
-     * These are cloned per-RenderObject via createBindings() for non-shared groups.
-     * Shared groups (render/camera) are reused directly.
+     * For render: cloned per-RenderObject via createBindings() for non-shared groups.
+     * For compute: used directly (no cloning needed).
      */
     bindings: BindGroup[];
 
-    /** Nodes to update before rendering (e.g., compute passes). */
+    /** Nodes to update before rendering/dispatch. */
     updateBeforeNodes: UpdateBeforeNode[];
 
-    /** Nodes to update after rendering (e.g., readback). */
+    /** Nodes to update after rendering/dispatch. */
     updateAfterNodes: UpdateAfterNode[];
 
-    /** Nodes to update during rendering (per-frame uniforms). */
+    /** Nodes to update during rendering/dispatch. */
     updateNodes: UpdateNode[];
 
-    /**
-     * Cache key for pipeline lookup.
-     * Derived from material + geometry configuration.
-     */
+    /** Cache key for pipeline lookup. Empty for compute. */
     cacheKey: string;
 
     readonly isNodeBuilderState: true;
 };
 
 /**
- * Create a NodeBuilderState from a CompileResult.
+ * Create a NodeBuilderState from a render CompileResult.
  *
  * This builds the template BindGroups from the compile result.
  * Template groups are later cloned (non-shared) or reused (shared) via createBindings().
  *
  * @param compileResult - The compiler output
  * @param cacheKey - Pipeline cache key
- * @param renderContext - The render context (for shared bind group caching)
+ * @param context - The binding context (RenderContext) for shared bind group caching
  */
 export function createNodeBuilderState(
     compileResult: CompileResult,
     cacheKey: string,
-    renderContext: RenderContext,
+    context: BindingContext,
 ): NodeBuilderState {
     // build template BindGroups from compile result
     const bindings = buildTemplateBindGroups(
@@ -121,11 +134,17 @@ export function createNodeBuilderState(
         compileResult.storage,
         compileResult.textures,
         compileResult.samplers,
-        renderContext,
+        context,
     );
 
     return {
-        code: compileResult.code,
+        // Render shaders: combined vertex+fragment in single module
+        vertexCode: compileResult.code,
+        fragmentCode: null, // Same module, different entry point
+        // No compute
+        computeCode: null,
+        workgroupSize: null,
+        // Bindings
         attributes: compileResult.attributes,
         uniformGroups: compileResult.uniformGroups,
         storage: compileResult.storage,
@@ -136,6 +155,47 @@ export function createNodeBuilderState(
         updateAfterNodes: compileResult.updateAfterNodes,
         updateNodes: compileResult.updateNodes,
         cacheKey,
+        isNodeBuilderState: true,
+    };
+}
+
+/**
+ * Create a NodeBuilderState from a compute CompileResult.
+ *
+ * @param compileResult - The compute compiler output
+ * @param context - The binding context (ComputeContext) for shared bind group caching
+ */
+export function createNodeBuilderStateForCompute(
+    compileResult: ComputeCompileResult,
+    context: BindingContext,
+): NodeBuilderState {
+    // build template BindGroups from compile result
+    const bindings = buildTemplateBindGroups(
+        compileResult.uniformGroups,
+        compileResult.storage,
+        [], // no textures for compute (for now)
+        [], // no samplers for compute (for now)
+        context,
+    );
+
+    return {
+        // No render shaders
+        vertexCode: null,
+        fragmentCode: null,
+        // Compute shader
+        computeCode: compileResult.code,
+        workgroupSize: compileResult.workgroupSize,
+        // Bindings
+        attributes: [], // no vertex attributes for compute
+        uniformGroups: compileResult.uniformGroups,
+        storage: compileResult.storage,
+        textures: [], // no textures for compute (for now)
+        samplers: [], // no samplers for compute (for now)
+        bindings,
+        updateBeforeNodes: [], // compute doesn't have these yet
+        updateAfterNodes: [],
+        updateNodes: [],
+        cacheKey: '', // no cache key for compute pipelines
         isNodeBuilderState: true,
     };
 }
@@ -160,13 +220,13 @@ function buildTemplateBindGroups(
     storage: StorageEntry[],
     textures: TextureEntry[],
     samplers: SamplerEntry[],
-    renderContext: RenderContext,
+    context: BindingContext,
 ): BindGroup[] {
-    // Get or create the cache for this render context
-    let contextCache = _bindingGroupsCache.get(renderContext);
+    // Get or create the cache for this context
+    let contextCache = _bindingGroupsCache.get(context);
     if (contextCache === undefined) {
         contextCache = new Map();
-        _bindingGroupsCache.set(renderContext, contextCache);
+        _bindingGroupsCache.set(context, contextCache);
     }
 
     // collect all group indices
@@ -270,18 +330,4 @@ export function createBindings(state: NodeBuilderState): BindGroup[] {
     }
 
     return bindings;
-}
-
-/**
- * Get the uniform group by name.
- *
- * @param state the NodeBuilderState
- * @param groupName 'render' or 'object'
- * @returns the uniform group block or undefined
- */
-export function getUniformGroup(
-    state: NodeBuilderState,
-    groupName: 'render' | 'object',
-): UniformGroupBlock | undefined {
-    return state.uniformGroups.find((g) => g.groupName === groupName);
 }

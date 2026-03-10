@@ -22,7 +22,7 @@ import type { Material } from '../material/material';
 import type { Mesh } from '../objects/mesh';
 import type { Camera } from '../camera/camera';
 import type { Scene } from '../scene/scene';
-import type { RenderContext } from './render-context';
+import type { RenderContext } from './pass-context';
 import type { NodeBuilderState } from './node-builder-state';
 import type { BindGroup } from './bind-group';
 import { createBindings } from './node-builder-state';

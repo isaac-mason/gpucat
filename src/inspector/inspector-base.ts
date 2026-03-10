@@ -12,7 +12,7 @@
  *   render() end           → inspector.finish(frameId)
  *   _renderPassNode start  → inspector.beginRender(passId, frameId)
  *   _renderPassNode end    → inspector.finishRender(passId, frameId)
- *   _dispatchComputeNode   → inspector.beginCompute(nodeId, frameId) / finishCompute
+ *   _dispatchComputeNode   → inspector.beginCompute(node, frameId) / finishCompute
  *   Node.inspect()         → inspector.inspect(node)
  *   renderScene() start    → inspector.beginRenderScene(passId, scene, samples, colorFormat, frameId)
  *
@@ -31,7 +31,7 @@
  */
 
 import type { WebGPURenderer } from '../renderer/renderer';
-import type { InspectorNode } from '../nodes/nodes';
+import type { InspectorNode, ComputeNode } from '../nodes/nodes';
 import type { Scene } from '../scene/scene';
 import { Any } from '../nodes/schema';
 
@@ -76,7 +76,7 @@ export class InspectorBase {
     // -----------------------------------------------------------------------
 
     /** Called before a compute dispatch. */
-    beginCompute(_nodeId: string, _frameId: number): void {}
+    beginCompute(_node: ComputeNode, _frameId: number): void {}
 
     /** Called after a compute dispatch. */
     finishCompute(_nodeId: string, _frameId: number): void {}

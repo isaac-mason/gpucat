@@ -1,14 +1,11 @@
 /**
- * render-context.ts — Render pass configuration and caching.
+ * pass-context.ts — GPU pass configuration and caching.
  *
- * Merged from render-context.ts + render-contexts.ts.
+ * Contains context types for both render and compute passes:
+ * - RenderContext: Configuration for render passes (framebuffer, clear state, viewport, etc.)
+ * - ComputeContext: Configuration for compute passes (currently minimal, used for bind group caching)
  *
- * Aligned with Three.js RenderContext + RenderContexts:
- * - Stores framebuffer configuration (attachments, dimensions, samples)
- * - Stores clear state (color, depth, stencil values)
- * - Stores viewport/scissor state
- * - References render target and camera
- * - Caches render contexts by framebuffer configuration
+ * Aligned with Three.js RenderContext + RenderContexts pattern.
  *
  * Functional pattern: state object + functions.
  */
@@ -71,16 +68,8 @@ export type RenderContext = {
     /** Unique identifier for this context. */
     readonly id: number;
 
-    // -------------------------------------------------------------------------
-    // MRT Configuration
-    // -------------------------------------------------------------------------
-
     /** MRT node if multiple render targets are in use. */
     mrt: MRTNode | null;
-
-    // -------------------------------------------------------------------------
-    // Clear State
-    // -------------------------------------------------------------------------
 
     /** Whether to clear color attachment(s). */
     clearColor: boolean;
@@ -100,10 +89,6 @@ export type RenderContext = {
     /** Stencil clear value. */
     clearStencilValue: number;
 
-    // -------------------------------------------------------------------------
-    // Attachment Configuration
-    // -------------------------------------------------------------------------
-
     /** Whether color attachment(s) are present. */
     color: boolean;
 
@@ -112,10 +97,6 @@ export type RenderContext = {
 
     /** Whether stencil attachment is present. */
     stencil: boolean;
-
-    // -------------------------------------------------------------------------
-    // Viewport / Scissor
-    // -------------------------------------------------------------------------
 
     /** Whether a custom viewport is active (not full framebuffer). */
     viewport: boolean;
@@ -129,19 +110,11 @@ export type RenderContext = {
     /** Scissor rectangle in physical pixels. */
     scissorValue: ScissorValue;
 
-    // -------------------------------------------------------------------------
-    // Dimensions
-    // -------------------------------------------------------------------------
-
     /** Framebuffer width in physical pixels. */
     width: number;
 
     /** Framebuffer height in physical pixels. */
     height: number;
-
-    // -------------------------------------------------------------------------
-    // Render Target
-    // -------------------------------------------------------------------------
 
     /** The render target, or null for default framebuffer. */
     renderTarget: RenderTarget | null;
@@ -158,30 +131,46 @@ export type RenderContext = {
     /** Active mipmap level for render targets. */
     activeMipmapLevel: number;
 
-    // -------------------------------------------------------------------------
-    // MSAA
-    // -------------------------------------------------------------------------
-
     /** MSAA sample count (1 = no MSAA). */
     sampleCount: number;
-
-    // -------------------------------------------------------------------------
-    // Context References
-    // -------------------------------------------------------------------------
 
     /** Camera for this render pass (used for uniform updates). */
     camera: Camera | null;
 
-    /** Number of objects performing occlusion queries (future use). */
-    occlusionQueryCount: number;
-
-    // -------------------------------------------------------------------------
-    // Type Flag
-    // -------------------------------------------------------------------------
-
     /** Type flag for runtime checking. */
     readonly isRenderContext: true;
 };
+
+// ---------------------------------------------------------------------------
+// ComputeContext
+// ---------------------------------------------------------------------------
+
+let computeContextIdCounter = 0;
+
+/**
+ * ComputeContext - Configuration state for compute passes.
+ *
+ * Analogous to RenderContext for render passes. Currently minimal,
+ * but provides a proper cache key for shared bind groups and can be
+ * extended with dispatch configuration, timing, etc.
+ */
+export type ComputeContext = {
+    /** Unique identifier for this context. */
+    readonly id: number;
+
+    /** Type flag for runtime checking. */
+    readonly isComputeContext: true;
+};
+
+/**
+ * Create a new ComputeContext.
+ */
+export function createComputeContext(): ComputeContext {
+    return {
+        id: computeContextIdCounter++,
+        isComputeContext: true,
+    };
+}
 
 /**
  * RenderContextsState - manages render context caching.
@@ -199,10 +188,6 @@ export type RenderContextsState = {
     defaultClearDepth: number;
     defaultClearStencil: number;
 };
-
-// ---------------------------------------------------------------------------
-// Factory Functions
-// ---------------------------------------------------------------------------
 
 /**
  * Create a new RenderContext with default values.
@@ -249,7 +234,6 @@ export function createRenderContext(): RenderContext {
 
         // Context
         camera: null,
-        occlusionQueryCount: 0,
 
         // Type flag
         isRenderContext: true,
@@ -270,28 +254,6 @@ export function createRenderContextsState(): RenderContextsState {
 // ---------------------------------------------------------------------------
 // Cache Key Computation
 // ---------------------------------------------------------------------------
-
-/**
- * Compute a cache key for the render context.
- * Used by the backend to cache render pass descriptors.
- *
- * The key is based on the texture IDs, cube face, and mip level.
- */
-export function getRenderContextCacheKey(context: RenderContext): number {
-    const { textures, activeCubeFace, activeMipmapLevel } = context;
-
-    // Simple hash combining texture state
-    let hash = activeCubeFace * 1000 + activeMipmapLevel;
-
-    if (textures) {
-        for (let i = 0; i < textures.length; i++) {
-            // Use label hash or index as proxy for texture identity
-            hash = hash * 31 + i;
-        }
-    }
-
-    return hash;
-}
 
 /**
  * Build the attachment state portion of the cache key.
@@ -335,10 +297,6 @@ function buildCacheKey(
     const mrtState = buildMrtState(mrt);
     return `${attachmentState}-${mrtState}-${callDepth}`;
 }
-
-// ---------------------------------------------------------------------------
-// Context Retrieval
-// ---------------------------------------------------------------------------
 
 /**
  * Get or create a RenderContext for the given configuration.

@@ -302,7 +302,7 @@ export class DrawCalls extends Tab {
         this._bindingsPane.innerHTML = '';
         if (ro.nodeBuilderState) {
             this._bindingsPane.appendChild(
-                _buildBindingsTable(
+                buildBindingsTable(
                     ro.nodeBuilderState.uniformGroups,
                     ro.nodeBuilderState.textures,
                     ro.nodeBuilderState.samplers,
@@ -390,17 +390,17 @@ function _buildPipelineTable(ro: RenderObject): HTMLDivElement {
     }
 
     for (const [k, v] of rows) {
-        container.appendChild(_kvRow(k, v));
+        container.appendChild(kvRow(k, v));
     }
 
     return container;
 }
 
 // ---------------------------------------------------------------------------
-// Bindings table
+// Bindings table (exported for reuse by ComputeCalls)
 // ---------------------------------------------------------------------------
 
-function _buildBindingsTable(
+export function buildBindingsTable(
     uniformGroups: UniformGroupBlock[],
     textures: TextureEntry[],
     samplers: SamplerEntry[],
@@ -410,11 +410,11 @@ function _buildBindingsTable(
 
     // --- Uniform groups ---
     if (uniformGroups.length > 0) {
-        container.appendChild(_sectionHeader('Uniform Groups'));
+        container.appendChild(sectionHeader('Uniform Groups'));
         const table = document.createElement('div');
         table.className = 'dc-kv-table';
         for (const ug of uniformGroups) {
-            table.appendChild(_kvRow(
+            table.appendChild(kvRow(
                 `@group(${ug.groupIndex}) ${ug.groupName}`,
                 `${ug.totalBytes} bytes, ${ug.members.length} members`,
             ));
@@ -438,11 +438,11 @@ function _buildBindingsTable(
 
     // --- Textures ---
     if (textures.length > 0) {
-        container.appendChild(_sectionHeader('Textures'));
+        container.appendChild(sectionHeader('Textures'));
         const table = document.createElement('div');
         table.className = 'dc-kv-table';
         for (const t of textures) {
-            table.appendChild(_kvRow(
+            table.appendChild(kvRow(
                 `@group(${t.group}) @binding(${t.binding})`,
                 `${t.type} (${t.textureId})`,
             ));
@@ -452,11 +452,11 @@ function _buildBindingsTable(
 
     // --- Samplers ---
     if (samplers.length > 0) {
-        container.appendChild(_sectionHeader('Samplers'));
+        container.appendChild(sectionHeader('Samplers'));
         const table = document.createElement('div');
         table.className = 'dc-kv-table';
         for (const s of samplers) {
-            table.appendChild(_kvRow(
+            table.appendChild(kvRow(
                 `@group(${s.group}) @binding(${s.binding})`,
                 s.type,
             ));
@@ -466,11 +466,11 @@ function _buildBindingsTable(
 
     // --- Storage ---
     if (storage.length > 0) {
-        container.appendChild(_sectionHeader('Storage Buffers'));
+        container.appendChild(sectionHeader('Storage Buffers'));
         const table = document.createElement('div');
         table.className = 'dc-kv-table';
         for (const st of storage) {
-            table.appendChild(_kvRow(
+            table.appendChild(kvRow(
                 `@group(${st.group}) @binding(${st.binding}) ${st.name}`,
                 `${st.type} [${st.access}]`,
             ));
@@ -494,10 +494,10 @@ function _buildBindingsTable(
 }
 
 // ---------------------------------------------------------------------------
-// DOM helpers
+// DOM helpers (exported for reuse by ComputeCalls)
 // ---------------------------------------------------------------------------
 
-function _kvRow(key: string, value: string): HTMLDivElement {
+export function kvRow(key: string, value: string): HTMLDivElement {
     const row = document.createElement('div');
     row.className = 'dc-kv-row';
     const k = document.createElement('span');
@@ -511,7 +511,7 @@ function _kvRow(key: string, value: string): HTMLDivElement {
     return row;
 }
 
-function _sectionHeader(text: string): HTMLDivElement {
+export function sectionHeader(text: string): HTMLDivElement {
     const el = document.createElement('div');
     el.className = 'dc-section-header';
     el.textContent = text;

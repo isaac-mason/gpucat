@@ -64,6 +64,7 @@ type ShaderStages = {
     vertex: string;
     fragment: string;
     full: string;
+    compute: string;
 };
 
 /**
@@ -76,7 +77,7 @@ function splitStages(code: string): ShaderStages {
     const fragmentMatch = code.match(/@fragment\s*\nfn\s+fs_main/);
 
     if (!vertexMatch || !fragmentMatch) {
-        return { vertex: code, fragment: code, full: code };
+        return { vertex: code, fragment: code, full: code, compute: '' };
     }
 
     const vsStart = code.indexOf(vertexMatch[0]);
@@ -89,6 +90,7 @@ function splitStages(code: string): ShaderStages {
         vertex: vertexSection,
         fragment: fragmentSection,
         full: code,
+        compute: '',
     };
 }
 
@@ -96,7 +98,9 @@ function splitStages(code: string): ShaderStages {
 // ShaderPanel
 // ---------------------------------------------------------------------------
 
-type Stage = 'vertex' | 'fragment' | 'full';
+type Stage = 'vertex' | 'fragment' | 'full' | 'compute';
+
+export type ShaderPanelMode = 'render' | 'compute';
 
 export class ShaderPanel {
 
@@ -107,6 +111,9 @@ export class ShaderPanel {
 
     private _currentStage: Stage = 'vertex';
     private _stages: ShaderStages | null = null;
+
+    /** Raw compute shader code (used in compute mode). */
+    private _computeCode: string | null = null;
 
     /** The raw code string last written to innerHTML — skips re-render if unchanged. */
     private _lastRenderedCode: string | null = null;
@@ -139,7 +146,7 @@ export class ShaderPanel {
      */
     private _selectionLocked = false;
 
-    constructor() {
+    constructor(mode: ShaderPanelMode = 'render') {
         const container = document.createElement('div');
         container.className = 'shader-panel';
 
@@ -150,14 +157,24 @@ export class ShaderPanel {
         const stageGroup = document.createElement('div');
         stageGroup.className = 'shader-stage-group';
 
-        const stages: Stage[] = ['vertex', 'fragment', 'full'];
-        for (const stage of stages) {
+        if (mode === 'render') {
+            const stages: Stage[] = ['vertex', 'fragment', 'full'];
+            for (const stage of stages) {
+                const btn = document.createElement('button');
+                btn.className = 'shader-stage-btn';
+                btn.textContent = stage.charAt(0).toUpperCase() + stage.slice(1);
+                btn.addEventListener('click', () => this._selectStage(stage));
+                stageGroup.appendChild(btn);
+                this._stageButtons.set(stage, btn);
+            }
+        } else {
+            // Compute mode: single "Compute" stage button (always active)
             const btn = document.createElement('button');
-            btn.className = 'shader-stage-btn';
-            btn.textContent = stage.charAt(0).toUpperCase() + stage.slice(1);
-            btn.addEventListener('click', () => this._selectStage(stage));
+            btn.className = 'shader-stage-btn active';
+            btn.textContent = 'Compute';
             stageGroup.appendChild(btn);
-            this._stageButtons.set(stage, btn);
+            this._stageButtons.set('compute', btn);
+            this._currentStage = 'compute';
         }
 
         const copyBtn = document.createElement('button');
@@ -179,16 +196,19 @@ export class ShaderPanel {
         codeBlock.style.userSelect = 'text';
         (codeBlock.style as CSSStyleDeclaration & { webkitUserSelect: string }).webkitUserSelect = 'text';
 
-        codeScroll.addEventListener('mousemove', (e) => this._onLineHover(e));
-        codeScroll.addEventListener('mouseleave', () => this._onMouseLeave());
-        codeBlock.addEventListener('mouseup', () => this._onSelectionEnd());
+        // Probe hover/selection only enabled in render mode
+        if (mode === 'render') {
+            codeScroll.addEventListener('mousemove', (e) => this._onLineHover(e));
+            codeScroll.addEventListener('mouseleave', () => this._onMouseLeave());
+            codeBlock.addEventListener('mouseup', () => this._onSelectionEnd());
 
-        // Clicking outside the panel dismisses a selection-locked probe.
-        document.addEventListener('mousedown', (e) => {
-            if (this._selectionLocked && !container.contains(e.target as Node)) {
-                this._hidePopover();
-            }
-        });
+            // Clicking outside the panel dismisses a selection-locked probe.
+            document.addEventListener('mousedown', (e) => {
+                if (this._selectionLocked && !container.contains(e.target as Node)) {
+                    this._hidePopover();
+                }
+            });
+        }
 
         codeScroll.appendChild(codeBlock);
 
@@ -217,8 +237,10 @@ export class ShaderPanel {
         this.domElement = container;
         this._codeBlock = codeBlock;
 
-        // Select initial stage
-        this._selectStage('vertex');
+        // Select initial stage (render mode starts at vertex, compute at compute)
+        if (mode === 'render') {
+            this._selectStage('vertex');
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -253,7 +275,7 @@ export class ShaderPanel {
         }
 
         this._renderObject = ro;
-        this._stages = splitStages(ro.nodeBuilderState!.code);
+        this._stages = splitStages(ro.nodeBuilderState!.vertexCode!);
         this._renderCurrentStage();
     }
 
@@ -273,7 +295,21 @@ export class ShaderPanel {
         if (this._renderObject === ro) return;
 
         this._renderObject = ro;
-        this._stages = splitStages(ro.nodeBuilderState.code);
+        this._stages = splitStages(ro.nodeBuilderState.vertexCode!);
+        this._renderCurrentStage();
+    }
+
+    /**
+     * Update the panel with compute shader WGSL code.
+     * Used by the ComputeCalls tab.
+     */
+    updateFromCompute(code: string): void {
+        // Skip expensive re-render if the code hasn't changed
+        if (this._computeCode === code) return;
+
+        this._computeCode = code;
+        this._stages = { vertex: '', fragment: '', full: '', compute: code };
+        this._currentStage = 'compute';
         this._renderCurrentStage();
     }
 

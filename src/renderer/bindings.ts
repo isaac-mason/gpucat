@@ -10,7 +10,7 @@ import {
     createBindGroupLayoutCache,
     getBindGroupLayout,
     type BindGroupLayoutCache,
-} from './bindgroups';
+} from './bind-group-layout';
 import type { BufferCache } from './buffers';
 import { getRaw, uploadRaw, uploadStorage } from './buffers';
 import type { NodeBuilderState } from './node-builder-state';
@@ -602,4 +602,166 @@ export function packUniformGroup(
     }
 
     return buf;
+}
+
+// ---------------------------------------------------------------------------
+// Compute Bindings API
+// ---------------------------------------------------------------------------
+
+/**
+ * Update all bindings for a compute pass and return GPUBindGroups.
+ *
+ * @param state - The Bindings state
+ * @param nodeBuilderState - The NodeBuilderState for the compute node
+ * @param frame - NodeFrame with time, etc.
+ * @returns Array of GPUBindGroups ready for setBindGroup
+ */
+export function updateForCompute(
+    state: BindingsState,
+    nodeBuilderState: NodeBuilderState,
+    frame: NodeFrame,
+): GPUBindGroup[] {
+    const gpuBindGroups: GPUBindGroup[] = [];
+
+    for (const bindGroup of nodeBuilderState.bindings) {
+        // Initialize bind group layout if needed (uses compute visibility)
+        initComputeBindGroup(state, bindGroup);
+
+        // Update uniforms
+        updateComputeBindGroup(state, bindGroup, frame);
+
+        // Rebuild GPU bind group if needed
+        const data = getData(state, bindGroup);
+        if (data.needsUpdate || !data.bindGroup) {
+            rebuildGPUBindGroup(state, bindGroup, data);
+            data.needsUpdate = false;
+        }
+
+        if (data.bindGroup) {
+            gpuBindGroups.push(data.bindGroup);
+        }
+    }
+
+    return gpuBindGroups;
+}
+
+/**
+ * Get bind group layouts for a compute pass (for pipeline creation).
+ *
+ * @param state - The Bindings state
+ * @param nodeBuilderState - The NodeBuilderState for the compute node
+ * @returns Array of GPUBindGroupLayouts
+ */
+export function getLayoutsForCompute(
+    state: BindingsState,
+    nodeBuilderState: NodeBuilderState,
+): GPUBindGroupLayout[] {
+    const layouts: GPUBindGroupLayout[] = [];
+
+    for (const bindGroup of nodeBuilderState.bindings) {
+        // Initialize bind group layout if needed
+        initComputeBindGroup(state, bindGroup);
+
+        const data = getData(state, bindGroup);
+        if (data.bindGroupLayout) {
+            layouts.push(data.bindGroupLayout);
+        }
+    }
+
+    return layouts;
+}
+
+/** Initialize a compute BindGroup (create layout with COMPUTE visibility). */
+function initComputeBindGroup(
+    state: BindingsState,
+    bindGroup: BindGroup,
+): void {
+    const data = getData(state, bindGroup);
+
+    // already initialized
+    if (data.bindGroupLayout) return;
+
+    // build bind group layout entries with COMPUTE visibility
+    const entries = buildComputeLayoutEntries(bindGroup);
+
+    // get or create the layout
+    data.bindGroupLayout = getBindGroupLayout(state.layoutCache, state.device, entries);
+}
+
+/** Build bind group layout entries for a compute BindGroup. */
+function buildComputeLayoutEntries(
+    bindGroup: BindGroup,
+): GPUBindGroupLayoutEntry[] {
+    const vis = GPUShaderStage.COMPUTE;
+    const entries: GPUBindGroupLayoutEntry[] = [];
+
+    for (const binding of bindGroup.bindings) {
+        switch (binding.kind) {
+            case 'uniform':
+                entries.push({
+                    binding: binding.block.binding,
+                    visibility: vis,
+                    buffer: { type: 'uniform' },
+                });
+                break;
+
+            case 'storage':
+                entries.push({
+                    binding: binding.entry.binding,
+                    visibility: vis,
+                    buffer: {
+                        type: binding.entry.access === 'read_write'
+                            ? 'storage'
+                            : 'read-only-storage',
+                    },
+                });
+                break;
+
+            case 'texture':
+                entries.push({
+                    binding: binding.entry.binding,
+                    visibility: vis,
+                    texture: {},
+                });
+                break;
+
+            case 'sampler':
+                entries.push({
+                    binding: binding.entry.binding,
+                    visibility: vis,
+                    sampler: {},
+                });
+                break;
+        }
+    }
+
+    // Sort by binding index
+    entries.sort((a, b) => a.binding - b.binding);
+
+    return entries;
+}
+
+/** Update a compute BindGroup (uniforms). */
+function updateComputeBindGroup(
+    state: BindingsState,
+    bindGroup: BindGroup,
+    frame: NodeFrame,
+): void {
+    const data = getData(state, bindGroup);
+
+    for (const binding of bindGroup.bindings) {
+        switch (binding.kind) {
+            case 'uniform':
+                updateUniformBinding(state, binding, bindGroup, frame, data);
+                break;
+
+            case 'storage':
+                // Storage buffers are handled in rebuildGPUBindGroup
+                break;
+
+            case 'texture':
+            case 'sampler':
+                throw new Error(`Texture/sampler bindings not yet supported for compute shaders`);
+        }
+    }
 }

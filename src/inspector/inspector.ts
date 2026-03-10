@@ -23,7 +23,8 @@ import { Settings } from './tabs/settings';
 import { Viewer, makePreviewMaterial, splitCamelCase, splitPath, type CanvasData } from './tabs/viewer';
 import { SceneHierarchy } from './tabs/scene-hierarchy';
 import { DrawCalls } from './tabs/draw-calls';
-import type { InspectorNode } from '../nodes/nodes';
+import { ComputeCalls } from './tabs/compute-calls';
+import type { InspectorNode, ComputeNode } from '../nodes/nodes';
 import type { WebGPURenderer } from '../renderer/renderer';
 import { CanvasTarget } from '../renderer/canvas-target';
 import { buildProbeWGSL } from './probe-wgsl';
@@ -71,6 +72,7 @@ export class Inspector extends RendererInspector {
     readonly settings: Settings;
     readonly sceneHierarchy: SceneHierarchy;
     readonly drawCalls: DrawCalls;
+    readonly computeCalls: ComputeCalls;
 
     private _displayCycle: { text: DisplayCycleEntry; graph: DisplayCycleEntry };
     private _lastUpdateTime = 0;
@@ -107,6 +109,10 @@ export class Inspector extends RendererInspector {
         drawCalls.hide();
         profiler.addTab(drawCalls);
 
+        const computeCalls = new ComputeCalls();
+        computeCalls.hide();
+        profiler.addTab(computeCalls);
+
         const performance = new Performance();
         profiler.addTab(performance);
 
@@ -138,6 +144,7 @@ export class Inspector extends RendererInspector {
         this.settings = settings;
         this.sceneHierarchy = sceneHierarchy;
         this.drawCalls = drawCalls;
+        this.computeCalls = computeCalls;
 
         this._displayCycle = {
             text:  { needsUpdate: false, duration: 250, time: 0 },
@@ -213,10 +220,10 @@ export class Inspector extends RendererInspector {
         }
     }
 
-    override beginCompute(nodeId: string, frameId: number): void {
-        super.beginCompute(nodeId, frameId);
+    override beginCompute(node: ComputeNode, frameId: number): void {
+        super.beginCompute(node, frameId);
         if (this.timeline.isRecording) {
-            this.timeline.onCall('beginCompute', nodeId);
+            this.timeline.onCall('beginCompute', node.id);
         }
     }
 
@@ -324,7 +331,7 @@ export class Inspector extends RendererInspector {
         const renderer = this.getRenderer();
         if (!renderer) return null;
 
-        const code = sourceRO.nodeBuilderState?.code;
+        const code = sourceRO.nodeBuilderState?.vertexCode;
         if (!code) return null;
 
         const cacheKey = `${target.expr}::${target.anchorKind}::${sourceRO.id}::gen`;
@@ -498,6 +505,12 @@ export class Inspector extends RendererInspector {
         if (renderer && renderer.renderObjects.renderObjects.size > 0) {
             this.drawCalls.show();
             this.drawCalls.update(this, renderer);
+        }
+
+        // Update compute calls tab if compute passes were dispatched this frame
+        if (renderer && this.computeNodes.size > 0) {
+            this.computeCalls.show();
+            this.computeCalls.update(this, renderer);
         }
 
         // Render probe canvas (if active) using a fresh command encoder so we
