@@ -63,5 +63,10 @@
         "title": "Storage Buffers",
         "description": "Demonstrates two storage buffer patterns: inline storage (buffer passed directly) and name-based storage (resolved from geometry.buffers at render time).",
         "tags": ["storage-buffer", "instancing"]
+    },
+    "example-voxels": {
+        "title": "Voxels",
+        "description": "Procedurally generated voxel landscape using layered simplex noise, with culled meshing per chunk and per-vertex ambient occlusion computed on the CPU.",
+        "tags": ["geometry", "noise", "voxels"]
     }
 }

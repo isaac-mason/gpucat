@@ -2,90 +2,142 @@ import { createVertexBuffer, createIndexBuffer } from '../core/buffer';
 import * as d from '../nodes/schema';
 import { Geometry } from './geometry';
 
+const BOX_VERTEX_COUNT = 24; // 6 faces * 4 vertices
+const BOX_INDEX_COUNT = 36;  // 6 faces * 6 indices
+
+function writeFace(
+    positions: Float32Array,
+    normals: Float32Array,
+    uvs: Float32Array,
+    indices: Uint16Array,
+    faceIndex: number,
+    ax: number, ay: number, az: number,
+    bx: number, by: number, bz: number,
+    cx: number, cy: number, cz: number,
+    dx: number, dy: number, dz: number,
+    nx: number, ny: number, nz: number
+): void {
+    const base = faceIndex * 4;
+    const pi = base * 3;
+    const ui = base * 2;
+    const ii = faceIndex * 6;
+
+    positions[pi]      = ax; positions[pi + 1]  = ay; positions[pi + 2]  = az;
+    positions[pi + 3]  = bx; positions[pi + 4]  = by; positions[pi + 5]  = bz;
+    positions[pi + 6]  = cx; positions[pi + 7]  = cy; positions[pi + 8]  = cz;
+    positions[pi + 9]  = dx; positions[pi + 10] = dy; positions[pi + 11] = dz;
+
+    normals[pi]      = nx; normals[pi + 1]  = ny; normals[pi + 2]  = nz;
+    normals[pi + 3]  = nx; normals[pi + 4]  = ny; normals[pi + 5]  = nz;
+    normals[pi + 6]  = nx; normals[pi + 7]  = ny; normals[pi + 8]  = nz;
+    normals[pi + 9]  = nx; normals[pi + 10] = ny; normals[pi + 11] = nz;
+
+    uvs[ui]     = 0; uvs[ui + 1] = 0;
+    uvs[ui + 2] = 1; uvs[ui + 3] = 0;
+    uvs[ui + 4] = 1; uvs[ui + 5] = 1;
+    uvs[ui + 6] = 0; uvs[ui + 7] = 1;
+
+    indices[ii]     = base;
+    indices[ii + 1] = base + 1;
+    indices[ii + 2] = base + 2;
+    indices[ii + 3] = base;
+    indices[ii + 4] = base + 2;
+    indices[ii + 5] = base + 3;
+}
+
 export function createBoxGeometry(width = 1, height = 1, depth = 1): Geometry {
     const hw = width / 2;
     const hh = height / 2;
     const hd = depth / 2;
 
-    const positions: number[] = [];
-    const normals: number[] = [];
-    const uvs: number[] = [];
-    const indices: number[] = [];
-
-    function face(
-        ax: number, ay: number, az: number,
-        bx: number, by: number, bz: number,
-        cx: number, cy: number, cz: number,
-        dx: number, dy: number, dz: number,
-        nx: number, ny: number, nz: number
-    ): void {
-        const base = positions.length / 3;
-        positions.push(ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz);
-        normals.push(nx, ny, nz, nx, ny, nz, nx, ny, nz, nx, ny, nz);
-        uvs.push(0, 0, 1, 0, 1, 1, 0, 1);
-        indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
-    }
+    const positions = new Float32Array(BOX_VERTEX_COUNT * 3);
+    const normals = new Float32Array(BOX_VERTEX_COUNT * 3);
+    const uvs = new Float32Array(BOX_VERTEX_COUNT * 2);
+    const indices = new Uint16Array(BOX_INDEX_COUNT);
 
     // +X
-    face(hw, -hh, -hd, hw, hh, -hd, hw, hh, hd, hw, -hh, hd, 1, 0, 0);
+    writeFace(positions, normals, uvs, indices, 0, hw, -hh, -hd, hw, hh, -hd, hw, hh, hd, hw, -hh, hd, 1, 0, 0);
     // -X
-    face(-hw, -hh, hd, -hw, hh, hd, -hw, hh, -hd, -hw, -hh, -hd, -1, 0, 0);
+    writeFace(positions, normals, uvs, indices, 1, -hw, -hh, hd, -hw, hh, hd, -hw, hh, -hd, -hw, -hh, -hd, -1, 0, 0);
     // +Y
-    face(-hw, hh, -hd, -hw, hh, hd, hw, hh, hd, hw, hh, -hd, 0, 1, 0);
+    writeFace(positions, normals, uvs, indices, 2, -hw, hh, -hd, -hw, hh, hd, hw, hh, hd, hw, hh, -hd, 0, 1, 0);
     // -Y
-    face(-hw, -hh, hd, -hw, -hh, -hd, hw, -hh, -hd, hw, -hh, hd, 0, -1, 0);
+    writeFace(positions, normals, uvs, indices, 3, -hw, -hh, hd, -hw, -hh, -hd, hw, -hh, -hd, hw, -hh, hd, 0, -1, 0);
     // +Z
-    face(-hw, -hh, hd, hw, -hh, hd, hw, hh, hd, -hw, hh, hd, 0, 0, 1);
+    writeFace(positions, normals, uvs, indices, 4, -hw, -hh, hd, hw, -hh, hd, hw, hh, hd, -hw, hh, hd, 0, 0, 1);
     // -Z
-    face(hw, -hh, -hd, -hw, -hh, -hd, -hw, hh, -hd, hw, hh, -hd, 0, 0, -1);
+    writeFace(positions, normals, uvs, indices, 5, hw, -hh, -hd, -hw, -hh, -hd, -hw, hh, -hd, hw, hh, -hd, 0, 0, -1);
 
     const geom = new Geometry();
-    geom.setBuffer('position', createVertexBuffer(d.vec3f, new Float32Array(positions)));
-    geom.setBuffer('normal', createVertexBuffer(d.vec3f, new Float32Array(normals)));
-    geom.setBuffer('uv', createVertexBuffer(d.vec2f, new Float32Array(uvs)));
-    geom.index = createIndexBuffer(new Uint16Array(indices));
-    geom.vertexCount = positions.length / 3;
+    geom.setBuffer('position', createVertexBuffer(d.vec3f, positions));
+    geom.setBuffer('normal', createVertexBuffer(d.vec3f, normals));
+    geom.setBuffer('uv', createVertexBuffer(d.vec2f, uvs));
+    geom.index = createIndexBuffer(indices);
+    geom.vertexCount = BOX_VERTEX_COUNT;
     geom.boundingBox = [-hw, -hh, -hd, hw, hh, hd];
     geom.boundingSphere = { center: [0, 0, 0], radius: Math.sqrt(hw * hw + hh * hh + hd * hd) };
     return geom;
 }
 
 export function createSphereGeometry(radius = 0.5, widthSegments = 16, heightSegments = 8): Geometry {
-    const positions: number[] = [];
-    const normals: number[] = [];
-    const uvs: number[] = [];
-    const indices: number[] = [];
+    const cols = widthSegments + 1;
+    const rows = heightSegments + 1;
+    const vertexCount = cols * rows;
+    const indexCount = widthSegments * heightSegments * 6;
 
-    for (let iy = 0; iy <= heightSegments; iy++) {
+    const positions = new Float32Array(vertexCount * 3);
+    const normals = new Float32Array(vertexCount * 3);
+    const uvs = new Float32Array(vertexCount * 2);
+    const indices = new Uint16Array(indexCount);
+
+    let vi = 0;
+    for (let iy = 0; iy < rows; iy++) {
         const v = iy / heightSegments;
         const phi = v * Math.PI;
-        for (let ix = 0; ix <= widthSegments; ix++) {
+        const sinPhi = Math.sin(phi);
+        const cosPhi = Math.cos(phi);
+        for (let ix = 0; ix < cols; ix++) {
             const u = ix / widthSegments;
             const theta = u * Math.PI * 2;
-            const sinPhi = Math.sin(phi);
             const nx = Math.cos(theta) * sinPhi;
-            const ny = Math.cos(phi);
+            const ny = cosPhi;
             const nz = Math.sin(theta) * sinPhi;
-            positions.push(nx * radius, ny * radius, nz * radius);
-            normals.push(nx, ny, nz);
-            uvs.push(u, v);
+
+            const pi = vi * 3;
+            const ui = vi * 2;
+            positions[pi]     = nx * radius;
+            positions[pi + 1] = ny * radius;
+            positions[pi + 2] = nz * radius;
+            normals[pi]     = nx;
+            normals[pi + 1] = ny;
+            normals[pi + 2] = nz;
+            uvs[ui]     = u;
+            uvs[ui + 1] = v;
+            vi++;
         }
     }
 
+    let ii = 0;
     for (let iy = 0; iy < heightSegments; iy++) {
         for (let ix = 0; ix < widthSegments; ix++) {
-            const a = iy * (widthSegments + 1) + ix;
-            const b = a + widthSegments + 1;
-            indices.push(a, b, a + 1, b, b + 1, a + 1);
+            const a = iy * cols + ix;
+            const b = a + cols;
+            indices[ii]     = a;
+            indices[ii + 1] = b;
+            indices[ii + 2] = a + 1;
+            indices[ii + 3] = b;
+            indices[ii + 4] = b + 1;
+            indices[ii + 5] = a + 1;
+            ii += 6;
         }
     }
 
     const geom = new Geometry();
-    geom.setBuffer('position', createVertexBuffer(d.vec3f, new Float32Array(positions)));
-    geom.setBuffer('normal', createVertexBuffer(d.vec3f, new Float32Array(normals)));
-    geom.setBuffer('uv', createVertexBuffer(d.vec2f, new Float32Array(uvs)));
-    geom.index = createIndexBuffer(new Uint16Array(indices));
-    geom.vertexCount = positions.length / 3;
+    geom.setBuffer('position', createVertexBuffer(d.vec3f, positions));
+    geom.setBuffer('normal', createVertexBuffer(d.vec3f, normals));
+    geom.setBuffer('uv', createVertexBuffer(d.vec2f, uvs));
+    geom.index = createIndexBuffer(indices);
+    geom.vertexCount = vertexCount;
     geom.boundingBox = [-radius, -radius, -radius, radius, radius, radius];
     geom.boundingSphere = { center: [0, 0, 0], radius };
     return geom;
@@ -183,9 +235,7 @@ export function createPlaneGeometry(
  * UV coordinates follow WebGPU conventions:
  *   - (0, 0) at top-left
  *   - (1, 1) at bottom-right
- * 
- * This mirrors Three.js QuadGeometry from QuadMesh.js.
- * 
+ *
  * @param flipY - Whether to flip UV coordinates along the vertical axis. Defaults to false.
  */
 export function createFullscreenTriangleGeometry(flipY = false): Geometry {

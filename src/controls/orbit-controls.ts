@@ -688,7 +688,8 @@ export class OrbitControls {
             const position = this.object.position;
             vec3.subtract(_v, position, this.target);
             let targetDistance = vec3.length(_v);
-            targetDistance *= Math.tan(((cam.fov / 2) * Math.PI) / 180);
+            // fov is in radians
+            targetDistance *= Math.tan(cam.fov / 2);
 
             this._panLeft(
                 (2 * deltaX * targetDistance) / element.clientHeight,
