@@ -1,4 +1,4 @@
-import { d, GpuBuffer, storage, Fn, Var, globalId, If, index, f32, vec4, instanceIndex, attribute, mul, cameraViewMatrix, cameraProjectionMatrix, varying, timeElapsed, Material, WebGPURenderer, Inspector, Scene, PerspectiveCamera, Geometry, Mesh, pass, createIndexBuffer } from 'gpucat';
+import { d, createStorageBuffer, storage, Fn, Var, globalId, If, index, f32, vec4, instanceIndex, attribute, mul, cameraViewMatrix, cameraProjectionMatrix, varying, timeElapsed, Material, WebGPURenderer, Inspector, Scene, PerspectiveCamera, Geometry, Mesh, pass, createIndexBuffer, createVertexBuffer } from 'gpucat';
 
 const N = 8192;
 const WG_SIZE = 64;
@@ -13,7 +13,7 @@ for (let i = 0; i < N; i++) {
     positionData[i * 4 + 2] = (Math.random() - 0.5) * 4;   // z depth
     positionData[i * 4 + 3] = Math.random();               // initial lifetime
 }
-const positionBuffer = new GpuBuffer(d.array(d.vec4f), { data: positionData, usage: 'storage' });
+const positionBuffer = createStorageBuffer(d.array(d.vec4f), positionData);
 const positions = storage(positionBuffer, 'read_write');
 
 // velocities: vec4f per particle — xyz = velocity, w = unused
@@ -24,7 +24,7 @@ for (let i = 0; i < N; i++) {
     velocityData[i * 4 + 2] = (Math.random() - 0.5) * 0.01;
     velocityData[i * 4 + 3] = 0;
 }
-const velocityBuffer = new GpuBuffer(d.array(d.vec4f), { data: velocityData, usage: 'storage' });
+const velocityBuffer = createStorageBuffer(d.array(d.vec4f), velocityData);
 const velocities = storage(velocityBuffer);
 
 /* compute function */
@@ -133,7 +133,7 @@ const verts = new Float32Array([
     -S2,  S2, 0,
 ]);
 const indices = new Uint16Array([0, 1, 2, 0, 2, 3]);
-quadGeom.setBuffer('position', new GpuBuffer(d.vec3f, { data: verts, usage: 'vertex' }));
+quadGeom.setBuffer('position', createVertexBuffer(d.vec3f, verts));
 quadGeom.index = createIndexBuffer(indices);
 
 const mesh = new Mesh(quadGeom, material);

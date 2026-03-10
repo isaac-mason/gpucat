@@ -49,6 +49,7 @@ export class Geometry {
      * drawIndirect / drawIndexedIndirect using this buffer instead of
      * draw / drawIndexed. `mesh.count` is ignored when this is set.
      * Must have 'indirect' usage.
+     * @internal Use setIndirect() to set this for proper lifecycle management.
      */
     indirect: GpuBuffer<Any> | undefined = undefined;
 
@@ -89,16 +90,28 @@ export class Geometry {
      * Set a named buffer.
      * Works for vertex attributes, storage buffers, or any buffer type.
      * Automatically bumps version when a new buffer name is added.
+     * For REF_COUNTED buffers, increments usage count.
      *
      * @example Vertex attribute
      * geometry.setBuffer('position', new GpuBuffer(d.vec3f, { data: positions, usage: 'vertex' }));
      *
      * @example Storage buffer
-     * geometry.setBuffer('particles', new GpuBuffer(d.array(Particle), { data: 1000, usage: 'storage' }));
+     * geometry.setBuffer('particles', new GpuBuffer(d.array(Particle), { data: new Float32Array(1000 * stride), usage: 'storage' }));
      */
     setBuffer(name: string, buffer: GpuBuffer<Any>): this {
-        const isNew = !this.buffers.has(name);
+        const existing = this.buffers.get(name);
+
+        if (existing && existing !== buffer) {
+            existing.decreaseUsages();
+        }
+
+        const isNew = !existing;
         this.buffers.set(name, buffer);
+
+        if (existing !== buffer) {
+            buffer.increaseUsages();
+        }
+
         if (isNew) {
             this.version++;
         }
@@ -115,21 +128,56 @@ export class Geometry {
     /**
      * Remove a buffer by name.
      * Automatically bumps version when a buffer is removed.
+     * For REF_COUNTED buffers, decrements usage count.
      */
     deleteBuffer(name: string): this {
-        if (this.buffers.delete(name)) {
+        const buffer = this.buffers.get(name);
+        if (buffer) {
+            buffer.decreaseUsages();
+            this.buffers.delete(name);
             this.version++;
         }
         return this;
     }
 
     /**
+     * Set the indirect draw buffer.
+     * For REF_COUNTED buffers, manages usage count properly.
+     * @param buffer The indirect buffer, or undefined to clear.
+     * @param offset Byte offset into the buffer where draw parameters begin.
+     */
+    setIndirect(buffer: GpuBuffer<Any> | undefined, offset: number = 0): this {
+        const existing = this.indirect;
+
+        if (existing && existing !== buffer) {
+            existing.decreaseUsages();
+        }
+
+        this.indirect = buffer;
+        this.indirectOffset = offset;
+
+        if (buffer && existing !== buffer) {
+            buffer.increaseUsages();
+        }
+
+        return this;
+    }
+
+    /**
      * Frees GPU-related resources allocated for this geometry.
+     * For REF_COUNTED buffers, decrements usage count (may trigger buffer disposal).
      * Call this method when the geometry is no longer used.
      */
     dispose(): void {
         if (this.disposed) return;
         this.disposed = true;
+
+        for (const buffer of this.buffers.values()) {
+            buffer.decreaseUsages();
+        }
+
+        this.indirect?.decreaseUsages();
+
         this._onDispose?.();
     }
 }

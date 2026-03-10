@@ -3,6 +3,8 @@ import {
     attribute,
     cameraProjectionMatrix,
     cameraViewMatrix,
+    createIndirectBuffer,
+    createVertexBuffer,
     cross,
     d,
     DrawIndirect,
@@ -10,7 +12,6 @@ import {
     Fn,
     Geometry,
     globalId,
-    GpuBuffer,
     If,
     Inspector,
     instancedBufferAttribute,
@@ -106,7 +107,7 @@ const attrOrientationEnd = instancedBufferAttribute(
 //      [3] firstInstance  — 0
 
 // non-indexed, 1 draw. GpuBuffer with storage + indirect usage
-const drawBuffer = new GpuBuffer(DrawIndirect, { data: 1, usage: ['storage', 'indirect'] });
+const drawBuffer = createIndirectBuffer(DrawIndirect, new Uint32Array(4));
 
 const drawStorage = storage(drawBuffer, "read_write");
 const drawStorageInstance = drawStorage.fields();
@@ -230,7 +231,7 @@ window.addEventListener("resize", () => {
 
 // geometry — non-indexed triangle, per-instance vertex buffers
 const geo = new Geometry();
-geo.setBuffer("position", new GpuBuffer(d.vec3f, { data: positions, usage: 'vertex' }));
+geo.setBuffer("position", createVertexBuffer(d.vec3f, positions));
 geo.indirect = drawBuffer; // use drawIndirect
 
 const mesh = new Mesh(geo, material);

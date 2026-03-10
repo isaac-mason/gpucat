@@ -1,7 +1,6 @@
 import { GpuBuffer } from '../../core/buffer';
-import type { GpuTypedArray } from '../../core/buffer';
 import { Node } from './core';
-import type { Any } from '../schema';
+import type { Any, TypedArrayFor } from '../schema';
 import * as d from '../schema';
 
 /**
@@ -32,7 +31,7 @@ export class BufferAttributeNode<D extends Any> extends Node<D> {
 
     constructor(
         desc: D,
-        value: GpuBuffer<D> | GpuTypedArray,
+        value: GpuBuffer<D> | TypedArrayFor<D>,
         stride: number,
         offset: number,
         instanced: boolean
@@ -41,7 +40,7 @@ export class BufferAttributeNode<D extends Any> extends Node<D> {
 
         // If passed a raw TypedArray, wrap it in a GpuBuffer
         if (ArrayBuffer.isView(value)) {
-            this.buffer = new GpuBuffer(desc, { data: value as GpuTypedArray, usage: 'vertex', instanced });
+            this.buffer = new GpuBuffer(desc, { data: value, usage: 'vertex', instanced });
         } else {
             this.buffer = value;
         }
@@ -81,7 +80,7 @@ export const attribute = <D extends Any>(name: string, desc: D) => new Attribute
  * const colors = bufferAttribute(new Float32Array([1,0,0, 0,1,0]), d.vec3f);
  */
 export const bufferAttribute = <D extends Any>(
-    value: GpuBuffer<D> | GpuTypedArray,
+    value: GpuBuffer<D> | TypedArrayFor<D>,
     desc: D,
     stride = 0,
     offset = 0
@@ -100,7 +99,7 @@ export const bufferAttribute = <D extends Any>(
  * const colors = instancedBufferAttribute(new Float32Array([1,0,0, 0,1,0]), d.vec3f);
  */
 export const instancedBufferAttribute = <D extends Any>(
-    value: GpuBuffer<D> | GpuTypedArray,
+    value: GpuBuffer<D> | TypedArrayFor<D>,
     desc: D,
     stride = 0,
     offset = 0

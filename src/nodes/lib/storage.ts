@@ -115,7 +115,7 @@ export class StorageNode<D extends Any> extends Node<D> {
  * @param access - Storage access mode: 'read' (default) or 'read_write'
  *
  * @example
- * const particleBuffer = new GpuBuffer(d.array(Particle), { data: 1000, usage: 'storage' });
+ * const particleBuffer = new GpuBuffer(d.array(Particle), { data: new Float32Array(1000 * stride), usage: 'storage' });
  * const particles = storage(particleBuffer, 'read_write');
  * particles.value = otherBuffer;  // swap buffers for double-buffering
  */

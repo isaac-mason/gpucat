@@ -1,5 +1,5 @@
 import * as g from 'gpucat';
-import { d, packStructArray, writeStructArray, GpuBuffer, createIndexBuffer } from 'gpucat';
+import { d, packStructArray, writeStructArray, createVertexBuffer, createIndexBuffer, createIndirectBuffer } from 'gpucat';
 import { mat4, quat, vec3 } from 'mathcat';
 
 const TOTAL = 120; // total instances
@@ -32,8 +32,8 @@ const boxIdxCount  = boxIdx.length;
 const sphIdxCount  = sphIdx.length;
 
 const mergedGeometry = new g.Geometry();
-mergedGeometry.setBuffer('position', new GpuBuffer(d.vec3f, { data: mergedPos, usage: 'vertex' }));
-mergedGeometry.setBuffer('normal', new GpuBuffer(d.vec3f, { data: mergedNorm, usage: 'vertex' }));
+mergedGeometry.setBuffer('position', createVertexBuffer(d.vec3f, mergedPos));
+mergedGeometry.setBuffer('normal', createVertexBuffer(d.vec3f, mergedNorm));
 mergedGeometry.index = createIndexBuffer(mergedIdx);
 
 const instanceMatrices = new Float32Array(TOTAL * 16);
@@ -112,7 +112,7 @@ const indirectData = new Uint32Array(packStructArray(g.DrawIndexedIndirect, [
     { indexCount: sphIdxCount, instanceCount: TOTAL / 2, firstIndex: boxIdxCount, baseVertex: boxVertCount, firstInstance: TOTAL / 2 },
 ]));
 
-const indirectBuffer = new GpuBuffer(g.DrawIndexedIndirect, { data: indirectData, usage: ['storage', 'indirect'], arrayType: Uint32Array });
+const indirectBuffer = createIndirectBuffer(g.DrawIndexedIndirect, indirectData);
 mergedGeometry.indirect = indirectBuffer;
 
 // ---------------------------------------------------------------------------

@@ -151,6 +151,12 @@ export class Texture {
     gpuSampler: GPUSampler | null = null;
 
     /**
+     * Renderer-set callback to destroy GPU resources when dispose() is called.
+     * @internal
+     */
+    _onDispose: (() => void) | null = null;
+
+    /**
      * Constructs a new Texture.
      *
      * @param image - The image source (ImageBitmap, HTMLImageElement, Source, etc.)
@@ -231,14 +237,12 @@ export class Texture {
     }
 
     /**
-     * Disposes of the texture. Call this when you no longer need the texture to free up memory.
-     *
-     * Note: This doesn't automatically free GPU resources — the renderer
-     * must handle that based on texture disposal.
-     *
-     * Note: This doesn't dispose the Source, as it may be shared.
+     * Disposes of the texture and its GPU resources.
+     * Calls _onDispose (set by renderer) to destroy the GPUTexture.
      */
     dispose(): void {
+        this._onDispose?.();
+        this._onDispose = null;
         this.mipmaps = [];
         // don't clear source - it may be shared with other textures
     }

@@ -1,8 +1,13 @@
 {
-    "example-spinning-box": {
-        "title": "Spinning Box",
-        "description": "A flat-shaded spinning box rendered with a node-graph material and WebGPU.",
-        "tags": []
+    "example-moving-mesh-stress": {
+        "title": "Moving Mesh Stress",
+        "description": "900 individually-animated meshes with per-frame quaternion updates and world matrix recalculations.",
+        "tags": ["stress-test", "animation"]
+    },
+    "example-static-mesh-stress": {
+        "title": "Static Mesh Stress",
+        "description": "900 static meshes with no per-frame updates — measures pure rendering overhead.",
+        "tags": ["stress-test"]
     },
     "example-texture": {
         "title": "Texture",

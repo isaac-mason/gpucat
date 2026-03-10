@@ -418,6 +418,19 @@ export type VecElementDesc<D extends Any> =
     D extends ScalarDesc ? D :
     Any;
 
+/**
+ * Maps a schema descriptor to its corresponding TypedArray type.
+ * - i32/vec*i → Int32Array
+ * - u32/vec*u → Uint32Array  
+ * - f32/vec*f/mat → Float32Array
+ * - structs/arrays → any typed array (user knows the correct type)
+ */
+export type TypedArrayFor<D extends Any> =
+    D extends i32 | vec2i | vec3i | vec4i ? Int32Array :
+    D extends u32 | vec2u | vec3u | vec4u ? Uint32Array :
+    D extends f32 | vec2f | vec3f | vec4f | mat2x2f | mat2x3f | mat2x4f | mat3x2f | mat3x3f | mat3x4f | mat4x2f | mat4x3f | mat4x4f ? Float32Array :
+    Float32Array | Int32Array | Uint32Array;
+
 // ---------------------------------------------------------------------------
 // WgslType — string-literal union of all WGSL type strings
 // ---------------------------------------------------------------------------

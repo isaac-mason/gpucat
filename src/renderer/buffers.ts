@@ -49,6 +49,31 @@ export function createBufferCache(device: GPUDevice): BufferCache {
 }
 
 /**
+ * Set up the _onDispose callback on a GpuBuffer to destroy its GPU buffer.
+ * Only sets the callback once (idempotent).
+ */
+function setupDispose(cache: BufferCache, buffer: GpuBuffer): void {
+    if (buffer._onDispose) return;
+
+    buffer._onDispose = () => {
+        // Check vertex map
+        const vertexEntry = cache.vertexMap.get(buffer);
+        if (vertexEntry) {
+            vertexEntry.buf.destroy();
+            // WeakMap entries are automatically removed when key is GC'd,
+            // but we can't explicitly delete from WeakMap without the key.
+            // The key (buffer) still exists, so just destroy the GPU buffer.
+        }
+
+        // Check storage map (also used by indirect buffers)
+        const storageEntry = cache.storageMap.get(buffer);
+        if (storageEntry) {
+            storageEntry.buf.destroy();
+        }
+    };
+}
+
+/**
  * Get or create a GPUBuffer for a vertex GpuBuffer.
  * Re-uploads when buffer.version advances.
  */
@@ -81,6 +106,7 @@ export function uploadVertex(cache: BufferCache, buffer: GpuBuffer): GPUBuffer {
         cache.device.queue.writeBuffer(buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
         cache.vertexMap.set(buffer, { buf, version: buffer.version });
 
+        setupDispose(cache, buffer);
         buffer.onUpload?.();
         return buf;
     }
@@ -261,6 +287,8 @@ export function uploadStorage(
         cache.device.queue.writeBuffer(buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
         cache.storageMap.set(buffer, { buf, version: buffer.version });
 
+        setupDispose(cache, buffer);
+
         // Call onUpload after initial upload.
         // Typically used to release CPU memory via `buffer.array = null`.
         buffer.onUpload?.();
@@ -322,6 +350,9 @@ export function uploadIndirect(cache: BufferCache, buffer: GpuBuffer): GPUBuffer
         cache.device.queue.writeBuffer(buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
         cache.storageMap.set(buffer, { buf, version: buffer.version });
         cache.storageCount++;
+
+        setupDispose(cache, buffer);
+
         return buf;
     }
 

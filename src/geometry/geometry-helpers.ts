@@ -1,4 +1,4 @@
-import { GpuBuffer } from '../core/buffer';
+import { createVertexBuffer } from '../core/buffer';
 import * as d from '../nodes/schema';
 import { createIndexBuffer, Geometry } from './geometry';
 
@@ -40,9 +40,9 @@ export function createBoxGeometry(width = 1, height = 1, depth = 1): Geometry {
     face(hw, -hh, -hd, -hw, -hh, -hd, -hw, hh, -hd, hw, hh, -hd, 0, 0, -1);
 
     const geom = new Geometry();
-    geom.setBuffer('position', new GpuBuffer(d.vec3f, { data: new Float32Array(positions), usage: 'vertex' }));
-    geom.setBuffer('normal', new GpuBuffer(d.vec3f, { data: new Float32Array(normals), usage: 'vertex' }));
-    geom.setBuffer('uv', new GpuBuffer(d.vec2f, { data: new Float32Array(uvs), usage: 'vertex' }));
+    geom.setBuffer('position', createVertexBuffer(d.vec3f, new Float32Array(positions)));
+    geom.setBuffer('normal', createVertexBuffer(d.vec3f, new Float32Array(normals)));
+    geom.setBuffer('uv', createVertexBuffer(d.vec2f, new Float32Array(uvs)));
     geom.index = createIndexBuffer(new Uint16Array(indices));
     geom.vertexCount = positions.length / 3;
     geom.boundingBox = [-hw, -hh, -hd, hw, hh, hd];
@@ -81,9 +81,9 @@ export function createSphereGeometry(radius = 0.5, widthSegments = 16, heightSeg
     }
 
     const geom = new Geometry();
-    geom.setBuffer('position', new GpuBuffer(d.vec3f, { data: new Float32Array(positions), usage: 'vertex' }));
-    geom.setBuffer('normal', new GpuBuffer(d.vec3f, { data: new Float32Array(normals), usage: 'vertex' }));
-    geom.setBuffer('uv', new GpuBuffer(d.vec2f, { data: new Float32Array(uvs), usage: 'vertex' }));
+    geom.setBuffer('position', createVertexBuffer(d.vec3f, new Float32Array(positions)));
+    geom.setBuffer('normal', createVertexBuffer(d.vec3f, new Float32Array(normals)));
+    geom.setBuffer('uv', createVertexBuffer(d.vec2f, new Float32Array(uvs)));
     geom.index = createIndexBuffer(new Uint16Array(indices));
     geom.vertexCount = positions.length / 3;
     geom.boundingBox = [-radius, -radius, -radius, radius, radius, radius];
@@ -160,9 +160,9 @@ export function createPlaneGeometry(
     }
 
     const geom = new Geometry();
-    geom.setBuffer('position', new GpuBuffer(d.vec3f, { data: positions, usage: 'vertex' }));
-    geom.setBuffer('normal', new GpuBuffer(d.vec3f, { data: normals, usage: 'vertex' }));
-    geom.setBuffer('uv', new GpuBuffer(d.vec2f, { data: uvs, usage: 'vertex' }));
+    geom.setBuffer('position', createVertexBuffer(d.vec3f, positions));
+    geom.setBuffer('normal', createVertexBuffer(d.vec3f, normals));
+    geom.setBuffer('uv', createVertexBuffer(d.vec2f, uvs));
     geom.index = createIndexBuffer(indices as Uint16Array);
     geom.vertexCount = vertexCount;
     geom.boundingBox  = [-hw, 0, -hh, hw, 0, hh];
@@ -204,8 +204,8 @@ export function createFullscreenTriangleGeometry(flipY = false): Geometry {
         : new Float32Array([0, 0, 2, 0, 0, 2]); // standard
 
     const geom = new Geometry();
-    geom.setBuffer('position', new GpuBuffer(d.vec3f, { data: positions, usage: 'vertex' }));
-    geom.setBuffer('uv', new GpuBuffer(d.vec2f, { data: uvsData, usage: 'vertex' }));
+    geom.setBuffer('position', createVertexBuffer(d.vec3f, positions));
+    geom.setBuffer('uv', createVertexBuffer(d.vec2f, uvsData));
     geom.vertexCount = 3;
     return geom;
 }

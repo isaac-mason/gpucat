@@ -1,4 +1,14 @@
-import { isArrayDesc, isSizedArrayDesc, isStructDesc, itemSizeOf, typedArrayCtorOf, wgslSizeOf, type Any, type ArrayDesc, type SizedArrayDesc, type StructDesc, type StructSchema } from '../nodes/schema';
+import { isArrayDesc, isSizedArrayDesc, isStructDesc, itemSizeOf, typedArrayCtorOf, wgslSizeOf, type Any, type ArrayDesc, type SizedArrayDesc, type StructDesc, type StructSchema, type TypedArrayFor } from '../nodes/schema';
+
+/**
+ * Determines how a buffer's lifecycle is managed.
+ */
+export enum BufferLifecycle {
+    /** Library tracks usages, disposes GPU resources when usage count hits 0 */
+    REF_COUNTED,
+    /** User is responsible for calling buffer.dispose() */
+    MANUAL,
+}
 
 export type GpuTypedArray = Float32Array |
     Int32Array |
@@ -64,10 +74,13 @@ export type BufferUsage = 'vertex' | 'index' | 'storage' | 'uniform' | 'indirect
 
 /**
  * Options for creating a GpuBuffer.
+ * Provide either `data` (existing TypedArray) or `count` (allocate new array), not both.
  */
-export type GpuBufferOptions = {
-    /** Initial data (TypedArray) or element count (number) */
-    data?: GpuTypedArray | number;
+export type GpuBufferOptions<T extends Any = Any> = {
+    /** Initial data as a TypedArray. Mutually exclusive with `count`. */
+    data?: TypedArrayFor<T>;
+    /** Number of elements to allocate (creates array of `count * itemSize`). Mutually exclusive with `data`. */
+    count?: number;
     /** Allowed usages for this buffer. Defaults to ['vertex']. */
     usage?: BufferUsage | BufferUsage[];
     /** For vertex buffers: byte stride between elements (0 = tightly packed) */
@@ -76,8 +89,8 @@ export type GpuBufferOptions = {
     offset?: number;
     /** For vertex buffers: whether this is per-instance data */
     instanced?: boolean;
-    /** TypedArray constructor when data is a count. Defaults to Float32Array. */
-    arrayType?: new (length: number) => GpuTypedArray;
+    /** How this buffer's lifecycle is managed. Defaults to MANUAL. */
+    lifecycle?: BufferLifecycle;
 };
 
 function normalizeUsage(usage?: BufferUsage | BufferUsage[]): Set<BufferUsage> {
@@ -111,11 +124,11 @@ function schemaItemSize(schema: Any): number {
  * const positions = new GpuBuffer(d.vec3f, { data: positionArray, usage: 'vertex' });
  *
  * @example Storage buffer
- * const particles = new GpuBuffer(d.array(Particle), { data: 1000, usage: 'storage' });
+ * const particles = new GpuBuffer(d.array(Particle), { data: new Float32Array(1000 * stride), usage: 'storage' });
  *
  * @example Dual-use buffer (storage + vertex, instanced)
  * const transforms = new GpuBuffer(d.mat4x4f, {
- *     data: 1000,
+ *     data: new Float32Array(1000 * 16),
  *     usage: ['storage', 'vertex'],
  *     instanced: true,
  * });
@@ -127,8 +140,14 @@ export class GpuBuffer<T extends Any = Any> {
     /** Allowed usages */
     readonly usage: Set<BufferUsage>;
 
-    /** CPU-side typed array. May be null after onUpload releases memory. */
-    array: GpuTypedArray | null;
+    /** How this buffer's lifecycle is managed */
+    readonly lifecycle: BufferLifecycle;
+
+    /** Usage count for REF_COUNTED buffers. When this hits 0, GPU resources are disposed. */
+    _usages: number = 0;
+
+    /** CPU-side typed array. Can be set to null after onUpload releases memory. */
+    array: TypedArrayFor<T> | null;
 
     /** Number of elements */
     readonly count: number;
@@ -160,9 +179,13 @@ export class GpuBuffer<T extends Any = Any> {
     /** Set to true after dispose() is called. */
     disposed: boolean = false;
 
-    constructor(schema: T, options: GpuBufferOptions = {}) {
+    /** Renderer-set callback to destroy GPU resources when dispose() is called. */
+    _onDispose: (() => void) | null = null;
+
+    constructor(schema: T, options: GpuBufferOptions<T> = {}) {
         this.schema = schema;
         this.usage = normalizeUsage(options.usage);
+        this.lifecycle = options.lifecycle ?? BufferLifecycle.MANUAL;
         this.stride = options.stride ?? 0;
         this.offset = options.offset ?? 0;
         this.instanced = options.instanced ?? false;
@@ -170,14 +193,18 @@ export class GpuBuffer<T extends Any = Any> {
         // Derive itemSize from schema
         this.itemSize = schemaItemSize(schema);
 
-        // Create or use provided array
-        const ArrayCtor = options.arrayType ?? (isStructDesc(schema) ? Float32Array : typedArrayCtorOf(schema));
-        if (typeof options.data === 'number') {
-            this.array = new ArrayCtor(options.data * this.itemSize);
-            this.count = options.data;
-        } else if (options.data) {
+        // Handle data vs count
+        if (options.data && options.count !== undefined) {
+            throw new Error('GpuBuffer: provide either `data` or `count`, not both');
+        }
+
+        if (options.data) {
             this.array = options.data;
             this.count = options.data.length / this.itemSize;
+        } else if (options.count !== undefined) {
+            const ArrayCtor = isStructDesc(schema) ? Float32Array : typedArrayCtorOf(schema);
+            this.array = new ArrayCtor(options.count * this.itemSize) as TypedArrayFor<T>;
+            this.count = options.count;
         } else {
             this.array = null;
             this.count = 0;
@@ -207,15 +234,144 @@ export class GpuBuffer<T extends Any = Any> {
     }
 
     /**
-     * Dispose of this buffer's CPU-side resources.
-     * Sets array to null and marks the buffer as disposed.
-     * GPU-side resources (GPUBuffer) are managed by BufferCache via WeakMap GC.
+     * Increment usage count.
+     * For REF_COUNTED buffers: tracks usage and can "revive" a disposed buffer.
+     * For MANUAL buffers: no-op (lifecycle is user-managed).
+     * @returns this for chaining
      */
-    dispose(): void {
+    increaseUsages(): this {
+        if (this.lifecycle !== BufferLifecycle.REF_COUNTED) return this;
+        if (this.disposed) {
+            // Revive the buffer - it will be re-uploaded on next render
+            this.disposed = false;
+            this.version++;
+        }
+        this._usages++;
+        return this;
+    }
+
+    /**
+     * Decrement usage count.
+     * For REF_COUNTED buffers: decrements count and disposes GPU resources when it hits 0.
+     * For MANUAL buffers: no-op (lifecycle is user-managed).
+     */
+    decreaseUsages(): void {
+        if (this.lifecycle !== BufferLifecycle.REF_COUNTED) return;
+        if (this._usages <= 0) {
+            throw new Error('decreaseUsages() called but _usages is already 0');
+        }
+        this._usages--;
+        if (this._usages === 0) {
+            this._disposeGpuResources();
+        }
+    }
+
+    /**
+     * Internal: dispose GPU resources without clearing CPU data.
+     * Used by decreaseUsages() to allow revival.
+     */
+    private _disposeGpuResources(): void {
         if (this.disposed) return;
         this.disposed = true;
+        this._onDispose?.();
+        this._onDispose = null;
+    }
+
+    /**
+     * Dispose of this buffer's resources.
+     * For MANUAL buffers: destroys GPU buffer and cleans up CPU-side data.
+     * For REF_COUNTED buffers: throws error (use decreaseUsages() instead).
+     */
+    dispose(): void {
+        if (this.lifecycle === BufferLifecycle.REF_COUNTED) {
+            throw new Error('dispose() is not valid for REF_COUNTED buffers. Use decreaseUsages() instead.');
+        }
+        if (this.disposed) return;
+        this.disposed = true;
+        this._onDispose?.();
+        this._onDispose = null;
         this.array = null;
         this.updateRanges.length = 0;
         this.onUpload = null;
     }
+}
+
+// ============================================================================
+// Factory Helpers
+// ============================================================================
+
+/**
+ * Create a vertex buffer with sensible defaults.
+ * - usage: 'vertex'
+ * - lifecycle: REF_COUNTED (vertex buffers are typically owned by a Geometry)
+ *
+ * @example
+ * const positions = createVertexBuffer(d.vec3f, new Float32Array([...]));
+ */
+export function createVertexBuffer<T extends Any>(
+    schema: T,
+    data: TypedArrayFor<T>,
+): GpuBuffer<T> {
+    return new GpuBuffer(schema, {
+        data,
+        usage: 'vertex',
+        lifecycle: BufferLifecycle.REF_COUNTED,
+    });
+}
+
+/**
+ * Create a storage buffer with sensible defaults.
+ * - usage: 'storage'
+ * - lifecycle: MANUAL (storage buffers are often managed directly by user code)
+ *
+ * @example
+ * const particles = createStorageBuffer(d.array(Particle, 1000), new Float32Array(1000 * particleStride));
+ */
+export function createStorageBuffer<T extends Any>(
+    schema: T,
+    data: TypedArrayFor<T>,
+): GpuBuffer<T> {
+    return new GpuBuffer(schema, {
+        data,
+        usage: 'storage',
+        lifecycle: BufferLifecycle.MANUAL,
+    });
+}
+
+/**
+ * Create a uniform buffer with sensible defaults.
+ * - usage: 'uniform'
+ * - lifecycle: REF_COUNTED
+ *
+ * @example
+ * const uniforms = createUniformBuffer(MyUniforms, new Float32Array([...]));
+ */
+export function createUniformBuffer<T extends Any>(
+    schema: T,
+    data: TypedArrayFor<T>,
+): GpuBuffer<T> {
+    return new GpuBuffer(schema, {
+        data,
+        usage: 'uniform',
+        lifecycle: BufferLifecycle.REF_COUNTED,
+    });
+}
+
+/**
+ * Create an indirect draw buffer with sensible defaults.
+ * - usage: ['storage', 'indirect'] (can be written by compute, read by draw)
+ * - lifecycle: REF_COUNTED
+ *
+ * @example
+ * const indirectBuffer = createIndirectBuffer(DrawIndirectArgs, new Uint32Array([vertexCount, instanceCount, firstVertex, firstInstance]));
+ */
+export function createIndirectBuffer<T extends Any>(
+    schema: T,
+    data: TypedArrayFor<T>,
+): GpuBuffer<T> {
+    return new GpuBuffer(schema, {
+        data,
+        usage: ['storage', 'indirect'],
+        lifecycle: BufferLifecycle.REF_COUNTED,
+    });
 }

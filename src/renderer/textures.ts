@@ -79,6 +79,21 @@ export function createTextureCache(device: GPUDevice): TextureCache {
     };
 }
 
+/**
+ * Set up the _onDispose callback on a Texture to destroy its GPU texture.
+ * Only sets the callback once (idempotent).
+ */
+function setupDispose(cache: TextureCache, texture: Texture): void {
+    if (texture._onDispose) return;
+
+    texture._onDispose = () => {
+        const data = cache.textureMap.get(texture);
+        if (data && !data.isDefaultTexture) {
+            data.texture.destroy();
+        }
+    };
+}
+
 // ---------------------------------------------------------------------------
 // Texture operations
 // ---------------------------------------------------------------------------
@@ -141,6 +156,9 @@ export function updateTexture(
             data.isDefaultTexture = false;
             cache.textureCount++;
         }
+
+        // Set up disposal callback to destroy the GPU texture
+        setupDispose(cache, texture);
     }
 
     // Upload image data
