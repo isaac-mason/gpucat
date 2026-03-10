@@ -630,9 +630,8 @@ export class WebGPURenderer {
             );
 
             const nodeState = renderObject.nodeBuilderState;
-            if (nodeState) {
-                // see bindings.ts rebuildBindGroups() - it calls updateTexture/getSampler
 
+            if (nodeState) {
                 // upload storage buffers
                 for (const s of nodeState.storage) {
                     const buffer = buffers.resolveStorageBuffer(s.node, geometry);

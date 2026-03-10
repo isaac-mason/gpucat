@@ -42,20 +42,20 @@ import { createSimplex2D } from 'mathcat';
 const CHUNK_BITS  = 4;
 const CHUNK_SIZE  = 1 << CHUNK_BITS; // 16
 
-const WORLD_CHUNKS_X = 8;
-const WORLD_CHUNKS_Y = 4;
-const WORLD_CHUNKS_Z = 8;
+const WORLD_CHUNKS_X = 32;
+const WORLD_CHUNKS_Y = 8;
+const WORLD_CHUNKS_Z = 32;
 
-const RENDER_DIST = 8; // chunk radius in XZ
+// slab — derive pool size from default WebGPU max buffer size (256MB)
+const PAGE_QUADS       = 512;
+const PAGE_VERTS       = PAGE_QUADS * 4;   // 2048
+const PAGE_INDICES     = PAGE_QUADS * 6;   // 3072
+const MAX_BUFFER_SIZE  = 40 * 1024 * 1024; // 40MB — mobile-friendly
+const PAGE_BYTES_MAX   = PAGE_VERTS * 3 * 4; // largest per-page buffer = position (vec3f)
+const POOL_PAGES       = Math.floor(MAX_BUFFER_SIZE / PAGE_BYTES_MAX);
+const TOTAL_CHUNKS     = WORLD_CHUNKS_X * WORLD_CHUNKS_Y * WORLD_CHUNKS_Z;
 
-// slab
-const PAGE_QUADS    = 512;
-const PAGE_VERTS    = PAGE_QUADS * 4;   // 2048
-const PAGE_INDICES  = PAGE_QUADS * 6;   // 3072
-const POOL_PAGES    = 1024;
-
-const MAX_DIRTY_PER_FRAME = 3;
-const BRUSH_RADIUS        = 5;
+const BRUSH_RADIUS = 5;
 
 // ─── voxel types ─────────────────────────────────────────────────────────────
 
@@ -379,29 +379,27 @@ const cullCompute = Fn(() => {
     draw.firstInstance.assign(u32(0));
 }).compute({ workgroupSize: [64, 1, 1] });
 
-// ─── chunk states ─────────────────────────────────────────────────────────────
+// ─── chunk state & mesh cache ─────────────────────────────────────────────────
 
-type ChunkState = {
-    pages: number[];   // pool page indices currently allocated
-    loaded: boolean;
-    dirty: boolean;
-};
+// CPU-side mesh cache — populated at startup, updated on edit
+const meshCache: (MeshData | null)[] = new Array(TOTAL_CHUNKS).fill(null);
 
-const chunkStates: ChunkState[] = Array.from(
-    { length: WORLD_CHUNKS_X * WORLD_CHUNKS_Y * WORLD_CHUNKS_Z },
-    () => ({ pages: [], loaded: false, dirty: false }),
-);
+// Pages needed per chunk (0 for empty chunks) — derived from meshCache
+const chunkPageCount = new Uint8Array(TOTAL_CHUNKS);
 
-const dirtyQueue: number[] = [];
+// GPU page allocations per chunk (empty array = not on GPU)
+const gpuPages: number[][] = Array.from({ length: TOTAL_CHUNKS }, () => []);
 
-function markDirty(cx: number, cy: number, cz: number): void {
-    if (cx < 0 || cx >= WORLD_CHUNKS_X || cy < 0 || cy >= WORLD_CHUNKS_Y || cz < 0 || cz >= WORLD_CHUNKS_Z) return;
-    const idx = worldChunkIndex(cx, cy, cz);
-    const state = chunkStates[idx];
-    if (!state.dirty) {
-        state.dirty = true;
-        dirtyQueue.push(idx);
+function meshAndCache(world: World, chunkIdx: number): void {
+    const chunk = world.chunks[chunkIdx];
+    if (!chunk) {
+        meshCache[chunkIdx] = null;
+        chunkPageCount[chunkIdx] = 0;
+        return;
     }
+    const data = meshChunk(world, chunk);
+    meshCache[chunkIdx] = data;
+    chunkPageCount[chunkIdx] = data ? Math.ceil(data.quadCount / PAGE_QUADS) : 0;
 }
 
 // ─── write page info into pageInfoData ───────────────────────────────────────
@@ -418,127 +416,168 @@ function writePageInfo(page: number, indexCount: number, aabbMin: [number,number
     new DataView(pageInfoData.buffer).setUint32((base + 7) * 4, 0, true); // _pad
 }
 
-// ─── remesh a single chunk index ─────────────────────────────────────────────
+// ─── GPU upload / unload ─────────────────────────────────────────────────────
 
-function remeshChunk(world: World, chunkIdx: number): void {
-    const state = chunkStates[chunkIdx];
-    state.dirty = false;
+let gpuDirty = false;
 
-    // Free old pages — zero out their pageInfo indexCount
-    for (const p of state.pages) {
-        writePageInfo(p, 0, [0,0,0], [0,0,0]);
-        pageInfoBuf.addUpdateRange(p * PAGE_INFO_STRIDE, PAGE_INFO_STRIDE);
-        freePage(p);
-    }
-    state.pages = [];
+function uploadChunk(chunkIdx: number): void {
+    const data = meshCache[chunkIdx];
+    if (!data) return; // empty chunk, nothing to upload
 
-    const chunk = world.chunks[chunkIdx];
-    if (!chunk) { pageInfoBuf.needsUpdate = true; return; }
+    const pages = gpuPages[chunkIdx];
 
-    const meshData = meshChunk(world, chunk);
-    if (!meshData) { pageInfoBuf.needsUpdate = true; return; }
-
-    // Split mesh across pages
     let quadOffset = 0;
-    while (quadOffset < meshData.quadCount) {
-        const pageQuads  = Math.min(PAGE_QUADS, meshData.quadCount - quadOffset);
-        const pageVerts  = pageQuads * 4;
-        const pageIdxs   = pageQuads * 6;
-        const vOff       = quadOffset * 4;
-        const iOff       = quadOffset * 6;
+    while (quadOffset < data.quadCount) {
+        const pageQuads = Math.min(PAGE_QUADS, data.quadCount - quadOffset);
+        const pageVerts = pageQuads * 4;
+        const pageIdxs  = pageQuads * 6;
+        const vOff      = quadOffset * 4;
+        const iOff      = quadOffset * 6;
 
         const page = allocPage();
-        state.pages.push(page);
+        pages.push(page);
 
         const pvBase = page * PAGE_VERTS;
         const piBase = page * PAGE_INDICES;
 
-        // positions (vec3f)
-        const pSrc = meshData.positions.subarray(vOff * 3, (vOff + pageVerts) * 3);
-        positionBuf.array!.set(pSrc, pvBase * 3);
+        positionBuf.array!.set(data.positions.subarray(vOff * 3, (vOff + pageVerts) * 3), pvBase * 3);
         positionBuf.addUpdateRange(pvBase * 3, pageVerts * 3);
 
-        // normals (vec3f)
-        const nSrc = meshData.normals.subarray(vOff * 3, (vOff + pageVerts) * 3);
-        normalBuf.array!.set(nSrc, pvBase * 3);
+        normalBuf.array!.set(data.normals.subarray(vOff * 3, (vOff + pageVerts) * 3), pvBase * 3);
         normalBuf.addUpdateRange(pvBase * 3, pageVerts * 3);
 
-        // ao (f32)
-        const aoSrc = meshData.ao.subarray(vOff, vOff + pageVerts);
-        aoBuf.array!.set(aoSrc, pvBase);
+        aoBuf.array!.set(data.ao.subarray(vOff, vOff + pageVerts), pvBase);
         aoBuf.addUpdateRange(pvBase, pageVerts);
 
-        // indices (u32) — rebase to page-local (baseVertex in the indirect draw adds the offset)
-        const iSrc = meshData.indices.subarray(iOff, iOff + pageIdxs);
+        const iSrc = data.indices.subarray(iOff, iOff + pageIdxs);
         const idxDst = indexBuf.array!;
         for (let j = 0; j < pageIdxs; j++) {
             idxDst[piBase + j] = iSrc[j] - vOff;
         }
         indexBuf.addUpdateRange(piBase, pageIdxs);
 
-        // PageInfo
-        writePageInfo(page, pageIdxs, meshData.aabbMin, meshData.aabbMax);
+        writePageInfo(page, pageIdxs, data.aabbMin, data.aabbMax);
         pageInfoBuf.addUpdateRange(page * PAGE_INFO_STRIDE, PAGE_INFO_STRIDE);
 
         quadOffset += pageQuads;
     }
 
+    gpuDirty = true;
+}
+
+function unloadChunk(chunkIdx: number): void {
+    const pages = gpuPages[chunkIdx];
+    for (const p of pages) {
+        writePageInfo(p, 0, [0,0,0], [0,0,0]);
+        pageInfoBuf.addUpdateRange(p * PAGE_INFO_STRIDE, PAGE_INFO_STRIDE);
+        freePage(p);
+    }
+    pages.length = 0;
+    gpuDirty = true;
+}
+
+function flushGPU(): void {
+    if (!gpuDirty) return;
     positionBuf.needsUpdate = true;
     normalBuf.needsUpdate   = true;
     aoBuf.needsUpdate       = true;
     indexBuf.needsUpdate    = true;
     pageInfoBuf.needsUpdate = true;
+    gpuDirty = false;
 }
 
-// ─── render distance management ───────────────────────────────────────────────
+// ─── sort-based chunk streaming ──────────────────────────────────────────────
 
-let lastCamCX = -999, lastCamCZ = -999;
+const HALF_CHUNK        = CHUNK_SIZE * 0.5;
+const STREAM_HYSTERESIS = CHUNK_SIZE * CHUNK_SIZE; // re-sort when camera moves this far² 
 
-function updateRenderDistance(camX: number, camZ: number): void {
-    const camCX = Math.floor(camX / CHUNK_SIZE);
-    const camCZ = Math.floor(camZ / CHUNK_SIZE);
-    if (camCX === lastCamCX && camCZ === lastCamCZ) return;
-    lastCamCX = camCX; lastCamCZ = camCZ;
+const sortedChunks = new Uint16Array(TOTAL_CHUNKS);
+const chunkCenters = new Float32Array(TOTAL_CHUNKS * 3);
+const chunkDist2   = new Float32Array(TOTAL_CHUNKS);
 
-    const minCX = Math.max(0, camCX - RENDER_DIST);
-    const maxCX = Math.min(WORLD_CHUNKS_X - 1, camCX + RENDER_DIST);
-    const minCZ = Math.max(0, camCZ - RENDER_DIST);
-    const maxCZ = Math.min(WORLD_CHUNKS_Z - 1, camCZ + RENDER_DIST);
+for (let cz = 0; cz < WORLD_CHUNKS_Z; cz++) {
+    for (let cy = 0; cy < WORLD_CHUNKS_Y; cy++) {
+        for (let cx = 0; cx < WORLD_CHUNKS_X; cx++) {
+            const idx = worldChunkIndex(cx, cy, cz);
+            sortedChunks[idx] = idx;
+            chunkCenters[idx * 3 + 0] = cx * CHUNK_SIZE + HALF_CHUNK;
+            chunkCenters[idx * 3 + 1] = cy * CHUNK_SIZE + HALF_CHUNK;
+            chunkCenters[idx * 3 + 2] = cz * CHUNK_SIZE + HALF_CHUNK;
+        }
+    }
+}
 
-    // Unload out-of-range chunks
-    for (let cz = 0; cz < WORLD_CHUNKS_Z; cz++) {
-        for (let cy = 0; cy < WORLD_CHUNKS_Y; cy++) {
-            for (let cx = 0; cx < WORLD_CHUNKS_X; cx++) {
-                const inRange = cx >= minCX && cx <= maxCX && cz >= minCZ && cz <= maxCZ;
-                const idx = worldChunkIndex(cx, cy, cz);
-                const state = chunkStates[idx];
-                if (!inRange && state.loaded) {
-                    for (const p of state.pages) {
-                        writePageInfo(p, 0, [0,0,0], [0,0,0]);
-                        pageInfoBuf.addUpdateRange(p * PAGE_INFO_STRIDE, PAGE_INFO_STRIDE);
-                        freePage(p);
-                    }
-                    state.pages = [];
-                    state.loaded = false;
-                    pageInfoBuf.needsUpdate = true;
-                }
-            }
+let lastStreamX = -Infinity, lastStreamY = -Infinity, lastStreamZ = -Infinity;
+
+function streamChunks(camX: number, camY: number, camZ: number): void {
+    const dx = camX - lastStreamX, dy = camY - lastStreamY, dz = camZ - lastStreamZ;
+    if (dx * dx + dy * dy + dz * dz < STREAM_HYSTERESIS) return;
+    lastStreamX = camX; lastStreamY = camY; lastStreamZ = camZ;
+
+    // Compute squared distances and sort
+    for (let i = 0; i < TOTAL_CHUNKS; i++) {
+        const ox = chunkCenters[i * 3 + 0] - camX;
+        const oy = chunkCenters[i * 3 + 1] - camY;
+        const oz = chunkCenters[i * 3 + 2] - camZ;
+        chunkDist2[i] = ox * ox + oy * oy + oz * oz;
+    }
+
+    const sorted = Array.from(sortedChunks);
+    sorted.sort((a, b) => chunkDist2[a] - chunkDist2[b]);
+    sortedChunks.set(sorted);
+
+    // Pass 1: figure out how many pages the nearest chunks need
+    let pagesNeeded = 0;
+    let cutoff = TOTAL_CHUNKS; // index in sorted list where we run out of budget
+    for (let i = 0; i < TOTAL_CHUNKS; i++) {
+        const idx = sortedChunks[i];
+        const cost = chunkPageCount[idx];
+        if (pagesNeeded + cost > POOL_PAGES) {
+            cutoff = i;
+            break;
+        }
+        pagesNeeded += cost;
+    }
+
+    // Pass 2: unload everything beyond cutoff
+    for (let i = cutoff; i < TOTAL_CHUNKS; i++) {
+        const idx = sortedChunks[i];
+        if (gpuPages[idx].length > 0) unloadChunk(idx);
+    }
+
+    // Pass 3: upload everything before cutoff that isn't already on GPU
+    for (let i = 0; i < cutoff; i++) {
+        const idx = sortedChunks[i];
+        if (gpuPages[idx].length === 0 && meshCache[idx]) {
+            uploadChunk(idx);
         }
     }
 
-    // Load newly in-range chunks
-    for (let cz = minCZ; cz <= maxCZ; cz++) {
-        for (let cy = 0; cy < WORLD_CHUNKS_Y; cy++) {
-            for (let cx = minCX; cx <= maxCX; cx++) {
-                const idx = worldChunkIndex(cx, cy, cz);
-                const state = chunkStates[idx];
-                if (!state.loaded) {
-                    state.loaded = true;
-                    markDirty(cx, cy, cz);
-                }
-            }
-        }
+    flushGPU();
+}
+
+// ─── editing ─────────────────────────────────────────────────────────────────
+
+function remeshForEdit(world: World, chunkIdx: number): void {
+    // Unload from GPU if present
+    if (gpuPages[chunkIdx].length > 0) unloadChunk(chunkIdx);
+    // Re-mesh to cache
+    meshAndCache(world, chunkIdx);
+
+    const needed = chunkPageCount[chunkIdx];
+    if (needed === 0) return;
+
+    // Evict farthest loaded chunks if pool doesn't have room
+    // sortedChunks is sorted nearest-first from last streamChunks call
+    let evictIdx = TOTAL_CHUNKS - 1;
+    while (freeHead < needed && evictIdx >= 0) {
+        const victim = sortedChunks[evictIdx--];
+        if (victim === chunkIdx) continue;
+        if (gpuPages[victim].length > 0) unloadChunk(victim);
     }
+
+    if (freeHead >= needed) uploadChunk(chunkIdx);
+    flushGPU();
 }
 
 // ─── frustum update ───────────────────────────────────────────────────────────
@@ -584,7 +623,12 @@ function raycastVoxels(world: World, ox: number, oy: number, oz: number, dx: num
     return null;
 }
 
-// Apply sphere brush and mark affected chunks dirty
+function addChunkIfValid(set: Set<number>, cx: number, cy: number, cz: number): void {
+    if (cx >= 0 && cx < WORLD_CHUNKS_X && cy >= 0 && cy < WORLD_CHUNKS_Y && cz >= 0 && cz < WORLD_CHUNKS_Z) {
+        set.add(worldChunkIndex(cx, cy, cz));
+    }
+}
+
 function applyBrush(world: World, wx: number, wy: number, wz: number, type: number): void {
     const r = BRUSH_RADIUS;
     const r2 = r * r;
@@ -601,23 +645,21 @@ function applyBrush(world: World, wx: number, wy: number, wz: number, type: numb
                 const cz = Math.floor(vz / CHUNK_SIZE);
                 if (cx >= 0 && cx < WORLD_CHUNKS_X && cy >= 0 && cy < WORLD_CHUNKS_Y && cz >= 0 && cz < WORLD_CHUNKS_Z) {
                     affected.add(worldChunkIndex(cx, cy, cz));
-                    // Also mark face-adjacent chunks dirty for seam correctness
-                    if (dx === -r || vx % CHUNK_SIZE === 0) markDirty(cx-1, cy, cz);
-                    if (dx ===  r || vx % CHUNK_SIZE === CHUNK_SIZE-1) markDirty(cx+1, cy, cz);
-                    if (dy === -r || vy % CHUNK_SIZE === 0) markDirty(cx, cy-1, cz);
-                    if (dy ===  r || vy % CHUNK_SIZE === CHUNK_SIZE-1) markDirty(cx, cy+1, cz);
-                    if (dz === -r || vz % CHUNK_SIZE === 0) markDirty(cx, cy, cz-1);
-                    if (dz ===  r || vz % CHUNK_SIZE === CHUNK_SIZE-1) markDirty(cx, cy, cz+1);
+                    const lx = vx - cx * CHUNK_SIZE;
+                    const ly = vy - cy * CHUNK_SIZE;
+                    const lz = vz - cz * CHUNK_SIZE;
+                    if (lx === 0)              addChunkIfValid(affected, cx-1, cy, cz);
+                    if (lx === CHUNK_SIZE - 1) addChunkIfValid(affected, cx+1, cy, cz);
+                    if (ly === 0)              addChunkIfValid(affected, cx, cy-1, cz);
+                    if (ly === CHUNK_SIZE - 1) addChunkIfValid(affected, cx, cy+1, cz);
+                    if (lz === 0)              addChunkIfValid(affected, cx, cy, cz-1);
+                    if (lz === CHUNK_SIZE - 1) addChunkIfValid(affected, cx, cy, cz+1);
                 }
             }
         }
     }
 
-    for (const idx of affected) markDirty(
-        idx % WORLD_CHUNKS_X,
-        Math.floor((idx % (WORLD_CHUNKS_Y * WORLD_CHUNKS_X)) / WORLD_CHUNKS_X),
-        Math.floor(idx / (WORLD_CHUNKS_Y * WORLD_CHUNKS_X)),
-    );
+    for (const idx of affected) remeshForEdit(world, idx);
 }
 
 // ─── material ─────────────────────────────────────────────────────────────────
@@ -664,11 +706,16 @@ async function main() {
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.clearColor = [0.53, 0.80, 0.92, 1];
 
+    // Stats overlay
+    const statsEl = document.createElement('div');
+    statsEl.style.cssText = 'position:fixed;top:8px;left:8px;background:rgba(0,0,0,0.7);color:#fff;padding:8px 12px;font:12px/1.5 monospace;border-radius:4px;pointer-events:none;z-index:100;';
+    document.body.appendChild(statsEl);
+
     const scene = new Scene();
     const camera = new PerspectiveCamera(Math.PI / 4, window.innerWidth / window.innerHeight, 0.1, 2000);
     camera.position[0] = (WORLD_CHUNKS_X * CHUNK_SIZE) / 2;
     camera.position[1] = WORLD_CHUNKS_Y * CHUNK_SIZE * 0.6;
-    camera.position[2] = (WORLD_CHUNKS_Z * CHUNK_SIZE) / 2 + RENDER_DIST * CHUNK_SIZE * 1.2;
+    camera.position[2] = (WORLD_CHUNKS_Z * CHUNK_SIZE) / 2 + CHUNK_SIZE * 10;
     scene.add(camera);
 
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -692,25 +739,16 @@ async function main() {
     const mesh = new Mesh(mergedGeometry, material);
     scene.add(mesh);
 
-    // DISABLED: await renderer.compileCompute(cullCompute);
     await renderer.compileCompute(cullCompute);
 
     const scenePass = pass(scene, camera);
     const outputNode = scenePass.getTextureNode();
 
-    // Load all chunks upfront (no render distance for now)
-    for (let cz = 0; cz < WORLD_CHUNKS_Z; cz++) {
-        for (let cy = 0; cy < WORLD_CHUNKS_Y; cy++) {
-            for (let cx = 0; cx < WORLD_CHUNKS_X; cx++) {
-                markDirty(cx, cy, cz);
-            }
-        }
-    }
+    // Mesh all chunks into CPU cache at startup
+    for (let i = 0; i < TOTAL_CHUNKS; i++) meshAndCache(world, i);
 
-    // Mesh everything before first frame
-    while (dirtyQueue.length > 0) {
-        remeshChunk(world, dirtyQueue.shift()!);
-    }
+    // Initial chunk streaming — load nearest chunks that fit in page budget
+    streamChunks(camera.position[0], camera.position[1], camera.position[2]);
 
     // Ray from screen position
     function getRayFromScreen(clientX: number, clientY: number): { ox: number; oy: number; oz: number; dx: number; dy: number; dz: number } {
@@ -740,29 +778,30 @@ async function main() {
         };
     }
 
-    renderer.domElement.addEventListener('click', (e) => {
+    renderer.domElement.addEventListener('mousedown', (e) => {
+        if (e.button !== 0 && e.button !== 2) return;
         const ray = getRayFromScreen(e.clientX, e.clientY);
-        const hit = raycastVoxels(world, ray.ox, ray.oy, ray.oz, ray.dx, ray.dy, ray.dz, 64);
+        const hit = raycastVoxels(world, ray.ox, ray.oy, ray.oz, ray.dx, ray.dy, ray.dz, 1024);
         if (!hit) return;
 
         if (e.button === 2) {
-            // right click — break (remove sphere of voxels)
-            applyBrush(world, hit.wx, hit.wy, hit.wz, VOXEL_AIR);
-        } else {
-            // left click — place on the face
             applyBrush(world, hit.wx + hit.nx, hit.wy + hit.ny, hit.wz + hit.nz, VOXEL_SOLID);
+        } else {
+            applyBrush(world, hit.wx, hit.wy, hit.wz, VOXEL_AIR);
         }
     });
 
     renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
+
+    let frameCount = 0;
 
     function frame() {
         controls.update();
         scene.updateWorldMatrix();
         camera.updateViewMatrix();
 
-        // DISABLED: render distance
-        // updateRenderDistance(camera.position[0], camera.position[2]);
+        // Stream nearest chunks into pool budget
+        streamChunks(camera.position[0], camera.position[1], camera.position[2]);
 
         // Update frustum for GPU cull
         updateFrustum(camera);
@@ -770,14 +809,20 @@ async function main() {
         // GPU cull pass — writes indirectBuf slots
         renderer.compute(cullCompute, [Math.ceil(POOL_PAGES / 64), 1, 1]);
 
-        // Process dirty chunks (up to MAX_DIRTY_PER_FRAME)
-        let processed = 0;
-        while (dirtyQueue.length > 0 && processed < MAX_DIRTY_PER_FRAME) {
-            remeshChunk(world, dirtyQueue.shift()!);
-            processed++;
+        renderer.render(outputNode);
+
+        if (++frameCount % 30 === 0) {
+            const pagesUsed = POOL_PAGES - freeHead;
+            let chunksLoaded = 0;
+            for (let i = 0; i < TOTAL_CHUNKS; i++) {
+                if (gpuPages[i].length > 0) chunksLoaded++;
+            }
+            statsEl.textContent =
+                `pages: ${pagesUsed}/${POOL_PAGES}  ` +
+                `chunks: ${chunksLoaded}/${TOTAL_CHUNKS}  ` +
+                `buf: ${((pagesUsed * PAGE_BYTES_MAX) / (1024 * 1024)).toFixed(1)}MB`;
         }
 
-        renderer.render(outputNode);
         requestAnimationFrame(frame);
     }
 
