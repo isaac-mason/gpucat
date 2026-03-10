@@ -806,7 +806,20 @@ function isTrivialExpr(node: Node<d.Any>): boolean {
 
 /** Check if a node's type cannot be copied into a let binding */
 function isNonCopyable(node: Node<d.Any>): boolean {
-    return containsAtomics(node.type);
+    if (containsAtomics(node.type)) return true;
+    if (isStorageElementAccess(node)) return true;
+    return false;
+}
+
+/** Check if node is an access into storage (IndexNode into StorageNode, or FieldNode/IndexNode chain from one) */
+function isStorageElementAccess(node: Node<d.Any>): boolean {
+    if (node instanceof IndexNode) {
+        if (node.array instanceof StorageNode) return true;
+        // Also check if indexing into something that's itself a storage access
+        return isStorageElementAccess(node.array);
+    }
+    if (node instanceof FieldNode) return isStorageElementAccess(node.object);
+    return false;
 }
 
 /* binding generation */

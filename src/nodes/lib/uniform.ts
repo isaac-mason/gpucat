@@ -1,4 +1,4 @@
-import { Node, type StructDef, type StructInstance, computeId, ConstructNode, NodeUpdateType, ConstNode } from './core';
+import { Node, type StructDef, type StructInstance, computeId, ConstructNode, NodeUpdateType, ConstNode, nextId } from './core';
 import type { StructSchema, Any } from '../schema';
 import type { NodeFrame } from '../../renderer/node-frame';
 
@@ -31,20 +31,16 @@ export class UniformGroupNode {
 }
 
 export class UniformNode<D extends Any> extends Node<D> {
-    /**
-     * Uniform group — determines @group index and struct packing.
-     */
-    readonly groupNode: UniformGroupNode;
+    /** uniform group — determines @group index and struct packing */
+    groupNode: UniformGroupNode;
 
-    /**
-     * Field name within the struct (e.g. 'cameraViewMatrix', 'roughness').
-     */
-    readonly name: string;
+    /** uniform name */
+    name: string;
 
-    /** CPU-side value. Set this to update the uniform on the GPU. */
+    /** uniform value */
     value: number | number[] | Float32Array | null = null;
 
-    /** Monotonically incremented when value is set. Renderer re-uploads when stale. */
+    /** version for triggering re-renders */
     version: number = 0;
 
     constructor(
@@ -136,7 +132,8 @@ export function uniform<D extends Any, S extends StructSchema>(
     if ('fields' in init && 'instantiate' in init) {
         // Struct form: init is a StructDef
         const def = init as StructDef<S>;
-        const uniformId = name ?? def.wgslType;
+        // Always generate unique name if not provided to prevent collisions
+        const uniformId = name ?? `${def.wgslType}_${nextId()}`;
         const node = new UniformNode(def as unknown as D, uniformId);
         return def.instantiate(node);
     }
@@ -144,7 +141,8 @@ export function uniform<D extends Any, S extends StructSchema>(
     // ConstNode carries a .value; ConstructNode carries .args — we only seed
     // the initial CPU-side value for ConstNodes (scalars / literal vectors).
     const initNode = init as ConstNode<D> | ConstructNode<D>;
-    const uniformId = name ?? initNode.type.wgslType;
+    // Always generate unique name if not provided to prevent collisions
+    const uniformId = name ?? `${initNode.type.wgslType}_${nextId()}`;
     const node = new UniformNode(initNode.type, uniformId);
     if (node.value === null && 'value' in initNode && initNode.value !== null) {
         node.value = initNode.value as number | number[];

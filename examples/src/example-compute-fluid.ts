@@ -12,7 +12,7 @@ import {
     OrbitControls,
     type Node,
 } from 'gpucat';
-import { mat4, vec4 as mcVec4 } from 'mathcat';
+import { mat4, vec4 as mcVec4, Vec4 } from 'mathcat';
 
 // ── Simulation constants ──────────────────────────────────────────────────────
 
@@ -93,7 +93,7 @@ const workgroupKernel = Fn(() => {
     index(p2g1WorkgroupStorage, u32(0)).assign(count);
     index(p2g2WorkgroupStorage, u32(0)).assign(count);
     index(g2pWorkgroupStorage,  u32(0)).assign(count);
-}).compute({ workgroupSize: [1, 1, 1] });
+}).compute({ workgroupSize: [1, 1, 1], name: 'Workgroup Count' });
 
 // ── Compute kernels ───────────────────────────────────────────────────────────
 
@@ -106,7 +106,7 @@ const clearGridKernel = Fn(() => {
     atomicStore(c.y,    i32(0));
     atomicStore(c.z,    i32(0));
     atomicStore(c.mass, i32(0));
-}).compute({ workgroupSize: [workgroupSize, 1, 1] });
+}).compute({ workgroupSize: [workgroupSize, 1, 1], name: 'Clear Grid' });
 const clearGridDispatch: [number, number, number] = [Math.ceil(cellCount / workgroupSize), 1, 1];
 
 // 2. Particle-to-grid pass 1: scatter velocity*mass and mass to grid.
@@ -145,7 +145,7 @@ const p2g1Kernel = Fn(() => {
             });
         });
     });
-}).compute({ workgroupSize: [workgroupSize, 1, 1] });
+}).compute({ workgroupSize: [workgroupSize, 1, 1], name: 'P2G Pass 1' });
 
 // 3. Particle-to-grid pass 2: scatter pressure + viscosity forces.
 const p2g2Kernel = Fn(() => {
@@ -199,13 +199,13 @@ const p2g2Kernel = Fn(() => {
             });
         });
     });
-}).compute({ workgroupSize: [workgroupSize, 1, 1] });
+}).compute({ workgroupSize: [workgroupSize, 1, 1], name: 'P2G Pass 2' });
 
 // 4. Update grid: normalise by mass, apply boundary conditions, write to float buffer.
 const updateGridKernel = Fn(() => {
     If(computeIndex.greaterThanEqual(u32(cellCount)), () => { Return(); });
 
-    const cell = CellStruct.instantiate(index(cellBuffer, computeIndex));
+    const cell = index(cellBuffer, computeIndex).fields();
     const mass = decodeFixedPoint(atomicLoad(cell.mass)).toConst('mass');
     If(mass.lessThanEqual(f32(0)), () => { Return(); });
 
@@ -221,14 +221,14 @@ const updateGridKernel = Fn(() => {
     If(gz.lessThan(i32(1)).or(gz.greaterThan(i32(gridSize1d - 2))), () => { vz.assign(f32(0)); });
 
     index(cellBufferFloat, computeIndex).assign(vec4(vx, vy, vz, mass));
-}).compute({ workgroupSize: [workgroupSize, 1, 1] });
+}).compute({ workgroupSize: [workgroupSize, 1, 1], name: 'Update Grid' });
 const updateGridDispatch: [number, number, number] = [Math.ceil(cellCount / workgroupSize), 1, 1];
 
 // 5. Grid-to-particle: gather velocity, update C, integrate position.
 const g2pKernel = Fn(() => {
     If(computeIndex.greaterThanEqual(particleCountUniform), () => { Return(); });
 
-    const p        = ParticleStruct.instantiate(index(particleBuffer, computeIndex));
+    const p        = index(particleBuffer, computeIndex).fields();
     const pos      = p.position.toVar('pos');
     const gridPos  = pos.mul(gridSizeUniform).toVar('gridPos');
     const pVel     = vec3(0).toVar('pVel');
@@ -296,11 +296,11 @@ const g2pKernel = Fn(() => {
     pVel.mulAssign(gridSizeUniform);
     p.position.assign(pos);
     p.velocity.assign(pVel);
-}).compute({ workgroupSize: [workgroupSize, 1, 1] });
+}).compute({ workgroupSize: [workgroupSize, 1, 1], name: 'G2P' });
 
 // ── Render material ───────────────────────────────────────────────────────────
 
-const particlePos = ParticleStruct.instantiate(index(particleBuffer, instanceIndex)).position;
+const particlePos = index(particleBuffer, instanceIndex).field("position");
 const vtxPos      = attribute(d.vec3f, 'position');
 const worldPos    = vec4(
     vtxPos.x.add(particlePos.x).sub(f32(0.5)),
@@ -422,7 +422,7 @@ function setupMouse() {
     });
 }
 
-function perspDiv(v: mcVec4.Vec4): void {
+function perspDiv(v: Vec4): void {
     const w = v[3];
     v[0] /= w; v[1] /= w; v[2] /= w; v[3] = 1;
 }

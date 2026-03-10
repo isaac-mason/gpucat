@@ -1125,6 +1125,7 @@ export function assign<D extends Any>(target: Node<D>, value: Node<D>): void { a
 
 export type ComputeOptions = {
     workgroupSize: [x: number, y: number, z: number];
+    name?: string;
 };
 export type ComputeNodeOptions = ComputeOptions & { fn: FnNode<any> }; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -1134,6 +1135,7 @@ export class ComputeNode {
     readonly id: string;
     readonly fn: FnNode<Any>;
     readonly workgroupSize: [number, number, number];
+    readonly name: string | undefined;
 
     /**
      * Set to true after dispose() is called.
@@ -1151,6 +1153,7 @@ export class ComputeNode {
         this.id = `_compute_${_computeCounter++}`;
         this.fn = opts.fn;
         this.workgroupSize = opts.workgroupSize;
+        this.name = opts.name;
     }
 
     /**

@@ -18,11 +18,15 @@ function scalarDescOf(desc: Any): ScalarResultDesc {
 
 /**
  * Atomically adds `value` to the atomic value at `ptr` and returns the old value.
+ * The call is always added to the stack so side effects are captured even if the
+ * return value is discarded.
  *
  * In WGSL: `atomicAdd(&ptr, value) -> i32/u32`
  */
 export function atomicAdd<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): Node<ScalarResultDesc> {
-    return new CallNode(scalarDescOf(ptr.type), 'atomicAdd', [ptr, value]);
+    const node = new CallNode(scalarDescOf(ptr.type), 'atomicAdd', [ptr, value]);
+    addToStack(node);
+    return node;
 }
 
 /**
@@ -45,70 +49,100 @@ export function atomicLoad<D extends AtomicPtrDesc>(ptr: Node<D>): Node<ScalarRe
 
 /**
  * Atomically subtracts `value` from the atomic value at `ptr` and returns the old value.
+ * The call is always added to the stack so side effects are captured even if the
+ * return value is discarded.
  *
  * In WGSL: `atomicSub(&ptr, value) -> i32/u32`
  */
 export function atomicSub<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): Node<ScalarResultDesc> {
-    return new CallNode(scalarDescOf(ptr.type), 'atomicSub', [ptr, value]);
+    const node = new CallNode(scalarDescOf(ptr.type), 'atomicSub', [ptr, value]);
+    addToStack(node);
+    return node;
 }
 
 /**
  * Atomically computes the maximum of the atomic value and `value`, stores it, and returns the old value.
+ * The call is always added to the stack so side effects are captured even if the
+ * return value is discarded.
  *
  * In WGSL: `atomicMax(&ptr, value) -> i32/u32`
  */
 export function atomicMax<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): Node<ScalarResultDesc> {
-    return new CallNode(scalarDescOf(ptr.type), 'atomicMax', [ptr, value]);
+    const node = new CallNode(scalarDescOf(ptr.type), 'atomicMax', [ptr, value]);
+    addToStack(node);
+    return node;
 }
 
 /**
  * Atomically computes the minimum of the atomic value and `value`, stores it, and returns the old value.
+ * The call is always added to the stack so side effects are captured even if the
+ * return value is discarded.
  *
  * In WGSL: `atomicMin(&ptr, value) -> i32/u32`
  */
 export function atomicMin<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): Node<ScalarResultDesc> {
-    return new CallNode(scalarDescOf(ptr.type), 'atomicMin', [ptr, value]);
+    const node = new CallNode(scalarDescOf(ptr.type), 'atomicMin', [ptr, value]);
+    addToStack(node);
+    return node;
 }
 
 /**
  * Atomically computes the bitwise AND of the atomic value and `value`, stores it, and returns the old value.
+ * The call is always added to the stack so side effects are captured even if the
+ * return value is discarded.
  *
  * In WGSL: `atomicAnd(&ptr, value) -> i32/u32`
  */
 export function atomicAnd<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): Node<ScalarResultDesc> {
-    return new CallNode(scalarDescOf(ptr.type), 'atomicAnd', [ptr, value]);
+    const node = new CallNode(scalarDescOf(ptr.type), 'atomicAnd', [ptr, value]);
+    addToStack(node);
+    return node;
 }
 
 /**
  * Atomically computes the bitwise OR of the atomic value and `value`, stores it, and returns the old value.
+ * The call is always added to the stack so side effects are captured even if the
+ * return value is discarded.
  *
  * In WGSL: `atomicOr(&ptr, value) -> i32/u32`
  */
 export function atomicOr<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): Node<ScalarResultDesc> {
-    return new CallNode(scalarDescOf(ptr.type), 'atomicOr', [ptr, value]);
+    const node = new CallNode(scalarDescOf(ptr.type), 'atomicOr', [ptr, value]);
+    addToStack(node);
+    return node;
 }
 
 /**
  * Atomically computes the bitwise XOR of the atomic value and `value`, stores it, and returns the old value.
+ * The call is always added to the stack so side effects are captured even if the
+ * return value is discarded.
  *
  * In WGSL: `atomicXor(&ptr, value) -> i32/u32`
  */
 export function atomicXor<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): Node<ScalarResultDesc> {
-    return new CallNode(scalarDescOf(ptr.type), 'atomicXor', [ptr, value]);
+    const node = new CallNode(scalarDescOf(ptr.type), 'atomicXor', [ptr, value]);
+    addToStack(node);
+    return node;
 }
 
 /**
  * Atomically exchanges the value at `ptr` with `value` and returns the old value.
+ * The call is always added to the stack so side effects are captured even if the
+ * return value is discarded.
  *
  * In WGSL: `atomicExchange(&ptr, value) -> i32/u32`
  */
 export function atomicExchange<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): Node<ScalarResultDesc> {
-    return new CallNode(scalarDescOf(ptr.type), 'atomicExchange', [ptr, value]);
+    const node = new CallNode(scalarDescOf(ptr.type), 'atomicExchange', [ptr, value]);
+    addToStack(node);
+    return node;
 }
 
 /**
  * Atomically compares the value at `ptr` with `comparator` and if equal, stores `value`.
  * Returns the old value (regardless of whether the exchange happened).
+ * The call is always added to the stack so side effects are captured even if the
+ * return value is discarded.
  *
  * In WGSL: `atomicCompareExchangeWeak(&ptr, comparator, value) -> __atomic_compare_exchange_result<T>`
  *
@@ -120,5 +154,7 @@ export function atomicCompareExchangeWeak<D extends AtomicPtrDesc>(
     comparator: Node<d.i32 | d.u32>,
     value: Node<d.i32 | d.u32>
 ): Node<Any> {
-    return new CallNode(d.voidDesc, 'atomicCompareExchangeWeak', [ptr, comparator, value]);
+    const node = new CallNode(d.voidDesc, 'atomicCompareExchangeWeak', [ptr, comparator, value]);
+    addToStack(node);
+    return node;
 }

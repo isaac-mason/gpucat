@@ -285,7 +285,7 @@ export class ComputeCalls extends Tab {
 // ---------------------------------------------------------------------------
 
 function _nodeDisplayName(node: ComputeNode): string {
-    // Use node.id directly, potentially truncated for readability
+    if (node.name) return node.name;
     const id = node.id;
     if (id.length > 32) {
         return id.slice(0, 29) + '...';

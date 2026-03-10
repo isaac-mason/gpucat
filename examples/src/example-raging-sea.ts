@@ -29,7 +29,7 @@ import {
 
 // gradient (Perlin-style) noise — C1 continuous, no sharp zero-crossings
 
-const noiseHash = wgslFn<'u32'>(`
+const noiseHash = wgslFn<d.u32>(`
 fn noiseHash(n: i32) -> u32 {
     var v = u32(n);
     v = (v << 13u) ^ v;
@@ -37,7 +37,7 @@ fn noiseHash(n: i32) -> u32 {
 }
 `);
 
-const noiseGrad = wgslFn<'f32'>(`
+const noiseGrad = wgslFn<d.f32>(`
 fn noiseGrad(h: u32, x: f32, y: f32, z: f32) -> f32 {
     let hh = h & 15u;
     let u2 = select(y, x, hh < 8u);
@@ -46,7 +46,7 @@ fn noiseGrad(h: u32, x: f32, y: f32, z: f32) -> f32 {
 }
 `);
 
-const gradNoise3D = wgslFn<'f32'>(`
+const gradNoise3D = wgslFn<d.f32>(`
 fn gradNoise3D(p: vec3f) -> f32 {
     let iv = vec3i(floor(p));
     let f  = fract(p);
@@ -89,39 +89,29 @@ const uSmallAmp    = uniform(f32(0.18), 'smallAmp');
 // wavesElevation: large sine + small noise octaves (via Fn)
 const wavesElevation = Fn(
     (
-        pos:    Node<WgslType>,
-        t:      Node<WgslType>,
-        freqX:  Node<WgslType>,
-        freqZ:  Node<WgslType>,
-        speed:  Node<WgslType>,
-        amp:    Node<WgslType>,
-        sFreq:  Node<WgslType>,
-        sSpeed: Node<WgslType>,
-        sAmp:   Node<WgslType>,
+        pos,
+        t,
+        freqX,
+        freqZ,
+        speed,
+        amp,
+        sFreq,
+        sSpeed,
+        sAmp,
     ) => {
-        const p  = pos   as Node<'vec3f'>;
-        const tm = t     as Node<'f32'>;
-        const fx = freqX as Node<'f32'>;
-        const fz = freqZ as Node<'f32'>;
-        const sp = speed as Node<'f32'>;
-        const am = amp   as Node<'f32'>;
-        const sf = sFreq  as Node<'f32'>;
-        const ss = sSpeed as Node<'f32'>;
-        const sa = sAmp   as Node<'f32'>;
-
-        const elev = p.x.mul(fx).add(tm.mul(sp)).sin()
-            .mul(p.z.mul(fz).add(tm.mul(sp)).sin())
-            .mul(am)
+        const elev = pos.x.mul(freqX).add(t.mul(speed)).sin()
+            .mul(pos.z.mul(freqZ).add(t.mul(speed)).sin())
+            .mul(amp)
             .toVar('elev');
 
         // 3 octaves of value noise for small waves
         for (let oct = 1; oct <= 3; oct++) {
             const scale = f32(oct);
             const noiseInput = vec3(
-                p.xz.add(vec2(f32(2), f32(2))).mul(sf).mul(scale),
-                tm.mul(ss),
+                pos.xz.add(vec2(f32(2), f32(2))).mul(sFreq).mul(scale),
+                t.mul(sSpeed),
             );
-            const wave = gradNoise3D(noiseInput).mul(sa).div(scale);
+            const wave = gradNoise3D(noiseInput).mul(sAmp).div(scale);
             elev.assign(elev.sub(wave));
         }
 
