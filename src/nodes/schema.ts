@@ -429,7 +429,7 @@ export type TypedArrayFor<D extends Any> =
     D extends i32 | vec2i | vec3i | vec4i ? Int32Array :
     D extends u32 | vec2u | vec3u | vec4u ? Uint32Array :
     D extends f32 | vec2f | vec3f | vec4f | mat2x2f | mat2x3f | mat2x4f | mat3x2f | mat3x3f | mat3x4f | mat4x2f | mat4x3f | mat4x4f ? Float32Array :
-    Float32Array | Int32Array | Uint32Array;
+    Float32Array | Int32Array | Uint32Array | Uint16Array | Int16Array | Uint8Array | Int8Array;
 
 // ---------------------------------------------------------------------------
 // WgslType — string-literal union of all WGSL type strings
@@ -519,7 +519,7 @@ export function array<E extends Any>(element: E): { readonly type: 'array'; read
     return { type: 'array', wgslType: `array<${element.wgslType}>`, element };
 }
 
-export function arrayOf<E extends Any, N extends number>(element: E, length: N): { readonly type: 'sized-array'; readonly wgslType: `array<${E['wgslType']}, ${N}>`; readonly element: E; readonly length: N } {
+export function sizedArray<E extends Any, N extends number>(element: E, length: N): { readonly type: 'sized-array'; readonly wgslType: `array<${E['wgslType']}, ${N}>`; readonly element: E; readonly length: N } {
     return { type: 'sized-array', wgslType: `array<${element.wgslType}, ${length}>`, element, length };
 }
 
@@ -665,6 +665,8 @@ export function wgslAlignOf(desc: Any): number {
         return maxAlign;
     }
 
+    if (isArrayDesc(desc) || isSizedArrayDesc(desc)) return wgslAlignOf(desc.element);
+
     if (isAtomicDesc(desc)) return 4;
 
     const t = desc.wgslType;
@@ -696,6 +698,14 @@ export function wgslSizeOf(desc: Any): number {
             offset = roundUp(offset, wgslAlignOf(field)) + wgslSizeOf(field);
         }
         return roundUp(offset, structAlign);
+    }
+
+    if (isSizedArrayDesc(desc)) {
+        return desc.length * wgslStrideOf(desc.element);
+    }
+
+    if (isArrayDesc(desc)) {
+        throw new Error(`[gpucat] wgslSizeOf: cannot compute static size of runtime-sized array '${desc.wgslType}'`);
     }
 
     if (isAtomicDesc(desc)) return 4;

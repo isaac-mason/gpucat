@@ -635,7 +635,8 @@ export class WebGPURenderer {
 
                 // upload storage buffers
                 for (const s of nodeState.storage) {
-                    buffers.uploadStorage(this.buffers, s.node, geometry);
+                    const buffer = buffers.resolveStorageBuffer(s.node, geometry);
+                    buffers.ensureUploaded(this.buffers, buffer);
                 }
 
                 // upload vertex buffers
@@ -643,7 +644,7 @@ export class WebGPURenderer {
                     if (attrEntry.kind === 'geometry') {
                         const bufAttr = geometry.buffers.get(attrEntry.name);
                         if (bufAttr) {
-                            buffers.uploadVertex(this.buffers, bufAttr);
+                            buffers.ensureUploaded(this.buffers, bufAttr);
                         }
                     } else {
                         const arr = attrEntry.node.buffer.array;
@@ -660,7 +661,7 @@ export class WebGPURenderer {
 
                 // upload index buffer if present
                 if (geometry.index) {
-                    buffers.uploadIndex(this.buffers, geometry.index);
+                    buffers.ensureUploaded(this.buffers, geometry.index);
                 }
             }
 
@@ -765,7 +766,7 @@ export class WebGPURenderer {
         }
 
         if (dispatchOrIndirect instanceof GpuBufferClass) {
-            const gpuBuf = buffers.uploadIndirect(this.buffers, dispatchOrIndirect);
+            const gpuBuf = buffers.ensureUploaded(this.buffers, dispatchOrIndirect);
             this._dispatchComputeNode(node, this._frameEncoder, undefined, gpuBuf, 0);
         } else {
             this._dispatchComputeNode(node, this._frameEncoder, dispatchOrIndirect, undefined, undefined);
@@ -1322,7 +1323,7 @@ export class WebGPURenderer {
                     if (attrEntry.kind === 'geometry') {
                         const bufAttr = geometry.buffers.get(attrEntry.name);
                         if (!bufAttr) { slot++; continue; }
-                        gpuBuf = buffers.uploadVertex(this.buffers, bufAttr);
+                        gpuBuf = buffers.ensureUploaded(this.buffers, bufAttr);
                     } else {
                         const node = attrEntry.node;
                         const arr = node.buffer.array;
@@ -1345,14 +1346,14 @@ export class WebGPURenderer {
 
                 // Issue draw call (skip index buffer if unchanged)
                 if (geometry.index) {
-                    const idxBuf = buffers.uploadIndex(this.buffers, geometry.index);
+                    const idxBuf = buffers.ensureUploaded(this.buffers, geometry.index);
                     if (currentSets.index !== idxBuf) {
                         passSetIndexBuffer(gpuPass, this.inspector, idxBuf, getIndexFormat(geometry.index.array)!);
                         currentSets.index = idxBuf;
                     }
                     if (geometry.indirect) {
                         const indirect = geometry.indirect;
-                        const indBuf = buffers.uploadIndirect(this.buffers, indirect);
+                        const indBuf = buffers.ensureUploaded(this.buffers, indirect);
                         const byteStride = indirect.itemSize * 4;
                         const baseOffset = geometry.indirectOffset;
                         for (let d = 0; d < indirect.count; d++) {
@@ -1364,7 +1365,7 @@ export class WebGPURenderer {
                 } else {
                     if (geometry.indirect) {
                         const indirect = geometry.indirect;
-                        const indBuf = buffers.uploadIndirect(this.buffers, indirect);
+                        const indBuf = buffers.ensureUploaded(this.buffers, indirect);
                         const byteStride = indirect.itemSize * 4;
                         const baseOffset = geometry.indirectOffset;
                         for (let d = 0; d < indirect.count; d++) {

@@ -5,7 +5,8 @@ import type { RenderObject } from './render-object';
 import * as buffers from './buffers';
 
 /**
- * Buffer type for routing to correct buffer upload function.
+ * @deprecated No longer used — all buffer types route through ensureUploaded.
+ * Kept temporarily while call sites that pass this type are migrated.
  */
 export type BufferType = 'vertex' | 'index' | 'indirect';
 
@@ -110,14 +111,12 @@ export function updateBuffer(
     // Mark as updated for this frame
     state.bufferCall.set(buffer, callId);
 
-    // Route to appropriate upload function in buffers.ts
+    // Route to unified upload function in buffers.ts
     // buffers.ts handles version tracking internally
     switch (type) {
         case 'vertex':
-            buffers.uploadVertex(state.bufferCache, buffer);
-            break;
         case 'indirect':
-            buffers.uploadIndirect(state.bufferCache, buffer);
+            buffers.ensureUploaded(state.bufferCache, buffer);
             break;
         // Note: 'index' type uses updateIndex() instead
     }
@@ -141,7 +140,7 @@ export function updateIndex(
     // Mark as updated for this frame
     state.bufferCall.set(index, callId);
 
-    buffers.uploadIndex(state.bufferCache, index);
+    buffers.ensureUploaded(state.bufferCache, index);
 }
 
 /**
@@ -152,7 +151,7 @@ export function getIndirectBuffer(
     state: GeometriesState,
     buffer: GpuBuffer<Any>,
 ): GPUBuffer | undefined {
-    return buffers.getIndirect(state.bufferCache, buffer);
+    return buffers.getUploaded(state.bufferCache, buffer);
 }
 
 /**

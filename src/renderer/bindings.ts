@@ -15,7 +15,7 @@ import {
     type BindGroupLayoutCache,
 } from './bind-group-layout';
 import type { BufferCache } from './buffers';
-import { getRaw, uploadRaw, uploadStorage } from './buffers';
+import { getRaw, uploadRaw, ensureUploaded, getUploaded, resolveStorageBuffer } from './buffers';
 import type { NodeBuilderState } from './node-builder-state';
 import type { NodeFrame } from './node-frame';
 import type { RenderObject } from './render-object';
@@ -325,7 +325,7 @@ function updateBindGroup(
                 break;
 
             case 'storage':
-                updateStorageBinding(binding, data, renderObject.geometry);
+                updateStorageBinding(state, binding, data, renderObject.geometry);
                 break;
         }
     }
@@ -571,27 +571,24 @@ function updateSamplerBinding(
     }
 }
 
-/** Update a storage binding - detect buffer swaps. */
+/** Update a storage binding - detect buffer swaps and flush data to GPU. */
 function updateStorageBinding(
+    state: BindingsState,
     binding: StorageBinding,
     data: BindGroupData,
     geometry: Geometry | null,
 ): void {
     const node = binding.entry.node;
-    
-    // Resolve current buffer (either from node.value or geometry.buffers)
-    let currentBuffer = null;
-    if (node.isNamedReference) {
-        currentBuffer = geometry?.buffers.get(node.bufferName!) ?? null;
-    } else {
-        currentBuffer = node.value;
-    }
-    
+    const buffer = resolveStorageBuffer(node, geometry);
+
     // If buffer identity changed, need to rebuild bind group
-    if (currentBuffer !== binding.lastBuffer) {
-        binding.lastBuffer = currentBuffer;
+    if (buffer !== binding.lastBuffer) {
+        binding.lastBuffer = buffer;
         data.needsUpdate = true;
     }
+
+    // Flush pending data to GPU (version check / partial ranges handled inside)
+    ensureUploaded(state.bufferCache, buffer);
 }
 
 /** Rebuild the GPU bind group for a BindGroup */
@@ -618,8 +615,11 @@ function rebuildGPUBindGroup(
             }
 
             case 'storage': {
-                const buf = uploadStorage(state.bufferCache, binding.entry.node, geometry);
-                entries.push({ binding: binding.entry.binding, resource: { buffer: buf } });
+                const buffer = resolveStorageBuffer(binding.entry.node, geometry);
+                const buf = getUploaded(state.bufferCache, buffer);
+                if (buf) {
+                    entries.push({ binding: binding.entry.binding, resource: { buffer: buf } });
+                }
                 break;
             }
 
@@ -929,7 +929,7 @@ function updateComputeBindGroup(
                 break;
 
             case 'storage':
-                // Storage buffers are handled in rebuildGPUBindGroup
+                updateStorageBinding(state, binding, data, null);
                 break;
 
             case 'texture':

@@ -68,5 +68,10 @@
         "title": "Voxels",
         "description": "Procedurally generated voxel landscape using layered simplex noise, with culled meshing per chunk and per-vertex ambient occlusion computed on the CPU.",
         "tags": ["geometry", "noise", "voxels"]
+    },
+    "example-voxels-batched": {
+        "title": "Voxels Batched",
+        "description": "Batched voxel renderer with slab-allocated merged geometry, GPU frustum culling via compute shader, indirect draws, render distance management, and realtime voxel editing.",
+        "tags": ["voxels", "indirect", "compute", "culling", "batched-mesh"]
     }
 }

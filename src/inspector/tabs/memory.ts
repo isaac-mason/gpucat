@@ -12,9 +12,7 @@ export class Memory extends Tab {
 
     graph: Graph;
     memoryStats: Item;
-    vertexBuffers: Item;
-    indexBuffers: Item;
-    storageBuffers: Item;
+    gpuBuffers: Item;
     rawBuffers: Item;
     renderPipelines: Item;
     computePipelines: Item;
@@ -46,25 +44,19 @@ export class Memory extends Tab {
         (memoryStats.domElement.firstChild as HTMLElement).classList.add('no-hover');
         memoryList.add(memoryStats);
 
-        const vertexBuffers   = new Item('Vertex Buffers',   createValueSpan());
-        const indexBuffers    = new Item('Index Buffers',    createValueSpan());
-        const storageBuffers  = new Item('Storage Buffers',  createValueSpan());
-        const rawBuffers      = new Item('Raw Buffers',      createValueSpan());
-        const renderPipelines = new Item('Render Pipelines', createValueSpan());
+        const gpuBuffers       = new Item('GPU Buffers',       createValueSpan());
+        const rawBuffers       = new Item('Raw Buffers',       createValueSpan());
+        const renderPipelines  = new Item('Render Pipelines',  createValueSpan());
         const computePipelines = new Item('Compute Pipelines', createValueSpan());
 
-        memoryStats.add(vertexBuffers);
-        memoryStats.add(indexBuffers);
-        memoryStats.add(storageBuffers);
+        memoryStats.add(gpuBuffers);
         memoryStats.add(rawBuffers);
         memoryStats.add(renderPipelines);
         memoryStats.add(computePipelines);
 
         this.graph = graph;
         this.memoryStats = memoryStats;
-        this.vertexBuffers = vertexBuffers;
-        this.indexBuffers = indexBuffers;
-        this.storageBuffers = storageBuffers;
+        this.gpuBuffers = gpuBuffers;
         this.rawBuffers = rawBuffers;
         this.renderPipelines = renderPipelines;
         this.computePipelines = computePipelines;
@@ -74,7 +66,7 @@ export class Memory extends Tab {
         const renderer = inspector.getRenderer();
         if (!renderer) return;
         const bs = getBufferCacheStats(renderer.buffers);
-        const total = bs.vertexCount + bs.indexCount + bs.storageCount + bs.rawCount;
+        const total = bs.bufferCount + bs.rawCount;
         this.graph.addPoint('total', total);
         if (this.graph.limit === 0) this.graph.limit = 1;
         this.graph.update();
@@ -88,9 +80,7 @@ export class Memory extends Tab {
         const ps = pipelinesModule.getStats(renderer.pipelines);
         const ros = getRenderObjectsStats(renderer.renderObjects);
 
-        setText(this.vertexBuffers.data[1] as HTMLElement, bs.vertexCount.toString());
-        setText(this.indexBuffers.data[1] as HTMLElement, bs.indexCount.toString());
-        setText(this.storageBuffers.data[1] as HTMLElement, bs.storageCount.toString());
+        setText(this.gpuBuffers.data[1] as HTMLElement, bs.bufferCount.toString());
         setText(this.rawBuffers.data[1] as HTMLElement, bs.rawCount.toString());
         setText(this.renderPipelines.data[1] as HTMLElement, `${ps.renderCount} render, ${ros.total} objects`);
         setText(this.computePipelines.data[1] as HTMLElement, `${ps.computeCount} compute`);

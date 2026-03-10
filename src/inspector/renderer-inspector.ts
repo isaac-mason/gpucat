@@ -68,7 +68,7 @@ export type FrameRecord = {
     /** Per-pass breakdown */
     passes: PassRecord[];
     /** Snapshot of buffer/pipeline stats at frame end */
-    bufferStats: { vertexCount: number; indexCount: number; storageCount: number; rawCount: number };
+    bufferStats: { bufferCount: number; rawCount: number };
     pipelineStats: {
         renderCount: number;
         computeCount: number;

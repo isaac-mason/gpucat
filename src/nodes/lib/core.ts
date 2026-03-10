@@ -177,6 +177,9 @@ export class Node<D extends Any> {
     equal(b: Node<D>): Node<d.bool>            { return new BinopNode('==', d.bool, this, b); }
     notEqual(b: Node<D>): Node<d.bool>         { return new BinopNode('!=', d.bool, this, b); }
 
+    /** `select(falseVal, trueVal, this)` — use `this` node as the condition. */
+    select<T extends Any>(ifTrue: Node<T>, ifFalse: Node<T>): Node<T> { return new CondNode(this as Node<Any>, ifTrue, ifFalse); }
+
     // ── Math ──────────────────────────────────────────────────────────────────
     add<N extends Node<Any>>(b: N): Node<ArithResultDesc<D, N['type']>>  { return add(this, b) as Node<ArithResultDesc<D, N['type']>>; }
     sub<N extends Node<Any>>(b: N): Node<ArithResultDesc<D, N['type']>>  { return sub(this, b) as Node<ArithResultDesc<D, N['type']>>; }
@@ -1078,6 +1081,12 @@ export function Fn<D extends Any>(
 }
 
 export const cond = <D extends Any>(condition: Node<Any>, ifTrue: Node<D>, ifFalse?: Node<D>) => new CondNode(condition, ifTrue, ifFalse);
+
+/**
+ * WGSL `select(falseVal, trueVal, condition)`.
+ * Returns `trueVal` when `condition` is true, `falseVal` otherwise.
+ */
+export const select = <D extends Any>(falseVal: Node<D>, trueVal: Node<D>, condition: Node<Any>): Node<D> => new CondNode(condition, trueVal, falseVal);
 
 export function Var<D extends Any>(init: Node<D>, label?: string): VarNode<D> {
     const varName = label ? `var_${_nodeId}_${label}` : `var_${_nodeId}`;

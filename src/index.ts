@@ -69,6 +69,7 @@ export {
 
     // control flow
     If, Loop, For, While, Break, Continue, Return,
+    cond, select,
 
     // camera uniforms
     cameraProjectionMatrix, cameraViewMatrix, cameraPosition, cameraNear, cameraFar,
@@ -115,9 +116,9 @@ export * as d from './nodes/schema';
 export type {
     ArrayDesc, Any as WgslDesc, SizedArrayDesc, TypedArrayFor,
 } from './nodes/schema';
-export { arrayOf, wgslAlignOf, wgslSizeOf, wgslStrideOf, roundUp } from './nodes/schema';
+export { wgslAlignOf, wgslSizeOf, wgslStrideOf, roundUp } from './nodes/schema';
 
-export { packStruct, packStructArray, writeStructArray, f32ToF16Bits, type InferValue } from './utils/buffer-layout';
+export { packStruct, packStructArray, writeStructArray, f32ToF16Bits } from './utils/buffer-layout';
 
 export { Mesh } from './objects/mesh';
 export * from './core/object3d';

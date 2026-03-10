@@ -35,20 +35,6 @@ import {
     roundUp,
 } from '../nodes/schema';
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-/**
- * Infer the JS value type from a WgslDesc.
- * Re-exported from schema.ts for convenience.
- */
-export type InferValue<D extends Any> = Infer<D>;
-
-// ---------------------------------------------------------------------------
-// Internal writer
-// ---------------------------------------------------------------------------
-
 /**
  * Write a single JS value into `view` at the given byte `offset`, following
  * the WGSL memory layout rules for `desc`.
@@ -281,10 +267,6 @@ export function f32ToF16Bits(value: number): number {
 
     return (sign << 15) | (exp16 << 10) | mant16;
 }
-
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
 
 /**
  * Pack a single JS struct object into an `ArrayBuffer` sized according to

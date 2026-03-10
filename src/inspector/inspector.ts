@@ -645,7 +645,7 @@ export class Inspector extends RendererInspector {
             if (attrEntry.kind === 'geometry') {
                 const bufAttr = geometry.buffers.get(attrEntry.name);
                 if (bufAttr) {
-                    const gpuBuf = buffers.uploadVertex(bufferCache, bufAttr);
+                    const gpuBuf = buffers.ensureUploaded(bufferCache, bufAttr);
                     pass.setVertexBuffer(slot, gpuBuf);
                 }
             } else {
@@ -666,12 +666,12 @@ export class Inspector extends RendererInspector {
 
         // Issue draw call — mirrors renderer.ts issueDraws exactly, including
         // indirect draw support.  The indirect GPU buffer was already written by
-        // the compute pass this frame; getIndirect() does a non-uploading lookup.
+        // the compute pass this frame; getUploaded() does a non-uploading lookup.
         if (geometry.index) {
-            const idxBuf = buffers.uploadIndex(bufferCache, geometry.index);
+            const idxBuf = buffers.ensureUploaded(bufferCache, geometry.index);
             pass.setIndexBuffer(idxBuf, getIndexFormat(geometry.index.array)!);
             if (geometry.indirect) {
-                const indBuf = buffers.getIndirect(bufferCache, geometry.indirect);
+                const indBuf = buffers.getUploaded(bufferCache, geometry.indirect);
                 if (indBuf) {
                     const byteStride = geometry.indirect.itemSize * 4;
                     for (let d = 0; d < geometry.indirect.count; d++) {
@@ -683,7 +683,7 @@ export class Inspector extends RendererInspector {
             }
         } else {
             if (geometry.indirect) {
-                const indBuf = buffers.getIndirect(bufferCache, geometry.indirect);
+                const indBuf = buffers.getUploaded(bufferCache, geometry.indirect);
                 if (indBuf) {
                     const byteStride = geometry.indirect.itemSize * 4;
                     for (let d = 0; d < geometry.indirect.count; d++) {
