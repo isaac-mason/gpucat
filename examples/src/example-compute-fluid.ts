@@ -357,7 +357,7 @@ scene.add(mesh);
 const gui = (renderer.inspector as Inspector).createParameters('Settings');
 gui.add(params, 'particleCount', 4096, maxParticles, 4096).onChange((value: number) => {
     mesh.count = value;
-    particleCountUniform.value = value;
+    particleCountUniform.set(value);
 });
 
 // ── Mouse interaction ─────────────────────────────────────────────────────────
@@ -408,8 +408,8 @@ function setupMouse() {
         origin[0] += 0.5;
         origin[2] += 0.5;
 
-        mouseRayOriginUniform.value    = [origin[0], origin[1], origin[2]];
-        mouseRayDirectionUniform.value = [dir[0], dir[1], dir[2]];
+        mouseRayOriginUniform.set([origin[0], origin[1], origin[2]]);
+        mouseRayDirectionUniform.set([dir[0], dir[1], dir[2]]);
 
         // Intersect y=0 plane
         const denom = planeNormal[0] * dir[0] + planeNormal[1] * dir[1] + planeNormal[2] * dir[2];
@@ -460,7 +460,7 @@ function frame() {
     const delta = lastTime === 0 ? 0 : now - lastTime;
     lastTime = now;
 
-    dtUniform.value = Math.min(Math.max(delta, 0.00001), 1 / 60);
+    dtUniform.set(Math.min(Math.max(delta, 0.00001), 1 / 60));
 
     // Compute mouse force from position delta
     const fx = (mouseCoord[0] - prevMouseCoord[0]) * 2;
@@ -469,9 +469,9 @@ function frame() {
     const fLen = Math.sqrt(fx * fx + fy * fy + fz * fz);
     if (fLen > 0.3) {
         const scale = 0.3 / fLen;
-        mouseForceUniform.value = [fx * scale, fy * scale, fz * scale];
+        mouseForceUniform.set([fx * scale, fy * scale, fz * scale]);
     } else {
-        mouseForceUniform.value = [fx, fy, fz];
+        mouseForceUniform.set([fx, fy, fz]);
     }
     prevMouseCoord[0] = mouseCoord[0];
     prevMouseCoord[1] = mouseCoord[1];

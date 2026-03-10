@@ -24,29 +24,28 @@ import {
     WebGPURenderer,
     wgslFn,
     type Node,
-    type WgslType,
 } from 'gpucat';
 
 // gradient (Perlin-style) noise — C1 continuous, no sharp zero-crossings
 
-const noiseHash = wgslFn<d.u32>(`
+const noiseHash = wgslFn(`
 fn noiseHash(n: i32) -> u32 {
     var v = u32(n);
     v = (v << 13u) ^ v;
     return v * (v * v * 15731u + 789221u) + 1376312589u;
 }
-`);
+`, { output: d.u32 });
 
-const noiseGrad = wgslFn<d.f32>(`
+const noiseGrad = wgslFn(`
 fn noiseGrad(h: u32, x: f32, y: f32, z: f32) -> f32 {
     let hh = h & 15u;
     let u2 = select(y, x, hh < 8u);
     let v2 = select(select(x, y, hh == 12u || hh == 14u), z, hh < 4u);
     return select(-u2, u2, (hh & 1u) == 0u) + select(-v2, v2, (hh & 2u) == 0u);
 }
-`);
+`, { output: d.f32 });
 
-const gradNoise3D = wgslFn<d.f32>(`
+const gradNoise3D = wgslFn(`
 fn gradNoise3D(p: vec3f) -> f32 {
     let iv = vec3i(floor(p));
     let f  = fract(p);
@@ -73,7 +72,7 @@ fn gradNoise3D(p: vec3f) -> f32 {
     return mix(mix(mix(n000, n100, u.x), mix(n010, n110, u.x), u.y),
                mix(mix(n001, n101, u.x), mix(n011, n111, u.x), u.y), u.z);
 }
-`, [noiseHash, noiseGrad]);
+`, { output: d.f32 }, [noiseHash, noiseGrad]);
 
 // uniforms
 
@@ -133,24 +132,24 @@ const wavesElevation = Fn(
     },
 );
 
-function elev(pos: Node<'vec3f'>): Node<'f32'> {
+function elev(pos: Node<d.vec3f>): Node<d.f32> {
     return wavesElevation(
         pos, timeElapsed,
         uFreqX, uFreqZ, uSpeed, uAmp,
         uSmallFreq, uSmallSpeed, uSmallAmp,
-    ) as Node<'f32'>;
+    ) as Node<d.f32>;
 }
 
 /* vertex */
 
 const positionAttr = attribute(d.vec3f, 'position');
-const px    = positionAttr.x as Node<'f32'>;
-const pz    = positionAttr.z as Node<'f32'>;
+const px    = positionAttr.x as Node<d.f32>;
+const pz    = positionAttr.z as Node<d.f32>;
 const shift = f32(0.01);
 
-const displacedPos = vec3(px,            elev(positionAttr as Node<'vec3f'>),                                                   pz);
-const posA         = vec3(px.add(shift), elev(vec3(px.add(shift), f32(0), pz)             as Node<'vec3f'>),  pz);
-const posB         = vec3(px,            elev(vec3(px,             f32(0), pz.sub(shift))  as Node<'vec3f'>),  pz.sub(shift));
+const displacedPos = vec3(px,            elev(positionAttr as Node<d.vec3f>),                                                   pz);
+const posA         = vec3(px.add(shift), elev(vec3(px.add(shift), f32(0), pz)             as Node<d.vec3f>),  pz);
+const posB         = vec3(px,            elev(vec3(px,            f32(0), pz.sub(shift))  as Node<d.vec3f>),  pz.sub(shift));
 
 // tangent vectors → cross product → normal (matches Three.js toA.cross(toB))
 const toA    = posA.sub(displacedPos).normalize();
@@ -237,6 +236,7 @@ camera.updateViewMatrix();
 const inspector = renderer.inspector as Inspector;
 
 // TODO: what is going on???
+// TODO uniform.set
 
 const waveParams = inspector.createParameters('Waves');
 waveParams.add(uFreqX as unknown as Record<string, unknown>, 'value', 0.1, 10, 0.1);

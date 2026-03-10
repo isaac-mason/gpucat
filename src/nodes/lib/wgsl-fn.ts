@@ -1,6 +1,6 @@
 
 import * as d from '../schema';
-import { CallNode, computeId, Node } from './core';
+import { CallNode, computeId, Node, ParamDesc, ParamDescsToNodes } from './core';
 
 /**
  * Parsed WGSL function info returned by parseWgslFunction().
@@ -136,6 +136,27 @@ export class WgslFunctionNode extends Node<d.WgslFnDesc> {
     }
 }
 
+/** Layout descriptor for wgslFn - mirrors FnLayout but without name (parsed from WGSL) */
+export type WgslFnLayout<D extends d.Any, P extends readonly ParamDesc[] = readonly ParamDesc[]> = {
+    readonly output: D;
+    readonly params?: [...P];
+};
+
+/** Type for the callable returned by wgslFn with typed params */
+export type WgslFnCallableTyped<D extends d.Any, P extends readonly ParamDesc[]> = {
+    (...args: ParamDescsToNodes<P>): CallNode<D>;
+    functionNode: WgslFunctionNode;
+};
+
+/** Type for the callable returned by wgslFn with untyped params */
+export type WgslFnCallableUntyped<D extends d.Any> = {
+    (...args: Node<d.Any>[]): CallNode<D>;
+    functionNode: WgslFunctionNode;
+};
+
+/** Type for the callable returned by wgslFn (legacy untyped) */
+export type WgslFnCallable = WgslFnCallableUntyped<d.Any>;
+
 /**
  * Create a WGSL function from raw WGSL source code.
  *
@@ -149,23 +170,74 @@ export class WgslFunctionNode extends Node<d.WgslFnDesc> {
  * Returns a callable that creates CallNodes when invoked with arguments.
  *
  * @param source - Complete WGSL function source code
+ * @param layout - Optional layout for typed output and params
  * @param includes - Other wgslFn functions this function depends on
  *
  * @example
+ * // Untyped (legacy):
  * const aces = wgslFn(`
  *     fn acesToneMapping(color: vec3f) -> vec3f {
- *         let c = color;
- *         return clamp((c * (2.51 * c + 0.03)) / (c * (2.43 * c + 0.59) + 0.14), vec3f(0.0), vec3f(1.0));
+ *         ...
  *     }
  * `);
  *
- * // Use in node graph:
- * const tonemapped = aces(linearColor);
+ * @example
+ * // Typed output only:
+ * const aces = wgslFn(`
+ *     fn acesToneMapping(color: vec3f) -> vec3f {
+ *         ...
+ *     }
+ * `, { output: d.vec3f });
+ *
+ * @example
+ * // Fully typed:
+ * const aces = wgslFn(`
+ *     fn acesToneMapping(color: vec3f) -> vec3f {
+ *         ...
+ *     }
+ * `, { output: d.vec3f, params: [{ name: 'color', type: d.vec3f }] });
  */
+// Overload 1: with layout including typed params
+export function wgslFn<D extends d.Any, P extends readonly ParamDesc[]>(
+    source: string,
+    layout: { readonly output: D; readonly params: [...P] },
+    includes?: (WgslFnCallable | WgslFunctionNode)[]
+): WgslFnCallableTyped<D, P>;
+
+// Overload 2: with layout, output only (no params)
+export function wgslFn<D extends d.Any>(
+    source: string,
+    layout: { readonly output: D; readonly params?: undefined },
+    includes?: (WgslFnCallable | WgslFunctionNode)[]
+): WgslFnCallableUntyped<D>;
+
+// Overload 3: no layout (legacy untyped)
 export function wgslFn(
     source: string,
-    includes: (WgslFnCallable | WgslFunctionNode)[] = []
-): WgslFnCallable {
+    includes?: (WgslFnCallable | WgslFunctionNode)[]
+): WgslFnCallable;
+
+// Implementation
+export function wgslFn<D extends d.Any, P extends readonly ParamDesc[]>(
+    source: string,
+    layoutOrIncludes?: WgslFnLayout<D, P> | (WgslFnCallable | WgslFunctionNode)[],
+    includesArg?: (WgslFnCallable | WgslFunctionNode)[]
+): WgslFnCallableTyped<D, P> | WgslFnCallableUntyped<D> | WgslFnCallable {
+    // Determine layout and includes from arguments
+    let layout: WgslFnLayout<D, P> | undefined;
+    let includes: (WgslFnCallable | WgslFunctionNode)[] = [];
+
+    if (layoutOrIncludes) {
+        if (Array.isArray(layoutOrIncludes)) {
+            // Legacy: wgslFn(source, includes)
+            includes = layoutOrIncludes;
+        } else if ('output' in layoutOrIncludes) {
+            // New: wgslFn(source, layout, includes?)
+            layout = layoutOrIncludes;
+            includes = includesArg ?? [];
+        }
+    }
+
     // Extract FunctionNode from callable includes
     const includeNodes: WgslFunctionNode[] = [];
     for (let i = 0; i < includes.length; i++) {
@@ -184,21 +256,19 @@ export function wgslFn(
     const functionNode = new WgslFunctionNode(source.trim(), includeNodes);
     const nodeFunc = functionNode.getNodeFunction();
     const fnName = nodeFunc.name;
-    const returnType = d.descFromWgslType(nodeFunc.outputType);
+    
+    // Use layout output type if provided, otherwise parse from WGSL
+    const returnType = layout?.output ?? d.descFromWgslType(nodeFunc.outputType);
 
     // Return a callable that creates CallNodes
-    const fn = (...args: Node<d.Any>[]): CallNode<d.Any> => {
-        return new CallNode(returnType, fnName, args, undefined, functionNode);
+    const fn = (...args: Node<d.Any>[]): CallNode<D> => {
+        return new CallNode(returnType as D, fnName, args, undefined, functionNode);
     };
 
     // Attach functionNode for include resolution
     fn.functionNode = functionNode;
 
-    return fn as WgslFnCallable;
+    return fn as WgslFnCallableTyped<D, P>;
 }
 
-/** Type for the callable returned by wgslFn */
-export type WgslFnCallable = {
-    (...args: Node<d.Any>[]): CallNode<d.Any>;
-    functionNode: WgslFunctionNode;
-};
+

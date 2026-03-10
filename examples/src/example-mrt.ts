@@ -31,11 +31,11 @@ import { quat, type Euler } from 'mathcat';
  * Encodes a normalized direction vector [-1,1] to RGB color [0,1].
  * Demonstrates wgslFn() for raw WGSL function definitions.
  */
-const directionToColor = wgslFn<'vec3f'>(/* wgsl */ `
+const directionToColor = wgslFn(/* wgsl */ `
 fn directionToColor(dir: vec3f) -> vec3f {
     return dir * vec3f(0.5) + vec3f(0.5);
 }
-`);
+`, { output: d.vec3f });
 
 /**
  * Composite shader: selects one of 5 textures based on UV.x position.
@@ -48,7 +48,7 @@ fn directionToColor(dir: vec3f) -> vec3f {
  *   [0.6-0.8] emissive - emissive contribution
  *   [0.8-1.0] diffuse  - base material color
  */
-const selectComposite = wgslFn<'vec4f'>(/* wgsl */ `
+const selectComposite = wgslFn(/* wgsl */ `
 fn selectComposite(
     uv_x: f32,
     beauty: vec4f,
@@ -68,7 +68,7 @@ fn selectComposite(
     }
     return beauty;
 }
-`);
+`, { output: d.vec4f });
 
 const renderer = new WebGPURenderer({ antialias: true });
 renderer.inspector = new Inspector();

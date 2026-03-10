@@ -40,7 +40,11 @@ export class UniformNode<D extends Any> extends Node<D> {
     /** uniform value */
     value: number | number[] | Float32Array | null = null;
 
-    /** version for triggering re-renders */
+    /**
+     * Version counter for dirty tracking.
+     * Bumped by set() or needsUpdate = true. The renderer sums member versions
+     * per uniform group; if the sum differs from the cached sum → repack & upload.
+     */
     version: number = 0;
 
     constructor(
@@ -53,14 +57,25 @@ export class UniformNode<D extends Any> extends Node<D> {
         this.groupNode = groupNode;
     }
 
+    /** Set a new value and mark the uniform dirty. */
+    set(value: number | number[] | Float32Array): this {
+        this.value = value;
+        this.version++;
+        return this;
+    }
+
+    /** Mark this uniform as needing re-upload. */
+    set needsUpdate(v: boolean) {
+        if (v === true) this.version++;
+    }
+
     /**
-     * Override onUpdate to wrap the callback like Three.js does.
-     * The user callback returns a value, which is assigned to this.value internally.
-     * The wrapped callback returns void, compatible with NodeFrame.updateNode().
+     * Register an update callback that runs per frame/render/object.
+     * The callback returns a value which is assigned to this.value
+     * and bumps version automatically.
      */
     onUpdate(callback: (frame: NodeFrame) => unknown, updateType: NodeUpdateType): this {
         this.updateType = updateType;
-        // Wrap the callback: call user's callback, assign returned value to this.value
         this.update = (frame: NodeFrame) => {
             const value = callback(frame);
             if (value !== undefined) {
