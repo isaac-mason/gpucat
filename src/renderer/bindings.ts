@@ -358,48 +358,141 @@ function updateUniformBinding(
     // invoke update callbacks with the NodeFrame
     invokeUniformGroupCallbacks(block, frame);
 
-    // compute version sum (includes material.uniforms versions for name-based uniforms)
-    let versionSum = 0;
-    if (block.groupName === 'object') {
-        // include mesh matrix version for object group
-        versionSum = frame.object?.matrixVersion ?? 0;
-    }
-    for (const m of block.members) {
-        // Check if this uniform has a value, or needs name-based resolution
-        const uniformValue = m.node.uniform.value;
-        if (uniformValue === null && material) {
-            // Name-based: include material uniform version if present
-            const matUniform = material.uniforms.get(m.node.name);
-            if (matUniform) {
-                versionSum += matUniform.version;
-            }
-        } else {
-            versionSum += m.node.version;
-        }
+    // create buffer key if needed
+    if (!binding.bufferKey) {
+        binding.bufferKey = {};
     }
 
-    // upload if changed
-    if (versionSum !== binding.versionSum) {
-        // create buffer key if needed
-        if (!binding.bufferKey) {
-            binding.bufferKey = {};
-        }
+    // Pack uniforms and compare in a single pass.
+    // Returns true if any value changed (needs upload).
+    const { buffer, changed } = packAndCompare(block, binding.packedBuffer, material);
 
-        // Pack uniforms, reusing cached buffer to avoid allocation
-        const packed = packUniformGroup(block, binding.packedBuffer, material);
-        binding.packedBuffer = packed;
+    if (changed) {
+        binding.packedBuffer = buffer;
 
         const U = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
-        const result = uploadRaw(state.bufferCache, binding.bufferKey, packed, U);
+        const result = uploadRaw(state.bufferCache, binding.bufferKey, buffer, U);
 
-        binding.versionSum = versionSum;
-        
         // Only rebuild bind group if buffer was created/resized (not just written to)
-        // This is a critical optimization: writeBuffer doesn't require bind group rebuild
         if (result.created) {
             data.needsUpdate = true;
         }
     }
+}
+
+/**
+ * Check if a WGSL type is a signed integer type.
+ */
+function isIntType(type: string): boolean {
+    return type === 'i32' || type === 'vec2i' || type === 'vec3i' || type === 'vec4i';
+}
+
+/**
+ * Check if a WGSL type is an unsigned integer type.
+ */
+function isUintType(type: string): boolean {
+    return type === 'u32' || type === 'vec2u' || type === 'vec3u' || type === 'vec4u';
+}
+
+/**
+ * Pack uniforms and compare against existing buffer in a single pass.
+ * Returns the buffer and whether any values changed.
+ * 
+ * This is an optimization over separate pack + compare steps:
+ * - Reuses existing buffer (no allocation if size matches)
+ * - Compares while writing (early exit not possible, but avoids second loop)
+ * - Single pass over members
+ * 
+ * Supports all WGSL uniform types: f32, i32, u32, vectors, and matrices.
+ * For integer types, we create Int32Array/Uint32Array views over the same
+ * ArrayBuffer (Three.js approach).
+ */
+function packAndCompare(
+    block: UniformGroupBlock,
+    existingBuffer: Float32Array | null,
+    material: Material | null,
+): { buffer: Float32Array; changed: boolean } {
+    const requiredLength = Math.ceil(block.totalBytes / 4);
+
+    // First frame or size changed - need new buffer, definitely changed
+    if (!existingBuffer || existingBuffer.length !== requiredLength) {
+        return { buffer: packUniformGroup(block, null, material), changed: true };
+    }
+
+    // Create typed views over the same underlying ArrayBuffer for different data types
+    const f32 = existingBuffer;
+    const i32 = new Int32Array(f32.buffer);
+    const u32 = new Uint32Array(f32.buffer);
+    let changed = false;
+
+    for (const m of block.members) {
+        let value = m.node.uniform.value;
+        if (value === null && material) {
+            const matUniform = material.uniforms.get(m.node.name);
+            if (matUniform) {
+                value = matUniform.value;
+            }
+        }
+        if (value === null || value === undefined) continue;
+
+        const idx = m.offset / 4; // All offsets are 4-byte aligned
+        const type = m.type;
+
+        if (type === 'mat3x3f') {
+            // mat3x3f in uniform space: 3 columns × vec4 (padded) = 48 bytes
+            const src = value as Float32Array | number[];
+            // Column 0
+            if (f32[idx + 0] !== src[0]) { f32[idx + 0] = src[0]; changed = true; }
+            if (f32[idx + 1] !== src[1]) { f32[idx + 1] = src[1]; changed = true; }
+            if (f32[idx + 2] !== src[2]) { f32[idx + 2] = src[2]; changed = true; }
+            if (f32[idx + 3] !== 0) { f32[idx + 3] = 0; changed = true; }
+            // Column 1
+            if (f32[idx + 4] !== src[3]) { f32[idx + 4] = src[3]; changed = true; }
+            if (f32[idx + 5] !== src[4]) { f32[idx + 5] = src[4]; changed = true; }
+            if (f32[idx + 6] !== src[5]) { f32[idx + 6] = src[5]; changed = true; }
+            if (f32[idx + 7] !== 0) { f32[idx + 7] = 0; changed = true; }
+            // Column 2
+            if (f32[idx + 8] !== src[6]) { f32[idx + 8] = src[6]; changed = true; }
+            if (f32[idx + 9] !== src[7]) { f32[idx + 9] = src[7]; changed = true; }
+            if (f32[idx + 10] !== src[8]) { f32[idx + 10] = src[8]; changed = true; }
+            if (f32[idx + 11] !== 0) { f32[idx + 11] = 0; changed = true; }
+        } else if (isIntType(type)) {
+            // Signed integer types: i32, vec2i, vec3i, vec4i
+            if (typeof value === 'number') {
+                if (i32[idx] !== value) { i32[idx] = value; changed = true; }
+            } else {
+                const src = value as Int32Array | number[];
+                const len = src.length;
+                for (let i = 0; i < len; i++) {
+                    if (i32[idx + i] !== src[i]) { i32[idx + i] = src[i]; changed = true; }
+                }
+            }
+        } else if (isUintType(type)) {
+            // Unsigned integer types: u32, vec2u, vec3u, vec4u
+            if (typeof value === 'number') {
+                if (u32[idx] !== value) { u32[idx] = value; changed = true; }
+            } else {
+                const src = value as Uint32Array | number[];
+                const len = src.length;
+                for (let i = 0; i < len; i++) {
+                    if (u32[idx + i] !== src[i]) { u32[idx + i] = src[i]; changed = true; }
+                }
+            }
+        } else {
+            // Float types: f32, vec2f, vec3f, vec4f, mat4x4f, etc.
+            if (typeof value === 'number') {
+                if (f32[idx] !== value) { f32[idx] = value; changed = true; }
+            } else {
+                const src = value as Float32Array | number[];
+                const len = src.length;
+                for (let i = 0; i < len; i++) {
+                    if (f32[idx + i] !== src[i]) { f32[idx + i] = src[i]; changed = true; }
+                }
+            }
+        }
+    }
+
+    return { buffer: f32, changed };
 }
 
 /** Update a texture binding. */
@@ -592,6 +685,10 @@ export function invokeUniformGroupCallbacks(
  * mat3x3f is handled specially: in WGSL uniform address space, each column is
  * padded to vec4 (16 bytes), so mat3x3f occupies 48 bytes (3 × 16).
  *
+ * Supports all WGSL uniform types: f32, i32, u32, vectors, and matrices.
+ * For integer types, we create Int32Array/Uint32Array views over the same
+ * ArrayBuffer (Three.js approach).
+ *
  * @param block - The uniform group block to pack
  * @param existingBuffer - Optional existing buffer to reuse (avoids allocation)
  * @param material - Optional material for name-based uniform resolution
@@ -605,14 +702,16 @@ export function packUniformGroup(
     const requiredLength = Math.ceil(block.totalBytes / 4);
 
     // Reuse existing buffer if it's the right size, otherwise allocate
-    let buf: Float32Array;
+    let f32: Float32Array;
     if (existingBuffer && existingBuffer.length === requiredLength) {
-        buf = existingBuffer;
+        f32 = existingBuffer;
     } else {
-        buf = new Float32Array(requiredLength);
+        f32 = new Float32Array(requiredLength);
     }
 
-    const bytes = new Uint8Array(buf.buffer);
+    // Create typed views over the same underlying ArrayBuffer for integer types
+    const i32 = new Int32Array(f32.buffer);
+    const u32 = new Uint32Array(f32.buffer);
 
     for (const m of block.members) {
         // Get value: first try direct value, then try name-based resolution from material
@@ -625,30 +724,57 @@ export function packUniformGroup(
         }
         if (value === null || value === undefined) continue;
 
-        const offset = m.offset;
+        // All offsets are 4-byte aligned, so we can work in element indices
+        const idx = m.offset / 4;
+        const type = m.type;
 
-        if (m.type === 'mat3x3f') {
+        if (type === 'mat3x3f') {
             // mat3x3f in uniform space: 3 columns × vec4 (padded) = 48 bytes
             // Input is a flat mat3 (9 floats), output is 12 floats with padding
-            const src = value instanceof Float32Array ? value : new Float32Array(value as number[]);
-            const f32Offset = offset / 4;
+            const src = value as Float32Array | number[];
             // Column 0
-            buf[f32Offset + 0] = src[0]; buf[f32Offset + 1] = src[1]; buf[f32Offset + 2] = src[2]; buf[f32Offset + 3] = 0;
+            f32[idx + 0] = src[0]; f32[idx + 1] = src[1]; f32[idx + 2] = src[2]; f32[idx + 3] = 0;
             // Column 1
-            buf[f32Offset + 4] = src[3]; buf[f32Offset + 5] = src[4]; buf[f32Offset + 6] = src[5]; buf[f32Offset + 7] = 0;
+            f32[idx + 4] = src[3]; f32[idx + 5] = src[4]; f32[idx + 6] = src[5]; f32[idx + 7] = 0;
             // Column 2
-            buf[f32Offset + 8] = src[6]; buf[f32Offset + 9] = src[7]; buf[f32Offset + 10] = src[8]; buf[f32Offset + 11] = 0;
-        } else if (typeof value === 'number') {
-            new DataView(bytes.buffer).setFloat32(offset, value, true);
-        } else if (value instanceof Float32Array) {
-            bytes.set(new Uint8Array(value.buffer, value.byteOffset, value.byteLength), offset);
-        } else if (Array.isArray(value)) {
-            const fa = new Float32Array(value);
-            bytes.set(new Uint8Array(fa.buffer), offset);
+            f32[idx + 8] = src[6]; f32[idx + 9] = src[7]; f32[idx + 10] = src[8]; f32[idx + 11] = 0;
+        } else if (isIntType(type)) {
+            // Signed integer types: i32, vec2i, vec3i, vec4i
+            if (typeof value === 'number') {
+                i32[idx] = value;
+            } else {
+                const src = value as Int32Array | number[];
+                const len = src.length;
+                for (let i = 0; i < len; i++) {
+                    i32[idx + i] = src[i];
+                }
+            }
+        } else if (isUintType(type)) {
+            // Unsigned integer types: u32, vec2u, vec3u, vec4u
+            if (typeof value === 'number') {
+                u32[idx] = value;
+            } else {
+                const src = value as Uint32Array | number[];
+                const len = src.length;
+                for (let i = 0; i < len; i++) {
+                    u32[idx + i] = src[i];
+                }
+            }
+        } else {
+            // Float types: f32, vec2f, vec3f, vec4f, mat4x4f, etc.
+            if (typeof value === 'number') {
+                f32[idx] = value;
+            } else {
+                const src = value as Float32Array | number[];
+                const len = src.length;
+                for (let i = 0; i < len; i++) {
+                    f32[idx + i] = src[i];
+                }
+            }
         }
     }
 
-    return buf;
+    return f32;
 }
 
 // ---------------------------------------------------------------------------

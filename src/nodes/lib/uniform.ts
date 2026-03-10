@@ -27,39 +27,22 @@ export class UniformNode<D extends Any> extends Node<D> {
     /** Set value directly */
     set value(v: UniformValue | null) { this.uniform.value = v; }
 
-    /** Get version for dirty tracking */
-    get version(): number { return this.uniform.version; }
-
     constructor(uniform: Uniform<D>, name: string) {
         super(uniform.schema);
         this.uniform = uniform;
         this.name = name;
     }
 
-    /** Set a new value and mark the uniform dirty. */
-    set(value: UniformValue): this {
-        this.uniform.set(value);
-        return this;
-    }
-
-    /** Mark this uniform as needing re-upload. */
-    set needsUpdate(v: boolean) {
-        if (v === true) {
-            this.uniform.needsUpdate = true;
-        }
-    }
-
     /**
      * Register an update callback that runs per frame/render/object.
-     * The callback returns a value which is assigned to the uniform's value
-     * and bumps version automatically.
+     * The callback returns a value which is assigned to the uniform's value.
      */
     onUpdate(callback: (frame: NodeFrame) => unknown, updateType: UniformUpdateType): this {
         this.updateType = updateType;
         this.update = (frame: NodeFrame) => {
             const value = callback(frame);
             if (value !== undefined) {
-                this.uniform.set(value as UniformValue);
+                this.uniform.value = value as UniformValue;
             }
         };
         return this;

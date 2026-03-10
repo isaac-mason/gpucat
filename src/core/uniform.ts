@@ -1,6 +1,6 @@
 import type { Any } from '../nodes/schema';
 
-export type UniformValue = number | number[] | Float32Array;
+export type UniformValue = number | number[] | Float32Array | Int32Array | Uint32Array;
 
 /**
  * Update frequency for uniform groups.
@@ -97,7 +97,6 @@ export class Uniform<T extends Any = Any> {
     readonly schema: T;
     readonly group: UniformGroup;
     value: UniformValue | null = null;
-    version: number = 0;
 
     constructor(schema: T, initialValue?: UniformValue, group: UniformGroup = objectGroup) {
         this.schema = schema;
@@ -105,15 +104,5 @@ export class Uniform<T extends Any = Any> {
         if (initialValue !== undefined) {
             this.value = initialValue;
         }
-    }
-
-    set(value: UniformValue): this {
-        this.value = value;
-        this.version++;
-        return this;
-    }
-
-    set needsUpdate(v: boolean) {
-        if (v) this.version++;
     }
 }
