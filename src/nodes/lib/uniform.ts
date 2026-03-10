@@ -1,167 +1,180 @@
-import { Node, type StructDef, type StructInstance, ConstructNode, NodeUpdateType, ConstNode, _nodeId } from './core';
+import { Node, type StructDef, type StructInstance, ConstructNode, ConstNode, _nodeId } from './core';
 import type { StructSchema, Any } from '../schema';
 import type { NodeFrame } from '../../renderer/node-frame';
-
-/**
- * Descriptor for a uniform group — determines WGSL @group index and struct packing.
- */
-export class UniformGroupNode {
-    readonly name: string;
-    readonly shared: boolean;
-    readonly order: number;
-    readonly updateType: NodeUpdateType | null;
-
-    /**
-     * Version counter — bumped by the renderer once per frame (for frameGroup)
-     * or once per render pass (for renderGroup). Used for deduplication gating:
-     * updateUniformBinding() skips re-processing if binding.lastProcessedVersion
-     * equals groupNode.version.
-     */
-    version: number = 0;
-
-    /** Type-testing flag. */
-    readonly isUniformGroup: boolean = true;
-
-    constructor(name: string, shared: boolean, order: number, updateType: NodeUpdateType | null = null) {
-        this.name = name;
-        this.shared = shared;
-        this.order = order;
-        this.updateType = updateType;
-    }
-}
+import {
+    Uniform,
+    UniformGroup,
+    UniformUpdateType,
+    objectGroup,
+    renderGroup,
+    frameGroup,
+    type UniformValue,
+} from '../../core/uniform';
 
 export class UniformNode<D extends Any> extends Node<D> {
-    /** uniform group — determines @group index and struct packing */
-    groupNode: UniformGroupNode;
-
     /** uniform name */
     name: string;
 
-    /** uniform value */
-    value: number | number[] | Float32Array | null = null;
+    /** The underlying Uniform data container */
+    uniform: Uniform<D>;
 
-    /**
-     * Version counter for dirty tracking.
-     * Bumped by set() or needsUpdate = true. The renderer sums member versions
-     * per uniform group; if the sum differs from the cached sum → repack & upload.
-     */
-    version: number = 0;
+    /** Get the uniform group */
+    get groupNode(): UniformGroup { return this.uniform.group; }
 
-    constructor(
-        desc: D,
-        name: string,
-        groupNode: UniformGroupNode = objectGroup
-    ) {
-        super(desc);
+    /** Get the current value */
+    get value(): UniformValue | null { return this.uniform.value; }
+
+    /** Set value directly */
+    set value(v: UniformValue | null) { this.uniform.value = v; }
+
+    /** Get version for dirty tracking */
+    get version(): number { return this.uniform.version; }
+
+    constructor(uniform: Uniform<D>, name: string) {
+        super(uniform.schema);
+        this.uniform = uniform;
         this.name = name;
-        this.groupNode = groupNode;
     }
 
     /** Set a new value and mark the uniform dirty. */
-    set(value: number | number[] | Float32Array): this {
-        this.value = value;
-        this.version++;
+    set(value: UniformValue): this {
+        this.uniform.set(value);
         return this;
     }
 
     /** Mark this uniform as needing re-upload. */
     set needsUpdate(v: boolean) {
-        if (v === true) this.version++;
+        if (v === true) {
+            this.uniform.needsUpdate = true;
+        }
     }
 
     /**
      * Register an update callback that runs per frame/render/object.
-     * The callback returns a value which is assigned to this.value
+     * The callback returns a value which is assigned to the uniform's value
      * and bumps version automatically.
      */
-    onUpdate(callback: (frame: NodeFrame) => unknown, updateType: NodeUpdateType): this {
+    onUpdate(callback: (frame: NodeFrame) => unknown, updateType: UniformUpdateType): this {
         this.updateType = updateType;
         this.update = (frame: NodeFrame) => {
             const value = callback(frame);
             if (value !== undefined) {
-                this.value = value as typeof this.value;
-                this.version++;
+                this.uniform.set(value as UniformValue);
             }
         };
         return this;
     }
+
+    /** Register an update callback for FRAME update type. */
+    onFrameUpdate(callback: (frame: NodeFrame) => unknown): this {
+        return this.onUpdate(callback, UniformUpdateType.FRAME);
+    }
+
+    /** Register an update callback for RENDER update type. */
+    onRenderUpdate(callback: (frame: NodeFrame) => unknown): this {
+        return this.onUpdate(callback, UniformUpdateType.RENDER);
+    }
+
+    /** Register an update callback for OBJECT update type. */
+    onObjectUpdate(callback: (frame: NodeFrame) => unknown): this {
+        return this.onUpdate(callback, UniformUpdateType.OBJECT);
+    }
 }
 
-/** Create a per-object (non-shared) uniform group with order=1. */
-export const uniformGroup = (name: string, order = 1, updateType: NodeUpdateType | null = null) => new UniformGroupNode(name, false, order, updateType);
-
-/** Create a shared uniform group with configurable order (default 0). */
-export const sharedUniformGroup = (name: string, order = 0, updateType: NodeUpdateType | null = null) => new UniformGroupNode(name, true, order, updateType);
-
-/**
- * frameGroup — shared uniforms updated once per frame.
- * Contains time uniforms (timeElapsed, timeDelta).
- * Maps to @group(0) with FRAME update type.
- *
- * Note: For simplicity, gpucat currently merges frame uniforms into renderGroup.
- */
-export const frameGroup = /*@__PURE__*/ sharedUniformGroup('frame', 0, NodeUpdateType.FRAME);
-
-/**
- * renderGroup — shared uniforms updated per render() call.
- * Contains camera uniforms (projection, view, position, near, far).
- * Maps to @group(0) with RENDER update type.
- *
- * Camera is in renderGroup (not frameGroup) because it can change between
- * render calls within the same frame (VR stereo, shadow maps, portals).
- */
-export const renderGroup = /*@__PURE__*/ sharedUniformGroup('render', 0, NodeUpdateType.RENDER);
-
-/**
- * objectGroup — per-object uniforms updated per draw call.
- * Contains mesh matrices (modelWorldMatrix, modelNormalMatrix) and user material uniforms.
- * Maps to @group(1) with OBJECT update type.
- */
-export const objectGroup = /*@__PURE__*/ uniformGroup('object', 1, NodeUpdateType.OBJECT);
+// Re-export from core for convenience
+export { Uniform, UniformGroup, UniformUpdateType, objectGroup, renderGroup, frameGroup };
 
 /**
  * Declare a material uniform.
  *
- * **Scalar / vector / matrix form** — pass a typed ConstNode as the initialiser:
+ * **Value-based form** — pass a Uniform object; the node references it:
+ *   const roughnessU = new Uniform(d.f32, 0.5);
+ *   const roughness = uniform(roughnessU);
+ *   roughnessU.set(0.8);  // update via Uniform
+ *
+ * **Name-based form** — resolved from material.uniforms at render time:
+ *   const roughness = uniform('roughness', d.f32);
+ *   const myVal = uniform('myVal', MyStruct);  // struct variant
+ *
+ * **Inline form** — pass a typed ConstNode as the initialiser:
  *   uniform(f32(0.5))               // anonymous — uniformId derived from type
  *   uniform(f32(0.5), 'roughness')  // explicit name used as the WGSL field name
  *   uniform(vec4f(1, 0, 0, 1), 'baseColor')
- *
- * **Struct form** — pass a StructDef directly; returns a typed StructInstance
- * whose keys are FieldNodes and whose `.$node` is the underlying UniformNode:
- *   const MyStruct = struct('MyStruct', { x: S.f32(), y: S.f32() })
- *   const myVal = uniform(MyStruct, 'myVal')
- *   myVal.x      // → FieldNode<'f32'>
- *   myVal.$node  // → UniformNode<'MyStruct'>
- *
- * The underlying UniformNode is content-addressed on (type, uniformId) so two
- * calls with the same arguments return the same node object.
  */
-export function uniform<S extends StructSchema>(def: StructDef<S>, name: string): StructInstance<S>;
+// Value-based: pass Uniform object directly
+export function uniform<D extends Any>(u: Uniform<D>): UniformNode<D>;
+// Name-based: resolved from material.uniforms
+export function uniform<D extends Any>(name: string, schema: D): UniformNode<D>;
+// Name-based struct: resolved from material.uniforms
+export function uniform<S extends StructSchema>(name: string, def: StructDef<S>): StructInstance<S>;
+// Inline scalar/vector/matrix form
 export function uniform<D extends Any>(init: ConstructNode<D>, name?: string): UniformNode<D>;
 export function uniform<D extends Any>(init: ConstNode<D>, name?: string): UniformNode<D>;
+// Implementation
 export function uniform<D extends Any, S extends StructSchema>(
-    init: ConstNode<D> | ConstructNode<D> | StructDef<S>,
-    name?: string
+    init: Uniform<D> | string | ConstNode<D> | ConstructNode<D>,
+    nameOrSchema?: string | D | StructDef<S>
 ): UniformNode<D> | StructInstance<S> {
-    if ('fields' in init && 'instantiate' in init) {
-        // Struct form: init is a StructDef
-        const def = init as StructDef<S>;
-        // Always generate unique name if not provided to prevent collisions
-        const uniformId = name ?? `${def.wgslType}_${_nodeId}`;
-        const node = new UniformNode(def as unknown as D, uniformId);
-        return def.instantiate(node);
+    // Value-based: uniform(Uniform)
+    if (init instanceof Uniform) {
+        const u = init as Uniform<D>;
+        return new UniformNode(u, `uniform_${_nodeId}`);
     }
-    // Scalar / vector / matrix form: init is a ConstNode or ConstructNode.
-    // ConstNode carries a .value; ConstructNode carries .args — we only seed
-    // the initial CPU-side value for ConstNodes (scalars / literal vectors).
+
+    // Name-based: uniform('name', schema) or uniform('name', StructDef)
+    if (typeof init === 'string') {
+        const name = init;
+        const schema = nameOrSchema as D | StructDef<S>;
+
+        // Check if it's a StructDef
+        if (schema && 'fields' in schema && 'instantiate' in schema) {
+            const def = schema as StructDef<S>;
+            const u = new Uniform(def as unknown as D);
+            const node = new UniformNode(u, name);
+            return def.instantiate(node);
+        }
+
+        // Regular schema — create Uniform for name-based resolution
+        const u = new Uniform(schema as D);
+        return new UniformNode(u, name);
+    }
+
+    // Inline scalar/vector/matrix form: uniform(f32(0.5), 'name')
     const initNode = init as ConstNode<D> | ConstructNode<D>;
-    // Always generate unique name if not provided to prevent collisions
+    const name = nameOrSchema as string | undefined;
     const uniformId = name ?? `${initNode.type.wgslType}_${_nodeId}`;
-    const node = new UniformNode(initNode.type, uniformId);
-    if (node.value === null && 'value' in initNode && initNode.value !== null) {
-        node.value = initNode.value as number | number[];
-    }
-    return node;
+    
+    // Extract initial value from the node
+    const initialValue = extractValue(initNode);
+    
+    const u = new Uniform(initNode.type, initialValue);
+    return new UniformNode(u, uniformId);
 }
 
+/**
+ * Extract a concrete value from a ConstNode or ConstructNode.
+ * For ConstructNode, recursively extracts from child ConstNodes.
+ * Returns undefined if any child is not a ConstNode (dynamic value).
+ */
+function extractValue(node: ConstNode<Any> | ConstructNode<Any>): UniformValue | undefined {
+    // ConstNode has a direct value
+    if (node instanceof ConstNode) {
+        return node.value as UniformValue;
+    }
+    
+    // ConstructNode: extract values from args (must all be ConstNodes)
+    if (node instanceof ConstructNode) {
+        const values: number[] = [];
+        for (const arg of node.args) {
+            if (arg instanceof ConstNode && typeof arg.value === 'number') {
+                values.push(arg.value);
+            } else {
+                // Dynamic child - can't extract static value
+                return undefined;
+            }
+        }
+        return values;
+    }
+    
+    return undefined;
+}

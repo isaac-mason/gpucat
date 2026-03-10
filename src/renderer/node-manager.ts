@@ -277,11 +277,7 @@ function compileComputeNode(
                     id: node.id,
                     updateType: node.updateType ?? 'frame',
                     update: (frame) => {
-                        const result = node.update!(frame);
-                        if (result !== undefined) {
-                            node.value = result as typeof node.value;
-                            node.version++;
-                        }
+                        node.update!(frame);
                         return true;
                     },
                 });

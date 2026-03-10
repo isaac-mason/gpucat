@@ -1,7 +1,7 @@
 import { GpuBuffer } from '../../core/buffer';
 import type { Any } from '../schema';
 import { Node } from './core';
-import { UniformGroupNode, objectGroup } from './uniform';
+import { UniformGroup, objectGroup } from './uniform';
 
 /**
  * StorageNode — declares a storage buffer binding in a shader.
@@ -39,13 +39,13 @@ export class StorageNode<D extends Any> extends Node<D> {
     isAtomic: boolean = false;
 
     /** Uniform group — determines @group index. Defaults to objectGroup. */
-    groupNode: UniformGroupNode;
+    groupNode: UniformGroup;
 
     constructor(
         schema: D,
         nameOrBuffer: string | GpuBuffer<D>,
         access: 'read' | 'read_write' = 'read',
-        groupNode: UniformGroupNode = objectGroup
+        groupNode: UniformGroup = objectGroup
     ) {
         super(schema);
 

@@ -48,5 +48,15 @@
         "title": "Compute Fluid",
         "description": "Compute fluid",
         "tags": []
+    },
+    "example-uniforms": {
+        "title": "Uniforms",
+        "description": "Demonstrates two uniform patterns: inline uniforms (shared across meshes) and name-based uniforms (per-material values resolved at render time).",
+        "tags": ["uniforms", "material"]
+    },
+    "example-storage": {
+        "title": "Storage Buffers",
+        "description": "Demonstrates two storage buffer patterns: inline storage (buffer passed directly) and name-based storage (resolved from geometry.buffers at render time).",
+        "tags": ["storage-buffer", "instancing"]
     }
 }

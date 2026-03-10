@@ -1,9 +1,11 @@
 import type { UniformGroupBlock } from '../nodes/builder';
 import type { Geometry } from '../geometry/geometry';
+import type { Material } from '../material/material';
 import type { Texture } from '../texture/texture';
 import type {
     BindGroup,
     SamplerBinding,
+    StorageBinding,
     TextureBinding,
     UniformBinding,
 } from './bind-group';
@@ -303,7 +305,7 @@ function buildLayoutEntries(
 function updateBindGroup(
     state: BindingsState,
     bindGroup: BindGroup,
-    _renderObject: RenderObject,
+    renderObject: RenderObject,
     frame: NodeFrame,
 ): void {
     const data = getData(state, bindGroup);
@@ -311,7 +313,7 @@ function updateBindGroup(
     for (const binding of bindGroup.bindings) {
         switch (binding.kind) {
             case 'uniform':
-                updateUniformBinding(state, binding, bindGroup, frame, data);
+                updateUniformBinding(state, binding, bindGroup, frame, data, renderObject.material);
                 break;
 
             case 'texture':
@@ -323,7 +325,7 @@ function updateBindGroup(
                 break;
 
             case 'storage':
-                // NOTE: storage buffers are uploaded via uploadStorage in rebuildGPUBindGroup
+                updateStorageBinding(binding, data, renderObject.geometry);
                 break;
         }
     }
@@ -336,6 +338,7 @@ function updateUniformBinding(
     _bindGroup: BindGroup,
     frame: NodeFrame,
     data: BindGroupData,
+    material: Material | null = null,
 ): void {
     const block = binding.block;
 
@@ -355,14 +358,24 @@ function updateUniformBinding(
     // invoke update callbacks with the NodeFrame
     invokeUniformGroupCallbacks(block, frame);
 
-    // compute version sum
+    // compute version sum (includes material.uniforms versions for name-based uniforms)
     let versionSum = 0;
     if (block.groupName === 'object') {
         // include mesh matrix version for object group
         versionSum = frame.object?.matrixVersion ?? 0;
     }
     for (const m of block.members) {
-        versionSum += m.node.version;
+        // Check if this uniform has a value, or needs name-based resolution
+        const uniformValue = m.node.uniform.value;
+        if (uniformValue === null && material) {
+            // Name-based: include material uniform version if present
+            const matUniform = material.uniforms.get(m.node.name);
+            if (matUniform) {
+                versionSum += matUniform.version;
+            }
+        } else {
+            versionSum += m.node.version;
+        }
     }
 
     // upload if changed
@@ -373,7 +386,7 @@ function updateUniformBinding(
         }
 
         // Pack uniforms, reusing cached buffer to avoid allocation
-        const packed = packUniformGroup(block, binding.packedBuffer);
+        const packed = packUniformGroup(block, binding.packedBuffer, material);
         binding.packedBuffer = packed;
 
         const U = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
@@ -462,6 +475,29 @@ function updateSamplerBinding(
             binding.samplerKey = samplerKey;
             data.needsUpdate = true;
         }
+    }
+}
+
+/** Update a storage binding - detect buffer swaps. */
+function updateStorageBinding(
+    binding: StorageBinding,
+    data: BindGroupData,
+    geometry: Geometry | null,
+): void {
+    const node = binding.entry.node;
+    
+    // Resolve current buffer (either from node.value or geometry.buffers)
+    let currentBuffer = null;
+    if (node.isNamedReference) {
+        currentBuffer = geometry?.buffers.get(node.bufferName!) ?? null;
+    } else {
+        currentBuffer = node.value;
+    }
+    
+    // If buffer identity changed, need to rebuild bind group
+    if (currentBuffer !== binding.lastBuffer) {
+        binding.lastBuffer = currentBuffer;
+        data.needsUpdate = true;
     }
 }
 
@@ -558,11 +594,13 @@ export function invokeUniformGroupCallbacks(
  *
  * @param block - The uniform group block to pack
  * @param existingBuffer - Optional existing buffer to reuse (avoids allocation)
+ * @param material - Optional material for name-based uniform resolution
  * @returns The packed Float32Array (may be the same as existingBuffer if size matches)
  */
 export function packUniformGroup(
     block: UniformGroupBlock,
     existingBuffer: Float32Array | null = null,
+    material: Material | null = null,
 ): Float32Array {
     const requiredLength = Math.ceil(block.totalBytes / 4);
 
@@ -577,7 +615,14 @@ export function packUniformGroup(
     const bytes = new Uint8Array(buf.buffer);
 
     for (const m of block.members) {
-        const value = m.node.value;
+        // Get value: first try direct value, then try name-based resolution from material
+        let value = m.node.uniform.value;
+        if (value === null && material) {
+            const matUniform = material.uniforms.get(m.node.name);
+            if (matUniform) {
+                value = matUniform.value;
+            }
+        }
         if (value === null || value === undefined) continue;
 
         const offset = m.offset;

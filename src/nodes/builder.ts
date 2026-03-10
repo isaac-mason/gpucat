@@ -33,7 +33,7 @@ import { WgslNode } from './lib/wgsl';
 import { AttributeNode, BufferAttributeNode } from './lib/attribute';
 import { TextureNode, SamplerNode } from './lib/texture';
 import { StorageNode } from './lib/storage';
-import { UniformNode, UniformGroupNode } from './lib/uniform';
+import { UniformNode, UniformGroup } from './lib/uniform';
 import { WgslFunctionNode } from './lib/wgsl-fn';
 import { OutputStructNode, MRTNode } from './lib/mrt';
 import { BuiltinNode, ComputeIndexNode } from './lib/builtin';
@@ -288,7 +288,7 @@ export type UniformGroupBlock = {
     shared: boolean;
     members: UniformMember[];
     totalBytes: number;
-    groupNode: UniformGroupNode;
+    groupNode: UniformGroup;
 };
 
 export type StorageEntry = {
@@ -381,7 +381,7 @@ interface BuildContext {
     isRender: boolean;
     
     // Collected bindings
-    uniforms: Map<string, { node: UniformNode<d.Any>; group: UniformGroupNode }>;
+    uniforms: Map<string, { node: UniformNode<d.Any>; group: UniformGroup }>;
     storages: Map<string, StorageNode<d.Any>>;
     storageNames: Map<number, string>; // node.id -> generated name
     textures: Map<string, TextureNode>;
@@ -1171,7 +1171,7 @@ function generateLoopStmt(ctx: BuildContext, node: LoopNode): void {
  * each named group gets its own @group index.
  */
 type BindingGroupData = {
-    groupNode: UniformGroupNode;
+    groupNode: UniformGroup;
     groupIndex: number;
     uniforms: UniformNode<d.Any>[];
     storages: { name: string; node: StorageNode<d.Any> }[];
@@ -1184,7 +1184,7 @@ type BindingGroupData = {
  * 
  * Three.js pattern:
  * - Each named group (render, object, etc.) gets its own @group(N) index
- * - Groups are sorted by UniformGroupNode.order
+ * - Groups are sorted by UniformGroup.order
  * - The @group(N) index is the SORTED ARRAY POSITION, not the order value directly
  * - Within each group, bindings get sequential @binding(M) indices starting from 0
  */
@@ -1199,7 +1199,7 @@ function emitAllBindings(ctx: BuildContext): {
     const groupsByName = new Map<string, BindingGroupData>();
 
     // helper to get or create a group
-    const getGroup = (groupNode: UniformGroupNode): BindingGroupData => {
+    const getGroup = (groupNode: UniformGroup): BindingGroupData => {
         const name = groupNode.name;
         if (!groupsByName.has(name)) {
             groupsByName.set(name, {

@@ -279,7 +279,7 @@ function buildTemplateBindGroups(
             const bindGroup = createUniformBindGroup(uniformGroup);
             // add storage/texture/sampler bindings
             for (const s of groupStorage) {
-                bindGroup.bindings.push({ kind: 'storage', entry: s });
+                bindGroup.bindings.push({ kind: 'storage', entry: s, lastBuffer: null });
             }
             for (const t of groupTextures) {
                 bindGroup.bindings.push({ kind: 'texture', entry: t, generation: 0, lastGpuTexture: null });

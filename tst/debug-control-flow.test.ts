@@ -1,11 +1,11 @@
 import { describe, test, expect } from 'vitest';
-import { Fn, f32, i32, u32, Loop, If, Break, Continue, Return, vec4, sin, cos, uniform, UniformGroupNode } from '../src/nodes/nodes';
+import { Fn, f32, i32, u32, Loop, If, Break, Continue, Return, vec4, sin, cos, uniform, objectGroup, Uniform, UniformNode } from '../src/nodes/nodes';
 import { compile, compileCompute } from '../src/nodes/builder';
+import * as d from '../src/nodes/schema';
 
 describe('complex control flow', () => {
     test('ElseIf chaining', () => {
-        const group = new UniformGroupNode('test');
-        const x = uniform(f32(0), 'x', group);
+        const x = new UniformNode(new Uniform(d.f32, 0, objectGroup), 'x');
         
         const myFn = Fn(() => {
             const result = f32(0).toVar('result');
@@ -39,8 +39,7 @@ describe('complex control flow', () => {
     });
 
     test('nested if/else (legacy style)', () => {
-        const group = new UniformGroupNode('test');
-        const x = uniform(f32(0), 'x', group);
+        const x = new UniformNode(new Uniform(d.f32, 0, objectGroup), 'x');
         
         const myFn = Fn(() => {
             const result = f32(0).toVar('result');
@@ -96,8 +95,7 @@ describe('complex control flow', () => {
     });
 
     test('loop inside if branches', () => {
-        const group = new UniformGroupNode('test');
-        const flag = uniform(i32(0), 'flag', group);
+        const flag = new UniformNode(new Uniform(d.i32, 0, objectGroup), 'flag');
         
         const myFn = Fn(() => {
             const sum = f32(0).toVar('sum');

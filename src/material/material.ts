@@ -1,5 +1,6 @@
 import type { Node } from '../nodes/nodes';
 import type { Any } from '../nodes/schema';
+import type { Uniform } from '../core/uniform';
 
 export interface MaterialOptions {
     /**
@@ -85,6 +86,13 @@ export class Material {
 
     /** Alpha-to-coverage. Meaningful only when renderer.samples > 1. Default false. */
     alphaToCoverage: boolean;
+
+    /**
+     * Named uniforms for this material.
+     * Used for name-based uniform resolution: uniform('roughness', d.f32) resolves
+     * to material.uniforms.get('roughness') at render time.
+     */
+    uniforms: Map<string, Uniform> = new Map();
 
     constructor(opts: MaterialOptions) {
         this.vertexNode = opts.vertex;

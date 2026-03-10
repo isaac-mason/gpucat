@@ -2,7 +2,7 @@ import { Texture } from '../../texture/texture';
 import { CallNode, Node } from './core';
 import { type TextureDesc, type DepthTextureDesc, type Any, texture2d } from '../schema';
 import * as d from '../schema';
-import { UniformGroupNode, objectGroup } from './uniform';
+import { UniformGroup, objectGroup } from './uniform';
 
 /**
  * TextureNode - represents a texture sample operation.
@@ -54,7 +54,7 @@ export class TextureNode extends Node<d.vec4f> {
     readonly textureType: string;
 
     /** Uniform group — determines @group index. Defaults to objectGroup */
-    groupNode: UniformGroupNode;
+    groupNode: UniformGroup;
 
     /** The texture ID (e.g. 'albedoMap') for caching and reuse. */
     textureId: string;
@@ -64,7 +64,7 @@ export class TextureNode extends Node<d.vec4f> {
         textureId: string,
         uvNode: Node<d.vec2f> | null = null,
         /** Uniform group — determines @group index. Defaults to objectGroup. */
-        groupNode: UniformGroupNode = objectGroup
+        groupNode: UniformGroup = objectGroup
     ) {
         // Node type is vec4f (the sampled color)
         super(d.vec4f);

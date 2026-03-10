@@ -1,3 +1,4 @@
+import type { GpuBuffer } from '../core/buffer';
 import type { UniformGroupBlock, StorageEntry, TextureEntry, SamplerEntry } from '../nodes/builder';
 
 let bindGroupIdCounter = 0;
@@ -39,6 +40,8 @@ export type StorageBinding = {
     readonly kind: 'storage';
     /** The storage entry from compilation. */
     entry: StorageEntry;
+    /** Last seen GpuBuffer (for detecting buffer swaps). */
+    lastBuffer: GpuBuffer | null;
 };
 
 /** Texture binding */
@@ -121,7 +124,7 @@ export function createResourceBindGroup(
     const bindings: Binding[] = [];
 
     for (const entry of storage) {
-        bindings.push({ kind: 'storage', entry });
+        bindings.push({ kind: 'storage', entry, lastBuffer: null });
     }
 
     for (const entry of textures) {
@@ -162,6 +165,7 @@ export function cloneBindGroup(source: BindGroup): BindGroup {
                 return {
                     kind: 'storage' as const,
                     entry: binding.entry,
+                    lastBuffer: null,
                 };
             case 'texture':
                 return {
