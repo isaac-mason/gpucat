@@ -12,7 +12,11 @@ export class BooleanController extends Controller<boolean> {
 		this.$input.setAttribute('type', 'checkbox');
 		this.$input.setAttribute('aria-labelledby', this.$name.id);
 
+		const $checkmark = document.createElement('span');
+		$checkmark.classList.add('gui-checkmark');
+
 		this.$widget.appendChild(this.$input);
+		this.$widget.appendChild($checkmark);
 		this.$disable = this.$input;
 
 		this.$input.addEventListener('change', () => {

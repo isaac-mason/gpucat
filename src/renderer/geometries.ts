@@ -1,6 +1,5 @@
-import type { Geometry, IndexBuffer } from '../geometry/geometry';
-import { createIndexBuffer } from '../geometry/geometry';
-import type { GpuBuffer } from '../core/buffer';
+import type { Geometry } from '../geometry/geometry';
+import { createIndexBuffer, type GpuBuffer } from '../core/buffer';
 import type { Any } from '../nodes/schema';
 import type { RenderObject } from './render-object';
 import * as buffers from './buffers';
@@ -32,7 +31,7 @@ export type GeometriesState = {
      * Tracks the last render call ID when each buffer was updated.
      * Prevents duplicate updates within the same frame.
      */
-    bufferCall: WeakMap<GpuBuffer<Any> | IndexBuffer, number>;
+    bufferCall: WeakMap<GpuBuffer<Any>, number>;
 
     /**
      * Current render call ID. Incremented at the start of each render call.
@@ -44,7 +43,7 @@ export type GeometriesState = {
     geometryData: WeakMap<Geometry, GeometryData>;
 
     /** Cached wireframe index buffers per geometry. */
-    wireframes: WeakMap<Geometry, IndexBuffer>;
+    wireframes: WeakMap<Geometry, GpuBuffer<Any>>;
 
     /** Memory statistics. */
     memory: {
@@ -129,7 +128,7 @@ export function updateBuffer(
  */
 export function updateIndex(
     state: GeometriesState,
-    index: IndexBuffer,
+    index: GpuBuffer<Any>,
 ): void {
     const callId = state.currentCallId;
 
@@ -165,7 +164,7 @@ export function getIndirectBuffer(
  */
 export function deleteBuffer(
     state: GeometriesState,
-    buffer: GpuBuffer<Any> | IndexBuffer,
+    buffer: GpuBuffer<Any>,
 ): void {
     state.bufferCall.delete(buffer);
 }
@@ -278,7 +277,7 @@ export function getIndex(
     state: GeometriesState,
     renderObject: RenderObject,
     wireframe: boolean = false,
-): IndexBuffer | null {
+): GpuBuffer<Any> | null {
     const geometry = renderObject.geometry;
 
     if (wireframe) {
@@ -307,9 +306,9 @@ export function getIndex(
  * For non-indexed geometry, generates indices from vertex count.
  *
  * @param geometry - The source geometry
- * @returns A new IndexBuffer with wireframe line indices
+ * @returns A new GpuBuffer with wireframe line indices
  */
-function generateWireframeIndices(geometry: Geometry): IndexBuffer {
+function generateWireframeIndices(geometry: Geometry): GpuBuffer<Any> {
     const index = geometry.index;
     const position = geometry.buffers.get('position');
 
@@ -319,36 +318,37 @@ function generateWireframeIndices(geometry: Geometry): IndexBuffer {
 
     // determine number of triangles
     let numTriangles: number;
-    let getIndex: (i: number) => number;
+    let getIdx: (i: number) => number;
 
-    if (index) {
-        numTriangles = Math.floor(index.array.length / 3);
-        getIndex = (i: number) => index.array[i];
+    if (index && index.array) {
+        const arr = index.array as Uint16Array | Uint32Array;
+        numTriangles = Math.floor(arr.length / 3);
+        getIdx = (i: number) => arr[i];
     } else {
         numTriangles = Math.floor(position.count / 3);
-        getIndex = (i: number) => i;
+        getIdx = (i: number) => i;
     }
 
     // each triangle produces 3 lines = 6 indices
     const wireframeIndices = new Uint32Array(numTriangles * 6);
 
-    let wireframeIdx = 0;
+    let wireframeI = 0;
     for (let i = 0; i < numTriangles; i++) {
-        const a = getIndex(i * 3);
-        const b = getIndex(i * 3 + 1);
-        const c = getIndex(i * 3 + 2);
+        const a = getIdx(i * 3);
+        const b = getIdx(i * 3 + 1);
+        const c = getIdx(i * 3 + 2);
 
         // line a-b
-        wireframeIndices[wireframeIdx++] = a;
-        wireframeIndices[wireframeIdx++] = b;
+        wireframeIndices[wireframeI++] = a;
+        wireframeIndices[wireframeI++] = b;
 
         // line b-c
-        wireframeIndices[wireframeIdx++] = b;
-        wireframeIndices[wireframeIdx++] = c;
+        wireframeIndices[wireframeI++] = b;
+        wireframeIndices[wireframeI++] = c;
 
         // line c-a
-        wireframeIndices[wireframeIdx++] = c;
-        wireframeIndices[wireframeIdx++] = a;
+        wireframeIndices[wireframeI++] = c;
+        wireframeIndices[wireframeI++] = a;
     }
 
     return createIndexBuffer(wireframeIndices);

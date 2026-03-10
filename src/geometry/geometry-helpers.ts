@@ -1,6 +1,6 @@
-import { createVertexBuffer } from '../core/buffer';
+import { createVertexBuffer, createIndexBuffer } from '../core/buffer';
 import * as d from '../nodes/schema';
-import { createIndexBuffer, Geometry } from './geometry';
+import { Geometry } from './geometry';
 
 export function createBoxGeometry(width = 1, height = 1, depth = 1): Geometry {
     const hw = width / 2;

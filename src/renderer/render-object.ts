@@ -16,8 +16,8 @@
  * rather than a class.
  */
 
-import type { Geometry, IndexBuffer } from '../geometry/geometry';
-import type { GpuBuffer } from '../core/buffer';
+import type { Geometry } from '../geometry/geometry';
+import { getIndexFormat, type GpuBuffer } from '../core/buffer';
 import type { Any } from '../nodes/schema';
 import type { Material } from '../material/material';
 import type { Mesh } from '../objects/mesh';
@@ -141,7 +141,7 @@ export type RenderObject = {
      * Index buffer (if indexed draw).
      * null for non-indexed draws.
      */
-    indexBuffer: IndexBuffer | null;
+    indexBuffer: GpuBuffer<Any> | null;
 
     // -------------------------------------------------------------------------
     // Draw Parameters
@@ -373,7 +373,8 @@ export function computeRenderObjectCacheKey(
 
     // Index format
     if (geometry.index) {
-        parts.push(geometry.index.format);
+        const fmt = getIndexFormat(geometry.index.array);
+        if (fmt) parts.push(fmt);
     }
 
     // Render context (sample count, attachment config)

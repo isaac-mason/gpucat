@@ -3,8 +3,7 @@ import * as buffers from './buffers';
 import * as textures from './textures';
 import * as pipelines from './pipelines';
 import { Material } from '../material/material';
-import type { GpuBuffer } from '../core/buffer';
-import { GpuBuffer as GpuBufferClass } from '../core/buffer';
+import { getIndexFormat, GpuBuffer as GpuBufferClass, type GpuBuffer } from '../core/buffer';
 import { Geometry } from '../geometry/geometry';
 import {
     type Node,
@@ -1348,7 +1347,7 @@ export class WebGPURenderer {
                 if (geometry.index) {
                     const idxBuf = buffers.uploadIndex(this.buffers, geometry.index);
                     if (currentSets.index !== idxBuf) {
-                        passSetIndexBuffer(gpuPass, this.inspector, idxBuf, geometry.index.format);
+                        passSetIndexBuffer(gpuPass, this.inspector, idxBuf, getIndexFormat(geometry.index.array)!);
                         currentSets.index = idxBuf;
                     }
                     if (geometry.indirect) {
@@ -1360,7 +1359,7 @@ export class WebGPURenderer {
                             passDrawIndexedIndirect(gpuPass, this.inspector, indBuf, baseOffset + d * byteStride);
                         }
                     } else {
-                        passDrawIndexed(gpuPass, this.inspector, geometry.index.array.length, mesh.count);
+                        passDrawIndexed(gpuPass, this.inspector, geometry.index.array!.length, mesh.count);
                     }
                 } else {
                     if (geometry.indirect) {

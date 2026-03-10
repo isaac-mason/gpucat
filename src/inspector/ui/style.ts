@@ -1445,7 +1445,8 @@ label.gui-controller {
 
 /* ── Number ─────────────────────────────────────────────── */
 
-.gui-number input[type="number"] {
+/* $input is type="text" (type="number" only on coarse pointer devices) */
+.gui-number .gui-widget input {
 	background: #111;
 	border: 1px solid var(--border-color);
 	border-radius: 3px;
@@ -1458,7 +1459,7 @@ label.gui-controller {
 	text-align: right;
 }
 
-.gui-number input[type="number"]:focus {
+.gui-number .gui-widget input:focus {
 	border-color: var(--accent-color);
 }
 
@@ -1470,7 +1471,7 @@ label.gui-controller {
 .gui-slider {
 	position: relative;
 	flex: 1;
-	height: 18px;
+	height: 22px;
 	background: #111;
 	border: 1px solid var(--border-color);
 	border-radius: 3px;
@@ -1491,11 +1492,12 @@ label.gui-controller {
 	background: rgba(74, 158, 255, 0.35);
 }
 
-.gui-dragging .gui-slider {
+/* .gui-active is toggled on $slider during drag (not .gui-dragging) */
+.gui-slider.gui-active {
 	border-color: var(--accent-color);
 }
 
-.gui-has-slider .gui-widget input[type="number"] {
+.gui-has-slider .gui-widget input {
 	flex-shrink: 0;
 	width: 54px;
 }

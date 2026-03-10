@@ -21,6 +21,7 @@ import { ShaderPanel } from './shader-panel';
 import type { Inspector } from '../inspector';
 import type { RenderObject } from '../../renderer/render-object';
 import type { WebGPURenderer } from '../../renderer/renderer';
+import { getIndexFormat } from '../../core/buffer';
 import type {
     UniformGroupBlock,
     StorageEntry,
@@ -381,8 +382,8 @@ function _buildPipelineTable(ro: RenderObject): HTMLDivElement {
     // Geometry / draw params
     const geo = ro.geometry;
     rows.push(['vertexCount', String(geo.vertexCount)]);
-    if (geo.index) {
-        rows.push(['indexFormat', geo.index.format]);
+    if (geo.index && geo.index.array) {
+        rows.push(['indexFormat', getIndexFormat(geo.index.array) ?? 'unknown']);
         rows.push(['indexCount', String(geo.index.array.length)]);
     }
     if (ro.drawParams) {

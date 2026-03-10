@@ -1,6 +1,6 @@
 import type { GpuBuffer } from '../core/buffer';
 import type { GpuTypedArray } from '../core/buffer';
-import type { IndexBuffer, Geometry } from '../geometry/geometry';
+import type { Geometry } from '../geometry/geometry';
 import type { StorageNode } from '../nodes/nodes';
 import type { Any } from '../nodes/schema';
 
@@ -11,8 +11,8 @@ export type BufferCache = {
     /** Vertex buffers — keyed by GpuBuffer identity, version-gated re-upload. */
     vertexMap: WeakMap<GpuBuffer, { buf: GPUBuffer; version: number }>;
 
-    /** Index buffers — keyed by IndexBuffer identity, version-gated re-upload. */
-    indexMap: WeakMap<IndexBuffer, { buf: GPUBuffer; version: number }>;
+    /** Index buffers — keyed by GpuBuffer identity, version-gated re-upload. */
+    indexMap: WeakMap<GpuBuffer, { buf: GPUBuffer; version: number }>;
 
     /** Plain-object-keyed buffers (instance matrices, material UBOs, camera, time). */
     rawMap: WeakMap<object, GPUBuffer>;
@@ -60,9 +60,12 @@ function setupDispose(cache: BufferCache, buffer: GpuBuffer): void {
         const vertexEntry = cache.vertexMap.get(buffer);
         if (vertexEntry) {
             vertexEntry.buf.destroy();
-            // WeakMap entries are automatically removed when key is GC'd,
-            // but we can't explicitly delete from WeakMap without the key.
-            // The key (buffer) still exists, so just destroy the GPU buffer.
+        }
+
+        // Check index map
+        const indexEntry = cache.indexMap.get(buffer);
+        if (indexEntry) {
+            indexEntry.buf.destroy();
         }
 
         // Check storage map (also used by indirect buffers)
@@ -120,11 +123,19 @@ export function uploadVertex(cache: BufferCache, buffer: GpuBuffer): GPUBuffer {
 }
 
 /**
- * Get or create a GPUBuffer for an IndexBuffer.
+ * Get or create a GPUBuffer for an index GpuBuffer.
  * Re-uploads when buffer.version advances.
  */
-export function uploadIndex(cache: BufferCache, buffer: IndexBuffer): GPUBuffer {
+export function uploadIndex(cache: BufferCache, buffer: GpuBuffer): GPUBuffer {
     const arr = buffer.array;
+    if (!arr) {
+        // CPU memory was released — return existing GPU buffer
+        const entry = cache.indexMap.get(buffer);
+        if (!entry) {
+            throw new Error('[gpucat] uploadIndex: buffer.array is null but GPU buffer was never created');
+        }
+        return entry.buf;
+    }
 
     let entry = cache.indexMap.get(buffer);
     const byteLength = arr.byteLength;
@@ -137,6 +148,9 @@ export function uploadIndex(cache: BufferCache, buffer: IndexBuffer): GPUBuffer 
         cache.indexCount++;
         cache.device.queue.writeBuffer(buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
         cache.indexMap.set(buffer, { buf, version: buffer.version });
+
+        setupDispose(cache, buffer);
+        buffer.onUpload?.();
         return buf;
     }
 

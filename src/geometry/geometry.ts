@@ -2,25 +2,6 @@ import type { Box3, Sphere } from 'mathcat';
 import type { GpuBuffer } from '../core/buffer';
 import type { Any } from '../nodes/schema';
 
-/**
- * Index buffer type - always uint16 or uint32.
- * Kept separate from GpuBuffer because index buffers have special semantics
- * (setIndexBuffer takes a format param, only uint16/uint32 allowed).
- */
-export type IndexBuffer = {
-    array: Uint16Array | Uint32Array;
-    format: 'uint16' | 'uint32';
-    version: number;
-};
-
-export function createIndexBuffer(array: Uint16Array | Uint32Array): IndexBuffer {
-    return {
-        array,
-        format: array instanceof Uint16Array ? 'uint16' : 'uint32',
-        version: 0,
-    };
-}
-
 export class Geometry {
     /**
      * Named buffers — vertex attributes, storage buffers, anything.
@@ -30,10 +11,10 @@ export class Geometry {
     readonly buffers: Map<string, GpuBuffer<Any>> = new Map();
 
     /**
-     * Optional index buffer. Kept separate because index buffers have special
-     * semantics (only uint16/uint32, passed to setIndexBuffer with format).
+     * Optional index buffer. Must have 'index' usage.
+     * Use setIndex() for proper lifecycle management.
      */
-    index: IndexBuffer | undefined = undefined;
+    index: GpuBuffer<Any> | undefined = undefined;
 
     /** Number of vertices. Used for non-indexed draws. */
     vertexCount: number = 0;
@@ -164,6 +145,27 @@ export class Geometry {
     }
 
     /**
+     * Set the index buffer.
+     * For REF_COUNTED buffers, manages usage count properly.
+     * @param buffer The index buffer, or undefined to clear. Must have 'index' usage.
+     */
+    setIndex(buffer: GpuBuffer<Any> | undefined): this {
+        const existing = this.index;
+
+        if (existing && existing !== buffer) {
+            existing.decreaseUsages();
+        }
+
+        this.index = buffer;
+
+        if (buffer && existing !== buffer) {
+            buffer.increaseUsages();
+        }
+
+        return this;
+    }
+
+    /**
      * Frees GPU-related resources allocated for this geometry.
      * For REF_COUNTED buffers, decrements usage count (may trigger buffer disposal).
      * Call this method when the geometry is no longer used.
@@ -176,6 +178,7 @@ export class Geometry {
             buffer.decreaseUsages();
         }
 
+        this.index?.decreaseUsages();
         this.indirect?.decreaseUsages();
 
         this._onDispose?.();

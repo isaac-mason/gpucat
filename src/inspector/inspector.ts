@@ -33,6 +33,7 @@ import type { ProbeTarget } from './probe-wgsl';
 import type { RenderObject } from '../renderer/render-object';
 import { buildVertexBufferLayouts } from '../renderer/render-objects';
 import * as buffers from '../renderer/buffers';
+import { getIndexFormat } from '../core/buffer';
 import { Any } from '../nodes/schema';
 
 
@@ -668,7 +669,7 @@ export class Inspector extends RendererInspector {
         // the compute pass this frame; getIndirect() does a non-uploading lookup.
         if (geometry.index) {
             const idxBuf = buffers.uploadIndex(bufferCache, geometry.index);
-            pass.setIndexBuffer(idxBuf, geometry.index.format);
+            pass.setIndexBuffer(idxBuf, getIndexFormat(geometry.index.array)!);
             if (geometry.indirect) {
                 const indBuf = buffers.getIndirect(bufferCache, geometry.indirect);
                 if (indBuf) {
@@ -678,7 +679,7 @@ export class Inspector extends RendererInspector {
                     }
                 }
             } else {
-                pass.drawIndexed(geometry.index.array.length, ro.mesh.count);
+                pass.drawIndexed(geometry.index.array!.length, ro.mesh.count);
             }
         } else {
             if (geometry.indirect) {

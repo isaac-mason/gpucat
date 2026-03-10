@@ -21,6 +21,7 @@ import type { Inspector } from '../inspector';
 import type { SceneRecord } from '../renderer-inspector';
 import { Mesh } from '../../objects/mesh';
 import type { Object3D } from '../../core/object3d';
+import { getIndexFormat } from '../../core/buffer';
 
 // ---------------------------------------------------------------------------
 // Internal node record — one per live Object3D in the tree
@@ -316,9 +317,9 @@ export class SceneHierarchy extends Tab {
         table.appendChild(makeKVRow('vertices', String(geo.vertexCount)));
 
         // Index info
-        if (geo.index) {
+        if (geo.index && geo.index.array) {
             table.appendChild(makeKVRow('indices', String(geo.index.array.length)));
-            table.appendChild(makeKVRow('index format', geo.index.format));
+            table.appendChild(makeKVRow('index format', getIndexFormat(geo.index.array) ?? 'unknown'));
         } else {
             table.appendChild(makeKVRow('indices', 'none'));
         }

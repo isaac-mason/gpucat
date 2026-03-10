@@ -1,10 +1,8 @@
-import { isArrayDesc, isSizedArrayDesc, isStructDesc, itemSizeOf, typedArrayCtorOf, wgslSizeOf, type Any, type ArrayDesc, type SizedArrayDesc, type StructDesc, type StructSchema, type TypedArrayFor } from '../nodes/schema';
+import { isArrayDesc, isSizedArrayDesc, isStructDesc, itemSizeOf, typedArrayCtorOf, wgslSizeOf, u32 as u32Schema, type Any, type ArrayDesc, type SizedArrayDesc, type StructDesc, type StructSchema, type TypedArrayFor } from '../nodes/schema';
 
-/**
- * Determines how a buffer's lifecycle is managed.
- */
+/** determines how a buffer's lifecycle is managed */
 export enum BufferLifecycle {
-    /** Library tracks usages, disposes GPU resources when usage count hits 0 */
+    /** Usages are tracked, GPU resources are disposed when usage count hits 0 */
     REF_COUNTED,
     /** User is responsible for calling buffer.dispose() */
     MANUAL,
@@ -71,6 +69,21 @@ export function deriveVertexFormat(array: GpuTypedArray, itemSize: number): GPUV
  * Allowed usages for a GpuBuffer. Multiple usages can be combined.
  */
 export type BufferUsage = 'vertex' | 'index' | 'storage' | 'uniform' | 'indirect';
+
+/**
+ * Index buffer format - only uint16 or uint32 are valid.
+ */
+export type IndexFormat = 'uint16' | 'uint32';
+
+/**
+ * Get the index format for a buffer's array.
+ * Returns undefined if the array is null or not an index buffer array type.
+ */
+export function getIndexFormat(array: GpuTypedArray | null): IndexFormat | undefined {
+    if (array instanceof Uint16Array) return 'uint16';
+    if (array instanceof Uint32Array) return 'uint32';
+    return undefined;
+}
 
 /**
  * Options for creating a GpuBuffer.
@@ -216,6 +229,13 @@ export class GpuBuffer<T extends Any = Any> {
         } else {
             this.format = undefined;
         }
+
+        // Validate index buffer array type
+        if (this.usage.has('index') && this.array) {
+            if (!(this.array instanceof Uint16Array) && !(this.array instanceof Uint32Array)) {
+                throw new Error('GpuBuffer: index buffers must use Uint16Array or Uint32Array');
+            }
+        }
     }
 
     /** Mark buffer as needing re-upload */
@@ -296,10 +316,6 @@ export class GpuBuffer<T extends Any = Any> {
     }
 }
 
-// ============================================================================
-// Factory Helpers
-// ============================================================================
-
 /**
  * Create a vertex buffer with sensible defaults.
  * - usage: 'vertex'
@@ -374,4 +390,26 @@ export function createIndirectBuffer<T extends Any>(
         usage: ['storage', 'indirect'],
         lifecycle: BufferLifecycle.REF_COUNTED,
     });
+}
+
+/**
+ * Create an index buffer with sensible defaults.
+ * - usage: 'index'
+ * - lifecycle: REF_COUNTED (index buffers are typically owned by a Geometry)
+ *
+ * @example
+ * const indices = createIndexBuffer(new Uint16Array([0, 1, 2, 2, 3, 0]));
+ */
+export function createIndexBuffer(
+    data: Uint16Array | Uint32Array,
+): GpuBuffer<Any> {
+    return new GpuBuffer(
+        u32Schema,
+        {
+            // Cast is safe: we're storing uint16/uint32 indices, itemSize=1 matches
+            data: data as unknown as Uint32Array,
+            usage: 'index',
+            lifecycle: BufferLifecycle.REF_COUNTED,
+        }
+    );
 }
