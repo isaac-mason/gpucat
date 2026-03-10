@@ -1,29 +1,28 @@
-import { StorageBufferAttribute, InstancedBufferAttribute } from '../../core/attribute';
-import { Node, type GpuTypedArray } from './core';
-import { itemSizeOf, type Any } from '../schema';
+import { GpuBuffer } from '../../core/buffer';
+import type { GpuTypedArray } from '../../core/buffer';
+import { Node } from './core';
+import type { Any } from '../schema';
 import * as d from '../schema';
 
 /**
- * BufferAttributeNode — a vertex attribute backed by a BufferAttribute or raw TypedArray.
+ * BufferAttributeNode — a vertex attribute backed by a GpuBuffer or raw TypedArray.
  *
- * Can be used for both regular vertex attributes and per-instance attributes (stepMode: 'instance') by setting `instanced = true`.
+ * This is for directly embedding buffer data in the node graph, as opposed to
+ * AttributeNode which references buffers by name from geometry.
  *
- * When passed an InstancedBufferAttribute, `instanced` is auto-set to true.
+ * Can be used for both regular vertex attributes and per-instance attributes
+ * (stepMode: 'instance') by setting `instanced = true`.
  *
  * @example
- * // Instanced attribute with InstancedBufferAttribute:
- * const attr = new InstancedBufferAttribute(new Float32Array([...]), 3);
- * const offsets = bufferAttribute(attr, S.vec3f());  // instanced = true auto
- *
- * // Instanced attribute with raw TypedArray:
- * const offsets = instancedBufferAttribute(new Float32Array([...]), S.vec3f());
+ * // Instanced attribute:
+ * const offsets = instancedBufferAttribute(new Float32Array([...]), d.vec3f);
  *
  * // Regular attribute:
- * const colors = bufferAttribute(new Float32Array([...]), S.vec3f());
+ * const colors = bufferAttribute(new Float32Array([...]), d.vec3f);
  */
 export class BufferAttributeNode<D extends Any> extends Node<D> {
-    /** The underlying BufferAttribute (StorageBufferAttribute/InstancedBufferAttribute). */
-    readonly attribute: StorageBufferAttribute | InstancedBufferAttribute;
+    /** The underlying GpuBuffer. */
+    readonly buffer: GpuBuffer<D>;
     /** Byte stride between consecutive elements. */
     readonly stride: number;
     /** Byte offset of this attribute within each element. */
@@ -33,25 +32,23 @@ export class BufferAttributeNode<D extends Any> extends Node<D> {
 
     constructor(
         desc: D,
-        value: StorageBufferAttribute | InstancedBufferAttribute | GpuTypedArray,
+        value: GpuBuffer<D> | GpuTypedArray,
         stride: number,
         offset: number,
-        itemSize: number
+        instanced: boolean
     ) {
         super(desc);
 
-        // If passed a raw TypedArray, wrap it in a StorageBufferAttribute
+        // If passed a raw TypedArray, wrap it in a GpuBuffer
         if (ArrayBuffer.isView(value)) {
-            this.attribute = new StorageBufferAttribute(value as GpuTypedArray, itemSize);
-            this.instanced = false;
+            this.buffer = new GpuBuffer(desc, { data: value as GpuTypedArray, usage: 'vertex', instanced });
         } else {
-            this.attribute = value;
-            // Auto-detect instanced from attribute type
-            this.instanced = 'isInstancedBufferAttribute' in value && value.isInstancedBufferAttribute === true;
+            this.buffer = value;
         }
 
         this.stride = stride;
         this.offset = offset;
+        this.instanced = instanced;
     }
 
     /** Set instanced flag (chainable). */
@@ -68,72 +65,46 @@ export class AttributeNode<D extends Any> extends Node<D> {
     ) {
         super(desc);
     }
-
 }
 
-export const attribute = <D extends Any>(desc: D, name: string) => new AttributeNode<D>(desc, name);
+export const attribute = <D extends Any>(name: string, desc: D) => new AttributeNode<D>(desc, name);
 
 /**
- * Internal helper for creating buffer attribute nodes.
- * @param value     A BufferAttribute, InstancedBufferAttribute, or raw TypedArray.
- * @param desc      WgslDesc for the attribute element type.
- * @param stride    Byte stride between consecutive elements
- * @param offset    Byte offset within each element
- * @param instanced Whether this is an instanced attribute.
- */
-function createBufferAttribute<D extends Any>(
-    value: StorageBufferAttribute | InstancedBufferAttribute | GpuTypedArray,
-    desc: D,
-    stride: number,
-    offset: number,
-    instanced: boolean
-): BufferAttributeNode<D> {
-    const node = new BufferAttributeNode(desc, value, stride, offset, itemSizeOf(desc));
-    if (instanced) node.setInstanced(true);
-    return node;
-}
-
-/**
- * Create a BufferAttributeNode — a vertex attribute backed by a BufferAttribute or TypedArray.
+ * Create a BufferAttributeNode — a vertex attribute backed by a GpuBuffer or TypedArray.
  *
- * @param value   A BufferAttribute, InstancedBufferAttribute, or raw TypedArray.
- * @param desc    WgslDesc for the attribute element type (e.g. `S.vec3f()`, `S.f32()`).
+ * @param value   A GpuBuffer or raw TypedArray.
+ * @param desc    WgslDesc for the attribute element type (e.g. d.vec3f, d.f32).
  * @param stride  Byte stride between consecutive elements (default: 0 = tightly packed).
  * @param offset  Byte offset within each element (default: 0).
  *
  * @example
- * const colors = bufferAttribute(new Float32Array([1,0,0, 0,1,0]), S.vec3f());
+ * const colors = bufferAttribute(new Float32Array([1,0,0, 0,1,0]), d.vec3f);
  */
 export const bufferAttribute = <D extends Any>(
-    value: StorageBufferAttribute | InstancedBufferAttribute | GpuTypedArray,
+    value: GpuBuffer<D> | GpuTypedArray,
     desc: D,
     stride = 0,
     offset = 0
-) => createBufferAttribute<D>(value, desc, stride, offset, false);
+): BufferAttributeNode<D> => new BufferAttributeNode(desc, value, stride, offset, false);
 
 /**
  * Create an instanced BufferAttributeNode — a per-instance vertex attribute
  * uploaded by the renderer as a vertex buffer with stepMode: 'instance'.
  *
- * @param value   An InstancedBufferAttribute, or a raw TypedArray.
- * @param desc    WgslDesc for the attribute element type (e.g. `S.vec3f()`, `S.f32()`).
+ * @param value   A GpuBuffer or raw TypedArray.
+ * @param desc    WgslDesc for the attribute element type (e.g. d.vec3f, d.f32).
  * @param stride  Byte stride between consecutive instance records (default: 0 = tightly packed).
  * @param offset  Byte offset within each instance record (default: 0).
  *
  * @example
- * // With InstancedBufferAttribute:
- * const attr = new InstancedBufferAttribute(new Float32Array([1,0,0, 0,1,0]), 3);
- * const colors = instancedBufferAttribute(attr, S.vec3f());
- *
- * // With raw TypedArray:
- * const colors = instancedBufferAttribute(new Float32Array([1,0,0, 0,1,0]), S.vec3f());
+ * const colors = instancedBufferAttribute(new Float32Array([1,0,0, 0,1,0]), d.vec3f);
  */
 export const instancedBufferAttribute = <D extends Any>(
-    value: InstancedBufferAttribute | GpuTypedArray,
+    value: GpuBuffer<D> | GpuTypedArray,
     desc: D,
     stride = 0,
     offset = 0
-) => createBufferAttribute<D>(value, desc, stride, offset, true);
+): BufferAttributeNode<D> => new BufferAttributeNode(desc, value, stride, offset, true);
 
 
 /**

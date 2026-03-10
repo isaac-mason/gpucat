@@ -3,7 +3,8 @@ import * as buffers from './buffers';
 import * as textures from './textures';
 import * as pipelines from './pipelines';
 import { Material } from '../material/material';
-import { IndirectStorageBufferAttribute } from '../core/attribute';
+import type { GpuBuffer } from '../core/buffer';
+import { GpuBuffer as GpuBufferClass } from '../core/buffer';
 import { Geometry } from '../geometry/geometry';
 import {
     type Node,
@@ -635,18 +636,18 @@ export class WebGPURenderer {
 
                 // upload storage buffers
                 for (const s of nodeState.storage) {
-                    buffers.uploadStorage(this.buffers, s.node);
+                    buffers.uploadStorage(this.buffers, s.node, geometry);
                 }
 
                 // upload vertex buffers
                 for (const attrEntry of nodeState.attributes) {
                     if (attrEntry.kind === 'geometry') {
-                        const bufAttr = geometry.attributes.get(attrEntry.name);
+                        const bufAttr = geometry.buffers.get(attrEntry.name);
                         if (bufAttr) {
                             buffers.uploadVertex(this.buffers, bufAttr);
                         }
                     } else {
-                        const arr = attrEntry.node.attribute.array;
+                        const arr = attrEntry.node.buffer.array;
                         if (arr) {
                             buffers.uploadRaw(
                                 this.buffers,
@@ -729,20 +730,21 @@ export class WebGPURenderer {
 
     /**
      * Encode an indirect compute dispatch. Workgroup counts are read from
-     * the GPU buffer backing `indirectAttr` — no CPU-side dispatch count needed.
+     * the GPU buffer backing `indirectBuffer` — no CPU-side dispatch count needed.
      *
-     * The `IndirectStorageBufferAttribute` must hold `[countX, countY, countZ]`
+     * The `GpuBuffer` must hold `[countX, countY, countZ]`
      * as u32 values (same layout as `dispatchWorkgroupsIndirect`).
+     * Must have 'indirect' usage.
      *
      * Typically the indirect buffer is written by a small "workgroup kernel"
      * compute shader earlier in the frame.
      *
      * @param node The ComputeNode to dispatch.
-     * @param indirectAttr The indirect buffer attribute holding GPU-side dispatch counts.
+     * @param indirectBuffer The indirect buffer holding GPU-side dispatch counts.
      */
-    compute(node: ComputeNode, indirectAttr: IndirectStorageBufferAttribute): void;
+    compute(node: ComputeNode, indirectBuffer: GpuBuffer<d.Any>): void;
 
-    compute(node: ComputeNode, dispatchOrIndirect: [number, number, number] | IndirectStorageBufferAttribute): void {
+    compute(node: ComputeNode, dispatchOrIndirect: [number, number, number] | GpuBuffer<d.Any>): void {
         if (this._isDeviceLost) return;
 
         if (!this._initialized) {
@@ -763,7 +765,7 @@ export class WebGPURenderer {
             this._frameEncoder = this.device.createCommandEncoder();
         }
 
-        if (dispatchOrIndirect instanceof IndirectStorageBufferAttribute) {
+        if (dispatchOrIndirect instanceof GpuBufferClass) {
             const gpuBuf = buffers.uploadIndirect(this.buffers, dispatchOrIndirect);
             this._dispatchComputeNode(node, this._frameEncoder, undefined, gpuBuf, 0);
         } else {
@@ -1319,12 +1321,12 @@ export class WebGPURenderer {
                 for (const attrEntry of nodeState.attributes) {
                     let gpuBuf: GPUBuffer;
                     if (attrEntry.kind === 'geometry') {
-                        const bufAttr = geometry.attributes.get(attrEntry.name);
+                        const bufAttr = geometry.buffers.get(attrEntry.name);
                         if (!bufAttr) { slot++; continue; }
                         gpuBuf = buffers.uploadVertex(this.buffers, bufAttr);
                     } else {
                         const node = attrEntry.node;
-                        const arr = node.attribute.array;
+                        const arr = node.buffer.array;
                         if (!arr) {
                             throw new Error(`[gpucat] BufferAttributeNode array is null for ${attrEntry.name}`);
                         }

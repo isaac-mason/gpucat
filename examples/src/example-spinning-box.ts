@@ -55,8 +55,8 @@ async function main() {
         camera.updateProjectionMatrix();
     });
 
-    const position = attribute(d.vec3f, 'position');
-    const normal = attribute(d.vec3f, 'normal');
+    const position = attribute('position', d.vec3f);
+    const normal = attribute('normal', d.vec3f);
 
     const localPosition = vec4(position, f32(1)).toVar('localPos');
     const worldPosition = mul(modelWorldMatrix, localPosition).toVar('worldPos');

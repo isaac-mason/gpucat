@@ -1,5 +1,5 @@
 import * as g from 'gpucat';
-import { d, packStructArray, writeStructArray } from 'gpucat';
+import { d, packStructArray, writeStructArray, GpuBuffer, createIndexBuffer } from 'gpucat';
 import { mat4, quat, vec3 } from 'mathcat';
 
 const TOTAL = 120; // total instances
@@ -10,12 +10,12 @@ const SPACING = 2.0;
 const boxSource    = g.createBoxGeometry(0.8, 0.8, 0.8);
 const sphereSource = g.createSphereGeometry(0.5, 16, 8);
 
-const boxPos    = boxSource.attributes.get('position')!.array    as Float32Array;
-const boxNorm   = boxSource.attributes.get('normal')!.array      as Float32Array;
+const boxPos    = boxSource.buffers.get('position')!.array    as Float32Array;
+const boxNorm   = boxSource.buffers.get('normal')!.array      as Float32Array;
 const boxIdx    = boxSource.index!.array as Uint16Array;
 
-const sphPos    = sphereSource.attributes.get('position')!.array as Float32Array;
-const sphNorm   = sphereSource.attributes.get('normal')!.array   as Float32Array;
+const sphPos    = sphereSource.buffers.get('position')!.array as Float32Array;
+const sphNorm   = sphereSource.buffers.get('normal')!.array   as Float32Array;
 const sphIdx    = sphereSource.index!.array as Uint16Array;
 
 const mergedPos  = new Float32Array(boxPos.length  + sphPos.length);
@@ -32,9 +32,9 @@ const boxIdxCount  = boxIdx.length;
 const sphIdxCount  = sphIdx.length;
 
 const mergedGeometry = new g.Geometry();
-mergedGeometry.attributes.set('position', new g.BufferAttribute(mergedPos,  3));
-mergedGeometry.attributes.set('normal',   new g.BufferAttribute(mergedNorm, 3));
-mergedGeometry.index = new g.IndexAttribute(mergedIdx);
+mergedGeometry.setBuffer('position', new GpuBuffer(d.vec3f, { data: mergedPos, usage: 'vertex' }));
+mergedGeometry.setBuffer('normal', new GpuBuffer(d.vec3f, { data: mergedNorm, usage: 'vertex' }));
+mergedGeometry.index = createIndexBuffer(mergedIdx);
 
 const instanceMatrices = new Float32Array(TOTAL * 16);
 const instanceHues     = new Float32Array(TOTAL);      // [0..1] for color
@@ -64,8 +64,8 @@ const instanceTransform = g.mat4(col0, col1, col2, col3);
 
 const instanceHue = g.instancedBufferAttribute(instanceHues, d.f32, 4, 0);
 
-const pos = g.attribute(d.vec3f, 'position');
-const norm = g.attribute(d.vec3f, 'normal');
+const pos = g.attribute('position', d.vec3f);
+const norm = g.attribute('normal', d.vec3f);
 
 const localPos = g.vec4(pos, g.f32(1.0));
 const worldPos = g.mul(instanceTransform, localPos);
@@ -95,7 +95,7 @@ const finalColor = g.vec4(litColor, g.f32(1.0));
 const material = new g.Material({ vertex: clipPos, fragment: finalColor });
 
 // ---------------------------------------------------------------------------
-// 4. One IndirectStorageBufferAttribute with drawCount=2
+// 4. One GpuBuffer with drawCount=2 for indirect indexed draws
 //    draw 0 → box sub-range    (firstIndex=0,          baseVertex=0,         firstInstance=0)
 //    draw 1 → sphere sub-range (firstIndex=boxIdxCount, baseVertex=boxVerts, firstInstance=TOTAL/2)
 //
@@ -112,7 +112,8 @@ const indirectData = new Uint32Array(packStructArray(g.DrawIndexedIndirect, [
     { indexCount: sphIdxCount, instanceCount: TOTAL / 2, firstIndex: boxIdxCount, baseVertex: boxVertCount, firstInstance: TOTAL / 2 },
 ]));
 
-mergedGeometry.indirect = new g.IndirectStorageBufferAttribute(indirectData, 5);
+const indirectBuffer = new GpuBuffer(g.DrawIndexedIndirect, { data: indirectData, usage: ['storage', 'indirect'], arrayType: Uint32Array });
+mergedGeometry.indirect = indirectBuffer;
 
 // ---------------------------------------------------------------------------
 // 5. Main
@@ -159,8 +160,6 @@ async function main() {
     // UI — slider to split instances between boxes and spheres at runtime
     // -----------------------------------------------------------------------
 
-    const indirect = mergedGeometry.indirect!;
-
     const ui = document.createElement('div');
     ui.style.cssText = `
         position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
@@ -187,8 +186,8 @@ async function main() {
         writeStructArray(g.DrawIndexedIndirect, [
             { indexCount: boxIdxCount, instanceCount: boxCount, firstIndex: 0,           baseVertex: 0,           firstInstance: 0        },
             { indexCount: sphIdxCount, instanceCount: sphCount, firstIndex: boxIdxCount, baseVertex: boxVertCount, firstInstance: boxCount },
-        ], indirect.array!.buffer as ArrayBuffer, 0);
-        indirect.needsUpdate = true;
+        ], indirectBuffer.array!.buffer as ArrayBuffer, 0);
+        indirectBuffer.needsUpdate = true;
 
         label.textContent = `boxes: ${boxCount}   spheres: ${sphCount}`;
     });

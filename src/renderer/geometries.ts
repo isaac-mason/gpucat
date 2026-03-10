@@ -1,22 +1,23 @@
-import type { Geometry } from '../geometry/geometry';
-import type { BufferAttribute, IndexAttribute, IndirectStorageBufferAttribute } from '../core/attribute';
-import { IndexAttribute as IndexAttributeClass } from '../core/attribute';
+import type { Geometry, IndexBuffer } from '../geometry/geometry';
+import { createIndexBuffer } from '../geometry/geometry';
+import type { GpuBuffer } from '../core/buffer';
+import type { Any } from '../nodes/schema';
 import type { RenderObject } from './render-object';
 import * as buffers from './buffers';
 
 /**
- * Attribute type for routing to correct buffer upload function.
+ * Buffer type for routing to correct buffer upload function.
  */
-export type AttributeType = 'vertex' | 'index' | 'storage' | 'indirect';
+export type BufferType = 'vertex' | 'index' | 'indirect';
 
 /** Per-geometry tracking data */
 export type GeometryData = {
-    /** Whether the geometry has been initialized (attributes uploaded). */
+    /** Whether the geometry has been initialized (buffers uploaded). */
     initialized: boolean;
 };
 
 /**
- * GeometriesState - manages geometry and attribute GPU buffers with deduplication.
+ * GeometriesState - manages geometry and buffer GPU resources with deduplication.
  *
  * Combines the responsibilities of the former Geometries and Attributes systems.
  */
@@ -28,10 +29,10 @@ export type GeometriesState = {
     device: GPUDevice;
 
     /**
-     * Tracks the last render call ID when each attribute was updated.
+     * Tracks the last render call ID when each buffer was updated.
      * Prevents duplicate updates within the same frame.
      */
-    attributeCall: WeakMap<BufferAttribute | IndexAttribute | IndirectStorageBufferAttribute, number>;
+    bufferCall: WeakMap<GpuBuffer<Any> | IndexBuffer, number>;
 
     /**
      * Current render call ID. Incremented at the start of each render call.
@@ -43,15 +44,14 @@ export type GeometriesState = {
     geometryData: WeakMap<Geometry, GeometryData>;
 
     /** Cached wireframe index buffers per geometry. */
-    wireframes: WeakMap<Geometry, IndexAttribute>;
+    wireframes: WeakMap<Geometry, IndexBuffer>;
 
     /** Memory statistics. */
     memory: {
         geometries: number;
-        attributes: number;
-        indexAttributes: number;
-        storageAttributes: number;
-        indirectAttributes: number;
+        buffers: number;
+        indexBuffers: number;
+        indirectBuffers: number;
     };
 };
 
@@ -64,16 +64,15 @@ export function createGeometriesState(bufferCache: buffers.BufferCache): Geometr
     return {
         bufferCache,
         device: bufferCache.device,
-        attributeCall: new WeakMap(),
+        bufferCall: new WeakMap(),
         currentCallId: 0,
         geometryData: new WeakMap(),
         wireframes: new WeakMap(),
         memory: {
             geometries: 0,
-            attributes: 0,
-            indexAttributes: 0,
-            storageAttributes: 0,
-            indirectAttributes: 0,
+            buffers: 0,
+            indexBuffers: 0,
+            indirectBuffers: 0,
         },
     };
 }
@@ -87,78 +86,94 @@ export function incrementCallId(state: GeometriesState): void {
 }
 
 /**
- * Update an attribute, uploading to GPU if needed.
- * Implements per-frame deduplication - each attribute is uploaded at most once per frame.
+ * Update a buffer, uploading to GPU if needed.
+ * Implements per-frame deduplication - each buffer is uploaded at most once per frame.
  *
  * Version tracking is delegated to buffers.ts — we only track per-frame deduplication here.
  *
  * @param state - The Geometries state
- * @param attribute - The attribute to update
- * @param type - The attribute type for routing
+ * @param buffer - The GpuBuffer to update
+ * @param type - The buffer type for routing
  */
-export function updateAttribute(
+export function updateBuffer(
     state: GeometriesState,
-    attribute: BufferAttribute,
-    type: AttributeType,
+    buffer: GpuBuffer<Any>,
+    type: BufferType,
 ): void {
     const callId = state.currentCallId;
 
     // Check if already updated this frame
-    const lastCallId = state.attributeCall.get(attribute);
+    const lastCallId = state.bufferCall.get(buffer);
     if (lastCallId === callId) {
         return; // Already updated this frame
     }
 
     // Mark as updated for this frame
-    state.attributeCall.set(attribute, callId);
+    state.bufferCall.set(buffer, callId);
 
     // Route to appropriate upload function in buffers.ts
     // buffers.ts handles version tracking internally
     switch (type) {
         case 'vertex':
-            buffers.uploadVertex(state.bufferCache, attribute);
-            break;
-        case 'index':
-            buffers.uploadIndex(state.bufferCache, attribute as unknown as IndexAttribute);
-            break;
-        case 'storage':
-            // Storage attributes are handled separately through StorageNodes
+            buffers.uploadVertex(state.bufferCache, buffer);
             break;
         case 'indirect':
-            buffers.uploadIndirect(state.bufferCache, attribute as unknown as IndirectStorageBufferAttribute);
+            buffers.uploadIndirect(state.bufferCache, buffer);
             break;
+        // Note: 'index' type uses updateIndex() instead
     }
 }
 
 /**
- * Get the GPU buffer for an indirect attribute.
+ * Update an index buffer, uploading to GPU if needed.
+ */
+export function updateIndex(
+    state: GeometriesState,
+    index: IndexBuffer,
+): void {
+    const callId = state.currentCallId;
+
+    // Check if already updated this frame
+    const lastCallId = state.bufferCall.get(index);
+    if (lastCallId === callId) {
+        return; // Already updated this frame
+    }
+
+    // Mark as updated for this frame
+    state.bufferCall.set(index, callId);
+
+    buffers.uploadIndex(state.bufferCache, index);
+}
+
+/**
+ * Get the GPU buffer for an indirect buffer.
  * Returns undefined if not uploaded yet.
  */
 export function getIndirectBuffer(
     state: GeometriesState,
-    attribute: IndirectStorageBufferAttribute,
+    buffer: GpuBuffer<Any>,
 ): GPUBuffer | undefined {
-    return buffers.getIndirect(state.bufferCache, attribute);
+    return buffers.getIndirect(state.bufferCache, buffer);
 }
 
 /**
- * Delete an attribute from the deduplication tracking.
+ * Delete a buffer from the deduplication tracking.
  * Note: This doesn't destroy the GPU buffer - buffers.ts handles that via WeakMap GC.
  *
  * @param state - The Geometries state
- * @param attribute - The attribute to delete
+ * @param buffer - The buffer to delete
  */
-export function deleteAttribute(
+export function deleteBuffer(
     state: GeometriesState,
-    attribute: BufferAttribute | IndexAttribute,
+    buffer: GpuBuffer<Any> | IndexBuffer,
 ): void {
-    state.attributeCall.delete(attribute);
+    state.bufferCall.delete(buffer);
 }
 
 /**
  * Initialize a geometry for rendering.
  *
- * This uploads all vertex attributes and the index buffer (if present).
+ * This uploads all vertex buffers and the index buffer (if present).
  * Called once when a geometry is first encountered.
  *
  * @param state the Geometries state
@@ -180,22 +195,24 @@ export function initGeometry(state: GeometriesState, geometry: Geometry): void {
         state.memory.geometries++;
     }
 
-    // upload all vertex attributes
-    for (const [_name, attr] of geometry.attributes) {
-        updateAttribute(state, attr, 'vertex');
-        state.memory.attributes++;
+    // upload all vertex buffers
+    for (const [_name, buffer] of geometry.buffers) {
+        if (buffer.usage.has('vertex')) {
+            updateBuffer(state, buffer, 'vertex');
+            state.memory.buffers++;
+        }
     }
 
     // upload index buffer if present
     if (geometry.index) {
-        updateAttribute(state, geometry.index as unknown as BufferAttribute, 'index');
-        state.memory.indexAttributes++;
+        updateIndex(state, geometry.index);
+        state.memory.indexBuffers++;
     }
 
     // upload indirect buffer if present
     if (geometry.indirect) {
-        updateAttribute(state, geometry.indirect as unknown as BufferAttribute, 'indirect');
-        state.memory.indirectAttributes++;
+        updateBuffer(state, geometry.indirect, 'indirect');
+        state.memory.indirectBuffers++;
     }
 
     data.initialized = true;
@@ -209,11 +226,11 @@ export function initGeometry(state: GeometriesState, geometry: Geometry): void {
 /**
  * Update a geometry for rendering.
  *
- * This checks for version changes and re-uploads modified attributes.
+ * This checks for version changes and re-uploads modified buffers.
  * Called every frame for each visible geometry.
  *
  * Note: Version tracking is handled by buffers.ts. We just ensure each
- * attribute goes through the upload path (with per-frame deduplication).
+ * buffer goes through the upload path (with per-frame deduplication).
  *
  * @param state the Geometries state
  * @param renderObject the RenderObject containing the geometry
@@ -228,19 +245,21 @@ export function updateForRender(state: GeometriesState, renderObject: RenderObje
         return; // initGeometry already uploads everything
     }
 
-    // Update all vertex attributes (buffers.ts handles version checking)
-    for (const [_name, attr] of geometry.attributes) {
-        updateAttribute(state, attr, 'vertex');
+    // Update all vertex buffers (buffers.ts handles version checking)
+    for (const [_name, buffer] of geometry.buffers) {
+        if (buffer.usage.has('vertex')) {
+            updateBuffer(state, buffer, 'vertex');
+        }
     }
 
     // Update index buffer if present
     if (geometry.index) {
-        updateAttribute(state, geometry.index as unknown as BufferAttribute, 'index');
+        updateIndex(state, geometry.index);
     }
 
     // Update indirect buffer if present
     if (geometry.indirect) {
-        updateAttribute(state, geometry.indirect as unknown as BufferAttribute, 'indirect');
+        updateBuffer(state, geometry.indirect, 'indirect');
     }
 }
 
@@ -259,7 +278,7 @@ export function getIndex(
     state: GeometriesState,
     renderObject: RenderObject,
     wireframe: boolean = false,
-): IndexAttribute | null {
+): IndexBuffer | null {
     const geometry = renderObject.geometry;
 
     if (wireframe) {
@@ -270,7 +289,7 @@ export function getIndex(
             state.wireframes.set(geometry, wireframeIndex);
 
             // upload wireframe index buffer
-            updateAttribute(state, wireframeIndex as unknown as BufferAttribute, 'index');
+            updateIndex(state, wireframeIndex);
         }
         return wireframeIndex;
     }
@@ -288,14 +307,14 @@ export function getIndex(
  * For non-indexed geometry, generates indices from vertex count.
  *
  * @param geometry - The source geometry
- * @returns A new IndexAttribute with wireframe line indices
+ * @returns A new IndexBuffer with wireframe line indices
  */
-function generateWireframeIndices(geometry: Geometry): IndexAttribute {
+function generateWireframeIndices(geometry: Geometry): IndexBuffer {
     const index = geometry.index;
-    const position = geometry.attributes.get('position');
+    const position = geometry.buffers.get('position');
 
     if (!position) {
-        throw new Error('[Geometries] Cannot generate wireframe: no position attribute');
+        throw new Error('[Geometries] Cannot generate wireframe: no position buffer');
     }
 
     // determine number of triangles
@@ -332,7 +351,7 @@ function generateWireframeIndices(geometry: Geometry): IndexAttribute {
         wireframeIndices[wireframeIdx++] = a;
     }
 
-    return new IndexAttributeClass(wireframeIndices);
+    return createIndexBuffer(wireframeIndices);
 }
 
 /**
@@ -345,20 +364,20 @@ export function disposeGeometry(state: GeometriesState, geometry: Geometry): voi
     const data = state.geometryData.get(geometry);
     if (!data) return;
 
-    // delete vertex attribute tracking
-    for (const [_name, attr] of geometry.attributes) {
-        deleteAttribute(state, attr);
+    // delete buffer tracking
+    for (const [_name, buffer] of geometry.buffers) {
+        deleteBuffer(state, buffer);
     }
 
     // delete index buffer tracking
     if (geometry.index) {
-        deleteAttribute(state, geometry.index);
+        deleteBuffer(state, geometry.index);
     }
 
     // delete wireframe index buffer if it exists
     const wireframeIndex = state.wireframes.get(geometry);
     if (wireframeIndex) {
-        deleteAttribute(state, wireframeIndex);
+        deleteBuffer(state, wireframeIndex);
         state.wireframes.delete(geometry);
     }
 
@@ -367,13 +386,12 @@ export function disposeGeometry(state: GeometriesState, geometry: Geometry): voi
     state.memory.geometries--;
 }
 
-/** Get geometry and attribute memory statistics */
+/** Get geometry and buffer memory statistics */
 export function getGeometriesStats(state: GeometriesState): {
     geometries: number;
-    attributes: number;
-    indexAttributes: number;
-    storageAttributes: number;
-    indirectAttributes: number;
+    buffers: number;
+    indexBuffers: number;
+    indirectBuffers: number;
 } {
     return { ...state.memory };
 }

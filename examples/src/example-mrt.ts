@@ -100,8 +100,8 @@ window.addEventListener('resize', () => {
 
 /* material */
 
-const pos = attribute(d.vec3f, 'position');
-const norm = attribute(d.vec3f, 'normal');
+const pos = attribute('position', d.vec3f);
+const norm = attribute('normal', d.vec3f);
 
 // vertex shader: transform to clip space
 const localPos = vec4(pos, f32(1));

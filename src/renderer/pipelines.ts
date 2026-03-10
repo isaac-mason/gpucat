@@ -381,20 +381,20 @@ export function buildVertexBufferLayouts(
 
     for (const attrEntry of nodeState.attributes) {
         if (attrEntry.kind === 'geometry') {
-            // Geometry attribute (position, normal, uv, etc.)
-            const attr = geometry.attributes.get(attrEntry.name);
-            if (!attr) continue;
+            // Geometry buffer (position, normal, uv, etc.)
+            const buffer = geometry.buffers.get(attrEntry.name);
+            if (!buffer) continue;
 
-            const bytesPerElement = getBytesPerElement(attr.format);
-            const arrayStride = attr.stride > 0 ? attr.stride : bytesPerElement;
+            const bytesPerElement = getBytesPerElement(buffer.format);
+            const arrayStride = buffer.stride > 0 ? buffer.stride : bytesPerElement;
 
             layouts.push({
                 arrayStride,
                 stepMode: 'vertex',
                 attributes: [
                     {
-                        format: attr.format!,
-                        offset: attr.offset,
+                        format: buffer.format!,
+                        offset: buffer.offset,
                         shaderLocation: attrEntry.location,
                     },
                 ],

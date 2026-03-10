@@ -16,8 +16,9 @@
  * rather than a class.
  */
 
-import type { Geometry } from '../geometry/geometry';
-import type { BufferAttribute, IndexAttribute } from '../core/attribute';
+import type { Geometry, IndexBuffer } from '../geometry/geometry';
+import type { GpuBuffer } from '../core/buffer';
+import type { Any } from '../nodes/schema';
 import type { Material } from '../material/material';
 import type { Mesh } from '../objects/mesh';
 import type { Camera } from '../camera/camera';
@@ -127,20 +128,20 @@ export type RenderObject = {
     _bindings: BindGroup[] | null;
 
     // -------------------------------------------------------------------------
-    // Attribute State
+    // Buffer State
     // -------------------------------------------------------------------------
 
     /**
-     * Vertex buffer attributes used by this draw.
-     * null until attributes are resolved.
+     * Vertex buffers used by this draw.
+     * null until buffers are resolved.
      */
-    vertexBuffers: BufferAttribute[] | null;
+    vertexBuffers: GpuBuffer<Any>[] | null;
 
     /**
-     * Index buffer attribute (if indexed draw).
+     * Index buffer (if indexed draw).
      * null for non-indexed draws.
      */
-    indexBuffer: IndexAttribute | null;
+    indexBuffer: IndexBuffer | null;
 
     // -------------------------------------------------------------------------
     // Draw Parameters
@@ -362,13 +363,13 @@ export function computeRenderObjectCacheKey(
         parts.push(material.blend.alpha?.operation ?? 'add');
     }
 
-    // Geometry attributes (names and formats)
-    const attrKeys: string[] = [];
-    for (const [name, attr] of geometry.attributes) {
-        attrKeys.push(`${name}:${attr.format ?? 'auto'}`);
+    // Geometry buffers (names and formats)
+    const bufferKeys: string[] = [];
+    for (const [name, buffer] of geometry.buffers) {
+        bufferKeys.push(`${name}:${buffer.format ?? 'auto'}`);
     }
-    attrKeys.sort();
-    parts.push(attrKeys.join(','));
+    bufferKeys.sort();
+    parts.push(bufferKeys.join(','));
 
     // Index format
     if (geometry.index) {

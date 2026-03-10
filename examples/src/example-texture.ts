@@ -21,6 +21,7 @@ import {
     vec3,
     vec4,
     WebGPURenderer,
+    type Node,
 } from 'gpucat';
 import { quat, type Euler } from 'mathcat';
 
@@ -78,9 +79,9 @@ async function main() {
     checkerTexture.needsUpdate = true;
 
     // geometry attributes
-    const position = attribute(d.vec3f, 'position').toVar('position');
-    const normal = attribute(d.vec3f, 'normal').toVar('normal');
-    const uv = attribute(d.vec2f, 'uv').toVar('uv');
+    const position = attribute('position', d.vec3f).toVar('position');
+    const normal = attribute('normal', d.vec3f).toVar('normal');
+    const uvAttr = attribute('uv', d.vec2f).toVar('uv');
 
     // vertex shader: transform position to clip space
     const localPosition = vec4(position, f32(1)).toVar('localPos');
@@ -92,11 +93,11 @@ async function main() {
     const worldNormal = mul(modelNormalMatrix, vec3(normal.x, normal.y, normal.z)).toVar('worldNormal');
 
     const vNormal = varying(normalize(worldNormal), 'v_norm');
-    const vUv = varying(uv, 'v_uv');
+    const vUv = varying(uvAttr, 'v_uv');
 
     // fragment: sample texture and apply simple lighting
     const texNode = texture(checkerTexture);
-    const texColor = texNode.sample(vUv);
+    const texColor = texNode.sample(vUv as unknown as Node<d.vec2f>);
     const lightDirection = vec3(f32(0.6), f32(1.0), f32(0.8)).normalize();
     const diffuse = vNormal.dot(lightDirection).max(f32(0.2));
     const litColor = texColor.xyz.mul(diffuse);

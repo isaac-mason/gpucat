@@ -1,5 +1,5 @@
 import * as g from 'gpucat';
-import { d } from 'gpucat'; 
+import { d, GpuBuffer } from 'gpucat'; 
 import { mat4, quat, vec3 } from 'mathcat';
 
 const COLS = 7;
@@ -29,21 +29,21 @@ for (let i = 0; i < N; i++) {
 
     // HSV → RGB: each instance gets a distinct hue
     const h = (i / N) * 360;
-    const [r, g, b] = hsvToRgb(h, 0.75, 0.95);
+    const [r, gg, b] = hsvToRgb(h, 0.75, 0.95);
     colorData[i * 4 + 0] = r;
-    colorData[i * 4 + 1] = g;
+    colorData[i * 4 + 1] = gg;
     colorData[i * 4 + 2] = b;
     colorData[i * 4 + 3] = 1;
 }
 
 /* node graph - storage buffer instancing */
 
-// storage buffer nodes: wrap data in StorageBufferAttribute, renderer auto-uploads.
+// storage buffer nodes: wrap data in GpuBuffer, renderer auto-uploads.
 // no manual device.createBuffer / device.queue.writeBuffer / material.uniforms.set needed.
-const matrixAttr = new g.StorageBufferAttribute(matrixData, 16); // 16 floats per mat4x4f
-const colorAttr  = new g.StorageBufferAttribute(colorData, 4);   // 4 floats per vec4f
-const instanceMatrices = g.storage(matrixAttr, d.array(d.mat4x4f));
-const instanceColors   = g.storage(colorAttr,  d.array(d.vec4f));
+const matrixBuffer = new GpuBuffer(d.array(d.mat4x4f), { data: matrixData, usage: 'storage' });
+const colorBuffer  = new GpuBuffer(d.array(d.vec4f), { data: colorData, usage: 'storage' });
+const instanceMatrices = g.storage(matrixBuffer);
+const instanceColors   = g.storage(colorBuffer);
 
 // index into the storage arrays.
 const modelMat   = g.index(instanceMatrices, g.instanceIndex);
@@ -77,7 +77,7 @@ const rotY  = g.mat4(
     g.vec4(zero,  zero, zero,          one),
 );
 
-const pos       = g.attribute(d.vec3f, 'position');
+const pos       = g.attribute('position', d.vec3f);
 const localPos  = g.vec4(pos, g.f32(1));
 
 // final transform: camera * storageMatrix * rotY * localPos

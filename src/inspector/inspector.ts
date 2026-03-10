@@ -642,14 +642,14 @@ export class Inspector extends RendererInspector {
         const bufferCache = renderer.buffers;
         for (const attrEntry of nodeState.attributes) {
             if (attrEntry.kind === 'geometry') {
-                const bufAttr = geometry.attributes.get(attrEntry.name);
+                const bufAttr = geometry.buffers.get(attrEntry.name);
                 if (bufAttr) {
                     const gpuBuf = buffers.uploadVertex(bufferCache, bufAttr);
                     pass.setVertexBuffer(slot, gpuBuf);
                 }
             } else {
                 const node = attrEntry.node;
-                const arr = node.attribute.array;
+                const arr = node.buffer.array;
                 if (arr) {
                     const gpuBuf = buffers.uploadRaw(
                         bufferCache,

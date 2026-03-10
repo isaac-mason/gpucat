@@ -1,5 +1,6 @@
-import { BufferAttribute, IndexAttribute } from '../core/attribute';
-import { Geometry } from './geometry';
+import { GpuBuffer } from '../core/buffer';
+import * as d from '../nodes/schema';
+import { createIndexBuffer, Geometry } from './geometry';
 
 export function createBoxGeometry(width = 1, height = 1, depth = 1): Geometry {
     const hw = width / 2;
@@ -39,10 +40,10 @@ export function createBoxGeometry(width = 1, height = 1, depth = 1): Geometry {
     face(hw, -hh, -hd, -hw, -hh, -hd, -hw, hh, -hd, hw, hh, -hd, 0, 0, -1);
 
     const geom = new Geometry();
-    geom.attributes.set('position', new BufferAttribute(new Float32Array(positions), 3));
-    geom.attributes.set('normal', new BufferAttribute(new Float32Array(normals), 3));
-    geom.attributes.set('uv', new BufferAttribute(new Float32Array(uvs), 2));
-    geom.index = new IndexAttribute(new Uint16Array(indices));
+    geom.setBuffer('position', new GpuBuffer(d.vec3f, { data: new Float32Array(positions), usage: 'vertex' }));
+    geom.setBuffer('normal', new GpuBuffer(d.vec3f, { data: new Float32Array(normals), usage: 'vertex' }));
+    geom.setBuffer('uv', new GpuBuffer(d.vec2f, { data: new Float32Array(uvs), usage: 'vertex' }));
+    geom.index = createIndexBuffer(new Uint16Array(indices));
     geom.vertexCount = positions.length / 3;
     geom.boundingBox = [-hw, -hh, -hd, hw, hh, hd];
     geom.boundingSphere = { center: [0, 0, 0], radius: Math.sqrt(hw * hw + hh * hh + hd * hd) };
@@ -80,10 +81,10 @@ export function createSphereGeometry(radius = 0.5, widthSegments = 16, heightSeg
     }
 
     const geom = new Geometry();
-    geom.attributes.set('position', new BufferAttribute(new Float32Array(positions), 3));
-    geom.attributes.set('normal', new BufferAttribute(new Float32Array(normals), 3));
-    geom.attributes.set('uv', new BufferAttribute(new Float32Array(uvs), 2));
-    geom.index = new IndexAttribute(new Uint16Array(indices));
+    geom.setBuffer('position', new GpuBuffer(d.vec3f, { data: new Float32Array(positions), usage: 'vertex' }));
+    geom.setBuffer('normal', new GpuBuffer(d.vec3f, { data: new Float32Array(normals), usage: 'vertex' }));
+    geom.setBuffer('uv', new GpuBuffer(d.vec2f, { data: new Float32Array(uvs), usage: 'vertex' }));
+    geom.index = createIndexBuffer(new Uint16Array(indices));
     geom.vertexCount = positions.length / 3;
     geom.boundingBox = [-radius, -radius, -radius, radius, radius, radius];
     geom.boundingSphere = { center: [0, 0, 0], radius };
@@ -159,10 +160,10 @@ export function createPlaneGeometry(
     }
 
     const geom = new Geometry();
-    geom.attributes.set('position', new BufferAttribute(positions, 3));
-    geom.attributes.set('normal',   new BufferAttribute(normals,   3));
-    geom.attributes.set('uv',       new BufferAttribute(uvs,       2));
-    geom.index = new IndexAttribute(indices as Uint16Array);
+    geom.setBuffer('position', new GpuBuffer(d.vec3f, { data: positions, usage: 'vertex' }));
+    geom.setBuffer('normal', new GpuBuffer(d.vec3f, { data: normals, usage: 'vertex' }));
+    geom.setBuffer('uv', new GpuBuffer(d.vec2f, { data: uvs, usage: 'vertex' }));
+    geom.index = createIndexBuffer(indices as Uint16Array);
     geom.vertexCount = vertexCount;
     geom.boundingBox  = [-hw, 0, -hh, hw, 0, hh];
     geom.boundingSphere = {
@@ -203,8 +204,8 @@ export function createFullscreenTriangleGeometry(flipY = false): Geometry {
         : new Float32Array([0, 0, 2, 0, 0, 2]); // standard
 
     const geom = new Geometry();
-    geom.attributes.set('position', new BufferAttribute(positions, 3));
-    geom.attributes.set('uv', new BufferAttribute(uvsData, 2));
+    geom.setBuffer('position', new GpuBuffer(d.vec3f, { data: positions, usage: 'vertex' }));
+    geom.setBuffer('uv', new GpuBuffer(d.vec2f, { data: uvsData, usage: 'vertex' }));
     geom.vertexCount = 3;
     return geom;
 }

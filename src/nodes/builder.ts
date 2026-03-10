@@ -591,7 +591,7 @@ function discover(roots: Node<d.Any>[]): DiscoverResult {
 
         // struct definition discovery
         if (node instanceof StorageNode) {
-            const bufType = node.bufferType;
+            const bufType = node.type;
             if (d.isStructDef(bufType)) {
                 registerStructDef(bufType as unknown as StructDef<StructSchema>);
             } else if ((d.isArrayDesc(bufType) || d.isSizedArrayDesc(bufType)) && d.isStructDef(bufType.element)) {

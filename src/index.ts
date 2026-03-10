@@ -14,7 +14,7 @@ export * from './scene/scene';
 export * from "./camera/camera";
 export * from "./camera/perspective-camera";
 
-export * from "./core/attribute";
+export * from "./core/buffer";
 export * from "./geometry/geometry";
 export * from "./geometry/geometry-helpers";
 
@@ -53,7 +53,7 @@ export {
 
     // node factories
     attribute, bufferAttribute, instancedBufferAttribute,
-    builtin, index, field, fields, uniform, storage, storageArray, instancedArray,
+    builtin, index, field, fields, uniform, storage,
     array,
     texture, varying, struct, wgsl, wgslFn, Fn, mrt,
     compute,

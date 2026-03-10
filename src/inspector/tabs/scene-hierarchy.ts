@@ -323,16 +323,16 @@ export class SceneHierarchy extends Tab {
             table.appendChild(makeKVRow('indices', 'none'));
         }
 
-        // Attributes
-        const attrNames = Array.from(geo.attributes.keys());
-        if (attrNames.length > 0) {
-            for (const name of attrNames) {
-                const attr = geo.attributes.get(name)!;
-                const fmt = attr.format ?? `itemSize=${attr.itemSize}`;
-                table.appendChild(makeKVRow(`attr: ${name}`, fmt));
+        // Buffers
+        const bufferNames = Array.from(geo.buffers.keys());
+        if (bufferNames.length > 0) {
+            for (const name of bufferNames) {
+                const buffer = geo.buffers.get(name)!;
+                const fmt = buffer.format ?? `itemSize=${buffer.itemSize}`;
+                table.appendChild(makeKVRow(`buffer: ${name}`, fmt));
             }
         } else {
-            table.appendChild(makeKVRow('attributes', 'none'));
+            table.appendChild(makeKVRow('buffers', 'none'));
         }
 
         // Bounding box — Box3 is [minX, minY, minZ, maxX, maxY, maxZ]

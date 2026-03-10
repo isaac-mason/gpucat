@@ -1,7 +1,6 @@
 import {
     abs,
     attribute,
-    BufferAttribute,
     cameraProjectionMatrix,
     cameraViewMatrix,
     cross,
@@ -11,8 +10,8 @@ import {
     Fn,
     Geometry,
     globalId,
+    GpuBuffer,
     If,
-    IndirectStorageBufferAttribute,
     Inspector,
     instancedBufferAttribute,
     Material,
@@ -106,11 +105,10 @@ const attrOrientationEnd = instancedBufferAttribute(
 //      [2] firstVertex    — 0
 //      [3] firstInstance  — 0
 
-// non-indexed, 1 draw. itemSize=4 for DrawIndirect struct (vertexCount, instanceCount, firstVertex, firstInstance)
-const drawBuffer = new IndirectStorageBufferAttribute(1, 4);
+// non-indexed, 1 draw. GpuBuffer with storage + indirect usage
+const drawBuffer = new GpuBuffer(DrawIndirect, { data: 1, usage: ['storage', 'indirect'] });
 
-// struct-typed storage node — mirrors: storage(drawBuffer, DrawIndirect, drawBuffer.count)
-const drawStorage = storage(drawBuffer, DrawIndirect, "read_write");
+const drawStorage = storage(drawBuffer, "read_write");
 const drawStorageInstance = drawStorage.fields();
 
 /* compute shaders */
@@ -149,7 +147,7 @@ const computeUpdate = Fn(() => {
 /* render node graph */
 
 // built-in per-vertex position.
-const vtxPos = attribute(d.vec3f, "position");
+const vtxPos = attribute("position", d.vec3f);
 
 // per-instance attributes.
 const offset = attrOffset;
@@ -232,7 +230,7 @@ window.addEventListener("resize", () => {
 
 // geometry — non-indexed triangle, per-instance vertex buffers
 const geo = new Geometry();
-geo.setAttribute("position", new BufferAttribute(positions, 3));
+geo.setBuffer("position", new GpuBuffer(d.vec3f, { data: positions, usage: 'vertex' }));
 geo.indirect = drawBuffer; // use drawIndirect
 
 const mesh = new Mesh(geo, material);

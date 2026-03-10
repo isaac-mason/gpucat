@@ -1,4 +1,4 @@
-import { d, StorageBufferAttribute, storage, Fn, Var, globalId, If, index, f32, vec4, instanceIndex, attribute, mul, cameraViewMatrix, cameraProjectionMatrix, varying, timeElapsed, Material, WebGPURenderer, Inspector, Scene, PerspectiveCamera, Geometry, BufferAttribute, IndexAttribute, Mesh, pass } from 'gpucat';
+import { d, GpuBuffer, storage, Fn, Var, globalId, If, index, f32, vec4, instanceIndex, attribute, mul, cameraViewMatrix, cameraProjectionMatrix, varying, timeElapsed, Material, WebGPURenderer, Inspector, Scene, PerspectiveCamera, Geometry, Mesh, pass, createIndexBuffer } from 'gpucat';
 
 const N = 8192;
 const WG_SIZE = 64;
@@ -13,8 +13,8 @@ for (let i = 0; i < N; i++) {
     positionData[i * 4 + 2] = (Math.random() - 0.5) * 4;   // z depth
     positionData[i * 4 + 3] = Math.random();               // initial lifetime
 }
-const positionAttr = new StorageBufferAttribute(positionData, 4); // 4 floats per vec4f
-const positions = storage(positionAttr, d.array(d.vec4f), 'read_write');
+const positionBuffer = new GpuBuffer(d.array(d.vec4f), { data: positionData, usage: 'storage' });
+const positions = storage(positionBuffer, 'read_write');
 
 // velocities: vec4f per particle — xyz = velocity, w = unused
 const velocityData = new Float32Array(N * 4);
@@ -24,8 +24,8 @@ for (let i = 0; i < N; i++) {
     velocityData[i * 4 + 2] = (Math.random() - 0.5) * 0.01;
     velocityData[i * 4 + 3] = 0;
 }
-const velocityAttr = new StorageBufferAttribute(velocityData, 4); // 4 floats per vec4f
-const velocities = storage(velocityAttr, d.array(d.vec4f), 'read');
+const velocityBuffer = new GpuBuffer(d.array(d.vec4f), { data: velocityData, usage: 'storage' });
+const velocities = storage(velocityBuffer);
 
 /* compute function */
 
@@ -61,7 +61,7 @@ const iIdx = instanceIndex;
 const particlePos = index(positions, iIdx);
 
 // vertex: offset the geometry vertex by the particle's world position.
-const vtxPos = attribute(d.vec3f, 'position');
+const vtxPos = attribute('position', d.vec3f);
 const worldPos = vec4(
     vtxPos.x.add(particlePos.x),
     vtxPos.y.add(particlePos.y),
@@ -133,8 +133,8 @@ const verts = new Float32Array([
     -S2,  S2, 0,
 ]);
 const indices = new Uint16Array([0, 1, 2, 0, 2, 3]);
-quadGeom.attributes.set('position', new BufferAttribute(verts, 3));
-quadGeom.index = new IndexAttribute(indices);
+quadGeom.setBuffer('position', new GpuBuffer(d.vec3f, { data: verts, usage: 'vertex' }));
+quadGeom.index = createIndexBuffer(indices);
 
 const mesh = new Mesh(quadGeom, material);
 mesh.count = N;

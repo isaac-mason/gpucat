@@ -43,7 +43,7 @@ const instanceColor = g.instancedBufferAttribute(instanceColors, d.vec3f, 12, 0)
 
 const vColor = g.varying(instanceColor, 'v_color');
 
-const pos = g.attribute(d.vec3f, 'position');
+const pos = g.attribute('position', d.vec3f);
 const localPos = g.vec4(pos, g.f32(1.0));
 const worldPos = g.mul(instanceTransform, localPos);
 const viewPos  = g.mul(g.cameraViewMatrix, worldPos);

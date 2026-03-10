@@ -20,8 +20,8 @@
  *   const buf = packStructArray(Particle, particles);
  *   // → ArrayBuffer sized and laid out correctly for a WGSL storage buffer
  *
- *   // Or create a StorageBufferAttribute directly:
- *   const attr = storageAttributeFromStructArray(Particle, particles);
+ *   // Or create a GpuBuffer directly:
+ *   const buffer = new GpuBuffer(d.array(Particle), { data: particles.length, usage: 'storage' });
  */
 
 import {
@@ -321,7 +321,8 @@ export function packStruct<D extends StructDesc>(
  *
  * @example
  * import * as d from '../nodes/schema';
- * import { struct, StorageBufferAttribute } from '../nodes/nodes';
+ * import { struct } from '../nodes/nodes';
+ * import { GpuBuffer } from '../core/buffer';
  * import { packStructArray } from './buffer-layout';
  *
  * const Particle = struct('Particle', {
@@ -340,8 +341,8 @@ export function packStruct<D extends StructDesc>(
  *     };
  * }
  *
- * const buf  = packStructArray(Particle, Array.from({ length: 100 }, makeParticle));
- * const attr = new StorageBufferAttribute(new Uint8Array(buf), 1);
+ * const buf = packStructArray(Particle, Array.from({ length: 100 }, makeParticle));
+ * const buffer = new GpuBuffer(d.array(Particle), { data: new Float32Array(buf), usage: 'storage' });
  */
 export function packStructArray<D extends StructDesc>(
     structDef: D,

@@ -1,4 +1,5 @@
 import type { UniformGroupBlock } from '../nodes/builder';
+import type { Geometry } from '../geometry/geometry';
 import type { Texture } from '../texture/texture';
 import type {
     BindGroup,
@@ -128,7 +129,7 @@ export function updateBindings(
         // Rebuild GPU bind group if needed
         const data = getData(state, bindGroup);
         if (data.needsUpdate || !data.bindGroup) {
-            rebuildGPUBindGroup(state, bindGroup, data);
+            rebuildGPUBindGroup(state, bindGroup, data, renderObject.geometry);
             data.needsUpdate = false;
         }
 
@@ -469,6 +470,7 @@ function rebuildGPUBindGroup(
     state: BindingsState,
     bindGroup: BindGroup,
     data: BindGroupData,
+    geometry: Geometry | null,
 ): void {
     if (!data.bindGroupLayout) return;
 
@@ -487,7 +489,7 @@ function rebuildGPUBindGroup(
             }
 
             case 'storage': {
-                const buf = uploadStorage(state.bufferCache, binding.entry.node);
+                const buf = uploadStorage(state.bufferCache, binding.entry.node, geometry);
                 entries.push({ binding: binding.entry.binding, resource: { buffer: buf } });
                 break;
             }
@@ -633,7 +635,7 @@ export function updateForCompute(
         // Rebuild GPU bind group if needed
         const data = getData(state, bindGroup);
         if (data.needsUpdate || !data.bindGroup) {
-            rebuildGPUBindGroup(state, bindGroup, data);
+            rebuildGPUBindGroup(state, bindGroup, data, null);
             data.needsUpdate = false;
         }
 

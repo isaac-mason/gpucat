@@ -1,28 +1,26 @@
-import type { BufferAttribute, IndexAttribute, IndirectStorageBufferAttribute } from '../core/attribute';
-import type { GpuTypedArray, StorageNode } from '../nodes/nodes';
+import type { GpuBuffer } from '../core/buffer';
+import type { GpuTypedArray } from '../core/buffer';
+import type { IndexBuffer, Geometry } from '../geometry/geometry';
+import type { StorageNode } from '../nodes/nodes';
 import type { Any } from '../nodes/schema';
 
 export type BufferCache = {
-    /* GPUDevice is needed to create buffers and write data. */
+    /** GPUDevice is needed to create buffers and write data. */
     device: GPUDevice;
 
-    /* vertex/index buffers — keyed by BufferAttribute identity, version-gated re-upload. */
-    vertexMap: WeakMap<BufferAttribute, { buf: GPUBuffer; version: number }>;
-    indexMap: WeakMap<IndexAttribute, { buf: GPUBuffer; version: number }>;
+    /** Vertex buffers — keyed by GpuBuffer identity, version-gated re-upload. */
+    vertexMap: WeakMap<GpuBuffer, { buf: GPUBuffer; version: number }>;
 
-    /* plain-object-keyed buffers (instance matrices, material UBOs, camera, time). */
+    /** Index buffers — keyed by IndexBuffer identity, version-gated re-upload. */
+    indexMap: WeakMap<IndexBuffer, { buf: GPUBuffer; version: number }>;
+
+    /** Plain-object-keyed buffers (instance matrices, material UBOs, camera, time). */
     rawMap: WeakMap<object, GPUBuffer>;
 
-    /* storage node buffers — keyed by node identity, version-gated re-upload. */
-    storageMap: WeakMap<StorageNode<Any>, { buf: GPUBuffer; version: number }>;
+    /** Storage buffers — keyed by GpuBuffer identity, version-gated re-upload. */
+    storageMap: WeakMap<GpuBuffer, { buf: GPUBuffer; version: number }>;
 
-    /* indirect draw buffers — keyed by IndirectStorageBufferAttribute identity, version-gated re-upload. */
-    indirectMap: WeakMap<IndirectStorageBufferAttribute, { buf: GPUBuffer; version: number }>;
-
-    /* map of Uint32Array -> IndirectStorageBufferAttribute. populated by uploadIndirect, used by uploadStorage to detect shared backing arrays */
-    dataToIndirect: WeakMap<Uint32Array, IndirectStorageBufferAttribute>;
-
-    /* mutable stats counters (approximate — tracks allocations, not deallocations) */
+    /** Mutable stats counters (approximate — tracks allocations, not deallocations) */
     vertexCount: number;
     indexCount: number;
     storageCount: number;
@@ -43,8 +41,6 @@ export function createBufferCache(device: GPUDevice): BufferCache {
         indexMap: new WeakMap(),
         rawMap: new WeakMap(),
         storageMap: new WeakMap(),
-        indirectMap: new WeakMap(),
-        dataToIndirect: new WeakMap(),
         vertexCount: 0,
         indexCount: 0,
         storageCount: 0,
@@ -53,45 +49,58 @@ export function createBufferCache(device: GPUDevice): BufferCache {
 }
 
 /**
- * Get or create a GPUBuffer for a vertex BufferAttribute.
- * Re-uploads when attr.version advances.
+ * Get or create a GPUBuffer for a vertex GpuBuffer.
+ * Re-uploads when buffer.version advances.
  */
-export function uploadVertex(cache: BufferCache, attr: BufferAttribute): GPUBuffer {
-    const arr = attr.array;
+export function uploadVertex(cache: BufferCache, buffer: GpuBuffer): GPUBuffer {
+    const arr = buffer.array;
     if (!arr) {
-        throw new Error('[gpucat] uploadVertex: attr.array is null');
+        // CPU memory was released — return existing GPU buffer
+        const entry = cache.vertexMap.get(buffer);
+        if (!entry) {
+            throw new Error('[gpucat] uploadVertex: buffer.array is null but GPU buffer was never created');
+        }
+        return entry.buf;
     }
 
-    let entry = cache.vertexMap.get(attr);
+    let entry = cache.vertexMap.get(buffer);
     const byteLength = arr.byteLength;
 
     if (!entry) {
+        // Determine GPU usage flags based on buffer usage
+        let usage = GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST;
+        if (buffer.usage.has('storage')) {
+            usage |= GPUBufferUsage.STORAGE;
+        }
+
         const buf = cache.device.createBuffer({
             size: alignTo4(byteLength),
-            usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+            usage,
         });
         cache.vertexCount++;
         cache.device.queue.writeBuffer(buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
-        cache.vertexMap.set(attr, { buf, version: attr.version });
+        cache.vertexMap.set(buffer, { buf, version: buffer.version });
+
+        buffer.onUpload?.();
         return buf;
     }
 
-    if (attr.version !== entry.version) {
+    if (buffer.version !== entry.version) {
         cache.device.queue.writeBuffer(entry.buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
-        entry.version = attr.version;
+        entry.version = buffer.version;
     }
 
     return entry.buf;
 }
 
 /**
- * Get or create a GPUBuffer for an IndexAttribute.
- * Re-uploads when attr.version advances.
+ * Get or create a GPUBuffer for an IndexBuffer.
+ * Re-uploads when buffer.version advances.
  */
-export function uploadIndex(cache: BufferCache, attr: IndexAttribute): GPUBuffer {
-    const arr = attr.array;
+export function uploadIndex(cache: BufferCache, buffer: IndexBuffer): GPUBuffer {
+    const arr = buffer.array;
 
-    let entry = cache.indexMap.get(attr);
+    let entry = cache.indexMap.get(buffer);
     const byteLength = arr.byteLength;
 
     if (!entry) {
@@ -101,13 +110,13 @@ export function uploadIndex(cache: BufferCache, attr: IndexAttribute): GPUBuffer
         });
         cache.indexCount++;
         cache.device.queue.writeBuffer(buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
-        cache.indexMap.set(attr, { buf, version: attr.version });
+        cache.indexMap.set(buffer, { buf, version: buffer.version });
         return buf;
     }
 
-    if (attr.version !== entry.version) {
+    if (buffer.version !== entry.version) {
         cache.device.queue.writeBuffer(entry.buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
-        entry.version = attr.version;
+        entry.version = buffer.version;
     }
 
     return entry.buf;
@@ -157,159 +166,181 @@ export function getRaw(cache: BufferCache, key: object): GPUBuffer | undefined {
 }
 
 /**
- * Get or create a GPUBuffer for a StorageNode. Re-uploads when node.value.version advances
- * (full upload) or when node.value.updateRanges is non-empty (partial upload).
- * Automatically calls node.value.clearUpdateRanges() after a partial upload.
+ * Resolve a GpuBuffer from a StorageNode.
  *
- * Special case: if the node is backed by an IndirectStorageBufferAttribute,
- * the IndirectStorageBufferAttribute's GPUBuffer is returned and registered in storageMap so the
- * compute shader binds to the same buffer that drawIndirect reads.
+ * For named references, the buffer is resolved from geometry.buffers.
+ * For value references, the buffer is taken from node.value.
  */
-export function uploadStorage(cache: BufferCache, node: StorageNode<Any>): GPUBuffer {
-    const arr = node.value.array;
-
-    // Primary check: if this StorageNode is backed by an IndirectStorageBufferAttribute,
-    // use uploadIndirect to get (or create) the shared STORAGE|INDIRECT|COPY_DST buffer.
-    // This must run before the dataToIndirect check because uploadIndirect populates
-    // dataToIndirect — and compute dispatches happen before issueDraws, so dataToIndirect
-    // would otherwise be empty on the first frame.
-    if (node.isIndirectStorageBuffer) {
-        const indirectAttr = node.value as IndirectStorageBufferAttribute;
-        const indBuf = uploadIndirect(cache, indirectAttr);
-        const entry = cache.storageMap.get(node);
-        if (!entry || entry.buf !== indBuf) {
-            cache.storageMap.set(node, { buf: indBuf, version: node.value.version });
-        } else if (node.value.version !== entry.version) {
-            entry.version = node.value.version;
+function resolveStorageBuffer(node: StorageNode<Any>, geometry: Geometry | null): GpuBuffer {
+    if (node.isNamedReference) {
+        if (!geometry) {
+            throw new Error(
+                `[gpucat] resolveStorageBuffer: storage node '${node.bufferName}' is name-based but no geometry was provided`
+            );
         }
-        return indBuf;
+        const buffer = geometry.buffers.get(node.bufferName!);
+        if (!buffer) {
+            throw new Error(
+                `[gpucat] resolveStorageBuffer: buffer '${node.bufferName}' not found in geometry.buffers`
+            );
+        }
+        return buffer;
+    } else {
+        const buffer = node.value;
+        if (!buffer) {
+            throw new Error('[gpucat] resolveStorageBuffer: node.value is null');
+        }
+        return buffer;
     }
+}
+
+/**
+ * Get or create a GPUBuffer for a StorageNode.
+ *
+ * Re-uploads when buffer.version advances (full upload) or when buffer.updateRanges
+ * is non-empty (partial upload). Automatically calls buffer.clearUpdateRanges() after
+ * a partial upload.
+ *
+ * For named references, the buffer is resolved from geometry.buffers.
+ * For value references, the buffer is taken from node.value.
+ *
+ * @param cache - The buffer cache
+ * @param node - The storage node
+ * @param geometry - The geometry for name-based resolution (null for compute-only)
+ */
+export function uploadStorage(
+    cache: BufferCache,
+    node: StorageNode<Any>,
+    geometry: Geometry | null
+): GPUBuffer {
+    const buffer = resolveStorageBuffer(node, geometry);
+
+    // Validate usage
+    if (!buffer.usage.has('storage')) {
+        const name = node.bufferName ?? '(value)';
+        throw new Error(`[gpucat] uploadStorage: buffer '${name}' does not have 'storage' usage`);
+    }
+
+    const arr = buffer.array;
 
     // If array is null, CPU memory was released via onUpload — return existing buffer.
     if (!arr) {
-        const entry = cache.storageMap.get(node);
+        const entry = cache.storageMap.get(buffer);
         if (!entry) {
-            throw new Error('[gpucat] uploadStorage: node.array is null but buffer was never created');
+            throw new Error('[gpucat] uploadStorage: buffer.array is null but GPU buffer was never created');
         }
         return entry.buf;
     }
 
-    // Fallback: check if this node's Uint32Array is shared with an
-    // IndirectStorageBufferAttribute that was already uploaded (e.g. render ran first).
-    if (arr instanceof Uint32Array) {
-        const indirect = cache.dataToIndirect.get(arr);
-        if (indirect) {
-            const indBuf = uploadIndirect(cache, indirect);
-            // Register / refresh in storageMap so the compiler can find it.
-            let entry = cache.storageMap.get(node);
-            if (!entry || entry.buf !== indBuf) {
-                cache.storageMap.set(node, { buf: indBuf, version: node.value.version });
-            } else if (node.value.version !== entry.version) {
-                // version bump from initial seeding — already written by uploadIndirect
-                entry.version = node.value.version;
-            }
-            return indBuf;
-        }
-    }
-
     const byteLength = alignTo4(arr.byteLength);
-    const entry = cache.storageMap.get(node);
+    const entry = cache.storageMap.get(buffer);
 
     // Create buffer if it doesn't exist or is too small.
     if (!entry || entry.buf.size < byteLength) {
         entry?.buf.destroy();
-        // read_write storage nodes need COPY_SRC so the GPU can read back the
-        // buffer contents after a compute dispatch (e.g. for readback or chained
-        // compute passes). read-only nodes only need COPY_DST.
-        const storageUsage = node.access === 'read_write'
-            ? GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
-            : GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST;
+
+        // Build GPU usage flags from GpuBuffer usage set
+        let usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST;
+        if (node.access === 'read_write') {
+            usage |= GPUBufferUsage.COPY_SRC;
+        }
+        if (buffer.usage.has('indirect')) {
+            usage |= GPUBufferUsage.INDIRECT;
+        }
+        if (buffer.usage.has('vertex')) {
+            usage |= GPUBufferUsage.VERTEX;
+        }
+
         const buf = cache.device.createBuffer({
             size: byteLength,
-            usage: storageUsage,
+            usage,
         });
         if (!entry) cache.storageCount++;
+
         // Full upload on creation.
         cache.device.queue.writeBuffer(buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
-        cache.storageMap.set(node, { buf, version: node.value.version });
+        cache.storageMap.set(buffer, { buf, version: buffer.version });
 
         // Call onUpload after initial upload.
-        // Typically used to release CPU memory via `attr.array = null`.
-        node.value.onUpload?.();
+        // Typically used to release CPU memory via `buffer.array = null`.
+        buffer.onUpload?.();
 
         return buf;
     }
 
     const { buf } = entry;
 
-    if (node.value.updateRanges.length > 0) {
+    if (buffer.updateRanges.length > 0) {
         // Partial upload — ranges are flat component indices; convert to bytes.
         const bytesPerComponent = arr.BYTES_PER_ELEMENT;
-        for (const { start, count } of node.value.updateRanges) {
+        for (const { start, count } of buffer.updateRanges) {
             const byteOffset = start * bytesPerComponent;
-            const byteCount  = count * bytesPerComponent;
+            const byteCount = count * bytesPerComponent;
             cache.device.queue.writeBuffer(buf, byteOffset, arr.buffer as ArrayBuffer, arr.byteOffset + byteOffset, byteCount);
         }
-        node.value.clearUpdateRanges();
-        entry.version = node.value.version;
-    } else if (node.value.version !== entry.version) {
+        buffer.clearUpdateRanges();
+        entry.version = buffer.version;
+    } else if (buffer.version !== entry.version) {
         // Full re-upload.
         cache.device.queue.writeBuffer(buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
-        entry.version = node.value.version;
+        entry.version = buffer.version;
     }
 
     return buf;
 }
 
 /**
- * Get or create a GPUBuffer for an IndirectStorageBufferAttribute. Re-uploads when
- * indirect.version advances (full upload — buffer is ≤ 20 bytes).
+ * Get or create a GPUBuffer for an indirect draw buffer.
+ * Re-uploads when buffer.version advances.
  *
- * Always allocates with STORAGE | INDIRECT | COPY_DST.
- * The STORAGE flag allows a compute shader to write to the buffer directly.
+ * The buffer must have 'indirect' usage. It will be created with
+ * STORAGE | INDIRECT | COPY_DST so compute shaders can write to it.
  */
-export function uploadIndirect(cache: BufferCache, indirect: IndirectStorageBufferAttribute): GPUBuffer {
-    const entry = cache.indirectMap.get(indirect);
-    const arr = indirect.array;
+export function uploadIndirect(cache: BufferCache, buffer: GpuBuffer): GPUBuffer {
+    if (!buffer.usage.has('indirect')) {
+        throw new Error('[gpucat] uploadIndirect: buffer does not have indirect usage');
+    }
+
+    const arr = buffer.array;
+
+    // If array is null, CPU memory was released — return existing buffer.
+    if (!arr) {
+        const entry = cache.storageMap.get(buffer);
+        if (!entry) {
+            throw new Error('[gpucat] uploadIndirect: buffer.array is null but GPU buffer was never created');
+        }
+        return entry.buf;
+    }
+
+    const entry = cache.storageMap.get(buffer);
 
     if (!entry) {
-        if (!arr) {
-            throw new Error('[gpucat] uploadIndirect: indirect.array is null — cannot upload');
-        }
         const buf = cache.device.createBuffer({
             size: arr.byteLength, // 16 or 20 — already u32-aligned
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST,
         });
         cache.device.queue.writeBuffer(buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
-        cache.indirectMap.set(indirect, { buf, version: indirect.version });
-
-        // Register the data→indirect reverse-lookup so uploadStorage can detect
-        // that a StorageNode backed by this Uint32Array should reuse this buffer.
-        cache.dataToIndirect.set(arr as Uint32Array, indirect);
-
+        cache.storageMap.set(buffer, { buf, version: buffer.version });
+        cache.storageCount++;
         return buf;
     }
 
     // Buffers may be written by the GPU — skip CPU re-upload unless version
     // was explicitly bumped (e.g. initial seed values).
-    if (indirect.version !== entry.version) {
-        if (!arr) {
-            throw new Error('[gpucat] uploadIndirect: indirect.array is null — cannot re-upload');
-        }
+    if (buffer.version !== entry.version) {
         cache.device.queue.writeBuffer(entry.buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
-        entry.version = indirect.version;
+        entry.version = buffer.version;
     }
 
     return entry.buf;
 }
 
 /**
- * Return the GPUBuffer for an already-uploaded IndirectStorageBufferAttribute, or undefined
- * if it has not been uploaded yet. Use this to pass the buffer as a bind-group
- * entry for a compute shader that writes the draw arguments.
+ * Return the GPUBuffer for an already-uploaded indirect buffer, or undefined
+ * if it has not been uploaded yet.
  */
-export function getIndirect(cache: BufferCache, indirect: IndirectStorageBufferAttribute): GPUBuffer | undefined {
-    return cache.indirectMap.get(indirect)?.buf;
+export function getIndirect(cache: BufferCache, buffer: GpuBuffer): GPUBuffer | undefined {
+    return cache.storageMap.get(buffer)?.buf;
 }
 
 /**

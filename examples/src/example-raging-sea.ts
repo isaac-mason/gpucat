@@ -142,7 +142,7 @@ function elev(pos: Node<d.vec3f>): Node<d.f32> {
 
 /* vertex */
 
-const positionAttr = attribute(d.vec3f, 'position');
+const positionAttr = attribute('position', d.vec3f);
 const px    = positionAttr.x as Node<d.f32>;
 const pz    = positionAttr.z as Node<d.f32>;
 const shift = f32(0.01);
