@@ -1,4 +1,4 @@
-import { computeId, Node } from './core';
+import { Node } from './core';
 import type { Any } from '../schema';
 import * as d from '../schema';
 
@@ -12,8 +12,9 @@ export class BuiltinNode<D extends Any> extends Node<D> {
         readonly builtinKind: BuiltinKind,
         desc: D
     ) {
-        super(computeId('builtin', { builtinKind, type: desc.wgslType }), desc);
+        super(desc);
     }
+
 }
 
 export const builtin = <D extends Any>(builtinKind: BuiltinKind, desc: D) => new BuiltinNode(builtinKind, desc);
@@ -62,8 +63,9 @@ export const fragCoord: BuiltinNode<d.vec4f> = /*@__PURE__*/ builtin('position',
  */
 export class ComputeIndexNode extends Node<d.u32> {
     constructor() {
-        super(computeId('compute_index', {}), d.u32);
+        super(d.u32);
     }
+
 }
 
 export const computeIndex: ComputeIndexNode = /*@__PURE__*/ new ComputeIndexNode();

@@ -1,8 +1,6 @@
 import { ConstNode, vec4f, Node } from './core';
 import * as d from '../schema';
 
-let _outputStructCounter = 0;
-
 /**
  * Represents a fragment shader output struct with multiple @location outputs.
  * Used for MRT (Multiple Render Targets).
@@ -27,40 +25,11 @@ export class OutputStructNode extends Node<d.vec4f> {
     /** Type flag for runtime checking. */
     readonly isOutputStructNode = true;
 
-    constructor(members: Node<d.Any>[] = [], id?: string) {
-        super(id ?? `_output_struct_${_outputStructCounter++}`, d.vec4f);
+    constructor(members: Node<d.Any>[] = []) {
+        super(d.vec4f);
         this.members = members;
     }
 }
-
-let _mrtCounter = 0;
-
-/**
- * MRT (Multiple Render Targets) node.
- *
- * Takes a dictionary of named outputs. At setup time, the names are resolved
- * to @location(N) indices based on the current render target's texture names.
- *
- * @example
- * // Set up render target with named textures:
- * const rt = new RenderTarget(device, w, h, { count: 3 });
- * rt.textures[0].name = 'color';
- * rt.textures[1].name = 'normal';
- * rt.textures[2].name = 'velocity';
- *
- * // Create MRT node:
- * const mrtNode = mrt({
- *     color: outputColor,      // -> @location(0)
- *     normal: viewNormal,      // -> @location(1)
- *     velocity: motionVector,  // -> @location(2)
- * });
- *
- * // Use in material:
- * const mat = new Material({
- *     vertex: clipPos,
- *     fragment: mrtNode,
- * });
- */
 
 export class MRTNode extends OutputStructNode {
     /**
@@ -80,7 +49,7 @@ export class MRTNode extends OutputStructNode {
     _resolvedNames: string[] = [];
 
     constructor(outputNodes: Record<string, Node<d.Any>>) {
-        super([], `_mrt_${_mrtCounter++}`);
+        super([]);
         this.outputNodes = outputNodes;
     }
 

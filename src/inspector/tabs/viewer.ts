@@ -39,7 +39,7 @@ import { Geometry } from '../../geometry/geometry';
 
 export type CanvasData = {
     /** Stable ID (= node.id) */
-    id: string;
+    id: number;
     /** The original inspectable node */
     node: Node<d.Any>;
     /** Wrapped node: vec4f(node.xyz, 1.0) embedded in the fullscreen material graph */
@@ -68,7 +68,7 @@ export class Viewer extends Tab {
     nodes: Item;
 
     /** Cached item DOM rows, keyed by canvasData.id */
-    private _itemLibrary: Map<string, Item> = new Map();
+    private _itemLibrary: Map<number, Item> = new Map();
 
     /** Cached folder items, keyed by path name. Three.js aligned: folderLibrary */
     private _folderLibrary: Map<string, Item> = new Map();

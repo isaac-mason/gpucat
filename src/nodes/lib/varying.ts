@@ -1,4 +1,4 @@
-import { computeId, Node } from './core';
+import { Node } from './core';
 import type { Any } from '../schema';
 import { SubBuildNode, subBuild } from './sub-build';
 
@@ -43,10 +43,7 @@ export class VaryingNode<D extends Any> extends Node<D> {
         source: Node<D>,
         name: string | null = null
     ) {
-        super(
-            computeId('varying', { source: source.id, name }),
-            source.type
-        );
+        super(source.type);
         // wrap source in SubBuildNode for VERTEX stage
         this.node = subBuild(source, 'VERTEX');
         this.name = name;

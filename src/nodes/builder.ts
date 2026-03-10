@@ -107,9 +107,9 @@ export function compile(slots: CompileSlots): CompileResult {
     ].filter(Boolean).join('\n');
     
     // collect graph info
-    const graphNodes = new Map<string, Node<d.Any>>();
-    const graphEdges = new Map<string, readonly string[]>();
-    const graphInfo = new Map<string, NodeGraphInfo>();
+    const graphNodes = new Map<number, Node<d.Any>>();
+    const graphEdges = new Map<number, readonly number[]>();
+    const graphInfo = new Map<number, NodeGraphInfo>();
     
     for (const [id, node] of discovered.allNodes) {
         graphNodes.set(id, node);
@@ -233,19 +233,19 @@ export function compileCompute(node: ComputeNode): ComputeCompileResult {
 export type NodeUpdateType = 'none' | 'frame' | 'render' | 'object';
 
 export type UpdateBeforeNode = {
-    readonly id: string;
+    readonly id: number;
     readonly updateBeforeType: NodeUpdateType;
     updateBefore(frame: NodeFrame): boolean | void;
 };
 
 export type UpdateAfterNode = {
-    readonly id: string;
+    readonly id: number;
     readonly updateAfterType: NodeUpdateType;
     updateAfter(frame: NodeFrame): boolean | void;
 };
 
 export type UpdateNode = {
-    readonly id: string;
+    readonly id: number;
     readonly updateType: NodeUpdateType;
     update(frame: NodeFrame): boolean | void;
 };
@@ -353,9 +353,9 @@ export type CompileResult = {
     updateBeforeNodes: UpdateBeforeNode[];
     updateAfterNodes: UpdateAfterNode[];
     updateNodes: UpdateNode[];
-    graphNodes: ReadonlyMap<string, Node<d.Any>>;
-    graphEdges: ReadonlyMap<string, readonly string[]>;
-    graphInfo: ReadonlyMap<string, NodeGraphInfo>;
+    graphNodes: ReadonlyMap<number, Node<d.Any>>;
+    graphEdges: ReadonlyMap<number, readonly number[]>;
+    graphInfo: ReadonlyMap<number, NodeGraphInfo>;
 };
 
 export type ComputeCompileResult = {
@@ -383,12 +383,12 @@ interface BuildContext {
     // Collected bindings
     uniforms: Map<string, { node: UniformNode<d.Any>; group: UniformGroupNode }>;
     storages: Map<string, StorageNode<d.Any>>;
-    storageNames: Map<string, string>; // node.id -> generated name
+    storageNames: Map<number, string>; // node.id -> generated name
     textures: Map<string, TextureNode>;
     samplers: Map<string, TextureNode>; // sampler entries reference their texture
     attributes: Map<string, AttributeEntry>;
     bufferAttributes: BufferAttributeNode<d.Any>[];
-    bufferAttrNames: Map<string, string>; // node.id -> generated name
+    bufferAttrNames: Map<number, string>; // node.id -> generated name
     varyings: Map<string, { node: VaryingNode<d.Any>; vertexExpr: string }>;
     builtins: Set<string>;
     
@@ -397,9 +397,9 @@ interface BuildContext {
     structDefs: Map<string, StructDef<StructSchema>>;
     
     // CSE state
-    usageCount: Map<string, number>;
-    mutatedNodes: Set<string>;
-    nodeVars: Map<string, string>;
+    usageCount: Map<number, number>;
+    mutatedNodes: Set<number>;
+    nodeVars: Map<number, string>;
     varCounter: number;
     
     // Indentation level for nested control flow (1 = function body, 2 = first nested block, etc.)
@@ -418,9 +418,9 @@ interface BuildContext {
     updateNodes: UpdateNode[];
     
     // Graph info for inspector
-    graphNodes: Map<string, Node<d.Any>>;
-    graphEdges: Map<string, string[]>;
-    graphInfo: Map<string, NodeGraphInfo>;
+    graphNodes: Map<number, Node<d.Any>>;
+    graphEdges: Map<number, number[]>;
+    graphInfo: Map<number, NodeGraphInfo>;
 }
 
 function createContext(stage: ShaderStage, isRender: boolean): BuildContext {
@@ -517,22 +517,22 @@ function getChildren(node: Node<d.Any>): Node<d.Any>[] {
 
 /** Single DFS pass that discovers all metadata needed before code generation. */
 interface DiscoverResult {
-    usageCount: Map<string, number>;
-    mutatedNodes: Set<string>;
+    usageCount: Map<number, number>;
+    mutatedNodes: Set<number>;
     fnDefs: Map<string, { fn: FnNode<d.Any>; traced: TracedFn }>;
     wgslFnDefs: Map<string, WgslFunctionNode>;
     structDefs: Map<string, StructDef<StructSchema>>;
-    allNodes: Map<string, Node<d.Any>>;
+    allNodes: Map<number, Node<d.Any>>;
 }
 
 function discover(roots: Node<d.Any>[]): DiscoverResult {
-    const usageCount = new Map<string, number>();
-    const mutatedNodes = new Set<string>();
+    const usageCount = new Map<number, number>();
+    const mutatedNodes = new Set<number>();
     const fnDefs = new Map<string, { fn: FnNode<d.Any>; traced: TracedFn }>();
     const wgslFnDefs = new Map<string, WgslFunctionNode>();
     const structDefs = new Map<string, StructDef<StructSchema>>(); 
-    const allNodes = new Map<string, Node<d.Any>>();
-    const visited = new Set<string>();
+    const allNodes = new Map<number, Node<d.Any>>();
+    const visited = new Set<number>();
 
     function registerStructDef(def: StructDef<StructSchema>): void {
         if (structDefs.has(def.wgslType)) return;
@@ -614,7 +614,7 @@ function discover(roots: Node<d.Any>[]): DiscoverResult {
 
 /** Pre-collect VaryingNodes from roots and generate their vertex expressions */
 function collectVaryings(roots: Node<d.Any>[], ctx: BuildContext): void {
-    const visited = new Set<string>();
+    const visited = new Set<number>();
     
     function visit(node: Node<d.Any>) {
         if (visited.has(node.id)) return;

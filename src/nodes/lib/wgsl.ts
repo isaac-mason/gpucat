@@ -1,4 +1,4 @@
-import { computeId, Node } from './core';
+import { Node } from './core';
 import * as d from '../schema';
 
 /**
@@ -17,7 +17,7 @@ export class WgslNode<D extends d.Any> extends Node<D> {
         readonly wgsl: string,
         readonly deps: Node<d.Any>[]
     ) {
-        super(computeId('wgsl', { type: type.wgslType, wgsl, deps: deps.map((n) => n.id) }), type);
+        super(type);
     }
 
     /**

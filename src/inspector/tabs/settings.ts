@@ -37,7 +37,7 @@ export class Settings extends Parameters {
 
         const generalGroup = this.createGroup('General');
 
-        generalGroup.addBoolean(state as unknown as Record<string, unknown>, 'showFPS').addEventListener('change', () => {
+        generalGroup.add(state, 'showFPS').onChange(() => {
             saveState(state);
         });
     }

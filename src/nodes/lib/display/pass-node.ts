@@ -181,7 +181,7 @@ export class PassNode extends Node<d.vec4f> {
 
     constructor(scope: 'color' | 'depth', scene: Scene, camera: Camera, options: PassNodeOptions = {}) {
         const pid = `_pass${_passCount++}`;
-        super(`passnode_${pid}`, d.vec4f);
+        super(d.vec4f);
 
         this.scope = scope;
         this.scene = scene;

@@ -1325,6 +1325,328 @@ pre.shader-code {
 .dc-nav-link:hover {
     background: var(--accent-dim);
 }
+
+/* ============================================================
+   GUI controller system (.gui-*, .gui-controller, etc.)
+   ============================================================ */
+
+.gui-parameters-container {
+	padding: 4px 0;
+}
+
+.gui {
+	font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+	font-size: 12px;
+	color: var(--text-primary);
+	user-select: none;
+	-webkit-user-select: none;
+}
+
+.gui-root {
+	/* Root GUI when used standalone — no extra styles needed in inspector context */
+}
+
+.gui-title {
+	display: flex;
+	align-items: center;
+	width: 100%;
+	padding: 5px 8px;
+	background: var(--header-bg);
+	border: none;
+	border-top: 1px solid var(--border-color);
+	border-bottom: 1px solid var(--border-color);
+	color: var(--text-secondary);
+	cursor: pointer;
+	font-family: inherit;
+	font-size: 11px;
+	font-weight: normal;
+	text-align: left;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	line-height: 1;
+	min-height: 26px;
+}
+
+.gui-title:hover {
+	color: var(--text-primary);
+	background: #2a2a2a;
+}
+
+/* Arrow indicator using aria-expanded */
+.gui-title::before {
+	content: '▶';
+	display: inline-block;
+	font-size: 9px;
+	margin-right: 6px;
+	color: var(--text-muted);
+	transition: transform 0.15s ease;
+}
+
+.gui-title[aria-expanded="true"]::before {
+	transform: rotate(90deg);
+}
+
+.gui-children {
+	overflow: hidden;
+}
+
+/* Animated open/close */
+.gui-transition .gui-children {
+	transition: height 0.15s ease;
+}
+
+.gui-closed .gui-children {
+	display: none;
+}
+
+.gui-transition.gui-closed .gui-children {
+	display: block; /* keep block during animation so height transition works */
+}
+
+/* ── Controller rows ────────────────────────────────────── */
+
+.gui-controller {
+	display: grid;
+	grid-template-columns: 0.5fr 1fr;
+	align-items: center;
+	padding: 3px 8px;
+	min-height: 26px;
+	border-bottom: 1px solid rgba(56, 56, 56, 0.4);
+}
+
+.gui-controller:hover {
+	background: rgba(255, 255, 255, 0.04);
+}
+
+.gui-controller.gui-disabled {
+	opacity: 0.45;
+	pointer-events: none;
+}
+
+/* BooleanController uses <label> as root — full row is clickable */
+label.gui-controller {
+	cursor: pointer;
+}
+
+.gui-name {
+	color: var(--text-primary);
+	font-size: 12px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	padding-right: 6px;
+}
+
+.gui-widget {
+	display: flex;
+	align-items: center;
+	min-width: 0;
+}
+
+/* ── Number ─────────────────────────────────────────────── */
+
+.gui-number input[type="number"] {
+	background: #111;
+	border: 1px solid var(--border-color);
+	border-radius: 3px;
+	color: var(--text-primary);
+	font-family: inherit;
+	font-size: 11px;
+	padding: 2px 4px;
+	width: 100%;
+	outline: none;
+	text-align: right;
+}
+
+.gui-number input[type="number"]:focus {
+	border-color: var(--accent-color);
+}
+
+/* Slider layout: fill bar + number input side by side */
+.gui-has-slider .gui-widget {
+	gap: 6px;
+}
+
+.gui-slider {
+	position: relative;
+	flex: 1;
+	height: 18px;
+	background: #111;
+	border: 1px solid var(--border-color);
+	border-radius: 3px;
+	cursor: ew-resize;
+	overflow: hidden;
+}
+
+.gui-fill {
+	position: absolute;
+	top: 0;
+	left: 0;
+	height: 100%;
+	background: var(--accent-dim);
+	pointer-events: none;
+}
+
+.gui-slider:hover .gui-fill {
+	background: rgba(74, 158, 255, 0.35);
+}
+
+.gui-dragging .gui-slider {
+	border-color: var(--accent-color);
+}
+
+.gui-has-slider .gui-widget input[type="number"] {
+	flex-shrink: 0;
+	width: 54px;
+}
+
+/* ── Boolean ────────────────────────────────────────────── */
+
+.gui-boolean input[type="checkbox"] {
+	display: none;
+}
+
+.gui-boolean .gui-checkmark {
+	display: inline-block;
+	width: 14px;
+	height: 14px;
+	border: 1px solid var(--border-color);
+	border-radius: 3px;
+	background: #111;
+	flex-shrink: 0;
+	position: relative;
+}
+
+.gui-boolean input[type="checkbox"]:checked + .gui-checkmark {
+	background: var(--accent-color);
+	border-color: var(--accent-color);
+}
+
+.gui-boolean input[type="checkbox"]:checked + .gui-checkmark::after {
+	content: '';
+	position: absolute;
+	left: 4px;
+	top: 1px;
+	width: 4px;
+	height: 8px;
+	border: 2px solid #fff;
+	border-top: none;
+	border-left: none;
+	transform: rotate(45deg);
+}
+
+/* ── String ─────────────────────────────────────────────── */
+
+.gui-string input[type="text"] {
+	background: #111;
+	border: 1px solid var(--border-color);
+	border-radius: 3px;
+	color: var(--text-primary);
+	font-family: inherit;
+	font-size: 11px;
+	padding: 2px 4px;
+	width: 100%;
+	outline: none;
+}
+
+.gui-string input[type="text"]:focus {
+	border-color: var(--accent-color);
+}
+
+/* ── Color ──────────────────────────────────────────────── */
+
+.gui-color .gui-widget {
+	gap: 5px;
+}
+
+.gui-color-display {
+	width: 22px;
+	height: 18px;
+	border: 1px solid var(--border-color);
+	border-radius: 3px;
+	cursor: pointer;
+	flex-shrink: 0;
+	position: relative;
+	overflow: hidden;
+}
+
+.gui-color-display input[type="color"] {
+	position: absolute;
+	top: -4px;
+	left: -4px;
+	width: calc(100% + 8px);
+	height: calc(100% + 8px);
+	border: none;
+	padding: 0;
+	cursor: pointer;
+	opacity: 0;
+}
+
+.gui-color input[type="text"] {
+	background: #111;
+	border: 1px solid var(--border-color);
+	border-radius: 3px;
+	color: var(--text-primary);
+	font-family: inherit;
+	font-size: 11px;
+	padding: 2px 4px;
+	flex: 1;
+	min-width: 0;
+	outline: none;
+}
+
+.gui-color input[type="text"]:focus {
+	border-color: var(--accent-color);
+}
+
+/* ── Option / Select ────────────────────────────────────── */
+
+.gui-option select {
+	background: #111;
+	border: 1px solid var(--border-color);
+	border-radius: 3px;
+	color: var(--text-primary);
+	font-family: inherit;
+	font-size: 11px;
+	padding: 2px 4px;
+	cursor: pointer;
+	outline: none;
+	width: 100%;
+}
+
+/* ── Function / Button ──────────────────────────────────── */
+
+.gui-function {
+	grid-template-columns: 1fr;
+}
+
+.gui-function button {
+	background: rgba(255, 255, 255, 0.07);
+	border: 1px solid var(--border-color);
+	border-radius: 3px;
+	color: var(--text-primary);
+	cursor: pointer;
+	font-family: inherit;
+	font-size: 11px;
+	padding: 4px 10px;
+	width: 100%;
+	text-align: left;
+}
+
+.gui-function button:hover {
+	background: var(--accent-dim);
+	border-color: var(--accent-color);
+}
+
+/* Nested GUI folder inside another GUI */
+.gui-children .gui {
+	border-top: 1px solid var(--border-color);
+}
+
+.gui-children .gui .gui-title {
+	padding-left: 16px;
+	font-size: 10px;
+}
 `;
 
 

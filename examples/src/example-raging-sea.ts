@@ -239,14 +239,14 @@ const inspector = renderer.inspector as Inspector;
 // TODO uniform.set
 
 const waveParams = inspector.createParameters('Waves');
-waveParams.add(uFreqX as unknown as Record<string, unknown>, 'value', 0.1, 10, 0.1);
-waveParams.add(uFreqZ as unknown as Record<string, unknown>, 'value', 0.1, 10, 0.1);
-waveParams.add(uSpeed as unknown as Record<string, unknown>, 'value', 0.0, 5.0, 0.05);
-waveParams.add(uAmp   as unknown as Record<string, unknown>, 'value', 0.0, 1.0, 0.01);
+waveParams.add(uFreqX, 'value', 0.1, 10, 0.1);
+waveParams.add(uFreqZ, 'value', 0.1, 10, 0.1);
+waveParams.add(uSpeed, 'value', 0.0, 5.0, 0.05);
+waveParams.add(uAmp,   'value', 0.0, 1.0, 0.01);
 const smallParams = inspector.createParameters('Small Waves');
-smallParams.add(uSmallFreq  as unknown as Record<string, unknown>, 'value', 0.1, 10, 0.1);
-smallParams.add(uSmallSpeed as unknown as Record<string, unknown>, 'value', 0.0, 5.0, 0.05);
-smallParams.add(uSmallAmp   as unknown as Record<string, unknown>, 'value', 0.0, 1.0, 0.01);
+smallParams.add(uSmallFreq,  'value', 0.1, 10, 0.1);
+smallParams.add(uSmallSpeed, 'value', 0.0, 5.0, 0.05);
+smallParams.add(uSmallAmp,   'value', 0.0, 1.0, 0.01);
 
 const scenePass  = pass(scene, camera);
 const outputNode = scenePass.getTextureNode();

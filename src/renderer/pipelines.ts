@@ -1,18 +1,3 @@
-/**
- * pipelines.ts — Unified pipeline cache for render and compute pipelines.
- *
- * Aligned with Three.js Pipelines.js:
- * - Single cache system for both render and compute pipelines
- * - Uses NodeManager for node compilation (getForRender, getForCompute)
- * - Shared bind group layout cache
- *
- * Functional API:
- *   - createPipelinesState(device, format, nodes) → PipelinesState
- *   - getForRender(state, renderObject, ..., promises?) → GPURenderPipeline
- *   - getForCompute(state, computeNode, promises?) → ComputePipelineEntry
- *   - isReady(state, renderObject) → boolean
- */
-
 import { type Node, type ComputeNode, OutputStructNode } from '../nodes/nodes';
 import type { Any } from '../nodes/schema';
 import type { Material } from '../material/material';
@@ -29,13 +14,8 @@ import {
     buildComputeBindGroupLayouts,
 } from './bind-group-layout';
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 export type ComputePipelineEntry = {
     pipeline: GPUComputePipeline | null;
-    /** NodeBuilderState for this compute node. Contains bindings, uniforms, storage info. */
     nodeBuilderState: NodeBuilderState;
 };
 
@@ -101,10 +81,6 @@ export function getStats(state: PipelinesState): PipelinesStats {
         bindGroupLayoutCount: state.bindGroupLayoutCache.cache.size,
     };
 }
-
-// ---------------------------------------------------------------------------
-// Render Pipeline API
-// ---------------------------------------------------------------------------
 
 /**
  * Get or create a render pipeline for a RenderObject.
@@ -263,10 +239,6 @@ function buildRenderPipelineDescriptor(
     };
 }
 
-// ---------------------------------------------------------------------------
-// Compute Pipeline API
-// ---------------------------------------------------------------------------
-
 /**
  * Get or create a compute pipeline for a ComputeNode.
  *
@@ -357,10 +329,6 @@ export function lookupCompute(state: PipelinesState, node: ComputeNode): Compute
     return state.computePipelines.get(node.id) ?? null;
 }
 
-// ---------------------------------------------------------------------------
-// Pipeline Key Helpers
-// ---------------------------------------------------------------------------
-
 /**
  * Get the number of render targets for a fragment node.
  */
@@ -401,10 +369,6 @@ export function makeRenderPipelineKey(
 
     return `${posId}::${colId}::${maskId}::${depId}::${rs}`;
 }
-
-// ---------------------------------------------------------------------------
-// Vertex Buffer Layout Helpers
-// ---------------------------------------------------------------------------
 
 /**
  * Build vertex buffer layouts from geometry and NodeBuilderState.

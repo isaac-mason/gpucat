@@ -1,4 +1,4 @@
-import { Node, type StructDef, type StructInstance, computeId, ConstructNode, NodeUpdateType, ConstNode, nextId } from './core';
+import { Node, type StructDef, type StructInstance, ConstructNode, NodeUpdateType, ConstNode, _nodeId } from './core';
 import type { StructSchema, Any } from '../schema';
 import type { NodeFrame } from '../../renderer/node-frame';
 
@@ -52,7 +52,7 @@ export class UniformNode<D extends Any> extends Node<D> {
         name: string,
         groupNode: UniformGroupNode = objectGroup
     ) {
-        super(computeId('uniform', { type: desc.wgslType, name, groupNode: groupNode.name }), desc);
+        super(desc);
         this.name = name;
         this.groupNode = groupNode;
     }
@@ -148,7 +148,7 @@ export function uniform<D extends Any, S extends StructSchema>(
         // Struct form: init is a StructDef
         const def = init as StructDef<S>;
         // Always generate unique name if not provided to prevent collisions
-        const uniformId = name ?? `${def.wgslType}_${nextId()}`;
+        const uniformId = name ?? `${def.wgslType}_${_nodeId}`;
         const node = new UniformNode(def as unknown as D, uniformId);
         return def.instantiate(node);
     }
@@ -157,7 +157,7 @@ export function uniform<D extends Any, S extends StructSchema>(
     // the initial CPU-side value for ConstNodes (scalars / literal vectors).
     const initNode = init as ConstNode<D> | ConstructNode<D>;
     // Always generate unique name if not provided to prevent collisions
-    const uniformId = name ?? `${initNode.type.wgslType}_${nextId()}`;
+    const uniformId = name ?? `${initNode.type.wgslType}_${_nodeId}`;
     const node = new UniformNode(initNode.type, uniformId);
     if (node.value === null && 'value' in initNode && initNode.value !== null) {
         node.value = initNode.value as number | number[];

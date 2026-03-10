@@ -1,6 +1,6 @@
 
 import * as d from '../schema';
-import { CallNode, computeId, Node, ParamDesc, ParamDescsToNodes } from './core';
+import { CallNode, Node, ParamDesc, ParamDescsToNodes } from './core';
 
 /**
  * Parsed WGSL function info returned by parseWgslFunction().
@@ -96,7 +96,7 @@ export class WgslFunctionNode extends Node<d.WgslFnDesc> {
     readonly isFunctionNode = true;
 
     constructor(code = '', includes: WgslFunctionNode[] = []) {
-        super(computeId('wgslfn', { code }), d.wgslfn);
+        super(d.wgslfn);
         this.code = code;
         this.includes = includes;
     }

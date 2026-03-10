@@ -1,5 +1,5 @@
 import { StorageBufferAttribute, InstancedBufferAttribute } from '../../core/attribute';
-import { Node, computeId, nextId, type GpuTypedArray } from './core';
+import { Node, type GpuTypedArray } from './core';
 import { itemSizeOf, type Any } from '../schema';
 import * as d from '../schema';
 
@@ -38,9 +38,7 @@ export class BufferAttributeNode<D extends Any> extends Node<D> {
         offset: number,
         itemSize: number
     ) {
-        // ID is NOT content-addressed on data (too expensive to hash large arrays).
-        // Use a monotonic id so two separate bufferAttribute() calls are always distinct.
-        super(nextId(), desc);
+        super(desc);
 
         // If passed a raw TypedArray, wrap it in a StorageBufferAttribute
         if (ArrayBuffer.isView(value)) {
@@ -68,8 +66,9 @@ export class AttributeNode<D extends Any> extends Node<D> {
         desc: D,
         readonly name: string
     ) {
-        super(computeId('attribute', { type: desc.wgslType, name }), desc);
+        super(desc);
     }
+
 }
 
 export const attribute = <D extends Any>(desc: D, name: string) => new AttributeNode<D>(desc, name);

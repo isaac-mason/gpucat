@@ -1,6 +1,6 @@
 import { StorageBufferAttribute, StorageInstancedBufferAttribute, type IndirectStorageBufferAttribute } from '../../core/attribute';
 import { ArrayDesc, itemSizeOf, typedArrayCtorOf, wgslSizeOf, type Any, type StructSchema } from '../schema';
-import { Node, nextId, type StructDef } from './core';
+import { Node, type StructDef } from './core';
 import { UniformGroupNode, objectGroup } from './uniform';
 
 /** Type predicate for StructDef (from core.ts) */
@@ -58,7 +58,7 @@ export class StorageNode<D extends Any> extends Node<D> {
         /** Uniform group — determines @group index. Defaults to objectGroup. */
         groupNode: UniformGroupNode = objectGroup
     ) {
-        super(nextId(), bufferType);
+        super(bufferType);
         this.value = value;
         this.bufferType = bufferType;
         this.bufferCount = value.count;

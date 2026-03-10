@@ -1,4 +1,4 @@
-import { computeId, Node } from './core';
+import { Node } from './core';
 import type { Any } from '../schema';
 
 
@@ -15,10 +15,7 @@ export class SubBuildNode<D extends Any> extends Node<D> {
         readonly subBuildName: string,
         nodeType: D | null = null
     ) {
-        super(
-            computeId('subBuild', { node: node.id, name: subBuildName }),
-            nodeType ?? node.type
-        );
+        super(nodeType ?? node.type);
     }
 }
 // TODO: kill SubBuildNode? or keep?

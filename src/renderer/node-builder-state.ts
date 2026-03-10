@@ -259,7 +259,7 @@ function buildTemplateBindGroups(
             if (shared) {
                 // Shared group: use cache (Three.js pattern)
                 // Build cache key from sorted uniform node IDs
-                const members = [...uniformGroup.members].sort((a, b) => a.node.id.localeCompare(b.node.id));
+                const members = [...uniformGroup.members].sort((a, b) => a.node.id - b.node.id);
                 const cacheKeyString = members.map(m => m.node.id).join(',');
                 const cacheKey = hashString(cacheKeyString);
 

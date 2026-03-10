@@ -1,5 +1,5 @@
 import { Texture } from '../../texture/texture';
-import { computeId, CallNode, Node } from './core';
+import { CallNode, Node } from './core';
 import { type TextureDesc, type DepthTextureDesc, type Any, texture2d } from '../schema';
 import * as d from '../schema';
 import { UniformGroupNode, objectGroup } from './uniform';
@@ -67,7 +67,7 @@ export class TextureNode extends Node<d.vec4f> {
         groupNode: UniformGroupNode = objectGroup
     ) {
         // Node type is vec4f (the sampled color)
-        super(computeId('texture', { type: textureType, textureId, uvNode: uvNode?.id }), d.vec4f);
+        super(d.vec4f);
         this.textureType = textureType;
         this.textureId = textureId;
         this.uvNode = uvNode;
@@ -113,8 +113,9 @@ export class SamplerNode<D extends d.SamplerDesc | d.SamplerComparisonDesc = d.S
         desc: D,
         readonly samplerId: string
     ) {
-        super(computeId('sampler', { type: desc.wgslType, samplerId }), desc);
+        super(desc);
     }
+
 }
 
 /**

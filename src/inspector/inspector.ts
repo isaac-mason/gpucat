@@ -15,6 +15,7 @@ import { Profiler } from './ui/profiler';
 import { injectStyle } from './ui/style';
 import { setText } from './ui/utils';
 import { Parameters } from './tabs/parameters';
+import { GUI } from './gui/GUI';
 import { Performance } from './tabs/performance';
 import { Memory } from './tabs/memory';
 import { Timeline } from './tabs/timeline';
@@ -304,7 +305,7 @@ export class Inspector extends RendererInspector {
     // createParameters — expose dat.GUI-style groups via the Parameters tab
     // -----------------------------------------------------------------------
 
-    createParameters(name: string): ReturnType<Parameters['createGroup']> {
+    createParameters(name: string): GUI {
         // Activate the mini-panel (top-right floating panel) without showing
         // the Parameters tab inside the main profiler panel.  showBuiltin()
         // moves the list content into the mini-panel overlay and makes it
