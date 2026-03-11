@@ -1,31 +1,26 @@
+import { Camera } from '../camera/camera';
+import { getIndexFormat, GpuBuffer as GpuBufferClass, type GpuBuffer } from '../core/buffer';
+import { Object3D } from '../core/object3d';
+import type { RenderTarget } from '../core/render-target';
+import { InspectorBase } from '../inspector/inspector-base';
+import { ComputeNode, MRTNode } from '../nodes/nodes';
+import * as d from '../nodes/schema';
+import { Scene } from '../scene/scene';
+import { yieldToMain } from '../utils/yield-to-main';
+import * as bindings from './bindings';
 import * as buffers from './buffers';
-import * as textures from './textures';
+import { CanvasTarget } from './canvas-target';
+import * as geometries from './geometries';
+import { GPUFeatureName } from './gpu-constants';
+import * as nodeManager from './node-manager';
+import * as RenderContext from './pass-context';
 import * as pipelines from './pipelines';
 import { DEPTH_FORMAT } from './pipelines';
-import { getIndexFormat, GpuBuffer as GpuBufferClass, type GpuBuffer } from '../core/buffer';
-import {
-    ComputeNode,
-    MRTNode,
-} from '../nodes/nodes';
-import * as d from '../nodes/schema';
-
-import * as RenderContext from './pass-context';
-import * as geometries from './geometries';
-import * as nodeManager from './node-manager';
-import * as bindings from './bindings';
-import * as renderObjects from './render-objects';
-import type { RenderObject } from './render-object';
-import * as renderLists from './render-list';
 import type { RenderItem } from './render-list';
-
-import { Scene } from '../scene/scene';
-import { Object3D } from '../core/object3d';
-import { Camera } from '../camera/camera';
-import { InspectorBase } from '../inspector/inspector-base';
-import type { RenderTarget } from '../core/render-target';
-import { GPUFeatureName } from './gpu-constants';
-import { CanvasTarget } from './canvas-target';
-import { yieldToMain } from '../utils/yield-to-main';
+import * as renderLists from './render-list';
+import type { RenderObject } from './render-object';
+import * as renderObjects from './render-objects';
+import * as textures from './textures';
 
 export type WebGPURendererOptions = {
     /** Enable 4x MSAA antialiasing. Overridden by `samples` if both set. */

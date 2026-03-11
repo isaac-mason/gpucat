@@ -1,7 +1,5 @@
-/**
- * The HTMLCanvasElement target for the renderer to draw into. Wraps a canvas and its WebGPU context.
- */
-export class CanvasTarget extends EventTarget {
+/** The HTMLCanvasElement target for the renderer to draw into. Wraps a canvas and its WebGPU context. */
+export class CanvasTarget {
     /** The canvas element this target wraps. */
     readonly domElement: HTMLCanvasElement;
 
@@ -25,7 +23,6 @@ export class CanvasTarget extends EventTarget {
     private _context: GPUCanvasContext | null = null;
 
     constructor(canvas: HTMLCanvasElement) {
-        super();
         this.domElement = canvas;
         this._width = canvas.width;
         this._height = canvas.height;
@@ -115,8 +112,6 @@ export class CanvasTarget extends EventTarget {
             this.domElement.style.width = `${width}px`;
             this.domElement.style.height = `${height}px`;
         }
-
-        this._dispatchResize();
     }
 
     /**
@@ -134,17 +129,9 @@ export class CanvasTarget extends EventTarget {
     }
 
     /**
-     * Fires a 'resize' event.
-     */
-    private _dispatchResize(): void {
-        this.dispatchEvent(new Event('resize'));
-    }
-
-    /**
      * Dispose this target: unconfigure the GPU context and fire 'dispose'.
      */
     dispose(): void {
         this.unconfigure();
-        this.dispatchEvent(new Event('dispose'));
     }
 }
