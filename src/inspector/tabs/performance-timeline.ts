@@ -2,6 +2,9 @@ import { Tab } from '../ui/tab';
 import type { FrameRecord, TimelineEntry, RenderEntry, ComputeEntry } from '../renderer-inspector';
 import type { RendererInspector } from '../renderer-inspector';
 
+// Max number of flat entries retained during recording (~3 min at 60fps with ~20 entries/frame)
+const MAX_ENTRIES = 200_000;
+
 // Layout
 const ROW_HEIGHT = 20;
 const ROW_GAP = 2;
@@ -240,10 +243,14 @@ export class PerformanceTimeline extends Tab {
         this._flattenFrame(frame.timeline, frameStartMs);
         this._recordingEndMs = now;
 
-        // Recalculate max depth
-        this._maxCpuDepth = 0;
-        for (const e of this._entries) {
-            if (e.depth > this._maxCpuDepth) this._maxCpuDepth = e.depth;
+        // Evict oldest entries if we've exceeded the cap, sliding the recording window forward
+        if (this._entries.length > MAX_ENTRIES) {
+            const drop = this._entries.length - MAX_ENTRIES;
+            const shiftMs = this._entries[drop].startMs;
+            this._entries = this._entries.slice(drop);
+            for (const e of this._entries) e.startMs -= shiftMs;
+            this._recordingStartMs += shiftMs;
+            this._viewportStartMs = Math.max(0, this._viewportStartMs - shiftMs);
         }
 
         // Auto-follow "now" if enabled
@@ -270,10 +277,16 @@ export class PerformanceTimeline extends Tab {
                 sourceEntry: entry.kind !== 'marker' ? entry : null,
             });
 
+            if (depth > this._maxCpuDepth) this._maxCpuDepth = depth;
+
             if (entry.children.length > 0) {
                 this._flattenFrame(entry.children, frameStartMs, depth + 1);
             }
         }
+    }
+
+    scheduleRender(): void {
+        this._scheduleRender();
     }
 
     private _scheduleRender(): void {

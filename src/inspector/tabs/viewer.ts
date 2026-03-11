@@ -192,8 +192,8 @@ export class Viewer extends Tab {
             const savedState = renderer.saveRendererState();
 
             // Reset to clean defaults for the preview render
-            renderer.setMRT(null);
-            renderer.setRenderTarget(null);
+            renderer.mrt = null;
+            renderer.renderTarget = null;
             renderer.clearColor = [0, 0, 0, 1];
 
             // Swap to preview canvas target

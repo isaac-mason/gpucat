@@ -6,6 +6,7 @@ export * from "./lib/color";
 export * from "./lib/core";
 export * from "./lib/display/pass-node";
 export * from "./lib/display/render-output";
+export * from "./lib/display/color";
 export * from "./lib/display/screen";
 export * from "./lib/draw-indirect";
 export * from "./lib/model";

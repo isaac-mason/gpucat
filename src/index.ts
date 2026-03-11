@@ -109,7 +109,10 @@ export {
     pass, type PassNodeOptions,
 
     // render output
-    renderOutput, type OutputColorSpace, type RenderOutputOptions, type ToneMappingMode
+    renderOutput, type OutputColorSpace, type RenderOutputOptions, type ToneMappingMode,
+
+    // tonemapping and color space conversions
+    acesToneMapping, reinhardToneMapping, sRGBTransferEOTF, sRGBTransferOETF,
 } from './nodes/nodes';
 
 export * as d from './nodes/schema';

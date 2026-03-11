@@ -420,8 +420,8 @@ export class PassNode extends Node<d.vec4f> {
         this.setSize(frame.width, frame.height);
 
         // State save
-        const currentRenderTarget = renderer.getRenderTarget();
-        const currentMRT = renderer.getMRT();
+        const currentRenderTarget = renderer.renderTarget;
+        const currentMRT = renderer.mrt;
         const currentClearColor = renderer.clearColor;
 
         // Update global camera uniforms for depth reconstruction
@@ -434,15 +434,15 @@ export class PassNode extends Node<d.vec4f> {
         }
 
         // Render
-        renderer.setRenderTarget(this.renderTarget);
-        renderer.setMRT(this._mrt);
+        renderer.renderTarget = this.renderTarget;
+        renderer.mrt = this._mrt;
         renderer.clearColor = this.clearColor;
 
         renderer.render(scene, camera, encoder, this.passId);
 
         // State restore
-        renderer.setRenderTarget(currentRenderTarget);
-        renderer.setMRT(currentMRT);
+        renderer.renderTarget = currentRenderTarget;
+        renderer.mrt = currentMRT;
         renderer.clearColor = currentClearColor;
 
         // Update texture resources for sampling

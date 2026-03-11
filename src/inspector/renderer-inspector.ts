@@ -162,8 +162,8 @@ export class RendererInspector extends InspectorBase {
     private _entryStack: TimelineEntry[] = [];
     // Root-level timeline entries (completed top-level entries go here)
     private _rootTimeline: TimelineEntry[] = [];
-    // Map of entry name → entry for updating cpuMs when finish is called
-    private _entryRefs: Map<string, TimelineEntry> = new Map();
+    // Map of name → stack of open entries with that name (handles same-name passes)
+    private _entryRefs: Map<string, TimelineEntry[]> = new Map();
 
     override init(): void {
         if (!this.renderer) return;
@@ -261,8 +261,9 @@ export class RendererInspector extends InspectorBase {
     override getTimestampWrites(passId: string): GPURenderPassTimestampWrites | undefined {
         if (!this.hasTimestamps || !this._querySet) return undefined;
         
-        // Find the entry for this pass to get its query slot
-        const entry = this._entryRefs.get(passId);
+        // Find the most recently opened entry with this name
+        const stack = this._entryRefs.get(passId);
+        const entry = stack?.[stack.length - 1];
         if (!entry || entry.kind === 'marker') return undefined;
         
         const slot = (entry as RenderEntry | ComputeEntry).querySlot;
@@ -360,23 +361,28 @@ export class RendererInspector extends InspectorBase {
             this._rootTimeline.push(entry);
         }
         this._entryStack.push(entry);
-        this._entryRefs.set(entry.name, entry);
+        const stack = this._entryRefs.get(entry.name);
+        if (stack) {
+            stack.push(entry);
+        } else {
+            this._entryRefs.set(entry.name, [entry]);
+        }
     }
 
     /** Finish an entry by name - calculates duration and pops from stack */
     private _finishEntry(name: string): void {
-        const entry = this._entryRefs.get(name);
-        if (!entry) return;
+        const stack = this._entryRefs.get(name);
+        if (!stack || stack.length === 0) return;
+        const entry = stack.pop()!;
+        if (stack.length === 0) this._entryRefs.delete(name);
         
         const now = performance.now();
         entry.cpuMs = now - this._frameStart - entry.startTime;
         
-        // Pop from stack (should be on top, but search to be safe)
         const idx = this._entryStack.lastIndexOf(entry);
         if (idx >= 0) {
             this._entryStack.splice(idx, 1);
         }
-        this._entryRefs.delete(name);
     }
 
     /** Close the current top entry (used for unclosed entries at frame end) */
@@ -384,7 +390,12 @@ export class RendererInspector extends InspectorBase {
         const entry = this._entryStack.pop();
         if (!entry) return;
         entry.cpuMs = now - this._frameStart - entry.startTime;
-        this._entryRefs.delete(entry.name);
+        const stack = this._entryRefs.get(entry.name);
+        if (stack) {
+            const idx = stack.lastIndexOf(entry);
+            if (idx >= 0) stack.splice(idx, 1);
+            if (stack.length === 0) this._entryRefs.delete(entry.name);
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -461,27 +472,21 @@ export class RendererInspector extends InspectorBase {
         );
         device.queue.submit([encoder.finish()]);
 
-        // Check mapState again after submit
-        if (rb.mapState !== 'unmapped') return;
-
         rb.mapAsync(GPUMapMode.READ, 0, slotsToResolve * 2 * 8).then(() => {
             const data = new BigUint64Array(rb.getMappedRange(0, slotsToResolve * 2 * 8));
             let totalGpuNs = 0n;
             for (const [slot, entry] of gpuEntries) {
                 const beginNs = data[slot * 2];
                 const endNs = data[slot * 2 + 1];
+                if (endNs <= beginNs) continue; // unwritten or bogus timestamp
                 const durationNs = endNs - beginNs;
-                const gpuMs = Number(durationNs) / 1_000_000;
-                entry.gpuMs = gpuMs;
+                entry.gpuMs = Number(durationNs) / 1_000_000;
                 totalGpuNs += durationNs;
             }
             record.gpuMs = Number(totalGpuNs) / 1_000_000;
             rb.unmap();
         }).catch(() => {
-            // Timestamp readback failed — GPU may not support it in this context
-            if (rb.mapState === 'mapped') {
-                rb.unmap();
-            }
+            if (rb.mapState === 'mapped') rb.unmap();
             void frameId;
         });
     }

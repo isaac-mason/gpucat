@@ -408,6 +408,13 @@ export type MulResultDesc<A extends Any, B extends Any> =
 export type ArithResultDesc<A extends Any, B extends Any> =
     IsScalar<A> extends true ? (IsScalar<B> extends true ? A : B) : A;
 
+/** Type-level comparison result: vec→vec<bool>, scalar→bool */
+export type CompareResultDesc<D extends Any> =
+    D extends vec2f | vec2i | vec2u | vec2h ? vec2bool :
+    D extends vec3f | vec3i | vec3u | vec3h ? vec3bool :
+    D extends vec4f | vec4i | vec4u | vec4h ? vec4bool :
+    bool;
+
 /** Extract the element descriptor from a vec descriptor, or return self for scalars */
 export type VecElementDesc<D extends Any> =
     D extends vec2f | vec3f | vec4f ? f32 :
@@ -875,4 +882,14 @@ export function mulResultDesc(a: Any, b: Any): Any {
 export function arithResultDesc(a: Any, b: Any): Any {
     if (SCALAR_TYPES_SET.has(a.wgslType)) return SCALAR_TYPES_SET.has(b.wgslType) ? a : b;
     return a;
+}
+
+const COMPARE_RESULT: Record<string, Any> = {
+    vec2f: vec2bool, vec2i: vec2bool, vec2u: vec2bool, vec2h: vec2bool,
+    vec3f: vec3bool, vec3i: vec3bool, vec3u: vec3bool, vec3h: vec3bool,
+    vec4f: vec4bool, vec4i: vec4bool, vec4u: vec4bool, vec4h: vec4bool,
+};
+
+export function compareResultDesc(d: Any): Any {
+    return COMPARE_RESULT[d.wgslType] ?? bool;
 }

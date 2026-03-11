@@ -1,5 +1,5 @@
 import type { NodeFrame } from '../../renderer/node-frame';
-import type { Any, WgslType, MulResultDesc, ArithResultDesc, StructField, StructKeys, StructSchemaOf, VecElementDesc } from '../schema';
+import type { Any, WgslType, MulResultDesc, ArithResultDesc, CompareResultDesc, StructField, StructKeys, VecElementDesc } from '../schema';
 import { isStructDef } from '../schema';
 import * as d from '../schema';
 
@@ -152,60 +152,52 @@ export class Node<D extends Any> {
     toI32(): Node<d.i32>  { return new CallNode(d.i32, 'i32', [this]); }
 
     // ── Field access ──────────────────────────────────────────────────────────
-    field<K extends string>(name: K): Node<Any> {
-        return field(this as Node<Any>, name as StructKeys<Any>);
+    field<K extends StructKeys<D>>(name: K): Node<StructField<D, K>> {
+        return field(this, name);
     }
 
-    fields(): Fields<StructSchemaOf<D>> {
-        const desc = this.type;
-        if (!desc || typeof desc !== 'object' || !('fields' in desc)) {
-            throw new Error('[gpucat] .fields() requires a struct-typed node');
-        }
-        const structFields = (desc as { fields: d.StructSchema }).fields;
-        const result: Record<string, Node<Any>> = {};
-        for (const [fieldName, fieldDesc] of Object.entries(structFields)) {
-            result[fieldName] = new FieldNode(fieldDesc as Any, this, fieldName);
-        }
-        return result as Fields<StructSchemaOf<D>>;
+    fields(): Fields<d.StructSchemaOf<D>> {
+        return fields(this as unknown as Node<d.StructDesc<d.StructSchemaOf<D>>>);
     }
 
     // ── Comparisons ───────────────────────────────────────────────────────────
-    greaterThan(b: Node<D>): Node<d.bool>      { return new BinopNode('>', d.bool, this, b); }
-    lessThan(b: Node<D>): Node<d.bool>         { return new BinopNode('<', d.bool, this, b); }
-    greaterThanEqual(b: Node<D>): Node<d.bool> { return new BinopNode('>=', d.bool, this, b); }
-    lessThanEqual(b: Node<D>): Node<d.bool>    { return new BinopNode('<=', d.bool, this, b); }
-    equal(b: Node<D>): Node<d.bool>            { return new BinopNode('==', d.bool, this, b); }
-    notEqual(b: Node<D>): Node<d.bool>         { return new BinopNode('!=', d.bool, this, b); }
+    greaterThan(b: Node<D>): Node<CompareResultDesc<D>>      { return greaterThan(this, b); }
+    lessThan(b: Node<D>): Node<CompareResultDesc<D>>         { return lessThan(this, b); }
+    greaterThanEqual(b: Node<D>): Node<CompareResultDesc<D>> { return greaterThanEqual(this, b); }
+    lessThanEqual(b: Node<D>): Node<CompareResultDesc<D>>    { return lessThanEqual(this, b); }
+    equal(b: Node<D>): Node<CompareResultDesc<D>>            { return equal(this, b); }
+    notEqual(b: Node<D>): Node<CompareResultDesc<D>>         { return notEqual(this, b); }
 
     /** `select(falseVal, trueVal, this)` — use `this` node as the condition. */
     select<T extends Any>(ifTrue: Node<T>, ifFalse: Node<T>): Node<T> { return new CondNode(this as Node<Any>, ifTrue, ifFalse); }
+
+    any(): Node<d.bool> { return any(this); }
+    all(): Node<d.bool> { return all(this); }
 
     // ── Math ──────────────────────────────────────────────────────────────────
     add<N extends Node<Any>>(b: N): Node<ArithResultDesc<D, N['type']>>  { return add(this, b) as Node<ArithResultDesc<D, N['type']>>; }
     sub<N extends Node<Any>>(b: N): Node<ArithResultDesc<D, N['type']>>  { return sub(this, b) as Node<ArithResultDesc<D, N['type']>>; }
     div<N extends Node<Any>>(b: N): Node<ArithResultDesc<D, N['type']>>  { return div(this, b) as Node<ArithResultDesc<D, N['type']>>; }
     mul<N extends Node<Any>>(b: N): Node<MulResultDesc<D, N['type']>>    { return mul(this, b) as Node<MulResultDesc<D, N['type']>>; }
-    abs(): Node<D>                   { return new CallNode(this.type, 'abs',       [this]) as Node<D>; }
-    floor(): Node<D>                 { return new CallNode(this.type, 'floor',     [this]) as Node<D>; }
-    ceil(): Node<D>                  { return new CallNode(this.type, 'ceil',      [this]) as Node<D>; }
-    fract(): Node<D>                 { return new CallNode(this.type, 'fract',     [this]) as Node<D>; }
-    sqrt(): Node<D>                  { return new CallNode(this.type, 'sqrt',      [this]) as Node<D>; }
-    sin(): Node<D>                   { return new CallNode(this.type, 'sin',       [this]) as Node<D>; }
-    cos(): Node<D>                   { return new CallNode(this.type, 'cos',       [this]) as Node<D>; }
-    negate(): Node<D>                { return new CallNode(this.type, 'negate',    [this]) as Node<D>; }
-    normalize(): Node<D>             { return new CallNode(this.type, 'normalize', [this]) as Node<D>; }
-    length(): Node<d.f32>        { return new CallNode(d.f32,     'length',    [this]); }
-    dot(b: Node<D>): Node<d.f32> {
-        return new CallNode(d.f32, 'dot', [this, b]);
-    }
-    cross(b: Node<D>): Node<D>                                   { return new CallNode(this.type, 'cross',      [this, b]) as Node<D>; }
-    pow(b: Node<D>): Node<D>                                     { return new CallNode(this.type, 'pow',        [this, b]) as Node<D>; }
-    max(b: Node<D>): Node<D>                                     { return new CallNode(this.type, 'max',        [this, b]) as Node<D>; }
-    min(b: Node<D>): Node<D>                                     { return new CallNode(this.type, 'min',        [this, b]) as Node<D>; }
-    clamp(lo: Node<D>, hi: Node<D>): Node<D>                     { return new CallNode(this.type, 'clamp',      [this, lo, hi]) as Node<D>; }
-    mix(b: Node<D>, t: Node<d.ScalarDesc>): Node<D>                         { return new CallNode(this.type, 'mix',        [this, b, t]) as Node<D>; }
-    step(x: Node<D>): Node<D>                                    { return new CallNode(this.type, 'step',       [this, x]) as Node<D>; }
-    smoothstep(hi: Node<D>, x: Node<D>): Node<D>                 { return new CallNode(this.type, 'smoothstep', [this, hi, x]) as Node<D>; }
+    abs(): Node<D>                                           { return abs(this) as Node<D>; }
+    floor(): Node<D>                                         { return floor(this) as Node<D>; }
+    ceil(): Node<D>                                          { return ceil(this) as Node<D>; }
+    fract(): Node<D>                                         { return fract(this) as Node<D>; }
+    sqrt(): Node<D>                                          { return sqrt(this) as Node<D>; }
+    sin(): Node<D>                                           { return sin(this) as Node<D>; }
+    cos(): Node<D>                                           { return cos(this) as Node<D>; }
+    negate(): Node<D>                                        { return negate(this) as Node<D>; }
+    normalize(): Node<D>                                     { return normalize(this) as Node<D>; }
+    length(): Node<d.f32>                                    { return length(this); }
+    dot(b: Node<D>): Node<d.f32>                             { return dot(this, b); }
+    cross(b: Node<D>): Node<D>                               { return cross(this, b) as Node<D>; }
+    pow(b: Node<D>): Node<D>                                 { return pow(this, b) as Node<D>; }
+    max(b: Node<D>): Node<D>                                 { return max(this, b) as Node<D>; }
+    min(b: Node<D>): Node<D>                                 { return min(this, b) as Node<D>; }
+    clamp(lo: Node<D>, hi: Node<D>): Node<D>                 { return clamp(this, lo, hi) as Node<D>; }
+    mix(b: Node<D>, t: Node<Any>): Node<D>                   { return mix(this, b, t) as Node<D>; }
+    step(x: Node<D>): Node<D>                                { return step(this, x) as Node<D>; }
+    smoothstep(hi: Node<D>, x: Node<D>): Node<D>             { return smoothstep(this, hi, x) as Node<D>; }
 
     // ── Element access ────────────────────────────────────────────────────────
     element(idx: Node<Any>): Node<d.ArrayElement<D>> {
@@ -228,7 +220,7 @@ export class Node<D extends Any> {
     sign(): Node<D>          { return sign(this) as Node<D>; }
     mod(b: Node<D>): Node<D> { return mod(this, b) as Node<D>; }
 
-    oneMinus(): Node<D> { return sub(new ConstNode(this.type, 1), this) as unknown as Node<D>; }
+    oneMinus(): Node<D> { return sub(f32(1), this) as unknown as Node<D>; }
 
     or(b: Node<d.bool>): Node<d.bool>  { return or(this as unknown as Node<d.bool>, b); }
     and(b: Node<d.bool>): Node<d.bool> { return and(this as unknown as Node<d.bool>, b); }
@@ -458,7 +450,7 @@ export class Node<D extends Any> {
 
     // ── Inspector ─────────────────────────────────────────────────────────────
     inspect(name?: string): this {
-        const inspector = new InspectorNode(this, name);
+        const inspector = new InspectorNode<Any>(this, name);
         this.before(inspector);
         return this;
     }
@@ -661,12 +653,15 @@ export const toF16  = <D extends Any>(node: Node<D>): Node<d.f16> => new CallNod
 export const toU32  = <D extends Any>(node: Node<D>): Node<d.u32> => new CallNode(d.u32, 'u32', [node]);
 export const toI32  = <D extends Any>(node: Node<D>): Node<d.i32> => new CallNode(d.i32, 'i32', [node]);
 
-export const greaterThan      = <D extends Any>(a: Node<D>, b: Node<D>): Node<d.bool> => new BinopNode('>', d.bool, a, b);
-export const lessThan         = <D extends Any>(a: Node<D>, b: Node<D>): Node<d.bool> => new BinopNode('<', d.bool, a, b);
-export const greaterThanEqual = <D extends Any>(a: Node<D>, b: Node<D>): Node<d.bool> => new BinopNode('>=', d.bool, a, b);
-export const lessThanEqual    = <D extends Any>(a: Node<D>, b: Node<D>): Node<d.bool> => new BinopNode('<=', d.bool, a, b);
-export const equal            = <D extends Any>(a: Node<D>, b: Node<D>): Node<d.bool> => new BinopNode('==', d.bool, a, b);
-export const notEqual         = <D extends Any>(a: Node<D>, b: Node<D>): Node<d.bool> => new BinopNode('!=', d.bool, a, b);
+export const greaterThan      = <D extends Any>(a: Node<D>, b: Node<D>): Node<CompareResultDesc<D>> => new BinopNode('>', d.compareResultDesc(a.type), a, b) as unknown as Node<CompareResultDesc<D>>;
+export const lessThan         = <D extends Any>(a: Node<D>, b: Node<D>): Node<CompareResultDesc<D>> => new BinopNode('<', d.compareResultDesc(a.type), a, b) as unknown as Node<CompareResultDesc<D>>;
+export const greaterThanEqual = <D extends Any>(a: Node<D>, b: Node<D>): Node<CompareResultDesc<D>> => new BinopNode('>=', d.compareResultDesc(a.type), a, b) as unknown as Node<CompareResultDesc<D>>;
+export const lessThanEqual    = <D extends Any>(a: Node<D>, b: Node<D>): Node<CompareResultDesc<D>> => new BinopNode('<=', d.compareResultDesc(a.type), a, b) as unknown as Node<CompareResultDesc<D>>;
+export const equal            = <D extends Any>(a: Node<D>, b: Node<D>): Node<CompareResultDesc<D>> => new BinopNode('==', d.compareResultDesc(a.type), a, b) as unknown as Node<CompareResultDesc<D>>;
+export const notEqual         = <D extends Any>(a: Node<D>, b: Node<D>): Node<CompareResultDesc<D>> => new BinopNode('!=', d.compareResultDesc(a.type), a, b) as unknown as Node<CompareResultDesc<D>>;
+
+export const any = <D extends Any>(a: Node<D>): Node<d.bool> => new CallNode(d.bool, 'any', [a]);
+export const all = <D extends Any>(a: Node<D>): Node<d.bool> => new CallNode(d.bool, 'all', [a]);
 
 /**
  * Create an inline fixed-size array of nodes, emitted as `array<E, N>(e0, e1, ..., eN-1)`.
@@ -858,7 +853,7 @@ export const pow        = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => ne
 export const max        = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new CallNode(a.type, 'max', [a, b]);
 export const min        = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new CallNode(a.type, 'min', [a, b]);
 export const clamp      = <D extends Any>(a: Node<D>, lo: Node<D>, hi: Node<D>): Node<D> => new CallNode(a.type, 'clamp', [a, lo, hi]);
-export const mix        = <D extends Any>(a: Node<D>, b: Node<D>, t: Node<d.ScalarDesc>): Node<D> => new CallNode(a.type, 'mix', [a, b, t]);
+export const mix        = <D extends Any>(a: Node<D>, b: Node<D>, t: Node<Any>): Node<D> => new CallNode(a.type, 'mix', [a, b, t]);
 export const step       = <D extends Any>(edge: Node<D>, x: Node<D>): Node<D> => new CallNode(x.type, 'step', [edge, x]);
 export const smoothstep = <D extends Any>(lo: Node<D>, hi: Node<D>, x: Node<D>): Node<D> => new CallNode(x.type, 'smoothstep', [lo, hi, x]);
 export const sign       = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'sign', [a]);
@@ -1167,12 +1162,6 @@ export type StructDef<S extends d.StructSchema> = {
     instantiate<N extends Node<Any>>(base: N): StructInstance<S>;
 };
 
-const _structNodeRegistry: WeakMap<StructNode<d.StructSchema>, StructDef<d.StructSchema>> = new WeakMap();
-const _structNameRegistry: Map<string, StructDef<d.StructSchema>> = new Map();
-
-export function lookupStructDef(node: StructNode<d.StructSchema>): StructDef<d.StructSchema> | undefined { return _structNodeRegistry.get(node); }
-export function lookupStructDefByName(wgslType: string): StructDef<d.StructSchema> | undefined { return _structNameRegistry.get(wgslType); }
-
 export function struct<S extends d.StructSchema>(name: string, fields: S): StructDef<S> {
     const members: StructMember[] = Object.entries(fields).map(([n, desc]) => ({ name: n, type: desc }));
     const structDesc: d.StructDesc<S> = { type: 'struct', wgslType: name, name, fields };
@@ -1189,8 +1178,6 @@ export function struct<S extends d.StructSchema>(name: string, fields: S): Struc
         return result as StructInstance<S>;
     }
     const def: StructDef<S> = { type: 'struct', wgslType: name, name, fields, members, node, nestedDefs, instantiate };
-    _structNodeRegistry.set(node, def);
-    _structNameRegistry.set(name, def);
     return def;
 }
 

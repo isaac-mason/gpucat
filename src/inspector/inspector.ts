@@ -490,7 +490,7 @@ export class Inspector extends RendererInspector {
                 this.performance.updateText(this, record);
                 this.memory.updateText(this);
                 if (this.performanceTimeline.isActive) {
-                    this.performanceTimeline.update(this, record);
+                    this.performanceTimeline.scheduleRender();
                 }
             }
             this._displayCycle.text.needsUpdate = false;
