@@ -1,10 +1,8 @@
 import { type ColorInput, Color } from '../../utils/color';
-import { ConstNode } from './core';
-import * as d from '../schema';
-
+import { vec3f } from './core';
 
 /**
- * Convert any color input to a `ConstNode<Vec3fDesc>` (linear RGB).
+ * Convert any color input to a `vec3f` linear RGB color.
  *
  * This is the primary way to introduce a color into the node graph.
  * The resulting node has type `vec3f` so it can be used anywhere a `vec3f`
@@ -24,7 +22,7 @@ import * as d from '../schema';
  * color(new Color('red'));
  */
 
-export function color(input: ColorInput): ConstNode<d.vec3f> {
+export function color(input: ColorInput) {
     const c = input instanceof Color ? input : new Color(input);
-    return new ConstNode(d.vec3f, [c.r, c.g, c.b]);
+    return vec3f(c.r, c.g, c.b);
 }
