@@ -252,23 +252,176 @@ export type SizedArrayDesc = {
 // Texture descriptors
 // ---------------------------------------------------------------------------
 
-export type TextureSampleType = 'f32' | 'i32' | 'u32';
-export type TextureDimension = '1d' | '2d' | '2d_array' | '3d' | 'cube' | 'cube_array' | 'multisampled_2d';
+/** TextureSampleType — the scalar descriptor types valid as texture sample type parameters in WGSL. */
+export type TextureSampleType = f32 | i32 | u32;
 
-export type TextureDesc<T extends string = string> = {
-    readonly type: 'texture';
-    readonly wgslType: T;
-    readonly dimension: TextureDimension;
-    readonly sampleType: TextureSampleType;
+// -- Sampled texture descriptors (each a distinct WGSL type) ----------------
+
+export type texture1d<S extends TextureSampleType = TextureSampleType> = {
+    readonly type: 'texture_1d';
+    readonly wgslType: `texture_1d<${S['wgslType']}>`;
+    readonly sampleType: S;
 };
+export function texture1d<S extends TextureSampleType = f32>(sampleType?: S): texture1d<S> {
+    const s = (sampleType ?? f32) as S;
+    return { type: 'texture_1d', wgslType: `texture_1d<${s.wgslType}>`, sampleType: s };
+}
 
-export type DepthTextureDimension = '2d' | '2d_array' | 'cube' | 'cube_array' | 'multisampled_2d';
-
-export type DepthTextureDesc<T extends string = string> = {
-    readonly type: 'depth-texture';
-    readonly wgslType: T;
-    readonly dimension: DepthTextureDimension;
+export type texture2d<S extends TextureSampleType = TextureSampleType> = {
+    readonly type: 'texture_2d';
+    readonly wgslType: `texture_2d<${S['wgslType']}>`;
+    readonly sampleType: S;
 };
+export function texture2d<S extends TextureSampleType = f32>(sampleType?: S): texture2d<S> {
+    const s = (sampleType ?? f32) as S;
+    return { type: 'texture_2d', wgslType: `texture_2d<${s.wgslType}>`, sampleType: s };
+}
+
+export type texture2dArray<S extends TextureSampleType = TextureSampleType> = {
+    readonly type: 'texture_2d_array';
+    readonly wgslType: `texture_2d_array<${S['wgslType']}>`;
+    readonly sampleType: S;
+};
+export function texture2dArray<S extends TextureSampleType = f32>(sampleType?: S): texture2dArray<S> {
+    const s = (sampleType ?? f32) as S;
+    return { type: 'texture_2d_array', wgslType: `texture_2d_array<${s.wgslType}>`, sampleType: s };
+}
+
+export type texture3d<S extends TextureSampleType = TextureSampleType> = {
+    readonly type: 'texture_3d';
+    readonly wgslType: `texture_3d<${S['wgslType']}>`;
+    readonly sampleType: S;
+};
+export function texture3d<S extends TextureSampleType = f32>(sampleType?: S): texture3d<S> {
+    const s = (sampleType ?? f32) as S;
+    return { type: 'texture_3d', wgslType: `texture_3d<${s.wgslType}>`, sampleType: s };
+}
+
+export type textureCube<S extends TextureSampleType = TextureSampleType> = {
+    readonly type: 'texture_cube';
+    readonly wgslType: `texture_cube<${S['wgslType']}>`;
+    readonly sampleType: S;
+};
+export function textureCube<S extends TextureSampleType = f32>(sampleType?: S): textureCube<S> {
+    const s = (sampleType ?? f32) as S;
+    return { type: 'texture_cube', wgslType: `texture_cube<${s.wgslType}>`, sampleType: s };
+}
+
+export type textureCubeArray<S extends TextureSampleType = TextureSampleType> = {
+    readonly type: 'texture_cube_array';
+    readonly wgslType: `texture_cube_array<${S['wgslType']}>`;
+    readonly sampleType: S;
+};
+export function textureCubeArray<S extends TextureSampleType = f32>(sampleType?: S): textureCubeArray<S> {
+    const s = (sampleType ?? f32) as S;
+    return { type: 'texture_cube_array', wgslType: `texture_cube_array<${s.wgslType}>`, sampleType: s };
+}
+
+export type textureMultisampled2d<S extends TextureSampleType = TextureSampleType> = {
+    readonly type: 'texture_multisampled_2d';
+    readonly wgslType: `texture_multisampled_2d<${S['wgslType']}>`;
+    readonly sampleType: S;
+};
+export function textureMultisampled2d<S extends TextureSampleType = f32>(sampleType?: S): textureMultisampled2d<S> {
+    const s = (sampleType ?? f32) as S;
+    return { type: 'texture_multisampled_2d', wgslType: `texture_multisampled_2d<${s.wgslType}>`, sampleType: s };
+}
+
+/** Union of all sampled texture descriptors. */
+export type TextureDesc =
+    | texture1d
+    | texture2d
+    | texture2dArray
+    | texture3d
+    | textureCube
+    | textureCubeArray
+    | textureMultisampled2d;
+
+/** Non-cube sampled textures — used by TextureNode. */
+export type FlatSampledTextureDesc =
+    | texture1d
+    | texture2d
+    | texture2dArray
+    | texture3d
+    | textureMultisampled2d;
+
+/** Cube sampled textures — used by CubeTextureNode. */
+export type CubeSampledTextureDesc =
+    | textureCube
+    | textureCubeArray;
+
+/** Maps a TextureSampleType descriptor to its vec4 result descriptor. */
+export type SampleResultOf<S extends TextureSampleType> =
+    S extends f32 ? vec4f
+    : S extends i32 ? vec4i
+    : S extends u32 ? vec4u
+    : never;
+
+/** Runtime version of SampleResultOf — maps a sample type descriptor to its vec4 result. */
+export function sampleResultOf(s: TextureSampleType): vec4f | vec4i | vec4u {
+    if (s.type === 'f32') return vec4f;
+    if (s.type === 'i32') return vec4i;
+    return vec4u;
+}
+
+/** Extracts the sampleType field from a sampled texture descriptor. */
+export type SampleTypeOf<D> =
+    D extends { readonly sampleType: infer S extends TextureSampleType } ? S : never;
+
+/**
+ * Maps a texture descriptor to its sampling return type:
+ * - Sampled textures → vec4f / vec4i / vec4u (based on sampleType)
+ * - Depth textures → f32
+ */
+export type TextureSampleResultOf<D extends AnyTextureDesc> =
+    D extends DepthTextureDesc ? f32
+    : D extends { readonly sampleType: infer S extends TextureSampleType } ? SampleResultOf<S>
+    : never;
+
+/** Runtime version of TextureSampleResultOf — maps a texture descriptor to its sampling return descriptor. */
+export function textureSampleResultOf(desc: AnyTextureDesc): vec4f | vec4i | vec4u | f32 {
+    if (isDepthTextureDesc(desc)) return f32;
+    return sampleResultOf((desc as TextureDesc).sampleType);
+}
+
+// -- Depth texture descriptors (each a distinct WGSL type, no sample type) --
+
+export type textureDepth2d = { readonly type: 'texture_depth_2d'; readonly wgslType: 'texture_depth_2d'; };
+export const textureDepth2d: textureDepth2d = { type: 'texture_depth_2d', wgslType: 'texture_depth_2d' };
+
+export type textureDepth2dArray = { readonly type: 'texture_depth_2d_array'; readonly wgslType: 'texture_depth_2d_array'; };
+export const textureDepth2dArray: textureDepth2dArray = { type: 'texture_depth_2d_array', wgslType: 'texture_depth_2d_array' };
+
+export type textureDepthCube = { readonly type: 'texture_depth_cube'; readonly wgslType: 'texture_depth_cube'; };
+export const textureDepthCube: textureDepthCube = { type: 'texture_depth_cube', wgslType: 'texture_depth_cube' };
+
+export type textureDepthCubeArray = { readonly type: 'texture_depth_cube_array'; readonly wgslType: 'texture_depth_cube_array'; };
+export const textureDepthCubeArray: textureDepthCubeArray = { type: 'texture_depth_cube_array', wgslType: 'texture_depth_cube_array' };
+
+export type textureDepthMultisampled2d = { readonly type: 'texture_depth_multisampled_2d'; readonly wgslType: 'texture_depth_multisampled_2d'; };
+export const textureDepthMultisampled2d: textureDepthMultisampled2d = { type: 'texture_depth_multisampled_2d', wgslType: 'texture_depth_multisampled_2d' };
+
+/** Union of all depth texture descriptors. */
+export type DepthTextureDesc =
+    | textureDepth2d
+    | textureDepth2dArray
+    | textureDepthCube
+    | textureDepthCubeArray
+    | textureDepthMultisampled2d;
+
+/** Non-cube depth textures — used by DepthTextureNode. */
+export type FlatDepthTextureDesc =
+    | textureDepth2d
+    | textureDepth2dArray
+    | textureDepthMultisampled2d;
+
+/** Cube depth textures — for future DepthCubeTextureNode. */
+export type CubeDepthTextureDesc =
+    | textureDepthCube
+    | textureDepthCubeArray;
+
+/** Union of all texture descriptors (sampled + depth). */
+export type AnyTextureDesc = TextureDesc | DepthTextureDesc;
 
 // ---------------------------------------------------------------------------
 // Sampler descriptors
@@ -354,9 +507,20 @@ export type Any =
     | StructDesc
     | ArrayDesc
     | SizedArrayDesc
-    // Textures
-    | TextureDesc
-    | DepthTextureDesc
+    // Textures (sampled)
+    | texture1d
+    | texture2d
+    | texture2dArray
+    | texture3d
+    | textureCube
+    | textureCubeArray
+    | textureMultisampled2d
+    // Textures (depth)
+    | textureDepth2d
+    | textureDepth2dArray
+    | textureDepthCube
+    | textureDepthCubeArray
+    | textureDepthMultisampled2d
     // Samplers
     | SamplerDesc
     | SamplerComparisonDesc
@@ -482,11 +646,15 @@ export function isSizedArrayDesc(desc: Any): desc is SizedArrayDesc {
 }
 
 export function isTextureDesc(desc: Any): desc is TextureDesc {
-    return desc.type === 'texture';
+    return desc.type.startsWith('texture_') && !desc.type.startsWith('texture_depth_');
 }
 
 export function isDepthTextureDesc(desc: Any): desc is DepthTextureDesc {
-    return desc.type === 'depth-texture';
+    return desc.type.startsWith('texture_depth_');
+}
+
+export function isAnyTextureDesc(desc: Any): desc is AnyTextureDesc {
+    return desc.type.startsWith('texture_');
 }
 
 export function isSamplerDesc(desc: Any): desc is SamplerDesc {
@@ -529,58 +697,6 @@ export function array<E extends Any>(element: E): { readonly type: 'array'; read
 export function sizedArray<E extends Any, N extends number>(element: E, length: N): { readonly type: 'sized-array'; readonly wgslType: `array<${E['wgslType']}, ${N}>`; readonly element: E; readonly length: N } {
     return { type: 'sized-array', wgslType: `array<${element.wgslType}, ${length}>`, element, length };
 }
-
-// ---------------------------------------------------------------------------
-// Texture factory functions
-// ---------------------------------------------------------------------------
-
-export const texture2d = (sampleType: TextureSampleType = 'f32'): TextureDesc<`texture_2d<${TextureSampleType}>`> => ({
-    type: 'texture', wgslType: `texture_2d<${sampleType}>`, dimension: '2d', sampleType,
-});
-
-export const texture1d = (sampleType: TextureSampleType = 'f32'): TextureDesc<`texture_1d<${TextureSampleType}>`> => ({
-    type: 'texture', wgslType: `texture_1d<${sampleType}>`, dimension: '1d', sampleType,
-});
-
-export const texture3d = (sampleType: TextureSampleType = 'f32'): TextureDesc<`texture_3d<${TextureSampleType}>`> => ({
-    type: 'texture', wgslType: `texture_3d<${sampleType}>`, dimension: '3d', sampleType,
-});
-
-export const textureCube = (sampleType: TextureSampleType = 'f32'): TextureDesc<`texture_cube<${TextureSampleType}>`> => ({
-    type: 'texture', wgslType: `texture_cube<${sampleType}>`, dimension: 'cube', sampleType,
-});
-
-export const texture2dArray = (sampleType: TextureSampleType = 'f32'): TextureDesc<`texture_2d_array<${TextureSampleType}>`> => ({
-    type: 'texture', wgslType: `texture_2d_array<${sampleType}>`, dimension: '2d_array', sampleType,
-});
-
-export const textureCubeArray = (sampleType: TextureSampleType = 'f32'): TextureDesc<`texture_cube_array<${TextureSampleType}>`> => ({
-    type: 'texture', wgslType: `texture_cube_array<${sampleType}>`, dimension: 'cube_array', sampleType,
-});
-
-export const textureMultisampled2d = (sampleType: TextureSampleType = 'f32'): TextureDesc<`texture_multisampled_2d<${TextureSampleType}>`> => ({
-    type: 'texture', wgslType: `texture_multisampled_2d<${sampleType}>`, dimension: 'multisampled_2d', sampleType,
-});
-
-export const textureDepth2d = (): DepthTextureDesc<'texture_depth_2d'> => ({
-    type: 'depth-texture', wgslType: 'texture_depth_2d', dimension: '2d',
-});
-
-export const textureDepth2dArray = (): DepthTextureDesc<'texture_depth_2d_array'> => ({
-    type: 'depth-texture', wgslType: 'texture_depth_2d_array', dimension: '2d_array',
-});
-
-export const textureDepthCube = (): DepthTextureDesc<'texture_depth_cube'> => ({
-    type: 'depth-texture', wgslType: 'texture_depth_cube', dimension: 'cube',
-});
-
-export const textureDepthCubeArray = (): DepthTextureDesc<'texture_depth_cube_array'> => ({
-    type: 'depth-texture', wgslType: 'texture_depth_cube_array', dimension: 'cube_array',
-});
-
-export const textureDepthMultisampled2d = (): DepthTextureDesc<'texture_depth_multisampled_2d'> => ({
-    type: 'depth-texture', wgslType: 'texture_depth_multisampled_2d', dimension: 'multisampled_2d',
-});
 
 // ---------------------------------------------------------------------------
 // Sampler factory functions

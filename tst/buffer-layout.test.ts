@@ -201,13 +201,13 @@ describe('writeStructArray', () => {
 
 describe('arrayOf', () => {
     test('wgslType contains count', () => {
-        const desc = d.arrayOf(d.vec3f, 100);
+        const desc = d.sizedArray(d.vec3f, 100);
         expect(desc.wgslType).toBe('array<vec3f, 100>');
         expect(desc.length).toBe(100);
     });
 
     test('isSizedArrayDesc guard', () => {
-        const sized = d.arrayOf(d.f32, 10);
+        const sized = d.sizedArray(d.f32, 10);
         const unsized = d.array(d.f32);
         expect(d.isSizedArrayDesc(sized)).toBe(true);
         expect(d.isSizedArrayDesc(unsized)).toBe(false);
