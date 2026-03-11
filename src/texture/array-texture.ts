@@ -10,7 +10,7 @@ export type ArrayTextureImage = DataTextureImage & { depth: number };
  * Each layer has the same dimensions. Sampled using vec2 UV + layer index.
  * Useful for: sprite atlases, terrain splatting, shadow map arrays.
  */
-export class DataArrayTexture extends Texture<ArrayTextureImage> {
+export class ArrayTexture extends Texture<ArrayTextureImage> {
     /** Type flag for runtime checking */
     readonly isArrayTexture = true;
 
@@ -64,9 +64,9 @@ export class DataArrayTexture extends Texture<ArrayTextureImage> {
         this.layerUpdates.clear();
     }
 
-    override clone(): DataArrayTexture {
+    override clone(): ArrayTexture {
         const img = this.image;
-        const tex = new DataArrayTexture(img.data, img.width, img.height, img.depth);
+        const tex = new ArrayTexture(img.data, img.width, img.height, img.depth);
         tex.name = this.name;
         tex.wrapS = this.wrapS;
         tex.wrapT = this.wrapT;

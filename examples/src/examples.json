@@ -93,5 +93,10 @@
         "title": "Shadow Map",
         "description": "Two-pass shadow mapping: a depth-only pass renders the scene from the light's orthographic camera into a depth texture, then the scene pass samples it with textureSampleCompare() to produce hard shadows.",
         "tags": ["shadows", "depth-texture", "render-target", "multi-pass"]
+    },
+    "example-array-texture": {
+        "title": "Array Texture Flipbook",
+        "description": "Flipbook animation using a 2D array texture. 16 procedurally generated frames are stored as layers in a DataArrayTexture; a uniform layer index cycles through them at 8 FPS.",
+        "tags": ["texture", "array-texture", "animation"]
     }
 }

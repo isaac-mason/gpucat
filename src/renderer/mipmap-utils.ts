@@ -336,21 +336,100 @@ export function generateMipmapsCube(
 }
 
 /**
- * Generate mipmaps for a texture (auto-detects 2D vs cube).
+ * Generate mipmaps for a 2D array texture.
+ *
+ * Each layer is mipmapped independently using the same 2D pipeline.
+ * For each mip level, iterates all layers: creates a 2D source view of layer L
+ * at mip N-1 and a 2D destination view of layer L at mip N, then renders a
+ * fullscreen downsample pass.
+ *
+ * @param state - Mipmap generation state
+ * @param texture - The GPU array texture to generate mipmaps for
+ * @param layerCount - Number of array layers
+ * @param encoder - Optional command encoder (creates one if not provided)
+ */
+export function generateMipmapsArray(
+    state: MipmapState,
+    texture: GPUTexture,
+    layerCount: number,
+    encoder?: GPUCommandEncoder,
+): void {
+    const { device, sampler } = state;
+    const format = texture.format;
+    const mipLevelCount = texture.mipLevelCount;
+
+    if (mipLevelCount <= 1) return;
+
+    const pipeline = getPipeline2D(state, format);
+    const ownEncoder = !encoder;
+    encoder = encoder ?? device.createCommandEncoder({ label: 'mipmap-array-encoder' });
+
+    for (let mipLevel = 1; mipLevel < mipLevelCount; mipLevel++) {
+        for (let layer = 0; layer < layerCount; layer++) {
+            const srcView = texture.createView({
+                dimension: '2d',
+                baseMipLevel: mipLevel - 1,
+                mipLevelCount: 1,
+                baseArrayLayer: layer,
+                arrayLayerCount: 1,
+            });
+
+            const dstView = texture.createView({
+                dimension: '2d',
+                baseMipLevel: mipLevel,
+                mipLevelCount: 1,
+                baseArrayLayer: layer,
+                arrayLayerCount: 1,
+            });
+
+            const bindGroup = device.createBindGroup({
+                layout: pipeline.getBindGroupLayout(0),
+                entries: [
+                    { binding: 0, resource: sampler },
+                    { binding: 1, resource: srcView },
+                ],
+            });
+
+            const pass = encoder.beginRenderPass({
+                colorAttachments: [{
+                    view: dstView,
+                    loadOp: 'clear',
+                    storeOp: 'store',
+                }],
+            });
+
+            pass.setPipeline(pipeline);
+            pass.setBindGroup(0, bindGroup);
+            pass.draw(3);
+            pass.end();
+        }
+    }
+
+    if (ownEncoder) {
+        device.queue.submit([encoder.finish()]);
+    }
+}
+
+/**
+ * Generate mipmaps for a texture (auto-detects 2D vs cube vs array).
  *
  * @param state - Mipmap generation state
  * @param texture - The GPU texture to generate mipmaps for
  * @param isCube - Whether this is a cube texture
+ * @param arrayLayerCount - Number of array layers (>1 triggers array path)
  * @param encoder - Optional command encoder
  */
 export function generateMipmaps(
     state: MipmapState,
     texture: GPUTexture,
     isCube = false,
+    arrayLayerCount = 0,
     encoder?: GPUCommandEncoder,
 ): void {
     if (isCube) {
         generateMipmapsCube(state, texture, encoder);
+    } else if (arrayLayerCount > 1) {
+        generateMipmapsArray(state, texture, arrayLayerCount, encoder);
     } else {
         generateMipmaps2D(state, texture, encoder);
     }

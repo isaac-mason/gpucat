@@ -1,8 +1,9 @@
 import { Texture } from '../../texture/texture';
 import { CubeTexture } from '../../texture/cube-texture';
 import { DepthTexture } from '../../texture/depth-texture';
+import { ArrayTexture } from '../../texture/array-texture';
 import { CallNode, Node } from './core';
-import { type DepthTextureDesc, type FlatDepthTextureDesc, type FlatSampledTextureDesc, type CubeSampledTextureDesc, type Any, texture2d, textureCube, textureDepth2d, type AnyTextureDesc } from '../schema';
+import { type DepthTextureDesc, type FlatDepthTextureDesc, type FlatSampledTextureDesc, type CubeSampledTextureDesc, type Any, texture2d, texture2dArray, textureCube, textureDepth2d, type AnyTextureDesc } from '../schema';
 import * as d from '../schema';
 import { UniformGroup, objectGroup } from './uniform';
 import { uv } from './attribute';
@@ -81,6 +82,7 @@ export class SamplerNode<D extends d.SamplerDesc | d.SamplerComparisonDesc = d.S
 export type TextureValueOf<D extends AnyTextureDesc> =
     D extends DepthTextureDesc ? DepthTexture
     : D extends CubeSampledTextureDesc ? CubeTexture
+    : D extends d.texture2dArray ? ArrayTexture
     : Texture;
 
 /**
@@ -709,6 +711,215 @@ export const depthTexture = (tex: DepthTexture): DepthTextureNode => {
     const binding = new TextureBindingNode(desc, `t${tex.id}`);
     binding.value = tex;
     const node = new DepthTextureNode(binding);
+    // Auto-create sampler from texture settings
+    node.samplerNode = sampler(tex, binding.groupNode);
+    return node;
+};
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * ArrayTextureNode
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Sampling mode for array texture operations.
+ * Array textures support all the same modes as 2D textures.
+ */
+export type ArraySamplingMode = 'sample' | 'level' | 'bias' | 'grad' | 'load';
+
+/**
+ * ArrayTextureNode - represents a 2D array texture sample operation.
+ *
+ * Maps to WGSL `texture_2d_array<f32>`. Returns vec4f.
+ *
+ * Key differences from regular TextureNode:
+ * - Has a `layerNode` (i32) for the array layer index
+ * - WGSL inserts the array_index after coords in all sampling calls
+ * - Uses vec2f coords + i32 array_index (not vec3f)
+ *
+ * Supports chainable methods:
+ * - .layer(index) - set the array layer index
+ * - .sample(uv) - set UV coordinates
+ * - .level(level) - use textureSampleLevel
+ * - .bias(bias) - use textureSampleBias
+ * - .grad(ddx, ddy) - use textureSampleGrad
+ * - .offset(offset) - add offset parameter
+ * - .load(coords, level?) - use textureLoad
+ */
+export class ArrayTextureNode extends Node<d.vec4f> {
+    readonly isArrayTextureNode = true;
+
+    /** The texture binding — holds GPU resource, textureId, groupNode. */
+    readonly bindingNode: TextureBindingNode<d.texture2dArray>;
+
+    /**
+     * The UV node for texture coordinates (vec2f).
+     * Defaults to varying(uv()) if not specified.
+     */
+    uvNode: Node<d.vec2f>;
+
+    /** The array layer index (i32). */
+    layerNode: Node<d.i32>;
+
+    /**
+     * The reference node.
+     * When sampling with different UVs/layers, this points to the base texture node.
+     */
+    referenceNode: ArrayTextureNode | null = null;
+
+    /**
+     * The sampler node for this texture.
+     * Auto-created by arrayTexture() factory from texture settings.
+     */
+    samplerNode: SamplerNode<d.SamplerDesc> | null = null;
+
+    /* ─────────────────────────────────────────────────────────────────────────
+     * Sampling mode properties
+     * ───────────────────────────────────────────────────────────────────────── */
+
+    /** Current sampling mode */
+    samplingMode: ArraySamplingMode = 'sample';
+
+    /** Level node for textureSampleLevel (f32) */
+    levelNode: Node<d.f32> | null = null;
+
+    /** Bias node for textureSampleBias */
+    biasNode: Node<d.f32> | null = null;
+
+    /** Gradient nodes for textureSampleGrad [ddx, ddy] (vec2f) */
+    gradNode: [Node<d.vec2f>, Node<d.vec2f>] | null = null;
+
+    /** Offset node for sampling with offset (must be const expression) */
+    offsetNode: Node<d.vec2i> | null = null;
+
+    /** Integer coordinates for textureLoad */
+    loadCoords: Node<d.vec2i> | null = null;
+
+    /** Level for textureLoad (i32) */
+    loadLevel: Node<d.i32> | null = null;
+
+    constructor(
+        bindingNode: TextureBindingNode<d.texture2dArray>,
+        layerNode: Node<d.i32>,
+        uvNode: Node<d.vec2f> | null = null,
+    ) {
+        // Node type is vec4f (the sampled color)
+        super(d.vec4f);
+        this.bindingNode = bindingNode;
+        this.layerNode = layerNode;
+        this.uvNode = uvNode ?? varying(uv());
+    }
+
+    /** Get the base texture node (follows referenceNode chain) */
+    getBase(): ArrayTextureNode {
+        return this.referenceNode ? this.referenceNode.getBase() : this;
+    }
+
+    /** Clone this texture node with all sampling properties */
+    clone(): ArrayTextureNode {
+        const cloned = new ArrayTextureNode(this.bindingNode, this.layerNode, this.uvNode);
+        cloned.referenceNode = this.referenceNode;
+        cloned.samplerNode = this.samplerNode;
+        cloned.samplingMode = this.samplingMode;
+        cloned.levelNode = this.levelNode;
+        cloned.biasNode = this.biasNode;
+        cloned.gradNode = this.gradNode;
+        cloned.offsetNode = this.offsetNode;
+        cloned.loadCoords = this.loadCoords;
+        cloned.loadLevel = this.loadLevel;
+        return cloned;
+    }
+
+    /* ─────────────────────────────────────────────────────────────────────────
+     * Chainable sampling methods
+     * ───────────────────────────────────────────────────────────────────────── */
+
+    /** Set the array layer index */
+    layer(layerNode: Node<d.i32>): ArrayTextureNode {
+        const textureNode = this.clone();
+        textureNode.layerNode = layerNode;
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+
+    /** Sample the texture at the given UV coordinates */
+    sample(uvNode: Node<d.vec2f>): ArrayTextureNode {
+        const textureNode = this.clone();
+        textureNode.uvNode = uvNode;
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+
+    /** Use textureSampleLevel with explicit mip level */
+    level(levelNode: Node<d.f32>): ArrayTextureNode {
+        const textureNode = this.clone();
+        textureNode.samplingMode = 'level';
+        textureNode.levelNode = levelNode;
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+
+    /** Use textureSampleBias with mip level bias */
+    bias(biasNode: Node<d.f32>): ArrayTextureNode {
+        const textureNode = this.clone();
+        textureNode.samplingMode = 'bias';
+        textureNode.biasNode = biasNode;
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+
+    /** Use textureSampleGrad with explicit gradients */
+    grad(ddx: Node<d.vec2f>, ddy: Node<d.vec2f>): ArrayTextureNode {
+        const textureNode = this.clone();
+        textureNode.samplingMode = 'grad';
+        textureNode.gradNode = [ddx, ddy];
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+
+    /** Add offset to sampling (must be const expression) */
+    offset(offsetNode: Node<d.vec2i>): ArrayTextureNode {
+        const textureNode = this.clone();
+        textureNode.offsetNode = offsetNode;
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+
+    /** Use textureLoad for direct texel fetch (no filtering) */
+    load(coords: Node<d.vec2i>, level?: Node<d.i32>): ArrayTextureNode {
+        const textureNode = this.clone();
+        textureNode.samplingMode = 'load';
+        textureNode.loadCoords = coords;
+        textureNode.loadLevel = level ?? null;
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+}
+
+/**
+ * Create an array texture node from a DataArrayTexture object.
+ * Auto-creates a SamplerNode from the texture's settings.
+ *
+ * @param tex - The DataArrayTexture object containing layered image data
+ * @param layerNode - The initial array layer index (i32 node)
+ *
+ * @example
+ * const frames = arrayTexture(myArrayTex, i32(0));
+ * frames.layer(frameIndex)                   // change layer
+ * frames.sample(customUv)                    // change UVs
+ * frames.level(float(2))                     // textureSampleLevel
+ * frames.bias(float(1))                      // textureSampleBias
+ * frames.grad(ddx, ddy)                      // textureSampleGrad
+ * frames.offset(vec2i(1, 0))                 // with offset
+ * frames.load(vec2i(10, 20))                 // textureLoad
+ */
+export const arrayTexture = (
+    tex: ArrayTexture,
+    layerNode: Node<d.i32>,
+): ArrayTextureNode => {
+    const desc = texture2dArray();
+    const binding = new TextureBindingNode(desc, `t${tex.id}`);
+    binding.value = tex;
+    const node = new ArrayTextureNode(binding, layerNode);
     // Auto-create sampler from texture settings
     node.samplerNode = sampler(tex, binding.groupNode);
     return node;

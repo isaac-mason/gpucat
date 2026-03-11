@@ -33,7 +33,7 @@ import {
 import { WgslNode } from './lib/wgsl';
 import { AttributeNode } from './lib/attribute';
 import { GpuBuffer } from '../core/buffer';
-import { TextureNode, CubeTextureNode, DepthTextureNode, TextureBindingNode, SamplerNode } from './lib/texture';
+import { TextureNode, CubeTextureNode, DepthTextureNode, ArrayTextureNode, TextureBindingNode, SamplerNode } from './lib/texture';
 import { StorageNode } from './lib/storage';
 import { UniformNode, UniformGroup } from './lib/uniform';
 import { WgslFunctionNode } from './lib/wgsl-fn';
@@ -658,6 +658,33 @@ function getChildren(node: Node<d.Any>): Node<d.Any>[] {
         if (node.loadLevel) {
             children.push(node.loadLevel);
         }
+    } else if (node instanceof ArrayTextureNode) {
+        children.push(node.bindingNode);
+        if (node.samplerNode) {
+            children.push(node.samplerNode);
+        }
+        if (node.uvNode) {
+            children.push(node.uvNode);
+        }
+        children.push(node.layerNode);
+        if (node.levelNode) {
+            children.push(node.levelNode);
+        }
+        if (node.biasNode) {
+            children.push(node.biasNode);
+        }
+        if (node.gradNode) {
+            children.push(node.gradNode[0], node.gradNode[1]);
+        }
+        if (node.offsetNode) {
+            children.push(node.offsetNode);
+        }
+        if (node.loadCoords) {
+            children.push(node.loadCoords);
+        }
+        if (node.loadLevel) {
+            children.push(node.loadLevel);
+        }
     } else if (node instanceof MRTNode) {
         // MRTNode stores outputs in outputNodes dict (members only populated post-resolve)
         children.push(...Object.values(node.outputNodes));
@@ -868,6 +895,8 @@ function generateExpr(ctx: BuildContext, node: Node<d.Any>): string {
         expr = generateCubeTexture(ctx, node);
     } else if (node instanceof DepthTextureNode) {
         expr = generateDepthTexture(ctx, node);
+    } else if (node instanceof ArrayTextureNode) {
+        expr = generateArrayTexture(ctx, node);
     } else if (node instanceof SamplerNode) {
         expr = generateSampler(ctx, node);
     } else if (node instanceof VaryingNode) {
@@ -1269,6 +1298,71 @@ function generateDepthTexture(ctx: BuildContext, node: DepthTextureNode): string
 
     // textureSample (default) — returns f32
     return `textureSample(${name}, ${samplerName}, ${uvExpr}${offsetSuffix})`;
+}
+
+function generateArrayTexture(ctx: BuildContext, node: ArrayTextureNode): string {
+    const binding = node.bindingNode;
+    const name = generateTextureBinding(ctx, binding);
+
+    const layerExpr = generateExpr(ctx, node.layerNode);
+
+    // textureLoad mode — no sampler needed
+    // WGSL: textureLoad(t, coords, array_index, level)
+    if (node.samplingMode === 'load') {
+        if (!node.loadCoords) {
+            throw new Error(`[builder] ArrayTextureNode '${name}' in load mode has no loadCoords`);
+        }
+        const coordsExpr = generateExpr(ctx, node.loadCoords);
+        const levelExpr = node.loadLevel ? generateExpr(ctx, node.loadLevel) : '0';
+        return `textureLoad(${name}, ${coordsExpr}, ${layerExpr}, ${levelExpr})`;
+    }
+
+    // Sampling modes require a sampler
+    let samplerNode = node.samplerNode;
+    if (!samplerNode) {
+        samplerNode = new SamplerNode(d.sampler, name, binding.groupNode);
+        node.samplerNode = samplerNode;
+    }
+
+    const samplerName = generateSampler(ctx, samplerNode);
+
+    if (!node.uvNode) {
+        throw new Error(`[builder] ArrayTextureNode '${name}' has no uvNode. Set uvNode or use arrayTexture.sample(uvNode).`);
+    }
+    const uvExpr = generateExpr(ctx, node.uvNode);
+
+    const offsetSuffix = node.offsetNode ? `, ${generateExpr(ctx, node.offsetNode)}` : '';
+
+    // textureSampleGrad(t, s, coords, array_index, ddx, ddy [, offset])
+    if (node.samplingMode === 'grad') {
+        if (!node.gradNode) {
+            throw new Error(`[builder] ArrayTextureNode '${name}' in grad mode has no gradNode`);
+        }
+        const ddx = generateExpr(ctx, node.gradNode[0]);
+        const ddy = generateExpr(ctx, node.gradNode[1]);
+        return `textureSampleGrad(${name}, ${samplerName}, ${uvExpr}, ${layerExpr}, ${ddx}, ${ddy}${offsetSuffix})`;
+    }
+
+    // textureSampleBias(t, s, coords, array_index, bias [, offset])
+    if (node.samplingMode === 'bias') {
+        if (!node.biasNode) {
+            throw new Error(`[builder] ArrayTextureNode '${name}' in bias mode has no biasNode`);
+        }
+        const bias = generateExpr(ctx, node.biasNode);
+        return `textureSampleBias(${name}, ${samplerName}, ${uvExpr}, ${layerExpr}, ${bias}${offsetSuffix})`;
+    }
+
+    // textureSampleLevel(t, s, coords, array_index, level [, offset])
+    if (node.samplingMode === 'level') {
+        if (!node.levelNode) {
+            throw new Error(`[builder] ArrayTextureNode '${name}' in level mode has no levelNode`);
+        }
+        const level = generateExpr(ctx, node.levelNode);
+        return `textureSampleLevel(${name}, ${samplerName}, ${uvExpr}, ${layerExpr}, ${level}${offsetSuffix})`;
+    }
+
+    // textureSample(t, s, coords, array_index [, offset])
+    return `textureSample(${name}, ${samplerName}, ${uvExpr}, ${layerExpr}${offsetSuffix})`;
 }
 
 function generateSampler(ctx: BuildContext, node: SamplerNode): string {

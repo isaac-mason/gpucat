@@ -16,6 +16,7 @@
 import type { Texture } from '../texture/texture';
 import type { DataTexture } from '../texture/data-texture';
 import type { CubeTexture } from '../texture/cube-texture';
+import type { ArrayTexture } from '../texture/array-texture';
 import {
     type MipmapState,
     createMipmapState,
@@ -191,7 +192,9 @@ export function updateTexture(
     if (texture.generateMipmaps && data.texture.mipLevelCount > 1) {
         const mipmapState = getMipmapState(cache, device);
         const isCube = 'isCubeTexture' in texture && texture.isCubeTexture === true;
-        generateMipmaps(mipmapState, data.texture, isCube);
+        const isArray = 'isArrayTexture' in texture && (texture as unknown as ArrayTexture).isArrayTexture === true;
+        const arrayLayerCount = isArray ? (texture as unknown as ArrayTexture).depth : 0;
+        generateMipmaps(mipmapState, data.texture, isCube, arrayLayerCount);
     }
 
     // Update texture version (Three.js aligned: textureData.version = texture.version)
@@ -209,16 +212,25 @@ function createGPUTexture(device: GPUDevice, texture: Texture): GPUTexture {
     const height = texture.height;
     const format = texture.format ?? 'rgba8unorm';
     const isCube = 'isCubeTexture' in texture && texture.isCubeTexture === true;
+    const isArray = 'isArrayTexture' in texture && (texture as unknown as ArrayTexture).isArrayTexture === true;
 
     // Calculate mip level count if generating mipmaps
     const mipLevelCount = texture.generateMipmaps
         ? Math.floor(Math.log2(Math.max(width, height))) + 1
         : 1;
 
+    let depthOrArrayLayers = 1;
+    if (isCube) {
+        depthOrArrayLayers = 6;
+    } else if (isArray) {
+        depthOrArrayLayers = (texture as unknown as ArrayTexture).depth;
+    }
+
     const gpuTexture = device.createTexture({
         // Cube textures use dimension '2d' (the default) with 6 array layers.
-        // The cube view dimension is set when creating the texture view, not here.
-        size: [width, height, isCube ? 6 : 1],
+        // Array textures use dimension '2d' with depth array layers.
+        // The view dimension is set when creating the texture view, not here.
+        size: [width, height, depthOrArrayLayers],
         format,
         usage:
             GPUTextureUsage.TEXTURE_BINDING |
@@ -239,9 +251,15 @@ function uploadTextureData(
     data: TextureData,
 ): void {
     const isCube = 'isCubeTexture' in texture && texture.isCubeTexture === true;
+    const isArray = 'isArrayTexture' in texture && (texture as unknown as ArrayTexture).isArrayTexture === true;
 
     if (isCube) {
         uploadCubeTextureData(device, texture as unknown as CubeTexture, data);
+        return;
+    }
+
+    if (isArray) {
+        uploadArrayTextureData(device, texture as unknown as ArrayTexture, data);
         return;
     }
 
@@ -311,6 +329,42 @@ function uploadCubeTextureData(
                 texture: data.texture,
                 premultipliedAlpha: texture.premultiplyAlpha,
                 origin: { x: 0, y: 0, z: faceIndex },
+            },
+            [width, height],
+        );
+    }
+}
+
+/**
+ * Upload array texture data — copies each layer's data to the corresponding
+ * array layer of the GPU texture.
+ *
+ * All layers share the same dimensions. Data is expected to be a single
+ * contiguous typed array with all layers packed sequentially.
+ */
+function uploadArrayTextureData(
+    device: GPUDevice,
+    texture: ArrayTexture,
+    data: TextureData,
+): void {
+    const srcData = texture.image.data;
+    if (!srcData) return;
+
+    const width = texture.width;
+    const height = texture.height;
+    const depth = texture.depth;
+    const format = texture.format ?? 'rgba8unorm';
+    const bytesPerPixel = getBytesPerPixel(format);
+    const bytesPerLayer = width * height * bytesPerPixel;
+
+    for (let layer = 0; layer < depth; layer++) {
+        device.queue.writeTexture(
+            { texture: data.texture, origin: { x: 0, y: 0, z: layer } },
+            srcData.buffer,
+            {
+                offset: srcData.byteOffset + layer * bytesPerLayer,
+                bytesPerRow: width * bytesPerPixel,
+                rowsPerImage: height,
             },
             [width, height],
         );

@@ -642,7 +642,14 @@ function rebuildGPUBindGroup(
                     } else {
                         const isCube = textureNode.type.type === 'texture_cube' || textureNode.type.type === 'texture_cube_array'
                             || textureNode.type.type === 'texture_depth_cube' || textureNode.type.type === 'texture_depth_cube_array';
-                        view = (res as GPUTexture).createView(isCube ? { dimension: 'cube' } : undefined);
+                        const isArray = textureNode.type.type === 'texture_2d_array';
+                        if (isCube) {
+                            view = res.createView({ dimension: 'cube' });
+                        } else if (isArray) {
+                            view = res.createView({ dimension: '2d-array' });
+                        } else {
+                            view = res.createView();
+                        }
                     }
                     entries.push({ binding: binding.entry.binding, resource: view });
                 }
