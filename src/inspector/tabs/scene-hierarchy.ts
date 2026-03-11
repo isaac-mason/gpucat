@@ -398,7 +398,7 @@ export class SceneHierarchy extends Tab {
             if (!inspector) return;
             const renderer = inspector.getRenderer();
             if (!renderer) return;
-            for (const ro of renderer.renderObjects.renderObjects) {
+            for (const ro of renderer._renderObjects.renderObjects) {
                 if (ro.mesh === mesh) {
                     inspector.navigateToRO(ro);
                     return;

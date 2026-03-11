@@ -56,17 +56,18 @@ export class RenderPipeline {
     /**
      * Renders the output node to the renderer's current target.
      *
-     * When `RenderPipeline` is used to apply post processing effects,
-     * the application must use this version of `render()` inside
-     * its animation loop (not the one from the renderer).
+     * Call `renderer.beginFrame()` before and `renderer.endFrame()` after all
+     * compute and render work for the frame. Example:
+     * ```ts
+     * renderer.beginFrame();
+     * renderer.compute(myCompute, dispatch);
+     * renderPipeline.render();
+     * renderer.endFrame();
+     * ```
      */
     render(): void {
-        this.renderer.beginFrame();
-
         this._update();
         this._quadMesh.render(this.renderer);
-
-        this.renderer.endFrame();
     }
 
     /**

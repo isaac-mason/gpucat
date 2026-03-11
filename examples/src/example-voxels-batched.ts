@@ -812,9 +812,11 @@ async function main() {
         inspector.perf.end('frustum-update');
 
         // GPU cull pass — writes indirectBuf slots
+        renderer.beginFrame();
         renderer.compute(cullCompute, [Math.ceil(POOL_PAGES / 64), 1, 1]);
 
         renderPipeline.render();
+        renderer.endFrame();
 
         if (++frameCount % 30 === 0) {
             const pagesUsed = POOL_PAGES - freeHead;

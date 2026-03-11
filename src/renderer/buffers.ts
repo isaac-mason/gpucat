@@ -7,9 +7,6 @@ import type { Any } from '../nodes/schema';
 type CacheEntry = { buf: GPUBuffer; version: number };
 
 export type BufferCache = {
-    /** GPUDevice is needed to create buffers and write data. */
-    device: GPUDevice;
-
     /** All GpuBuffer -> GPUBuffer mappings, regardless of usage. */
     bufferMap: WeakMap<GpuBuffer, CacheEntry>;
 
@@ -26,9 +23,8 @@ export type BufferCacheStats = {
     rawCount: number;
 };
 
-export function createBufferCache(device: GPUDevice): BufferCache {
+export function createBufferCache(): BufferCache {
     return {
-        device,
         bufferMap: new WeakMap(),
         rawMap: new WeakMap(),
         bufferCount: 0,
@@ -73,7 +69,7 @@ function deriveGPUUsage(buffer: GpuBuffer): GPUBufferUsageFlags {
  * This is the single upload function for all GpuBuffer types (vertex, index,
  * storage, indirect). GPU usage flags are derived from `buffer.usage`.
  */
-export function ensureUploaded(cache: BufferCache, buffer: GpuBuffer): GPUBuffer {
+export function ensureUploaded(cache: BufferCache, device: GPUDevice, buffer: GpuBuffer): GPUBuffer {
     const arr = buffer.array;
 
     // CPU memory was released — return existing GPU buffer.
@@ -92,14 +88,14 @@ export function ensureUploaded(cache: BufferCache, buffer: GpuBuffer): GPUBuffer
     if (!entry || entry.buf.size < byteLength) {
         entry?.buf.destroy();
 
-        const buf = cache.device.createBuffer({
+        const buf = device.createBuffer({
             size: byteLength,
             usage: deriveGPUUsage(buffer),
         });
 
         if (!entry) cache.bufferCount++;
 
-        cache.device.queue.writeBuffer(buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
+        device.queue.writeBuffer(buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
         cache.bufferMap.set(buffer, { buf, version: buffer.version });
 
         setupDispose(cache, buffer);
@@ -116,13 +112,13 @@ export function ensureUploaded(cache: BufferCache, buffer: GpuBuffer): GPUBuffer
         for (const { start, count } of buffer.updateRanges) {
             const byteOffset = start * bytesPerComponent;
             const byteCount = count * bytesPerComponent;
-            cache.device.queue.writeBuffer(buf, byteOffset, arr.buffer as ArrayBuffer, arr.byteOffset + byteOffset, byteCount);
+            device.queue.writeBuffer(buf, byteOffset, arr.buffer as ArrayBuffer, arr.byteOffset + byteOffset, byteCount);
         }
         buffer.clearUpdateRanges();
         entry.version = buffer.version;
     } else if (buffer.version !== entry.version) {
         // Full re-upload.
-        cache.device.queue.writeBuffer(buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
+        device.queue.writeBuffer(buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
         entry.version = buffer.version;
     }
 
@@ -186,7 +182,7 @@ export type UploadRawResult = {
  * Always writes `data` to the buffer (caller decides when to call this).
  * Returns both the buffer and whether it was newly created/resized.
  */
-export function uploadRaw(cache: BufferCache, key: object, data: GpuTypedArray, usage: GPUBufferUsageFlags): UploadRawResult {
+export function uploadRaw(cache: BufferCache, device: GPUDevice, key: object, data: GpuTypedArray, usage: GPUBufferUsageFlags): UploadRawResult {
     let buf = cache.rawMap.get(key);
     const byteLength = alignTo4(data.byteLength);
     const isNew = !buf;
@@ -194,7 +190,7 @@ export function uploadRaw(cache: BufferCache, key: object, data: GpuTypedArray, 
 
     if (!buf || buf.size < byteLength) {
         buf?.destroy();
-        buf = cache.device.createBuffer({ size: byteLength, usage });
+        buf = device.createBuffer({ size: byteLength, usage });
         cache.rawMap.set(key, buf);
         created = true;
         if (isNew) {
@@ -202,7 +198,7 @@ export function uploadRaw(cache: BufferCache, key: object, data: GpuTypedArray, 
         }
     }
 
-    cache.device.queue.writeBuffer(buf, 0, data.buffer as ArrayBuffer, data.byteOffset, data.byteLength);
+    device.queue.writeBuffer(buf, 0, data.buffer as ArrayBuffer, data.byteOffset, data.byteLength);
     return { buffer: buf, created };
 }
 

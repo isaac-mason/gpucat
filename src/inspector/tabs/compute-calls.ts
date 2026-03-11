@@ -231,7 +231,7 @@ export class ComputeCalls extends Tab {
 
         // Bindings pane
         this._bindingsPane.innerHTML = '';
-        const entry = pipelines.lookupCompute(renderer.pipelines, node);
+        const entry = pipelines.lookupCompute(renderer._pipelines, node);
         if (entry) {
             const nbs = entry.nodeBuilderState;
             this._bindingsPane.appendChild(
@@ -256,7 +256,7 @@ export class ComputeCalls extends Tab {
     private _refreshShaderPanel(renderer: WebGPURenderer): void {
         if (!this._selectedNode) return;
 
-        const entry = pipelines.lookupCompute(renderer.pipelines, this._selectedNode);
+        const entry = pipelines.lookupCompute(renderer._pipelines, this._selectedNode);
         if (entry) {
             this._shaderPanel.updateFromCompute(entry.nodeBuilderState.computeCode!);
         }

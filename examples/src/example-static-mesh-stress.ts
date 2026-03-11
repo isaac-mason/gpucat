@@ -100,7 +100,9 @@ async function main() {
     const renderPipeline = new RenderPipeline(renderer, outputNode);
 
     function frame() {
+        renderer.beginFrame();
         renderPipeline.render();
+        renderer.endFrame();
         controls.update();
         requestAnimationFrame(frame);
     }

@@ -160,7 +160,7 @@ export class DrawCalls extends Tab {
      * indent and uses the existing header-wrapper styling automatically.
      */
     update(inspector: Inspector, renderer: WebGPURenderer): void {
-        const liveROs = renderer.renderObjects.renderObjects;
+        const liveROs = renderer._renderObjects.renderObjects;
 
         // ------------------------------------------------------------------
         // 1. Build a snapshot: passId → RO[] (skip internal meshes)

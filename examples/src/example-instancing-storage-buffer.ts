@@ -135,7 +135,9 @@ const outputNode = g.renderOutput(scenePass.getTextureNode());
 const renderPipeline = new g.RenderPipeline(renderer, outputNode);
 
 function frame() {
+    renderer.beginFrame();
     renderPipeline.render();
+    renderer.endFrame();
     requestAnimationFrame(frame);
 }
 

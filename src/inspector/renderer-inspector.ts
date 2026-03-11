@@ -167,7 +167,7 @@ export class RendererInspector extends InspectorBase {
 
     override init(): void {
         if (!this.renderer) return;
-        const device = this.renderer.device;
+        const device = this.renderer._device;
 
         this.hasTimestamps = device?.features?.has('timestamp-query') ?? false;
 
@@ -223,9 +223,9 @@ export class RendererInspector extends InspectorBase {
             cpuMs,
             gpuMs: null,
             timeline: [...this._rootTimeline],
-            bufferStats: getBufferCacheStats(this.renderer.buffers),
-            pipelineStats: pipelines.getStats(this.renderer.pipelines),
-            renderObjectStats: getRenderObjectsStats(this.renderer.renderObjects),
+            bufferStats: getBufferCacheStats(this.renderer._buffers),
+            pipelineStats: pipelines.getStats(this.renderer._pipelines),
+            renderObjectStats: getRenderObjectsStats(this.renderer._renderObjects),
             inspectableNodes: [...this._pendingInspectables],
             scenes: [...this._pendingScenes],
         };
@@ -234,7 +234,7 @@ export class RendererInspector extends InspectorBase {
         this.frames[this.frameHead] = record;
 
         // Async GPU timestamp resolution
-        if (this.hasTimestamps && this._querySet && this._resolveBuffer && this._readbackBuffer && this.renderer.device) {
+        if (this.hasTimestamps && this._querySet && this._resolveBuffer && this._readbackBuffer && this.renderer._device) {
             this._resolveTimestamps(frameId, record);
         }
     }
@@ -440,7 +440,7 @@ export class RendererInspector extends InspectorBase {
      * Checks buffer.mapState before using, skips if not 'unmapped'.
      */
     private _resolveTimestamps(frameId: number, record: FrameRecord): void {
-        const device = this.renderer!.device;
+        const device = this.renderer!._device;
         
         // Collect GPU entries from timeline
         const gpuEntries = new Map<number, RenderEntry | ComputeEntry>();

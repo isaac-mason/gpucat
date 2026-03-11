@@ -353,34 +353,12 @@ export class Timeline extends Tab {
             if (this.currentFrame) {
                 this.currentFrame.fps = fps;
                 if (!isFinite(this.currentFrame.fps)) this.currentFrame.fps = 0;
-                this.graph.addPoint('calls', this.currentFrame.calls.length);
-                this.graph.addPoint('fps', this.currentFrame.fps);
-                this.graph.update();
             }
 
             this.currentFrame = { id: label, calls: [], fps: 0 };
             this.frames.push(this.currentFrame);
 
             if (this.frames.length > LIMIT) this.frames.shift();
-
-            if (!this.isManualScrubbing) {
-                if (this.isTrackingLatest) {
-                    const targetIndex = this.frames.length > 1 ? this.frames.length - 2 : 0;
-                    this.selectFrame(targetIndex);
-                } else if (this.selectedFrameIndex !== -1) {
-                    const pointCount = this.graph.lines['calls'].points.length;
-                    if (pointCount > 0) {
-                        const rect = this.graphSlider.getBoundingClientRect();
-                        const pointStep = rect.width / (this.graph.maxPoints - 1);
-                        const offset = rect.width - ((pointCount - 1) * pointStep);
-                        let localFrameIndex = Math.round((this.fixedScreenX - offset) / pointStep);
-                        localFrameIndex = Math.max(0, Math.min(localFrameIndex, pointCount - 1));
-                        let newFrameIndex = localFrameIndex;
-                        if (this.frames.length > pointCount) newFrameIndex += this.frames.length - pointCount;
-                        this.selectFrame(newFrameIndex);
-                    }
-                }
-            }
             return;
         }
 

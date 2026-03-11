@@ -262,7 +262,7 @@ export class ShaderPanel {
 
         // Search the live RenderObjects set for a matching mesh
         let ro: RenderObject | null = null;
-        for (const candidate of renderer.renderObjects.renderObjects) {
+        for (const candidate of renderer._renderObjects.renderObjects) {
             if (candidate.mesh === mesh && candidate.nodeBuilderState) {
                 ro = candidate;
                 break;

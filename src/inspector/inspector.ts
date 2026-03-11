@@ -364,14 +364,14 @@ export class Inspector extends RendererInspector {
         console.groupEnd();
 
         // Build probe pipeline: same bind group layouts, patched shader
-        const bindGroupLayouts = bindings.getBindGroupLayouts(renderer.bindings, sourceRO);
+        const bindGroupLayouts = bindings.getBindGroupLayouts(renderer._bindings, sourceRO);
         if (bindGroupLayouts.length === 0) {
             console.warn('[gpucat probe] bind group layouts not yet initialised — try clicking again after the first frame renders');
             return null;
         }
 
-        const pipelineLayout = renderer.device.createPipelineLayout({ bindGroupLayouts });
-        const shaderModule = renderer.device.createShaderModule({ code: patchedCode });
+        const pipelineLayout = renderer._device.createPipelineLayout({ bindGroupLayouts });
+        const shaderModule = renderer._device.createShaderModule({ code: patchedCode });
 
         // Log WGSL compilation errors asynchronously (same pattern as render-objects.ts)
         shaderModule.getCompilationInfo().then((info) => {
@@ -392,7 +392,7 @@ export class Inspector extends RendererInspector {
 
         let pipeline: GPURenderPipeline;
         try {
-            pipeline = renderer.device.createRenderPipeline({
+            pipeline = renderer._device.createRenderPipeline({
                 layout: pipelineLayout,
                 vertex: {
                     module: shaderModule,
@@ -423,7 +423,7 @@ export class Inspector extends RendererInspector {
         const canvasTarget = new CanvasTarget(canvas);
         canvasTarget.setSize(140, 140);
 
-        const depthTexture = renderer.device.createTexture({
+        const depthTexture = renderer._device.createTexture({
             size: [140, 140, 1],
             format: depthFormat,
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
@@ -489,7 +489,7 @@ export class Inspector extends RendererInspector {
             if (panelVisible) {
                 this.performance.updateText(this, record);
                 this.memory.updateText(this);
-                if (this.performanceTimeline.isActive) {
+                if (this.performanceTimeline.isActive && !this.performanceTimeline.isRecording) {
                     this.performanceTimeline.scheduleRender();
                 }
             }
@@ -521,7 +521,7 @@ export class Inspector extends RendererInspector {
         }
 
         const renderer = this.getRenderer();
-        if (renderer && renderer.renderObjects.renderObjects.size > 0) {
+        if (renderer && renderer._renderObjects.renderObjects.size > 0) {
             this.drawCalls.show();
             this.drawCalls.update(this, renderer);
         }
@@ -624,10 +624,10 @@ export class Inspector extends RendererInspector {
         if (!nodeState) return;
 
         const format = navigator.gpu.getPreferredCanvasFormat();
-        const ctx = probe.canvasTarget.getContext(renderer.device, format, 'opaque');
+        const ctx = probe.canvasTarget.getContext(renderer._device, format, 'opaque');
         const targetTexture = ctx.getCurrentTexture();
 
-        const encoder = renderer.device.createCommandEncoder();
+        const encoder = renderer._device.createCommandEncoder();
         const pass = encoder.beginRenderPass({
             colorAttachments: [{
                 view: targetTexture.createView(),
@@ -653,12 +653,12 @@ export class Inspector extends RendererInspector {
         // Vertex buffers — look up uploaded GPU buffers from the geometry
         let slot = 0;
         const geometry = ro.geometry;
-        const bufferCache = renderer.buffers;
+        const bufferCache = renderer._buffers;
         for (const attrEntry of nodeState.attributes) {
             if (attrEntry.kind === 'geometry') {
                 const bufAttr = geometry.buffers.get(attrEntry.name);
                 if (bufAttr) {
-                    const gpuBuf = buffers.ensureUploaded(bufferCache, bufAttr);
+                    const gpuBuf = buffers.ensureUploaded(bufferCache, renderer._device, bufAttr);
                     pass.setVertexBuffer(slot, gpuBuf);
                 }
             } else {
@@ -667,6 +667,7 @@ export class Inspector extends RendererInspector {
                 if (arr) {
                     const gpuBuf = buffers.uploadRaw(
                         bufferCache,
+                        renderer._device,
                         node,
                         arr,
                         GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
@@ -681,7 +682,7 @@ export class Inspector extends RendererInspector {
         // indirect draw support.  The indirect GPU buffer was already written by
         // the compute pass this frame; getUploaded() does a non-uploading lookup.
         if (geometry.index) {
-            const idxBuf = buffers.ensureUploaded(bufferCache, geometry.index);
+            const idxBuf = buffers.ensureUploaded(bufferCache, renderer._device, geometry.index);
             pass.setIndexBuffer(idxBuf, getIndexFormat(geometry.index.array)!);
             if (geometry.indirect) {
                 const indBuf = buffers.getUploaded(bufferCache, geometry.indirect);
@@ -709,6 +710,6 @@ export class Inspector extends RendererInspector {
         }
 
         pass.end();
-        renderer.device.queue.submit([encoder.finish()]);
+        renderer._device.queue.submit([encoder.finish()]);
     }
 }

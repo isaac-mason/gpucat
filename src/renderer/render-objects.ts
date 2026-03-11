@@ -1,16 +1,10 @@
 /**
  * render-objects.ts - RenderObject manager with ChainMap caching.
  *
- * Aligned with Three.js RenderObjects class:
- * - Creates and caches RenderObjects per (mesh, material, renderContext, passId) tuple
- * - Uses ChainMap for automatic garbage collection
- * - Coordinates initialization of NodeBuilderState, pipeline, bindings
- *
- * The RenderObjects manager is the central orchestrator that brings together:
- * - NodeManager (compilation)
- * - Geometries (attribute uploads)
- * - Bindings (bind group management)
- * - Pipeline cache (pipeline creation)
+ * Coordinates initialization of NodeBuilderState, pipeline, bindings.
+ * Subsystem dependencies (nodes, geometries, bindings, pipelines, device,
+ * bufferCache, textureCache) are passed as function parameters — not stored
+ * in state.
  */
 
 import type { Camera } from '../camera/camera';
@@ -19,6 +13,7 @@ import type { Mesh } from '../objects/mesh';
 import type { Object3D } from '../core/object3d';
 import type { BindingsState } from './bindings';
 import { getBindGroupLayouts, initBindings, updateBindings } from './bindings';
+import type { BufferCache } from './buffers';
 import * as chainMap from './chain-map';
 import type { GeometriesState } from './geometries';
 import { updateForRender as updateGeometry } from './geometries';
@@ -29,54 +24,28 @@ import * as pipelines from './pipelines';
 import type { RenderContext } from './pass-context';
 import type { GeometryGroup, RenderObject } from './render-object';
 import { computeRenderObjectCacheKey, createRenderObject, disposeRenderObject } from './render-object';
+import type { TextureCache } from './textures';
 
 /**
- * RenderObjects state - manages RenderObject creation and caching.
+ * RenderObjects state — owns only the caching structures.
+ * All subsystem deps are passed to functions that need them.
  */
 export type RenderObjectsState = {
-    /** NodeManager for compilation. */
-    nodes: NodeManagerState;
-
-    /** Geometries system for attribute management. */
-    geometries: GeometriesState;
-
-    /** Bindings system for bind group management. */
-    bindings: BindingsState;
-
-    /** Pipeline cache for pipeline creation. */
-    pipelines: pipelines.PipelinesState;
-
-    /** GPU device reference. */
-    device: GPUDevice;
-
     /**
      * Per-pass ChainMaps for RenderObject caching.
      * Each passId (e.g., 'default', 'shadow', 'reflection') gets its own ChainMap.
      */
     chainMaps: Map<string, chainMap.ChainMap<RenderObject>>;
 
-    /**
-     * All active RenderObjects (for iteration/disposal).
-     */
+    /** All active RenderObjects (for iteration/disposal). */
     renderObjects: Set<RenderObject>;
 };
 
 /**
  * Create a new RenderObjects state.
  */
-export function createRenderObjectsState(deps: {
-    nodes: NodeManagerState;
-    geometries: GeometriesState;
-    bindings: BindingsState;
-    pipelines: pipelines.PipelinesState;
-    device: GPUDevice;
-}): RenderObjectsState {
+export function createRenderObjectsState(): RenderObjectsState {
     return {
-        nodes: deps.nodes,
-        geometries: deps.geometries,
-        bindings: deps.bindings,
-        pipelines: deps.pipelines,
-        device: deps.device,
         chainMaps: new Map(),
         renderObjects: new Set(),
     };
@@ -100,16 +69,6 @@ function getChainMap(state: RenderObjectsState, passId: string): chainMap.ChainM
  * This is the main entry point for obtaining a RenderObject. It:
  * 1. Looks up existing RenderObject in ChainMap cache
  * 2. Creates new RenderObject if not found
- * 3. Initializes NodeBuilderState, pipeline, bindings if needed
- *
- * @param state - The RenderObjects state
- * @param mesh - The mesh to render
- * @param material - The material to use
- * @param scene - The scene/object containing the mesh
- * @param camera - The camera for rendering
- * @param renderContext - The render context (framebuffer config)
- * @param passId - Pass identifier (e.g., 'default', 'shadow')
- * @param group - Optional geometry group for multi-material meshes
  */
 export function getRenderObject(
     state: RenderObjectsState,
@@ -174,14 +133,15 @@ export function getRenderObject(
  *
  * Call this before rendering with a RenderObject.
  *
- * @param state - The RenderObjects state
- * @param renderObject - The RenderObject to initialize
- * @param colorFormat - The color texture format for pipeline creation
- * @param depthFormat - The depth texture format for pipeline creation
  * @returns true if initialization succeeded
  */
 export function initRenderObject(
-    state: RenderObjectsState,
+    nodes: NodeManagerState,
+    geometriesState: GeometriesState,
+    bindingsState: BindingsState,
+    pipelinesState: pipelines.PipelinesState,
+    device: GPUDevice,
+    bufferCache: BufferCache,
     renderObject: RenderObject,
     colorFormat: GPUTextureFormat,
     depthFormat: GPUTextureFormat | null,
@@ -191,11 +151,11 @@ export function initRenderObject(
     const renderContext = renderObject.renderContext;
 
     // Check if we need to (re)compile using fast version comparison
-    if (needsNodeUpdate(state.nodes, renderObject)) {
+    if (needsNodeUpdate(nodes, renderObject)) {
         // Only compute cache key when we actually need to recompile
         const cacheKey = computeRenderObjectCacheKey(material, geometry, renderContext);
         // Compile node graph
-        compileNodeState(state.nodes, renderObject, cacheKey);
+        compileNodeState(nodes, renderObject, cacheKey);
     }
 
     const nodeState = renderObject.nodeBuilderState;
@@ -205,16 +165,17 @@ export function initRenderObject(
     }
 
     // Initialize bindings (creates bind group layouts)
-    initBindings(state.bindings, renderObject);
+    initBindings(bindingsState, renderObject, device);
 
     // Get bind group layouts for pipeline creation
-    const bindGroupLayouts = getBindGroupLayouts(state.bindings, renderObject);
+    const bindGroupLayouts = getBindGroupLayouts(bindingsState, renderObject);
 
     // Check if we need to create/update pipeline
     if (!renderObject.pipeline) {
         // Create pipeline using the unified pipelines system (sync)
         const entry = pipelines.getForRender(
-            state.pipelines,
+            pipelinesState,
+            device,
             renderObject,
             bindGroupLayouts,
             colorFormat,
@@ -225,7 +186,7 @@ export function initRenderObject(
     }
 
     // Update geometry attributes
-    updateGeometry(state.geometries, renderObject);
+    updateGeometry(geometriesState, bufferCache, device, renderObject);
 
     return true;
 }
@@ -236,21 +197,21 @@ export function initRenderObject(
  * This is called each frame to:
  * - Update uniform buffers
  * - Rebuild bind groups if needed
- *
- * @param state - The RenderObjects state
- * @param renderObject - The RenderObject to update
- * @param camera - Current camera
- * @param elapsed - Elapsed time
- * @param delta - Delta time
- * @param width - Render width
- * @param height - Render height
  */
-export function updateRenderObject(state: RenderObjectsState, renderObject: RenderObject, frame: NodeFrame): void {
+export function updateRenderObject(
+    bindingsState: BindingsState,
+    geometriesState: GeometriesState,
+    device: GPUDevice,
+    bufferCache: BufferCache,
+    textureCache: TextureCache,
+    renderObject: RenderObject,
+    frame: NodeFrame,
+): void {
     // Update bindings (uniforms, bind groups)
-    updateBindings(state.bindings, renderObject, frame);
+    updateBindings(bindingsState, renderObject, frame, device, bufferCache, textureCache);
 
     // Update geometry if needed
-    updateGeometry(state.geometries, renderObject);
+    updateGeometry(geometriesState, bufferCache, device, renderObject);
 }
 
 /**
@@ -260,15 +221,15 @@ export function updateRenderObject(state: RenderObjectsState, renderObject: Rend
  * for non-blocking compilation. Use this in renderer.compile() to pre-warm all
  * pipelines without blocking the main thread.
  *
- * @param state - The RenderObjects state
- * @param renderObject - The RenderObject to initialize
- * @param colorFormat - The color texture format for pipeline creation
- * @param depthFormat - The depth texture format for pipeline creation
- * @param promises - Array to collect async compilation promises
  * @returns true if initialization succeeded (pipeline may still be compiling)
  */
 export function initRenderObjectWithPromises(
-    state: RenderObjectsState,
+    nodes: NodeManagerState,
+    geometriesState: GeometriesState,
+    bindingsState: BindingsState,
+    pipelinesState: pipelines.PipelinesState,
+    device: GPUDevice,
+    bufferCache: BufferCache,
     renderObject: RenderObject,
     colorFormat: GPUTextureFormat,
     depthFormat: GPUTextureFormat | null,
@@ -279,11 +240,11 @@ export function initRenderObjectWithPromises(
     const renderContext = renderObject.renderContext;
 
     // Check if we need to (re)compile using fast version comparison
-    if (needsNodeUpdate(state.nodes, renderObject)) {
+    if (needsNodeUpdate(nodes, renderObject)) {
         // Only compute cache key when we actually need to recompile
         const cacheKey = computeRenderObjectCacheKey(material, geometry, renderContext);
         // Compile node graph (sync - this is fast)
-        compileNodeState(state.nodes, renderObject, cacheKey);
+        compileNodeState(nodes, renderObject, cacheKey);
     }
 
     const nodeState = renderObject.nodeBuilderState;
@@ -293,16 +254,17 @@ export function initRenderObjectWithPromises(
     }
 
     // Initialize bindings (creates bind group layouts)
-    initBindings(state.bindings, renderObject);
+    initBindings(bindingsState, renderObject, device);
 
     // Get bind group layouts for pipeline creation
-    const bindGroupLayouts = getBindGroupLayouts(state.bindings, renderObject);
+    const bindGroupLayouts = getBindGroupLayouts(bindingsState, renderObject);
 
     // Check if we need to create/update pipeline
     if (!renderObject.pipeline) {
         // Create pipeline asynchronously using the unified pipelines system
         const entry = pipelines.getForRender(
-            state.pipelines,
+            pipelinesState,
+            device,
             renderObject,
             bindGroupLayouts,
             colorFormat,
@@ -321,12 +283,12 @@ export function initRenderObjectWithPromises(
     }
 
     // Update geometry attributes
-    updateGeometry(state.geometries, renderObject);
+    updateGeometry(geometriesState, bufferCache, device, renderObject);
 
     return true;
 }
 
-// Re-export buildVertexBufferLayouts from pipelines.ts for backwards compatibility
+// Re-export buildVertexBufferLayouts from pipelines.ts
 export { buildVertexBufferLayouts } from './pipelines';
 
 /**

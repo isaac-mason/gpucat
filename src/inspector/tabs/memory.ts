@@ -65,7 +65,7 @@ export class Memory extends Tab {
     updateGraph(inspector: InspectorBase): void {
         const renderer = inspector.getRenderer();
         if (!renderer) return;
-        const bs = getBufferCacheStats(renderer.buffers);
+        const bs = getBufferCacheStats(renderer._buffers);
         const total = bs.bufferCount + bs.rawCount;
         this.graph.addPoint('total', total);
         if (this.graph.limit === 0) this.graph.limit = 1;
@@ -76,9 +76,9 @@ export class Memory extends Tab {
         const renderer = inspector.getRenderer();
         if (!renderer) return;
 
-        const bs = getBufferCacheStats(renderer.buffers);
-        const ps = pipelinesModule.getStats(renderer.pipelines);
-        const ros = getRenderObjectsStats(renderer.renderObjects);
+        const bs = getBufferCacheStats(renderer._buffers);
+        const ps = pipelinesModule.getStats(renderer._pipelines);
+        const ros = getRenderObjectsStats(renderer._renderObjects);
 
         setText(this.gpuBuffers.data[1] as HTMLElement, bs.bufferCount.toString());
         setText(this.rawBuffers.data[1] as HTMLElement, bs.rawCount.toString());

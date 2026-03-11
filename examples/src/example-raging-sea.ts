@@ -255,10 +255,12 @@ const outputNode = renderOutput(scenePass.getTextureNode());
 const renderPipeline = new RenderPipeline(renderer, outputNode);
 
 function frame() {
+    renderer.beginFrame();
     controls.update();
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
     renderPipeline.render();
+    renderer.endFrame();
     requestAnimationFrame(frame);
 }
 

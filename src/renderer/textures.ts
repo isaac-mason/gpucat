@@ -42,9 +42,6 @@ type SamplerData = {
 
 /** Cache for textures and samplers */
 export type TextureCache = {
-    /** GPUDevice for creating resources */
-    device: GPUDevice;
-
     /** Texture data keyed by Texture object */
     textureMap: WeakMap<Texture, TextureData>;
 
@@ -68,9 +65,8 @@ export type TextureCacheStats = {
 // Cache creation
 // ---------------------------------------------------------------------------
 
-export function createTextureCache(device: GPUDevice): TextureCache {
+export function createTextureCache(): TextureCache {
     return {
-        device,
         textureMap: new WeakMap(),
         samplerCache: new Map(),
         defaultTextures: new Map(),
@@ -106,6 +102,7 @@ function setupDispose(cache: TextureCache, texture: Texture): void {
  */
 export function updateTexture(
     cache: TextureCache,
+    device: GPUDevice,
     texture: Texture,
 ): TextureData {
     let data = cache.textureMap.get(texture);
@@ -122,7 +119,7 @@ export function updateTexture(
     if (!image || !source.dataReady || (image as HTMLImageElement).complete === false) {
         if (!data) {
             const format = texture.format ?? 'rgba8unorm';
-            const defaultTex = getDefaultTexture(cache, format);
+            const defaultTex = getDefaultTexture(cache, device, format);
             data = {
                 texture: defaultTex,
                 version: 0,
@@ -137,7 +134,7 @@ export function updateTexture(
 
     // First time or was using default — create real GPU texture
     if (!data || data.isDefaultTexture) {
-        const gpuTexture = createGPUTexture(cache, texture);
+        const gpuTexture = createGPUTexture(device, texture);
 
         if (!data) {
             data = {
@@ -162,7 +159,7 @@ export function updateTexture(
     }
 
     // Upload image data
-    uploadTextureData(cache, texture, data);
+    uploadTextureData(device, texture, data);
 
     // Update texture version (Three.js aligned: textureData.version = texture.version)
     data.version = texture.version;
@@ -174,7 +171,7 @@ export function updateTexture(
 /**
  * Create a GPUTexture for a Texture.
  */
-function createGPUTexture(cache: TextureCache, texture: Texture): GPUTexture {
+function createGPUTexture(device: GPUDevice, texture: Texture): GPUTexture {
     const width = texture.width;
     const height = texture.height;
     const format = texture.format ?? 'rgba8unorm';
@@ -184,7 +181,7 @@ function createGPUTexture(cache: TextureCache, texture: Texture): GPUTexture {
         ? Math.floor(Math.log2(Math.max(width, height))) + 1
         : 1;
 
-    const gpuTexture = cache.device.createTexture({
+    const gpuTexture = device.createTexture({
         size: [width, height],
         format,
         usage:
@@ -201,7 +198,7 @@ function createGPUTexture(cache: TextureCache, texture: Texture): GPUTexture {
  * Upload image data to a GPU texture.
  */
 function uploadTextureData(
-    cache: TextureCache,
+    device: GPUDevice,
     texture: Texture,
     data: TextureData,
 ): void {
@@ -218,7 +215,7 @@ function uploadTextureData(
         const bytesPerPixel = getBytesPerPixel(format);
 
         const srcData = dataTexture.data!;
-        cache.device.queue.writeTexture(
+        device.queue.writeTexture(
             { texture: data.texture },
             srcData.buffer,
             { offset: srcData.byteOffset, bytesPerRow: width * bytesPerPixel, rowsPerImage: height },
@@ -226,7 +223,7 @@ function uploadTextureData(
         );
     } else {
         // HTMLImageElement, ImageBitmap, Canvas, Video, etc.
-        cache.device.queue.copyExternalImageToTexture(
+        device.queue.copyExternalImageToTexture(
             {
                 source: image as ImageBitmap | HTMLCanvasElement | OffscreenCanvas | HTMLVideoElement | VideoFrame | ImageData,
             },
@@ -298,11 +295,11 @@ function getBytesPerPixel(format: GPUTextureFormat): number {
  * Get or create a 1x1 default placeholder texture.
  * Three.js aligned: uses white pixel for color textures.
  */
-export function getDefaultTexture(cache: TextureCache, format: GPUTextureFormat): GPUTexture {
+export function getDefaultTexture(cache: TextureCache, device: GPUDevice, format: GPUTextureFormat): GPUTexture {
     let tex = cache.defaultTextures.get(format);
     if (tex) return tex;
 
-    tex = cache.device.createTexture({
+    tex = device.createTexture({
         size: [1, 1],
         format,
         usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
@@ -313,7 +310,7 @@ export function getDefaultTexture(cache: TextureCache, format: GPUTextureFormat)
     const data = new Uint8Array(bytesPerPixel);
     data.fill(255); // White / max value
 
-    cache.device.queue.writeTexture(
+    device.queue.writeTexture(
         { texture: tex },
         data,
         { bytesPerRow: bytesPerPixel },
@@ -340,7 +337,7 @@ function computeSamplerKey(texture: Texture): string {
  * Get or create a sampler for a texture's sampling parameters.
  * Samplers are shared/cached by parameter key.
  */
-export function getSampler(cache: TextureCache, texture: Texture): GPUSampler {
+export function getSampler(cache: TextureCache, device: GPUDevice, texture: Texture): GPUSampler {
     const key = computeSamplerKey(texture);
 
     let data = cache.samplerCache.get(key);
@@ -349,7 +346,7 @@ export function getSampler(cache: TextureCache, texture: Texture): GPUSampler {
         return data.sampler;
     }
 
-    const sampler = cache.device.createSampler({
+    const sampler = device.createSampler({
         magFilter: texture.magFilter,
         minFilter: texture.minFilter,
         mipmapFilter: texture.mipmapFilter,

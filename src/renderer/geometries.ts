@@ -2,6 +2,7 @@ import type { Geometry } from '../geometry/geometry';
 import { createIndexBuffer, type GpuBuffer } from '../core/buffer';
 import type { Any } from '../nodes/schema';
 import type { RenderObject } from './render-object';
+import type { BufferCache } from './buffers';
 import * as buffers from './buffers';
 
 /**
@@ -22,12 +23,6 @@ export type GeometryData = {
  * Combines the responsibilities of the former Geometries and Attributes systems.
  */
 export type GeometriesState = {
-    /** Reference to the underlying buffer cache. */
-    bufferCache: buffers.BufferCache;
-
-    /** GPU device reference. */
-    device: GPUDevice;
-
     /**
      * Tracks the last render call ID when each buffer was updated.
      * Prevents duplicate updates within the same frame.
@@ -57,13 +52,9 @@ export type GeometriesState = {
 
 /**
  * Create a new Geometries state.
- *
- * @param bufferCache - The underlying buffer cache (from buffers.ts)
  */
-export function createGeometriesState(bufferCache: buffers.BufferCache): GeometriesState {
+export function createGeometriesState(): GeometriesState {
     return {
-        bufferCache,
-        device: bufferCache.device,
         bufferCall: new WeakMap(),
         currentCallId: 0,
         geometryData: new WeakMap(),
@@ -90,13 +81,11 @@ export function incrementCallId(state: GeometriesState): void {
  * Implements per-frame deduplication - each buffer is uploaded at most once per frame.
  *
  * Version tracking is delegated to buffers.ts — we only track per-frame deduplication here.
- *
- * @param state - The Geometries state
- * @param buffer - The GpuBuffer to update
- * @param type - The buffer type for routing
  */
 export function updateBuffer(
     state: GeometriesState,
+    bufferCache: BufferCache,
+    device: GPUDevice,
     buffer: GpuBuffer<Any>,
     type: BufferType,
 ): void {
@@ -116,7 +105,7 @@ export function updateBuffer(
     switch (type) {
         case 'vertex':
         case 'indirect':
-            buffers.ensureUploaded(state.bufferCache, buffer);
+            buffers.ensureUploaded(bufferCache, device, buffer);
             break;
         // Note: 'index' type uses updateIndex() instead
     }
@@ -127,6 +116,8 @@ export function updateBuffer(
  */
 export function updateIndex(
     state: GeometriesState,
+    bufferCache: BufferCache,
+    device: GPUDevice,
     index: GpuBuffer<Any>,
 ): void {
     const callId = state.currentCallId;
@@ -140,7 +131,7 @@ export function updateIndex(
     // Mark as updated for this frame
     state.bufferCall.set(index, callId);
 
-    buffers.ensureUploaded(state.bufferCache, index);
+    buffers.ensureUploaded(bufferCache, device, index);
 }
 
 /**
@@ -148,18 +139,15 @@ export function updateIndex(
  * Returns undefined if not uploaded yet.
  */
 export function getIndirectBuffer(
-    state: GeometriesState,
+    bufferCache: BufferCache,
     buffer: GpuBuffer<Any>,
 ): GPUBuffer | undefined {
-    return buffers.getUploaded(state.bufferCache, buffer);
+    return buffers.getUploaded(bufferCache, buffer);
 }
 
 /**
  * Delete a buffer from the deduplication tracking.
  * Note: This doesn't destroy the GPU buffer - buffers.ts handles that via WeakMap GC.
- *
- * @param state - The Geometries state
- * @param buffer - The buffer to delete
  */
 export function deleteBuffer(
     state: GeometriesState,
@@ -173,11 +161,13 @@ export function deleteBuffer(
  *
  * This uploads all vertex buffers and the index buffer (if present).
  * Called once when a geometry is first encountered.
- *
- * @param state the Geometries state
- * @param geometry the geometry to initialize
  */
-export function initGeometry(state: GeometriesState, geometry: Geometry): void {
+export function initGeometry(
+    state: GeometriesState,
+    bufferCache: BufferCache,
+    device: GPUDevice,
+    geometry: Geometry,
+): void {
     let data = state.geometryData.get(geometry);
 
     if (data && data.initialized) {
@@ -196,20 +186,20 @@ export function initGeometry(state: GeometriesState, geometry: Geometry): void {
     // upload all vertex buffers
     for (const [_name, buffer] of geometry.buffers) {
         if (buffer.usage.has('vertex')) {
-            updateBuffer(state, buffer, 'vertex');
+            updateBuffer(state, bufferCache, device, buffer, 'vertex');
             state.memory.buffers++;
         }
     }
 
     // upload index buffer if present
     if (geometry.index) {
-        updateIndex(state, geometry.index);
+        updateIndex(state, bufferCache, device, geometry.index);
         state.memory.indexBuffers++;
     }
 
     // upload indirect buffer if present
     if (geometry.indirect) {
-        updateBuffer(state, geometry.indirect, 'indirect');
+        updateBuffer(state, bufferCache, device, geometry.indirect, 'indirect');
         state.memory.indirectBuffers++;
     }
 
@@ -229,35 +219,37 @@ export function initGeometry(state: GeometriesState, geometry: Geometry): void {
  *
  * Note: Version tracking is handled by buffers.ts. We just ensure each
  * buffer goes through the upload path (with per-frame deduplication).
- *
- * @param state the Geometries state
- * @param renderObject the RenderObject containing the geometry
  */
-export function updateForRender(state: GeometriesState, renderObject: RenderObject): void {
+export function updateForRender(
+    state: GeometriesState,
+    bufferCache: BufferCache,
+    device: GPUDevice,
+    renderObject: RenderObject,
+): void {
     const geometry = renderObject.geometry;
     let data = state.geometryData.get(geometry);
 
     // initialize if needed
     if (!data || !data.initialized) {
-        initGeometry(state, geometry);
+        initGeometry(state, bufferCache, device, geometry);
         return; // initGeometry already uploads everything
     }
 
     // Update all vertex buffers (buffers.ts handles version checking)
     for (const [_name, buffer] of geometry.buffers) {
         if (buffer.usage.has('vertex')) {
-            updateBuffer(state, buffer, 'vertex');
+            updateBuffer(state, bufferCache, device, buffer, 'vertex');
         }
     }
 
     // Update index buffer if present
     if (geometry.index) {
-        updateIndex(state, geometry.index);
+        updateIndex(state, bufferCache, device, geometry.index);
     }
 
     // Update indirect buffer if present
     if (geometry.indirect) {
-        updateBuffer(state, geometry.indirect, 'indirect');
+        updateBuffer(state, bufferCache, device, geometry.indirect, 'indirect');
     }
 }
 
@@ -267,13 +259,12 @@ export function updateForRender(state: GeometriesState, renderObject: RenderObje
  * For wireframe rendering, this returns a generated wireframe index buffer.
  * Otherwise, returns the geometry's index buffer.
  *
- * @param state the Geometries state
- * @param renderObject the RenderObject
- * @param wireframe whether wireframe mode is active
  * @returns the index buffer or null for non-indexed geometry
  */
 export function getIndex(
     state: GeometriesState,
+    bufferCache: BufferCache,
+    device: GPUDevice,
     renderObject: RenderObject,
     wireframe: boolean = false,
 ): GpuBuffer<Any> | null {
@@ -287,7 +278,7 @@ export function getIndex(
             state.wireframes.set(geometry, wireframeIndex);
 
             // upload wireframe index buffer
-            updateIndex(state, wireframeIndex);
+            updateIndex(state, bufferCache, device, wireframeIndex);
         }
         return wireframeIndex;
     }
@@ -303,9 +294,6 @@ export function getIndex(
  *
  * For indexed geometry, processes the index buffer.
  * For non-indexed geometry, generates indices from vertex count.
- *
- * @param geometry - The source geometry
- * @returns A new GpuBuffer with wireframe line indices
  */
 function generateWireframeIndices(geometry: Geometry): GpuBuffer<Any> {
     const index = geometry.index;
@@ -355,9 +343,6 @@ function generateWireframeIndices(geometry: Geometry): GpuBuffer<Any> {
 
 /**
  * Dispose a geometry and clean up tracking.
- *
- * @param state the Geometries state
- * @param geometry the geometry to dispose
  */
 export function disposeGeometry(state: GeometriesState, geometry: Geometry): void {
     const data = state.geometryData.get(geometry);

@@ -198,7 +198,9 @@ async function main() {
     document.body.appendChild(ui);
 
     function frame() {
+        renderer.beginFrame();
         renderPipeline.render();
+        renderer.endFrame();
         requestAnimationFrame(frame);
     }
 

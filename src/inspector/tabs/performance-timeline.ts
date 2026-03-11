@@ -5,6 +5,9 @@ import type { RendererInspector } from '../renderer-inspector';
 // Max number of flat entries retained during recording (~3 min at 60fps with ~20 entries/frame)
 const MAX_ENTRIES = 200_000;
 
+// Entries narrower than this in CSS pixels are skipped in the detail view — no point drawing sub-pixel bars
+const MIN_BAR_PX = 1;
+
 // Layout
 const ROW_HEIGHT = 20;
 const ROW_GAP = 2;
@@ -206,9 +209,9 @@ export class PerformanceTimeline extends Tab {
             this._recordBtn.innerHTML = '&#9679; Record';
             this._recordBtn.style.color = COLORS.text;
             this._followNow = false;
+            this._scheduleRender();
         }
         this._updateStatus();
-        this._scheduleRender();
     }
 
     private _clear(): void {
@@ -260,7 +263,7 @@ export class PerformanceTimeline extends Tab {
         }
 
         this._updateStatus();
-        this._scheduleRender();
+        // Don't render while recording — render once when recording stops
     }
 
     private _flattenFrame(entries: TimelineEntry[], frameStartMs: number, depth = 0): void {
@@ -546,21 +549,25 @@ export class PerformanceTimeline extends Tab {
             const entryEndMs = entry.startMs + entry.durationMs;
             if (entryEndMs < this._viewportStartMs || entry.startMs > viewportEndMs) continue;
 
+            const barW = entry.durationMs * pxPerMs;
+            if (barW < MIN_BAR_PX) continue;
+
             // CPU bar
             const x = TRACK_LABEL_WIDTH + (entry.startMs - this._viewportStartMs) * pxPerMs + drawOffsetPx;
-            const barW = Math.max(entry.durationMs * pxPerMs, 2);
             const barY = y + TRACK_PADDING + entry.depth * (ROW_HEIGHT + ROW_GAP);
 
-            this._drawBar(ctx, x, barY, barW, ROW_HEIGHT, entry.kind, entry.name);
+            this._drawBar(ctx, x, barY, Math.max(barW, 2), ROW_HEIGHT, entry.kind, entry.name);
 
             // GPU bar (read from source entry for live async updates)
             const gpuMs = getGpuMs(entry);
             const gpuStartMs = getGpuStartMs(entry);
             if (gpuMs !== null && gpuMs > 0 && gpuStartMs !== null) {
-                const gpuX = TRACK_LABEL_WIDTH + (gpuStartMs - this._viewportStartMs) * pxPerMs + drawOffsetPx;
-                const gpuW = Math.max(gpuMs * pxPerMs, 2);
-                const gpuY = gpuTrackY + TRACK_PADDING;
-                this._drawBar(ctx, gpuX, gpuY, gpuW, ROW_HEIGHT, 'gpu', entry.name);
+                const gpuBarW = gpuMs * pxPerMs;
+                if (gpuBarW >= MIN_BAR_PX) {
+                    const gpuX = TRACK_LABEL_WIDTH + (gpuStartMs - this._viewportStartMs) * pxPerMs + drawOffsetPx;
+                    const gpuY = gpuTrackY + TRACK_PADDING;
+                    this._drawBar(ctx, gpuX, gpuY, Math.max(gpuBarW, 2), ROW_HEIGHT, 'gpu', entry.name);
+                }
             }
         }
     }

@@ -35,13 +35,6 @@ export type PipelinesStats = {
  * Holds all caches for render and compute pipelines.
  */
 export type PipelinesState = {
-    device: GPUDevice;
-    format: GPUTextureFormat;
-    depthFormat: GPUTextureFormat;
-
-    /** NodeManager for node compilation. */
-    nodes: NodeManagerState;
-
     /** Shared bind group layout cache for all pipelines. */
     bindGroupLayoutCache: BindGroupLayoutCache;
 
@@ -52,19 +45,13 @@ export type PipelinesState = {
     computePipelines: Map<string, ComputePipelineEntry>;
 };
 
+export const DEPTH_FORMAT: GPUTextureFormat = 'depth24plus';
+
 /**
  * Create a pipelines state.
  */
-export function createPipelinesState(
-    device: GPUDevice,
-    format: GPUTextureFormat,
-    nodes: NodeManagerState,
-): PipelinesState {
+export function createPipelinesState(): PipelinesState {
     return {
-        device,
-        format,
-        depthFormat: 'depth24plus',
-        nodes,
         bindGroupLayoutCache: createBindGroupLayoutCache(),
         renderPipelines: new Map(),
         computePipelines: new Map(),
@@ -95,6 +82,7 @@ export function getStats(state: PipelinesState): PipelinesStats {
  */
 export function getForRender(
     state: PipelinesState,
+    device: GPUDevice,
     renderObject: RenderObject,
     bindGroupLayouts: GPUBindGroupLayout[],
     colorFormat: GPUTextureFormat,
@@ -122,7 +110,7 @@ export function getForRender(
 
     // Build pipeline descriptor
     const descriptor = buildRenderPipelineDescriptor(
-        state.device,
+        device,
         renderObject,
         nodeState,
         bindGroupLayouts,
@@ -132,12 +120,12 @@ export function getForRender(
 
     if (promises === null) {
         // Sync compilation
-        entry.pipeline = state.device.createRenderPipeline(descriptor);
+        entry.pipeline = device.createRenderPipeline(descriptor);
     } else {
         // Async compilation
         const p = (async () => {
             try {
-                entry!.pipeline = await state.device.createRenderPipelineAsync(descriptor);
+                entry!.pipeline = await device.createRenderPipelineAsync(descriptor);
             } catch (err) {
                 console.error('[pipelines] render pipeline compilation failed:', err);
             }
@@ -250,6 +238,8 @@ function buildRenderPipelineDescriptor(
  */
 export function getForCompute(
     state: PipelinesState,
+    device: GPUDevice,
+    nodes: NodeManagerState,
     node: ComputeNode,
     computeContext: ComputeContext,
     promises: Promise<void>[] | null = null,
@@ -262,23 +252,23 @@ export function getForCompute(
     // Set up disposal callback if not already set
     if (!node._onDispose) {
         node._onDispose = () => {
-            NodeManager.deleteForCompute(state.nodes, node);
+            NodeManager.deleteForCompute(nodes, node);
             state.computePipelines.delete(node.id);
         };
     }
 
     // Use NodeManager to get compiled compute state (pass context for bind group caching)
-    const nodeBuilderState = NodeManager.getForCompute(state.nodes, node, computeContext);
+    const nodeBuilderState = NodeManager.getForCompute(nodes, node, computeContext);
 
     // Build bind group layouts from NodeBuilderState bindings
     const bindGroupLayouts = buildComputeBindGroupLayouts(
-        state.device,
+        device,
         nodeBuilderState.bindings,
         state.bindGroupLayoutCache,
     );
-    const pipelineLayout = state.device.createPipelineLayout({ bindGroupLayouts });
+    const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts });
 
-    const shaderModule = state.device.createShaderModule({ code: nodeBuilderState.computeCode! });
+    const shaderModule = device.createShaderModule({ code: nodeBuilderState.computeCode! });
 
     entry = {
         pipeline: null,
@@ -293,12 +283,12 @@ export function getForCompute(
 
     if (promises === null) {
         // Sync compilation
-        entry.pipeline = state.device.createComputePipeline(descriptor);
+        entry.pipeline = device.createComputePipeline(descriptor);
     } else {
         // Async compilation
         const p = (async () => {
             try {
-                entry!.pipeline = await state.device.createComputePipelineAsync(descriptor);
+                entry!.pipeline = await device.createComputePipelineAsync(descriptor);
             } catch (err) {
                 console.error('[pipelines] compute pipeline compilation failed:', err);
             }

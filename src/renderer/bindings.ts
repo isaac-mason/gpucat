@@ -40,15 +40,6 @@ export type BindGroupData = {
 
 /** Bindings state - manages per-BindGroup GPU resources */
 export type BindingsState = {
-    /** GPU device reference. */
-    device: GPUDevice;
-
-    /** Buffer cache for uniform buffer uploads. */
-    bufferCache: BufferCache;
-
-    /** Texture cache for texture/sampler access. */
-    textureCache: TextureCache;
-
     /** Bind group layout cache (shared across all bind groups). */
     layoutCache: BindGroupLayoutCache;
 
@@ -60,15 +51,8 @@ export type BindingsState = {
 };
 
 /** Create a new Bindings state */
-export function createBindingsState(
-    device: GPUDevice,
-    bufferCache: BufferCache,
-    textureCache: TextureCache,
-): BindingsState {
+export function createBindingsState(): BindingsState {
     return {
-        device,
-        bufferCache,
-        textureCache,
         layoutCache: createBindGroupLayoutCache(),
         data: new WeakMap(),
     };
@@ -102,15 +86,14 @@ function getData(state: BindingsState, bindGroup: BindGroup): BindGroupData {
  * - Gets BindGroups from RenderObject.getBindings()
  * - For each BindGroup, calls _init() then _update()
  * - Builds GPU bind groups and stores them on RenderObject
- *
- * @param state - The Bindings state
- * @param renderObject - The RenderObject to update
- * @param frame - NodeFrame with camera, time, object, etc.
  */
 export function updateBindings(
     state: BindingsState,
     renderObject: RenderObject,
     frame: NodeFrame,
+    device: GPUDevice,
+    bufferCache: BufferCache,
+    textureCache: TextureCache,
 ): void {
     const nodeState = renderObject.nodeBuilderState;
     if (!nodeState) return;
@@ -123,15 +106,13 @@ export function updateBindings(
 
     for (const bindGroup of bindGroups) {
         // Initialize bind group layout if needed
-        initBindGroup(state, bindGroup, nodeState);
+        initBindGroup(state, bindGroup, device);
 
         // Update uniforms and check if bind group needs rebuild
-        updateBindGroup(state, bindGroup, renderObject, frame);
-
-        // Rebuild GPU bind group if needed
         const data = getData(state, bindGroup);
+        updateBindGroupForRender(data, bindGroup, renderObject, frame, device, bufferCache, textureCache);
         if (data.needsUpdate || !data.bindGroup) {
-            rebuildGPUBindGroup(state, bindGroup, data, renderObject.geometry);
+            rebuildGPUBindGroup(device, bufferCache, bindGroup, data, renderObject.geometry);
             data.needsUpdate = false;
         }
 
@@ -146,12 +127,11 @@ export function updateBindings(
 
 /**
  * Initialize bindings for a RenderObject.
- * @param state - The Bindings state
- * @param renderObject - The RenderObject to initialize
  */
 export function initBindings(
     state: BindingsState,
     renderObject: RenderObject,
+    device: GPUDevice,
 ): void {
     const nodeState = renderObject.nodeBuilderState;
     if (!nodeState) return;
@@ -161,7 +141,7 @@ export function initBindings(
 
     // Initialize each BindGroup
     for (const bindGroup of bindGroups) {
-        initBindGroup(state, bindGroup, nodeState);
+        initBindGroup(state, bindGroup, device);
     }
 }
 
@@ -238,7 +218,7 @@ export function invalidateBindings(
 function initBindGroup(
     state: BindingsState,
     bindGroup: BindGroup,
-    _nodeState: NodeBuilderState,
+    device: GPUDevice,
 ): void {
     const data = getData(state, bindGroup);
 
@@ -249,7 +229,7 @@ function initBindGroup(
     const entries = buildLayoutEntries(bindGroup);
 
     // get or create the layout
-    data.bindGroupLayout = getBindGroupLayout(state.layoutCache, state.device, entries);
+    data.bindGroupLayout = getBindGroupLayout(state.layoutCache, device, entries);
 }
 
 /** Build bind group layout entries for a BindGroup. */
@@ -302,30 +282,31 @@ function buildLayoutEntries(
 }
 
 /** Update a BindGroup (uniforms, textures, etc.).  Called every frame */
-function updateBindGroup(
-    state: BindingsState,
+function updateBindGroupForRender(
+    data: BindGroupData,
     bindGroup: BindGroup,
     renderObject: RenderObject,
     frame: NodeFrame,
+    device: GPUDevice,
+    bufferCache: BufferCache,
+    textureCache: TextureCache,
 ): void {
-    const data = getData(state, bindGroup);
-
     for (const binding of bindGroup.bindings) {
         switch (binding.kind) {
             case 'uniform':
-                updateUniformBinding(state, binding, bindGroup, frame, data, renderObject.material);
+                updateUniformBinding(bufferCache, device, binding, frame, data, renderObject.material);
                 break;
 
             case 'texture':
-                updateTextureBinding(state, binding, data);
+                updateTextureBinding(textureCache, device, binding, data);
                 break;
 
             case 'sampler':
-                updateSamplerBinding(state, binding, data);
+                updateSamplerBinding(textureCache, device, binding, data);
                 break;
 
             case 'storage':
-                updateStorageBinding(state, binding, data, renderObject.geometry);
+                updateStorageBinding(bufferCache, device, binding, data, renderObject.geometry);
                 break;
         }
     }
@@ -333,9 +314,9 @@ function updateBindGroup(
 
 /** Update a uniform binding */
 function updateUniformBinding(
-    state: BindingsState,
+    bufferCache: BufferCache,
+    device: GPUDevice,
     binding: UniformBinding,
-    _bindGroup: BindGroup,
     frame: NodeFrame,
     data: BindGroupData,
     material: Material | null = null,
@@ -376,7 +357,7 @@ function updateUniformBinding(
         binding.packedBuffer = buffer;
 
         const U = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
-        const result = uploadRaw(state.bufferCache, binding.bufferKey, buffer, U);
+        const result = uploadRaw(bufferCache, device, binding.bufferKey, buffer, U);
 
         // Only rebuild bind group if buffer was created/resized (not just written to)
         if (result.created) {
@@ -502,7 +483,8 @@ function packAndCompare(
 
 /** Update a texture binding. */
 function updateTextureBinding(
-    state: BindingsState,
+    textureCache: TextureCache,
+    device: GPUDevice,
     binding: TextureBinding,
     data: BindGroupData,
 ): void {
@@ -516,7 +498,7 @@ function updateTextureBinding(
     if (!value.isRenderTargetTexture && !value.isDepthTexture) {
         // It's a user Texture with image data
         const texture = value as Texture;
-        const texData = updateTexture(state.textureCache, texture);
+        const texData = updateTexture(textureCache, device, texture);
 
         // Update the node with GPU resources
         textureNode.resource = texData.texture;
@@ -540,7 +522,8 @@ function updateTextureBinding(
 
 /** Update a sampler binding. */
 function updateSamplerBinding(
-    state: BindingsState,
+    textureCache: TextureCache,
+    device: GPUDevice,
     binding: SamplerBinding,
     data: BindGroupData,
 ): void {
@@ -552,7 +535,7 @@ function updateSamplerBinding(
     if (!value.isRenderTargetTexture && !value.isDepthTexture) {
         // It's a user Texture - get/create sampler via texture cache
         const texture = value as Texture;
-        const sampler = getSampler(state.textureCache, texture);
+        const sampler = getSampler(textureCache, device, texture);
 
         // Update the node with GPU sampler
         textureNode.gpuSampler = sampler;
@@ -578,7 +561,8 @@ function updateSamplerBinding(
 
 /** Update a storage binding - detect buffer swaps and flush data to GPU. */
 function updateStorageBinding(
-    state: BindingsState,
+    bufferCache: BufferCache,
+    device: GPUDevice,
     binding: StorageBinding,
     data: BindGroupData,
     geometry: Geometry | null,
@@ -593,12 +577,13 @@ function updateStorageBinding(
     }
 
     // Flush pending data to GPU (version check / partial ranges handled inside)
-    ensureUploaded(state.bufferCache, buffer);
+    ensureUploaded(bufferCache, device, buffer);
 }
 
 /** Rebuild the GPU bind group for a BindGroup */
 function rebuildGPUBindGroup(
-    state: BindingsState,
+    device: GPUDevice,
+    bufferCache: BufferCache,
     bindGroup: BindGroup,
     data: BindGroupData,
     geometry: Geometry | null,
@@ -611,7 +596,7 @@ function rebuildGPUBindGroup(
         switch (binding.kind) {
             case 'uniform': {
                 if (binding.bufferKey) {
-                    const buffer = getRaw(state.bufferCache, binding.bufferKey);
+                    const buffer = getRaw(bufferCache, binding.bufferKey);
                     if (buffer) {
                         entries.push({ binding: binding.block.binding, resource: { buffer } });
                     }
@@ -621,7 +606,7 @@ function rebuildGPUBindGroup(
 
             case 'storage': {
                 const buffer = resolveStorageBuffer(binding.entry.node, geometry);
-                const buf = getUploaded(state.bufferCache, buffer);
+                const buf = getUploaded(bufferCache, buffer);
                 if (buf) {
                     entries.push({ binding: binding.entry.binding, resource: { buffer: buf } });
                 }
@@ -659,7 +644,7 @@ function rebuildGPUBindGroup(
     entries.sort((a, b) => a.binding - b.binding);
 
     if (entries.length > 0) {
-        data.bindGroup = state.device.createBindGroup({
+        data.bindGroup = device.createBindGroup({
             layout: data.bindGroupLayout,
             entries,
         });
@@ -788,30 +773,27 @@ export function packUniformGroup(
 
 /**
  * Update all bindings for a compute pass and return GPUBindGroups.
- *
- * @param state - The Bindings state
- * @param nodeBuilderState - The NodeBuilderState for the compute node
- * @param frame - NodeFrame with time, etc.
- * @returns Array of GPUBindGroups ready for setBindGroup
  */
 export function updateForCompute(
     state: BindingsState,
     nodeBuilderState: NodeBuilderState,
     frame: NodeFrame,
+    device: GPUDevice,
+    bufferCache: BufferCache,
 ): GPUBindGroup[] {
     const gpuBindGroups: GPUBindGroup[] = [];
 
     for (const bindGroup of nodeBuilderState.bindings) {
         // Initialize bind group layout if needed (uses compute visibility)
-        initComputeBindGroup(state, bindGroup);
+        initComputeBindGroup(state, bindGroup, device);
 
         // Update uniforms
-        updateComputeBindGroup(state, bindGroup, frame);
+        const data = getData(state, bindGroup);
+        updateComputeBindGroup(data, bufferCache, device, bindGroup, frame);
 
         // Rebuild GPU bind group if needed
-        const data = getData(state, bindGroup);
         if (data.needsUpdate || !data.bindGroup) {
-            rebuildGPUBindGroup(state, bindGroup, data, null);
+            rebuildGPUBindGroup(device, bufferCache, bindGroup, data, null);
             data.needsUpdate = false;
         }
 
@@ -825,20 +807,17 @@ export function updateForCompute(
 
 /**
  * Get bind group layouts for a compute pass (for pipeline creation).
- *
- * @param state - The Bindings state
- * @param nodeBuilderState - The NodeBuilderState for the compute node
- * @returns Array of GPUBindGroupLayouts
  */
 export function getLayoutsForCompute(
     state: BindingsState,
     nodeBuilderState: NodeBuilderState,
+    device: GPUDevice,
 ): GPUBindGroupLayout[] {
     const layouts: GPUBindGroupLayout[] = [];
 
     for (const bindGroup of nodeBuilderState.bindings) {
         // Initialize bind group layout if needed
-        initComputeBindGroup(state, bindGroup);
+        initComputeBindGroup(state, bindGroup, device);
 
         const data = getData(state, bindGroup);
         if (data.bindGroupLayout) {
@@ -853,6 +832,7 @@ export function getLayoutsForCompute(
 function initComputeBindGroup(
     state: BindingsState,
     bindGroup: BindGroup,
+    device: GPUDevice,
 ): void {
     const data = getData(state, bindGroup);
 
@@ -863,7 +843,7 @@ function initComputeBindGroup(
     const entries = buildComputeLayoutEntries(bindGroup);
 
     // get or create the layout
-    data.bindGroupLayout = getBindGroupLayout(state.layoutCache, state.device, entries);
+    data.bindGroupLayout = getBindGroupLayout(state.layoutCache, device, entries);
 }
 
 /** Build bind group layout entries for a compute BindGroup. */
@@ -921,20 +901,20 @@ function buildComputeLayoutEntries(
 
 /** Update a compute BindGroup (uniforms). */
 function updateComputeBindGroup(
-    state: BindingsState,
+    data: BindGroupData,
+    bufferCache: BufferCache,
+    device: GPUDevice,
     bindGroup: BindGroup,
     frame: NodeFrame,
 ): void {
-    const data = getData(state, bindGroup);
-
     for (const binding of bindGroup.bindings) {
         switch (binding.kind) {
             case 'uniform':
-                updateUniformBinding(state, binding, bindGroup, frame, data);
+                updateUniformBinding(bufferCache, device, binding, frame, data);
                 break;
 
             case 'storage':
-                updateStorageBinding(state, binding, data, null);
+                updateStorageBinding(bufferCache, device, binding, data, null);
                 break;
 
             case 'texture':
