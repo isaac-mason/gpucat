@@ -22,6 +22,7 @@ import {
     type Node,
     RenderPipeline,
     renderOutput,
+    mat4x2f,
 } from 'gpucat';
 import { createSimplex2D } from 'mathcat';
 

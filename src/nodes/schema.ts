@@ -665,6 +665,14 @@ export function isSamplerComparisonDesc(desc: Any): desc is SamplerComparisonDes
     return desc.type === 'sampler_comparison';
 }
 
+export function isMatDesc(desc: Any): desc is MatDesc {
+    return desc.wgslType.startsWith('mat');
+}
+
+export function isVecDesc(desc: Any): desc is anyVec {
+    return desc.wgslType.startsWith('vec');
+}
+
 // Legacy alias
 export function isStructDef(desc: Any): desc is StructDesc {
     return isStructDesc(desc);
@@ -770,6 +778,32 @@ export type ArrayElement<D extends Any> =
 
 export type StructFields<D extends Any> =
     D extends { readonly type: 'struct'; readonly fields: infer S extends Record<string, Any> } ? S : never;
+
+// ---------------------------------------------------------------------------
+// MatColumnDesc — maps a matrix descriptor to its column vector descriptor.
+// matCxR has C columns of vecR, so the column type is determined by R.
+// ---------------------------------------------------------------------------
+
+export type MatColumnDesc<D extends Any> =
+    D extends mat2x2f | mat3x2f | mat4x2f ? vec2f :
+    D extends mat2x3f | mat3x3f | mat4x3f ? vec3f :
+    D extends mat2x4f | mat3x4f | mat4x4f ? vec4f :
+    D extends mat2x2h | mat3x2h | mat4x2h ? vec2h :
+    D extends mat2x3h | mat3x3h | mat4x3h ? vec3h :
+    D extends mat2x4h | mat3x4h | mat4x4h ? vec4h :
+    never;
+
+// ---------------------------------------------------------------------------
+// ElementOf — unified element type for bracket indexing.
+// array[i] → element type, matrix[i] → column vector, vector[i] → scalar
+// ---------------------------------------------------------------------------
+
+export type ElementOf<D extends Any> =
+    D extends { readonly type: 'array'; readonly element: infer E extends Any } ? E :
+    D extends { readonly type: 'sized-array'; readonly element: infer E extends Any } ? E :
+    D extends MatDesc ? MatColumnDesc<D> :
+    D extends anyVec ? VecElementDesc<D> :
+    never;
 
 // ---------------------------------------------------------------------------
 // WGSL std430 layout utilities
@@ -974,6 +1008,19 @@ export function vec3DescOf(desc: Any): Vec3Desc {
 export function vec4DescOf(desc: Any): Vec4Desc {
     const elem = VEC_ELEMENT_DESC[desc.wgslType] ?? SCALAR_DESC[desc.wgslType];
     return VEC4_DESC[elem?.wgslType ?? 'f32'] ?? vec4f;
+}
+
+const MAT_COLUMN_DESC: Record<string, anyVec> = {
+    mat2x2f: vec2f, mat3x2f: vec2f, mat4x2f: vec2f,
+    mat2x3f: vec3f, mat3x3f: vec3f, mat4x3f: vec3f,
+    mat2x4f: vec4f, mat3x4f: vec4f, mat4x4f: vec4f,
+    mat2x2h: vec2h, mat3x2h: vec2h, mat4x2h: vec2h,
+    mat2x3h: vec3h, mat3x3h: vec3h, mat4x3h: vec3h,
+    mat2x4h: vec4h, mat3x4h: vec4h, mat4x4h: vec4h,
+};
+
+export function matColumnDesc(desc: MatDesc): anyVec {
+    return MAT_COLUMN_DESC[desc.wgslType];
 }
 
 // ---------------------------------------------------------------------------

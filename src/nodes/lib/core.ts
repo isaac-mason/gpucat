@@ -200,11 +200,18 @@ export class Node<D extends Any> {
     smoothstep(hi: Node<D>, x: Node<D>): Node<D>             { return smoothstep(this, hi, x) as Node<D>; }
 
     // ── Element access ────────────────────────────────────────────────────────
-    element(idx: Node<Any>): Node<d.ArrayElement<D>> {
-        if (this.type.type !== 'array' && this.type.type !== 'sized-array') {
-            throw new Error(`[gpucat] Cannot index into type ${this.type} — only array and sized-array types are indexable.`);
+    element(idx: Node<Any>): Node<d.ElementOf<D>> {
+        const t = this.type;
+        if (t.type === 'array' || t.type === 'sized-array') {
+            return new IndexNode(t.element, this, idx) as unknown as Node<d.ElementOf<D>>;
         }
-        return new IndexNode(this.type.element, this, idx) as unknown as Node<d.ArrayElement<D>>;
+        if (d.isMatDesc(t)) {
+            return new IndexNode(d.matColumnDesc(t), this, idx) as unknown as Node<d.ElementOf<D>>;
+        }
+        if (d.isVecDesc(t)) {
+            return new IndexNode(d.vecElementDescOrSelf(t), this, idx) as unknown as Node<d.ElementOf<D>>;
+        }
+        throw new Error(`[gpucat] Cannot index into type '${t.wgslType}' — only array, matrix, and vector types support .element().`);
     }
 
     // ── Lang ──────────────────────────────────────────────────────────────────
@@ -616,9 +623,19 @@ export const field = <D extends Any, K extends StructKeys<D>>(node: Node<D>, nam
 
 export const index = <N extends Node<Any>>(
     array: N, idx: Node<Any>
-): Node<d.ArrayElement<N["type"]>> => {
-    const elementDesc = (array.type as d.SizedArrayDesc).element;
-    return new IndexNode(elementDesc, array, idx) as unknown as Node<d.ArrayElement<N["type"]>>;
+): Node<d.ElementOf<N["type"]>> => {
+    const t = array.type;
+    let elementDesc: Any;
+    if (t.type === 'array' || t.type === 'sized-array') {
+        elementDesc = t.element;
+    } else if (d.isMatDesc(t)) {
+        elementDesc = d.matColumnDesc(t);
+    } else if (d.isVecDesc(t)) {
+        elementDesc = d.vecElementDescOrSelf(t);
+    } else {
+        throw new Error(`[gpucat] Cannot index into type '${t.wgslType}' — only array, matrix, and vector types support indexing.`);
+    }
+    return new IndexNode(elementDesc, array, idx) as unknown as Node<d.ElementOf<N["type"]>>;
 };
 
 /** Type for field accessor object returned by fields() */

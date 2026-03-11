@@ -104,8 +104,8 @@ const clipPos = mul(cameraProjectionMatrix, viewPos);
 const shadowMaterial = new Material({
     vertex: clipPos,
     fragment: null,
-    depthBias: 2,
-    depthBiasSlopeScale: 3,
+    depthBias: 0,
+    depthBiasSlopeScale: 0,
 });
 
 // ─── Scene pass material (with shadow sampling) ─────────────────────────────
@@ -125,12 +125,16 @@ const vWorldNorm = varying(normalize(worldNorm), 'v_worldNorm');
 const shadowDepthTex = depthTexture(shadowRT.depthTexture!);
 const shadowCmpSampler = comparisonSampler(shadowRT.depthTexture!, 'less');
 
+// Light direction uniform: updated each frame from lightCamera.position.
+// For a directional light, the direction is normalize(position) since it looks at the origin.
+const lightDirUniform = new Uniform(d.vec3f, new Float32Array([5, 8, 6]));
+const lightDir = normalize(uniform(lightDirUniform));
+
 // Normal offset bias: nudge the world position along the surface normal before
 // projecting into light space. The offset scales with the angle between the
 // surface and the light — surfaces at grazing angles get more offset.
-const shadowLightDir = normalize(vec3(f32(5), f32(8), f32(6)));
 const normalBias = f32(0.1);
-const cosTheta = vWorldNorm.dot(shadowLightDir).max(f32(0.0));
+const cosTheta = vWorldNorm.dot(lightDir).max(f32(0.0));
 const biasScale = f32(1.0).sub(cosTheta).mul(normalBias);
 const biasedWorldPos = vWorldPos.add(vWorldNorm.mul(biasScale));
 
@@ -183,8 +187,7 @@ const outsideFrustum = or(
 );
 const shadowFactor = select(pcfResult, f32(1.0), outsideFrustum);
 
-// Basic directional lighting
-const lightDir = normalize(vec3(f32(5), f32(8), f32(6)));
+// Basic directional lighting (reuses lightDir uniform declared above)
 const nDotL = vWorldNorm.dot(lightDir).max(f32(0.0));
 const ambient = f32(0.15);
 const diffuse = nDotL.mul(shadowFactor).add(ambient);
@@ -375,6 +378,15 @@ function frame() {
     lightCamera.updateViewMatrix();
     updateLightVP();
     updateFrustumGeometry();
+
+    // Update light direction uniform (normalize on CPU — the GPU node also normalizes,
+    // but we need to write a unit-ish vector so the uniform isn't huge)
+    const lp = lightCamera.position;
+    const ll = Math.sqrt(lp[0] * lp[0] + lp[1] * lp[1] + lp[2] * lp[2]);
+    const ld = lightDirUniform.value as Float32Array;
+    ld[0] = lp[0] / ll;
+    ld[1] = lp[1] / ll;
+    ld[2] = lp[2] / ll;
 
     controls.update();
 
