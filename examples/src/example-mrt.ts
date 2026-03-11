@@ -24,6 +24,7 @@ import {
     WebGPURenderer,
     renderOutput,
     wgslFn,
+    RenderPipeline,
 } from 'gpucat';
 import { quat, type Euler } from 'mathcat';
 
@@ -209,6 +210,7 @@ const compositeOutput = selectComposite(
 
 // final output
 const finalOutput = compositeOutput;
+const renderPipeline = new RenderPipeline(renderer, finalOutput);
 
 /* animation loop */
 
@@ -225,7 +227,7 @@ function frame() {
     quat.fromEuler(mesh.quaternion, [angle * 0.3, angle, 0, 'yxz'] as Euler);
     mesh.updateWorldMatrix();
 
-    renderer.render(finalOutput);
+    renderPipeline.render();
     requestAnimationFrame(frame);
 }
 

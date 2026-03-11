@@ -32,12 +32,22 @@
 
 import type { WebGPURenderer } from '../renderer/renderer';
 import type { InspectorNode, ComputeNode } from '../nodes/nodes';
-import type { Scene } from '../scene/scene';
+import type { Object3D } from '../core/object3d';
 import { Any } from '../nodes/schema';
 
 export class InspectorBase {
     /** Back-reference to the renderer. Set by renderer after init(). */
     protected renderer: WebGPURenderer | null = null;
+
+    // -----------------------------------------------------------------------
+    // Performance markers (no-op in base class)
+    // -----------------------------------------------------------------------
+
+    /** Performance marker API - no-op in base class, implemented in RendererInspector */
+    readonly perf = {
+        start: (_name: string): void => {},
+        end: (_name: string): void => {},
+    };
 
     // -----------------------------------------------------------------------
     // Lifecycle
@@ -71,6 +81,14 @@ export class InspectorBase {
     /** Called after a PassNode scene render pass ends. */
     finishRender(_passId: string, _frameId: number): void {}
 
+    /**
+     * Returns timestampWrites configuration for a render/compute pass, or undefined if not available.
+     * Called by the renderer when creating a pass to inject GPU timing queries.
+     */
+    getTimestampWrites(_passId: string): GPURenderPassTimestampWrites | undefined {
+        return undefined;
+    }
+
     // -----------------------------------------------------------------------
     // Compute pass hooks
     // -----------------------------------------------------------------------
@@ -92,7 +110,7 @@ export class InspectorBase {
      */
     beginRenderScene(
         _passId: string,
-        _scene: Scene,
+        _scene: Object3D,
         _samples: number,
         _colorFormat: GPUTextureFormat,
         _frameId: number,

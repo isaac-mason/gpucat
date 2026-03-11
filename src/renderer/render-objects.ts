@@ -16,7 +16,7 @@
 import type { Camera } from '../camera/camera';
 import type { Material } from '../material/material';
 import type { Mesh } from '../objects/mesh';
-import type { Scene } from '../scene/scene';
+import type { Object3D } from '../core/object3d';
 import type { BindingsState } from './bindings';
 import { getBindGroupLayouts, initBindings, updateBindings } from './bindings';
 import * as chainMap from './chain-map';
@@ -105,7 +105,7 @@ function getChainMap(state: RenderObjectsState, passId: string): chainMap.ChainM
  * @param state - The RenderObjects state
  * @param mesh - The mesh to render
  * @param material - The material to use
- * @param scene - The scene containing the mesh
+ * @param scene - The scene/object containing the mesh
  * @param camera - The camera for rendering
  * @param renderContext - The render context (framebuffer config)
  * @param passId - Pass identifier (e.g., 'default', 'shadow')
@@ -115,7 +115,7 @@ export function getRenderObject(
     state: RenderObjectsState,
     mesh: Mesh,
     material: Material,
-    scene: Scene,
+    scene: Object3D,
     camera: Camera,
     renderContext: RenderContext,
     passId: string = 'default',

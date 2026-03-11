@@ -24,6 +24,8 @@ import {
     WebGPURenderer,
     wgslFn,
     type Node,
+    RenderPipeline,
+    renderOutput,
 } from 'gpucat';
 
 // gradient (Perlin-style) noise — C1 continuous, no sharp zero-crossings
@@ -249,13 +251,14 @@ smallParams.add(uSmallSpeed, 'value', 0.0, 5.0, 0.05);
 smallParams.add(uSmallAmp,   'value', 0.0, 1.0, 0.01);
 
 const scenePass  = pass(scene, camera);
-const outputNode = scenePass.getTextureNode();
+const outputNode = renderOutput(scenePass.getTextureNode());
+const renderPipeline = new RenderPipeline(renderer, outputNode);
 
 function frame() {
     controls.update();
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
-    renderer.render(outputNode);
+    renderPipeline.render();
     requestAnimationFrame(frame);
 }
 

@@ -34,6 +34,8 @@ import {
     mul,
     createIndirectBuffer,
     packStructArray,
+    RenderPipeline,
+    renderOutput,
 } from 'gpucat';
 import { createSimplex2D } from 'mathcat';
 
@@ -42,18 +44,17 @@ import { createSimplex2D } from 'mathcat';
 const CHUNK_BITS  = 4;
 const CHUNK_SIZE  = 1 << CHUNK_BITS; // 16
 
-const WORLD_CHUNKS_X = 32;
-const WORLD_CHUNKS_Y = 8;
-const WORLD_CHUNKS_Z = 32;
+const WORLD_CHUNKS_X = 8;
+const WORLD_CHUNKS_Y = 4;
+const WORLD_CHUNKS_Z = 8;
 
-// slab — derive pool size from default WebGPU max buffer size (256MB)
+const TOTAL_CHUNKS = WORLD_CHUNKS_X * WORLD_CHUNKS_Y * WORLD_CHUNKS_Z;
+
+// Page pool — start with estimated size, grows if needed
 const PAGE_QUADS       = 512;
 const PAGE_VERTS       = PAGE_QUADS * 4;   // 2048
 const PAGE_INDICES     = PAGE_QUADS * 6;   // 3072
-const MAX_BUFFER_SIZE  = 40 * 1024 * 1024; // 40MB — mobile-friendly
-const PAGE_BYTES_MAX   = PAGE_VERTS * 3 * 4; // largest per-page buffer = position (vec3f)
-const POOL_PAGES       = Math.floor(MAX_BUFFER_SIZE / PAGE_BYTES_MAX);
-const TOTAL_CHUNKS     = WORLD_CHUNKS_X * WORLD_CHUNKS_Y * WORLD_CHUNKS_Z;
+let POOL_PAGES         = 256; // Initial estimate, can grow
 
 const BRUSH_RADIUS = 5;
 
@@ -289,9 +290,9 @@ function meshChunk(world: World, chunk: Chunk): MeshData | null {
     };
 }
 
-// ─── slab allocator ───────────────────────────────────────────────────────────
+// ─── slab allocator with dynamic growth ───────────────────────────────────────
 
-const freePageStack = new Uint16Array(POOL_PAGES);
+let freePageStack = new Uint16Array(POOL_PAGES);
 let freeHead = 0;
 
 function initFreeList(): void {
@@ -300,12 +301,70 @@ function initFreeList(): void {
 }
 
 function allocPage(): number {
-    if (freeHead === 0) throw new Error('[voxels-batched] slab pool exhausted');
+    if (freeHead > 0) {
+        return freePageStack[--freeHead];
+    }
+    // Pool exhausted, need to grow
+    growBufferPool();
     return freePageStack[--freeHead];
 }
 
 function freePage(page: number): void {
     freePageStack[freeHead++] = page;
+}
+
+function growBufferPool(): void {
+    const oldPoolPages = POOL_PAGES;
+    POOL_PAGES = Math.ceil(POOL_PAGES * 1.5);
+    
+    // Grow all GPU buffers
+    const newPositionData = new Float32Array(POOL_PAGES * PAGE_VERTS * 3);
+    newPositionData.set(positionData.subarray(0, oldPoolPages * PAGE_VERTS * 3));
+    positionData.set(newPositionData);
+    positionBuf.array = newPositionData;
+    
+    const newNormalData = new Float32Array(POOL_PAGES * PAGE_VERTS * 3);
+    newNormalData.set(normalData.subarray(0, oldPoolPages * PAGE_VERTS * 3));
+    normalData.set(newNormalData);
+    normalBuf.array = newNormalData;
+    
+    const newAOData = new Float32Array(POOL_PAGES * PAGE_VERTS);
+    newAOData.set(aoData.subarray(0, oldPoolPages * PAGE_VERTS));
+    aoData.set(newAOData);
+    aoBuf.array = newAOData;
+    
+    const newIndexData = new Uint32Array(POOL_PAGES * PAGE_INDICES);
+    newIndexData.set(indexData.subarray(0, oldPoolPages * PAGE_INDICES));
+    indexData.set(newIndexData);
+    indexBuf.array = newIndexData;
+    
+    // Grow PageInfo storage
+    const PAGE_INFO_STRIDE = 8;
+    const newPageInfoData = new Float32Array(POOL_PAGES * PAGE_INFO_STRIDE);
+    newPageInfoData.set(pageInfoData.subarray(0, oldPoolPages * PAGE_INFO_STRIDE));
+    pageInfoData.set(newPageInfoData);
+    pageInfoBuf.array = newPageInfoData;
+    
+    // Grow indirect buffer
+    const newIndirectData = new Uint32Array(POOL_PAGES * 5); // DrawIndexedIndirect is 5 u32s
+    newIndirectData.set(indirectData.subarray(0, oldPoolPages * 5));
+    for (let i = oldPoolPages; i < POOL_PAGES; i++) {
+        newIndirectData[i * 5 + 0] = 0;      // indexCount
+        newIndirectData[i * 5 + 1] = 1;      // instanceCount
+        newIndirectData[i * 5 + 2] = i * PAGE_INDICES;      // firstIndex
+        newIndirectData[i * 5 + 3] = i * PAGE_VERTS;        // baseVertex
+        newIndirectData[i * 5 + 4] = 0;      // firstInstance
+    }
+    indirectData.set(newIndirectData);
+    indirectBuf.array = newIndirectData;
+    
+    // Grow free page stack
+    const newFreePageStack = new Uint16Array(POOL_PAGES);
+    newFreePageStack.set(freePageStack);
+    for (let i = oldPoolPages; i < POOL_PAGES; i++) {
+        newFreePageStack[freeHead++] = POOL_PAGES - 1 - i;
+    }
+    freePageStack = newFreePageStack;
 }
 
 // ─── GPU buffers ──────────────────────────────────────────────────────────────
@@ -354,20 +413,23 @@ const cullCompute = Fn(() => {
     If(id.greaterThanEqual(u32(POOL_PAGES)), () => { Return(); });
 
     const page = pageInfoStorage.element(id).fields();
-    const count = page.indexCount;
+    const count = page.indexCount.toVar('count');
 
     // AABB frustum test — p-vertex method
-    const aabbMin = page.aabbMin;
-    const aabbMax = page.aabbMax;
+    const aabbMin = page.aabbMin.toVar('aabbMin');
+    const aabbMax = page.aabbMax.toVar('aabbMax');
 
     const Var_visible = Var(count.greaterThan(u32(0)), 'visible');
 
     for (let i = 0; i < 6; i++) {
-        const plane = frustumStorage.field("planes").element(u32(i));
-        const px = plane.x.greaterThanEqual(f32(0)).select(aabbMax.x, aabbMin.x);
-        const py = plane.y.greaterThanEqual(f32(0)).select(aabbMax.y, aabbMin.y);
-        const pz = plane.z.greaterThanEqual(f32(0)).select(aabbMax.z, aabbMin.z);
-        const dist = plane.x.mul(px).add(plane.y.mul(py)).add(plane.z.mul(pz)).add(plane.w);
+        const plane = frustumStorage.field("planes").element(u32(i)).toVar(`plane${i}`);
+        const planeX = plane.x.toVar(`p${i}x`);
+        const planeY = plane.y.toVar(`p${i}y`);
+        const planeZ = plane.z.toVar(`p${i}z`);
+        const px = planeX.greaterThanEqual(f32(0)).select(aabbMax.x, aabbMin.x);
+        const py = planeY.greaterThanEqual(f32(0)).select(aabbMax.y, aabbMin.y);
+        const pz = planeZ.greaterThanEqual(f32(0)).select(aabbMax.z, aabbMin.z);
+        const dist = planeX.mul(px).add(planeY.mul(py)).add(planeZ.mul(pz)).add(plane.w);
         If(dist.lessThan(f32(0)), () => { Var_visible.assign(bool(false)); });
     }
 
@@ -487,74 +549,7 @@ function flushGPU(): void {
 }
 
 // ─── sort-based chunk streaming ──────────────────────────────────────────────
-
-const HALF_CHUNK        = CHUNK_SIZE * 0.5;
-const STREAM_HYSTERESIS = CHUNK_SIZE * CHUNK_SIZE; // re-sort when camera moves this far² 
-
-const sortedChunks = new Uint16Array(TOTAL_CHUNKS);
-const chunkCenters = new Float32Array(TOTAL_CHUNKS * 3);
-const chunkDist2   = new Float32Array(TOTAL_CHUNKS);
-
-for (let cz = 0; cz < WORLD_CHUNKS_Z; cz++) {
-    for (let cy = 0; cy < WORLD_CHUNKS_Y; cy++) {
-        for (let cx = 0; cx < WORLD_CHUNKS_X; cx++) {
-            const idx = worldChunkIndex(cx, cy, cz);
-            sortedChunks[idx] = idx;
-            chunkCenters[idx * 3 + 0] = cx * CHUNK_SIZE + HALF_CHUNK;
-            chunkCenters[idx * 3 + 1] = cy * CHUNK_SIZE + HALF_CHUNK;
-            chunkCenters[idx * 3 + 2] = cz * CHUNK_SIZE + HALF_CHUNK;
-        }
-    }
-}
-
-let lastStreamX = -Infinity, lastStreamY = -Infinity, lastStreamZ = -Infinity;
-
-function streamChunks(camX: number, camY: number, camZ: number): void {
-    const dx = camX - lastStreamX, dy = camY - lastStreamY, dz = camZ - lastStreamZ;
-    if (dx * dx + dy * dy + dz * dz < STREAM_HYSTERESIS) return;
-    lastStreamX = camX; lastStreamY = camY; lastStreamZ = camZ;
-
-    // Compute squared distances and sort
-    for (let i = 0; i < TOTAL_CHUNKS; i++) {
-        const ox = chunkCenters[i * 3 + 0] - camX;
-        const oy = chunkCenters[i * 3 + 1] - camY;
-        const oz = chunkCenters[i * 3 + 2] - camZ;
-        chunkDist2[i] = ox * ox + oy * oy + oz * oz;
-    }
-
-    const sorted = Array.from(sortedChunks);
-    sorted.sort((a, b) => chunkDist2[a] - chunkDist2[b]);
-    sortedChunks.set(sorted);
-
-    // Pass 1: figure out how many pages the nearest chunks need
-    let pagesNeeded = 0;
-    let cutoff = TOTAL_CHUNKS; // index in sorted list where we run out of budget
-    for (let i = 0; i < TOTAL_CHUNKS; i++) {
-        const idx = sortedChunks[i];
-        const cost = chunkPageCount[idx];
-        if (pagesNeeded + cost > POOL_PAGES) {
-            cutoff = i;
-            break;
-        }
-        pagesNeeded += cost;
-    }
-
-    // Pass 2: unload everything beyond cutoff
-    for (let i = cutoff; i < TOTAL_CHUNKS; i++) {
-        const idx = sortedChunks[i];
-        if (gpuPages[idx].length > 0) unloadChunk(idx);
-    }
-
-    // Pass 3: upload everything before cutoff that isn't already on GPU
-    for (let i = 0; i < cutoff; i++) {
-        const idx = sortedChunks[i];
-        if (gpuPages[idx].length === 0 && meshCache[idx]) {
-            uploadChunk(idx);
-        }
-    }
-
-    flushGPU();
-}
+// REMOVED — all chunks fit in memory, no streaming needed
 
 // ─── editing ─────────────────────────────────────────────────────────────────
 
@@ -567,13 +562,11 @@ function remeshForEdit(world: World, chunkIdx: number): void {
     const needed = chunkPageCount[chunkIdx];
     if (needed === 0) return;
 
-    // Evict farthest loaded chunks if pool doesn't have room
-    // sortedChunks is sorted nearest-first from last streamChunks call
-    let evictIdx = TOTAL_CHUNKS - 1;
-    while (freeHead < needed && evictIdx >= 0) {
-        const victim = sortedChunks[evictIdx--];
-        if (victim === chunkIdx) continue;
-        if (gpuPages[victim].length > 0) unloadChunk(victim);
+    // Ensure pool has room, growing if necessary
+    let retries = 0;
+    while (freeHead < needed && retries < 5) {
+        growBufferPool();
+        retries++;
     }
 
     if (freeHead >= needed) uploadChunk(chunkIdx);
@@ -733,7 +726,10 @@ async function main() {
 
     // Generate terrain
     const world = createWorld();
+    
+    inspector.perf.start('terrain-gen');
     generateTerrain(world);
+    inspector.perf.end('terrain-gen');
 
     // One mesh for the whole world
     const mesh = new Mesh(mergedGeometry, material);
@@ -742,13 +738,21 @@ async function main() {
     await renderer.compileCompute(cullCompute);
 
     const scenePass = pass(scene, camera);
-    const outputNode = scenePass.getTextureNode();
+    const outputNode = renderOutput(scenePass.getTextureNode());
+    const renderPipeline = new RenderPipeline(renderer, outputNode);
 
     // Mesh all chunks into CPU cache at startup
+    inspector.perf.start('initial-meshing');
     for (let i = 0; i < TOTAL_CHUNKS; i++) meshAndCache(world, i);
+    inspector.perf.end('initial-meshing');
 
-    // Initial chunk streaming — load nearest chunks that fit in page budget
-    streamChunks(camera.position[0], camera.position[1], camera.position[2]);
+    // Load all chunks into GPU buffers at startup
+    inspector.perf.start('initial-upload');
+    for (let i = 0; i < TOTAL_CHUNKS; i++) {
+        if (meshCache[i]) uploadChunk(i);
+    }
+    flushGPU();
+    inspector.perf.end('initial-upload');
 
     // Ray from screen position
     function getRayFromScreen(clientX: number, clientY: number): { ox: number; oy: number; oz: number; dx: number; dy: number; dz: number } {
@@ -796,20 +800,21 @@ async function main() {
     let frameCount = 0;
 
     function frame() {
+        inspector.perf.start('update');
         controls.update();
         scene.updateWorldMatrix();
         camera.updateViewMatrix();
-
-        // Stream nearest chunks into pool budget
-        streamChunks(camera.position[0], camera.position[1], camera.position[2]);
+        inspector.perf.end('update');
 
         // Update frustum for GPU cull
+        inspector.perf.start('frustum-update');
         updateFrustum(camera);
+        inspector.perf.end('frustum-update');
 
         // GPU cull pass — writes indirectBuf slots
         renderer.compute(cullCompute, [Math.ceil(POOL_PAGES / 64), 1, 1]);
 
-        renderer.render(outputNode);
+        renderPipeline.render();
 
         if (++frameCount % 30 === 0) {
             const pagesUsed = POOL_PAGES - freeHead;
@@ -819,8 +824,7 @@ async function main() {
             }
             statsEl.textContent =
                 `pages: ${pagesUsed}/${POOL_PAGES}  ` +
-                `chunks: ${chunksLoaded}/${TOTAL_CHUNKS}  ` +
-                `buf: ${((pagesUsed * PAGE_BYTES_MAX) / (1024 * 1024)).toFixed(1)}MB`;
+                `chunks: ${chunksLoaded}/${TOTAL_CHUNKS}`;
         }
 
         requestAnimationFrame(frame);

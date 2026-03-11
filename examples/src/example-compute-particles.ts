@@ -1,4 +1,4 @@
-import { d, createStorageBuffer, storage, Fn, Var, globalId, If, index, f32, vec4, instanceIndex, attribute, mul, cameraViewMatrix, cameraProjectionMatrix, varying, timeElapsed, Material, WebGPURenderer, Inspector, Scene, PerspectiveCamera, Geometry, Mesh, pass, createIndexBuffer, createVertexBuffer } from 'gpucat';
+import { d, createStorageBuffer, storage, Fn, Var, globalId, If, index, f32, vec4, instanceIndex, attribute, mul, cameraViewMatrix, cameraProjectionMatrix, varying, timeElapsed, Material, WebGPURenderer, Inspector, Scene, PerspectiveCamera, Geometry, Mesh, pass, createIndexBuffer, createVertexBuffer, RenderPipeline, renderOutput } from 'gpucat';
 
 const N = 8192;
 const WG_SIZE = 64;
@@ -144,12 +144,13 @@ scene.add(mesh);
 await renderer.compileCompute(updateParticles);
 
 const scenePass = pass(scene, camera);
-const outputNode = scenePass.getTextureNode();
+const outputNode = renderOutput(scenePass.getTextureNode());
+const renderPipeline = new RenderPipeline(renderer, outputNode);
 
 function frame() {
     // Dispatch the compute pass first, then render.
     renderer.compute(updateParticles, [Math.ceil(N / WG_SIZE), 1, 1]);
-    renderer.render(outputNode);
+    renderPipeline.render();
     requestAnimationFrame(frame);
 }
 

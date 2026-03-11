@@ -1,7 +1,7 @@
 import type { WebGPURenderer } from './renderer';
 import type { Camera } from '../camera/camera';
 import type { Mesh } from '../objects/mesh';
-import type { Scene } from '../scene/scene';
+import type { Object3D } from '../core/object3d';
 import type { Material } from '../material/material';
 import type { UpdateBeforeNode, UpdateAfterNode, UpdateNode } from '../nodes/builder';
 
@@ -67,9 +67,9 @@ export class NodeFrame {
     object: Mesh | null = null;
 
     /**
-     * The current scene being rendered.
+     * The current scene/object being rendered.
      */
-    scene: Scene | null = null;
+    scene: Object3D | null = null;
 
     /**
      * The current material being rendered.
@@ -128,7 +128,6 @@ export class NodeFrame {
 
     /**
      * Update timing state. Called once per animation frame.
-     * Three.js aligned: NodeFrame.update()
      */
     update(): void {
         this.frameId++;

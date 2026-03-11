@@ -21,6 +21,8 @@ import {
     vec3,
     vec4,
     WebGPURenderer,
+    RenderPipeline,
+    renderOutput,
 } from 'gpucat';
 
 async function main() {
@@ -94,10 +96,11 @@ async function main() {
     scene.updateWorldMatrix();
 
     const scenePass = pass(scene, camera);
-    const outputNode = scenePass.getTextureNode();
+    const outputNode = renderOutput(scenePass.getTextureNode());
+    const renderPipeline = new RenderPipeline(renderer, outputNode);
 
     function frame() {
-        renderer.render(outputNode);
+        renderPipeline.render();
         controls.update();
         requestAnimationFrame(frame);
     }

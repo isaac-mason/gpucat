@@ -31,6 +31,7 @@ import {
     OrbitControls,
     pass,
     PerspectiveCamera,
+    RenderPipeline,
     Scene,
     Uniform,
     uniform,
@@ -38,6 +39,7 @@ import {
     vec3,
     vec4,
     WebGPURenderer,
+    renderOutput,
 } from 'gpucat';
 import { quat } from 'mathcat';
 
@@ -175,7 +177,8 @@ async function main() {
     // Render loop
     // -------------------------------------------------------------------------
     const scenePass = pass(scene, camera);
-    const outputNode = scenePass.getTextureNode();
+    const outputNode = renderOutput(scenePass.getTextureNode());
+    const renderPipeline = new RenderPipeline(renderer, outputNode);
 
     let angle = 0;
     let prevTime = performance.now() / 1000;
@@ -194,7 +197,7 @@ async function main() {
         }
 
         controls.update();
-        renderer.render(outputNode);
+        renderPipeline.render();
         requestAnimationFrame(frame);
     }
 

@@ -3,7 +3,7 @@ import { List } from '../ui/list';
 import { Graph } from '../ui/graph';
 import { Item } from '../ui/item';
 import { createValueSpan, setText } from '../ui/utils';
-import type { FrameRecord } from '../renderer-inspector';
+import type { FrameRecord, TimelineEntry } from '../renderer-inspector';
 import type { RendererInspector } from '../renderer-inspector';
 
 export class Performance extends Tab {
@@ -11,7 +11,7 @@ export class Performance extends Tab {
     graph: Graph;
     graphStats: Item;
     frameStats: Item;
-    private _passItems: Map<string, Item> = new Map();
+    private _entryItems: Map<string, Item> = new Map();
     private _list: List;
 
     constructor(options: { name?: string; allowDetach?: boolean } = {}) {
@@ -62,33 +62,66 @@ export class Performance extends Tab {
         setText(this.frameStats.data[1] as HTMLElement, frame.cpuMs.toFixed(2));
         setText(this.frameStats.data[2] as HTMLElement, frame.gpuMs !== null ? frame.gpuMs.toFixed(2) : '-');
 
-        // Track which pass ids appeared this frame
-        const seenIds = new Set<string>();
+        // Track which entry names appeared this frame
+        const seenNames = new Set<string>();
 
-        for (const pass of frame.passes) {
-            seenIds.add(pass.id);
-            let item = this._passItems.get(pass.id);
-            if (!item) {
-                const nameSpan = createValueSpan();
-                nameSpan.textContent = pass.id;
-                const cpuSpan = createValueSpan();
-                const gpuSpan = createValueSpan();
-                item = new Item(nameSpan, cpuSpan, gpuSpan);
-                this.frameStats.add(item);
-                this._passItems.set(pass.id, item);
-            }
-            setText(item.data[1] as HTMLElement, pass.cpuMs.toFixed(2));
-            setText(item.data[2] as HTMLElement, pass.gpuMs !== null ? pass.gpuMs.toFixed(2) : '-');
-        }
+        // Sort timeline by startTime for chronological display
+        const sortedTimeline = [...frame.timeline].sort((a, b) => a.startTime - b.startTime);
 
-        // Remove items for passes no longer in this frame
-        for (const [id, item] of this._passItems) {
-            if (!seenIds.has(id)) {
+        // Process timeline entries recursively
+        this._updateEntries(sortedTimeline, this.frameStats, seenNames, '');
+
+        // Remove items for entries no longer in this frame
+        for (const [name, item] of this._entryItems) {
+            if (!seenNames.has(name)) {
                 if (item.parent) (item.parent as Item).remove(item);
-                this._passItems.delete(id);
+                this._entryItems.delete(name);
             }
         }
 
         void this._list; // suppress unused warning — list is owned by DOM
+    }
+
+    /** Recursively update/create items for timeline entries */
+    private _updateEntries(
+        entries: TimelineEntry[],
+        parentItem: Item,
+        seenNames: Set<string>,
+        pathPrefix: string,
+    ): void {
+        for (const entry of entries) {
+            // Create unique path for nested entries
+            const entryPath = pathPrefix ? `${pathPrefix}/${entry.name}` : entry.name;
+            seenNames.add(entryPath);
+
+            let item = this._entryItems.get(entryPath);
+            if (!item) {
+                const nameSpan = createValueSpan();
+                // Add kind indicator prefix
+                const kindPrefix = entry.kind === 'marker' ? '◆ ' : entry.kind === 'compute' ? '⚙ ' : '▶ ';
+                nameSpan.textContent = kindPrefix + entry.name;
+                const cpuSpan = createValueSpan();
+                const gpuSpan = createValueSpan();
+                item = new Item(nameSpan, cpuSpan, gpuSpan);
+                parentItem.add(item);
+                this._entryItems.set(entryPath, item);
+            }
+
+            // Update values
+            setText(item.data[1] as HTMLElement, entry.cpuMs.toFixed(2));
+            
+            // GPU time only for render/compute entries
+            if (entry.kind === 'render' || entry.kind === 'compute') {
+                setText(item.data[2] as HTMLElement, entry.gpuMs !== null ? entry.gpuMs.toFixed(2) : '-');
+            } else {
+                setText(item.data[2] as HTMLElement, '-');
+            }
+
+            // Process children recursively
+            if (entry.children.length > 0) {
+                const sortedChildren = [...entry.children].sort((a, b) => a.startTime - b.startTime);
+                this._updateEntries(sortedChildren, item, seenNames, entryPath);
+            }
+        }
     }
 }

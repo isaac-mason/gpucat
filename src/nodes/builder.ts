@@ -612,7 +612,7 @@ function discover(roots: Node<d.Any>[]): DiscoverResult {
     return { usageCount, mutatedNodes, fnDefs, wgslFnDefs, structDefs, allNodes };
 }
 
-/** Pre-collect VaryingNodes from roots and generate their vertex expressions */
+/** Pre-collect VaryingNodes from roots and generate their vertex expressions. */
 function collectVaryings(roots: Node<d.Any>[], ctx: BuildContext): void {
     const visited = new Set<number>();
     
@@ -842,7 +842,7 @@ function generateUniform(ctx: BuildContext, node: UniformNode<d.Any>): string {
 
 function generateAttribute(ctx: BuildContext, node: AttributeNode<d.Any>): string {
     if (ctx.stage !== 'vertex') {
-        throw new Error(`[builder] AttributeNode used outside vertex stage`);
+        throw new Error(`[builder] AttributeNode can only be used in vertex stage. Use varying() to pass to fragment stage.`);
     }
     
     const name = node.name;
@@ -854,7 +854,6 @@ function generateAttribute(ctx: BuildContext, node: AttributeNode<d.Any>): strin
             location: ctx.attributes.size,
         });
     }
-    
     return `input.${name}`;
 }
 
@@ -918,14 +917,10 @@ function generateTexture(ctx: BuildContext, node: TextureNode): string {
     }
     
     // Generate texture sample expression
-    // Get UV coordinates - use uvNode if provided, otherwise default to input.uv
-    let uvExpr: string;
-    if (node.uvNode) {
-        uvExpr = generateExpr(ctx, node.uvNode);
-    } else {
-        // Default to input.uv (standard varying UV coordinates)
-        uvExpr = 'input.uv';
+    if (!node.uvNode) {
+        throw new Error(`[builder] TextureNode '${name}' has no uvNode. Set uvNode or use texture.sample(uvNode).`);
     }
+    const uvExpr = generateExpr(ctx, node.uvNode);
     
     // Generate textureSample call
     const samplerName = `${name}_sampler`;

@@ -104,6 +104,7 @@ export class MRTNode extends OutputStructNode {
         this._resolvedNames = names;
     }
 }
+
 /**
  * Create an MRT (Multiple Render Targets) node from a dictionary of outputs.
  *

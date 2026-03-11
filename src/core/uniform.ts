@@ -22,12 +22,6 @@ export class UniformGroup {
     readonly order: number;
     readonly updateType: UniformUpdateType;
 
-    /**
-     * Version counter — bumped by the renderer once per frame (for frameGroup)
-     * or once per render pass (for renderGroup). Used for deduplication gating.
-     */
-    version: number = 0;
-
     constructor(
         name: string,
         shared: boolean,

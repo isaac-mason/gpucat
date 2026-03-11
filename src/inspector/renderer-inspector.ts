@@ -20,7 +20,7 @@
 
 import { InspectorBase } from './inspector-base';
 import type { InspectorNode, ComputeNode } from '../nodes/nodes';
-import type { Scene } from '../scene/scene';
+import type { Object3D } from '../core/object3d';
 import { getBufferCacheStats } from '../renderer/buffers';
 import * as pipelines from '../renderer/pipelines';
 import { getRenderObjectsStats } from '../renderer/render-objects';
@@ -30,18 +30,46 @@ import { Any } from '../nodes/schema';
 // Frame data types
 // ---------------------------------------------------------------------------
 
-export type PassRecord = {
-    /** 'render' or 'compute' */
-    kind: 'render' | 'compute';
-    /** PassNode.passId or ComputeNode.id */
-    id: string;
+/** Base fields shared by all timeline entries */
+type TimelineEntryBase = {
+    /** Entry name (pass ID or marker name) */
+    name: string;
+    /** Start time relative to frame start (ms) */
+    startTime: number;
     /** CPU wall-time duration in ms */
     cpuMs: number;
+    /** Nested child entries */
+    children: TimelineEntry[];
+};
+
+/** Marker entry - pure JS timing marker */
+export type MarkerEntry = TimelineEntryBase & {
+    kind: 'marker';
+};
+
+/** Render pass entry */
+export type RenderEntry = TimelineEntryBase & {
+    kind: 'render';
     /** GPU duration in ms (null until async timestamp resolves) */
     gpuMs: number | null;
     /** Monotonic query slot index (pair: begin=slot*2, end=slot*2+1) */
     querySlot: number;
 };
+
+/** Compute pass entry */
+export type ComputeEntry = TimelineEntryBase & {
+    kind: 'compute';
+    /** GPU duration in ms (null until async timestamp resolves) */
+    gpuMs: number | null;
+    /** Monotonic query slot index (pair: begin=slot*2, end=slot*2+1) */
+    querySlot: number;
+};
+
+/** Unified timeline entry - can be a marker, render pass, or compute pass */
+export type TimelineEntry = MarkerEntry | RenderEntry | ComputeEntry;
+
+/** @deprecated Use TimelineEntry instead */
+export type PassRecord = RenderEntry | ComputeEntry;
 
 /**
  * Snapshot of a single renderScene() call within a frame.
@@ -51,8 +79,8 @@ export type PassRecord = {
 export type SceneRecord = {
     /** Pass ID that owns this scene render (matches PassRecord.id). */
     passId: string;
-    /** The scene being rendered. */
-    scene: Scene;
+    /** The scene/object being rendered (Scene or QuadMesh). */
+    scene: Object3D;
     /** MSAA sample count used for pipeline key lookup. */
     samples: number;
     /** Color attachment format used for pipeline key lookup. */
@@ -65,8 +93,8 @@ export type FrameRecord = {
     cpuMs: number;
     /** Sum of all pass GPU times in ms (null until all resolved) */
     gpuMs: number | null;
-    /** Per-pass breakdown */
-    passes: PassRecord[];
+    /** Hierarchical timeline of all entries (markers, render passes, compute passes) */
+    timeline: TimelineEntry[];
     /** Snapshot of buffer/pipeline stats at frame end */
     bufferStats: { bufferCount: number; rawCount: number };
     pipelineStats: {
@@ -125,18 +153,23 @@ export class RendererInspector extends InspectorBase {
 
     // Per-frame working state
     private _frameStart = 0;
-    private _currentPasses: PassRecord[] = [];
-    private _passStarts: Map<string, number> = new Map();
     private _currentQuerySlot = 0;
     private _pendingInspectables: InspectorNode<Any>[] = [];
     private _pendingScenes: SceneRecord[] = [];
+    
+    // Timeline entry stack - entries nest inside the current stack top
+    // The stack holds "in-progress" entries that haven't been closed yet
+    private _entryStack: TimelineEntry[] = [];
+    // Root-level timeline entries (completed top-level entries go here)
+    private _rootTimeline: TimelineEntry[] = [];
+    // Map of entry name → entry for updating cpuMs when finish is called
+    private _entryRefs: Map<string, TimelineEntry> = new Map();
 
     override init(): void {
         if (!this.renderer) return;
         const device = this.renderer.device;
-        const adapter = this.renderer.adapter;
 
-        this.hasTimestamps = adapter?.features?.has('timestamp-query') ?? false;
+        this.hasTimestamps = device?.features?.has('timestamp-query') ?? false;
 
         if (this.hasTimestamps && device) {
             this._querySet = device.createQuerySet({
@@ -158,11 +191,12 @@ export class RendererInspector extends InspectorBase {
 
     override begin(frameId: number): void {
         this._frameStart = performance.now();
-        this._currentPasses = [];
-        this._passStarts.clear();
         this._currentQuerySlot = 0;
         this._pendingInspectables = [];
         this._pendingScenes = [];
+        this._entryStack = [];
+        this._rootTimeline = [];
+        this._entryRefs.clear();
         void frameId;
     }
 
@@ -179,12 +213,16 @@ export class RendererInspector extends InspectorBase {
         }
         this._lastFinishTime = now;
 
+        // Close any unclosed entries (shouldn't happen, but be safe)
+        while (this._entryStack.length > 0) {
+            this._closeCurrentEntry(now);
+        }
 
         const record: FrameRecord = {
             frameId,
             cpuMs,
             gpuMs: null,
-            passes: [...this._currentPasses],
+            timeline: [...this._rootTimeline],
             bufferStats: getBufferCacheStats(this.renderer.buffers),
             pipelineStats: pipelines.getStats(this.renderer.pipelines),
             renderObjectStats: getRenderObjectsStats(this.renderer.renderObjects),
@@ -202,41 +240,58 @@ export class RendererInspector extends InspectorBase {
     }
 
     override beginRender(passId: string, _frameId: number): void {
+        const now = performance.now();
         const slot = this._currentQuerySlot++;
-        this._passStarts.set(passId, performance.now());
-        const pass: PassRecord = { kind: 'render', id: passId, cpuMs: 0, gpuMs: null, querySlot: slot };
-        this._currentPasses.push(pass);
-        // Store a reference so finishRender can update the same object
-        this._passStarts.set(`__pass_${passId}`, slot as unknown as number);
-        this._storePassRef(passId, pass);
+        const entry: RenderEntry = {
+            kind: 'render',
+            name: passId,
+            startTime: now - this._frameStart,
+            cpuMs: 0,
+            gpuMs: null,
+            querySlot: slot,
+            children: [],
+        };
+        this._pushEntry(entry);
     }
 
     override finishRender(passId: string, _frameId: number): void {
-        const start = this._passStarts.get(passId);
-        if (start === undefined) return;
-        const pass = this._getPassRef(passId);
-        if (pass) pass.cpuMs = performance.now() - start;
-        this._passStarts.delete(passId);
-        this._clearPassRef(passId);
+        this._finishEntry(passId);
+    }
+
+    override getTimestampWrites(passId: string): GPURenderPassTimestampWrites | undefined {
+        if (!this.hasTimestamps || !this._querySet) return undefined;
+        
+        // Find the entry for this pass to get its query slot
+        const entry = this._entryRefs.get(passId);
+        if (!entry || entry.kind === 'marker') return undefined;
+        
+        const slot = (entry as RenderEntry | ComputeEntry).querySlot;
+        return {
+            querySet: this._querySet,
+            beginningOfPassWriteIndex: slot * 2,
+            endOfPassWriteIndex: slot * 2 + 1,
+        };
     }
 
     override beginCompute(node: ComputeNode, _frameId: number): void {
         const nodeId = node.id;
         this.computeNodes.set(nodeId, node);
+        const now = performance.now();
         const slot = this._currentQuerySlot++;
-        this._passStarts.set(nodeId, performance.now());
-        const pass: PassRecord = { kind: 'compute', id: nodeId, cpuMs: 0, gpuMs: null, querySlot: slot };
-        this._currentPasses.push(pass);
-        this._storePassRef(nodeId, pass);
+        const entry: ComputeEntry = {
+            kind: 'compute',
+            name: nodeId,
+            startTime: now - this._frameStart,
+            cpuMs: 0,
+            gpuMs: null,
+            querySlot: slot,
+            children: [],
+        };
+        this._pushEntry(entry);
     }
 
     override finishCompute(nodeId: string, _frameId: number): void {
-        const start = this._passStarts.get(nodeId);
-        if (start === undefined) return;
-        const pass = this._getPassRef(nodeId);
-        if (pass) pass.cpuMs = performance.now() - start;
-        this._passStarts.delete(nodeId);
-        this._clearPassRef(nodeId);
+        this._finishEntry(nodeId);
     }
 
     override inspect(node: InspectorNode<Any>): void {
@@ -245,7 +300,7 @@ export class RendererInspector extends InspectorBase {
 
     override beginRenderScene(
         passId: string,
-        scene: Scene,
+        scene: Object3D,
         samples: number,
         colorFormat: GPUTextureFormat,
         _frameId: number,
@@ -259,6 +314,77 @@ export class RendererInspector extends InspectorBase {
         } else {
             this._pendingScenes.push(record);
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Public perf API - for user code to add markers
+    // -----------------------------------------------------------------------
+
+    /** Public API for adding performance markers from user code */
+    readonly perf = {
+        /**
+         * Start a named performance marker. Can be nested.
+         * Any render/compute passes or child markers will be added as children.
+         */
+        start: (name: string): void => {
+            const now = performance.now();
+            const entry: MarkerEntry = {
+                kind: 'marker',
+                name,
+                startTime: now - this._frameStart,
+                cpuMs: 0,
+                children: [],
+            };
+            this._pushEntry(entry);
+        },
+
+        /**
+         * End a named performance marker.
+         * Calculates duration and closes the marker.
+         */
+        end: (name: string): void => {
+            this._finishEntry(name);
+        },
+    };
+
+    // -----------------------------------------------------------------------
+    // Timeline entry management
+    // -----------------------------------------------------------------------
+
+    /** Push an entry onto the stack, nesting it under current parent if any */
+    private _pushEntry(entry: TimelineEntry): void {
+        const parent = this._entryStack[this._entryStack.length - 1];
+        if (parent) {
+            parent.children.push(entry);
+        } else {
+            this._rootTimeline.push(entry);
+        }
+        this._entryStack.push(entry);
+        this._entryRefs.set(entry.name, entry);
+    }
+
+    /** Finish an entry by name - calculates duration and pops from stack */
+    private _finishEntry(name: string): void {
+        const entry = this._entryRefs.get(name);
+        if (!entry) return;
+        
+        const now = performance.now();
+        entry.cpuMs = now - this._frameStart - entry.startTime;
+        
+        // Pop from stack (should be on top, but search to be safe)
+        const idx = this._entryStack.lastIndexOf(entry);
+        if (idx >= 0) {
+            this._entryStack.splice(idx, 1);
+        }
+        this._entryRefs.delete(name);
+    }
+
+    /** Close the current top entry (used for unclosed entries at frame end) */
+    private _closeCurrentEntry(now: number): void {
+        const entry = this._entryStack.pop();
+        if (!entry) return;
+        entry.cpuMs = now - this._frameStart - entry.startTime;
+        this._entryRefs.delete(entry.name);
     }
 
     // -----------------------------------------------------------------------
@@ -286,13 +412,30 @@ export class RendererInspector extends InspectorBase {
     // GPU timestamp resolution
     // -----------------------------------------------------------------------
 
+    /** Collect all GPU entries (render/compute) from timeline tree, mapped by querySlot */
+    private _collectGpuEntries(entries: TimelineEntry[], out: Map<number, RenderEntry | ComputeEntry>): void {
+        for (const entry of entries) {
+            if (entry.kind === 'render' || entry.kind === 'compute') {
+                out.set(entry.querySlot, entry);
+            }
+            if (entry.children.length > 0) {
+                this._collectGpuEntries(entry.children, out);
+            }
+        }
+    }
+
     /**
      * Resolves GPU timestamps for a frame.
      * Checks buffer.mapState before using, skips if not 'unmapped'.
      */
     private _resolveTimestamps(frameId: number, record: FrameRecord): void {
         const device = this.renderer!.device;
-        const slotCount = Math.min(record.passes.length, MAX_PASSES_PER_FRAME);
+        
+        // Collect GPU entries from timeline
+        const gpuEntries = new Map<number, RenderEntry | ComputeEntry>();
+        this._collectGpuEntries(record.timeline, gpuEntries);
+        
+        const slotCount = Math.min(gpuEntries.size, MAX_PASSES_PER_FRAME);
         if (slotCount === 0) return;
 
         const rb = this._readbackBuffer!;
@@ -300,30 +443,36 @@ export class RendererInspector extends InspectorBase {
         // Check mapState before using buffer
         if (rb.mapState !== 'unmapped') return;
 
+        // Find the max slot used to know how many to resolve
+        let maxSlot = 0;
+        for (const slot of gpuEntries.keys()) {
+            if (slot > maxSlot) maxSlot = slot;
+        }
+        const slotsToResolve = maxSlot + 1;
+
         const encoder = device.createCommandEncoder();
-        encoder.resolveQuerySet(this._querySet!, 0, slotCount * 2, this._resolveBuffer!, 0);
+        encoder.resolveQuerySet(this._querySet!, 0, slotsToResolve * 2, this._resolveBuffer!, 0);
         encoder.copyBufferToBuffer(
             this._resolveBuffer!,
             0,
             rb,
             0,
-            slotCount * 2 * 8,
+            slotsToResolve * 2 * 8,
         );
         device.queue.submit([encoder.finish()]);
 
         // Check mapState again after submit
         if (rb.mapState !== 'unmapped') return;
 
-        rb.mapAsync(GPUMapMode.READ, 0, slotCount * 2 * 8).then(() => {
-            const data = new BigInt64Array(rb.getMappedRange(0, slotCount * 2 * 8));
+        rb.mapAsync(GPUMapMode.READ, 0, slotsToResolve * 2 * 8).then(() => {
+            const data = new BigUint64Array(rb.getMappedRange(0, slotsToResolve * 2 * 8));
             let totalGpuNs = 0n;
-            for (let i = 0; i < slotCount; i++) {
-                const beginNs = data[i * 2];
-                const endNs = data[i * 2 + 1];
+            for (const [slot, entry] of gpuEntries) {
+                const beginNs = data[slot * 2];
+                const endNs = data[slot * 2 + 1];
                 const durationNs = endNs - beginNs;
                 const gpuMs = Number(durationNs) / 1_000_000;
-                const pass = record.passes[i];
-                if (pass) pass.gpuMs = gpuMs;
+                entry.gpuMs = gpuMs;
                 totalGpuNs += durationNs;
             }
             record.gpuMs = Number(totalGpuNs) / 1_000_000;
@@ -337,21 +486,4 @@ export class RendererInspector extends InspectorBase {
         });
     }
 
-    // -----------------------------------------------------------------------
-    // Pass reference tracking (maps passId → PassRecord for in-flight updates)
-    // -----------------------------------------------------------------------
-
-    private readonly _passRefs: Map<string, PassRecord> = new Map();
-
-    private _storePassRef(id: string, pass: PassRecord): void {
-        this._passRefs.set(id, pass);
-    }
-
-    private _getPassRef(id: string): PassRecord | undefined {
-        return this._passRefs.get(id);
-    }
-
-    private _clearPassRef(id: string): void {
-        this._passRefs.delete(id);
-    }
 }

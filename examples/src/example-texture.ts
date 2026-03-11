@@ -14,6 +14,8 @@ import {
     normalize,
     pass,
     PerspectiveCamera,
+    renderOutput,
+    RenderPipeline,
     Scene,
     texture,
     Texture,
@@ -114,7 +116,8 @@ async function main() {
     await renderer.compile(scene, camera);
 
     const scenePass = pass(scene, camera);
-    const outputNode = scenePass.getTextureNode();
+    const outputNode = renderOutput(scenePass.getTextureNode());
+    const renderPipeline = new RenderPipeline(renderer, outputNode);
 
     let angle = 0;
     let prevTime = performance.now() / 1000;
@@ -129,7 +132,7 @@ async function main() {
         quat.fromEuler(mesh.quaternion, [angle * 0.3, angle, 0, 'yxz'] as Euler);
         mesh.updateWorldMatrix();
 
-        renderer.render(outputNode);
+        renderPipeline.render();
         requestAnimationFrame(frame);
     }
 

@@ -29,6 +29,8 @@ import {
     varying,
     vec4,
     WebGPURenderer,
+    RenderPipeline,
+    renderOutput,
 } from "gpucat";
 
 // positions: three verts of a flat equilateral triangle in XY plane
@@ -241,7 +243,8 @@ scene.updateWorldMatrix();
 camera.updateViewMatrix();
 
 const scenePass = pass(scene, camera);
-const outputNode = scenePass.getTextureNode();
+const outputNode = renderOutput(scenePass.getTextureNode());
+const renderPipeline = new RenderPipeline(renderer, outputNode);
 
 await renderer.compileCompute(computeInit);
 await renderer.compileCompute(computeUpdate);
@@ -252,7 +255,7 @@ function frame() {
     // GPU writes instanceCount
     renderer.compute(computeUpdate, [Math.ceil(INSTANCES / 64), 1, 1]);
     // render — drawIndirect reads GPU-written instanceCount
-    renderer.render(outputNode);
+    renderPipeline.render();
 
     requestAnimationFrame(frame);
 }

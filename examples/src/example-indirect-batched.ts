@@ -154,7 +154,8 @@ async function main() {
     scene.add(mesh);
 
     const scenePass = g.pass(scene, camera);
-    const outputNode = scenePass.getTextureNode();
+    const outputNode = g.renderOutput(scenePass.getTextureNode());
+    const renderPipeline = new g.RenderPipeline(renderer, outputNode);
 
     // -----------------------------------------------------------------------
     // UI — slider to split instances between boxes and spheres at runtime
@@ -197,7 +198,7 @@ async function main() {
     document.body.appendChild(ui);
 
     function frame() {
-        renderer.render(outputNode);
+        renderPipeline.render();
         requestAnimationFrame(frame);
     }
 

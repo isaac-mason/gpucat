@@ -342,17 +342,22 @@ function updateUniformBinding(
 ): void {
     const block = binding.block;
 
-    // Version gate: skip if this binding was already processed at the current group version.
-    // Only applies to shared groups (renderGroup, frameGroup) where all RenderObjects share
-    // the same binding object - the first one to process it sets lastProcessedVersion and
-    // all others skip. Per-object groups are processed every time since their content
-    // changes per-mesh (matrix, material uniforms).
+    // Deduplication gate: skip if this binding was already processed at the current frame/render ID.
+    // Based on groupNode.updateType:
+    //   'frame'  - check frameId (once per animation frame)
+    //   'render' - check renderId (once per render() call)
+    //   'object' - always process (content changes per-mesh)
+    //   'none'   - always process
     if (block.groupNode.shared) {
-        const groupVersion = block.groupNode.version;
-        if (binding.lastProcessedVersion === groupVersion) {
-            return;
+        const updateType = block.groupNode.updateType;
+        if (updateType === 'frame') {
+            if (binding.lastFrameId === frame.frameId) return;
+            binding.lastFrameId = frame.frameId;
+        } else if (updateType === 'render') {
+            if (binding.lastRenderId === frame.renderId) return;
+            binding.lastRenderId = frame.renderId;
         }
-        binding.lastProcessedVersion = groupVersion;
+        // 'object' and 'none' always process
     }
 
     // invoke update callbacks with the NodeFrame

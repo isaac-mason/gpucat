@@ -3,6 +3,8 @@ import { CallNode, Node } from './core';
 import { type TextureDesc, type DepthTextureDesc, type Any, texture2d } from '../schema';
 import * as d from '../schema';
 import { UniformGroup, objectGroup } from './uniform';
+import { uv } from './attribute';
+import { varying } from './varying';
 
 /**
  * TextureNode - represents a texture sample operation.
@@ -37,9 +39,9 @@ export class TextureNode extends Node<d.vec4f> {
 
     /**
      * The UV node for texture coordinates.
-     * Defaults to uv() if not specified.
+     * Defaults to varying(uv()) if not specified.
      */
-    uvNode: Node<d.vec2f> | null = null;
+    uvNode: Node<d.vec2f>;
 
     /**
      * The reference node
@@ -70,7 +72,7 @@ export class TextureNode extends Node<d.vec4f> {
         super(d.vec4f);
         this.textureType = textureType;
         this.textureId = textureId;
-        this.uvNode = uvNode;
+        this.uvNode = uvNode ?? varying(uv());
         this.groupNode = groupNode;
     }
 

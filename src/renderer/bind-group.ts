@@ -21,11 +21,15 @@ export type UniformBinding = {
     /** Buffer key for the GPU buffer cache (created lazily). */
     bufferKey: object | null;
     /**
-     * Last processed group version for deduplication.
-     * Compared against groupNode.version to skip redundant processing
-     * of shared groups within the same frame/render pass.
+     * Last processed frame ID for deduplication of 'frame' update type groups.
+     * Compared against nodeFrame.frameId to skip redundant processing.
      */
-    lastProcessedVersion: number;
+    lastFrameId: number;
+    /**
+     * Last processed render ID for deduplication of 'render' update type groups.
+     * Compared against nodeFrame.renderId to skip redundant processing.
+     */
+    lastRenderId: number;
     /**
      * Cached Float32Array for packing uniforms.
      * Used for value-based comparison (Three.js approach) - only upload
@@ -97,7 +101,8 @@ export function createUniformBindGroup(block: UniformGroupBlock): BindGroup {
         kind: 'uniform',
         block,
         bufferKey: null,
-        lastProcessedVersion: -1,
+        lastFrameId: -1,
+        lastRenderId: -1,
         packedBuffer: null,
     };
 
@@ -156,7 +161,8 @@ export function cloneBindGroup(source: BindGroup): BindGroup {
                     kind: 'uniform' as const,
                     block: binding.block,
                     bufferKey: null, // New buffer key for cloned group
-                    lastProcessedVersion: -1,
+                    lastFrameId: -1,
+                    lastRenderId: -1,
                     packedBuffer: null,
                 };
             case 'storage':

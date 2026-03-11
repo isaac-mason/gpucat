@@ -438,7 +438,7 @@ export class PassNode extends Node<d.vec4f> {
         renderer.setMRT(this._mrt);
         renderer.clearColor = this.clearColor;
 
-        renderer.renderScene(scene, camera, encoder, this.passId);
+        renderer.render(scene, camera, encoder, this.passId);
 
         // State restore
         renderer.setRenderTarget(currentRenderTarget);

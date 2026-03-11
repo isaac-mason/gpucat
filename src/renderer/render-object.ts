@@ -22,7 +22,7 @@ import type { Any } from '../nodes/schema';
 import type { Material } from '../material/material';
 import type { Mesh } from '../objects/mesh';
 import type { Camera } from '../camera/camera';
-import type { Scene } from '../scene/scene';
+import type { Object3D } from '../core/object3d';
 import type { RenderContext } from './pass-context';
 import type { NodeBuilderState } from './node-builder-state';
 import type { BindGroup } from './bind-group';
@@ -85,8 +85,8 @@ export type RenderObject = {
     /** The camera for this render pass. */
     camera: Camera;
 
-    /** The scene containing the mesh. */
-    scene: Scene;
+    /** The scene/object containing the mesh. */
+    scene: Object3D;
 
     /** The render context (framebuffer config). */
     renderContext: RenderContext;
@@ -222,7 +222,7 @@ export type RenderObject = {
  *
  * @param mesh - The mesh to render
  * @param material - The material to use
- * @param scene - The scene containing the mesh
+ * @param scene - The scene/object containing the mesh
  * @param camera - The camera for rendering
  * @param renderContext - The render context (framebuffer config)
  * @param group - Optional geometry group for multi-material meshes
@@ -230,7 +230,7 @@ export type RenderObject = {
 export function createRenderObject(
     mesh: Mesh,
     material: Material,
-    scene: Scene,
+    scene: Object3D,
     camera: Camera,
     renderContext: RenderContext,
     group: GeometryGroup | null = null,

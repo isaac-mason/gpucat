@@ -1,19 +1,10 @@
-import { Mesh } from '../objects/mesh';
 import * as buffers from './buffers';
 import * as textures from './textures';
 import * as pipelines from './pipelines';
-import { Material } from '../material/material';
 import { getIndexFormat, GpuBuffer as GpuBufferClass, type GpuBuffer } from '../core/buffer';
-import { Geometry } from '../geometry/geometry';
 import {
-    type Node,
     ComputeNode,
-    wgsl,
-    VaryingNode,
     MRTNode,
-    builtin,
-    frameGroup,
-    renderGroup
 } from '../nodes/nodes';
 import * as d from '../nodes/schema';
 
@@ -26,84 +17,38 @@ import * as renderLists from './render-list';
 import type { RenderItem } from './render-list';
 
 import { Scene } from '../scene/scene';
+import { Object3D } from '../core/object3d';
 import { Camera } from '../camera/camera';
 import { InspectorBase } from '../inspector/inspector-base';
 import type { RenderTarget } from '../core/render-target';
 import { GPUFeatureName } from './gpu-constants';
 import { CanvasTarget } from './canvas-target';
-
-/** tracks currently set GPU state to avoid redundant setBindGroup/setVertexBuffer/setIndexBuffer calls */
-type CurrentSets = {
-    /** Currently bound bind group IDs by slot index. -1 = not set. */
-    bindingGroups: number[];
-    /** Currently bound vertex buffers by slot index. */
-    attributes: (GPUBuffer | null)[];
-    /** Currently bound index buffer. */
-    index: GPUBuffer | null;
-    /** Current pipeline (already tracked separately). */
-    pipeline: GPURenderPipeline | null;
-};
-
-// declare scheduler.yield(), available in most modern browsers
-declare global {
-    interface Scheduler {
-        yield(): Promise<void>;
-    }
-    // eslint-disable-next-line no-var
-    var scheduler: Scheduler | undefined;
-}
-
-function yieldToMain(): Promise<void> {
-    // modern browsers: scheduler.yield() is the most efficient way to yield
-    if (typeof scheduler !== 'undefined' && typeof scheduler.yield === 'function') {
-        return scheduler.yield();
-    }
-    // fallback: setTimeout with 0ms delay yields to the event loop
-    return new Promise(resolve => setTimeout(resolve, 0));
-}
+import { yieldToMain } from '../utils/yield-to-main';
 
 export type WebGPURendererOptions = {
     /** Enable 4x MSAA antialiasing. Overridden by `samples` if both set. */
     antialias?: boolean;
+
     /** Explicit MSAA sample count. 0 or 1 = no MSAA. Takes precedence over antialias. */
     samples?: number;
+
     /** GPURequestAdapterOptions forwarded to navigator.gpu.requestAdapter(). */
     adapterOptions?: GPURequestAdapterOptions;
+
     /** GPUDeviceDescriptor forwarded to adapter.requestDevice(). */
     deviceDescriptor?: GPUDeviceDescriptor;
-    /**
-     * Pre-created GPUDevice. When provided, skips navigator.gpu initialization.
-     * Useful for sharing a device across renderers or for testing.
-     */
-    device?: GPUDevice;
-    /**
-     * Pre-created GPUAdapter. Required when `device` is provided.
-     */
-    adapter?: GPUAdapter;
-    /**
-     * Canvas texture format. Defaults to navigator.gpu.getPreferredCanvasFormat()
-     * or 'bgra8unorm' when using a pre-created device.
-     */
-    format?: GPUTextureFormat;
-    /**
-     * Canvas element to render into. If not provided, one will be created.
-     */
-    canvas?: HTMLCanvasElement;
-};
 
-/**
- * Information about a device lost event.
- * Mirrors Three.js's device loss info structure.
- */
-export type DeviceLostInfo = {
-    /** The API that lost the device ('WebGPU'). */
-    api: 'WebGPU';
-    /** Human-readable message about the loss. */
-    message: string;
-    /** The reason for the loss, if available. */
-    reason: GPUDeviceLostReason | null;
-    /** The original GPUDeviceLostInfo event. */
-    originalEvent: GPUDeviceLostInfo;
+    /** Pre-created GPUDevice. When provided, skips navigator.gpu initialization. */
+    device?: GPUDevice;
+
+    /** Pre-created GPUAdapter. Required when `device` is provided. */
+    adapter?: GPUAdapter;
+
+    /** Canvas texture format. Defaults to navigator.gpu.getPreferredCanvasFormat() or 'bgra8unorm' when using a pre-created device. */
+    format?: GPUTextureFormat;
+
+    /** Canvas element to render into. If not provided, one will be created */
+    canvas?: HTMLCanvasElement;
 };
 
 export class WebGPURenderer {
@@ -129,15 +74,13 @@ export class WebGPURenderer {
     /** @internal Unified pipeline cache for render and compute pipelines. */
     pipelines!: pipelines.PipelinesState;
 
-    /** Inspector hook. Replace with a RendererInspector or Inspector instance to enable profiling. */
-    public inspector: InspectorBase = new InspectorBase();
+    /** Inspector. Replace with a RendererInspector or Inspector instance to enable profiling. */
+    inspector: InspectorBase = new InspectorBase();
 
+    /** Whether the renderer has been initialized (adapter/device/context created) or not. */
     private _initialized = false;
 
-    /**
-     * Indicates whether the device has been lost or not.
-     * When this is set to `true`, rendering isn't possible anymore.
-     */
+    /** Indicates whether the device has been lost or not. When this is set to `true`, rendering isn't possible anymore. */
     private _isDeviceLost = false;
 
     /**
@@ -156,60 +99,26 @@ export class WebGPURenderer {
     /** MSAA color texture (null when samples <= 1). Only used for swapchain passes */
     private msaaTexture: GPUTexture | null = null;
 
-    /**
-     * GPU buffer key for compute shader renderGroup struct UBO.
-     * Separate from render because compute shaders don't have camera.
-     */
+    /** @internal */
+    renderContexts!: RenderContext.RenderContextsState;
 
-    /**
-     * Cache for _makeOutputMaterial results, keyed by `${outputNode.id}:${format}:${samples}`.
-     * Prevents the stack overflow caused by rebuilding the node subgraph every frame.
-     */
-    private _outputMaterialCache: Map<string, { mat: Material; pipelineKey: string }> = new Map();
+    /** @internal */
+    computeContext!: RenderContext.ComputeContext;
 
-    /** @internal RenderContexts manager - caches render pass configurations */
-    private _renderContexts!: RenderContext.RenderContextsState;
+    /** @internal */
+    geometries!: geometries.GeometriesState;
 
-    /** @internal ComputeContext - context for compute passes (used for bind group caching) */
-    private _computeContext!: RenderContext.ComputeContext;
+    /** @internal */
+    nodes!: nodeManager.NodeManagerState;
 
-    /** @internal Geometries system - manages geometry and attribute state with deduplication */
-    private _geometries!: geometries.GeometriesState;
+    /** @internal */
+    bindings!: bindings.BindingsState;
 
-    /** @internal NodeManager - handles node compilation and update lifecycle */
-    private _nodes!: nodeManager.NodeManagerState;
+    /** @internal */
+    renderObjects!: renderObjects.RenderObjectsState;
 
-    /** @internal Bindings system - manages per-RenderObject bind groups */
-    private _bindings!: bindings.BindingsState;
-
-    /** @internal RenderObjects manager - caches RenderObjects per (mesh, material, context) */
-    private _renderObjects!: renderObjects.RenderObjectsState;
-
-    /** Read-only access to RenderObjects state for inspection/debugging. */
-    get renderObjects(): renderObjects.RenderObjectsState {
-        return this._renderObjects;
-    }
-
-    /**
-     * Return the GPUBindGroupLayouts for a compiled RenderObject.
-     * Used by the inspector probe to build a probe pipeline with the same
-     * bind group layout as the source mesh pipeline.
-     */
-    getBindGroupLayouts(renderObject: import('./render-object').RenderObject): GPUBindGroupLayout[] {
-        return bindings.getBindGroupLayouts(this._bindings, renderObject);
-    }
-
-    /** @internal RenderLists manager - caches scene collection results */
-    private _renderLists!: renderLists.RenderListsState;
-
-    /** elapsed time in seconds. */
-    private elapsed = 0;
-
-    /** the last timestamp used for time delta calculation, in milliseconds. updated on each render call. */
-    private lastTimestamp = 0;
-
-    /** pending command encoder shared between compute() and render() within a single frame */
-    private _frameEncoder: GPUCommandEncoder | null = null;
+    /** @internal */
+    renderLists!: renderLists.RenderListsState;
 
     /** clear color for the final swapchain composite pass. defaults to opaque black. */
     clearColor: [number, number, number, number] = [0, 0, 0, 1];
@@ -314,18 +223,6 @@ export class WebGPURenderer {
         return this._canvasTarget;
     }
 
-    /** Geometry for the internal fullscreen triangle. Created once on first use. */
-    private _fullscreenGeometry: Geometry | null = null;
-
-    /** Mesh for the internal fullscreen triangle. Created once on first use. */
-    private _fullscreenMesh: Mesh | null = null;
-
-    /** Dummy scene for fullscreen quad rendering. Created once on first use. */
-    private _fullscreenScene: Scene | null = null;
-
-    /** Dummy camera for fullscreen quad rendering. Created once on first use. */
-    private _fullscreenCamera: Camera | null = null;
-
     /** @internal Pre-created device (for device sharing or testing) */
     private _preDevice?: GPUDevice;
     /** @internal Pre-created adapter */
@@ -375,9 +272,6 @@ export class WebGPURenderer {
             this.device = this._preDevice;
             this.adapter = this._preAdapter!;
             this.format = this._preFormat ?? 'bgra8unorm';
-
-            // Skip canvas context initialization - caller is responsible
-            // (or it's a stub for testing)
         } else {
             // Normal mode: use navigator.gpu
             if (!navigator.gpu) {
@@ -450,20 +344,20 @@ export class WebGPURenderer {
         this.textures = textures.createTextureCache(this.device);
 
         // initialize Three.js-aligned subsystems
-        this._renderContexts = RenderContext.createRenderContextsState();
-        this._computeContext = RenderContext.createComputeContext();
-        this._geometries = geometries.createGeometriesState(this.buffers);
-        this._nodes = nodeManager.createNodeManagerState();
-        this._bindings = bindings.createBindingsState(this.device, this.buffers, this.textures);
-        this.pipelines = pipelines.createPipelinesState(this.device, this.format, this._nodes);
-        this._renderObjects = renderObjects.createRenderObjectsState({
-            nodes: this._nodes,
-            geometries: this._geometries,
-            bindings: this._bindings,
+        this.renderContexts = RenderContext.createRenderContextsState();
+        this.computeContext = RenderContext.createComputeContext();
+        this.geometries = geometries.createGeometriesState(this.buffers);
+        this.nodes = nodeManager.createNodeManagerState();
+        this.bindings = bindings.createBindingsState(this.device, this.buffers, this.textures);
+        this.pipelines = pipelines.createPipelinesState(this.device, this.format, this.nodes);
+        this.renderObjects = renderObjects.createRenderObjectsState({
+            nodes: this.nodes,
+            geometries: this.geometries,
+            bindings: this.bindings,
             pipelines: this.pipelines,
             device: this.device,
         });
-        this._renderLists = renderLists.createRenderListsState();
+        this.renderLists = renderLists.createRenderListsState();
 
         const w = this.domElement.width || 1;
         const h = this.domElement.height || 1;
@@ -499,6 +393,47 @@ export class WebGPURenderer {
      */
     setPixelRatio(value: number): void {
         this._canvasTarget.setPixelRatio(value);
+    }
+
+    /**
+     * Signal the start of a new frame. Call once per animation frame before
+     * any compute() or render() calls.
+     *
+     * This method:
+     * - Increments frameId
+     * - Updates time and deltaTime
+     * - Notifies the inspector
+     *
+     * @returns The current frameId
+     *
+     * @example
+     * ```ts
+     * function frame() {
+     *     renderer.beginFrame();
+     *     renderer.compute(myComputeNode, [64, 1, 1]);
+     *     renderer.render(scene, camera);
+     *     renderer.endFrame();
+     *     requestAnimationFrame(frame);
+     * }
+     * ```
+     */
+    beginFrame(): number {
+        this.nodes.nodeFrame.update();
+        const frameId = this.nodes.nodeFrame.frameId;
+        this.inspector.begin(frameId);
+        return frameId;
+    }
+
+    /**
+     * Signal the end of the current frame. Call once per animation frame after
+     * all compute() and render() calls.
+     *
+     * This method:
+     * - Finalizes inspector data collection for this frame
+     * - Triggers GPU timestamp resolution (if enabled)
+     */
+    endFrame(): void {
+        this.inspector.finish(this.nodes.nodeFrame.frameId);
     }
 
     /**
@@ -567,14 +502,14 @@ export class WebGPURenderer {
         }
 
         // use new RenderLists system to collect visible meshes
-        const renderList = renderLists.collectRenderList(this._renderLists, scene, camera);
+        const renderList = renderLists.collectRenderList(this.renderLists, scene, camera);
         const allItems = [...renderList.opaque, ...renderList.transparent];
 
         if (allItems.length === 0) return;
 
         // create a temporary RenderContext for compilation
         // this is needed because RenderObjects are cached by (mesh, material, renderContext)
-        const compileContext = RenderContext.getRenderContext(this._renderContexts, null, null, 0);
+        const compileContext = RenderContext.getRenderContext(this.renderContexts, null, null, 0);
         compileContext.sampleCount = samples;
         compileContext.width = this.domElement.width || 1;
         compileContext.height = this.domElement.height || 1;
@@ -591,7 +526,7 @@ export class WebGPURenderer {
 
             // get or create RenderObject
             const renderObject = renderObjects.getRenderObject(
-                this._renderObjects,
+                this.renderObjects,
                 item.mesh,
                 item.material,
                 scene,
@@ -603,7 +538,7 @@ export class WebGPURenderer {
 
             // kick off async initialization (compiles shader, creates pipeline)
             const pipelinePromises: Promise<void>[] = [];
-            renderObjects.initRenderObjectWithPromises(this._renderObjects, renderObject, format, depthFormat, pipelinePromises);
+            renderObjects.initRenderObjectWithPromises(this.renderObjects, renderObject, format, depthFormat, pipelinePromises);
             initPromises.push(...pipelinePromises);
         }
 
@@ -619,7 +554,7 @@ export class WebGPURenderer {
 
             // get the existing RenderObject (already created and initialized above)
             const renderObject = renderObjects.getRenderObject(
-                this._renderObjects,
+                this.renderObjects,
                 mesh,
                 item.material,
                 scene,
@@ -667,7 +602,7 @@ export class WebGPURenderer {
             // upload uniforms and rebuild bind groups
             // (must be after texture upload so bind groups can reference GPU resources)
             // for pre-warming, we create a temporary frame context
-            const preWarmFrame = this._nodes.nodeFrame;
+            const preWarmFrame = this.nodes.nodeFrame;
             preWarmFrame.renderer = this;
             preWarmFrame.camera = camera;
             preWarmFrame.object = renderObject.mesh;
@@ -676,7 +611,7 @@ export class WebGPURenderer {
             preWarmFrame.width = width;
             preWarmFrame.height = height;
             renderObjects.updateRenderObject(
-                this._renderObjects,
+                this.renderObjects,
                 renderObject,
                 preWarmFrame,
             );
@@ -699,23 +634,24 @@ export class WebGPURenderer {
             throw new Error('[WebGPURenderer] compileCompute() called before init(). Await renderer.init() first.');
         }
         const promises: Promise<void>[] = [];
-        pipelines.getForCompute(this.pipelines, computeNode, this._computeContext, promises);
+        pipelines.getForCompute(this.pipelines, computeNode, this.computeContext, promises);
         await Promise.all(promises);
     }
 
     /**
      * Encode a compute dispatch for `node` using the renderer's current
      * command encoder.  Must be called **inside** a `requestAnimationFrame`
-     * callback, before `renderer.render()`, so that the compute pass is
+     * callback, before `renderPipeline.render()`, so that the compute pass is
      * submitted in the same command buffer as the render pass.
      *
      * Typical usage:
      * ```ts
      * await renderer.compile(updateParticles);
+     * const renderPipeline = new RenderPipeline(renderer, outputNode);
      *
      * function frame() {
      *     renderer.compute(updateParticles, [particleCount / 64, 1, 1]);
-     *     renderer.render(outputNode);
+     *     renderPipeline.render();
      *     requestAnimationFrame(frame);
      * }
      * ```
@@ -750,7 +686,7 @@ export class WebGPURenderer {
             throw new Error('[WebGPURenderer] compute() called before init(). Await renderer.init() first.');
         }
 
-        const entry = pipelines.getForCompute(this.pipelines, node, this._computeContext);
+        const entry = pipelines.getForCompute(this.pipelines, node, this.computeContext);
 
         if (!entry.pipeline) {
             throw new Error(
@@ -759,160 +695,16 @@ export class WebGPURenderer {
             );
         }
 
-        // create the per-frame encoder if it does not exist yet.
-        if (!this._frameEncoder) {
-            this._frameEncoder = this.device.createCommandEncoder();
-        }
+        const encoder = this.device.createCommandEncoder();
 
         if (dispatchOrIndirect instanceof GpuBufferClass) {
             const gpuBuf = buffers.ensureUploaded(this.buffers, dispatchOrIndirect);
-            this._dispatchComputeNode(node, this._frameEncoder, undefined, gpuBuf, 0);
+            this._dispatchComputeNode(node, encoder, undefined, gpuBuf, 0);
         } else {
-            this._dispatchComputeNode(node, this._frameEncoder, dispatchOrIndirect, undefined, undefined);
+            this._dispatchComputeNode(node, encoder, dispatchOrIndirect, undefined, undefined);
         }
-    }
-
-    /**
-     * Render the given node expression as a fullscreen quad to the swapchain.
-     * Runs update lifecycle callbacks for all nodes discovered at compile time,
-     * renders each scene into its off-screen render target, then composites
-     * the expression to the canvas.
-     *
-     * Call this once per animation frame. Any `renderer.compute()` calls made
-     * earlier in the same frame will be submitted in the same command buffer.
-     */
-    render(outputNode: Node<d.Any>): void {
-        if (this._isDeviceLost) return;
-
-        if (!this._initialized) {
-            throw new Error('[WebGPURenderer] render() called before init(). Await renderer.init() first.');
-        }
-
-        const now = performance.now() / 1000;
-        const delta = this.lastTimestamp === 0 ? 0 : now - this.lastTimestamp;
-        this.lastTimestamp = now;
-        this.elapsed += delta;
-
-        // Increment frame/render counters on the NodeFrame
-        const frame = this._nodes.nodeFrame;
-        frame.update(); // Increments frameId, updates time/deltaTime
-        frame.renderId++;
-        
-        // Bump shared uniform group versions for deduplication gating.
-        // This allows updateUniformBinding() to skip re-processing if
-        // binding.lastProcessedVersion === groupNode.version.
-        frameGroup.version++;
-        renderGroup.version++;
-
-        // Set GPU context on frame
-        frame.renderer = this;
-
-        this.inspector.begin(frame.frameId);
-
-        // Time uniforms are now uploaded via the Bindings system per RenderObject.
-
-        // Reuse the frame encoder if compute() was called this frame; otherwise create fresh.
-        const encoder = this._frameEncoder ?? this.device.createCommandEncoder();
-        this._frameEncoder = null;
-
-        // For the default target, use MSAA. For inspector preview targets, no MSAA.
-        const canvasTarget = this._canvasTarget;
-        const isDefaultTarget = canvasTarget.isDefaultCanvasTarget;
-        const targetFormat = isDefaultTarget ? this.format : this.format; // both use the same preferred format
-        const targetSamples = isDefaultTarget ? this._samples : 1;
-        const targetDepthFormat: GPUTextureFormat | undefined = isDefaultTarget ? this.pipelines.depthFormat : undefined;
-
-        const w = canvasTarget.domElement.width || 1;
-        const h = canvasTarget.domElement.height || 1;
-
-        // Increment call ID for attribute deduplication
-        geometries.incrementCallId(this._geometries);
-
-        // ---------------------------------------------------------------------
-        // Step 1: Create material and get RenderObject for fullscreen quad
-        // ---------------------------------------------------------------------
-        const { mat } = this._makeOutputMaterial(outputNode, targetFormat, targetSamples, targetDepthFormat);
-        
-        // Get fullscreen quad resources
-        const fullscreenMesh = this._getFullscreenMesh(mat);
-        const fullscreenScene = this._getFullscreenScene();
-        const fullscreenCamera = this._getFullscreenCamera();
-
-        // Get/create RenderContext for the fullscreen pass
-        const ctx = RenderContext.getRenderContext(this._renderContexts, null, null, 0);
-        ctx.sampleCount = targetSamples;
-        ctx.width = w;
-        ctx.height = h;
-        ctx.camera = fullscreenCamera;
-        const [cr, cg, cb, ca] = this.clearColor;
-        ctx.clearColorValue = { r: cr, g: cg, b: cb, a: ca };
-
-        // Get/create RenderObject for fullscreen quad
-        const renderObject = renderObjects.getRenderObject(
-            this._renderObjects,
-            fullscreenMesh,
-            mat,
-            fullscreenScene,
-            fullscreenCamera,
-            ctx,
-            'composite',
-        );
-
-        // Initialize RenderObject (compile shaders, create pipeline, bindings)
-        const initialized = renderObjects.initRenderObject(
-            this._renderObjects,
-            renderObject,
-            targetFormat,
-            targetDepthFormat ?? null,
-        );
-
-        if (!initialized || !renderObject.pipeline || !renderObject.nodeBuilderState) {
-            // Pipeline compilation failed
-            this.device.queue.submit([encoder.finish()]);
-            this.inspector.finish(this._nodes.nodeFrame.frameId);
-            return;
-        }
-
-        // ---------------------------------------------------------------------
-        // Step 2: Run update lifecycle callbacks
-        // ---------------------------------------------------------------------
-        // Set remaining frame context for this render
-        frame.encoder = encoder;
-        frame.width = w;
-        frame.height = h;
-        frame.camera = fullscreenCamera;
-        frame.object = fullscreenMesh;
-        frame.scene = fullscreenScene;
-
-        // update() — push CPU→GPU uniform data (before draw)
-        // InspectorNode.update() will automatically call inspector.inspect() via the node update system
-        nodeManager.updateForRender(this._nodes, renderObject);
-
-        // updateBefore() — off-screen passes, pre-frame GPU work
-        nodeManager.updateBefore(this._nodes, renderObject);
-
-        // ---------------------------------------------------------------------
-        // Step 3: Update RenderObject uniforms and bindings
-        // ---------------------------------------------------------------------
-
-        renderObjects.updateRenderObject(
-            this._renderObjects,
-            renderObject,
-            frame,
-        );
-
-        // ---------------------------------------------------------------------
-        // Step 4: Render the fullscreen quad
-        // ---------------------------------------------------------------------
-        this._renderOutputNodeWithRenderObject(outputNode, encoder, renderObject);
-
-        // ---------------------------------------------------------------------
-        // Step 5: updateAfter() — post-draw cleanup
-        // ---------------------------------------------------------------------
-        nodeManager.updateAfter(this._nodes, renderObject);
 
         this.device.queue.submit([encoder.finish()]);
-        this.inspector.finish(this._nodes.nodeFrame.frameId);
     }
 
     private _dispatchComputeNode(
@@ -923,24 +715,29 @@ export class WebGPURenderer {
         indirectOffset: number | undefined,
     ): void {
         // Get or create the compute pipeline, passing ComputeContext for bind group caching
-        const entry = pipelines.getForCompute(this.pipelines, node, this._computeContext);
+        const entry = pipelines.getForCompute(this.pipelines, node, this.computeContext);
         if (!entry.pipeline) return;
 
         const { nodeBuilderState } = entry;
-        const frame = this._nodes.nodeFrame;
+        const frame = this.nodes.nodeFrame;
         frame.renderer = this;
         frame.width = this.domElement.width || 1;
         frame.height = this.domElement.height || 1;
 
         // Update node uniforms
-        nodeManager.updateForCompute(this._nodes, node);
+        nodeManager.updateForCompute(this.nodes, node);
 
         // Update all bindings and get GPUBindGroups
-        const gpuBindGroups = bindings.updateForCompute(this._bindings, nodeBuilderState, frame);
+        const gpuBindGroups = bindings.updateForCompute(this.bindings, nodeBuilderState, frame);
+
+        // Notify inspector before creating pass (so timestamp writes are available)
+        this.inspector.beginCompute(node, this.nodes.nodeFrame.frameId);
+
+        // Get timestamp writes for GPU timing (if available)
+        const timestampWrites = this.inspector.getTimestampWrites(node.id);
 
         // Encode the compute pass
-        const computePass = encoder.beginComputePass();
-        this.inspector.beginCompute(node, this._nodes.nodeFrame.frameId);
+        const computePass = encoder.beginComputePass({ timestampWrites });
         computePass.setPipeline(entry.pipeline);
 
         // Set bind groups
@@ -955,7 +752,7 @@ export class WebGPURenderer {
             computeDispatchWorkgroups(computePass, this.inspector, dx, dy, dz);
         }
         computePass.end();
-        this.inspector.finishCompute(node.id, this._nodes.nodeFrame.frameId);
+        this.inspector.finishCompute(node.id, this.nodes.nodeFrame.frameId);
     }
 
     /** save the current renderer state into a plain object and return it */
@@ -978,166 +775,67 @@ export class WebGPURenderer {
         this.clearColor = state.clearColor;
     }
 
-    // -------------------------------------------------------------------------
-    // QuadMesh-equivalent: renderQuad (no updateBefore, for inspector viewer)
-    // -------------------------------------------------------------------------
-
     /**
-     * Render a fullscreen triangle to the **current** `_canvasTarget` using
-     * the given material, writing into the provided command encoder.
+     * Renders a scene (or any Object3D like QuadMesh) from a camera's perspective.
      *
-     * This is the equivalent of Three.js `QuadMesh.render(renderer)`:
-     * it goes directly to the GPU without running `updateBefore()` on any
-     * node, so PassNodes in the main scene graph are never recursively
-     * triggered.  Used exclusively by the inspector Viewer.
-     *
-     * @param material  Pre-built fullscreen material (from `makePreviewMaterial`).
-     * @param encoder   The GPUCommandEncoder to record into.
-     */
-    renderQuad(material: Material, encoder: GPUCommandEncoder): void {
-        if (this._isDeviceLost) return;
-
-        const canvasTarget = this._canvasTarget;
-        const targetFormat = this.format;
-        // No MSAA for inspector preview canvases — they are always non-default targets.
-        const targetSamples = 1;
-
-        const w = canvasTarget.domElement.width || 1;
-        const h = canvasTarget.domElement.height || 1;
-
-        // Get fullscreen resources
-        const fullscreenMesh = this._getFullscreenMesh(material);
-        const fullscreenScene = this._getFullscreenScene();
-        const fullscreenCamera = this._getFullscreenCamera();
-
-        // Get/create RenderContext for this quad pass (no depth — inspector previews don't need it)
-        const passCtx = RenderContext.getRenderContext(this._renderContexts, null, null, 0);
-        passCtx.sampleCount = targetSamples;
-        passCtx.width = w;
-        passCtx.height = h;
-        passCtx.camera = fullscreenCamera;
-        const [cr, cg, cb, ca] = this.clearColor;
-        passCtx.clearColorValue = { r: cr, g: cg, b: cb, a: ca };
-
-        // Get/create RenderObject (compile shader + pipeline if needed)
-        const renderObject = renderObjects.getRenderObject(
-            this._renderObjects,
-            fullscreenMesh,
-            material,
-            fullscreenScene,
-            fullscreenCamera,
-            passCtx,
-            'quad',
-        );
-
-        const initialized = renderObjects.initRenderObject(
-            this._renderObjects,
-            renderObject,
-            targetFormat,
-            null, // no depth format for preview quads
-        );
-
-        if (!initialized || !renderObject.pipeline || !renderObject.nodeBuilderState) {
-            return;
-        }
-
-        // Update uniforms / bind groups (textures sampled by the preview material
-        // are already uploaded by the main render loop).
-        // Set up frame context for quad render
-        const frame = this._nodes.nodeFrame;
-        frame.renderer = this;
-        frame.camera = fullscreenCamera;
-        frame.object = fullscreenMesh;
-        frame.scene = fullscreenScene;
-        frame.material = material;
-        frame.encoder = encoder;
-        frame.width = w;
-        frame.height = h;
-        renderObjects.updateRenderObject(
-            this._renderObjects,
-            renderObject,
-            frame,
-        );
-
-        // Build color attachment — write to the current canvas target directly.
-        const ctx = canvasTarget.getContext(this.device, this.format, 'opaque');
-        const swapchainView = ctx.getCurrentTexture().createView();
-
-        const gpuPass = encoder.beginRenderPass({
-            colorAttachments: [{
-                view: swapchainView,
-                clearValue: { r: cr, g: cg, b: cb, a: ca },
-                loadOp: 'clear',
-                storeOp: 'store',
-            }],
-            // No depth stencil — inspector preview quads use depthTest: false
-        });
-
-        gpuPass.setPipeline(renderObject.pipeline);
-
-        const bindGroups = renderObject.bindGroups;
-        if (bindGroups) {
-            for (let i = 0; i < bindGroups.length; i++) {
-                gpuPass.setBindGroup(i, bindGroups[i]);
-            }
-        }
-
-        gpuPass.draw(3, 1);
-        gpuPass.end();
-    }
-
-    /**
-     * Render a scene with a camera to the current render target.
+     * Three.js aligned: this is the main render entry point.
      *
      * When `setRenderTarget()` has been called, renders to that target.
      * When `setMRT()` has been called, uses MRT output mapping.
      * Otherwise renders to the swapchain (canvas).
      *
-     * @param scene The scene to render.
+     * @param scene The scene/object to render.
      * @param camera The camera to render with.
-     * @param encoder Optional command encoder. If not provided, a new one is created and submitted.
+     * @param commandEncoder Optional command encoder. If not provided, a new one is created and submitted.
      * @param passId Optional pass ID for inspector tracking.
      */
-    renderScene(
-        scene: Scene,
+    render(
+        scene: Object3D,
         camera: Camera,
-        encoder?: GPUCommandEncoder,
-        passId = 'scene',
+        commandEncoder?: GPUCommandEncoder,
+        passId = 'render',
     ): void {
         if (this._isDeviceLost) return;
 
         if (!this._initialized) {
-            throw new Error('[WebGPURenderer] renderScene() called before init().');
+            throw new Error('[WebGPURenderer] render() called before init(). Await renderer.init() first.');
         }
+
+        // Increment renderId for RENDER-level update deduplication.
+        // Multiple render() calls can happen per frame (shadows, reflections, VR).
+        this.nodes.nodeFrame.renderId++;
+
+        this.inspector.perf.start('render');
 
         const renderTarget = this._renderTarget;
         const mrt = this._mrt;
 
-        // Setup MRT if active - resolve output names to texture indices
+        // setup MRT if active - resolve output names to texture indices
         if (mrt && renderTarget) {
             mrt.resolveOutputs((name: string) => renderTarget.getTextureIndex(name));
         }
 
-        const ownEncoder = !encoder;
-        if (!encoder) {
-            encoder = this.device.createCommandEncoder();
-        }
+        // Determine encoder ownership:
+        // - If commandEncoder was passed, we don't own it (nested render from PassNode)
+        // - Otherwise create a new one and submit it when done
+        const ownEncoder = !commandEncoder;
+        const encoder = commandEncoder ?? this.device.createCommandEncoder();
 
         // Determine render target parameters
         const samples = renderTarget?.samples ?? this._samples;
-        const colorFormat = renderTarget?.colorFormat ?? 'rgba8unorm';
+        const colorFormat = renderTarget?.colorFormat ?? this.format;
 
         // Notify inspector of this scene render (before beginRender so scene data is
         // available when the frame is sealed in finish()).
-        this.inspector.beginRenderScene(passId, scene, samples, colorFormat, this._nodes.nodeFrame.frameId);
-        this.inspector.beginRender(passId, this._nodes.nodeFrame.frameId);
+        this.inspector.beginRenderScene(passId, scene, samples, colorFormat, this.nodes.nodeFrame.frameId);
+        this.inspector.beginRender(passId, this.nodes.nodeFrame.frameId);
         const depthFormat = this.pipelines.depthFormat;
         const width = this.domElement.width || 1;
         const height = this.domElement.height || 1;
         const [cr, cg, cb, ca] = this.clearColor;
 
         // Set up frame context for this renderScene call
-        const frame = this._nodes.nodeFrame;
+        const frame = this.nodes.nodeFrame;
         frame.renderer = this;
         frame.camera = camera;
         frame.scene = scene;
@@ -1146,12 +844,12 @@ export class WebGPURenderer {
         frame.height = height;
 
         // Increment call ID for attribute deduplication
-        geometries.incrementCallId(this._geometries);
+        geometries.incrementCallId(this.geometries);
 
         // ---------------------------------------------------------------------
         // Step 1: Get/create RenderContext for this pass
         // ---------------------------------------------------------------------
-        const passCtx = RenderContext.getRenderContext(this._renderContexts, renderTarget, mrt, 0);
+        const passCtx = RenderContext.getRenderContext(this.renderContexts, renderTarget, mrt, 0);
         // Update RenderContext with current pass configuration
         passCtx.sampleCount = samples;
         passCtx.width = width;
@@ -1162,7 +860,9 @@ export class WebGPURenderer {
         // ---------------------------------------------------------------------
         // Step 2: Collect visible meshes using new RenderLists system
         // ---------------------------------------------------------------------
-        const renderList = renderLists.collectRenderList(this._renderLists, scene, camera);
+        this.inspector.perf.start('collectRenderList');
+        const renderList = renderLists.collectRenderList(this.renderLists, scene, camera);
+        this.inspector.perf.end('collectRenderList');
 
         // ---------------------------------------------------------------------
         // Step 3: Build color attachments
@@ -1227,33 +927,30 @@ export class WebGPURenderer {
 
         this.device.pushErrorScope('validation');
 
-        const gpuPass = encoder.beginRenderPass({
-            colorAttachments,
-            depthStencilAttachment: depthAttachment,
-        });
+        // ---------------------------------------------------------------------
+        // Step 4: Initialize RenderObjects and run updateBefore BEFORE beginRenderPass
+        // ---------------------------------------------------------------------
+        // Three.js aligned: updateBefore must happen before the render pass starts
+        // because PassNode.updateBefore() calls renderer.render() which needs to
+        // start its own render pass. Can't nest render passes on the same encoder.
 
-        // ---------------------------------------------------------------------
-        // Step 4: Render items using RenderObjects system
-        // ---------------------------------------------------------------------
-        // Track currently set GPU state to avoid redundant calls (Three.js pattern)
-        const currentSets: CurrentSets = {
-            bindingGroups: [],
-            attributes: [],
-            index: null,
-            pipeline: null,
+        type PreparedRenderObject = {
+            renderObject: import('./render-object').RenderObject;
+            item: RenderItem;
         };
 
-        const issueDrawsForItems = (items: RenderItem[]) => {
+        const preparedObjects: PreparedRenderObject[] = [];
+
+        const prepareItems = (items: RenderItem[]) => {
             for (const item of items) {
                 if (!item.mesh || !item.material || !item.geometry) continue;
 
                 const mesh = item.mesh;
                 const material = item.material;
-                const geometry = item.geometry;
 
                 // Get or create RenderObject for this (mesh, material, passCtx)
                 const renderObject = renderObjects.getRenderObject(
-                    this._renderObjects,
+                    this.renderObjects,
                     mesh,
                     material,
                     scene,
@@ -1265,7 +962,7 @@ export class WebGPURenderer {
 
                 // Initialize RenderObject (compile shaders, create pipeline, bindings)
                 const initialized = renderObjects.initRenderObject(
-                    this._renderObjects,
+                    this.renderObjects,
                     renderObject,
                     colorFormat,
                     depthFormat,
@@ -1281,193 +978,160 @@ export class WebGPURenderer {
                     continue;
                 }
 
-                // Note: Texture upload is now handled by the Bindings system
-                // See bindings.ts rebuildBindGroups() - it calls updateTexture/getSampler
-
-                // Update RenderObject (uniforms, bind groups)
                 // Update frame context for this specific mesh
-                // InspectorNode.update() is automatically called via updateForRender() in the node update system
-                const frame = this._nodes.nodeFrame;
+                const frame = this.nodes.nodeFrame;
                 frame.object = mesh;
                 frame.material = material;
-                renderObjects.updateRenderObject(
-                    this._renderObjects,
-                    renderObject,
-                    frame,
-                );
 
-                // Set pipeline if changed
-                if (renderObject.pipeline !== currentSets.pipeline) {
-                    passSetPipeline(gpuPass, this.inspector, renderObject.pipeline, mesh.name || material.constructor.name);
-                    currentSets.pipeline = renderObject.pipeline;
-                }
+                // updateBefore - off-screen passes, pre-frame GPU work
+                // This MUST happen before beginRenderPass() because PassNode.updateBefore()
+                // calls renderer.render() which starts its own render pass.
+                nodeManager.updateBefore(this.nodes, renderObject);
 
-                // Set bind groups (skip if already bound - Three.js pattern)
-                const bindGroups = renderObject.bindGroups;
-                const logicalBindGroups = renderObject._bindings;
-                if (bindGroups && logicalBindGroups) {
-                    for (let i = 0; i < bindGroups.length; i++) {
-                        const bindGroupId = logicalBindGroups[i]?.id ?? -1;
-                        if (currentSets.bindingGroups[i] !== bindGroupId) {
-                            passSetBindGroup(gpuPass, this.inspector, i, bindGroups[i], mesh.name || '');
-                            currentSets.bindingGroups[i] = bindGroupId;
-                        }
-                    }
-                }
-
-                // Set vertex buffers based on nodeBuilderState.attributes (skip if unchanged)
-                let slot = 0;
-                for (const attrEntry of nodeState.attributes) {
-                    let gpuBuf: GPUBuffer;
-                    if (attrEntry.kind === 'geometry') {
-                        const bufAttr = geometry.buffers.get(attrEntry.name);
-                        if (!bufAttr) { slot++; continue; }
-                        gpuBuf = buffers.ensureUploaded(this.buffers, bufAttr);
-                    } else {
-                        const node = attrEntry.node;
-                        const arr = node.buffer.array;
-                        if (!arr) {
-                            throw new Error(`[gpucat] BufferAttributeNode array is null for ${attrEntry.name}`);
-                        }
-                        gpuBuf = buffers.uploadRaw(
-                            this.buffers,
-                            node,
-                            arr,
-                            GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-                        ).buffer;
-                    }
-                    if (currentSets.attributes[slot] !== gpuBuf) {
-                        passSetVertexBuffer(gpuPass, this.inspector, slot, gpuBuf);
-                        currentSets.attributes[slot] = gpuBuf;
-                    }
-                    slot++;
-                }
-
-                // Issue draw call (skip index buffer if unchanged)
-                if (geometry.index) {
-                    const idxBuf = buffers.ensureUploaded(this.buffers, geometry.index);
-                    if (currentSets.index !== idxBuf) {
-                        passSetIndexBuffer(gpuPass, this.inspector, idxBuf, getIndexFormat(geometry.index.array)!);
-                        currentSets.index = idxBuf;
-                    }
-                    if (geometry.indirect) {
-                        const indirect = geometry.indirect;
-                        const indBuf = buffers.ensureUploaded(this.buffers, indirect);
-                        const byteStride = indirect.itemSize * 4;
-                        const baseOffset = geometry.indirectOffset;
-                        for (let d = 0; d < indirect.count; d++) {
-                            passDrawIndexedIndirect(gpuPass, this.inspector, indBuf, baseOffset + d * byteStride);
-                        }
-                    } else {
-                        passDrawIndexed(gpuPass, this.inspector, geometry.index.array!.length, mesh.count);
-                    }
-                } else {
-                    if (geometry.indirect) {
-                        const indirect = geometry.indirect;
-                        const indBuf = buffers.ensureUploaded(this.buffers, indirect);
-                        const byteStride = indirect.itemSize * 4;
-                        const baseOffset = geometry.indirectOffset;
-                        for (let d = 0; d < indirect.count; d++) {
-                            passDrawIndirect(gpuPass, this.inspector, indBuf, baseOffset + d * byteStride);
-                        }
-                    } else {
-                        passDraw(gpuPass, this.inspector, geometry.vertexCount, mesh.count);
-                    }
-                }
+                preparedObjects.push({ renderObject, item });
             }
         };
 
-        // Render opaque items first, then transparent
-        issueDrawsForItems(renderList.opaque);
-        issueDrawsForItems(renderList.transparent);
+        // Prepare all objects and run updateBefore (may trigger nested render() calls)
+        prepareItems(renderList.opaque);
+        prepareItems(renderList.transparent);
+
+        // ---------------------------------------------------------------------
+        // Step 5: Begin render pass and issue draw calls
+        // ---------------------------------------------------------------------
+        const timestampWrites = this.inspector.getTimestampWrites(passId);
+        const gpuPass = encoder.beginRenderPass({
+            colorAttachments,
+            depthStencilAttachment: depthAttachment,
+            timestampWrites,
+        });
+
+        // Track currently set GPU state to avoid redundant calls (Three.js pattern)
+        const currentSets: CurrentSets = {
+            bindingGroups: [],
+            attributes: [],
+            index: null,
+            pipeline: null,
+        };
+
+        this.inspector.perf.start('drawCalls');
+
+        for (const { renderObject, item } of preparedObjects) {
+            const mesh = item.mesh!;
+            const material = item.material!;
+            const geometry = item.geometry!;
+            const nodeState = renderObject.nodeBuilderState!;
+
+            // Update frame context for this specific mesh
+            const frame = this.nodes.nodeFrame;
+            frame.object = mesh;
+            frame.material = material;
+
+            // updateForRender - uniforms, bind groups
+            renderObjects.updateRenderObject(
+                this.renderObjects,
+                renderObject,
+                frame,
+            );
+
+            // set pipeline if changed
+            if (renderObject.pipeline !== currentSets.pipeline) {
+                passSetPipeline(gpuPass, this.inspector, renderObject.pipeline!, mesh.name || material.constructor.name);
+                currentSets.pipeline = renderObject.pipeline;
+            }
+
+            // set bind groups (skip if already bound - Three.js pattern)
+            const bindGroups = renderObject.bindGroups;
+            const logicalBindGroups = renderObject._bindings;
+            if (bindGroups && logicalBindGroups) {
+                for (let i = 0; i < bindGroups.length; i++) {
+                    const bindGroupId = logicalBindGroups[i]?.id ?? -1;
+                    if (currentSets.bindingGroups[i] !== bindGroupId) {
+                        passSetBindGroup(gpuPass, this.inspector, i, bindGroups[i], mesh.name || '');
+                        currentSets.bindingGroups[i] = bindGroupId;
+                    }
+                }
+            }
+
+            // set vertex buffers based on nodeBuilderState.attributes (skip if unchanged)
+            let slot = 0;
+            for (const attrEntry of nodeState.attributes) {
+                let gpuBuf: GPUBuffer;
+                if (attrEntry.kind === 'geometry') {
+                    const bufAttr = geometry.buffers.get(attrEntry.name);
+                    if (!bufAttr) { slot++; continue; }
+                    gpuBuf = buffers.ensureUploaded(this.buffers, bufAttr);
+                } else {
+                    const node = attrEntry.node;
+                    const arr = node.buffer.array;
+                    if (!arr) {
+                        throw new Error(`[gpucat] BufferAttributeNode array is null for ${attrEntry.name}`);
+                    }
+                    gpuBuf = buffers.uploadRaw(
+                        this.buffers,
+                        node,
+                        arr,
+                        GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+                    ).buffer;
+                }
+                if (currentSets.attributes[slot] !== gpuBuf) {
+                    passSetVertexBuffer(gpuPass, this.inspector, slot, gpuBuf);
+                    currentSets.attributes[slot] = gpuBuf;
+                }
+                slot++;
+            }
+
+            // issue draw call (skip index buffer if unchanged)
+            if (geometry.index) {
+                const idxBuf = buffers.ensureUploaded(this.buffers, geometry.index);
+                if (currentSets.index !== idxBuf) {
+                    passSetIndexBuffer(gpuPass, this.inspector, idxBuf, getIndexFormat(geometry.index.array)!);
+                    currentSets.index = idxBuf;
+                }
+                if (geometry.indirect) {
+                    const indirect = geometry.indirect;
+                    const indBuf = buffers.ensureUploaded(this.buffers, indirect);
+                    const byteStride = indirect.itemSize * 4;
+                    const baseOffset = geometry.indirectOffset;
+                    for (let d = 0; d < indirect.count; d++) {
+                        passDrawIndexedIndirect(gpuPass, this.inspector, indBuf, baseOffset + d * byteStride);
+                    }
+                } else {
+                    passDrawIndexed(gpuPass, this.inspector, geometry.index.array!.length, mesh.count);
+                }
+            } else {
+                if (geometry.indirect) {
+                    const indirect = geometry.indirect;
+                    const indBuf = buffers.ensureUploaded(this.buffers, indirect);
+                    const byteStride = indirect.itemSize * 4;
+                    const baseOffset = geometry.indirectOffset;
+                    for (let d = 0; d < indirect.count; d++) {
+                        passDrawIndirect(gpuPass, this.inspector, indBuf, baseOffset + d * byteStride);
+                    }
+                } else {
+                    passDraw(gpuPass, this.inspector, geometry.vertexCount, mesh.count);
+                }
+            }
+
+            // updateAfter - post-draw cleanup, readback, etc.
+            nodeManager.updateAfter(this.nodes, renderObject);
+        }
+
+        this.inspector.perf.end('drawCalls');
 
         gpuPass.end();
-        this.inspector.finishRender(passId, this._nodes.nodeFrame.frameId);
+        this.inspector.finishRender(passId, this.nodes.nodeFrame.frameId);
 
-        // If we created the encoder ourselves, submit it now
+        // Submit if we own the encoder (top-level render call)
         if (ownEncoder) {
             this.device.queue.submit([encoder.finish()]);
         }
 
         this.device.popErrorScope().then((err) => {
-            if (err) console.error('[WebGPU renderScene validation error]', err.message);
-        });
-    }
-
-    /**
-     * Render a fullscreen quad using a RenderObject.
-     * 
-     * This is the new Three.js-aligned implementation that uses the RenderObjects system.
-     * The RenderObject already has its pipeline and bind groups initialized.
-     *
-     * @param _outputNode - The output node (unused, for debugging)
-     * @param encoder - The GPU command encoder
-     * @param renderObject - The RenderObject for the fullscreen quad
-     */
-    private _renderOutputNodeWithRenderObject(
-        _outputNode: Node<d.Any>,
-        encoder: GPUCommandEncoder,
-        renderObject: import('./render-object').RenderObject,
-    ): void {
-        this.inspector.beginRender('composite', this._nodes.nodeFrame.frameId);
-
-        const canvasTarget = this._canvasTarget;
-        const isDefault = canvasTarget.isDefaultCanvasTarget;
-
-        const ctx = canvasTarget.getContext(this.device, this.format, 'opaque');
-        const targetTexture = ctx.getCurrentTexture();
-        const useMsaa = isDefault && this._samples > 1 && this.msaaTexture !== null;
-
-        const [cr, cg, cb, ca] = this.clearColor;
-        let colorAttachment: GPURenderPassColorAttachment;
-
-        if (useMsaa && this.msaaTexture) {
-            colorAttachment = {
-                view: this.msaaTexture.createView(),
-                resolveTarget: targetTexture.createView(),
-                clearValue: { r: cr, g: cg, b: cb, a: ca },
-                loadOp: 'clear',
-                storeOp: 'discard',
-            };
-        } else {
-            colorAttachment = {
-                view: targetTexture.createView(),
-                clearValue: { r: cr, g: cg, b: cb, a: ca },
-                loadOp: 'clear',
-                storeOp: 'store',
-            };
-        }
-
-        // Depth attachment only for the default (main) canvas — preview canvases
-        // render a fullscreen quad with no depth test needed.
-        const depthAttachment = isDefault ? {
-            view: this.depthTexture.createView(),
-            depthClearValue: 1.0,
-            depthLoadOp: 'clear' as const,
-            depthStoreOp: 'store' as const,
-        } : undefined;
-
-        const gpuPass = encoder.beginRenderPass({
-            colorAttachments: [colorAttachment],
-            depthStencilAttachment: depthAttachment,
+            if (err) console.error('[WebGPU render validation error]', err.message);
         });
 
-        // Set pipeline from RenderObject
-        passSetPipeline(gpuPass, this.inspector, renderObject.pipeline!, 'composite');
-
-        // Set bind groups from RenderObject
-        const bindGroups = renderObject.bindGroups;
-        if (bindGroups) {
-            for (let i = 0; i < bindGroups.length; i++) {
-                passSetBindGroup(gpuPass, this.inspector, i, bindGroups[i], 'composite');
-            }
-        }
-
-        // Draw fullscreen triangle (3 vertices, 1 instance)
-        passDraw(gpuPass, this.inspector, 3, 1);
-
-        gpuPass.end();
-        this.inspector.finishRender('composite', this._nodes.nodeFrame.frameId);
+        this.inspector.perf.end('render');
     }
 
     private _ensureRenderTargetAllocated(renderTarget: RenderTarget): void {
@@ -1522,55 +1186,6 @@ export class WebGPURenderer {
         }
     }
 
-    private _getFullscreenGeometry(): Geometry {
-        if (!this._fullscreenGeometry) {
-            const geom = new Geometry();
-            geom.vertexCount = 3;
-            this._fullscreenGeometry = geom;
-        }
-        return this._fullscreenGeometry;
-    }
-
-    /**
-     * Get the fullscreen quad mesh, creating it if necessary.
-     * The mesh wraps the fullscreen geometry and is used with the RenderObjects system.
-     * 
-     * @param material - The material to use for the fullscreen quad
-     */
-    private _getFullscreenMesh(material: Material): Mesh {
-        if (!this._fullscreenMesh) {
-            const geom = this._getFullscreenGeometry();
-            this._fullscreenMesh = new Mesh(geom, material);
-            this._fullscreenMesh.name = '__fullscreenQuad__';
-        } else {
-            // Update material reference (it may change per output node)
-            this._fullscreenMesh.material = material;
-        }
-        return this._fullscreenMesh;
-    }
-
-    /**
-     * Get the dummy scene for fullscreen quad rendering, creating it if necessary.
-     */
-    private _getFullscreenScene(): Scene {
-        if (!this._fullscreenScene) {
-            this._fullscreenScene = new Scene();
-            this._fullscreenScene.name = '__fullscreenScene__';
-        }
-        return this._fullscreenScene;
-    }
-
-    /**
-     * Get the dummy camera for fullscreen quad rendering, creating it if necessary.
-     */
-    private _getFullscreenCamera(): Camera {
-        if (!this._fullscreenCamera) {
-            this._fullscreenCamera = new Camera();
-            this._fullscreenCamera.name = '__fullscreenCamera__';
-        }
-        return this._fullscreenCamera;
-    }
-
     private _createDepthTexture(width: number, height: number): GPUTexture {
         return this.device.createTexture({
             size: [width, height],
@@ -1589,79 +1204,31 @@ export class WebGPURenderer {
         });
     }
 
-    /**
-     * Constructs the synthetic fullscreen Material used for compositing
-     * `outputNode` to the swapchain. Factored out so it can be called both
-     * from _renderOutputNode (at draw time) and from compile() (pre-warm).
-     *
-     * Returns the Material and its stable pipeline cache key.
-     * The fullscreen geometry is always this._getFullscreenGeometry().
-     *
-     * @param outputNode - The node expression to render.
-     * @param format - Target format (defaults to main swapchain format).
-     * @param samples - MSAA sample count (defaults to renderer's sample count).
-     */
-    private _makeOutputMaterial(
-        outputNode: Node<d.Any>,
-        format: GPUTextureFormat = this.format,
-        samples: number = this._samples,
-        depthFormat: GPUTextureFormat | undefined = this.pipelines.depthFormat,
-    ): { mat: Material; pipelineKey: string } {
-        const cacheKey = `${outputNode.id}:${format}:${samples}:${depthFormat ?? 'none'}`;
-        const cached = this._outputMaterialCache.get(cacheKey);
-        if (cached) return cached;
-
-        // Build the internal fullscreen material:
-        //   position = fullscreenPosition() (uses @builtin(vertex_index))
-        //   color    = outputNode wrapped to also include the UV varying in the graph
-        //
-        // The UV varying makes `in.uv` available in the fragment shader so that
-        // textureSample(..., in.uv) calls in PassColorTextureNode work correctly.
-        const posNode = _makeFullscreenPositionNode();
-        const uvVarying = _makeFullscreenUVVarying();
-
-        // Wrap outputNode so the UV varying is reachable from the color graph.
-        const colorNode = wgsl(d.vec4f)`${ outputNode }`.with(uvVarying);
-        const mat = new Material({ vertex: posNode, fragment: colorNode, depthWrite: false, depthTest: false });
-        const pipelineKey = pipelines.makeRenderPipelineKey(mat, samples, format, depthFormat);
-        const result = { mat, pipelineKey };
-        this._outputMaterialCache.set(cacheKey, result);
-        return result;
-    }
-
 }
 
-/**
- * Position node for the fullscreen triangle.
- * Uses @builtin(vertex_index) to generate three clip-space positions.
- *
- * The oversized-triangle trick: three vertices whose clip-space positions cover
- * the entire viewport. Positions are derived from vertex_index via bitmasking
- * so no vertex buffer is needed.
- *
- *   vi=0 → (-1, -1)   vi=1 → (3, -1)   vi=2 → (-1, 3)
- *
- * WGSL does not support anonymous IIFEs, so the logic is expressed as a
- * named helper function emitted via FnNode, then called with CallNode.
- */
-function _makeFullscreenPositionNode(): Node<d.vec4f> {
-    const vi = builtin('vertex_index', d.u32);
-    return wgsl(d.vec4f)`vec4f(f32((${ vi } & 1u) * 2u) * 2.0 - 1.0, f32(${ vi } & 2u) * 2.0 - 1.0, 0.0, 1.0)`;
-}
+/** tracks currently set GPU state to avoid redundant setBindGroup/setVertexBuffer/setIndexBuffer calls */
+type CurrentSets = {
+    /** Currently bound bind group IDs by slot index. -1 = not set. */
+    bindingGroups: number[];
+    /** Currently bound vertex buffers by slot index. */
+    attributes: (GPUBuffer | null)[];
+    /** Currently bound index buffer. */
+    index: GPUBuffer | null;
+    /** Current pipeline (already tracked separately). */
+    pipeline: GPURenderPipeline | null;
+};
 
-/**
- * Returns a VaryingNode<'vec2f'> named 'uv' whose source computes UV from vertex_index.
- * Including this varying in the color graph ensures `in.uv` is available in the fragment
- * shader for textureSample(..., in.uv) calls.
- *
- * Standard over-sized-triangle UV: x = clip.x * 0.5 + 0.5, y = 0.5 - clip.y * 0.5
- * Inlined as a single expression — WGSL IIFEs are not valid.
- */
-function _makeFullscreenUVVarying(): VaryingNode<d.vec2f> {
-    const vi = builtin('vertex_index', d.u32);
-    const uvSource = wgsl(d.vec2f)`vec2f((f32((${ vi } & 1u) * 2u) * 2.0 - 1.0) * 0.5 + 0.5, 0.5 - (f32(${ vi } & 2u) * 2.0 - 1.0) * 0.5)`;
-    return new VaryingNode<d.vec2f>(uvSource, 'uv');
-}
+/** Information about a device lost event. */
+export type DeviceLostInfo = {
+    /** The API that lost the device ('WebGPU'). */
+    api: 'WebGPU';
+    /** Human-readable message about the loss. */
+    message: string;
+    /** The reason for the loss, if available. */
+    reason: GPUDeviceLostReason | null;
+    /** The original GPUDeviceLostInfo event. */
+    originalEvent: GPUDeviceLostInfo;
+};
 
 // ---------------------------------------------------------------------------
 // Pass-command helpers — issue the real GPU encoder call AND the inspector hook

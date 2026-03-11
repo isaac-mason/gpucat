@@ -233,8 +233,11 @@ export function createPlaneGeometry(
  * full viewport coverage after clipping.
  * 
  * UV coordinates follow WebGPU conventions:
- *   - (0, 0) at top-left
- *   - (1, 1) at bottom-right
+ *   - (0, 0) at top-left of texture
+ *   - (1, 1) at bottom-right of texture
+ *
+ * Since clip space Y=-1 is bottom and Y=+1 is top, but texture V=0 is top and V=1 is bottom,
+ * we map: bottom-left clip (-1,-1) → UV (0,1), top-left clip (-1,3) → UV (0,-1).
  *
  * @param flipY - Whether to flip UV coordinates along the vertical axis. Defaults to false.
  */
@@ -242,16 +245,18 @@ export function createFullscreenTriangleGeometry(flipY = false): Geometry {
     // Oversized triangle positions in clip space
     // vi=0 → (-1, -1)   vi=1 → (3, -1)   vi=2 → (-1, 3)
     const positions = new Float32Array([
-        -1, -1, 0,  // bottom-left
-         3, -1, 0,  // bottom-right (oversized)
-        -1,  3, 0,  // top-left (oversized)
+        -1, -1, 0,  // bottom-left clip
+         3, -1, 0,  // bottom-right clip (oversized)
+        -1,  3, 0,  // top-left clip (oversized)
     ]);
 
-    // UV coordinates matching Three.js QuadGeometry
-    // Default: (0,0) at top-left, (1,1) at bottom-right (WebGPU convention)
+    // UV coordinates: map clip space to texture space
+    // Clip Y=-1 (bottom) → texture V=1 (bottom)
+    // Clip Y=+1 (top)    → texture V=0 (top)
+    // Using oversized triangle, V goes from 1 to -1 (will be clipped to 0-1)
     const uvsData = flipY
-        ? new Float32Array([0, 2, 0, 0, 2, 0])  // flipped
-        : new Float32Array([0, 0, 2, 0, 0, 2]); // standard
+        ? new Float32Array([0, -1, 2, -1, 0, 1])  // flipped
+        : new Float32Array([0, 1, 2, 1, 0, -1]);  // standard: bottom-left→(0,1), bottom-right→(2,1), top-left→(0,-1)
 
     const geom = new Geometry();
     geom.setBuffer('position', createVertexBuffer(d.vec3f, positions));

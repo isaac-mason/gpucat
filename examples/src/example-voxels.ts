@@ -20,6 +20,8 @@ import {
     vec3,
     varying,
     type Node,
+    RenderPipeline,
+    renderOutput,
 } from 'gpucat';
 import { createSimplex2D } from 'mathcat';
 
@@ -431,12 +433,13 @@ async function main() {
     camera.updateViewMatrix();
 
     const scenePass = pass(scene, camera);
-    const outputNode = scenePass.getTextureNode();
+    const outputNode = renderOutput(scenePass.getTextureNode());
+    const renderPipeline = new RenderPipeline(renderer, outputNode);
 
     function frame() {
         controls.update();
         camera.updateViewMatrix();
-        renderer.render(outputNode);
+        renderPipeline.render();
         requestAnimationFrame(frame);
     }
 

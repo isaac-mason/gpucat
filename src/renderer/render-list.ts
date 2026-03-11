@@ -13,7 +13,6 @@
  * - Transparent: sorted back-to-front by view-space Z
  */
 
-import type { Scene } from '../scene/scene';
 import type { Camera } from '../camera/camera';
 import type { Object3D } from '../core/object3d';
 import type { Box3, Sphere } from 'mathcat';
@@ -69,8 +68,8 @@ export type RenderItem = {
  * RenderList - Contains sorted lists of render items.
  */
 export type RenderList = {
-    /** The scene this list was built from. */
-    scene: Scene | null;
+    /** The object this list was built from (Scene, Mesh, or any Object3D). */
+    object: Object3D | null;
 
     /** The camera this list was built for. */
     camera: Camera | null;
@@ -123,7 +122,7 @@ let renderItemIdCounter = 0;
  */
 export function createRenderList(): RenderList {
     return {
-        scene: null,
+        object: null,
         camera: null,
         renderItems: [],
         renderItemsIndex: 0,
@@ -147,18 +146,18 @@ export function createRenderListsState(): RenderListsState {
 // ---------------------------------------------------------------------------
 
 /**
- * Get or create a RenderList for the given scene and camera.
+ * Get or create a RenderList for the given object and camera.
  *
  * @param state - The RenderLists state
- * @param scene - The scene to render
+ * @param object - The object to render (Scene, Mesh, or any Object3D)
  * @param camera - The camera to render from
  */
 export function getRenderList(
     state: RenderListsState,
-    scene: Scene,
+    object: Object3D,
     camera: Camera,
 ): RenderList {
-    const keys = [scene, camera];
+    const keys = [object, camera];
 
     let list = chainMap.get(state.lists, keys);
     if (!list) {
@@ -178,8 +177,8 @@ export function getRenderList(
  *
  * This resets the pool index but keeps pooled items for reuse.
  */
-export function beginRenderList(list: RenderList, scene: Scene, camera: Camera): void {
-    list.scene = scene;
+export function beginRenderList(list: RenderList, object: Object3D, camera: Camera): void {
+    list.object = object;
     list.camera = camera;
     list.renderItemsIndex = 0;
     list.opaque.length = 0;
@@ -353,23 +352,23 @@ const _worldSphere: Sphere = { center: [0, 0, 0], radius: 0 };
 /**
  * Collect all visible meshes from a scene into a RenderList.
  *
- * This walks the scene graph, performs frustum culling, and populates
+ * This walks the object graph, performs frustum culling, and populates
  * the RenderList with opaque and transparent items.
  *
  * @param state - The RenderLists state
- * @param scene - The scene to collect from
+ * @param object - The object to collect from (Scene, Mesh, or any Object3D)
  * @param camera - The camera for frustum culling and Z sorting
  * @returns The populated and sorted RenderList
  */
 export function collectRenderList(
     state: RenderListsState,
-    scene: Scene,
+    object: Object3D,
     camera: Camera,
 ): RenderList {
-    const list = getRenderList(state, scene, camera);
+    const list = getRenderList(state, object, camera);
 
     // Begin new frame
-    beginRenderList(list, scene, camera);
+    beginRenderList(list, object, camera);
 
     // Build frustum from camera matrices
     frustum.setFromViewProjectionMatrix(
@@ -378,8 +377,8 @@ export function collectRenderList(
         camera.matrixWorldInverse,
     );
 
-    // Walk scene and collect visible meshes
-    walkObject(list, scene, camera);
+    // Walk object and collect visible meshes
+    walkObject(list, object, camera);
 
     // Finish and sort
     finishRenderList(list);
@@ -495,14 +494,14 @@ function computeViewZ(mesh: Mesh, camera: Camera): number {
  */
 export function collectRenderListWithSort(
     state: RenderListsState,
-    scene: Scene,
+    object: Object3D,
     camera: Camera,
     opaqueSort?: (a: RenderItem, b: RenderItem) => number,
     transparentSort?: (a: RenderItem, b: RenderItem) => number,
 ): RenderList {
-    const list = getRenderList(state, scene, camera);
+    const list = getRenderList(state, object, camera);
 
-    beginRenderList(list, scene, camera);
+    beginRenderList(list, object, camera);
 
     frustum.setFromViewProjectionMatrix(
         _frustum,
@@ -510,7 +509,7 @@ export function collectRenderListWithSort(
         camera.matrixWorldInverse,
     );
 
-    walkObject(list, scene, camera);
+    walkObject(list, object, camera);
 
     finishRenderList(list);
     sortRenderList(list, opaqueSort, transparentSort);

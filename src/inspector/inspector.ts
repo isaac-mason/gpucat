@@ -11,6 +11,7 @@
 
 import { RendererInspector } from './renderer-inspector';
 import type { FrameRecord } from './renderer-inspector';
+export type { TimelineEntry, MarkerEntry, RenderEntry, ComputeEntry, FrameRecord, PassRecord, SceneRecord } from './renderer-inspector';
 import { Profiler } from './ui/profiler';
 import { injectStyle } from './ui/style';
 import { setText } from './ui/utils';
@@ -21,10 +22,12 @@ import { Memory } from './tabs/memory';
 import { Timeline } from './tabs/timeline';
 import { Console } from './tabs/console';
 import { Settings } from './tabs/settings';
-import { Viewer, makePreviewMaterial, splitCamelCase, splitPath, type CanvasData } from './tabs/viewer';
+import { Viewer, createPreviewMaterial, splitCamelCase, splitPath, type CanvasData } from './tabs/viewer';
+import { QuadMesh } from '../objects/quad-mesh';
 import { SceneHierarchy } from './tabs/scene-hierarchy';
 import { DrawCalls } from './tabs/draw-calls';
 import { ComputeCalls } from './tabs/compute-calls';
+import { PerformanceTimeline } from './tabs/performance-timeline';
 import type { InspectorNode, ComputeNode } from '../nodes/nodes';
 import type { WebGPURenderer } from '../renderer/renderer';
 import { CanvasTarget } from '../renderer/canvas-target';
@@ -33,6 +36,7 @@ import type { ProbeTarget } from './probe-wgsl';
 import type { RenderObject } from '../renderer/render-object';
 import { buildVertexBufferLayouts } from '../renderer/render-objects';
 import * as buffers from '../renderer/buffers';
+import * as bindings from '../renderer/bindings';
 import { getIndexFormat } from '../core/buffer';
 import { Any } from '../nodes/schema';
 
@@ -66,6 +70,7 @@ export class Inspector extends RendererInspector {
 
     readonly profiler: Profiler;
     readonly performance: Performance;
+    readonly performanceTimeline: PerformanceTimeline;
     readonly memory: Memory;
     readonly console: Console;
     readonly parameters: Parameters;
@@ -118,6 +123,9 @@ export class Inspector extends RendererInspector {
         const performance = new Performance();
         profiler.addTab(performance);
 
+        const performanceTimeline = new PerformanceTimeline();
+        profiler.addTab(performanceTimeline);
+
         const memory = new Memory();
         profiler.addTab(memory);
 
@@ -138,6 +146,7 @@ export class Inspector extends RendererInspector {
 
         this.profiler = profiler;
         this.performance = performance;
+        this.performanceTimeline = performanceTimeline;
         this.memory = memory;
         this.console = consoleTab;
         this.parameters = parameters;
@@ -355,7 +364,7 @@ export class Inspector extends RendererInspector {
         console.groupEnd();
 
         // Build probe pipeline: same bind group layouts, patched shader
-        const bindGroupLayouts = renderer.getBindGroupLayouts(sourceRO);
+        const bindGroupLayouts = bindings.getBindGroupLayouts(renderer.bindings, sourceRO);
         if (bindGroupLayouts.length === 0) {
             console.warn('[gpucat probe] bind group layouts not yet initialised — try clicking again after the first frame renders');
             return null;
@@ -468,6 +477,11 @@ export class Inspector extends RendererInspector {
         // Check if main panel is visible (expanded)
         const panelVisible = this.profiler.panel.classList.contains('visible');
 
+        // Always capture every frame when recording - must not be throttled
+        if (this.performanceTimeline.isRecording) {
+            this.performanceTimeline.update(this, record);
+        }
+
         if (this._displayCycle.text.needsUpdate) {
             // Always update FPS counter (visible in toggle button)
             setText('fps-counter', this.fps.toFixed());
@@ -475,6 +489,9 @@ export class Inspector extends RendererInspector {
             if (panelVisible) {
                 this.performance.updateText(this, record);
                 this.memory.updateText(this);
+                if (this.performanceTimeline.isActive) {
+                    this.performanceTimeline.update(this, record);
+                }
             }
             this._displayCycle.text.needsUpdate = false;
         }
@@ -549,27 +566,23 @@ export class Inspector extends RendererInspector {
             canvas.style.borderRadius = '4px';
 
             const canvasTarget = new CanvasTarget(canvas);
-            // Three.js aligned: set pixel ratio for crisp preview thumbnails
             canvasTarget.setPixelRatio(window.devicePixelRatio);
             canvasTarget.setSize(140, 140);
 
             const id = node.id;
-
-            // Three.js aligned: splitPath(splitCamelCase(node.getName()))
-            // to derive folder path and leaf name from the inspector label.
             const rawName = node.getName();
             const { path, name } = splitPath(splitCamelCase(rawName));
 
-            const format = navigator.gpu.getPreferredCanvasFormat();
-            const { wrappedNode, material } = makePreviewMaterial(node.wrappedNode, format);
+            const material = createPreviewMaterial(node.wrappedNode);
+            const quadMesh = new QuadMesh(material);
+            quadMesh.name = 'Viewer - ' + name;
 
             canvasData = {
                 id,
                 name,
                 path,
                 node,
-                wrappedNode,
-                material,
+                quadMesh,
                 canvasTarget,
             };
 

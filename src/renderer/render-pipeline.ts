@@ -1,0 +1,108 @@
+import { QuadMesh } from '../objects/quad-mesh';
+import { Material } from '../material/material';
+import { attribute, vec4f, f32 } from '../nodes/nodes';
+import type { Node } from '../nodes/nodes';
+import type { Any } from '../nodes/schema';
+import * as d from '../nodes/schema';
+import type { WebGPURenderer } from './renderer';
+
+/**
+ * RenderPipeline - manages the rendering pipeline for fullscreen effects.
+ *
+ * Usage:
+ * ```ts
+ * const renderPipeline = new RenderPipeline(renderer);
+ *
+ * const scenePass = pass(scene, camera);
+ * renderPipeline.outputNode = scenePass;
+ *
+ * function frame() {
+ *     renderPipeline.render();
+ *     requestAnimationFrame(frame);
+ * }
+ *
+ * // cleanup
+ * renderPipeline.dispose();
+ * ```
+ */
+export class RenderPipeline {
+    /** reference to the renderer */
+    readonly renderer: WebGPURenderer;
+
+    /** the output node to render */
+    outputNode: Node<Any>;
+
+    /** set to `true` to rebuild the material, e.g. when the outputNode changes */
+    needsUpdate = true;
+
+    /** the QuadMesh used for fullscreen rendering */
+    private _quadMesh: QuadMesh;
+
+    /**
+     * @param renderer the renderer.
+     * @param outputNode output node. Defaults to solid blue.
+     */
+    constructor(renderer: WebGPURenderer, outputNode?: Node<Any>) {
+        this.renderer = renderer;
+        this.outputNode = outputNode ?? vec4f(f32(0), f32(0), f32(1), f32(1));
+
+        // Create material with initial output node - will be updated in _update() when needsUpdate is true
+        const material = this._createMaterial(this.outputNode);
+
+        this._quadMesh = new QuadMesh(material);
+        this._quadMesh.name = 'RenderPipeline';
+    }
+
+    /**
+     * Renders the output node to the renderer's current target.
+     *
+     * When `RenderPipeline` is used to apply post processing effects,
+     * the application must use this version of `render()` inside
+     * its animation loop (not the one from the renderer).
+     */
+    render(): void {
+        this.renderer.beginFrame();
+
+        this._update();
+        this._quadMesh.render(this.renderer);
+
+        this.renderer.endFrame();
+    }
+
+    /**
+     * Dispose of resources owned by this pipeline.
+     */
+    dispose(): void {
+        // Material doesn't hold GPU resources directly in gpucat,
+        // but we clear the reference for GC.
+        // Future: if Material gets a dispose() method, call it here.
+    }
+
+    /**
+     * Updates the material if outputNode has changed.
+     * @internal
+     */
+    private _update(): void {
+        if (this.needsUpdate) {
+            this._quadMesh.material = this._createMaterial(this.outputNode);
+            this.needsUpdate = false;
+        }
+    }
+
+    /**
+     * Creates a fullscreen material for the given output node.
+     * @internal
+     */
+    private _createMaterial(outputNode: Node<Any>): Material {
+        // position attribute - fullscreen triangle geometry provides clip-space positions
+        const posAttr = attribute('position', d.vec3f);
+        const posNode = vec4f(posAttr, f32(1));
+
+        return new Material({
+            vertex: posNode,
+            fragment: outputNode,
+            depthWrite: false,
+            depthTest: false,
+        });
+    }
+}

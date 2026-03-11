@@ -96,10 +96,11 @@ async function main() {
     scene.add(mesh);
 
     const scenePass = g.pass(scene, perspCamera);
-    const outputNode = scenePass.getTextureNode();
+    const outputNode = g.renderOutput(scenePass.getTextureNode());
+    const renderPipeline = new g.RenderPipeline(renderer, outputNode);
 
     function frame() {
-        renderer.render(outputNode);
+        renderPipeline.render();
         requestAnimationFrame(frame);
     }
 
