@@ -314,7 +314,8 @@ export class SceneHierarchy extends Tab {
         const table = document.createElement('div');
         table.className = 'dc-kv-table';
 
-        table.appendChild(makeKVRow('vertices', String(geo.vertexCount)));
+        table.appendChild(makeKVRow('drawRange.start', String(geo.drawRange.start)));
+        table.appendChild(makeKVRow('drawRange.count', String(geo.drawRange.count)));
 
         // Index info
         if (geo.index && geo.index.array) {

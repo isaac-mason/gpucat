@@ -383,7 +383,6 @@ export class WebGPURenderer {
                 camera,
                 compileContext,
                 'compile',
-                item.group,
             );
 
             // kick off async initialization (compiles shader, creates pipeline)
@@ -422,7 +421,6 @@ export class WebGPURenderer {
                 camera,
                 compileContext,
                 'compile',
-                item.group,
             );
 
             const nodeState = renderObject.nodeBuilderState;
@@ -815,7 +813,6 @@ export class WebGPURenderer {
                     camera,
                     passCtx,
                     passId,
-                    item.group,
                 );
 
                 const initialized = renderObjects.initRenderObject(
@@ -965,7 +962,8 @@ export class WebGPURenderer {
                         passDrawIndexedIndirect(gpuPass, this.inspector, indBuf, baseOffset + d * byteStride);
                     }
                 } else {
-                    passDrawIndexed(gpuPass, this.inspector, geometry.index.array!.length, mesh.count);
+                    const indexCount = Math.min(geometry.drawRange.count, geometry.index.array!.length);
+                    passDrawIndexed(gpuPass, this.inspector, indexCount, mesh.count, geometry.drawRange.start);
                 }
             } else {
                 if (geometry.indirect) {
@@ -977,7 +975,7 @@ export class WebGPURenderer {
                         passDrawIndirect(gpuPass, this.inspector, indBuf, baseOffset + d * byteStride);
                     }
                 } else {
-                    passDraw(gpuPass, this.inspector, geometry.vertexCount, mesh.count);
+                    passDraw(gpuPass, this.inspector, geometry.drawRange.count, mesh.count, geometry.drawRange.start);
                 }
             }
 
@@ -1142,8 +1140,9 @@ function passDraw(
     inspector: InspectorBase,
     vertexCount: number,
     instanceCount: number,
+    firstVertex: number,
 ): void {
-    pass.draw(vertexCount, instanceCount);
+    pass.draw(vertexCount, instanceCount, firstVertex);
     inspector.draw(vertexCount, instanceCount);
 }
 
@@ -1152,8 +1151,9 @@ function passDrawIndexed(
     inspector: InspectorBase,
     indexCount: number,
     instanceCount: number,
+    firstIndex: number,
 ): void {
-    pass.drawIndexed(indexCount, instanceCount);
+    pass.drawIndexed(indexCount, instanceCount, firstIndex);
     inspector.drawIndexed(indexCount, instanceCount);
 }
 

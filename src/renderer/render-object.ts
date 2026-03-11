@@ -31,30 +31,6 @@ import { createBindings } from './node-builder-state';
 let renderObjectIdCounter = 0;
 
 /**
- * Draw parameters for non-indexed / indexed draws.
- */
-export type DrawParams = {
-    /** Number of vertices to draw (non-indexed) or indices (indexed). */
-    vertexCount: number;
-    /** First vertex/index to start drawing from. */
-    firstVertex: number;
-    /** Number of instances to draw. */
-    instanceCount: number;
-    /** First instance. */
-    firstInstance: number;
-};
-
-/**
- * Geometry group for multi-material meshes.
- * Defines a subset of the geometry to draw.
- */
-export type GeometryGroup = {
-    start: number;
-    count: number;
-    materialIndex: number;
-};
-
-/**
  * RenderObject - Per-draw-call state container.
  *
  * This is the central hub that owns all state needed to execute a draw call:
@@ -93,9 +69,6 @@ export type RenderObject = {
 
     /** The render pass this RenderObject belongs to (e.g. 'default', 'shadow'). */
     passId: string;
-
-    /** Optional geometry group for multi-material meshes. */
-    group: GeometryGroup | null;
 
     // -------------------------------------------------------------------------
     // Compiled State (lazily initialized)
@@ -142,16 +115,6 @@ export type RenderObject = {
      * null for non-indexed draws.
      */
     indexBuffer: GpuBuffer<Any> | null;
-
-    // -------------------------------------------------------------------------
-    // Draw Parameters
-    // -------------------------------------------------------------------------
-
-    /**
-     * Draw parameters for the draw call.
-     * null until computed from geometry.
-     */
-    drawParams: DrawParams | null;
 
     // -------------------------------------------------------------------------
     // Cache Keys & Version Tracking
@@ -224,8 +187,6 @@ export type RenderObject = {
  * @param material - The material to use
  * @param scene - The scene/object containing the mesh
  * @param camera - The camera for rendering
- * @param renderContext - The render context (framebuffer config)
- * @param group - Optional geometry group for multi-material meshes
  */
 export function createRenderObject(
     mesh: Mesh,
@@ -233,7 +194,6 @@ export function createRenderObject(
     scene: Object3D,
     camera: Camera,
     renderContext: RenderContext,
-    group: GeometryGroup | null = null,
 ): RenderObject {
     return {
         id: renderObjectIdCounter++,
@@ -246,7 +206,6 @@ export function createRenderObject(
         scene,
         renderContext,
         passId: '',
-        group,
 
         // Compiled state (lazy)
         nodeBuilderState: null,
@@ -257,9 +216,6 @@ export function createRenderObject(
         // Attribute state (lazy)
         vertexBuffers: null,
         indexBuffer: null,
-
-        // Draw params (lazy)
-        drawParams: null,
 
         // Cache keys
         initialCacheKey: '',
@@ -303,7 +259,6 @@ export function disposeRenderObject(renderObject: RenderObject): void {
     renderObject._bindings = null;
     renderObject.vertexBuffers = null;
     renderObject.indexBuffer = null;
-    renderObject.drawParams = null;
     renderObject.onDispose = null;
 }
 

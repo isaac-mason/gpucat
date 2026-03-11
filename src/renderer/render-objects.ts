@@ -22,7 +22,7 @@ import type { NodeManagerState } from './node-manager';
 import { compileNodeState, needsNodeUpdate } from './node-manager';
 import * as pipelines from './pipelines';
 import type { RenderContext } from './pass-context';
-import type { GeometryGroup, RenderObject } from './render-object';
+import type { RenderObject } from './render-object';
 import { computeRenderObjectCacheKey, createRenderObject, disposeRenderObject } from './render-object';
 import type { TextureCache } from './textures';
 
@@ -78,7 +78,6 @@ export function getRenderObject(
     camera: Camera,
     renderContext: RenderContext,
     passId: string = 'default',
-    group: GeometryGroup | null = null,
 ): RenderObject {
     const map = getChainMap(state, passId);
     const keys = [mesh, material, renderContext];
@@ -88,7 +87,7 @@ export function getRenderObject(
 
     if (!renderObject) {
         // Create new RenderObject
-        renderObject = createRenderObject(mesh, material, scene, camera, renderContext, group);
+        renderObject = createRenderObject(mesh, material, scene, camera, renderContext);
 
         // Compute and store initial cache key
         renderObject.initialCacheKey = computeRenderObjectCacheKey(material, mesh.geometry, renderContext);

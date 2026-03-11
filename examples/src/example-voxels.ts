@@ -338,7 +338,6 @@ function buildGeometry(meshData: MeshData): Geometry {
     geom.setBuffer('normal', createVertexBuffer(d.vec3f, meshData.normals));
     geom.setBuffer('ao', createVertexBuffer(d.f32, meshData.ao));
     geom.index = createIndexBuffer(meshData.indices);
-    geom.vertexCount = meshData.positions.length / 3;
     return geom;
 }
 

@@ -2,6 +2,16 @@ import type { Box3, Sphere } from 'mathcat';
 import type { GpuBuffer } from '../core/buffer';
 import type { Any } from '../nodes/schema';
 
+/**
+ * Subset of geometry to draw.
+ * - `start` maps to `firstVertex` (non-indexed) or `firstIndex` (indexed).
+ * - `count` is the number of vertices/indices to draw. `Infinity` means the full buffer.
+ */
+export type DrawRange = {
+    start: number;
+    count: number;
+};
+
 export class Geometry {
     /** Buffers mapped by name. Can be vertex attributes, storage buffers, or any buffer type. @see setBuffer() @see removeBuffer() */
     buffers: Map<string, GpuBuffer<Any>> = new Map();
@@ -9,8 +19,12 @@ export class Geometry {
     /** Optional index buffer. Must have 'index' usage. @see setIndex(). */
     index: GpuBuffer<Any> | undefined = undefined;
 
-    /** Number of vertices. Used for non-indexed draws. */
-    vertexCount: number = 0;
+    /**
+     * Range of vertices/indices to draw.
+     * `start` maps to `firstVertex` (non-indexed) or `firstIndex` (indexed).
+     * `count` is the number of vertices/indices. Defaults to `Infinity` (full buffer).
+     */
+    drawRange: DrawRange = { start: 0, count: Infinity };
 
     /** Geometry ersion counter. Auto-incremented when buffers are added/removed */
     version: number = 0;

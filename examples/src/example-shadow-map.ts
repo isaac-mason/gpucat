@@ -261,7 +261,7 @@ const frustumPosBuf = createVertexBuffer(d.vec3f, frustumPositions);
 const frustumNormBuf = createVertexBuffer(d.vec3f, frustumNormals);
 frustumGeo.setBuffer('position', frustumPosBuf);
 frustumGeo.setBuffer('normal', frustumNormBuf);
-frustumGeo.vertexCount = FRUSTUM_VERTEX_COUNT;
+frustumGeo.drawRange.count = FRUSTUM_VERTEX_COUNT;
 
 const frustumMaterial = new Material({
     vertex: clipPos,

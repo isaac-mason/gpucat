@@ -123,7 +123,6 @@ function buildBoxGeometry() {
         usage: 'vertex',
     }));
     geom.setIndex(createIndexBuffer(indices));
-    geom.vertexCount = VERTEX_COUNT;
 
     return geom;
 }

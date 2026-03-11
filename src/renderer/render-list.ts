@@ -22,7 +22,6 @@ import * as chainMap from './chain-map';
 import * as frustum from '../math/frustum';
 import type { Geometry } from '../geometry/geometry';
 import type { Material } from '../material/material';
-import type { GeometryGroup } from './render-object';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -57,11 +56,6 @@ export type RenderItem = {
      * Used for transparent sorting (back-to-front).
      */
     z: number;
-
-    /**
-     * Optional geometry group for multi-material meshes.
-     */
-    group: GeometryGroup | null;
 };
 
 /**
@@ -202,7 +196,6 @@ function getNextRenderItem(list: RenderList): RenderItem {
             groupOrder: 0,
             renderOrder: 0,
             z: 0,
-            group: null,
         };
         list.renderItems.push(item);
     }
@@ -220,7 +213,6 @@ function getNextRenderItem(list: RenderList): RenderItem {
  * @param material - The mesh's material
  * @param groupOrder - Group order for layer-based sorting
  * @param z - View-space Z for transparent sorting
- * @param group - Optional geometry group for multi-material
  */
 export function pushRenderItem(
     list: RenderList,
@@ -229,7 +221,6 @@ export function pushRenderItem(
     material: Material,
     groupOrder: number,
     z: number,
-    group: GeometryGroup | null = null,
 ): void {
     const item = getNextRenderItem(list);
 
@@ -239,7 +230,6 @@ export function pushRenderItem(
     item.groupOrder = groupOrder;
     item.renderOrder = mesh.renderOrder;
     item.z = z;
-    item.group = group;
 
     if (material.transparent) {
         list.transparent.push(item);
@@ -411,7 +401,6 @@ function walkObject(
                 material,
                 0, // groupOrder - could be mesh.renderOrder or layer
                 z,
-                null, // group - for multi-material
             );
         }
     }

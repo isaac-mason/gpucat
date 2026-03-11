@@ -73,7 +73,6 @@ export function createBoxGeometry(width = 1, height = 1, depth = 1): Geometry {
     geom.setBuffer('normal', createVertexBuffer(d.vec3f, normals));
     geom.setBuffer('uv', createVertexBuffer(d.vec2f, uvs));
     geom.index = createIndexBuffer(indices);
-    geom.vertexCount = BOX_VERTEX_COUNT;
     geom.boundingBox = [-hw, -hh, -hd, hw, hh, hd];
     geom.boundingSphere = { center: [0, 0, 0], radius: Math.sqrt(hw * hw + hh * hh + hd * hd) };
     return geom;
@@ -137,7 +136,6 @@ export function createSphereGeometry(radius = 0.5, widthSegments = 16, heightSeg
     geom.setBuffer('normal', createVertexBuffer(d.vec3f, normals));
     geom.setBuffer('uv', createVertexBuffer(d.vec2f, uvs));
     geom.index = createIndexBuffer(indices);
-    geom.vertexCount = vertexCount;
     geom.boundingBox = [-radius, -radius, -radius, radius, radius, radius];
     geom.boundingSphere = { center: [0, 0, 0], radius };
     return geom;
@@ -216,7 +214,6 @@ export function createPlaneGeometry(
     geom.setBuffer('normal', createVertexBuffer(d.vec3f, normals));
     geom.setBuffer('uv', createVertexBuffer(d.vec2f, uvs));
     geom.index = createIndexBuffer(indices as Uint16Array);
-    geom.vertexCount = vertexCount;
     geom.boundingBox  = [-hw, 0, -hh, hw, 0, hh];
     geom.boundingSphere = {
         center: [0, 0, 0],
@@ -261,6 +258,6 @@ export function createFullscreenTriangleGeometry(flipY = false): Geometry {
     const geom = new Geometry();
     geom.setBuffer('position', createVertexBuffer(d.vec3f, positions));
     geom.setBuffer('uv', createVertexBuffer(d.vec2f, uvsData));
-    geom.vertexCount = 3;
+    geom.drawRange.count = 3;
     return geom;
 }

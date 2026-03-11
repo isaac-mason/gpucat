@@ -698,7 +698,7 @@ export class Inspector extends RendererInspector {
                     }
                 }
             } else {
-                pass.drawIndexed(geometry.index.array!.length, ro.mesh.count);
+                pass.drawIndexed(Math.min(geometry.drawRange.count, geometry.index.array!.length), ro.mesh.count, geometry.drawRange.start);
             }
         } else {
             if (geometry.indirect) {
@@ -710,7 +710,7 @@ export class Inspector extends RendererInspector {
                     }
                 }
             } else {
-                pass.draw(geometry.vertexCount, ro.mesh.count);
+                pass.draw(geometry.drawRange.count, ro.mesh.count, geometry.drawRange.start);
             }
         }
 

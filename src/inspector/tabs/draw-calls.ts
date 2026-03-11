@@ -371,14 +371,13 @@ function _buildPipelineTable(ro: RenderObject): HTMLDivElement {
 
     // Geometry / draw params
     const geo = ro.geometry;
-    rows.push(['vertexCount', String(geo.vertexCount)]);
+    rows.push(['drawRange.start', String(geo.drawRange.start)]);
+    rows.push(['drawRange.count', String(geo.drawRange.count)]);
     if (geo.index && geo.index.array) {
         rows.push(['indexFormat', getIndexFormat(geo.index.array) ?? 'unknown']);
         rows.push(['indexCount', String(geo.index.array.length)]);
     }
-    if (ro.drawParams) {
-        rows.push(['instanceCount', String(ro.drawParams.instanceCount)]);
-    }
+    rows.push(['instanceCount', String(ro.mesh.count)]);
 
     for (const [k, v] of rows) {
         container.appendChild(kvRow(k, v));
