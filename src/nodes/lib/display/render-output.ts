@@ -1,8 +1,8 @@
-import { f32, vec4f, type Node } from '../core';
 import * as d from '../../schema';
+import { f32, vec4f, type Node } from '../core';
 import {
-    acesToneMapping as acesToneMappingFn,
-    reinhardToneMapping as reinhardToneMappingFn,
+    acesToneMapping,
+    reinhardToneMapping,
     sRGBTransferOETF,
 } from './color';
 
@@ -58,8 +58,8 @@ export function renderOutput(
 
 function applyToneMapping(rgb: Node<d.vec3f>, mode: ToneMappingMode): Node<d.vec3f> {
     switch (mode) {
-        case 'aces':     return acesToneMappingFn(rgb);
-        case 'reinhard': return reinhardToneMappingFn(rgb);
+        case 'aces':     return acesToneMapping(rgb);
+        case 'reinhard': return reinhardToneMapping(rgb);
         case 'linear':   return rgb;
         case 'none':     return rgb;
     }
