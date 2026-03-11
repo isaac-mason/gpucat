@@ -179,7 +179,6 @@ export class WebGPURenderer {
         this._canvasTarget = new CanvasTarget(canvas);
         this._canvasTarget.isDefaultCanvasTarget = true;
 
-        // Device-independent subsystems — no GPU device needed
         this._renderContexts = RenderContext.createRenderContextsState();
         this._computeContext = RenderContext.createComputeContext();
         this._nodes = nodeManager.createNodeManagerState();
@@ -201,34 +200,32 @@ export class WebGPURenderer {
     async init(): Promise<this> {
         if (this._initialized) return this;
 
-        // Use pre-created device if provided, otherwise use navigator.gpu
+        // use pre-created device if provided, otherwise use navigator.gpu
         if (this._preDevice) {
             this._device = this._preDevice;
             this._adapter = this._preAdapter!;
             this._format = this._preFormat ?? 'bgra8unorm';
         } else {
-            // Normal mode: use navigator.gpu
+            // check for WebGPU support
             if (!navigator.gpu) {
                 throw new Error('[WebGPURenderer] WebGPU is not supported in this environment.');
             }
 
+            // request adapter
             const adapter = await navigator.gpu.requestAdapter(this._adapterOptions);
+
             if (!adapter) {
                 throw new Error('[WebGPURenderer] No WebGPU adapter found. Is WebGPU enabled?');
             }
+
             this._adapter = adapter;
 
-            // Request every feature the adapter supports. This mirrors Three.js's
-            // greedy approach: iterate all known GPUFeatureName values, filter to
-            // those the adapter advertises, and pass them all into requiredFeatures.
-            // This future-proofs the device against new code paths that use features
-            // we haven't explicitly listed, and keeps us aligned with the spec as it
-            // evolves without needing to update an explicit allowlist here.
+            // request every feature the adapter supports
             const requiredFeatures = Object.values(GPUFeatureName).filter(
                 (f) => adapter.features.has(f),
             ) as GPUFeatureName[];
 
-            // Merge with any caller-supplied descriptor, deduplicating features.
+            // merge with any caller-supplied descriptor, deduplicating features.
             const callerFeatures = this._deviceDescriptor?.requiredFeatures ?? [];
             const mergedFeatures = [
                 ...new Set([...requiredFeatures, ...callerFeatures]),
@@ -240,9 +237,9 @@ export class WebGPURenderer {
 
             this._device = await adapter.requestDevice(deviceDescriptor);
 
-            // Set up device lost handler (mirrors Three.js pattern)
+            // set up device lost handler
             this._device.lost.then((info) => {
-                // Ignore intentional device destruction
+                // ignore intentional device destruction
                 if (info.reason === 'destroyed') return;
 
                 const deviceLossInfo: DeviceLostInfo = {
@@ -262,7 +259,7 @@ export class WebGPURenderer {
                 this.onDeviceLost?.(deviceLossInfo);
             });
 
-            // Initialize the main canvas target context.
+            // initialize the main canvas target context.
             this._format = navigator.gpu.getPreferredCanvasFormat();
             this._canvasTarget.getContext(this._device, this._format, 'opaque');
         }
@@ -979,16 +976,16 @@ export class WebGPURenderer {
     }
 
     private _ensureRenderTargetAllocated(renderTarget: RenderTarget): void {
-        // Check if already allocated at correct size
+        // check if already allocated at correct size
         const firstTex = renderTarget.textures[0]?.gpuTexture;
         if (firstTex && firstTex.width === renderTarget.width && firstTex.height === renderTarget.height) {
             return;
         }
 
-        // Dispose old resources
+        // dispose old resources
         renderTarget.dispose();
 
-        // Allocate new GPU resources
+        // allocate new GPU resources
         const sampleCount = renderTarget.samples > 1 ? renderTarget.samples : 1;
 
         for (const tex of renderTarget.textures) {
@@ -1002,7 +999,7 @@ export class WebGPURenderer {
                 sampleCount,
             });
 
-            // Create sampler alongside texture (linear filtering for post-processing)
+            // create sampler alongside texture (linear filtering for post-processing)
             tex.gpuSampler = this._device.createSampler({
                 magFilter: 'linear',
                 minFilter: 'linear',
@@ -1020,7 +1017,7 @@ export class WebGPURenderer {
                 sampleCount,
             });
 
-            // Depth textures also need samplers for reading in post-processing
+            // depth textures also need samplers for reading in post-processing
             renderTarget.depthTexture.gpuSampler = this._device.createSampler({
                 magFilter: 'nearest',
                 minFilter: 'nearest',

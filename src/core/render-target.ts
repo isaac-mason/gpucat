@@ -23,19 +23,19 @@ export type RenderTargetOptions = {
  * on the screen.
  */
 export class RenderTarget {
-    /** the width of the render target */
+    /** The width of the render target */
     width: number;
 
-    /** the height of the render target */
+    /** The height of the render target */
     height: number;
 
-    /** the color format of the render target's texture(s) */
+    /** The color format of the render target's texture(s) */
     readonly colorFormat: GPUTextureFormat;
 
-    /** the depth format of the render target's depth texture, or null if no depth attachment */
+    /** The depth format of the render target's depth texture, or null if no depth attachment */
     readonly depthFormat: DepthTextureFormat | null;
 
-    /** the MSAA sample count of the render target */
+    /** The MSAA sample count of the render target */
     readonly samples: number;
 
     /**
@@ -45,15 +45,10 @@ export class RenderTarget {
      */
     textures: Texture[];
 
-    /**
-     * Depth texture, or null if no depth buffer.
-     */
+    /** Depth texture, or null if no depth */
     depthTexture: DepthTexture | null = null;
 
-    /** type flag for runtime checking */
-    readonly isRenderTarget = true;
-
-    /** constructs a new render target */
+    /** Constructs a new render target */
     constructor(width: number, height: number, opts: RenderTargetOptions = {}) {
         this.width = width;
         this.height = height;
@@ -79,12 +74,12 @@ export class RenderTarget {
         }
     }
 
-    /** the first color attachment texture */
+    /** The first color attachment texture */
     get texture(): Texture {
         return this.textures[0];
     }
 
-    /** sets the size of the render target, disposes existing GPU resources; renderer will reallocate on next use */
+    /** Sets the size of the render target, disposes existing GPU resources; renderer will reallocate on next use */
     setSize(width: number, height: number): void {
         if (this.width === width && this.height === height) return;
 
@@ -104,13 +99,12 @@ export class RenderTarget {
         }
     }
 
-    /** destroy the underlying GPU textures and samplers */
+    /** Destroy the underlying GPU textures and samplers */
     dispose(): void {
         for (const tex of this.textures) {
             tex.gpuTexture?.destroy();
             tex.gpuTexture = null;
-            // Note: GPUSampler doesn't have a destroy method, just null it
-            tex.gpuSampler = null;
+            tex.gpuSampler = null; // doesn't have a destroy method, just null it
         }
         if (this.depthTexture) {
             this.depthTexture.gpuTexture?.destroy();
@@ -119,10 +113,7 @@ export class RenderTarget {
         }
     }
 
-    /**
-     * Returns the texture index for the given name, or -1 if not found.
-     * Used by MRTNode to map output names to @location indices.
-     */
+    /** Returns the texture index for the given name, or -1 if not found. */
     getTextureIndex(name: string): number {
         for (let i = 0; i < this.textures.length; i++) {
             if (this.textures[i].name === name) return i;
