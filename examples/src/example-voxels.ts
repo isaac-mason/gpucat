@@ -345,11 +345,11 @@ function buildGeometry(meshData: MeshData): Geometry {
 // ─── material ─────────────────────────────────────────────────────────────────
 
 const posAttr = attribute('position', d.vec3f);
-const normalAttr = attribute('normal', d.vec3f) as Node<d.vec3f>;
-const aoAttr = attribute('ao', d.f32) as Node<d.f32>;
+const normalAttr = attribute('normal', d.vec3f);
+const aoAttr = attribute('ao', d.f32);
 
-const vNormal = varying(normalAttr, 'v_normal') as Node<d.vec3f>;
-const vAO = varying(aoAttr, 'v_ao') as Node<d.f32>;
+const vNormal = varying(normalAttr, 'v_normal');
+const vAO = varying(aoAttr, 'v_ao');
 
 const clipPos = mul(
     cameraProjectionMatrix,

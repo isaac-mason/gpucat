@@ -21,7 +21,7 @@ import type { NodeFrame } from './node-frame';
 import type { RenderObject } from './render-object';
 import { getBindings as getRenderObjectBindings } from './render-object';
 import type { TextureCache } from './textures';
-import { getSampler, updateTexture } from './textures';
+import { getSamplerFromNode, updateTexture } from './textures';
 
 /**
  * Per-BindGroup data (GPU resources).
@@ -527,35 +527,19 @@ function updateSamplerBinding(
     binding: SamplerBinding,
     data: BindGroupData,
 ): void {
-    const textureNode = binding.entry.textureNode;
-    const value = textureNode.value;
-
-    if (value === null) return;
-
-    if (!value.isRenderTargetTexture && !value.isDepthTexture) {
-        // It's a user Texture - get/create sampler via texture cache
-        const texture = value as Texture;
-        const sampler = getSampler(textureCache, device, texture);
-
-        // Update the node with GPU sampler
-        textureNode.gpuSampler = sampler;
-
-        // Check for sampler changes (simple key based on texture id)
-        const samplerKey = `${texture.id}`;
-        if (binding.samplerKey !== samplerKey) {
-            binding.samplerKey = samplerKey;
-            data.needsUpdate = true;
-        }
-    } else {
-        // Render target textures - check gpuSampler directly
-        // When RenderTarget.setSize() is called, it may create new samplers.
-        // We detect this by comparing the current gpuSampler pointer.
-        const gpuSampler = value.gpuSampler;
-        const samplerKey = gpuSampler ? `rt_${(gpuSampler as unknown as { label?: string }).label ?? 'sampler'}` : null;
-        if (binding.samplerKey !== samplerKey) {
-            binding.samplerKey = samplerKey;
-            data.needsUpdate = true;
-        }
+    const samplerNode = binding.entry.samplerNode;
+    
+    // Create/get sampler from SamplerNode settings
+    const sampler = getSamplerFromNode(textureCache, device, samplerNode);
+    
+    // Store the sampler on the SamplerNode for later access
+    samplerNode.resource = sampler;
+    
+    // Check for sampler changes using settingsKey
+    const samplerKey = samplerNode.settingsKey;
+    if (binding.samplerKey !== samplerKey) {
+        binding.samplerKey = samplerKey;
+        data.needsUpdate = true;
     }
 }
 
@@ -627,11 +611,8 @@ function rebuildGPUBindGroup(
             }
 
             case 'sampler': {
-                const textureNode = binding.entry.textureNode;
-                let samp = textureNode.gpuSampler;
-                if (samp === null && textureNode.value) {
-                    samp = textureNode.value.gpuSampler ?? null;
-                }
+                const samplerNode = binding.entry.samplerNode;
+                const samp = samplerNode.resource;
                 if (samp) {
                     entries.push({ binding: binding.entry.binding, resource: samp });
                 }

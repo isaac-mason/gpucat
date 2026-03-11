@@ -6,9 +6,6 @@ import * as d from '../schema';
 /**
  * BufferAttributeNode — a vertex attribute backed by a GpuBuffer or raw TypedArray.
  *
- * This is for directly embedding buffer data in the node graph, as opposed to
- * AttributeNode which references buffers by name from geometry.
- *
  * Can be used for both regular vertex attributes and per-instance attributes
  * (stepMode: 'instance') by setting `instanced = true`.
  *

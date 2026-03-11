@@ -314,7 +314,7 @@ export type SamplerEntry = {
     type: 'sampler' | 'sampler_comparison';
     group: number;
     binding: number;
-    textureNode: TextureNode;
+    samplerNode: SamplerNode<d.SamplerDesc | d.SamplerComparisonDesc>;
 };
 
 export type ComputeStorageEntry = {
@@ -386,7 +386,7 @@ interface BuildContext {
     storages: Map<string, StorageNode<d.Any>>;
     storageNames: Map<number, string>; // node.id -> generated name
     textures: Map<string, TextureNode>;
-    samplers: Map<string, TextureNode>; // sampler entries reference their texture
+    samplers: Map<string, SamplerNode>; // keyed by settingsKey for deduplication
     attributes: Map<string, AttributeEntry>;
     bufferAttributes: BufferAttributeNode<d.Any>[];
     bufferAttrNames: Map<number, string>; // node.id -> generated name
@@ -487,10 +487,37 @@ function getChildren(node: Node<d.Any>): Node<d.Any>[] {
         children.push(node.value);
     } else if (node instanceof InspectorNode) {
         children.push(node.wrappedNode);
+    } else if (node instanceof PassNode) {
+        // PassNode delegates to its texture node during code generation
+        const textureNode = node.scope === 'color' ? node.getTextureNode() : node.getLinearDepthNode();
+        children.push(textureNode);
     } else if (node instanceof TextureNode) {
+        // TextureNode has a samplerNode that needs its own binding
+        if (node.samplerNode) {
+            children.push(node.samplerNode);
+        }
         // TextureNode may have a uvNode that contains VaryingNode
         if (node.uvNode) {
             children.push(node.uvNode);
+        }
+        // Include sampling mode properties
+        if (node.levelNode) {
+            children.push(node.levelNode);
+        }
+        if (node.biasNode) {
+            children.push(node.biasNode);
+        }
+        if (node.gradNode) {
+            children.push(node.gradNode[0], node.gradNode[1]);
+        }
+        if (node.offsetNode) {
+            children.push(node.offsetNode);
+        }
+        if (node.loadCoords) {
+            children.push(node.loadCoords);
+        }
+        if (node.loadLevel) {
+            children.push(node.loadLevel);
         }
     } else if (node instanceof MRTNode) {
         // MRTNode stores outputs in outputNodes dict (members only populated post-resolve)
@@ -898,11 +925,6 @@ function generateTexture(ctx: BuildContext, node: TextureNode): string {
         ctx.textures.set(name, node);
     }
     
-    // register sampler for this texture
-    if (!ctx.samplers.has(name)) {
-        ctx.samplers.set(name, node);
-    }
-    
     // register update node if needed
     if ('updateType' in node && (node as unknown as UpdateNode).updateType !== 'none') {
         const updateNode = node as unknown as UpdateNode;
@@ -921,22 +943,80 @@ function generateTexture(ctx: BuildContext, node: TextureNode): string {
         }
     }
     
-    // Generate texture sample expression
+    // textureLoad mode - no sampler needed
+    if (node.samplingMode === 'load') {
+        if (!node.loadCoords) {
+            throw new Error(`[builder] TextureNode '${name}' in load mode has no loadCoords`);
+        }
+        const coordsExpr = generateExpr(ctx, node.loadCoords);
+        const levelExpr = node.loadLevel ? generateExpr(ctx, node.loadLevel) : '0';
+        return `textureLoad(${name}, ${coordsExpr}, ${levelExpr})`;
+    }
+    
+    // Sampling modes require a sampler
+    // If no samplerNode exists (e.g., PassTextureNode), create a default one
+    let samplerNode = node.samplerNode;
+    if (!samplerNode) {
+        samplerNode = new SamplerNode(d.sampler, name, node.groupNode);
+        // Store it on the node so it's consistent across calls
+        node.samplerNode = samplerNode;
+    }
+    
+    // Register the sampler (this handles deduplication by settingsKey)
+    const samplerName = generateSampler(ctx, samplerNode);
+    
+    // Sampling modes - require UV coordinates
     if (!node.uvNode) {
         throw new Error(`[builder] TextureNode '${name}' has no uvNode. Set uvNode or use texture.sample(uvNode).`);
     }
     const uvExpr = generateExpr(ctx, node.uvNode);
     
-    // Generate textureSample call
-    const samplerName = `${name}_sampler`;
-    return `textureSample(${name}, ${samplerName}, ${uvExpr})`;
+    // Build offset suffix if present (2D/2D-array only)
+    const offsetSuffix = node.offsetNode ? `, ${generateExpr(ctx, node.offsetNode)}` : '';
+    
+    // textureSampleGrad
+    if (node.samplingMode === 'grad') {
+        if (!node.gradNode) {
+            throw new Error(`[builder] TextureNode '${name}' in grad mode has no gradNode`);
+        }
+        const ddx = generateExpr(ctx, node.gradNode[0]);
+        const ddy = generateExpr(ctx, node.gradNode[1]);
+        return `textureSampleGrad(${name}, ${samplerName}, ${uvExpr}, ${ddx}, ${ddy}${offsetSuffix})`;
+    }
+    
+    // textureSampleBias
+    if (node.samplingMode === 'bias') {
+        if (!node.biasNode) {
+            throw new Error(`[builder] TextureNode '${name}' in bias mode has no biasNode`);
+        }
+        const bias = generateExpr(ctx, node.biasNode);
+        return `textureSampleBias(${name}, ${samplerName}, ${uvExpr}, ${bias}${offsetSuffix})`;
+    }
+    
+    // textureSampleLevel
+    if (node.samplingMode === 'level') {
+        if (!node.levelNode) {
+            throw new Error(`[builder] TextureNode '${name}' in level mode has no levelNode`);
+        }
+        const level = generateExpr(ctx, node.levelNode);
+        return `textureSampleLevel(${name}, ${samplerName}, ${uvExpr}, ${level}${offsetSuffix})`;
+    }
+    
+    // textureSample (default)
+    return `textureSample(${name}, ${samplerName}, ${uvExpr}${offsetSuffix})`;
 }
 
-function generateSampler(_ctx: BuildContext, node: SamplerNode): string {
-    // SamplerNode is standalone - just return its sampler name
-    // In practice, samplers are usually paired with textures via TextureNode
-    // which registers both texture and sampler bindings
-    return `${node.samplerId}_sampler`;
+function generateSampler(ctx: BuildContext, node: SamplerNode): string {
+    const key = node.settingsKey;
+    
+    // Register sampler for binding emission (deduplicated by settings)
+    if (!ctx.samplers.has(key)) {
+        ctx.samplers.set(key, node);
+    }
+    
+    // Return the sampler variable name (uses the registered sampler's ID for deduplication)
+    const registeredSampler = ctx.samplers.get(key)!;
+    return `${registeredSampler.samplerId}_sampler`;
 }
 
 function generateVarying(ctx: BuildContext, node: VaryingNode<d.Any>): string {
@@ -1176,7 +1256,7 @@ type BindingGroupData = {
     uniforms: UniformNode<d.Any>[];
     storages: { name: string; node: StorageNode<d.Any> }[];
     textures: { name: string; node: TextureNode }[];
-    samplers: { name: string; node: TextureNode }[];
+    samplers: { name: string; node: SamplerNode }[];
 };
 
 /**
@@ -1224,12 +1304,15 @@ function emitAllBindings(ctx: BuildContext): {
         getGroup(node.groupNode).storages.push({ name, node });
     }
 
-    // collect textures and samplers
+    // collect textures
     for (const [name, node] of ctx.textures) {
         getGroup(node.groupNode).textures.push({ name, node });
-        if (ctx.samplers.has(name)) {
-            getGroup(node.groupNode).samplers.push({ name, node });
-        }
+    }
+
+    // collect samplers (deduplicated by settingsKey)
+    for (const [_settingsKey, node] of ctx.samplers) {
+        const name = node.samplerId;
+        getGroup(node.groupNode).samplers.push({ name, node });
     }
 
     // step 2: sort groups by their order, then assign sequential group indices
@@ -1347,16 +1430,15 @@ function emitAllBindings(ctx: BuildContext): {
         }
 
         for (const { name, node } of group.samplers) {
-            // depth textures use sampler_comparison, others use sampler
-            const isDepth = node.textureType.includes('depth');
-            const samplerType = isDepth ? 'sampler_comparison' : 'sampler';
+            // node is now a SamplerNode - get sampler type from its compare property
+            const samplerType = node.compare ? 'sampler_comparison' : 'sampler';
             lines.push(`@group(${groupIndex}) @binding(${bindingIndex}) var ${name}_sampler: ${samplerType};`);
             samplerEntries.push({
                 samplerId: `${name}_sampler`,
                 type: samplerType,
                 group: groupIndex,
                 binding: bindingIndex,
-                textureNode: node,
+                samplerNode: node,
             });
             bindingIndex++;
         }

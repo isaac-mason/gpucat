@@ -3,26 +3,16 @@ import type { GpuBuffer } from '../core/buffer';
 import type { Any } from '../nodes/schema';
 
 export class Geometry {
-    /**
-     * Named buffers — vertex attributes, storage buffers, anything.
-     * The usage is determined by the buffer itself and how shaders reference it.
-     * Standard vertex attribute names: position, normal, uv, tangent.
-     */
-    readonly buffers: Map<string, GpuBuffer<Any>> = new Map();
+    /** Buffers mapped by name. Can be vertex attributes, storage buffers, or any buffer type. @see setBuffer() @see removeBuffer() */
+    buffers: Map<string, GpuBuffer<Any>> = new Map();
 
-    /**
-     * Optional index buffer. Must have 'index' usage.
-     * Use setIndex() for proper lifecycle management.
-     */
+    /** Optional index buffer. Must have 'index' usage. @see setIndex(). */
     index: GpuBuffer<Any> | undefined = undefined;
 
     /** Number of vertices. Used for non-indexed draws. */
     vertexCount: number = 0;
 
-    /**
-     * Version counter. Auto-incremented when buffers are added/removed.
-     * The renderer uses this to detect when shader recompilation is needed.
-     */
+    /** Geometry ersion counter. Auto-incremented when buffers are added/removed */
     version: number = 0;
 
     /**
@@ -30,7 +20,7 @@ export class Geometry {
      * drawIndirect / drawIndexedIndirect using this buffer instead of
      * draw / drawIndexed. `mesh.count` is ignored when this is set.
      * Must have 'indirect' usage.
-     * @internal Use setIndirect() to set this for proper lifecycle management.
+     * @see setIndirect
      */
     indirect: GpuBuffer<Any> | undefined = undefined;
 
@@ -68,6 +58,13 @@ export class Geometry {
     _onDispose: (() => void) | null = null;
 
     /**
+     * Get a named buffer with optional type narrowing.
+     */
+    getBuffer<T extends Any = Any>(name: string): GpuBuffer<T> | undefined {
+        return this.buffers.get(name) as GpuBuffer<T> | undefined;
+    }
+
+    /**
      * Set a named buffer.
      * Works for vertex attributes, storage buffers, or any buffer type.
      * Automatically bumps version when a new buffer name is added.
@@ -100,18 +97,11 @@ export class Geometry {
     }
 
     /**
-     * Get a named buffer with optional type narrowing.
-     */
-    getBuffer<T extends Any = Any>(name: string): GpuBuffer<T> | undefined {
-        return this.buffers.get(name) as GpuBuffer<T> | undefined;
-    }
-
-    /**
      * Remove a buffer by name.
      * Automatically bumps version when a buffer is removed.
      * For REF_COUNTED buffers, decrements usage count.
      */
-    deleteBuffer(name: string): this {
+    removeBuffer(name: string): this {
         const buffer = this.buffers.get(name);
         if (buffer) {
             buffer.decreaseUsages();

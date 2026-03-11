@@ -349,22 +349,25 @@ export function getDefaultTexture(cache: TextureCache, device: GPUDevice, format
 // ---------------------------------------------------------------------------
 
 /**
- * Compute a cache key for sampler parameters.
- * Three.js aligned: concatenates all sampler properties.
+ * Get or create a sampler from SamplerNode settings.
+ * Uses the SamplerNode's settingsKey for caching.
  */
-function computeSamplerKey(texture: Texture): string {
-    return `${texture.minFilter}-${texture.magFilter}-${texture.mipmapFilter}-${texture.wrapS}-${texture.wrapT}-${texture.anisotropy}`;
-}
-
-/**
- * Get or create a sampler for a texture's sampling parameters.
- * Samplers are shared/cached by parameter key.
- *
- * Note: WebGPU requires all filters to be 'linear' when maxAnisotropy > 1.
- * This function enforces that constraint.
- */
-export function getSampler(cache: TextureCache, device: GPUDevice, texture: Texture): GPUSampler {
-    const key = computeSamplerKey(texture);
+export function getSamplerFromNode(
+    cache: TextureCache,
+    device: GPUDevice,
+    samplerNode: {
+        settingsKey: string;
+        minFilter: GPUFilterMode;
+        magFilter: GPUFilterMode;
+        mipmapFilter: GPUMipmapFilterMode;
+        addressModeU: GPUAddressMode;
+        addressModeV: GPUAddressMode;
+        addressModeW: GPUAddressMode;
+        maxAnisotropy: number;
+        compare?: GPUCompareFunction;
+    }
+): GPUSampler {
+    const key = samplerNode.settingsKey;
 
     let data = cache.samplerCache.get(key);
     if (data) {
@@ -373,11 +376,10 @@ export function getSampler(cache: TextureCache, device: GPUDevice, texture: Text
     }
 
     // WebGPU constraint: anisotropy > 1 requires all filters to be 'linear'
-    let { minFilter, magFilter, mipmapFilter, anisotropy } = texture;
-    if (anisotropy > 1) {
+    let { minFilter, magFilter, mipmapFilter, maxAnisotropy } = samplerNode;
+    if (maxAnisotropy > 1) {
         if (minFilter !== 'linear' || magFilter !== 'linear' || mipmapFilter !== 'linear') {
-            // Clamp anisotropy to 1 if filters aren't all linear
-            anisotropy = 1;
+            maxAnisotropy = 1;
         }
     }
 
@@ -385,9 +387,11 @@ export function getSampler(cache: TextureCache, device: GPUDevice, texture: Text
         magFilter,
         minFilter,
         mipmapFilter,
-        addressModeU: texture.wrapS,
-        addressModeV: texture.wrapT,
-        maxAnisotropy: anisotropy,
+        addressModeU: samplerNode.addressModeU,
+        addressModeV: samplerNode.addressModeV,
+        addressModeW: samplerNode.addressModeW,
+        maxAnisotropy,
+        compare: samplerNode.compare,
     });
 
     cache.samplerCache.set(key, { sampler, usedTimes: 1 });

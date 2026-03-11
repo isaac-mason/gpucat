@@ -283,7 +283,7 @@ describe('Geometry buffer management', () => {
             geometry.setBuffer('position', buffer);
             expect(buffer._usages).toBe(1);
 
-            geometry.deleteBuffer('position');
+            geometry.removeBuffer('position');
             expect(buffer._usages).toBe(0);
             expect(buffer.disposed).toBe(true);
         });
@@ -295,7 +295,7 @@ describe('Geometry buffer management', () => {
             });
 
             geometry.setBuffer('position', buffer);
-            geometry.deleteBuffer('position');
+            geometry.removeBuffer('position');
             expect(buffer.disposed).toBe(false);
         });
     });

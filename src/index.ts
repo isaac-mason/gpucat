@@ -59,6 +59,17 @@ export {
     texture, varying, struct, wgsl, wgslFn, Fn, mrt,
     compute,
 
+    // texture/sampler factories and functions
+    sampler, comparisonSampler,
+    textureSample, textureSampleLevel, textureSampleBias, textureSampleGrad,
+    textureSampleCompare, textureSampleCompareLevel,
+    textureLoad, textureStore,
+    textureDimensions, textureNumLevels, textureNumLayers,
+    textureGather, textureGatherCompare,
+
+    // texture/sampler types
+    type TextureNode, type SamplerNode,
+
     // atomic operations
     atomicAdd, atomicStore, atomicLoad, atomicSub,
     atomicMax, atomicMin, atomicAnd, atomicOr, atomicXor,
