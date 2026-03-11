@@ -640,7 +640,7 @@ function rebuildGPUBindGroup(
                     if (res instanceof GPUTextureView) {
                         view = res;
                     } else {
-                        const isCube = 'isCubeTextureNode' in textureNode && textureNode.isCubeTextureNode === true;
+                        const isCube = textureNode.type.dimension === 'cube' || textureNode.type.dimension === 'cube_array';
                         view = (res as GPUTexture).createView(isCube ? { dimension: 'cube' } : undefined);
                     }
                     entries.push({ binding: binding.entry.binding, resource: view });

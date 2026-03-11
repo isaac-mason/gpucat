@@ -62,7 +62,7 @@ export {
     compute,
 
     // texture/sampler factories and functions
-    sampler, comparisonSampler, cubeTexture, depthTexture,
+    sampler, comparisonSampler, cubeTexture, depthTexture, textureBinding,
     textureSample, textureSampleLevel, textureSampleBias, textureSampleGrad,
     textureSampleCompare, textureSampleCompareLevel,
     textureLoad, textureStore,
@@ -70,7 +70,7 @@ export {
     textureGather, textureGatherCompare,
 
     // texture/sampler types
-    type TextureNode, type SamplerNode, type CubeTextureNode, type DepthTextureNode,
+    type TextureNode, type SamplerNode, type CubeTextureNode, type DepthTextureNode, type TextureBindingNode,
 
     // atomic operations
     atomicAdd, atomicStore, atomicLoad, atomicSub,
@@ -81,7 +81,7 @@ export {
     Var, Const,
 
     // control flow
-    If, Loop, For, While, Break, Continue, Return,
+    If, Loop, For, While, Break, Continue, Return, Discard,
     cond, select,
 
     // camera uniforms

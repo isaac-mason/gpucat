@@ -9,6 +9,10 @@ export class Object3D {
 
     name: string = '';
 
+    visible: boolean = true;
+
+    renderOrder: number = 0;
+
     position: Vec3 = [0, 0, 0];
     quaternion: Quat = [0, 0, 0, 1];
     scale: Vec3 = [1, 1, 1];

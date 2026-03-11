@@ -19,6 +19,7 @@ import {
     LoopNode,
     BreakNode,
     ContinueNode,
+    DiscardNode,
     CondNode,
     ReturnNode,
     FnNode,
@@ -32,7 +33,7 @@ import {
 import { WgslNode } from './lib/wgsl';
 import { AttributeNode } from './lib/attribute';
 import { GpuBuffer } from '../core/buffer';
-import { TextureNode, CubeTextureNode, DepthTextureNode, SamplerNode } from './lib/texture';
+import { TextureNode, CubeTextureNode, DepthTextureNode, TextureBindingNode, SamplerNode } from './lib/texture';
 import { StorageNode } from './lib/storage';
 import { UniformNode, UniformGroup } from './lib/uniform';
 import { WgslFunctionNode } from './lib/wgsl-fn';
@@ -125,7 +126,6 @@ export function compile(slots: CompileSlots): CompileResult {
     
     // collect all roots
     const roots = [slots.position, slots.color];
-    if (slots.mask) roots.push(slots.mask);
     if (slots.depth) roots.push(slots.depth);
     
     // single discovery pass across all roots
@@ -142,9 +142,7 @@ export function compile(slots: CompileSlots): CompileResult {
     fragmentCtx.structDefs = discovered.structDefs;
     
     // pre-collect varyings from fragment roots (so vertex shader knows what to output)
-    // fragment uses: color, mask (when present)
     const fragmentRoots: Node<d.Any>[] = [slots.color];
-    if (slots.mask) fragmentRoots.push(slots.mask);
     collectVaryings(fragmentRoots, vertexCtx);
     
     // generate vertex shader
@@ -399,7 +397,7 @@ export type TextureEntry = {
     type: string;
     group: number;
     binding: number;
-    node: TextureNode | CubeTextureNode | DepthTextureNode;
+    node: TextureBindingNode;
 };
 
 export type SamplerEntry = {
@@ -429,7 +427,6 @@ export type NodeGraphInfo = {
 export type CompileSlots = {
     position: Node<d.Any>;
     color: Node<d.Any>;
-    mask?: Node<d.Any>;
     depth?: Node<d.Any>;
 };
 
@@ -479,7 +476,7 @@ interface BuildContext {
     uniforms: Map<string, { node: UniformNode<d.Any>; group: UniformGroup }>;
     storages: Map<string, StorageNode<d.Any>>;
     storageNames: Map<number, string>; // node.id -> generated name
-    textures: Map<string, TextureNode | CubeTextureNode | DepthTextureNode>;
+    textures: Map<string, TextureBindingNode>;
     samplers: Map<string, SamplerNode>; // keyed by settingsKey for deduplication
     attributes: Map<number, AttributeEntry>; // node.id -> entry
     attrCounter: number;
@@ -583,16 +580,17 @@ function getChildren(node: Node<d.Any>): Node<d.Any>[] {
         // PassNode delegates to its texture node during code generation
         const textureNode = node.scope === 'color' ? node.getTextureNode() : node.getLinearDepthNode();
         children.push(textureNode);
+    } else if (node instanceof TextureBindingNode) {
+        // TextureBindingNode is a leaf — no children
     } else if (node instanceof TextureNode) {
-        // TextureNode has a samplerNode that needs its own binding
+        // TextureNode owns a bindingNode for the texture var declaration
+        children.push(node.bindingNode);
         if (node.samplerNode) {
             children.push(node.samplerNode);
         }
-        // TextureNode may have a uvNode that contains VaryingNode
         if (node.uvNode) {
             children.push(node.uvNode);
         }
-        // Include sampling mode properties
         if (node.levelNode) {
             children.push(node.levelNode);
         }
@@ -612,15 +610,13 @@ function getChildren(node: Node<d.Any>): Node<d.Any>[] {
             children.push(node.loadLevel);
         }
     } else if (node instanceof CubeTextureNode) {
-        // CubeTextureNode has a samplerNode that needs its own binding
+        children.push(node.bindingNode);
         if (node.samplerNode) {
             children.push(node.samplerNode);
         }
-        // CubeTextureNode has a directionNode (vec3f) instead of uvNode
         if (node.directionNode) {
             children.push(node.directionNode);
         }
-        // Include sampling mode properties (cube textures have no offset/load)
         if (node.levelNode) {
             children.push(node.levelNode);
         }
@@ -631,6 +627,7 @@ function getChildren(node: Node<d.Any>): Node<d.Any>[] {
             children.push(node.gradNode[0], node.gradNode[1]);
         }
     } else if (node instanceof DepthTextureNode) {
+        children.push(node.bindingNode);
         if (node.samplerNode) {
             children.push(node.samplerNode);
         }
@@ -845,6 +842,8 @@ function generateExpr(ctx: BuildContext, node: Node<d.Any>): string {
         // PassNode used as expression delegates to its texture node (like three.js setup())
         const textureNode = node.scope === 'color' ? node.getTextureNode() : node.getLinearDepthNode();
         expr = generateExpr(ctx, textureNode);
+    } else if (node instanceof TextureBindingNode) {
+        expr = generateTextureBinding(ctx, node);
     } else if (node instanceof TextureNode) {
         expr = generateTexture(ctx, node);
     } else if (node instanceof CubeTextureNode) {
@@ -962,9 +961,7 @@ function isTrivialExpr(node: Node<d.Any>): boolean {
         // binding references are global names
         node instanceof StorageNode ||
         node instanceof UniformNode ||
-        node instanceof TextureNode ||
-        node instanceof CubeTextureNode ||
-        node instanceof DepthTextureNode ||
+        node instanceof TextureBindingNode ||
         node instanceof SamplerNode ||
         node instanceof AttributeNode
     );
@@ -1067,11 +1064,17 @@ function generateStorage(ctx: BuildContext, node: StorageNode<d.Any>): string {
     return name;
 }
 
-function generateTexture(ctx: BuildContext, node: TextureNode): string {
+function generateTextureBinding(ctx: BuildContext, node: TextureBindingNode): string {
     const name = node.textureId;
     if (!ctx.textures.has(name)) {
         ctx.textures.set(name, node);
     }
+    return name;
+}
+
+function generateTexture(ctx: BuildContext, node: TextureNode): string {
+    const binding = node.bindingNode;
+    const name = generateTextureBinding(ctx, binding);
     
     // register update node if needed
     if ('updateType' in node && (node as unknown as UpdateNode).updateType !== 'none') {
@@ -1105,7 +1108,7 @@ function generateTexture(ctx: BuildContext, node: TextureNode): string {
     // If no samplerNode exists (e.g., PassTextureNode), create a default one
     let samplerNode = node.samplerNode;
     if (!samplerNode) {
-        samplerNode = new SamplerNode(d.sampler, name, node.groupNode);
+        samplerNode = new SamplerNode(d.sampler, name, binding.groupNode);
         // Store it on the node so it's consistent across calls
         node.samplerNode = samplerNode;
     }
@@ -1155,17 +1158,15 @@ function generateTexture(ctx: BuildContext, node: TextureNode): string {
 }
 
 function generateCubeTexture(ctx: BuildContext, node: CubeTextureNode): string {
-    const name = node.textureId;
-    if (!ctx.textures.has(name)) {
-        ctx.textures.set(name, node);
-    }
+    const binding = node.bindingNode;
+    const name = generateTextureBinding(ctx, binding);
     
     // Cube textures don't support textureLoad - only sampling modes
     
     // Sampling modes require a sampler
     let samplerNode = node.samplerNode;
     if (!samplerNode) {
-        samplerNode = new SamplerNode(d.sampler, name, node.groupNode);
+        samplerNode = new SamplerNode(d.sampler, name, binding.groupNode);
         node.samplerNode = samplerNode;
     }
     
@@ -1213,10 +1214,8 @@ function generateCubeTexture(ctx: BuildContext, node: CubeTextureNode): string {
 }
 
 function generateDepthTexture(ctx: BuildContext, node: DepthTextureNode): string {
-    const name = node.textureId;
-    if (!ctx.textures.has(name)) {
-        ctx.textures.set(name, node);
-    }
+    const binding = node.bindingNode;
+    const name = generateTextureBinding(ctx, binding);
 
     // textureLoad mode — no sampler needed
     if (node.samplingMode === 'load') {
@@ -1231,7 +1230,7 @@ function generateDepthTexture(ctx: BuildContext, node: DepthTextureNode): string
     // Sampling modes require a sampler
     let samplerNode = node.samplerNode;
     if (!samplerNode) {
-        samplerNode = new SamplerNode(d.sampler, name, node.groupNode);
+        samplerNode = new SamplerNode(d.sampler, name, binding.groupNode);
         node.samplerNode = samplerNode;
     }
 
@@ -1383,6 +1382,8 @@ function generateStmt(ctx: BuildContext, node: Node<d.Any>): void {
         ctx.code.push(`${ind}break;`);
     } else if (node instanceof ContinueNode) {
         ctx.code.push(`${ind}continue;`);
+    } else if (node instanceof DiscardNode) {
+        ctx.code.push(`${ind}discard;`);
     } else if (node instanceof ReturnNode) {
         if (node.value.type.wgslType === 'void') {
             ctx.code.push(`${ind}return;`);
@@ -1506,7 +1507,7 @@ type BindingGroupData = {
     groupIndex: number;
     uniforms: UniformNode<d.Any>[];
     storages: { name: string; node: StorageNode<d.Any> }[];
-    textures: { name: string; node: TextureNode | CubeTextureNode | DepthTextureNode }[];
+    textures: { name: string; node: TextureBindingNode }[];
     samplers: { name: string; node: SamplerNode }[];
 };
 
@@ -1669,10 +1670,10 @@ function emitAllBindings(ctx: BuildContext): {
 
         // emit texture and sampler bindings
         for (const { name, node } of group.textures) {
-            lines.push(`@group(${groupIndex}) @binding(${bindingIndex}) var ${name}: ${node.textureType};`);
+            lines.push(`@group(${groupIndex}) @binding(${bindingIndex}) var ${name}: ${node.type.wgslType};`);
             textureEntries.push({
                 textureId: name,
-                type: node.textureType,
+                type: node.type.wgslType,
                 group: groupIndex,
                 binding: bindingIndex,
                 node,

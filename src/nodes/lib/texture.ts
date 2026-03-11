@@ -71,6 +71,51 @@ export class SamplerNode<D extends d.SamplerDesc | d.SamplerComparisonDesc = d.S
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
+ * TextureBindingNode
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * TextureBindingNode - represents a module-scope texture handle binding.
+ *
+ * This mirrors how SamplerNode works: it represents a `var t : texture_2d<f32>`
+ * (or texture_cube<f32>, texture_depth_2d, etc.) at module scope. When used as
+ * an expression, it generates just the binding name — never a sampling operation.
+ *
+ * The existing TextureNode/CubeTextureNode/DepthTextureNode own a
+ * TextureBindingNode internally and delegate binding registration to it.
+ * Free functions take TextureBindingNode + SamplerNode as arguments, producing
+ * correct WGSL like `textureSample(myTex, mySampler, uv)`.
+ */
+export class TextureBindingNode extends Node<TextureDesc | DepthTextureDesc> {
+    readonly isTextureBindingNode = true;
+
+    /** GPU texture resource. Set this before rendering, or use `value`. */
+    resource: GPUTexture | GPUTextureView | null = null;
+
+    /**
+     * High-level texture wrapper. The renderer uses this to create/update
+     * the GPU texture.
+     */
+    value: Texture | CubeTexture | DepthTexture | null = null;
+
+    /** Unique ID for this texture binding (e.g. 'tAlbedo', 'tShadowMap'). */
+    readonly textureId: string;
+
+    /** Uniform group — determines @group index. */
+    groupNode: UniformGroup;
+
+    constructor(
+        desc: TextureDesc | DepthTextureDesc,
+        textureId: string,
+        groupNode: UniformGroup = objectGroup,
+    ) {
+        super(desc);
+        this.textureId = textureId;
+        this.groupNode = groupNode;
+    }
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
  * TextureNode
  * ──────────────────────────────────────────────────────────────────────────── */
 
@@ -85,6 +130,8 @@ export type SamplingMode = 'sample' | 'level' | 'bias' | 'grad' | 'load';
  *
  * When used as a value, it samples the texture at the given UV coordinates.
  * The node type is 'vec4f' (the sampled color), not the texture type.
+ *
+ * Owns a TextureBindingNode that handles the module-scope binding.
  * 
  * Supports chainable methods for ergonomic sampling control:
  * - .sample(uv) - set UV coordinates
@@ -97,23 +144,8 @@ export type SamplingMode = 'sample' | 'level' | 'bias' | 'grad' | 'load';
 export class TextureNode extends Node<d.vec4f> {
     readonly isTextureNode = true;
 
-    /**
-     * GPU texture resource. Set this before rendering.
-     * This can be set directly, OR use `value` (a Texture object) which the renderer
-     * will use to create/update the GPU texture.
-     */
-    resource: GPUTexture | GPUTextureView | null = null;
-
-    /**
-     * High-level Texture wrapper.
-     * If set, the renderer will use this to create/update the GPU texture.
-     *
-     * Can be:
-     * - Texture (scene texture with image data)
-     * - Texture with isRenderTargetTexture = true (render target color attachment)
-     * - DepthTexture (render target depth attachment, extends Texture)
-     */
-    value: Texture | null = null;
+    /** The texture binding — holds GPU resource, textureId, groupNode. */
+    readonly bindingNode: TextureBindingNode;
 
     /**
      * The UV node for texture coordinates.
@@ -126,18 +158,6 @@ export class TextureNode extends Node<d.vec4f> {
      * When sampling with different UVs, this points to the base texture node.
      */
     referenceNode: TextureNode | null = null;
-
-    /**
-     * The WGSL texture type string (e.g., 'texture_2d<f32>').
-     * Used for binding declarations.
-     */
-    readonly textureType: string;
-
-    /** Uniform group — determines @group index. Defaults to objectGroup */
-    groupNode: UniformGroup;
-
-    /** The texture ID (e.g. 'albedoMap') for caching and reuse. */
-    textureId: string;
 
     /**
      * The sampler node for this texture.
@@ -172,18 +192,13 @@ export class TextureNode extends Node<d.vec4f> {
     loadLevel: Node<d.i32> | null = null;
 
     constructor(
-        textureType: string,
-        textureId: string,
+        bindingNode: TextureBindingNode,
         uvNode: Node<d.vec2f> | null = null,
-        /** Uniform group — determines @group index. Defaults to objectGroup. */
-        groupNode: UniformGroup = objectGroup
     ) {
         // Node type is vec4f (the sampled color)
         super(d.vec4f);
-        this.textureType = textureType;
-        this.textureId = textureId;
+        this.bindingNode = bindingNode;
         this.uvNode = uvNode ?? varying(uv());
-        this.groupNode = groupNode;
     }
 
     /** Get the base texture node (follows referenceNode chain) */
@@ -199,9 +214,7 @@ export class TextureNode extends Node<d.vec4f> {
 
     /** Clone this texture node with all sampling properties */
     clone(): TextureNode {
-        const cloned = new TextureNode(this.textureType, this.textureId, this.uvNode, this.groupNode);
-        cloned.value = this.value;
-        cloned.resource = this.resource;
+        const cloned = new TextureNode(this.bindingNode, this.uvNode);
         cloned.referenceNode = this.referenceNode;
         cloned.samplerNode = this.samplerNode;
         // Copy sampling mode properties
@@ -334,11 +347,28 @@ export const texture = (
     tex: Texture,
     textureDesc: TextureDesc | DepthTextureDesc = texture2d()
 ): TextureNode => {
-    const node = new TextureNode(textureDesc.wgslType, `t${tex.id}`);
-    node.value = tex;
+    const binding = new TextureBindingNode(textureDesc, `t${tex.id}`);
+    binding.value = tex;
+    const node = new TextureNode(binding);
     // Auto-create sampler from texture settings
-    node.samplerNode = sampler(tex, node.groupNode);
+    node.samplerNode = sampler(tex, binding.groupNode);
     return node;
+};
+
+/**
+ * Create a standalone texture binding node.
+ *
+ * Use this when you want to work with WGSL-level free functions directly
+ * (textureSample, textureLoad, etc.) instead of the high-level TextureNode
+ * sampling API.
+ */
+export const textureBinding = (
+    tex: Texture | CubeTexture | DepthTexture,
+    textureDesc: TextureDesc | DepthTextureDesc = texture2d()
+): TextureBindingNode => {
+    const binding = new TextureBindingNode(textureDesc, `t${tex.id}`);
+    binding.value = tex;
+    return binding;
 };
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -369,18 +399,8 @@ export type CubeSamplingMode = 'sample' | 'level' | 'bias' | 'grad';
 export class CubeTextureNode extends Node<d.vec4f> {
     readonly isCubeTextureNode = true;
 
-    /**
-     * GPU texture resource. Set this before rendering.
-     * This can be set directly, OR use `value` (a CubeTexture object) which the renderer
-     * will use to create/update the GPU texture.
-     */
-    resource: GPUTexture | GPUTextureView | null = null;
-
-    /**
-     * High-level CubeTexture wrapper.
-     * If set, the renderer will use this to create/update the GPU texture.
-     */
-    value: CubeTexture | null = null;
+    /** The texture binding — holds GPU resource, textureId, groupNode. */
+    readonly bindingNode: TextureBindingNode;
 
     /**
      * The direction node for cube texture sampling (vec3f).
@@ -393,18 +413,6 @@ export class CubeTextureNode extends Node<d.vec4f> {
      * When sampling with different directions, this points to the base texture node.
      */
     referenceNode: CubeTextureNode | null = null;
-
-    /**
-     * The WGSL texture type string ('texture_cube<f32>').
-     * Used for binding declarations.
-     */
-    readonly textureType: string;
-
-    /** Uniform group — determines @group index. Defaults to objectGroup */
-    groupNode: UniformGroup;
-
-    /** The texture ID (e.g. 'envMap') for caching and reuse. */
-    textureId: string;
 
     /**
      * The sampler node for this texture.
@@ -429,17 +437,13 @@ export class CubeTextureNode extends Node<d.vec4f> {
     gradNode: [Node<d.vec3f>, Node<d.vec3f>] | null = null;
 
     constructor(
-        textureType: string,
-        textureId: string,
+        bindingNode: TextureBindingNode,
         directionNode: Node<d.vec3f> | null = null,
-        groupNode: UniformGroup = objectGroup
     ) {
         // Node type is vec4f (the sampled color)
         super(d.vec4f);
-        this.textureType = textureType;
-        this.textureId = textureId;
+        this.bindingNode = bindingNode;
         this.directionNode = directionNode;
-        this.groupNode = groupNode;
     }
 
     /** Get the base texture node (follows referenceNode chain) */
@@ -449,9 +453,7 @@ export class CubeTextureNode extends Node<d.vec4f> {
 
     /** Clone this texture node with all sampling properties */
     clone(): CubeTextureNode {
-        const cloned = new CubeTextureNode(this.textureType, this.textureId, this.directionNode, this.groupNode);
-        cloned.value = this.value;
-        cloned.resource = this.resource;
+        const cloned = new CubeTextureNode(this.bindingNode, this.directionNode);
         cloned.referenceNode = this.referenceNode;
         cloned.samplerNode = this.samplerNode;
         // Copy sampling mode properties
@@ -522,10 +524,11 @@ export class CubeTextureNode extends Node<d.vec4f> {
  */
 export const cubeTexture = (tex: CubeTexture): CubeTextureNode => {
     const desc = textureCube();
-    const node = new CubeTextureNode(desc.wgslType, `t${tex.id}`);
-    node.value = tex;
+    const binding = new TextureBindingNode(desc, `t${tex.id}`);
+    binding.value = tex;
+    const node = new CubeTextureNode(binding);
     // Auto-create sampler from texture settings (CubeTexture has same filter/wrap properties)
-    node.samplerNode = sampler(tex as unknown as Texture, node.groupNode);
+    node.samplerNode = sampler(tex as unknown as Texture, binding.groupNode);
     return node;
 };
 
@@ -562,18 +565,8 @@ export type DepthSamplingMode = 'sample' | 'level' | 'load';
 export class DepthTextureNode extends Node<d.f32> {
     readonly isDepthTextureNode = true;
 
-    /**
-     * GPU texture resource. Set this before rendering.
-     * This can be set directly, OR use `value` (a DepthTexture object) which the renderer
-     * will use to create/update the GPU texture.
-     */
-    resource: GPUTexture | GPUTextureView | null = null;
-
-    /**
-     * High-level DepthTexture wrapper.
-     * If set, the renderer will use this to create/update the GPU texture.
-     */
-    value: DepthTexture | null = null;
+    /** The texture binding — holds GPU resource, textureId, groupNode. */
+    readonly bindingNode: TextureBindingNode;
 
     /**
      * The UV node for texture coordinates (vec2f).
@@ -586,18 +579,6 @@ export class DepthTextureNode extends Node<d.f32> {
      * When sampling with different UVs, this points to the base texture node.
      */
     referenceNode: DepthTextureNode | null = null;
-
-    /**
-     * The WGSL texture type string ('texture_depth_2d').
-     * Used for binding declarations.
-     */
-    readonly textureType: string;
-
-    /** Uniform group — determines @group index. Defaults to objectGroup */
-    groupNode: UniformGroup;
-
-    /** The texture ID (e.g. 'shadowMap') for caching and reuse. */
-    textureId: string;
 
     /**
      * The sampler node for this texture.
@@ -627,17 +608,13 @@ export class DepthTextureNode extends Node<d.f32> {
     loadLevel: Node<d.i32> | null = null;
 
     constructor(
-        textureType: string,
-        textureId: string,
+        bindingNode: TextureBindingNode,
         uvNode: Node<d.vec2f> | null = null,
-        groupNode: UniformGroup = objectGroup
     ) {
         // Node type is f32 (depth value)
         super(d.f32);
-        this.textureType = textureType;
-        this.textureId = textureId;
+        this.bindingNode = bindingNode;
         this.uvNode = uvNode ?? varying(uv());
-        this.groupNode = groupNode;
     }
 
     /** Get the base texture node (follows referenceNode chain) */
@@ -647,9 +624,7 @@ export class DepthTextureNode extends Node<d.f32> {
 
     /** Clone this texture node with all sampling properties */
     clone(): DepthTextureNode {
-        const cloned = new DepthTextureNode(this.textureType, this.textureId, this.uvNode, this.groupNode);
-        cloned.value = this.value;
-        cloned.resource = this.resource;
+        const cloned = new DepthTextureNode(this.bindingNode, this.uvNode);
         cloned.referenceNode = this.referenceNode;
         cloned.samplerNode = this.samplerNode;
         // Copy sampling mode properties
@@ -724,10 +699,11 @@ export class DepthTextureNode extends Node<d.f32> {
  */
 export const depthTexture = (tex: DepthTexture): DepthTextureNode => {
     const desc = textureDepth2d();
-    const node = new DepthTextureNode(desc.wgslType, `t${tex.id}`);
-    node.value = tex;
+    const binding = new TextureBindingNode(desc, `t${tex.id}`);
+    binding.value = tex;
+    const node = new DepthTextureNode(binding);
     // Auto-create sampler from texture settings
-    node.samplerNode = sampler(tex, node.groupNode);
+    node.samplerNode = sampler(tex, binding.groupNode);
     return node;
 };
 
@@ -739,8 +715,7 @@ export const depthTexture = (tex: DepthTexture): DepthTextureNode => {
  * or for comparison sampling.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-// Type union for texture nodes that can be used in sampling functions
-type AnyTextureNode = TextureNode | DepthTextureNode;
+// Type aliases for free function parameters
 type AnySamplerNode = SamplerNode<d.SamplerDesc>;
 type AnyComparisonSamplerNode = SamplerNode<d.SamplerComparisonDesc>;
 
@@ -749,7 +724,7 @@ type AnyComparisonSamplerNode = SamplerNode<d.SamplerComparisonDesc>;
  * Fragment shader only.
  */
 export function textureSample(
-    t: AnyTextureNode,
+    t: TextureBindingNode,
     s: AnySamplerNode,
     coords: Node<d.vec2f>,
     offset?: Node<d.vec2i>
@@ -763,7 +738,7 @@ export function textureSample(
  * Works in any shader stage.
  */
 export function textureSampleLevel(
-    t: AnyTextureNode,
+    t: TextureBindingNode,
     s: AnySamplerNode,
     coords: Node<d.vec2f>,
     level: Node<d.f32>,
@@ -778,7 +753,7 @@ export function textureSampleLevel(
  * Fragment shader only.
  */
 export function textureSampleBias(
-    t: AnyTextureNode,
+    t: TextureBindingNode,
     s: AnySamplerNode,
     coords: Node<d.vec2f>,
     bias: Node<d.f32>,
@@ -793,7 +768,7 @@ export function textureSampleBias(
  * Works in any shader stage.
  */
 export function textureSampleGrad(
-    t: AnyTextureNode,
+    t: TextureBindingNode,
     s: AnySamplerNode,
     coords: Node<d.vec2f>,
     ddx: Node<d.vec2f>,
@@ -809,7 +784,7 @@ export function textureSampleGrad(
  * Fragment shader only. Requires sampler_comparison.
  */
 export function textureSampleCompare(
-    t: DepthTextureNode,
+    t: TextureBindingNode,
     s: AnyComparisonSamplerNode,
     coords: Node<d.vec2f>,
     depthRef: Node<d.f32>,
@@ -824,7 +799,7 @@ export function textureSampleCompare(
  * Works in any shader stage. Requires sampler_comparison.
  */
 export function textureSampleCompareLevel(
-    t: DepthTextureNode,
+    t: TextureBindingNode,
     s: AnyComparisonSamplerNode,
     coords: Node<d.vec2f>,
     depthRef: Node<d.f32>,
@@ -840,7 +815,7 @@ export function textureSampleCompareLevel(
  * Works in any shader stage. No sampler needed.
  */
 export function textureLoad(
-    t: AnyTextureNode,
+    t: TextureBindingNode,
     coords: Node<d.vec2i>,
     level: Node<d.i32>
 ): CallNode<d.vec4f> {
@@ -862,7 +837,7 @@ export function textureStore(
  * textureDimensions - Get texture dimensions.
  */
 export function textureDimensions(
-    t: AnyTextureNode,
+    t: TextureBindingNode,
     level?: Node<d.u32>
 ): CallNode<d.vec2u> {
     const args: Node<Any>[] = level ? [t, level] : [t];
@@ -872,7 +847,7 @@ export function textureDimensions(
 /**
  * textureNumLevels - Get number of mip levels.
  */
-export function textureNumLevels(t: AnyTextureNode): CallNode<d.u32> {
+export function textureNumLevels(t: TextureBindingNode): CallNode<d.u32> {
     return new CallNode(d.u32, 'textureNumLevels', [t]);
 }
 
@@ -888,7 +863,7 @@ export function textureNumLayers(t: Node<Any>): CallNode<d.u32> {
  */
 export function textureGather(
     component: Node<d.i32>,
-    t: AnyTextureNode,
+    t: TextureBindingNode,
     s: AnySamplerNode,
     coords: Node<d.vec2f>,
     offset?: Node<d.vec2i>
@@ -902,7 +877,7 @@ export function textureGather(
  * Requires sampler_comparison.
  */
 export function textureGatherCompare(
-    t: DepthTextureNode,
+    t: TextureBindingNode,
     s: AnyComparisonSamplerNode,
     coords: Node<d.vec2f>,
     depthRef: Node<d.f32>,

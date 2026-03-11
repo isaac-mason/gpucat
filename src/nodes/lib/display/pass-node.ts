@@ -5,10 +5,11 @@ import type { Scene } from '../../../scene/scene';
 import { type ImageSize } from '../../../texture/source';
 import { Texture } from '../../../texture/texture';
 import type { MRTNode } from '../mrt';
-import { TextureNode } from '../texture';
+import { TextureBindingNode, TextureNode } from '../texture';
 import { Node } from '../core';
 import { cameraFar, cameraNear } from '../camera';
 import * as d from '../../schema';
+import { objectGroup } from '../uniform';
 
 let _passCount = 0;
 
@@ -36,12 +37,13 @@ export class PassTextureNode extends TextureNode {
     constructor(passNode: PassNode, texture: Texture | null = null, textureId?: string) {
         // Generate unique texture ID based on pass, or use provided ID
         const id = textureId ?? `_pass${passNode.passId}_output`;
-        super('texture_2d<f32>', id);
+        const bindingNode = new TextureBindingNode(d.texture2d(), id, objectGroup);
+        super(bindingNode);
         this.passNode = passNode;
         
         // Set GPU texture resource if provided
         if (texture && texture.gpuTexture) {
-            this.resource = texture.gpuTexture;
+            this.bindingNode.resource = texture.gpuTexture;
         }
     }
 
@@ -97,7 +99,7 @@ export class PassMultipleTextureNode extends PassTextureNode {
      * Stores the texture object — GPU resources are accessed at bind time.
      */
     updateTexture(): void {
-        this.value = this.previousTexture
+        this.bindingNode.value = this.previousTexture
             ? this.passNode.getPreviousTexture(this.textureName)
             : this.passNode.getTexture(this.textureName);
     }

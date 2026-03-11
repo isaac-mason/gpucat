@@ -17,12 +17,6 @@ export interface MaterialOptions {
     fragment: Node<Any>;
 
     /**
-     * An optional `bool` discard mask. When this node evaluates to false, the fragment is
-     * discarded. Evaluated before all other fragment logic.
-     */
-    mask?: Node<Any>;
-
-    /**
      * An optional `f32` override for the fragment depth written to the depth buffer.
      * When set, the compiler emits `@builtin(frag_depth)` on the fragment
      * output and assigns this value.
@@ -60,9 +54,6 @@ export class Material {
     /** Fragment output. Can be vec4f or OutputStructNode for MRT */
     fragmentNode: Node<Any>;
 
-    /** bool discard mask — fragment is discarded when false */
-    maskNode: Node<Any> | undefined;
-
     /** f32 depth override — written to @builtin(frag_depth) */
     depthNode: Node<Any> | undefined;
 
@@ -97,7 +88,6 @@ export class Material {
     constructor(opts: MaterialOptions) {
         this.vertexNode = opts.vertex;
         this.fragmentNode = opts.fragment;
-        this.maskNode = opts.mask;
         this.depthNode = opts.depth;
 
         const transparent = opts.transparent ?? false;

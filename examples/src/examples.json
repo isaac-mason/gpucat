@@ -83,5 +83,10 @@
         "title": "Cube Texture Skybox",
         "description": "Cube texture skybox rendered from inside a box. Each face has a distinct color and label to verify correct face mapping and cube texture sampling.",
         "tags": ["texture", "cubemap", "skybox"]
+    },
+    "example-discard": {
+        "title": "Discard",
+        "description": "Animated dissolve effect using the Discard() control flow node with a 4x4 Bayer dither matrix. Opacity oscillates via sin(time), discarding fragments below the dither threshold.",
+        "tags": ["discard", "dithering", "control-flow"]
     }
 }

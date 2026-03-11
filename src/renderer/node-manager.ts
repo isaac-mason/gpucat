@@ -99,7 +99,6 @@ export function compileNodeState(
     const compileResult: CompileResult = compile({
         position: material.vertexNode,
         color: material.fragmentNode,
-        mask: material.maskNode,
         depth: material.depthNode,
     });
 

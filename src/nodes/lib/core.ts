@@ -97,7 +97,7 @@ export function pushStack(stack: StackNode): StackNode | null {
 export function popStack(prev: StackNode | null): void { currentStack = prev; }
 export function addToStack(node: Node<Any>): void {
     if (currentStack === null) throw new Error(
-        `[gpucat] Control flow (toVar, If, For, Return) must be called inside a Fn body. ` +
+        `[gpucat] Control flow (toVar, If, For, Return, Discard) must be called inside a Fn body. ` +
         `You are calling it outside of any Fn — wrap your code in Fn([...], () => { ... }).`
     );
     currentStack.push(node);
@@ -958,6 +958,7 @@ export class LoopNode extends Node<d.VoidDesc> {
 
 export class BreakNode    extends Node<d.VoidDesc> { constructor() { super(d.voidDesc); } }
 export class ContinueNode extends Node<d.VoidDesc> { constructor() { super(d.voidDesc); } }
+export class DiscardNode  extends Node<d.VoidDesc> { constructor() { super(d.voidDesc); } }
 
 export type IfChain = {
     ElseIf(condition: Node<Any>, body: () => void): IfChain;
@@ -1030,6 +1031,7 @@ export function Return<D extends Any>(value?: Node<D>): void {
 }
 export function Break(): void    { addToStack(new BreakNode()); }
 export function Continue(): void { addToStack(new ContinueNode()); }
+export function Discard(): void  { addToStack(new DiscardNode()); }
 
 export type ParamDesc = { readonly name: string; readonly type: Any; };
 export type ParamDescsToNodes<P extends readonly ParamDesc[]> = { [K in keyof P]: P[K] extends ParamDesc ? Node<P[K]['type']> : never; };

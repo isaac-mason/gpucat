@@ -237,7 +237,7 @@ export function pushRenderItem(
     item.geometry = geometry;
     item.material = material;
     item.groupOrder = groupOrder;
-    item.renderOrder = 0; // mesh.renderOrder if we add that
+    item.renderOrder = mesh.renderOrder;
     item.z = z;
     item.group = group;
 
@@ -395,6 +395,8 @@ function walkObject(
     obj: Object3D,
     camera: Camera,
 ): void {
+    if (!obj.visible) return;
+
     if (obj instanceof Mesh) {
         if (isMeshVisible(obj)) {
             const z = computeViewZ(obj, camera);
@@ -430,6 +432,8 @@ function isMeshVisible(mesh: Mesh): boolean {
 
     // Skip disposed geometries
     if (geom.disposed) return false;
+
+    if (!mesh.frustumCulled) return true;
 
     // --- sphere test (preferred) ------------------------------------------
     if (geom.boundingSphere !== undefined) {

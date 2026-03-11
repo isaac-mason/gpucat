@@ -340,7 +340,6 @@ export function makeRenderPipelineKey(
 ): string {
     const posId = material.vertexNode ? material.vertexNode.id : '__default__';
     const colId = material.fragmentNode.id;
-    const maskId = material.maskNode ? material.maskNode.id : '__none__';
     const depId = material.depthNode ? material.depthNode.id : '__none__';
 
     const rs = [
@@ -357,7 +356,7 @@ export function makeRenderPipelineKey(
         material.blend ? JSON.stringify(material.blend) : 'none',
     ].join('|');
 
-    return `${posId}::${colId}::${maskId}::${depId}::${rs}`;
+    return `${posId}::${colId}::${depId}::${rs}`;
 }
 
 /**
