@@ -2,6 +2,8 @@ import type {
     CompileResult,
     ComputeCompileResult,
     AttributeEntry,
+    VaryingEntry,
+    VertexBufferGroup,
     UniformGroupBlock,
     StorageEntry,
     TextureEntry,
@@ -78,6 +80,9 @@ export type NodeBuilderState = {
     // === Shared (populated for both) ===
     /** Vertex attribute entries for pipeline layout. Empty for compute. */
     attributes: AttributeEntry[];
+    
+    /** Vertex buffer groups - attributes grouped by underlying buffer. Empty for compute. */
+    vertexBufferGroups: VertexBufferGroup[];
 
     /** Uniform groups. */
     uniformGroups: UniformGroupBlock[];
@@ -90,6 +95,12 @@ export type NodeBuilderState = {
 
     /** Sampler bindings. Empty for compute (for now). */
     samplers: SamplerEntry[];
+
+    /** Varying entries (vertex → fragment). Empty for compute. */
+    varyings: VaryingEntry[];
+
+    /** Builtins used by the shader (e.g. 'vertex_index', 'instance_index'). */
+    builtinsUsed: ReadonlySet<string>;
 
     /**
      * Template BindGroups for this shader.
@@ -146,10 +157,13 @@ export function createNodeBuilderState(
         workgroupSize: null,
         // Bindings
         attributes: compileResult.attributes,
+        vertexBufferGroups: compileResult.vertexBufferGroups,
         uniformGroups: compileResult.uniformGroups,
         storage: compileResult.storage,
         textures: compileResult.textures,
         samplers: compileResult.samplers,
+        varyings: compileResult.varyings,
+        builtinsUsed: compileResult.builtinsUsed,
         bindings,
         updateBeforeNodes: compileResult.updateBeforeNodes,
         updateAfterNodes: compileResult.updateAfterNodes,
@@ -187,10 +201,13 @@ export function createNodeBuilderStateForCompute(
         workgroupSize: compileResult.workgroupSize,
         // Bindings
         attributes: [], // no vertex attributes for compute
+        vertexBufferGroups: [], // no vertex buffer groups for compute
         uniformGroups: compileResult.uniformGroups,
         storage: compileResult.storage,
         textures: [], // no textures for compute (for now)
         samplers: [], // no samplers for compute (for now)
+        varyings: [], // no varyings for compute
+        builtinsUsed: compileResult.builtinsUsed,
         bindings,
         updateBeforeNodes: [], // compute doesn't have these yet
         updateAfterNodes: [],

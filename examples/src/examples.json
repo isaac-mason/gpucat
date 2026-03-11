@@ -73,5 +73,15 @@
         "title": "Voxels Batched",
         "description": "Batched voxel renderer with slab-allocated merged geometry, GPU frustum culling via compute shader, indirect draws, render distance management, and realtime voxel editing.",
         "tags": ["voxels", "indirect", "compute", "culling", "batched-mesh"]
+    },
+    "example-interleaved": {
+        "title": "Interleaved Vertex Buffers",
+        "description": "Demonstrates interleaved vertex attributes: normal and per-vertex color are packed into a single GpuBuffer with shared stride, producing one setVertexBuffer call for both attributes.",
+        "tags": ["geometry", "interleaved", "vertex-buffers"]
+    },
+    "example-cubemap": {
+        "title": "Cube Texture Skybox",
+        "description": "Cube texture skybox rendered from inside a box. Each face has a distinct color and label to verify correct face mapping and cube texture sampling.",
+        "tags": ["texture", "cubemap", "skybox"]
     }
 }

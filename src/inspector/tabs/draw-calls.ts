@@ -22,12 +22,7 @@ import type { Inspector } from '../inspector';
 import type { RenderObject } from '../../renderer/render-object';
 import type { WebGPURenderer } from '../../renderer/renderer';
 import { getIndexFormat } from '../../core/buffer';
-import type {
-    UniformGroupBlock,
-    StorageEntry,
-    TextureEntry,
-    SamplerEntry,
-} from '../../nodes/builder';
+import type { NodeBuilderState } from '../../renderer/node-builder-state';
 
 // ---------------------------------------------------------------------------
 // Internal record — one per live RenderObject
@@ -303,12 +298,7 @@ export class DrawCalls extends Tab {
         this._bindingsPane.innerHTML = '';
         if (ro.nodeBuilderState) {
             this._bindingsPane.appendChild(
-                buildBindingsTable(
-                    ro.nodeBuilderState.uniformGroups,
-                    ro.nodeBuilderState.textures,
-                    ro.nodeBuilderState.samplers,
-                    ro.nodeBuilderState.storage,
-                ),
+                buildBindingsTable(ro.nodeBuilderState),
             );
         } else {
             const hint = document.createElement('div');
@@ -401,13 +391,80 @@ function _buildPipelineTable(ro: RenderObject): HTMLDivElement {
 // Bindings table (exported for reuse by ComputeCalls)
 // ---------------------------------------------------------------------------
 
-export function buildBindingsTable(
-    uniformGroups: UniformGroupBlock[],
-    textures: TextureEntry[],
-    samplers: SamplerEntry[],
-    storage: StorageEntry[],
-): HTMLDivElement {
+export function buildBindingsTable(state: NodeBuilderState): HTMLDivElement {
     const container = document.createElement('div');
+
+    const {
+        uniformGroups,
+        textures,
+        samplers,
+        storage,
+        vertexBufferGroups,
+        varyings,
+        builtinsUsed,
+    } = state;
+
+    // --- Vertex Buffer Groups ---
+    if (vertexBufferGroups.length > 0) {
+        container.appendChild(sectionHeader('Vertex Buffers'));
+        const table = document.createElement('div');
+        table.className = 'dc-kv-table';
+        for (let i = 0; i < vertexBufferGroups.length; i++) {
+            const group = vertexBufferGroups[i];
+            const source = group.name !== null ? group.name : 'buffer';
+            const stepMode = group.instanced ? 'instance' : 'vertex';
+            table.appendChild(kvRow(
+                `slot ${i} (${source})`,
+                `stride=${group.stride}, ${stepMode}, ${group.attributes.length} attr${group.attributes.length > 1 ? 's' : ''}`,
+            ));
+            for (const attr of group.attributes) {
+                const memberEl = document.createElement('div');
+                memberEl.className = 'dc-kv-row';
+                memberEl.style.paddingLeft = '16px';
+                const k = document.createElement('span');
+                k.className = 'dc-kv-key';
+                k.textContent = `  @location(${attr.shaderLocation})`;
+                const v = document.createElement('span');
+                v.className = 'dc-kv-val';
+                v.textContent = `${attr.type}, offset=${attr.offset}`;
+                memberEl.appendChild(k);
+                memberEl.appendChild(v);
+                table.appendChild(memberEl);
+            }
+        }
+        container.appendChild(table);
+    }
+
+    // --- Varyings ---
+    if (varyings.length > 0) {
+        container.appendChild(sectionHeader('Varyings'));
+        const table = document.createElement('div');
+        table.className = 'dc-kv-table';
+        for (const v of varyings) {
+            let interp = '';
+            if (v.interpolationType) {
+                interp = ` @interpolate(${v.interpolationType}`;
+                if (v.interpolationSampling) interp += `, ${v.interpolationSampling}`;
+                interp += ')';
+            }
+            table.appendChild(kvRow(
+                `@location(${v.location}) ${v.name}`,
+                `${v.type}${interp}`,
+            ));
+        }
+        container.appendChild(table);
+    }
+
+    // --- Builtins ---
+    if (builtinsUsed.size > 0) {
+        container.appendChild(sectionHeader('Builtins'));
+        const table = document.createElement('div');
+        table.className = 'dc-kv-table';
+        for (const b of builtinsUsed) {
+            table.appendChild(kvRow(`@builtin(${b})`, ''));
+        }
+        container.appendChild(table);
+    }
 
     // --- Uniform groups ---
     if (uniformGroups.length > 0) {
@@ -480,6 +537,9 @@ export function buildBindingsTable(
     }
 
     if (
+        vertexBufferGroups.length === 0 &&
+        varyings.length === 0 &&
+        builtinsUsed.size === 0 &&
         uniformGroups.length === 0 &&
         textures.length === 0 &&
         samplers.length === 0 &&

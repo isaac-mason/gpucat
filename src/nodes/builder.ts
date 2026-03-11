@@ -31,7 +31,8 @@ import {
 } from './lib/varying';
 import { WgslNode } from './lib/wgsl';
 import { AttributeNode } from './lib/attribute';
-import { TextureNode, SamplerNode } from './lib/texture';
+import { GpuBuffer } from '../core/buffer';
+import { TextureNode, CubeTextureNode, DepthTextureNode, SamplerNode } from './lib/texture';
 import { StorageNode } from './lib/storage';
 import { UniformNode, UniformGroup } from './lib/uniform';
 import { WgslFunctionNode } from './lib/wgsl-fn';
@@ -43,6 +44,79 @@ import type { StructSchema } from './schema';
 import { constLiteral } from './wgsl-utils';
 
 /* public apis */
+
+/**
+ * Group attributes by their underlying buffer for efficient vertex buffer binding.
+ * 
+ * Attributes sharing the same buffer (either by name for geometry-based, or by
+ * buffer reference for direct) are grouped together. This enables:
+ * - One GPUVertexBufferLayout with multiple attributes
+ * - One setVertexBuffer() call per unique buffer
+ * 
+ * @param entries - Flat array of AttributeEntry from compilation
+ * @returns Array of VertexBufferGroup, one per unique buffer
+ */
+function groupAttributesByBuffer(entries: AttributeEntry[]): VertexBufferGroup[] {
+    // Use separate maps for name-based and buffer-based grouping
+    const nameGroups = new Map<string, VertexBufferGroup>();
+    const bufferGroups = new Map<GpuBuffer<d.Any>, VertexBufferGroup>();
+    
+    for (const entry of entries) {
+        let group: VertexBufferGroup | undefined;
+        
+        if (entry.kind === 'geometry') {
+            // Name-based grouping
+            const geomName = entry.name!;
+            group = nameGroups.get(geomName);
+            if (!group) {
+                group = {
+                    name: geomName,
+                    buffer: null,
+                    stride: entry.stride,
+                    instanced: entry.instanced,
+                    attributes: [],
+                };
+                nameGroups.set(geomName, group);
+            }
+        } else {
+            // Buffer-based grouping
+            const buffer = entry.node.buffer!;
+            group = bufferGroups.get(buffer);
+            if (!group) {
+                group = {
+                    name: null,
+                    buffer,
+                    stride: entry.stride,
+                    instanced: entry.instanced,
+                    attributes: [],
+                };
+                bufferGroups.set(buffer, group);
+            }
+        }
+        
+        // Validate stride/instanced match within group
+        if (group.stride !== entry.stride) {
+            throw new Error(
+                `[gpucat] Interleaved attributes sharing buffer must have matching stride. ` +
+                `Got ${entry.stride} but group has ${group.stride}.`
+            );
+        }
+        if (group.instanced !== entry.instanced) {
+            throw new Error(
+                `[gpucat] Interleaved attributes sharing buffer must have matching instanced flag.`
+            );
+        }
+        
+        group.attributes.push({
+            type: entry.type,
+            offset: entry.offset,
+            shaderLocation: entry.location,
+        });
+    }
+    
+    // Combine both maps into a single array, preserving order (name-based first, then buffer-based)
+    return [...nameGroups.values(), ...bufferGroups.values()];
+}
 
 export function compile(slots: CompileSlots): CompileResult {
     // create contexts for both stages
@@ -136,28 +210,18 @@ export function compile(slots: CompileSlots): CompileResult {
         });
     }
     
-    // Build attributes array including buffer attributes
+    // Build attributes array — unified, all entries already in ctx.attributes
     const allAttributes: AttributeEntry[] = Array.from(vertexCtx.attributes.values());
-    for (const bufAttr of vertexCtx.bufferAttributes) {
-        const bufName = vertexCtx.bufferAttrNames.get(bufAttr.id)!;
-        const location = vertexCtx.attributes.size + vertexCtx.bufferAttributes.indexOf(bufAttr);
-        allAttributes.push({
-            kind: 'buffer',
-            node: bufAttr,
-            name: bufName,
-            type: bufAttr.type.wgslType,
-            location,
-            stride: bufAttr.stride,
-            offset: bufAttr.offset,
-            instanced: bufAttr.instanced,
-        });
-    }
+    
+    // Group attributes by underlying buffer for efficient vertex buffer binding
+    const vertexBufferGroups = groupAttributesByBuffer(allAttributes);
     
     return {
         code,
         vertexEntryPoint: 'vs_main',
         fragmentEntryPoint: 'fs_main',
         attributes: allAttributes,
+        vertexBufferGroups,
         varyings: varyingEntries,
         uniformGroups: uniformBlocks,
         storage: storageEntries,
@@ -256,13 +320,43 @@ export type UpdateNode = {
 
 export type AttributeEntry = {
     kind: 'geometry' | 'buffer';
-    name: string;
+    /** For geometry: the geometry buffer name. For buffer: null (direct reference). */
+    name: string | null;
+    /** WGSL struct member name (e.g. '_position_0', '_buf_1'). */
+    shaderName: string;
     type: string;
     location: number;
     node: AttributeNode<d.Any>;
     stride: number;
     offset: number;
     instanced: boolean;
+};
+
+/**
+ * VertexBufferGroup — groups attributes that share the same underlying buffer.
+ * 
+ * For interleaved vertex data, multiple attributes may reference the same buffer
+ * with different offsets. Grouping them enables:
+ * - One GPUVertexBufferLayout with multiple attributes
+ * - One setVertexBuffer() call per unique buffer
+ * 
+ * This follows WebGPU's design where VertexBufferLayout.attributes is an array.
+ */
+export type VertexBufferGroup = {
+    /** For geometry-based: the buffer name. For direct buffer: null. */
+    name: string | null;
+    /** For direct buffer: the GpuBuffer. For geometry-based: null (resolved at render time). */
+    buffer: GpuBuffer<d.Any> | null;
+    /** Shared stride (must match across grouped attributes). */
+    stride: number;
+    /** Whether these are per-instance attributes. */
+    instanced: boolean;
+    /** The attributes in this group (for building GPUVertexBufferLayout.attributes). */
+    attributes: {
+        type: string;
+        offset: number;
+        shaderLocation: number;
+    }[];
 };
 
 export type VaryingEntry = {
@@ -305,7 +399,7 @@ export type TextureEntry = {
     type: string;
     group: number;
     binding: number;
-    node: TextureNode;
+    node: TextureNode | CubeTextureNode | DepthTextureNode;
 };
 
 export type SamplerEntry = {
@@ -344,6 +438,7 @@ export type CompileResult = {
     vertexEntryPoint: string;
     fragmentEntryPoint: string;
     attributes: AttributeEntry[];
+    vertexBufferGroups: VertexBufferGroup[];
     varyings: VaryingEntry[];
     uniformGroups: UniformGroupBlock[];
     storage: StorageEntry[];
@@ -384,11 +479,10 @@ interface BuildContext {
     uniforms: Map<string, { node: UniformNode<d.Any>; group: UniformGroup }>;
     storages: Map<string, StorageNode<d.Any>>;
     storageNames: Map<number, string>; // node.id -> generated name
-    textures: Map<string, TextureNode>;
+    textures: Map<string, TextureNode | CubeTextureNode | DepthTextureNode>;
     samplers: Map<string, SamplerNode>; // keyed by settingsKey for deduplication
-    attributes: Map<string, AttributeEntry>;
-    bufferAttributes: AttributeNode<d.Any>[];
-    bufferAttrNames: Map<number, string>; // node.id -> generated name
+    attributes: Map<number, AttributeEntry>; // node.id -> entry
+    attrCounter: number;
     varyings: Map<string, { node: VaryingNode<d.Any>; vertexExpr: string }>;
     builtins: Set<string>;
     
@@ -433,8 +527,7 @@ function createContext(stage: ShaderStage, isRender: boolean): BuildContext {
         textures: new Map(),
         samplers: new Map(),
         attributes: new Map(),
-        bufferAttributes: [],
-        bufferAttrNames: new Map(),
+        attrCounter: 0,
         varyings: new Map(),
         builtins: new Set(),
         structs: new Map(),
@@ -508,6 +601,44 @@ function getChildren(node: Node<d.Any>): Node<d.Any>[] {
         }
         if (node.gradNode) {
             children.push(node.gradNode[0], node.gradNode[1]);
+        }
+        if (node.offsetNode) {
+            children.push(node.offsetNode);
+        }
+        if (node.loadCoords) {
+            children.push(node.loadCoords);
+        }
+        if (node.loadLevel) {
+            children.push(node.loadLevel);
+        }
+    } else if (node instanceof CubeTextureNode) {
+        // CubeTextureNode has a samplerNode that needs its own binding
+        if (node.samplerNode) {
+            children.push(node.samplerNode);
+        }
+        // CubeTextureNode has a directionNode (vec3f) instead of uvNode
+        if (node.directionNode) {
+            children.push(node.directionNode);
+        }
+        // Include sampling mode properties (cube textures have no offset/load)
+        if (node.levelNode) {
+            children.push(node.levelNode);
+        }
+        if (node.biasNode) {
+            children.push(node.biasNode);
+        }
+        if (node.gradNode) {
+            children.push(node.gradNode[0], node.gradNode[1]);
+        }
+    } else if (node instanceof DepthTextureNode) {
+        if (node.samplerNode) {
+            children.push(node.samplerNode);
+        }
+        if (node.uvNode) {
+            children.push(node.uvNode);
+        }
+        if (node.levelNode) {
+            children.push(node.levelNode);
         }
         if (node.offsetNode) {
             children.push(node.offsetNode);
@@ -716,6 +847,10 @@ function generateExpr(ctx: BuildContext, node: Node<d.Any>): string {
         expr = generateExpr(ctx, textureNode);
     } else if (node instanceof TextureNode) {
         expr = generateTexture(ctx, node);
+    } else if (node instanceof CubeTextureNode) {
+        expr = generateCubeTexture(ctx, node);
+    } else if (node instanceof DepthTextureNode) {
+        expr = generateDepthTexture(ctx, node);
     } else if (node instanceof SamplerNode) {
         expr = generateSampler(ctx, node);
     } else if (node instanceof VaryingNode) {
@@ -828,6 +963,8 @@ function isTrivialExpr(node: Node<d.Any>): boolean {
         node instanceof StorageNode ||
         node instanceof UniformNode ||
         node instanceof TextureNode ||
+        node instanceof CubeTextureNode ||
+        node instanceof DepthTextureNode ||
         node instanceof SamplerNode ||
         node instanceof AttributeNode
     );
@@ -874,34 +1011,44 @@ function generateAttribute(ctx: BuildContext, node: AttributeNode<d.Any>): strin
         throw new Error(`[builder] AttributeNode can only be used in vertex stage. Use varying() to pass to fragment stage.`);
     }
 
+    // Deduplicate by node.id — same node always returns the same WGSL name
+    const existing = ctx.attributes.get(node.id);
+    if (existing) {
+        return `input.${existing.shaderName}`;
+    }
+
+    const location = ctx.attributes.size;
+    const index = ctx.attrCounter++;
+
     if (node.isNamedReference) {
-        // By-name: geometry lookup
-        const name = node.name!;
-        if (!ctx.attributes.has(name)) {
-            ctx.attributes.set(name, {
-                kind: 'geometry',
-                name,
-                type: node.type.wgslType,
-                location: ctx.attributes.size,
-                node,
-                stride: node.stride,
-                offset: node.offset,
-                instanced: node.instanced,
-            });
-        }
-        return `input.${name}`;
+        const geomName = node.name!;
+        const shaderName = `_${geomName}_${index}`;
+        ctx.attributes.set(node.id, {
+            kind: 'geometry',
+            name: geomName,
+            shaderName,
+            type: node.type.wgslType,
+            location,
+            node,
+            stride: node.stride,
+            offset: node.offset,
+            instanced: node.instanced,
+        });
+        return `input.${shaderName}`;
     } else {
-        // Buffer-based: direct reference
-        let name = ctx.bufferAttrNames.get(node.id);
-        if (name) {
-            return `input.${name}`;
-        }
-
-        name = `_buf${ctx.bufferAttributes.length}`;
-        ctx.bufferAttrNames.set(node.id, name);
-        ctx.bufferAttributes.push(node);
-
-        return `input.${name}`;
+        const shaderName = `_buf_${index}`;
+        ctx.attributes.set(node.id, {
+            kind: 'buffer',
+            name: null,
+            shaderName,
+            type: node.type.wgslType,
+            location,
+            node,
+            stride: node.stride,
+            offset: node.offset,
+            instanced: node.instanced,
+        });
+        return `input.${shaderName}`;
     }
 }
 
@@ -1004,6 +1151,109 @@ function generateTexture(ctx: BuildContext, node: TextureNode): string {
     }
     
     // textureSample (default)
+    return `textureSample(${name}, ${samplerName}, ${uvExpr}${offsetSuffix})`;
+}
+
+function generateCubeTexture(ctx: BuildContext, node: CubeTextureNode): string {
+    const name = node.textureId;
+    if (!ctx.textures.has(name)) {
+        ctx.textures.set(name, node);
+    }
+    
+    // Cube textures don't support textureLoad - only sampling modes
+    
+    // Sampling modes require a sampler
+    let samplerNode = node.samplerNode;
+    if (!samplerNode) {
+        samplerNode = new SamplerNode(d.sampler, name, node.groupNode);
+        node.samplerNode = samplerNode;
+    }
+    
+    // Register the sampler (this handles deduplication by settingsKey)
+    const samplerName = generateSampler(ctx, samplerNode);
+    
+    // Cube textures require a direction vector (vec3f)
+    if (!node.directionNode) {
+        throw new Error(`[builder] CubeTextureNode '${name}' has no directionNode. Use cubeTexture.sample(direction).`);
+    }
+    const dirExpr = generateExpr(ctx, node.directionNode);
+    
+    // Cube textures do NOT support offset
+    
+    // textureSampleGrad (vec3f gradients for cube textures)
+    if (node.samplingMode === 'grad') {
+        if (!node.gradNode) {
+            throw new Error(`[builder] CubeTextureNode '${name}' in grad mode has no gradNode`);
+        }
+        const ddx = generateExpr(ctx, node.gradNode[0]);
+        const ddy = generateExpr(ctx, node.gradNode[1]);
+        return `textureSampleGrad(${name}, ${samplerName}, ${dirExpr}, ${ddx}, ${ddy})`;
+    }
+    
+    // textureSampleBias
+    if (node.samplingMode === 'bias') {
+        if (!node.biasNode) {
+            throw new Error(`[builder] CubeTextureNode '${name}' in bias mode has no biasNode`);
+        }
+        const bias = generateExpr(ctx, node.biasNode);
+        return `textureSampleBias(${name}, ${samplerName}, ${dirExpr}, ${bias})`;
+    }
+    
+    // textureSampleLevel
+    if (node.samplingMode === 'level') {
+        if (!node.levelNode) {
+            throw new Error(`[builder] CubeTextureNode '${name}' in level mode has no levelNode`);
+        }
+        const level = generateExpr(ctx, node.levelNode);
+        return `textureSampleLevel(${name}, ${samplerName}, ${dirExpr}, ${level})`;
+    }
+    
+    // textureSample (default)
+    return `textureSample(${name}, ${samplerName}, ${dirExpr})`;
+}
+
+function generateDepthTexture(ctx: BuildContext, node: DepthTextureNode): string {
+    const name = node.textureId;
+    if (!ctx.textures.has(name)) {
+        ctx.textures.set(name, node);
+    }
+
+    // textureLoad mode — no sampler needed
+    if (node.samplingMode === 'load') {
+        if (!node.loadCoords) {
+            throw new Error(`[builder] DepthTextureNode '${name}' in load mode has no loadCoords`);
+        }
+        const coordsExpr = generateExpr(ctx, node.loadCoords);
+        const levelExpr = node.loadLevel ? generateExpr(ctx, node.loadLevel) : '0';
+        return `textureLoad(${name}, ${coordsExpr}, ${levelExpr})`;
+    }
+
+    // Sampling modes require a sampler
+    let samplerNode = node.samplerNode;
+    if (!samplerNode) {
+        samplerNode = new SamplerNode(d.sampler, name, node.groupNode);
+        node.samplerNode = samplerNode;
+    }
+
+    const samplerName = generateSampler(ctx, samplerNode);
+
+    if (!node.uvNode) {
+        throw new Error(`[builder] DepthTextureNode '${name}' has no uvNode. Set uvNode or use depthTexture.sample(uvNode).`);
+    }
+    const uvExpr = generateExpr(ctx, node.uvNode);
+
+    const offsetSuffix = node.offsetNode ? `, ${generateExpr(ctx, node.offsetNode)}` : '';
+
+    // textureSampleLevel (i32 level for depth textures)
+    if (node.samplingMode === 'level') {
+        if (!node.levelNode) {
+            throw new Error(`[builder] DepthTextureNode '${name}' in level mode has no levelNode`);
+        }
+        const level = generateExpr(ctx, node.levelNode);
+        return `textureSampleLevel(${name}, ${samplerName}, ${uvExpr}, ${level}${offsetSuffix})`;
+    }
+
+    // textureSample (default) — returns f32
     return `textureSample(${name}, ${samplerName}, ${uvExpr}${offsetSuffix})`;
 }
 
@@ -1256,7 +1506,7 @@ type BindingGroupData = {
     groupIndex: number;
     uniforms: UniformNode<d.Any>[];
     storages: { name: string; node: StorageNode<d.Any> }[];
-    textures: { name: string; node: TextureNode }[];
+    textures: { name: string; node: TextureNode | CubeTextureNode | DepthTextureNode }[];
     samplers: { name: string; node: SamplerNode }[];
 };
 
@@ -1528,22 +1778,16 @@ function generateVertexShader(slots: CompileSlots, ctx: BuildContext): string {
     // generate position expression
     const posExpr = generateExpr(ctx, slots.position);
     
-    // check if we have any vertex inputs (attributes, buffer attributes, or builtins)
+    // check if we have any vertex inputs (attributes or builtins)
     const hasVertexIndex = ctx.builtins.has('vertex_index');
     const hasInstanceIndex = ctx.builtins.has('instance_index');
-    const hasInputs = ctx.attributes.size > 0 || ctx.bufferAttributes.length > 0 || hasVertexIndex || hasInstanceIndex;
+    const hasInputs = ctx.attributes.size > 0 || hasVertexIndex || hasInstanceIndex;
     
     // emit input struct only if we have inputs (WGSL structs must have at least one member)
     if (hasInputs) {
         lines.push('struct VertexInput {');
-        for (const [name, attr] of ctx.attributes) {
-            lines.push(`    @location(${attr.location}) ${name}: ${attr.type},`);
-        }
-        // emit buffer attributes
-        for (const bufAttr of ctx.bufferAttributes) {
-            const bufName = ctx.bufferAttrNames.get(bufAttr.id)!;
-            const location = ctx.attributes.size + ctx.bufferAttributes.indexOf(bufAttr);
-            lines.push(`    @location(${location}) ${bufName}: ${bufAttr.type.wgslType},`);
+        for (const [, attr] of ctx.attributes) {
+            lines.push(`    @location(${attr.location}) ${attr.shaderName}: ${attr.type},`);
         }
         if (hasVertexIndex) {
             lines.push(`    @builtin(vertex_index) vertex_index: u32,`);

@@ -59,6 +59,34 @@ export function createBindingsState(): BindingsState {
 }
 
 /**
+ * Derive GPUTextureBindingLayout from the WGSL type string.
+ * Maps texture type names to the correct sampleType and viewDimension.
+ */
+function getTextureLayoutFromType(wgslType: string): GPUTextureBindingLayout {
+    const layout: GPUTextureBindingLayout = {};
+
+    // View dimension
+    if (wgslType.includes('cube_array')) {
+        layout.viewDimension = 'cube-array';
+    } else if (wgslType.includes('cube')) {
+        layout.viewDimension = 'cube';
+    } else if (wgslType.includes('2d_array')) {
+        layout.viewDimension = '2d-array';
+    } else if (wgslType.includes('3d')) {
+        layout.viewDimension = '3d';
+    }
+    // default is '2d'
+
+    // Sample type
+    if (wgslType.startsWith('texture_depth')) {
+        layout.sampleType = 'depth';
+    }
+    // default is 'float'
+
+    return layout;
+}
+
+/**
  * Get or create BindGroupData for a BindGroup.
  * This is the DataMap pattern - auto-creates data on first access.
  */
@@ -257,19 +285,23 @@ function buildLayoutEntries(
                 });
                 break;
 
-            case 'texture':
+            case 'texture': {
+                const texLayout = getTextureLayoutFromType(binding.entry.type);
                 entries.push({
                     binding: binding.entry.binding,
                     visibility: GPUShaderStage.FRAGMENT,
-                    texture: {},
+                    texture: texLayout,
                 });
                 break;
+            }
 
             case 'sampler':
                 entries.push({
                     binding: binding.entry.binding,
                     visibility: GPUShaderStage.FRAGMENT,
-                    sampler: {},
+                    sampler: {
+                        type: binding.entry.type === 'sampler_comparison' ? 'comparison' : 'filtering',
+                    },
                 });
                 break;
         }
@@ -604,7 +636,13 @@ function rebuildGPUBindGroup(
                     res = textureNode.value.gpuTexture ?? null;
                 }
                 if (res) {
-                    const view = res instanceof GPUTextureView ? res : (res as GPUTexture).createView();
+                    let view: GPUTextureView;
+                    if (res instanceof GPUTextureView) {
+                        view = res;
+                    } else {
+                        const isCube = 'isCubeTextureNode' in textureNode && textureNode.isCubeTextureNode === true;
+                        view = (res as GPUTexture).createView(isCube ? { dimension: 'cube' } : undefined);
+                    }
                     entries.push({ binding: binding.entry.binding, resource: view });
                 }
                 break;

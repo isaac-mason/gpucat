@@ -235,12 +235,7 @@ export class ComputeCalls extends Tab {
         if (entry) {
             const nbs = entry.nodeBuilderState;
             this._bindingsPane.appendChild(
-                buildBindingsTable(
-                    nbs.uniformGroups,
-                    [], // textures - compute doesn't use textures via this path
-                    [], // samplers - compute doesn't use samplers via this path
-                    nbs.storage,
-                ),
+                buildBindingsTable(nbs),
             );
         } else {
             const hint = document.createElement('div');

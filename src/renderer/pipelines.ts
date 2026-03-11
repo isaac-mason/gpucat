@@ -362,6 +362,7 @@ export function makeRenderPipelineKey(
 
 /**
  * Build vertex buffer layouts from geometry and NodeBuilderState.
+ * Uses vertexBufferGroups to produce one GPUVertexBufferLayout per unique buffer.
  */
 export function buildVertexBufferLayouts(
     geometry: Geometry,
@@ -369,46 +370,37 @@ export function buildVertexBufferLayouts(
 ): GPUVertexBufferLayout[] {
     const layouts: GPUVertexBufferLayout[] = [];
 
-    for (const attrEntry of nodeState.attributes) {
-        if (attrEntry.kind === 'geometry') {
-            // Geometry buffer (position, normal, uv, etc.)
-            const buffer = geometry.buffers.get(attrEntry.name);
-            if (!buffer) continue;
+    for (const group of nodeState.vertexBufferGroups) {
+        const gpuAttributes: GPUVertexAttribute[] = [];
 
-            const bytesPerElement = getBytesPerElement(buffer.format);
-            // Read stride/offset from entry (node), not buffer
-            const arrayStride = attrEntry.stride > 0 ? attrEntry.stride : bytesPerElement;
-
-            layouts.push({
-                arrayStride,
-                stepMode: attrEntry.instanced ? 'instance' : 'vertex',
-                attributes: [
-                    {
-                        format: buffer.format!,
-                        offset: attrEntry.offset,
-                        shaderLocation: attrEntry.location,
-                    },
-                ],
-            });
-        } else {
-            // Buffer attribute
-            const format = wgslTypeToVertexFormat(attrEntry.type);
-            const itemSize = wgslTypeItemSize(attrEntry.type);
-            // Read stride/offset from entry (node)
-            const arrayStride = attrEntry.stride > 0 ? attrEntry.stride : itemSize * 4;
-
-            layouts.push({
-                arrayStride,
-                stepMode: attrEntry.instanced ? 'instance' : 'vertex',
-                attributes: [
-                    {
-                        format,
-                        offset: attrEntry.offset,
-                        shaderLocation: attrEntry.location,
-                    },
-                ],
+        // Per-attribute format always comes from the WGSL type
+        for (const attr of group.attributes) {
+            const format = wgslTypeToVertexFormat(attr.type);
+            gpuAttributes.push({
+                format,
+                offset: attr.offset,
+                shaderLocation: attr.shaderLocation,
             });
         }
+
+        // Compute arrayStride — use explicit stride if set, otherwise derive from buffer or first attribute
+        let arrayStride: number;
+        if (group.stride > 0) {
+            arrayStride = group.stride;
+        } else if (group.name !== null) {
+            const buffer = geometry.buffers.get(group.name);
+            if (!buffer) continue;
+            arrayStride = getBytesPerElement(buffer.format);
+        } else {
+            const firstAttr = group.attributes[0];
+            arrayStride = wgslTypeItemSize(firstAttr.type) * 4;
+        }
+
+        layouts.push({
+            arrayStride,
+            stepMode: group.instanced ? 'instance' : 'vertex',
+            attributes: gpuAttributes,
+        });
     }
 
     return layouts;

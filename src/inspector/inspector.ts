@@ -654,25 +654,26 @@ export class Inspector extends RendererInspector {
         let slot = 0;
         const geometry = ro.geometry;
         const bufferCache = renderer._buffers;
-        for (const attrEntry of nodeState.attributes) {
-            if (attrEntry.kind === 'geometry') {
-                const bufAttr = geometry.buffers.get(attrEntry.name);
+        for (const group of nodeState.vertexBufferGroups) {
+            if (group.name !== null) {
+                // Geometry-based group - resolve buffer by name
+                const bufAttr = geometry.buffers.get(group.name);
                 if (bufAttr) {
                     const gpuBuf = buffers.ensureUploaded(bufferCache, renderer._device, bufAttr);
                     pass.setVertexBuffer(slot, gpuBuf);
                 }
             } else {
-                const node = attrEntry.node;
-                const gpuBuffer = node.buffer;
+                // Direct buffer group
+                const gpuBuffer = group.buffer;
                 if (!gpuBuffer) {
-                    throw new Error(`[gpucat] AttributeNode has no buffer for ${attrEntry.name}`);
+                    throw new Error(`[gpucat] VertexBufferGroup has no buffer`);
                 }
                 const arr = gpuBuffer.array;
                 if (arr) {
                     const gpuBuf = buffers.uploadRaw(
                         bufferCache,
                         renderer._device,
-                        node,
+                        gpuBuffer,
                         arr,
                         GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
                     ).buffer;

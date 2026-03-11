@@ -32,7 +32,7 @@ function makeBindGroupLayoutKey(entries: GPUBindGroupLayoutEntry[]): string {
         b: e.binding,
         v: e.visibility,
         buf: e.buffer ? { t: e.buffer.type } : null,
-        sam: e.sampler ? {} : null,
+        sam: e.sampler ? { t: e.sampler.type } : null,
         tex: e.texture ? { s: e.texture.sampleType, v: e.texture.viewDimension } : null,
         stor: e.storageTexture ? { f: e.storageTexture.format, a: e.storageTexture.access, v: e.storageTexture.viewDimension } : null,
     }));
@@ -90,16 +90,21 @@ export function buildComputeBindGroupLayouts(
                         },
                     });
                     break;
-                case 'texture':
+                case 'texture': {
+                    const texLayout: GPUTextureBindingLayout = {};
+                    const wgslType = binding.entry.type;
+                    if (wgslType.includes('cube_array')) texLayout.viewDimension = 'cube-array';
+                    else if (wgslType.includes('cube')) texLayout.viewDimension = 'cube';
+                    else if (wgslType.includes('2d_array')) texLayout.viewDimension = '2d-array';
+                    else if (wgslType.includes('3d')) texLayout.viewDimension = '3d';
+                    if (wgslType.startsWith('texture_depth')) texLayout.sampleType = 'depth';
                     entries.push({
                         binding: binding.entry.binding,
                         visibility: vis,
-                        texture: {
-                            sampleType: 'float',
-                            viewDimension: '2d',
-                        },
+                        texture: texLayout,
                     });
                     break;
+                }
                 case 'sampler':
                     entries.push({
                         binding: binding.entry.binding,

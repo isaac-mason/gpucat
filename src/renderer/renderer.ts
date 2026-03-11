@@ -433,14 +433,14 @@ export class WebGPURenderer {
                 // upload vertex buffers
                 for (const attrEntry of nodeState.attributes) {
                     if (attrEntry.kind === 'geometry') {
-                        const bufAttr = geometry.buffers.get(attrEntry.name);
+                        const bufAttr = geometry.buffers.get(attrEntry.name!);
                         if (bufAttr) {
                             buffers.ensureUploaded(this._buffers, this._device, bufAttr);
                         }
                     } else {
                         const gpuBuffer = attrEntry.node.buffer;
                         if (!gpuBuffer) {
-                            throw new Error(`[gpucat] AttributeNode has no buffer for ${attrEntry.name}`);
+                            throw new Error(`[gpucat] AttributeNode has no buffer for ${attrEntry.shaderName}`);
                         }
                         const arr = gpuBuffer.array;
                         if (arr) {
@@ -910,26 +910,27 @@ export class WebGPURenderer {
             }
 
             let slot = 0;
-            for (const attrEntry of nodeState.attributes) {
+            for (const group of nodeState.vertexBufferGroups) {
                 let gpuBuf: GPUBuffer;
-                if (attrEntry.kind === 'geometry') {
-                    const bufAttr = geometry.buffers.get(attrEntry.name);
+                if (group.name !== null) {
+                    // Geometry-based group - resolve buffer by name
+                    const bufAttr = geometry.buffers.get(group.name);
                     if (!bufAttr) { slot++; continue; }
                     gpuBuf = buffers.ensureUploaded(this._buffers, this._device, bufAttr);
                 } else {
-                    const node = attrEntry.node;
-                    const gpuBuffer = node.buffer;
+                    // Direct buffer group
+                    const gpuBuffer = group.buffer;
                     if (!gpuBuffer) {
-                        throw new Error(`[gpucat] AttributeNode has no buffer for ${attrEntry.name}`);
+                        throw new Error(`[gpucat] VertexBufferGroup has no buffer`);
                     }
                     const arr = gpuBuffer.array;
                     if (!arr) {
-                        throw new Error(`[gpucat] AttributeNode buffer array is null for ${attrEntry.name}`);
+                        throw new Error(`[gpucat] VertexBufferGroup buffer array is null`);
                     }
                     gpuBuf = buffers.uploadRaw(
                         this._buffers,
                         this._device,
-                        node,
+                        gpuBuffer,
                         arr,
                         GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
                     ).buffer;

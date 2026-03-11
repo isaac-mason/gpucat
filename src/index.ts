@@ -23,6 +23,8 @@ export * from "./material/material";
 export * from './material/material';
 
 export * from './texture/texture';
+export * from './texture/cube-texture';
+export * from './texture/depth-texture';
 
 export * from './utils/color';
 
@@ -60,7 +62,7 @@ export {
     compute,
 
     // texture/sampler factories and functions
-    sampler, comparisonSampler,
+    sampler, comparisonSampler, cubeTexture, depthTexture,
     textureSample, textureSampleLevel, textureSampleBias, textureSampleGrad,
     textureSampleCompare, textureSampleCompareLevel,
     textureLoad, textureStore,
@@ -68,7 +70,7 @@ export {
     textureGather, textureGatherCompare,
 
     // texture/sampler types
-    type TextureNode, type SamplerNode,
+    type TextureNode, type SamplerNode, type CubeTextureNode, type DepthTextureNode,
 
     // atomic operations
     atomicAdd, atomicStore, atomicLoad, atomicSub,

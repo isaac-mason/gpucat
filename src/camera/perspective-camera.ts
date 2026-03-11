@@ -5,7 +5,7 @@ export class PerspectiveCamera extends Camera {
     fov: number;
     aspect: number;
 
-    constructor(fov = 50, aspect = 1.0, near = 0.1, far = 1000.0) {
+    constructor(fov = Math.PI / 4, aspect = 1.0, near = 0.1, far = 1000.0) {
         super();
         this.name = 'PerspectiveCamera';
         this.fov = fov;

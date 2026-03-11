@@ -1,6 +1,8 @@
 import { Texture } from '../../texture/texture';
+import { CubeTexture } from '../../texture/cube-texture';
+import { DepthTexture } from '../../texture/depth-texture';
 import { CallNode, Node } from './core';
-import { type TextureDesc, type DepthTextureDesc, type Any, texture2d } from '../schema';
+import { type TextureDesc, type DepthTextureDesc, type Any, texture2d, textureCube, textureDepth2d } from '../schema';
 import * as d from '../schema';
 import { UniformGroup, objectGroup } from './uniform';
 import { uv } from './attribute';
@@ -340,6 +342,396 @@ export const texture = (
 };
 
 /* ────────────────────────────────────────────────────────────────────────────
+ * CubeTextureNode
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Sampling mode for cube texture operations.
+ * Cube textures do NOT support offset or load.
+ */
+export type CubeSamplingMode = 'sample' | 'level' | 'bias' | 'grad';
+
+/**
+ * CubeTextureNode - represents a cube texture sample operation.
+ *
+ * Cube textures use a 3D direction vector for sampling (vec3f).
+ * WGSL cube texture constraints:
+ * - NO offset support (cube textures don't support offset parameter)
+ * - NO textureLoad support (cube textures don't support direct texel access)
+ * - Uses vec3f for both coordinates and gradients
+ *
+ * Supports chainable methods:
+ * - .sample(direction) - set sampling direction
+ * - .level(level) - use textureSampleLevel
+ * - .bias(bias) - use textureSampleBias
+ * - .grad(ddx, ddy) - use textureSampleGrad
+ */
+export class CubeTextureNode extends Node<d.vec4f> {
+    readonly isCubeTextureNode = true;
+
+    /**
+     * GPU texture resource. Set this before rendering.
+     * This can be set directly, OR use `value` (a CubeTexture object) which the renderer
+     * will use to create/update the GPU texture.
+     */
+    resource: GPUTexture | GPUTextureView | null = null;
+
+    /**
+     * High-level CubeTexture wrapper.
+     * If set, the renderer will use this to create/update the GPU texture.
+     */
+    value: CubeTexture | null = null;
+
+    /**
+     * The direction node for cube texture sampling (vec3f).
+     * This is a 3D direction vector pointing into the cube.
+     */
+    directionNode: Node<d.vec3f> | null = null;
+
+    /**
+     * The reference node.
+     * When sampling with different directions, this points to the base texture node.
+     */
+    referenceNode: CubeTextureNode | null = null;
+
+    /**
+     * The WGSL texture type string ('texture_cube<f32>').
+     * Used for binding declarations.
+     */
+    readonly textureType: string;
+
+    /** Uniform group — determines @group index. Defaults to objectGroup */
+    groupNode: UniformGroup;
+
+    /** The texture ID (e.g. 'envMap') for caching and reuse. */
+    textureId: string;
+
+    /**
+     * The sampler node for this texture.
+     * Auto-created by cubeTexture() factory from texture settings.
+     */
+    samplerNode: SamplerNode<d.SamplerDesc> | null = null;
+
+    /* ─────────────────────────────────────────────────────────────────────────
+     * Sampling mode properties
+     * ───────────────────────────────────────────────────────────────────────── */
+
+    /** Current sampling mode */
+    samplingMode: CubeSamplingMode = 'sample';
+
+    /** Level node for textureSampleLevel (f32) */
+    levelNode: Node<d.f32> | null = null;
+
+    /** Bias node for textureSampleBias */
+    biasNode: Node<d.f32> | null = null;
+
+    /** Gradient nodes for textureSampleGrad [ddx, ddy] - vec3f for cube textures */
+    gradNode: [Node<d.vec3f>, Node<d.vec3f>] | null = null;
+
+    constructor(
+        textureType: string,
+        textureId: string,
+        directionNode: Node<d.vec3f> | null = null,
+        groupNode: UniformGroup = objectGroup
+    ) {
+        // Node type is vec4f (the sampled color)
+        super(d.vec4f);
+        this.textureType = textureType;
+        this.textureId = textureId;
+        this.directionNode = directionNode;
+        this.groupNode = groupNode;
+    }
+
+    /** Get the base texture node (follows referenceNode chain) */
+    getBase(): CubeTextureNode {
+        return this.referenceNode ? this.referenceNode.getBase() : this;
+    }
+
+    /** Clone this texture node with all sampling properties */
+    clone(): CubeTextureNode {
+        const cloned = new CubeTextureNode(this.textureType, this.textureId, this.directionNode, this.groupNode);
+        cloned.value = this.value;
+        cloned.resource = this.resource;
+        cloned.referenceNode = this.referenceNode;
+        cloned.samplerNode = this.samplerNode;
+        // Copy sampling mode properties
+        cloned.samplingMode = this.samplingMode;
+        cloned.levelNode = this.levelNode;
+        cloned.biasNode = this.biasNode;
+        cloned.gradNode = this.gradNode;
+        return cloned;
+    }
+
+    /* ─────────────────────────────────────────────────────────────────────────
+     * Chainable sampling methods
+     * ───────────────────────────────────────────────────────────────────────── */
+
+    /** Sample the cube texture in the given direction */
+    sample(directionNode: Node<d.vec3f>): CubeTextureNode {
+        const textureNode = this.clone();
+        textureNode.directionNode = directionNode;
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+
+    /** Use textureSampleLevel with explicit mip level */
+    level(levelNode: Node<d.f32>): CubeTextureNode {
+        const textureNode = this.clone();
+        textureNode.samplingMode = 'level';
+        textureNode.levelNode = levelNode;
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+
+    /** Use textureSampleBias with mip level bias */
+    bias(biasNode: Node<d.f32>): CubeTextureNode {
+        const textureNode = this.clone();
+        textureNode.samplingMode = 'bias';
+        textureNode.biasNode = biasNode;
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+
+    /** Use textureSampleGrad with explicit gradients (vec3f for cube textures) */
+    grad(ddx: Node<d.vec3f>, ddy: Node<d.vec3f>): CubeTextureNode {
+        const textureNode = this.clone();
+        textureNode.samplingMode = 'grad';
+        textureNode.gradNode = [ddx, ddy];
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+
+    // NOTE: NO .offset() method - cube textures don't support offset in WGSL
+    // NOTE: NO .load() method - cube textures don't support textureLoad in WGSL
+}
+
+/**
+ * Create a cube texture node from a CubeTexture object.
+ * Auto-creates a SamplerNode from the texture's settings.
+ *
+ * @param tex - The CubeTexture object containing 6 face images
+ *
+ * @example
+ * const env = cubeTexture(myCubeTex);
+ * env.sample(reflectDir)                    // textureSample with direction
+ * env.sample(reflectDir).level(float(0))    // textureSampleLevel
+ * env.sample(reflectDir).bias(float(1))     // textureSampleBias
+ * env.sample(reflectDir).grad(ddx, ddy)     // textureSampleGrad
+ * // NO .offset() - not supported for cube textures
+ * // NO .load() - not supported for cube textures
+ */
+export const cubeTexture = (tex: CubeTexture): CubeTextureNode => {
+    const desc = textureCube();
+    const node = new CubeTextureNode(desc.wgslType, `t${tex.id}`);
+    node.value = tex;
+    // Auto-create sampler from texture settings (CubeTexture has same filter/wrap properties)
+    node.samplerNode = sampler(tex as unknown as Texture, node.groupNode);
+    return node;
+};
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * DepthTextureNode
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Sampling mode for depth texture operations.
+ * Depth textures do NOT support bias or grad.
+ */
+export type DepthSamplingMode = 'sample' | 'level' | 'load';
+
+/**
+ * DepthTextureNode - represents a depth texture sample operation.
+ *
+ * Maps to WGSL `texture_depth_2d`. Returns f32 (not vec4f).
+ *
+ * Key differences from regular TextureNode:
+ * - Returns f32 (single depth value)
+ * - Level is i32 (not f32) for textureSampleLevel
+ * - NO textureSampleBias support
+ * - NO textureSampleGrad support
+ * - Supports offset (2D depth textures)
+ * - Comparison sampling via free functions (textureSampleCompare/textureSampleCompareLevel)
+ *   which require a sampler_comparison — use comparisonSampler() to create one
+ *
+ * Supports chainable methods:
+ * - .sample(uv) - set UV coordinates
+ * - .level(level) - use textureSampleLevel (i32 level)
+ * - .offset(offset) - add offset parameter
+ * - .load(coords, level?) - use textureLoad
+ */
+export class DepthTextureNode extends Node<d.f32> {
+    readonly isDepthTextureNode = true;
+
+    /**
+     * GPU texture resource. Set this before rendering.
+     * This can be set directly, OR use `value` (a DepthTexture object) which the renderer
+     * will use to create/update the GPU texture.
+     */
+    resource: GPUTexture | GPUTextureView | null = null;
+
+    /**
+     * High-level DepthTexture wrapper.
+     * If set, the renderer will use this to create/update the GPU texture.
+     */
+    value: DepthTexture | null = null;
+
+    /**
+     * The UV node for texture coordinates (vec2f).
+     * Defaults to varying(uv()) if not specified.
+     */
+    uvNode: Node<d.vec2f>;
+
+    /**
+     * The reference node.
+     * When sampling with different UVs, this points to the base texture node.
+     */
+    referenceNode: DepthTextureNode | null = null;
+
+    /**
+     * The WGSL texture type string ('texture_depth_2d').
+     * Used for binding declarations.
+     */
+    readonly textureType: string;
+
+    /** Uniform group — determines @group index. Defaults to objectGroup */
+    groupNode: UniformGroup;
+
+    /** The texture ID (e.g. 'shadowMap') for caching and reuse. */
+    textureId: string;
+
+    /**
+     * The sampler node for this texture.
+     * Auto-created by depthTexture() factory from texture settings.
+     * This is a regular sampler for textureSample/textureSampleLevel.
+     * For comparison sampling, use comparisonSampler() and the free functions.
+     */
+    samplerNode: SamplerNode<d.SamplerDesc> | null = null;
+
+    /* ─────────────────────────────────────────────────────────────────────────
+     * Sampling mode properties
+     * ───────────────────────────────────────────────────────────────────────── */
+
+    /** Current sampling mode */
+    samplingMode: DepthSamplingMode = 'sample';
+
+    /** Level node for textureSampleLevel (i32 for depth textures) */
+    levelNode: Node<d.i32> | null = null;
+
+    /** Offset node for sampling with offset (must be const expression) */
+    offsetNode: Node<d.vec2i> | null = null;
+
+    /** Integer coordinates for textureLoad */
+    loadCoords: Node<d.vec2i> | null = null;
+
+    /** Level for textureLoad (i32) */
+    loadLevel: Node<d.i32> | null = null;
+
+    constructor(
+        textureType: string,
+        textureId: string,
+        uvNode: Node<d.vec2f> | null = null,
+        groupNode: UniformGroup = objectGroup
+    ) {
+        // Node type is f32 (depth value)
+        super(d.f32);
+        this.textureType = textureType;
+        this.textureId = textureId;
+        this.uvNode = uvNode ?? varying(uv());
+        this.groupNode = groupNode;
+    }
+
+    /** Get the base texture node (follows referenceNode chain) */
+    getBase(): DepthTextureNode {
+        return this.referenceNode ? this.referenceNode.getBase() : this;
+    }
+
+    /** Clone this texture node with all sampling properties */
+    clone(): DepthTextureNode {
+        const cloned = new DepthTextureNode(this.textureType, this.textureId, this.uvNode, this.groupNode);
+        cloned.value = this.value;
+        cloned.resource = this.resource;
+        cloned.referenceNode = this.referenceNode;
+        cloned.samplerNode = this.samplerNode;
+        // Copy sampling mode properties
+        cloned.samplingMode = this.samplingMode;
+        cloned.levelNode = this.levelNode;
+        cloned.offsetNode = this.offsetNode;
+        cloned.loadCoords = this.loadCoords;
+        cloned.loadLevel = this.loadLevel;
+        return cloned;
+    }
+
+    /* ─────────────────────────────────────────────────────────────────────────
+     * Chainable sampling methods
+     * ───────────────────────────────────────────────────────────────────────── */
+
+    /** Sample the depth texture at the given UV coordinates */
+    sample(uvNode: Node<d.vec2f>): DepthTextureNode {
+        const textureNode = this.clone();
+        textureNode.uvNode = uvNode;
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+
+    /** Use textureSampleLevel with explicit mip level (i32 for depth textures) */
+    level(levelNode: Node<d.i32>): DepthTextureNode {
+        const textureNode = this.clone();
+        textureNode.samplingMode = 'level';
+        textureNode.levelNode = levelNode;
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+
+    /** Add offset to sampling (must be const expression) */
+    offset(offsetNode: Node<d.vec2i>): DepthTextureNode {
+        const textureNode = this.clone();
+        textureNode.offsetNode = offsetNode;
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+
+    /** Use textureLoad for direct texel fetch (no filtering) */
+    load(coords: Node<d.vec2i>, level?: Node<d.i32>): DepthTextureNode {
+        const textureNode = this.clone();
+        textureNode.samplingMode = 'load';
+        textureNode.loadCoords = coords;
+        textureNode.loadLevel = level ?? null;
+        textureNode.referenceNode = this.getBase();
+        return textureNode;
+    }
+
+    // NOTE: NO .bias() method - depth textures don't support textureSampleBias in WGSL
+    // NOTE: NO .grad() method - depth textures don't support textureSampleGrad in WGSL
+    // NOTE: For comparison sampling, use the free functions textureSampleCompare() /
+    //       textureSampleCompareLevel() with a comparisonSampler().
+}
+
+/**
+ * Create a depth texture node from a DepthTexture object.
+ * Auto-creates a SamplerNode from the texture's settings.
+ *
+ * For comparison sampling (shadow mapping), create a comparison sampler separately:
+ * ```
+ * const shadow = depthTexture(myDepthTex);
+ * const cmpSampler = comparisonSampler(myDepthTex, 'less');
+ * // Regular depth read:
+ * shadow.sample(uv)
+ * // Comparison sampling (shadow test):
+ * textureSampleCompare(shadow, cmpSampler, uv, depthRef)
+ * ```
+ *
+ * @param tex - The DepthTexture object
+ */
+export const depthTexture = (tex: DepthTexture): DepthTextureNode => {
+    const desc = textureDepth2d();
+    const node = new DepthTextureNode(desc.wgslType, `t${tex.id}`);
+    node.value = tex;
+    // Auto-create sampler from texture settings
+    node.samplerNode = sampler(tex, node.groupNode);
+    return node;
+};
+
+/* ────────────────────────────────────────────────────────────────────────────
  * WGSL-Mapped Free Functions
  * 
  * These are direct 1:1 mappings to WGSL builtins for full control.
@@ -347,8 +739,8 @@ export const texture = (
  * or for comparison sampling.
  * ──────────────────────────────────────────────────────────────────────────── */
 
-// Type guard for texture nodes
-type AnyTextureNode = TextureNode; // Will be extended with CubeTextureNode etc.
+// Type union for texture nodes that can be used in sampling functions
+type AnyTextureNode = TextureNode | DepthTextureNode;
 type AnySamplerNode = SamplerNode<d.SamplerDesc>;
 type AnyComparisonSamplerNode = SamplerNode<d.SamplerComparisonDesc>;
 
@@ -417,7 +809,7 @@ export function textureSampleGrad(
  * Fragment shader only. Requires sampler_comparison.
  */
 export function textureSampleCompare(
-    t: AnyTextureNode, // Should be DepthTextureNode when we add it
+    t: DepthTextureNode,
     s: AnyComparisonSamplerNode,
     coords: Node<d.vec2f>,
     depthRef: Node<d.f32>,
@@ -432,7 +824,7 @@ export function textureSampleCompare(
  * Works in any shader stage. Requires sampler_comparison.
  */
 export function textureSampleCompareLevel(
-    t: AnyTextureNode, // Should be DepthTextureNode when we add it
+    t: DepthTextureNode,
     s: AnyComparisonSamplerNode,
     coords: Node<d.vec2f>,
     depthRef: Node<d.f32>,
@@ -510,7 +902,7 @@ export function textureGather(
  * Requires sampler_comparison.
  */
 export function textureGatherCompare(
-    t: AnyTextureNode, // Should be DepthTextureNode
+    t: DepthTextureNode,
     s: AnyComparisonSamplerNode,
     coords: Node<d.vec2f>,
     depthRef: Node<d.f32>,

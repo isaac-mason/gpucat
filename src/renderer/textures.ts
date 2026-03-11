@@ -15,6 +15,7 @@
 
 import type { Texture } from '../texture/texture';
 import type { DataTexture } from '../texture/data-texture';
+import type { CubeTexture } from '../texture/cube-texture';
 import {
     type MipmapState,
     createMipmapState,
@@ -133,9 +134,15 @@ export function updateTexture(
     }
 
     const image = source.data;
+    const isCube = 'isCubeTexture' in texture && texture.isCubeTexture === true;
 
-    // No image data yet or not ready — use default placeholder
-    if (!image || !source.dataReady || (image as HTMLImageElement).complete === false) {
+    // No image data yet or not ready — use default placeholder.
+    // For cube textures, check isComplete (all 6 faces present and ready).
+    const notReady = isCube
+        ? !(texture as unknown as CubeTexture).isComplete
+        : !image || !source.dataReady || (image as HTMLImageElement).complete === false;
+
+    if (notReady) {
         if (!data) {
             const format = texture.format ?? 'rgba8unorm';
             const defaultTex = getDefaultTexture(cache, device, format);
@@ -201,6 +208,7 @@ function createGPUTexture(device: GPUDevice, texture: Texture): GPUTexture {
     const width = texture.width;
     const height = texture.height;
     const format = texture.format ?? 'rgba8unorm';
+    const isCube = 'isCubeTexture' in texture && texture.isCubeTexture === true;
 
     // Calculate mip level count if generating mipmaps
     const mipLevelCount = texture.generateMipmaps
@@ -208,7 +216,9 @@ function createGPUTexture(device: GPUDevice, texture: Texture): GPUTexture {
         : 1;
 
     const gpuTexture = device.createTexture({
-        size: [width, height],
+        // Cube textures use dimension '2d' (the default) with 6 array layers.
+        // The cube view dimension is set when creating the texture view, not here.
+        size: [width, height, isCube ? 6 : 1],
         format,
         usage:
             GPUTextureUsage.TEXTURE_BINDING |
@@ -228,6 +238,13 @@ function uploadTextureData(
     texture: Texture,
     data: TextureData,
 ): void {
+    const isCube = 'isCubeTexture' in texture && texture.isCubeTexture === true;
+
+    if (isCube) {
+        uploadCubeTextureData(device, texture as unknown as CubeTexture, data);
+        return;
+    }
+
     const image = texture.image;
     if (!image) return;
 
@@ -256,6 +273,44 @@ function uploadTextureData(
             {
                 texture: data.texture,
                 premultipliedAlpha: texture.premultiplyAlpha,
+            },
+            [width, height],
+        );
+    }
+}
+
+/**
+ * Upload cube texture data — copies each of the 6 face images to the
+ * corresponding array layer of the GPU texture.
+ *
+ * Face order: +X, -X, +Y, -Y, +Z, -Z (matches CubeTexture.imageSources).
+ */
+function uploadCubeTextureData(
+    device: GPUDevice,
+    texture: CubeTexture,
+    data: TextureData,
+): void {
+    const faces = texture.imageSources;
+    if (faces.length !== 6) return;
+
+    const width = texture.width;
+    const height = texture.height;
+
+    for (let faceIndex = 0; faceIndex < 6; faceIndex++) {
+        const face = faces[faceIndex];
+        if (!face.dataReady) continue;
+
+        const faceImage = face.data;
+        if (!faceImage) continue;
+
+        device.queue.copyExternalImageToTexture(
+            {
+                source: faceImage as ImageBitmap | HTMLCanvasElement | OffscreenCanvas | HTMLVideoElement | VideoFrame | ImageData,
+            },
+            {
+                texture: data.texture,
+                premultipliedAlpha: texture.premultiplyAlpha,
+                origin: { x: 0, y: 0, z: faceIndex },
             },
             [width, height],
         );
