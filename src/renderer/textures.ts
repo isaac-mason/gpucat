@@ -15,6 +15,11 @@
 
 import type { Texture } from '../texture/texture';
 import type { DataTexture } from '../texture/data-texture';
+import {
+    type MipmapState,
+    createMipmapState,
+    generateMipmaps,
+} from './mipmap-utils';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -51,6 +56,9 @@ export type TextureCache = {
     /** Default placeholder textures by format */
     defaultTextures: Map<GPUTextureFormat, GPUTexture>;
 
+    /** Mipmap generation state (created lazily on first use) */
+    mipmapState: MipmapState | null;
+
     /** Stats counters */
     textureCount: number;
     samplerCount: number;
@@ -70,6 +78,7 @@ export function createTextureCache(): TextureCache {
         textureMap: new WeakMap(),
         samplerCache: new Map(),
         defaultTextures: new Map(),
+        mipmapState: null,
         textureCount: 0,
         samplerCount: 0,
     };
@@ -88,6 +97,16 @@ function setupDispose(cache: TextureCache, texture: Texture): void {
             data.texture.destroy();
         }
     };
+}
+
+/**
+ * Get or create mipmap generation state (lazy initialization).
+ */
+function getMipmapState(cache: TextureCache, device: GPUDevice): MipmapState {
+    if (!cache.mipmapState) {
+        cache.mipmapState = createMipmapState(device);
+    }
+    return cache.mipmapState;
 }
 
 // ---------------------------------------------------------------------------
@@ -160,6 +179,13 @@ export function updateTexture(
 
     // Upload image data
     uploadTextureData(device, texture, data);
+
+    // Generate mipmaps if requested and texture has multiple mip levels
+    if (texture.generateMipmaps && data.texture.mipLevelCount > 1) {
+        const mipmapState = getMipmapState(cache, device);
+        const isCube = 'isCubeTexture' in texture && texture.isCubeTexture === true;
+        generateMipmaps(mipmapState, data.texture, isCube);
+    }
 
     // Update texture version (Three.js aligned: textureData.version = texture.version)
     data.version = texture.version;
@@ -234,9 +260,6 @@ function uploadTextureData(
             [width, height],
         );
     }
-
-    // TODO: Generate mipmaps if texture.generateMipmaps is true
-    // This requires a compute or render pass — for now we just use mip level 0
 }
 
 /**
@@ -336,6 +359,9 @@ function computeSamplerKey(texture: Texture): string {
 /**
  * Get or create a sampler for a texture's sampling parameters.
  * Samplers are shared/cached by parameter key.
+ *
+ * Note: WebGPU requires all filters to be 'linear' when maxAnisotropy > 1.
+ * This function enforces that constraint.
  */
 export function getSampler(cache: TextureCache, device: GPUDevice, texture: Texture): GPUSampler {
     const key = computeSamplerKey(texture);
@@ -346,13 +372,22 @@ export function getSampler(cache: TextureCache, device: GPUDevice, texture: Text
         return data.sampler;
     }
 
+    // WebGPU constraint: anisotropy > 1 requires all filters to be 'linear'
+    let { minFilter, magFilter, mipmapFilter, anisotropy } = texture;
+    if (anisotropy > 1) {
+        if (minFilter !== 'linear' || magFilter !== 'linear' || mipmapFilter !== 'linear') {
+            // Clamp anisotropy to 1 if filters aren't all linear
+            anisotropy = 1;
+        }
+    }
+
     const sampler = device.createSampler({
-        magFilter: texture.magFilter,
-        minFilter: texture.minFilter,
-        mipmapFilter: texture.mipmapFilter,
+        magFilter,
+        minFilter,
+        mipmapFilter,
         addressModeU: texture.wrapS,
         addressModeV: texture.wrapT,
-        maxAnisotropy: texture.anisotropy,
+        maxAnisotropy: anisotropy,
     });
 
     cache.samplerCache.set(key, { sampler, usedTimes: 1 });

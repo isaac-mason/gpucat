@@ -37,6 +37,7 @@ import { UniformNode, UniformGroup } from './lib/uniform';
 import { WgslFunctionNode } from './lib/wgsl-fn';
 import { OutputStructNode, MRTNode } from './lib/mrt';
 import { BuiltinNode, ComputeIndexNode } from './lib/builtin';
+import { PassNode } from './lib/display/pass-node';
 import * as d from './schema';
 import type { StructSchema } from './schema';
 import { constLiteral } from './wgsl-utils';
@@ -685,6 +686,10 @@ function generateExpr(ctx: BuildContext, node: Node<d.Any>): string {
         expr = generateBufferAttribute(ctx, node);
     } else if (node instanceof StorageNode) {
         expr = generateStorage(ctx, node);
+    } else if (node instanceof PassNode) {
+        // PassNode used as expression delegates to its texture node (like three.js setup())
+        const textureNode = node.scope === 'color' ? node.getTextureNode() : node.getLinearDepthNode();
+        expr = generateExpr(ctx, textureNode);
     } else if (node instanceof TextureNode) {
         expr = generateTexture(ctx, node);
     } else if (node instanceof SamplerNode) {

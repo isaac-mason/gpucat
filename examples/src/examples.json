@@ -14,6 +14,11 @@
         "description": "A textured spinning box demonstrating user-provided Texture, UV coordinates, and texture sampling.",
         "tags": ["texture"]
     },
+    "example-mipmaps": {
+        "title": "Mipmaps",
+        "description": "Side-by-side comparison of textures with and without mipmaps. Left plane uses mipmaps + 16x anisotropic filtering, right plane has no mipmaps — notice the aliasing in the distance.",
+        "tags": ["texture", "mipmaps"]
+    },
     "example-instanced-mesh": {
         "title": "Instanced Mesh",
         "description": "30 instanced boxes with per-instance transforms and colours via InstancedBufferAttributeNode.",

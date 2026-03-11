@@ -15,13 +15,13 @@ export type DepthTextureFormat = 'depth16unorm' | 'depth24plus' | 'depth24plus-s
 let _textureId = 0;
 
 /**
- * Base texture class aligned with Three.js Texture.
+ * Base texture class.
  *
  * Holds sampling parameters and references a Source for image data.
  * The renderer will upload the image to the GPU and create appropriate
  * GPUTexture/GPUSampler resources based on these settings.
  */
-export class Texture {
+export class Texture<out T = SourceData> {
     /** Type flag for runtime type checking */
     readonly isTexture = true;
 
@@ -35,7 +35,7 @@ export class Texture {
      * The data source for this texture.
      * Multiple textures can share the same Source.
      */
-    source: Source;
+    source: Source<T>;
 
     /**
      * User-provided mipmaps as Sources. If empty, mipmaps are auto-generated
@@ -114,7 +114,7 @@ export class Texture {
     /**
      * Callback fired when the texture is updated.
      */
-    onUpdate: ((texture: Texture) => void) | null = null;
+    onUpdate: ((texture: Texture<unknown>) => void) | null = null;
 
     /**
      * Whether this texture belongs to a render target.
@@ -132,7 +132,6 @@ export class Texture {
 
     /**
      * Back-reference to the owning RenderTarget, if this is a render target texture.
-     * Three.js aligned: set when texture is attached to a render target.
      * @default null
      */
     renderTarget: unknown = null; // Use unknown to avoid circular import; will be RenderTarget
@@ -161,30 +160,28 @@ export class Texture {
      *
      * @param image - The image source (ImageBitmap, HTMLImageElement, Source, etc.)
      */
-    constructor(image: SourceData | Source = null) {
+    constructor(image: T | Source<T>) {
         this.id = _textureId++;
 
         // Accept either a Source directly or raw data (which we wrap in a Source)
         if (image instanceof Source) {
             this.source = image;
         } else {
-            this.source = new Source(image);
+            this.source = new Source<T>(image);
         }
     }
 
     /**
      * Convenience getter for the source data.
-     * Three.js aligned: texture.image returns the underlying data.
      */
-    get image(): SourceData {
+    get image(): T {
         return this.source.data;
     }
 
     /**
      * Convenience setter for the source data.
-     * Three.js aligned: setting texture.image updates source.data.
      */
-    set image(value: SourceData) {
+    set image(value: T) {
         this.source.data = value;
     }
 
@@ -219,8 +216,8 @@ export class Texture {
      * Note: The clone shares the same Source by default.
      * Use clone().source = new Source(data) if you need independent data.
      */
-    clone(): Texture {
-        const tex = new Texture(this.source);
+    clone(): Texture<T> {
+        const tex = new Texture<T>(this.source);
         tex.name = this.name;
         tex.mipmaps = [...this.mipmaps];
         tex.wrapS = this.wrapS;
