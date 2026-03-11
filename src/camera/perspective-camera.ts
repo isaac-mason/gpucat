@@ -5,7 +5,7 @@ export class PerspectiveCamera extends Camera {
     fov: number;
     aspect: number;
 
-    constructor(fov: number, aspect: number, near: number, far: number) {
+    constructor(fov = 50, aspect = 1.0, near = 0.1, far = 1000.0) {
         super();
         this.name = 'PerspectiveCamera';
         this.fov = fov;
@@ -15,7 +15,7 @@ export class PerspectiveCamera extends Camera {
         this.updateProjectionMatrix();
     }
 
-    /** recompute the projection matrix from current fov / aspect / near / far. */
+    /** Recompute the projection matrix from current fov / aspect / near / far. */
     updateProjectionMatrix(): void {
         mat4.perspectiveZO(this.projectionMatrix, this.fov, this.aspect, this.near, this.far);
     }
