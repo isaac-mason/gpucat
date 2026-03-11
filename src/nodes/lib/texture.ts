@@ -6,10 +6,6 @@ import { UniformGroup, objectGroup } from './uniform';
 import { uv } from './attribute';
 import { varying } from './varying';
 
-/* ────────────────────────────────────────────────────────────────────────────
- * SamplerNode
- * ──────────────────────────────────────────────────────────────────────────── */
-
 /**
  * SamplerNode - represents a sampler binding.
  * 
@@ -105,13 +101,6 @@ export class TextureNode extends Node<d.vec4f> {
      * will use to create/update the GPU texture.
      */
     resource: GPUTexture | GPUTextureView | null = null;
-
-    /**
-     * GPU sampler resource. Auto-created by the renderer based on the samplerNode's
-     * settings (wrap, filter, etc.).
-     * @deprecated Use samplerNode.resource instead
-     */
-    gpuSampler: GPUSampler | null = null;
 
     /**
      * High-level Texture wrapper.
@@ -211,7 +200,6 @@ export class TextureNode extends Node<d.vec4f> {
         const cloned = new TextureNode(this.textureType, this.textureId, this.uvNode, this.groupNode);
         cloned.value = this.value;
         cloned.resource = this.resource;
-        cloned.gpuSampler = this.gpuSampler;
         cloned.referenceNode = this.referenceNode;
         cloned.samplerNode = this.samplerNode;
         // Copy sampling mode properties

@@ -49,14 +49,14 @@ const instanceColors   = g.storage(colorBuffer);
 const modelMat   = g.index(instanceMatrices, g.instanceIndex);
 const rawColor   = g.index(instanceColors,   g.instanceIndex);
 
-// also demo instancedBufferAttribute for the spin offset — shows both APIs together.
+// also demo attribute() with instanced option for the spin offset — shows both APIs together.
 // each instance gets a unique starting angle (in radians) baked into a vertex buffer.
 const spinOffsets = new Float32Array(N);
 for (let i = 0; i < N; i++) spinOffsets[i] = (i / N) * Math.PI * 2;
-const spinOffset = g.instancedBufferAttribute(spinOffsets, d.f32, 4, 0);
+const spinOffset = g.attribute(spinOffsets, d.f32, { stride: 4, offset: 0, instanced: true });
 
 // animate rotation: time.elapsed drives a per-instance spin via the storage matrix +
-// a small additional rotation sourced from the instancedBufferAttribute offset.
+// a small additional rotation sourced from the attribute() offset.
 
 // derive a per-instance Y-axis rotation node from the spin offset attribute.
 // we fold it into the final clip position rather than modifying the storage matrix.

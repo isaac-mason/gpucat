@@ -663,7 +663,11 @@ export class Inspector extends RendererInspector {
                 }
             } else {
                 const node = attrEntry.node;
-                const arr = node.buffer.array;
+                const gpuBuffer = node.buffer;
+                if (!gpuBuffer) {
+                    throw new Error(`[gpucat] AttributeNode has no buffer for ${attrEntry.name}`);
+                }
+                const arr = gpuBuffer.array;
                 if (arr) {
                     const gpuBuf = buffers.uploadRaw(
                         bufferCache,

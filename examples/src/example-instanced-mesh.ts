@@ -33,13 +33,13 @@ for (let i = 0; i < N; i++) {
 }
 
 const instanceTransformStride = 16 * 4;
-const col0 = g.instancedBufferAttribute(instanceMatrices, d.vec4f, instanceTransformStride, 0);
-const col1 = g.instancedBufferAttribute(instanceMatrices, d.vec4f, instanceTransformStride, 16);
-const col2 = g.instancedBufferAttribute(instanceMatrices, d.vec4f, instanceTransformStride, 32);
-const col3 = g.instancedBufferAttribute(instanceMatrices, d.vec4f, instanceTransformStride, 48);
+const col0 = g.attribute(instanceMatrices, d.vec4f, { stride: instanceTransformStride, offset: 0, instanced: true });
+const col1 = g.attribute(instanceMatrices, d.vec4f, { stride: instanceTransformStride, offset: 16, instanced: true });
+const col2 = g.attribute(instanceMatrices, d.vec4f, { stride: instanceTransformStride, offset: 32, instanced: true });
+const col3 = g.attribute(instanceMatrices, d.vec4f, { stride: instanceTransformStride, offset: 48, instanced: true });
 const instanceTransform = g.mat4(col0, col1, col2, col3);
 
-const instanceColor = g.instancedBufferAttribute(instanceColors, d.vec3f, 12, 0);
+const instanceColor = g.attribute(instanceColors, d.vec3f, { stride: 12, offset: 0, instanced: true });
 
 const vColor = g.varying(instanceColor, 'v_color');
 

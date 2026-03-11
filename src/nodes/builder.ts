@@ -30,7 +30,7 @@ import {
     VaryingNode
 } from './lib/varying';
 import { WgslNode } from './lib/wgsl';
-import { AttributeNode, BufferAttributeNode } from './lib/attribute';
+import { AttributeNode } from './lib/attribute';
 import { TextureNode, SamplerNode } from './lib/texture';
 import { StorageNode } from './lib/storage';
 import { UniformNode, UniformGroup } from './lib/uniform';
@@ -147,6 +147,9 @@ export function compile(slots: CompileSlots): CompileResult {
             name: bufName,
             type: bufAttr.type.wgslType,
             location,
+            stride: bufAttr.stride,
+            offset: bufAttr.offset,
+            instanced: bufAttr.instanced,
         });
     }
     
@@ -251,20 +254,16 @@ export type UpdateNode = {
     update(frame: NodeFrame): boolean | void;
 };
 
-export type AttributeEntry =
-    | {
-          kind: 'geometry';
-          name: string;
-          type: string;
-          location: number;
-      }
-    | {
-          kind: 'buffer';
-          node: BufferAttributeNode<d.Any>;
-          name: string;
-          type: string;
-          location: number;
-      };
+export type AttributeEntry = {
+    kind: 'geometry' | 'buffer';
+    name: string;
+    type: string;
+    location: number;
+    node: AttributeNode<d.Any>;
+    stride: number;
+    offset: number;
+    instanced: boolean;
+};
 
 export type VaryingEntry = {
     name: string;
@@ -388,7 +387,7 @@ interface BuildContext {
     textures: Map<string, TextureNode>;
     samplers: Map<string, SamplerNode>; // keyed by settingsKey for deduplication
     attributes: Map<string, AttributeEntry>;
-    bufferAttributes: BufferAttributeNode<d.Any>[];
+    bufferAttributes: AttributeNode<d.Any>[];
     bufferAttrNames: Map<number, string>; // node.id -> generated name
     varyings: Map<string, { node: VaryingNode<d.Any>; vertexExpr: string }>;
     builtins: Set<string>;
@@ -709,8 +708,6 @@ function generateExpr(ctx: BuildContext, node: Node<d.Any>): string {
         expr = generateUniform(ctx, node);
     } else if (node instanceof AttributeNode) {
         expr = generateAttribute(ctx, node);
-    } else if (node instanceof BufferAttributeNode) {
-        expr = generateBufferAttribute(ctx, node);
     } else if (node instanceof StorageNode) {
         expr = generateStorage(ctx, node);
     } else if (node instanceof PassNode) {
@@ -832,7 +829,7 @@ function isTrivialExpr(node: Node<d.Any>): boolean {
         node instanceof UniformNode ||
         node instanceof TextureNode ||
         node instanceof SamplerNode ||
-        node instanceof BufferAttributeNode
+        node instanceof AttributeNode
     );
 }
 
@@ -876,32 +873,36 @@ function generateAttribute(ctx: BuildContext, node: AttributeNode<d.Any>): strin
     if (ctx.stage !== 'vertex') {
         throw new Error(`[builder] AttributeNode can only be used in vertex stage. Use varying() to pass to fragment stage.`);
     }
-    
-    const name = node.name;
-    if (!ctx.attributes.has(name)) {
-        ctx.attributes.set(name, {
-            kind: 'geometry',
-            name,
-            type: node.type.wgslType,
-            location: ctx.attributes.size,
-        });
-    }
-    return `input.${name}`;
-}
 
-function generateBufferAttribute(ctx: BuildContext, node: BufferAttributeNode<d.Any>): string {
-    // check if already registered
-    let name = ctx.bufferAttrNames.get(node.id);
-    if (name) {
+    if (node.isNamedReference) {
+        // By-name: geometry lookup
+        const name = node.name!;
+        if (!ctx.attributes.has(name)) {
+            ctx.attributes.set(name, {
+                kind: 'geometry',
+                name,
+                type: node.type.wgslType,
+                location: ctx.attributes.size,
+                node,
+                stride: node.stride,
+                offset: node.offset,
+                instanced: node.instanced,
+            });
+        }
+        return `input.${name}`;
+    } else {
+        // Buffer-based: direct reference
+        let name = ctx.bufferAttrNames.get(node.id);
+        if (name) {
+            return `input.${name}`;
+        }
+
+        name = `_buf${ctx.bufferAttributes.length}`;
+        ctx.bufferAttrNames.set(node.id, name);
+        ctx.bufferAttributes.push(node);
+
         return `input.${name}`;
     }
-    
-    // generate a name and register
-    name = `_buf${ctx.bufferAttributes.length}`;
-    ctx.bufferAttrNames.set(node.id, name);
-    ctx.bufferAttributes.push(node);
-    
-    return `input.${name}`;
 }
 
 function generateStorage(ctx: BuildContext, node: StorageNode<d.Any>): string {

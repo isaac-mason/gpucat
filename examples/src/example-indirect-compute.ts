@@ -14,7 +14,6 @@ import {
     globalId,
     If,
     Inspector,
-    instancedBufferAttribute,
     Material,
     Mesh,
     mix,
@@ -89,19 +88,17 @@ for (let i = 0; i < INSTANCES; i++) {
     orientationEndData[i * 4 + 3] = w / len;
 }
 
-const attrOffset = instancedBufferAttribute(offsetData, d.vec3f, 12, 0);
-const attrColor = instancedBufferAttribute(colorData, d.vec4f, 16, 0);
-const attrOrientationStart = instancedBufferAttribute(
+const attrOffset = attribute(offsetData, d.vec3f, { stride: 12, offset: 0, instanced: true });
+const attrColor = attribute(colorData, d.vec4f, { stride: 16, offset: 0, instanced: true });
+const attrOrientationStart = attribute(
     orientationStartData,
     d.vec4f,
-    16,
-    0,
+    { stride: 16, offset: 0, instanced: true },
 );
-const attrOrientationEnd = instancedBufferAttribute(
+const attrOrientationEnd = attribute(
     orientationEndData,
     d.vec4f,
-    16,
-    0,
+    { stride: 16, offset: 0, instanced: true },
 );
 
 /* indirect draw buffer */

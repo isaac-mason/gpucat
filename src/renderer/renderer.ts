@@ -438,7 +438,11 @@ export class WebGPURenderer {
                             buffers.ensureUploaded(this._buffers, this._device, bufAttr);
                         }
                     } else {
-                        const arr = attrEntry.node.buffer.array;
+                        const gpuBuffer = attrEntry.node.buffer;
+                        if (!gpuBuffer) {
+                            throw new Error(`[gpucat] AttributeNode has no buffer for ${attrEntry.name}`);
+                        }
+                        const arr = gpuBuffer.array;
                         if (arr) {
                             buffers.uploadRaw(
                                 this._buffers,
@@ -914,9 +918,13 @@ export class WebGPURenderer {
                     gpuBuf = buffers.ensureUploaded(this._buffers, this._device, bufAttr);
                 } else {
                     const node = attrEntry.node;
-                    const arr = node.buffer.array;
+                    const gpuBuffer = node.buffer;
+                    if (!gpuBuffer) {
+                        throw new Error(`[gpucat] AttributeNode has no buffer for ${attrEntry.name}`);
+                    }
+                    const arr = gpuBuffer.array;
                     if (!arr) {
-                        throw new Error(`[gpucat] BufferAttributeNode array is null for ${attrEntry.name}`);
+                        throw new Error(`[gpucat] AttributeNode buffer array is null for ${attrEntry.name}`);
                     }
                     gpuBuf = buffers.uploadRaw(
                         this._buffers,

@@ -39,10 +39,9 @@ export class PassTextureNode extends TextureNode {
         super('texture_2d<f32>', id);
         this.passNode = passNode;
         
-        // Set GPU resources from texture if provided
-        if (texture) {
-            if (texture.gpuTexture) this.resource = texture.gpuTexture;
-            if (texture.gpuSampler) this.gpuSampler = texture.gpuSampler;
+        // Set GPU texture resource if provided
+        if (texture && texture.gpuTexture) {
+            this.resource = texture.gpuTexture;
         }
     }
 

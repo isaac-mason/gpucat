@@ -376,33 +376,34 @@ export function buildVertexBufferLayouts(
             if (!buffer) continue;
 
             const bytesPerElement = getBytesPerElement(buffer.format);
-            const arrayStride = buffer.stride > 0 ? buffer.stride : bytesPerElement;
+            // Read stride/offset from entry (node), not buffer
+            const arrayStride = attrEntry.stride > 0 ? attrEntry.stride : bytesPerElement;
 
             layouts.push({
                 arrayStride,
-                stepMode: 'vertex',
+                stepMode: attrEntry.instanced ? 'instance' : 'vertex',
                 attributes: [
                     {
                         format: buffer.format!,
-                        offset: buffer.offset,
+                        offset: attrEntry.offset,
                         shaderLocation: attrEntry.location,
                     },
                 ],
             });
         } else {
-            // Buffer attribute (including instanced buffer attributes)
-            const node = attrEntry.node;
+            // Buffer attribute
             const format = wgslTypeToVertexFormat(attrEntry.type);
             const itemSize = wgslTypeItemSize(attrEntry.type);
-            const arrayStride = node.stride > 0 ? node.stride : itemSize * 4;
+            // Read stride/offset from entry (node)
+            const arrayStride = attrEntry.stride > 0 ? attrEntry.stride : itemSize * 4;
 
             layouts.push({
                 arrayStride,
-                stepMode: node.instanced ? 'instance' : 'vertex',
+                stepMode: attrEntry.instanced ? 'instance' : 'vertex',
                 attributes: [
                     {
                         format,
-                        offset: node.offset,
+                        offset: attrEntry.offset,
                         shaderLocation: attrEntry.location,
                     },
                 ],

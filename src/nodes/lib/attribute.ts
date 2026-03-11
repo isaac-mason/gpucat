@@ -4,104 +4,140 @@ import type { Any, TypedArrayFor } from '../schema';
 import * as d from '../schema';
 
 /**
- * BufferAttributeNode — a vertex attribute backed by a GpuBuffer or raw TypedArray.
+ * Options for creating an AttributeNode with view semantics.
+ */
+export type AttributeOptions = {
+    /** Byte stride between elements (0 = tightly packed). */
+    stride?: number;
+    /** Byte offset within each stride. */
+    offset?: number;
+    /** Whether this is per-instance data (stepMode: 'instance'). */
+    instanced?: boolean;
+};
+
+/**
+ * AttributeNode — a vertex attribute that reads from either:
+ * 1. A named geometry buffer (looked up at render time by name)
+ * 2. A direct GpuBuffer reference
  *
- * Can be used for both regular vertex attributes and per-instance attributes
- * (stepMode: 'instance') by setting `instanced = true`.
+ * View info (stride, offset, instanced) lives on the node, not the buffer.
+ * This follows the WebGPU pattern where GPUBuffer is bound separately from
+ * the GPUVertexBufferLayout which specifies stride/offset.
  *
  * @example
- * // Instanced attribute:
- * const offsets = instancedBufferAttribute(new Float32Array([...]), d.vec3f);
+ * // By-name (geometry lookup)
+ * const pos = attribute('position', d.vec3f);
+ * const uv = attribute('uv', d.vec2f);
  *
- * // Regular attribute:
- * const colors = bufferAttribute(new Float32Array([...]), d.vec3f);
+ * // By-name with view options
+ * const pos = attribute('position', d.vec3f, { stride: 32, offset: 0 });
+ *
+ * // Direct GpuBuffer (schema from buffer)
+ * const colors = attribute(colorBuffer);
+ *
+ * // Direct GpuBuffer with view options (interleaved)
+ * const position = attribute(interleavedBuffer, { stride: 32, offset: 0 });
+ * const normal = attribute(interleavedBuffer, { stride: 32, offset: 12 });
+ *
+ * // Raw TypedArray (auto-wrapped in GpuBuffer)
+ * const offsets = attribute(offsetData, d.vec3f);
+ *
+ * // Instanced
+ * const instanceMatrix = attribute(matricesBuffer, { stride: 64, offset: 0, instanced: true });
  */
-export class BufferAttributeNode<D extends Any> extends Node<D> {
-    /** The underlying GpuBuffer. */
-    readonly buffer: GpuBuffer<D>;
-    /** Byte stride between consecutive elements. */
-    readonly stride: number;
-    /** Byte offset of this attribute within each element. */
-    readonly offset: number;
-    /** Whether this attribute is instanced (stepMode: 'instance'). */
-    instanced: boolean;
-
-    constructor(
-        desc: D,
-        value: GpuBuffer<D> | TypedArrayFor<D>,
-        stride: number,
-        offset: number,
-        instanced: boolean
-    ) {
-        super(desc);
-
-        // If passed a raw TypedArray, wrap it in a GpuBuffer
-        if (ArrayBuffer.isView(value)) {
-            this.buffer = new GpuBuffer(desc, { data: value, usage: 'vertex', instanced });
-        } else {
-            this.buffer = value;
-        }
-
-        this.stride = stride;
-        this.offset = offset;
-        this.instanced = instanced;
-    }
-
-    /** Set instanced flag (chainable). */
-    setInstanced(value: boolean): this {
-        this.instanced = value;
-        return this;
-    }
-}
-
 export class AttributeNode<D extends Any> extends Node<D> {
+    /** Either a name (geometry lookup) or direct GpuBuffer reference */
+    readonly source: string | GpuBuffer<D>;
+
+    /** Byte stride between elements. 0 = tightly packed. */
+    readonly stride: number;
+
+    /** Byte offset within each stride. */
+    readonly offset: number;
+
+    /** Whether this is per-instance data (stepMode: 'instance'). */
+    readonly instanced: boolean;
+
     constructor(
         desc: D,
-        readonly name: string
+        source: string | GpuBuffer<D>,
+        options: AttributeOptions = {}
     ) {
         super(desc);
+        this.source = source;
+        this.stride = options.stride ?? 0;
+        this.offset = options.offset ?? 0;
+        this.instanced = options.instanced ?? false;
+    }
+
+    /** Whether this is a name-based lookup. */
+    get isNamedReference(): boolean {
+        return typeof this.source === 'string';
+    }
+
+    /** Get the name, or null if buffer-based. */
+    get name(): string | null {
+        return typeof this.source === 'string' ? this.source : null;
+    }
+
+    /** Get the buffer, or null if name-based. */
+    get buffer(): GpuBuffer<D> | null {
+        return typeof this.source === 'string' ? null : this.source;
     }
 }
 
-export const attribute = <D extends Any>(name: string, desc: D) => new AttributeNode<D>(desc, name);
+// Overload 1: By name (geometry lookup)
+export function attribute<D extends Any>(
+    name: string,
+    schema: D,
+    options?: AttributeOptions
+): AttributeNode<D>;
 
-/**
- * Create a BufferAttributeNode — a vertex attribute backed by a GpuBuffer or TypedArray.
- *
- * @param value   A GpuBuffer or raw TypedArray.
- * @param desc    WgslDesc for the attribute element type (e.g. d.vec3f, d.f32).
- * @param stride  Byte stride between consecutive elements (default: 0 = tightly packed).
- * @param offset  Byte offset within each element (default: 0).
- *
- * @example
- * const colors = bufferAttribute(new Float32Array([1,0,0, 0,1,0]), d.vec3f);
- */
-export const bufferAttribute = <D extends Any>(
-    value: GpuBuffer<D> | TypedArrayFor<D>,
-    desc: D,
-    stride = 0,
-    offset = 0
-): BufferAttributeNode<D> => new BufferAttributeNode(desc, value, stride, offset, false);
+// Overload 2: Direct GpuBuffer (schema inferred from buffer)
+export function attribute<D extends Any>(
+    buffer: GpuBuffer<D>,
+    options?: AttributeOptions
+): AttributeNode<D>;
 
-/**
- * Create an instanced BufferAttributeNode — a per-instance vertex attribute
- * uploaded by the renderer as a vertex buffer with stepMode: 'instance'.
- *
- * @param value   A GpuBuffer or raw TypedArray.
- * @param desc    WgslDesc for the attribute element type (e.g. d.vec3f, d.f32).
- * @param stride  Byte stride between consecutive instance records (default: 0 = tightly packed).
- * @param offset  Byte offset within each instance record (default: 0).
- *
- * @example
- * const colors = instancedBufferAttribute(new Float32Array([1,0,0, 0,1,0]), d.vec3f);
- */
-export const instancedBufferAttribute = <D extends Any>(
-    value: GpuBuffer<D> | TypedArrayFor<D>,
-    desc: D,
-    stride = 0,
-    offset = 0
-): BufferAttributeNode<D> => new BufferAttributeNode(desc, value, stride, offset, true);
+// Overload 3: Raw TypedArray (requires schema, creates GpuBuffer internally)
+export function attribute<D extends Any>(
+    data: TypedArrayFor<D>,
+    schema: D,
+    options?: AttributeOptions
+): AttributeNode<D>;
 
+// Implementation
+export function attribute<D extends Any>(
+    nameOrBufferOrData: string | GpuBuffer<D> | TypedArrayFor<D>,
+    schemaOrOptions?: D | AttributeOptions,
+    maybeOptions?: AttributeOptions
+): AttributeNode<D> {
+    // Overload 1: attribute(name, schema, options?)
+    if (typeof nameOrBufferOrData === 'string') {
+        const name = nameOrBufferOrData;
+        const schema = schemaOrOptions as D;
+        const options = maybeOptions ?? {};
+        return new AttributeNode(schema, name, options);
+    }
+
+    // Overload 2: attribute(buffer, options?)
+    if (nameOrBufferOrData instanceof GpuBuffer) {
+        const buffer = nameOrBufferOrData;
+        const options = (schemaOrOptions as AttributeOptions) ?? {};
+        return new AttributeNode(buffer.schema, buffer, options);
+    }
+
+    // Overload 3: attribute(data, schema, options?)
+    // data is a TypedArray - wrap in GpuBuffer
+    const data = nameOrBufferOrData;
+    const schema = schemaOrOptions as D;
+    const options = maybeOptions ?? {};
+    const buffer = new GpuBuffer(schema, {
+        data: data as TypedArrayFor<D>,
+        usage: 'vertex',
+    });
+    return new AttributeNode(schema, buffer, options);
+}
 
 /**
  * UV attribute node for texture coordinate access.
@@ -123,4 +159,5 @@ export const instancedBufferAttribute = <D extends Any>(
  * // Sample a texture with UVs
  * const color = myTexture.sample(uv());
  */
-export const uv = (index = 0): AttributeNode<d.vec2f> => new AttributeNode<d.vec2f>(d.vec2f, 'uv' + (index > 0 ? index : ''));
+export const uv = (index = 0): AttributeNode<d.vec2f> =>
+    new AttributeNode<d.vec2f>(d.vec2f, 'uv' + (index > 0 ? index : ''));

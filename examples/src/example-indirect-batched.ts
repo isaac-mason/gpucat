@@ -56,13 +56,13 @@ for (let i = 0; i < TOTAL; i++) {
 }
 
 const stride = 16 * 4;
-const col0 = g.instancedBufferAttribute(instanceMatrices, d.vec4f, stride, 0);
-const col1 = g.instancedBufferAttribute(instanceMatrices, d.vec4f, stride, 16);
-const col2 = g.instancedBufferAttribute(instanceMatrices, d.vec4f, stride, 32);
-const col3 = g.instancedBufferAttribute(instanceMatrices, d.vec4f, stride, 48);
+const col0 = g.attribute(instanceMatrices, d.vec4f, { stride, offset: 0, instanced: true });
+const col1 = g.attribute(instanceMatrices, d.vec4f, { stride, offset: 16, instanced: true });
+const col2 = g.attribute(instanceMatrices, d.vec4f, { stride, offset: 32, instanced: true });
+const col3 = g.attribute(instanceMatrices, d.vec4f, { stride, offset: 48, instanced: true });
 const instanceTransform = g.mat4(col0, col1, col2, col3);
 
-const instanceHue = g.instancedBufferAttribute(instanceHues, d.f32, 4, 0);
+const instanceHue = g.attribute(instanceHues, d.f32, { stride: 4, offset: 0, instanced: true });
 
 const pos = g.attribute('position', d.vec3f);
 const norm = g.attribute('normal', d.vec3f);

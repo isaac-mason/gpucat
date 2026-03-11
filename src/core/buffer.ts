@@ -96,12 +96,6 @@ export type GpuBufferOptions<T extends Any = Any> = {
     count?: number;
     /** Allowed usages for this buffer. Defaults to ['vertex']. */
     usage?: BufferUsage | BufferUsage[];
-    /** For vertex buffers: byte stride between elements (0 = tightly packed) */
-    stride?: number;
-    /** For vertex buffers: byte offset within each element */
-    offset?: number;
-    /** For vertex buffers: whether this is per-instance data */
-    instanced?: boolean;
     /** How this buffer's lifecycle is managed. Defaults to MANUAL. */
     lifecycle?: BufferLifecycle;
 };
@@ -177,17 +171,8 @@ export class GpuBuffer<T extends Any = Any> {
     /** Callback after GPU upload (e.g., release CPU memory via `this.array = null`). */
     onUpload: (() => void) | null = null;
 
-    /** Byte stride between elements. 0 = tightly packed. Used for interleaved vertex buffers. */
-    readonly stride: number;
-
-    /** Byte offset within each stride. Used for interleaved vertex buffers. */
-    readonly offset: number;
-
     /** The GPUVertexFormat for vertex buffers (e.g., 'float32x3'). Derived or explicit. */
     readonly format: GPUVertexFormat | undefined;
-
-    /** Whether this is per-instance data (for vertex buffers). */
-    readonly instanced: boolean;
 
     /** Set to true after dispose() is called. */
     disposed: boolean = false;
@@ -199,9 +184,6 @@ export class GpuBuffer<T extends Any = Any> {
         this.schema = schema;
         this.usage = normalizeUsage(options.usage);
         this.lifecycle = options.lifecycle ?? BufferLifecycle.MANUAL;
-        this.stride = options.stride ?? 0;
-        this.offset = options.offset ?? 0;
-        this.instanced = options.instanced ?? false;
 
         // Derive itemSize from schema
         this.itemSize = schemaItemSize(schema);
