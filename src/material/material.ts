@@ -13,8 +13,9 @@ export interface MaterialOptions {
      * Fragment output. Can be:
      * - A vec4f node for single color output
      * - An OutputStructNode/MRTNode for multiple render targets
+     * - Omitted/null for depth-only rendering (e.g. shadow passes)
      */
-    fragment: Node<Any>;
+    fragment?: Node<Any> | null;
 
     /**
      * An optional `f32` override for the fragment depth written to the depth buffer.
@@ -43,6 +44,15 @@ export interface MaterialOptions {
 
     /** Alpha-to-coverage. Meaningful only when renderer.samples > 1. Default false. */
     alphaToCoverage?: boolean;
+
+    /** Constant depth bias in depth buffer precision steps. Default 0. */
+    depthBias?: number;
+
+    /** Depth bias scaled by the fragment's slope (dz/dx, dz/dy). Default 0. */
+    depthBiasSlopeScale?: number;
+
+    /** Maximum absolute depth bias value. Default 0 (no clamp). */
+    depthBiasClamp?: number;
 }
 
 export class Material {
@@ -51,8 +61,8 @@ export class Material {
      */
     vertexNode: Node<Any>;
 
-    /** Fragment output. Can be vec4f or OutputStructNode for MRT */
-    fragmentNode: Node<Any>;
+    /** Fragment output. Can be vec4f, OutputStructNode for MRT, or null for depth-only. */
+    fragmentNode: Node<Any> | null;
 
     /** f32 depth override — written to @builtin(frag_depth) */
     depthNode: Node<Any> | undefined;
@@ -78,6 +88,15 @@ export class Material {
     /** Alpha-to-coverage. Meaningful only when renderer.samples > 1. Default false. */
     alphaToCoverage: boolean;
 
+    /** Constant depth bias in depth buffer precision steps. Default 0. */
+    depthBias: number;
+
+    /** Depth bias scaled by the fragment's slope (dz/dx, dz/dy). Default 0. */
+    depthBiasSlopeScale: number;
+
+    /** Maximum absolute depth bias value. Default 0 (no clamp). */
+    depthBiasClamp: number;
+
     /**
      * Named uniforms for this material.
      * Used for name-based uniform resolution: uniform('roughness', d.f32) resolves
@@ -87,7 +106,7 @@ export class Material {
 
     constructor(opts: MaterialOptions) {
         this.vertexNode = opts.vertex;
-        this.fragmentNode = opts.fragment;
+        this.fragmentNode = opts.fragment ?? null;
         this.depthNode = opts.depth;
 
         const transparent = opts.transparent ?? false;
@@ -98,6 +117,9 @@ export class Material {
         this.depthCompare = opts.depthCompare ?? 'less';
         this.cullMode = opts.cullMode ?? 'back';
         this.alphaToCoverage = opts.alphaToCoverage ?? false;
+        this.depthBias = opts.depthBias ?? 0;
+        this.depthBiasSlopeScale = opts.depthBiasSlopeScale ?? 0;
+        this.depthBiasClamp = opts.depthBiasClamp ?? 0;
     }
 
     /**

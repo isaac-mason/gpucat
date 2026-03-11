@@ -358,12 +358,14 @@ const _worldSphere: Sphere = { center: [0, 0, 0], radius: 0 };
  * @param state - The RenderLists state
  * @param object - The object to collect from (Scene, Mesh, or any Object3D)
  * @param camera - The camera for frustum culling and Z sorting
+ * @param overrideMaterial - When set, all meshes use this material instead of their own
  * @returns The populated and sorted RenderList
  */
 export function collectRenderList(
     state: RenderListsState,
     object: Object3D,
     camera: Camera,
+    overrideMaterial: Material | null = null,
 ): RenderList {
     const list = getRenderList(state, object, camera);
 
@@ -378,7 +380,7 @@ export function collectRenderList(
     );
 
     // Walk object and collect visible meshes
-    walkObject(list, object, camera);
+    walkObject(list, object, camera, overrideMaterial);
 
     // Finish and sort
     finishRenderList(list);
@@ -394,17 +396,19 @@ function walkObject(
     list: RenderList,
     obj: Object3D,
     camera: Camera,
+    overrideMaterial: Material | null,
 ): void {
     if (!obj.visible) return;
 
     if (obj instanceof Mesh) {
         if (isMeshVisible(obj)) {
+            const material = overrideMaterial ?? obj.material;
             const z = computeViewZ(obj, camera);
             pushRenderItem(
                 list,
                 obj,
                 obj.geometry,
-                obj.material,
+                material,
                 0, // groupOrder - could be mesh.renderOrder or layer
                 z,
                 null, // group - for multi-material
@@ -414,7 +418,7 @@ function walkObject(
 
     // Recurse into children
     for (const child of obj.children) {
-        walkObject(list, child, camera);
+        walkObject(list, child, camera, overrideMaterial);
     }
 }
 
@@ -502,6 +506,7 @@ export function collectRenderListWithSort(
     camera: Camera,
     opaqueSort?: (a: RenderItem, b: RenderItem) => number,
     transparentSort?: (a: RenderItem, b: RenderItem) => number,
+    overrideMaterial: Material | null = null,
 ): RenderList {
     const list = getRenderList(state, object, camera);
 
@@ -513,7 +518,7 @@ export function collectRenderListWithSort(
         camera.matrixWorldInverse,
     );
 
-    walkObject(list, object, camera);
+    walkObject(list, object, camera, overrideMaterial);
 
     finishRenderList(list);
     sortRenderList(list, opaqueSort, transparentSort);

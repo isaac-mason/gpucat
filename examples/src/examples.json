@@ -88,5 +88,10 @@
         "title": "Discard",
         "description": "Animated dissolve effect using the Discard() control flow node with a 4x4 Bayer dither matrix. Opacity oscillates via sin(time), discarding fragments below the dither threshold.",
         "tags": ["discard", "dithering", "control-flow"]
+    },
+    "example-shadow-map": {
+        "title": "Shadow Map",
+        "description": "Two-pass shadow mapping: a depth-only pass renders the scene from the light's orthographic camera into a depth texture, then the scene pass samples it with textureSampleCompare() to produce hard shadows.",
+        "tags": ["shadows", "depth-texture", "render-target", "multi-pass"]
     }
 }

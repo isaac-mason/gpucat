@@ -2,7 +2,7 @@ import {
     attribute,
     cameraProjectionMatrix,
     cameraViewMatrix,
-    color,
+    rgb,
     createSphereGeometry,
     d,
     f32,
@@ -124,8 +124,8 @@ const ambient = f32(0.15);
 const diffuseFactor = nDotL.add(ambient);
 
 // material colors
-const baseColor = color('#4488ff'); // blue diffuse
-const emissiveColor = color('#ff4400'); // orange-red emissive glow
+const baseColor = rgb('#4488ff'); // blue diffuse
+const emissiveColor = rgb('#ff4400'); // orange-red emissive glow
 
 // emissive based on view angle (rim effect)
 const viewDir = vec3(f32(0), f32(0), f32(1)); // simplified: assume looking down -Z

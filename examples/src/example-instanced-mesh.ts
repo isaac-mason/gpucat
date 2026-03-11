@@ -15,6 +15,7 @@ const _translation = vec3.create();
 const _scale = vec3.fromValues(1, 1, 1);
 const _quat = quat.create();
 const _mat4 = mat4.create();
+const _color = g.color.create();
 
 for (let i = 0; i < N; i++) {
     const col = i % COLS;
@@ -27,9 +28,14 @@ for (let i = 0; i < N; i++) {
 
     // rainbow hue per instance
     const h = i / N;
-    instanceColors[i * 3 + 0] = Math.abs(Math.sin(h * Math.PI * 2 + 0));
-    instanceColors[i * 3 + 1] = Math.abs(Math.sin(h * Math.PI * 2 + (2 * Math.PI) / 3));
-    instanceColors[i * 3 + 2] = Math.abs(Math.sin(h * Math.PI * 2 + (4 * Math.PI) / 3));
+    g.color.set(_color,
+        Math.abs(Math.sin(h * Math.PI * 2 + 0)),
+        Math.abs(Math.sin(h * Math.PI * 2 + (2 * Math.PI) / 3)),
+        Math.abs(Math.sin(h * Math.PI * 2 + (4 * Math.PI) / 3)),
+    )
+    instanceColors[i * 3 + 0] = _color[0];
+    instanceColors[i * 3 + 1] = _color[1];
+    instanceColors[i * 3 + 2] = _color[2];
 }
 
 const instanceTransformStride = 16 * 4;
@@ -96,7 +102,7 @@ async function main() {
     scene.add(mesh);
 
     const scenePass = g.pass(scene, perspCamera);
-    const outputNode = g.renderOutput(scenePass.getTextureNode());
+    const outputNode = g.renderOutput(scenePass);
     const renderPipeline = new g.RenderPipeline(renderer, outputNode);
 
     function frame() {

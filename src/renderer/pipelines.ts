@@ -184,7 +184,7 @@ function buildRenderPipelineDescriptor(
         }
     });
 
-    // Build color targets (supports MRT)
+    // Build color targets (supports MRT). Empty for depth-only pipelines.
     const targetCount = getTargetCount(material.fragmentNode);
     const colorTargets: GPUColorTargetState[] = [];
     for (let i = 0; i < targetCount; i++) {
@@ -196,6 +196,17 @@ function buildRenderPipelineDescriptor(
     }
 
     // Build pipeline descriptor
+    // For depth-only pipelines (null fragmentNode), omit the fragment stage entirely.
+    // WebGPU spec section 23.2.8 explicitly supports "No Color Output" mode:
+    // the pipeline still rasterizes and produces depth values from vertex positions.
+    const fragment: GPURenderPipelineDescriptor['fragment'] = targetCount > 0
+        ? {
+              module: shaderModule,
+              entryPoint: 'fs_main',
+              targets: colorTargets,
+          }
+        : undefined;
+
     return {
         layout: pipelineLayout,
         vertex: {
@@ -203,11 +214,7 @@ function buildRenderPipelineDescriptor(
             entryPoint: 'vs_main',
             buffers: vertexBufferLayouts,
         },
-        fragment: {
-            module: shaderModule,
-            entryPoint: 'fs_main',
-            targets: colorTargets,
-        },
+        fragment,
         primitive: {
             topology: 'triangle-list',
             cullMode: material.cullMode,
@@ -218,6 +225,9 @@ function buildRenderPipelineDescriptor(
                   format: depthFormat,
                   depthWriteEnabled: material.depthWrite,
                   depthCompare: material.depthTest ? material.depthCompare : 'always',
+                  depthBias: material.depthBias,
+                  depthBiasSlopeScale: material.depthBiasSlopeScale,
+                  depthBiasClamp: material.depthBiasClamp,
               }
             : undefined,
         multisample: {
@@ -321,8 +331,10 @@ export function lookupCompute(state: PipelinesState, node: ComputeNode): Compute
 
 /**
  * Get the number of render targets for a fragment node.
+ * Returns 0 for depth-only pipelines (null fragment node).
  */
-function getTargetCount(fragmentNode: Node<Any>): number {
+function getTargetCount(fragmentNode: Node<Any> | null): number {
+    if (fragmentNode === null) return 0;
     if (fragmentNode instanceof OutputStructNode) {
         return Math.max(1, fragmentNode.members.length);
     }
@@ -339,7 +351,7 @@ export function makeRenderPipelineKey(
     depthFormat: GPUTextureFormat | undefined = 'depth24plus',
 ): string {
     const posId = material.vertexNode ? material.vertexNode.id : '__default__';
-    const colId = material.fragmentNode.id;
+    const colId = material.fragmentNode ? material.fragmentNode.id : '__depthOnly__';
     const depId = material.depthNode ? material.depthNode.id : '__none__';
 
     const rs = [
@@ -349,6 +361,9 @@ export function makeRenderPipelineKey(
         material.depthCompare,
         material.cullMode,
         material.alphaToCoverage ? 1 : 0,
+        material.depthBias,
+        material.depthBiasSlopeScale,
+        material.depthBiasClamp,
         getTargetCount(material.fragmentNode),
         samples,
         format,

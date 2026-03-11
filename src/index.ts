@@ -13,6 +13,7 @@ export * from './scene/scene';
 
 export * from "./camera/camera";
 export * from "./camera/perspective-camera";
+export * from "./camera/orthographic-camera";
 
 export * from "./core/buffer";
 export * from "./core/uniform";
@@ -26,14 +27,15 @@ export * from './texture/texture';
 export * from './texture/cube-texture';
 export * from './texture/depth-texture';
 
-export * from './utils/color';
+export * as color from './utils/color';
+export { type Color, type ColorInput } from './utils/color';
 
 export * as frustum from './math/frustum';
 export { type Frustum } from './math/frustum';
 
 export {
     // constructors
-    f16, f32, i32, u32, bool, color,
+    f16, f32, i32, u32, bool, rgb,
     vec2, vec2f, vec2h, vec2i, vec2u, vec2b,
     vec3, vec3f, vec3h, vec3i, vec3u, vec3b,
     vec4, vec4f, vec4h, vec4i, vec4u, vec4b,

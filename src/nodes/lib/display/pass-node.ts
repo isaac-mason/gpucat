@@ -197,12 +197,12 @@ export class PassNode extends Node<d.vec4f> {
             samples: options.samples ?? 1,
             count: 1,
         });
-        renderTarget.texture.name = 'output';
+        renderTarget.texture!.name = 'output';
 
         this.renderTarget = renderTarget;
 
         // Initialize _textures with output and depth
-        this._textures['output'] = renderTarget.texture;
+        this._textures['output'] = renderTarget.texture!;
         if (renderTarget.depthTexture) {
             this._textures['depth'] = renderTarget.depthTexture;
         }
@@ -261,7 +261,7 @@ export class PassNode extends Node<d.vec4f> {
 
         if (texture === undefined) {
             // Clone the reference texture format and create new render target texture
-            const refTexture = this.renderTarget.texture;
+            const refTexture = this.renderTarget.texture!;
             const image: ImageSize = { width: this.renderTarget.width, height: this.renderTarget.height };
             texture = new Texture(image);
             texture.format = refTexture.format;

@@ -124,8 +124,11 @@ export function compile(slots: CompileSlots): CompileResult {
     const vertexCtx = createContext('vertex', true);
     const fragmentCtx = createContext('fragment', true);
     
+    const hasFragment = slots.color !== null;
+    
     // collect all roots
-    const roots = [slots.position, slots.color];
+    const roots: Node<d.Any>[] = [slots.position];
+    if (slots.color) roots.push(slots.color);
     if (slots.depth) roots.push(slots.depth);
     
     // single discovery pass across all roots
@@ -135,27 +138,34 @@ export function compile(slots: CompileSlots): CompileResult {
     vertexCtx.fnDefs = discovered.fnDefs;
     vertexCtx.wgslFnDefs = discovered.wgslFnDefs;
     vertexCtx.structDefs = discovered.structDefs;
+    vertexCtx.storageNames = discovered.storageNames;
     fragmentCtx.usageCount = discovered.usageCount;
     fragmentCtx.mutatedNodes = discovered.mutatedNodes;
     fragmentCtx.fnDefs = discovered.fnDefs;
     fragmentCtx.wgslFnDefs = discovered.wgslFnDefs;
     fragmentCtx.structDefs = discovered.structDefs;
+    fragmentCtx.storageNames = discovered.storageNames;
     
     // pre-collect varyings from fragment roots (so vertex shader knows what to output)
-    const fragmentRoots: Node<d.Any>[] = [slots.color];
-    collectVaryings(fragmentRoots, vertexCtx);
+    if (hasFragment) {
+        const fragmentRoots: Node<d.Any>[] = [slots.color!];
+        collectVaryings(fragmentRoots, vertexCtx);
+    }
     
     // generate vertex shader
     const vertexBody = generateVertexShader(slots, vertexCtx);
     
-    // generate fragment shader
-    const fragmentBody = generateFragmentShader(slots, fragmentCtx, vertexCtx.varyings);
-    
-    // merge bindings from both stages
-    for (const [k, v] of fragmentCtx.uniforms) vertexCtx.uniforms.set(k, v);
-    for (const [k, v] of fragmentCtx.storages) vertexCtx.storages.set(k, v);
-    for (const [k, v] of fragmentCtx.textures) vertexCtx.textures.set(k, v);
-    for (const [k, v] of fragmentCtx.samplers) vertexCtx.samplers.set(k, v);
+    // generate fragment shader (skip for depth-only pipelines)
+    let fragmentBody = '';
+    if (hasFragment) {
+        fragmentBody = generateFragmentShader(slots.color!, fragmentCtx, vertexCtx.varyings);
+        
+        // merge bindings from fragment stage
+        for (const [k, v] of fragmentCtx.uniforms) vertexCtx.uniforms.set(k, v);
+        for (const [k, v] of fragmentCtx.storages) vertexCtx.storages.set(k, v);
+        for (const [k, v] of fragmentCtx.textures) vertexCtx.textures.set(k, v);
+        for (const [k, v] of fragmentCtx.samplers) vertexCtx.samplers.set(k, v);
+    }
     
     // emit all bindings using Three.js pattern (each group gets its own @group index)
     const { wgsl: bindingsWgsl, uniformBlocks, storageEntries, textureEntries: textures, samplerEntries: samplers } = emitAllBindings(vertexCtx);
@@ -165,7 +175,7 @@ export function compile(slots: CompileSlots): CompileResult {
     const dslFnsCode = emitDslFunctions(vertexCtx);
     
     // assemble full shader
-    const code = [
+    const codeParts = [
         '// Bindings (uniforms, storage, textures, samplers)',
         bindingsWgsl,
         '// WGSL Functions',
@@ -174,10 +184,11 @@ export function compile(slots: CompileSlots): CompileResult {
         dslFnsCode,
         '// Vertex Shader',
         vertexBody,
-        '',
-        '// Fragment Shader',
-        fragmentBody,
-    ].filter(Boolean).join('\n');
+    ];
+    if (hasFragment) {
+        codeParts.push('', '// Fragment Shader', fragmentBody);
+    }
+    const code = codeParts.filter(Boolean).join('\n');
     
     // collect graph info
     const graphNodes = new Map<number, Node<d.Any>>();
@@ -217,7 +228,7 @@ export function compile(slots: CompileSlots): CompileResult {
     return {
         code,
         vertexEntryPoint: 'vs_main',
-        fragmentEntryPoint: 'fs_main',
+        fragmentEntryPoint: hasFragment ? 'fs_main' : null,
         attributes: allAttributes,
         vertexBufferGroups,
         varyings: varyingEntries,
@@ -252,6 +263,7 @@ export function compileCompute(node: ComputeNode): ComputeCompileResult {
     ctx.fnDefs = discovered.fnDefs;
     ctx.wgslFnDefs = discovered.wgslFnDefs;
     ctx.structDefs = discovered.structDefs;
+    ctx.storageNames = discovered.storageNames;
     
     // generate compute shader body
     const computeBody = generateComputeShader(node, ctx);
@@ -426,14 +438,14 @@ export type NodeGraphInfo = {
 
 export type CompileSlots = {
     position: Node<d.Any>;
-    color: Node<d.Any>;
+    color: Node<d.Any> | null;
     depth?: Node<d.Any>;
 };
 
 export type CompileResult = {
     code: string;
     vertexEntryPoint: string;
-    fragmentEntryPoint: string;
+    fragmentEntryPoint: string | null;
     attributes: AttributeEntry[];
     vertexBufferGroups: VertexBufferGroup[];
     varyings: VaryingEntry[];
@@ -677,6 +689,7 @@ interface DiscoverResult {
     fnDefs: Map<string, { fn: FnNode<d.Any>; traced: TracedFn }>;
     wgslFnDefs: Map<string, WgslFunctionNode>;
     structDefs: Map<string, StructDef<StructSchema>>;
+    storageNames: Map<number, string>; // node.id -> globally unique name
     allNodes: Map<number, Node<d.Any>>;
 }
 
@@ -686,6 +699,7 @@ function discover(roots: Node<d.Any>[]): DiscoverResult {
     const fnDefs = new Map<string, { fn: FnNode<d.Any>; traced: TracedFn }>();
     const wgslFnDefs = new Map<string, WgslFunctionNode>();
     const structDefs = new Map<string, StructDef<StructSchema>>(); 
+    const storageNames = new Map<number, string>();
     const allNodes = new Map<number, Node<d.Any>>();
     const visited = new Set<number>();
 
@@ -744,8 +758,12 @@ function discover(roots: Node<d.Any>[]): DiscoverResult {
             }
         }
 
-        // struct definition discovery
+        // storage + struct definition discovery
         if (node instanceof StorageNode) {
+            if (!storageNames.has(node.id)) {
+                storageNames.set(node.id, `_storage${storageNames.size}`);
+            }
+
             const bufType = node.type;
             if (d.isStructDef(bufType)) {
                 registerStructDef(bufType as unknown as StructDef<StructSchema>);
@@ -764,7 +782,7 @@ function discover(roots: Node<d.Any>[]): DiscoverResult {
         visit(root);
     }
 
-    return { usageCount, mutatedNodes, fnDefs, wgslFnDefs, structDefs, allNodes };
+    return { usageCount, mutatedNodes, fnDefs, wgslFnDefs, structDefs, storageNames, allNodes };
 }
 
 /** Pre-collect VaryingNodes from roots and generate their vertex expressions. */
@@ -1050,16 +1068,13 @@ function generateAttribute(ctx: BuildContext, node: AttributeNode<d.Any>): strin
 }
 
 function generateStorage(ctx: BuildContext, node: StorageNode<d.Any>): string {
-    // check if already registered
-    let name = ctx.storageNames.get(node.id);
-    if (name) {
-        return name;
-    }
+    // name was assigned globally during discover()
+    const name = ctx.storageNames.get(node.id)!;
     
-    // generate a name and register
-    name = `_storage${ctx.storages.size}`;
-    ctx.storageNames.set(node.id, name);
-    ctx.storages.set(name, node);
+    // register in storages map for binding emission (idempotent)
+    if (!ctx.storages.has(name)) {
+        ctx.storages.set(name, node);
+    }
     
     return name;
 }
@@ -1843,7 +1858,7 @@ function generateVertexShader(slots: CompileSlots, ctx: BuildContext): string {
 
 /* fragment shader generation */
 
-function generateFragmentShader(slots: CompileSlots, ctx: BuildContext, varyings: Map<string, { node: VaryingNode<d.Any>; vertexExpr: string }>): string {
+function generateFragmentShader(colorNode: Node<d.Any>, ctx: BuildContext, varyings: Map<string, { node: VaryingNode<d.Any>; vertexExpr: string }>): string {
     const lines: string[] = [];
     
     // copy varyings from vertex stage
@@ -1854,7 +1869,7 @@ function generateFragmentShader(slots: CompileSlots, ctx: BuildContext, varyings
     }
     
     // generate color expression
-    const colorExpr = generateExpr(ctx, slots.color);
+    const colorExpr = generateExpr(ctx, colorNode);
     
     // check if we have any fragment inputs (varyings or builtins)
     const hasFragCoord = ctx.builtins.has('position');
@@ -1884,8 +1899,8 @@ function generateFragmentShader(slots: CompileSlots, ctx: BuildContext, varyings
     }
     
     // check for MRT
-    const isMRT = slots.color instanceof MRTNode;
-    const mrtNode = isMRT ? slots.color as MRTNode : null;
+    const isMRT = colorNode instanceof MRTNode;
+    const mrtNode = isMRT ? colorNode as MRTNode : null;
     
     // Pre-generate all MRT output expressions NOW so that CSE let-declarations
     // are pushed into ctx.code before we emit the function body.

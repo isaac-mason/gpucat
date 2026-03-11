@@ -2,7 +2,7 @@ import {
     attribute,
     cameraProjectionMatrix,
     cameraViewMatrix,
-    color,
+    rgb,
     createBoxGeometry,
     d,
     f32,
@@ -72,7 +72,7 @@ async function main() {
     const lightDirection = vec3(f32(0.6), f32(1.0), f32(0.8)).normalize().toVar('lightDir').inspect('light direction');
     const diffuse = vNormal.dot(lightDirection).max(f32(0.15)).toVar('diffuse').inspect('diffuse lighting');
 
-    const baseColor = color('#f60').toVar('baseColor');
+    const baseColor = rgb('#f60').toVar('baseColor');
     const litColor = vec3(baseColor.x, baseColor.y, baseColor.z).mul(diffuse).toVar('litColor');
 
     const material = new Material({

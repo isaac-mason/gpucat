@@ -1,29 +1,14 @@
 /**
- * color.ts — Color class for linear-sRGB color storage.
+ * color.ts — Linear-sRGB color utilities.
  *
- * Color stores linear-sRGB r/g/b floats in [0, 1].
+ * A Color is a 3-element tuple [r, g, b] of linear-sRGB floats in [0, 1].
  *
- * Accepted inputs for new Color(input):
- *   - CSS hex strings:       '#f00', '#ff0000', '#FF0000'
- *   - CSS rgb():             'rgb(255, 0, 0)', 'rgb(100%, 0%, 0%)'
- *   - CSS hsl():             'hsl(0, 100%, 50%)'
- *   - 0xRRGGBB integers:     0xff0000
- *   - Float [r, g, b] array: [1, 0, 0]
- *   - Named CSS colors:      'red', 'lime', 'deepskyblue', … (full CSS4 set)
- *   - Another Color:         new Color(existingColor)
- *
- * All channel values are expected / stored as linear [0, 1] floats.
- * CSS-style inputs that traditionally live in gamma space are converted to
- * linear RGB via the standard sRGB gamma-expansion formula so WGSL receives
- * physically-correct values.
- *
- * @example
- * const c = new Color('hsl(200, 80%, 50%)');
- * c.r; c.g; c.b;  // linear floats
+ * All CSS-style / gamma-sRGB inputs are converted to linear RGB via the
+ * standard sRGB gamma-expansion formula.
  */
 
 // ---------------------------------------------------------------------------
-// CSS named color table (subset — the 148 CSS4 named colors)
+// CSS named color table (the 148 CSS4 named colors)
 // Values are 0xRRGGBB integers in sRGB gamma space.
 // ---------------------------------------------------------------------------
 
@@ -181,39 +166,38 @@ const CSS_COLORS: Record<string, number> = {
 /* eslint-enable sort-keys */
 
 // ---------------------------------------------------------------------------
-// sRGB ↔ linear conversion helpers
+// sRGB <-> linear conversion helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Convert a single sRGB gamma-encoded channel [0, 1] to linear light [0, 1].
- * Uses the IEC 61966-2-1 piecewise formula.
- */
-function srgbToLinear(c: number): number {
+/** Convert a single sRGB gamma-encoded channel [0, 1] to linear light [0, 1]. */
+function srgbChannelToLinear(c: number): number {
     return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+}
+
+/** Convert a single linear light channel [0, 1] to sRGB gamma-encoded [0, 1]. */
+function linearChannelToSrgb(c: number): number {
+    return c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
 }
 
 // ---------------------------------------------------------------------------
 // Internal parser helpers
 // ---------------------------------------------------------------------------
 
-/** Expand a 3-digit hex string to [r, g, b] linear floats. */
-function parseHex3(hex: string): [number, number, number] {
+function parseHex3(hex: string): Color {
     const r = parseInt(hex[1] + hex[1], 16) / 255;
     const g = parseInt(hex[2] + hex[2], 16) / 255;
     const b = parseInt(hex[3] + hex[3], 16) / 255;
-    return [srgbToLinear(r), srgbToLinear(g), srgbToLinear(b)];
+    return [srgbChannelToLinear(r), srgbChannelToLinear(g), srgbChannelToLinear(b)];
 }
 
-/** Expand a 6-digit hex string to [r, g, b] linear floats. */
-function parseHex6(hex: string): [number, number, number] {
+function parseHex6(hex: string): Color {
     const r = parseInt(hex.slice(1, 3), 16) / 255;
     const g = parseInt(hex.slice(3, 5), 16) / 255;
     const b = parseInt(hex.slice(5, 7), 16) / 255;
-    return [srgbToLinear(r), srgbToLinear(g), srgbToLinear(b)];
+    return [srgbChannelToLinear(r), srgbChannelToLinear(g), srgbChannelToLinear(b)];
 }
 
-/** Parse an `rgb(r, g, b)` or `rgb(r%, g%, b%)` string. */
-function parseRgb(str: string): [number, number, number] | null {
+function parseRgbString(str: string): Color | null {
     const m = str.match(/^rgb\(\s*([^,]+),\s*([^,]+),\s*([^)]+)\)$/i);
     if (!m) return null;
     const parse = (s: string): number => {
@@ -221,14 +205,10 @@ function parseRgb(str: string): [number, number, number] | null {
         if (s.endsWith('%')) return parseFloat(s) / 100;
         return parseFloat(s) / 255;
     };
-    const r = srgbToLinear(parse(m[1]));
-    const g = srgbToLinear(parse(m[2]));
-    const b = srgbToLinear(parse(m[3]));
-    return [r, g, b];
+    return [srgbChannelToLinear(parse(m[1])), srgbChannelToLinear(parse(m[2])), srgbChannelToLinear(parse(m[3]))];
 }
 
-/** Parse an `hsl(h, s%, l%)` string. Returns linear [r, g, b]. */
-function parseHsl(str: string): [number, number, number] | null {
+function parseHslString(str: string): Color | null {
     const m = str.match(/^hsl\(\s*([^,]+),\s*([^,]+),\s*([^)]+)\)$/i);
     if (!m) return null;
     const h = parseFloat(m[1]) / 360;
@@ -237,8 +217,7 @@ function parseHsl(str: string): [number, number, number] | null {
     return hslToLinear(h, s, l);
 }
 
-/** HSL → sRGB → linear. h/s/l all in [0, 1]. */
-function hslToLinear(h: number, s: number, l: number): [number, number, number] {
+function hslToLinear(h: number, s: number, l: number): Color {
     let r: number, g: number, b: number;
     if (s === 0) {
         r = g = b = l;
@@ -249,7 +228,7 @@ function hslToLinear(h: number, s: number, l: number): [number, number, number] 
         g = hue2rgb(p, q, h);
         b = hue2rgb(p, q, h - 1 / 3);
     }
-    return [srgbToLinear(r), srgbToLinear(g), srgbToLinear(b)];
+    return [srgbChannelToLinear(r), srgbChannelToLinear(g), srgbChannelToLinear(b)];
 }
 
 function hue2rgb(p: number, q: number, t: number): number {
@@ -262,115 +241,144 @@ function hue2rgb(p: number, q: number, t: number): number {
 }
 
 // ---------------------------------------------------------------------------
-// Color — accepted input types
+// Color type
+// ---------------------------------------------------------------------------
+
+/** A linear-sRGB color: [r, g, b] floats in [0, 1]. */
+export type Color = [r: number, g: number, b: number];
+
+// ---------------------------------------------------------------------------
+// Accepted input types for parsing
 // ---------------------------------------------------------------------------
 
 export type ColorInput =
-    | string          // '#f00', '#ff0000', 'red', 'rgb(255,0,0)', 'hsl(0,100%,50%)'
-    | number          // 0xff0000 integer (sRGB)
-    | [number, number, number]  // [r, g, b] linear floats [0, 1]
-    | Color;          // copy constructor
+    | string                     // '#f00', '#ff0000', 'red', 'rgb(255,0,0)', 'hsl(0,100%,50%)'
+    | number                     // 0xff0000 integer (sRGB gamma)
+    | [number, number, number];  // [r, g, b] linear floats [0, 1]
 
 // ---------------------------------------------------------------------------
-// Color class
+// Free functions
 // ---------------------------------------------------------------------------
+
+/** Create a new Color initialized to black [0, 0, 0]. */
+export function create(): Color {
+    return [0, 0, 0];
+}
+
+/** Create a new Color with the given linear r, g, b values. */
+export function fromValues(r: number, g: number, b: number): Color {
+    return [r, g, b];
+}
+
+/** Create a new Color that is a copy of `c`. */
+export function clone(c: Color): Color {
+    return [c[0], c[1], c[2]];
+}
+
+/** Copy the values from `src` into `out`. Returns `out`. */
+export function copy(out: Color, src: Color): Color {
+    out[0] = src[0];
+    out[1] = src[1];
+    out[2] = src[2];
+    return out;
+}
+
+/** Set the linear r, g, b components of `out` directly. Returns `out`. */
+export function set(out: Color, r: number, g: number, b: number): Color {
+    out[0] = r;
+    out[1] = g;
+    out[2] = b;
+    return out;
+}
 
 /**
- * A linear-sRGB color with r/g/b channels in [0, 1].
- *
- * All CSS-style inputs are converted from gamma-sRGB to linear RGB on construction.
- *
- * @example
- * new Color('#f00')                     // red
- * new Color('#ff6600')                  // orange
- * new Color('hsl(200, 80%, 50%)')       // steel-ish blue
- * new Color('rgb(255, 128, 0)')         // orange
- * new Color(0x00ff00)                   // green
- * new Color([1, 0.5, 0])               // linear orange
- * new Color('deepskyblue')             // named CSS color
+ * Set `out` from an sRGB gamma-encoded [r, g, b] array with values in [0, 1].
+ * Converts from sRGB gamma space to linear. Returns `out`.
  */
-export class Color {
-    /** Linear red channel [0, 1]. */
-    r: number;
-    /** Linear green channel [0, 1]. */
-    g: number;
-    /** Linear blue channel [0, 1]. */
-    b: number;
+export function setFromSRGB(out: Color, srgb: [number, number, number]): Color {
+    out[0] = srgbChannelToLinear(srgb[0]);
+    out[1] = srgbChannelToLinear(srgb[1]);
+    out[2] = srgbChannelToLinear(srgb[2]);
+    return out;
+}
 
-    constructor(input: ColorInput = 0x000000) {
-        [this.r, this.g, this.b] = Color._parse(input);
+/** Create a new Color from an sRGB gamma-encoded [r, g, b] array with values in [0, 1]. */
+export function fromSRGB(srgb: [number, number, number]): Color {
+    return setFromSRGB(create(), srgb);
+}
+
+/**
+ * Parse any supported color input and write the result into `out`. Returns `out`.
+ *
+ * Supported inputs:
+ *   - CSS hex strings:       '#f00', '#ff0000'
+ *   - CSS rgb():             'rgb(255, 0, 0)', 'rgb(100%, 0%, 0%)'
+ *   - CSS hsl():             'hsl(0, 100%, 50%)'
+ *   - 0xRRGGBB integers:     0xff0000 (sRGB gamma)
+ *   - Named CSS colors:      'red', 'lime', 'deepskyblue', ...
+ *   - [r, g, b] array:       treated as already-linear [0, 1]
+ */
+export function setFromColorInput(out: Color, input: ColorInput): Color {
+    const parsed = parse(input);
+    out[0] = parsed[0];
+    out[1] = parsed[1];
+    out[2] = parsed[2];
+    return out;
+}
+
+/** Parse any supported color input into a new Color. */
+export function fromColorInput(input: ColorInput): Color {
+    return parse(input);
+}
+
+/**
+ * Return a CSS `rgb(...)` string in sRGB gamma space (for HTML/canvas use).
+ */
+export function toCSS(c: Color): string {
+    const r = Math.round(linearChannelToSrgb(c[0]) * 255);
+    const g = Math.round(linearChannelToSrgb(c[1]) * 255);
+    const b = Math.round(linearChannelToSrgb(c[2]) * 255);
+    return `rgb(${r}, ${g}, ${b})`;
+}
+
+// ---------------------------------------------------------------------------
+// Internal parse
+// ---------------------------------------------------------------------------
+
+function parse(input: ColorInput): Color {
+    // [r, g, b] array — treated as already-linear
+    if (Array.isArray(input)) {
+        return [input[0] ?? 0, input[1] ?? 0, input[2] ?? 0];
     }
 
-    /** Set all channels from any accepted input, mutating this Color. Returns `this`. */
-    set(input: ColorInput): this {
-        [this.r, this.g, this.b] = Color._parse(input);
-        return this;
+    // Integer 0xRRGGBB (sRGB gamma)
+    if (typeof input === 'number') {
+        const r = ((input >> 16) & 0xff) / 255;
+        const g = ((input >> 8) & 0xff) / 255;
+        const b = (input & 0xff) / 255;
+        return [srgbChannelToLinear(r), srgbChannelToLinear(g), srgbChannelToLinear(b)];
     }
 
-    /** Return a new Color that is a copy of this one. */
-    clone(): Color {
-        return new Color([this.r, this.g, this.b]);
+    // String forms
+    const s = input.trim().toLowerCase();
+
+    if (/^#[0-9a-f]{3}$/i.test(s)) return parseHex3(s);
+    if (/^#[0-9a-f]{6}$/i.test(s)) return parseHex6(s);
+
+    if (s.startsWith('rgb(')) {
+        const result = parseRgbString(s);
+        if (result) return result;
     }
 
-    /**
-     * Return a CSS `rgb(…)` string in gamma-sRGB space (for HTML/canvas use).
-     * Applies the inverse gamma from linear → sRGB.
-     */
-    toCSS(): string {
-        const toGamma = (v: number) => Math.round((v <= 0.0031308 ? 12.92 * v : 1.055 * Math.pow(v, 1 / 2.4) - 0.055) * 255);
-        return `rgb(${toGamma(this.r)}, ${toGamma(this.g)}, ${toGamma(this.b)})`;
+    if (s.startsWith('hsl(')) {
+        const result = parseHslString(s);
+        if (result) return result;
     }
 
-    /** return a `[r, g, b]` float array (linear). */
-    toArray(): [number, number, number] {
-        return [this.r, this.g, this.b];
+    const hex = CSS_COLORS[s];
+    if (hex !== undefined) {
+        return parseHex6('#' + hex.toString(16).padStart(6, '0'));
     }
 
-    /* resolves ColorInput to [r, g, b] linear floats. */
-    private static _parse(input: ColorInput): [number, number, number] {
-        // Copy constructor
-        if (input instanceof Color) return [input.r, input.g, input.b];
-
-        // Float array — treated as already-linear
-        if (Array.isArray(input)) {
-            return [input[0] ?? 0, input[1] ?? 0, input[2] ?? 0];
-        }
-
-        // Integer 0xRRGGBB
-        if (typeof input === 'number') {
-            const r = ((input >> 16) & 0xff) / 255;
-            const g = ((input >> 8) & 0xff) / 255;
-            const b = (input & 0xff) / 255;
-            return [srgbToLinear(r), srgbToLinear(g), srgbToLinear(b)];
-        }
-
-        // String forms
-        const s = input.trim().toLowerCase();
-
-        // #rgb
-        if (/^#[0-9a-f]{3}$/i.test(s)) return parseHex3(s);
-
-        // #rrggbb
-        if (/^#[0-9a-f]{6}$/i.test(s)) return parseHex6(s);
-
-        // rgb(...)
-        if (s.startsWith('rgb(')) {
-            const result = parseRgb(s);
-            if (result) return result;
-        }
-
-        // hsl(...)
-        if (s.startsWith('hsl(')) {
-            const result = parseHsl(s);
-            if (result) return result;
-        }
-
-        // CSS named color
-        const hex = CSS_COLORS[s];
-        if (hex !== undefined) {
-            return parseHex6('#' + hex.toString(16).padStart(6, '0'));
-        }
-
-        throw new Error(`[gpucat] Color: unrecognised color input: "${input}"`);
-    }
+    throw new Error(`[gpucat] color: unrecognised color input: "${input}"`);
 }

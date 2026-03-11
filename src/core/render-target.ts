@@ -74,8 +74,8 @@ export class RenderTarget {
         }
     }
 
-    /** The first color attachment texture */
-    get texture(): Texture {
+    /** The first color attachment texture, or undefined when count=0 (depth-only target). */
+    get texture(): Texture | undefined {
         return this.textures[0];
     }
 

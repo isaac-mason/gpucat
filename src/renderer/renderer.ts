@@ -3,6 +3,7 @@ import { getIndexFormat, GpuBuffer as GpuBufferClass, type GpuBuffer } from '../
 import { Object3D } from '../core/object3d';
 import type { RenderTarget } from '../core/render-target';
 import { InspectorBase } from '../inspector/inspector-base';
+import type { Material } from '../material/material';
 import { ComputeNode, MRTNode } from '../nodes/nodes';
 import * as d from '../nodes/schema';
 import { Scene } from '../scene/scene';
@@ -135,6 +136,9 @@ export class WebGPURenderer {
 
     /** current render target. when set, render() renders to this target instead of the swapchain. */
     renderTarget: RenderTarget | null = null;
+
+    /** when set, all meshes in the scene render with this material instead of their own. */
+    overrideMaterial: Material | null = null;
 
     /** @internal current canvas target. the inspector viewer swaps this for preview renders. */
     private _canvasTarget!: CanvasTarget;
@@ -360,7 +364,7 @@ export class WebGPURenderer {
         compileContext.width = this.domElement.width || 1;
         compileContext.height = this.domElement.height || 1;
 
-        const depthFormat = DEPTH_FORMAT;
+        const depthFormat = this.renderTarget?.depthTexture?.format ?? DEPTH_FORMAT;
         const width = compileContext.width;
         const height = compileContext.height;
 
@@ -623,11 +627,13 @@ export class WebGPURenderer {
         renderTarget: RenderTarget | null;
         mrt: MRTNode | null;
         clearColor: [number, number, number, number];
+        overrideMaterial: Material | null;
     } {
         return {
             renderTarget: this.renderTarget,
             mrt: this.mrt,
             clearColor: [...this.clearColor] as [number, number, number, number],
+            overrideMaterial: this.overrideMaterial,
         };
     }
 
@@ -636,6 +642,7 @@ export class WebGPURenderer {
         this.renderTarget = state.renderTarget;
         this.mrt = state.mrt;
         this.clearColor = state.clearColor;
+        this.overrideMaterial = state.overrideMaterial;
     }
 
     /**
@@ -669,7 +676,7 @@ export class WebGPURenderer {
 
         const samples = renderTarget?.samples ?? this.samples;
         const colorFormat = renderTarget?.colorFormat ?? this._format;
-        const depthFormat = DEPTH_FORMAT;
+        const depthFormat = renderTarget?.depthTexture?.format ?? DEPTH_FORMAT;
         const width = this.domElement.width || 1;
         const height = this.domElement.height || 1;
         const [cr, cg, cb, ca] = this.clearColor;
@@ -700,7 +707,7 @@ export class WebGPURenderer {
         this._device.pushErrorScope('validation');
 
         const preparedObjects = this._render_prepare(
-            scene, camera, passCtx, passId, colorFormat, depthFormat,
+            scene, camera, passCtx, passId, colorFormat, depthFormat, this.overrideMaterial,
         );
 
         this._render_draw(encoder, preparedObjects, colorAttachments, depthAttachment, passId);
@@ -788,9 +795,10 @@ export class WebGPURenderer {
         passId: string,
         colorFormat: GPUTextureFormat,
         depthFormat: GPUTextureFormat,
+        overrideMaterial: Material | null,
     ): PreparedRenderObject[] {
         this.inspector.perf.start('collectRenderList');
-        const renderList = renderLists.collectRenderList(this._renderLists, scene, camera);
+        const renderList = renderLists.collectRenderList(this._renderLists, scene, camera, overrideMaterial);
         this.inspector.perf.end('collectRenderList');
 
         const preparedObjects: PreparedRenderObject[] = [];
@@ -986,8 +994,9 @@ export class WebGPURenderer {
 
     private _ensureRenderTargetAllocated(renderTarget: RenderTarget): void {
         // check if already allocated at correct size
-        const firstTex = renderTarget.textures[0]?.gpuTexture;
-        if (firstTex && firstTex.width === renderTarget.width && firstTex.height === renderTarget.height) {
+        // For depth-only render targets (count: 0), check the depth texture instead.
+        const existingTexture = renderTarget.textures[0]?.gpuTexture ?? renderTarget.depthTexture?.gpuTexture;
+        if (existingTexture && existingTexture.width === renderTarget.width && existingTexture.height === renderTarget.height) {
             return;
         }
 

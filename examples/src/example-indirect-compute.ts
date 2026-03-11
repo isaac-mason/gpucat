@@ -30,7 +30,6 @@ import {
     WebGPURenderer,
     RenderPipeline,
     renderOutput,
-    Color,
 } from "gpucat";
 
 // positions: three verts of a flat equilateral triangle in XY plane
@@ -46,8 +45,6 @@ const colorData = new Float32Array(INSTANCES * 4);
 const orientationStartData = new Float32Array(INSTANCES * 4);
 const orientationEndData = new Float32Array(INSTANCES * 4);
 
-const _color = new Color();
-
 for (let i = 0; i < INSTANCES; i++) {
     // random offset in unit cube
     offsetData[i * 3 + 0] = Math.random() - 0.5;
@@ -55,10 +52,9 @@ for (let i = 0; i < INSTANCES; i++) {
     offsetData[i * 3 + 2] = Math.random() - 0.5;
 
     // random color (rgba)
-    _color.set([Math.random(), Math.random(), Math.random()]);
-    colorData[i * 4 + 0] = _color.r;
-    colorData[i * 4 + 1] = _color.g;
-    colorData[i * 4 + 2] = _color.b;
+    colorData[i * 4 + 0] = Math.random();
+    colorData[i * 4 + 1] = Math.random();
+    colorData[i * 4 + 2] = Math.random();
     colorData[i * 4 + 3] = Math.random();
 
     // random unit quaternion — orientationStart
