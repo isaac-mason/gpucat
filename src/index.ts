@@ -132,11 +132,6 @@ export {
 } from './nodes/nodes';
 
 export * as d from './schema/schema';
-export type {
-    ArrayDesc, Any as WgslDesc, SizedArrayDesc, TypedArrayFor,
-} from './schema/schema';
-export { wgslAlignOf, wgslSizeOf, wgslStrideOf, roundUp } from './schema/schema';
-
 export {
     pack, packArray, packTo,
     unpack, unpackArray,

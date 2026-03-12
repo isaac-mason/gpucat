@@ -525,3 +525,178 @@ describe('packToView / unpackFromView', () => {
         expect(result.y).toBeCloseTo(2.71);
     });
 });
+
+// ---------------------------------------------------------------------------
+// uniform address space - pack/unpack roundtrip with correct alignment
+// ---------------------------------------------------------------------------
+
+describe('uniform address space packing', () => {
+    test('array of f32: elements at 16-byte stride', () => {
+        const arr = d.sizedArray(d.f32, 4);
+        const data = [1.0, 2.0, 3.0, 4.0];
+        
+        const buf = pack(arr, data, 'uniform');
+        const view = new DataView(buf);
+        
+        // Each f32 should be at 16-byte intervals in uniform layout
+        expect(buf.byteLength).toBe(64); // 4 * 16
+        expect(view.getFloat32(0, true)).toBe(1.0);
+        expect(view.getFloat32(16, true)).toBe(2.0);
+        expect(view.getFloat32(32, true)).toBe(3.0);
+        expect(view.getFloat32(48, true)).toBe(4.0);
+        
+        // Roundtrip
+        const unpacked = unpack(arr, buf, 0, 'uniform');
+        expect(unpacked).toEqual(data);
+    });
+
+    test('array of vec2f: elements at 16-byte stride', () => {
+        const arr = d.sizedArray(d.vec2f, 3);
+        const data = [[1, 2], [3, 4], [5, 6]] as [number, number][];
+        
+        const buf = pack(arr, data, 'uniform');
+        const view = new DataView(buf);
+        
+        // vec2f has size=8, but uniform arrays round element stride to 16
+        expect(buf.byteLength).toBe(48); // 3 * 16
+        expect(view.getFloat32(0, true)).toBe(1);
+        expect(view.getFloat32(4, true)).toBe(2);
+        expect(view.getFloat32(16, true)).toBe(3);
+        expect(view.getFloat32(20, true)).toBe(4);
+        expect(view.getFloat32(32, true)).toBe(5);
+        expect(view.getFloat32(36, true)).toBe(6);
+        
+        const unpacked = unpack(arr, buf, 0, 'uniform');
+        expect(unpacked).toEqual(data);
+    });
+
+    test('array of vec3f: elements at 16-byte stride (already aligned)', () => {
+        const arr = d.sizedArray(d.vec3f, 2);
+        const data = [[1, 2, 3], [4, 5, 6]] as [number, number, number][];
+        
+        const buf = pack(arr, data, 'uniform');
+        const view = new DataView(buf);
+        
+        // vec3f has align=16, stride=16 in both storage and uniform
+        expect(buf.byteLength).toBe(32); // 2 * 16
+        expect(view.getFloat32(0, true)).toBe(1);
+        expect(view.getFloat32(4, true)).toBe(2);
+        expect(view.getFloat32(8, true)).toBe(3);
+        expect(view.getFloat32(16, true)).toBe(4);
+        expect(view.getFloat32(20, true)).toBe(5);
+        expect(view.getFloat32(24, true)).toBe(6);
+        
+        const unpacked = unpack(arr, buf, 0, 'uniform');
+        expect(unpacked).toEqual(data);
+    });
+
+    test('struct with small fields: padded to 16-byte alignment', () => {
+        const S = struct('SmallStruct', { a: d.f32, b: d.f32 });
+        const arr = d.sizedArray(S, 2);
+        const data = [{ a: 1, b: 2 }, { a: 3, b: 4 }];
+        
+        const buf = pack(arr, data, 'uniform');
+        const view = new DataView(buf);
+        
+        // Struct has size=8, but uniform rounds struct align to 16
+        expect(buf.byteLength).toBe(32); // 2 * 16
+        expect(view.getFloat32(0, true)).toBe(1);
+        expect(view.getFloat32(4, true)).toBe(2);
+        expect(view.getFloat32(16, true)).toBe(3);
+        expect(view.getFloat32(20, true)).toBe(4);
+        
+        const unpacked = unpack(arr, buf, 0, 'uniform');
+        expect(unpacked).toEqual(data);
+    });
+
+    test('nested struct array in uniform', () => {
+        const Inner = struct('Inner', { x: d.f32 });
+        const Outer = struct('Outer', { 
+            items: d.sizedArray(Inner, 2),
+            count: d.u32,
+        });
+        
+        const data = { items: [{ x: 1.5 }, { x: 2.5 }], count: 42 };
+        
+        const buf = pack(Outer, data, 'uniform');
+        const view = new DataView(buf);
+        
+        // Inner struct: size=4, but uniform rounds to align=16
+        // items array: 2 * 16 = 32 bytes
+        // count: at offset 32, size 4
+        // Outer struct align = 16, so total size rounds to 48
+        expect(buf.byteLength).toBe(48);
+        expect(view.getFloat32(0, true)).toBe(1.5);  // items[0].x
+        expect(view.getFloat32(16, true)).toBe(2.5); // items[1].x
+        expect(view.getUint32(32, true)).toBe(42);   // count
+        
+        const unpacked = unpack(Outer, buf, 0, 'uniform');
+        expect(unpacked.items[0].x).toBeCloseTo(1.5);
+        expect(unpacked.items[1].x).toBeCloseTo(2.5);
+        expect(unpacked.count).toBe(42);
+    });
+
+    test('mat3x3f in uniform: columns padded to vec4', () => {
+        // mat3x3f: 3 columns of vec3, each padded to 16 bytes
+        const data: [number, number, number, number, number, number, number, number, number] = [
+            1, 2, 3,    // col 0
+            4, 5, 6,    // col 1  
+            7, 8, 9,    // col 2
+        ];
+        
+        const buf = pack(d.mat3x3f, data, 'uniform');
+        const view = new DataView(buf);
+        
+        expect(buf.byteLength).toBe(48); // 3 cols * 16 bytes
+        
+        // Column 0 at offset 0
+        expect(view.getFloat32(0, true)).toBe(1);
+        expect(view.getFloat32(4, true)).toBe(2);
+        expect(view.getFloat32(8, true)).toBe(3);
+        // Column 1 at offset 16
+        expect(view.getFloat32(16, true)).toBe(4);
+        expect(view.getFloat32(20, true)).toBe(5);
+        expect(view.getFloat32(24, true)).toBe(6);
+        // Column 2 at offset 32
+        expect(view.getFloat32(32, true)).toBe(7);
+        expect(view.getFloat32(36, true)).toBe(8);
+        expect(view.getFloat32(40, true)).toBe(9);
+        
+        const unpacked = unpack(d.mat3x3f, buf, 0, 'uniform');
+        expect(unpacked).toEqual(data);
+    });
+
+    test('packArray with uniform address space', () => {
+        const S = struct('Item', { value: d.f32 });
+        const items = [{ value: 10 }, { value: 20 }, { value: 30 }];
+        
+        const buf = packArray(S, items, 'uniform');
+        const view = new DataView(buf);
+        
+        // Each struct element at 16-byte stride
+        expect(buf.byteLength).toBe(48); // 3 * 16
+        expect(view.getFloat32(0, true)).toBe(10);
+        expect(view.getFloat32(16, true)).toBe(20);
+        expect(view.getFloat32(32, true)).toBe(30);
+        
+        const unpacked = unpackArray(S, buf, 3, 0, 'uniform');
+        expect(unpacked).toEqual(items);
+    });
+
+    test('storage vs uniform: same data, different layout', () => {
+        const arr = d.sizedArray(d.f32, 3);
+        const data = [1.0, 2.0, 3.0];
+        
+        const storageBuf = pack(arr, data, 'storage');
+        const uniformBuf = pack(arr, data, 'uniform');
+        
+        // Storage: tightly packed
+        expect(storageBuf.byteLength).toBe(12); // 3 * 4
+        // Uniform: 16-byte element stride
+        expect(uniformBuf.byteLength).toBe(48); // 3 * 16
+        
+        // Both should roundtrip correctly
+        expect(unpack(arr, storageBuf, 0, 'storage')).toEqual(data);
+        expect(unpack(arr, uniformBuf, 0, 'uniform')).toEqual(data);
+    });
+});
