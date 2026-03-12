@@ -237,9 +237,9 @@ export function compile(slots: CompileSlots): CompileResult {
         textures,
         samplers,
         builtinsUsed: new Set([...vertexCtx.builtins, ...fragmentCtx.builtins]),
-        updateBeforeNodes: [...vertexCtx.updateBeforeNodes, ...fragmentCtx.updateBeforeNodes],
-        updateAfterNodes: [...vertexCtx.updateAfterNodes, ...fragmentCtx.updateAfterNodes],
-        updateNodes: [...vertexCtx.updateNodes, ...fragmentCtx.updateNodes],
+        updateBeforeNodes: discovered.updateBeforeNodes,
+        updateAfterNodes: discovered.updateAfterNodes,
+        updateNodes: discovered.updateNodes,
         graphNodes,
         graphEdges,
         graphInfo,
@@ -515,11 +515,6 @@ interface BuildContext {
     fnDefs: Map<string, { fn: FnNode<d.Any>; traced: TracedFn }>;
     wgslFnDefs: Map<string, WgslFunctionNode>;
     
-    // Update nodes
-    updateBeforeNodes: UpdateBeforeNode[];
-    updateAfterNodes: UpdateAfterNode[];
-    updateNodes: UpdateNode[];
-    
     // Graph info for inspector
     graphNodes: Map<number, Node<d.Any>>;
     graphEdges: Map<number, number[]>;
@@ -549,9 +544,6 @@ function createContext(stage: ShaderStage, isRender: boolean): BuildContext {
         code: [],
         fnDefs: new Map(),
         wgslFnDefs: new Map(),
-        updateBeforeNodes: [],
-        updateAfterNodes: [],
-        updateNodes: [],
         graphNodes: new Map(),
         graphEdges: new Map(),
         graphInfo: new Map(),
@@ -561,6 +553,12 @@ function createContext(stage: ShaderStage, isRender: boolean): BuildContext {
 /** Get all child nodes for traversal */
 function getChildren(node: Node<d.Any>): Node<d.Any>[] {
     const children: Node<d.Any>[] = [];
+
+    // _beforeNodes are dependencies that must be processed before this node.
+    // They're part of the graph but don't generate sub-expressions for this node.
+    if (node._beforeNodes) {
+        children.push(...node._beforeNodes);
+    }
     
     if (node instanceof BinopNode) {
         children.push(node.left, node.right);
@@ -718,6 +716,9 @@ interface DiscoverResult {
     structDefs: Map<string, StructDef<StructSchema>>;
     storageNames: Map<number, string>; // node.id -> globally unique name
     allNodes: Map<number, Node<d.Any>>;
+    updateBeforeNodes: UpdateBeforeNode[];
+    updateAfterNodes: UpdateAfterNode[];
+    updateNodes: UpdateNode[];
 }
 
 function discover(roots: Node<d.Any>[]): DiscoverResult {
@@ -728,6 +729,9 @@ function discover(roots: Node<d.Any>[]): DiscoverResult {
     const structDefs = new Map<string, StructDef<StructSchema>>(); 
     const storageNames = new Map<number, string>();
     const allNodes = new Map<number, Node<d.Any>>();
+    const updateBeforeNodes: UpdateBeforeNode[] = [];
+    const updateAfterNodes: UpdateAfterNode[] = [];
+    const updateNodes: UpdateNode[] = [];
     const visited = new Set<number>();
 
     function registerStructDef(def: StructDef<StructSchema>): void {
@@ -757,6 +761,17 @@ function discover(roots: Node<d.Any>[]): DiscoverResult {
 
         // collect all nodes
         allNodes.set(node.id, node);
+
+        // collect update lifecycle nodes
+        if (node.updateBeforeType !== 'none' && 'updateBefore' in node) {
+            updateBeforeNodes.push(node as unknown as UpdateBeforeNode);
+        }
+        if (node.updateAfterType !== 'none' && 'updateAfter' in node) {
+            updateAfterNodes.push(node as unknown as UpdateAfterNode);
+        }
+        if (node.updateType !== 'none' && 'update' in node) {
+            updateNodes.push(node as unknown as UpdateNode);
+        }
 
         // mutated nodes: walk assignment target chains
         if (node instanceof AssignNode) {
@@ -809,7 +824,7 @@ function discover(roots: Node<d.Any>[]): DiscoverResult {
         visit(root);
     }
 
-    return { usageCount, mutatedNodes, fnDefs, wgslFnDefs, structDefs, storageNames, allNodes };
+    return { usageCount, mutatedNodes, fnDefs, wgslFnDefs, structDefs, storageNames, allNodes, updateBeforeNodes, updateAfterNodes, updateNodes };
 }
 
 /** Pre-collect VaryingNodes from roots and generate their vertex expressions. */
@@ -1039,14 +1054,6 @@ function generateUniform(ctx: BuildContext, node: UniformNode<d.Any>): string {
     const group = node.groupNode;
     ctx.uniforms.set(name, { node, group });
     
-    // register update node if needed
-    if (node.updateType && node.updateType !== 'none') {
-        const updateNode = node as unknown as UpdateNode;
-        if (!ctx.updateNodes.find(n => n.id === updateNode.id)) {
-            ctx.updateNodes.push(updateNode);
-        }
-    }
-    
     return `uniforms_${group.name}.${name}`;
 }
 
@@ -1119,24 +1126,6 @@ function generateTextureBinding(ctx: BuildContext, node: TextureBindingNode): st
 function generateTexture(ctx: BuildContext, node: TextureNode): string {
     const binding = node.bindingNode;
     const name = generateTextureBinding(ctx, binding);
-    
-    // register update node if needed
-    if ('updateType' in node && (node as unknown as UpdateNode).updateType !== 'none') {
-        const updateNode = node as unknown as UpdateNode;
-        if (!ctx.updateNodes.find(n => n.id === updateNode.id)) {
-            ctx.updateNodes.push(updateNode);
-        }
-    }
-    
-    // register updateBefore node if needed (e.g., PassTextureNode)
-    if ('updateBeforeType' in node) {
-        const beforeNode = node as unknown as UpdateBeforeNode;
-        if (beforeNode.updateBeforeType !== 'none') {
-            if (!ctx.updateBeforeNodes.find(n => n.id === beforeNode.id)) {
-                ctx.updateBeforeNodes.push(beforeNode);
-            }
-        }
-    }
     
     // textureLoad mode - no sampler needed
     if (node.samplingMode === 'load') {

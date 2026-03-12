@@ -12,8 +12,8 @@ import {
     mul,
     normalize,
     OrbitControls,
+    pass,
     PerspectiveCamera,
-    RenderTarget,
     Scene,
     texture,
     Texture,
@@ -49,7 +49,7 @@ async function main() {
 
     const lightDir = vec3(0.6, 1.0, 0.8).normalize();
 
-    // ── Inner scene (rendered to texture) ────────────────────────────────────
+    // ── Inner scene (rendered to texture via pass()) ─────────────────────────
 
     // 2x2 data texture — four distinct colors, matching the OGL example
     const pixels = new Uint8Array([191, 25, 54, 255, 96, 18, 54, 255, 96, 18, 54, 255, 37, 13, 53, 255]);
@@ -84,15 +84,15 @@ async function main() {
     innerScene.updateWorldMatrix();
     innerCamera.updateViewMatrix();
 
-    // Offscreen render target for the inner scene
-    const RT_SIZE = 512;
-    const renderTarget = new RenderTarget(RT_SIZE, RT_SIZE);
+    // pass() renders the inner scene to an offscreen render target automatically
+    const innerPass = pass(innerScene, innerCamera, {
+        clearColor: [0.15, 0.05, 0.2, 1],
+    });
+    const passTextureNode = innerPass.getTextureNode();
 
-    // ── Outer scene (samples the render target) ──────────────────────────────
+    // ── Outer scene (samples the pass output) ────────────────────────────────
 
-    // Sample the render target's color texture on the outer cube
-    const rtTexNode = texture(renderTarget.texture!);
-    const sampledRT = rtTexNode.sample(vUv as unknown as Node<d.vec2f>);
+    const sampledRT = passTextureNode.sample(vUv as unknown as Node<d.vec2f>);
 
     const outerDiffuse = worldNormal.dot(lightDir).max(f32(0));
     const outerLighting = f32(0.2).mul(outerDiffuse);
@@ -156,13 +156,8 @@ async function main() {
 
         renderer.beginFrame();
 
-        // Pass 1: render inner scene to offscreen render target
-        renderer.clearColor = [0.15, 0.05, 0.2, 1];
-        renderer.renderTarget = renderTarget;
-        renderer.render(innerScene, innerCamera, undefined, 'inner');
-        renderer.renderTarget = null;
-
-        // Pass 2: render outer scene to canvas, sampling the render target
+        // Single render call — PassNode.updateBefore() automatically renders
+        // the inner scene to its offscreen target before the outer scene draws.
         renderer.clearColor = [1, 1, 1, 1];
         renderer.render(outerScene, outerCamera);
 

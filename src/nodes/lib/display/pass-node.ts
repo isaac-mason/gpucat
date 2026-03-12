@@ -24,9 +24,6 @@ export class PassTextureNode extends TextureNode {
     /** This flag can be used for type testing. */
     readonly isPassTextureNode = true;
 
-    /** Delegates to passNode's updateBefore - renders the scene to texture. */
-    readonly updateBeforeType: 'frame' | 'none' = 'frame';
-
     /**
      * Constructs a new pass texture node.
      *
@@ -40,18 +37,12 @@ export class PassTextureNode extends TextureNode {
         const bindingNode = new TextureBindingNode(d.texture2d(), id, objectGroup);
         super(bindingNode);
         this.passNode = passNode;
-        
+        this.before(passNode);
+
         // Set GPU texture resource if provided
         if (texture && texture.gpuTexture) {
             this.bindingNode.resource = texture.gpuTexture;
         }
-    }
-
-    /**
-     * Delegates to passNode.updateBefore() to render the scene to texture.
-     */
-    updateBefore(frame: NodeFrame): void {
-        this.passNode.updateBefore(frame);
     }
 
     /**
