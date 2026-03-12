@@ -881,6 +881,8 @@ export class WebGPURenderer {
             const geometry = item.geometry!;
             const nodeState = renderObject.nodeBuilderState!;
 
+            if (mesh.count === 0) continue;
+
             const frame = this._nodes.nodeFrame;
             frame.object = mesh;
             frame.material = material;

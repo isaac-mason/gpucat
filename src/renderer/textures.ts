@@ -23,10 +23,6 @@ import {
     generateMipmaps,
 } from './mipmap-utils';
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
 /** Data stored per Texture in the cache */
 export type TextureData = {
     /** The GPU texture resource */
@@ -71,10 +67,6 @@ export type TextureCacheStats = {
     samplerCount: number;
 };
 
-// ---------------------------------------------------------------------------
-// Cache creation
-// ---------------------------------------------------------------------------
-
 export function createTextureCache(): TextureCache {
     return {
         textureMap: new WeakMap(),
@@ -111,14 +103,8 @@ function getMipmapState(cache: TextureCache, device: GPUDevice): MipmapState {
     return cache.mipmapState;
 }
 
-// ---------------------------------------------------------------------------
-// Texture operations
-// ---------------------------------------------------------------------------
-
 /**
  * Update a texture — checks source version and uploads if needed.
- * Three.js aligned: called during binding updates before draw.
- *
  * Returns the TextureData for the texture.
  */
 export function updateTexture(
@@ -419,15 +405,10 @@ function getBytesPerPixel(format: GPUTextureFormat): number {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Default textures
-// ---------------------------------------------------------------------------
-
 /**
  * Get or create a 1x1 default placeholder texture.
- * Three.js aligned: uses white pixel for color textures.
  */
-export function getDefaultTexture(cache: TextureCache, device: GPUDevice, format: GPUTextureFormat): GPUTexture {
+function getDefaultTexture(cache: TextureCache, device: GPUDevice, format: GPUTextureFormat): GPUTexture {
     let tex = cache.defaultTextures.get(format);
     if (tex) return tex;
 
@@ -452,10 +433,6 @@ export function getDefaultTexture(cache: TextureCache, device: GPUDevice, format
     cache.defaultTextures.set(format, tex);
     return tex;
 }
-
-// ---------------------------------------------------------------------------
-// Sampler operations
-// ---------------------------------------------------------------------------
 
 /**
  * Get or create a sampler from SamplerNode settings.
@@ -508,10 +485,6 @@ export function getSamplerFromNode(
 
     return sampler;
 }
-
-// ---------------------------------------------------------------------------
-// Stats
-// ---------------------------------------------------------------------------
 
 export function getTextureCacheStats(cache: TextureCache): TextureCacheStats {
     return {

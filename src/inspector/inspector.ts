@@ -614,6 +614,7 @@ export class Inspector extends RendererInspector {
         if (!renderer) return;
 
         const ro = probe.sourceRO;
+        if (ro.mesh.count === 0) return;
 
         // Bind groups updated this frame by the main render loop (camera at [0])
         const bindGroups = ro.bindGroups;

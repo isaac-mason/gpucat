@@ -7,23 +7,23 @@ import {
     createPlaneGeometry,
     createSphereGeometry,
     createVertexBuffer,
-
     d,
     depthTexture,
     f32,
     Geometry,
+    greaterThan,
     Inspector,
     lessThan,
-    greaterThan,
     Material,
     Mesh,
     modelNormalMatrix,
     modelWorldMatrix,
     mul,
+    type Node,
     normalize,
-    or,
     OrbitControls,
     OrthographicCamera,
+    or,
     PerspectiveCamera,
     RenderTarget,
     Scene,
@@ -36,9 +36,8 @@ import {
     vec3,
     vec4,
     WebGPURenderer,
-    type Node,
 } from 'gpucat';
-import { mat4, vec4 as v4, quat, type Euler, type Mat4, type Vec4 } from 'mathcat';
+import { type Euler, type Mat4, mat4, quat, type Vec4, vec4 as v4 } from 'mathcat';
 
 // ─── Renderer ───────────────────────────────────────────────────────────────
 
@@ -53,12 +52,7 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 
 // ─── Cameras ────────────────────────────────────────────────────────────────
 
-const camera = new PerspectiveCamera(
-    Math.PI / 4,
-    window.innerWidth / window.innerHeight,
-    0.1,
-    100,
-);
+const camera = new PerspectiveCamera(Math.PI / 4, window.innerWidth / window.innerHeight, 0.1, 100);
 camera.position = [3, 4, 6];
 camera.lookAt([0, 0, 0]);
 
@@ -67,11 +61,7 @@ const controls = new OrbitControls(camera, renderer.domElement);
 // Light camera: orthographic projection for directional light shadow map
 const SHADOW_SIZE = 1024;
 const lightExtent = 6;
-const lightCamera = new OrthographicCamera(
-    -lightExtent, lightExtent,
-    lightExtent, -lightExtent,
-    0.1, 30,
-);
+const lightCamera = new OrthographicCamera(-lightExtent, lightExtent, lightExtent, -lightExtent, 0.1, 30);
 lightCamera.position = [5, 8, 6];
 lightCamera.lookAt([0, 0, 0]);
 
@@ -104,8 +94,8 @@ const clipPos = mul(cameraProjectionMatrix, viewPos);
 const shadowMaterial = new Material({
     vertex: clipPos,
     fragment: null,
-    depthBias: 0,
-    depthBiasSlopeScale: 0,
+    depthBias: 2,
+    depthBiasSlopeScale: 2,
 });
 
 // ─── Scene pass material (with shadow sampling) ─────────────────────────────
@@ -146,10 +136,7 @@ const lightClip = mul(lightVP, worldPosH);
 const lightNDC = lightClip.xyz.div(lightClip.w);
 
 // Convert from NDC [-1,1] xy to UV [0,1], flip Y for texture coords
-const shadowUV = vec2(
-    lightNDC.x.mul(f32(0.5)).add(f32(0.5)),
-    lightNDC.y.mul(f32(-0.5)).add(f32(0.5)),
-);
+const shadowUV = vec2(lightNDC.x.mul(f32(0.5)).add(f32(0.5)), lightNDC.y.mul(f32(-0.5)).add(f32(0.5)));
 
 // Depth reference (Z is already in [0,1] for WebGPU NDC with ZO projection)
 const depthRef = lightNDC.z;
@@ -159,16 +146,15 @@ const texelSize = f32(1.0 / SHADOW_SIZE);
 const pcfSamples: Node<d.f32>[] = [];
 for (let dy = -1; dy <= 1; dy++) {
     for (let dx = -1; dx <= 1; dx++) {
-        const offsetUV = vec2(
-            shadowUV.x.add(f32(dx).mul(texelSize)),
-            shadowUV.y.add(f32(dy).mul(texelSize)),
+        const offsetUV = vec2(shadowUV.x.add(f32(dx).mul(texelSize)), shadowUV.y.add(f32(dy).mul(texelSize)));
+        pcfSamples.push(
+            textureSampleCompare(
+                shadowDepthTex.bindingNode,
+                shadowCmpSampler,
+                offsetUV as unknown as Node<d.vec2f>,
+                depthRef as unknown as Node<d.f32>,
+            ),
         );
-        pcfSamples.push(textureSampleCompare(
-            shadowDepthTex.bindingNode,
-            shadowCmpSampler,
-            offsetUV as unknown as Node<d.vec2f>,
-            depthRef as unknown as Node<d.f32>,
-        ));
     }
 }
 
@@ -206,10 +192,11 @@ const scene = new Scene();
 scene.add(camera);
 scene.add(lightCamera);
 
-// Ground plane (createPlaneGeometry is already XZ with Y-up normals)
+// Ground plane (rotate XY plane to XZ orientation)
 const groundGeo = createPlaneGeometry(10, 10);
 const groundMesh = new Mesh(groundGeo, sceneMaterial);
 groundMesh.position = [0, -0.5, 0];
+quat.rotateX(groundMesh.quaternion, groundMesh.quaternion, -Math.PI / 2);
 scene.add(groundMesh);
 
 // Box
@@ -239,19 +226,34 @@ lightCamera.updateViewMatrix();
 // 8 clip-space corners of an orthographic frustum (WebGPU NDC: Z in [0,1])
 const clipCorners: Vec4[] = [
     // near plane (z=0)
-    [-1, -1, 0, 1], [-1,  1, 0, 1], [ 1,  1, 0, 1], [ 1, -1, 0, 1],
+    [-1, -1, 0, 1],
+    [-1, 1, 0, 1],
+    [1, 1, 0, 1],
+    [1, -1, 0, 1],
     // far plane (z=1)
-    [-1, -1, 1, 1], [-1,  1, 1, 1], [ 1,  1, 1, 1], [ 1, -1, 1, 1],
+    [-1, -1, 1, 1],
+    [-1, 1, 1, 1],
+    [1, 1, 1, 1],
+    [1, -1, 1, 1],
 ];
 
 // 12 edges of a box: [cornerA, cornerB]
 const edges: [number, number][] = [
     // near face
-    [0, 1], [1, 2], [2, 3], [3, 0],
+    [0, 1],
+    [1, 2],
+    [2, 3],
+    [3, 0],
     // far face
-    [4, 5], [5, 6], [6, 7], [7, 4],
+    [4, 5],
+    [5, 6],
+    [6, 7],
+    [7, 4],
     // connecting near to far
-    [0, 4], [1, 5], [2, 6], [3, 7],
+    [0, 4],
+    [1, 5],
+    [2, 6],
+    [3, 7],
 ];
 
 // Each edge becomes a thin quad (2 triangles, 6 vertices). 12 edges × 6 = 72 vertices.
@@ -299,21 +301,31 @@ function updateFrustumGeometry(): void {
     // Build thin quads for each edge
     let vi = 0;
     for (const [ai, bi] of edges) {
-        const ax = worldCorners[ai][0], ay = worldCorners[ai][1], az = worldCorners[ai][2];
-        const bx = worldCorners[bi][0], by = worldCorners[bi][1], bz = worldCorners[bi][2];
+        const ax = worldCorners[ai][0],
+            ay = worldCorners[ai][1],
+            az = worldCorners[ai][2];
+        const bx = worldCorners[bi][0],
+            by = worldCorners[bi][1],
+            bz = worldCorners[bi][2];
 
         // Edge direction
-        const dx = bx - ax, dy = by - ay, dz = bz - az;
+        const dx = bx - ax,
+            dy = by - ay,
+            dz = bz - az;
 
         // Pick a perpendicular direction for quad width.
         // Cross edge direction with an arbitrary axis (prefer Y-up, fallback to X).
         let px: number, py: number, pz: number;
         if (Math.abs(dy) > 0.99 * Math.sqrt(dx * dx + dy * dy + dz * dz)) {
             // Edge is nearly vertical — cross with X axis
-            px = 0; py = -dz; pz = dy;
+            px = 0;
+            py = -dz;
+            pz = dy;
         } else {
             // Cross with Y axis
-            px = dz; py = 0; pz = -dx;
+            px = dz;
+            py = 0;
+            pz = -dx;
         }
         // Normalize and scale to half-thickness
         const pl = Math.sqrt(px * px + py * py + pz * pz);
@@ -323,19 +335,39 @@ function updateFrustumGeometry(): void {
         pz = (pz / pl) * ht;
 
         // Quad corners: A-p, A+p, B+p, B-p
-        const a0x = ax - px, a0y = ay - py, a0z = az - pz;
-        const a1x = ax + px, a1y = ay + py, a1z = az + pz;
-        const b1x = bx + px, b1y = by + py, b1z = bz + pz;
-        const b0x = bx - px, b0y = by - py, b0z = bz - pz;
+        const a0x = ax - px,
+            a0y = ay - py,
+            a0z = az - pz;
+        const a1x = ax + px,
+            a1y = ay + py,
+            a1z = az + pz;
+        const b1x = bx + px,
+            b1y = by + py,
+            b1z = bz + pz;
+        const b0x = bx - px,
+            b0y = by - py,
+            b0z = bz - pz;
 
         // Triangle 1: A-p, B-p, B+p
-        frustumPositions[vi++] = a0x; frustumPositions[vi++] = a0y; frustumPositions[vi++] = a0z;
-        frustumPositions[vi++] = b0x; frustumPositions[vi++] = b0y; frustumPositions[vi++] = b0z;
-        frustumPositions[vi++] = b1x; frustumPositions[vi++] = b1y; frustumPositions[vi++] = b1z;
+        frustumPositions[vi++] = a0x;
+        frustumPositions[vi++] = a0y;
+        frustumPositions[vi++] = a0z;
+        frustumPositions[vi++] = b0x;
+        frustumPositions[vi++] = b0y;
+        frustumPositions[vi++] = b0z;
+        frustumPositions[vi++] = b1x;
+        frustumPositions[vi++] = b1y;
+        frustumPositions[vi++] = b1z;
         // Triangle 2: A-p, B+p, A+p
-        frustumPositions[vi++] = a0x; frustumPositions[vi++] = a0y; frustumPositions[vi++] = a0z;
-        frustumPositions[vi++] = b1x; frustumPositions[vi++] = b1y; frustumPositions[vi++] = b1z;
-        frustumPositions[vi++] = a1x; frustumPositions[vi++] = a1y; frustumPositions[vi++] = a1z;
+        frustumPositions[vi++] = a0x;
+        frustumPositions[vi++] = a0y;
+        frustumPositions[vi++] = a0z;
+        frustumPositions[vi++] = b1x;
+        frustumPositions[vi++] = b1y;
+        frustumPositions[vi++] = b1z;
+        frustumPositions[vi++] = a1x;
+        frustumPositions[vi++] = a1y;
+        frustumPositions[vi++] = a1z;
     }
 
     frustumPosBuf.needsUpdate = true;
@@ -368,11 +400,7 @@ function frame() {
     // Orbit the light
     const lightAngle = now * 0.3;
     const lightRadius = 8;
-    lightCamera.position = [
-        Math.cos(lightAngle) * lightRadius,
-        8,
-        Math.sin(lightAngle) * lightRadius,
-    ];
+    lightCamera.position = [Math.cos(lightAngle) * lightRadius, 8, Math.sin(lightAngle) * lightRadius];
     lightCamera.lookAt([0, 0, 0]);
     lightCamera.updateWorldMatrix();
     lightCamera.updateViewMatrix();

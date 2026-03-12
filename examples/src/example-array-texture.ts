@@ -1,31 +1,30 @@
 import {
+    ArrayTexture,
     arrayTexture,
     attribute,
     cameraProjectionMatrix,
     cameraViewMatrix,
     createPlaneGeometry,
     d,
-    ArrayTexture,
     f32,
-    i32,
     Inspector,
+    i32,
     Material,
     Mesh,
     modelWorldMatrix,
     mul,
-    pass,
+    type Node,
     PerspectiveCamera,
-    renderOutput,
+    pass,
     RenderPipeline,
+    renderOutput,
     Scene,
     uniform,
     varying,
     vec4,
-    WebGPURenderer,
-    type Node,
     vec4f,
+    WebGPURenderer,
 } from 'gpucat';
-import { quat, type Euler } from 'mathcat';
 
 // ─── Renderer ───────────────────────────────────────────────────────────────
 
@@ -40,12 +39,7 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 
 // ─── Camera ─────────────────────────────────────────────────────────────────
 
-const camera = new PerspectiveCamera(
-    Math.PI / 4,
-    window.innerWidth / window.innerHeight,
-    0.1,
-    100,
-);
+const camera = new PerspectiveCamera(Math.PI / 4, window.innerWidth / window.innerHeight, 0.1, 100);
 camera.position = [0, 0, 3];
 camera.lookAt([0, 0, 0]);
 
@@ -77,13 +71,28 @@ for (let frame = 0; frame < FRAME_COUNT; frame++) {
     const hue = t * 360;
     const c = 1.0;
     const x = 1.0 - Math.abs(((hue / 60) % 2) - 1.0);
-    let r1 = 0, g1 = 0, b1 = 0;
-    if (hue < 60) { r1 = c; g1 = x; }
-    else if (hue < 120) { r1 = x; g1 = c; }
-    else if (hue < 180) { g1 = c; b1 = x; }
-    else if (hue < 240) { g1 = x; b1 = c; }
-    else if (hue < 300) { r1 = x; b1 = c; }
-    else { r1 = c; b1 = x; }
+    let r1 = 0,
+        g1 = 0,
+        b1 = 0;
+    if (hue < 60) {
+        r1 = c;
+        g1 = x;
+    } else if (hue < 120) {
+        r1 = x;
+        g1 = c;
+    } else if (hue < 180) {
+        g1 = c;
+        b1 = x;
+    } else if (hue < 240) {
+        g1 = x;
+        b1 = c;
+    } else if (hue < 300) {
+        r1 = x;
+        b1 = c;
+    } else {
+        r1 = c;
+        b1 = x;
+    }
 
     for (let y = 0; y < TEX_SIZE; y++) {
         for (let x2 = 0; x2 < TEX_SIZE; x2++) {
@@ -143,7 +152,7 @@ scene.add(camera);
 
 const geometry = createPlaneGeometry(2, 2);
 const mesh = new Mesh(geometry, material);
-quat.fromEuler(mesh.quaternion, [Math.PI / 2, 0, 0, 'xyz'] as Euler);
+// plane already faces +Z (toward camera), no rotation needed
 scene.add(mesh);
 
 scene.updateWorldMatrix();

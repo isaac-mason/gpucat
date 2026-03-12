@@ -1,4 +1,9 @@
 {
+    "example-hello-world": {
+        "title": "Hello World",
+        "description": "A single spinning cube with directional and ambient lighting — the simplest possible gpucat scene.",
+        "tags": ["hello-world", "lighting"]
+    },
     "example-moving-mesh-stress": {
         "title": "Moving Mesh Stress",
         "description": "900 individually-animated meshes with per-frame quaternion updates and world matrix recalculations.",
@@ -13,6 +18,11 @@
         "title": "Texture",
         "description": "A textured spinning box demonstrating user-provided Texture, UV coordinates, and texture sampling.",
         "tags": ["texture"]
+    },
+    "example-render-to-texture": {
+        "title": "Render to Texture",
+        "description": "Two-scene render-to-texture: an inner scene renders a textured spinning cube into an offscreen pass, then the outer scene samples the result onto a second cube.",
+        "tags": ["render-target", "texture", "multi-pass"]
     },
     "example-mipmaps": {
         "title": "Mipmaps",

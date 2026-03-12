@@ -162,6 +162,7 @@ const mrtOutput = mrt({
 const mat = new Material({
     vertex: clipPos,
     fragment: mrtOutput,
+    cullMode: 'back',
 });
 
 // create sphere geometry

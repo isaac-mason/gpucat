@@ -10,20 +10,20 @@ import {
     Mesh,
     modelWorldMatrix,
     mul,
+    type Node,
     OrbitControls,
-    pass,
     PerspectiveCamera,
-    renderOutput,
+    pass,
     RenderPipeline,
+    renderOutput,
     Scene,
-    texture,
     Texture,
+    texture,
     varying,
     vec4,
     WebGPURenderer,
-    type Node,
 } from 'gpucat';
-
+import { quat } from 'mathcat';
 
 /**
  * Create a high-frequency checkerboard texture.
@@ -59,12 +59,7 @@ async function main() {
     const scene = new Scene();
 
     // Camera positioned above and looking down at the floor
-    const camera = new PerspectiveCamera(
-        Math.PI / 3,
-        window.innerWidth / window.innerHeight,
-        0.1,
-        1000,
-    );
+    const camera = new PerspectiveCamera(Math.PI / 3, window.innerWidth / window.innerHeight, 0.1, 1000);
     camera.position[0] = 0;
     camera.position[1] = 8;
     camera.position[2] = 15;
@@ -133,7 +128,7 @@ async function main() {
     const materialNoMipmaps = createMaterial(textureNoMipmaps);
 
     // Create two floor planes side by side
-    // Plane is created in XZ plane with +Y normal, so we don't need to rotate it
+    // rotate XY plane to XZ orientation for floor
     const planeGeometry = createPlaneGeometry(20, 40);
 
     // Left plane: WITH mipmaps
@@ -141,13 +136,15 @@ async function main() {
     meshMipmapped.position[0] = -11;
     meshMipmapped.position[1] = 0;
     meshMipmapped.position[2] = 0;
+    quat.rotateX(meshMipmapped.quaternion, meshMipmapped.quaternion, -Math.PI / 2);
     scene.add(meshMipmapped);
 
-    // Right plane: WITHOUT mipmaps  
+    // Right plane: WITHOUT mipmaps
     const meshNoMipmaps = new Mesh(planeGeometry, materialNoMipmaps);
     meshNoMipmaps.position[0] = 11;
     meshNoMipmaps.position[1] = 0;
     meshNoMipmaps.position[2] = 0;
+    quat.rotateX(meshNoMipmaps.quaternion, meshNoMipmaps.quaternion, -Math.PI / 2);
     scene.add(meshNoMipmaps);
 
     scene.updateWorldMatrix();
