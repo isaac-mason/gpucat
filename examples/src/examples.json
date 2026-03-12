@@ -108,5 +108,10 @@
         "title": "Array Texture Flipbook",
         "description": "Flipbook animation using a 2D array texture. 16 procedurally generated frames are stored as layers in a DataArrayTexture; a uniform layer index cycles through them at 8 FPS.",
         "tags": ["texture", "array-texture", "animation"]
+    },
+    "example-fxaa": {
+        "title": "FXAA",
+        "description": "Fast Approximate Anti-Aliasing (FXAA) post-processing effect. Renders a high-contrast rotating cube to demonstrate edge smoothing compared to raw aliased output.",
+        "tags": ["post-processing", "anti-aliasing", "fxaa"]
     }
 }

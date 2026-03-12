@@ -906,6 +906,8 @@ export class WebGPURenderer {
             frame.camera = renderObject.camera;
             frame.scene = renderObject.scene;
 
+            nodeManager.updateForRender(this._nodes, renderObject);
+
             this.inspector.perf.start('updateForRender');
             renderObjects.updateRenderObject(
                 this._bindings,

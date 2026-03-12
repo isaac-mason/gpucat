@@ -436,12 +436,15 @@ function updateUniformBinding(
 
     // Pack into scratch buffer, then compare with current
     const changed = packAndCompare(block, binding.currentBuffer, binding.scratchBuffer!, material);
+    const uploaded = !!getRaw(bufferCache, binding.bufferKey);
 
-    if (changed) {
-        // Swap buffers: scratch becomes current
-        const temp = binding.currentBuffer;
-        binding.currentBuffer = binding.scratchBuffer!;
-        binding.scratchBuffer = temp;
+    if (changed || !uploaded) {
+        if (changed) {
+            // Swap buffers: scratch becomes current
+            const temp = binding.currentBuffer;
+            binding.currentBuffer = binding.scratchBuffer!;
+            binding.scratchBuffer = temp;
+        }
 
         const U = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
         const f32View = new Float32Array(binding.currentBuffer);

@@ -129,6 +129,9 @@ export {
 
     // tonemapping and color space conversions
     acesToneMapping, reinhardToneMapping, sRGBTransferEOTF, sRGBTransferOETF,
+
+    // post-processing effects
+    fxaa,
 } from './nodes/nodes';
 
 export * as d from './schema/schema';

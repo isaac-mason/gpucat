@@ -8,6 +8,7 @@ export * from "./lib/display/pass-node";
 export * from "./lib/display/render-output";
 export * from "./lib/display/color";
 export * from "./lib/display/screen";
+export * from "./lib/display/fxaa";
 export * from "./lib/draw-indirect";
 export * from "./lib/model";
 export * from "./lib/mrt";

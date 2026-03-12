@@ -3,6 +3,9 @@ import type { Any } from '../schema/schema';
 import type { Uniform } from '../core/uniform';
 
 export interface MaterialOptions {
+    /** Material name, for debugging. */
+    name?: string;
+
     /**
      * vec4f clip-space position graph.
      * Use `positionClip` for standard MVP transform.
@@ -56,9 +59,10 @@ export interface MaterialOptions {
 }
 
 export class Material {
-    /**
-     * vec4f clip-space position.
-     */
+    /** Material name, for debugging. */
+    name: string;
+
+    /** vec4f clip-space position. */
     vertexNode: Node<Any>;
 
     /** Fragment output. Can be vec4f, OutputStructNode for MRT, or null for depth-only. */
@@ -105,15 +109,16 @@ export class Material {
     uniforms: Map<string, Uniform> = new Map();
 
     constructor(opts: MaterialOptions) {
+        this.name = opts.name ?? '';
+
         this.vertexNode = opts.vertex;
         this.fragmentNode = opts.fragment ?? null;
         this.depthNode = opts.depth;
 
-        const transparent = opts.transparent ?? false;
-        this.transparent = transparent;
+        this.transparent = opts.transparent ?? false;
         this.blend = opts.blend;
         this.depthTest = opts.depthTest ?? true;
-        this.depthWrite = opts.depthWrite ?? !transparent;
+        this.depthWrite = opts.depthWrite ?? !this.transparent;
         this.depthCompare = opts.depthCompare ?? 'less';
         this.cullMode = opts.cullMode ?? 'back';
         this.alphaToCoverage = opts.alphaToCoverage ?? false;

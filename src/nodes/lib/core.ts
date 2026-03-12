@@ -124,12 +124,15 @@ export class Node<D extends Any> {
     global: boolean = false;
     parents: boolean = false;
     readonly isNode: boolean = true;
-    update?: (frame: NodeFrame) => unknown;
 
     constructor(type: D) {
         this.id = _nodeId++;
         this.type = type;
     }
+
+    update?(frame: NodeFrame): unknown;
+    updateBefore?(frame: NodeFrame): unknown;
+    updateAfter?(frame: NodeFrame): unknown;
 
     onUpdate(callback: (frame: NodeFrame) => unknown, updateType: NodeUpdateType): this {
         this.updateType = updateType;
@@ -138,6 +141,25 @@ export class Node<D extends Any> {
     }
     onRenderUpdate(callback: (frame: NodeFrame) => unknown): this { return this.onUpdate(callback, NodeUpdateType.RENDER); }
     onObjectUpdate(callback: (frame: NodeFrame) => unknown): this { return this.onUpdate(callback, NodeUpdateType.OBJECT); }
+    onFrameUpdate(callback: (frame: NodeFrame) => unknown): this { return this.onUpdate(callback, NodeUpdateType.FRAME); }
+
+    onBeforeUpdate(callback: (frame: NodeFrame) => unknown, updateType: NodeUpdateType): this {
+        this.updateBeforeType = updateType;
+        this.updateBefore = callback;
+        return this;
+    }
+    onBeforeRender(callback: (frame: NodeFrame) => unknown): this { return this.onBeforeUpdate(callback, NodeUpdateType.RENDER); }
+    onBeforeObject(callback: (frame: NodeFrame) => unknown): this { return this.onBeforeUpdate(callback, NodeUpdateType.OBJECT); }
+    onBeforeFrame(callback: (frame: NodeFrame) => unknown): this { return this.onBeforeUpdate(callback, NodeUpdateType.FRAME); }
+
+    onAfterUpdate(callback: (frame: NodeFrame) => unknown, updateType: NodeUpdateType): this {
+        this.updateAfterType = updateType;
+        this.updateAfter = callback;
+        return this;
+    }
+    onAfterRender(callback: (frame: NodeFrame) => unknown): this { return this.onAfterUpdate(callback, NodeUpdateType.RENDER); }
+    onAfterObject(callback: (frame: NodeFrame) => unknown): this { return this.onAfterUpdate(callback, NodeUpdateType.OBJECT); }
+    onAfterFrame(callback: (frame: NodeFrame) => unknown): this { return this.onAfterUpdate(callback, NodeUpdateType.FRAME); }
 
     before(node: Node<Any>): this {
         if (this._beforeNodes === null) this._beforeNodes = [];
@@ -231,6 +253,7 @@ export class Node<D extends Any> {
 
     or(b: Node<d.bool>): Node<d.bool>  { return or(this as unknown as Node<d.bool>, b); }
     and(b: Node<d.bool>): Node<d.bool> { return and(this as unknown as Node<d.bool>, b); }
+    not(): Node<d.bool> { return not(this as unknown as Node<d.bool>); }
 
     transpose(): Node<D> { return new CallNode(this.type, 'transpose', [this]) as unknown as Node<D>; }
 
@@ -464,6 +487,21 @@ export class Node<D extends Any> {
 }
 
 export function isNode(v: unknown): v is Node<Any> { return v instanceof Node; }
+
+/**
+ * Creates an empty lifecycle node.
+ * Useful for attaching update callbacks via .onFrameUpdate(), .onRenderUpdate(), etc.
+ * Attach to other nodes via .before() to ensure the lifecycle runs.
+ *
+ * @example
+ * const updater = node().onFrameUpdate(() => {
+ *     myUniform.value = computeValue();
+ * });
+ * return myOutputNode.before(updater);
+ */
+export function node(): Node<d.VoidDesc> {
+    return new Node(d.voidDesc);
+}
 
 // ─── InspectorNode ────────────────────────────────────────────────────────────
 
@@ -867,8 +905,23 @@ export const sin        = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a
 export const cos        = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'cos', [a]);
 export const negate     = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'negate', [a]);
 export const pow        = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new CallNode(a.type, 'pow', [a, b]);
-export const max        = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new CallNode(a.type, 'max', [a, b]);
-export const min        = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new CallNode(a.type, 'min', [a, b]);
+
+export function max<D extends Any>(a: Node<D>, b: Node<D>, ...rest: Node<D>[]): Node<D> {
+    let result: Node<D> = new CallNode(a.type, 'max', [a, b]);
+    for (const n of rest) {
+        result = new CallNode(a.type, 'max', [result, n]);
+    }
+    return result;
+}
+
+export function min<D extends Any>(a: Node<D>, b: Node<D>, ...rest: Node<D>[]): Node<D> {
+    let result: Node<D> = new CallNode(a.type, 'min', [a, b]);
+    for (const n of rest) {
+        result = new CallNode(a.type, 'min', [result, n]);
+    }
+    return result;
+}
+
 export const clamp      = <D extends Any>(a: Node<D>, lo: Node<D>, hi: Node<D>): Node<D> => new CallNode(a.type, 'clamp', [a, lo, hi]);
 export const mix        = <D extends Any>(a: Node<D>, b: Node<D>, t: Node<Any>): Node<D> => new CallNode(a.type, 'mix', [a, b, t]);
 export const step       = <D extends Any>(edge: Node<D>, x: Node<D>): Node<D> => new CallNode(x.type, 'step', [edge, x]);
@@ -877,6 +930,7 @@ export const sign       = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a
 export const mod        = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new BinopNode('%', a.type, a, b);
 export const or         = (a: Node<d.bool>, b: Node<d.bool>): Node<d.bool> => new BinopNode('||', d.bool, a, b);
 export const and        = (a: Node<d.bool>, b: Node<d.bool>): Node<d.bool> => new BinopNode('&&', d.bool, a, b);
+export const not        = (a: Node<d.bool>): Node<d.bool> => new CallNode(d.bool, 'not', [a]);
 export const transpose  = <D extends d.MatDesc>(m: Node<D>): Node<D> => new CallNode(m.type, 'transpose', [m]);
 
 // ── Lang ──────────────────────────────────────────────────────────────────────

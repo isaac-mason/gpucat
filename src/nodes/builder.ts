@@ -46,78 +46,6 @@ import { constLiteral } from './wgsl-utils';
 
 /* public apis */
 
-/**
- * Group attributes by their underlying buffer for efficient vertex buffer binding.
- * 
- * Attributes sharing the same buffer (either by name for geometry-based, or by
- * buffer reference for direct) are grouped together. This enables:
- * - One GPUVertexBufferLayout with multiple attributes
- * - One setVertexBuffer() call per unique buffer
- * 
- * @param entries - Flat array of AttributeEntry from compilation
- * @returns Array of VertexBufferGroup, one per unique buffer
- */
-function groupAttributesByBuffer(entries: AttributeEntry[]): VertexBufferGroup[] {
-    // Use separate maps for name-based and buffer-based grouping
-    const nameGroups = new Map<string, VertexBufferGroup>();
-    const bufferGroups = new Map<GpuBuffer<d.Any>, VertexBufferGroup>();
-    
-    for (const entry of entries) {
-        let group: VertexBufferGroup | undefined;
-        
-        if (entry.kind === 'geometry') {
-            // Name-based grouping
-            const geomName = entry.name!;
-            group = nameGroups.get(geomName);
-            if (!group) {
-                group = {
-                    name: geomName,
-                    buffer: null,
-                    stride: entry.stride,
-                    instanced: entry.instanced,
-                    attributes: [],
-                };
-                nameGroups.set(geomName, group);
-            }
-        } else {
-            // Buffer-based grouping
-            const buffer = entry.node.buffer!;
-            group = bufferGroups.get(buffer);
-            if (!group) {
-                group = {
-                    name: null,
-                    buffer,
-                    stride: entry.stride,
-                    instanced: entry.instanced,
-                    attributes: [],
-                };
-                bufferGroups.set(buffer, group);
-            }
-        }
-        
-        // Validate stride/instanced match within group
-        if (group.stride !== entry.stride) {
-            throw new Error(
-                `[gpucat] Interleaved attributes sharing buffer must have matching stride. ` +
-                `Got ${entry.stride} but group has ${group.stride}.`
-            );
-        }
-        if (group.instanced !== entry.instanced) {
-            throw new Error(
-                `[gpucat] Interleaved attributes sharing buffer must have matching instanced flag.`
-            );
-        }
-        
-        group.attributes.push({
-            type: entry.type,
-            offset: entry.offset,
-            shaderLocation: entry.location,
-        });
-    }
-    
-    // Combine both maps into a single array, preserving order (name-based first, then buffer-based)
-    return [...nameGroups.values(), ...bufferGroups.values()];
-}
 
 export function compile(slots: CompileSlots): CompileResult {
     // create contexts for both stages
@@ -139,12 +67,21 @@ export function compile(slots: CompileSlots): CompileResult {
     vertexCtx.wgslFnDefs = discovered.wgslFnDefs;
     vertexCtx.structDefs = discovered.structDefs;
     vertexCtx.storageNames = discovered.storageNames;
+    vertexCtx.textures = discovered.textures;
+    vertexCtx.samplers = discovered.samplers;
+    vertexCtx.uniforms = discovered.uniforms;
+    vertexCtx.storages = discovered.storages;
+    
     fragmentCtx.usageCount = discovered.usageCount;
     fragmentCtx.mutatedNodes = discovered.mutatedNodes;
     fragmentCtx.fnDefs = discovered.fnDefs;
     fragmentCtx.wgslFnDefs = discovered.wgslFnDefs;
     fragmentCtx.structDefs = discovered.structDefs;
     fragmentCtx.storageNames = discovered.storageNames;
+    fragmentCtx.textures = discovered.textures;
+    fragmentCtx.samplers = discovered.samplers;
+    fragmentCtx.uniforms = discovered.uniforms;
+    fragmentCtx.storages = discovered.storages;
     
     // pre-collect varyings from fragment roots (so vertex shader knows what to output)
     if (hasFragment) {
@@ -160,11 +97,7 @@ export function compile(slots: CompileSlots): CompileResult {
     if (hasFragment) {
         fragmentBody = generateFragmentShader(slots.color!, fragmentCtx, vertexCtx.varyings);
         
-        // merge bindings from fragment stage
-        for (const [k, v] of fragmentCtx.uniforms) vertexCtx.uniforms.set(k, v);
-        for (const [k, v] of fragmentCtx.storages) vertexCtx.storages.set(k, v);
-        for (const [k, v] of fragmentCtx.textures) vertexCtx.textures.set(k, v);
-        for (const [k, v] of fragmentCtx.samplers) vertexCtx.samplers.set(k, v);
+        // No need to merge bindings anymore - they're shared via discovered.*
     }
     
     // emit all bindings using Three.js pattern (each group gets its own @group index)
@@ -264,6 +197,10 @@ export function compileCompute(node: ComputeNode): ComputeCompileResult {
     ctx.wgslFnDefs = discovered.wgslFnDefs;
     ctx.structDefs = discovered.structDefs;
     ctx.storageNames = discovered.storageNames;
+    ctx.textures = discovered.textures;
+    ctx.samplers = discovered.samplers;
+    ctx.uniforms = discovered.uniforms;
+    ctx.storages = discovered.storages;
     
     // generate compute shader body
     const computeBody = generateComputeShader(node, ctx);
@@ -707,6 +644,79 @@ function getChildren(node: Node<d.Any>): Node<d.Any>[] {
     return children;
 }
 
+/**
+ * Group attributes by their underlying buffer for efficient vertex buffer binding.
+ * 
+ * Attributes sharing the same buffer (either by name for geometry-based, or by
+ * buffer reference for direct) are grouped together. This enables:
+ * - One GPUVertexBufferLayout with multiple attributes
+ * - One setVertexBuffer() call per unique buffer
+ * 
+ * @param entries - Flat array of AttributeEntry from compilation
+ * @returns Array of VertexBufferGroup, one per unique buffer
+ */
+function groupAttributesByBuffer(entries: AttributeEntry[]): VertexBufferGroup[] {
+    // Use separate maps for name-based and buffer-based grouping
+    const nameGroups = new Map<string, VertexBufferGroup>();
+    const bufferGroups = new Map<GpuBuffer<d.Any>, VertexBufferGroup>();
+    
+    for (const entry of entries) {
+        let group: VertexBufferGroup | undefined;
+        
+        if (entry.kind === 'geometry') {
+            // Name-based grouping
+            const geomName = entry.name!;
+            group = nameGroups.get(geomName);
+            if (!group) {
+                group = {
+                    name: geomName,
+                    buffer: null,
+                    stride: entry.stride,
+                    instanced: entry.instanced,
+                    attributes: [],
+                };
+                nameGroups.set(geomName, group);
+            }
+        } else {
+            // Buffer-based grouping
+            const buffer = entry.node.buffer!;
+            group = bufferGroups.get(buffer);
+            if (!group) {
+                group = {
+                    name: null,
+                    buffer,
+                    stride: entry.stride,
+                    instanced: entry.instanced,
+                    attributes: [],
+                };
+                bufferGroups.set(buffer, group);
+            }
+        }
+        
+        // Validate stride/instanced match within group
+        if (group.stride !== entry.stride) {
+            throw new Error(
+                `[gpucat] Interleaved attributes sharing buffer must have matching stride. ` +
+                `Got ${entry.stride} but group has ${group.stride}.`
+            );
+        }
+        if (group.instanced !== entry.instanced) {
+            throw new Error(
+                `[gpucat] Interleaved attributes sharing buffer must have matching instanced flag.`
+            );
+        }
+        
+        group.attributes.push({
+            type: entry.type,
+            offset: entry.offset,
+            shaderLocation: entry.location,
+        });
+    }
+    
+    // Combine both maps into a single array, preserving order (name-based first, then buffer-based)
+    return [...nameGroups.values(), ...bufferGroups.values()];
+}
+
 /** Single DFS pass that discovers all metadata needed before code generation. */
 interface DiscoverResult {
     usageCount: Map<number, number>;
@@ -715,6 +725,10 @@ interface DiscoverResult {
     wgslFnDefs: Map<string, WgslFunctionNode>;
     structDefs: Map<string, StructDef<StructSchema>>;
     storageNames: Map<number, string>; // node.id -> globally unique name
+    textures: Map<string, TextureBindingNode>;
+    samplers: Map<string, SamplerNode>; // keyed by settingsKey for deduplication
+    uniforms: Map<string, { node: UniformNode<d.Any>; group: UniformGroup }>;
+    storages: Map<string, StorageNode<d.Any>>;
     allNodes: Map<number, Node<d.Any>>;
     updateBeforeNodes: UpdateBeforeNode[];
     updateAfterNodes: UpdateAfterNode[];
@@ -728,6 +742,10 @@ function discover(roots: Node<d.Any>[]): DiscoverResult {
     const wgslFnDefs = new Map<string, WgslFunctionNode>();
     const structDefs = new Map<string, StructDef<StructSchema>>(); 
     const storageNames = new Map<number, string>();
+    const textures = new Map<string, TextureBindingNode>();
+    const samplers = new Map<string, SamplerNode>(); // keyed by settingsKey
+    const uniforms = new Map<string, { node: UniformNode<d.Any>; group: UniformGroup }>();
+    const storages = new Map<string, StorageNode<d.Any>>();
     const allNodes = new Map<number, Node<d.Any>>();
     const updateBeforeNodes: UpdateBeforeNode[] = [];
     const updateAfterNodes: UpdateAfterNode[] = [];
@@ -750,9 +768,36 @@ function discover(roots: Node<d.Any>[]): DiscoverResult {
             markTargetChain(node.array);
         }
     }
+    
+    function registerSampler(samplerNode: SamplerNode): void {
+        const key = samplerNode.settingsKey;
+        if (!samplers.has(key)) {
+            samplers.set(key, samplerNode);
+        }
+    }
+    
+    function registerTextureWithSampler(textureNode: TextureNode | CubeTextureNode | DepthTextureNode | ArrayTextureNode): void {
+        // Register the texture binding
+        const binding = textureNode.bindingNode;
+        const name = binding.textureId;
+        if (!textures.has(name)) {
+            textures.set(name, binding);
+        }
+        
+        // For sampling modes (not 'load'), ensure a sampler exists and register it
+        if (textureNode.samplingMode !== 'load') {
+            let samplerNode = textureNode.samplerNode;
+            if (!samplerNode) {
+                // Create default sampler (same logic as generateTexture had)
+                samplerNode = new SamplerNode(d.sampler, name, binding.groupNode);
+                textureNode.samplerNode = samplerNode;
+            }
+            registerSampler(samplerNode);
+        }
+    }
 
     function visit(node: Node<d.Any>) {
-        // usge counting
+        // usage counting
         usageCount.set(node.id, (usageCount.get(node.id) ?? 0) + 1);
 
         // exit if visited
@@ -763,13 +808,13 @@ function discover(roots: Node<d.Any>[]): DiscoverResult {
         allNodes.set(node.id, node);
 
         // collect update lifecycle nodes
-        if (node.updateBeforeType !== 'none' && 'updateBefore' in node) {
+        if (node.updateBeforeType !== 'none' && node.updateBefore) {
             updateBeforeNodes.push(node as unknown as UpdateBeforeNode);
         }
-        if (node.updateAfterType !== 'none' && 'updateAfter' in node) {
+        if (node.updateAfterType !== 'none' && node.updateAfter) {
             updateAfterNodes.push(node as unknown as UpdateAfterNode);
         }
-        if (node.updateType !== 'none' && 'update' in node) {
+        if (node.updateType !== 'none' && node.update) {
             updateNodes.push(node as unknown as UpdateNode);
         }
 
@@ -805,12 +850,47 @@ function discover(roots: Node<d.Any>[]): DiscoverResult {
             if (!storageNames.has(node.id)) {
                 storageNames.set(node.id, `_storage${storageNames.size}`);
             }
+            // Also register storage for binding emission
+            const storageName = storageNames.get(node.id)!;
+            if (!storages.has(storageName)) {
+                storages.set(storageName, node);
+            }
 
             const bufType = node.type;
             if (d.isStructDef(bufType)) {
                 registerStructDef(bufType as unknown as StructDef<StructSchema>);
             } else if ((d.isArrayDesc(bufType) || d.isSizedArrayDesc(bufType)) && d.isStructDef(bufType.element)) {
                 registerStructDef(bufType.element as unknown as StructDef<StructSchema>);
+            }
+        }
+        
+        // Binding discovery: textures, samplers, uniforms
+        if (node instanceof TextureBindingNode) {
+            const name = node.textureId;
+            if (!textures.has(name)) {
+                textures.set(name, node);
+            }
+        }
+        if (node instanceof TextureNode) {
+            registerTextureWithSampler(node);
+        }
+        if (node instanceof CubeTextureNode) {
+            registerTextureWithSampler(node);
+        }
+        if (node instanceof DepthTextureNode) {
+            registerTextureWithSampler(node);
+        }
+        if (node instanceof ArrayTextureNode) {
+            registerTextureWithSampler(node);
+        }
+        if (node instanceof SamplerNode) {
+            registerSampler(node);
+        }
+        if (node instanceof UniformNode) {
+            const name = node.name;
+            const group = node.groupNode;
+            if (!uniforms.has(name)) {
+                uniforms.set(name, { node, group });
             }
         }
 
@@ -824,7 +904,11 @@ function discover(roots: Node<d.Any>[]): DiscoverResult {
         visit(root);
     }
 
-    return { usageCount, mutatedNodes, fnDefs, wgslFnDefs, structDefs, storageNames, allNodes, updateBeforeNodes, updateAfterNodes, updateNodes };
+    return { 
+        usageCount, mutatedNodes, fnDefs, wgslFnDefs, structDefs, storageNames, 
+        allNodes, updateBeforeNodes, updateAfterNodes, updateNodes,
+        textures, samplers, uniforms, storages
+    };
 }
 
 /** Pre-collect VaryingNodes from roots and generate their vertex expressions. */
@@ -1059,7 +1143,13 @@ function generateUniform(ctx: BuildContext, node: UniformNode<d.Any>): string {
 
 function generateAttribute(ctx: BuildContext, node: AttributeNode<d.Any>): string {
     if (ctx.stage !== 'vertex') {
-        throw new Error(`[builder] AttributeNode can only be used in vertex stage. Use varying() to pass to fragment stage.`);
+        const attrName = node.name ?? `(unnamed attribute id=${node.id})`;
+        throw new Error(
+            `[builder] AttributeNode '${attrName}' can only be used in vertex stage, but was used in ${ctx.stage} stage. ` +
+            `Use varying() to pass vertex data to fragment stage. ` +
+            `Common cause: TextureNode with default uvNode (which uses uv() attribute) being sampled in fragment shader without explicit UV coordinates. ` +
+            `Fix: use textureNode.sample(yourUV) with a varying or fragment-stage UV.`
+        );
     }
 
     // Deduplicate by node.id — same node always returns the same WGSL name
@@ -1438,6 +1528,9 @@ function generateCall(ctx: BuildContext, node: CallNode<d.Any>): string {
     // handle special cases
     if (node.fn === 'negate' && args.length === 1) {
         return `(-${args[0]})`;
+    }
+    if (node.fn === 'not' && args.length === 1) {
+        return `(!${args[0]})`;
     }
     
     // atomic functions need pointer reference
@@ -1844,6 +1937,10 @@ function emitDslFunctions(ctx: BuildContext): string {
         fnCtx.usageCount = ctx.usageCount;
         fnCtx.fnDefs = ctx.fnDefs;
         fnCtx.wgslFnDefs = ctx.wgslFnDefs;
+        fnCtx.textures = ctx.textures;
+        fnCtx.samplers = ctx.samplers;
+        fnCtx.uniforms = ctx.uniforms;
+        fnCtx.storages = ctx.storages;
         
         // register param names in context
         for (const p of traced.params) {

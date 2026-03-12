@@ -103,6 +103,7 @@ export class RenderPipeline {
         const posNode = vec4f(posAttr, f32(1));
 
         return new Material({
+            name: 'RenderPipelineQuadMeshMaterial',
             vertex: posNode,
             fragment: outputNode,
             depthWrite: false,
