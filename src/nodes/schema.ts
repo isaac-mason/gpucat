@@ -589,6 +589,33 @@ export type VecElementDesc<D extends Any> =
     D extends ScalarDesc ? D :
     Any;
 
+/** Map a vec or scalar descriptor to its corresponding vec2 type */
+export type Vec2DescOf<D extends Any> =
+    D extends vec2f | vec3f | vec4f | f32 ? vec2f :
+    D extends vec2i | vec3i | vec4i | i32 ? vec2i :
+    D extends vec2u | vec3u | vec4u | u32 ? vec2u :
+    D extends vec2h | vec3h | vec4h | f16 ? vec2h :
+    D extends vec2bool | vec3bool | vec4bool | bool ? vec2bool :
+    Vec2Desc;
+
+/** Map a vec or scalar descriptor to its corresponding vec3 type */
+export type Vec3DescOf<D extends Any> =
+    D extends vec2f | vec3f | vec4f | f32 ? vec3f :
+    D extends vec2i | vec3i | vec4i | i32 ? vec3i :
+    D extends vec2u | vec3u | vec4u | u32 ? vec3u :
+    D extends vec2h | vec3h | vec4h | f16 ? vec3h :
+    D extends vec2bool | vec3bool | vec4bool | bool ? vec3bool :
+    Vec3Desc;
+
+/** Map a vec or scalar descriptor to its corresponding vec4 type */
+export type Vec4DescOf<D extends Any> =
+    D extends vec2f | vec3f | vec4f | f32 ? vec4f :
+    D extends vec2i | vec3i | vec4i | i32 ? vec4i :
+    D extends vec2u | vec3u | vec4u | u32 ? vec4u :
+    D extends vec2h | vec3h | vec4h | f16 ? vec4h :
+    D extends vec2bool | vec3bool | vec4bool | bool ? vec4bool :
+    Vec4Desc;
+
 /**
  * Maps a schema descriptor to its corresponding TypedArray type.
  * - i32/vec*i → Int32Array

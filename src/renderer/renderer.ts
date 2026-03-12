@@ -128,6 +128,9 @@ export class WebGPURenderer {
     /** @internal */
     _renderLists: renderLists.RenderListsState;
 
+    /** Render call depth for nested render support. 0 = top-level render. @internal */
+    _renderCallDepth: number = 0;
+
     /** clear color for the final swapchain composite pass. defaults to opaque black. */
     clearColor: [number, number, number, number] = [0, 0, 0, 1];
 
@@ -659,7 +662,13 @@ export class WebGPURenderer {
             throw new Error('[WebGPURenderer] render() called before init(). Await renderer.init() first.');
         }
 
-        this._nodes.nodeFrame.renderId++;
+        // Save previous renderId to support nested renders (e.g. PassNode calling render() in updateBefore).
+        // Each render() call gets its own renderId so RENDER-level updates run once per render call.
+        // At top level (depth 0), just increment. When nested, save/restore parent's renderId.
+        const frame = this._nodes.nodeFrame;
+        const previousRenderId = frame.renderId;
+        this._renderCallDepth++;
+        frame.renderId++;
         this.inspector.perf.start('render');
 
         const renderTarget = this.renderTarget;
@@ -679,10 +688,9 @@ export class WebGPURenderer {
         const height = this.domElement.height || 1;
         const [cr, cg, cb, ca] = this.clearColor;
 
-        this.inspector.beginRenderScene(passId, scene, samples, colorFormat, this._nodes.nodeFrame.frameId);
-        this.inspector.beginRender(passId, this._nodes.nodeFrame.frameId);
+        this.inspector.beginRenderScene(passId, scene, samples, colorFormat, frame.frameId);
+        this.inspector.beginRender(passId, frame.frameId);
 
-        const frame = this._nodes.nodeFrame;
         frame.renderer = this;
         frame.camera = camera;
         frame.scene = scene;
@@ -719,6 +727,12 @@ export class WebGPURenderer {
         });
 
         this.inspector.perf.end('render');
+
+        // Restore previous renderId only for nested renders. Top-level keeps its incremented value.
+        this._renderCallDepth--;
+        if (this._renderCallDepth > 0) {
+            frame.renderId = previousRenderId;
+        }
     }
 
     /** Build GPU color and depth attachments for the current render target or swapchain. */
@@ -836,10 +850,6 @@ export class WebGPURenderer {
                     continue;
                 }
 
-                const frame = this._nodes.nodeFrame;
-                frame.object = item.mesh;
-                frame.material = item.material;
-
                 this.inspector.perf.start('updateBefore');
                 nodeManager.updateBefore(this._nodes, renderObject);
                 this.inspector.perf.end('updateBefore');
@@ -886,6 +896,8 @@ export class WebGPURenderer {
             const frame = this._nodes.nodeFrame;
             frame.object = mesh;
             frame.material = material;
+            frame.camera = renderObject.camera;
+            frame.scene = renderObject.scene;
 
             this.inspector.perf.start('updateForRender');
             renderObjects.updateRenderObject(

@@ -35,6 +35,9 @@ export class RenderPipeline {
     /** set to `true` to rebuild the material, e.g. when the outputNode changes */
     needsUpdate = true;
 
+    /** material used for rendering the fullscreen quad */
+    private _material: Material;
+
     /** the QuadMesh used for fullscreen rendering */
     private _quadMesh: QuadMesh;
 
@@ -47,9 +50,9 @@ export class RenderPipeline {
         this.outputNode = outputNode ?? vec4f(f32(0), f32(0), f32(1), f32(1));
 
         // Create material with initial output node - will be updated in _update() when needsUpdate is true
-        const material = this._createMaterial(this.outputNode);
+        this._material = this._createMaterial(this.outputNode);
 
-        this._quadMesh = new QuadMesh(material);
+        this._quadMesh = new QuadMesh(this._material);
         this._quadMesh.name = 'RenderPipeline';
     }
 
@@ -74,9 +77,7 @@ export class RenderPipeline {
      * Dispose of resources owned by this pipeline.
      */
     dispose(): void {
-        // Material doesn't hold GPU resources directly in gpucat,
-        // but we clear the reference for GC.
-        // Future: if Material gets a dispose() method, call it here.
+        this._material.dispose();
     }
 
     /**
@@ -85,7 +86,9 @@ export class RenderPipeline {
      */
     private _update(): void {
         if (this.needsUpdate) {
-            this._quadMesh.material = this._createMaterial(this.outputNode);
+            this._material.dispose();
+            this._material = this._createMaterial(this.outputNode);
+            this._quadMesh.material = this._material;
             this.needsUpdate = false;
         }
     }

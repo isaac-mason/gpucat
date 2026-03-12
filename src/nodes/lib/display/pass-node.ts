@@ -30,12 +30,11 @@ export class PassTextureNode extends TextureNode {
      * @param passNode - The pass node.
      * @param texture - The output texture (Texture with isRenderTargetTexture=true, or DepthTexture).
      * @param textureId - Optional custom texture ID. If not provided, uses default pass output ID.
+     * @param existingBinding - If provided, reuse this binding instead of creating a new one (used by clone).
      */
-    constructor(passNode: PassNode, texture: Texture | null = null, textureId?: string) {
-        // Generate unique texture ID based on pass, or use provided ID
-        const id = textureId ?? `_pass${passNode.passId}_output`;
-        const bindingNode = new TextureBindingNode(d.texture2d(), id, objectGroup);
-        super(bindingNode);
+    constructor(passNode: PassNode, texture: Texture | null = null, textureId?: string, existingBinding?: TextureBindingNode<d.FlatSampledTextureDesc>) {
+        const binding = existingBinding ?? new TextureBindingNode(d.texture2d(), textureId ?? `_pass${passNode.passId}_output`, objectGroup);
+        super(binding);
         this.passNode = passNode;
         this.before(passNode);
 
@@ -45,11 +44,10 @@ export class PassTextureNode extends TextureNode {
         }
     }
 
-    /**
-     * Clone this node.
-     */
     clone(): PassTextureNode {
-        return new PassTextureNode(this.passNode, null);
+        const cloned = new PassTextureNode(this.passNode, null, undefined, this.bindingNode);
+        cloned.samplerNode = this.samplerNode;
+        return cloned;
     }
 }
 
@@ -74,12 +72,12 @@ export class PassMultipleTextureNode extends PassTextureNode {
      * @param textureName - The output texture name.
      * @param previousTexture - Whether previous frame data should be used.
      */
-    constructor(passNode: PassNode, textureName: string, previousTexture = false) {
+    constructor(passNode: PassNode, textureName: string, previousTexture = false, existingBinding?: TextureBindingNode<d.FlatSampledTextureDesc>) {
         // Compute the unique textureId BEFORE calling super so it's used in the node ID
         const uniqueTextureId = `${passNode.passId}_${textureName}${previousTexture ? '_prev' : ''}`;
         
         // Pass the unique textureId to super so the node gets a unique ID
-        super(passNode, null, uniqueTextureId);
+        super(passNode, null, uniqueTextureId, existingBinding);
         this.textureName = textureName;
         this.previousTexture = previousTexture;
     }
@@ -96,10 +94,12 @@ export class PassMultipleTextureNode extends PassTextureNode {
     }
 
     /**
-     * Clone this node.
+     * Clone sharing the same bindingNode so the renderer's texture updates
+     * are visible to all clones (e.g. nodes returned by .sample(uv)).
      */
     clone(): PassMultipleTextureNode {
-        const cloned = new PassMultipleTextureNode(this.passNode, this.textureName, this.previousTexture);
+        const cloned = new PassMultipleTextureNode(this.passNode, this.textureName, this.previousTexture, this.bindingNode);
+        cloned.samplerNode = this.samplerNode;
         cloned.uvNode = this.uvNode;
         return cloned;
     }

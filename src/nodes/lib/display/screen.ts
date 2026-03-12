@@ -41,5 +41,5 @@ export const screenSize: UniformNode<d.vec2f> = /*@__PURE__*/ new UniformNode(
  */
 
 export const screenUV: Node<d.vec2f> = /*@__PURE__*/ (() => {
-    return div(screenCoordinate, screenSize) as unknown as Node<d.vec2f>;
+    return div(screenCoordinate, screenSize);
 })();

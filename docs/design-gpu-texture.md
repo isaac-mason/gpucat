@@ -1001,6 +1001,117 @@ export class CanvasTexture {
 }
 ```
 
+### DataTexture
+
+High-level class for textures created from typed arrays. Useful for procedural textures, LUTs, noise textures, heightmaps, etc.
+
+```typescript
+export type DataTextureOptions = TextureOptions & {
+    format?: GPUTextureFormat;
+};
+
+export class DataTexture {
+    readonly isDataTexture = true;
+    
+    readonly gpuTexture: GpuTexture<d.texture2d>;
+    readonly sampler: GpuSampler;
+    
+    name = '';
+    
+    constructor(
+        data: Uint8Array | Uint16Array | Float32Array,
+        width: number,
+        height: number,
+        options: DataTextureOptions = {}
+    ) {
+        // Infer format from data type if not specified
+        const format = options.format ?? inferFormat(data);
+        
+        this.gpuTexture = new GpuTexture(d.texture2d(), {
+            width,
+            height,
+            source: new Source({ data, width, height }),
+            format,
+            generateMipmaps: options.generateMipmaps ?? false,
+            flipY: options.flipY ?? false,
+        });
+        
+        this.sampler = new GpuSampler({
+            addressModeU: options.wrapS ?? 'clamp-to-edge',
+            addressModeV: options.wrapT ?? 'clamp-to-edge',
+            magFilter: options.magFilter ?? 'nearest',
+            minFilter: options.minFilter ?? 'nearest',
+            mipmapFilter: options.mipmapFilter ?? 'nearest',
+        });
+    }
+    
+    get id() { return this.gpuTexture.id; }
+    get width() { return this.gpuTexture.width; }
+    get height() { return this.gpuTexture.height; }
+    get format() { return this.gpuTexture.format; }
+    
+    /** The underlying data array */
+    get data(): Uint8Array | Uint16Array | Float32Array | null {
+        const img = this.gpuTexture.source?.data;
+        if (img && typeof img === 'object' && 'data' in img) {
+            return img.data as Uint8Array | Uint16Array | Float32Array;
+        }
+        return null;
+    }
+    
+    set needsUpdate(v: boolean) {
+        if (v) this.gpuTexture.needsUpdate = true;
+    }
+    
+    dispose() {
+        this.gpuTexture.dispose();
+        this.sampler.dispose();
+    }
+}
+
+/** Infer texture format from typed array type */
+function inferFormat(data: Uint8Array | Uint16Array | Float32Array): GPUTextureFormat {
+    if (data instanceof Float32Array) return 'rgba32float';
+    if (data instanceof Uint16Array) return 'rgba16float';
+    return 'rgba8unorm';  // Uint8Array
+}
+```
+
+**Usage examples:**
+
+```typescript
+// Procedural noise texture
+const noiseData = new Float32Array(256 * 256 * 4);
+for (let i = 0; i < noiseData.length; i += 4) {
+    const v = Math.random();
+    noiseData[i] = v;
+    noiseData[i + 1] = v;
+    noiseData[i + 2] = v;
+    noiseData[i + 3] = 1;
+}
+const noiseTex = new DataTexture(noiseData, 256, 256, { 
+    wrapS: 'repeat', 
+    wrapT: 'repeat' 
+});
+
+// Color LUT (lookup table)
+const lutData = new Uint8Array(256 * 1 * 4);
+for (let i = 0; i < 256; i++) {
+    lutData[i * 4 + 0] = i;        // R
+    lutData[i * 4 + 1] = 255 - i;  // G
+    lutData[i * 4 + 2] = 128;      // B
+    lutData[i * 4 + 3] = 255;      // A
+}
+const lutTex = new DataTexture(lutData, 256, 1);
+
+// Heightmap
+const heightData = new Float32Array(512 * 512 * 4);
+// ... fill with height values
+const heightmap = new DataTexture(heightData, 512, 512, {
+    format: 'r32float',  // Single channel float
+});
+```
+
 ### ArrayTexture
 
 High-level class for 2D texture arrays.
@@ -1101,18 +1212,19 @@ export class Data3DTexture {
 }
 ```
 
-### What About DepthTexture?
+### DepthTexture
 
-`DepthTexture` is different — it's primarily for render targets, not user data. Two options:
+`DepthTexture` is kept as a high-level class. While it's primarily for render targets, having a high-level wrapper provides consistency and convenience:
 
-**Option A: Keep DepthTexture as high-level class**
 ```typescript
+export type DepthTextureFormat = 'depth16unorm' | 'depth24plus' | 'depth24plus-stencil8' | 'depth32float' | 'depth32float-stencil8';
+
 export class DepthTexture {
     readonly isDepthTexture = true;
     readonly gpuTexture: GpuTexture<d.textureDepth2d>;
     readonly sampler: GpuSampler;
     
-    compareFunction: GPUCompareFunction | null = null;
+    name = '';
     
     constructor(width: number, height: number, format: DepthTextureFormat = 'depth24plus') {
         this.gpuTexture = new GpuTexture(d.textureDepth2d(), {
@@ -1122,47 +1234,154 @@ export class DepthTexture {
             usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
         });
         
+        // Default to comparison sampler for shadow mapping
         this.sampler = new GpuSampler({
-            magFilter: 'nearest',
-            minFilter: 'nearest',
+            compare: 'less',
+            magFilter: 'linear',
+            minFilter: 'linear',
         });
     }
     
+    get id() { return this.gpuTexture.id; }
+    get width() { return this.gpuTexture.width; }
+    get height() { return this.gpuTexture.height; }
+    get format() { return this.gpuTexture.format as DepthTextureFormat; }
+    
+    get compareFunction() { return this.sampler.compare ?? null; }
+    set compareFunction(v: GPUCompareFunction | null) {
+        this.sampler.compare = v ?? undefined;
+    }
+    
     setSize(width: number, height: number) {
-        this.gpuTexture.width = width;
-        this.gpuTexture.height = height;
-        this.gpuTexture.needsUpdate = true;
+        if (this.gpuTexture.width !== width || this.gpuTexture.height !== height) {
+            this.gpuTexture.width = width;
+            this.gpuTexture.height = height;
+            this.gpuTexture.needsUpdate = true;
+        }
+    }
+    
+    dispose() {
+        this.gpuTexture.dispose();
+        this.sampler.dispose();
     }
 }
-```
-
-**Option B: Just use GpuTexture directly for depth**
-
-Since depth textures are mostly created by RenderTarget internally, maybe no high-level wrapper is needed. Users doing advanced shadow mapping can use `GpuTexture<d.textureDepth2d>` directly.
-
-**Recommendation:** Option B — no `DepthTexture` high-level class. RenderTarget creates `GpuTexture` internally. For shadow maps, users work with `GpuTexture<d.textureDepth*>` directly (it's an advanced use case anyway).
 
 ---
 
 ## Updated Factory Functions
 
-The `texture()` etc. functions accept EITHER high-level OR low-level:
+### Design Principles
+
+1. **High-level classes are the primary input** — `texture(myTexture)` is the common case
+2. **Extract internals, don't accept both** — High-level classes have `.gpuTexture` and `.sampler`, we extract them
+3. **Low-level input via object** — `{ gpuTexture, sampler }` for advanced use
+4. **Nodes reference low-level objects** — `TextureBindingNode.value` is `GpuTexture<D>`, `SamplerNode.value` is `GpuSampler`
+
+### Type Definitions
 
 ```typescript
-/** Input can be high-level Texture OR low-level GpuTexture + GpuSampler */
-type TextureInput = 
-    | Texture 
-    | VideoTexture 
-    | CanvasTexture
-    | { gpuTexture: GpuTexture<d.FlatSampledTextureDesc>; sampler: GpuSampler };
+/** 
+ * High-level texture types that can be passed to texture().
+ * All have .gpuTexture and .sampler properties.
+ */
+type HighLevelTexture = Texture | DataTexture | VideoTexture | CanvasTexture;
 
 /**
- * Create a texture node.
- * Accepts high-level Texture or low-level GpuTexture + GpuSampler.
+ * Low-level input: explicit GpuTexture + GpuSampler pair.
+ * Use this when you want to share a sampler across textures or need full control.
+ */
+type LowLevelTextureInput<D extends d.AnyTextureDesc = d.texture2d> = {
+    gpuTexture: GpuTexture<D>;
+    sampler: GpuSampler;
+};
+
+/**
+ * Input to texture() factory.
+ */
+type TextureInput = HighLevelTexture | LowLevelTextureInput<d.FlatSampledTextureDesc>;
+
+/**
+ * Type guard: is this a high-level texture class?
+ */
+function isHighLevelTexture(input: TextureInput): input is HighLevelTexture {
+    return 'isTexture' in input || 'isDataTexture' in input || 'isVideoTexture' in input || 'isCanvasTexture' in input;
+}
+```
+
+### texture()
+
+```typescript
+/**
+ * Create a texture node for 2D texture sampling.
+ * 
+ * @param input - High-level Texture/DataTexture/VideoTexture/CanvasTexture, or low-level { gpuTexture, sampler }
+ * 
+ * @example
+ * // High-level (most users)
+ * const albedo = new Texture(image, { wrapS: 'repeat', wrapT: 'repeat' });
+ * const albedoNode = texture(albedo);
+ * 
+ * // Low-level (sampler sharing)
+ * const linearRepeat = new GpuSampler({ addressModeU: 'repeat', addressModeV: 'repeat' });
+ * const albedoNode = texture({ gpuTexture: albedoTex.gpuTexture, sampler: linearRepeat });
+ * const normalNode = texture({ gpuTexture: normalTex.gpuTexture, sampler: linearRepeat });
  */
 export function texture(input: TextureInput): TextureNode {
-    const gpuTex = 'gpuTexture' in input ? input.gpuTexture : input.gpuTexture;
-    const sampler = 'sampler' in input ? input.sampler : input.sampler;
+    // Extract low-level objects from input
+    let gpuTex: GpuTexture<d.FlatSampledTextureDesc>;
+    let sampler: GpuSampler;
+    
+    if (isHighLevelTexture(input)) {
+        // High-level: extract from wrapper
+        gpuTex = input.gpuTexture;
+        sampler = input.sampler;
+    } else {
+        // Low-level: use directly
+        gpuTex = input.gpuTexture;
+        sampler = input.sampler;
+    }
+    
+    // Create binding node (holds reference to GpuTexture)
+    const binding = new TextureBindingNode(gpuTex.type, `t${gpuTex.id}`);
+    binding.value = gpuTex;
+    
+    // Create sampler node (holds reference to GpuSampler)
+    const samplerNode = new SamplerNode(
+        sampler.isComparison ? d.samplerComparison : d.sampler,
+        `s${sampler.id}`,
+    );
+    samplerNode.value = sampler;
+    
+    // Create texture node with binding and sampler
+    const node = new TextureNode(binding);
+    node.samplerNode = samplerNode;
+    return node;
+}
+```
+
+### cubeTexture()
+
+```typescript
+type CubeTextureInput = CubeTexture | LowLevelTextureInput<d.textureCube>;
+
+function isHighLevelCubeTexture(input: CubeTextureInput): input is CubeTexture {
+    return 'isCubeTexture' in input;
+}
+
+/**
+ * Create a cube texture node for environment mapping, skyboxes, etc.
+ */
+export function cubeTexture(input: CubeTextureInput): CubeTextureNode {
+    let gpuTex: GpuTexture<d.textureCube>;
+    let sampler: GpuSampler;
+    
+    if (isHighLevelCubeTexture(input)) {
+        gpuTex = input.gpuTexture;
+        sampler = input.sampler;
+    } else {
+        gpuTex = input.gpuTexture;
+        sampler = input.sampler;
+    }
     
     const binding = new TextureBindingNode(gpuTex.type, `t${gpuTex.id}`);
     binding.value = gpuTex;
@@ -1170,25 +1389,791 @@ export function texture(input: TextureInput): TextureNode {
     const samplerNode = new SamplerNode(d.sampler, `s${sampler.id}`);
     samplerNode.value = sampler;
     
-    const node = new TextureNode(binding);
+    const node = new CubeTextureNode(binding);
     node.samplerNode = samplerNode;
     return node;
 }
-
-// Similar for cubeTexture(), etc.
 ```
 
-**Usage stays simple:**
+### depthTexture()
 
 ```typescript
-// High-level (most users)
-const albedo = new Texture(image, { wrapS: 'repeat', wrapT: 'repeat' });
-const albedoNode = texture(albedo);  // Just like today!
+type DepthTextureInput = DepthTexture | LowLevelTextureInput<d.FlatDepthTextureDesc>;
 
-// Low-level (advanced users)
-const gpuTex = new GpuTexture(d.texture2d(), { width: 512, height: 512, source: image });
-const sampler = new GpuSampler({ addressModeU: 'repeat', addressModeV: 'repeat' });
-const node = texture({ gpuTexture: gpuTex, sampler });
+function isHighLevelDepthTexture(input: DepthTextureInput): input is DepthTexture {
+    return 'isDepthTexture' in input;
+}
+
+/**
+ * Create a depth texture node for shadow mapping, depth reads, etc.
+ * 
+ * The sampler determines whether this uses regular sampling or comparison sampling:
+ * - Regular sampler → textureSample returns raw depth value
+ * - Comparison sampler → textureSampleCompare for hardware PCF
+ * 
+ * DepthTexture defaults to comparison sampler for shadow mapping convenience.
+ */
+export function depthTexture(input: DepthTextureInput): DepthTextureNode {
+    let gpuTex: GpuTexture<d.FlatDepthTextureDesc>;
+    let sampler: GpuSampler;
+    
+    if (isHighLevelDepthTexture(input)) {
+        gpuTex = input.gpuTexture;
+        sampler = input.sampler;
+    } else {
+        gpuTex = input.gpuTexture;
+        sampler = input.sampler;
+    }
+    
+    const binding = new TextureBindingNode(gpuTex.type, `t${gpuTex.id}`);
+    binding.value = gpuTex;
+    
+    const samplerNode = new SamplerNode(
+        sampler.isComparison ? d.samplerComparison : d.sampler,
+        `s${sampler.id}`,
+    );
+    samplerNode.value = sampler;
+    
+    const node = new DepthTextureNode(binding);
+    node.samplerNode = samplerNode;
+    return node;
+}
+```
+
+### arrayTexture()
+
+```typescript
+type ArrayTextureInput = ArrayTexture | LowLevelTextureInput<d.texture2dArray>;
+
+function isHighLevelArrayTexture(input: ArrayTextureInput): input is ArrayTexture {
+    return 'isArrayTexture' in input;
+}
+
+/**
+ * Create an array texture node for texture atlases, sprite sheets, etc.
+ */
+export function arrayTexture(
+    input: ArrayTextureInput,
+    layerNode: Node<d.i32>,
+): ArrayTextureNode {
+    let gpuTex: GpuTexture<d.texture2dArray>;
+    let sampler: GpuSampler;
+    
+    if (isHighLevelArrayTexture(input)) {
+        gpuTex = input.gpuTexture;
+        sampler = input.sampler;
+    } else {
+        gpuTex = input.gpuTexture;
+        sampler = input.sampler;
+    }
+    
+    const binding = new TextureBindingNode(gpuTex.type, `t${gpuTex.id}`);
+    binding.value = gpuTex;
+    
+    const samplerNode = new SamplerNode(d.sampler, `s${sampler.id}`);
+    samplerNode.value = sampler;
+    
+    const node = new ArrayTextureNode(binding, layerNode);
+    node.samplerNode = samplerNode;
+    return node;
+}
+```
+
+### What Changes in Existing Node Classes
+
+**TextureBindingNode:**
+```typescript
+// BEFORE
+value: TextureValueOf<D> | null = null;  // High-level class
+
+// AFTER  
+value: GpuTexture<D> | null = null;  // Low-level GpuTexture
+```
+
+**SamplerNode:**
+```typescript
+// BEFORE
+// Settings copied onto node:
+minFilter: GPUFilterMode = 'linear';
+magFilter: GPUFilterMode = 'linear';
+// ... etc
+
+// AFTER
+// Reference to GpuSampler:
+value: GpuSampler | null = null;
+
+// Settings accessed via value:
+get minFilter() { return this.value?.minFilter ?? 'linear'; }
+get settingsKey() { return this.value?.settingsKey ?? 'default'; }
+```
+
+### Usage Examples
+
+```typescript
+// ═══════════════════════════════════════════════════════════════════════════
+// HIGH-LEVEL (most users) — unchanged from current API
+// ═══════════════════════════════════════════════════════════════════════════
+
+const albedo = new Texture(image, { wrapS: 'repeat', wrapT: 'repeat' });
+const albedoNode = texture(albedo);
+
+const envMap = new CubeTexture(faces);
+const envNode = cubeTexture(envMap);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LOW-LEVEL (advanced users) — explicit control
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Sampler sharing across multiple textures
+const linearRepeat = new GpuSampler({
+    minFilter: 'linear',
+    magFilter: 'linear',
+    addressModeU: 'repeat',
+    addressModeV: 'repeat',
+});
+
+const albedoNode = texture({ gpuTexture: albedoTex.gpuTexture, sampler: linearRepeat });
+const normalNode = texture({ gpuTexture: normalTex.gpuTexture, sampler: linearRepeat });
+const roughnessNode = texture({ gpuTexture: roughnessTex.gpuTexture, sampler: linearRepeat });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MIXED — high-level texture with custom sampler
+// ═══════════════════════════════════════════════════════════════════════════
+
+const myTexture = new Texture(image);
+const pointSampler = new GpuSampler({ minFilter: 'nearest', magFilter: 'nearest' });
+
+// Use the texture's GpuTexture but a different sampler
+const node = texture({ gpuTexture: myTexture.gpuTexture, sampler: pointSampler });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RENDER TARGET — via high-level classes
+// ═══════════════════════════════════════════════════════════════════════════
+
+const rt = new RenderTarget(512, 512);
+const rtColorNode = texture(rt.texture);  // rt.texture is a Texture
+
+// Shadow mapping
+const shadowRT = new RenderTarget(2048, 2048, { depthOnly: true });
+const shadowNode = depthTexture(shadowRT.depthTexture);  // rt.depthTexture is a DepthTexture
+```
+
+---
+
+## Renderer Updates
+
+The renderer's texture system (`src/renderer/textures.ts`) needs to be refactored to work with `GpuTexture<D>` and `GpuSampler` instead of high-level classes.
+
+### Key Changes
+
+**1. Cache keyed by GpuTexture, not Texture:**
+
+```typescript
+// BEFORE
+textureMap: WeakMap<Texture, TextureData>;
+
+// AFTER
+textureMap: WeakMap<GpuTexture<any>, TextureData>;
+```
+
+**2. updateTexture() takes GpuTexture:**
+
+```typescript
+// BEFORE
+export function updateTexture(
+    cache: TextureCache,
+    device: GPUDevice,
+    texture: Texture,
+): TextureData { ... }
+
+// AFTER
+export function updateTexture<D extends d.AnyTextureDesc>(
+    cache: TextureCache,
+    device: GPUDevice,
+    gpuTexture: GpuTexture<D>,
+): TextureData { ... }
+```
+
+**3. Use GpuTexture properties directly:**
+
+```typescript
+// BEFORE — scattered type checks
+const isCube = 'isCubeTexture' in texture && texture.isCubeTexture === true;
+const isArray = 'isArrayTexture' in texture && texture.isArrayTexture === true;
+
+// AFTER — derived from schema type
+const viewDimension = gpuTexture.viewDimension;  // 'cube', '2d-array', etc.
+const isCube = viewDimension === 'cube' || viewDimension === 'cube-array';
+const isArray = viewDimension === '2d-array';
+```
+
+**4. Sampler cache uses GpuSampler:**
+
+```typescript
+// BEFORE — sampler settings copied from Texture
+function getSamplerKey(texture: Texture): string {
+    return `${texture.minFilter}-${texture.magFilter}-...`;
+}
+
+// AFTER — use GpuSampler.settingsKey
+function updateSampler(
+    cache: TextureCache,
+    device: GPUDevice,
+    sampler: GpuSampler,
+): GPUSampler {
+    const key = sampler.settingsKey;
+    let data = cache.samplerCache.get(key);
+    if (!data) {
+        data = { sampler: createGPUSampler(device, sampler), usedTimes: 0 };
+        cache.samplerCache.set(key, data);
+    }
+    sampler.gpuSampler = data.sampler;
+    return data.sampler;
+}
+```
+
+**5. Bindings use GpuTexture from nodes:**
+
+```typescript
+// In bindings.ts — when processing TextureBindingNode
+
+// BEFORE
+const texture = bindingNode.value as Texture;
+const textureData = updateTexture(cache, device, texture);
+
+// AFTER
+const gpuTexture = bindingNode.value;  // Already GpuTexture<D>
+const textureData = updateTexture(cache, device, gpuTexture);
+gpuTexture.gpuTexture = textureData.texture;  // Set the GPU resource
+```
+
+### Dimension Detection Simplification
+
+Currently `bindings.ts` has scattered dimension detection:
+
+```typescript
+// BEFORE (bindings.ts:643-645)
+const isCube = 'isCubeTexture' in tex && tex.isCubeTexture;
+const isArray = 'isArrayTexture' in tex && tex.isArrayTexture;
+const is3D = 'is3DTexture' in tex && tex.is3DTexture;
+```
+
+With `GpuTexture<D>`, dimension comes from the schema:
+
+```typescript
+// AFTER
+const viewDimension = gpuTexture.viewDimension;  // '2d' | 'cube' | '2d-array' | '3d' | ...
+```
+
+### Upload Logic
+
+The upload functions need minor changes to read from `GpuTexture` properties:
+
+```typescript
+// BEFORE
+const width = texture.width;
+const height = texture.height;
+const format = texture.format ?? 'rgba8unorm';
+const flipY = texture.flipY;
+
+// AFTER — same properties exist on GpuTexture
+const width = gpuTexture.width;
+const height = gpuTexture.height;
+const format = gpuTexture.format;  // Always explicit, no default
+const flipY = gpuTexture.flipY;
+```
+
+### Size/Format Change Detection
+
+`GpuTexture.needsUpdate` triggers re-upload. The renderer should also detect size/format changes that require GPU texture recreation:
+
+```typescript
+function updateTexture<D extends d.AnyTextureDesc>(
+    cache: TextureCache,
+    device: GPUDevice,
+    gpuTexture: GpuTexture<D>,
+): TextureData {
+    let data = cache.textureMap.get(gpuTexture);
+    
+    // Check if GPU texture needs recreation (size/format changed)
+    if (data && !data.isDefaultTexture) {
+        const needsRecreate = 
+            data.texture.width !== gpuTexture.width ||
+            data.texture.height !== gpuTexture.height ||
+            data.texture.format !== gpuTexture.format;
+        
+        if (needsRecreate) {
+            data.texture.destroy();
+            data = undefined;
+        }
+    }
+    
+    // Check version for data re-upload
+    if (data?.initialized && data.version === gpuTexture.version) {
+        return data;
+    }
+    
+    // ... rest of update logic
+}
+```
+
+### Complete Upload Flow
+
+Here's the full flow from user code to GPU, showing before/after:
+
+#### Current Flow (High-Level Classes)
+
+```
+User Code                    Node System                   Bindings                      Textures
+─────────────────────────────────────────────────────────────────────────────────────────────────────
+                                                           
+const tex = new Texture(img) ─────────────────────────────────────────────────────────────────────────
+                                                           
+texture(tex) ──────────────► TextureBindingNode            
+                             .value = tex (Texture)        
+                             SamplerNode                   
+                             .minFilter = tex.minFilter    
+                             .magFilter = tex.magFilter    
+                             ... (settings copied)         
+                                                           
+                             ─────────────────────────────► updateTextureBinding()
+                                                           │
+                                                           ├─ if tex.isRenderTargetTexture:
+                                                           │    use tex.gpuTexture directly
+                                                           │
+                                                           └─ else:
+                                                                updateTexture(cache, device, tex)
+                                                                │                              
+                                                                ├─ isCube = 'isCubeTexture' in tex
+                                                                ├─ isArray = 'isArrayTexture' in tex
+                                                                ├─ createGPUTexture(device, tex)
+                                                                │    └─ reads tex.width, tex.height, tex.format
+                                                                └─ uploadTextureData(device, tex, data)
+                                                                     ├─ if isCube: uploadCubeTextureData()
+                                                                     ├─ if isArray: uploadArrayTextureData()
+                                                                     └─ else: upload 2D data
+                                                           
+                             ─────────────────────────────► updateSamplerBinding()
+                                                           │
+                                                           └─ getSamplerFromNode(cache, device, samplerNode)
+                                                                └─ uses samplerNode.minFilter, etc.
+```
+
+#### New Flow (GpuTexture + GpuSampler)
+
+```
+User Code                    Node System                   Bindings                      Textures
+─────────────────────────────────────────────────────────────────────────────────────────────────────
+
+const tex = new Texture(img) 
+  └─ internally creates:
+     gpuTexture = new GpuTexture(d.texture2d(), {...})
+     sampler = new GpuSampler({...})
+                                                           
+texture(tex) ──────────────► TextureBindingNode            
+                             .value = tex.gpuTexture ◄──── extracts GpuTexture
+                             SamplerNode                   
+                             .value = tex.sampler ◄─────── extracts GpuSampler
+                                                           
+                             ─────────────────────────────► updateTextureBinding()
+                                                           │
+                                                           └─ gpuTex = textureNode.value  // GpuTexture<D>
+                                                              updateTexture(cache, device, gpuTex)
+                                                              │
+                                                              ├─ viewDim = gpuTex.viewDimension  // from schema
+                                                              ├─ createGPUTexture(device, gpuTex)
+                                                              │    └─ reads gpuTex.width, height, format, depthOrArrayLayers
+                                                              └─ uploadTextureData(device, gpuTex, data)
+                                                                   └─ dispatch by gpuTex.viewDimension:
+                                                                        'cube' → uploadCubeFaces(gpuTex.sources)
+                                                                        '2d-array' → uploadLayers(gpuTex.sources)
+                                                                        '2d' → uploadSingle(gpuTex.source)
+                                                           
+                             ─────────────────────────────► updateSamplerBinding()
+                                                           │
+                                                           └─ sampler = samplerNode.value  // GpuSampler
+                                                              updateSampler(cache, device, sampler)
+                                                              └─ uses sampler.minFilter, sampler.settingsKey, etc.
+```
+
+### Detailed Function Changes
+
+#### textures.ts
+
+```typescript
+// ═══════════════════════════════════════════════════════════════════════════
+// updateTexture — main entry point
+// ═══════════════════════════════════════════════════════════════════════════
+
+export function updateTexture<D extends d.AnyTextureDesc>(
+    cache: TextureCache,
+    device: GPUDevice,
+    gpuTexture: GpuTexture<D>,
+): TextureData {
+    let data = cache.textureMap.get(gpuTexture);
+    
+    // ─── Size/format change detection ───
+    if (data && !data.isDefaultTexture) {
+        const current = data.texture;
+        if (current.width !== gpuTexture.width ||
+            current.height !== gpuTexture.height ||
+            current.depthOrArrayLayers !== gpuTexture.depthOrArrayLayers ||
+            current.format !== gpuTexture.format) {
+            current.destroy();
+            data = undefined;
+        }
+    }
+    
+    // ─── Version check (skip if unchanged) ───
+    if (data?.initialized && data.version === gpuTexture.version) {
+        return data;
+    }
+    
+    // ─── Completeness check ───
+    if (!gpuTexture.isComplete) {
+        // Use placeholder
+        if (!data) {
+            const defaultTex = getDefaultTexture(cache, device, gpuTexture.format);
+            data = {
+                texture: defaultTex,
+                version: 0,
+                generation: 0,
+                initialized: true,
+                isDefaultTexture: true,
+            };
+            cache.textureMap.set(gpuTexture, data);
+        }
+        return data;
+    }
+    
+    // ─── Create GPU texture if needed ───
+    if (!data || data.isDefaultTexture) {
+        const tex = createGPUTextureFromDesc(device, gpuTexture);
+        
+        if (!data) {
+            data = {
+                texture: tex,
+                version: gpuTexture.version,
+                generation: gpuTexture.version,
+                initialized: true,
+                isDefaultTexture: false,
+            };
+            cache.textureMap.set(gpuTexture, data);
+            cache.textureCount++;
+        } else {
+            data.texture = tex;
+            data.generation = gpuTexture.version;
+            data.isDefaultTexture = false;
+            cache.textureCount++;
+        }
+        
+        setupDispose(cache, gpuTexture);
+    }
+    
+    // ─── Upload data ───
+    uploadGpuTextureData(device, gpuTexture, data);
+    
+    // ─── Mipmaps ───
+    if (gpuTexture.generateMipmaps && data.texture.mipLevelCount > 1) {
+        const mipmapState = getMipmapState(cache, device);
+        const isCube = gpuTexture.viewDimension === 'cube' || gpuTexture.viewDimension === 'cube-array';
+        const arrayLayers = gpuTexture.viewDimension === '2d-array' ? gpuTexture.depthOrArrayLayers : 0;
+        generateMipmaps(mipmapState, data.texture, isCube, arrayLayers);
+    }
+    
+    // ─── Update tracking ───
+    data.version = gpuTexture.version;
+    data.initialized = true;
+    
+    // ─── Store GPU resource on GpuTexture ───
+    gpuTexture.gpuTexture = data.texture;
+    
+    return data;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// createGPUTextureFromDesc — creates GPUTexture from GpuTexture descriptor
+// ═══════════════════════════════════════════════════════════════════════════
+
+function createGPUTextureFromDesc<D extends d.AnyTextureDesc>(
+    device: GPUDevice,
+    gpuTexture: GpuTexture<D>,
+): GPUTexture {
+    const mipLevelCount = gpuTexture.generateMipmaps
+        ? Math.floor(Math.log2(Math.max(gpuTexture.width, gpuTexture.height))) + 1
+        : gpuTexture.mipLevelCount;
+    
+    return device.createTexture({
+        dimension: gpuTexture.dimension,  // '1d' | '2d' | '3d'
+        size: [gpuTexture.width, gpuTexture.height, gpuTexture.depthOrArrayLayers],
+        format: gpuTexture.format,
+        usage: gpuTexture.usage,
+        mipLevelCount,
+        sampleCount: gpuTexture.sampleCount,
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// uploadGpuTextureData — dispatches to appropriate upload function
+// ═══════════════════════════════════════════════════════════════════════════
+
+function uploadGpuTextureData<D extends d.AnyTextureDesc>(
+    device: GPUDevice,
+    gpuTexture: GpuTexture<D>,
+    data: TextureData,
+): void {
+    const viewDim = gpuTexture.viewDimension;
+    
+    switch (viewDim) {
+        case 'cube':
+        case 'cube-array':
+            uploadCubeFaces(device, gpuTexture, data);
+            break;
+        case '2d-array':
+            uploadArrayLayers(device, gpuTexture, data);
+            break;
+        case '3d':
+            upload3DVolume(device, gpuTexture, data);
+            break;
+        default:
+            // '2d', '1d'
+            uploadSingleSource(device, gpuTexture, data);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Upload helpers — use GpuTexture.source / GpuTexture.sources
+// ═══════════════════════════════════════════════════════════════════════════
+
+function uploadSingleSource<D extends d.AnyTextureDesc>(
+    device: GPUDevice,
+    gpuTexture: GpuTexture<D>,
+    data: TextureData,
+): void {
+    const source = gpuTexture.source;
+    if (!source?.dataReady) return;
+    
+    const image = source.data;
+    if (!image) return;
+    
+    // Check if it's raw data or an image source
+    if (isDataImage(image)) {
+        // Typed array data
+        const bytesPerPixel = getBytesPerPixel(gpuTexture.format);
+        device.queue.writeTexture(
+            { texture: data.texture },
+            image.data.buffer,
+            {
+                offset: image.data.byteOffset,
+                bytesPerRow: gpuTexture.width * bytesPerPixel,
+                rowsPerImage: gpuTexture.height,
+            },
+            [gpuTexture.width, gpuTexture.height],
+        );
+    } else {
+        // External image (HTMLImageElement, ImageBitmap, Canvas, Video, etc.)
+        device.queue.copyExternalImageToTexture(
+            { source: image, flipY: gpuTexture.flipY },
+            { texture: data.texture, premultipliedAlpha: gpuTexture.premultiplyAlpha },
+            [gpuTexture.width, gpuTexture.height],
+        );
+    }
+}
+
+function uploadCubeFaces<D extends d.AnyTextureDesc>(
+    device: GPUDevice,
+    gpuTexture: GpuTexture<D>,
+    data: TextureData,
+): void {
+    const faces = gpuTexture.sources;
+    if (faces.length !== 6) return;
+    
+    for (let faceIndex = 0; faceIndex < 6; faceIndex++) {
+        const source = faces[faceIndex];
+        if (!source?.dataReady) continue;
+        
+        const image = source.data;
+        if (!image) continue;
+        
+        device.queue.copyExternalImageToTexture(
+            { source: image as GPUImageCopyExternalImageSource, flipY: gpuTexture.flipY },
+            {
+                texture: data.texture,
+                premultipliedAlpha: gpuTexture.premultiplyAlpha,
+                origin: { x: 0, y: 0, z: faceIndex },
+            },
+            [gpuTexture.width, gpuTexture.height],
+        );
+    }
+}
+
+function uploadArrayLayers<D extends d.AnyTextureDesc>(
+    device: GPUDevice,
+    gpuTexture: GpuTexture<D>,
+    data: TextureData,
+): void {
+    // Option 1: Single source with all layers packed
+    if (gpuTexture.source) {
+        const source = gpuTexture.source;
+        if (!source.dataReady) return;
+        
+        const image = source.data;
+        if (!isDataImage(image)) return;
+        
+        const bytesPerPixel = getBytesPerPixel(gpuTexture.format);
+        const bytesPerLayer = gpuTexture.width * gpuTexture.height * bytesPerPixel;
+        
+        for (let layer = 0; layer < gpuTexture.depthOrArrayLayers; layer++) {
+            device.queue.writeTexture(
+                { texture: data.texture, origin: { x: 0, y: 0, z: layer } },
+                image.data.buffer,
+                {
+                    offset: image.data.byteOffset + layer * bytesPerLayer,
+                    bytesPerRow: gpuTexture.width * bytesPerPixel,
+                    rowsPerImage: gpuTexture.height,
+                },
+                [gpuTexture.width, gpuTexture.height],
+            );
+        }
+        return;
+    }
+    
+    // Option 2: Per-layer sources
+    for (let layer = 0; layer < gpuTexture.sources.length; layer++) {
+        const source = gpuTexture.sources[layer];
+        if (!source?.dataReady) continue;
+        
+        const image = source.data;
+        if (!image) continue;
+        
+        if (isDataImage(image)) {
+            const bytesPerPixel = getBytesPerPixel(gpuTexture.format);
+            device.queue.writeTexture(
+                { texture: data.texture, origin: { x: 0, y: 0, z: layer } },
+                image.data.buffer,
+                {
+                    offset: image.data.byteOffset,
+                    bytesPerRow: gpuTexture.width * bytesPerPixel,
+                    rowsPerImage: gpuTexture.height,
+                },
+                [gpuTexture.width, gpuTexture.height],
+            );
+        } else {
+            device.queue.copyExternalImageToTexture(
+                { source: image as GPUImageCopyExternalImageSource },
+                { texture: data.texture, origin: { x: 0, y: 0, z: layer } },
+                [gpuTexture.width, gpuTexture.height],
+            );
+        }
+    }
+}
+
+function upload3DVolume<D extends d.AnyTextureDesc>(
+    device: GPUDevice,
+    gpuTexture: GpuTexture<D>,
+    data: TextureData,
+): void {
+    const source = gpuTexture.source;
+    if (!source?.dataReady) return;
+    
+    const image = source.data;
+    if (!isDataImage(image)) return;
+    
+    const bytesPerPixel = getBytesPerPixel(gpuTexture.format);
+    
+    device.queue.writeTexture(
+        { texture: data.texture },
+        image.data.buffer,
+        {
+            offset: image.data.byteOffset,
+            bytesPerRow: gpuTexture.width * bytesPerPixel,
+            rowsPerImage: gpuTexture.height,
+        },
+        [gpuTexture.width, gpuTexture.height, gpuTexture.depthOrArrayLayers],
+    );
+}
+```
+
+#### bindings.ts
+
+```typescript
+// ═══════════════════════════════════════════════════════════════════════════
+// updateTextureBinding — simplified, works with GpuTexture directly
+// ═══════════════════════════════════════════════════════════════════════════
+
+function updateTextureBinding(
+    textureCache: TextureCache,
+    device: GPUDevice,
+    binding: TextureBinding,
+    data: BindGroupData,
+): void {
+    const textureNode = binding.entry.node;
+    const gpuTexture = textureNode.value;  // Now GpuTexture<D>, not Texture
+    
+    if (!gpuTexture) return;
+    
+    // Update texture (handles creation, upload, caching)
+    const texData = updateTexture(textureCache, device, gpuTexture);
+    
+    // Store GPU resource on node for bind group creation
+    textureNode.resource = texData.texture;
+    
+    // Check for texture recreation
+    if (binding.generation !== texData.generation) {
+        binding.generation = texData.generation;
+        data.needsUpdate = true;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// updateSamplerBinding — uses GpuSampler
+// ═══════════════════════════════════════════════════════════════════════════
+
+function updateSamplerBinding(
+    textureCache: TextureCache,
+    device: GPUDevice,
+    binding: SamplerBinding,
+    data: BindGroupData,
+): void {
+    const samplerNode = binding.entry.samplerNode;
+    const sampler = samplerNode.value;  // Now GpuSampler, not copied settings
+    
+    if (!sampler) return;
+    
+    // Get or create GPU sampler
+    const gpuSampler = updateSampler(textureCache, device, sampler);
+    
+    // Store on both sampler object and node
+    sampler.gpuSampler = gpuSampler;
+    samplerNode.resource = gpuSampler;
+    
+    // Check for sampler changes
+    const samplerKey = sampler.settingsKey;
+    if (binding.samplerKey !== samplerKey) {
+        binding.samplerKey = samplerKey;
+        data.needsUpdate = true;
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// rebuildGPUBindGroup — view dimension from GpuTexture
+// ═══════════════════════════════════════════════════════════════════════════
+
+// In the 'texture' case:
+case 'texture': {
+    const textureNode = binding.entry.node;
+    const gpuTexture = textureNode.value;
+    
+    if (!gpuTexture?.gpuTexture) break;
+    
+    // View dimension comes directly from GpuTexture (derived from schema)
+    const view = gpuTexture.gpuTexture.createView({
+        dimension: gpuTexture.viewDimension,
+    });
+    
+    entries.push({ binding: binding.entry.binding, resource: view });
+    break;
+}
 ```
 
 ---
@@ -1202,14 +2187,14 @@ Layer 1: Low-Level (WebGPU-native)
 └── Source                 — CPU data container (unchanged)
 
 Layer 2: High-Level (User-friendly)
-├── Texture                — 2D textures (image, canvas, video, data)
+├── Texture                — 2D textures from images
+├── DataTexture            — 2D textures from typed arrays (noise, LUTs, procedural)
 ├── CubeTexture            — cube maps
 ├── VideoTexture           — video with update()
 ├── CanvasTexture          — canvas source
 ├── ArrayTexture           — 2D texture arrays
-└── Data3DTexture          — 3D volume textures
-
-(No DepthTexture — use GpuTexture<d.textureDepth*> directly)
+├── Data3DTexture          — 3D volume textures
+└── DepthTexture           — depth textures (render targets, shadow maps)
 
 Layer 3: Node System
 ├── TextureBindingNode<D>  — holds GpuTexture<D>
@@ -1231,16 +2216,303 @@ For existing code:
 | `new Texture(image)` | `new Texture(image)` (unchanged!) |
 | `tex.wrapS = 'repeat'` | `tex.wrapS = 'repeat'` (unchanged!) |
 | `texture(tex)` | `texture(tex)` (unchanged!) |
-| `new DepthTexture(w, h)` | `new GpuTexture(d.textureDepth2d(), { width: w, height: h, ... })` |
+| `new DepthTexture(w, h)` | `new DepthTexture(w, h)` (unchanged!) |
 
-The high-level API is essentially unchanged. Only advanced use cases (depth textures, explicit sampler sharing, non-standard configurations) use the low-level API.
+The high-level API is essentially unchanged. Only advanced use cases (explicit sampler sharing, non-standard configurations) use the low-level API.
 
 ---
 
-## Open Questions
+## RenderTarget Integration
 
-1. **DataTexture?** Currently there's no `DataTexture` class — `Texture` can accept typed arrays via `Source`. Should we add a convenience class, or is `Texture` sufficient?
+RenderTarget continues to expose high-level `Texture` and `DepthTexture` classes. This keeps the simple API unchanged while allowing advanced users to access the underlying `GpuTexture` and `GpuSampler`.
 
-2. **RenderTarget integration?** RenderTarget owns its attachments. It should create `GpuTexture` instances internally. The `DepthTexture` it currently creates becomes `GpuTexture<d.textureDepth2d>`.
+### Design Decision
 
-3. **Sampler deduplication?** Multiple high-level textures with identical sampler settings could share the same `GpuSampler` instance. Worth doing, or let users handle it?
+RenderTarget **owns high-level classes**, not low-level `GpuTexture` directly:
+
+```typescript
+class RenderTarget {
+    readonly texture: Texture;           // High-level, owns GpuTexture<d.texture2d>
+    readonly depthTexture: DepthTexture; // High-level, owns GpuTexture<d.textureDepth2d>
+    
+    // ...
+}
+```
+
+### Why High-Level?
+
+1. **Simple usage unchanged**: `texture(rt.texture)` works as today
+2. **Consistency**: Users expect `rt.texture` to behave like any other `Texture`
+3. **Convenience**: `rt.texture.wrapS = 'repeat'` just works
+4. **Advanced access available**: `rt.texture.gpuTexture` and `rt.texture.sampler` for low-level control
+
+### Usage Examples
+
+**Simple (unchanged):**
+```typescript
+const rt = new RenderTarget(512, 512);
+
+// Render to texture
+pass(rt, mesh);
+
+// Use the texture
+const color = texture(rt.texture).sample(uv);
+```
+
+**With sampler modification:**
+```typescript
+const rt = new RenderTarget(512, 512);
+rt.texture.wrapS = 'repeat';
+rt.texture.wrapT = 'repeat';
+rt.texture.minFilter = 'nearest';
+```
+
+**Advanced (low-level access):**
+```typescript
+const rt = new RenderTarget(512, 512);
+
+// Access the underlying GpuTexture for custom operations
+const gpuTex = rt.texture.gpuTexture;
+console.log(gpuTex.format, gpuTex.width, gpuTex.height);
+
+// Use a different sampler than the default
+const customSampler = new GpuSampler({
+    minFilter: 'nearest',
+    magFilter: 'nearest',
+    addressModeU: 'mirror-repeat',
+    addressModeV: 'mirror-repeat',
+});
+const node = texture({ gpuTexture: rt.texture.gpuTexture, sampler: customSampler });
+```
+
+**Shadow mapping:**
+```typescript
+const shadowRT = new RenderTarget(2048, 2048, { depthOnly: true });
+
+// The DepthTexture has a comparison sampler by default
+const shadow = depthTexture(shadowRT.depthTexture);
+
+// Custom comparison function
+shadowRT.depthTexture.compareFunction = 'less-equal';
+```
+
+### Internal Implementation
+
+RenderTarget creates high-level classes internally, which create `GpuTexture` instances:
+
+```typescript
+class RenderTarget {
+    readonly texture: Texture;
+    readonly depthTexture: DepthTexture | null;
+    
+    constructor(width: number, height: number, options: RenderTargetOptions = {}) {
+        // Color attachment (unless depth-only)
+        if (!options.depthOnly) {
+            this.texture = new Texture(null, {
+                // No source data - this is a render target
+                format: options.format ?? 'rgba8unorm',
+            });
+            this.texture.gpuTexture.width = width;
+            this.texture.gpuTexture.height = height;
+            this.texture.gpuTexture.usage = 
+                GPUTextureUsage.RENDER_ATTACHMENT | 
+                GPUTextureUsage.TEXTURE_BINDING | 
+                GPUTextureUsage.COPY_SRC;
+        }
+        
+        // Depth attachment
+        if (options.depth !== false) {
+            this.depthTexture = new DepthTexture(width, height, options.depthFormat);
+        }
+    }
+    
+    setSize(width: number, height: number) {
+        if (this.texture) {
+            this.texture.gpuTexture.width = width;
+            this.texture.gpuTexture.height = height;
+            this.texture.gpuTexture.needsUpdate = true;
+        }
+        if (this.depthTexture) {
+            this.depthTexture.setSize(width, height);
+        }
+    }
+    
+    dispose() {
+        this.texture?.dispose();
+        this.depthTexture?.dispose();
+    }
+}
+```
+
+---
+
+## Resolved Decisions
+
+1. **DepthTexture**: Kept as a high-level class wrapping `GpuTexture<d.textureDepth2d>` + `GpuSampler`. Defaults to comparison sampler for shadow mapping convenience.
+
+2. **RenderTarget integration**: RenderTarget owns high-level `Texture` and `DepthTexture` instances. Simple usage unchanged (`texture(rt.texture)`), advanced users can access `.gpuTexture` and `.sampler` for low-level control.
+
+3. **Sampler deduplication**: Left to users. Multiple high-level textures create their own `GpuSampler` instances. Users wanting to share can use the low-level API directly.
+
+4. **DataTexture**: Added as a high-level class for textures created from typed arrays. Useful for procedural textures, LUTs, noise, heightmaps. Defaults to `nearest` filtering (appropriate for data). Format inference from typed array type (`Float32Array` → `rgba32float`, etc.).
+
+---
+
+## Implementation Guide
+
+This section provides the recommended implementation order and key files to modify.
+
+### Phase 1: Core Low-Level Classes
+
+**Create new files:**
+
+1. `src/core/gpu-texture.ts` — `GpuTexture<D>` class
+   - Use the code from the "GpuTexture<D>" section above
+   - Import schema types from `src/nodes/schema.ts`
+   - Import `Source` from `src/texture/source.ts`
+
+2. `src/core/gpu-sampler.ts` — `GpuSampler` class
+   - Use the code from the "GpuSampler" section above
+
+**Export from index:**
+- Add exports to `src/index.ts`
+
+### Phase 2: Refactor High-Level Classes
+
+**Modify existing files (in order):**
+
+1. `src/texture/texture.ts` — Refactor `Texture`
+   - Keep the public API (constructor signature, properties)
+   - Internally create `GpuTexture<d.texture2d>` and `GpuSampler`
+   - Forward property access to internals
+   - Add `readonly gpuTexture` and `readonly sampler` getters
+
+2. `src/texture/depth-texture.ts` — Refactor `DepthTexture`
+   - Similar pattern to `Texture`
+   - Default sampler to comparison mode
+
+3. `src/texture/cube-texture.ts` — Refactor `CubeTexture`
+
+4. `src/texture/video-texture.ts` — Refactor `VideoTexture`
+
+5. `src/texture/canvas-texture.ts` — Refactor `CanvasTexture`
+
+6. `src/texture/array-texture.ts` — Refactor `ArrayTexture`
+
+7. `src/texture/texture-3d.ts` — Refactor `Data3DTexture`
+
+8. `src/texture/data-texture.ts` — Create new `DataTexture` class (currently may exist, check first)
+
+### Phase 3: Node System Updates
+
+**Modify:**
+
+1. `src/nodes/lib/texture.ts`
+   - Update `TextureBindingNode.value` type to `GpuTexture<D> | null`
+   - Update `SamplerNode` to have `.value: GpuSampler | null` instead of copied settings
+   - Update factory functions (`texture()`, `cubeTexture()`, `depthTexture()`, `arrayTexture()`)
+   - Add type guards and input types
+
+### Phase 4: Renderer Updates
+
+**Modify:**
+
+1. `src/renderer/textures.ts`
+   - Change `TextureCache.textureMap` to `WeakMap<GpuTexture<any>, TextureData>`
+   - Refactor `updateTexture()` to take `GpuTexture<D>`
+   - Refactor upload functions to use `GpuTexture` properties
+   - Add `updateSampler()` function for `GpuSampler`
+
+2. `src/renderer/bindings.ts`
+   - Update `updateTextureBinding()` to work with `GpuTexture`
+   - Update `updateSamplerBinding()` to work with `GpuSampler`
+   - Simplify view dimension detection in `rebuildGPUBindGroup()`
+
+### Phase 5: RenderTarget Updates
+
+**Modify:**
+
+1. `src/core/render-target.ts`
+   - Keep `Texture` and `DepthTexture` ownership
+   - Update internal creation to use refactored classes
+   - Ensure `setSize()` works with new internals
+
+### Phase 6: Validation
+
+**Test with examples:**
+- `examples/src/example-texture.ts` — basic 2D texture
+- `examples/src/example-cubemap.ts` — cube texture
+- `examples/src/example-shadow-map.ts` — depth texture, comparison sampling
+- `examples/src/example-render-to-texture.ts` — render target usage
+- `examples/src/example-mrt.ts` — multiple render targets
+
+**Run:**
+```bash
+pnpm build        # Type check
+pnpm test         # Run tests
+pnpm dev          # Test examples visually
+```
+
+### Key Files Reference
+
+| File | Purpose |
+|------|---------|
+| `src/core/buffer.ts` | **Pattern to follow** — `GpuBuffer` shows dirty tracking, lifecycle, `_onDispose` |
+| `src/nodes/schema.ts` | Schema types (`d.texture2d()`, etc.) — lines 265-425 |
+| `src/texture/source.ts` | `Source` class — **unchanged**, used by `GpuTexture` for CPU data |
+| `src/texture/*.ts` | Current high-level classes to refactor |
+| `src/nodes/lib/texture.ts` | Node classes and factory functions |
+| `src/renderer/textures.ts` | Texture cache and upload logic |
+| `src/renderer/bindings.ts` | Binding updates, lines 515-576 most relevant |
+| `src/core/render-target.ts` | RenderTarget class |
+
+### Classes That Don't Change
+
+- **`Source`** — Already has everything needed: `data`, `dataReady`, `width/height/depth` getters, `version`/`needsUpdate`. `GpuTexture` uses `Source` directly for CPU data storage.
+
+### Important Patterns
+
+**Dirty tracking (from GpuBuffer):**
+```typescript
+version = 0;
+set needsUpdate(_: true) { this.version++; }
+```
+
+**Disposal callback:**
+```typescript
+_onDispose: (() => void) | null = null;
+disposed = false;
+
+dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this._onDispose?.();
+    this._onDispose = null;
+    // ... cleanup
+}
+```
+
+**Schema to dimension mapping:**
+```typescript
+function deriveViewDimension(type: d.AnyTextureDesc): GPUTextureViewDimension {
+    switch (type.type) {
+        case 'texture_cube': return 'cube';
+        case 'texture_2d_array': return '2d-array';
+        // ... etc
+    }
+}
+```
+
+### Common Pitfalls
+
+1. **Circular imports**: The design accepts circular imports as noted in AGENTS.md. Don't restructure to avoid them.
+
+2. **Backwards compatibility**: This library has NO users yet. Don't preserve old APIs — clean break is fine.
+
+3. **Format defaults**: High-level classes can default format (e.g., `rgba8unorm`), but `GpuTexture` requires explicit format.
+
+4. **Sampler on DepthTexture**: Defaults to comparison sampler (`compare: 'less'`) for shadow mapping convenience.
+
+5. **RenderTarget textures**: These don't have source data — they're render attachments. The upload flow skips them (detected by checking if source exists).
+
+6. **View dimension vs dimension**: `dimension` is for `GPUTextureDescriptor` ('1d', '2d', '3d'). `viewDimension` is for `GPUTextureView` ('2d', 'cube', '2d-array', etc.). Cube textures use dimension '2d' with 6 array layers, but viewDimension 'cube'.

@@ -1,5 +1,5 @@
 import type { NodeFrame } from '../../renderer/node-frame';
-import type { Any, WgslType, MulResultDesc, ArithResultDesc, CompareResultDesc, StructField, StructKeys, VecElementDesc } from '../schema';
+import type { Any, WgslType, MulResultDesc, ArithResultDesc, CompareResultDesc, StructField, StructKeys, VecElementDesc, Vec2DescOf, Vec3DescOf, Vec4DescOf } from '../schema';
 import { isStructDef } from '../schema';
 import * as d from '../schema';
 
@@ -244,216 +244,216 @@ export class Node<D extends Any> {
     get b(): Node<VecElementDesc<D>> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'z') as unknown as Node<VecElementDesc<D>>; }
     get a(): Node<VecElementDesc<D>> { return new FieldNode(d.vecElementDescOrSelf(this.type), this, 'w') as unknown as Node<VecElementDesc<D>>; }
 
-    get xx(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'xx'); }
-    get xy(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'xy'); }
-    get xz(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'xz'); }
-    get xw(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'xw'); }
-    get yx(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'yx'); }
-    get yy(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'yy'); }
-    get yz(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'yz'); }
-    get yw(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'yw'); }
-    get zx(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'zx'); }
-    get zy(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'zy'); }
-    get zz(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'zz'); }
-    get zw(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'zw'); }
-    get wx(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'wx'); }
-    get wy(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'wy'); }
-    get wz(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'wz'); }
-    get ww(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'ww'); }
-    get rr(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'xx'); }
-    get rg(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'xy'); }
-    get rb(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'xz'); }
-    get ra(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'xw'); }
-    get gr(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'yx'); }
-    get gg(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'yy'); }
-    get gb(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'yz'); }
-    get ga(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'yw'); }
-    get br(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'zx'); }
-    get bg(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'zy'); }
-    get bb(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'zz'); }
-    get ba(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'zw'); }
-    get ar(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'wx'); }
-    get ag(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'wy'); }
-    get ab(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'wz'); }
-    get aa(): Node<d.Vec2Desc> { return new FieldNode(d.vec2DescOf(this.type), this, 'ww'); }
+    get xx(): Node<Vec2DescOf<D>> { return new FieldNode(d.vec2DescOf(this.type), this, 'xx') as unknown as Node<Vec2DescOf<D>>; }
+    get xy(): Node<Vec2DescOf<D>> { return new FieldNode(d.vec2DescOf(this.type), this, 'xy') as unknown as Node<Vec2DescOf<D>>; }
+    get xz(): Node<Vec2DescOf<D>> { return new FieldNode(d.vec2DescOf(this.type), this, 'xz') as unknown as Node<Vec2DescOf<D>>; }
+    get xw(): Node<Vec2DescOf<D>> { return new FieldNode(d.vec2DescOf(this.type), this, 'xw') as unknown as Node<Vec2DescOf<D>>; }
+    get yx(): Node<Vec2DescOf<D>> { return new FieldNode(d.vec2DescOf(this.type), this, 'yx') as unknown as Node<Vec2DescOf<D>>; }
+    get yy(): Node<Vec2DescOf<D>> { return new FieldNode(d.vec2DescOf(this.type), this, 'yy') as unknown as Node<Vec2DescOf<D>>; }
+    get yz(): Node<Vec2DescOf<D>> { return new FieldNode(d.vec2DescOf(this.type), this, 'yz') as unknown as Node<Vec2DescOf<D>>; }
+    get yw(): Node<Vec2DescOf<D>> { return new FieldNode(d.vec2DescOf(this.type), this, 'yw') as unknown as Node<Vec2DescOf<D>>; }
+    get zx(): Node<Vec2DescOf<D>> { return new FieldNode(d.vec2DescOf(this.type), this, 'zx') as unknown as Node<Vec2DescOf<D>>; }
+    get zy(): Node<Vec2DescOf<D>> { return new FieldNode(d.vec2DescOf(this.type), this, 'zy') as unknown as Node<Vec2DescOf<D>>; }
+    get zz(): Node<Vec2DescOf<D>> { return new FieldNode(d.vec2DescOf(this.type), this, 'zz') as unknown as Node<Vec2DescOf<D>>; }
+    get zw(): Node<Vec2DescOf<D>> { return new FieldNode(d.vec2DescOf(this.type), this, 'zw') as unknown as Node<Vec2DescOf<D>>; }
+    get wx(): Node<Vec2DescOf<D>> { return new FieldNode(d.vec2DescOf(this.type), this, 'wx') as unknown as Node<Vec2DescOf<D>>; }
+    get wy(): Node<Vec2DescOf<D>> { return new FieldNode(d.vec2DescOf(this.type), this, 'wy') as unknown as Node<Vec2DescOf<D>>; }
+    get wz(): Node<Vec2DescOf<D>> { return new FieldNode(d.vec2DescOf(this.type), this, 'wz') as unknown as Node<Vec2DescOf<D>>; }
+    get ww(): Node<Vec2DescOf<D>> { return new FieldNode(d.vec2DescOf(this.type), this, 'ww') as unknown as Node<Vec2DescOf<D>>; }
+    get rr(): Node<Vec2DescOf<D>> { return new FieldNode(d.vec2DescOf(this.type), this, 'xx') as unknown as Node<Vec2DescOf<D>>; }
+    get rg(): Node<Vec2DescOf<D>> { return new FieldNode(d.vec2DescOf(this.type), this, 'xy') as unknown as Node<Vec2DescOf<D>>; }
+    get rb(): Node<Vec2DescOf<D>> { return new FieldNode(d.vec2DescOf(this.type), this, 'xz') as unknown as Node<Vec2DescOf<D>>; }
+    get ra(): Node<Vec2DescOf<D>> { return new FieldNode(d.vec2DescOf(this.type), this, 'xw') as unknown as Node<Vec2DescOf<D>>; }
+    get gr(): Node<Vec2DescOf<D>> { return new FieldNode(d.vec2DescOf(this.type), this, 'yx') as unknown as Node<Vec2DescOf<D>>; }
+    get gg(): Node<Vec2DescOf<D>> { return new FieldNode(d.vec2DescOf(this.type), this, 'yy') as unknown as Node<Vec2DescOf<D>>; }
+    get gb(): Node<Vec2DescOf<D>> { return new FieldNode(d.vec2DescOf(this.type), this, 'yz') as unknown as Node<Vec2DescOf<D>>; }
+    get ga(): Node<Vec2DescOf<D>> { return new FieldNode(d.vec2DescOf(this.type), this, 'yw') as unknown as Node<Vec2DescOf<D>>; }
+    get br(): Node<Vec2DescOf<D>> { return new FieldNode(d.vec2DescOf(this.type), this, 'zx') as unknown as Node<Vec2DescOf<D>>; }
+    get bg(): Node<Vec2DescOf<D>> { return new FieldNode(d.vec2DescOf(this.type), this, 'zy') as unknown as Node<Vec2DescOf<D>>; }
+    get bb(): Node<Vec2DescOf<D>> { return new FieldNode(d.vec2DescOf(this.type), this, 'zz') as unknown as Node<Vec2DescOf<D>>; }
+    get ba(): Node<Vec2DescOf<D>> { return new FieldNode(d.vec2DescOf(this.type), this, 'zw') as unknown as Node<Vec2DescOf<D>>; }
+    get ar(): Node<Vec2DescOf<D>> { return new FieldNode(d.vec2DescOf(this.type), this, 'wx') as unknown as Node<Vec2DescOf<D>>; }
+    get ag(): Node<Vec2DescOf<D>> { return new FieldNode(d.vec2DescOf(this.type), this, 'wy') as unknown as Node<Vec2DescOf<D>>; }
+    get ab(): Node<Vec2DescOf<D>> { return new FieldNode(d.vec2DescOf(this.type), this, 'wz') as unknown as Node<Vec2DescOf<D>>; }
+    get aa(): Node<Vec2DescOf<D>> { return new FieldNode(d.vec2DescOf(this.type), this, 'ww') as unknown as Node<Vec2DescOf<D>>; }
 
-    get xxx(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xxx'); }
-    get xxy(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xxy'); }
-    get xxz(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xxz'); }
-    get xxw(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xxw'); }
-    get xyx(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xyx'); }
-    get xyy(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xyy'); }
-    get xyz(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xyz'); }
-    get xyw(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xyw'); }
-    get xzx(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xzx'); }
-    get xzy(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xzy'); }
-    get xzz(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xzz'); }
-    get xzw(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xzw'); }
-    get xwx(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xwx'); }
-    get xwy(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xwy'); }
-    get xwz(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xwz'); }
-    get xww(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xww'); }
-    get yxx(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yxx'); }
-    get yxy(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yxy'); }
-    get yxz(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yxz'); }
-    get yxw(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yxw'); }
-    get yyx(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yyx'); }
-    get yyy(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yyy'); }
-    get yyz(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yyz'); }
-    get yyw(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yyw'); }
-    get yzx(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yzx'); }
-    get yzy(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yzy'); }
-    get yzz(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yzz'); }
-    get yzw(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yzw'); }
-    get ywx(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'ywx'); }
-    get ywy(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'ywy'); }
-    get ywz(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'ywz'); }
-    get yww(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yww'); }
-    get zxx(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zxx'); }
-    get zxy(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zxy'); }
-    get zxz(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zxz'); }
-    get zxw(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zxw'); }
-    get zyx(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zyx'); }
-    get zyy(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zyy'); }
-    get zyz(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zyz'); }
-    get zyw(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zyw'); }
-    get zzx(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zzx'); }
-    get zzy(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zzy'); }
-    get zzz(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zzz'); }
-    get zzw(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zzw'); }
-    get zwx(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zwx'); }
-    get zwy(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zwy'); }
-    get zwz(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zwz'); }
-    get zww(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zww'); }
-    get wxx(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wxx'); }
-    get wxy(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wxy'); }
-    get wxz(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wxz'); }
-    get wxw(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wxw'); }
-    get wyx(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wyx'); }
-    get wyy(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wyy'); }
-    get wyz(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wyz'); }
-    get wyw(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wyw'); }
-    get wzx(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wzx'); }
-    get wzy(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wzy'); }
-    get wzz(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wzz'); }
-    get wzw(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wzw'); }
-    get wwx(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wwx'); }
-    get wwy(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wwy'); }
-    get wwz(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wwz'); }
-    get www(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'www'); }
-    get rrr(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xxx'); }
-    get rrg(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xxy'); }
-    get rrb(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xxz'); }
-    get rra(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xxw'); }
-    get rgr(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xyx'); }
-    get rgg(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xyy'); }
-    get rgb(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xyz'); }
-    get rga(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xyw'); }
-    get rbr(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xzx'); }
-    get rbg(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xzy'); }
-    get rbb(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xzz'); }
-    get rba(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xzw'); }
-    get rar(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xwx'); }
-    get rag(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xwy'); }
-    get rab(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xwz'); }
-    get raa(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'xww'); }
-    get grr(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yxx'); }
-    get grg(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yxy'); }
-    get grb(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yxz'); }
-    get gra(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yxw'); }
-    get ggr(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yyx'); }
-    get ggg(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yyy'); }
-    get ggb(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yyz'); }
-    get gga(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yyw'); }
-    get gbr(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yzx'); }
-    get gbg(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yzy'); }
-    get gbb(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yzz'); }
-    get gba(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yzw'); }
-    get gar(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'ywx'); }
-    get gag(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'ywy'); }
-    get gab(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'ywz'); }
-    get gaa(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'yww'); }
-    get brr(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zxx'); }
-    get brg(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zxy'); }
-    get brb(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zxz'); }
-    get bra(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zxw'); }
-    get bgr(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zyx'); }
-    get bgg(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zyy'); }
-    get bgb(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zyz'); }
-    get bga(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zyw'); }
-    get bbr(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zzx'); }
-    get bbg(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zzy'); }
-    get bbb(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zzz'); }
-    get bba(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zzw'); }
-    get bar(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zwx'); }
-    get bag(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zwy'); }
-    get bab(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zwz'); }
-    get baa(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'zww'); }
-    get arr(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wxx'); }
-    get arg(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wxy'); }
-    get arb(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wxz'); }
-    get ara(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wxw'); }
-    get agr(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wyx'); }
-    get agg(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wyy'); }
-    get agb(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wyz'); }
-    get aga(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wyw'); }
-    get abr(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wzx'); }
-    get abg(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wzy'); }
-    get abb(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wzz'); }
-    get aba(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wzw'); }
-    get aar(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wwx'); }
-    get aag(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wwy'); }
-    get aab(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'wwz'); }
-    get aaa(): Node<d.Vec3Desc> { return new FieldNode(d.vec3DescOf(this.type), this, 'www'); }
+    get xxx(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'xxx') as unknown as Node<Vec3DescOf<D>>; }
+    get xxy(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'xxy') as unknown as Node<Vec3DescOf<D>>; }
+    get xxz(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'xxz') as unknown as Node<Vec3DescOf<D>>; }
+    get xxw(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'xxw') as unknown as Node<Vec3DescOf<D>>; }
+    get xyx(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'xyx') as unknown as Node<Vec3DescOf<D>>; }
+    get xyy(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'xyy') as unknown as Node<Vec3DescOf<D>>; }
+    get xyz(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'xyz') as unknown as Node<Vec3DescOf<D>>; }
+    get xyw(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'xyw') as unknown as Node<Vec3DescOf<D>>; }
+    get xzx(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'xzx') as unknown as Node<Vec3DescOf<D>>; }
+    get xzy(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'xzy') as unknown as Node<Vec3DescOf<D>>; }
+    get xzz(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'xzz') as unknown as Node<Vec3DescOf<D>>; }
+    get xzw(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'xzw') as unknown as Node<Vec3DescOf<D>>; }
+    get xwx(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'xwx') as unknown as Node<Vec3DescOf<D>>; }
+    get xwy(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'xwy') as unknown as Node<Vec3DescOf<D>>; }
+    get xwz(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'xwz') as unknown as Node<Vec3DescOf<D>>; }
+    get xww(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'xww') as unknown as Node<Vec3DescOf<D>>; }
+    get yxx(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'yxx') as unknown as Node<Vec3DescOf<D>>; }
+    get yxy(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'yxy') as unknown as Node<Vec3DescOf<D>>; }
+    get yxz(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'yxz') as unknown as Node<Vec3DescOf<D>>; }
+    get yxw(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'yxw') as unknown as Node<Vec3DescOf<D>>; }
+    get yyx(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'yyx') as unknown as Node<Vec3DescOf<D>>; }
+    get yyy(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'yyy') as unknown as Node<Vec3DescOf<D>>; }
+    get yyz(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'yyz') as unknown as Node<Vec3DescOf<D>>; }
+    get yyw(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'yyw') as unknown as Node<Vec3DescOf<D>>; }
+    get yzx(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'yzx') as unknown as Node<Vec3DescOf<D>>; }
+    get yzy(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'yzy') as unknown as Node<Vec3DescOf<D>>; }
+    get yzz(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'yzz') as unknown as Node<Vec3DescOf<D>>; }
+    get yzw(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'yzw') as unknown as Node<Vec3DescOf<D>>; }
+    get ywx(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'ywx') as unknown as Node<Vec3DescOf<D>>; }
+    get ywy(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'ywy') as unknown as Node<Vec3DescOf<D>>; }
+    get ywz(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'ywz') as unknown as Node<Vec3DescOf<D>>; }
+    get yww(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'yww') as unknown as Node<Vec3DescOf<D>>; }
+    get zxx(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'zxx') as unknown as Node<Vec3DescOf<D>>; }
+    get zxy(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'zxy') as unknown as Node<Vec3DescOf<D>>; }
+    get zxz(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'zxz') as unknown as Node<Vec3DescOf<D>>; }
+    get zxw(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'zxw') as unknown as Node<Vec3DescOf<D>>; }
+    get zyx(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'zyx') as unknown as Node<Vec3DescOf<D>>; }
+    get zyy(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'zyy') as unknown as Node<Vec3DescOf<D>>; }
+    get zyz(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'zyz') as unknown as Node<Vec3DescOf<D>>; }
+    get zyw(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'zyw') as unknown as Node<Vec3DescOf<D>>; }
+    get zzx(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'zzx') as unknown as Node<Vec3DescOf<D>>; }
+    get zzy(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'zzy') as unknown as Node<Vec3DescOf<D>>; }
+    get zzz(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'zzz') as unknown as Node<Vec3DescOf<D>>; }
+    get zzw(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'zzw') as unknown as Node<Vec3DescOf<D>>; }
+    get zwx(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'zwx') as unknown as Node<Vec3DescOf<D>>; }
+    get zwy(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'zwy') as unknown as Node<Vec3DescOf<D>>; }
+    get zwz(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'zwz') as unknown as Node<Vec3DescOf<D>>; }
+    get zww(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'zww') as unknown as Node<Vec3DescOf<D>>; }
+    get wxx(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'wxx') as unknown as Node<Vec3DescOf<D>>; }
+    get wxy(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'wxy') as unknown as Node<Vec3DescOf<D>>; }
+    get wxz(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'wxz') as unknown as Node<Vec3DescOf<D>>; }
+    get wxw(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'wxw') as unknown as Node<Vec3DescOf<D>>; }
+    get wyx(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'wyx') as unknown as Node<Vec3DescOf<D>>; }
+    get wyy(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'wyy') as unknown as Node<Vec3DescOf<D>>; }
+    get wyz(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'wyz') as unknown as Node<Vec3DescOf<D>>; }
+    get wyw(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'wyw') as unknown as Node<Vec3DescOf<D>>; }
+    get wzx(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'wzx') as unknown as Node<Vec3DescOf<D>>; }
+    get wzy(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'wzy') as unknown as Node<Vec3DescOf<D>>; }
+    get wzz(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'wzz') as unknown as Node<Vec3DescOf<D>>; }
+    get wzw(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'wzw') as unknown as Node<Vec3DescOf<D>>; }
+    get wwx(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'wwx') as unknown as Node<Vec3DescOf<D>>; }
+    get wwy(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'wwy') as unknown as Node<Vec3DescOf<D>>; }
+    get wwz(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'wwz') as unknown as Node<Vec3DescOf<D>>; }
+    get www(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'www') as unknown as Node<Vec3DescOf<D>>; }
+    get rrr(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'xxx') as unknown as Node<Vec3DescOf<D>>; }
+    get rrg(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'xxy') as unknown as Node<Vec3DescOf<D>>; }
+    get rrb(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'xxz') as unknown as Node<Vec3DescOf<D>>; }
+    get rra(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'xxw') as unknown as Node<Vec3DescOf<D>>; }
+    get rgr(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'xyx') as unknown as Node<Vec3DescOf<D>>; }
+    get rgg(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'xyy') as unknown as Node<Vec3DescOf<D>>; }
+    get rgb(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'xyz') as unknown as Node<Vec3DescOf<D>>; }
+    get rga(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'xyw') as unknown as Node<Vec3DescOf<D>>; }
+    get rbr(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'xzx') as unknown as Node<Vec3DescOf<D>>; }
+    get rbg(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'xzy') as unknown as Node<Vec3DescOf<D>>; }
+    get rbb(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'xzz') as unknown as Node<Vec3DescOf<D>>; }
+    get rba(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'xzw') as unknown as Node<Vec3DescOf<D>>; }
+    get rar(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'xwx') as unknown as Node<Vec3DescOf<D>>; }
+    get rag(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'xwy') as unknown as Node<Vec3DescOf<D>>; }
+    get rab(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'xwz') as unknown as Node<Vec3DescOf<D>>; }
+    get raa(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'xww') as unknown as Node<Vec3DescOf<D>>; }
+    get grr(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'yxx') as unknown as Node<Vec3DescOf<D>>; }
+    get grg(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'yxy') as unknown as Node<Vec3DescOf<D>>; }
+    get grb(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'yxz') as unknown as Node<Vec3DescOf<D>>; }
+    get gra(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'yxw') as unknown as Node<Vec3DescOf<D>>; }
+    get ggr(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'yyx') as unknown as Node<Vec3DescOf<D>>; }
+    get ggg(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'yyy') as unknown as Node<Vec3DescOf<D>>; }
+    get ggb(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'yyz') as unknown as Node<Vec3DescOf<D>>; }
+    get gga(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'yyw') as unknown as Node<Vec3DescOf<D>>; }
+    get gbr(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'yzx') as unknown as Node<Vec3DescOf<D>>; }
+    get gbg(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'yzy') as unknown as Node<Vec3DescOf<D>>; }
+    get gbb(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'yzz') as unknown as Node<Vec3DescOf<D>>; }
+    get gba(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'yzw') as unknown as Node<Vec3DescOf<D>>; }
+    get gar(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'ywx') as unknown as Node<Vec3DescOf<D>>; }
+    get gag(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'ywy') as unknown as Node<Vec3DescOf<D>>; }
+    get gab(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'ywz') as unknown as Node<Vec3DescOf<D>>; }
+    get gaa(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'yww') as unknown as Node<Vec3DescOf<D>>; }
+    get brr(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'zxx') as unknown as Node<Vec3DescOf<D>>; }
+    get brg(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'zxy') as unknown as Node<Vec3DescOf<D>>; }
+    get brb(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'zxz') as unknown as Node<Vec3DescOf<D>>; }
+    get bra(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'zxw') as unknown as Node<Vec3DescOf<D>>; }
+    get bgr(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'zyx') as unknown as Node<Vec3DescOf<D>>; }
+    get bgg(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'zyy') as unknown as Node<Vec3DescOf<D>>; }
+    get bgb(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'zyz') as unknown as Node<Vec3DescOf<D>>; }
+    get bga(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'zyw') as unknown as Node<Vec3DescOf<D>>; }
+    get bbr(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'zzx') as unknown as Node<Vec3DescOf<D>>; }
+    get bbg(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'zzy') as unknown as Node<Vec3DescOf<D>>; }
+    get bbb(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'zzz') as unknown as Node<Vec3DescOf<D>>; }
+    get bba(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'zzw') as unknown as Node<Vec3DescOf<D>>; }
+    get bar(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'zwx') as unknown as Node<Vec3DescOf<D>>; }
+    get bag(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'zwy') as unknown as Node<Vec3DescOf<D>>; }
+    get bab(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'zwz') as unknown as Node<Vec3DescOf<D>>; }
+    get baa(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'zww') as unknown as Node<Vec3DescOf<D>>; }
+    get arr(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'wxx') as unknown as Node<Vec3DescOf<D>>; }
+    get arg(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'wxy') as unknown as Node<Vec3DescOf<D>>; }
+    get arb(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'wxz') as unknown as Node<Vec3DescOf<D>>; }
+    get ara(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'wxw') as unknown as Node<Vec3DescOf<D>>; }
+    get agr(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'wyx') as unknown as Node<Vec3DescOf<D>>; }
+    get agg(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'wyy') as unknown as Node<Vec3DescOf<D>>; }
+    get agb(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'wyz') as unknown as Node<Vec3DescOf<D>>; }
+    get aga(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'wyw') as unknown as Node<Vec3DescOf<D>>; }
+    get abr(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'wzx') as unknown as Node<Vec3DescOf<D>>; }
+    get abg(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'wzy') as unknown as Node<Vec3DescOf<D>>; }
+    get abb(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'wzz') as unknown as Node<Vec3DescOf<D>>; }
+    get aba(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'wzw') as unknown as Node<Vec3DescOf<D>>; }
+    get aar(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'wwx') as unknown as Node<Vec3DescOf<D>>; }
+    get aag(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'wwy') as unknown as Node<Vec3DescOf<D>>; }
+    get aab(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'wwz') as unknown as Node<Vec3DescOf<D>>; }
+    get aaa(): Node<Vec3DescOf<D>> { return new FieldNode(d.vec3DescOf(this.type), this, 'www') as unknown as Node<Vec3DescOf<D>>; }
 
-    get xyzw(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'xyzw'); }
-    get xywz(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'xywz'); }
-    get xzyw(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'xzyw'); }
-    get xzwy(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'xzwy'); }
-    get xwyz(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'xwyz'); }
-    get xwzy(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'xwzy'); }
-    get yxzw(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'yxzw'); }
-    get yxwz(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'yxwz'); }
-    get yzxw(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'yzxw'); }
-    get yzwx(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'yzwx'); }
-    get ywxz(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'ywxz'); }
-    get ywzx(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'ywzx'); }
-    get zxyw(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'zxyw'); }
-    get zxwy(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'zxwy'); }
-    get zyxw(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'zyxw'); }
-    get zywx(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'zywx'); }
-    get zwxy(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'zwxy'); }
-    get zwyx(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'zwyx'); }
-    get wxyz(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'wxyz'); }
-    get wxzy(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'wxzy'); }
-    get wyxz(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'wyxz'); }
-    get wyzx(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'wyzx'); }
-    get wzxy(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'wzxy'); }
-    get wzyx(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'wzyx'); }
-    get rgba(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'xyzw'); }
-    get rgab(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'xywz'); }
-    get rbga(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'xzyw'); }
-    get rbag(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'xzwy'); }
-    get ragb(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'xwyz'); }
-    get rabg(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'xwzy'); }
-    get grba(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'yxzw'); }
-    get grab(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'yxwz'); }
-    get gbra(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'yzxw'); }
-    get gbar(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'yzwx'); }
-    get garb(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'ywxz'); }
-    get gabr(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'ywzx'); }
-    get brga(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'zxyw'); }
-    get brag(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'zxwy'); }
-    get bgra(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'zyxw'); }
-    get bgar(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'zywx'); }
-    get barg(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'zwxy'); }
-    get bagr(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'zwyx'); }
-    get argb(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'wxyz'); }
-    get arbg(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'wxzy'); }
-    get agrb(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'wyxz'); }
-    get agbr(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'wyzx'); }
-    get abrg(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'wzxy'); }
-    get abgr(): Node<d.Vec4Desc> { return new FieldNode(d.vec4DescOf(this.type), this, 'wzyx'); }
+    get xyzw(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'xyzw') as unknown as Node<Vec4DescOf<D>>; }
+    get xywz(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'xywz') as unknown as Node<Vec4DescOf<D>>; }
+    get xzyw(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'xzyw') as unknown as Node<Vec4DescOf<D>>; }
+    get xzwy(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'xzwy') as unknown as Node<Vec4DescOf<D>>; }
+    get xwyz(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'xwyz') as unknown as Node<Vec4DescOf<D>>; }
+    get xwzy(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'xwzy') as unknown as Node<Vec4DescOf<D>>; }
+    get yxzw(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'yxzw') as unknown as Node<Vec4DescOf<D>>; }
+    get yxwz(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'yxwz') as unknown as Node<Vec4DescOf<D>>; }
+    get yzxw(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'yzxw') as unknown as Node<Vec4DescOf<D>>; }
+    get yzwx(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'yzwx') as unknown as Node<Vec4DescOf<D>>; }
+    get ywxz(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'ywxz') as unknown as Node<Vec4DescOf<D>>; }
+    get ywzx(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'ywzx') as unknown as Node<Vec4DescOf<D>>; }
+    get zxyw(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'zxyw') as unknown as Node<Vec4DescOf<D>>; }
+    get zxwy(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'zxwy') as unknown as Node<Vec4DescOf<D>>; }
+    get zyxw(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'zyxw') as unknown as Node<Vec4DescOf<D>>; }
+    get zywx(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'zywx') as unknown as Node<Vec4DescOf<D>>; }
+    get zwxy(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'zwxy') as unknown as Node<Vec4DescOf<D>>; }
+    get zwyx(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'zwyx') as unknown as Node<Vec4DescOf<D>>; }
+    get wxyz(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'wxyz') as unknown as Node<Vec4DescOf<D>>; }
+    get wxzy(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'wxzy') as unknown as Node<Vec4DescOf<D>>; }
+    get wyxz(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'wyxz') as unknown as Node<Vec4DescOf<D>>; }
+    get wyzx(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'wyzx') as unknown as Node<Vec4DescOf<D>>; }
+    get wzxy(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'wzxy') as unknown as Node<Vec4DescOf<D>>; }
+    get wzyx(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'wzyx') as unknown as Node<Vec4DescOf<D>>; }
+    get rgba(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'xyzw') as unknown as Node<Vec4DescOf<D>>; }
+    get rgab(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'xywz') as unknown as Node<Vec4DescOf<D>>; }
+    get rbga(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'xzyw') as unknown as Node<Vec4DescOf<D>>; }
+    get rbag(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'xzwy') as unknown as Node<Vec4DescOf<D>>; }
+    get ragb(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'xwyz') as unknown as Node<Vec4DescOf<D>>; }
+    get rabg(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'xwzy') as unknown as Node<Vec4DescOf<D>>; }
+    get grba(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'yxzw') as unknown as Node<Vec4DescOf<D>>; }
+    get grab(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'yxwz') as unknown as Node<Vec4DescOf<D>>; }
+    get gbra(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'yzxw') as unknown as Node<Vec4DescOf<D>>; }
+    get gbar(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'yzwx') as unknown as Node<Vec4DescOf<D>>; }
+    get garb(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'ywxz') as unknown as Node<Vec4DescOf<D>>; }
+    get gabr(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'ywzx') as unknown as Node<Vec4DescOf<D>>; }
+    get brga(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'zxyw') as unknown as Node<Vec4DescOf<D>>; }
+    get brag(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'zxwy') as unknown as Node<Vec4DescOf<D>>; }
+    get bgra(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'zyxw') as unknown as Node<Vec4DescOf<D>>; }
+    get bgar(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'zywx') as unknown as Node<Vec4DescOf<D>>; }
+    get barg(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'zwxy') as unknown as Node<Vec4DescOf<D>>; }
+    get bagr(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'zwyx') as unknown as Node<Vec4DescOf<D>>; }
+    get argb(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'wxyz') as unknown as Node<Vec4DescOf<D>>; }
+    get arbg(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'wxzy') as unknown as Node<Vec4DescOf<D>>; }
+    get agrb(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'wyxz') as unknown as Node<Vec4DescOf<D>>; }
+    get agbr(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'wyzx') as unknown as Node<Vec4DescOf<D>>; }
+    get abrg(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'wzxy') as unknown as Node<Vec4DescOf<D>>; }
+    get abgr(): Node<Vec4DescOf<D>> { return new FieldNode(d.vec4DescOf(this.type), this, 'wzyx') as unknown as Node<Vec4DescOf<D>>; }
 
     // ── Inspector ─────────────────────────────────────────────────────────────
     inspect(name?: string): this {
