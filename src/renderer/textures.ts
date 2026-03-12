@@ -504,10 +504,9 @@ function getDefaultTexture(cache: TextureCache, device: GPUDevice, format: GPUTe
 }
 
 /**
- * Get or create a sampler from SamplerNode settings.
- * Uses the SamplerNode's settingsKey for caching.
+ * Get or create a sampler from Sampler settings.
  */
-export function getSamplerFromNode(
+export function getSampler(
     cache: TextureCache,
     device: GPUDevice,
     samplerNode: {

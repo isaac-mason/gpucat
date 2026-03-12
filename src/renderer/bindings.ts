@@ -20,7 +20,7 @@ import type { NodeFrame } from './node-frame';
 import type { RenderObject } from './render-object';
 import { getBindings as getRenderObjectBindings } from './render-object';
 import type { TextureCache } from './textures';
-import { getSamplerFromNode, updateTexture, getTextureData } from './textures';
+import { getSampler, updateTexture, getTextureData } from './textures';
 
 /**
  * Per-BindGroup data (GPU resources).
@@ -137,7 +137,7 @@ export function updateBindings(
 
         // Update uniforms and check if bind group needs rebuild
         const data = getData(state, bindGroup);
-        updateBindGroupForRender(data, bindGroup, renderObject, frame, device, bufferCache, textureCache);
+        updateRenderBindGroup(data, bindGroup, renderObject, frame, device, bufferCache, textureCache);
         if (data.needsUpdate || !data.bindGroup) {
             rebuildGPUBindGroup(device, bufferCache, textureCache, bindGroup, data, renderObject.geometry);
             data.needsUpdate = false;
@@ -313,7 +313,7 @@ function buildLayoutEntries(
 }
 
 /** Update a BindGroup (uniforms, textures, etc.).  Called every frame */
-function updateBindGroupForRender(
+function updateRenderBindGroup(
     data: BindGroupData,
     bindGroup: BindGroup,
     renderObject: RenderObject,
@@ -558,8 +558,8 @@ function updateSamplerBinding(
     const gpuSampler = samplerNode.value;
     
     // Create/get sampler from GpuSampler settings (this caches by settingsKey)
-    getSamplerFromNode(textureCache, device, gpuSampler);
-    getSamplerFromNode(textureCache, device, gpuSampler);
+    getSampler(textureCache, device, gpuSampler);
+    getSampler(textureCache, device, gpuSampler);
     
     // Check for sampler changes using settingsKey
     const samplerKey = gpuSampler.settingsKey;
@@ -801,9 +801,9 @@ export function updateForCompute(
         // Initialize bind group layout if needed (uses compute visibility)
         initComputeBindGroup(state, bindGroup, device);
 
-        // Update uniforms
+        // Update bindings
         const data = getData(state, bindGroup);
-        updateComputeBindGroup(data, bufferCache, device, bindGroup, frame);
+        updateComputeBindGroup(data, bufferCache, textureCache, device, bindGroup, frame);
 
         // Rebuild GPU bind group if needed
         if (data.needsUpdate || !data.bindGroup) {
@@ -913,10 +913,11 @@ function buildComputeLayoutEntries(
     return entries;
 }
 
-/** Update a compute BindGroup (uniforms). */
+/** Update a compute BindGroup (uniforms, textures, samplers, storage). */
 function updateComputeBindGroup(
     data: BindGroupData,
     bufferCache: BufferCache,
+    textureCache: TextureCache,
     device: GPUDevice,
     bindGroup: BindGroup,
     frame: NodeFrame,
@@ -932,8 +933,12 @@ function updateComputeBindGroup(
                 break;
 
             case 'texture':
+                updateTextureBinding(textureCache, device, binding, data);
+                break;
+
             case 'sampler':
-                throw new Error(`Texture/sampler bindings not yet supported for compute shaders`);
+                updateSamplerBinding(textureCache, device, binding, data);
+                break;
         }
     }
 }
