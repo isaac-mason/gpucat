@@ -1,5 +1,6 @@
 import {
     attribute,
+    cameraPosition,
     cameraProjectionMatrix,
     cameraViewMatrix,
     createPlaneGeometry,
@@ -9,8 +10,10 @@ import {
     Inspector,
     Material,
     Mesh,
+    modelNormalMatrix,
     modelWorldMatrix,
     mul,
+    normalize,
     type Node,
     OrbitControls,
     PerspectiveCamera,
@@ -90,7 +93,7 @@ fn gradNoise3D(p: vec3f) -> f32 {
 // uniforms
 
 const uFreqX = uniform(f32(3.0), 'freqX');
-const uFreqZ = uniform(f32(1.5), 'freqZ');
+const uFreqY = uniform(f32(1.5), 'freqY');
 const uSpeed = uniform(f32(1.0), 'speed');
 const uAmp = uniform(f32(0.15), 'amplitude');
 
@@ -99,25 +102,21 @@ const uSmallSpeed = uniform(f32(0.3), 'smallSpeed');
 const uSmallAmp = uniform(f32(0.18), 'smallAmp');
 
 // wavesElevation: large sine + small noise octaves (via Fn)
-// note: uses x,y as horizontal coords (plane is XY, rotated to XZ in world space)
 const wavesElevation = Fn(
-    (pos, t, freqX, freqZ, speed, amp, sFreq, sSpeed, sAmp) => {
+    (pos, t, freqX, freqY, speed, amp, sFreq, sSpeed, sAmp) => {
         const elev = pos.x
             .mul(freqX)
             .add(t.mul(speed))
             .sin()
-            .mul(pos.y.mul(freqZ).add(t.mul(speed)).sin())
+            .mul(pos.y.mul(freqY).add(t.mul(speed)).sin())
             .mul(amp)
             .toVar('elev');
 
-        // 3 octaves of value noise for small waves
+        // 3 octaves of gradient noise for small waves
         for (let oct = 1; oct <= 3; oct++) {
             const scale = f32(oct);
             const noiseInput = vec3(
-                pos.xy
-                    .add(vec2(f32(2), f32(2)))
-                    .mul(sFreq)
-                    .mul(scale),
+                pos.add(vec2(f32(2), f32(2))).mul(sFreq).mul(scale),
                 t.mul(sSpeed),
             );
             const wave = gradNoise3D(noiseInput).mul(sAmp).div(scale);
@@ -129,10 +128,10 @@ const wavesElevation = Fn(
     {
         name: 'wavesElevation',
         params: [
-            { name: 'pos', type: d.vec3f },
+            { name: 'pos', type: d.vec2f },
             { name: 't', type: d.f32 },
             { name: 'freqX', type: d.f32 },
-            { name: 'freqZ', type: d.f32 },
+            { name: 'freqY', type: d.f32 },
             { name: 'speed', type: d.f32 },
             { name: 'amp', type: d.f32 },
             { name: 'sFreq', type: d.f32 },
@@ -142,8 +141,8 @@ const wavesElevation = Fn(
     },
 );
 
-function elev(pos: Node<d.vec3f>): Node<d.f32> {
-    return wavesElevation(pos, timeElapsed, uFreqX, uFreqZ, uSpeed, uAmp, uSmallFreq, uSmallSpeed, uSmallAmp) as Node<d.f32>;
+function elev(pos: Node<d.vec2f>): Node<d.f32> {
+    return wavesElevation(pos, timeElapsed, uFreqX, uFreqY, uSpeed, uAmp, uSmallFreq, uSmallSpeed, uSmallAmp) as Node<d.f32>;
 }
 
 /* vertex */
@@ -153,32 +152,49 @@ function elev(pos: Node<d.vec3f>): Node<d.f32> {
 const positionAttr = attribute('position', d.vec3f);
 const px = positionAttr.x as Node<d.f32>;
 const py = positionAttr.y as Node<d.f32>;
-const shift = f32(0.01);
 
-const displacedPos = vec3(px, py, elev(positionAttr as Node<d.vec3f>));
-const posA = vec3(px.add(shift), py, elev(vec3(px.add(shift), py, f32(0)) as Node<d.vec3f>));
-const posB = vec3(px, py.sub(shift), elev(vec3(px, py.sub(shift), f32(0)) as Node<d.vec3f>));
+const displacedPos = vec3(px, py, elev(vec2(px, py)));
 
-// tangent vectors → cross product → normal
-const toA = posA.sub(displacedPos).normalize();
-const toB = posB.sub(displacedPos).normalize();
-const normal = toB.cross(toA).normalize();
+// pass local xy to fragment for per-pixel normal computation
+const vLocalPos = varying(vec2(px, py), 'v_localPos');
 
-const vNormal = varying(normal, 'v_normal');
-const vElevation = varying(displacedPos.z, 'v_elevation');
+// world position for view direction calculation
+const worldPos = mul(modelWorldMatrix, vec4(displacedPos, f32(1)));
+const vWorldPos = varying(vec3(worldPos.x, worldPos.y, worldPos.z), 'v_worldPos');
 
-const clipPos = mul(cameraProjectionMatrix, mul(cameraViewMatrix, mul(modelWorldMatrix, vec4(displacedPos, f32(1)))));
+const clipPos = mul(cameraProjectionMatrix, mul(cameraViewMatrix, worldPos));
 
 /* fragment */
 
+// compute normal per-fragment for smooth specular
+const shift = f32(0.01);
+const fragPx = vLocalPos.x;
+const fragPy = vLocalPos.y;
+const fragPos = vec2(fragPx, fragPy);
+
+const fragElev = elev(fragPos);
+const fragElevA = elev(vec2(fragPx.add(shift), fragPy));
+const fragElevB = elev(vec2(fragPx, fragPy.sub(shift)));
+
+const fragDisplacedPos = vec3(fragPx, fragPy, fragElev);
+const fragPosA = vec3(fragPx.add(shift), fragPy, fragElevA);
+const fragPosB = vec3(fragPx, fragPy.sub(shift), fragElevB);
+
+const toA = fragPosA.sub(fragDisplacedPos).normalize();
+const toB = fragPosB.sub(fragDisplacedPos).normalize();
+const localNormal = toB.cross(toA).normalize();
+
+// transform normal to world space
+const normal = normalize(mul(modelNormalMatrix, localNormal)).toVar('normal');
+
 // diffuse
 const lightDir = vec3(f32(-0.6), f32(1.0), f32(0.8)).normalize().toVar('lightDir');
-const diffuse = vNormal.dot(lightDir).max(f32(0.05)).toVar('diffuse');
+const diffuse = normal.dot(lightDir).max(f32(0.05)).toVar('diffuse');
 
 // specular
-const viewDir = vec3(f32(0), f32(1), f32(0)).toVar('viewDir');
+const viewDir = cameraPosition.sub(vWorldPos).normalize().toVar('viewDir');
 const halfVec = lightDir.add(viewDir).normalize().toVar('halfVec');
-const specular = vNormal.dot(halfVec).max(f32(0)).pow(f32(64)).mul(f32(0.4)).toVar('specular');
+const specular = normal.dot(halfVec).max(f32(0)).pow(f32(64)).mul(f32(0.4)).toVar('specular');
 
 // flat dark purple base colour (matches Three.js #271442)
 const baseColor = vec3(f32(0.153), f32(0.078), f32(0.259)).toVar('baseColor');
@@ -193,7 +209,7 @@ const emissiveColor = vec3(f32(1.0), f32(0.039), f32(0.506)).toVar('emissiveColo
 const emissiveLow = f32(-0.25);
 const emissiveHigh = f32(0.2);
 const emissivePower = f32(7.0);
-const emissiveT = vElevation.sub(emissiveHigh).div(emissiveLow.sub(emissiveHigh)).clamp(f32(0), f32(1)).toVar('emissiveT');
+const emissiveT = fragElev.sub(emissiveHigh).div(emissiveLow.sub(emissiveHigh)).clamp(f32(0), f32(1)).toVar('emissiveT');
 const emissive = emissiveColor.mul(emissiveT.pow(emissivePower)).toVar('emissive');
 
 const finalColor = vec4(litColor.add(emissive), f32(1)).toVar('finalColor');
@@ -245,7 +261,7 @@ const inspector = renderer.inspector as Inspector;
 
 const waveParams = inspector.createParameters('Waves');
 waveParams.add(uFreqX, 'value', 0.1, 10, 0.1).name('Frequency X');
-waveParams.add(uFreqZ, 'value', 0.1, 10, 0.1).name('Frequency Y');
+waveParams.add(uFreqY, 'value', 0.1, 10, 0.1).name('Frequency Y');
 waveParams.add(uSpeed, 'value', 0.0, 5.0, 0.05).name('Speed');
 waveParams.add(uAmp, 'value', 0.0, 1.0, 0.01).name('Amplitude');
 const smallParams = inspector.createParameters('Small Waves');
