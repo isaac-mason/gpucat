@@ -40,7 +40,6 @@ export function fxaa(textureNode: TextureNode): Node<d.vec4f> {
     // Lifecycle node to update invSize before rendering
     const invSizeUpdater = node().onFrameUpdate(() => {
         const tex = textureNode.bindingNode.value;
-        console.log('ello!')
         if (tex) {
             invSize.value = [1 / tex.width, 1 / tex.height];
         }
