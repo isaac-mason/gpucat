@@ -22,7 +22,6 @@ import {
     uniform,
     varying,
     vec4,
-    vec4f,
     WebGPURenderer,
 } from 'gpucat';
 
