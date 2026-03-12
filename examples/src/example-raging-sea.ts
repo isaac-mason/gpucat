@@ -32,7 +32,8 @@ import {
 } from 'gpucat';
 import { quat } from 'mathcat';
 
-// gradient (Perlin-style) noise — C1 continuous, no sharp zero-crossings
+// gradient (Perlin-style) noise with analytical derivatives
+// returns vec4(noise, dNoise/dx, dNoise/dy, dNoise/dz)
 
 const noiseHash = wgslFn(
     `
@@ -47,23 +48,29 @@ fn noiseHash(n: i32) -> u32 {
 
 const noiseGrad = wgslFn(
     `
-fn noiseGrad(h: u32, x: f32, y: f32, z: f32) -> f32 {
+fn noiseGrad(h: u32) -> vec3f {
     let hh = h & 15u;
-    let u2 = select(y, x, hh < 8u);
-    let v2 = select(select(x, y, hh == 12u || hh == 14u), z, hh < 4u);
-    return select(-u2, u2, (hh & 1u) == 0u) + select(-v2, v2, (hh & 2u) == 0u);
+    let u = select(vec3f(0.0, 1.0, 0.0), vec3f(1.0, 0.0, 0.0), hh < 8u);
+    let v = select(select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 1.0, 0.0), hh == 12u || hh == 14u), vec3f(0.0, 0.0, 1.0), hh < 4u);
+    let su = select(-1.0, 1.0, (hh & 1u) == 0u);
+    let sv = select(-1.0, 1.0, (hh & 2u) == 0u);
+    return u * su + v * sv;
 }
 `,
-    { output: d.f32 },
+    { output: d.vec3f },
 );
 
-const gradNoise3D = wgslFn(
+const gradNoise3DWithDerivatives = wgslFn(
     `
-fn gradNoise3D(p: vec3f) -> f32 {
+fn gradNoise3DWithDerivatives(p: vec3f) -> vec4f {
     let iv = vec3i(floor(p));
     let f  = fract(p);
+    
+    // quintic interpolation and its derivative
     let u  = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+    let du = 30.0 * f * f * (f * (f - 2.0) + 1.0);
 
+    // hash corners
     let h000 = noiseHash(iv.x +     i32(noiseHash(iv.y     + i32(noiseHash(iv.z    )))));
     let h100 = noiseHash(iv.x + 1 + i32(noiseHash(iv.y     + i32(noiseHash(iv.z    )))));
     let h010 = noiseHash(iv.x +     i32(noiseHash(iv.y + 1 + i32(noiseHash(iv.z    )))));
@@ -73,20 +80,80 @@ fn gradNoise3D(p: vec3f) -> f32 {
     let h011 = noiseHash(iv.x +     i32(noiseHash(iv.y + 1 + i32(noiseHash(iv.z + 1)))));
     let h111 = noiseHash(iv.x + 1 + i32(noiseHash(iv.y + 1 + i32(noiseHash(iv.z + 1)))));
 
-    let n000 = noiseGrad(h000, f.x,       f.y,       f.z      );
-    let n100 = noiseGrad(h100, f.x - 1.0, f.y,       f.z      );
-    let n010 = noiseGrad(h010, f.x,       f.y - 1.0, f.z      );
-    let n110 = noiseGrad(h110, f.x - 1.0, f.y - 1.0, f.z      );
-    let n001 = noiseGrad(h001, f.x,       f.y,       f.z - 1.0);
-    let n101 = noiseGrad(h101, f.x - 1.0, f.y,       f.z - 1.0);
-    let n011 = noiseGrad(h011, f.x,       f.y - 1.0, f.z - 1.0);
-    let n111 = noiseGrad(h111, f.x - 1.0, f.y - 1.0, f.z - 1.0);
+    // gradients
+    let g000 = noiseGrad(h000); let g100 = noiseGrad(h100);
+    let g010 = noiseGrad(h010); let g110 = noiseGrad(h110);
+    let g001 = noiseGrad(h001); let g101 = noiseGrad(h101);
+    let g011 = noiseGrad(h011); let g111 = noiseGrad(h111);
 
-    return mix(mix(mix(n000, n100, u.x), mix(n010, n110, u.x), u.y),
-               mix(mix(n001, n101, u.x), mix(n011, n111, u.x), u.y), u.z);
+    // corner vectors and their dots with gradients
+    let p000 = f;
+    let p100 = f - vec3f(1.0, 0.0, 0.0);
+    let p010 = f - vec3f(0.0, 1.0, 0.0);
+    let p110 = f - vec3f(1.0, 1.0, 0.0);
+    let p001 = f - vec3f(0.0, 0.0, 1.0);
+    let p101 = f - vec3f(1.0, 0.0, 1.0);
+    let p011 = f - vec3f(0.0, 1.0, 1.0);
+    let p111 = f - vec3f(1.0, 1.0, 1.0);
+
+    let n000 = dot(g000, p000); let n100 = dot(g100, p100);
+    let n010 = dot(g010, p010); let n110 = dot(g110, p110);
+    let n001 = dot(g001, p001); let n101 = dot(g101, p101);
+    let n011 = dot(g011, p011); let n111 = dot(g111, p111);
+
+    // trilinear interpolation of noise value
+    let nx00 = mix(n000, n100, u.x);
+    let nx10 = mix(n010, n110, u.x);
+    let nx01 = mix(n001, n101, u.x);
+    let nx11 = mix(n011, n111, u.x);
+    let nxy0 = mix(nx00, nx10, u.y);
+    let nxy1 = mix(nx01, nx11, u.y);
+    let noise = mix(nxy0, nxy1, u.z);
+
+    // analytical derivatives
+    // d(noise)/dx = du.x * (lerp contribution) + (gradient x components interpolated)
+    let gx00 = mix(g000.x, g100.x, u.x);
+    let gx10 = mix(g010.x, g110.x, u.x);
+    let gx01 = mix(g001.x, g101.x, u.x);
+    let gx11 = mix(g011.x, g111.x, u.x);
+    let gxy0_x = mix(gx00, gx10, u.y);
+    let gxy1_x = mix(gx01, gx11, u.y);
+    
+    let gy00 = mix(g000.y, g100.y, u.x);
+    let gy10 = mix(g010.y, g110.y, u.x);
+    let gy01 = mix(g001.y, g101.y, u.x);
+    let gy11 = mix(g011.y, g111.y, u.x);
+    let gxy0_y = mix(gy00, gy10, u.y);
+    let gxy1_y = mix(gy01, gy11, u.y);
+    
+    let gz00 = mix(g000.z, g100.z, u.x);
+    let gz10 = mix(g010.z, g110.z, u.x);
+    let gz01 = mix(g001.z, g101.z, u.x);
+    let gz11 = mix(g011.z, g111.z, u.x);
+    let gxy0_z = mix(gz00, gz10, u.y);
+    let gxy1_z = mix(gz01, gz11, u.y);
+
+    // derivative from chain rule: interpolation derivative + gradient contribution
+    let dnx00 = n100 - n000;
+    let dnx10 = n110 - n010;
+    let dnx01 = n101 - n001;
+    let dnx11 = n111 - n011;
+    let dnxy0_x = mix(dnx00, dnx10, u.y);
+    let dnxy1_x = mix(dnx01, dnx11, u.y);
+    
+    let dny0 = nx10 - nx00;
+    let dny1 = nx11 - nx01;
+    
+    let dnz = nxy1 - nxy0;
+
+    let dx = du.x * mix(dnxy0_x, dnxy1_x, u.z) + mix(gxy0_x, gxy1_x, u.z);
+    let dy = du.y * mix(dny0, dny1, u.z) + mix(gxy0_y, gxy1_y, u.z);
+    let dz = du.z * dnz + mix(gxy0_z, gxy1_z, u.z);
+
+    return vec4f(noise, dx, dy, dz);
 }
 `,
-    { output: d.f32 },
+    { output: d.vec4f },
     [noiseHash, noiseGrad],
 );
 
@@ -101,32 +168,45 @@ const uSmallFreq = uniform(f32(2.0), 'smallFreq');
 const uSmallSpeed = uniform(f32(0.3), 'smallSpeed');
 const uSmallAmp = uniform(f32(0.18), 'smallAmp');
 
-// wavesElevation: large sine + small noise octaves (via Fn)
-const wavesElevation = Fn(
+// wavesElevation: returns vec3(elevation, dElev/dx, dElev/dy)
+const wavesElevationWithGradient = Fn(
     (pos, t, freqX, freqY, speed, amp, sFreq, sSpeed, sAmp) => {
-        const elev = pos.x
-            .mul(freqX)
-            .add(t.mul(speed))
-            .sin()
-            .mul(pos.y.mul(freqY).add(t.mul(speed)).sin())
-            .mul(amp)
-            .toVar('elev');
+        // large sine waves: sin(x*freqX + t*speed) * sin(y*freqY + t*speed) * amp
+        const phaseX = pos.x.mul(freqX).add(t.mul(speed));
+        const phaseY = pos.y.mul(freqY).add(t.mul(speed));
+        const sinX = phaseX.sin();
+        const cosX = phaseX.cos();
+        const sinY = phaseY.sin();
+        const cosY = phaseY.cos();
+
+        const elev = sinX.mul(sinY).mul(amp).toVar('elev');
+        // d/dx = cos(phaseX)*freqX * sin(phaseY) * amp
+        const dElevDx = cosX.mul(freqX).mul(sinY).mul(amp).toVar('dElevDx');
+        // d/dy = sin(phaseX) * cos(phaseY)*freqY * amp
+        const dElevDy = sinX.mul(cosY).mul(freqY).mul(amp).toVar('dElevDy');
 
         // 3 octaves of gradient noise for small waves
         for (let oct = 1; oct <= 3; oct++) {
             const scale = f32(oct);
+            const freqScale = sFreq.mul(scale);
             const noiseInput = vec3(
-                pos.add(vec2(f32(2), f32(2))).mul(sFreq).mul(scale),
+                pos.add(vec2(f32(2), f32(2))).mul(freqScale),
                 t.mul(sSpeed),
             );
-            const wave = gradNoise3D(noiseInput).mul(sAmp).div(scale);
-            elev.assign(elev.sub(wave));
+            // returns vec4(noise, dNoise/dx, dNoise/dy, dNoise/dz)
+            const noiseResult = gradNoise3DWithDerivatives(noiseInput);
+            const ampScale = sAmp.div(scale);
+            
+            elev.assign(elev.sub(noiseResult.x.mul(ampScale)));
+            // chain rule: dElev/dx = -dNoise/dx * freqScale * ampScale
+            dElevDx.assign(dElevDx.sub(noiseResult.y.mul(freqScale).mul(ampScale)));
+            dElevDy.assign(dElevDy.sub(noiseResult.z.mul(freqScale).mul(ampScale)));
         }
 
-        return elev;
+        return vec3(elev, dElevDx, dElevDy);
     },
     {
-        name: 'wavesElevation',
+        name: 'wavesElevationWithGradient',
         params: [
             { name: 'pos', type: d.vec2f },
             { name: 't', type: d.f32 },
@@ -141,8 +221,12 @@ const wavesElevation = Fn(
     },
 );
 
+function elevWithGradient(pos: Node<d.vec2f>): Node<d.vec3f> {
+    return wavesElevationWithGradient(pos, timeElapsed, uFreqX, uFreqY, uSpeed, uAmp, uSmallFreq, uSmallSpeed, uSmallAmp) as Node<d.vec3f>;
+}
+
 function elev(pos: Node<d.vec2f>): Node<d.f32> {
-    return wavesElevation(pos, timeElapsed, uFreqX, uFreqY, uSpeed, uAmp, uSmallFreq, uSmallSpeed, uSmallAmp) as Node<d.f32>;
+    return elevWithGradient(pos).x as Node<d.f32>;
 }
 
 /* vertex */
@@ -166,23 +250,17 @@ const clipPos = mul(cameraProjectionMatrix, mul(cameraViewMatrix, worldPos));
 
 /* fragment */
 
-// compute normal per-fragment for smooth specular
-const shift = f32(0.01);
-const fragPx = vLocalPos.x;
-const fragPy = vLocalPos.y;
-const fragPos = vec2(fragPx, fragPy);
+// compute normal per-fragment using analytical gradient
+const fragPos = vec2(vLocalPos.x, vLocalPos.y);
+const elevResult = elevWithGradient(fragPos);
+const fragElev = elevResult.x;
+const dElevDx = elevResult.y;
+const dElevDy = elevResult.z;
 
-const fragElev = elev(fragPos);
-const fragElevA = elev(vec2(fragPx.add(shift), fragPy));
-const fragElevB = elev(vec2(fragPx, fragPy.sub(shift)));
-
-const fragDisplacedPos = vec3(fragPx, fragPy, fragElev);
-const fragPosA = vec3(fragPx.add(shift), fragPy, fragElevA);
-const fragPosB = vec3(fragPx, fragPy.sub(shift), fragElevB);
-
-const toA = fragPosA.sub(fragDisplacedPos).normalize();
-const toB = fragPosB.sub(fragDisplacedPos).normalize();
-const localNormal = toB.cross(toA).normalize();
+// local normal from gradient: N = normalize(-dz/dx, -dz/dy, 1)
+// since elevation is in z, tangent in x is (1, 0, dz/dx), tangent in y is (0, 1, dz/dy)
+// normal = cross(tangentY, tangentX) = (-dz/dx, -dz/dy, 1)
+const localNormal = vec3(dElevDx.negate(), dElevDy.negate(), f32(1)).normalize();
 
 // transform normal to world space
 const normal = normalize(mul(modelNormalMatrix, localNormal)).toVar('normal');
@@ -248,7 +326,7 @@ window.addEventListener('resize', () => {
     camera.updateProjectionMatrix();
 });
 
-const geometry = createPlaneGeometry(4, 4, 256, 256);
+const geometry = createPlaneGeometry(4, 4, 128, 128);
 const mesh = new Mesh(geometry, material);
 // rotate XY plane to XZ orientation for water surface
 quat.rotateX(mesh.quaternion, mesh.quaternion, -Math.PI / 2);
