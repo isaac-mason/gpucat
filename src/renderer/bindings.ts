@@ -1,7 +1,6 @@
 import type { UniformGroupBlock } from '../nodes/builder';
 import type { Geometry } from '../geometry/geometry';
 import type { Material } from '../material/material';
-import type { Texture } from '../texture/texture';
 import type {
     BindGroup,
     SamplerBinding,
@@ -21,7 +20,7 @@ import type { NodeFrame } from './node-frame';
 import type { RenderObject } from './render-object';
 import { getBindings as getRenderObjectBindings } from './render-object';
 import type { TextureCache } from './textures';
-import { getSamplerFromNode, updateTexture } from './textures';
+import { getSamplerFromNode, updateTexture, getTextureData } from './textures';
 
 /**
  * Per-BindGroup data (GPU resources).
@@ -140,7 +139,7 @@ export function updateBindings(
         const data = getData(state, bindGroup);
         updateBindGroupForRender(data, bindGroup, renderObject, frame, device, bufferCache, textureCache);
         if (data.needsUpdate || !data.bindGroup) {
-            rebuildGPUBindGroup(device, bufferCache, bindGroup, data, renderObject.geometry);
+            rebuildGPUBindGroup(device, bufferCache, textureCache, bindGroup, data, renderObject.geometry);
             data.needsUpdate = false;
         }
 
@@ -521,33 +520,29 @@ function updateTextureBinding(
     data: BindGroupData,
 ): void {
     const textureNode = binding.entry.node;
-    const value = textureNode.value;
+    const gpuTexture = textureNode.value;
 
-    if (value === null) return;
+    if (gpuTexture === null) return;
 
-    // Check if it's a RenderTargetTexture or DepthTexture
-    // These are handled by the RenderTarget system
-    if (!value.isRenderTargetTexture && !value.isDepthTexture) {
-        // It's a user Texture with image data
-        const texture = value as Texture;
-        const texData = updateTexture(textureCache, device, texture);
+    // For render target textures, the GPU resource is set externally via setRenderTargetTexture().
+    // For regular textures, updateTexture() handles upload.
+    // Both cases: check generation to detect changes.
+    if (!gpuTexture.isRenderTargetTexture) {
+        // Regular texture - upload source data
+        const texData = updateTexture(textureCache, device, gpuTexture);
 
-        // Update the node with GPU resources
-        textureNode.resource = texData.texture;
-
-        // Check for texture changes
         if (binding.generation !== texData.generation) {
             binding.generation = texData.generation;
             data.needsUpdate = true;
         }
     } else {
-        // Render target textures - check gpuTexture directly
-        // When RenderTarget.setSize() is called, it destroys old textures and creates new ones.
-        // We detect this by comparing the current gpuTexture to the last one we saw.
-        const gpuTexture = value.gpuTexture;
-        if (gpuTexture !== binding.lastGpuTexture) {
-            binding.lastGpuTexture = gpuTexture;
-            data.needsUpdate = true;
+        // Render target texture - resource set externally, check cache for changes
+        const texData = getTextureData(textureCache, gpuTexture);
+        if (texData) {
+            if (binding.generation !== texData.generation) {
+                binding.generation = texData.generation;
+                data.needsUpdate = true;
+            }
         }
     }
 }
@@ -560,15 +555,14 @@ function updateSamplerBinding(
     data: BindGroupData,
 ): void {
     const samplerNode = binding.entry.samplerNode;
+    const gpuSampler = samplerNode.value;
     
-    // Create/get sampler from SamplerNode settings
-    const sampler = getSamplerFromNode(textureCache, device, samplerNode);
-    
-    // Store the sampler on the SamplerNode for later access
-    samplerNode.resource = sampler;
+    // Create/get sampler from GpuSampler settings (this caches by settingsKey)
+    getSamplerFromNode(textureCache, device, gpuSampler);
+    getSamplerFromNode(textureCache, device, gpuSampler);
     
     // Check for sampler changes using settingsKey
-    const samplerKey = samplerNode.settingsKey;
+    const samplerKey = gpuSampler.settingsKey;
     if (binding.samplerKey !== samplerKey) {
         binding.samplerKey = samplerKey;
         data.needsUpdate = true;
@@ -600,6 +594,7 @@ function updateStorageBinding(
 function rebuildGPUBindGroup(
     device: GPUDevice,
     bufferCache: BufferCache,
+    textureCache: TextureCache,
     bindGroup: BindGroup,
     data: BindGroupData,
     geometry: Geometry | null,
@@ -631,26 +626,13 @@ function rebuildGPUBindGroup(
 
             case 'texture': {
                 const textureNode = binding.entry.node;
-                let res = textureNode.resource;
-                if (res === null && textureNode.value) {
-                    res = textureNode.value.gpuTexture ?? null;
-                }
-                if (res) {
-                    let view: GPUTextureView;
-                    if (res instanceof GPUTextureView) {
-                        view = res;
-                    } else {
-                        const isCube = textureNode.type.type === 'texture_cube' || textureNode.type.type === 'texture_cube_array'
-                            || textureNode.type.type === 'texture_depth_cube' || textureNode.type.type === 'texture_depth_cube_array';
-                        const isArray = textureNode.type.type === 'texture_2d_array';
-                        if (isCube) {
-                            view = res.createView({ dimension: 'cube' });
-                        } else if (isArray) {
-                            view = res.createView({ dimension: '2d-array' });
-                        } else {
-                            view = res.createView();
-                        }
-                    }
+                const gpuTexture = textureNode.value;
+                if (!gpuTexture) break;
+                
+                // Get GPU texture from cache
+                const texData = getTextureData(textureCache, gpuTexture);
+                if (texData) {
+                    const view = texData.texture.createView({ dimension: gpuTexture.viewDimension });
                     entries.push({ binding: binding.entry.binding, resource: view });
                 }
                 break;
@@ -658,9 +640,13 @@ function rebuildGPUBindGroup(
 
             case 'sampler': {
                 const samplerNode = binding.entry.samplerNode;
-                const samp = samplerNode.resource;
-                if (samp) {
-                    entries.push({ binding: binding.entry.binding, resource: samp });
+                const gpuSampler = samplerNode.value;
+                if (!gpuSampler) break;
+                
+                // Get GPU sampler from cache using settingsKey
+                const samplerData = textureCache.samplerCache.get(gpuSampler.settingsKey);
+                if (samplerData) {
+                    entries.push({ binding: binding.entry.binding, resource: samplerData.sampler });
                 }
                 break;
             }
@@ -807,6 +793,7 @@ export function updateForCompute(
     frame: NodeFrame,
     device: GPUDevice,
     bufferCache: BufferCache,
+    textureCache: TextureCache,
 ): GPUBindGroup[] {
     const gpuBindGroups: GPUBindGroup[] = [];
 
@@ -820,7 +807,7 @@ export function updateForCompute(
 
         // Rebuild GPU bind group if needed
         if (data.needsUpdate || !data.bindGroup) {
-            rebuildGPUBindGroup(device, bufferCache, bindGroup, data, null);
+            rebuildGPUBindGroup(device, bufferCache, textureCache, bindGroup, data, null);
             data.needsUpdate = false;
         }
 

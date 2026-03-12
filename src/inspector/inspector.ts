@@ -37,7 +37,7 @@ import type { RenderObject } from '../renderer/render-object';
 import { buildVertexBufferLayouts } from '../renderer/render-objects';
 import * as buffers from '../renderer/buffers';
 import * as bindings from '../renderer/bindings';
-import { getIndexFormat } from '../core/buffer';
+import { getIndexFormat } from '../core/gpu-buffer';
 import { Any } from '../nodes/schema';
 
 

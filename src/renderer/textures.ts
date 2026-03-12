@@ -1,11 +1,11 @@
 /**
  * textures.ts — GPUTexture/GPUSampler cache and upload helpers.
  *
- * Three.js aligned: Uses WeakMap-based caching keyed by Texture object.
- * Tracks texture.version for cache invalidation (Three.js pattern).
+ * Uses WeakMap-based caching keyed by GpuTexture object.
+ * Tracks texture.version for cache invalidation.
  * Samplers are shared/cached by parameter key for efficiency.
  *
- * Flow (aligned with Three.js Textures.js + WebGPUTextureUtils.js):
+ * Flow:
  * 1. `updateTexture()` is called during binding updates (before draw)
  * 2. Checks texture.version — skips if already up to date
  * 3. Creates GPU texture if needed
@@ -13,10 +13,8 @@
  * 5. Updates version tracking (textureData.version = texture.version)
  */
 
-import type { Texture } from '../texture/texture';
-import type { DataTexture } from '../texture/data-texture';
-import type { CubeTexture } from '../texture/cube-texture';
-import type { ArrayTexture } from '../texture/array-texture';
+import { GpuTexture } from '../core/gpu-texture';
+import type { Source } from '../texture/source';
 import {
     type MipmapState,
     createMipmapState,
@@ -45,8 +43,8 @@ type SamplerData = {
 
 /** Cache for textures and samplers */
 export type TextureCache = {
-    /** Texture data keyed by Texture object */
-    textureMap: WeakMap<Texture, TextureData>;
+    /** Texture data keyed by GpuTexture object */
+    textureMap: WeakMap<GpuTexture, TextureData>;
 
     /** Sampler cache keyed by parameter string */
     samplerCache: Map<string, SamplerData>;
@@ -79,10 +77,10 @@ export function createTextureCache(): TextureCache {
 }
 
 /**
- * Set up the _onDispose callback on a Texture to destroy its GPU texture.
+ * Set up the _onDispose callback on a GpuTexture to destroy its GPU texture.
  * Only sets the callback once (idempotent).
  */
-function setupDispose(cache: TextureCache, texture: Texture): void {
+function setupDispose(cache: TextureCache, texture: GpuTexture): void {
     if (texture._onDispose) return;
 
     texture._onDispose = () => {
@@ -110,28 +108,31 @@ function getMipmapState(cache: TextureCache, device: GPUDevice): MipmapState {
 export function updateTexture(
     cache: TextureCache,
     device: GPUDevice,
-    texture: Texture,
+    texture: GpuTexture,
 ): TextureData {
     let data = cache.textureMap.get(texture);
-    const source = texture.source;
 
-    // Skip if already initialized and texture version matches (Three.js aligned)
+    // Skip if already initialized and texture version matches
     if (data?.initialized && data.version === texture.version) {
         return data;
     }
 
-    const image = source.data;
-    const isCube = 'isCubeTexture' in texture && texture.isCubeTexture === true;
+    const isCube = texture.viewDimension === 'cube' || texture.viewDimension === 'cube-array';
+    const isArray = texture.viewDimension === '2d-array';
 
-    // No image data yet or not ready — use default placeholder.
-    // For cube textures, check isComplete (all 6 faces present and ready).
+    // Check if source data is ready
+    // For cube textures, check all face sources
+    // For array textures, check all layer sources
+    // For regular textures, check the single source
     const notReady = isCube
-        ? !(texture as unknown as CubeTexture).isComplete
-        : !image || !source.dataReady || (image as HTMLImageElement).complete === false;
+        ? !areCubeSourcesReady(texture)
+        : isArray
+            ? !areArraySourcesReady(texture)
+            : !isSourceReady(texture.source);
 
     if (notReady) {
         if (!data) {
-            const format = texture.format ?? 'rgba8unorm';
+            const format = texture.format;
             const defaultTex = getDefaultTexture(cache, device, format);
             data = {
                 texture: defaultTex,
@@ -147,11 +148,11 @@ export function updateTexture(
 
     // First time or was using default — create real GPU texture
     if (!data || data.isDefaultTexture) {
-        const gpuTexture = createGPUTexture(device, texture);
+        const gpuTextureResource = createGPUTexture(device, texture);
 
         if (!data) {
             data = {
-                texture: gpuTexture,
+                texture: gpuTextureResource,
                 version: texture.version,
                 generation: texture.version,
                 initialized: true,
@@ -161,7 +162,7 @@ export function updateTexture(
             cache.textureCount++;
         } else {
             // Was default, now real — update generation
-            data.texture = gpuTexture;
+            data.texture = gpuTextureResource;
             data.generation = texture.version;
             data.isDefaultTexture = false;
             cache.textureCount++;
@@ -177,52 +178,66 @@ export function updateTexture(
     // Generate mipmaps if requested and texture has multiple mip levels
     if (texture.generateMipmaps && data.texture.mipLevelCount > 1) {
         const mipmapState = getMipmapState(cache, device);
-        const isCube = 'isCubeTexture' in texture && texture.isCubeTexture === true;
-        const isArray = 'isArrayTexture' in texture && (texture as unknown as ArrayTexture).isArrayTexture === true;
-        const arrayLayerCount = isArray ? (texture as unknown as ArrayTexture).depth : 0;
-        generateMipmaps(mipmapState, data.texture, isCube, arrayLayerCount);
+        generateMipmaps(mipmapState, data.texture, isCube, isArray ? texture.depthOrArrayLayers : 0);
     }
 
-    // Update texture version (Three.js aligned: textureData.version = texture.version)
+    // Update texture version
     data.version = texture.version;
     data.initialized = true;
 
     return data;
 }
 
-/**
- * Create a GPUTexture for a Texture.
- */
-function createGPUTexture(device: GPUDevice, texture: Texture): GPUTexture {
-    const width = texture.width;
-    const height = texture.height;
-    const format = texture.format ?? 'rgba8unorm';
-    const isCube = 'isCubeTexture' in texture && texture.isCubeTexture === true;
-    const isArray = 'isArrayTexture' in texture && (texture as unknown as ArrayTexture).isArrayTexture === true;
+/** Check if a single source is ready */
+function isSourceReady(source: Source | null): boolean {
+    if (!source) return false;
+    if (!source.dataReady) return false;
+    const data = source.data;
+    if (!data) return false;
+    // Check for incomplete HTMLImageElement
+    if ((data as HTMLImageElement).complete === false) return false;
+    return true;
+}
 
+/** Check if all cube face sources are ready (6 faces) */
+function areCubeSourcesReady(texture: GpuTexture): boolean {
+    if (texture.sources.length < 6) return false;
+    for (let i = 0; i < 6; i++) {
+        if (!isSourceReady(texture.sources[i])) return false;
+    }
+    return true;
+}
+
+/** Check if array texture source is ready (packed source or per-layer sources) */
+function areArraySourcesReady(texture: GpuTexture): boolean {
+    // Packed source mode: single source contains all layers
+    if (texture.source) {
+        return isSourceReady(texture.source);
+    }
+    // Per-layer sources mode
+    if (texture.sources.length < texture.depthOrArrayLayers) return false;
+    for (let i = 0; i < texture.depthOrArrayLayers; i++) {
+        if (!isSourceReady(texture.sources[i])) return false;
+    }
+    return true;
+}
+
+/**
+ * Create a GPUTexture for a GpuTexture.
+ */
+function createGPUTexture(device: GPUDevice, texture: GpuTexture): GPUTexture {
     // Calculate mip level count if generating mipmaps
     const mipLevelCount = texture.generateMipmaps
-        ? Math.floor(Math.log2(Math.max(width, height))) + 1
-        : 1;
-
-    let depthOrArrayLayers = 1;
-    if (isCube) {
-        depthOrArrayLayers = 6;
-    } else if (isArray) {
-        depthOrArrayLayers = (texture as unknown as ArrayTexture).depth;
-    }
+        ? Math.floor(Math.log2(Math.max(texture.width, texture.height))) + 1
+        : texture.mipLevelCount;
 
     const gpuTexture = device.createTexture({
-        // Cube textures use dimension '2d' (the default) with 6 array layers.
-        // Array textures use dimension '2d' with depth array layers.
-        // The view dimension is set when creating the texture view, not here.
-        size: [width, height, depthOrArrayLayers],
-        format,
-        usage:
-            GPUTextureUsage.TEXTURE_BINDING |
-            GPUTextureUsage.COPY_DST |
-            GPUTextureUsage.RENDER_ATTACHMENT, // Needed for mipmap generation
+        dimension: texture.dimension,
+        size: [texture.width, texture.height, texture.depthOrArrayLayers],
+        format: texture.format,
+        usage: texture.usage | GPUTextureUsage.RENDER_ATTACHMENT, // RENDER_ATTACHMENT needed for mipmap generation
         mipLevelCount,
+        sampleCount: texture.sampleCount,
     });
 
     return gpuTexture;
@@ -230,94 +245,108 @@ function createGPUTexture(device: GPUDevice, texture: Texture): GPUTexture {
 
 /**
  * Upload image data to a GPU texture.
+ * Routes to the appropriate upload function based on viewDimension.
  */
 function uploadTextureData(
     device: GPUDevice,
-    texture: Texture,
+    texture: GpuTexture,
     data: TextureData,
 ): void {
-    const isCube = 'isCubeTexture' in texture && texture.isCubeTexture === true;
-    const isArray = 'isArrayTexture' in texture && (texture as unknown as ArrayTexture).isArrayTexture === true;
-
-    if (isCube) {
-        uploadCubeTextureData(device, texture as unknown as CubeTexture, data);
+    const viewDim = texture.viewDimension;
+    
+    if (viewDim === 'cube' || viewDim === 'cube-array') {
+        uploadCubeTextureData(device, texture, data);
         return;
     }
-
-    if (isArray) {
-        uploadArrayTextureData(device, texture as unknown as ArrayTexture, data);
+    
+    if (viewDim === '2d-array') {
+        uploadArrayTextureData(device, texture, data);
         return;
     }
-
-    const image = texture.image;
-    if (!image) return;
-
+    
+    // Regular 2D texture - use primary source
+    const source = texture.source;
+    if (!source || !source.data) return;
+    
+    const sourceData = source.data;
     const width = texture.width;
     const height = texture.height;
-
-    // Check if it's a DataTexture with raw array data
-    if ('isDataTexture' in texture && (texture as DataTexture).data) {
-        const dataTexture = texture as DataTexture;
-        const format = texture.format ?? 'rgba8unorm';
-        const bytesPerPixel = getBytesPerPixel(format);
-
-        const srcData = dataTexture.data!;
+    
+    // Check if it's typed array data (DataTexture pattern)
+    if (isTypedArrayData(sourceData)) {
+        const bytesPerPixel = getBytesPerPixel(texture.format);
         device.queue.writeTexture(
             { texture: data.texture },
-            srcData.buffer,
-            { offset: srcData.byteOffset, bytesPerRow: width * bytesPerPixel, rowsPerImage: height },
+            sourceData.buffer,
+            { offset: sourceData.byteOffset, bytesPerRow: width * bytesPerPixel, rowsPerImage: height },
             [width, height],
         );
-    } else {
+    } else if (isExternalImage(sourceData)) {
         // HTMLImageElement, ImageBitmap, Canvas, Video, etc.
         device.queue.copyExternalImageToTexture(
-            {
-                source: image as ImageBitmap | HTMLCanvasElement | OffscreenCanvas | HTMLVideoElement | VideoFrame | ImageData,
-            },
-            {
-                texture: data.texture,
-                premultipliedAlpha: texture.premultiplyAlpha,
-            },
+            { source: sourceData },
+            { texture: data.texture, premultipliedAlpha: texture.premultiplyAlpha },
             [width, height],
         );
     }
+}
+
+/** Check if source data is a typed array (from DataTextureImage) */
+function isTypedArrayData(data: unknown): data is { data: ArrayBufferView; buffer: ArrayBuffer; byteOffset: number } {
+    if (!data || typeof data !== 'object') return false;
+    const d = data as { data?: unknown };
+    return d.data !== undefined && ArrayBuffer.isView(d.data);
+}
+
+/** Check if source data is an external image (copyable to GPU) */
+function isExternalImage(data: unknown): data is ImageBitmap | HTMLCanvasElement | OffscreenCanvas | HTMLVideoElement | VideoFrame | ImageData {
+    if (!data || typeof data !== 'object') return false;
+    // Check for known browser types
+    return (
+        (typeof ImageBitmap !== 'undefined' && data instanceof ImageBitmap) ||
+        (typeof HTMLCanvasElement !== 'undefined' && data instanceof HTMLCanvasElement) ||
+        (typeof OffscreenCanvas !== 'undefined' && data instanceof OffscreenCanvas) ||
+        (typeof HTMLVideoElement !== 'undefined' && data instanceof HTMLVideoElement) ||
+        (typeof VideoFrame !== 'undefined' && data instanceof VideoFrame) ||
+        (typeof ImageData !== 'undefined' && data instanceof ImageData)
+    );
 }
 
 /**
  * Upload cube texture data — copies each of the 6 face images to the
  * corresponding array layer of the GPU texture.
  *
- * Face order: +X, -X, +Y, -Y, +Z, -Z (matches CubeTexture.imageSources).
+ * Face order: +X, -X, +Y, -Y, +Z, -Z (matches sources array).
  */
 function uploadCubeTextureData(
     device: GPUDevice,
-    texture: CubeTexture,
+    texture: GpuTexture,
     data: TextureData,
 ): void {
-    const faces = texture.imageSources;
-    if (faces.length !== 6) return;
-
+    const sources = texture.sources;
+    if (sources.length < 6) return;
+    
     const width = texture.width;
     const height = texture.height;
-
+    
     for (let faceIndex = 0; faceIndex < 6; faceIndex++) {
-        const face = faces[faceIndex];
-        if (!face.dataReady) continue;
-
-        const faceImage = face.data;
-        if (!faceImage) continue;
-
-        device.queue.copyExternalImageToTexture(
-            {
-                source: faceImage as ImageBitmap | HTMLCanvasElement | OffscreenCanvas | HTMLVideoElement | VideoFrame | ImageData,
-            },
-            {
-                texture: data.texture,
-                premultipliedAlpha: texture.premultiplyAlpha,
-                origin: { x: 0, y: 0, z: faceIndex },
-            },
-            [width, height],
-        );
+        const source = sources[faceIndex];
+        if (!source.dataReady) continue;
+        
+        const faceData = source.data;
+        if (!faceData) continue;
+        
+        if (isExternalImage(faceData)) {
+            device.queue.copyExternalImageToTexture(
+                { source: faceData },
+                {
+                    texture: data.texture,
+                    premultipliedAlpha: texture.premultiplyAlpha,
+                    origin: { x: 0, y: 0, z: faceIndex },
+                },
+                [width, height],
+            );
+        }
     }
 }
 
@@ -325,36 +354,76 @@ function uploadCubeTextureData(
  * Upload array texture data — copies each layer's data to the corresponding
  * array layer of the GPU texture.
  *
- * All layers share the same dimensions. Data is expected to be a single
- * contiguous typed array with all layers packed sequentially.
+ * Supports two modes:
+ * 1. Per-layer sources: texture.sources contains one Source per layer
+ * 2. Packed source: texture.source contains all layers packed sequentially
  */
 function uploadArrayTextureData(
     device: GPUDevice,
-    texture: ArrayTexture,
+    texture: GpuTexture,
     data: TextureData,
 ): void {
-    const srcData = texture.image.data;
-    if (!srcData) return;
-
     const width = texture.width;
     const height = texture.height;
-    const depth = texture.depth;
-    const format = texture.format ?? 'rgba8unorm';
-    const bytesPerPixel = getBytesPerPixel(format);
-    const bytesPerLayer = width * height * bytesPerPixel;
-
-    for (let layer = 0; layer < depth; layer++) {
-        device.queue.writeTexture(
-            { texture: data.texture, origin: { x: 0, y: 0, z: layer } },
-            srcData.buffer,
-            {
-                offset: srcData.byteOffset + layer * bytesPerLayer,
-                bytesPerRow: width * bytesPerPixel,
-                rowsPerImage: height,
-            },
-            [width, height],
-        );
+    const bytesPerPixel = getBytesPerPixel(texture.format);
+    const layerCount = texture.depthOrArrayLayers;
+    
+    // Mode 1: Per-layer sources array
+    if (texture.sources.length > 0) {
+        for (let layer = 0; layer < texture.sources.length && layer < layerCount; layer++) {
+            const source = texture.sources[layer];
+            if (!source.dataReady) continue;
+            
+            const layerData = source.data;
+            if (!layerData) continue;
+            
+            if (isTypedArrayData(layerData)) {
+                const srcData = (layerData as { data: ArrayBufferView }).data as Uint8Array;
+                device.queue.writeTexture(
+                    { texture: data.texture, origin: { x: 0, y: 0, z: layer } },
+                    srcData.buffer,
+                    {
+                        offset: srcData.byteOffset,
+                        bytesPerRow: width * bytesPerPixel,
+                        rowsPerImage: height,
+                    },
+                    [width, height],
+                );
+            } else if (isExternalImage(layerData)) {
+                device.queue.copyExternalImageToTexture(
+                    { source: layerData },
+                    {
+                        texture: data.texture,
+                        premultipliedAlpha: texture.premultiplyAlpha,
+                        origin: { x: 0, y: 0, z: layer },
+                    },
+                    [width, height],
+                );
+            }
+        }
+        return;
     }
+    
+    // Mode 2: Single packed source with all layers
+    const source = texture.source;
+    if (!source || !source.dataReady) return;
+    
+    const sourceData = source.data;
+    if (!sourceData || !isTypedArrayData(sourceData)) return;
+    
+    const srcData = (sourceData as { data: ArrayBufferView }).data as Uint8Array;
+    
+    // Upload all layers in one call
+    device.queue.writeTexture(
+        { texture: data.texture },
+        srcData.buffer,
+        {
+            offset: srcData.byteOffset,
+            bytesPerRow: width * bytesPerPixel,
+            rowsPerImage: height,
+        },
+        [width, height, layerCount],
+    );
 }
 
 /**
@@ -491,4 +560,63 @@ export function getTextureCacheStats(cache: TextureCache): TextureCacheStats {
         textureCount: cache.textureCount,
         samplerCount: cache.samplerCount,
     };
+}
+
+/**
+ * Get cached TextureData for a GpuTexture.
+ * Returns null if not in cache (call updateTexture first).
+ */
+export function getTextureData(cache: TextureCache, texture: GpuTexture): TextureData | null {
+    return cache.textureMap.get(texture) ?? null;
+}
+
+/**
+ * Set the GPU texture resource for a render target texture.
+ * Called by the renderer when creating/resizing render targets.
+ * 
+ * Unlike regular textures which upload source data, render target textures
+ * have their GPUTexture created externally and registered here.
+ */
+export function setRenderTargetTexture(
+    cache: TextureCache,
+    texture: GpuTexture,
+    gpuTextureResource: GPUTexture,
+): void {
+    const existing = cache.textureMap.get(texture);
+    
+    if (existing) {
+        // Update existing entry with new GPU texture (e.g., after resize)
+        existing.texture = gpuTextureResource;
+        existing.generation++;
+        existing.initialized = true;
+        existing.isDefaultTexture = false;
+    } else {
+        // First time - create new entry
+        cache.textureMap.set(texture, {
+            texture: gpuTextureResource,
+            version: texture.version,
+            generation: 1,
+            initialized: true,
+            isDefaultTexture: false,
+        });
+        cache.textureCount++;
+        setupDispose(cache, texture);
+    }
+}
+
+/**
+ * Remove a render target texture from the cache.
+ * Called when render target is disposed/resized.
+ * Does NOT destroy the GPUTexture - caller is responsible for that.
+ */
+export function removeRenderTargetTexture(
+    cache: TextureCache,
+    texture: GpuTexture,
+): void {
+    const data = cache.textureMap.get(texture);
+    if (data) {
+        // Don't destroy - caller handles that
+        cache.textureMap.delete(texture);
+        cache.textureCount--;
+    }
 }

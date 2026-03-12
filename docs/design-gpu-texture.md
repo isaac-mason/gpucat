@@ -1890,10 +1890,7 @@ export function updateTexture<D extends d.AnyTextureDesc>(
     
     return data;
 }
-
-// ═══════════════════════════════════════════════════════════════════════════
-// createGPUTextureFromDesc — creates GPUTexture from GpuTexture descriptor
-// ═══════════════════════════════════════════════════════════════════════════
+═════════════════════════════════════════════════════════════════
 
 function createGPUTextureFromDesc<D extends d.AnyTextureDesc>(
     device: GPUDevice,

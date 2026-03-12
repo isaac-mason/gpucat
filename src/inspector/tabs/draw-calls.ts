@@ -21,7 +21,7 @@ import { ShaderPanel } from './shader-panel';
 import type { Inspector } from '../inspector';
 import type { RenderObject } from '../../renderer/render-object';
 import type { WebGPURenderer } from '../../renderer/renderer';
-import { getIndexFormat } from '../../core/buffer';
+import { getIndexFormat } from '../../core/gpu-buffer';
 import type { NodeBuilderState } from '../../renderer/node-builder-state';
 
 // ---------------------------------------------------------------------------

@@ -21,7 +21,7 @@ import type { Inspector } from '../inspector';
 import type { SceneRecord } from '../renderer-inspector';
 import { Mesh } from '../../objects/mesh';
 import type { Object3D } from '../../core/object3d';
-import { getIndexFormat } from '../../core/buffer';
+import { getIndexFormat } from '../../core/gpu-buffer';
 
 // ---------------------------------------------------------------------------
 // Internal node record — one per live Object3D in the tree

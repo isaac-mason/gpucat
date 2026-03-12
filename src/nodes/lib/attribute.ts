@@ -1,4 +1,4 @@
-import { GpuBuffer } from '../../core/buffer';
+import { GpuBuffer } from '../../core/gpu-buffer';
 import { Node } from './core';
 import type { Any, TypedArrayFor } from '../schema';
 import * as d from '../schema';

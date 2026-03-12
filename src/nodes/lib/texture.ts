@@ -2,8 +2,10 @@ import { Texture } from '../../texture/texture';
 import { CubeTexture } from '../../texture/cube-texture';
 import { DepthTexture } from '../../texture/depth-texture';
 import { ArrayTexture } from '../../texture/array-texture';
+import { GpuTexture } from '../../core/gpu-texture';
+import { GpuSampler } from '../../core/gpu-sampler';
 import { CallNode, Node } from './core';
-import { type DepthTextureDesc, type FlatDepthTextureDesc, type FlatSampledTextureDesc, type CubeSampledTextureDesc, type Any, texture2d, texture2dArray, textureCube, textureDepth2d, type AnyTextureDesc } from '../schema';
+import { type FlatDepthTextureDesc, type FlatSampledTextureDesc, type CubeSampledTextureDesc, type Any, type AnyTextureDesc } from '../schema';
 import * as d from '../schema';
 import { UniformGroup, objectGroup } from './uniform';
 import { uv } from './attribute';
@@ -14,28 +16,18 @@ import { varying } from './varying';
  * 
  * Samplers are first-class nodes with their own bindings, mirroring WGSL's
  * separate texture/sampler model.
+ * 
+ * Holds a reference to a GpuSampler which contains the actual settings.
  */
 export class SamplerNode<D extends d.SamplerDesc | d.SamplerComparisonDesc = d.SamplerDesc> extends Node<D> {
-    /** GPU sampler resource. Set by the renderer. */
-    resource: GPUSampler | null = null;
+    /** The GpuSampler - always has a valid default */
+    value: GpuSampler = new GpuSampler();
 
     /** Unique ID for this sampler instance */
     readonly samplerId: string;
 
     /** Uniform group — determines @group index. */
     groupNode: UniformGroup;
-
-    // Sampling parameters
-    minFilter: GPUFilterMode = 'linear';
-    magFilter: GPUFilterMode = 'linear';
-    mipmapFilter: GPUMipmapFilterMode = 'linear';
-    addressModeU: GPUAddressMode = 'clamp-to-edge';
-    addressModeV: GPUAddressMode = 'clamp-to-edge';
-    addressModeW: GPUAddressMode = 'clamp-to-edge';
-    maxAnisotropy: number = 1;
-
-    /** For sampler_comparison only */
-    compare?: GPUCompareFunction;
 
     constructor(
         desc: D,
@@ -47,24 +39,25 @@ export class SamplerNode<D extends d.SamplerDesc | d.SamplerComparisonDesc = d.S
         this.groupNode = groupNode;
     }
 
-    /** Settings key for deduplication - samplers with same settings share bindings */
+    /** Settings key from the GpuSampler (for deduplication) */
     get settingsKey(): string {
-        const base = `${this.minFilter}-${this.magFilter}-${this.mipmapFilter}-${this.addressModeU}-${this.addressModeV}-${this.addressModeW}-${this.maxAnisotropy}`;
-        return this.compare ? `${base}-cmp-${this.compare}` : base;
+        return this.value.settingsKey;
     }
 
-    /** Clone this sampler with same settings */
+    /** Sampling parameters (forwarded from GpuSampler) */
+    get minFilter(): GPUFilterMode { return this.value.minFilter; }
+    get magFilter(): GPUFilterMode { return this.value.magFilter; }
+    get mipmapFilter(): GPUMipmapFilterMode { return this.value.mipmapFilter; }
+    get addressModeU(): GPUAddressMode { return this.value.addressModeU; }
+    get addressModeV(): GPUAddressMode { return this.value.addressModeV; }
+    get addressModeW(): GPUAddressMode { return this.value.addressModeW; }
+    get maxAnisotropy(): number { return this.value.maxAnisotropy; }
+    get compare(): GPUCompareFunction | undefined { return this.value.compare; }
+
+    /** Clone this sampler (shares same GpuSampler reference) */
     clone(): SamplerNode<D> {
         const cloned = new SamplerNode(this.type as D, this.samplerId, this.groupNode);
-        cloned.minFilter = this.minFilter;
-        cloned.magFilter = this.magFilter;
-        cloned.mipmapFilter = this.mipmapFilter;
-        cloned.addressModeU = this.addressModeU;
-        cloned.addressModeV = this.addressModeV;
-        cloned.addressModeW = this.addressModeW;
-        cloned.maxAnisotropy = this.maxAnisotropy;
-        cloned.compare = this.compare;
-        cloned.resource = this.resource;
+        cloned.value = this.value;
         return cloned;
     }
 }
@@ -72,18 +65,6 @@ export class SamplerNode<D extends d.SamplerDesc | d.SamplerComparisonDesc = d.S
 /* ────────────────────────────────────────────────────────────────────────────
  * TextureBindingNode
  * ──────────────────────────────────────────────────────────────────────────── */
-
-/**
- * Maps a texture descriptor to its JS texture value type.
- * - DepthTextureDesc → DepthTexture
- * - CubeSampledTextureDesc → CubeTexture
- * - FlatSampledTextureDesc → Texture
- */
-export type TextureValueOf<D extends AnyTextureDesc> =
-    D extends DepthTextureDesc ? DepthTexture
-    : D extends CubeSampledTextureDesc ? CubeTexture
-    : D extends d.texture2dArray ? ArrayTexture
-    : Texture;
 
 /**
  * TextureBindingNode - represents a module-scope texture handle binding.
@@ -96,16 +77,13 @@ export type TextureValueOf<D extends AnyTextureDesc> =
  * TextureBindingNode internally and delegate binding registration to it.
  * Free functions take TextureBindingNode + SamplerNode as arguments, producing
  * correct WGSL like `textureSample(myTex, mySampler, uv)`.
+ *
+ * Holds a reference to a GpuTexture<D> which the renderer uses to create/update
+ * the GPU texture.
  */
 export class TextureBindingNode<D extends AnyTextureDesc = AnyTextureDesc> extends Node<D> {
-    /** GPU texture resource. Set this before rendering, or use `value`. */
-    resource: GPUTexture | GPUTextureView | null = null;
-
-    /**
-     * High-level texture wrapper. The renderer uses this to create/update
-     * the GPU texture.
-     */
-    value: TextureValueOf<D> | null = null;
+    /** The GpuTexture */
+    value: GpuTexture<D> | null = null;
 
     /** Unique ID for this texture binding (e.g. 'tAlbedo', 'tShadowMap'). */
     readonly textureId: string;
@@ -224,9 +202,12 @@ export class TextureNode extends Node<d.vec4f> {
     /** Clone this texture node with all sampling properties */
     clone(): TextureNode {
         const cloned = new TextureNode(this.bindingNode, this.uvNode);
+        
+        // copy nodes
         cloned.referenceNode = this.referenceNode;
         cloned.samplerNode = this.samplerNode;
-        // Copy sampling mode properties
+        
+        // copy sampling mode properties
         cloned.samplingMode = this.samplingMode;
         cloned.levelNode = this.levelNode;
         cloned.biasNode = this.biasNode;
@@ -234,6 +215,7 @@ export class TextureNode extends Node<d.vec4f> {
         cloned.offsetNode = this.offsetNode;
         cloned.loadCoords = this.loadCoords;
         cloned.loadLevel = this.loadLevel;
+        
         return cloned;
     }
 
@@ -300,51 +282,102 @@ export class TextureNode extends Node<d.vec4f> {
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /**
- * Create a sampler node from a Texture object's settings.
+ * High-level texture types that have _gpuSampler.
+ * All have ._gpuTexture and ._gpuSampler properties.
  */
-export const sampler = (tex: Texture, groupNode: UniformGroup = objectGroup): SamplerNode<d.SamplerDesc> => {
-    const node = new SamplerNode(d.sampler, `s${tex.id}`, groupNode);
-    // Copy settings from texture
-    node.minFilter = tex.minFilter;
-    node.magFilter = tex.magFilter;
-    node.mipmapFilter = tex.mipmapFilter;
-    node.addressModeU = tex.wrapS;
-    node.addressModeV = tex.wrapT;
-    node.addressModeW = 'clamp-to-edge'; // wrapR for 3D textures, will add to Texture later
-    node.maxAnisotropy = tex.anisotropy;
-    return node;
-};
+type HighLevelTexture = Texture | CubeTexture | DepthTexture | ArrayTexture;
+
+/** Counter for generating unique sampler IDs when using GpuSampler directly */
+let _samplerIdCounter = 0;
+
+/**
+ * Create a sampler node.
+ * 
+ * Accepts either:
+ * - A GpuSampler directly (low-level)
+ * - A high-level texture (Texture, CubeTexture, etc.) to extract _gpuSampler from
+ * 
+ * @example
+ * // From high-level texture
+ * const s = sampler(myTexture);
+ * 
+ * // From GpuSampler directly
+ * const gpuSampler = new GpuSampler({ minFilter: 'nearest' });
+ * const s = sampler(gpuSampler);
+ */
+export function sampler(source: GpuSampler, groupNode?: UniformGroup): SamplerNode<d.SamplerDesc>;
+export function sampler(source: HighLevelTexture, groupNode?: UniformGroup): SamplerNode<d.SamplerDesc>;
+export function sampler(source: GpuSampler | HighLevelTexture, groupNode: UniformGroup = objectGroup): SamplerNode<d.SamplerDesc> {
+    if (source instanceof GpuSampler) {
+        const node = new SamplerNode(d.sampler, `s${_samplerIdCounter++}`, groupNode);
+        node.value = source;
+        return node;
+    } else {
+        const node = new SamplerNode(d.sampler, `s${source.id}`, groupNode);
+        node.value = source._gpuSampler;
+        return node;
+    }
+}
 
 /**
  * Create a comparison sampler node for shadow mapping.
+ * 
+ * Accepts either:
+ * - A GpuSampler directly (low-level) - will create a new GpuSampler with compare function added
+ * - A high-level texture to extract _gpuSampler settings from
+ * 
+ * @example
+ * // From high-level depth texture
+ * const cmpSampler = comparisonSampler(myDepthTex, 'less');
+ * 
+ * // From GpuSampler directly
+ * const gpuSampler = new GpuSampler({ minFilter: 'linear' });
+ * const cmpSampler = comparisonSampler(gpuSampler, 'less');
  */
-export const comparisonSampler = (
-    tex: Texture,
+export function comparisonSampler(source: GpuSampler, compare?: GPUCompareFunction, groupNode?: UniformGroup): SamplerNode<d.SamplerComparisonDesc>;
+export function comparisonSampler(source: HighLevelTexture, compare?: GPUCompareFunction, groupNode?: UniformGroup): SamplerNode<d.SamplerComparisonDesc>;
+export function comparisonSampler(
+    source: GpuSampler | HighLevelTexture,
     compare: GPUCompareFunction = 'less',
     groupNode: UniformGroup = objectGroup
-): SamplerNode<d.SamplerComparisonDesc> => {
-    const node = new SamplerNode(d.samplerComparison, `s${tex.id}_cmp`, groupNode);
-    // Copy settings from texture
-    node.minFilter = tex.minFilter;
-    node.magFilter = tex.magFilter;
-    node.mipmapFilter = tex.mipmapFilter;
-    node.addressModeU = tex.wrapS;
-    node.addressModeV = tex.wrapT;
-    node.addressModeW = 'clamp-to-edge'; // wrapR for 3D textures, will add to Texture later
-    node.maxAnisotropy = tex.anisotropy;
-    node.compare = compare;
+): SamplerNode<d.SamplerComparisonDesc> {
+    const baseSampler = source instanceof GpuSampler ? source : source._gpuSampler;
+    const samplerId = source instanceof GpuSampler ? `s${_samplerIdCounter++}_cmp` : `s${source.id}_cmp`;
+    
+    const node = new SamplerNode(d.samplerComparison, samplerId, groupNode);
+    // Create a new GpuSampler with comparison function
+    const cmpSampler = new GpuSampler({
+        minFilter: baseSampler.minFilter,
+        magFilter: baseSampler.magFilter,
+        mipmapFilter: baseSampler.mipmapFilter,
+        addressModeU: baseSampler.addressModeU,
+        addressModeV: baseSampler.addressModeV,
+        addressModeW: baseSampler.addressModeW,
+        maxAnisotropy: baseSampler.maxAnisotropy,
+        compare,
+    });
+    node.value = cmpSampler;
     return node;
-};
+}
+
+/** Counter for generating unique texture IDs when using GpuTexture directly */
+let _textureIdCounter = 0;
 
 /**
- * Create a texture node from a Texture object.
- * Auto-creates a SamplerNode from the texture's settings.
- *
- * @param tex - The Texture object containing image data
- * @param textureDesc - Optional texture type descriptor (default: texture2d())
+ * Create a texture node for sampling a 2D texture.
+ * 
+ * Accepts either:
+ * - A high-level Texture object (auto-creates sampler from texture settings)
+ * - A GpuTexture + GpuSampler pair (low-level)
  *
  * @example
+ * // From high-level Texture
  * const albedo = texture(myTexture);
+ * 
+ * // From GpuTexture + GpuSampler (low-level)
+ * const albedo = texture(gpuTex, gpuSampler);
+ * 
+ * // Sampling methods
  * albedo.sample(customUv)              // textureSample with custom UVs
  * albedo.level(float(2))               // textureSampleLevel
  * albedo.bias(float(1))                // textureSampleBias
@@ -352,17 +385,35 @@ export const comparisonSampler = (
  * albedo.offset(vec2i(1, 0))           // with offset
  * albedo.load(vec2i(10, 20))           // textureLoad
  */
-export const texture = (
-    tex: Texture,
-    textureDesc: FlatSampledTextureDesc = texture2d()
-): TextureNode => {
-    const binding = new TextureBindingNode(textureDesc, `t${tex.id}`);
-    binding.value = tex;
-    const node = new TextureNode(binding);
-    // Auto-create sampler from texture settings
-    node.samplerNode = sampler(tex, binding.groupNode);
-    return node;
-};
+export function texture(tex: Texture): TextureNode;
+export function texture(gpuTex: GpuTexture<FlatSampledTextureDesc>, gpuSampler: GpuSampler): TextureNode;
+export function texture(
+    source: Texture | GpuTexture<FlatSampledTextureDesc>,
+    gpuSampler?: GpuSampler
+): TextureNode {
+    if (source instanceof GpuTexture) {
+        if (!gpuSampler) {
+            throw new Error('texture(): GpuSampler required when passing GpuTexture directly');
+        }
+        // Widen the type for the binding to FlatSampledTextureDesc
+        const desc = source.type as FlatSampledTextureDesc;
+        const binding = new TextureBindingNode(desc, `t${_textureIdCounter++}`);
+        binding.value = source;
+        const node = new TextureNode(binding);
+        node.samplerNode = sampler(gpuSampler, binding.groupNode);
+        return node;
+    } else {
+        // Texture._gpuTexture is GpuTexture<d.texture2d>
+        // Widen to FlatSampledTextureDesc for the binding
+        const gpuTex = source._gpuTexture;
+        const desc = gpuTex.type as FlatSampledTextureDesc;
+        const binding = new TextureBindingNode(desc, `t${source.id}`);
+        binding.value = gpuTex;
+        const node = new TextureNode(binding);
+        node.samplerNode = sampler(source._gpuSampler, binding.groupNode);
+        return node;
+    }
+}
 
 /**
  * Create a standalone texture binding node.
@@ -372,11 +423,11 @@ export const texture = (
  * sampling API.
  */
 export const textureBinding = <D extends AnyTextureDesc>(
-    tex: TextureValueOf<D>,
+    tex: { _gpuTexture: GpuTexture<D>; id: number },
     textureDesc: D
 ): TextureBindingNode<D> => {
     const binding = new TextureBindingNode(textureDesc, `t${tex.id}`);
-    binding.value = tex;
+    binding.value = tex._gpuTexture;
     return binding;
 };
 
@@ -523,7 +574,13 @@ export class CubeTextureNode extends Node<d.vec4f> {
  * @param tex - The CubeTexture object containing 6 face images
  *
  * @example
+ * // From high-level CubeTexture
  * const env = cubeTexture(myCubeTex);
+ * 
+ * // From GpuTexture + GpuSampler (low-level)
+ * const env = cubeTexture(gpuCubeTex, gpuSampler);
+ * 
+ * // Sampling methods
  * env.sample(reflectDir)                    // textureSample with direction
  * env.sample(reflectDir).level(float(0))    // textureSampleLevel
  * env.sample(reflectDir).bias(float(1))     // textureSampleBias
@@ -531,15 +588,32 @@ export class CubeTextureNode extends Node<d.vec4f> {
  * // NO .offset() - not supported for cube textures
  * // NO .load() - not supported for cube textures
  */
-export const cubeTexture = (tex: CubeTexture): CubeTextureNode => {
-    const desc = textureCube();
-    const binding = new TextureBindingNode(desc, `t${tex.id}`);
-    binding.value = tex;
-    const node = new CubeTextureNode(binding);
-    // Auto-create sampler from texture settings (CubeTexture has same filter/wrap properties)
-    node.samplerNode = sampler(tex as unknown as Texture, binding.groupNode);
-    return node;
-};
+export function cubeTexture(tex: CubeTexture): CubeTextureNode;
+export function cubeTexture(gpuTex: GpuTexture<CubeSampledTextureDesc>, gpuSampler: GpuSampler): CubeTextureNode;
+export function cubeTexture(
+    source: CubeTexture | GpuTexture<CubeSampledTextureDesc>,
+    gpuSampler?: GpuSampler
+): CubeTextureNode {
+    if (source instanceof GpuTexture) {
+        if (!gpuSampler) {
+            throw new Error('cubeTexture(): GpuSampler required when passing GpuTexture directly');
+        }
+        const desc = source.type as CubeSampledTextureDesc;
+        const binding = new TextureBindingNode(desc, `t${_textureIdCounter++}`);
+        binding.value = source;
+        const node = new CubeTextureNode(binding);
+        node.samplerNode = sampler(gpuSampler, binding.groupNode);
+        return node;
+    } else {
+        const gpuTex = source._gpuTexture;
+        const desc = gpuTex.type as CubeSampledTextureDesc;
+        const binding = new TextureBindingNode(desc, `t${source.id}`);
+        binding.value = gpuTex;
+        const node = new CubeTextureNode(binding);
+        node.samplerNode = sampler(source._gpuSampler, binding.groupNode);
+        return node;
+    }
+}
 
 /* ────────────────────────────────────────────────────────────────────────────
  * DepthTextureNode
@@ -691,8 +765,11 @@ export class DepthTextureNode extends Node<d.f32> {
 }
 
 /**
- * Create a depth texture node from a DepthTexture object.
- * Auto-creates a SamplerNode from the texture's settings.
+ * Create a depth texture node.
+ * 
+ * Accepts either:
+ * - A high-level DepthTexture object (auto-creates sampler from texture settings)
+ * - A GpuTexture + GpuSampler pair (low-level)
  *
  * For comparison sampling (shadow mapping), create a comparison sampler separately:
  * ```
@@ -704,17 +781,39 @@ export class DepthTextureNode extends Node<d.f32> {
  * textureSampleCompare(shadow, cmpSampler, uv, depthRef)
  * ```
  *
- * @param tex - The DepthTexture object
+ * @example
+ * // From high-level DepthTexture
+ * const shadow = depthTexture(myDepthTex);
+ * 
+ * // From GpuTexture + GpuSampler (low-level)
+ * const shadow = depthTexture(gpuDepthTex, gpuSampler);
  */
-export const depthTexture = (tex: DepthTexture): DepthTextureNode => {
-    const desc = textureDepth2d;
-    const binding = new TextureBindingNode(desc, `t${tex.id}`);
-    binding.value = tex;
-    const node = new DepthTextureNode(binding);
-    // Auto-create sampler from texture settings
-    node.samplerNode = sampler(tex, binding.groupNode);
-    return node;
-};
+export function depthTexture(tex: DepthTexture): DepthTextureNode;
+export function depthTexture(gpuTex: GpuTexture<FlatDepthTextureDesc>, gpuSampler: GpuSampler): DepthTextureNode;
+export function depthTexture(
+    source: DepthTexture | GpuTexture<FlatDepthTextureDesc>,
+    gpuSampler?: GpuSampler
+): DepthTextureNode {
+    if (source instanceof GpuTexture) {
+        if (!gpuSampler) {
+            throw new Error('depthTexture(): GpuSampler required when passing GpuTexture directly');
+        }
+        const desc = source.type as FlatDepthTextureDesc;
+        const binding = new TextureBindingNode(desc, `t${_textureIdCounter++}`);
+        binding.value = source;
+        const node = new DepthTextureNode(binding);
+        node.samplerNode = sampler(gpuSampler, binding.groupNode);
+        return node;
+    } else {
+        const gpuTex = source._gpuTexture;
+        const desc = gpuTex.type as FlatDepthTextureDesc;
+        const binding = new TextureBindingNode(desc, `t${source.id}`);
+        binding.value = gpuTex;
+        const node = new DepthTextureNode(binding);
+        node.samplerNode = sampler(source._gpuSampler, binding.groupNode);
+        return node;
+    }
+}
 
 /* ────────────────────────────────────────────────────────────────────────────
  * ArrayTextureNode
@@ -896,14 +995,22 @@ export class ArrayTextureNode extends Node<d.vec4f> {
 }
 
 /**
- * Create an array texture node from a DataArrayTexture object.
- * Auto-creates a SamplerNode from the texture's settings.
+ * Create an array texture node.
+ * 
+ * Accepts either:
+ * - A high-level ArrayTexture object (auto-creates sampler from texture settings)
+ * - A GpuTexture + GpuSampler pair (low-level)
  *
- * @param tex - The DataArrayTexture object containing layered image data
  * @param layerNode - The initial array layer index (i32 node)
  *
  * @example
+ * // From high-level ArrayTexture
  * const frames = arrayTexture(myArrayTex, i32(0));
+ * 
+ * // From GpuTexture + GpuSampler (low-level)
+ * const frames = arrayTexture(gpuArrayTex, gpuSampler, i32(0));
+ * 
+ * // Sampling methods
  * frames.layer(frameIndex)                   // change layer
  * frames.sample(customUv)                    // change UVs
  * frames.level(float(2))                     // textureSampleLevel
@@ -912,18 +1019,31 @@ export class ArrayTextureNode extends Node<d.vec4f> {
  * frames.offset(vec2i(1, 0))                 // with offset
  * frames.load(vec2i(10, 20))                 // textureLoad
  */
-export const arrayTexture = (
-    tex: ArrayTexture,
-    layerNode: Node<d.i32>,
-): ArrayTextureNode => {
-    const desc = texture2dArray();
-    const binding = new TextureBindingNode(desc, `t${tex.id}`);
-    binding.value = tex;
-    const node = new ArrayTextureNode(binding, layerNode);
-    // Auto-create sampler from texture settings
-    node.samplerNode = sampler(tex, binding.groupNode);
-    return node;
-};
+export function arrayTexture(tex: ArrayTexture, layerNode: Node<d.i32>): ArrayTextureNode;
+export function arrayTexture(gpuTex: GpuTexture<d.texture2dArray>, gpuSampler: GpuSampler, layerNode: Node<d.i32>): ArrayTextureNode;
+export function arrayTexture(
+    source: ArrayTexture | GpuTexture<d.texture2dArray>,
+    samplerOrLayer: GpuSampler | Node<d.i32>,
+    maybeLayerNode?: Node<d.i32>
+): ArrayTextureNode {
+    if (source instanceof GpuTexture) {
+        const gpuSampler = samplerOrLayer as GpuSampler;
+        const layerNode = maybeLayerNode!;
+        const binding = new TextureBindingNode(source.type, `t${_textureIdCounter++}`);
+        binding.value = source;
+        const node = new ArrayTextureNode(binding, layerNode);
+        node.samplerNode = sampler(gpuSampler, binding.groupNode);
+        return node;
+    } else {
+        const layerNode = samplerOrLayer as Node<d.i32>;
+        const gpuTex = source._gpuTexture;
+        const binding = new TextureBindingNode(gpuTex.type, `t${source.id}`);
+        binding.value = gpuTex;
+        const node = new ArrayTextureNode(binding, layerNode);
+        node.samplerNode = sampler(source._gpuSampler, binding.groupNode);
+        return node;
+    }
+}
 
 /* ────────────────────────────────────────────────────────────────────────────
  * WGSL-Mapped Free Functions

@@ -32,7 +32,7 @@ import {
 } from './lib/varying';
 import { WgslNode } from './lib/wgsl';
 import { AttributeNode } from './lib/attribute';
-import { GpuBuffer } from '../core/buffer';
+import { GpuBuffer } from '../core/gpu-buffer';
 import { TextureNode, CubeTextureNode, DepthTextureNode, ArrayTextureNode, TextureBindingNode, SamplerNode } from './lib/texture';
 import { StorageNode } from './lib/storage';
 import { UniformNode, UniformGroup } from './lib/uniform';
@@ -1559,16 +1559,17 @@ function generateLoopStmt(ctx: BuildContext, node: LoopNode): void {
         const cfg = config as {
             start?: Node<d.Any> | number;
             end?: Node<d.Any> | number;
-            type?: d.ScalarType;
+            type?: d.ScalarDesc;
             condition?: '<' | '<=' | '>' | '>=';
             name?: string;
         };
 
-        const type = cfg.type ?? 'i32';
+        const typeDesc = cfg.type ?? d.i32;
+        const typeStr = typeDesc.wgslType;
 
         const getExpr = (v: Node<d.Any> | number | undefined): string | undefined => {
             if (v === undefined) return undefined;
-            if (typeof v === 'number') return constLiteral(type, v);
+            if (typeof v === 'number') return constLiteral(typeStr, v);
             return generateExpr(ctx, v as Node<d.Any>);
         };
 
@@ -1576,7 +1577,7 @@ function generateLoopStmt(ctx: BuildContext, node: LoopNode): void {
         const endExpr = getExpr(cfg.end) ?? '0i';
         const condition = cfg.condition ?? '<';
 
-        loopHeader = `for (var ${wgslVarName}: ${type} = ${startExpr}; ${wgslVarName} ${condition} ${endExpr}; ${wgslVarName}++)`;
+        loopHeader = `for (var ${wgslVarName}: ${typeStr} = ${startExpr}; ${wgslVarName} ${condition} ${endExpr}; ${wgslVarName}++)`;
     } else {
         loopHeader = `/* unknown loop range type */`;
     }

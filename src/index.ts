@@ -15,7 +15,7 @@ export * from "./camera/camera";
 export * from "./camera/perspective-camera";
 export * from "./camera/orthographic-camera";
 
-export * from "./core/buffer";
+export * from "./core/gpu-buffer";
 export * from "./core/uniform";
 export * from "./geometry/geometry";
 export * from "./geometry/geometry-helpers";

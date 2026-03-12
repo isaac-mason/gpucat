@@ -1,5 +1,5 @@
 import type { Geometry } from '../geometry/geometry';
-import { createIndexBuffer, type GpuBuffer } from '../core/buffer';
+import { createIndexBuffer, type GpuBuffer } from '../core/gpu-buffer';
 import type { Any } from '../nodes/schema';
 import type { RenderObject } from './render-object';
 import type { BufferCache } from './buffers';

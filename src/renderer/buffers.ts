@@ -1,5 +1,5 @@
-import type { GpuBuffer } from '../core/buffer';
-import type { GpuTypedArray } from '../core/buffer';
+import type { GpuBuffer } from '../core/gpu-buffer';
+import type { GpuTypedArray } from '../core/gpu-buffer';
 import type { Geometry } from '../geometry/geometry';
 import type { StorageNode } from '../nodes/nodes';
 import type { Any } from '../nodes/schema';

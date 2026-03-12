@@ -137,7 +137,7 @@ const vUv = varying(uvAttr, 'v_uv');
 // Layer index uniform — updated each frame on the CPU
 const layerUniform = uniform(i32(0), 'layerIndex');
 
-const flipbook = arrayTexture(flipbookTex, layerUniform as unknown as Node<d.i32>);
+const flipbook = arrayTexture(flipbookTex, layerUniform);
 const texColor = flipbook.sample(vUv as unknown as Node<d.vec2f>);
 
 const material = new Material({

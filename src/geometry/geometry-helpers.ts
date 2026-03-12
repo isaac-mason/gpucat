@@ -1,4 +1,4 @@
-import { createIndexBuffer, createVertexBuffer } from '../core/buffer';
+import { createIndexBuffer, createVertexBuffer } from '../core/gpu-buffer';
 import * as d from '../nodes/schema';
 import { Geometry } from './geometry';
 

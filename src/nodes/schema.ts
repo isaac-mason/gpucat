@@ -452,7 +452,7 @@ export const wgslfn: wgslfn = { type: 'wgslfn', wgslType: 'wgslfn' };
 export type WgslFnDesc = wgslfn;
 
 // ---------------------------------------------------------------------------
-// WgslDesc — the master union of all descriptor types
+// Any — the master union of all descriptor types
 // ---------------------------------------------------------------------------
 
 export type Any =
@@ -682,6 +682,50 @@ export function isDepthTextureDesc(desc: Any): desc is DepthTextureDesc {
 
 export function isAnyTextureDesc(desc: Any): desc is AnyTextureDesc {
     return desc.type.startsWith('texture_');
+}
+
+export function isCubeTextureDesc(desc: AnyTextureDesc): boolean {
+    return desc.type === 'texture_cube' || desc.type === 'texture_depth_cube';
+}
+
+export function isCubeArrayTextureDesc(desc: AnyTextureDesc): boolean {
+    return desc.type === 'texture_cube_array' || desc.type === 'texture_depth_cube_array';
+}
+
+export function isArrayTextureDesc(desc: AnyTextureDesc): boolean {
+    return desc.type === 'texture_2d_array' || desc.type === 'texture_depth_2d_array';
+}
+
+/** Returns the GPUTextureDimension for a texture schema type */
+export function textureDimension(desc: AnyTextureDesc): GPUTextureDimension {
+    if (desc.type === 'texture_1d') return '1d';
+    if (desc.type === 'texture_3d') return '3d';
+    return '2d';
+}
+
+/** Returns the GPUTextureViewDimension for a texture schema type */
+export function textureViewDimension(desc: AnyTextureDesc): GPUTextureViewDimension {
+    switch (desc.type) {
+        case 'texture_1d': return '1d';
+        case 'texture_2d':
+        case 'texture_depth_2d':
+        case 'texture_multisampled_2d':
+        case 'texture_depth_multisampled_2d':
+            return '2d';
+        case 'texture_2d_array':
+        case 'texture_depth_2d_array':
+            return '2d-array';
+        case 'texture_cube':
+        case 'texture_depth_cube':
+            return 'cube';
+        case 'texture_cube_array':
+        case 'texture_depth_cube_array':
+            return 'cube-array';
+        case 'texture_3d':
+            return '3d';
+        default:
+            return '2d';
+    }
 }
 
 export function isSamplerDesc(desc: Any): desc is SamplerDesc {

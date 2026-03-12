@@ -1,4 +1,4 @@
-import { GpuBuffer } from '../../core/buffer';
+import { GpuBuffer } from '../../core/gpu-buffer';
 import type { Any } from '../schema';
 import { Node } from './core';
 import { UniformGroup, objectGroup } from './uniform';

@@ -4,12 +4,16 @@ import type { NodeFrame } from '../../../renderer/node-frame';
 import type { Scene } from '../../../scene/scene';
 import { type ImageSize } from '../../../texture/source';
 import { Texture } from '../../../texture/texture';
+import { DepthTexture } from '../../../texture/depth-texture';
 import type { MRTNode } from '../mrt';
 import { TextureBindingNode, TextureNode } from '../texture';
 import { Node } from '../core';
 import { cameraFar, cameraNear } from '../camera';
 import * as d from '../../schema';
 import { objectGroup } from '../uniform';
+
+/** Union type for textures that can be stored in a pass */
+type PassTexture = Texture | DepthTexture;
 
 let _passCount = 0;
 
@@ -38,9 +42,9 @@ export class PassTextureNode extends TextureNode {
         this.passNode = passNode;
         this.before(passNode);
 
-        // Set GPU texture resource if provided
-        if (texture && texture.gpuTexture) {
-            this.bindingNode.resource = texture.gpuTexture;
+        // Set GpuTexture reference if texture provided
+        if (texture) {
+            this.bindingNode.value = texture._gpuTexture;
         }
     }
 
@@ -85,12 +89,13 @@ export class PassMultipleTextureNode extends PassTextureNode {
     /**
      * Updates the texture reference of this node.
      * Called in setup() to get the current texture.
-     * Stores the texture object — GPU resources are accessed at bind time.
+     * Stores the GpuTexture — GPU resources are accessed at bind time via the texture cache.
      */
     updateTexture(): void {
-        this.bindingNode.value = this.previousTexture
+        const texture = this.previousTexture
             ? this.passNode.getPreviousTexture(this.textureName)
             : this.passNode.getTexture(this.textureName);
+        this.bindingNode.value = texture._gpuTexture;
     }
 
     /**
@@ -159,11 +164,11 @@ export class PassNode extends Node<d.vec4f> {
 
     private _mrt: MRTNode | null = null;
 
-    private readonly _textures: Record<string, Texture> = {};
+    private readonly _textures: Record<string, PassTexture> = {};
 
     private readonly _textureNodes: Record<string, PassMultipleTextureNode> = {};
 
-    private readonly _previousTextures: Record<string, Texture> = {};
+    private readonly _previousTextures: Record<string, PassTexture> = {};
 
     private readonly _previousTextureNodes: Record<string, PassMultipleTextureNode> = {};
 
@@ -248,7 +253,7 @@ export class PassNode extends Node<d.vec4f> {
      * Creates a new texture slot if it doesn't exist.
      */
     getTexture(name: string): Texture {
-        let texture = this._textures[name];
+        let texture = this._textures[name] as Texture | undefined;
 
         if (texture === undefined) {
             // Clone the reference texture format and create new render target texture
@@ -257,7 +262,6 @@ export class PassNode extends Node<d.vec4f> {
             texture = new Texture(image);
             texture.format = refTexture.format;
             texture.isRenderTargetTexture = true;
-            texture.renderTarget = this.renderTarget;
             texture.generateMipmaps = false;
             texture.flipY = false;
             texture.name = name;
@@ -273,7 +277,7 @@ export class PassNode extends Node<d.vec4f> {
      * Returns the texture holding the data of the previous frame for the given output name.
      */
     getPreviousTexture(name: string): Texture {
-        let texture = this._previousTextures[name];
+        let texture = this._previousTextures[name] as Texture | undefined;
 
         if (texture === undefined) {
             // Create a clone of the current texture for previous frame storage
@@ -282,7 +286,6 @@ export class PassNode extends Node<d.vec4f> {
             texture = new Texture(image);
             texture.format = currentTexture.format;
             texture.isRenderTargetTexture = true;
-            texture.renderTarget = this.renderTarget;
             texture.generateMipmaps = false;
             texture.flipY = false;
             texture.name = name;
@@ -303,10 +306,10 @@ export class PassNode extends Node<d.vec4f> {
             const texture = this._textures[name];
 
             // Swap in renderTarget.textures array (only for color textures, not depth)
-            if (texture && !texture.isDepthTexture) {
-                const index = this.renderTarget.textures.indexOf(texture);
-                if (index !== -1 && !prevTexture.isDepthTexture) {
-                    this.renderTarget.textures[index] = prevTexture;
+            if (texture && !(texture instanceof DepthTexture)) {
+                const index = this.renderTarget.textures.indexOf(texture as Texture);
+                if (index !== -1 && !(prevTexture instanceof DepthTexture)) {
+                    this.renderTarget.textures[index] = prevTexture as Texture;
                 }
             }
 

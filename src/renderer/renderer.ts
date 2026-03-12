@@ -1,5 +1,5 @@
 import { Camera } from '../camera/camera';
-import { getIndexFormat, GpuBuffer as GpuBufferClass, type GpuBuffer } from '../core/buffer';
+import { getIndexFormat, GpuBuffer as GpuBufferClass, type GpuBuffer } from '../core/gpu-buffer';
 import { Object3D } from '../core/object3d';
 import type { RenderTarget } from '../core/render-target';
 import { InspectorBase } from '../inspector/inspector-base';
@@ -596,7 +596,7 @@ export class WebGPURenderer {
         this.inspector.perf.end('updateForCompute');
 
         // Update all bindings and get GPUBindGroups
-        const gpuBindGroups = bindings.updateForCompute(this._bindings, nodeBuilderState, frame, this._device, this._buffers);
+        const gpuBindGroups = bindings.updateForCompute(this._bindings, nodeBuilderState, frame, this._device, this._buffers, this._textures);
 
         // Notify inspector before creating pass (so timestamp writes are available)
         this.inspector.beginCompute(node, this._nodes.nodeFrame.frameId);
@@ -749,8 +749,12 @@ export class WebGPURenderer {
             this._ensureRenderTargetAllocated(renderTarget);
 
             for (const tex of renderTarget.textures) {
+                const textureData = textures.getTextureData(this._textures, tex._gpuTexture);
+                if (!textureData) {
+                    throw new Error('[WebGPURenderer] Render target texture not found in cache');
+                }
                 colorAttachments.push({
-                    view: tex.gpuTexture!.createView(),
+                    view: textureData.texture.createView(),
                     clearValue: clearColor,
                     loadOp: 'clear',
                     storeOp: 'store',
@@ -779,13 +783,16 @@ export class WebGPURenderer {
 
         let depthAttachment: GPURenderPassDepthStencilAttachment | undefined;
         if (renderTarget) {
-            if (renderTarget.depthTexture?.gpuTexture) {
-                depthAttachment = {
-                    view: renderTarget.depthTexture.gpuTexture.createView(),
-                    depthClearValue: 1.0,
-                    depthLoadOp: 'clear',
-                    depthStoreOp: 'store',
-                };
+            if (renderTarget.depthTexture) {
+                const depthTextureData = textures.getTextureData(this._textures, renderTarget.depthTexture._gpuTexture);
+                if (depthTextureData) {
+                    depthAttachment = {
+                        view: depthTextureData.texture.createView(),
+                        depthClearValue: 1.0,
+                        depthLoadOp: 'clear',
+                        depthStoreOp: 'store',
+                    };
+                }
             }
         } else {
             depthAttachment = {
@@ -1005,21 +1012,24 @@ export class WebGPURenderer {
     }
 
     private _ensureRenderTargetAllocated(renderTarget: RenderTarget): void {
-        // check if already allocated at correct size
-        // For depth-only render targets (count: 0), check the depth texture instead.
-        const existingTexture = renderTarget.textures[0]?.gpuTexture ?? renderTarget.depthTexture?.gpuTexture;
-        if (existingTexture && existingTexture.width === renderTarget.width && existingTexture.height === renderTarget.height) {
-            return;
+        // Check if already allocated at correct size via texture cache
+        // For depth-only render targets (count: 0), check the depth texture instead
+        const firstTex = renderTarget.textures[0] ?? renderTarget.depthTexture;
+        if (firstTex) {
+            const existingData = textures.getTextureData(this._textures, firstTex._gpuTexture);
+            if (existingData && existingData.texture.width === renderTarget.width && existingData.texture.height === renderTarget.height) {
+                return;
+            }
         }
 
-        // dispose old resources
+        // Dispose old resources via render target (which calls texture cache removal)
         renderTarget.dispose();
 
-        // allocate new GPU resources
+        // Allocate new GPU resources
         const sampleCount = renderTarget.samples > 1 ? renderTarget.samples : 1;
 
         for (const tex of renderTarget.textures) {
-            tex.gpuTexture = this._device.createTexture({
+            const gpuTexture = this._device.createTexture({
                 size: [renderTarget.width, renderTarget.height],
                 format: tex.format ?? renderTarget.colorFormat,
                 usage:
@@ -1029,31 +1039,20 @@ export class WebGPURenderer {
                 sampleCount,
             });
 
-            // create sampler alongside texture (linear filtering for post-processing)
-            tex.gpuSampler = this._device.createSampler({
-                magFilter: 'linear',
-                minFilter: 'linear',
-                mipmapFilter: 'linear',
-                addressModeU: 'clamp-to-edge',
-                addressModeV: 'clamp-to-edge',
-            });
+            // Register in texture cache (keyed by GpuTexture)
+            textures.setRenderTargetTexture(this._textures, tex._gpuTexture, gpuTexture);
         }
 
         if (renderTarget.depthTexture) {
-            renderTarget.depthTexture.gpuTexture = this._device.createTexture({
+            const gpuDepthTexture = this._device.createTexture({
                 size: [renderTarget.width, renderTarget.height],
-                format: renderTarget.depthTexture.format!, // DepthTexture always has format set
+                format: renderTarget.depthTexture.format, // DepthTexture always has format set
                 usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
                 sampleCount,
             });
 
-            // depth textures also need samplers for reading in post-processing
-            renderTarget.depthTexture.gpuSampler = this._device.createSampler({
-                magFilter: 'nearest',
-                minFilter: 'nearest',
-                addressModeU: 'clamp-to-edge',
-                addressModeV: 'clamp-to-edge',
-            });
+            // Register in texture cache (keyed by GpuTexture)
+            textures.setRenderTargetTexture(this._textures, renderTarget.depthTexture._gpuTexture, gpuDepthTexture);
         }
     }
 

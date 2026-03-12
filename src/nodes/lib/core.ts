@@ -954,7 +954,7 @@ export class IfNode extends Node<d.VoidDesc> {
 export type LoopParam = Node<Any> | number | {
     start?: Node<Any> | number;
     end?: Node<Any> | number;
-    type?: ScalarType;
+    type?: d.ScalarDesc;
     condition?: '<' | '<=' | '>' | '>=';
     update?: Node<Any> | number | string | ((...args: unknown[]) => void);
     name?: string;
@@ -1016,8 +1016,8 @@ export function Loop(o: number | LoopParam, callback: (vars: LoopVars) => void):
     const varName = `_loop_${_loopVarCounter++}`;
 
     if (typeof o === 'object' && o !== null && !(o instanceof Node)) {
-        const cfg = o as { type?: ScalarType; name?: string };
-        if (cfg.type) loopVarType = d.descFromWgslType(cfg.type);
+        const cfg = o as { type?: d.ScalarDesc; name?: string };
+        if (cfg.type) loopVarType = cfg.type;
         if (cfg.name) callbackKey = cfg.name;
     }
 

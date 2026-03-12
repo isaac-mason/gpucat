@@ -1,4 +1,4 @@
-import type { GpuBuffer } from '../core/buffer';
+import type { GpuBuffer } from '../core/gpu-buffer';
 import type { UniformGroupBlock, StorageEntry, TextureEntry, SamplerEntry } from '../nodes/builder';
 
 let bindGroupIdCounter = 0;

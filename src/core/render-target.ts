@@ -1,6 +1,6 @@
 import { type ImageSize } from '../texture/source';
-import { Texture, type DepthTextureFormat } from '../texture/texture';
-import { DepthTexture } from '../texture/depth-texture';
+import { Texture } from '../texture/texture';
+import { DepthTexture, type DepthTextureFormat } from '../texture/depth-texture';
 
 export type RenderTargetOptions = {
     /** Color attachment format. Default: 'rgba16float'. Applied to all attachments. */
@@ -41,7 +41,7 @@ export class RenderTarget {
     /**
      * Array of color attachment textures.
      * Each has a `.name` for MRT mapping, the first texture is also accessible via the `texture` getter.
-     * these are Texture instances with isRenderTargetTexture = true.
+     * These are Texture instances with isRenderTargetTexture = true.
      */
     textures: Texture[];
 
@@ -69,7 +69,7 @@ export class RenderTarget {
         if (this.depthFormat) {
             const depthTexture = new DepthTexture(width, height, this.depthFormat);
             depthTexture.name = 'depth';
-            depthTexture.renderTarget = this;
+            depthTexture._gpuTexture.isRenderTargetTexture = true;
             this.depthTexture = depthTexture;
         }
     }
@@ -87,29 +87,27 @@ export class RenderTarget {
         this.width = width;
         this.height = height;
 
-        // update texture dimensions
+        // update texture dimensions on the GpuTexture
         for (const tex of this.textures) {
-            if (tex.image && typeof tex.image === 'object' && 'width' in tex.image) {
-                (tex.image as ImageSize).width = width;
-                (tex.image as ImageSize).height = height;
-            }
+            tex._gpuTexture.width = width;
+            tex._gpuTexture.height = height;
+            tex._gpuTexture.needsUpdate = true;
         }
         if (this.depthTexture) {
             this.depthTexture.setSize(width, height);
         }
     }
 
-    /** Destroy the underlying GPU textures and samplers */
+    /** 
+     * Dispose of the render target's GPU resources.
+     * This triggers the _onDispose callbacks set by the renderer cache.
+     */
     dispose(): void {
         for (const tex of this.textures) {
-            tex.gpuTexture?.destroy();
-            tex.gpuTexture = null;
-            tex.gpuSampler = null; // doesn't have a destroy method, just null it
+            tex._gpuTexture.dispose();
         }
         if (this.depthTexture) {
-            this.depthTexture.gpuTexture?.destroy();
-            this.depthTexture.gpuTexture = null;
-            this.depthTexture.gpuSampler = null;
+            this.depthTexture._gpuTexture.dispose();
         }
     }
 
@@ -124,7 +122,7 @@ export class RenderTarget {
 
 /** creates a Texture configured for use as a render target color attachment */
 function createRenderTargetTexture(
-    renderTarget: RenderTarget,
+    _renderTarget: RenderTarget,
     width: number,
     height: number,
     format: GPUTextureFormat,
@@ -135,9 +133,11 @@ function createRenderTargetTexture(
     const texture = new Texture(image);
     texture.format = format;
     texture.isRenderTargetTexture = true;
-    texture.renderTarget = renderTarget;
     texture.generateMipmaps = false;
     texture.flipY = false;
+    
+    // Mark the underlying GpuTexture as a render target texture too
+    texture._gpuTexture.isRenderTargetTexture = true;
 
     return texture;
 }
