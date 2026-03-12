@@ -12,7 +12,7 @@ import type { Material } from '../material/material';
 import type { Mesh } from '../objects/mesh';
 import type { Object3D } from '../core/object3d';
 import type { BindingsState } from './bindings';
-import { getBindGroupLayouts, initBindings, updateBindings } from './bindings';
+import { getRenderBindGroupLayouts, initRenderBindings, updateRenderBindings } from './bindings';
 import type { BufferCache } from './buffers';
 import * as chainMap from './chain-map';
 import type { GeometriesState } from './geometries';
@@ -164,10 +164,10 @@ export function initRenderObject(
     }
 
     // Initialize bindings (creates bind group layouts)
-    initBindings(bindingsState, renderObject, device);
+    initRenderBindings(bindingsState, renderObject, device);
 
     // Get bind group layouts for pipeline creation
-    const bindGroupLayouts = getBindGroupLayouts(bindingsState, renderObject);
+    const bindGroupLayouts = getRenderBindGroupLayouts(bindingsState, renderObject);
 
     // Check if we need to create/update pipeline
     if (!renderObject.pipeline) {
@@ -207,7 +207,7 @@ export function updateRenderObject(
     frame: NodeFrame,
 ): void {
     // Update bindings (uniforms, bind groups)
-    updateBindings(bindingsState, renderObject, frame, device, bufferCache, textureCache);
+    updateRenderBindings(bindingsState, renderObject, frame, device, bufferCache, textureCache);
 
     // Update geometry if needed
     updateGeometry(geometriesState, bufferCache, device, renderObject);
@@ -253,10 +253,10 @@ export function initRenderObjectWithPromises(
     }
 
     // Initialize bindings (creates bind group layouts)
-    initBindings(bindingsState, renderObject, device);
+    initRenderBindings(bindingsState, renderObject, device);
 
     // Get bind group layouts for pipeline creation
-    const bindGroupLayouts = getBindGroupLayouts(bindingsState, renderObject);
+    const bindGroupLayouts = getRenderBindGroupLayouts(bindingsState, renderObject);
 
     // Check if we need to create/update pipeline
     if (!renderObject.pipeline) {

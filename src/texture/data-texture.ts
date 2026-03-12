@@ -1,7 +1,7 @@
 import { GpuTexture } from '../core/gpu-texture';
 import { GpuSampler } from '../core/gpu-sampler';
 import { Source, type DataTextureImage } from './source';
-import * as d from '../nodes/schema';
+import * as d from '../schema/schema';
 import type { WrapMode, FilterMode, MipmapFilterMode, TextureOptions } from './texture';
 
 /** Valid typed array types for DataTexture */

@@ -1,4 +1,4 @@
-import type { Any } from '../nodes/schema';
+import type { Any } from '../schema/schema';
 
 export type UniformValue = number | number[] | Float32Array | Int32Array | Uint32Array;
 

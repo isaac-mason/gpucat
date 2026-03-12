@@ -1,5 +1,5 @@
 import { Uniform, renderGroup, UniformNode } from './uniform';
-import * as d from '../schema';
+import * as d from '../../schema/schema';
 
 
 /** Projection matrix of the scene camera. In renderGroup. */

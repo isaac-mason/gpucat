@@ -26,7 +26,7 @@ import { Tab } from '../ui/tab';
 import { List } from '../ui/list';
 import { Item } from '../ui/item';
 import { type Node, wgsl, attribute, vec4f, f32 } from '../../nodes/nodes';
-import * as d from '../../nodes/schema';
+import * as d from '../../schema/schema';
 import type { Inspector } from '../inspector';
 import { CanvasTarget } from '../../renderer/canvas-target';
 import { Material } from '../../material/material';

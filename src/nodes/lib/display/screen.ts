@@ -1,7 +1,7 @@
 import { div, Node } from '../core';
 import { renderGroup, UniformNode, Uniform } from '../uniform';
 import { fragCoord } from '../builtin';
-import * as d from '../../schema';
+import * as d from '../../../schema/schema';
 
 /**
  * Screen coordinate — the current fragment's xy position in pixels.

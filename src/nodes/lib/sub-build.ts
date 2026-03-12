@@ -1,5 +1,5 @@
 import { Node } from './core';
-import type { Any } from '../schema';
+import type { Any } from '../../schema/schema';
 
 
 /**

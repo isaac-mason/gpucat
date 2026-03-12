@@ -33,7 +33,7 @@ import {
     type Node,
     mul,
     createIndirectBuffer,
-    packStructArray,
+    packArray,
     RenderPipeline,
     renderOutput,
 } from 'gpucat';
@@ -388,7 +388,7 @@ const pageInfoData = new Float32Array(POOL_PAGES * PAGE_INFO_STRIDE);
 const pageInfoBuf = createStorageBuffer(d.sizedArray(PageInfo, POOL_PAGES), pageInfoData);
 
 // Indirect draw buffer — one DrawIndexedIndirect per pool page
-const indirectData = new Uint32Array(packStructArray(DrawIndexedIndirect,
+const indirectData = new Uint32Array(packArray(DrawIndexedIndirect,
     Array.from({ length: POOL_PAGES }, (_, i) => ({
         indexCount: 0, instanceCount: 1,
         firstIndex: i * PAGE_INDICES, baseVertex: i * PAGE_VERTS, firstInstance: 0,

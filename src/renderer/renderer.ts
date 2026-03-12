@@ -5,7 +5,7 @@ import type { RenderTarget } from '../core/render-target';
 import { InspectorBase } from '../inspector/inspector-base';
 import type { Material } from '../material/material';
 import { ComputeNode, MRTNode } from '../nodes/nodes';
-import * as d from '../nodes/schema';
+import * as d from '../schema/schema';
 import { Scene } from '../scene/scene';
 import { yieldToMain } from '../utils/yield-to-main';
 import * as bindings from './bindings';
@@ -596,7 +596,7 @@ export class WebGPURenderer {
         this.inspector.perf.end('updateForCompute');
 
         // Update all bindings and get GPUBindGroups
-        const gpuBindGroups = bindings.updateForCompute(this._bindings, nodeBuilderState, frame, this._device, this._buffers, this._textures);
+        const gpuBindGroups = bindings.updateComputeBindings(this._bindings, nodeBuilderState, frame, this._device, this._buffers, this._textures);
 
         // Notify inspector before creating pass (so timestamp writes are available)
         this.inspector.beginCompute(node, this._nodes.nodeFrame.frameId);

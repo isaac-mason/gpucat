@@ -1,4 +1,4 @@
-import * as d from '../nodes/schema';
+import * as d from '../schema/schema';
 import { Source, type SourceData } from '../texture/source';
 
 /** GPU texture dimension from schema type */

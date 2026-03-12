@@ -40,8 +40,8 @@ import { WgslFunctionNode } from './lib/wgsl-fn';
 import { OutputStructNode, MRTNode } from './lib/mrt';
 import { BuiltinNode, ComputeIndexNode } from './lib/builtin';
 import { PassNode } from './lib/display/pass-node';
-import * as d from './schema';
-import type { StructSchema } from './schema';
+import * as d from '../schema/schema';
+import type { StructSchema } from '../schema/schema';
 import { constLiteral } from './wgsl-utils';
 
 /* public apis */
@@ -379,7 +379,7 @@ export type VaryingEntry = {
 
 export type UniformMember = {
     uniformId: string;
-    type: string;
+    schema: d.Any;
     offset: number;
     size: number;
     node: UniformNode<d.Any>;
@@ -1714,7 +1714,7 @@ function emitAllBindings(ctx: BuildContext): {
                 lines.push(`    ${u.name}: ${u.type.wgslType},`);
                 members.push({
                     uniformId: u.name,
-                    type: u.type.wgslType,
+                    schema: u.type,
                     offset,
                     size,
                     node: u,

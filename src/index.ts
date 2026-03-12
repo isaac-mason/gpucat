@@ -131,13 +131,18 @@ export {
     acesToneMapping, reinhardToneMapping, sRGBTransferEOTF, sRGBTransferOETF,
 } from './nodes/nodes';
 
-export * as d from './nodes/schema';
+export * as d from './schema/schema';
 export type {
     ArrayDesc, Any as WgslDesc, SizedArrayDesc, TypedArrayFor,
-} from './nodes/schema';
-export { wgslAlignOf, wgslSizeOf, wgslStrideOf, roundUp } from './nodes/schema';
+} from './schema/schema';
+export { wgslAlignOf, wgslSizeOf, wgslStrideOf, roundUp } from './schema/schema';
 
-export { packStruct, packStructArray, writeStructArray, f32ToF16Bits } from './utils/buffer-layout';
+export {
+    pack, packArray, packTo,
+    unpack, unpackArray,
+    layoutSizeOf, layoutStrideOf,
+    type AddressSpace,
+} from './schema/pack';
 
 export { Mesh } from './objects/mesh';
 export * from './core/object3d';

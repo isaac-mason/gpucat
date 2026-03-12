@@ -1,5 +1,5 @@
 import { struct } from './core';
-import * as d from '../schema';
+import * as d from '../../schema/schema';
 
 /**
  * Basic struct descriptor for a non-indexed indirect draw call (`drawIndirect`) with no additional fields.

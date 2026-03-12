@@ -1,7 +1,7 @@
 import { describe, expect, test, beforeEach } from 'vitest';
 import { GpuBuffer, BufferLifecycle } from '../src/core/gpu-buffer';
 import { Geometry } from '../src/geometry/geometry';
-import * as d from '../src/nodes/schema';
+import * as d from '../src/schema/schema';
 import { trackDisposal } from './mock-gpu';
 
 // ---------------------------------------------------------------------------

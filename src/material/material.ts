@@ -1,5 +1,5 @@
 import type { Node } from '../nodes/nodes';
-import type { Any } from '../nodes/schema';
+import type { Any } from '../schema/schema';
 import type { Uniform } from '../core/uniform';
 
 export interface MaterialOptions {

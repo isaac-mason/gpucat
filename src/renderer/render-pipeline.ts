@@ -2,8 +2,8 @@ import { QuadMesh } from '../objects/quad-mesh';
 import { Material } from '../material/material';
 import { attribute, vec4f, f32 } from '../nodes/nodes';
 import type { Node } from '../nodes/nodes';
-import type { Any } from '../nodes/schema';
-import * as d from '../nodes/schema';
+import type { Any } from '../schema/schema';
+import * as d from '../schema/schema';
 import type { WebGPURenderer } from './renderer';
 
 /**

@@ -1,5 +1,5 @@
 import { ConstNode, vec4f, Node } from './core';
-import * as d from '../schema';
+import * as d from '../../schema/schema';
 
 /**
  * Represents a fragment shader output struct with multiple @location outputs.

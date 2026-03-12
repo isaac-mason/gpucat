@@ -21,6 +21,7 @@ import type { RenderObject } from './render-object';
 import { getBindings as getRenderObjectBindings } from './render-object';
 import type { TextureCache } from './textures';
 import { getSampler, updateTexture, getTextureData } from './textures';
+import { packToView } from '../schema/pack';
 
 /**
  * Per-BindGroup data (GPU resources).
@@ -102,19 +103,8 @@ function getData(state: BindingsState, bindGroup: BindGroup): BindGroupData {
     return data;
 }
 
-// ---------------------------------------------------------------------------
-// Main API (Three.js aligned)
-// ---------------------------------------------------------------------------
-
-/**
- * Update all bindings for a RenderObject.
- *
- * Three.js pattern (Bindings.getForRender):
- * - Gets BindGroups from RenderObject.getBindings()
- * - For each BindGroup, calls _init() then _update()
- * - Builds GPU bind groups and stores them on RenderObject
- */
-export function updateBindings(
+/** Update all bindings for a RenderObject. */
+export function updateRenderBindings(
     state: BindingsState,
     renderObject: RenderObject,
     frame: NodeFrame,
@@ -133,7 +123,7 @@ export function updateBindings(
 
     for (const bindGroup of bindGroups) {
         // Initialize bind group layout if needed
-        initBindGroup(state, bindGroup, device);
+        initBindGroup(state, bindGroup, device, GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT);
 
         // Update uniforms and check if bind group needs rebuild
         const data = getData(state, bindGroup);
@@ -152,10 +142,41 @@ export function updateBindings(
     renderObject.bindGroups = gpuBindGroups;
 }
 
-/**
- * Initialize bindings for a RenderObject.
- */
-export function initBindings(
+/** Update all bindings for a compute pass and return GPUBindGroups. */
+export function updateComputeBindings(
+    state: BindingsState,
+    nodeBuilderState: NodeBuilderState,
+    frame: NodeFrame,
+    device: GPUDevice,
+    bufferCache: BufferCache,
+    textureCache: TextureCache,
+): GPUBindGroup[] {
+    const gpuBindGroups: GPUBindGroup[] = [];
+
+    for (const bindGroup of nodeBuilderState.bindings) {
+        // Initialize bind group layout if needed
+        initBindGroup(state, bindGroup, device, GPUShaderStage.COMPUTE);
+
+        // Update bindings
+        const data = getData(state, bindGroup);
+        updateComputeBindGroup(data, bufferCache, textureCache, device, bindGroup, frame);
+
+        // Rebuild GPU bind group if needed
+        if (data.needsUpdate || !data.bindGroup) {
+            rebuildGPUBindGroup(device, bufferCache, textureCache, bindGroup, data, null);
+            data.needsUpdate = false;
+        }
+
+        if (data.bindGroup) {
+            gpuBindGroups.push(data.bindGroup);
+        }
+    }
+
+    return gpuBindGroups;
+}
+
+/** Initialize bindings for a RenderObject. */
+export function initRenderBindings(
     state: BindingsState,
     renderObject: RenderObject,
     device: GPUDevice,
@@ -168,12 +189,12 @@ export function initBindings(
 
     // Initialize each BindGroup
     for (const bindGroup of bindGroups) {
-        initBindGroup(state, bindGroup, device);
+        initBindGroup(state, bindGroup, device, GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT);
     }
 }
 
-/** Get the bind group layouts for a RenderObject. Used for pipeline creation */
-export function getBindGroupLayouts(
+/** Get the bind group layouts for a RenderObject. Used for pipeline creation. */
+export function getRenderBindGroupLayouts(
     state: BindingsState,
     renderObject: RenderObject,
 ): GPUBindGroupLayout[] {
@@ -195,8 +216,29 @@ export function getBindGroupLayouts(
     return layouts;
 }
 
-/** Get the bind groups for a RenderObject */
-export function getBindGroups(
+/** Get bind group layouts for a compute pass. Used for pipeline creation. */
+export function getComputeBindGroupLayouts(
+    state: BindingsState,
+    nodeBuilderState: NodeBuilderState,
+    device: GPUDevice,
+): GPUBindGroupLayout[] {
+    const layouts: GPUBindGroupLayout[] = [];
+
+    for (const bindGroup of nodeBuilderState.bindings) {
+        // Initialize bind group layout if needed
+        initBindGroup(state, bindGroup, device, GPUShaderStage.COMPUTE);
+
+        const data = getData(state, bindGroup);
+        if (data.bindGroupLayout) {
+            layouts.push(data.bindGroupLayout);
+        }
+    }
+
+    return layouts;
+}
+
+/** Get the bind groups for a RenderObject. */
+export function getRenderBindGroups(
     state: BindingsState,
     renderObject: RenderObject,
 ): GPUBindGroup[] {
@@ -213,8 +255,8 @@ export function getBindGroups(
     return gpuBindGroups;
 }
 
-/** Delete bindings for a RenderObject */
-export function deleteBindings(
+/** Delete bindings for a RenderObject. */
+export function deleteRenderBindings(
     _state: BindingsState,
     renderObject: RenderObject,
 ): void {
@@ -225,8 +267,8 @@ export function deleteBindings(
     renderObject._bindings = null;
 }
 
-/** Mark a RenderObject's bindings as needing rebuild. Call this when textures or other resources change. */
-export function invalidateBindings(
+/** Mark a RenderObject's bindings as needing rebuild. */
+export function invalidateRenderBindings(
     state: BindingsState,
     renderObject: RenderObject,
 ): void {
@@ -246,6 +288,7 @@ function initBindGroup(
     state: BindingsState,
     bindGroup: BindGroup,
     device: GPUDevice,
+    visibility: GPUShaderStageFlags,
 ): void {
     const data = getData(state, bindGroup);
 
@@ -253,7 +296,7 @@ function initBindGroup(
     if (data.bindGroupLayout) return;
 
     // build bind group layout entries
-    const entries = buildLayoutEntries(bindGroup);
+    const entries = buildLayoutEntries(bindGroup, visibility);
 
     // get or create the layout
     data.bindGroupLayout = getBindGroupLayout(state.layoutCache, device, entries);
@@ -262,8 +305,8 @@ function initBindGroup(
 /** Build bind group layout entries for a BindGroup. */
 function buildLayoutEntries(
     bindGroup: BindGroup,
+    visibility: GPUShaderStageFlags,
 ): GPUBindGroupLayoutEntry[] {
-    const vis = GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT;
     const entries: GPUBindGroupLayoutEntry[] = [];
 
     for (const binding of bindGroup.bindings) {
@@ -271,7 +314,7 @@ function buildLayoutEntries(
             case 'uniform':
                 entries.push({
                     binding: binding.block.binding,
-                    visibility: vis,
+                    visibility,
                     buffer: { type: 'uniform' },
                 });
                 break;
@@ -279,8 +322,12 @@ function buildLayoutEntries(
             case 'storage':
                 entries.push({
                     binding: binding.entry.binding,
-                    visibility: vis,
-                    buffer: { type: 'read-only-storage' },
+                    visibility,
+                    buffer: {
+                        type: binding.entry.access === 'read_write'
+                            ? 'storage'
+                            : 'read-only-storage',
+                    },
                 });
                 break;
 
@@ -288,7 +335,7 @@ function buildLayoutEntries(
                 const texLayout = getTextureLayoutFromType(binding.entry.type);
                 entries.push({
                     binding: binding.entry.binding,
-                    visibility: GPUShaderStage.FRAGMENT,
+                    visibility,
                     texture: texLayout,
                 });
                 break;
@@ -297,7 +344,7 @@ function buildLayoutEntries(
             case 'sampler':
                 entries.push({
                     binding: binding.entry.binding,
-                    visibility: GPUShaderStage.FRAGMENT,
+                    visibility,
                     sampler: {
                         type: binding.entry.type === 'sampler_comparison' ? 'comparison' : 'filtering',
                     },
@@ -380,15 +427,25 @@ function updateUniformBinding(
         binding.bufferKey = {};
     }
 
-    // Pack uniforms and compare in a single pass.
-    // Returns true if any value changed (needs upload).
-    const { buffer, changed } = packAndCompare(block, binding.packedBuffer, material);
+    // Ensure we have preallocated double buffers
+    const requiredBytes = block.totalBytes;
+    if (!binding.currentBuffer || binding.currentBuffer.byteLength !== requiredBytes) {
+        binding.currentBuffer = new ArrayBuffer(requiredBytes);
+        binding.scratchBuffer = new ArrayBuffer(requiredBytes);
+    }
+
+    // Pack into scratch buffer, then compare with current
+    const changed = packAndCompare(block, binding.currentBuffer, binding.scratchBuffer!, material);
 
     if (changed) {
-        binding.packedBuffer = buffer;
+        // Swap buffers: scratch becomes current
+        const temp = binding.currentBuffer;
+        binding.currentBuffer = binding.scratchBuffer!;
+        binding.scratchBuffer = temp;
 
         const U = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
-        const result = uploadRaw(bufferCache, device, binding.bufferKey, buffer, U);
+        const f32View = new Float32Array(binding.currentBuffer);
+        const result = uploadRaw(bufferCache, device, binding.bufferKey, f32View, U);
 
         // Only rebuild bind group if buffer was created/resized (not just written to)
         if (result.created) {
@@ -398,50 +455,19 @@ function updateUniformBinding(
 }
 
 /**
- * Check if a WGSL type is a signed integer type.
- */
-function isIntType(type: string): boolean {
-    return type === 'i32' || type === 'vec2i' || type === 'vec3i' || type === 'vec4i';
-}
-
-/**
- * Check if a WGSL type is an unsigned integer type.
- */
-function isUintType(type: string): boolean {
-    return type === 'u32' || type === 'vec2u' || type === 'vec3u' || type === 'vec4u';
-}
-
-/**
- * Pack uniforms and compare against existing buffer in a single pass.
- * Returns the buffer and whether any values changed.
- * 
- * This is an optimization over separate pack + compare steps:
- * - Reuses existing buffer (no allocation if size matches)
- * - Compares while writing (early exit not possible, but avoids second loop)
- * - Single pass over members
- * 
- * Supports all WGSL uniform types: f32, i32, u32, vectors, and matrices.
- * For integer types, we create Int32Array/Uint32Array views over the same
- * ArrayBuffer (Three.js approach).
+ * Pack uniforms into scratch buffer and compare against current buffer.
+ * Uses compiled layout for correct WGSL alignment.
+ * Returns true if any values changed.
  */
 function packAndCompare(
     block: UniformGroupBlock,
-    existingBuffer: Float32Array | null,
+    currentBuffer: ArrayBuffer,
+    scratchBuffer: ArrayBuffer,
     material: Material | null,
-): { buffer: Float32Array; changed: boolean } {
-    const requiredLength = Math.ceil(block.totalBytes / 4);
+): boolean {
+    const view = new DataView(scratchBuffer);
 
-    // First frame or size changed - need new buffer, definitely changed
-    if (!existingBuffer || existingBuffer.length !== requiredLength) {
-        return { buffer: packUniformGroup(block, null, material), changed: true };
-    }
-
-    // Create typed views over the same underlying ArrayBuffer for different data types
-    const f32 = existingBuffer;
-    const i32 = new Int32Array(f32.buffer);
-    const u32 = new Uint32Array(f32.buffer);
-    let changed = false;
-
+    // Pack each uniform member using compiled layout
     for (const m of block.members) {
         let value = m.node.uniform.value;
         if (value === null && material) {
@@ -452,64 +478,20 @@ function packAndCompare(
         }
         if (value === null || value === undefined) continue;
 
-        const idx = m.offset / 4; // All offsets are 4-byte aligned
-        const type = m.type;
-
-        if (type === 'mat3x3f') {
-            // mat3x3f in uniform space: 3 columns × vec4 (padded) = 48 bytes
-            const src = value as Float32Array | number[];
-            // Column 0
-            if (f32[idx + 0] !== src[0]) { f32[idx + 0] = src[0]; changed = true; }
-            if (f32[idx + 1] !== src[1]) { f32[idx + 1] = src[1]; changed = true; }
-            if (f32[idx + 2] !== src[2]) { f32[idx + 2] = src[2]; changed = true; }
-            if (f32[idx + 3] !== 0) { f32[idx + 3] = 0; changed = true; }
-            // Column 1
-            if (f32[idx + 4] !== src[3]) { f32[idx + 4] = src[3]; changed = true; }
-            if (f32[idx + 5] !== src[4]) { f32[idx + 5] = src[4]; changed = true; }
-            if (f32[idx + 6] !== src[5]) { f32[idx + 6] = src[5]; changed = true; }
-            if (f32[idx + 7] !== 0) { f32[idx + 7] = 0; changed = true; }
-            // Column 2
-            if (f32[idx + 8] !== src[6]) { f32[idx + 8] = src[6]; changed = true; }
-            if (f32[idx + 9] !== src[7]) { f32[idx + 9] = src[7]; changed = true; }
-            if (f32[idx + 10] !== src[8]) { f32[idx + 10] = src[8]; changed = true; }
-            if (f32[idx + 11] !== 0) { f32[idx + 11] = 0; changed = true; }
-        } else if (isIntType(type)) {
-            // Signed integer types: i32, vec2i, vec3i, vec4i
-            if (typeof value === 'number') {
-                if (i32[idx] !== value) { i32[idx] = value; changed = true; }
-            } else {
-                const src = value as Int32Array | number[];
-                const len = src.length;
-                for (let i = 0; i < len; i++) {
-                    if (i32[idx + i] !== src[i]) { i32[idx + i] = src[i]; changed = true; }
-                }
-            }
-        } else if (isUintType(type)) {
-            // Unsigned integer types: u32, vec2u, vec3u, vec4u
-            if (typeof value === 'number') {
-                if (u32[idx] !== value) { u32[idx] = value; changed = true; }
-            } else {
-                const src = value as Uint32Array | number[];
-                const len = src.length;
-                for (let i = 0; i < len; i++) {
-                    if (u32[idx + i] !== src[i]) { u32[idx + i] = src[i]; changed = true; }
-                }
-            }
-        } else {
-            // Float types: f32, vec2f, vec3f, vec4f, mat4x4f, etc.
-            if (typeof value === 'number') {
-                if (f32[idx] !== value) { f32[idx] = value; changed = true; }
-            } else {
-                const src = value as Float32Array | number[];
-                const len = src.length;
-                for (let i = 0; i < len; i++) {
-                    if (f32[idx + i] !== src[i]) { f32[idx + i] = src[i]; changed = true; }
-                }
-            }
-        }
+        // Cast needed: UniformValue is broader than Infer<schema> but matches at runtime
+        packToView(m.schema, view, m.offset, value as never, 'uniform');
     }
 
-    return { buffer: f32, changed };
+    // Compare buffers byte-by-byte using typed arrays
+    const current = new Uint32Array(currentBuffer);
+    const scratch = new Uint32Array(scratchBuffer);
+    const len = current.length;
+    for (let i = 0; i < len; i++) {
+        if (current[i] !== scratch[i]) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /** Update a texture binding. */
@@ -680,237 +662,6 @@ export function invokeUniformGroupCallbacks(
             frame.updateNode(node as unknown as Parameters<typeof frame.updateNode>[0]);
         }
     }
-}
-
-/**
- * Pack a uniform group into a typed array.
- *
- * mat3x3f is handled specially: in WGSL uniform address space, each column is
- * padded to vec4 (16 bytes), so mat3x3f occupies 48 bytes (3 × 16).
- *
- * Supports all WGSL uniform types: f32, i32, u32, vectors, and matrices.
- * For integer types, we create Int32Array/Uint32Array views over the same
- * ArrayBuffer (Three.js approach).
- *
- * @param block - The uniform group block to pack
- * @param existingBuffer - Optional existing buffer to reuse (avoids allocation)
- * @param material - Optional material for name-based uniform resolution
- * @returns The packed Float32Array (may be the same as existingBuffer if size matches)
- */
-export function packUniformGroup(
-    block: UniformGroupBlock,
-    existingBuffer: Float32Array | null = null,
-    material: Material | null = null,
-): Float32Array {
-    const requiredLength = Math.ceil(block.totalBytes / 4);
-
-    // Reuse existing buffer if it's the right size, otherwise allocate
-    let f32: Float32Array;
-    if (existingBuffer && existingBuffer.length === requiredLength) {
-        f32 = existingBuffer;
-    } else {
-        f32 = new Float32Array(requiredLength);
-    }
-
-    // Create typed views over the same underlying ArrayBuffer for integer types
-    const i32 = new Int32Array(f32.buffer);
-    const u32 = new Uint32Array(f32.buffer);
-
-    for (const m of block.members) {
-        // Get value: first try direct value, then try name-based resolution from material
-        let value = m.node.uniform.value;
-        if (value === null && material) {
-            const matUniform = material.uniforms.get(m.node.name);
-            if (matUniform) {
-                value = matUniform.value;
-            }
-        }
-        if (value === null || value === undefined) continue;
-
-        // All offsets are 4-byte aligned, so we can work in element indices
-        const idx = m.offset / 4;
-        const type = m.type;
-
-        if (type === 'mat3x3f') {
-            // mat3x3f in uniform space: 3 columns × vec4 (padded) = 48 bytes
-            // Input is a flat mat3 (9 floats), output is 12 floats with padding
-            const src = value as Float32Array | number[];
-            // Column 0
-            f32[idx + 0] = src[0]; f32[idx + 1] = src[1]; f32[idx + 2] = src[2]; f32[idx + 3] = 0;
-            // Column 1
-            f32[idx + 4] = src[3]; f32[idx + 5] = src[4]; f32[idx + 6] = src[5]; f32[idx + 7] = 0;
-            // Column 2
-            f32[idx + 8] = src[6]; f32[idx + 9] = src[7]; f32[idx + 10] = src[8]; f32[idx + 11] = 0;
-        } else if (isIntType(type)) {
-            // Signed integer types: i32, vec2i, vec3i, vec4i
-            if (typeof value === 'number') {
-                i32[idx] = value;
-            } else {
-                const src = value as Int32Array | number[];
-                const len = src.length;
-                for (let i = 0; i < len; i++) {
-                    i32[idx + i] = src[i];
-                }
-            }
-        } else if (isUintType(type)) {
-            // Unsigned integer types: u32, vec2u, vec3u, vec4u
-            if (typeof value === 'number') {
-                u32[idx] = value;
-            } else {
-                const src = value as Uint32Array | number[];
-                const len = src.length;
-                for (let i = 0; i < len; i++) {
-                    u32[idx + i] = src[i];
-                }
-            }
-        } else {
-            // Float types: f32, vec2f, vec3f, vec4f, mat4x4f, etc.
-            if (typeof value === 'number') {
-                f32[idx] = value;
-            } else {
-                const src = value as Float32Array | number[];
-                const len = src.length;
-                for (let i = 0; i < len; i++) {
-                    f32[idx + i] = src[i];
-                }
-            }
-        }
-    }
-
-    return f32;
-}
-
-// ---------------------------------------------------------------------------
-// Compute Bindings API
-// ---------------------------------------------------------------------------
-
-/**
- * Update all bindings for a compute pass and return GPUBindGroups.
- */
-export function updateForCompute(
-    state: BindingsState,
-    nodeBuilderState: NodeBuilderState,
-    frame: NodeFrame,
-    device: GPUDevice,
-    bufferCache: BufferCache,
-    textureCache: TextureCache,
-): GPUBindGroup[] {
-    const gpuBindGroups: GPUBindGroup[] = [];
-
-    for (const bindGroup of nodeBuilderState.bindings) {
-        // Initialize bind group layout if needed (uses compute visibility)
-        initComputeBindGroup(state, bindGroup, device);
-
-        // Update bindings
-        const data = getData(state, bindGroup);
-        updateComputeBindGroup(data, bufferCache, textureCache, device, bindGroup, frame);
-
-        // Rebuild GPU bind group if needed
-        if (data.needsUpdate || !data.bindGroup) {
-            rebuildGPUBindGroup(device, bufferCache, textureCache, bindGroup, data, null);
-            data.needsUpdate = false;
-        }
-
-        if (data.bindGroup) {
-            gpuBindGroups.push(data.bindGroup);
-        }
-    }
-
-    return gpuBindGroups;
-}
-
-/**
- * Get bind group layouts for a compute pass (for pipeline creation).
- */
-export function getLayoutsForCompute(
-    state: BindingsState,
-    nodeBuilderState: NodeBuilderState,
-    device: GPUDevice,
-): GPUBindGroupLayout[] {
-    const layouts: GPUBindGroupLayout[] = [];
-
-    for (const bindGroup of nodeBuilderState.bindings) {
-        // Initialize bind group layout if needed
-        initComputeBindGroup(state, bindGroup, device);
-
-        const data = getData(state, bindGroup);
-        if (data.bindGroupLayout) {
-            layouts.push(data.bindGroupLayout);
-        }
-    }
-
-    return layouts;
-}
-
-/** Initialize a compute BindGroup (create layout with COMPUTE visibility). */
-function initComputeBindGroup(
-    state: BindingsState,
-    bindGroup: BindGroup,
-    device: GPUDevice,
-): void {
-    const data = getData(state, bindGroup);
-
-    // already initialized
-    if (data.bindGroupLayout) return;
-
-    // build bind group layout entries with COMPUTE visibility
-    const entries = buildComputeLayoutEntries(bindGroup);
-
-    // get or create the layout
-    data.bindGroupLayout = getBindGroupLayout(state.layoutCache, device, entries);
-}
-
-/** Build bind group layout entries for a compute BindGroup. */
-function buildComputeLayoutEntries(
-    bindGroup: BindGroup,
-): GPUBindGroupLayoutEntry[] {
-    const vis = GPUShaderStage.COMPUTE;
-    const entries: GPUBindGroupLayoutEntry[] = [];
-
-    for (const binding of bindGroup.bindings) {
-        switch (binding.kind) {
-            case 'uniform':
-                entries.push({
-                    binding: binding.block.binding,
-                    visibility: vis,
-                    buffer: { type: 'uniform' },
-                });
-                break;
-
-            case 'storage':
-                entries.push({
-                    binding: binding.entry.binding,
-                    visibility: vis,
-                    buffer: {
-                        type: binding.entry.access === 'read_write'
-                            ? 'storage'
-                            : 'read-only-storage',
-                    },
-                });
-                break;
-
-            case 'texture':
-                entries.push({
-                    binding: binding.entry.binding,
-                    visibility: vis,
-                    texture: {},
-                });
-                break;
-
-            case 'sampler':
-                entries.push({
-                    binding: binding.entry.binding,
-                    visibility: vis,
-                    sampler: {},
-                });
-                break;
-        }
-    }
-
-    // Sort by binding index
-    entries.sort((a, b) => a.binding - b.binding);
-
-    return entries;
 }
 
 /** Update a compute BindGroup (uniforms, textures, samplers, storage). */

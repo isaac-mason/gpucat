@@ -1,5 +1,5 @@
 import * as g from 'gpucat';
-import { d, packStructArray, writeStructArray, createVertexBuffer, createIndexBuffer, createIndirectBuffer } from 'gpucat';
+import { d, packArray, packTo, layoutStrideOf, createVertexBuffer, createIndexBuffer, createIndirectBuffer } from 'gpucat';
 import { mat4, quat, vec3 } from 'mathcat';
 
 const TOTAL = 120; // total instances
@@ -107,7 +107,7 @@ const material = new g.Material({ vertex: clipPos, fragment: finalColor });
 //      [draw*5+4] firstInstance
 // ---------------------------------------------------------------------------
 
-const indirectData = new Uint32Array(packStructArray(g.DrawIndexedIndirect, [
+const indirectData = new Uint32Array(packArray(g.DrawIndexedIndirect, [
     { indexCount: boxIdxCount, instanceCount: TOTAL / 2, firstIndex: 0,           baseVertex: 0,           firstInstance: 0        },
     { indexCount: sphIdxCount, instanceCount: TOTAL / 2, firstIndex: boxIdxCount, baseVertex: boxVertCount, firstInstance: TOTAL / 2 },
 ]));
@@ -184,10 +184,10 @@ async function main() {
         const boxCount = Number(slider.value);
         const sphCount = TOTAL - boxCount;
 
-        writeStructArray(g.DrawIndexedIndirect, [
-            { indexCount: boxIdxCount, instanceCount: boxCount, firstIndex: 0,           baseVertex: 0,           firstInstance: 0        },
-            { indexCount: sphIdxCount, instanceCount: sphCount, firstIndex: boxIdxCount, baseVertex: boxVertCount, firstInstance: boxCount },
-        ], indirectBuffer.array!.buffer as ArrayBuffer, 0);
+        const stride = layoutStrideOf(g.DrawIndexedIndirect);
+        const buf = indirectBuffer.array!.buffer as ArrayBuffer;
+        packTo(g.DrawIndexedIndirect, buf, 0,          { indexCount: boxIdxCount, instanceCount: boxCount, firstIndex: 0,           baseVertex: 0,           firstInstance: 0        });
+        packTo(g.DrawIndexedIndirect, buf, stride,     { indexCount: sphIdxCount, instanceCount: sphCount, firstIndex: boxIdxCount, baseVertex: boxVertCount, firstInstance: boxCount });
         indirectBuffer.needsUpdate = true;
 
         label.textContent = `boxes: ${boxCount}   spheres: ${sphCount}`;

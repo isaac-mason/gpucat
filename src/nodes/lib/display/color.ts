@@ -1,5 +1,5 @@
 import { Fn, vec3f, f32 } from '../core';
-import * as d from '../../schema';
+import * as d from '../../../schema/schema';
 
 /**
  * ACES filmic tone mapping (Narkowicz 2015).

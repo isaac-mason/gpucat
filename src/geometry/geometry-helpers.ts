@@ -1,5 +1,5 @@
 import { createIndexBuffer, createVertexBuffer } from '../core/gpu-buffer';
-import * as d from '../nodes/schema';
+import * as d from '../schema/schema';
 import { Geometry } from './geometry';
 
 const BOX_VERTEX_COUNT = 24; // 6 faces * 4 vertices

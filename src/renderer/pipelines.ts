@@ -1,5 +1,5 @@
 import { type Node, type ComputeNode, OutputStructNode } from '../nodes/nodes';
-import type { Any } from '../nodes/schema';
+import type { Any } from '../schema/schema';
 import type { Material } from '../material/material';
 import type { Geometry } from '../geometry/geometry';
 import type { RenderObject } from './render-object';

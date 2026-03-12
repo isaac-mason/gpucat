@@ -1,5 +1,5 @@
 import { renderGroup, UniformNode, Uniform } from './uniform';
-import * as d from '../schema';
+import * as d from '../../schema/schema';
 
 /** Elapsed time in seconds. In renderGroup. */
 export const timeElapsed = /*@__PURE__*/ new UniformNode(

@@ -1,4 +1,4 @@
-import { isArrayDesc, isSizedArrayDesc, isStructDesc, itemSizeOf, typedArrayCtorOf, wgslSizeOf, u32 as u32Schema, type Any, type ArrayDesc, type SizedArrayDesc, type StructDesc, type StructSchema, type TypedArrayFor } from '../nodes/schema';
+import { isArrayDesc, isSizedArrayDesc, isStructDesc, itemSizeOf, typedArrayCtorOf, wgslSizeOf, u32 as u32Schema, type Any, type ArrayDesc, type SizedArrayDesc, type StructDesc, type StructSchema, type TypedArrayFor } from '../schema/schema';
 
 /** determines how a buffer's lifecycle is managed */
 export enum BufferLifecycle {

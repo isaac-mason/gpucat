@@ -24,7 +24,7 @@ import type { Object3D } from '../core/object3d';
 import { getBufferCacheStats } from '../renderer/buffers';
 import * as pipelines from '../renderer/pipelines';
 import { getRenderObjectsStats } from '../renderer/render-objects';
-import { Any } from '../nodes/schema';
+import { Any } from '../schema/schema';
 
 // ---------------------------------------------------------------------------
 // Frame data types

@@ -1,5 +1,5 @@
 import { Node, type StructDef, type StructInstance, ConstructNode, ConstNode, _nodeId } from './core';
-import type { StructSchema, Any } from '../schema';
+import type { StructSchema, Any } from '../../schema/schema';
 import type { NodeFrame } from '../../renderer/node-frame';
 import {
     Uniform,

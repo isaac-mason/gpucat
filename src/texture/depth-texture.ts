@@ -1,6 +1,6 @@
 import { GpuTexture } from '../core/gpu-texture';
 import { GpuSampler } from '../core/gpu-sampler';
-import * as d from '../nodes/schema';
+import * as d from '../schema/schema';
 
 export type DepthTextureFormat = 'depth16unorm' | 'depth24plus' | 'depth24plus-stencil8' | 'depth32float' | 'depth32float-stencil8';
 

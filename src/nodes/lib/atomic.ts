@@ -1,6 +1,6 @@
 import { addToStack, CallNode, Node } from './core';
-import type { Any } from '../schema';
-import * as d from '../schema';
+import type { Any } from '../../schema/schema';
+import * as d from '../../schema/schema';
 
 /* atomic operations for i32 and u32 types */
 // Pointers can be bare `i32`/`u32` nodes (e.g. from a plain storageArray) or

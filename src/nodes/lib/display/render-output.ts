@@ -1,4 +1,4 @@
-import * as d from '../../schema';
+import * as d from '../../../schema/schema';
 import { f32, vec4f, type Node } from '../core';
 import {
     acesToneMapping,

@@ -33,7 +33,7 @@
 import type { WebGPURenderer } from '../renderer/renderer';
 import type { InspectorNode, ComputeNode } from '../nodes/nodes';
 import type { Object3D } from '../core/object3d';
-import { Any } from '../nodes/schema';
+import { Any } from '../schema/schema';
 
 export class InspectorBase {
     /** Back-reference to the renderer. Set by renderer after init(). */

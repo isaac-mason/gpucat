@@ -1,5 +1,5 @@
 
-import * as d from '../schema';
+import * as d from '../../schema/schema';
 import { CallNode, Node, ParamDesc, ParamDescsToNodes } from './core';
 
 /**

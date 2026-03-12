@@ -9,7 +9,7 @@ import type { MRTNode } from '../mrt';
 import { TextureBindingNode, TextureNode } from '../texture';
 import { Node } from '../core';
 import { cameraFar, cameraNear } from '../camera';
-import * as d from '../../schema';
+import * as d from '../../../schema/schema';
 import { objectGroup } from '../uniform';
 
 /** Union type for textures that can be stored in a pass */

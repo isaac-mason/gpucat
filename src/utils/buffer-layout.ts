@@ -33,7 +33,7 @@ import {
     wgslSizeOf,
     wgslStrideOf,
     roundUp,
-} from '../nodes/schema';
+} from '../schema/schema';
 
 /**
  * Write a single JS value into `view` at the given byte `offset`, following

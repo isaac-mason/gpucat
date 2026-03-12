@@ -1,7 +1,7 @@
 import { Source, type SourceData } from './source';
 import { GpuTexture } from '../core/gpu-texture';
 import { GpuSampler } from '../core/gpu-sampler';
-import * as d from '../nodes/schema';
+import * as d from '../schema/schema';
 
 /** Wrap modes matching WebGPU GPUAddressMode */
 export type WrapMode = 'clamp-to-edge' | 'repeat' | 'mirror-repeat';

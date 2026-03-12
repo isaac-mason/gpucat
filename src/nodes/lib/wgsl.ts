@@ -1,5 +1,5 @@
 import { Node } from './core';
-import * as d from '../schema';
+import * as d from '../../schema/schema';
 
 /**
  * Inline WGSL expression node.

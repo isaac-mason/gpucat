@@ -13,6 +13,7 @@
  * 5. Updates version tracking (textureData.version = texture.version)
  */
 
+import { GpuSampler } from '../core/gpu-sampler';
 import { GpuTexture } from '../core/gpu-texture';
 import type { Source } from '../texture/source';
 import {
@@ -509,19 +510,9 @@ function getDefaultTexture(cache: TextureCache, device: GPUDevice, format: GPUTe
 export function getSampler(
     cache: TextureCache,
     device: GPUDevice,
-    samplerNode: {
-        settingsKey: string;
-        minFilter: GPUFilterMode;
-        magFilter: GPUFilterMode;
-        mipmapFilter: GPUMipmapFilterMode;
-        addressModeU: GPUAddressMode;
-        addressModeV: GPUAddressMode;
-        addressModeW: GPUAddressMode;
-        maxAnisotropy: number;
-        compare?: GPUCompareFunction;
-    }
+    gpuSampler: GpuSampler
 ): GPUSampler {
-    const key = samplerNode.settingsKey;
+    const key = gpuSampler.settingsKey;
 
     let data = cache.samplerCache.get(key);
     if (data) {
@@ -530,7 +521,7 @@ export function getSampler(
     }
 
     // WebGPU constraint: anisotropy > 1 requires all filters to be 'linear'
-    let { minFilter, magFilter, mipmapFilter, maxAnisotropy } = samplerNode;
+    let { minFilter, magFilter, mipmapFilter, maxAnisotropy } = gpuSampler;
     if (maxAnisotropy > 1) {
         if (minFilter !== 'linear' || magFilter !== 'linear' || mipmapFilter !== 'linear') {
             maxAnisotropy = 1;
@@ -541,11 +532,11 @@ export function getSampler(
         magFilter,
         minFilter,
         mipmapFilter,
-        addressModeU: samplerNode.addressModeU,
-        addressModeV: samplerNode.addressModeV,
-        addressModeW: samplerNode.addressModeW,
+        addressModeU: gpuSampler.addressModeU,
+        addressModeV: gpuSampler.addressModeV,
+        addressModeW: gpuSampler.addressModeW,
         maxAnisotropy,
-        compare: samplerNode.compare,
+        compare: gpuSampler.compare,
     });
 
     cache.samplerCache.set(key, { sampler, usedTimes: 1 });

@@ -38,7 +38,7 @@ import { buildVertexBufferLayouts } from '../renderer/render-objects';
 import * as buffers from '../renderer/buffers';
 import * as bindings from '../renderer/bindings';
 import { getIndexFormat } from '../core/gpu-buffer';
-import { Any } from '../nodes/schema';
+import { Any } from '../schema/schema';
 
 
 type DisplayCycleEntry = { needsUpdate: boolean; duration: number; time: number };
@@ -364,7 +364,7 @@ export class Inspector extends RendererInspector {
         console.groupEnd();
 
         // Build probe pipeline: same bind group layouts, patched shader
-        const bindGroupLayouts = bindings.getBindGroupLayouts(renderer._bindings, sourceRO);
+        const bindGroupLayouts = bindings.getRenderBindGroupLayouts(renderer._bindings, sourceRO);
         if (bindGroupLayouts.length === 0) {
             console.warn('[gpucat probe] bind group layouts not yet initialised — try clicking again after the first frame renders');
             return null;

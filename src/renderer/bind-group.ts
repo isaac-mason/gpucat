@@ -31,12 +31,12 @@ export type UniformBinding = {
      */
     lastRenderId: number;
     /**
-     * Cached Float32Array for packing uniforms.
-     * Used for value-based comparison (Three.js approach) - only upload
-     * if packed values actually changed. For integer types (i32, u32), we
-     * create Int32Array/Uint32Array views over the same underlying ArrayBuffer.
+     * Double-buffered uniform packing: current holds last uploaded values,
+     * scratch is used for packing new values before comparison.
+     * Uses ArrayBuffer to support typed views (Float32Array, Int32Array, etc).
      */
-    packedBuffer: Float32Array | null;
+    currentBuffer: ArrayBuffer | null;
+    scratchBuffer: ArrayBuffer | null;
 };
 
 /** Storage buffer binding (SSBO) */
@@ -103,7 +103,8 @@ export function createUniformBindGroup(block: UniformGroupBlock): BindGroup {
         bufferKey: null,
         lastFrameId: -1,
         lastRenderId: -1,
-        packedBuffer: null,
+        currentBuffer: null,
+        scratchBuffer: null,
     };
 
     return {
@@ -163,7 +164,8 @@ export function cloneBindGroup(source: BindGroup): BindGroup {
                     bufferKey: null, // New buffer key for cloned group
                     lastFrameId: -1,
                     lastRenderId: -1,
-                    packedBuffer: null,
+                    currentBuffer: null,
+                    scratchBuffer: null,
                 };
             case 'storage':
                 return {

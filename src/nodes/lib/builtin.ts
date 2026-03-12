@@ -1,6 +1,6 @@
 import { Node } from './core';
-import type { Any } from '../schema';
-import * as d from '../schema';
+import type { Any } from '../../schema/schema';
+import * as d from '../../schema/schema';
 
 export type BuiltinKind = 'instance_index' | 'instance_data' |
     'vertex_index' | 'global_invocation_id' | 'local_invocation_id' |

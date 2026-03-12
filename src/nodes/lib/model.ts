@@ -1,7 +1,7 @@
 import { mul, f32, vec4f, Node } from './core';
 import { attribute } from './attribute';
 import { objectGroup, UniformNode, Uniform } from './uniform';
-import * as d from '../schema';
+import * as d from '../../schema/schema';
 import { cameraViewMatrix, cameraProjectionMatrix } from './camera';
 
 /** Model-to-world transform matrix. */

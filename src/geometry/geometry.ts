@@ -1,6 +1,6 @@
 import type { Box3, Sphere } from 'mathcat';
 import type { GpuBuffer } from '../core/gpu-buffer';
-import type { Any } from '../nodes/schema';
+import type { Any } from '../schema/schema';
 
 /**
  * Subset of geometry to draw.

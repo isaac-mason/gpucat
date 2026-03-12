@@ -1,12 +1,12 @@
 import type { NodeFrame } from '../../renderer/node-frame';
-import type { Any, WgslType, MulResultDesc, ArithResultDesc, CompareResultDesc, StructField, StructKeys, VecElementDesc, Vec2DescOf, Vec3DescOf, Vec4DescOf } from '../schema';
-import { isStructDef } from '../schema';
-import * as d from '../schema';
+import type { Any, WgslType, MulResultDesc, ArithResultDesc, CompareResultDesc, StructField, StructKeys, VecElementDesc, Vec2DescOf, Vec3DescOf, Vec4DescOf } from '../../schema/schema';
+import { isStructDef } from '../../schema/schema';
+import * as d from '../../schema/schema';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 // Re-export WgslType from schema for backwards compat in external files
-export type { WgslType } from '../schema';
+export type { WgslType } from '../../schema/schema';
 
 export type ScalarType = 'f32' | 'i32' | 'u32' | 'bool' | 'f16';
 export type AtomicType = 'atomic<i32>' | 'atomic<u32>';

@@ -484,7 +484,7 @@ export function buildBindingsTable(state: NodeBuilderState): HTMLDivElement {
                 k.textContent = `  ${m.uniformId}`;
                 const v = document.createElement('span');
                 v.className = 'dc-kv-val';
-                v.textContent = `${m.type} (${m.size}b)`;
+                v.textContent = `${m.schema.wgslType} (${m.size}b)`;
                 memberEl.appendChild(k);
                 memberEl.appendChild(v);
                 table.appendChild(memberEl);

@@ -18,7 +18,7 @@
 
 import type { Geometry } from '../geometry/geometry';
 import { getIndexFormat, type GpuBuffer } from '../core/gpu-buffer';
-import type { Any } from '../nodes/schema';
+import type { Any } from '../schema/schema';
 import type { Material } from '../material/material';
 import type { Mesh } from '../objects/mesh';
 import type { Camera } from '../camera/camera';
