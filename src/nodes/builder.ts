@@ -46,7 +46,6 @@ import { constLiteral } from './wgsl-utils';
 
 /* public apis */
 
-
 export function compile(slots: CompileSlots): CompileResult {
     // create contexts for both stages
     const vertexCtx = createContext('vertex', true);

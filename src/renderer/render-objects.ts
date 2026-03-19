@@ -287,12 +287,7 @@ export function initRenderObjectWithPromises(
     return true;
 }
 
-// Re-export buildVertexBufferLayouts from pipelines.ts
-export { buildVertexBufferLayouts } from './pipelines';
-
-/**
- * Dispose all RenderObjects for a specific mesh.
- */
+/** Dispose all RenderObjects for a specific mesh. */
 export function disposeRenderObjectsForMesh(state: RenderObjectsState, mesh: Mesh): void {
     for (const renderObject of state.renderObjects) {
         if (renderObject.mesh === mesh) {
@@ -301,9 +296,7 @@ export function disposeRenderObjectsForMesh(state: RenderObjectsState, mesh: Mes
     }
 }
 
-/**
- * Dispose all RenderObjects for a specific material.
- */
+/** Dispose all RenderObjects for a specific material. */
 export function disposeRenderObjectsForMaterial(state: RenderObjectsState, material: Material): void {
     for (const renderObject of state.renderObjects) {
         if (renderObject.material === material) {
@@ -312,9 +305,7 @@ export function disposeRenderObjectsForMaterial(state: RenderObjectsState, mater
     }
 }
 
-/**
- * Dispose all RenderObjects.
- */
+/** Dispose all RenderObjects. */
 export function disposeAllRenderObjects(state: RenderObjectsState): void {
     for (const renderObject of state.renderObjects) {
         disposeRenderObject(renderObject);
@@ -323,21 +314,19 @@ export function disposeAllRenderObjects(state: RenderObjectsState): void {
     state.chainMaps.clear();
 }
 
-/**
- * Get statistics about RenderObjects.
- */
+/** Get statistics about RenderObjects. */
 export function getRenderObjectsStats(state: RenderObjectsState): {
     total: number;
     perPass: Record<string, number>;
 } {
     const perPass: Record<string, number> = {};
 
-    // Count render objects per pass (approximate - we can't enumerate ChainMap)
+    // count render objects per pass (approximate - we can't enumerate ChainMap)
     for (const passId of state.chainMaps.keys()) {
         perPass[passId] = 0;
     }
 
-    // Count from the set
+    // count from the set
     for (const ro of state.renderObjects) {
         const p = ro.passId || 'default';
         if (p in perPass) perPass[p]++;

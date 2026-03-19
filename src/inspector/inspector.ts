@@ -34,7 +34,7 @@ import { CanvasTarget } from '../renderer/canvas-target';
 import { buildProbeWGSL } from './probe-wgsl';
 import type { ProbeTarget } from './probe-wgsl';
 import type { RenderObject } from '../renderer/render-object';
-import { buildVertexBufferLayouts } from '../renderer/render-objects';
+import { buildVertexBufferLayouts } from '../renderer/pipelines';
 import * as buffers from '../renderer/buffers';
 import * as bindings from '../renderer/bindings';
 import { getIndexFormat } from '../core/gpu-buffer';

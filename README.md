@@ -6,7 +6,7 @@
 
 # gpucat
 
-gpucat is a webgpu utilities library.
+gpucat is a typescript-friendly WebGPU renderer.
 
 ## API Documentation
 
