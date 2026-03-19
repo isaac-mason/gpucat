@@ -1,0 +1,33 @@
+import type { GUI } from './GUI';
+import { Controller } from './Controller';
+export declare class NumberController extends Controller<number> {
+    $input: HTMLInputElement;
+    $slider: HTMLDivElement | undefined;
+    $fill: HTMLDivElement | undefined;
+    _min: number | undefined;
+    _max: number | undefined;
+    _step: number;
+    _stepExplicit: boolean;
+    _decimals: number | undefined;
+    _hasSlider: boolean;
+    _inputFocused: boolean;
+    constructor(parent: GUI, object: object, property: string, min?: number, max?: number, step?: number);
+    min(min: number): this;
+    max(max: number): this;
+    step(step: number, explicit?: boolean): this;
+    decimals(decimals: number): this;
+    updateDisplay(): this;
+    private _initInputHandlers;
+    private _initSlider;
+    private _setDraggingStyle;
+    private _getImplicitStep;
+    private _onUpdateMinMax;
+    private _normalizeMouseWheel;
+    private _arrowKeyMultiplier;
+    private _snap;
+    private _clamp;
+    private _snapClampSetValue;
+    private get _hasScrollBar();
+    private get _hasMin();
+    private get _hasMax();
+}

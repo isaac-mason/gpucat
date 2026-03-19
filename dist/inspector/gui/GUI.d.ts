@@ -1,0 +1,55 @@
+import { Controller, type ChangeEvent } from './Controller';
+import { NumberController } from './NumberController';
+import { BooleanController } from './BooleanController';
+import { StringController } from './StringController';
+import { ColorController } from './ColorController';
+import { OptionController } from './OptionController';
+import { FunctionController } from './FunctionController';
+export interface GUIOptions {
+    parent?: GUI;
+    title?: string;
+    closeFolders?: boolean;
+    container?: HTMLElement;
+}
+type ControllerForType<V> = V extends number ? NumberController : V extends boolean ? BooleanController : V extends string ? StringController : V extends (() => void) ? FunctionController : Controller<V>;
+export declare class GUI {
+    parent: GUI | undefined;
+    root: GUI;
+    children: Array<GUI | Controller>;
+    controllers: Controller[];
+    folders: GUI[];
+    domElement: HTMLElement;
+    $title: HTMLButtonElement;
+    $children: HTMLElement;
+    _closed: boolean;
+    _hidden: boolean;
+    _title: string;
+    _closeFolders: boolean;
+    _onChange: ((event: ChangeEvent) => void) | undefined;
+    _onFinishChange: ((event: ChangeEvent) => void) | undefined;
+    _onOpenClose: ((gui: GUI) => void) | undefined;
+    constructor({ parent, title, closeFolders, container }?: GUIOptions);
+    add<T extends object, K extends keyof T & string, O>(object: T, property: K, options: O[] | Record<string, O>): OptionController<O>;
+    add<T extends object, K extends keyof T & string>(object: T, property: K, min?: number, max?: number, step?: number): ControllerForType<T[K]>;
+    add(object: object, property: string, minOrOptions?: number | unknown[] | Record<string, unknown>, max?: number, step?: number): Controller;
+    addColor<T extends object, K extends keyof T & string>(object: T, property: K, rgbScale?: number): ColorController;
+    addFolder(title: string): GUI;
+    open(open?: boolean): this;
+    close(): this;
+    show(show?: boolean): this;
+    hide(): this;
+    title(title: string): this;
+    reset(recursive?: boolean): this;
+    onChange(callback: (event: ChangeEvent) => void): this;
+    _callOnChange(controller: Controller): void;
+    onFinishChange(callback: (event: ChangeEvent) => void): this;
+    _callOnFinishChange(controller: Controller): void;
+    onOpenClose(callback: (gui: GUI) => void): this;
+    _callOnOpenClose(changedGUI: GUI): void;
+    destroy(): void;
+    controllersRecursive(): Controller[];
+    foldersRecursive(): GUI[];
+    private _setClosed;
+    private _openAnimated;
+}
+export {};
