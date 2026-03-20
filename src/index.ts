@@ -134,6 +134,8 @@ export {
     fxaa,
 } from './nodes/nodes';
 
+export { compile, compileCompute } from './nodes/builder';
+
 export * as d from './schema/schema';
 export {
     pack, packArray, packTo,
