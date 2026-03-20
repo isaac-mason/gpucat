@@ -419,7 +419,7 @@ const cullCompute = Fn(() => {
     const aabbMin = page.aabbMin.toVar('aabbMin');
     const aabbMax = page.aabbMax.toVar('aabbMax');
 
-    const Var_visible = Var(count.greaterThan(u32(0)), 'visible');
+    const visible = Var(count.greaterThan(u32(0)), 'visible');
 
     for (let i = 0; i < 6; i++) {
         const plane = frustumStorage.field("planes").element(u32(i)).toVar(`plane${i}`);
@@ -430,11 +430,11 @@ const cullCompute = Fn(() => {
         const py = planeY.greaterThanEqual(f32(0)).select(aabbMax.y, aabbMin.y);
         const pz = planeZ.greaterThanEqual(f32(0)).select(aabbMax.z, aabbMin.z);
         const dist = planeX.mul(px).add(planeY.mul(py)).add(planeZ.mul(pz)).add(plane.w);
-        If(dist.lessThan(f32(0)), () => { Var_visible.assign(bool(false)); });
+        If(dist.lessThan(f32(0)), () => { visible.assign(bool(false)); });
     }
 
     const draw = indirectStorage.element(id).fields();
-    draw.indexCount.assign(Var_visible.select(count, u32(0)));
+    draw.indexCount.assign(visible.select(count, u32(0)));
     draw.instanceCount.assign(u32(1));
     draw.firstIndex.assign(id.mul(u32(PAGE_INDICES)));
     draw.baseVertex.assign(id.mul(u32(PAGE_VERTS)));

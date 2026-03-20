@@ -460,13 +460,10 @@ export declare class IndexNode<D extends Any> extends Node<D> {
 /** Type-safe field access for structs - infers the field type from the struct descriptor */
 export declare const field: <D extends Any, K extends StructKeys<D>>(node: Node<D>, name: K) => Node<StructField<D, K>>;
 export declare const index: <N extends Node<Any>>(array: N, idx: Node<Any>) => Node<d.ElementOf<N["type"]>>;
-/** Type for field accessor object returned by fields() */
-export type Fields<S extends d.StructSchema> = {
-    readonly [K in keyof S]: Node<S[K]>;
-};
+export type Fields<S extends d.StructSchema> = StructInstance<S>;
 /**
  * Create field accessor object for a struct node.
- * Returns an object with typed Node properties for each field.
+ * Returns an object with typed Node properties for each field plus the $node reference.
  *
  * @example
  * const particle = index(particleBuffer, computeIndex);
@@ -827,7 +824,9 @@ export type StructDef<S extends d.StructSchema> = {
     readonly members: StructMember[];
     readonly node: StructNode<S>;
     readonly nestedDefs: ReadonlyMap<string, StructDef<d.StructSchema>>;
-    instantiate<N extends Node<Any>>(base: N): StructInstance<S>;
+    construct(fields: {
+        readonly [K in keyof S]: Node<S[K]>;
+    }): ConstructNode<StructDef<S>>;
 };
 export declare function struct<S extends d.StructSchema>(name: string, fields: S): StructDef<S>;
 export declare class StructNode<S extends d.StructSchema = d.StructSchema> extends Node<d.StructDesc<S>> {

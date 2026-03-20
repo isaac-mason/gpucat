@@ -676,13 +676,12 @@ export const index = <N extends Node<Any>>(
     return new IndexNode(elementDesc, array, idx) as unknown as Node<d.ElementOf<N["type"]>>;
 };
 
-/** Type for field accessor object returned by fields() */
-export type Fields<S extends d.StructSchema> = { readonly [K in keyof S]: Node<S[K]> };
+export type Fields<S extends d.StructSchema> = StructInstance<S>;
 
 /**
  * Create field accessor object for a struct node.
- * Returns an object with typed Node properties for each field.
- * 
+ * Returns an object with typed Node properties for each field plus the $node reference.
+ *
  * @example
  * const particle = index(particleBuffer, computeIndex);
  * const { position, velocity } = fields(particle);
@@ -690,17 +689,17 @@ export type Fields<S extends d.StructSchema> = { readonly [K in keyof S]: Node<S
  */
 export function fields<S extends d.StructSchema>(node: Node<StructDef<S>>): Fields<S>;
 export function fields<S extends d.StructSchema>(node: Node<d.StructDesc<S>>): Fields<S>;
-export function fields(node: Node<Any>): Record<string, Node<Any>> {
+export function fields<S extends d.StructSchema>(node: Node<d.StructDesc<S>>): StructInstance<S> {
     const desc = node.type;
     if (!desc || typeof desc !== 'object' || !('fields' in desc)) {
         throw new Error('[gpucat] fields() requires a struct-typed node');
     }
     const structFields = (desc as { fields: d.StructSchema }).fields;
-    const result: Record<string, Node<Any>> = {};
+    const result: Record<string, Node<Any>> = { $node: node as unknown as Node<d.StructDesc> };
     for (const [fieldName, fieldDesc] of Object.entries(structFields)) {
         result[fieldName] = new FieldNode(fieldDesc as Any, node, fieldName);
     }
-    return result;
+    return result as StructInstance<S>;
 }
 
 export const toF32  = <D extends Any>(node: Node<D>): Node<d.f32> => new CallNode(d.f32, 'f32', [node]);
@@ -1224,6 +1223,7 @@ export function compute(fn: FnNode<Any>, opts: ComputeOptions): ComputeNode { re
 
 export type StructInstance<S extends d.StructSchema> = { readonly $node: Node<d.StructDesc> } & { readonly [K in keyof S]: Node<S[K]> };
 export type StructMember = { readonly name: string; readonly type: Any };
+
 export type StructDef<S extends d.StructSchema> = {
     readonly type: 'struct';
     readonly wgslType: string;
@@ -1232,7 +1232,7 @@ export type StructDef<S extends d.StructSchema> = {
     readonly members: StructMember[];
     readonly node: StructNode<S>;
     readonly nestedDefs: ReadonlyMap<string, StructDef<d.StructSchema>>;
-    instantiate<N extends Node<Any>>(base: N): StructInstance<S>;
+    construct(fields: { readonly [K in keyof S]: Node<S[K]> }): ConstructNode<StructDef<S>>;
 };
 
 export function struct<S extends d.StructSchema>(name: string, fields: S): StructDef<S> {
@@ -1243,14 +1243,11 @@ export function struct<S extends d.StructSchema>(name: string, fields: S): Struc
     for (const desc of Object.values(fields)) {
         if (isStructDef(desc)) nestedDefs.set(desc.wgslType, desc as unknown as StructDef<d.StructSchema>);
     }
-    function instantiate<N extends Node<Any>>(base: N): StructInstance<S> {
-        const result: Record<string, Node<Any>> = { $node: base as unknown as Node<d.StructDesc> };
-        for (const [fieldName, fieldDesc] of Object.entries(fields)) {
-            result[fieldName] = new FieldNode(fieldDesc, base, fieldName);
-        }
-        return result as StructInstance<S>;
+    function construct(fieldNodes: { readonly [K in keyof S]: Node<S[K]> }): ConstructNode<StructDef<S>> {
+        const args = members.map(m => fieldNodes[m.name as keyof S] as Node<Any>);
+        return new ConstructNode(def as unknown as StructDef<S>, args);
     }
-    const def: StructDef<S> = { type: 'struct', wgslType: name, name, fields, members, node, nestedDefs, instantiate };
+    const def: StructDef<S> = { type: 'struct', wgslType: name, name, fields, members, node, nestedDefs, construct };
     return def;
 }
 

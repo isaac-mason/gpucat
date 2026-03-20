@@ -1458,7 +1458,7 @@ function fields(node) {
         throw new Error('[gpucat] fields() requires a struct-typed node');
     }
     const structFields = desc.fields;
-    const result = {};
+    const result = { $node: node };
     for (const [fieldName, fieldDesc] of Object.entries(structFields)) {
         result[fieldName] = new FieldNode(fieldDesc, node, fieldName);
     }
@@ -1917,14 +1917,11 @@ function struct(name, fields) {
         if (isStructDef(desc))
             nestedDefs.set(desc.wgslType, desc);
     }
-    function instantiate(base) {
-        const result = { $node: base };
-        for (const [fieldName, fieldDesc] of Object.entries(fields)) {
-            result[fieldName] = new FieldNode(fieldDesc, base, fieldName);
-        }
-        return result;
+    function construct(fieldNodes) {
+        const args = members.map(m => fieldNodes[m.name]);
+        return new ConstructNode(def, args);
     }
-    const def = { type: 'struct', wgslType: name, name, fields, members, node, nestedDefs, instantiate };
+    const def = { type: 'struct', wgslType: name, name, fields, members, node, nestedDefs, construct };
     return def;
 }
 class StructNode extends Node {
@@ -2685,11 +2682,11 @@ function uniform(init, nameOrSchema) {
         const name = init;
         const schema = nameOrSchema;
         // Check if it's a StructDef
-        if (schema && 'fields' in schema && 'instantiate' in schema) {
+        if (schema && 'fields' in schema && 'construct' in schema) {
             const def = schema;
             const u = new Uniform(def);
             const node = new UniformNode(u, name);
-            return def.instantiate(node);
+            return fields(node);
         }
         // Regular schema — create Uniform for name-based resolution
         const u = new Uniform(schema);

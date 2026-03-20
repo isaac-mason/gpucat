@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'vitest';
 import { Fn, f32, i32, u32, Loop, If, Break, Continue, Return, vec4, sin, cos, uniform, objectGroup, Uniform, UniformNode } from '../src/nodes/nodes';
 import { compile, compileCompute } from '../src/nodes/builder';
-import * as d from '../src/nodes/schema';
+import * as d from '../src/schema/schema';
 
 describe('complex control flow', () => {
     test('ElseIf chaining', () => {
@@ -22,7 +22,7 @@ describe('complex control flow', () => {
             });
         });
         
-        const result = compileCompute(myFn.compute({ dispatch: [1], workgroupSize: [64, 1, 1] }));
+        const result = compileCompute(myFn.compute({ workgroupSize: [64, 1, 1] }));
         console.log('\n=== ELSEIF CHAINING ===');
         console.log(result.code);
         
@@ -60,7 +60,7 @@ describe('complex control flow', () => {
             });
         });
         
-        const result = compileCompute(myFn.compute({ dispatch: [1], workgroupSize: [64, 1, 1] }));
+        const result = compileCompute(myFn.compute({ workgroupSize: [64, 1, 1] }));
         console.log('\n=== NESTED IF/ELSE (LEGACY) ===');
         console.log(result.code);
         
@@ -86,7 +86,7 @@ describe('complex control flow', () => {
             });
         });
         
-        const result = compileCompute(myFn.compute({ dispatch: [1], workgroupSize: [64, 1, 1] }));
+        const result = compileCompute(myFn.compute({ workgroupSize: [64, 1, 1] }));
         console.log('\n=== IF INSIDE LOOP WITH BREAK/CONTINUE ===');
         console.log(result.code);
         
@@ -111,7 +111,7 @@ describe('complex control flow', () => {
             });
         });
         
-        const result = compileCompute(myFn.compute({ dispatch: [1], workgroupSize: [64, 1, 1] }));
+        const result = compileCompute(myFn.compute({ workgroupSize: [64, 1, 1] }));
         console.log('\n=== LOOP INSIDE IF BRANCHES ===');
         console.log(result.code);
         
@@ -138,7 +138,7 @@ describe('complex control flow', () => {
             });
         });
         
-        const result = compileCompute(myFn.compute({ dispatch: [1], workgroupSize: [64, 1, 1] }));
+        const result = compileCompute(myFn.compute({ workgroupSize: [64, 1, 1] }));
         console.log('\n=== DEEPLY NESTED CONTROL FLOW ===');
         console.log(result.code);
         
@@ -220,7 +220,7 @@ describe('Var and toVar', () => {
             x.assign(x.add(f32(5)));
         });
         
-        const result = compileCompute(myFn.compute({ dispatch: [1], workgroupSize: [64, 1, 1] }));
+        const result = compileCompute(myFn.compute({ workgroupSize: [64, 1, 1] }));
         console.log('\n=== toVar MUTABLE VARIABLE ===');
         console.log(result.code);
         
@@ -239,7 +239,7 @@ describe('Var and toVar', () => {
             y.assign(y.mul(x));
         });
         
-        const result = compileCompute(myFn.compute({ dispatch: [1], workgroupSize: [64, 1, 1] }));
+        const result = compileCompute(myFn.compute({ workgroupSize: [64, 1, 1] }));
         console.log('\n=== toConst IMMUTABLE VARIABLE ===');
         console.log(result.code);
         
@@ -259,7 +259,7 @@ describe('Var and toVar', () => {
             b.assign(a.mul(c));
         });
         
-        const result = compileCompute(myFn.compute({ dispatch: [1], workgroupSize: [64, 1, 1] }));
+        const result = compileCompute(myFn.compute({ workgroupSize: [64, 1, 1] }));
         console.log('\n=== MULTIPLE toVar WITH LABELS ===');
         console.log(result.code);
         
@@ -275,7 +275,7 @@ describe('Var and toVar', () => {
             x.assign(y);
         });
         
-        const result = compileCompute(myFn.compute({ dispatch: [1], workgroupSize: [64, 1, 1] }));
+        const result = compileCompute(myFn.compute({ workgroupSize: [64, 1, 1] }));
         console.log('\n=== toVar WITHOUT LABEL ===');
         console.log(result.code);
         

@@ -1,4 +1,4 @@
-import { Node, type StructDef, type StructInstance, ConstructNode, ConstNode, _nodeId } from './core';
+import { Node, type StructDef, type StructInstance, ConstructNode, ConstNode, fields, _nodeId } from './core';
 import type { StructSchema, Any } from '../../schema/schema';
 import type { NodeFrame } from '../../renderer/node-frame';
 import {
@@ -110,11 +110,11 @@ export function uniform<D extends Any, S extends StructSchema>(
         const schema = nameOrSchema as D | StructDef<S>;
 
         // Check if it's a StructDef
-        if (schema && 'fields' in schema && 'instantiate' in schema) {
+        if (schema && 'fields' in schema && 'construct' in schema) {
             const def = schema as StructDef<S>;
             const u = new Uniform(def as unknown as D);
-            const node = new UniformNode(u, name);
-            return def.instantiate(node);
+            const node = new UniformNode(u, name) as unknown as Node<StructDef<S>>;
+            return fields(node);
         }
 
         // Regular schema — create Uniform for name-based resolution
