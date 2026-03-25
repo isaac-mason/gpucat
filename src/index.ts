@@ -81,7 +81,7 @@ export {
     atomicExchange, atomicCompareExchangeWeak,
 
     // variables
-    Var, Const,
+    Var, Const, Let, privateVar, workgroupVar,
 
     // control flow
     If, Loop, For, While, Break, Continue, Return, Discard,

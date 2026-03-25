@@ -1034,7 +1034,7 @@ class Node {
     // ── Lang ──────────────────────────────────────────────────────────────────
     assign(value) { addToStack(new AssignNode(this, value)); }
     toVar(label) { return Var(this, label); }
-    toConst(label) { return Const(this, label); }
+    toConst(label) { return Let(this, label); }
     addAssign(v) { addToStack(new AssignNode(this, add$1(this, v))); }
     subAssign(v) { addToStack(new AssignNode(this, sub(this, v))); }
     mulAssign(v) { addToStack(new AssignNode(this, mul(this, v))); }
@@ -1333,22 +1333,70 @@ class InspectorNode extends Node {
     }
 }
 // ─── Expr nodes ───────────────────────────────────────────────────────────────
-class ConstNode extends Node {
+class LiteralNode extends Node {
     value;
     constructor(type, value) {
         super(type);
         this.value = value;
     }
 }
-class VarNode extends Node {
+class LetNode extends Node {
     varName;
     init;
-    isConst;
-    constructor(type, varName, init, isConst = false) {
+    constructor(type, varName, init) {
         super(type);
         this.varName = varName;
         this.init = init;
-        this.isConst = isConst;
+    }
+}
+class VarNode extends Node {
+    varName;
+    init;
+    constructor(type, varName, init) {
+        super(type);
+        this.varName = varName;
+        this.init = init;
+    }
+}
+// ─── Module-scope variables ───────────────────────────────────────────────────
+/**
+ * Module-scope private variable: `var<private> name: T [= init];`
+ *
+ * Private variables are per-invocation storage at module scope.
+ * Unlike function-scope variables, they persist across function calls
+ * within the same shader invocation.
+ *
+ * @example
+ * const counter = privateVar(d.u32, 'counter');
+ * // → var<private> counter: u32;
+ *
+ * const gravity = privateVar(vec3f(0, -9.8, 0), 'gravity');
+ * // → var<private> gravity: vec3f = vec3f(0.0, -9.8, 0.0);
+ */
+class PrivateVarNode extends Node {
+    varName;
+    init;
+    constructor(type, varName, init) {
+        super(type);
+        this.varName = varName;
+        this.init = init;
+    }
+}
+/**
+ * Module-scope workgroup variable: `var<workgroup> name: T;`
+ *
+ * Workgroup variables are shared across all invocations in a workgroup.
+ * Only valid in compute shaders. Cannot have an initializer.
+ *
+ * @example
+ * const shared = workgroupVar(d.array(d.f32, 256), 'sharedData');
+ * // → var<workgroup> sharedData: array<f32, 256>;
+ */
+class WorkgroupVarNode extends Node {
+    varName;
+    constructor(type, varName) {
+        super(type);
+        this.varName = varName;
     }
 }
 class AssignNode extends Node {
@@ -1487,36 +1535,36 @@ function array(elements) {
 function f32(v = 0) {
     if (isNode(v))
         return new CallNode(f32$1, 'f32', [v]);
-    return new ConstNode(f32$1, v);
+    return new LiteralNode(f32$1, v);
 }
 function f16(v = 0) {
     if (isNode(v))
         return new CallNode(f16$1, 'f16', [v]);
-    return new ConstNode(f16$1, v);
+    return new LiteralNode(f16$1, v);
 }
 function i32(v = 0) {
     if (isNode(v))
         return new CallNode(i32$1, 'i32', [v]);
-    return new ConstNode(i32$1, Math.trunc(v));
+    return new LiteralNode(i32$1, Math.trunc(v));
 }
 function u32(v = 0) {
     if (isNode(v))
         return new CallNode(u32$1, 'u32', [v]);
-    return new ConstNode(u32$1, Math.trunc(v));
+    return new LiteralNode(u32$1, Math.trunc(v));
 }
-const bool = (v) => new ConstNode(bool$1, v ? 1 : 0);
+const bool = (v) => new LiteralNode(bool$1, v ? 1 : 0);
 function wrapScalar(v, elemType) {
     if (isNode(v))
         return v;
     if (elemType === 'bool')
-        return new ConstNode(bool$1, v ? 1 : 0);
+        return new LiteralNode(bool$1, v ? 1 : 0);
     if (elemType === 'i32')
-        return new ConstNode(i32$1, Math.trunc(v));
+        return new LiteralNode(i32$1, Math.trunc(v));
     if (elemType === 'u32')
-        return new ConstNode(u32$1, Math.trunc(v));
+        return new LiteralNode(u32$1, Math.trunc(v));
     if (elemType === 'f16')
-        return new ConstNode(f16$1, v);
-    return new ConstNode(f32$1, v);
+        return new LiteralNode(f16$1, v);
+    return new LiteralNode(f32$1, v);
 }
 function elemOf(type) {
     if (type.endsWith('h'))
@@ -1580,24 +1628,24 @@ const vec4h = makeVec4(vec4h$1);
 const vec2b = makeVec2(vec2bool);
 const vec3b = makeVec3(vec3bool);
 const vec4b = makeVec4(vec4bool);
-const mat2x2f = (...v) => new ConstNode(mat2x2f$1, v.length ? v : []);
-const mat2x3f = (...v) => new ConstNode(mat2x3f$1, v.length ? v : []);
-const mat2x4f = (...v) => new ConstNode(mat2x4f$1, v.length ? v : []);
-const mat3x2f = (...v) => new ConstNode(mat3x2f$1, v.length ? v : []);
-const mat3x3f = (...v) => new ConstNode(mat3x3f$1, v.length ? v : []);
-const mat3x4f = (...v) => new ConstNode(mat3x4f$1, v.length ? v : []);
-const mat4x2f = (...v) => new ConstNode(mat4x2f$1, v.length ? v : []);
-const mat4x3f = (...v) => new ConstNode(mat4x3f$1, v.length ? v : []);
-const mat4x4f = (...v) => new ConstNode(mat4x4f$1, v.length ? v : []);
-const mat2x2h = (...v) => new ConstNode(mat2x2h$1, v.length ? v : []);
-const mat2x3h = (...v) => new ConstNode(mat2x3h$1, v.length ? v : []);
-const mat2x4h = (...v) => new ConstNode(mat2x4h$1, v.length ? v : []);
-const mat3x2h = (...v) => new ConstNode(mat3x2h$1, v.length ? v : []);
-const mat3x3h = (...v) => new ConstNode(mat3x3h$1, v.length ? v : []);
-const mat3x4h = (...v) => new ConstNode(mat3x4h$1, v.length ? v : []);
-const mat4x2h = (...v) => new ConstNode(mat4x2h$1, v.length ? v : []);
-const mat4x3h = (...v) => new ConstNode(mat4x3h$1, v.length ? v : []);
-const mat4x4h = (...v) => new ConstNode(mat4x4h$1, v.length ? v : []);
+const mat2x2f = (...v) => new LiteralNode(mat2x2f$1, v.length ? v : []);
+const mat2x3f = (...v) => new LiteralNode(mat2x3f$1, v.length ? v : []);
+const mat2x4f = (...v) => new LiteralNode(mat2x4f$1, v.length ? v : []);
+const mat3x2f = (...v) => new LiteralNode(mat3x2f$1, v.length ? v : []);
+const mat3x3f = (...v) => new LiteralNode(mat3x3f$1, v.length ? v : []);
+const mat3x4f = (...v) => new LiteralNode(mat3x4f$1, v.length ? v : []);
+const mat4x2f = (...v) => new LiteralNode(mat4x2f$1, v.length ? v : []);
+const mat4x3f = (...v) => new LiteralNode(mat4x3f$1, v.length ? v : []);
+const mat4x4f = (...v) => new LiteralNode(mat4x4f$1, v.length ? v : []);
+const mat2x2h = (...v) => new LiteralNode(mat2x2h$1, v.length ? v : []);
+const mat2x3h = (...v) => new LiteralNode(mat2x3h$1, v.length ? v : []);
+const mat2x4h = (...v) => new LiteralNode(mat2x4h$1, v.length ? v : []);
+const mat3x2h = (...v) => new LiteralNode(mat3x2h$1, v.length ? v : []);
+const mat3x3h = (...v) => new LiteralNode(mat3x3h$1, v.length ? v : []);
+const mat3x4h = (...v) => new LiteralNode(mat3x4h$1, v.length ? v : []);
+const mat4x2h = (...v) => new LiteralNode(mat4x2h$1, v.length ? v : []);
+const mat4x3h = (...v) => new LiteralNode(mat4x3h$1, v.length ? v : []);
+const mat4x4h = (...v) => new LiteralNode(mat4x4h$1, v.length ? v : []);
 const mat4 = (c0, c1, c2, c3) => new ConstructNode(mat4x4f$1, [c0, c1, c2, c3]);
 function mat3(c0, c1, c2, s10, s11, s12, s20, s21, s22) {
     // 9-scalar overload: mat3x3f(s00..s22) — column-major scalars
@@ -1609,7 +1657,7 @@ function mat3(c0, c1, c2, s10, s11, s12, s20, s21, s22) {
         return new ConstructNode(mat3x3f$1, [c0, c1, c2]);
     }
     // scalar diagonal: expand to 9 scalars (WGSL has no single-scalar matrix constructor)
-    const z = new ConstNode(f32$1, 0);
+    const z = new LiteralNode(f32$1, 0);
     return new ConstructNode(mat3x3f$1, [c0, z, z, z, c0, z, z, z, c0]);
 }
 // ── Standalone math functions ─────────────────────────────────────────────────
@@ -1825,7 +1873,7 @@ function Return(value) {
     if (value !== undefined)
         addToStack(new ReturnNode(value));
     else
-        addToStack(new ReturnNode(new ConstNode(voidDesc, 0)));
+        addToStack(new ReturnNode(new LiteralNode(voidDesc, 0)));
 }
 function Break() { addToStack(new BreakNode()); }
 function Continue() { addToStack(new ContinueNode()); }
@@ -1867,12 +1915,41 @@ function Var(init, label) {
         currentStack.push(v);
     return v;
 }
-function Const(init, label) {
-    const varName = label ? `const_${_nodeId}_${label}` : `const_${_nodeId}`;
-    const v = new VarNode(init.type, varName, init, true);
+function Let(init, label) {
+    const varName = label ? `let_${_nodeId}_${label}` : `let_${_nodeId}`;
+    const v = new LetNode(init.type, varName, init);
     if (currentStack !== null)
         currentStack.push(v);
     return v;
+}
+/** @deprecated Use Let() instead */
+function Const(init, label) {
+    return Let(init, label);
+}
+function privateVar(typeOrInit, name) {
+    // Check if first arg is a Node (has .type property and is instanceof Node)
+    if (typeOrInit instanceof Node) {
+        const init = typeOrInit;
+        const varName = name ?? `private_${_nodeId}`;
+        return new PrivateVarNode(init.type, varName, init);
+    }
+    // Otherwise it's a type descriptor
+    const type = typeOrInit;
+    const varName = name ?? `private_${_nodeId}`;
+    return new PrivateVarNode(type, varName);
+}
+/**
+ * Create a module-scope workgroup variable: `var<workgroup> name: T;`
+ *
+ * Workgroup variables are shared across all invocations in a workgroup.
+ * Only valid in compute shaders. Cannot have an initializer.
+ *
+ * @example
+ * const shared = workgroupVar(d.array(d.f32, 256), 'sharedData');
+ * // → var<workgroup> sharedData: array<f32, 256>;
+ */
+function workgroupVar(type, name) {
+    return new WorkgroupVarNode(type, name);
 }
 let _computeCounter = 0;
 class ComputeNode {
@@ -2702,20 +2779,20 @@ function uniform(init, nameOrSchema) {
     return new UniformNode(u, uniformId);
 }
 /**
- * Extract a concrete value from a ConstNode or ConstructNode.
- * For ConstructNode, recursively extracts from child ConstNodes.
- * Returns undefined if any child is not a ConstNode (dynamic value).
+ * Extract a concrete value from a LiteralNode or ConstructNode.
+ * For ConstructNode, recursively extracts from child LiteralNodes.
+ * Returns undefined if any child is not a LiteralNode (dynamic value).
  */
 function extractValue(node) {
-    // ConstNode has a direct value
-    if (node instanceof ConstNode) {
+    // LiteralNode has a direct value
+    if (node instanceof LiteralNode) {
         return node.value;
     }
-    // ConstructNode: extract values from args (must all be ConstNodes)
+    // ConstructNode: extract values from args (must all be LiteralNodes)
     if (node instanceof ConstructNode) {
         const values = [];
         for (const arg of node.args) {
-            if (arg instanceof ConstNode && typeof arg.value === 'number') {
+            if (arg instanceof LiteralNode && typeof arg.value === 'number') {
                 values.push(arg.value);
             }
             else {
@@ -5373,7 +5450,7 @@ class MRTNode extends OutputStructNode {
             // Ensure the node outputs vec4f (wrap if needed)
             let node = this.outputNodes[name];
             if (node.type.wgslType !== 'vec4f') {
-                node = vec4f(node, new ConstNode(f32$1, 1));
+                node = vec4f(node, new LiteralNode(f32$1, 1));
             }
             members[index] = node;
             names[index] = name;
@@ -6456,6 +6533,8 @@ function compile(slots) {
     vertexCtx.samplers = discovered.samplers;
     vertexCtx.uniforms = discovered.uniforms;
     vertexCtx.storages = discovered.storages;
+    vertexCtx.privateVars = discovered.privateVars;
+    vertexCtx.workgroupVars = discovered.workgroupVars;
     fragmentCtx.usageCount = discovered.usageCount;
     fragmentCtx.mutatedNodes = discovered.mutatedNodes;
     fragmentCtx.fnDefs = discovered.fnDefs;
@@ -6466,6 +6545,8 @@ function compile(slots) {
     fragmentCtx.samplers = discovered.samplers;
     fragmentCtx.uniforms = discovered.uniforms;
     fragmentCtx.storages = discovered.storages;
+    fragmentCtx.privateVars = discovered.privateVars;
+    fragmentCtx.workgroupVars = discovered.workgroupVars;
     // pre-collect varyings from fragment roots (so vertex shader knows what to output)
     if (hasFragment) {
         const fragmentRoots = [slots.color];
@@ -6481,6 +6562,8 @@ function compile(slots) {
     }
     // emit all bindings using Three.js pattern (each group gets its own @group index)
     const { wgsl: bindingsWgsl, uniformBlocks, storageEntries, textureEntries: textures, samplerEntries: samplers } = emitAllBindings(vertexCtx);
+    // emit module-scope variables (var<private>)
+    const moduleScopeVarsWgsl = emitModuleScopeVars(vertexCtx);
     // emit functions
     const wgslFnsCode = emitWgslFunctions(vertexCtx);
     const dslFnsCode = emitDslFunctions(vertexCtx);
@@ -6488,6 +6571,8 @@ function compile(slots) {
     const codeParts = [
         '// Bindings (uniforms, storage, textures, samplers)',
         bindingsWgsl,
+        '// Module-scope variables',
+        moduleScopeVarsWgsl,
         '// WGSL Functions',
         wgslFnsCode,
         '// DSL Functions',
@@ -6568,10 +6653,14 @@ function compileCompute(node) {
     ctx.samplers = discovered.samplers;
     ctx.uniforms = discovered.uniforms;
     ctx.storages = discovered.storages;
+    ctx.privateVars = discovered.privateVars;
+    ctx.workgroupVars = discovered.workgroupVars;
     // generate compute shader body
     const computeBody = generateComputeShader(node, ctx);
     // emit all bindings using Three.js pattern (each group gets its own @group index)
     const { wgsl: bindingsWgsl, uniformBlocks, storageEntries } = emitAllBindings(ctx);
+    // emit module-scope variables (var<private>, var<workgroup>)
+    const moduleScopeVarsWgsl = emitModuleScopeVars(ctx);
     // emit functions
     const wgslFnsCode = emitWgslFunctions(ctx);
     const dslFnsCode = emitDslFunctions(ctx);
@@ -6579,6 +6668,8 @@ function compileCompute(node) {
     const code = [
         '// Bindings (uniforms, storage, textures, samplers)',
         bindingsWgsl,
+        '// Module-scope variables',
+        moduleScopeVarsWgsl,
         '// WGSL Functions',
         wgslFnsCode,
         '// DSL Functions',
@@ -6616,6 +6707,8 @@ function createContext(stage, isRender) {
         attrCounter: 0,
         varyings: new Map(),
         builtins: new Set(),
+        privateVars: new Map(),
+        workgroupVars: new Map(),
         structs: new Map(),
         structDefs: new Map(),
         usageCount: new Map(),
@@ -6661,9 +6754,14 @@ function getChildren(node) {
     else if (node instanceof AssignNode) {
         children.push(node.target, node.value);
     }
-    else if (node instanceof VarNode) {
+    else if (node instanceof LetNode || node instanceof VarNode) {
         children.push(node.init);
     }
+    else if (node instanceof PrivateVarNode) {
+        if (node.init)
+            children.push(node.init);
+    }
+    else if (node instanceof WorkgroupVarNode) ;
     else if (node instanceof CondNode) {
         children.push(node.condition, node.ifTrue);
         if (node.ifFalse)
@@ -6880,6 +6978,8 @@ function discover(roots) {
     const samplers = new Map(); // keyed by settingsKey
     const uniforms = new Map();
     const storages = new Map();
+    const privateVars = new Map();
+    const workgroupVars = new Map();
     const allNodes = new Map();
     const updateBeforeNodes = [];
     const updateAfterNodes = [];
@@ -7017,6 +7117,17 @@ function discover(roots) {
                 uniforms.set(name, { node, group });
             }
         }
+        // Module-scope variable discovery
+        if (node instanceof PrivateVarNode) {
+            if (!privateVars.has(node.id)) {
+                privateVars.set(node.id, node);
+            }
+        }
+        if (node instanceof WorkgroupVarNode) {
+            if (!workgroupVars.has(node.id)) {
+                workgroupVars.set(node.id, node);
+            }
+        }
         // visit children
         for (const child of getChildren(node)) {
             visit(child);
@@ -7028,7 +7139,7 @@ function discover(roots) {
     return {
         usageCount, mutatedNodes, fnDefs, wgslFnDefs, structDefs, storageNames,
         allNodes, updateBeforeNodes, updateAfterNodes, updateNodes,
-        textures, samplers, uniforms, storages
+        textures, samplers, uniforms, storages, privateVars, workgroupVars
     };
 }
 /** Pre-collect VaryingNodes from roots and generate their vertex expressions. */
@@ -7096,7 +7207,7 @@ function generateExpr(ctx, node) {
         return ctx.nodeVars.get(node.id);
     }
     let expr;
-    if (node instanceof ConstNode) {
+    if (node instanceof LiteralNode) {
         expr = constLiteral(node.type.wgslType, node.value);
     }
     else if (node instanceof UniformNode) {
@@ -7180,19 +7291,39 @@ function generateExpr(ctx, node) {
         }
         expr = wgsl;
     }
-    else if (node instanceof VarNode) {
-        // VarNode as expression returns the variable name
-        // If not yet declared (e.g., toVar() called outside Fn body), emit the declaration now
+    else if (node instanceof LetNode) {
+        // LetNode as expression returns the variable name
+        // If not yet declared, emit the declaration now
         if (!ctx.nodeVars.has(node.id)) {
             const init = generateExpr(ctx, node.init);
-            if (node.isConst) {
-                ctx.code.push(`    let ${node.varName} = ${init};`);
-            }
-            else {
-                ctx.code.push(`    var ${node.varName} = ${init};`);
-            }
+            ctx.code.push(`    let ${node.varName} = ${init};`);
             ctx.nodeVars.set(node.id, node.varName);
         }
+        expr = node.varName;
+    }
+    else if (node instanceof VarNode) {
+        // VarNode as expression returns the variable name
+        // If not yet declared, emit the declaration now
+        if (!ctx.nodeVars.has(node.id)) {
+            const init = generateExpr(ctx, node.init);
+            ctx.code.push(`    var ${node.varName} = ${init};`);
+            ctx.nodeVars.set(node.id, node.varName);
+        }
+        expr = node.varName;
+    }
+    else if (node instanceof PrivateVarNode) {
+        // PrivateVarNode is module-scope, emitted separately
+        // Just return the variable name - declaration is in emitModuleScopeVars
+        ctx.nodeVars.set(node.id, node.varName);
+        expr = node.varName;
+    }
+    else if (node instanceof WorkgroupVarNode) {
+        // WorkgroupVarNode is module-scope, emitted separately
+        // Validate it's only used in compute shaders
+        if (ctx.stage !== 'compute') {
+            throw new Error(`[builder] WorkgroupVarNode '${node.varName}' can only be used in compute shaders, but was used in ${ctx.stage} stage.`);
+        }
+        ctx.nodeVars.set(node.id, node.varName);
         expr = node.varName;
     }
     else if (node instanceof ParamNode) {
@@ -7243,8 +7374,11 @@ function containsAtomics(desc) {
 }
 /** Check if expression is trivial enough that repeating it is cheap (no need to extract) */
 function isTrivialExpr(node) {
-    return (node instanceof ConstNode ||
+    return (node instanceof LiteralNode ||
+        node instanceof LetNode ||
         node instanceof VarNode ||
+        node instanceof PrivateVarNode ||
+        node instanceof WorkgroupVarNode ||
         node instanceof ParamNode ||
         node instanceof BuiltinNode ||
         node instanceof FieldNode ||
@@ -7628,14 +7762,14 @@ function generateCall(ctx, node) {
 /* statement generation */
 function generateStmt(ctx, node) {
     const ind = '    '.repeat(ctx.indentLevel);
-    if (node instanceof VarNode) {
+    if (node instanceof LetNode) {
         const init = generateExpr(ctx, node.init);
-        if (node.isConst) {
-            ctx.code.push(`${ind}let ${node.varName} = ${init};`);
-        }
-        else {
-            ctx.code.push(`${ind}var ${node.varName} = ${init};`);
-        }
+        ctx.code.push(`${ind}let ${node.varName} = ${init};`);
+        ctx.nodeVars.set(node.id, node.varName);
+    }
+    else if (node instanceof VarNode) {
+        const init = generateExpr(ctx, node.init);
+        ctx.code.push(`${ind}var ${node.varName} = ${init};`);
         ctx.nodeVars.set(node.id, node.varName);
     }
     else if (node instanceof AssignNode) {
@@ -7722,11 +7856,11 @@ function generateLoopStmt(ctx, node) {
     if (typeof config === 'number') {
         loopHeader = `for (var ${wgslVarName}: i32 = 0i; ${wgslVarName} < ${config}i; ${wgslVarName}++)`;
     }
-    else if (config instanceof ConstNode || config instanceof UniformNode) {
+    else if (config instanceof LiteralNode || config instanceof UniformNode) {
         const endExpr = generateExpr(ctx, config);
         loopHeader = `for (var ${wgslVarName}: i32 = 0i; ${wgslVarName} < ${endExpr}; ${wgslVarName}++)`;
     }
-    else if (typeof config === 'object' && config !== null && !(config instanceof ConstNode) && !(config instanceof UniformNode)) {
+    else if (typeof config === 'object' && config !== null && !(config instanceof LiteralNode) && !(config instanceof UniformNode)) {
         const cfg = config;
         const typeDesc = cfg.type ?? i32$1;
         const typeStr = typeDesc.wgslType;
@@ -7754,6 +7888,62 @@ function generateLoopStmt(ctx, node) {
     }
     ctx.indentLevel--;
     ctx.code.push(`${ind}}`);
+}
+/* wgsl code assembly */
+/**
+ * Emit module-scope variable declarations (var<private> and var<workgroup>).
+ * These are emitted before bindings in the shader.
+ */
+function emitModuleScopeVars(ctx) {
+    const lines = [];
+    // Emit private variables
+    for (const [, node] of ctx.privateVars) {
+        if (node.init) {
+            // With initializer - need to generate init expression in a temporary context
+            // Since these are module-scope, we can't use function-scope expressions directly
+            // The init must be a const-expression (compile-time constant)
+            const initExpr = generateModuleScopeInitExpr(node.init);
+            lines.push(`var<private> ${node.varName}: ${node.type.wgslType} = ${initExpr};`);
+        }
+        else {
+            // Without initializer
+            lines.push(`var<private> ${node.varName}: ${node.type.wgslType};`);
+        }
+    }
+    // Emit workgroup variables (only in compute shaders - already validated in generateExpr)
+    for (const [, node] of ctx.workgroupVars) {
+        // Workgroup variables cannot have initializers in WGSL
+        lines.push(`var<workgroup> ${node.varName}: ${node.type.wgslType};`);
+    }
+    return lines.length > 0 ? lines.join('\n') + '\n' : '';
+}
+/**
+ * Generate a const-expression for module-scope variable initializers.
+ * Module-scope initializers must be const-expressions (compile-time constants).
+ */
+function generateModuleScopeInitExpr(node) {
+    if (node instanceof LiteralNode) {
+        return constLiteral(node.type.wgslType, node.value);
+    }
+    else if (node instanceof ConstructNode) {
+        const args = node.args.map(a => generateModuleScopeInitExpr(a));
+        return `${node.type.wgslType}(${args.join(', ')})`;
+    }
+    else if (node instanceof BinopNode) {
+        const left = generateModuleScopeInitExpr(node.left);
+        const right = generateModuleScopeInitExpr(node.right);
+        return `(${left} ${node.op} ${right})`;
+    }
+    else if (node instanceof CallNode) {
+        // Only const-evaluable built-in functions are allowed
+        const args = node.args.map(a => generateModuleScopeInitExpr(a));
+        return `${node.fn}(${args.join(', ')})`;
+    }
+    else {
+        throw new Error(`[builder] Module-scope variable initializer must be a const-expression. ` +
+            `Got ${node.constructor.name}. Only literals, constructors, and const-evaluable ` +
+            `built-in functions are allowed.`);
+    }
 }
 /**
  * Emit all bindings (uniforms, storage, textures, samplers) following Three.js pattern.
@@ -8174,12 +8364,16 @@ function generateComputeShader(node, ctx) {
     // build workgroup size
     const wgSize = node.workgroupSize ?? [64, 1, 1];
     const [WX, WY, WZ] = wgSize;
-    // computeIndex requires global_invocation_id and num_workgroups
-    ctx.builtins.add('global_invocation_id');
-    ctx.builtins.add('num_workgroups');
-    // emit private variable for computeIndex (like three.js instanceIndex)
-    lines.push('var<private> computeIndex: u32;');
-    lines.push('');
+    // check if computeIndex is used
+    const usesComputeIndex = (ctx.usageCount.get(computeIndex.id) ?? 0) > 0;
+    if (usesComputeIndex) {
+        // computeIndex depends on global_id and num_workgroups
+        ctx.builtins.add('global_invocation_id');
+        ctx.builtins.add('num_workgroups');
+        // emit private variable for computeIndex
+        lines.push('var<private> computeIndex: u32;');
+        lines.push('');
+    }
     // emit main function
     lines.push(`@compute @workgroup_size(${WX}, ${WY}, ${WZ})`);
     lines.push('fn cs_main(');
@@ -8201,9 +8395,10 @@ function generateComputeShader(node, ctx) {
     }
     lines.push(builtinParams.join(',\n'));
     lines.push(') {');
-    // compute linearized index at start of function (like three.js)
-    // computeIndex = global_id.x + global_id.y * (WX * num_workgroups.x) + global_id.z * (WX * num_workgroups.x) * (WY * num_workgroups.y)
-    lines.push(`    computeIndex = global_id.x + global_id.y * (${WX}u * num_workgroups.x) + global_id.z * (${WX}u * num_workgroups.x) * (${WY}u * num_workgroups.y);`);
+    // compute linearized index at start of function (only if used)
+    if (usesComputeIndex) {
+        lines.push(`    computeIndex = global_id.x + global_id.y * (${WX}u * num_workgroups.x) + global_id.z * (${WX}u * num_workgroups.x) * (${WY}u * num_workgroups.y);`);
+    }
     lines.push(...ctx.code);
     lines.push('}');
     return lines.join('\n');
@@ -24860,5 +25055,5 @@ class RenderPipeline {
     }
 }
 
-export { ArrayTexture, Break, BufferLifecycle, Camera, Const, Continue, CubeTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, Fn, For, Geometry, GpuBuffer, If, Inspector, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, RenderPipeline, RenderTarget, Return, Scene, TOUCH, Texture, Uniform, UniformGroup, UniformUpdateType, Var, WebGPURenderer, While, abs, acesToneMapping, add$1 as add, and, array, arrayTexture, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bool, builtin, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, ceil, clamp, color, comparisonSampler, compile, compileCompute, compute, computeIndex, cond, cos, createBoxGeometry, createFullscreenTriangleGeometry, createIndexBuffer, createIndirectBuffer, createPlaneGeometry, createSphereGeometry, createStorageBuffer, createUniformBuffer, createVertexBuffer, cross$1 as cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot$1 as dot, equal, f16, f32, field, fields, floor, fract, fragCoord, frameGroup, frustum, fxaa, getIndexFormat, globalId, greaterThan, greaterThanEqual, i32, index, instanceIndex, layoutSizeOf, layoutStrideOf, length$1 as length, lessThan, lessThanEqual, localId, localIndex, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, normalize$4 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, packArray, packTo, pass, positionClip, pow, reinhardToneMapping, renderGroup, renderOutput, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, sign, sin, smoothstep, sqrt, step, storage, struct, sub, texture, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, timeDelta, timeElapsed, transpose, u32, uniform, uniformGroup, unpack, unpackArray, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgsl, wgslFn, workgroupId };
+export { ArrayTexture, Break, BufferLifecycle, Camera, Const, Continue, CubeTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, Fn, For, Geometry, GpuBuffer, If, Inspector, Let, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, RenderPipeline, RenderTarget, Return, Scene, TOUCH, Texture, Uniform, UniformGroup, UniformUpdateType, Var, WebGPURenderer, While, abs, acesToneMapping, add$1 as add, and, array, arrayTexture, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bool, builtin, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, ceil, clamp, color, comparisonSampler, compile, compileCompute, compute, computeIndex, cond, cos, createBoxGeometry, createFullscreenTriangleGeometry, createIndexBuffer, createIndirectBuffer, createPlaneGeometry, createSphereGeometry, createStorageBuffer, createUniformBuffer, createVertexBuffer, cross$1 as cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot$1 as dot, equal, f16, f32, field, fields, floor, fract, fragCoord, frameGroup, frustum, fxaa, getIndexFormat, globalId, greaterThan, greaterThanEqual, i32, index, instanceIndex, layoutSizeOf, layoutStrideOf, length$1 as length, lessThan, lessThanEqual, localId, localIndex, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, normalize$4 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, packArray, packTo, pass, positionClip, pow, privateVar, reinhardToneMapping, renderGroup, renderOutput, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, sign, sin, smoothstep, sqrt, step, storage, struct, sub, texture, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, timeDelta, timeElapsed, transpose, u32, uniform, uniformGroup, unpack, unpackArray, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgsl, wgslFn, workgroupId, workgroupVar };
 //# sourceMappingURL=index.js.map

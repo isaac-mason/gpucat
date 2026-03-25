@@ -239,7 +239,7 @@ export class Node<D extends Any> {
     // ── Lang ──────────────────────────────────────────────────────────────────
     assign(value: Node<D>): void           { addToStack(new AssignNode(this, value)); }
     toVar(label?: string): VarNode<D>      { return Var(this, label); }
-    toConst(label?: string): VarNode<D>    { return Const(this, label); }
+    toConst(label?: string): LetNode<D>    { return Let(this, label); }
 
     addAssign<N extends Node<Any>>(v: N): void { addToStack(new AssignNode(this, add(this, v) as unknown as Node<D>)); }
     subAssign<N extends Node<Any>>(v: N): void { addToStack(new AssignNode(this, sub(this, v) as unknown as Node<D>)); }
@@ -561,8 +561,18 @@ export class InspectorNode<D extends Any> extends Node<D> {
 
 // ─── Expr nodes ───────────────────────────────────────────────────────────────
 
-export class ConstNode<D extends Any> extends Node<D> {
+export class LiteralNode<D extends Any> extends Node<D> {
     constructor(type: D, readonly value: number | number[] | string) {
+        super(type);
+    }
+}
+
+export class LetNode<D extends Any> extends Node<D> {
+    constructor(
+        type: D,
+        readonly varName: string,
+        readonly init: Node<D>
+    ) {
         super(type);
     }
 }
@@ -571,8 +581,52 @@ export class VarNode<D extends Any> extends Node<D> {
     constructor(
         type: D,
         readonly varName: string,
-        readonly init: Node<D>,
-        readonly isConst: boolean = false
+        readonly init: Node<D>
+    ) {
+        super(type);
+    }
+}
+
+// ─── Module-scope variables ───────────────────────────────────────────────────
+
+/**
+ * Module-scope private variable: `var<private> name: T [= init];`
+ * 
+ * Private variables are per-invocation storage at module scope.
+ * Unlike function-scope variables, they persist across function calls
+ * within the same shader invocation.
+ * 
+ * @example
+ * const counter = privateVar(d.u32, 'counter');
+ * // → var<private> counter: u32;
+ * 
+ * const gravity = privateVar(vec3f(0, -9.8, 0), 'gravity');
+ * // → var<private> gravity: vec3f = vec3f(0.0, -9.8, 0.0);
+ */
+export class PrivateVarNode<D extends Any> extends Node<D> {
+    constructor(
+        type: D,
+        readonly varName: string,
+        readonly init?: Node<D>
+    ) {
+        super(type);
+    }
+}
+
+/**
+ * Module-scope workgroup variable: `var<workgroup> name: T;`
+ * 
+ * Workgroup variables are shared across all invocations in a workgroup.
+ * Only valid in compute shaders. Cannot have an initializer.
+ * 
+ * @example
+ * const shared = workgroupVar(d.array(d.f32, 256), 'sharedData');
+ * // → var<workgroup> sharedData: array<f32, 256>;
+ */
+export class WorkgroupVarNode<D extends Any> extends Node<D> {
+    constructor(
+        type: D,
+        readonly varName: string
     ) {
         super(type);
     }
@@ -732,46 +786,46 @@ export function array<E extends Any>(elements: [Node<E>, ...Node<E>[]]): Node<{ 
 
 // ── Const constructors ────────────────────────────────────────────────────────
 
-export function f32(v?: number): ConstNode<d.f32>;
+export function f32(v?: number): LiteralNode<d.f32>;
 export function f32(v: Node<Any>): Node<d.f32>;
-export function f32(v: number | Node<Any> = 0): ConstNode<d.f32> | Node<d.f32> {
+export function f32(v: number | Node<Any> = 0): LiteralNode<d.f32> | Node<d.f32> {
     if (isNode(v)) return new CallNode(d.f32, 'f32', [v]);
-    return new ConstNode(d.f32, v);
+    return new LiteralNode(d.f32, v);
 }
 
-export function f16(v?: number): ConstNode<d.f16>;
+export function f16(v?: number): LiteralNode<d.f16>;
 export function f16(v: Node<Any>): Node<d.f16>;
-export function f16(v: number | Node<Any> = 0): ConstNode<d.f16> | Node<d.f16> {
+export function f16(v: number | Node<Any> = 0): LiteralNode<d.f16> | Node<d.f16> {
     if (isNode(v)) return new CallNode(d.f16, 'f16', [v]);
-    return new ConstNode(d.f16, v);
+    return new LiteralNode(d.f16, v);
 }
 
-export function i32(v?: number): ConstNode<d.i32>;
+export function i32(v?: number): LiteralNode<d.i32>;
 export function i32(v: Node<Any>): Node<d.i32>;
-export function i32(v: number | Node<Any> = 0): ConstNode<d.i32> | Node<d.i32> {
+export function i32(v: number | Node<Any> = 0): LiteralNode<d.i32> | Node<d.i32> {
     if (isNode(v)) return new CallNode(d.i32, 'i32', [v]);
-    return new ConstNode(d.i32, Math.trunc(v as number));
+    return new LiteralNode(d.i32, Math.trunc(v as number));
 }
 
-export function u32(v?: number): ConstNode<d.u32>;
+export function u32(v?: number): LiteralNode<d.u32>;
 export function u32(v: Node<Any>): Node<d.u32>;
-export function u32(v: number | Node<Any> = 0): ConstNode<d.u32> | Node<d.u32> {
+export function u32(v: number | Node<Any> = 0): LiteralNode<d.u32> | Node<d.u32> {
     if (isNode(v)) return new CallNode(d.u32, 'u32', [v]);
-    return new ConstNode(d.u32, Math.trunc(v as number));
+    return new LiteralNode(d.u32, Math.trunc(v as number));
 }
 
-export const bool = (v: boolean): ConstNode<d.bool> => new ConstNode(d.bool, v ? 1 : 0);
+export const bool = (v: boolean): LiteralNode<d.bool> => new LiteralNode(d.bool, v ? 1 : 0);
 
 type Scalar = Node<Any> | number | boolean;
 type ScalarElemType = 'f32' | 'f16' | 'i32' | 'u32' | 'bool';
 
 function wrapScalar(v: Scalar, elemType: ScalarElemType): Node<Any> {
     if (isNode(v)) return v;
-    if (elemType === 'bool') return new ConstNode(d.bool, (v as boolean | number) ? 1 : 0);
-    if (elemType === 'i32')  return new ConstNode(d.i32, Math.trunc(v as number));
-    if (elemType === 'u32')  return new ConstNode(d.u32, Math.trunc(v as number));
-    if (elemType === 'f16')  return new ConstNode(d.f16, v as number);
-    return new ConstNode(d.f32, v as number);
+    if (elemType === 'bool') return new LiteralNode(d.bool, (v as boolean | number) ? 1 : 0);
+    if (elemType === 'i32')  return new LiteralNode(d.i32, Math.trunc(v as number));
+    if (elemType === 'u32')  return new LiteralNode(d.u32, Math.trunc(v as number));
+    if (elemType === 'f16')  return new LiteralNode(d.f16, v as number);
+    return new LiteralNode(d.f32, v as number);
 }
 function elemOf(type: Vec2Type | Vec3Type | Vec4Type): ScalarElemType {
     if (type.endsWith('h')) return 'f16';
@@ -838,24 +892,24 @@ export const vec2b = makeVec2(d.vec2bool);
 export const vec3b = makeVec3(d.vec3bool);
 export const vec4b = makeVec4(d.vec4bool);
 
-export const mat2x2f = (...v: number[]): ConstNode<d.mat2x2f> => new ConstNode(d.mat2x2f, v.length ? v : []);
-export const mat2x3f = (...v: number[]): ConstNode<d.mat2x3f> => new ConstNode(d.mat2x3f, v.length ? v : []);
-export const mat2x4f = (...v: number[]): ConstNode<d.mat2x4f> => new ConstNode(d.mat2x4f, v.length ? v : []);
-export const mat3x2f = (...v: number[]): ConstNode<d.mat3x2f> => new ConstNode(d.mat3x2f, v.length ? v : []);
-export const mat3x3f = (...v: number[]): ConstNode<d.mat3x3f> => new ConstNode(d.mat3x3f, v.length ? v : []);
-export const mat3x4f = (...v: number[]): ConstNode<d.mat3x4f> => new ConstNode(d.mat3x4f, v.length ? v : []);
-export const mat4x2f = (...v: number[]): ConstNode<d.mat4x2f> => new ConstNode(d.mat4x2f, v.length ? v : []);
-export const mat4x3f = (...v: number[]): ConstNode<d.mat4x3f> => new ConstNode(d.mat4x3f, v.length ? v : []);
-export const mat4x4f = (...v: number[]): ConstNode<d.mat4x4f> => new ConstNode(d.mat4x4f, v.length ? v : []);
-export const mat2x2h = (...v: number[]): ConstNode<d.mat2x2h> => new ConstNode(d.mat2x2h, v.length ? v : []);
-export const mat2x3h = (...v: number[]): ConstNode<d.mat2x3h> => new ConstNode(d.mat2x3h, v.length ? v : []);
-export const mat2x4h = (...v: number[]): ConstNode<d.mat2x4h> => new ConstNode(d.mat2x4h, v.length ? v : []);
-export const mat3x2h = (...v: number[]): ConstNode<d.mat3x2h> => new ConstNode(d.mat3x2h, v.length ? v : []);
-export const mat3x3h = (...v: number[]): ConstNode<d.mat3x3h> => new ConstNode(d.mat3x3h, v.length ? v : []);
-export const mat3x4h = (...v: number[]): ConstNode<d.mat3x4h> => new ConstNode(d.mat3x4h, v.length ? v : []);
-export const mat4x2h = (...v: number[]): ConstNode<d.mat4x2h> => new ConstNode(d.mat4x2h, v.length ? v : []);
-export const mat4x3h = (...v: number[]): ConstNode<d.mat4x3h> => new ConstNode(d.mat4x3h, v.length ? v : []);
-export const mat4x4h = (...v: number[]): ConstNode<d.mat4x4h> => new ConstNode(d.mat4x4h, v.length ? v : []);
+export const mat2x2f = (...v: number[]): LiteralNode<d.mat2x2f> => new LiteralNode(d.mat2x2f, v.length ? v : []);
+export const mat2x3f = (...v: number[]): LiteralNode<d.mat2x3f> => new LiteralNode(d.mat2x3f, v.length ? v : []);
+export const mat2x4f = (...v: number[]): LiteralNode<d.mat2x4f> => new LiteralNode(d.mat2x4f, v.length ? v : []);
+export const mat3x2f = (...v: number[]): LiteralNode<d.mat3x2f> => new LiteralNode(d.mat3x2f, v.length ? v : []);
+export const mat3x3f = (...v: number[]): LiteralNode<d.mat3x3f> => new LiteralNode(d.mat3x3f, v.length ? v : []);
+export const mat3x4f = (...v: number[]): LiteralNode<d.mat3x4f> => new LiteralNode(d.mat3x4f, v.length ? v : []);
+export const mat4x2f = (...v: number[]): LiteralNode<d.mat4x2f> => new LiteralNode(d.mat4x2f, v.length ? v : []);
+export const mat4x3f = (...v: number[]): LiteralNode<d.mat4x3f> => new LiteralNode(d.mat4x3f, v.length ? v : []);
+export const mat4x4f = (...v: number[]): LiteralNode<d.mat4x4f> => new LiteralNode(d.mat4x4f, v.length ? v : []);
+export const mat2x2h = (...v: number[]): LiteralNode<d.mat2x2h> => new LiteralNode(d.mat2x2h, v.length ? v : []);
+export const mat2x3h = (...v: number[]): LiteralNode<d.mat2x3h> => new LiteralNode(d.mat2x3h, v.length ? v : []);
+export const mat2x4h = (...v: number[]): LiteralNode<d.mat2x4h> => new LiteralNode(d.mat2x4h, v.length ? v : []);
+export const mat3x2h = (...v: number[]): LiteralNode<d.mat3x2h> => new LiteralNode(d.mat3x2h, v.length ? v : []);
+export const mat3x3h = (...v: number[]): LiteralNode<d.mat3x3h> => new LiteralNode(d.mat3x3h, v.length ? v : []);
+export const mat3x4h = (...v: number[]): LiteralNode<d.mat3x4h> => new LiteralNode(d.mat3x4h, v.length ? v : []);
+export const mat4x2h = (...v: number[]): LiteralNode<d.mat4x2h> => new LiteralNode(d.mat4x2h, v.length ? v : []);
+export const mat4x3h = (...v: number[]): LiteralNode<d.mat4x3h> => new LiteralNode(d.mat4x3h, v.length ? v : []);
+export const mat4x4h = (...v: number[]): LiteralNode<d.mat4x4h> => new LiteralNode(d.mat4x4h, v.length ? v : []);
 
 export const mat4 = (c0: Node<d.Vec4Desc>, c1: Node<d.Vec4Desc>, c2: Node<d.Vec4Desc>, c3: Node<d.Vec4Desc>) => new ConstructNode(d.mat4x4f, [c0, c1, c2, c3]);
 export function mat3(c0: Node<d.Vec3Desc>, c1: Node<d.Vec3Desc>, c2: Node<d.Vec3Desc>): Node<d.mat3x3f>;
@@ -881,7 +935,7 @@ export function mat3(
         return new ConstructNode(d.mat3x3f, [c0, c1, c2]);
     }
     // scalar diagonal: expand to 9 scalars (WGSL has no single-scalar matrix constructor)
-    const z = new ConstNode(d.f32, 0);
+    const z = new LiteralNode(d.f32, 0);
     return new ConstructNode(d.mat3x3f, [c0, z, z, z, c0, z, z, z, c0]);
 }
 
@@ -1097,7 +1151,7 @@ export function Return(): void;
 export function Return<D extends Any>(value: Node<D>): void;
 export function Return<D extends Any>(value?: Node<D>): void {
     if (value !== undefined) addToStack(new ReturnNode(value));
-    else addToStack(new ReturnNode(new ConstNode(d.voidDesc, 0) as Node<d.VoidDesc>));
+    else addToStack(new ReturnNode(new LiteralNode(d.voidDesc, 0) as Node<d.VoidDesc>));
 }
 export function Break(): void    { addToStack(new BreakNode()); }
 export function Continue(): void { addToStack(new ContinueNode()); }
@@ -1162,11 +1216,60 @@ export function Var<D extends Any>(init: Node<D>, label?: string): VarNode<D> {
     return v;
 }
 
-export function Const<D extends Any>(init: Node<D>, label?: string): VarNode<D> {
-    const varName = label ? `const_${_nodeId}_${label}` : `const_${_nodeId}`;
-    const v = new VarNode(init.type, varName, init, true);
+export function Let<D extends Any>(init: Node<D>, label?: string): LetNode<D> {
+    const varName = label ? `let_${_nodeId}_${label}` : `let_${_nodeId}`;
+    const v = new LetNode(init.type, varName, init);
     if (currentStack !== null) currentStack.push(v);
     return v;
+}
+
+/** @deprecated Use Let() instead */
+export function Const<D extends Any>(init: Node<D>, label?: string): LetNode<D> {
+    return Let(init, label);
+}
+
+// ─── Module-scope variable factories ──────────────────────────────────────────
+
+/**
+ * Create a module-scope private variable: `var<private> name: T [= init];`
+ * 
+ * Private variables are per-invocation storage at module scope.
+ * 
+ * @example Type-only (no initializer)
+ * const counter = privateVar(d.u32, 'counter');
+ * // → var<private> counter: u32;
+ * 
+ * @example With initializer (type inferred from node)
+ * const gravity = privateVar(vec3f(0, -9.8, 0), 'gravity');
+ * // → var<private> gravity: vec3f = vec3f(0.0, -9.8, 0.0);
+ */
+export function privateVar<D extends Any>(type: D, name?: string): PrivateVarNode<D>;
+export function privateVar<D extends Any>(init: Node<D>, name?: string): PrivateVarNode<D>;
+export function privateVar<D extends Any>(typeOrInit: D | Node<D>, name?: string): PrivateVarNode<D> {
+    // Check if first arg is a Node (has .type property and is instanceof Node)
+    if (typeOrInit instanceof Node) {
+        const init = typeOrInit;
+        const varName = name ?? `private_${_nodeId}`;
+        return new PrivateVarNode(init.type, varName, init);
+    }
+    // Otherwise it's a type descriptor
+    const type = typeOrInit;
+    const varName = name ?? `private_${_nodeId}`;
+    return new PrivateVarNode(type, varName);
+}
+
+/**
+ * Create a module-scope workgroup variable: `var<workgroup> name: T;`
+ * 
+ * Workgroup variables are shared across all invocations in a workgroup.
+ * Only valid in compute shaders. Cannot have an initializer.
+ * 
+ * @example
+ * const shared = workgroupVar(d.array(d.f32, 256), 'sharedData');
+ * // → var<workgroup> sharedData: array<f32, 256>;
+ */
+export function workgroupVar<D extends Any>(type: D, name: string): WorkgroupVarNode<D> {
+    return new WorkgroupVarNode(type, name);
 }
 
 export function assign<D extends Any>(target: Node<D>, value: Node<D>): void { addToStack(new AssignNode(target, value)); }

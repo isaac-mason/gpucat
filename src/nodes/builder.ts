@@ -13,8 +13,11 @@ import {
     StructNode,
     AssignNode,
     InspectorNode,
-    ConstNode,
+    LiteralNode,
+    LetNode,
     VarNode,
+    PrivateVarNode,
+    WorkgroupVarNode,
     IfNode,
     LoopNode,
     BreakNode,
@@ -38,7 +41,7 @@ import { StorageNode } from './lib/storage';
 import { UniformNode, UniformGroup } from './lib/uniform';
 import { WgslFunctionNode } from './lib/wgsl-fn';
 import { OutputStructNode, MRTNode } from './lib/mrt';
-import { BuiltinNode, ComputeIndexNode } from './lib/builtin';
+import { BuiltinNode, ComputeIndexNode, computeIndex } from './lib/builtin';
 import { PassNode } from './lib/display/pass-node';
 import * as d from '../schema/schema';
 import type { StructSchema } from '../schema/schema';
@@ -70,6 +73,8 @@ export function compile(slots: CompileSlots): CompileResult {
     vertexCtx.samplers = discovered.samplers;
     vertexCtx.uniforms = discovered.uniforms;
     vertexCtx.storages = discovered.storages;
+    vertexCtx.privateVars = discovered.privateVars;
+    vertexCtx.workgroupVars = discovered.workgroupVars;
     
     fragmentCtx.usageCount = discovered.usageCount;
     fragmentCtx.mutatedNodes = discovered.mutatedNodes;
@@ -81,6 +86,8 @@ export function compile(slots: CompileSlots): CompileResult {
     fragmentCtx.samplers = discovered.samplers;
     fragmentCtx.uniforms = discovered.uniforms;
     fragmentCtx.storages = discovered.storages;
+    fragmentCtx.privateVars = discovered.privateVars;
+    fragmentCtx.workgroupVars = discovered.workgroupVars;
     
     // pre-collect varyings from fragment roots (so vertex shader knows what to output)
     if (hasFragment) {
@@ -102,6 +109,9 @@ export function compile(slots: CompileSlots): CompileResult {
     // emit all bindings using Three.js pattern (each group gets its own @group index)
     const { wgsl: bindingsWgsl, uniformBlocks, storageEntries, textureEntries: textures, samplerEntries: samplers } = emitAllBindings(vertexCtx);
     
+    // emit module-scope variables (var<private>)
+    const moduleScopeVarsWgsl = emitModuleScopeVars(vertexCtx);
+    
     // emit functions
     const wgslFnsCode = emitWgslFunctions(vertexCtx);
     const dslFnsCode = emitDslFunctions(vertexCtx);
@@ -110,6 +120,8 @@ export function compile(slots: CompileSlots): CompileResult {
     const codeParts = [
         '// Bindings (uniforms, storage, textures, samplers)',
         bindingsWgsl,
+        '// Module-scope variables',
+        moduleScopeVarsWgsl,
         '// WGSL Functions',
         wgslFnsCode,
         '// DSL Functions',
@@ -200,12 +212,17 @@ export function compileCompute(node: ComputeNode): ComputeCompileResult {
     ctx.samplers = discovered.samplers;
     ctx.uniforms = discovered.uniforms;
     ctx.storages = discovered.storages;
+    ctx.privateVars = discovered.privateVars;
+    ctx.workgroupVars = discovered.workgroupVars;
     
     // generate compute shader body
     const computeBody = generateComputeShader(node, ctx);
     
     // emit all bindings using Three.js pattern (each group gets its own @group index)
     const { wgsl: bindingsWgsl, uniformBlocks, storageEntries } = emitAllBindings(ctx);
+    
+    // emit module-scope variables (var<private>, var<workgroup>)
+    const moduleScopeVarsWgsl = emitModuleScopeVars(ctx);
     
     // emit functions
     const wgslFnsCode = emitWgslFunctions(ctx);
@@ -215,6 +232,8 @@ export function compileCompute(node: ComputeNode): ComputeCompileResult {
     const code = [
         '// Bindings (uniforms, storage, textures, samplers)',
         bindingsWgsl,
+        '// Module-scope variables',
+        moduleScopeVarsWgsl,
         '// WGSL Functions',
         wgslFnsCode,
         '// DSL Functions',
@@ -431,6 +450,10 @@ interface BuildContext {
     varyings: Map<string, { node: VaryingNode<d.Any>; vertexExpr: string }>;
     builtins: Set<string>;
     
+    // Module-scope variables
+    privateVars: Map<number, PrivateVarNode<d.Any>>; // node.id -> node
+    workgroupVars: Map<number, WorkgroupVarNode<d.Any>>; // node.id -> node
+    
     // Struct definitions
     structs: Map<string, StructNode>;
     structDefs: Map<string, StructDef<StructSchema>>;
@@ -470,6 +493,8 @@ function createContext(stage: ShaderStage, isRender: boolean): BuildContext {
         attrCounter: 0,
         varyings: new Map(),
         builtins: new Set(),
+        privateVars: new Map(),
+        workgroupVars: new Map(),
         structs: new Map(),
         structDefs: new Map(),
         usageCount: new Map(),
@@ -511,8 +536,12 @@ function getChildren(node: Node<d.Any>): Node<d.Any>[] {
         children.push(node.node as unknown as Node<d.Any>);
     } else if (node instanceof AssignNode) {
         children.push(node.target, node.value);
-    } else if (node instanceof VarNode) {
+    } else if (node instanceof LetNode || node instanceof VarNode) {
         children.push(node.init);
+    } else if (node instanceof PrivateVarNode) {
+        if (node.init) children.push(node.init);
+    } else if (node instanceof WorkgroupVarNode) {
+        // WorkgroupVarNode has no initializer (WGSL doesn't allow it)
     } else if (node instanceof CondNode) {
         children.push(node.condition, node.ifTrue);
         if (node.ifFalse) children.push(node.ifFalse);
@@ -728,6 +757,8 @@ interface DiscoverResult {
     samplers: Map<string, SamplerNode>; // keyed by settingsKey for deduplication
     uniforms: Map<string, { node: UniformNode<d.Any>; group: UniformGroup }>;
     storages: Map<string, StorageNode<d.Any>>;
+    privateVars: Map<number, PrivateVarNode<d.Any>>; // node.id -> node
+    workgroupVars: Map<number, WorkgroupVarNode<d.Any>>; // node.id -> node
     allNodes: Map<number, Node<d.Any>>;
     updateBeforeNodes: UpdateBeforeNode[];
     updateAfterNodes: UpdateAfterNode[];
@@ -745,6 +776,8 @@ function discover(roots: Node<d.Any>[]): DiscoverResult {
     const samplers = new Map<string, SamplerNode>(); // keyed by settingsKey
     const uniforms = new Map<string, { node: UniformNode<d.Any>; group: UniformGroup }>();
     const storages = new Map<string, StorageNode<d.Any>>();
+    const privateVars = new Map<number, PrivateVarNode<d.Any>>();
+    const workgroupVars = new Map<number, WorkgroupVarNode<d.Any>>();
     const allNodes = new Map<number, Node<d.Any>>();
     const updateBeforeNodes: UpdateBeforeNode[] = [];
     const updateAfterNodes: UpdateAfterNode[] = [];
@@ -892,6 +925,18 @@ function discover(roots: Node<d.Any>[]): DiscoverResult {
                 uniforms.set(name, { node, group });
             }
         }
+        
+        // Module-scope variable discovery
+        if (node instanceof PrivateVarNode) {
+            if (!privateVars.has(node.id)) {
+                privateVars.set(node.id, node);
+            }
+        }
+        if (node instanceof WorkgroupVarNode) {
+            if (!workgroupVars.has(node.id)) {
+                workgroupVars.set(node.id, node);
+            }
+        }
 
         // visit children
         for (const child of getChildren(node)) {
@@ -906,7 +951,7 @@ function discover(roots: Node<d.Any>[]): DiscoverResult {
     return { 
         usageCount, mutatedNodes, fnDefs, wgslFnDefs, structDefs, storageNames, 
         allNodes, updateBeforeNodes, updateAfterNodes, updateNodes,
-        textures, samplers, uniforms, storages
+        textures, samplers, uniforms, storages, privateVars, workgroupVars
     };
 }
 
@@ -973,7 +1018,7 @@ function generateExpr(ctx: BuildContext, node: Node<d.Any>): string {
     
     let expr: string;
     
-    if (node instanceof ConstNode) {
+    if (node instanceof LiteralNode) {
         expr = constLiteral(node.type.wgslType, node.value);
     } else if (node instanceof UniformNode) {
         expr = generateUniform(ctx, node);
@@ -1035,18 +1080,36 @@ function generateExpr(ctx: BuildContext, node: Node<d.Any>): string {
             wgsl = wgsl.replace(new RegExp(`\\$${i}`, 'g'), depExpr);
         }
         expr = wgsl;
-    } else if (node instanceof VarNode) {
-        // VarNode as expression returns the variable name
-        // If not yet declared (e.g., toVar() called outside Fn body), emit the declaration now
+    } else if (node instanceof LetNode) {
+        // LetNode as expression returns the variable name
+        // If not yet declared, emit the declaration now
         if (!ctx.nodeVars.has(node.id)) {
             const init = generateExpr(ctx, node.init);
-            if (node.isConst) {
-                ctx.code.push(`    let ${node.varName} = ${init};`);
-            } else {
-                ctx.code.push(`    var ${node.varName} = ${init};`);
-            }
+            ctx.code.push(`    let ${node.varName} = ${init};`);
             ctx.nodeVars.set(node.id, node.varName);
         }
+        expr = node.varName;
+    } else if (node instanceof VarNode) {
+        // VarNode as expression returns the variable name
+        // If not yet declared, emit the declaration now
+        if (!ctx.nodeVars.has(node.id)) {
+            const init = generateExpr(ctx, node.init);
+            ctx.code.push(`    var ${node.varName} = ${init};`);
+            ctx.nodeVars.set(node.id, node.varName);
+        }
+        expr = node.varName;
+    } else if (node instanceof PrivateVarNode) {
+        // PrivateVarNode is module-scope, emitted separately
+        // Just return the variable name - declaration is in emitModuleScopeVars
+        ctx.nodeVars.set(node.id, node.varName);
+        expr = node.varName;
+    } else if (node instanceof WorkgroupVarNode) {
+        // WorkgroupVarNode is module-scope, emitted separately
+        // Validate it's only used in compute shaders
+        if (ctx.stage !== 'compute') {
+            throw new Error(`[builder] WorkgroupVarNode '${node.varName}' can only be used in compute shaders, but was used in ${ctx.stage} stage.`);
+        }
+        ctx.nodeVars.set(node.id, node.varName);
         expr = node.varName;
     } else if (node instanceof ParamNode) {
         expr = node.paramName ?? `p${node.paramIndex}`;
@@ -1098,8 +1161,11 @@ function containsAtomics(desc: d.Any): boolean {
 /** Check if expression is trivial enough that repeating it is cheap (no need to extract) */
 function isTrivialExpr(node: Node<d.Any>): boolean {
     return (
-        node instanceof ConstNode ||
+        node instanceof LiteralNode ||
+        node instanceof LetNode ||
         node instanceof VarNode ||
+        node instanceof PrivateVarNode ||
+        node instanceof WorkgroupVarNode ||
         node instanceof ParamNode ||
         node instanceof BuiltinNode ||
         node instanceof FieldNode ||
@@ -1552,13 +1618,13 @@ function generateCall(ctx: BuildContext, node: CallNode<d.Any>): string {
 function generateStmt(ctx: BuildContext, node: Node<d.Any>): void {
     const ind = '    '.repeat(ctx.indentLevel);
     
-    if (node instanceof VarNode) {
+    if (node instanceof LetNode) {
         const init = generateExpr(ctx, node.init);
-        if (node.isConst) {
-            ctx.code.push(`${ind}let ${node.varName} = ${init};`);
-        } else {
-            ctx.code.push(`${ind}var ${node.varName} = ${init};`);
-        }
+        ctx.code.push(`${ind}let ${node.varName} = ${init};`);
+        ctx.nodeVars.set(node.id, node.varName);
+    } else if (node instanceof VarNode) {
+        const init = generateExpr(ctx, node.init);
+        ctx.code.push(`${ind}var ${node.varName} = ${init};`);
         ctx.nodeVars.set(node.id, node.varName);
     } else if (node instanceof AssignNode) {
         const target = generateExpr(ctx, node.target);
@@ -1644,10 +1710,10 @@ function generateLoopStmt(ctx: BuildContext, node: LoopNode): void {
     
     if (typeof config === 'number') {
         loopHeader = `for (var ${wgslVarName}: i32 = 0i; ${wgslVarName} < ${config}i; ${wgslVarName}++)`;
-    } else if (config instanceof ConstNode || config instanceof UniformNode) {
+    } else if (config instanceof LiteralNode || config instanceof UniformNode) {
         const endExpr = generateExpr(ctx, config as Node<d.Any>);
         loopHeader = `for (var ${wgslVarName}: i32 = 0i; ${wgslVarName} < ${endExpr}; ${wgslVarName}++)`;
-    } else if (typeof config === 'object' && config !== null && !(config instanceof ConstNode) && !(config instanceof UniformNode)) {
+    } else if (typeof config === 'object' && config !== null && !(config instanceof LiteralNode) && !(config instanceof UniformNode)) {
         const cfg = config as {
             start?: Node<d.Any> | number;
             end?: Node<d.Any> | number;
@@ -1688,6 +1754,63 @@ function generateLoopStmt(ctx: BuildContext, node: LoopNode): void {
 }
 
 /* wgsl code assembly */
+
+/**
+ * Emit module-scope variable declarations (var<private> and var<workgroup>).
+ * These are emitted before bindings in the shader.
+ */
+function emitModuleScopeVars(ctx: BuildContext): string {
+    const lines: string[] = [];
+    
+    // Emit private variables
+    for (const [, node] of ctx.privateVars) {
+        if (node.init) {
+            // With initializer - need to generate init expression in a temporary context
+            // Since these are module-scope, we can't use function-scope expressions directly
+            // The init must be a const-expression (compile-time constant)
+            const initExpr = generateModuleScopeInitExpr(node.init);
+            lines.push(`var<private> ${node.varName}: ${node.type.wgslType} = ${initExpr};`);
+        } else {
+            // Without initializer
+            lines.push(`var<private> ${node.varName}: ${node.type.wgslType};`);
+        }
+    }
+    
+    // Emit workgroup variables (only in compute shaders - already validated in generateExpr)
+    for (const [, node] of ctx.workgroupVars) {
+        // Workgroup variables cannot have initializers in WGSL
+        lines.push(`var<workgroup> ${node.varName}: ${node.type.wgslType};`);
+    }
+    
+    return lines.length > 0 ? lines.join('\n') + '\n' : '';
+}
+
+/**
+ * Generate a const-expression for module-scope variable initializers.
+ * Module-scope initializers must be const-expressions (compile-time constants).
+ */
+function generateModuleScopeInitExpr(node: Node<d.Any>): string {
+    if (node instanceof LiteralNode) {
+        return constLiteral(node.type.wgslType, node.value);
+    } else if (node instanceof ConstructNode) {
+        const args = node.args.map(a => generateModuleScopeInitExpr(a));
+        return `${node.type.wgslType}(${args.join(', ')})`;
+    } else if (node instanceof BinopNode) {
+        const left = generateModuleScopeInitExpr(node.left);
+        const right = generateModuleScopeInitExpr(node.right);
+        return `(${left} ${node.op} ${right})`;
+    } else if (node instanceof CallNode) {
+        // Only const-evaluable built-in functions are allowed
+        const args = node.args.map(a => generateModuleScopeInitExpr(a));
+        return `${node.fn}(${args.join(', ')})`;
+    } else {
+        throw new Error(
+            `[builder] Module-scope variable initializer must be a const-expression. ` +
+            `Got ${node.constructor.name}. Only literals, constructors, and const-evaluable ` +
+            `built-in functions are allowed.`
+        );
+    }
+}
 
 /**
  * Binding group data structure for collecting all bindings per @group(N).
@@ -2191,13 +2314,18 @@ function generateComputeShader(node: ComputeNode, ctx: BuildContext): string {
     const wgSize = node.workgroupSize ?? [64, 1, 1];
     const [WX, WY, WZ] = wgSize;
     
-    // computeIndex requires global_invocation_id and num_workgroups
-    ctx.builtins.add('global_invocation_id');
-    ctx.builtins.add('num_workgroups');
+    // check if computeIndex is used
+    const usesComputeIndex = (ctx.usageCount.get(computeIndex.id) ?? 0) > 0;
     
-    // emit private variable for computeIndex (like three.js instanceIndex)
-    lines.push('var<private> computeIndex: u32;');
-    lines.push('');
+    if (usesComputeIndex) {
+        // computeIndex depends on global_id and num_workgroups
+        ctx.builtins.add('global_invocation_id');
+        ctx.builtins.add('num_workgroups');
+        
+        // emit private variable for computeIndex
+        lines.push('var<private> computeIndex: u32;');
+        lines.push('');
+    }
     
     // emit main function
     lines.push(`@compute @workgroup_size(${WX}, ${WY}, ${WZ})`);
@@ -2223,9 +2351,10 @@ function generateComputeShader(node: ComputeNode, ctx: BuildContext): string {
     lines.push(builtinParams.join(',\n'));
     lines.push(') {');
     
-    // compute linearized index at start of function (like three.js)
-    // computeIndex = global_id.x + global_id.y * (WX * num_workgroups.x) + global_id.z * (WX * num_workgroups.x) * (WY * num_workgroups.y)
-    lines.push(`    computeIndex = global_id.x + global_id.y * (${WX}u * num_workgroups.x) + global_id.z * (${WX}u * num_workgroups.x) * (${WY}u * num_workgroups.y);`);
+    // compute linearized index at start of function (only if used)
+    if (usesComputeIndex) {
+        lines.push(`    computeIndex = global_id.x + global_id.y * (${WX}u * num_workgroups.x) + global_id.z * (${WX}u * num_workgroups.x) * (${WY}u * num_workgroups.y);`);
+    }
     
     lines.push(...ctx.code);
     lines.push('}');

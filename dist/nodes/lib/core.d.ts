@@ -112,7 +112,7 @@ export declare class Node<D extends Any> {
     element(idx: Node<Any>): Node<d.ElementOf<D>>;
     assign(value: Node<D>): void;
     toVar(label?: string): VarNode<D>;
-    toConst(label?: string): VarNode<D>;
+    toConst(label?: string): LetNode<D>;
     addAssign<N extends Node<Any>>(v: N): void;
     subAssign<N extends Node<Any>>(v: N): void;
     mulAssign<N extends Node<Any>>(v: N): void;
@@ -391,15 +391,52 @@ export declare class InspectorNode<D extends Any> extends Node<D> {
      */
     getName(): string;
 }
-export declare class ConstNode<D extends Any> extends Node<D> {
+export declare class LiteralNode<D extends Any> extends Node<D> {
     readonly value: number | number[] | string;
     constructor(type: D, value: number | number[] | string);
+}
+export declare class LetNode<D extends Any> extends Node<D> {
+    readonly varName: string;
+    readonly init: Node<D>;
+    constructor(type: D, varName: string, init: Node<D>);
 }
 export declare class VarNode<D extends Any> extends Node<D> {
     readonly varName: string;
     readonly init: Node<D>;
-    readonly isConst: boolean;
-    constructor(type: D, varName: string, init: Node<D>, isConst?: boolean);
+    constructor(type: D, varName: string, init: Node<D>);
+}
+/**
+ * Module-scope private variable: `var<private> name: T [= init];`
+ *
+ * Private variables are per-invocation storage at module scope.
+ * Unlike function-scope variables, they persist across function calls
+ * within the same shader invocation.
+ *
+ * @example
+ * const counter = privateVar(d.u32, 'counter');
+ * // → var<private> counter: u32;
+ *
+ * const gravity = privateVar(vec3f(0, -9.8, 0), 'gravity');
+ * // → var<private> gravity: vec3f = vec3f(0.0, -9.8, 0.0);
+ */
+export declare class PrivateVarNode<D extends Any> extends Node<D> {
+    readonly varName: string;
+    readonly init?: Node<D> | undefined;
+    constructor(type: D, varName: string, init?: Node<D> | undefined);
+}
+/**
+ * Module-scope workgroup variable: `var<workgroup> name: T;`
+ *
+ * Workgroup variables are shared across all invocations in a workgroup.
+ * Only valid in compute shaders. Cannot have an initializer.
+ *
+ * @example
+ * const shared = workgroupVar(d.array(d.f32, 256), 'sharedData');
+ * // → var<workgroup> sharedData: array<f32, 256>;
+ */
+export declare class WorkgroupVarNode<D extends Any> extends Node<D> {
+    readonly varName: string;
+    constructor(type: D, varName: string);
 }
 export declare class AssignNode extends Node<d.VoidDesc> {
     readonly target: Node<Any>;
@@ -499,15 +536,15 @@ export declare function array<E extends Any>(elements: [Node<E>, ...Node<E>[]]):
     readonly element: E;
     readonly length: number;
 }>;
-export declare function f32(v?: number): ConstNode<d.f32>;
+export declare function f32(v?: number): LiteralNode<d.f32>;
 export declare function f32(v: Node<Any>): Node<d.f32>;
-export declare function f16(v?: number): ConstNode<d.f16>;
+export declare function f16(v?: number): LiteralNode<d.f16>;
 export declare function f16(v: Node<Any>): Node<d.f16>;
-export declare function i32(v?: number): ConstNode<d.i32>;
+export declare function i32(v?: number): LiteralNode<d.i32>;
 export declare function i32(v: Node<Any>): Node<d.i32>;
-export declare function u32(v?: number): ConstNode<d.u32>;
+export declare function u32(v?: number): LiteralNode<d.u32>;
 export declare function u32(v: Node<Any>): Node<d.u32>;
-export declare const bool: (v: boolean) => ConstNode<d.bool>;
+export declare const bool: (v: boolean) => LiteralNode<d.bool>;
 type Scalar = Node<Any> | number | boolean;
 export declare function makeVec2<D extends d.Vec2Desc>(desc: D): {
     (v: Scalar): ConstructNode<D>;
@@ -621,24 +658,24 @@ export declare const vec4b: {
     (xyz: Node<Any>, w: Scalar): ConstructNode<d.vec4bool>;
     (x: Scalar, y: Scalar, z: Scalar, w: Scalar): ConstructNode<d.vec4bool>;
 };
-export declare const mat2x2f: (...v: number[]) => ConstNode<d.mat2x2f>;
-export declare const mat2x3f: (...v: number[]) => ConstNode<d.mat2x3f>;
-export declare const mat2x4f: (...v: number[]) => ConstNode<d.mat2x4f>;
-export declare const mat3x2f: (...v: number[]) => ConstNode<d.mat3x2f>;
-export declare const mat3x3f: (...v: number[]) => ConstNode<d.mat3x3f>;
-export declare const mat3x4f: (...v: number[]) => ConstNode<d.mat3x4f>;
-export declare const mat4x2f: (...v: number[]) => ConstNode<d.mat4x2f>;
-export declare const mat4x3f: (...v: number[]) => ConstNode<d.mat4x3f>;
-export declare const mat4x4f: (...v: number[]) => ConstNode<d.mat4x4f>;
-export declare const mat2x2h: (...v: number[]) => ConstNode<d.mat2x2h>;
-export declare const mat2x3h: (...v: number[]) => ConstNode<d.mat2x3h>;
-export declare const mat2x4h: (...v: number[]) => ConstNode<d.mat2x4h>;
-export declare const mat3x2h: (...v: number[]) => ConstNode<d.mat3x2h>;
-export declare const mat3x3h: (...v: number[]) => ConstNode<d.mat3x3h>;
-export declare const mat3x4h: (...v: number[]) => ConstNode<d.mat3x4h>;
-export declare const mat4x2h: (...v: number[]) => ConstNode<d.mat4x2h>;
-export declare const mat4x3h: (...v: number[]) => ConstNode<d.mat4x3h>;
-export declare const mat4x4h: (...v: number[]) => ConstNode<d.mat4x4h>;
+export declare const mat2x2f: (...v: number[]) => LiteralNode<d.mat2x2f>;
+export declare const mat2x3f: (...v: number[]) => LiteralNode<d.mat2x3f>;
+export declare const mat2x4f: (...v: number[]) => LiteralNode<d.mat2x4f>;
+export declare const mat3x2f: (...v: number[]) => LiteralNode<d.mat3x2f>;
+export declare const mat3x3f: (...v: number[]) => LiteralNode<d.mat3x3f>;
+export declare const mat3x4f: (...v: number[]) => LiteralNode<d.mat3x4f>;
+export declare const mat4x2f: (...v: number[]) => LiteralNode<d.mat4x2f>;
+export declare const mat4x3f: (...v: number[]) => LiteralNode<d.mat4x3f>;
+export declare const mat4x4f: (...v: number[]) => LiteralNode<d.mat4x4f>;
+export declare const mat2x2h: (...v: number[]) => LiteralNode<d.mat2x2h>;
+export declare const mat2x3h: (...v: number[]) => LiteralNode<d.mat2x3h>;
+export declare const mat2x4h: (...v: number[]) => LiteralNode<d.mat2x4h>;
+export declare const mat3x2h: (...v: number[]) => LiteralNode<d.mat3x2h>;
+export declare const mat3x3h: (...v: number[]) => LiteralNode<d.mat3x3h>;
+export declare const mat3x4h: (...v: number[]) => LiteralNode<d.mat3x4h>;
+export declare const mat4x2h: (...v: number[]) => LiteralNode<d.mat4x2h>;
+export declare const mat4x3h: (...v: number[]) => LiteralNode<d.mat4x3h>;
+export declare const mat4x4h: (...v: number[]) => LiteralNode<d.mat4x4h>;
 export declare const mat4: (c0: Node<d.Vec4Desc>, c1: Node<d.Vec4Desc>, c2: Node<d.Vec4Desc>, c3: Node<d.Vec4Desc>) => ConstructNode<d.mat4x4f>;
 export declare function mat3(c0: Node<d.Vec3Desc>, c1: Node<d.Vec3Desc>, c2: Node<d.Vec3Desc>): Node<d.mat3x3f>;
 export declare function mat3(diag: Node<d.f32>): Node<d.mat3x3f>;
@@ -775,7 +812,35 @@ export declare const cond: <D extends Any>(condition: Node<Any>, ifTrue: Node<D>
  */
 export declare const select: <D extends Any>(falseVal: Node<D>, trueVal: Node<D>, condition: Node<Any>) => Node<D>;
 export declare function Var<D extends Any>(init: Node<D>, label?: string): VarNode<D>;
-export declare function Const<D extends Any>(init: Node<D>, label?: string): VarNode<D>;
+export declare function Let<D extends Any>(init: Node<D>, label?: string): LetNode<D>;
+/** @deprecated Use Let() instead */
+export declare function Const<D extends Any>(init: Node<D>, label?: string): LetNode<D>;
+/**
+ * Create a module-scope private variable: `var<private> name: T [= init];`
+ *
+ * Private variables are per-invocation storage at module scope.
+ *
+ * @example Type-only (no initializer)
+ * const counter = privateVar(d.u32, 'counter');
+ * // → var<private> counter: u32;
+ *
+ * @example With initializer (type inferred from node)
+ * const gravity = privateVar(vec3f(0, -9.8, 0), 'gravity');
+ * // → var<private> gravity: vec3f = vec3f(0.0, -9.8, 0.0);
+ */
+export declare function privateVar<D extends Any>(type: D, name?: string): PrivateVarNode<D>;
+export declare function privateVar<D extends Any>(init: Node<D>, name?: string): PrivateVarNode<D>;
+/**
+ * Create a module-scope workgroup variable: `var<workgroup> name: T;`
+ *
+ * Workgroup variables are shared across all invocations in a workgroup.
+ * Only valid in compute shaders. Cannot have an initializer.
+ *
+ * @example
+ * const shared = workgroupVar(d.array(d.f32, 256), 'sharedData');
+ * // → var<workgroup> sharedData: array<f32, 256>;
+ */
+export declare function workgroupVar<D extends Any>(type: D, name: string): WorkgroupVarNode<D>;
 export declare function assign<D extends Any>(target: Node<D>, value: Node<D>): void;
 export type ComputeOptions = {
     workgroupSize: [x: number, y: number, z: number];

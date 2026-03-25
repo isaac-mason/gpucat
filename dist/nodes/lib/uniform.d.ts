@@ -1,4 +1,4 @@
-import { Node, type StructDef, type StructInstance, ConstructNode, ConstNode } from './core';
+import { Node, type StructDef, type StructInstance, ConstructNode, LiteralNode } from './core';
 import type { StructSchema, Any } from '../../schema/schema';
 import type { NodeFrame } from '../../renderer/node-frame';
 import { Uniform, UniformGroup, UniformUpdateType, objectGroup, renderGroup, frameGroup, type UniformValue } from '../../core/uniform';
@@ -39,7 +39,7 @@ export { Uniform, UniformGroup, UniformUpdateType, objectGroup, renderGroup, fra
  *   const roughness = uniform('roughness', d.f32);
  *   const myVal = uniform('myVal', MyStruct);  // struct variant
  *
- * **Inline form** — pass a typed ConstNode as the initialiser:
+ * **Inline form** — pass a typed LiteralNode as the initialiser:
  *   uniform(f32(0.5))               // anonymous — uniformId derived from type
  *   uniform(f32(0.5), 'roughness')  // explicit name used as the WGSL field name
  *   uniform(vec4f(1, 0, 0, 1), 'baseColor')
@@ -48,4 +48,4 @@ export declare function uniform<D extends Any>(u: Uniform<D>): UniformNode<D>;
 export declare function uniform<D extends Any>(name: string, schema: D): UniformNode<D>;
 export declare function uniform<S extends StructSchema>(name: string, def: StructDef<S>): StructInstance<S>;
 export declare function uniform<D extends Any>(init: ConstructNode<D>, name?: string): UniformNode<D>;
-export declare function uniform<D extends Any>(init: ConstNode<D>, name?: string): UniformNode<D>;
+export declare function uniform<D extends Any>(init: LiteralNode<D>, name?: string): UniformNode<D>;

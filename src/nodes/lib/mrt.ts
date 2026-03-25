@@ -1,4 +1,4 @@
-import { ConstNode, vec4f, Node } from './core';
+import { LiteralNode, vec4f, Node } from './core';
 import * as d from '../../schema/schema';
 
 /**
@@ -94,7 +94,7 @@ export class MRTNode extends OutputStructNode {
             // Ensure the node outputs vec4f (wrap if needed)
             let node = this.outputNodes[name];
             if (node.type.wgslType !== 'vec4f') {
-                node = vec4f(node as Node<d.vec3f>, new ConstNode(d.f32, 1));
+                node = vec4f(node as Node<d.vec3f>, new LiteralNode(d.f32, 1));
             }
             members[index] = node;
             names[index] = name;

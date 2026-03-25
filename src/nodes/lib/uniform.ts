@@ -1,4 +1,4 @@
-import { Node, type StructDef, type StructInstance, ConstructNode, ConstNode, fields, _nodeId } from './core';
+import { Node, type StructDef, type StructInstance, ConstructNode, LiteralNode, fields, _nodeId } from './core';
 import type { StructSchema, Any } from '../../schema/schema';
 import type { NodeFrame } from '../../renderer/node-frame';
 import {
@@ -79,7 +79,7 @@ export { Uniform, UniformGroup, UniformUpdateType, objectGroup, renderGroup, fra
  *   const roughness = uniform('roughness', d.f32);
  *   const myVal = uniform('myVal', MyStruct);  // struct variant
  *
- * **Inline form** — pass a typed ConstNode as the initialiser:
+ * **Inline form** — pass a typed LiteralNode as the initialiser:
  *   uniform(f32(0.5))               // anonymous — uniformId derived from type
  *   uniform(f32(0.5), 'roughness')  // explicit name used as the WGSL field name
  *   uniform(vec4f(1, 0, 0, 1), 'baseColor')
@@ -92,10 +92,10 @@ export function uniform<D extends Any>(name: string, schema: D): UniformNode<D>;
 export function uniform<S extends StructSchema>(name: string, def: StructDef<S>): StructInstance<S>;
 // Inline scalar/vector/matrix form
 export function uniform<D extends Any>(init: ConstructNode<D>, name?: string): UniformNode<D>;
-export function uniform<D extends Any>(init: ConstNode<D>, name?: string): UniformNode<D>;
+export function uniform<D extends Any>(init: LiteralNode<D>, name?: string): UniformNode<D>;
 // Implementation
 export function uniform<D extends Any, S extends StructSchema>(
-    init: Uniform<D> | string | ConstNode<D> | ConstructNode<D>,
+    init: Uniform<D> | string | LiteralNode<D> | ConstructNode<D>,
     nameOrSchema?: string | D | StructDef<S>
 ): UniformNode<D> | StructInstance<S> {
     // Value-based: uniform(Uniform)
@@ -123,7 +123,7 @@ export function uniform<D extends Any, S extends StructSchema>(
     }
 
     // Inline scalar/vector/matrix form: uniform(f32(0.5), 'name')
-    const initNode = init as ConstNode<D> | ConstructNode<D>;
+    const initNode = init as LiteralNode<D> | ConstructNode<D>;
     const name = nameOrSchema as string | undefined;
     const uniformId = name ?? `${initNode.type.wgslType}_${_nodeId}`;
     
@@ -135,21 +135,21 @@ export function uniform<D extends Any, S extends StructSchema>(
 }
 
 /**
- * Extract a concrete value from a ConstNode or ConstructNode.
- * For ConstructNode, recursively extracts from child ConstNodes.
- * Returns undefined if any child is not a ConstNode (dynamic value).
+ * Extract a concrete value from a LiteralNode or ConstructNode.
+ * For ConstructNode, recursively extracts from child LiteralNodes.
+ * Returns undefined if any child is not a LiteralNode (dynamic value).
  */
-function extractValue(node: ConstNode<Any> | ConstructNode<Any>): UniformValue | undefined {
-    // ConstNode has a direct value
-    if (node instanceof ConstNode) {
+function extractValue(node: LiteralNode<Any> | ConstructNode<Any>): UniformValue | undefined {
+    // LiteralNode has a direct value
+    if (node instanceof LiteralNode) {
         return node.value as UniformValue;
     }
     
-    // ConstructNode: extract values from args (must all be ConstNodes)
+    // ConstructNode: extract values from args (must all be LiteralNodes)
     if (node instanceof ConstructNode) {
         const values: number[] = [];
         for (const arg of node.args) {
-            if (arg instanceof ConstNode && typeof arg.value === 'number') {
+            if (arg instanceof LiteralNode && typeof arg.value === 'number') {
                 values.push(arg.value);
             } else {
                 // Dynamic child - can't extract static value
