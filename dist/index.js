@@ -3063,7 +3063,7 @@ function hue2rgb(p, q, t) {
 // Free functions
 // ---------------------------------------------------------------------------
 /** Create a new Color initialized to black [0, 0, 0]. */
-function create$9() {
+function create$a() {
     return [0, 0, 0];
 }
 /** Create a new Color with the given linear r, g, b values. */
@@ -3082,7 +3082,7 @@ function copy$6(out, src) {
     return out;
 }
 /** Set the linear r, g, b components of `out` directly. Returns `out`. */
-function set$3(out, r, g, b) {
+function set$4(out, r, g, b) {
     out[0] = r;
     out[1] = g;
     out[2] = b;
@@ -3100,7 +3100,7 @@ function setFromSRGB(out, srgb) {
 }
 /** Create a new Color from an sRGB gamma-encoded [r, g, b] array with values in [0, 1]. */
 function fromSRGB(srgb) {
-    return setFromSRGB(create$9(), srgb);
+    return setFromSRGB(create$a(), srgb);
 }
 /**
  * Parse any supported color input and write the result into `out`. Returns `out`.
@@ -3175,11 +3175,11 @@ var color = /*#__PURE__*/Object.freeze({
     __proto__: null,
     clone: clone$3,
     copy: copy$6,
-    create: create$9,
+    create: create$a,
     fromColorInput: fromColorInput,
     fromSRGB: fromSRGB,
     fromValues: fromValues$1,
-    set: set$3,
+    set: set$4,
     setFromColorInput: setFromColorInput,
     setFromSRGB: setFromSRGB,
     toCSS: toCSS
@@ -11107,7 +11107,7 @@ function updateComputeBindGroup(data, bufferCache, textureCache, device, bindGro
 }
 
 /** Create a new empty ChainMap */
-function create$8() {
+function create$9() {
     return {
         weakMaps: new Map(),
     };
@@ -11147,7 +11147,7 @@ function get(map, keys) {
  * @param keys array of objects forming the composite key
  * @param value the value to cache
  */
-function set$2(map, keys, value) {
+function set$3(map, keys, value) {
     if (keys.length === 0)
         return;
     let current = getWeakMap(map, keys.length);
@@ -11380,7 +11380,7 @@ function createRenderObjectsState() {
 function getChainMap(state, passId) {
     let map = state.chainMaps.get(passId);
     if (!map) {
-        map = create$8();
+        map = create$9();
         state.chainMaps.set(passId, map);
     }
     return map;
@@ -11416,7 +11416,7 @@ function getRenderObject(state, mesh, material, scene, camera, renderContext, pa
             };
         }
         // Cache it
-        set$2(map, keys, renderObject);
+        set$3(map, keys, renderObject);
         state.renderObjects.add(renderObject);
     }
     else {
@@ -17032,7 +17032,7 @@ const EPSILON = 0.000001;
  *
  * @returns a new 2D vector
  */
-function create$7() {
+function create$8() {
     return [0, 0];
 }
 
@@ -17041,7 +17041,7 @@ function create$7() {
  *
  * @returns a new 3D vector
  */
-function create$6() {
+function create$7() {
     return [0, 0, 0];
 }
 /**
@@ -17106,10 +17106,23 @@ function copy$5(out, a) {
  * @param z Z component
  * @returns out
  */
-function set$1(out, x, y, z) {
+function set$2(out, x, y, z) {
     out[0] = x;
     out[1] = y;
     out[2] = z;
+    return out;
+}
+/**
+ * Sets the components of a vec3 from a buffer
+ * @param out the receiving vector
+ * @param buffer the source buffer
+ * @param startIndex the starting index in the buffer
+ * @returns out
+ */
+function fromBuffer(out, buffer, startIndex) {
+    out[0] = buffer[startIndex];
+    out[1] = buffer[startIndex + 1];
+    out[2] = buffer[startIndex + 2];
     return out;
 }
 /**
@@ -17364,7 +17377,7 @@ function normalize$2(out, a) {
  *
  * @returns a new 4x4 matrix
  */
-function create$5() {
+function create$6() {
     return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 }
 /**
@@ -17730,7 +17743,7 @@ function targetTo(out, eye, target, up) {
  *
  * @returns a new 3x3 matrix
  */
-function create$4() {
+function create$5() {
     return [1, 0, 0, 0, 1, 0, 0, 0, 1];
 }
 /**
@@ -17812,7 +17825,7 @@ function normalFromMat4(out, a) {
  *
  * @returns a new quaternion
  */
-function create$3() {
+function create$4() {
     return [0, 0, 0, 1];
 }
 /**
@@ -17899,7 +17912,7 @@ function fromMat3(out, m) {
  * @returns out
  */
 function fromMat4(out, m) {
-    const m3 = create$4();
+    const m3 = create$5();
     fromMat4$1(m3, m);
     return fromMat3(out, m3);
 }
@@ -17931,7 +17944,7 @@ const normalize$1 = normalize$2;
  * @returns out
  */
 const rotationTo = /* @__PURE__ */ (() => {
-    const tmpvec3 = create$6();
+    const tmpvec3 = create$7();
     const xUnitVec3 = fromValues(1, 0, 0);
     const yUnitVec3 = fromValues(0, 1, 0);
     return (out, a, b) => {
@@ -17960,7 +17973,7 @@ const rotationTo = /* @__PURE__ */ (() => {
     };
 })();
 
-const _transformMat4_corner = /*@__PURE__*/ create$6();
+const _transformMat4_corner = /*@__PURE__*/ create$7();
 /**
  * Transform a bounding box by a 4x4 matrix
  * Transforms all 8 corners and creates a new AABB that encompasses them
@@ -18003,7 +18016,7 @@ new Array(27); // 9 axes * 3 components
  * Creates a new plane with normal (0, 1, 0) and constant 0
  * @returns A new plane
  */
-function create$2() {
+function create$3() {
     return { normal: [0, 1, 0], constant: 0 };
 }
 /**
@@ -18055,7 +18068,7 @@ function distanceToPoint(plane, point) {
  *
  * @returns a new Spherical
  */
-function create$1() {
+function create$2() {
     return [1, 0, 0];
 }
 /**
@@ -18067,7 +18080,7 @@ function create$1() {
  * @param phi polar angle from +Y axis (radians)
  * @returns out
  */
-function set(out, r, theta, phi) {
+function set$1(out, r, theta, phi) {
     out[0] = r;
     out[1] = theta;
     out[2] = phi;
@@ -18130,8 +18143,184 @@ function toVec3(out, a) {
     return out;
 }
 
+/**
+ * Creates a new Raycast3 with default values (origin at (0,0,0), direction (0,0,0), length 1.
+ * @returns A new Raycast3.
+ */
+function create$1() {
+    return {
+        origin: create$7(),
+        direction: fromValues(0, 0, 0),
+        length: 1,
+    };
+}
+/**
+ * Sets the components of a Raycast3.
+ * @param out The output Raycast3.
+ * @param origin The origin Vec3.
+ * @param direction The direction Vec3.
+ * @param length The length of the ray.
+ * @returns The output Raycast3.
+ */
+function set(out, origin, direction, length) {
+    copy$5(out.origin, origin);
+    copy$5(out.direction, direction);
+    out.length = length;
+    return out;
+}
+/**
+ * Creates a new IntersectsTriangleResult with default values.
+ * @returns A new IntersectsTriangleResult.
+ */
+function createIntersectsTriangleResult() {
+    return {
+        fraction: 0,
+        hit: false,
+        frontFacing: false,
+    };
+}
+/**
+ * Ray-triangle intersection test.
+ * Based on https://github.com/pmjoniak/GeometricTools/blob/master/GTEngine/Include/Mathematics/GteIntrRay3Triangle3.h
+ *
+ * @param out output object to store result (hit boolean, fraction, frontFacing)
+ * @param ray ray to test (with origin, direction, and length)
+ * @param a first vertex of triangle
+ * @param b second vertex of triangle
+ * @param c third vertex of triangle
+ * @param backfaceCulling if true, backfaces will not be considered hits
+ */
+function intersectsTriangle(out, ray, a, b, c, backfaceCulling) {
+    // compute edge1 = b - a
+    const e1x = b[0] - a[0];
+    const e1y = b[1] - a[1];
+    const e1z = b[2] - a[2];
+    // compute edge2 = c - a
+    const e2x = c[0] - a[0];
+    const e2y = c[1] - a[1];
+    const e2z = c[2] - a[2];
+    // compute normal = edge1 × edge2
+    const nx = e1y * e2z - e1z * e2y;
+    const ny = e1z * e2x - e1x * e2z;
+    const nz = e1x * e2y - e1y * e2x;
+    // determine front vs back facing
+    const dx = ray.direction[0];
+    const dy = ray.direction[1];
+    const dz = ray.direction[2];
+    let DdN = dx * nx + dy * ny + dz * nz;
+    let sign;
+    if (DdN > 0) {
+        sign = 1;
+    }
+    else if (DdN < 0) {
+        // frontface
+        sign = -1;
+        DdN = -DdN;
+    }
+    else {
+        // ray is parallel to triangle
+        out.hit = false;
+        out.fraction = 0;
+        out.frontFacing = false;
+        return;
+    }
+    // compute diff = ray.origin - a
+    const diffx = ray.origin[0] - a[0];
+    const diffy = ray.origin[1] - a[1];
+    const diffz = ray.origin[2] - a[2];
+    // compute barycentric coordinate b1
+    // DdQxE2 = sign * D · (diff × edge2)
+    const diffCrossE2x = diffy * e2z - diffz * e2y;
+    const diffCrossE2y = diffz * e2x - diffx * e2z;
+    const diffCrossE2z = diffx * e2y - diffy * e2x;
+    const DdQxE2 = sign * (dx * diffCrossE2x + dy * diffCrossE2y + dz * diffCrossE2z);
+    if (DdQxE2 < 0) {
+        out.hit = false;
+        out.fraction = 0;
+        out.frontFacing = false;
+        return;
+    }
+    // compute barycentric coordinate b2
+    // DdE1xQ = sign * D · (edge1 × diff)
+    const e1CrossDiffx = e1y * diffz - e1z * diffy;
+    const e1CrossDiffy = e1z * diffx - e1x * diffz;
+    const e1CrossDiffz = e1x * diffy - e1y * diffx;
+    const DdE1xQ = sign * (dx * e1CrossDiffx + dy * e1CrossDiffy + dz * e1CrossDiffz);
+    if (DdE1xQ < 0) {
+        out.hit = false;
+        out.fraction = 0;
+        out.frontFacing = false;
+        return;
+    }
+    // check if b1 + b2 > 1
+    if (DdQxE2 + DdE1xQ > DdN) {
+        out.hit = false;
+        out.fraction = 0;
+        out.frontFacing = false;
+        return;
+    }
+    // compute intersection distance
+    const QdN = -sign * (diffx * nx + diffy * ny + diffz * nz);
+    if (QdN < 0) {
+        out.hit = false;
+        out.fraction = 0;
+        out.frontFacing = false;
+        return;
+    }
+    const t = QdN / DdN;
+    // check if intersection is within ray length
+    if (t <= ray.length) {
+        out.hit = true;
+        out.fraction = t / ray.length;
+        out.frontFacing = sign < 0;
+    }
+    else {
+        out.hit = false;
+        out.fraction = 0;
+        out.frontFacing = false;
+    }
+}
+/**
+ * Test if a ray intersects an axis-aligned bounding box.
+ * Uses slab-based algorithm that handles parallel rays correctly.
+ *
+ * @param ray Ray to test (with origin, direction, and length)
+ * @param aabb AABB to test against
+ * @returns true if ray intersects the AABB, false otherwise
+ */
+function intersectsBox3$1(ray, aabb) {
+    let tmin = 0;
+    let tmax = ray.length;
+    for (let i = 0; i < 3; i++) {
+        const d = ray.direction[i];
+        if (Math.abs(d) < 1e-10) {
+            // ray is parallel to slab: check if origin is within slab
+            if (ray.origin[i] < aabb[i] || ray.origin[i] > aabb[i + 3]) {
+                return false;
+            }
+        }
+        else {
+            // compute intersection times with slab
+            const invD = 1 / d;
+            let t0 = (aabb[i] - ray.origin[i]) * invD;
+            let t1 = (aabb[i + 3] - ray.origin[i]) * invD;
+            if (invD < 0) {
+                const temp = t0;
+                t0 = t1;
+                t1 = temp;
+            }
+            tmin = Math.max(tmin, t0);
+            tmax = Math.min(tmax, t1);
+            if (tmax < tmin) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 let objectIdCounter = 0;
-const _lookAt_tmp = create$5();
+const _lookAt_tmp = create$6();
 class Object3D {
     objectId = objectIdCounter++;
     name = '';
@@ -18142,9 +18331,9 @@ class Object3D {
     scale = [1, 1, 1];
     parent = null;
     children = [];
-    matrix = create$5();
-    matrixWorld = create$5();
-    normalMatrix = create$4();
+    matrix = create$6();
+    matrixWorld = create$6();
+    normalMatrix = create$5();
     matrixVersion = 0;
     add(child) {
         if (child.parent)
@@ -18186,8 +18375,240 @@ class Object3D {
             child.updateWorldMatrix();
         }
     }
+    /**
+     * Abstract method for raycasting. Override in subclasses (e.g., Mesh) to
+     * implement intersection testing. Base implementation does nothing.
+     *
+     * @param _raycaster - The Raycaster instance
+     * @param _intersects - Array to push intersection results into
+     */
+    raycast(_raycaster, _intersects) {
+        // Base Object3D does nothing - subclasses override
+    }
 }
 
+const _invViewProj = create$6();
+class Camera extends Object3D {
+    near = 0.1;
+    far = 100;
+    projectionMatrix = create$6();
+    matrixWorldInverse = create$6();
+    constructor() {
+        super();
+        this.name = 'Camera';
+    }
+    /** recompute the matrixWorldInverse from the current matrixWorld. */
+    updateViewMatrix() {
+        if (invert(this.matrixWorldInverse, this.matrixWorld) === null) {
+            identity(this.matrixWorldInverse);
+        }
+    }
+}
+/**
+ * Unproject a point from NDC (normalized device coordinates) to world space.
+ * NDC: x,y in [-1, 1], z in [0, 1] where 0 is near plane, 1 is far plane (WebGPU convention).
+ */
+function unproject(out, ndc, camera) {
+    multiply(_invViewProj, camera.projectionMatrix, camera.matrixWorldInverse);
+    invert(_invViewProj, _invViewProj);
+    transformMat4$1(out, ndc, _invViewProj);
+    return out;
+}
+
+// Reusable temp objects
+const _target = [0, 0, 0];
+const _direction = [0, 0, 0];
+class Raycaster {
+    ray;
+    near;
+    far;
+    constructor(origin, direction, near = 0, far = Infinity) {
+        this.ray = create$1();
+        if (origin)
+            copy$5(this.ray.origin, origin);
+        if (direction)
+            copy$5(this.ray.direction, direction);
+        this.ray.length = far;
+        this.near = near;
+        this.far = far;
+    }
+    set(origin, direction) {
+        copy$5(this.ray.origin, origin);
+        copy$5(this.ray.direction, direction);
+    }
+    setFromCamera(coords, camera) {
+        const isOrthographic = 'isOrthographicCamera' in camera && camera.isOrthographicCamera;
+        if (isOrthographic) {
+            // Orthographic: origin on near plane, direction is camera's forward
+            unproject(this.ray.origin, [coords[0], coords[1], 0], camera);
+            // Get camera forward direction from matrixWorld
+            const e = camera.matrixWorld;
+            set$2(_direction, -e[8], -e[9], -e[10]);
+            normalize$3(this.ray.direction, _direction);
+        }
+        else {
+            // Perspective: origin at camera position, direction toward unprojected point
+            copy$5(this.ray.origin, camera.position);
+            // Unproject a point on the far plane and compute direction
+            unproject(_target, [coords[0], coords[1], 1], camera);
+            subtract(_direction, _target, this.ray.origin);
+            normalize$3(this.ray.direction, _direction);
+        }
+        this.ray.length = this.far;
+    }
+    intersectObject(object, recursive = true, intersects = []) {
+        intersect(object, this, intersects, recursive);
+        intersects.sort(ascSort);
+        return intersects;
+    }
+    intersectObjects(objects, recursive = true, intersects = []) {
+        for (const object of objects) {
+            intersect(object, this, intersects, recursive);
+        }
+        intersects.sort(ascSort);
+        return intersects;
+    }
+}
+function ascSort(a, b) {
+    return a.distance - b.distance;
+}
+function intersect(object, raycaster, intersects, recursive) {
+    if (object.visible === false)
+        return;
+    object.raycast(raycaster, intersects);
+    if (recursive) {
+        for (const child of object.children) {
+            intersect(child, raycaster, intersects, true);
+        }
+    }
+}
+// ============================================================================
+// Helpers for Mesh.raycast() - exported for use by Mesh
+// ============================================================================
+const _inverseMatrix = create$6();
+const _localRay = create$1();
+const _localOrigin = [0, 0, 0];
+const _localDir = [0, 0, 0];
+const _intersectionResult = createIntersectsTriangleResult();
+const _intersectionPoint = [0, 0, 0];
+const _intersectionPointWorld = [0, 0, 0];
+const _vA = [0, 0, 0];
+const _vB = [0, 0, 0];
+const _vC = [0, 0, 0];
+const _edge1 = [0, 0, 0];
+const _edge2 = [0, 0, 0];
+const _faceNormal = [0, 0, 0];
+/**
+ * Transform a ray into the local space of an object.
+ * Returns the local ray for intersection testing.
+ */
+function transformRayToLocalSpace(raycaster, matrixWorld) {
+    invert(_inverseMatrix, matrixWorld);
+    // Transform origin (point)
+    transformMat4$1(_localOrigin, raycaster.ray.origin, _inverseMatrix);
+    // Transform direction (vector, not point) - use mat3 of inverse matrix
+    // For direction vectors we need to transform by the inverse-transpose,
+    // but for orthonormal transforms (no non-uniform scale), inverse works.
+    // We extract upper 3x3 and transform.
+    const m = _inverseMatrix;
+    const dx = raycaster.ray.direction[0];
+    const dy = raycaster.ray.direction[1];
+    const dz = raycaster.ray.direction[2];
+    _localDir[0] = m[0] * dx + m[4] * dy + m[8] * dz;
+    _localDir[1] = m[1] * dx + m[5] * dy + m[9] * dz;
+    _localDir[2] = m[2] * dx + m[6] * dy + m[10] * dz;
+    normalize$3(_localDir, _localDir);
+    set(_localRay, _localOrigin, _localDir, raycaster.far);
+    return _localRay;
+}
+/**
+ * Test ray-triangle intersection and add to intersects if hit.
+ * Positions are in local space, ray should be in local space.
+ */
+function checkTriangleIntersection(object, raycaster, localRay, matrixWorld, a, b, c, positions, indices, uvs, intersects, faceIndex) {
+    // Get vertex positions
+    const ia = indices ? indices[a] : a;
+    const ib = indices ? indices[b] : b;
+    const ic = indices ? indices[c] : c;
+    fromBuffer(_vA, positions, ia * 3);
+    fromBuffer(_vB, positions, ib * 3);
+    fromBuffer(_vC, positions, ic * 3);
+    // Test intersection (double-sided, no backface culling)
+    intersectsTriangle(_intersectionResult, localRay, _vA, _vB, _vC);
+    if (!_intersectionResult.hit)
+        return;
+    // Compute intersection point in local space
+    const t = _intersectionResult.fraction;
+    scaleAndAdd(_intersectionPoint, localRay.origin, localRay.direction, t * localRay.length);
+    // Transform to world space
+    transformMat4$1(_intersectionPointWorld, _intersectionPoint, matrixWorld);
+    // Check distance against near/far
+    const distance$1 = distance(raycaster.ray.origin, _intersectionPointWorld);
+    if (distance$1 < raycaster.near || distance$1 > raycaster.far)
+        return;
+    // Compute face normal
+    subtract(_edge1, _vB, _vA);
+    subtract(_edge2, _vC, _vA);
+    cross(_faceNormal, _edge1, _edge2);
+    normalize$3(_faceNormal, _faceNormal);
+    // Build intersection result
+    const intersection = {
+        distance: distance$1,
+        point: clone$2(_intersectionPointWorld),
+        object,
+        faceIndex,
+        face: {
+            a: ia,
+            b: ib,
+            c: ic,
+            normal: clone$2(_faceNormal),
+        },
+    };
+    // Compute UV if available (barycentric interpolation)
+    if (uvs) {
+        const uv = computeBarycentricUV(_intersectionPoint, _vA, _vB, _vC, ia, ib, ic, uvs);
+        if (uv)
+            intersection.uv = uv;
+    }
+    intersects.push(intersection);
+}
+/**
+ * Compute UV coordinates at intersection point using barycentric interpolation.
+ */
+function computeBarycentricUV(point, vA, vB, vC, ia, ib, ic, uvs) {
+    // Compute barycentric coordinates
+    const v0 = [0, 0, 0];
+    const v1 = [0, 0, 0];
+    const v2 = [0, 0, 0];
+    subtract(v0, vC, vA);
+    subtract(v1, vB, vA);
+    subtract(v2, point, vA);
+    const dot00 = dot(v0, v0);
+    const dot01 = dot(v0, v1);
+    const dot02 = dot(v0, v2);
+    const dot11 = dot(v1, v1);
+    const dot12 = dot(v1, v2);
+    const denom = dot00 * dot11 - dot01 * dot01;
+    if (Math.abs(denom) < 1e-10)
+        return null;
+    const invDenom = 1 / denom;
+    const u = (dot11 * dot02 - dot01 * dot12) * invDenom;
+    const v = (dot00 * dot12 - dot01 * dot02) * invDenom;
+    const w = 1 - u - v;
+    // Interpolate UVs
+    const uvA_u = uvs[ia * 2];
+    const uvA_v = uvs[ia * 2 + 1];
+    const uvB_u = uvs[ib * 2];
+    const uvB_v = uvs[ib * 2 + 1];
+    const uvC_u = uvs[ic * 2];
+    const uvC_v = uvs[ic * 2 + 1];
+    return [
+        w * uvA_u + v * uvB_u + u * uvC_u,
+        w * uvA_v + v * uvB_v + u * uvC_v,
+    ];
+}
+
+const _worldSphereCenter = [0, 0, 0];
 class Mesh extends Object3D {
     geometry;
     material;
@@ -18197,6 +18618,61 @@ class Mesh extends Object3D {
         super();
         this.geometry = geometry;
         this.material = material;
+    }
+    raycast(raycaster, intersects) {
+        const geometry = this.geometry;
+        const matrixWorld = this.matrixWorld;
+        // get position buffer - required for raycasting
+        const positionBuffer = geometry.getBuffer('position');
+        if (!positionBuffer?.array)
+            return;
+        const positions = positionBuffer.array;
+        // early-out: bounding sphere test in world space
+        if (geometry.boundingSphere) {
+            const sphere = geometry.boundingSphere;
+            // transform sphere center to world space
+            transformMat4$1(_worldSphereCenter, sphere.center, matrixWorld);
+            // get world scale to transform radius (approximate for non-uniform scale)
+            const sx = Math.hypot(matrixWorld[0], matrixWorld[1], matrixWorld[2]);
+            const sy = Math.hypot(matrixWorld[4], matrixWorld[5], matrixWorld[6]);
+            const sz = Math.hypot(matrixWorld[8], matrixWorld[9], matrixWorld[10]);
+            const worldRadius = sphere.radius * Math.max(sx, sy, sz);
+            // quick sphere-ray distance test
+            const rayToCenter = [0, 0, 0];
+            subtract(rayToCenter, _worldSphereCenter, raycaster.ray.origin);
+            const tca = dot(rayToCenter, raycaster.ray.direction);
+            const d2 = dot(rayToCenter, rayToCenter) - tca * tca;
+            if (d2 > worldRadius * worldRadius)
+                return;
+        }
+        // transform ray to local space
+        const localRay = transformRayToLocalSpace(raycaster, matrixWorld);
+        // early-out: bounding box test in local space
+        if (geometry.boundingBox) {
+            if (!intersectsBox3$1(localRay, geometry.boundingBox))
+                return;
+        }
+        // get optional index buffer and UV buffer
+        const indexBuffer = geometry.index;
+        const indices = indexBuffer?.array ?? null;
+        const uvBuffer = geometry.getBuffer('uv');
+        const uvs = uvBuffer?.array ?? null;
+        // triangle intersection tests
+        if (indices) {
+            // indexed geometry
+            const count = Math.min(indices.length, geometry.drawRange.start + (geometry.drawRange.count === Infinity ? indices.length : geometry.drawRange.count));
+            for (let i = geometry.drawRange.start; i < count; i += 3) {
+                checkTriangleIntersection(this, raycaster, localRay, matrixWorld, i, i + 1, i + 2, positions, indices, uvs, intersects, Math.floor(i / 3));
+            }
+        }
+        else {
+            // non-indexed geometry
+            const vertexCount = positions.length / 3;
+            const count = Math.min(vertexCount, geometry.drawRange.start + (geometry.drawRange.count === Infinity ? vertexCount : geometry.drawRange.count));
+            for (let i = geometry.drawRange.start; i < count; i += 3) {
+                checkTriangleIntersection(this, raycaster, localRay, matrixWorld, i, i + 1, i + 2, positions, null, uvs, intersects, Math.floor(i / 3));
+            }
+        }
     }
 }
 
@@ -18594,23 +19070,6 @@ function createFullscreenTriangleGeometry(flipY = false) {
     geom.setBuffer('uv', createVertexBuffer(vec2f$1, uvsData));
     geom.drawRange.count = 3;
     return geom;
-}
-
-class Camera extends Object3D {
-    near = 0.1;
-    far = 100;
-    projectionMatrix = create$5();
-    matrixWorldInverse = create$5();
-    constructor() {
-        super();
-        this.name = 'Camera';
-    }
-    /** recompute the matrixWorldInverse from the current matrixWorld. */
-    updateViewMatrix() {
-        if (invert(this.matrixWorldInverse, this.matrixWorld) === null) {
-            identity(this.matrixWorldInverse);
-        }
-    }
 }
 
 /**
@@ -22243,21 +22702,21 @@ class OrbitControls {
     // quaternion to align camera.up with world +Y and its inverse
     /** @internal */ _quat;
     /** @internal */ _quatInverse;
-    /** @internal */ _spherical = create$1();
-    /** @internal */ _sphericalDelta = create$1();
+    /** @internal */ _spherical = create$2();
+    /** @internal */ _sphericalDelta = create$2();
     /** @internal */ _scale = 1;
     /** @internal */ _panOffset = [0, 0, 0];
-    /** @internal */ _rotateStart = create$7();
-    /** @internal */ _rotateEnd = create$7();
-    /** @internal */ _rotateDelta = create$7();
-    /** @internal */ _panStart = create$7();
-    /** @internal */ _panEnd = create$7();
-    /** @internal */ _panDelta = create$7();
-    /** @internal */ _dollyStart = create$7();
-    /** @internal */ _dollyEnd = create$7();
-    /** @internal */ _dollyDelta = create$7();
+    /** @internal */ _rotateStart = create$8();
+    /** @internal */ _rotateEnd = create$8();
+    /** @internal */ _rotateDelta = create$8();
+    /** @internal */ _panStart = create$8();
+    /** @internal */ _panEnd = create$8();
+    /** @internal */ _panDelta = create$8();
+    /** @internal */ _dollyStart = create$8();
+    /** @internal */ _dollyEnd = create$8();
+    /** @internal */ _dollyDelta = create$8();
     /** @internal */ _dollyDirection = [0, 0, 0];
-    /** @internal */ _mouse = create$7();
+    /** @internal */ _mouse = create$8();
     /** @internal */ _performCursorZoom = false;
     /** @internal */ _pointers = [];
     /** @internal */ _pointerPositions = {};
@@ -22284,8 +22743,8 @@ class OrbitControls {
         // camera.up equivalent: we use +Y by default since Object3D doesn't carry an "up" field
         // (same as Three.js default).  Users can override _quat / _quatInverse after construction
         // if they need a different up axis.
-        this._quat = rotationTo(create$3(), up, up); // identity — up already is +Y
-        this._quatInverse = conjugate(create$3(), this._quat);
+        this._quat = rotationTo(create$4(), up, up); // identity — up already is +Y
+        this._quatInverse = conjugate(create$4(), this._quat);
         // Saved state snapshots
         this.target0 = clone$2(this.target);
         this.position0 = clone$2(object.position);
@@ -22527,8 +22986,8 @@ class OrbitControls {
             scale(this._panOffset, this._panOffset, 1 - this.dampingFactor);
         }
         else {
-            set(this._sphericalDelta, 0, 0, 0);
-            set$1(this._panOffset, 0, 0, 0);
+            set$1(this._sphericalDelta, 0, 0, 0);
+            set$2(this._panOffset, 0, 0, 0);
         }
         // Zoom-to-cursor adjustment for perspective camera
         if (this.zoomToCursor && this._performCursorZoom && isPerspective) {
@@ -22918,7 +23377,7 @@ class OrbitControls {
     _trackPointer(event) {
         let pos = this._pointerPositions[event.pointerId];
         if (pos === undefined) {
-            pos = create$7();
+            pos = create$8();
             this._pointerPositions[event.pointerId] = pos;
         }
         pos[0] = event.pageX;
@@ -22926,7 +23385,7 @@ class OrbitControls {
     }
     _getSecondPointerPosition(event) {
         const pointerId = event.pointerId === this._pointers[0] ? this._pointers[1] : this._pointers[0];
-        return this._pointerPositions[pointerId] ?? create$7();
+        return this._pointerPositions[pointerId] ?? create$8();
     }
     _customWheelEvent(event) {
         const newEvent = {
@@ -23610,12 +24069,12 @@ class ArrayTexture {
 
 function create() {
     return [
-        create$2(),
-        create$2(),
-        create$2(),
-        create$2(),
-        create$2(),
-        create$2(),
+        create$3(),
+        create$3(),
+        create$3(),
+        create$3(),
+        create$3(),
+        create$3(),
     ];
 }
 function clone(f) {
@@ -23638,7 +24097,7 @@ function copy(out, f) {
     return out;
 }
 function setFromViewProjectionMatrix(out, proj, view) {
-    const vp = create$5();
+    const vp = create$6();
     multiply(vp, proj, view);
     const m = vp;
     setPlane(out[0], m[0] + m[3], m[4] + m[7], m[8] + m[11], m[12] + m[15]);
@@ -23919,7 +24378,7 @@ function createRenderList() {
  */
 function createRenderListsState() {
     return {
-        lists: create$8(),
+        lists: create$9(),
     };
 }
 // ---------------------------------------------------------------------------
@@ -23937,7 +24396,7 @@ function getRenderList(state, object, camera) {
     let list = get(state.lists, keys);
     if (!list) {
         list = createRenderList();
-        set$2(state.lists, keys, list);
+        set$3(state.lists, keys, list);
     }
     return list;
 }
@@ -25055,5 +25514,5 @@ class RenderPipeline {
     }
 }
 
-export { ArrayTexture, Break, BufferLifecycle, Camera, Const, Continue, CubeTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, Fn, For, Geometry, GpuBuffer, If, Inspector, Let, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, RenderPipeline, RenderTarget, Return, Scene, TOUCH, Texture, Uniform, UniformGroup, UniformUpdateType, Var, WebGPURenderer, While, abs, acesToneMapping, add$1 as add, and, array, arrayTexture, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bool, builtin, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, ceil, clamp, color, comparisonSampler, compile, compileCompute, compute, computeIndex, cond, cos, createBoxGeometry, createFullscreenTriangleGeometry, createIndexBuffer, createIndirectBuffer, createPlaneGeometry, createSphereGeometry, createStorageBuffer, createUniformBuffer, createVertexBuffer, cross$1 as cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot$1 as dot, equal, f16, f32, field, fields, floor, fract, fragCoord, frameGroup, frustum, fxaa, getIndexFormat, globalId, greaterThan, greaterThanEqual, i32, index, instanceIndex, layoutSizeOf, layoutStrideOf, length$1 as length, lessThan, lessThanEqual, localId, localIndex, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, normalize$4 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, packArray, packTo, pass, positionClip, pow, privateVar, reinhardToneMapping, renderGroup, renderOutput, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, sign, sin, smoothstep, sqrt, step, storage, struct, sub, texture, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, timeDelta, timeElapsed, transpose, u32, uniform, uniformGroup, unpack, unpackArray, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgsl, wgslFn, workgroupId, workgroupVar };
+export { ArrayTexture, Break, BufferLifecycle, Camera, Const, Continue, CubeTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, Fn, For, Geometry, GpuBuffer, If, Inspector, Let, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, Raycaster, RenderPipeline, RenderTarget, Return, Scene, TOUCH, Texture, Uniform, UniformGroup, UniformUpdateType, Var, WebGPURenderer, While, abs, acesToneMapping, add$1 as add, and, array, arrayTexture, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bool, builtin, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, ceil, clamp, color, comparisonSampler, compile, compileCompute, compute, computeIndex, cond, cos, createBoxGeometry, createFullscreenTriangleGeometry, createIndexBuffer, createIndirectBuffer, createPlaneGeometry, createSphereGeometry, createStorageBuffer, createUniformBuffer, createVertexBuffer, cross$1 as cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot$1 as dot, equal, f16, f32, field, fields, floor, fract, fragCoord, frameGroup, frustum, fxaa, getIndexFormat, globalId, greaterThan, greaterThanEqual, i32, index, instanceIndex, layoutSizeOf, layoutStrideOf, length$1 as length, lessThan, lessThanEqual, localId, localIndex, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, normalize$4 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, packArray, packTo, pass, positionClip, pow, privateVar, reinhardToneMapping, renderGroup, renderOutput, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, sign, sin, smoothstep, sqrt, step, storage, struct, sub, texture, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, timeDelta, timeElapsed, transpose, u32, uniform, uniformGroup, unpack, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgsl, wgslFn, workgroupId, workgroupVar };
 //# sourceMappingURL=index.js.map

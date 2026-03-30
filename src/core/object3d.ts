@@ -72,4 +72,15 @@ export class Object3D {
             child.updateWorldMatrix();
         }
     }
+
+    /**
+     * Abstract method for raycasting. Override in subclasses (e.g., Mesh) to
+     * implement intersection testing. Base implementation does nothing.
+     * 
+     * @param _raycaster - The Raycaster instance
+     * @param _intersects - Array to push intersection results into
+     */
+    raycast(_raycaster: any, _intersects: any[]): void {
+        // Base Object3D does nothing - subclasses override
+    }
 }

@@ -18,4 +18,12 @@ export declare class Object3D {
     removeFromParent(): this;
     lookAt(target: Vec3, up?: Vec3): void;
     updateWorldMatrix(): void;
+    /**
+     * Abstract method for raycasting. Override in subclasses (e.g., Mesh) to
+     * implement intersection testing. Base implementation does nothing.
+     *
+     * @param _raycaster - The Raycaster instance
+     * @param _intersects - Array to push intersection results into
+     */
+    raycast(_raycaster: any, _intersects: any[]): void;
 }

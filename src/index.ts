@@ -34,6 +34,9 @@ export { type Color, type ColorInput } from './utils/color';
 export * as frustum from './math/frustum';
 export { type Frustum } from './math/frustum';
 
+export { Raycaster, type Intersection } from './math/raycaster';
+export { unproject } from './camera/camera';
+
 export {
     // constructors
     f16, f32, i32, u32, bool, rgb,
