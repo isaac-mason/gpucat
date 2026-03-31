@@ -79,8 +79,6 @@ function ascSort(a: Intersection, b: Intersection): number {
 }
 
 function intersect(object: Object3D, raycaster: Raycaster, intersects: Intersection[], recursive: boolean): void {
-    if (object.visible === false) return;
-
     object.raycast(raycaster, intersects);
 
     if (recursive) {
