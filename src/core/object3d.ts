@@ -1,4 +1,4 @@
-import { mat4, mat3, quat, type Quat, type Vec3 } from 'mathcat';
+import { mat4, mat3, quat, vec3, type Quat, type Vec3 } from 'mathcat';
 
 let objectIdCounter = 0;
 
@@ -71,6 +71,30 @@ export class Object3D {
         for (const child of this.children) {
             child.updateWorldMatrix();
         }
+    }
+
+    traverse(callback: (object: Object3D) => void): void {
+        callback(this);
+        for (const child of this.children) {
+            child.traverse(callback);
+        }
+    }
+
+    getWorldPosition(out: Vec3): Vec3 {
+        return mat4.getTranslation(out, this.matrixWorld);
+    }
+
+    getWorldQuaternion(out: Quat): Quat {
+        return mat4.getRotation(out, this.matrixWorld);
+    }
+
+    getWorldDirection(out: Vec3): Vec3 {
+        const e = this.matrixWorld;
+        out[0] = -e[8];
+        out[1] = -e[9];
+        out[2] = -e[10];
+        vec3.normalize(out, out);
+        return out;
     }
 
     /**

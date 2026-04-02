@@ -31,3 +31,32 @@ export declare function createPlaneGeometry(width?: number, height?: number, wid
  * @param flipY - Whether to flip UV coordinates along the vertical axis. Defaults to false.
  */
 export declare function createFullscreenTriangleGeometry(flipY?: boolean): Geometry;
+/**
+ * Creates a cylinder geometry along the Y axis, centered at the origin.
+ * When radiusTop is 0, produces a cone. Includes top and bottom caps.
+ *
+ * @param radiusTop - Radius at y = +height/2. 0 for a cone.
+ * @param radiusBottom - Radius at y = -height/2.
+ * @param height - Total height along Y.
+ * @param radialSegments - Number of segments around the circumference.
+ */
+export declare function createCylinderGeometry(radiusTop?: number, radiusBottom?: number, height?: number, radialSegments?: number): Geometry;
+/**
+ * Creates a torus geometry in the XZ plane.
+ *
+ * @param radius - Distance from center of torus to center of tube.
+ * @param tube - Radius of the tube.
+ * @param radialSegments - Segments around the tube cross-section.
+ * @param tubularSegments - Segments around the torus ring.
+ * @param arc - Central angle of the torus in radians. Defaults to full circle.
+ */
+export declare function createTorusGeometry(radius?: number, tube?: number, radialSegments?: number, tubularSegments?: number, arc?: number): Geometry;
+/**
+ * Creates an octahedron geometry (dual of cube).
+ * At detail=0: 6 vertices, 8 triangular faces.
+ * Higher detail subdivides each face recursively.
+ *
+ * @param radius - Circumscribed sphere radius.
+ * @param detail - Subdivision level. 0 = base octahedron.
+ */
+export declare function createOctahedronGeometry(radius?: number, detail?: number): Geometry;

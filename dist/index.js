@@ -1701,7 +1701,7 @@ const mod = (a, b) => new BinopNode('%', a.type, a, b);
 const or = (a, b) => new BinopNode('||', bool$1, a, b);
 const and = (a, b) => new BinopNode('&&', bool$1, a, b);
 const not = (a) => new CallNode(bool$1, 'not', [a]);
-const transpose = (m) => new CallNode(m.type, 'transpose', [m]);
+const transpose$1 = (m) => new CallNode(m.type, 'transpose', [m]);
 // ── Lang ──────────────────────────────────────────────────────────────────────
 class StackNode extends Node {
     body;
@@ -3063,11 +3063,11 @@ function hue2rgb(p, q, t) {
 // Free functions
 // ---------------------------------------------------------------------------
 /** Create a new Color initialized to black [0, 0, 0]. */
-function create$a() {
+function create$9() {
     return [0, 0, 0];
 }
 /** Create a new Color with the given linear r, g, b values. */
-function fromValues$1(r, g, b) {
+function fromValues$2(r, g, b) {
     return [r, g, b];
 }
 /** Create a new Color that is a copy of `c`. */
@@ -3082,7 +3082,7 @@ function copy$6(out, src) {
     return out;
 }
 /** Set the linear r, g, b components of `out` directly. Returns `out`. */
-function set$4(out, r, g, b) {
+function set$3(out, r, g, b) {
     out[0] = r;
     out[1] = g;
     out[2] = b;
@@ -3100,7 +3100,7 @@ function setFromSRGB(out, srgb) {
 }
 /** Create a new Color from an sRGB gamma-encoded [r, g, b] array with values in [0, 1]. */
 function fromSRGB(srgb) {
-    return setFromSRGB(create$a(), srgb);
+    return setFromSRGB(create$9(), srgb);
 }
 /**
  * Parse any supported color input and write the result into `out`. Returns `out`.
@@ -3175,11 +3175,11 @@ var color = /*#__PURE__*/Object.freeze({
     __proto__: null,
     clone: clone$3,
     copy: copy$6,
-    create: create$a,
+    create: create$9,
     fromColorInput: fromColorInput,
     fromSRGB: fromSRGB,
-    fromValues: fromValues$1,
-    set: set$4,
+    fromValues: fromValues$2,
+    set: set$3,
     setFromColorInput: setFromColorInput,
     setFromSRGB: setFromSRGB,
     toCSS: toCSS
@@ -11107,7 +11107,7 @@ function updateComputeBindGroup(data, bufferCache, textureCache, device, bindGro
 }
 
 /** Create a new empty ChainMap */
-function create$9() {
+function create$8() {
     return {
         weakMaps: new Map(),
     };
@@ -11147,7 +11147,7 @@ function get(map, keys) {
  * @param keys array of objects forming the composite key
  * @param value the value to cache
  */
-function set$3(map, keys, value) {
+function set$2(map, keys, value) {
     if (keys.length === 0)
         return;
     let current = getWeakMap(map, keys.length);
@@ -11380,7 +11380,7 @@ function createRenderObjectsState() {
 function getChainMap(state, passId) {
     let map = state.chainMaps.get(passId);
     if (!map) {
-        map = create$9();
+        map = create$8();
         state.chainMaps.set(passId, map);
     }
     return map;
@@ -11416,7 +11416,7 @@ function getRenderObject(state, mesh, material, scene, camera, renderContext, pa
             };
         }
         // Cache it
-        set$3(map, keys, renderObject);
+        set$2(map, keys, renderObject);
         state.renderObjects.add(renderObject);
     }
     else {
@@ -17032,7 +17032,7 @@ const EPSILON = 0.000001;
  *
  * @returns a new 2D vector
  */
-function create$8() {
+function create$7() {
     return [0, 0];
 }
 
@@ -17041,7 +17041,7 @@ function create$8() {
  *
  * @returns a new 3D vector
  */
-function create$7() {
+function create$6() {
     return [0, 0, 0];
 }
 /**
@@ -17077,7 +17077,7 @@ function length(a) {
  * @param z Z component
  * @returns a new 3D vector
  */
-function fromValues(x, y, z) {
+function fromValues$1(x, y, z) {
     const out = [0, 0, 0];
     out[0] = x;
     out[1] = y;
@@ -17106,7 +17106,7 @@ function copy$5(out, a) {
  * @param z Z component
  * @returns out
  */
-function set$2(out, x, y, z) {
+function set$1(out, x, y, z) {
     out[0] = x;
     out[1] = y;
     out[2] = z;
@@ -17151,6 +17151,34 @@ function subtract(out, a, b) {
     out[0] = a[0] - b[0];
     out[1] = a[1] - b[1];
     out[2] = a[2] - b[2];
+    return out;
+}
+/**
+ * Multiplies two vec3's
+ *
+ * @param out the receiving vector
+ * @param a the first operand
+ * @param b the second operand
+ * @returns out
+ */
+function multiply$2(out, a, b) {
+    out[0] = a[0] * b[0];
+    out[1] = a[1] * b[1];
+    out[2] = a[2] * b[2];
+    return out;
+}
+/**
+ * Divides two vec3's
+ *
+ * @param out the receiving vector
+ * @param a the first operand
+ * @param b the second operand
+ * @returns out
+ */
+function divide(out, a, b) {
+    out[0] = a[0] / b[0];
+    out[1] = a[1] / b[1];
+    out[2] = a[2] / b[2];
     return out;
 }
 /**
@@ -17334,6 +17362,23 @@ function transformQuat(out, a, q) {
     out[2] = z + uvz + uuvz;
     return out;
 }
+/**
+ * Get the angle between two 3D vectors
+ * @param a The first operand
+ * @param b The second operand
+ * @returns The angle in radians
+ */
+function angle(a, b) {
+    const ax = a[0];
+    const ay = a[1];
+    const az = a[2];
+    const bx = b[0];
+    const by = b[1];
+    const bz = b[2];
+    const mag = Math.sqrt((ax * ax + ay * ay + az * az) * (bx * bx + by * by + bz * bz));
+    const cosine = mag && dot(a, b) / mag;
+    return Math.acos(Math.min(Math.max(cosine, -1), 1));
+}
 
 /**
  * Copy the values from one vec4 to another
@@ -17377,7 +17422,7 @@ function normalize$2(out, a) {
  *
  * @returns a new 4x4 matrix
  */
-function create$6() {
+function create$5() {
     return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 }
 /**
@@ -17412,7 +17457,7 @@ function copy$3(out, a) {
  * @param out the receiving matrix
  * @returns out
  */
-function identity(out) {
+function identity$1(out) {
     out[0] = 1;
     out[1] = 0;
     out[2] = 0;
@@ -17432,13 +17477,62 @@ function identity(out) {
     return out;
 }
 /**
+ * Transpose the values of a mat4
+ *
+ * @param out the receiving matrix
+ * @param a the source matrix
+ * @returns out
+ */
+function transpose(out, a) {
+    // If we are transposing ourselves we can skip a few steps but have to cache some values
+    if (out === a) {
+        const a01 = a[1];
+        const a02 = a[2];
+        const a03 = a[3];
+        const a12 = a[6];
+        const a13 = a[7];
+        const a23 = a[11];
+        out[1] = a[4];
+        out[2] = a[8];
+        out[3] = a[12];
+        out[4] = a01;
+        out[6] = a[9];
+        out[7] = a[13];
+        out[8] = a02;
+        out[9] = a12;
+        out[11] = a[14];
+        out[12] = a03;
+        out[13] = a13;
+        out[14] = a23;
+    }
+    else {
+        out[0] = a[0];
+        out[1] = a[4];
+        out[2] = a[8];
+        out[3] = a[12];
+        out[4] = a[1];
+        out[5] = a[5];
+        out[6] = a[9];
+        out[7] = a[13];
+        out[8] = a[2];
+        out[9] = a[6];
+        out[10] = a[10];
+        out[11] = a[14];
+        out[12] = a[3];
+        out[13] = a[7];
+        out[14] = a[11];
+        out[15] = a[15];
+    }
+    return out;
+}
+/**
  * Inverts a mat4
  *
  * @param out the receiving matrix
  * @param a the source matrix
  * @returns out, or null if source matrix is not invertible
  */
-function invert(out, a) {
+function invert$1(out, a) {
     const a00 = a[0];
     const a01 = a[1];
     const a02 = a[2];
@@ -17499,7 +17593,7 @@ function invert(out, a) {
  * @param b the second operand
  * @returns out
  */
-function multiply(out, a, b) {
+function multiply$1(out, a, b) {
     const a00 = a[0];
     const a01 = a[1];
     const a02 = a[2];
@@ -17550,6 +17644,283 @@ function multiply(out, a, b) {
     out[14] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
     out[15] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
     return out;
+}
+/**
+ * Rotates a matrix by the given angle around the X axis
+ *
+ * @param out the receiving matrix
+ * @param a the matrix to rotate
+ * @param rad the angle to rotate the matrix by
+ * @returns out
+ */
+function rotateX(out, a, rad) {
+    const s = Math.sin(rad);
+    const c = Math.cos(rad);
+    const a10 = a[4];
+    const a11 = a[5];
+    const a12 = a[6];
+    const a13 = a[7];
+    const a20 = a[8];
+    const a21 = a[9];
+    const a22 = a[10];
+    const a23 = a[11];
+    if (a !== out) {
+        // If the source and destination differ, copy the unchanged rows
+        out[0] = a[0];
+        out[1] = a[1];
+        out[2] = a[2];
+        out[3] = a[3];
+        out[12] = a[12];
+        out[13] = a[13];
+        out[14] = a[14];
+        out[15] = a[15];
+    }
+    // Perform axis-specific matrix multiplication
+    out[4] = a10 * c + a20 * s;
+    out[5] = a11 * c + a21 * s;
+    out[6] = a12 * c + a22 * s;
+    out[7] = a13 * c + a23 * s;
+    out[8] = a20 * c - a10 * s;
+    out[9] = a21 * c - a11 * s;
+    out[10] = a22 * c - a12 * s;
+    out[11] = a23 * c - a13 * s;
+    return out;
+}
+/**
+ * Rotates a matrix by the given angle around the Y axis
+ *
+ * @param out the receiving matrix
+ * @param a the matrix to rotate
+ * @param rad the angle to rotate the matrix by
+ * @returns out
+ */
+function rotateY(out, a, rad) {
+    const s = Math.sin(rad);
+    const c = Math.cos(rad);
+    const a00 = a[0];
+    const a01 = a[1];
+    const a02 = a[2];
+    const a03 = a[3];
+    const a20 = a[8];
+    const a21 = a[9];
+    const a22 = a[10];
+    const a23 = a[11];
+    if (a !== out) {
+        // If the source and destination differ, copy the unchanged rows
+        out[4] = a[4];
+        out[5] = a[5];
+        out[6] = a[6];
+        out[7] = a[7];
+        out[12] = a[12];
+        out[13] = a[13];
+        out[14] = a[14];
+        out[15] = a[15];
+    }
+    // Perform axis-specific matrix multiplication
+    out[0] = a00 * c - a20 * s;
+    out[1] = a01 * c - a21 * s;
+    out[2] = a02 * c - a22 * s;
+    out[3] = a03 * c - a23 * s;
+    out[8] = a00 * s + a20 * c;
+    out[9] = a01 * s + a21 * c;
+    out[10] = a02 * s + a22 * c;
+    out[11] = a03 * s + a23 * c;
+    return out;
+}
+/**
+ * Creates a matrix from a vector translation
+ * This is equivalent to (but much faster than):
+ *
+ *     mat4.identity(dest);
+ *     mat4.translate(dest, dest, vec);
+ *
+ * @param out mat4 receiving operation result
+ * @param v Translation vector
+ * @returns out
+ */
+function fromTranslation(out, v) {
+    out[0] = 1;
+    out[1] = 0;
+    out[2] = 0;
+    out[3] = 0;
+    out[4] = 0;
+    out[5] = 1;
+    out[6] = 0;
+    out[7] = 0;
+    out[8] = 0;
+    out[9] = 0;
+    out[10] = 1;
+    out[11] = 0;
+    out[12] = v[0];
+    out[13] = v[1];
+    out[14] = v[2];
+    out[15] = 1;
+    return out;
+}
+/**
+ * Returns the translation vector component of a transformation
+ *  matrix. If a matrix is built with fromRotationTranslation,
+ *  the returned vector will be the same as the translation vector
+ *  originally supplied.
+ * @param out Vector to receive translation component
+ * @param mat Matrix to be decomposed (input)
+ * @return out
+ */
+function getTranslation(out, mat) {
+    out[0] = mat[12];
+    out[1] = mat[13];
+    out[2] = mat[14];
+    return out;
+}
+/**
+ * Returns the scaling factor component of a transformation
+ *  matrix. If a matrix is built with fromRotationTranslationScale
+ *  with a normalized Quaternion parameter, the returned vector will be
+ *  the same as the scaling vector
+ *  originally supplied.
+ * @param out Vector to receive scaling factor component
+ * @param mat Matrix to be decomposed (input)
+ * @return out
+ */
+function getScaling(out, mat) {
+    const m11 = mat[0];
+    const m12 = mat[1];
+    const m13 = mat[2];
+    const m21 = mat[4];
+    const m22 = mat[5];
+    const m23 = mat[6];
+    const m31 = mat[8];
+    const m32 = mat[9];
+    const m33 = mat[10];
+    out[0] = Math.sqrt(m11 * m11 + m12 * m12 + m13 * m13);
+    out[1] = Math.sqrt(m21 * m21 + m22 * m22 + m23 * m23);
+    out[2] = Math.sqrt(m31 * m31 + m32 * m32 + m33 * m33);
+    return out;
+}
+/**
+ * Returns a quaternion representing the rotational component
+ *  of a transformation matrix. If a matrix is built with
+ *  fromRotationTranslation, the returned quaternion will be the
+ *  same as the quaternion originally supplied.
+ * @param out Quaternion to receive the rotation component
+ * @param mat Matrix to be decomposed (input)
+ * @return out
+ */
+function getRotation(out, mat) {
+    const scaling = [0, 0, 0];
+    getScaling(scaling, mat);
+    const is1 = 1 / scaling[0];
+    const is2 = 1 / scaling[1];
+    const is3 = 1 / scaling[2];
+    const sm11 = mat[0] * is1;
+    const sm12 = mat[1] * is2;
+    const sm13 = mat[2] * is3;
+    const sm21 = mat[4] * is1;
+    const sm22 = mat[5] * is2;
+    const sm23 = mat[6] * is3;
+    const sm31 = mat[8] * is1;
+    const sm32 = mat[9] * is2;
+    const sm33 = mat[10] * is3;
+    const trace = sm11 + sm22 + sm33;
+    let S = 0;
+    if (trace > 0) {
+        S = Math.sqrt(trace + 1.0) * 2;
+        out[3] = 0.25 * S;
+        out[0] = (sm23 - sm32) / S;
+        out[1] = (sm31 - sm13) / S;
+        out[2] = (sm12 - sm21) / S;
+    }
+    else if (sm11 > sm22 && sm11 > sm33) {
+        S = Math.sqrt(1.0 + sm11 - sm22 - sm33) * 2;
+        out[3] = (sm23 - sm32) / S;
+        out[0] = 0.25 * S;
+        out[1] = (sm12 + sm21) / S;
+        out[2] = (sm31 + sm13) / S;
+    }
+    else if (sm22 > sm33) {
+        S = Math.sqrt(1.0 + sm22 - sm11 - sm33) * 2;
+        out[3] = (sm31 - sm13) / S;
+        out[0] = (sm12 + sm21) / S;
+        out[1] = 0.25 * S;
+        out[2] = (sm23 + sm32) / S;
+    }
+    else {
+        S = Math.sqrt(1.0 + sm33 - sm11 - sm22) * 2;
+        out[3] = (sm12 - sm21) / S;
+        out[0] = (sm31 + sm13) / S;
+        out[1] = (sm23 + sm32) / S;
+        out[2] = 0.25 * S;
+    }
+    return out;
+}
+/**
+ * Decomposes a transformation matrix into its rotation, translation
+ * and scale components. Returns only the rotation component
+ * @param out_r Quaternion to receive the rotation component
+ * @param out_t Vector to receive the translation vector
+ * @param out_s Vector to receive the scaling factor
+ * @param mat Matrix to be decomposed (input)
+ * @returns out_r
+ */
+function decompose(out_r, out_t, out_s, mat) {
+    out_t[0] = mat[12];
+    out_t[1] = mat[13];
+    out_t[2] = mat[14];
+    const m11 = mat[0];
+    const m12 = mat[1];
+    const m13 = mat[2];
+    const m21 = mat[4];
+    const m22 = mat[5];
+    const m23 = mat[6];
+    const m31 = mat[8];
+    const m32 = mat[9];
+    const m33 = mat[10];
+    out_s[0] = Math.sqrt(m11 * m11 + m12 * m12 + m13 * m13);
+    out_s[1] = Math.sqrt(m21 * m21 + m22 * m22 + m23 * m23);
+    out_s[2] = Math.sqrt(m31 * m31 + m32 * m32 + m33 * m33);
+    const is1 = 1 / out_s[0];
+    const is2 = 1 / out_s[1];
+    const is3 = 1 / out_s[2];
+    const sm11 = m11 * is1;
+    const sm12 = m12 * is2;
+    const sm13 = m13 * is3;
+    const sm21 = m21 * is1;
+    const sm22 = m22 * is2;
+    const sm23 = m23 * is3;
+    const sm31 = m31 * is1;
+    const sm32 = m32 * is2;
+    const sm33 = m33 * is3;
+    const trace = sm11 + sm22 + sm33;
+    let S = 0;
+    if (trace > 0) {
+        S = Math.sqrt(trace + 1.0) * 2;
+        out_r[3] = 0.25 * S;
+        out_r[0] = (sm23 - sm32) / S;
+        out_r[1] = (sm31 - sm13) / S;
+        out_r[2] = (sm12 - sm21) / S;
+    }
+    else if (sm11 > sm22 && sm11 > sm33) {
+        S = Math.sqrt(1.0 + sm11 - sm22 - sm33) * 2;
+        out_r[3] = (sm23 - sm32) / S;
+        out_r[0] = 0.25 * S;
+        out_r[1] = (sm12 + sm21) / S;
+        out_r[2] = (sm31 + sm13) / S;
+    }
+    else if (sm22 > sm33) {
+        S = Math.sqrt(1.0 + sm22 - sm11 - sm33) * 2;
+        out_r[3] = (sm31 - sm13) / S;
+        out_r[0] = (sm12 + sm21) / S;
+        out_r[1] = 0.25 * S;
+        out_r[2] = (sm23 + sm32) / S;
+    }
+    else {
+        S = Math.sqrt(1.0 + sm33 - sm11 - sm22) * 2;
+        out_r[3] = (sm12 - sm21) / S;
+        out_r[0] = (sm31 + sm13) / S;
+        out_r[1] = (sm23 + sm32) / S;
+        out_r[2] = 0.25 * S;
+    }
+    return out_r;
 }
 /**
  * Creates a matrix from a quaternion rotation, vector translation and vector scale
@@ -17743,7 +18114,7 @@ function targetTo(out, eye, target, up) {
  *
  * @returns a new 3x3 matrix
  */
-function create$5() {
+function create$4() {
     return [1, 0, 0, 0, 1, 0, 0, 0, 1];
 }
 /**
@@ -17825,8 +18196,21 @@ function normalFromMat4(out, a) {
  *
  * @returns a new quaternion
  */
-function create$4() {
+function create$3() {
     return [0, 0, 0, 1];
+}
+/**
+ * Set a quat to the identity quaternion
+ *
+ * @param out the receiving quaternion
+ * @returns out
+ */
+function identity(out) {
+    out[0] = 0;
+    out[1] = 0;
+    out[2] = 0;
+    out[3] = 1;
+    return out;
 }
 /**
  * Sets a quat from the given angle and rotation axis,
@@ -17844,6 +18228,50 @@ function setAxisAngle(out, axis, rad) {
     out[1] = s * axis[1];
     out[2] = s * axis[2];
     out[3] = Math.cos(rad);
+    return out;
+}
+/**
+ * Multiplies two quat's
+ *
+ * @param out the receiving quaternion
+ * @param a the first operand
+ * @param b the second operand
+ * @returns out
+ */
+function multiply(out, a, b) {
+    const ax = a[0];
+    const ay = a[1];
+    const az = a[2];
+    const aw = a[3];
+    const bx = b[0];
+    const by = b[1];
+    const bz = b[2];
+    const bw = b[3];
+    out[0] = ax * bw + aw * bx + ay * bz - az * by;
+    out[1] = ay * bw + aw * by + az * bx - ax * bz;
+    out[2] = az * bw + aw * bz + ax * by - ay * bx;
+    out[3] = aw * bw - ax * bx - ay * by - az * bz;
+    return out;
+}
+/**
+ * Calculates the inverse of a quat
+ *
+ * @param out the receiving quaternion
+ * @param a quat to calculate inverse of
+ * @returns out
+ */
+function invert(out, a) {
+    const a0 = a[0];
+    const a1 = a[1];
+    const a2 = a[2];
+    const a3 = a[3];
+    const dot = a0 * a0 + a1 * a1 + a2 * a2 + a3 * a3;
+    const invDot = dot ? 1.0 / dot : 0;
+    // TODO: Would be faster to return [0,0,0,0] immediately if dot == 0
+    out[0] = -a0 * invDot;
+    out[1] = -a1 * invDot;
+    out[2] = -a2 * invDot;
+    out[3] = a3 * invDot;
     return out;
 }
 /**
@@ -17912,9 +18340,70 @@ function fromMat3(out, m) {
  * @returns out
  */
 function fromMat4(out, m) {
-    const m3 = create$5();
+    const m3 = create$4();
     fromMat4$1(m3, m);
     return fromMat3(out, m3);
+}
+/**
+ * Creates a quaternion from the given euler
+ * @param out the receiving quaternion
+ * @param euler the euler to create the quaternion from
+ * @returns out
+ */
+function fromEuler(out, euler) {
+    const x = euler[0];
+    const y = euler[1];
+    const z = euler[2];
+    const order = euler[3] || 'xyz';
+    const cos = Math.cos;
+    const sin = Math.sin;
+    const c1 = cos(x / 2);
+    const c2 = cos(y / 2);
+    const c3 = cos(z / 2);
+    const s1 = sin(x / 2);
+    const s2 = sin(y / 2);
+    const s3 = sin(z / 2);
+    switch (order) {
+        case 'xyz':
+            out[0] = s1 * c2 * c3 + c1 * s2 * s3;
+            out[1] = c1 * s2 * c3 - s1 * c2 * s3;
+            out[2] = c1 * c2 * s3 + s1 * s2 * c3;
+            out[3] = c1 * c2 * c3 - s1 * s2 * s3;
+            break;
+        case 'yxz':
+            out[0] = s1 * c2 * c3 + c1 * s2 * s3;
+            out[1] = c1 * s2 * c3 - s1 * c2 * s3;
+            out[2] = c1 * c2 * s3 - s1 * s2 * c3;
+            out[3] = c1 * c2 * c3 + s1 * s2 * s3;
+            break;
+        case 'zxy':
+            out[0] = s1 * c2 * c3 - c1 * s2 * s3;
+            out[1] = c1 * s2 * c3 + s1 * c2 * s3;
+            out[2] = c1 * c2 * s3 + s1 * s2 * c3;
+            out[3] = c1 * c2 * c3 - s1 * s2 * s3;
+            break;
+        case 'zyx':
+            out[0] = s1 * c2 * c3 - c1 * s2 * s3;
+            out[1] = c1 * s2 * c3 + s1 * c2 * s3;
+            out[2] = c1 * c2 * s3 - s1 * s2 * c3;
+            out[3] = c1 * c2 * c3 + s1 * s2 * s3;
+            break;
+        case 'yzx':
+            out[0] = s1 * c2 * c3 + c1 * s2 * s3;
+            out[1] = c1 * s2 * c3 + s1 * c2 * s3;
+            out[2] = c1 * c2 * s3 - s1 * s2 * c3;
+            out[3] = c1 * c2 * c3 - s1 * s2 * s3;
+            break;
+        case 'xzy':
+            out[0] = s1 * c2 * c3 - c1 * s2 * s3;
+            out[1] = c1 * s2 * c3 - s1 * c2 * s3;
+            out[2] = c1 * c2 * s3 + s1 * s2 * c3;
+            out[3] = c1 * c2 * c3 + s1 * s2 * s3;
+            break;
+        default:
+            console.warn(`fromEuler() encountered an unknown order: ${order}`);
+    }
+    return out;
 }
 /**
  * Copy the values from one quat to another
@@ -17944,9 +18433,9 @@ const normalize$1 = normalize$2;
  * @returns out
  */
 const rotationTo = /* @__PURE__ */ (() => {
-    const tmpvec3 = create$7();
-    const xUnitVec3 = fromValues(1, 0, 0);
-    const yUnitVec3 = fromValues(0, 1, 0);
+    const tmpvec3 = create$6();
+    const xUnitVec3 = fromValues$1(1, 0, 0);
+    const yUnitVec3 = fromValues$1(0, 1, 0);
     return (out, a, b) => {
         const dot$1 = dot(a, b);
         if (dot$1 < -0.999999) {
@@ -17973,7 +18462,19 @@ const rotationTo = /* @__PURE__ */ (() => {
     };
 })();
 
-const _transformMat4_corner = /*@__PURE__*/ create$7();
+/**
+ * Creates a new Euler from the given values.
+ * @param x The x rotation in radians.
+ * @param y The y rotation in radians.
+ * @param z The z rotation in radians.
+ * @param order The order of rotation.
+ * @returns A new Euler.
+ */
+function fromValues(x, y, z, order) {
+    return [x, y, z, order];
+}
+
+const _transformMat4_corner = /*@__PURE__*/ create$6();
 /**
  * Transform a bounding box by a 4x4 matrix
  * Transforms all 8 corners and creates a new AABB that encompasses them
@@ -18016,7 +18517,7 @@ new Array(27); // 9 axes * 3 components
  * Creates a new plane with normal (0, 1, 0) and constant 0
  * @returns A new plane
  */
-function create$3() {
+function create$2() {
     return { normal: [0, 1, 0], constant: 0 };
 }
 /**
@@ -18068,7 +18569,7 @@ function distanceToPoint(plane, point) {
  *
  * @returns a new Spherical
  */
-function create$2() {
+function create$1() {
     return [1, 0, 0];
 }
 /**
@@ -18080,7 +18581,7 @@ function create$2() {
  * @param phi polar angle from +Y axis (radians)
  * @returns out
  */
-function set$1(out, r, theta, phi) {
+function set(out, r, theta, phi) {
     out[0] = r;
     out[1] = theta;
     out[2] = phi;
@@ -18143,184 +18644,8 @@ function toVec3(out, a) {
     return out;
 }
 
-/**
- * Creates a new Raycast3 with default values (origin at (0,0,0), direction (0,0,0), length 1.
- * @returns A new Raycast3.
- */
-function create$1() {
-    return {
-        origin: create$7(),
-        direction: fromValues(0, 0, 0),
-        length: 1,
-    };
-}
-/**
- * Sets the components of a Raycast3.
- * @param out The output Raycast3.
- * @param origin The origin Vec3.
- * @param direction The direction Vec3.
- * @param length The length of the ray.
- * @returns The output Raycast3.
- */
-function set(out, origin, direction, length) {
-    copy$5(out.origin, origin);
-    copy$5(out.direction, direction);
-    out.length = length;
-    return out;
-}
-/**
- * Creates a new IntersectsTriangleResult with default values.
- * @returns A new IntersectsTriangleResult.
- */
-function createIntersectsTriangleResult() {
-    return {
-        fraction: 0,
-        hit: false,
-        frontFacing: false,
-    };
-}
-/**
- * Ray-triangle intersection test.
- * Based on https://github.com/pmjoniak/GeometricTools/blob/master/GTEngine/Include/Mathematics/GteIntrRay3Triangle3.h
- *
- * @param out output object to store result (hit boolean, fraction, frontFacing)
- * @param ray ray to test (with origin, direction, and length)
- * @param a first vertex of triangle
- * @param b second vertex of triangle
- * @param c third vertex of triangle
- * @param backfaceCulling if true, backfaces will not be considered hits
- */
-function intersectsTriangle(out, ray, a, b, c, backfaceCulling) {
-    // compute edge1 = b - a
-    const e1x = b[0] - a[0];
-    const e1y = b[1] - a[1];
-    const e1z = b[2] - a[2];
-    // compute edge2 = c - a
-    const e2x = c[0] - a[0];
-    const e2y = c[1] - a[1];
-    const e2z = c[2] - a[2];
-    // compute normal = edge1 × edge2
-    const nx = e1y * e2z - e1z * e2y;
-    const ny = e1z * e2x - e1x * e2z;
-    const nz = e1x * e2y - e1y * e2x;
-    // determine front vs back facing
-    const dx = ray.direction[0];
-    const dy = ray.direction[1];
-    const dz = ray.direction[2];
-    let DdN = dx * nx + dy * ny + dz * nz;
-    let sign;
-    if (DdN > 0) {
-        sign = 1;
-    }
-    else if (DdN < 0) {
-        // frontface
-        sign = -1;
-        DdN = -DdN;
-    }
-    else {
-        // ray is parallel to triangle
-        out.hit = false;
-        out.fraction = 0;
-        out.frontFacing = false;
-        return;
-    }
-    // compute diff = ray.origin - a
-    const diffx = ray.origin[0] - a[0];
-    const diffy = ray.origin[1] - a[1];
-    const diffz = ray.origin[2] - a[2];
-    // compute barycentric coordinate b1
-    // DdQxE2 = sign * D · (diff × edge2)
-    const diffCrossE2x = diffy * e2z - diffz * e2y;
-    const diffCrossE2y = diffz * e2x - diffx * e2z;
-    const diffCrossE2z = diffx * e2y - diffy * e2x;
-    const DdQxE2 = sign * (dx * diffCrossE2x + dy * diffCrossE2y + dz * diffCrossE2z);
-    if (DdQxE2 < 0) {
-        out.hit = false;
-        out.fraction = 0;
-        out.frontFacing = false;
-        return;
-    }
-    // compute barycentric coordinate b2
-    // DdE1xQ = sign * D · (edge1 × diff)
-    const e1CrossDiffx = e1y * diffz - e1z * diffy;
-    const e1CrossDiffy = e1z * diffx - e1x * diffz;
-    const e1CrossDiffz = e1x * diffy - e1y * diffx;
-    const DdE1xQ = sign * (dx * e1CrossDiffx + dy * e1CrossDiffy + dz * e1CrossDiffz);
-    if (DdE1xQ < 0) {
-        out.hit = false;
-        out.fraction = 0;
-        out.frontFacing = false;
-        return;
-    }
-    // check if b1 + b2 > 1
-    if (DdQxE2 + DdE1xQ > DdN) {
-        out.hit = false;
-        out.fraction = 0;
-        out.frontFacing = false;
-        return;
-    }
-    // compute intersection distance
-    const QdN = -sign * (diffx * nx + diffy * ny + diffz * nz);
-    if (QdN < 0) {
-        out.hit = false;
-        out.fraction = 0;
-        out.frontFacing = false;
-        return;
-    }
-    const t = QdN / DdN;
-    // check if intersection is within ray length
-    if (t <= ray.length) {
-        out.hit = true;
-        out.fraction = t / ray.length;
-        out.frontFacing = sign < 0;
-    }
-    else {
-        out.hit = false;
-        out.fraction = 0;
-        out.frontFacing = false;
-    }
-}
-/**
- * Test if a ray intersects an axis-aligned bounding box.
- * Uses slab-based algorithm that handles parallel rays correctly.
- *
- * @param ray Ray to test (with origin, direction, and length)
- * @param aabb AABB to test against
- * @returns true if ray intersects the AABB, false otherwise
- */
-function intersectsBox3$1(ray, aabb) {
-    let tmin = 0;
-    let tmax = ray.length;
-    for (let i = 0; i < 3; i++) {
-        const d = ray.direction[i];
-        if (Math.abs(d) < 1e-10) {
-            // ray is parallel to slab: check if origin is within slab
-            if (ray.origin[i] < aabb[i] || ray.origin[i] > aabb[i + 3]) {
-                return false;
-            }
-        }
-        else {
-            // compute intersection times with slab
-            const invD = 1 / d;
-            let t0 = (aabb[i] - ray.origin[i]) * invD;
-            let t1 = (aabb[i + 3] - ray.origin[i]) * invD;
-            if (invD < 0) {
-                const temp = t0;
-                t0 = t1;
-                t1 = temp;
-            }
-            tmin = Math.max(tmin, t0);
-            tmax = Math.min(tmax, t1);
-            if (tmax < tmin) {
-                return false;
-            }
-        }
-    }
-    return true;
-}
-
 let objectIdCounter = 0;
-const _lookAt_tmp = create$6();
+const _lookAt_tmp = create$5();
 class Object3D {
     objectId = objectIdCounter++;
     name = '';
@@ -18331,9 +18656,9 @@ class Object3D {
     scale = [1, 1, 1];
     parent = null;
     children = [];
-    matrix = create$6();
-    matrixWorld = create$6();
-    normalMatrix = create$5();
+    matrix = create$5();
+    matrixWorld = create$5();
+    normalMatrix = create$4();
     matrixVersion = 0;
     add(child) {
         if (child.parent)
@@ -18364,7 +18689,7 @@ class Object3D {
     updateWorldMatrix() {
         fromRotationTranslationScale(this.matrix, this.quaternion, this.position, this.scale);
         if (this.parent) {
-            multiply(this.matrixWorld, this.parent.matrixWorld, this.matrix);
+            multiply$1(this.matrixWorld, this.parent.matrixWorld, this.matrix);
         }
         else {
             copy$3(this.matrixWorld, this.matrix);
@@ -18374,6 +18699,26 @@ class Object3D {
         for (const child of this.children) {
             child.updateWorldMatrix();
         }
+    }
+    traverse(callback) {
+        callback(this);
+        for (const child of this.children) {
+            child.traverse(callback);
+        }
+    }
+    getWorldPosition(out) {
+        return getTranslation(out, this.matrixWorld);
+    }
+    getWorldQuaternion(out) {
+        return getRotation(out, this.matrixWorld);
+    }
+    getWorldDirection(out) {
+        const e = this.matrixWorld;
+        out[0] = -e[8];
+        out[1] = -e[9];
+        out[2] = -e[10];
+        normalize$3(out, out);
+        return out;
     }
     /**
      * Abstract method for raycasting. Override in subclasses (e.g., Mesh) to
@@ -18387,20 +18732,20 @@ class Object3D {
     }
 }
 
-const _invViewProj = create$6();
+const _invViewProj = create$5();
 class Camera extends Object3D {
     near = 0.1;
     far = 100;
-    projectionMatrix = create$6();
-    matrixWorldInverse = create$6();
+    projectionMatrix = create$5();
+    matrixWorldInverse = create$5();
     constructor() {
         super();
         this.name = 'Camera';
     }
     /** recompute the matrixWorldInverse from the current matrixWorld. */
     updateViewMatrix() {
-        if (invert(this.matrixWorldInverse, this.matrixWorld) === null) {
-            identity(this.matrixWorldInverse);
+        if (invert$1(this.matrixWorldInverse, this.matrixWorld) === null) {
+            identity$1(this.matrixWorldInverse);
         }
     }
 }
@@ -18409,12 +18754,99 @@ class Camera extends Object3D {
  * NDC: x,y in [-1, 1], z in [0, 1] where 0 is near plane, 1 is far plane (WebGPU convention).
  */
 function unproject(out, ndc, camera) {
-    multiply(_invViewProj, camera.projectionMatrix, camera.matrixWorldInverse);
-    invert(_invViewProj, _invViewProj);
+    multiply$1(_invViewProj, camera.projectionMatrix, camera.matrixWorldInverse);
+    invert$1(_invViewProj, _invViewProj);
     transformMat4$1(out, ndc, _invViewProj);
     return out;
 }
 
+/**
+ * Möller–Trumbore ray-triangle intersection.
+ * Returns raw t (distance along ray direction) or null if no hit.
+ * Ported from Three.js Ray.intersectTriangle.
+ */
+function rayTriangleIntersection(origin, direction, a, b, c, backfaceCulling) {
+    // edge1 = b - a, edge2 = c - a
+    const e1x = b[0] - a[0], e1y = b[1] - a[1], e1z = b[2] - a[2];
+    const e2x = c[0] - a[0], e2y = c[1] - a[1], e2z = c[2] - a[2];
+    // normal = edge1 × edge2
+    const nx = e1y * e2z - e1z * e2y;
+    const ny = e1z * e2x - e1x * e2z;
+    const nz = e1x * e2y - e1y * e2x;
+    let DdN = direction[0] * nx + direction[1] * ny + direction[2] * nz;
+    let sign;
+    if (DdN > 0) {
+        sign = 1;
+    }
+    else if (DdN < 0) {
+        sign = -1;
+        DdN = -DdN;
+    }
+    else {
+        return null;
+    }
+    const diffx = origin[0] - a[0];
+    const diffy = origin[1] - a[1];
+    const diffz = origin[2] - a[2];
+    // barycentric coord b1
+    const DdQxE2 = sign * (direction[0] * (diffy * e2z - diffz * e2y) +
+        direction[1] * (diffz * e2x - diffx * e2z) +
+        direction[2] * (diffx * e2y - diffy * e2x));
+    if (DdQxE2 < 0)
+        return null;
+    // barycentric coord b2
+    const DdE1xQ = sign * (direction[0] * (e1y * diffz - e1z * diffy) +
+        direction[1] * (e1z * diffx - e1x * diffz) +
+        direction[2] * (e1x * diffy - e1y * diffx));
+    if (DdE1xQ < 0)
+        return null;
+    if (DdQxE2 + DdE1xQ > DdN)
+        return null;
+    // t = raw distance along ray direction
+    const QdN = -sign * (diffx * nx + diffy * ny + diffz * nz);
+    if (QdN < 0)
+        return null;
+    return QdN / DdN;
+}
+/**
+ * Slab-based ray-AABB intersection test.
+ * Tests intersection within [0, maxT] along the ray.
+ */
+function rayIntersectsBox3(origin, direction, aabb, maxT) {
+    let tmin = 0;
+    let tmax = maxT;
+    for (let i = 0; i < 3; i++) {
+        // Pad degenerate slabs to avoid near-miss rejections on thin/flat geometry
+        let lo = aabb[i];
+        let hi = aabb[i + 3];
+        if (hi - lo < 1e-4) {
+            const mid = (lo + hi) * 0.5;
+            lo = mid - 5e-5;
+            hi = mid + 5e-5;
+        }
+        const d = direction[i];
+        if (Math.abs(d) < 1e-10) {
+            if (origin[i] < lo || origin[i] > hi) {
+                return false;
+            }
+        }
+        else {
+            const invD = 1 / d;
+            let t0 = (lo - origin[i]) * invD;
+            let t1 = (hi - origin[i]) * invD;
+            if (invD < 0) {
+                const tmp = t0;
+                t0 = t1;
+                t1 = tmp;
+            }
+            tmin = Math.max(tmin, t0);
+            tmax = Math.min(tmax, t1);
+            if (tmax < tmin)
+                return false;
+        }
+    }
+    return true;
+}
 // Reusable temp objects
 const _target = [0, 0, 0];
 const _direction = [0, 0, 0];
@@ -18423,12 +18855,11 @@ class Raycaster {
     near;
     far;
     constructor(origin, direction, near = 0, far = Infinity) {
-        this.ray = create$1();
+        this.ray = { origin: [0, 0, 0], direction: [0, 0, 0] };
         if (origin)
             copy$5(this.ray.origin, origin);
         if (direction)
             copy$5(this.ray.direction, direction);
-        this.ray.length = far;
         this.near = near;
         this.far = far;
     }
@@ -18439,22 +18870,19 @@ class Raycaster {
     setFromCamera(coords, camera) {
         const isOrthographic = 'isOrthographicCamera' in camera && camera.isOrthographicCamera;
         if (isOrthographic) {
-            // Orthographic: origin on near plane, direction is camera's forward
             unproject(this.ray.origin, [coords[0], coords[1], 0], camera);
-            // Get camera forward direction from matrixWorld
             const e = camera.matrixWorld;
-            set$2(_direction, -e[8], -e[9], -e[10]);
+            set$1(_direction, -e[8], -e[9], -e[10]);
             normalize$3(this.ray.direction, _direction);
         }
         else {
-            // Perspective: origin at camera position, direction toward unprojected point
-            copy$5(this.ray.origin, camera.position);
-            // Unproject a point on the far plane and compute direction
+            getTranslation(this.ray.origin, camera.matrixWorld);
             unproject(_target, [coords[0], coords[1], 1], camera);
             subtract(_direction, _target, this.ray.origin);
             normalize$3(this.ray.direction, _direction);
         }
-        this.ray.length = this.far;
+        this.near = camera.near;
+        this.far = camera.far;
     }
     intersectObject(object, recursive = true, intersects = []) {
         intersect(object, this, intersects, recursive);
@@ -18473,8 +18901,6 @@ function ascSort(a, b) {
     return a.distance - b.distance;
 }
 function intersect(object, raycaster, intersects, recursive) {
-    if (object.visible === false)
-        return;
     object.raycast(raycaster, intersects);
     if (recursive) {
         for (const child of object.children) {
@@ -18485,11 +18911,8 @@ function intersect(object, raycaster, intersects, recursive) {
 // ============================================================================
 // Helpers for Mesh.raycast() - exported for use by Mesh
 // ============================================================================
-const _inverseMatrix = create$6();
-const _localRay = create$1();
-const _localOrigin = [0, 0, 0];
-const _localDir = [0, 0, 0];
-const _intersectionResult = createIntersectsTriangleResult();
+const _inverseMatrix = create$5();
+const _localRay = { origin: [0, 0, 0], direction: [0, 0, 0] };
 const _intersectionPoint = [0, 0, 0];
 const _intersectionPointWorld = [0, 0, 0];
 const _vA = [0, 0, 0];
@@ -18503,22 +18926,17 @@ const _faceNormal = [0, 0, 0];
  * Returns the local ray for intersection testing.
  */
 function transformRayToLocalSpace(raycaster, matrixWorld) {
-    invert(_inverseMatrix, matrixWorld);
-    // Transform origin (point)
-    transformMat4$1(_localOrigin, raycaster.ray.origin, _inverseMatrix);
-    // Transform direction (vector, not point) - use mat3 of inverse matrix
-    // For direction vectors we need to transform by the inverse-transpose,
-    // but for orthonormal transforms (no non-uniform scale), inverse works.
-    // We extract upper 3x3 and transform.
+    invert$1(_inverseMatrix, matrixWorld);
+    transformMat4$1(_localRay.origin, raycaster.ray.origin, _inverseMatrix);
+    // Transform direction by upper 3x3 of inverse matrix
     const m = _inverseMatrix;
     const dx = raycaster.ray.direction[0];
     const dy = raycaster.ray.direction[1];
     const dz = raycaster.ray.direction[2];
-    _localDir[0] = m[0] * dx + m[4] * dy + m[8] * dz;
-    _localDir[1] = m[1] * dx + m[5] * dy + m[9] * dz;
-    _localDir[2] = m[2] * dx + m[6] * dy + m[10] * dz;
-    normalize$3(_localDir, _localDir);
-    set(_localRay, _localOrigin, _localDir, raycaster.far);
+    _localRay.direction[0] = m[0] * dx + m[4] * dy + m[8] * dz;
+    _localRay.direction[1] = m[1] * dx + m[5] * dy + m[9] * dz;
+    _localRay.direction[2] = m[2] * dx + m[6] * dy + m[10] * dz;
+    normalize$3(_localRay.direction, _localRay.direction);
     return _localRay;
 }
 /**
@@ -18526,20 +18944,17 @@ function transformRayToLocalSpace(raycaster, matrixWorld) {
  * Positions are in local space, ray should be in local space.
  */
 function checkTriangleIntersection(object, raycaster, localRay, matrixWorld, a, b, c, positions, indices, uvs, intersects, faceIndex) {
-    // Get vertex positions
     const ia = indices ? indices[a] : a;
     const ib = indices ? indices[b] : b;
     const ic = indices ? indices[c] : c;
     fromBuffer(_vA, positions, ia * 3);
     fromBuffer(_vB, positions, ib * 3);
     fromBuffer(_vC, positions, ic * 3);
-    // Test intersection (double-sided, no backface culling)
-    intersectsTriangle(_intersectionResult, localRay, _vA, _vB, _vC);
-    if (!_intersectionResult.hit)
+    const t = rayTriangleIntersection(localRay.origin, localRay.direction, _vA, _vB, _vC);
+    if (t === null)
         return;
-    // Compute intersection point in local space
-    const t = _intersectionResult.fraction;
-    scaleAndAdd(_intersectionPoint, localRay.origin, localRay.direction, t * localRay.length);
+    // Compute intersection point in local space: origin + direction * t
+    scaleAndAdd(_intersectionPoint, localRay.origin, localRay.direction, t);
     // Transform to world space
     transformMat4$1(_intersectionPointWorld, _intersectionPoint, matrixWorld);
     // Check distance against near/far
@@ -18551,7 +18966,6 @@ function checkTriangleIntersection(object, raycaster, localRay, matrixWorld, a, 
     subtract(_edge2, _vC, _vA);
     cross(_faceNormal, _edge1, _edge2);
     normalize$3(_faceNormal, _faceNormal);
-    // Build intersection result
     const intersection = {
         distance: distance$1,
         point: clone$2(_intersectionPointWorld),
@@ -18564,7 +18978,6 @@ function checkTriangleIntersection(object, raycaster, localRay, matrixWorld, a, 
             normal: clone$2(_faceNormal),
         },
     };
-    // Compute UV if available (barycentric interpolation)
     if (uvs) {
         const uv = computeBarycentricUV(_intersectionPoint, _vA, _vB, _vC, ia, ib, ic, uvs);
         if (uv)
@@ -18649,7 +19062,7 @@ class Mesh extends Object3D {
         const localRay = transformRayToLocalSpace(raycaster, matrixWorld);
         // early-out: bounding box test in local space
         if (geometry.boundingBox) {
-            if (!intersectsBox3$1(localRay, geometry.boundingBox))
+            if (!rayIntersectsBox3(localRay.origin, localRay.direction, geometry.boundingBox, raycaster.far))
                 return;
         }
         // get optional index buffer and UV buffer
@@ -19069,6 +19482,349 @@ function createFullscreenTriangleGeometry(flipY = false) {
     geom.setBuffer('position', createVertexBuffer(vec3f$1, positions));
     geom.setBuffer('uv', createVertexBuffer(vec2f$1, uvsData));
     geom.drawRange.count = 3;
+    return geom;
+}
+/**
+ * Creates a cylinder geometry along the Y axis, centered at the origin.
+ * When radiusTop is 0, produces a cone. Includes top and bottom caps.
+ *
+ * @param radiusTop - Radius at y = +height/2. 0 for a cone.
+ * @param radiusBottom - Radius at y = -height/2.
+ * @param height - Total height along Y.
+ * @param radialSegments - Number of segments around the circumference.
+ */
+function createCylinderGeometry(radiusTop = 1, radiusBottom = 1, height = 1, radialSegments = 8) {
+    const halfHeight = height / 2;
+    const hasTop = radiusTop > 0;
+    const hasBottom = radiusBottom > 0;
+    // body vertices: 2 rings of (radialSegments + 1) vertices (seam duplicated for UVs)
+    const bodyCols = radialSegments + 1;
+    const bodyVertexCount = bodyCols * 2;
+    const bodyIndexCount = radialSegments * 6;
+    // cap vertices: each cap has 1 center + (radialSegments + 1) ring vertices
+    const capVerticesPerCap = 1 + bodyCols;
+    const capIndicesPerCap = radialSegments * 3;
+    const topCapVertexCount = hasTop ? capVerticesPerCap : 0;
+    const bottomCapVertexCount = hasBottom ? capVerticesPerCap : 0;
+    const topCapIndexCount = hasTop ? capIndicesPerCap : 0;
+    const bottomCapIndexCount = hasBottom ? capIndicesPerCap : 0;
+    const totalVertexCount = bodyVertexCount + topCapVertexCount + bottomCapVertexCount;
+    const totalIndexCount = bodyIndexCount + topCapIndexCount + bottomCapIndexCount;
+    const positions = new Float32Array(totalVertexCount * 3);
+    const normals = new Float32Array(totalVertexCount * 3);
+    const uvs = new Float32Array(totalVertexCount * 2);
+    const indices = new Uint16Array(totalIndexCount);
+    // slope for normals: the cylinder side normal has a Y component when radii differ
+    const slope = (radiusBottom - radiusTop) / height;
+    const normalScale = 1 / Math.sqrt(1 + slope * slope);
+    let vi = 0;
+    // --- body ---
+    for (let ring = 0; ring < 2; ring++) {
+        const y = ring === 0 ? halfHeight : -halfHeight;
+        const r = ring === 0 ? radiusTop : radiusBottom;
+        for (let seg = 0; seg <= radialSegments; seg++) {
+            const u = seg / radialSegments;
+            const theta = u * Math.PI * 2;
+            const cosT = Math.cos(theta);
+            const sinT = Math.sin(theta);
+            const px = r * sinT;
+            const pz = r * cosT;
+            const pi = vi * 3;
+            const ui = vi * 2;
+            positions[pi] = px;
+            positions[pi + 1] = y;
+            positions[pi + 2] = pz;
+            // normal points outward; adjust Y for cone slope
+            normals[pi] = sinT * normalScale;
+            normals[pi + 1] = slope * normalScale;
+            normals[pi + 2] = cosT * normalScale;
+            uvs[ui] = u;
+            uvs[ui + 1] = ring === 0 ? 0 : 1;
+            vi++;
+        }
+    }
+    // body indices
+    let ii = 0;
+    for (let seg = 0; seg < radialSegments; seg++) {
+        const a = seg;
+        const b = seg + 1;
+        const c = bodyCols + seg;
+        const dd = bodyCols + seg + 1;
+        indices[ii++] = a;
+        indices[ii++] = c;
+        indices[ii++] = b;
+        indices[ii++] = b;
+        indices[ii++] = c;
+        indices[ii++] = dd;
+    }
+    // --- top cap ---
+    if (hasTop) {
+        const centerIndex = vi;
+        const pi0 = vi * 3;
+        const ui0 = vi * 2;
+        positions[pi0] = 0;
+        positions[pi0 + 1] = halfHeight;
+        positions[pi0 + 2] = 0;
+        normals[pi0] = 0;
+        normals[pi0 + 1] = 1;
+        normals[pi0 + 2] = 0;
+        uvs[ui0] = 0.5;
+        uvs[ui0 + 1] = 0.5;
+        vi++;
+        for (let seg = 0; seg <= radialSegments; seg++) {
+            const u = seg / radialSegments;
+            const theta = u * Math.PI * 2;
+            const cosT = Math.cos(theta);
+            const sinT = Math.sin(theta);
+            const pi = vi * 3;
+            const uii = vi * 2;
+            positions[pi] = radiusTop * sinT;
+            positions[pi + 1] = halfHeight;
+            positions[pi + 2] = radiusTop * cosT;
+            normals[pi] = 0;
+            normals[pi + 1] = 1;
+            normals[pi + 2] = 0;
+            uvs[uii] = sinT * 0.5 + 0.5;
+            uvs[uii + 1] = cosT * 0.5 + 0.5;
+            vi++;
+        }
+        for (let seg = 0; seg < radialSegments; seg++) {
+            indices[ii++] = centerIndex;
+            indices[ii++] = centerIndex + 1 + seg;
+            indices[ii++] = centerIndex + 1 + seg + 1;
+        }
+    }
+    // --- bottom cap ---
+    if (hasBottom) {
+        const centerIndex = vi;
+        const pi0 = vi * 3;
+        const ui0 = vi * 2;
+        positions[pi0] = 0;
+        positions[pi0 + 1] = -halfHeight;
+        positions[pi0 + 2] = 0;
+        normals[pi0] = 0;
+        normals[pi0 + 1] = -1;
+        normals[pi0 + 2] = 0;
+        uvs[ui0] = 0.5;
+        uvs[ui0 + 1] = 0.5;
+        vi++;
+        for (let seg = 0; seg <= radialSegments; seg++) {
+            const u = seg / radialSegments;
+            const theta = u * Math.PI * 2;
+            const cosT = Math.cos(theta);
+            const sinT = Math.sin(theta);
+            const pi = vi * 3;
+            const uii = vi * 2;
+            positions[pi] = radiusBottom * sinT;
+            positions[pi + 1] = -halfHeight;
+            positions[pi + 2] = radiusBottom * cosT;
+            normals[pi] = 0;
+            normals[pi + 1] = -1;
+            normals[pi + 2] = 0;
+            uvs[uii] = sinT * 0.5 + 0.5;
+            uvs[uii + 1] = cosT * 0.5 + 0.5;
+            vi++;
+        }
+        for (let seg = 0; seg < radialSegments; seg++) {
+            indices[ii++] = centerIndex;
+            indices[ii++] = centerIndex + 1 + seg + 1;
+            indices[ii++] = centerIndex + 1 + seg;
+        }
+    }
+    const maxR = Math.max(radiusTop, radiusBottom);
+    const geom = new Geometry();
+    geom.setBuffer('position', createVertexBuffer(vec3f$1, positions));
+    geom.setBuffer('normal', createVertexBuffer(vec3f$1, normals));
+    geom.setBuffer('uv', createVertexBuffer(vec2f$1, uvs));
+    geom.index = createIndexBuffer(indices);
+    geom.boundingBox = [-maxR, -halfHeight, -maxR, maxR, halfHeight, maxR];
+    geom.boundingSphere = { center: [0, 0, 0], radius: Math.sqrt(maxR * maxR + halfHeight * halfHeight) };
+    return geom;
+}
+/**
+ * Creates a torus geometry in the XZ plane.
+ *
+ * @param radius - Distance from center of torus to center of tube.
+ * @param tube - Radius of the tube.
+ * @param radialSegments - Segments around the tube cross-section.
+ * @param tubularSegments - Segments around the torus ring.
+ * @param arc - Central angle of the torus in radians. Defaults to full circle.
+ */
+function createTorusGeometry(radius = 1, tube = 0.4, radialSegments = 12, tubularSegments = 48, arc = Math.PI * 2) {
+    const radCols = radialSegments + 1;
+    const tubCols = tubularSegments + 1;
+    const vertexCount = radCols * tubCols;
+    const indexCount = radialSegments * tubularSegments * 6;
+    const positions = new Float32Array(vertexCount * 3);
+    const normals = new Float32Array(vertexCount * 3);
+    const uvArr = new Float32Array(vertexCount * 2);
+    const indices = new Uint16Array(indexCount);
+    // Ring lies in XY plane, tube cross-section sweeps around Z.
+    // Matches Three.js TorusGeometry orientation.
+    let vi = 0;
+    for (let j = 0; j <= radialSegments; j++) {
+        const v = (j / radialSegments) * Math.PI * 2;
+        const cosV = Math.cos(v);
+        const sinV = Math.sin(v);
+        for (let i = 0; i <= tubularSegments; i++) {
+            const u = (i / tubularSegments) * arc;
+            const cosU = Math.cos(u);
+            const sinU = Math.sin(u);
+            const px = (radius + tube * cosV) * cosU;
+            const py = (radius + tube * cosV) * sinU;
+            const pz = tube * sinV;
+            const cx = radius * cosU;
+            const cy = radius * sinU;
+            let nx = px - cx;
+            let ny = py - cy;
+            let nz = pz;
+            const nl = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+            nx /= nl;
+            ny /= nl;
+            nz /= nl;
+            const pi = vi * 3;
+            const ui = vi * 2;
+            positions[pi] = px;
+            positions[pi + 1] = py;
+            positions[pi + 2] = pz;
+            normals[pi] = nx;
+            normals[pi + 1] = ny;
+            normals[pi + 2] = nz;
+            uvArr[ui] = i / tubularSegments;
+            uvArr[ui + 1] = j / radialSegments;
+            vi++;
+        }
+    }
+    let ii = 0;
+    for (let j = 1; j <= radialSegments; j++) {
+        for (let i = 1; i <= tubularSegments; i++) {
+            const a = tubCols * j + i - 1;
+            const b = tubCols * (j - 1) + i - 1;
+            const c = tubCols * (j - 1) + i;
+            const dd = tubCols * j + i;
+            indices[ii++] = a;
+            indices[ii++] = b;
+            indices[ii++] = dd;
+            indices[ii++] = b;
+            indices[ii++] = c;
+            indices[ii++] = dd;
+        }
+    }
+    const outerR = radius + tube;
+    const geom = new Geometry();
+    geom.setBuffer('position', createVertexBuffer(vec3f$1, positions));
+    geom.setBuffer('normal', createVertexBuffer(vec3f$1, normals));
+    geom.setBuffer('uv', createVertexBuffer(vec2f$1, uvArr));
+    geom.index = createIndexBuffer(indices);
+    geom.boundingBox = [-outerR, -outerR, -tube, outerR, outerR, tube];
+    geom.boundingSphere = { center: [0, 0, 0], radius: outerR };
+    return geom;
+}
+/**
+ * Creates an octahedron geometry (dual of cube).
+ * At detail=0: 6 vertices, 8 triangular faces.
+ * Higher detail subdivides each face recursively.
+ *
+ * @param radius - Circumscribed sphere radius.
+ * @param detail - Subdivision level. 0 = base octahedron.
+ */
+function createOctahedronGeometry(radius = 1, detail = 0) {
+    // base octahedron vertices
+    const baseVertices = [
+        1, 0, 0, -1, 0, 0,
+        0, 1, 0, 0, -1, 0,
+        0, 0, 1, 0, 0, -1,
+    ];
+    // base octahedron faces (indices into baseVertices, CCW from outside)
+    const baseFaces = [
+        0, 2, 4, 0, 4, 3, 0, 3, 5, 0, 5, 2,
+        1, 4, 2, 1, 3, 4, 1, 5, 3, 1, 2, 5,
+    ];
+    // subdivide
+    let verts = baseVertices.slice();
+    let faces = baseFaces.slice();
+    const midpointCache = new Map();
+    function getMidpoint(a, b) {
+        const key = Math.min(a, b) + '_' + Math.max(a, b);
+        const cached = midpointCache.get(key);
+        if (cached !== undefined)
+            return cached;
+        const ax = verts[a * 3], ay = verts[a * 3 + 1], az = verts[a * 3 + 2];
+        const bx = verts[b * 3], by = verts[b * 3 + 1], bz = verts[b * 3 + 2];
+        let mx = (ax + bx) / 2;
+        let my = (ay + by) / 2;
+        let mz = (az + bz) / 2;
+        // project onto unit sphere
+        const len = Math.sqrt(mx * mx + my * my + mz * mz) || 1;
+        mx /= len;
+        my /= len;
+        mz /= len;
+        const idx = verts.length / 3;
+        verts.push(mx, my, mz);
+        midpointCache.set(key, idx);
+        return idx;
+    }
+    for (let d = 0; d < detail; d++) {
+        const newFaces = [];
+        midpointCache.clear();
+        for (let i = 0; i < faces.length; i += 3) {
+            const a = faces[i], b = faces[i + 1], c = faces[i + 2];
+            const ab = getMidpoint(a, b);
+            const bc = getMidpoint(b, c);
+            const ca = getMidpoint(c, a);
+            newFaces.push(a, ab, ca);
+            newFaces.push(b, bc, ab);
+            newFaces.push(c, ca, bc);
+            newFaces.push(ab, bc, ca);
+        }
+        faces = newFaces;
+    }
+    // build arrays — each face gets its own 3 vertices (flat shading normals)
+    const faceCount = faces.length / 3;
+    const vertexCount = faceCount * 3;
+    const positions = new Float32Array(vertexCount * 3);
+    const normalsArr = new Float32Array(vertexCount * 3);
+    const uvsArr = new Float32Array(vertexCount * 2);
+    const indexData = vertexCount <= 65536 ? new Uint16Array(vertexCount) : new Uint32Array(vertexCount);
+    for (let f = 0; f < faceCount; f++) {
+        const ia = faces[f * 3], ib = faces[f * 3 + 1], ic = faces[f * 3 + 2];
+        const ax = verts[ia * 3] * radius, ay = verts[ia * 3 + 1] * radius, az = verts[ia * 3 + 2] * radius;
+        const bx = verts[ib * 3] * radius, by = verts[ib * 3 + 1] * radius, bz = verts[ib * 3 + 2] * radius;
+        const cx = verts[ic * 3] * radius, cy = verts[ic * 3 + 1] * radius, cz = verts[ic * 3 + 2] * radius;
+        // face normal
+        const e1x = bx - ax, e1y = by - ay, e1z = bz - az;
+        const e2x = cx - ax, e2y = cy - ay, e2z = cz - az;
+        let nx = e1y * e2z - e1z * e2y;
+        let ny = e1z * e2x - e1x * e2z;
+        let nz = e1x * e2y - e1y * e2x;
+        const nl = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
+        nx /= nl;
+        ny /= nl;
+        nz /= nl;
+        const base = f * 3;
+        for (let v = 0; v < 3; v++) {
+            const idx = base + v;
+            const vx = v === 0 ? ax : v === 1 ? bx : cx;
+            const vy = v === 0 ? ay : v === 1 ? by : cy;
+            const vz = v === 0 ? az : v === 1 ? bz : cz;
+            positions[idx * 3] = vx;
+            positions[idx * 3 + 1] = vy;
+            positions[idx * 3 + 2] = vz;
+            normalsArr[idx * 3] = nx;
+            normalsArr[idx * 3 + 1] = ny;
+            normalsArr[idx * 3 + 2] = nz;
+            uvsArr[idx * 2] = v === 1 ? 1 : 0;
+            uvsArr[idx * 2 + 1] = v === 2 ? 1 : 0;
+            indexData[idx] = idx;
+        }
+    }
+    const geom = new Geometry();
+    geom.setBuffer('position', createVertexBuffer(vec3f$1, positions));
+    geom.setBuffer('normal', createVertexBuffer(vec3f$1, normalsArr));
+    geom.setBuffer('uv', createVertexBuffer(vec2f$1, uvsArr));
+    geom.index = createIndexBuffer(indexData);
+    geom.boundingBox = [-radius, -radius, -radius, radius, radius, radius];
+    geom.boundingSphere = { center: [0, 0, 0], radius };
     return geom;
 }
 
@@ -22702,21 +23458,21 @@ class OrbitControls {
     // quaternion to align camera.up with world +Y and its inverse
     /** @internal */ _quat;
     /** @internal */ _quatInverse;
-    /** @internal */ _spherical = create$2();
-    /** @internal */ _sphericalDelta = create$2();
+    /** @internal */ _spherical = create$1();
+    /** @internal */ _sphericalDelta = create$1();
     /** @internal */ _scale = 1;
     /** @internal */ _panOffset = [0, 0, 0];
-    /** @internal */ _rotateStart = create$8();
-    /** @internal */ _rotateEnd = create$8();
-    /** @internal */ _rotateDelta = create$8();
-    /** @internal */ _panStart = create$8();
-    /** @internal */ _panEnd = create$8();
-    /** @internal */ _panDelta = create$8();
-    /** @internal */ _dollyStart = create$8();
-    /** @internal */ _dollyEnd = create$8();
-    /** @internal */ _dollyDelta = create$8();
+    /** @internal */ _rotateStart = create$7();
+    /** @internal */ _rotateEnd = create$7();
+    /** @internal */ _rotateDelta = create$7();
+    /** @internal */ _panStart = create$7();
+    /** @internal */ _panEnd = create$7();
+    /** @internal */ _panDelta = create$7();
+    /** @internal */ _dollyStart = create$7();
+    /** @internal */ _dollyEnd = create$7();
+    /** @internal */ _dollyDelta = create$7();
     /** @internal */ _dollyDirection = [0, 0, 0];
-    /** @internal */ _mouse = create$8();
+    /** @internal */ _mouse = create$7();
     /** @internal */ _performCursorZoom = false;
     /** @internal */ _pointers = [];
     /** @internal */ _pointerPositions = {};
@@ -22743,8 +23499,8 @@ class OrbitControls {
         // camera.up equivalent: we use +Y by default since Object3D doesn't carry an "up" field
         // (same as Three.js default).  Users can override _quat / _quatInverse after construction
         // if they need a different up axis.
-        this._quat = rotationTo(create$4(), up, up); // identity — up already is +Y
-        this._quatInverse = conjugate(create$4(), this._quat);
+        this._quat = rotationTo(create$3(), up, up); // identity — up already is +Y
+        this._quatInverse = conjugate(create$3(), this._quat);
         // Saved state snapshots
         this.target0 = clone$2(this.target);
         this.position0 = clone$2(object.position);
@@ -22986,8 +23742,8 @@ class OrbitControls {
             scale(this._panOffset, this._panOffset, 1 - this.dampingFactor);
         }
         else {
-            set$1(this._sphericalDelta, 0, 0, 0);
-            set$2(this._panOffset, 0, 0, 0);
+            set(this._sphericalDelta, 0, 0, 0);
+            set$1(this._panOffset, 0, 0, 0);
         }
         // Zoom-to-cursor adjustment for perspective camera
         if (this.zoomToCursor && this._performCursorZoom && isPerspective) {
@@ -23377,7 +24133,7 @@ class OrbitControls {
     _trackPointer(event) {
         let pos = this._pointerPositions[event.pointerId];
         if (pos === undefined) {
-            pos = create$8();
+            pos = create$7();
             this._pointerPositions[event.pointerId] = pos;
         }
         pos[0] = event.pageX;
@@ -23385,7 +24141,7 @@ class OrbitControls {
     }
     _getSecondPointerPosition(event) {
         const pointerId = event.pointerId === this._pointers[0] ? this._pointers[1] : this._pointers[0];
-        return this._pointerPositions[pointerId] ?? create$8();
+        return this._pointerPositions[pointerId] ?? create$7();
     }
     _customWheelEvent(event) {
         const newEvent = {
@@ -23665,6 +24421,1195 @@ function _interceptControlUp(event) {
         doc.removeEventListener('keyup', this._interceptControlUp, {
             capture: true,
         });
+    }
+}
+
+const topic = () => {
+    return {
+        listeners: new Set(),
+        add(handler) {
+            this.listeners.add(handler);
+            return () => this.remove(handler);
+        },
+        remove(handler) {
+            this.listeners.delete(handler);
+        },
+        emit(...data) {
+            for (const handler of this.listeners) {
+                handler(...data);
+            }
+        },
+        clear() {
+            this.listeners.clear();
+        },
+    };
+};
+
+// ============================================================================
+// Gizmo Material Factory
+// ============================================================================
+function createGizmoMaterial(options) {
+    const opacity = options.opacity ?? 1;
+    const colorUniform = uniform('color', vec4f$1);
+    const fragment = colorUniform;
+    const mat = new Material({
+        vertex: positionClip,
+        fragment,
+        transparent: true,
+        depthTest: options.depthTest ?? false,
+        depthWrite: options.depthWrite ?? false,
+        cullMode: options.cullMode ?? 'none',
+        blend: {
+            color: {
+                srcFactor: 'src-alpha',
+                dstFactor: 'one-minus-src-alpha',
+                operation: 'add',
+            },
+            alpha: {
+                srcFactor: 'one',
+                dstFactor: 'one-minus-src-alpha',
+                operation: 'add',
+            },
+        },
+    });
+    mat.uniforms.set('color', new Uniform(vec4f$1, [
+        options.color[0], options.color[1], options.color[2], opacity,
+    ]));
+    return mat;
+}
+// ============================================================================
+// Geometry Utilities
+// ============================================================================
+/**
+ * Bakes a transform matrix into geometry vertex positions and normals.
+ * This modifies the underlying buffer data in-place.
+ */
+function applyMatrix4ToGeometry(geometry, matrix) {
+    const posBuf = geometry.getBuffer('position');
+    if (!posBuf?.array)
+        return;
+    const positions = posBuf.array;
+    const normalBuf = geometry.getBuffer('normal');
+    const normals = normalBuf?.array;
+    // normal matrix for transforming normals
+    const normalMat = create$5();
+    invert$1(normalMat, matrix);
+    transpose(normalMat, normalMat);
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    const v = [0, 0, 0];
+    for (let i = 0; i < positions.length; i += 3) {
+        v[0] = positions[i];
+        v[1] = positions[i + 1];
+        v[2] = positions[i + 2];
+        transformMat4$1(v, v, matrix);
+        positions[i] = v[0];
+        positions[i + 1] = v[1];
+        positions[i + 2] = v[2];
+        if (v[0] < minX)
+            minX = v[0];
+        if (v[0] > maxX)
+            maxX = v[0];
+        if (v[1] < minY)
+            minY = v[1];
+        if (v[1] > maxY)
+            maxY = v[1];
+        if (v[2] < minZ)
+            minZ = v[2];
+        if (v[2] > maxZ)
+            maxZ = v[2];
+    }
+    if (normals) {
+        for (let i = 0; i < normals.length; i += 3) {
+            v[0] = normals[i];
+            v[1] = normals[i + 1];
+            v[2] = normals[i + 2];
+            // transform by normal matrix (upper 3x3 of inverse-transpose)
+            const x = normalMat[0] * v[0] + normalMat[4] * v[1] + normalMat[8] * v[2];
+            const y = normalMat[1] * v[0] + normalMat[5] * v[1] + normalMat[9] * v[2];
+            const z = normalMat[2] * v[0] + normalMat[6] * v[1] + normalMat[10] * v[2];
+            const len = Math.sqrt(x * x + y * y + z * z) || 1;
+            normals[i] = x / len;
+            normals[i + 1] = y / len;
+            normals[i + 2] = z / len;
+        }
+    }
+    // Recompute bounding box and sphere from transformed positions
+    if (positions.length >= 3) {
+        geometry.boundingBox = [minX, minY, minZ, maxX, maxY, maxZ];
+        const cx = (minX + maxX) * 0.5;
+        const cy = (minY + maxY) * 0.5;
+        const cz = (minZ + maxZ) * 0.5;
+        let maxDistSq = 0;
+        for (let i = 0; i < positions.length; i += 3) {
+            const dx = positions[i] - cx;
+            const dy = positions[i + 1] - cy;
+            const dz = positions[i + 2] - cz;
+            const distSq = dx * dx + dy * dy + dz * dz;
+            if (distSq > maxDistSq)
+                maxDistSq = distSq;
+        }
+        geometry.boundingSphere = { center: [cx, cy, cz], radius: Math.sqrt(maxDistSq) };
+    }
+}
+// ============================================================================
+// Raycaster helper — intersect including invisible objects
+// ============================================================================
+function intersectObjectWithRay(object, raycaster, includeInvisible = false) {
+    const allIntersections = intersectObjectRecursive(object, raycaster, [], true, includeInvisible);
+    allIntersections.sort((a, b) => a.distance - b.distance);
+    for (let i = 0; i < allIntersections.length; i++) {
+        if (allIntersections[i].object.visible || includeInvisible) {
+            return allIntersections[i];
+        }
+    }
+    return null;
+}
+function intersectObjectRecursive(object, raycaster, intersects, recursive, includeInvisible) {
+    if (!object.visible && !includeInvisible)
+        return intersects;
+    object.raycast(raycaster, intersects);
+    {
+        for (const child of object.children) {
+            intersectObjectRecursive(child, raycaster, intersects, true, includeInvisible);
+        }
+    }
+    return intersects;
+}
+// ============================================================================
+// Reusable temp objects
+// ============================================================================
+const _raycaster = new Raycaster();
+const _tempVec = create$6();
+const _tempVec2 = create$6();
+const _tempQuat = create$3();
+const _tempQuat2 = create$3();
+const _identityQuat = [0, 0, 0, 1];
+const _tempMat = create$5();
+const _unitX = [1, 0, 0];
+const _unitY = [0, 1, 0];
+const _unitZ = [0, 0, 1];
+const _zeroVec = [0, 0, 0];
+const _alignVector = [0, 1, 0];
+const _dirVector = [0, 0, 0];
+const _v1 = [0, 0, 0];
+const _v2 = [0, 0, 0];
+const _v3 = [0, 0, 0];
+// ============================================================================
+// TransformControlsPlane
+// ============================================================================
+class TransformControlsPlane extends Mesh {
+    // synced from controls via defineProperty
+    mode = 'translate';
+    axis = null;
+    space = 'world';
+    worldPosition = [0, 0, 0];
+    worldQuaternion = [0, 0, 0, 1];
+    eye = [0, 0, 1];
+    cameraQuaternion = [0, 0, 0, 1];
+    constructor() {
+        const planeGeom = createPlaneGeometry(100000, 100000, 2, 2);
+        const planeMat = createGizmoMaterial({
+            color: [1, 1, 1],
+            opacity: 0.1,
+            depthTest: false,
+            depthWrite: false,
+        });
+        // make it invisible for rendering but still raycast-able
+        super(planeGeom, planeMat);
+        this.visible = false;
+    }
+    updateWorldMatrix() {
+        let space = this.space;
+        copy$5(this.position, this.worldPosition);
+        if (this.mode === 'scale')
+            space = 'local';
+        const q = space === 'local' ? this.worldQuaternion : _identityQuat;
+        transformQuat(_v1, _unitX, q);
+        transformQuat(_v2, _unitY, q);
+        transformQuat(_v3, _unitZ, q);
+        // align the plane for current transform mode, axis and space
+        copy$5(_alignVector, _v2);
+        switch (this.mode) {
+            case 'translate':
+            case 'scale':
+                switch (this.axis) {
+                    case 'X':
+                        cross(_alignVector, this.eye, _v1);
+                        cross(_dirVector, _v1, _alignVector);
+                        break;
+                    case 'Y':
+                        cross(_alignVector, this.eye, _v2);
+                        cross(_dirVector, _v2, _alignVector);
+                        break;
+                    case 'Z':
+                        cross(_alignVector, this.eye, _v3);
+                        cross(_dirVector, _v3, _alignVector);
+                        break;
+                    case 'XY':
+                        copy$5(_dirVector, _v3);
+                        break;
+                    case 'YZ':
+                        copy$5(_dirVector, _v1);
+                        break;
+                    case 'XZ':
+                        copy$5(_alignVector, _v3);
+                        copy$5(_dirVector, _v2);
+                        break;
+                    case 'XYZ':
+                    case 'E':
+                        set$1(_dirVector, 0, 0, 0);
+                        break;
+                }
+                break;
+            case 'rotate':
+            default:
+                set$1(_dirVector, 0, 0, 0);
+        }
+        if (length(_dirVector) === 0) {
+            // in rotate mode, make the plane parallel to camera
+            copy$2(this.quaternion, this.cameraQuaternion);
+        }
+        else {
+            targetTo(_tempMat, _zeroVec, _dirVector, _alignVector);
+            fromMat4(this.quaternion, _tempMat);
+        }
+        super.updateWorldMatrix();
+    }
+}
+// ============================================================================
+// GizmoMesh — Mesh with extra tag/name fields for gizmo logic
+// ============================================================================
+class GizmoMesh extends Mesh {
+    tag;
+    // store original color/opacity for highlight restore
+    _color = null;
+    _opacity = null;
+    constructor(geometry, material) {
+        super(geometry, material);
+    }
+    setColor(r, g, b, a) {
+        const u = this.material.uniforms.get('color');
+        if (u)
+            u.value = [r, g, b, a];
+    }
+    getColor() {
+        const u = this.material.uniforms.get('color');
+        const v = u?.value;
+        return v ? [v[0], v[1], v[2], v[3]] : [1, 1, 1, 1];
+    }
+}
+// ============================================================================
+// TransformControlsGizmo
+// ============================================================================
+class TransformControlsGizmo extends Object3D {
+    gizmo = {};
+    picker = {};
+    helper = {};
+    // synced from controls via defineProperty
+    mode = 'translate';
+    space = 'world';
+    axis = null;
+    worldPosition = [0, 0, 0];
+    worldQuaternion = [0, 0, 0, 1];
+    worldPositionStart = [0, 0, 0];
+    worldQuaternionStart = [0, 0, 0, 1];
+    cameraPosition = [0, 0, 0];
+    eye = [0, 0, 1];
+    rotationAxis = [0, 0, 0];
+    camera = null;
+    enabled = true;
+    dragging = false;
+    showX = true;
+    showY = true;
+    showZ = true;
+    size = 1;
+    rotationAngle = 0;
+    // highlight color
+    _activeColor = [1, 1, 0];
+    constructor() {
+        super();
+        // materials
+        const matRed = createGizmoMaterial({ color: [1, 0, 0] });
+        const matGreen = createGizmoMaterial({ color: [0, 1, 0] });
+        const matBlue = createGizmoMaterial({ color: [0, 0, 1] });
+        const matRedTransparent = createGizmoMaterial({ color: [1, 0, 0], opacity: 0.5 });
+        const matGreenTransparent = createGizmoMaterial({ color: [0, 1, 0], opacity: 0.5 });
+        const matBlueTransparent = createGizmoMaterial({ color: [0, 0, 1], opacity: 0.5 });
+        const matWhiteTransparent = createGizmoMaterial({ color: [1, 1, 1], opacity: 0.25 });
+        const matYellowTransparent = createGizmoMaterial({ color: [1, 1, 0], opacity: 0.25 });
+        const matGray = createGizmoMaterial({ color: [0.47, 0.47, 0.47] });
+        const matInvisible = createGizmoMaterial({ color: [1, 1, 1], opacity: 0.15 });
+        // reusable geometries
+        const arrowGeometry = createCylinderGeometry(0, 0.04, 0.1, 12);
+        applyMatrix4ToGeometry(arrowGeometry, fromTranslation(create$5(), [0, 0.05, 0]));
+        const scaleHandleGeometry = createBoxGeometry(0.08, 0.08, 0.08);
+        applyMatrix4ToGeometry(scaleHandleGeometry, fromTranslation(create$5(), [0, 0.04, 0]));
+        const lineGeometry2 = createCylinderGeometry(0.0075, 0.0075, 0.5, 3);
+        applyMatrix4ToGeometry(lineGeometry2, fromTranslation(create$5(), [0, 0.25, 0]));
+        function CircleGeometry(radius, arc) {
+            const geom = createTorusGeometry(radius, 0.0075, 3, 64, arc * Math.PI * 2);
+            // Match Three.js: geometry.rotateY(π/2) then geometry.rotateX(π/2)
+            // Sequential application: v' = Rx * Ry * v
+            const m = create$5();
+            rotateX(m, m, Math.PI / 2);
+            rotateY(m, m, Math.PI / 2);
+            applyMatrix4ToGeometry(geom, m);
+            return geom;
+        }
+        // --- Gizmo definitions ---
+        const gizmoTranslate = {
+            X: [
+                [new Mesh(arrowGeometry, matRed), [0.5, 0, 0], [0, 0, -Math.PI / 2], null],
+                [new Mesh(arrowGeometry, matRed), [-0.5, 0, 0], [0, 0, Math.PI / 2], null],
+                [new Mesh(lineGeometry2, matRed), [0, 0, 0], [0, 0, -Math.PI / 2], null],
+            ],
+            Y: [
+                [new Mesh(arrowGeometry, matGreen), [0, 0.5, 0], null, null],
+                [new Mesh(arrowGeometry, matGreen), [0, -0.5, 0], [Math.PI, 0, 0], null],
+                [new Mesh(lineGeometry2, matGreen), null, null, null],
+            ],
+            Z: [
+                [new Mesh(arrowGeometry, matBlue), [0, 0, 0.5], [Math.PI / 2, 0, 0], null],
+                [new Mesh(arrowGeometry, matBlue), [0, 0, -0.5], [-Math.PI / 2, 0, 0], null],
+                [new Mesh(lineGeometry2, matBlue), null, [Math.PI / 2, 0, 0], null],
+            ],
+            XYZ: [
+                [new Mesh(createOctahedronGeometry(0.1, 0), matWhiteTransparent), [0, 0, 0], null, null],
+            ],
+            XY: [
+                [new Mesh(createBoxGeometry(0.15, 0.15, 0.01), matBlueTransparent), [0.15, 0.15, 0], null, null],
+            ],
+            YZ: [
+                [new Mesh(createBoxGeometry(0.15, 0.15, 0.01), matRedTransparent), [0, 0.15, 0.15], [0, Math.PI / 2, 0], null],
+            ],
+            XZ: [
+                [new Mesh(createBoxGeometry(0.15, 0.15, 0.01), matGreenTransparent), [0.15, 0, 0.15], [-Math.PI / 2, 0, 0], null],
+            ],
+        };
+        const pickerTranslate = {
+            X: [
+                [new Mesh(createCylinderGeometry(0.2, 0, 0.6, 4), matInvisible), [0.3, 0, 0], [0, 0, -Math.PI / 2], null],
+                [new Mesh(createCylinderGeometry(0.2, 0, 0.6, 4), matInvisible), [-0.3, 0, 0], [0, 0, Math.PI / 2], null],
+            ],
+            Y: [
+                [new Mesh(createCylinderGeometry(0.2, 0, 0.6, 4), matInvisible), [0, 0.3, 0], null, null],
+                [new Mesh(createCylinderGeometry(0.2, 0, 0.6, 4), matInvisible), [0, -0.3, 0], [0, 0, Math.PI], null],
+            ],
+            Z: [
+                [new Mesh(createCylinderGeometry(0.2, 0, 0.6, 4), matInvisible), [0, 0, 0.3], [Math.PI / 2, 0, 0], null],
+                [new Mesh(createCylinderGeometry(0.2, 0, 0.6, 4), matInvisible), [0, 0, -0.3], [-Math.PI / 2, 0, 0], null],
+            ],
+            XYZ: [
+                [new Mesh(createOctahedronGeometry(0.2, 0), matInvisible), null, null, null],
+            ],
+            XY: [
+                [new Mesh(createBoxGeometry(0.2, 0.2, 0.01), matInvisible), [0.15, 0.15, 0], null, null],
+            ],
+            YZ: [
+                [new Mesh(createBoxGeometry(0.2, 0.2, 0.01), matInvisible), [0, 0.15, 0.15], [0, Math.PI / 2, 0], null],
+            ],
+            XZ: [
+                [new Mesh(createBoxGeometry(0.2, 0.2, 0.01), matInvisible), [0.15, 0, 0.15], [-Math.PI / 2, 0, 0], null],
+            ],
+        };
+        const gizmoRotate = {
+            XYZE: [
+                [new Mesh(CircleGeometry(0.5, 1), matGray), null, [0, Math.PI / 2, 0], null],
+            ],
+            X: [
+                [new Mesh(CircleGeometry(0.5, 0.5), matRed), null, null, null],
+            ],
+            Y: [
+                [new Mesh(CircleGeometry(0.5, 0.5), matGreen), null, [0, 0, -Math.PI / 2], null],
+            ],
+            Z: [
+                [new Mesh(CircleGeometry(0.5, 0.5), matBlue), null, [0, Math.PI / 2, 0], null],
+            ],
+            E: [
+                [new Mesh(CircleGeometry(0.75, 1), matYellowTransparent), null, [0, Math.PI / 2, 0], null],
+            ],
+        };
+        const pickerRotate = {
+            XYZE: [
+                [new Mesh(createSphereGeometry(0.25, 10, 8), matInvisible), null, null, null],
+            ],
+            X: [
+                [new Mesh(createTorusGeometry(0.5, 0.1, 4, 24), matInvisible), [0, 0, 0], [0, -Math.PI / 2, -Math.PI / 2], null],
+            ],
+            Y: [
+                [new Mesh(createTorusGeometry(0.5, 0.1, 4, 24), matInvisible), [0, 0, 0], [Math.PI / 2, 0, 0], null],
+            ],
+            Z: [
+                [new Mesh(createTorusGeometry(0.5, 0.1, 4, 24), matInvisible), [0, 0, 0], [0, 0, -Math.PI / 2], null],
+            ],
+            E: [
+                [new Mesh(createTorusGeometry(0.75, 0.1, 2, 24), matInvisible), null, null, null],
+            ],
+        };
+        const gizmoScale = {
+            X: [
+                [new Mesh(scaleHandleGeometry, matRed), [0.5, 0, 0], [0, 0, -Math.PI / 2], null],
+                [new Mesh(lineGeometry2, matRed), [0, 0, 0], [0, 0, -Math.PI / 2], null],
+                [new Mesh(scaleHandleGeometry, matRed), [-0.5, 0, 0], [0, 0, Math.PI / 2], null],
+            ],
+            Y: [
+                [new Mesh(scaleHandleGeometry, matGreen), [0, 0.5, 0], null, null],
+                [new Mesh(lineGeometry2, matGreen), null, null, null],
+                [new Mesh(scaleHandleGeometry, matGreen), [0, -0.5, 0], [0, 0, Math.PI], null],
+            ],
+            Z: [
+                [new Mesh(scaleHandleGeometry, matBlue), [0, 0, 0.5], [Math.PI / 2, 0, 0], null],
+                [new Mesh(lineGeometry2, matBlue), [0, 0, 0], [Math.PI / 2, 0, 0], null],
+                [new Mesh(scaleHandleGeometry, matBlue), [0, 0, -0.5], [-Math.PI / 2, 0, 0], null],
+            ],
+            XY: [
+                [new Mesh(createBoxGeometry(0.15, 0.15, 0.01), matBlueTransparent), [0.15, 0.15, 0], null, null],
+            ],
+            YZ: [
+                [new Mesh(createBoxGeometry(0.15, 0.15, 0.01), matRedTransparent), [0, 0.15, 0.15], [0, Math.PI / 2, 0], null],
+            ],
+            XZ: [
+                [new Mesh(createBoxGeometry(0.15, 0.15, 0.01), matGreenTransparent), [0.15, 0, 0.15], [-Math.PI / 2, 0, 0], null],
+            ],
+            XYZ: [
+                [new Mesh(createBoxGeometry(0.1, 0.1, 0.1), matWhiteTransparent), null, null, null],
+            ],
+        };
+        const pickerScale = {
+            X: [
+                [new Mesh(createCylinderGeometry(0.2, 0, 0.6, 4), matInvisible), [0.3, 0, 0], [0, 0, -Math.PI / 2], null],
+                [new Mesh(createCylinderGeometry(0.2, 0, 0.6, 4), matInvisible), [-0.3, 0, 0], [0, 0, Math.PI / 2], null],
+            ],
+            Y: [
+                [new Mesh(createCylinderGeometry(0.2, 0, 0.6, 4), matInvisible), [0, 0.3, 0], null, null],
+                [new Mesh(createCylinderGeometry(0.2, 0, 0.6, 4), matInvisible), [0, -0.3, 0], [0, 0, Math.PI], null],
+            ],
+            Z: [
+                [new Mesh(createCylinderGeometry(0.2, 0, 0.6, 4), matInvisible), [0, 0, 0.3], [Math.PI / 2, 0, 0], null],
+                [new Mesh(createCylinderGeometry(0.2, 0, 0.6, 4), matInvisible), [0, 0, -0.3], [-Math.PI / 2, 0, 0], null],
+            ],
+            XY: [
+                [new Mesh(createBoxGeometry(0.2, 0.2, 0.01), matInvisible), [0.15, 0.15, 0], null, null],
+            ],
+            YZ: [
+                [new Mesh(createBoxGeometry(0.2, 0.2, 0.01), matInvisible), [0, 0.15, 0.15], [0, Math.PI / 2, 0], null],
+            ],
+            XZ: [
+                [new Mesh(createBoxGeometry(0.2, 0.2, 0.01), matInvisible), [0.15, 0, 0.15], [-Math.PI / 2, 0, 0], null],
+            ],
+            XYZ: [
+                [new Mesh(createBoxGeometry(0.2, 0.2, 0.2), matInvisible), [0, 0, 0], null, null],
+            ],
+        };
+        // --- setupGizmo: bake transforms into geometry ---
+        function setupGizmo(gizmoMap) {
+            const parent = new Object3D();
+            for (const name in gizmoMap) {
+                const entries = gizmoMap[name];
+                for (let i = entries.length - 1; i >= 0; i--) {
+                    const [sourceMesh, position, rotation, scale, tag] = entries[i];
+                    // Create a new GizmoMesh with its own material clone
+                    const clonedMat = createGizmoMaterial({ color: [1, 1, 1] });
+                    // Copy uniforms from source material
+                    const srcColor = sourceMesh.material.uniforms.get('color');
+                    if (srcColor) {
+                        clonedMat.uniforms.set('color', new Uniform(vec4f$1, srcColor.value ? srcColor.value.slice() : [1, 1, 1, 1]));
+                    }
+                    // Copy material properties
+                    clonedMat.transparent = sourceMesh.material.transparent;
+                    clonedMat.depthTest = sourceMesh.material.depthTest;
+                    clonedMat.depthWrite = sourceMesh.material.depthWrite;
+                    clonedMat.cullMode = sourceMesh.material.cullMode;
+                    clonedMat.blend = sourceMesh.material.blend;
+                    // Clone geometry data for baking
+                    const srcGeom = sourceMesh.geometry;
+                    const clonedGeom = new Geometry();
+                    // Copy buffers
+                    for (const [bufName, buf] of srcGeom.buffers) {
+                        if (buf.array) {
+                            const newData = new Float32Array(buf.array);
+                            clonedGeom.setBuffer(bufName, createVertexBuffer(buf.schema, newData));
+                        }
+                    }
+                    if (srcGeom.index?.array) {
+                        const newIdx = srcGeom.index.array instanceof Uint32Array
+                            ? new Uint32Array(srcGeom.index.array)
+                            : new Uint16Array(srcGeom.index.array);
+                        clonedGeom.index = createIndexBuffer(newIdx);
+                    }
+                    clonedGeom.drawRange = { ...srcGeom.drawRange };
+                    if (srcGeom.boundingBox)
+                        clonedGeom.boundingBox = [...srcGeom.boundingBox];
+                    if (srcGeom.boundingSphere)
+                        clonedGeom.boundingSphere = {
+                            center: [...srcGeom.boundingSphere.center],
+                            radius: srcGeom.boundingSphere.radius,
+                        };
+                    const obj = new GizmoMesh(clonedGeom, clonedMat);
+                    obj.name = name;
+                    obj.tag = tag;
+                    // Build a bake matrix from position/rotation/scale
+                    if (position || rotation || scale) {
+                        const p = position ? [position[0], position[1], position[2]] : [0, 0, 0];
+                        const r = [0, 0, 0, 1];
+                        if (rotation) {
+                            const e = fromValues(rotation[0], rotation[1], rotation[2], 'xyz');
+                            fromEuler(r, e);
+                        }
+                        const s = scale ? [scale[0], scale[1], scale[2]] : [1, 1, 1];
+                        const bakeMatrix = create$5();
+                        fromRotationTranslationScale(bakeMatrix, r, p, s);
+                        applyMatrix4ToGeometry(obj.geometry, bakeMatrix);
+                    }
+                    obj.renderOrder = Infinity;
+                    parent.add(obj);
+                }
+            }
+            return parent;
+        }
+        // Build gizmo hierarchy
+        this.gizmo['translate'] = setupGizmo(gizmoTranslate);
+        this.gizmo['rotate'] = setupGizmo(gizmoRotate);
+        this.gizmo['scale'] = setupGizmo(gizmoScale);
+        this.picker['translate'] = setupGizmo(pickerTranslate);
+        this.picker['rotate'] = setupGizmo(pickerRotate);
+        this.picker['scale'] = setupGizmo(pickerScale);
+        this.add(this.gizmo['translate']);
+        this.add(this.gizmo['rotate']);
+        this.add(this.gizmo['scale']);
+        this.add(this.picker['translate']);
+        this.add(this.picker['rotate']);
+        this.add(this.picker['scale']);
+        // Pickers should be hidden always (but still raycastable)
+        this.picker['translate'].visible = false;
+        this.picker['rotate'].visible = false;
+        this.picker['scale'].visible = false;
+    }
+    updateWorldMatrix() {
+        const space = (this.mode === 'scale') ? 'local' : this.space;
+        const quaternion = (space === 'local') ? this.worldQuaternion : _identityQuat;
+        // Show only gizmos for current transform mode
+        this.gizmo['translate'].visible = this.mode === 'translate';
+        this.gizmo['rotate'].visible = this.mode === 'rotate';
+        this.gizmo['scale'].visible = this.mode === 'scale';
+        let handles = [];
+        handles = handles.concat(this.picker[this.mode].children);
+        handles = handles.concat(this.gizmo[this.mode].children);
+        for (let i = 0; i < handles.length; i++) {
+            const handle = handles[i];
+            handle.visible = true;
+            identity(handle.quaternion);
+            copy$5(handle.position, this.worldPosition);
+            // constant screen-size factor
+            let factor;
+            if (this.camera && this.camera.isOrthographicCamera) {
+                const ortho = this.camera;
+                factor = (ortho.top - ortho.bottom) / ortho.zoom;
+            }
+            else if (this.camera) {
+                const cam = this.camera;
+                const fov = cam.fov ?? (Math.PI / 4);
+                factor = distance(this.worldPosition, this.cameraPosition)
+                    * Math.min(1.9 * Math.tan(fov / 2) / (cam.zoom ?? 1), 7);
+            }
+            else {
+                factor = 1;
+            }
+            const s = factor * this.size / 4;
+            set$1(handle.scale, s, s, s);
+            // skip helper processing (deferred per plan)
+            if (handle.tag === 'helper') {
+                handle.visible = false;
+                continue;
+            }
+            // align handles to current local or world rotation
+            copy$2(handle.quaternion, quaternion);
+            if (this.mode === 'translate' || this.mode === 'scale') {
+                const AXIS_HIDE_THRESHOLD = 0.99;
+                const PLANE_HIDE_THRESHOLD = 0.2;
+                if (handle.name === 'X') {
+                    transformQuat(_alignVector, _unitX, quaternion);
+                    if (Math.abs(dot(_alignVector, this.eye)) > AXIS_HIDE_THRESHOLD) {
+                        set$1(handle.scale, 1e-10, 1e-10, 1e-10);
+                        handle.visible = false;
+                    }
+                }
+                if (handle.name === 'Y') {
+                    transformQuat(_alignVector, _unitY, quaternion);
+                    if (Math.abs(dot(_alignVector, this.eye)) > AXIS_HIDE_THRESHOLD) {
+                        set$1(handle.scale, 1e-10, 1e-10, 1e-10);
+                        handle.visible = false;
+                    }
+                }
+                if (handle.name === 'Z') {
+                    transformQuat(_alignVector, _unitZ, quaternion);
+                    if (Math.abs(dot(_alignVector, this.eye)) > AXIS_HIDE_THRESHOLD) {
+                        set$1(handle.scale, 1e-10, 1e-10, 1e-10);
+                        handle.visible = false;
+                    }
+                }
+                if (handle.name === 'XY') {
+                    transformQuat(_alignVector, _unitZ, quaternion);
+                    if (Math.abs(dot(_alignVector, this.eye)) < PLANE_HIDE_THRESHOLD) {
+                        set$1(handle.scale, 1e-10, 1e-10, 1e-10);
+                        handle.visible = false;
+                    }
+                }
+                if (handle.name === 'YZ') {
+                    transformQuat(_alignVector, _unitX, quaternion);
+                    if (Math.abs(dot(_alignVector, this.eye)) < PLANE_HIDE_THRESHOLD) {
+                        set$1(handle.scale, 1e-10, 1e-10, 1e-10);
+                        handle.visible = false;
+                    }
+                }
+                if (handle.name === 'XZ') {
+                    transformQuat(_alignVector, _unitY, quaternion);
+                    if (Math.abs(dot(_alignVector, this.eye)) < PLANE_HIDE_THRESHOLD) {
+                        set$1(handle.scale, 1e-10, 1e-10, 1e-10);
+                        handle.visible = false;
+                    }
+                }
+            }
+            else if (this.mode === 'rotate') {
+                copy$2(_tempQuat2, quaternion);
+                // alignVector = eye in local space
+                invert(_tempQuat, quaternion);
+                transformQuat(_alignVector, this.eye, _tempQuat);
+                if (handle.name.indexOf('E') !== -1) {
+                    // E ring: face camera
+                    targetTo(_tempMat, this.eye, _zeroVec, _unitY);
+                    fromMat4(handle.quaternion, _tempMat);
+                }
+                if (handle.name === 'X') {
+                    setAxisAngle(_tempQuat, _unitX, Math.atan2(-_alignVector[1], _alignVector[2]));
+                    multiply(_tempQuat, _tempQuat2, _tempQuat);
+                    copy$2(handle.quaternion, _tempQuat);
+                }
+                if (handle.name === 'Y') {
+                    setAxisAngle(_tempQuat, _unitY, Math.atan2(_alignVector[0], _alignVector[2]));
+                    multiply(_tempQuat, _tempQuat2, _tempQuat);
+                    copy$2(handle.quaternion, _tempQuat);
+                }
+                if (handle.name === 'Z') {
+                    setAxisAngle(_tempQuat, _unitZ, Math.atan2(_alignVector[1], _alignVector[0]));
+                    multiply(_tempQuat, _tempQuat2, _tempQuat);
+                    copy$2(handle.quaternion, _tempQuat);
+                }
+            }
+            // hide disabled axes
+            handle.visible = handle.visible && (handle.name.indexOf('X') === -1 || this.showX);
+            handle.visible = handle.visible && (handle.name.indexOf('Y') === -1 || this.showY);
+            handle.visible = handle.visible && (handle.name.indexOf('Z') === -1 || this.showZ);
+            handle.visible = handle.visible && (handle.name.indexOf('E') === -1 || (this.showX && this.showY && this.showZ));
+            // highlight selected axis
+            if (!handle._color) {
+                const c = handle.getColor();
+                handle._color = [c[0], c[1], c[2]];
+                handle._opacity = c[3];
+            }
+            // restore original
+            handle.setColor(handle._color[0], handle._color[1], handle._color[2], handle._opacity);
+            if (this.enabled && this.axis) {
+                if (handle.name === this.axis) {
+                    handle.setColor(this._activeColor[0], this._activeColor[1], this._activeColor[2], 1.0);
+                }
+                else if (this.axis.split('').some(a => handle.name === a)) {
+                    handle.setColor(this._activeColor[0], this._activeColor[1], this._activeColor[2], 1.0);
+                }
+            }
+        }
+        super.updateWorldMatrix();
+    }
+}
+// ============================================================================
+// TransformControlsRoot
+// ============================================================================
+class TransformControlsRoot extends Object3D {
+    controls;
+    constructor(controls) {
+        super();
+        this.controls = controls;
+        this.visible = false;
+    }
+    updateWorldMatrix() {
+        const controls = this.controls;
+        if (controls.object !== undefined) {
+            controls.object.updateWorldMatrix();
+            if (controls.object.parent === null) {
+                console.error('TransformControls: The attached 3D object must be a part of the scene graph.');
+            }
+            else {
+                decompose(controls._parentQuaternion, controls._parentPosition, controls._parentScale, controls.object.parent.matrixWorld);
+            }
+            decompose(controls.worldQuaternion, controls.worldPosition, controls._worldScale, controls.object.matrixWorld);
+            invert(controls._parentQuaternionInv, controls._parentQuaternion);
+            invert(controls._worldQuaternionInv, controls.worldQuaternion);
+        }
+        controls.camera.updateWorldMatrix();
+        decompose(controls.cameraQuaternion, controls.cameraPosition, controls._cameraScale, controls.camera.matrixWorld);
+        if (controls.camera.isOrthographicCamera) {
+            controls.camera.getWorldDirection(controls.eye);
+            negate(controls.eye, controls.eye);
+        }
+        else {
+            subtract(controls.eye, controls.cameraPosition, controls.worldPosition);
+            normalize$3(controls.eye, controls.eye);
+        }
+        super.updateWorldMatrix();
+    }
+    dispose() {
+        this.traverse((child) => {
+            if (child instanceof Mesh) {
+                child.geometry.dispose();
+                child.material.dispose();
+            }
+        });
+    }
+}
+// ============================================================================
+// TransformControls
+// ============================================================================
+function getPointer(domElement, event) {
+    if (domElement.ownerDocument.pointerLockElement) {
+        return { x: 0, y: 0, button: event.button };
+    }
+    const rect = domElement.getBoundingClientRect();
+    return {
+        x: (event.clientX - rect.left) / rect.width * 2 - 1,
+        y: -(event.clientY - rect.top) / rect.height * 2 + 1,
+        button: event.button,
+    };
+}
+class TransformControls {
+    camera;
+    domElement = null;
+    // the 3D object being transformed
+    object;
+    // state
+    enabled = true;
+    mode = 'translate';
+    space = 'world';
+    axis = null;
+    dragging = false;
+    size = 1;
+    showX = true;
+    showY = true;
+    showZ = true;
+    // snapping
+    translationSnap = null;
+    rotationSnap = null;
+    scaleSnap = null;
+    // position clamping
+    minX = -Infinity;
+    maxX = Infinity;
+    minY = -Infinity;
+    maxY = Infinity;
+    minZ = -Infinity;
+    maxZ = Infinity;
+    // derived world-space state
+    worldPosition = [0, 0, 0];
+    worldPositionStart = [0, 0, 0];
+    worldQuaternion = [0, 0, 0, 1];
+    worldQuaternionStart = [0, 0, 0, 1];
+    cameraPosition = [0, 0, 0];
+    cameraQuaternion = [0, 0, 0, 1];
+    pointStart = [0, 0, 0];
+    pointEnd = [0, 0, 0];
+    rotationAxis = [0, 0, 0];
+    rotationAngle = 0;
+    eye = [0, 0, 1];
+    // internal working vectors
+    _offset = [0, 0, 0];
+    _startNorm = [0, 0, 0];
+    _endNorm = [0, 0, 0];
+    _cameraScale = [1, 1, 1];
+    _parentPosition = [0, 0, 0];
+    _parentQuaternion = [0, 0, 0, 1];
+    _parentQuaternionInv = [0, 0, 0, 1];
+    _parentScale = [1, 1, 1];
+    _worldScaleStart = [1, 1, 1];
+    _worldQuaternionInv = [0, 0, 0, 1];
+    _worldScale = [1, 1, 1];
+    _positionStart = [0, 0, 0];
+    _quaternionStart = [0, 0, 0, 1];
+    _scaleStart = [1, 1, 1];
+    // events (topics)
+    onChange = topic();
+    onMouseDown = topic();
+    onMouseUp = topic();
+    onObjectChange = topic();
+    // internal components
+    _root;
+    _gizmo;
+    _plane;
+    // bound event handlers
+    _onPointerDown;
+    _onPointerHover;
+    _onPointerMove;
+    _onPointerUp;
+    constructor(camera, domElement) {
+        this.camera = camera;
+        this._root = new TransformControlsRoot(this);
+        this._gizmo = new TransformControlsGizmo();
+        this._plane = new TransformControlsPlane();
+        this._root.add(this._gizmo);
+        this._root.add(this._plane);
+        this._onPointerDown = (event) => {
+            if (!this.enabled)
+                return;
+            if (!document.pointerLockElement && this.domElement) {
+                this.domElement.setPointerCapture(event.pointerId);
+            }
+            if (this.domElement) {
+                this.domElement.addEventListener('pointermove', this._onPointerMove);
+            }
+            const pointer = getPointer(this.domElement, event);
+            this.pointerHover(pointer);
+            this.pointerDown(pointer);
+        };
+        this._onPointerHover = (event) => {
+            if (!this.enabled)
+                return;
+            if (event.pointerType === 'mouse' || event.pointerType === 'pen') {
+                const pointer = getPointer(this.domElement, event);
+                this.pointerHover(pointer);
+            }
+        };
+        this._onPointerMove = (event) => {
+            if (!this.enabled)
+                return;
+            const pointer = getPointer(this.domElement, event);
+            // During a drag, pointermove events have event.button === 0, but
+            // pointerMove() expects button === -1 to distinguish move-during-drag
+            // from a fresh click (matching Three.js convention).
+            pointer.button = -1;
+            this.pointerMove(pointer);
+        };
+        this._onPointerUp = (event) => {
+            if (!this.enabled)
+                return;
+            if (this.domElement) {
+                this.domElement.releasePointerCapture(event.pointerId);
+                this.domElement.removeEventListener('pointermove', this._onPointerMove);
+            }
+            const pointer = getPointer(this.domElement, event);
+            this.pointerUp(pointer);
+        };
+        if (domElement) {
+            this.connect(domElement);
+        }
+    }
+    getHelper() {
+        return this._root;
+    }
+    connect(element) {
+        this.domElement = element;
+        element.addEventListener('pointerdown', this._onPointerDown);
+        element.addEventListener('pointermove', this._onPointerHover);
+        element.addEventListener('pointerup', this._onPointerUp);
+        element.style.touchAction = 'none';
+    }
+    disconnect() {
+        if (!this.domElement)
+            return;
+        this.domElement.removeEventListener('pointerdown', this._onPointerDown);
+        this.domElement.removeEventListener('pointermove', this._onPointerHover);
+        this.domElement.removeEventListener('pointermove', this._onPointerMove);
+        this.domElement.removeEventListener('pointerup', this._onPointerUp);
+        this.domElement.style.touchAction = 'auto';
+    }
+    attach(object) {
+        this.object = object;
+        this._root.visible = true;
+        this._syncState();
+        return this;
+    }
+    detach() {
+        this.object = undefined;
+        this.axis = null;
+        this._root.visible = false;
+        this._syncState();
+        return this;
+    }
+    setMode(mode) {
+        this.mode = mode;
+        this._syncState();
+        this.onChange.emit();
+    }
+    setSpace(space) {
+        this.space = space;
+        this._syncState();
+        this.onChange.emit();
+    }
+    setSize(size) {
+        this.size = size;
+        this._syncState();
+        this.onChange.emit();
+    }
+    setTranslationSnap(snap) { this.translationSnap = snap; }
+    setRotationSnap(snap) { this.rotationSnap = snap; }
+    setScaleSnap(snap) { this.scaleSnap = snap; }
+    getRaycaster() { return _raycaster; }
+    getMode() { return this.mode; }
+    reset() {
+        if (!this.enabled)
+            return;
+        if (this.dragging && this.object) {
+            copy$5(this.object.position, this._positionStart);
+            copy$2(this.object.quaternion, this._quaternionStart);
+            copy$5(this.object.scale, this._scaleStart);
+            this.onChange.emit();
+            this.onObjectChange.emit();
+            copy$5(this.pointStart, this.pointEnd);
+        }
+    }
+    dispose() {
+        this.disconnect();
+        this._root.dispose();
+    }
+    // --- Pointer logic ---
+    pointerHover(pointer) {
+        if (this.object === undefined || this.dragging === true)
+            return;
+        _raycaster.setFromCamera([pointer.x, pointer.y], this.camera);
+        const intersect = intersectObjectWithRay(this._gizmo.picker[this.mode], _raycaster, true);
+        if (intersect) {
+            this.axis = intersect.object.name;
+        }
+        else {
+            this.axis = null;
+        }
+        this._syncState();
+        this.onChange.emit();
+    }
+    pointerDown(pointer) {
+        if (this.object === undefined || this.dragging === true || pointer.button !== 0)
+            return;
+        if (this.axis !== null) {
+            _raycaster.setFromCamera([pointer.x, pointer.y], this.camera);
+            const planeIntersect = intersectObjectWithRay(this._plane, _raycaster, true);
+            if (planeIntersect) {
+                this.object.updateWorldMatrix();
+                if (this.object.parent) {
+                    this.object.parent.updateWorldMatrix();
+                }
+                copy$5(this._positionStart, this.object.position);
+                copy$2(this._quaternionStart, this.object.quaternion);
+                copy$5(this._scaleStart, this.object.scale);
+                decompose(this.worldQuaternionStart, this.worldPositionStart, this._worldScaleStart, this.object.matrixWorld);
+                subtract(this.pointStart, planeIntersect.point, this.worldPositionStart);
+            }
+            this.dragging = true;
+            this._syncState();
+            this.onMouseDown.emit({ mode: this.mode });
+        }
+    }
+    pointerMove(pointer) {
+        const axis = this.axis;
+        const mode = this.mode;
+        const object = this.object;
+        let space = this.space;
+        if (mode === 'scale') {
+            space = 'local';
+        }
+        else if (axis === 'E' || axis === 'XYZE' || axis === 'XYZ') {
+            space = 'world';
+        }
+        if (object === undefined || axis === null || this.dragging === false || pointer.button !== -1) {
+            return;
+        }
+        _raycaster.setFromCamera([pointer.x, pointer.y], this.camera);
+        const planeIntersect = intersectObjectWithRay(this._plane, _raycaster, true);
+        if (!planeIntersect) {
+            return;
+        }
+        subtract(this.pointEnd, planeIntersect.point, this.worldPositionStart);
+        if (mode === 'translate') {
+            subtract(this._offset, this.pointEnd, this.pointStart);
+            if (space === 'local' && axis !== 'XYZ') {
+                transformQuat(this._offset, this._offset, this._worldQuaternionInv);
+            }
+            if (axis.indexOf('X') === -1)
+                this._offset[0] = 0;
+            if (axis.indexOf('Y') === -1)
+                this._offset[1] = 0;
+            if (axis.indexOf('Z') === -1)
+                this._offset[2] = 0;
+            if (space === 'local' && axis !== 'XYZ') {
+                transformQuat(this._offset, this._offset, this._quaternionStart);
+                divide(this._offset, this._offset, this._parentScale);
+            }
+            else {
+                transformQuat(this._offset, this._offset, this._parentQuaternionInv);
+                divide(this._offset, this._offset, this._parentScale);
+            }
+            add(object.position, this._offset, this._positionStart);
+            // snap
+            if (this.translationSnap) {
+                const snap = this.translationSnap;
+                if (space === 'local') {
+                    invert(_tempQuat, this._quaternionStart);
+                    transformQuat(object.position, object.position, _tempQuat);
+                    if (axis.indexOf('X') !== -1)
+                        object.position[0] = Math.round(object.position[0] / snap) * snap;
+                    if (axis.indexOf('Y') !== -1)
+                        object.position[1] = Math.round(object.position[1] / snap) * snap;
+                    if (axis.indexOf('Z') !== -1)
+                        object.position[2] = Math.round(object.position[2] / snap) * snap;
+                    transformQuat(object.position, object.position, this._quaternionStart);
+                }
+                if (space === 'world') {
+                    if (object.parent) {
+                        getTranslation(_tempVec, object.parent.matrixWorld);
+                        add(object.position, object.position, _tempVec);
+                    }
+                    if (axis.indexOf('X') !== -1)
+                        object.position[0] = Math.round(object.position[0] / snap) * snap;
+                    if (axis.indexOf('Y') !== -1)
+                        object.position[1] = Math.round(object.position[1] / snap) * snap;
+                    if (axis.indexOf('Z') !== -1)
+                        object.position[2] = Math.round(object.position[2] / snap) * snap;
+                    if (object.parent) {
+                        getTranslation(_tempVec, object.parent.matrixWorld);
+                        subtract(object.position, object.position, _tempVec);
+                    }
+                }
+            }
+            // clamp
+            object.position[0] = Math.max(this.minX, Math.min(this.maxX, object.position[0]));
+            object.position[1] = Math.max(this.minY, Math.min(this.maxY, object.position[1]));
+            object.position[2] = Math.max(this.minZ, Math.min(this.maxZ, object.position[2]));
+        }
+        else if (mode === 'scale') {
+            if (axis.indexOf('XYZ') !== -1) {
+                let dd = length(this.pointEnd) / length(this.pointStart);
+                if (dot(this.pointEnd, this.pointStart) < 0)
+                    dd *= -1;
+                set$1(_tempVec2, dd, dd, dd);
+            }
+            else {
+                copy$5(_tempVec, this.pointStart);
+                copy$5(_tempVec2, this.pointEnd);
+                transformQuat(_tempVec, _tempVec, this._worldQuaternionInv);
+                transformQuat(_tempVec2, _tempVec2, this._worldQuaternionInv);
+                divide(_tempVec2, _tempVec2, _tempVec);
+                if (axis.indexOf('X') === -1)
+                    _tempVec2[0] = 1;
+                if (axis.indexOf('Y') === -1)
+                    _tempVec2[1] = 1;
+                if (axis.indexOf('Z') === -1)
+                    _tempVec2[2] = 1;
+            }
+            multiply$2(object.scale, this._scaleStart, _tempVec2);
+            if (this.scaleSnap) {
+                const snap = this.scaleSnap;
+                if (axis.indexOf('X') !== -1)
+                    object.scale[0] = Math.round(object.scale[0] / snap) * snap || snap;
+                if (axis.indexOf('Y') !== -1)
+                    object.scale[1] = Math.round(object.scale[1] / snap) * snap || snap;
+                if (axis.indexOf('Z') !== -1)
+                    object.scale[2] = Math.round(object.scale[2] / snap) * snap || snap;
+            }
+        }
+        else if (mode === 'rotate') {
+            subtract(this._offset, this.pointEnd, this.pointStart);
+            getTranslation(_tempVec, this.camera.matrixWorld);
+            const ROTATION_SPEED = 20 / distance(this.worldPosition, _tempVec);
+            let _inPlaneRotation = false;
+            if (axis === 'XYZE') {
+                cross(this.rotationAxis, this._offset, this.eye);
+                normalize$3(this.rotationAxis, this.rotationAxis);
+                cross(_tempVec, this.rotationAxis, this.eye);
+                this.rotationAngle = dot(this._offset, _tempVec) * ROTATION_SPEED;
+            }
+            else if (axis === 'X' || axis === 'Y' || axis === 'Z') {
+                const unit = axis === 'X' ? _unitX : axis === 'Y' ? _unitY : _unitZ;
+                copy$5(this.rotationAxis, unit);
+                copy$5(_tempVec, unit);
+                if (space === 'local') {
+                    transformQuat(_tempVec, _tempVec, this.worldQuaternion);
+                }
+                cross(_tempVec, _tempVec, this.eye);
+                if (length(_tempVec) === 0) {
+                    _inPlaneRotation = true;
+                }
+                else {
+                    normalize$3(_tempVec, _tempVec);
+                    this.rotationAngle = dot(this._offset, _tempVec) * ROTATION_SPEED;
+                }
+            }
+            if (axis === 'E' || _inPlaneRotation) {
+                copy$5(this.rotationAxis, this.eye);
+                this.rotationAngle = angle(this.pointEnd, this.pointStart);
+                normalize$3(this._startNorm, this.pointStart);
+                normalize$3(this._endNorm, this.pointEnd);
+                cross(_tempVec, this._endNorm, this._startNorm);
+                this.rotationAngle *= (dot(_tempVec, this.eye) < 0 ? 1 : -1);
+            }
+            // snap
+            if (this.rotationSnap) {
+                this.rotationAngle = Math.round(this.rotationAngle / this.rotationSnap) * this.rotationSnap;
+            }
+            // apply rotation
+            if (space === 'local' && axis !== 'E' && axis !== 'XYZE') {
+                copy$2(object.quaternion, this._quaternionStart);
+                setAxisAngle(_tempQuat, this.rotationAxis, this.rotationAngle);
+                multiply(object.quaternion, object.quaternion, _tempQuat);
+                normalize$1(object.quaternion, object.quaternion);
+            }
+            else {
+                transformQuat(this.rotationAxis, this.rotationAxis, this._parentQuaternionInv);
+                setAxisAngle(_tempQuat, this.rotationAxis, this.rotationAngle);
+                multiply(object.quaternion, _tempQuat, this._quaternionStart);
+                normalize$1(object.quaternion, object.quaternion);
+            }
+        }
+        this.onChange.emit();
+        this.onObjectChange.emit();
+    }
+    pointerUp(pointer) {
+        if (pointer.button !== 0)
+            return;
+        if (this.dragging && this.axis !== null) {
+            this.onMouseUp.emit({ mode: this.mode });
+        }
+        this.dragging = false;
+        this.axis = null;
+        this._syncState();
+    }
+    /**
+     * Sync internal state to gizmo and plane.
+     * Call this after any property change that affects the gizmo display.
+     */
+    _syncState() {
+        // sync to gizmo
+        this._gizmo.mode = this.mode;
+        this._gizmo.space = this.space;
+        this._gizmo.axis = this.axis;
+        this._gizmo.worldPosition = this.worldPosition;
+        this._gizmo.worldQuaternion = this.worldQuaternion;
+        this._gizmo.worldPositionStart = this.worldPositionStart;
+        this._gizmo.worldQuaternionStart = this.worldQuaternionStart;
+        this._gizmo.cameraPosition = this.cameraPosition;
+        this._gizmo.eye = this.eye;
+        this._gizmo.camera = this.camera;
+        this._gizmo.enabled = this.enabled;
+        this._gizmo.dragging = this.dragging;
+        this._gizmo.showX = this.showX;
+        this._gizmo.showY = this.showY;
+        this._gizmo.showZ = this.showZ;
+        this._gizmo.size = this.size;
+        this._gizmo.rotationAxis = this.rotationAxis;
+        this._gizmo.rotationAngle = this.rotationAngle;
+        // sync to plane
+        this._plane.mode = this.mode;
+        this._plane.axis = this.axis;
+        this._plane.space = this.space;
+        this._plane.worldPosition = this.worldPosition;
+        this._plane.worldQuaternion = this.worldQuaternion;
+        this._plane.eye = this.eye;
+        this._plane.cameraQuaternion = this.cameraQuaternion;
     }
 }
 
@@ -24069,12 +26014,12 @@ class ArrayTexture {
 
 function create() {
     return [
-        create$3(),
-        create$3(),
-        create$3(),
-        create$3(),
-        create$3(),
-        create$3(),
+        create$2(),
+        create$2(),
+        create$2(),
+        create$2(),
+        create$2(),
+        create$2(),
     ];
 }
 function clone(f) {
@@ -24097,8 +26042,8 @@ function copy(out, f) {
     return out;
 }
 function setFromViewProjectionMatrix(out, proj, view) {
-    const vp = create$6();
-    multiply(vp, proj, view);
+    const vp = create$5();
+    multiply$1(vp, proj, view);
     const m = vp;
     setPlane(out[0], m[0] + m[3], m[4] + m[7], m[8] + m[11], m[12] + m[15]);
     setPlane(out[1], -m[0] + m[3], -m[4] + m[7], -m[8] + m[11], -m[12] + m[15]);
@@ -24378,7 +26323,7 @@ function createRenderList() {
  */
 function createRenderListsState() {
     return {
-        lists: create$9(),
+        lists: create$8(),
     };
 }
 // ---------------------------------------------------------------------------
@@ -24396,7 +26341,7 @@ function getRenderList(state, object, camera) {
     let list = get(state.lists, keys);
     if (!list) {
         list = createRenderList();
-        set$3(state.lists, keys, list);
+        set$2(state.lists, keys, list);
     }
     return list;
 }
@@ -25514,5 +27459,5 @@ class RenderPipeline {
     }
 }
 
-export { ArrayTexture, Break, BufferLifecycle, Camera, Const, Continue, CubeTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, Fn, For, Geometry, GpuBuffer, If, Inspector, Let, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, Raycaster, RenderPipeline, RenderTarget, Return, Scene, TOUCH, Texture, Uniform, UniformGroup, UniformUpdateType, Var, WebGPURenderer, While, abs, acesToneMapping, add$1 as add, and, array, arrayTexture, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bool, builtin, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, ceil, clamp, color, comparisonSampler, compile, compileCompute, compute, computeIndex, cond, cos, createBoxGeometry, createFullscreenTriangleGeometry, createIndexBuffer, createIndirectBuffer, createPlaneGeometry, createSphereGeometry, createStorageBuffer, createUniformBuffer, createVertexBuffer, cross$1 as cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot$1 as dot, equal, f16, f32, field, fields, floor, fract, fragCoord, frameGroup, frustum, fxaa, getIndexFormat, globalId, greaterThan, greaterThanEqual, i32, index, instanceIndex, layoutSizeOf, layoutStrideOf, length$1 as length, lessThan, lessThanEqual, localId, localIndex, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, normalize$4 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, packArray, packTo, pass, positionClip, pow, privateVar, reinhardToneMapping, renderGroup, renderOutput, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, sign, sin, smoothstep, sqrt, step, storage, struct, sub, texture, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, timeDelta, timeElapsed, transpose, u32, uniform, uniformGroup, unpack, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgsl, wgslFn, workgroupId, workgroupVar };
+export { ArrayTexture, Break, BufferLifecycle, Camera, Const, Continue, CubeTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, Fn, For, Geometry, GpuBuffer, If, Inspector, Let, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, Raycaster, RenderPipeline, RenderTarget, Return, Scene, TOUCH, Texture, TransformControls, Uniform, UniformGroup, UniformUpdateType, Var, WebGPURenderer, While, abs, acesToneMapping, add$1 as add, and, array, arrayTexture, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bool, builtin, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, ceil, clamp, color, comparisonSampler, compile, compileCompute, compute, computeIndex, cond, cos, createBoxGeometry, createCylinderGeometry, createFullscreenTriangleGeometry, createIndexBuffer, createIndirectBuffer, createOctahedronGeometry, createPlaneGeometry, createSphereGeometry, createStorageBuffer, createTorusGeometry, createUniformBuffer, createVertexBuffer, cross$1 as cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot$1 as dot, equal, f16, f32, field, fields, floor, fract, fragCoord, frameGroup, frustum, fxaa, getIndexFormat, globalId, greaterThan, greaterThanEqual, i32, index, instanceIndex, layoutSizeOf, layoutStrideOf, length$1 as length, lessThan, lessThanEqual, localId, localIndex, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, normalize$4 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, packArray, packTo, pass, positionClip, pow, privateVar, reinhardToneMapping, renderGroup, renderOutput, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, sign, sin, smoothstep, sqrt, step, storage, struct, sub, texture, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, timeDelta, timeElapsed, transpose$1 as transpose, u32, uniform, uniformGroup, unpack, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgsl, wgslFn, workgroupId, workgroupVar };
 //# sourceMappingURL=index.js.map

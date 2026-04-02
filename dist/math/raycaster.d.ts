@@ -1,6 +1,21 @@
-import { type Raycast3, type Vec3, type Mat4 } from 'mathcat';
+import { type Vec3, type Mat4, type Box3 } from 'mathcat';
 import type { Object3D } from '../core/object3d';
 import { Camera } from '../camera/camera';
+export type Ray = {
+    origin: Vec3;
+    direction: Vec3;
+};
+/**
+ * Möller–Trumbore ray-triangle intersection.
+ * Returns raw t (distance along ray direction) or null if no hit.
+ * Ported from Three.js Ray.intersectTriangle.
+ */
+export declare function rayTriangleIntersection(origin: Vec3, direction: Vec3, a: Vec3, b: Vec3, c: Vec3, backfaceCulling: boolean): number | null;
+/**
+ * Slab-based ray-AABB intersection test.
+ * Tests intersection within [0, maxT] along the ray.
+ */
+export declare function rayIntersectsBox3(origin: Vec3, direction: Vec3, aabb: Box3, maxT: number): boolean;
 export type Intersection = {
     distance: number;
     point: Vec3;
@@ -16,7 +31,7 @@ export type Intersection = {
     normal?: Vec3;
 };
 export declare class Raycaster {
-    ray: Raycast3;
+    ray: Ray;
     near: number;
     far: number;
     constructor(origin?: Vec3, direction?: Vec3, near?: number, far?: number);
@@ -29,9 +44,9 @@ export declare class Raycaster {
  * Transform a ray into the local space of an object.
  * Returns the local ray for intersection testing.
  */
-export declare function transformRayToLocalSpace(raycaster: Raycaster, matrixWorld: Mat4): Raycast3;
+export declare function transformRayToLocalSpace(raycaster: Raycaster, matrixWorld: Mat4): Ray;
 /**
  * Test ray-triangle intersection and add to intersects if hit.
  * Positions are in local space, ray should be in local space.
  */
-export declare function checkTriangleIntersection(object: Object3D, raycaster: Raycaster, localRay: Raycast3, matrixWorld: Mat4, a: number, b: number, c: number, positions: Float32Array, indices: Uint16Array | Uint32Array | null, uvs: Float32Array | null, intersects: Intersection[], faceIndex: number): void;
+export declare function checkTriangleIntersection(object: Object3D, raycaster: Raycaster, localRay: Ray, matrixWorld: Mat4, a: number, b: number, c: number, positions: Float32Array, indices: Uint16Array | Uint32Array | null, uvs: Float32Array | null, intersects: Intersection[], faceIndex: number): void;

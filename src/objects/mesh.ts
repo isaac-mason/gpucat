@@ -1,4 +1,4 @@
-import { raycast3, vec3, type Vec3 } from 'mathcat';
+import { vec3, type Vec3 } from 'mathcat';
 import { Object3D } from '../core/object3d';
 import type { Geometry } from '../geometry/geometry';
 import type { Material } from '../material/material';
@@ -7,6 +7,7 @@ import {
     type Intersection,
     transformRayToLocalSpace,
     checkTriangleIntersection,
+    rayIntersectsBox3,
 } from '../math/raycaster';
 
 const _worldSphereCenter: Vec3 = [0, 0, 0];
@@ -59,7 +60,7 @@ export class Mesh extends Object3D {
 
         // early-out: bounding box test in local space
         if (geometry.boundingBox) {
-            if (!raycast3.intersectsBox3(localRay, geometry.boundingBox)) return;
+            if (!rayIntersectsBox3(localRay.origin, localRay.direction, geometry.boundingBox, raycaster.far)) return;
         }
         
         // get optional index buffer and UV buffer

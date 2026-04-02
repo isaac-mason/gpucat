@@ -18,6 +18,10 @@ export declare class Object3D {
     removeFromParent(): this;
     lookAt(target: Vec3, up?: Vec3): void;
     updateWorldMatrix(): void;
+    traverse(callback: (object: Object3D) => void): void;
+    getWorldPosition(out: Vec3): Vec3;
+    getWorldQuaternion(out: Quat): Quat;
+    getWorldDirection(out: Vec3): Vec3;
     /**
      * Abstract method for raycasting. Override in subclasses (e.g., Mesh) to
      * implement intersection testing. Base implementation does nothing.

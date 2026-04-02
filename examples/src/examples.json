@@ -113,5 +113,10 @@
         "title": "FXAA",
         "description": "Fast Approximate Anti-Aliasing (FXAA) post-processing effect. Renders a high-contrast rotating cube to demonstrate edge smoothing compared to raw aliased output.",
         "tags": ["post-processing", "anti-aliasing", "fxaa"]
+    },
+    "example-transform-controls": {
+        "title": "Transform Controls",
+        "description": "Interactive translate/rotate/scale gizmo attached to scene objects. Press T/R/S to switch modes, Q to toggle world/local space, Tab to switch objects.",
+        "tags": ["controls", "gizmo", "interaction"]
     }
 }

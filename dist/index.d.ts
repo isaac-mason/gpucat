@@ -1,6 +1,8 @@
 export * from './inspector/inspector';
 export { OrbitControls, MOUSE, TOUCH } from './controls/orbit-controls';
 export type { OrbitControlsEvent, OrbitControlsEventListener, OrbitControlsEventType, MouseAction, TouchAction, } from './controls/orbit-controls';
+export { TransformControls } from './controls/transform-controls';
+export type { TransformMode, TransformSpace } from './controls/transform-controls';
 export * from './scene/scene';
 export * from "./camera/camera";
 export * from "./camera/perspective-camera";
