@@ -118,5 +118,10 @@
         "title": "Transform Controls",
         "description": "Interactive translate/rotate/scale gizmo attached to scene objects. Press T/R/S to switch modes, Q to toggle world/local space, Tab to switch objects.",
         "tags": ["controls", "gizmo", "interaction"]
+    },
+    "example-fly-controls": {
+        "title": "Fly Controls",
+        "description": "First-person fly camera with WASD movement, right-click drag to look, Space/Shift for vertical movement, and scroll wheel to adjust speed.",
+        "tags": ["controls", "camera", "interaction"]
     }
 }

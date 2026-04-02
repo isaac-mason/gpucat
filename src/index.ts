@@ -12,6 +12,8 @@ export type {
 export { TransformControls } from './controls/transform-controls';
 export type { TransformMode, TransformSpace } from './controls/transform-controls';
 
+export { FlyControls } from './controls/fly-controls';
+
 export * from './scene/scene';
 
 export * from "./camera/camera";
