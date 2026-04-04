@@ -65,6 +65,9 @@ export {
     greaterThan, lessThan, greaterThanEqual, lessThanEqual, equal, notEqual,
     or, and,
 
+    // bitwise
+    bitwiseAnd, bitwiseOr, bitwiseXor, shiftLeft, shiftRight,
+
     // node factories
     attribute, type AttributeOptions,
     builtin, index, field, fields, uniform, storage,

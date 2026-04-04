@@ -40,7 +40,7 @@ export type Swizzle4<T extends WgslType> = T extends VecType ? Vec4Of<VecElement
 
 // ─── Descriptor-based math result types ───────────────────────────────────────
 
-export type BinopOp = '+' | '-' | '*' | '/' | '%' | '==' | '!=' | '<' | '>' | '<=' | '>=' | '||' | '&&';
+export type BinopOp = '+' | '-' | '*' | '/' | '%' | '==' | '!=' | '<' | '>' | '<=' | '>=' | '||' | '&&' | '&' | '|' | '^' | '<<' | '>>';
 
 // ─── Node id utilities ────────────────────────────────────────────────────────
 
@@ -254,6 +254,12 @@ export class Node<D extends Any> {
     or(b: Node<d.bool>): Node<d.bool>  { return or(this as unknown as Node<d.bool>, b); }
     and(b: Node<d.bool>): Node<d.bool> { return and(this as unknown as Node<d.bool>, b); }
     not(): Node<d.bool> { return not(this as unknown as Node<d.bool>); }
+
+    bitwiseAnd(b: Node<D>): Node<D>  { return bitwiseAnd(this, b); }
+    bitwiseOr(b: Node<D>): Node<D>   { return bitwiseOr(this, b); }
+    bitwiseXor(b: Node<D>): Node<D>  { return bitwiseXor(this, b); }
+    shiftLeft(b: Node<D>): Node<D>   { return shiftLeft(this, b); }
+    shiftRight(b: Node<D>): Node<D>  { return shiftRight(this, b); }
 
     transpose(): Node<D> { return new CallNode(this.type, 'transpose', [this]) as unknown as Node<D>; }
 
@@ -985,6 +991,12 @@ export const or         = (a: Node<d.bool>, b: Node<d.bool>): Node<d.bool> => ne
 export const and        = (a: Node<d.bool>, b: Node<d.bool>): Node<d.bool> => new BinopNode('&&', d.bool, a, b);
 export const not        = (a: Node<d.bool>): Node<d.bool> => new CallNode(d.bool, 'not', [a]);
 export const transpose  = <D extends d.MatDesc>(m: Node<D>): Node<D> => new CallNode(m.type, 'transpose', [m]);
+
+export const bitwiseAnd  = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new BinopNode('&', a.type, a, b);
+export const bitwiseOr   = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new BinopNode('|', a.type, a, b);
+export const bitwiseXor  = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new BinopNode('^', a.type, a, b);
+export const shiftLeft   = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new BinopNode('<<', a.type, a, b);
+export const shiftRight  = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new BinopNode('>>', a.type, a, b);
 
 // ── Lang ──────────────────────────────────────────────────────────────────────
 

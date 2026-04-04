@@ -21,7 +21,7 @@ export type Swizzle1<T extends WgslType> = T extends VecType ? VecElement<T> : T
 export type Swizzle2<T extends WgslType> = T extends VecType ? Vec2Of<VecElement<T>> : WgslType;
 export type Swizzle3<T extends WgslType> = T extends VecType ? Vec3Of<VecElement<T>> : WgslType;
 export type Swizzle4<T extends WgslType> = T extends VecType ? Vec4Of<VecElement<T>> : WgslType;
-export type BinopOp = '+' | '-' | '*' | '/' | '%' | '==' | '!=' | '<' | '>' | '<=' | '>=' | '||' | '&&';
+export type BinopOp = '+' | '-' | '*' | '/' | '%' | '==' | '!=' | '<' | '>' | '<=' | '>=' | '||' | '&&' | '&' | '|' | '^' | '<<' | '>>';
 export declare let _nodeId: number;
 export declare const isVecType: (t: string) => boolean;
 export declare const isMatType: (t: string) => boolean;
@@ -123,6 +123,11 @@ export declare class Node<D extends Any> {
     or(b: Node<d.bool>): Node<d.bool>;
     and(b: Node<d.bool>): Node<d.bool>;
     not(): Node<d.bool>;
+    bitwiseAnd(b: Node<D>): Node<D>;
+    bitwiseOr(b: Node<D>): Node<D>;
+    bitwiseXor(b: Node<D>): Node<D>;
+    shiftLeft(b: Node<D>): Node<D>;
+    shiftRight(b: Node<D>): Node<D>;
     transpose(): Node<D>;
     get x(): Node<VecElementDesc<D>>;
     get y(): Node<VecElementDesc<D>>;
@@ -709,6 +714,11 @@ export declare const or: (a: Node<d.bool>, b: Node<d.bool>) => Node<d.bool>;
 export declare const and: (a: Node<d.bool>, b: Node<d.bool>) => Node<d.bool>;
 export declare const not: (a: Node<d.bool>) => Node<d.bool>;
 export declare const transpose: <D extends d.MatDesc>(m: Node<D>) => Node<D>;
+export declare const bitwiseAnd: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
+export declare const bitwiseOr: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
+export declare const bitwiseXor: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
+export declare const shiftLeft: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
+export declare const shiftRight: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
 export declare class StackNode extends Node<d.VoidDesc> {
     readonly body: Node<Any>[];
     constructor(initial?: Node<Any>[]);
