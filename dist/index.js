@@ -25838,9 +25838,9 @@ function onPointerDown(event) {
     // Right-click to look
     if (event.button === 2) {
         this['_looking'] = true;
-        this.domElement.setPointerCapture(event.pointerId);
-        this.domElement.addEventListener('pointermove', this['_onPointerMove']);
-        this.domElement.addEventListener('pointerup', this['_onPointerUp']);
+        this.domElement.requestPointerLock();
+        document.addEventListener('pointermove', this['_onPointerMove']);
+        document.addEventListener('pointerup', this['_onPointerUp']);
     }
 }
 function onPointerMove(event) {
@@ -25857,9 +25857,9 @@ function onPointerMove(event) {
 function onPointerUp(event) {
     if (event.button === 2) {
         this['_looking'] = false;
-        this.domElement.releasePointerCapture(event.pointerId);
-        this.domElement.removeEventListener('pointermove', this['_onPointerMove']);
-        this.domElement.removeEventListener('pointerup', this['_onPointerUp']);
+        document.exitPointerLock();
+        document.removeEventListener('pointermove', this['_onPointerMove']);
+        document.removeEventListener('pointerup', this['_onPointerUp']);
     }
 }
 function onContextMenu(event) {

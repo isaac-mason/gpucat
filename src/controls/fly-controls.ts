@@ -247,9 +247,9 @@ function onPointerDown(this: FlyControls, event: PointerEvent): void {
     if (event.button === 2) {
         this['_looking'] = true;
 
-        this.domElement!.setPointerCapture(event.pointerId);
-        this.domElement!.addEventListener('pointermove', this['_onPointerMove']);
-        this.domElement!.addEventListener('pointerup', this['_onPointerUp']);
+        this.domElement!.requestPointerLock();
+        document.addEventListener('pointermove', this['_onPointerMove']);
+        document.addEventListener('pointerup', this['_onPointerUp']);
     }
 }
 
@@ -271,9 +271,9 @@ function onPointerUp(this: FlyControls, event: PointerEvent): void {
     if (event.button === 2) {
         this['_looking'] = false;
 
-        this.domElement!.releasePointerCapture(event.pointerId);
-        this.domElement!.removeEventListener('pointermove', this['_onPointerMove']);
-        this.domElement!.removeEventListener('pointerup', this['_onPointerUp']);
+        document.exitPointerLock();
+        document.removeEventListener('pointermove', this['_onPointerMove']);
+        document.removeEventListener('pointerup', this['_onPointerUp']);
     }
 }
 
