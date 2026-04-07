@@ -9474,6 +9474,14 @@ function generateMipmaps(state, texture, isCube = false, arrayLayerCount = 0, en
         generateMipmaps2D(state, texture, encoder);
     }
 }
+/**
+ * Dispose mipmap generation state.
+ */
+function disposeMipmapState(state) {
+    state.faceIndexBuffer.destroy();
+    state.pipelines2D.clear();
+    state.pipelinesCube.clear();
+}
 
 /**
  * textures.ts — GPUTexture/GPUSampler cache and upload helpers.
@@ -27583,6 +27591,50 @@ class WebGPURenderer {
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
             sampleCount: this.samples,
         });
+    }
+    /**
+     * Dispose the renderer and release all GPU resources.
+     *
+     * Destroys all cached GPU buffers, textures, pipelines, and the device
+     * itself (unless a pre-created device was provided). After calling dispose(),
+     * the renderer cannot be used again.
+     */
+    dispose() {
+        // Drop render object caches. No need to call disposeRenderObject on each
+        // one — device.destroy() invalidates all GPU resources, and the individual
+        // onDispose callbacks just do ChainMap/Set bookkeeping we're about to clear.
+        this._renderObjects.renderObjects.clear();
+        this._renderObjects.chainMaps.clear();
+        // Destroy swapchain textures
+        this._depthTexture?.destroy();
+        this._msaaTexture?.destroy();
+        // Destroy default placeholder textures
+        for (const tex of this._textures.defaultTextures.values()) {
+            tex.destroy();
+        }
+        this._textures.defaultTextures.clear();
+        this._textures.samplerCache.clear();
+        // Dispose mipmap generation state
+        if (this._textures.mipmapState) {
+            disposeMipmapState(this._textures.mipmapState);
+            this._textures.mipmapState = null;
+        }
+        // Clear pipeline caches
+        this._pipelines.renderPipelines.clear();
+        this._pipelines.computePipelines.clear();
+        this._pipelines.bindGroupLayoutCache.cache.clear();
+        // Clear render context caches
+        this._renderContexts.contexts.clear();
+        // Clear compute node states
+        this._nodes.computeStates.clear();
+        // Unconfigure the canvas context
+        this._canvasTarget.dispose();
+        // Destroy the device unless it was externally provided
+        if (!this._preDevice && this._device) {
+            this._device.destroy();
+        }
+        this._initialized = false;
+        this._isDeviceLost = true;
     }
 }
 // ---------------------------------------------------------------------------

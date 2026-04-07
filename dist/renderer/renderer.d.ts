@@ -216,6 +216,14 @@ export declare class WebGPURenderer {
     private _ensureRenderTargetAllocated;
     private _createDepthTexture;
     private _createMsaaTexture;
+    /**
+     * Dispose the renderer and release all GPU resources.
+     *
+     * Destroys all cached GPU buffers, textures, pipelines, and the device
+     * itself (unless a pre-created device was provided). After calling dispose(),
+     * the renderer cannot be used again.
+     */
+    dispose(): void;
 }
 /** Information about a device lost event. */
 export type DeviceLostInfo = {
