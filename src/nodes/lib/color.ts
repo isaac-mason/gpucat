@@ -21,5 +21,6 @@ import { vec3f } from './core';
  */
 export function rgb(input: ColorInput) {
     const c = fromColorInput(input);
+    if (c === null) return vec3f(0, 0, 0);
     return vec3f(c[0], c[1], c[2]);
 }

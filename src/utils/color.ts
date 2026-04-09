@@ -1,18 +1,3 @@
-/**
- * color.ts — Linear-sRGB color utilities.
- *
- * A Color is a 3-element tuple [r, g, b] of linear-sRGB floats in [0, 1].
- *
- * All CSS-style / gamma-sRGB inputs are converted to linear RGB via the
- * standard sRGB gamma-expansion formula.
- */
-
-// ---------------------------------------------------------------------------
-// CSS named color table (the 148 CSS4 named colors)
-// Values are 0xRRGGBB integers in sRGB gamma space.
-// ---------------------------------------------------------------------------
-
-/* eslint-disable sort-keys */
 const CSS_COLORS: Record<string, number> = {
     aliceblue: 0xf0f8ff,
     antiquewhite: 0xfaebd7,
@@ -240,25 +225,14 @@ function hue2rgb(p: number, q: number, t: number): number {
     return p;
 }
 
-// ---------------------------------------------------------------------------
-// Color type
-// ---------------------------------------------------------------------------
-
 /** A linear-sRGB color: [r, g, b] floats in [0, 1]. */
 export type Color = [r: number, g: number, b: number];
 
-// ---------------------------------------------------------------------------
-// Accepted input types for parsing
-// ---------------------------------------------------------------------------
-
+/** Accepted input types for creating or parsing a Color */
 export type ColorInput =
     | string                     // '#f00', '#ff0000', 'red', 'rgb(255,0,0)', 'hsl(0,100%,50%)'
     | number                     // 0xff0000 integer (sRGB gamma)
     | [number, number, number];  // [r, g, b] linear floats [0, 1]
-
-// ---------------------------------------------------------------------------
-// Free functions
-// ---------------------------------------------------------------------------
 
 /** Create a new Color initialized to black [0, 0, 0]. */
 export function create(): Color {
@@ -320,20 +294,19 @@ export function fromSRGB(srgb: [number, number, number]): Color {
  */
 export function setFromColorInput(out: Color, input: ColorInput): Color {
     const parsed = parse(input);
+    if (parsed === null) return out;
     out[0] = parsed[0];
     out[1] = parsed[1];
     out[2] = parsed[2];
     return out;
 }
 
-/** Parse any supported color input into a new Color. */
-export function fromColorInput(input: ColorInput): Color {
+/** Parse any supported color input into a new Color */
+export function fromColorInput(input: ColorInput): Color | null {
     return parse(input);
 }
 
-/**
- * Return a CSS `rgb(...)` string in sRGB gamma space (for HTML/canvas use).
- */
+/** Create a CSS `rgb(...)` string in sRGB gamma space (for HTML/canvas use) */
 export function toCSS(c: Color): string {
     const r = Math.round(linearChannelToSrgb(c[0]) * 255);
     const g = Math.round(linearChannelToSrgb(c[1]) * 255);
@@ -341,11 +314,7 @@ export function toCSS(c: Color): string {
     return `rgb(${r}, ${g}, ${b})`;
 }
 
-// ---------------------------------------------------------------------------
-// Internal parse
-// ---------------------------------------------------------------------------
-
-function parse(input: ColorInput): Color {
+function parse(input: ColorInput): Color | null {
     // [r, g, b] array — treated as already-linear
     if (Array.isArray(input)) {
         return [input[0] ?? 0, input[1] ?? 0, input[2] ?? 0];
@@ -380,5 +349,6 @@ function parse(input: ColorInput): Color {
         return parseHex6('#' + hex.toString(16).padStart(6, '0'));
     }
 
-    throw new Error(`[gpucat] color: unrecognised color input: "${input}"`);
+    console.warn(`[gpucat] color: unrecognised color input: "${input}"`);
+    return null;
 }
