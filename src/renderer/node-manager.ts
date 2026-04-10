@@ -37,10 +37,7 @@ export function createNodeManagerState(): NodeManagerState {
  * Get the NodeFrame for rendering a specific RenderObject.
  * Sets the frame's context properties from the RenderObject.
  */
-export function getNodeFrameForRender(
-    state: NodeManagerState,
-    renderObject: RenderObject,
-): NodeFrame {
+export function getNodeFrameForRender(state: NodeManagerState, renderObject: RenderObject): NodeFrame {
     const frame = state.nodeFrame;
     frame.object = renderObject.mesh;
     frame.camera = renderObject.camera;
@@ -61,21 +58,14 @@ export function getNodeFrame(state: NodeManagerState): NodeFrame {
  * Get the NodeBuilderState for a RenderObject.
  * Returns null if not compiled yet.
  */
-export function getNodeBuilderState(
-    state: NodeManagerState,
-    renderObject: RenderObject,
-): NodeBuilderState | null {
+export function getNodeBuilderState(state: NodeManagerState, renderObject: RenderObject): NodeBuilderState | null {
     return state.nodeStates.get(renderObject) ?? null;
 }
 
 /**
  * Set the NodeBuilderState for a RenderObject.
  */
-export function setNodeBuilderState(
-    state: NodeManagerState,
-    renderObject: RenderObject,
-    nodeState: NodeBuilderState,
-): void {
+export function setNodeBuilderState(state: NodeManagerState, renderObject: RenderObject, nodeState: NodeBuilderState): void {
     state.nodeStates.set(renderObject, nodeState);
     renderObject.nodeBuilderState = nodeState;
 }
@@ -93,6 +83,7 @@ export function compileNodeState(
     renderObject: RenderObject,
     cacheKey: string,
 ): { nodeState: NodeBuilderState; compileResult: CompileResult } {
+    console.log('[compileNodeState] called for material:', renderObject.material.name);
     const material = renderObject.material;
 
     // compile the material's node graph
@@ -122,10 +113,7 @@ export function compileNodeState(
  * Recompilation is needed when material or geometry version has changed
  * since last compilation.
  */
-export function needsNodeUpdate(
-    _state: NodeManagerState,
-    renderObject: RenderObject,
-): boolean {
+export function needsNodeUpdate(_state: NodeManagerState, renderObject: RenderObject): boolean {
     // No nodeBuilderState means never compiled
     if (!renderObject.nodeBuilderState) return true;
 
@@ -145,10 +133,7 @@ export function needsNodeUpdate(
  * @param state the NodeManager state
  * @param renderObject the RenderObject
  */
-export function updateBefore(
-    state: NodeManagerState,
-    renderObject: RenderObject,
-): void {
+export function updateBefore(state: NodeManagerState, renderObject: RenderObject): void {
     const nodeState = renderObject.nodeBuilderState;
     if (!nodeState) return;
 
@@ -168,10 +153,7 @@ export function updateBefore(
  * @param state the NodeManager state
  * @param renderObject the RenderObject
  */
-export function updateForRender(
-    state: NodeManagerState,
-    renderObject: RenderObject,
-): void {
+export function updateForRender(state: NodeManagerState, renderObject: RenderObject): void {
     const nodeState = renderObject.nodeBuilderState;
     if (!nodeState) return;
 
@@ -190,10 +172,7 @@ export function updateForRender(
  * @param state the NodeManager state
  * @param renderObject the RenderObject
  */
-export function updateAfter(
-    state: NodeManagerState,
-    renderObject: RenderObject,
-): void {
+export function updateAfter(state: NodeManagerState, renderObject: RenderObject): void {
     const nodeState = renderObject.nodeBuilderState;
     if (!nodeState) return;
 
@@ -213,11 +192,7 @@ export function updateAfter(
  * @param context the BindingContext for shared bind group caching
  * @returns the NodeBuilderState
  */
-export function getForCompute(
-    state: NodeManagerState,
-    computeNode: ComputeNode,
-    context: BindingContext,
-): NodeBuilderState {
+export function getForCompute(state: NodeManagerState, computeNode: ComputeNode, context: BindingContext): NodeBuilderState {
     let nodeState = state.computeStates.get(computeNode.id);
 
     if (!nodeState) {
@@ -236,13 +211,10 @@ export function getForCompute(
  * @param state the NodeManager state
  * @param computeNode the ComputeNode
  */
-export function updateForCompute(
-    state: NodeManagerState,
-    computeNode: ComputeNode,
-): void {
+export function updateForCompute(state: NodeManagerState, computeNode: ComputeNode): void {
     const nodeState = state.computeStates.get(computeNode.id);
     if (!nodeState) return; // Not compiled yet - should not happen in normal flow
-    
+
     const frame = state.nodeFrame;
 
     for (const node of nodeState.updateNodes) {
@@ -258,11 +230,7 @@ export function updateForCompute(
  * @param context the BindingContext for shared bind group caching
  * @returns the compiled NodeBuilderState
  */
-function compileComputeNode(
-    state: NodeManagerState,
-    computeNode: ComputeNode,
-    context: BindingContext,
-): NodeBuilderState {
+function compileComputeNode(state: NodeManagerState, computeNode: ComputeNode, context: BindingContext): NodeBuilderState {
     const compileResult = compileCompute(computeNode);
 
     // extract update nodes from the compile result
@@ -286,7 +254,7 @@ function compileComputeNode(
 
     // Create NodeBuilderState for compute with context for shared bind group caching
     const nodeState = createNodeBuilderStateForCompute(compileResult, context);
-    
+
     // Inject the extracted updateNodes
     (nodeState as { updateNodes: UpdateNode[] }).updateNodes = updateNodes;
 
@@ -305,5 +273,3 @@ function compileComputeNode(
 export function deleteForCompute(state: NodeManagerState, computeNode: ComputeNode): void {
     state.computeStates.delete(computeNode.id);
 }
-
-

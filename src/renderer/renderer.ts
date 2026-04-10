@@ -48,6 +48,9 @@ export type WebGPURendererOptions = {
 
     /** Canvas element to render into. If not provided, one will be created */
     canvas?: HTMLCanvasElement;
+
+    /** When true, the canvas context uses premultiplied alpha compositing (like three.js `alpha`). Defaults to false (opaque). */
+    alpha?: boolean;
 };
 
 export class WebGPURenderer {
@@ -76,7 +79,7 @@ export class WebGPURenderer {
 
     /** MSAA sample count (0 or 1 = no MSAA). */
     samples: number;
-    
+
     /** GPURequestAdapterOptions forwarded to navigator.gpu.requestAdapter(). */
     _adapterOptions: GPURequestAdapterOptions | undefined;
 
@@ -104,7 +107,7 @@ export class WebGPURenderer {
 
     /** @internal */
     _textures: textures.TextureCache;
-    
+
     /** @internal */
     _pipelines: pipelines.PipelinesState;
 
@@ -184,7 +187,7 @@ export class WebGPURenderer {
         if (!opts.canvas) {
             canvas.style.display = 'block';
         }
-        this._canvasTarget = new CanvasTarget(canvas);
+        this._canvasTarget = new CanvasTarget(canvas, { alphaMode: opts.alpha ? 'premultiplied' : 'opaque' });
         this._canvasTarget.isDefaultCanvasTarget = true;
 
         this._renderContexts = RenderContext.createRenderContextsState();
@@ -229,15 +232,11 @@ export class WebGPURenderer {
             this._adapter = adapter;
 
             // request every feature the adapter supports
-            const requiredFeatures = Object.values(GPUFeatureName).filter(
-                (f) => adapter.features.has(f),
-            ) as GPUFeatureName[];
+            const requiredFeatures = Object.values(GPUFeatureName).filter((f) => adapter.features.has(f)) as GPUFeatureName[];
 
             // merge with any caller-supplied descriptor, deduplicating features.
             const callerFeatures = this._deviceDescriptor?.requiredFeatures ?? [];
-            const mergedFeatures = [
-                ...new Set([...requiredFeatures, ...callerFeatures]),
-            ] as GPUFeatureName[];
+            const mergedFeatures = [...new Set([...requiredFeatures, ...callerFeatures])] as GPUFeatureName[];
             const deviceDescriptor: GPUDeviceDescriptor = {
                 ...this._deviceDescriptor,
                 requiredFeatures: mergedFeatures,
@@ -259,8 +258,8 @@ export class WebGPURenderer {
 
                 console.error(
                     `[WebGPURenderer] WebGPU Device Lost:\n` +
-                    `  Message: ${deviceLossInfo.message}\n` +
-                    `  Reason: ${deviceLossInfo.reason ?? 'unknown'}`,
+                        `  Message: ${deviceLossInfo.message}\n` +
+                        `  Reason: ${deviceLossInfo.reason ?? 'unknown'}`,
                 );
 
                 this._isDeviceLost = true;
@@ -269,7 +268,7 @@ export class WebGPURenderer {
 
             // initialize the main canvas target context.
             this._format = navigator.gpu.getPreferredCanvasFormat();
-            this._canvasTarget.getContext(this._device, this._format, 'opaque');
+            this._canvasTarget.getContext(this._device, this._format);
         }
 
         const w = this.domElement.width || 1;
@@ -342,12 +341,7 @@ export class WebGPURenderer {
      * Pre-compile render pipelines and pre-upload GPU resources for a scene.
      * Optional — resources are created on-demand during the first render if not pre-warmed.
      */
-    async compile(
-        scene: Scene,
-        camera: Camera,
-        samples?: number,
-        format?: GPUTextureFormat,
-    ): Promise<void> {
+    async compile(scene: Scene, camera: Camera, samples?: number, format?: GPUTextureFormat): Promise<void> {
         if (!this._initialized) {
             throw new Error('[WebGPURenderer] compile() called before init(). Await renderer.init() first.');
         }
@@ -597,7 +591,14 @@ export class WebGPURenderer {
         this.inspector.perf.end('updateForCompute');
 
         // Update all bindings and get GPUBindGroups
-        const gpuBindGroups = bindings.updateComputeBindings(this._bindings, nodeBuilderState, frame, this._device, this._buffers, this._textures);
+        const gpuBindGroups = bindings.updateComputeBindings(
+            this._bindings,
+            nodeBuilderState,
+            frame,
+            this._device,
+            this._buffers,
+            this._textures,
+        );
 
         // Notify inspector before creating pass (so timestamp writes are available)
         this.inspector.beginCompute(node, this._nodes.nodeFrame.frameId);
@@ -651,12 +652,7 @@ export class WebGPURenderer {
      * Render a scene from a camera's perspective.
      * Renders to `this.renderTarget` if set, otherwise to the swapchain.
      */
-    render(
-        scene: Object3D,
-        camera: Camera,
-        commandEncoder?: GPUCommandEncoder,
-        passId = 'render',
-    ): void {
+    render(scene: Object3D, camera: Camera, commandEncoder?: GPUCommandEncoder, passId = 'render'): void {
         if (this._isDeviceLost) return;
 
         if (!this._initialized) {
@@ -714,7 +710,13 @@ export class WebGPURenderer {
         this._device.pushErrorScope('validation');
 
         const preparedObjects = this._render_prepare(
-            scene, camera, passCtx, passId, colorFormat, depthFormat, this.overrideMaterial,
+            scene,
+            camera,
+            passCtx,
+            passId,
+            colorFormat,
+            depthFormat,
+            this.overrideMaterial,
         );
 
         this._render_draw(encoder, preparedObjects, colorAttachments, depthAttachment, passId);
@@ -762,7 +764,7 @@ export class WebGPURenderer {
                 });
             }
         } else {
-            const ctx = this._canvasTarget.getContext(this._device, this._format, 'opaque');
+            const ctx = this._canvasTarget.getContext(this._device, this._format);
             const swapchainView = ctx.getCurrentTexture().createView();
             if (this.samples > 1 && this._msaaTexture) {
                 colorAttachments.push({
@@ -849,7 +851,10 @@ export class WebGPURenderer {
                     depthFormat,
                 );
                 if (!initialized || !renderObject.pipeline) {
-                    console.warn('[gpucat] initRenderObject failed or pipeline missing', { initialized, pipeline: renderObject.pipeline });
+                    console.warn('[gpucat] initRenderObject failed or pipeline missing', {
+                        initialized,
+                        pipeline: renderObject.pipeline,
+                    });
                     continue;
                 }
 
@@ -944,7 +949,10 @@ export class WebGPURenderer {
                 if (group.name !== null) {
                     // Geometry-based group - resolve buffer by name
                     const bufAttr = geometry.buffers.get(group.name);
-                    if (!bufAttr) { slot++; continue; }
+                    if (!bufAttr) {
+                        slot++;
+                        continue;
+                    }
                     gpuBuf = buffers.ensureUploaded(this._buffers, this._device, bufAttr);
                 } else {
                     // Direct buffer group
@@ -1020,7 +1028,11 @@ export class WebGPURenderer {
         const firstTex = renderTarget.textures[0] ?? renderTarget.depthTexture;
         if (firstTex) {
             const existingData = textures.getTextureData(this._textures, firstTex._gpuTexture);
-            if (existingData && existingData.texture.width === renderTarget.width && existingData.texture.height === renderTarget.height) {
+            if (
+                existingData &&
+                existingData.texture.width === renderTarget.width &&
+                existingData.texture.height === renderTarget.height
+            ) {
                 return;
             }
         }
@@ -1035,10 +1047,7 @@ export class WebGPURenderer {
             const gpuTexture = this._device.createTexture({
                 size: [renderTarget.width, renderTarget.height],
                 format: tex.format ?? renderTarget.colorFormat,
-                usage:
-                    GPUTextureUsage.RENDER_ATTACHMENT |
-                    GPUTextureUsage.TEXTURE_BINDING |
-                    GPUTextureUsage.COPY_SRC,
+                usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
                 sampleCount,
             });
 
@@ -1130,7 +1139,6 @@ export class WebGPURenderer {
         this._initialized = false;
         this._isDeviceLost = true;
     }
-
 }
 
 type PreparedRenderObject = {
@@ -1164,12 +1172,7 @@ export type DeviceLostInfo = {
 // accumulate per-command boilerplate.
 // ---------------------------------------------------------------------------
 
-function passSetPipeline(
-    pass: GPURenderPassEncoder,
-    inspector: InspectorBase,
-    pipeline: GPURenderPipeline,
-    label: string,
-): void {
+function passSetPipeline(pass: GPURenderPassEncoder, inspector: InspectorBase, pipeline: GPURenderPipeline, label: string): void {
     pass.setPipeline(pipeline);
     inspector.setPipeline(label);
 }
@@ -1185,12 +1188,7 @@ function passSetBindGroup(
     inspector.setBindGroup(index, label);
 }
 
-function passSetVertexBuffer(
-    pass: GPURenderPassEncoder,
-    inspector: InspectorBase,
-    slot: number,
-    buffer: GPUBuffer,
-): void {
+function passSetVertexBuffer(pass: GPURenderPassEncoder, inspector: InspectorBase, slot: number, buffer: GPUBuffer): void {
     pass.setVertexBuffer(slot, buffer);
     inspector.setVertexBuffer(slot);
 }
@@ -1247,13 +1245,7 @@ function passDrawIndexedIndirect(
     inspector.drawIndexedIndirect();
 }
 
-function computeDispatchWorkgroups(
-    pass: GPUComputePassEncoder,
-    inspector: InspectorBase,
-    x: number,
-    y: number,
-    z: number,
-): void {
+function computeDispatchWorkgroups(pass: GPUComputePassEncoder, inspector: InspectorBase, x: number, y: number, z: number): void {
     pass.dispatchWorkgroups(x, y, z);
     inspector.dispatchWorkgroups(x, y, z);
 }

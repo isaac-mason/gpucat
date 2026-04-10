@@ -1,3 +1,8 @@
+export type CanvasTargetOptions = {
+    /** alpha compositing mode for the WebGPU canvas context. defaults to 'opaque'. */
+    alphaMode?: GPUCanvasAlphaMode;
+};
+
 /** The HTMLCanvasElement target for the renderer to draw into. Wraps a canvas and its WebGPU context. */
 export class CanvasTarget {
     /** The canvas element this target wraps. */
@@ -19,13 +24,17 @@ export class CanvasTarget {
     /** Pixel ratio for high-DPI displays. */
     _pixelRatio: number = 1;
 
+    /** Alpha compositing mode for the WebGPU canvas context. */
+    readonly alphaMode: GPUCanvasAlphaMode;
+
     /** Lazily-created WebGPU canvas context. Null until getContext() is called. */
     private _context: GPUCanvasContext | null = null;
 
-    constructor(canvas: HTMLCanvasElement) {
+    constructor(canvas: HTMLCanvasElement, opts: CanvasTargetOptions = {}) {
         this.domElement = canvas;
         this._width = canvas.width;
         this._height = canvas.height;
+        this.alphaMode = opts.alphaMode ?? 'opaque';
     }
 
     /**
@@ -35,19 +44,15 @@ export class CanvasTarget {
      *
      * @param device the GPUDevice to configure the context with.
      * @param format the preferred canvas format (e.g. 'bgra8unorm').
-     * @param alphaMode the alpha mode for the context (default 'opaque').
+     * @param alphaMode override for the alpha mode. defaults to the value set in the constructor.
      */
-    getContext(
-        device: GPUDevice,
-        format: GPUTextureFormat,
-        alphaMode: GPUCanvasAlphaMode = 'opaque',
-    ): GPUCanvasContext {
+    getContext(device: GPUDevice, format: GPUTextureFormat, alphaMode?: GPUCanvasAlphaMode): GPUCanvasContext {
         if (!this._context) {
             const ctx = this.domElement.getContext('webgpu');
             if (!ctx) {
                 throw new Error('[CanvasTarget] Failed to get WebGPU context from canvas.');
             }
-            ctx.configure({ device, format, alphaMode });
+            ctx.configure({ device, format, alphaMode: alphaMode ?? this.alphaMode });
             this._context = ctx;
         }
         return this._context;

@@ -26,13 +26,9 @@ import {
     CondNode,
     ReturnNode,
     FnNode,
-    ParamNode
+    ParamNode,
 } from './lib/core';
-import {
-    type InterpolationType,
-    type InterpolationSampling,
-    VaryingNode
-} from './lib/varying';
+import { type InterpolationType, type InterpolationSampling, VaryingNode } from './lib/varying';
 import { WgslNode } from './lib/wgsl';
 import { AttributeNode } from './lib/attribute';
 import { GpuBuffer } from '../core/gpu-buffer';
@@ -53,14 +49,19 @@ export function compile(slots: CompileSlots): CompileResult {
     // create contexts for both stages
     const vertexCtx = createContext('vertex', true);
     const fragmentCtx = createContext('fragment', true);
-    
+
     const hasFragment = slots.color !== null;
-    
+
     // collect all roots
     const roots: Node<d.Any>[] = [slots.position];
     if (slots.color) roots.push(slots.color);
     if (slots.depth) roots.push(slots.depth);
-    
+
+    console.log(
+        '[compile] roots:',
+        roots.map((r) => ({ id: r.id, type: r.type.wgslType })),
+    );
+
     // single discovery pass across all roots
     const discovered = discover(roots);
     vertexCtx.usageCount = discovered.usageCount;
@@ -75,7 +76,7 @@ export function compile(slots: CompileSlots): CompileResult {
     vertexCtx.storages = discovered.storages;
     vertexCtx.privateVars = discovered.privateVars;
     vertexCtx.workgroupVars = discovered.workgroupVars;
-    
+
     fragmentCtx.usageCount = discovered.usageCount;
     fragmentCtx.mutatedNodes = discovered.mutatedNodes;
     fragmentCtx.fnDefs = discovered.fnDefs;
@@ -88,34 +89,40 @@ export function compile(slots: CompileSlots): CompileResult {
     fragmentCtx.storages = discovered.storages;
     fragmentCtx.privateVars = discovered.privateVars;
     fragmentCtx.workgroupVars = discovered.workgroupVars;
-    
+
     // pre-collect varyings from fragment roots (so vertex shader knows what to output)
     if (hasFragment) {
         const fragmentRoots: Node<d.Any>[] = [slots.color!];
         collectVaryings(fragmentRoots, vertexCtx);
     }
-    
+
     // generate vertex shader
     const vertexBody = generateVertexShader(slots, vertexCtx);
-    
+
     // generate fragment shader (skip for depth-only pipelines)
     let fragmentBody = '';
     if (hasFragment) {
         fragmentBody = generateFragmentShader(slots.color!, fragmentCtx, vertexCtx.varyings);
-        
+
         // No need to merge bindings anymore - they're shared via discovered.*
     }
-    
+
     // emit all bindings using Three.js pattern (each group gets its own @group index)
-    const { wgsl: bindingsWgsl, uniformBlocks, storageEntries, textureEntries: textures, samplerEntries: samplers } = emitAllBindings(vertexCtx);
-    
+    const {
+        wgsl: bindingsWgsl,
+        uniformBlocks,
+        storageEntries,
+        textureEntries: textures,
+        samplerEntries: samplers,
+    } = emitAllBindings(vertexCtx);
+
     // emit module-scope variables (var<private>)
     const moduleScopeVarsWgsl = emitModuleScopeVars(vertexCtx);
-    
+
     // emit functions
     const wgslFnsCode = emitWgslFunctions(vertexCtx);
     const dslFnsCode = emitDslFunctions(vertexCtx);
-    
+
     // assemble full shader
     const codeParts = [
         '// Bindings (uniforms, storage, textures, samplers)',
@@ -133,15 +140,18 @@ export function compile(slots: CompileSlots): CompileResult {
         codeParts.push('', '// Fragment Shader', fragmentBody);
     }
     const code = codeParts.filter(Boolean).join('\n');
-    
+
     // collect graph info
     const graphNodes = new Map<number, Node<d.Any>>();
     const graphEdges = new Map<number, readonly number[]>();
     const graphInfo = new Map<number, NodeGraphInfo>();
-    
+
     for (const [id, node] of discovered.allNodes) {
         graphNodes.set(id, node);
-        graphEdges.set(id, getChildren(node).map(c => c.id));
+        graphEdges.set(
+            id,
+            getChildren(node).map((c) => c.id),
+        );
         graphInfo.set(id, {
             stages: [],
             cseVar: vertexCtx.nodeVars.get(id) ?? fragmentCtx.nodeVars.get(id),
@@ -149,7 +159,7 @@ export function compile(slots: CompileSlots): CompileResult {
             expression: undefined,
         });
     }
-    
+
     // build varying entries
     const varyingEntries: VaryingEntry[] = [];
     let loc = 0;
@@ -162,13 +172,13 @@ export function compile(slots: CompileSlots): CompileResult {
             interpolationSampling: node.interpolationSampling ?? null,
         });
     }
-    
+
     // Build attributes array — unified, all entries already in ctx.attributes
     const allAttributes: AttributeEntry[] = Array.from(vertexCtx.attributes.values());
-    
+
     // Group attributes by underlying buffer for efficient vertex buffer binding
     const vertexBufferGroups = groupAttributesByBuffer(allAttributes);
-    
+
     return {
         code,
         vertexEntryPoint: 'vs_main',
@@ -192,14 +202,14 @@ export function compile(slots: CompileSlots): CompileResult {
 
 export function compileCompute(node: ComputeNode): ComputeCompileResult {
     const ctx = createContext('compute', false);
-    
+
     // trace the FnNode to get roots
     const fn = node.fn;
     const traced = fn.trace();
-    
+
     // filter out undefined (void functions have no output)
     const roots: Node<d.Any>[] = [traced.body, traced.output].filter((n): n is Node<d.Any> => n != null);
-    
+
     // single discovery pass
     const discovered = discover(roots);
     ctx.usageCount = discovered.usageCount;
@@ -214,20 +224,20 @@ export function compileCompute(node: ComputeNode): ComputeCompileResult {
     ctx.storages = discovered.storages;
     ctx.privateVars = discovered.privateVars;
     ctx.workgroupVars = discovered.workgroupVars;
-    
+
     // generate compute shader body
     const computeBody = generateComputeShader(node, ctx);
-    
+
     // emit all bindings using Three.js pattern (each group gets its own @group index)
     const { wgsl: bindingsWgsl, uniformBlocks, storageEntries } = emitAllBindings(ctx);
-    
+
     // emit module-scope variables (var<private>, var<workgroup>)
     const moduleScopeVarsWgsl = emitModuleScopeVars(ctx);
-    
+
     // emit functions
     const wgslFnsCode = emitWgslFunctions(ctx);
     const dslFnsCode = emitDslFunctions(ctx);
-    
+
     // assemble full shader
     const code = [
         '// Bindings (uniforms, storage, textures, samplers)',
@@ -240,8 +250,10 @@ export function compileCompute(node: ComputeNode): ComputeCompileResult {
         dslFnsCode,
         '// Compute Shader',
         computeBody,
-    ].filter(Boolean).join('\n');
-    
+    ]
+        .filter(Boolean)
+        .join('\n');
+
     // convert storage entries to compute format
     const computeStorage: ComputeStorageEntry[] = storageEntries.map((e) => ({
         node: e.node,
@@ -251,7 +263,7 @@ export function compileCompute(node: ComputeNode): ComputeCompileResult {
         group: e.group,
         binding: e.binding,
     }));
-    
+
     return {
         code,
         storage: computeStorage,
@@ -299,12 +311,12 @@ export type AttributeEntry = {
 
 /**
  * VertexBufferGroup — groups attributes that share the same underlying buffer.
- * 
+ *
  * For interleaved vertex data, multiple attributes may reference the same buffer
  * with different offsets. Grouping them enables:
  * - One GPUVertexBufferLayout with multiple attributes
  * - One setVertexBuffer() call per unique buffer
- * 
+ *
  * This follows WebGPU's design where VertexBufferLayout.attributes is an array.
  */
 export type VertexBufferGroup = {
@@ -438,7 +450,7 @@ type TracedFn = {
 interface BuildContext {
     stage: ShaderStage;
     isRender: boolean;
-    
+
     // Collected bindings
     uniforms: Map<string, { node: UniformNode<d.Any>; group: UniformGroup }>;
     storages: Map<string, StorageNode<d.Any>>;
@@ -449,31 +461,31 @@ interface BuildContext {
     attrCounter: number;
     varyings: Map<string, { node: VaryingNode<d.Any>; vertexExpr: string }>;
     builtins: Set<string>;
-    
+
     // Module-scope variables
     privateVars: Map<number, PrivateVarNode<d.Any>>; // node.id -> node
     workgroupVars: Map<number, WorkgroupVarNode<d.Any>>; // node.id -> node
-    
+
     // Struct definitions
     structs: Map<string, StructNode>;
     structDefs: Map<string, StructDef<StructSchema>>;
-    
+
     // CSE state
     usageCount: Map<number, number>;
     mutatedNodes: Set<number>;
     nodeVars: Map<number, string>;
     varCounter: number;
-    
+
     // Indentation level for nested control flow (1 = function body, 2 = first nested block, etc.)
     indentLevel: number;
-    
+
     // Generated code lines
     code: string[];
-    
+
     // Function definitions (FnNode + WgslFnNode/FunctionNode)
     fnDefs: Map<string, { fn: FnNode<d.Any>; traced: TracedFn }>;
     wgslFnDefs: Map<string, WgslFunctionNode>;
-    
+
     // Graph info for inspector
     graphNodes: Map<number, Node<d.Any>>;
     graphEdges: Map<number, number[]>;
@@ -520,7 +532,7 @@ function getChildren(node: Node<d.Any>): Node<d.Any>[] {
     if (node._beforeNodes) {
         children.push(...node._beforeNodes);
     }
-    
+
     if (node instanceof BinopNode) {
         children.push(node.left, node.right);
     } else if (node instanceof CallNode) {
@@ -533,7 +545,8 @@ function getChildren(node: Node<d.Any>): Node<d.Any>[] {
         children.push(node.array, node.index);
     } else if (node instanceof VaryingNode) {
         // VaryingNode.node is a SubBuildNode wrapping the source
-        children.push(node.node as unknown as Node<d.Any>);
+        // Push the actual source inside the SubBuildNode, not the wrapper itself
+        children.push(node.node.node as Node<d.Any>);
     } else if (node instanceof AssignNode) {
         children.push(node.target, node.value);
     } else if (node instanceof LetNode || node instanceof VarNode) {
@@ -668,18 +681,18 @@ function getChildren(node: Node<d.Any>): Node<d.Any>[] {
     } else if (node instanceof StackNode) {
         children.push(...node.body);
     }
-    
+
     return children;
 }
 
 /**
  * Group attributes by their underlying buffer for efficient vertex buffer binding.
- * 
+ *
  * Attributes sharing the same buffer (either by name for geometry-based, or by
  * buffer reference for direct) are grouped together. This enables:
  * - One GPUVertexBufferLayout with multiple attributes
  * - One setVertexBuffer() call per unique buffer
- * 
+ *
  * @param entries - Flat array of AttributeEntry from compilation
  * @returns Array of VertexBufferGroup, one per unique buffer
  */
@@ -687,10 +700,10 @@ function groupAttributesByBuffer(entries: AttributeEntry[]): VertexBufferGroup[]
     // Use separate maps for name-based and buffer-based grouping
     const nameGroups = new Map<string, VertexBufferGroup>();
     const bufferGroups = new Map<GpuBuffer<d.Any>, VertexBufferGroup>();
-    
+
     for (const entry of entries) {
         let group: VertexBufferGroup | undefined;
-        
+
         if (entry.kind === 'geometry') {
             // Name-based grouping
             const geomName = entry.name!;
@@ -720,27 +733,25 @@ function groupAttributesByBuffer(entries: AttributeEntry[]): VertexBufferGroup[]
                 bufferGroups.set(buffer, group);
             }
         }
-        
+
         // Validate stride/instanced match within group
         if (group.stride !== entry.stride) {
             throw new Error(
                 `[gpucat] Interleaved attributes sharing buffer must have matching stride. ` +
-                `Got ${entry.stride} but group has ${group.stride}.`
+                    `Got ${entry.stride} but group has ${group.stride}.`,
             );
         }
         if (group.instanced !== entry.instanced) {
-            throw new Error(
-                `[gpucat] Interleaved attributes sharing buffer must have matching instanced flag.`
-            );
+            throw new Error(`[gpucat] Interleaved attributes sharing buffer must have matching instanced flag.`);
         }
-        
+
         group.attributes.push({
             type: entry.type,
             offset: entry.offset,
             shaderLocation: entry.location,
         });
     }
-    
+
     // Combine both maps into a single array, preserving order (name-based first, then buffer-based)
     return [...nameGroups.values(), ...bufferGroups.values()];
 }
@@ -765,12 +776,31 @@ interface DiscoverResult {
     updateNodes: UpdateNode[];
 }
 
+/**
+ * Recursively walk a type to find and register any struct definitions.
+ * Handles: struct, array, sized-array, vec, mat types.
+ */
+function walkTypeForStructs(type: d.Any, register: (def: StructDef<StructSchema>) => void): void {
+    if (d.isStructDef(type)) {
+        register(type as unknown as StructDef<StructSchema>);
+        return;
+    }
+
+    // For arrays, walk the element type
+    if (d.isArrayDesc(type) || d.isSizedArrayDesc(type)) {
+        walkTypeForStructs(type.element, register);
+        return;
+    }
+
+    // For vectors and matrices, no structs to find
+}
+
 function discover(roots: Node<d.Any>[]): DiscoverResult {
     const usageCount = new Map<number, number>();
     const mutatedNodes = new Set<number>();
     const fnDefs = new Map<string, { fn: FnNode<d.Any>; traced: TracedFn }>();
     const wgslFnDefs = new Map<string, WgslFunctionNode>();
-    const structDefs = new Map<string, StructDef<StructSchema>>(); 
+    const structDefs = new Map<string, StructDef<StructSchema>>();
     const storageNames = new Map<number, string>();
     const textures = new Map<string, TextureBindingNode>();
     const samplers = new Map<string, SamplerNode>(); // keyed by settingsKey
@@ -800,14 +830,14 @@ function discover(roots: Node<d.Any>[]): DiscoverResult {
             markTargetChain(node.array);
         }
     }
-    
+
     function registerSampler(samplerNode: SamplerNode): void {
         const key = samplerNode.settingsKey;
         if (!samplers.has(key)) {
             samplers.set(key, samplerNode);
         }
     }
-    
+
     function registerTextureWithSampler(textureNode: TextureNode | CubeTextureNode | DepthTextureNode | ArrayTextureNode): void {
         // Register the texture binding
         const binding = textureNode.bindingNode;
@@ -815,7 +845,7 @@ function discover(roots: Node<d.Any>[]): DiscoverResult {
         if (!textures.has(name)) {
             textures.set(name, binding);
         }
-        
+
         // For sampling modes (not 'load'), ensure a sampler exists and register it
         if (textureNode.samplingMode !== 'load') {
             let samplerNode = textureNode.samplerNode;
@@ -888,14 +918,10 @@ function discover(roots: Node<d.Any>[]): DiscoverResult {
                 storages.set(storageName, node);
             }
 
-            const bufType = node.type;
-            if (d.isStructDef(bufType)) {
-                registerStructDef(bufType as unknown as StructDef<StructSchema>);
-            } else if ((d.isArrayDesc(bufType) || d.isSizedArrayDesc(bufType)) && d.isStructDef(bufType.element)) {
-                registerStructDef(bufType.element as unknown as StructDef<StructSchema>);
-            }
+            // Walk the type to find and register any struct definitions
+            walkTypeForStructs(node.type, registerStructDef);
         }
-        
+
         // Binding discovery: textures, samplers, uniforms
         if (node instanceof TextureBindingNode) {
             const name = node.textureId;
@@ -925,7 +951,7 @@ function discover(roots: Node<d.Any>[]): DiscoverResult {
                 uniforms.set(name, { node, group });
             }
         }
-        
+
         // Module-scope variable discovery
         if (node instanceof PrivateVarNode) {
             if (!privateVars.has(node.id)) {
@@ -948,21 +974,34 @@ function discover(roots: Node<d.Any>[]): DiscoverResult {
         visit(root);
     }
 
-    return { 
-        usageCount, mutatedNodes, fnDefs, wgslFnDefs, structDefs, storageNames, 
-        allNodes, updateBeforeNodes, updateAfterNodes, updateNodes,
-        textures, samplers, uniforms, storages, privateVars, workgroupVars
+    return {
+        usageCount,
+        mutatedNodes,
+        fnDefs,
+        wgslFnDefs,
+        structDefs,
+        storageNames,
+        allNodes,
+        updateBeforeNodes,
+        updateAfterNodes,
+        updateNodes,
+        textures,
+        samplers,
+        uniforms,
+        storages,
+        privateVars,
+        workgroupVars,
     };
 }
 
 /** Pre-collect VaryingNodes from roots and generate their vertex expressions. */
 function collectVaryings(roots: Node<d.Any>[], ctx: BuildContext): void {
     const visited = new Set<number>();
-    
+
     function visit(node: Node<d.Any>) {
         if (visited.has(node.id)) return;
         visited.add(node.id);
-        
+
         if (node instanceof VaryingNode) {
             const name = node.name ?? `v_${node.id}`;
             if (!ctx.varyings.has(name)) {
@@ -972,17 +1011,16 @@ function collectVaryings(roots: Node<d.Any>[], ctx: BuildContext): void {
                 ctx.varyings.set(name, { node, vertexExpr: sourceExpr });
             }
         }
-        
+
         for (const child of getChildren(node)) {
             visit(child);
         }
     }
-    
+
     for (const root of roots) {
         visit(root);
     }
 }
-
 
 function wgslAlign(type: string): number {
     if (type === 'f32' || type === 'i32' || type === 'u32') return 4;
@@ -1010,14 +1048,14 @@ function wgslSize(type: string): number {
 function generateExpr(ctx: BuildContext, node: Node<d.Any>): string {
     // Record node for graph
     ctx.graphNodes.set(node.id, node);
-    
+
     // CSE: if already computed and multi-use, return variable name
     if (ctx.nodeVars.has(node.id)) {
         return ctx.nodeVars.get(node.id)!;
     }
-    
+
     let expr: string;
-    
+
     if (node instanceof LiteralNode) {
         expr = constLiteral(node.type.wgslType, node.value);
     } else if (node instanceof UniformNode) {
@@ -1051,10 +1089,10 @@ function generateExpr(ctx: BuildContext, node: Node<d.Any>): string {
     } else if (node instanceof CallNode) {
         expr = generateCall(ctx, node);
     } else if (node instanceof ArrayNode) {
-        const args = node.elements.map(e => generateExpr(ctx, e));
+        const args = node.elements.map((e) => generateExpr(ctx, e));
         expr = `array<${node.type.element.wgslType}, ${node.elements.length}>(${args.join(', ')})`;
     } else if (node instanceof ConstructNode) {
-        const args = node.args.map(a => generateExpr(ctx, a));
+        const args = node.args.map((a) => generateExpr(ctx, a));
         expr = `${node.type.wgslType}(${args.join(', ')})`;
     } else if (node instanceof FieldNode) {
         const obj = generateExpr(ctx, node.object);
@@ -1107,7 +1145,9 @@ function generateExpr(ctx: BuildContext, node: Node<d.Any>): string {
         // WorkgroupVarNode is module-scope, emitted separately
         // Validate it's only used in compute shaders
         if (ctx.stage !== 'compute') {
-            throw new Error(`[builder] WorkgroupVarNode '${node.varName}' can only be used in compute shaders, but was used in ${ctx.stage} stage.`);
+            throw new Error(
+                `[builder] WorkgroupVarNode '${node.varName}' can only be used in compute shaders, but was used in ${ctx.stage} stage.`,
+            );
         }
         ctx.nodeVars.set(node.id, node.varName);
         expr = node.varName;
@@ -1123,7 +1163,7 @@ function generateExpr(ctx: BuildContext, node: Node<d.Any>): string {
         console.warn(`[builder] Unknown node kind for expr: ${node.constructor.name}`, node);
         expr = `/* unknown: ${node.constructor.name} */`;
     }
-    
+
     // CSE: if multi-use, extract to variable
     const usage = ctx.usageCount.get(node.id) ?? 1;
     if (usage > 1 && !ctx.nodeVars.has(node.id) && !isTrivialExpr(node) && !isNonCopyable(node)) {
@@ -1131,16 +1171,16 @@ function generateExpr(ctx: BuildContext, node: Node<d.Any>): string {
         const keyword = ctx.mutatedNodes.has(node.id) ? 'var' : 'let';
         ctx.code.push(`    ${keyword} ${varName} = ${expr};`);
         ctx.nodeVars.set(node.id, varName);
-        
+
         // record CSE info for graph
         const info = ctx.graphInfo.get(node.id);
         if (info) {
             (info as { cseVar: string }).cseVar = varName;
         }
-        
+
         return varName;
     }
-    
+
     return expr;
 }
 
@@ -1202,7 +1242,7 @@ function generateUniform(ctx: BuildContext, node: UniformNode<d.Any>): string {
     const name = node.name;
     const group = node.groupNode;
     ctx.uniforms.set(name, { node, group });
-    
+
     return `uniforms_${group.name}.${name}`;
 }
 
@@ -1211,9 +1251,9 @@ function generateAttribute(ctx: BuildContext, node: AttributeNode<d.Any>): strin
         const attrName = node.name ?? `(unnamed attribute id=${node.id})`;
         throw new Error(
             `[builder] AttributeNode '${attrName}' can only be used in vertex stage, but was used in ${ctx.stage} stage. ` +
-            `Use varying() to pass vertex data to fragment stage. ` +
-            `Common cause: TextureNode with default uvNode (which uses uv() attribute) being sampled in fragment shader without explicit UV coordinates. ` +
-            `Fix: use textureNode.sample(yourUV) with a varying or fragment-stage UV.`
+                `Use varying() to pass vertex data to fragment stage. ` +
+                `Common cause: TextureNode with default uvNode (which uses uv() attribute) being sampled in fragment shader without explicit UV coordinates. ` +
+                `Fix: use textureNode.sample(yourUV) with a varying or fragment-stage UV.`,
         );
     }
 
@@ -1261,12 +1301,12 @@ function generateAttribute(ctx: BuildContext, node: AttributeNode<d.Any>): strin
 function generateStorage(ctx: BuildContext, node: StorageNode<d.Any>): string {
     // name was assigned globally during discover()
     const name = ctx.storageNames.get(node.id)!;
-    
+
     // register in storages map for binding emission (idempotent)
     if (!ctx.storages.has(name)) {
         ctx.storages.set(name, node);
     }
-    
+
     return name;
 }
 
@@ -1281,7 +1321,7 @@ function generateTextureBinding(ctx: BuildContext, node: TextureBindingNode): st
 function generateTexture(ctx: BuildContext, node: TextureNode): string {
     const binding = node.bindingNode;
     const name = generateTextureBinding(ctx, binding);
-    
+
     // textureLoad mode - no sampler needed
     if (node.samplingMode === 'load') {
         if (!node.loadCoords) {
@@ -1291,7 +1331,7 @@ function generateTexture(ctx: BuildContext, node: TextureNode): string {
         const levelExpr = node.loadLevel ? generateExpr(ctx, node.loadLevel) : '0';
         return `textureLoad(${name}, ${coordsExpr}, ${levelExpr})`;
     }
-    
+
     // Sampling modes require a sampler
     // If no samplerNode exists (e.g., PassTextureNode), create a default one
     let samplerNode = node.samplerNode;
@@ -1300,19 +1340,19 @@ function generateTexture(ctx: BuildContext, node: TextureNode): string {
         // Store it on the node so it's consistent across calls
         node.samplerNode = samplerNode;
     }
-    
+
     // Register the sampler (this handles deduplication by settingsKey)
     const samplerName = generateSampler(ctx, samplerNode);
-    
+
     // Sampling modes - require UV coordinates
     if (!node.uvNode) {
         throw new Error(`[builder] TextureNode '${name}' has no uvNode. Set uvNode or use texture.sample(uvNode).`);
     }
     const uvExpr = generateExpr(ctx, node.uvNode);
-    
+
     // Build offset suffix if present (2D/2D-array only)
     const offsetSuffix = node.offsetNode ? `, ${generateExpr(ctx, node.offsetNode)}` : '';
-    
+
     // textureSampleGrad
     if (node.samplingMode === 'grad') {
         if (!node.gradNode) {
@@ -1322,7 +1362,7 @@ function generateTexture(ctx: BuildContext, node: TextureNode): string {
         const ddy = generateExpr(ctx, node.gradNode[1]);
         return `textureSampleGrad(${name}, ${samplerName}, ${uvExpr}, ${ddx}, ${ddy}${offsetSuffix})`;
     }
-    
+
     // textureSampleBias
     if (node.samplingMode === 'bias') {
         if (!node.biasNode) {
@@ -1331,7 +1371,7 @@ function generateTexture(ctx: BuildContext, node: TextureNode): string {
         const bias = generateExpr(ctx, node.biasNode);
         return `textureSampleBias(${name}, ${samplerName}, ${uvExpr}, ${bias}${offsetSuffix})`;
     }
-    
+
     // textureSampleLevel
     if (node.samplingMode === 'level') {
         if (!node.levelNode) {
@@ -1340,7 +1380,7 @@ function generateTexture(ctx: BuildContext, node: TextureNode): string {
         const level = generateExpr(ctx, node.levelNode);
         return `textureSampleLevel(${name}, ${samplerName}, ${uvExpr}, ${level}${offsetSuffix})`;
     }
-    
+
     // textureSample (default)
     return `textureSample(${name}, ${samplerName}, ${uvExpr}${offsetSuffix})`;
 }
@@ -1348,27 +1388,27 @@ function generateTexture(ctx: BuildContext, node: TextureNode): string {
 function generateCubeTexture(ctx: BuildContext, node: CubeTextureNode): string {
     const binding = node.bindingNode;
     const name = generateTextureBinding(ctx, binding);
-    
+
     // Cube textures don't support textureLoad - only sampling modes
-    
+
     // Sampling modes require a sampler
     let samplerNode = node.samplerNode;
     if (!samplerNode) {
         samplerNode = new SamplerNode(d.sampler, name, binding.groupNode);
         node.samplerNode = samplerNode;
     }
-    
+
     // Register the sampler (this handles deduplication by settingsKey)
     const samplerName = generateSampler(ctx, samplerNode);
-    
+
     // Cube textures require a direction vector (vec3f)
     if (!node.directionNode) {
         throw new Error(`[builder] CubeTextureNode '${name}' has no directionNode. Use cubeTexture.sample(direction).`);
     }
     const dirExpr = generateExpr(ctx, node.directionNode);
-    
+
     // Cube textures do NOT support offset
-    
+
     // textureSampleGrad (vec3f gradients for cube textures)
     if (node.samplingMode === 'grad') {
         if (!node.gradNode) {
@@ -1378,7 +1418,7 @@ function generateCubeTexture(ctx: BuildContext, node: CubeTextureNode): string {
         const ddy = generateExpr(ctx, node.gradNode[1]);
         return `textureSampleGrad(${name}, ${samplerName}, ${dirExpr}, ${ddx}, ${ddy})`;
     }
-    
+
     // textureSampleBias
     if (node.samplingMode === 'bias') {
         if (!node.biasNode) {
@@ -1387,7 +1427,7 @@ function generateCubeTexture(ctx: BuildContext, node: CubeTextureNode): string {
         const bias = generateExpr(ctx, node.biasNode);
         return `textureSampleBias(${name}, ${samplerName}, ${dirExpr}, ${bias})`;
     }
-    
+
     // textureSampleLevel
     if (node.samplingMode === 'level') {
         if (!node.levelNode) {
@@ -1396,7 +1436,7 @@ function generateCubeTexture(ctx: BuildContext, node: CubeTextureNode): string {
         const level = generateExpr(ctx, node.levelNode);
         return `textureSampleLevel(${name}, ${samplerName}, ${dirExpr}, ${level})`;
     }
-    
+
     // textureSample (default)
     return `textureSample(${name}, ${samplerName}, ${dirExpr})`;
 }
@@ -1511,12 +1551,12 @@ function generateArrayTexture(ctx: BuildContext, node: ArrayTextureNode): string
 
 function generateSampler(ctx: BuildContext, node: SamplerNode): string {
     const key = node.settingsKey;
-    
+
     // Register sampler for binding emission (deduplicated by settings)
     if (!ctx.samplers.has(key)) {
         ctx.samplers.set(key, node);
     }
-    
+
     // Return the sampler variable name (uses the registered sampler's ID for deduplication)
     const registeredSampler = ctx.samplers.get(key)!;
     return `${registeredSampler.samplerId}_sampler`;
@@ -1526,9 +1566,9 @@ function generateVarying(ctx: BuildContext, node: VaryingNode<d.Any>): string {
     if (ctx.stage === 'compute') {
         throw new Error(`[builder] VaryingNode not allowed in compute shaders`);
     }
-    
+
     const name = node.name ?? `v_${node.id}`;
-    
+
     if (ctx.stage === 'vertex') {
         // in vertex: generate the source expression (unwrap SubBuildNode)
         const sourceNode = node.node.node; // SubBuildNode.node is the actual source
@@ -1547,18 +1587,18 @@ function generateVarying(ctx: BuildContext, node: VaryingNode<d.Any>): string {
 
 function generateBuiltin(ctx: BuildContext, node: BuiltinNode<d.Any>): string {
     ctx.builtins.add(node.builtinKind);
-    
+
     const builtinMap: Record<string, string> = {
-        'vertex_index': 'input.vertex_index',
-        'instance_index': 'input.instance_index',
-        'global_invocation_id': 'global_id',
-        'local_invocation_id': 'local_id',
-        'local_invocation_index': 'local_index',
-        'workgroup_id': 'workgroup_id',
-        'num_workgroups': 'num_workgroups',
-        'position': ctx.stage === 'fragment' ? 'input.position' : 'output.position',
+        vertex_index: 'input.vertex_index',
+        instance_index: 'input.instance_index',
+        global_invocation_id: 'global_id',
+        local_invocation_id: 'local_id',
+        local_invocation_index: 'local_index',
+        workgroup_id: 'workgroup_id',
+        num_workgroups: 'num_workgroups',
+        position: ctx.stage === 'fragment' ? 'input.position' : 'output.position',
     };
-    
+
     return builtinMap[node.builtinKind] ?? `/* unknown builtin: ${node.builtinKind} */`;
 }
 
@@ -1573,7 +1613,7 @@ function generateCall(ctx: BuildContext, node: CallNode<d.Any>): string {
             ctx.fnDefs.set(fn.fnName, { fn, traced });
         }
     }
-    
+
     // if this calls a WgslFunctionNode, make sure it's registered
     if (node.wgslFnNode) {
         const fn = node.wgslFnNode as WgslFunctionNode;
@@ -1587,9 +1627,9 @@ function generateCall(ctx: BuildContext, node: CallNode<d.Any>): string {
             }
         }
     }
-    
-    const args = node.args.map(a => generateExpr(ctx, a));
-    
+
+    const args = node.args.map((a) => generateExpr(ctx, a));
+
     // handle special cases
     if (node.fn === 'negate' && args.length === 1) {
         return `(-${args[0]})`;
@@ -1597,19 +1637,27 @@ function generateCall(ctx: BuildContext, node: CallNode<d.Any>): string {
     if (node.fn === 'not' && args.length === 1) {
         return `(!${args[0]})`;
     }
-    
+
     // atomic functions need pointer reference
     const atomicFns = [
-        'atomicAdd', 'atomicSub', 'atomicMax', 'atomicMin',
-        'atomicAnd', 'atomicOr', 'atomicXor',
-        'atomicStore', 'atomicLoad', 'atomicExchange', 'atomicCompareExchangeWeak',
+        'atomicAdd',
+        'atomicSub',
+        'atomicMax',
+        'atomicMin',
+        'atomicAnd',
+        'atomicOr',
+        'atomicXor',
+        'atomicStore',
+        'atomicLoad',
+        'atomicExchange',
+        'atomicCompareExchangeWeak',
     ];
 
     if (atomicFns.includes(node.fn) && args.length >= 1) {
         const [ptr, ...rest] = args;
         return `${node.fn}(&${ptr}, ${rest.join(', ')})`;
     }
-    
+
     return `${node.fn}(${args.join(', ')})`;
 }
 
@@ -1617,7 +1665,7 @@ function generateCall(ctx: BuildContext, node: CallNode<d.Any>): string {
 
 function generateStmt(ctx: BuildContext, node: Node<d.Any>): void {
     const ind = '    '.repeat(ctx.indentLevel);
-    
+
     if (node instanceof LetNode) {
         const init = generateExpr(ctx, node.init);
         ctx.code.push(`${ind}let ${node.varName} = ${init};`);
@@ -1664,13 +1712,13 @@ function generateIfStmt(ctx: BuildContext, node: IfNode): void {
     const ind = '    '.repeat(ctx.indentLevel);
     const cond = generateExpr(ctx, node.condition);
     ctx.code.push(`${ind}if (${cond}) {`);
-    
+
     ctx.indentLevel++;
     for (const child of node.thenBody.body) {
         generateStmt(ctx, child);
     }
     ctx.indentLevel--;
-    
+
     // Handle else-if branches
     for (const branch of node.elseIfBranches) {
         const branchCond = generateExpr(ctx, branch.condition);
@@ -1681,7 +1729,7 @@ function generateIfStmt(ctx: BuildContext, node: IfNode): void {
         }
         ctx.indentLevel--;
     }
-    
+
     // Handle else branch
     if (node.elseBody && node.elseBody.body.length > 0) {
         ctx.code.push(`${ind}} else {`);
@@ -1691,29 +1739,34 @@ function generateIfStmt(ctx: BuildContext, node: IfNode): void {
         }
         ctx.indentLevel--;
     }
-    
+
     ctx.code.push(`${ind}}`);
 }
 
 function generateLoopStmt(ctx: BuildContext, node: LoopNode): void {
     const { config, loopVar, body } = node;
-    
+
     // Generate a unique WGSL variable name for this loop
     const depth = ctx.indentLevel - 1;
     const wgslVarName = `i_${depth}_${ctx.varCounter++}`;
-    
+
     // Register the loop variable so references resolve to the WGSL name
     ctx.nodeVars.set(loopVar.id, wgslVarName);
-    
+
     // Build loop header based on config type
     let loopHeader: string;
-    
+
     if (typeof config === 'number') {
         loopHeader = `for (var ${wgslVarName}: i32 = 0i; ${wgslVarName} < ${config}i; ${wgslVarName}++)`;
     } else if (config instanceof LiteralNode || config instanceof UniformNode) {
         const endExpr = generateExpr(ctx, config as Node<d.Any>);
         loopHeader = `for (var ${wgslVarName}: i32 = 0i; ${wgslVarName} < ${endExpr}; ${wgslVarName}++)`;
-    } else if (typeof config === 'object' && config !== null && !(config instanceof LiteralNode) && !(config instanceof UniformNode)) {
+    } else if (
+        typeof config === 'object' &&
+        config !== null &&
+        !(config instanceof LiteralNode) &&
+        !(config instanceof UniformNode)
+    ) {
         const cfg = config as {
             start?: Node<d.Any> | number;
             end?: Node<d.Any> | number;
@@ -1739,16 +1792,16 @@ function generateLoopStmt(ctx: BuildContext, node: LoopNode): void {
     } else {
         loopHeader = `/* unknown loop range type */`;
     }
-    
+
     // Emit loop with pre-captured body
     const ind = '    '.repeat(ctx.indentLevel);
     ctx.code.push(`${ind}${loopHeader} {`);
     ctx.indentLevel++;
-    
+
     for (const stmt of body.body) {
         generateStmt(ctx, stmt);
     }
-    
+
     ctx.indentLevel--;
     ctx.code.push(`${ind}}`);
 }
@@ -1761,7 +1814,7 @@ function generateLoopStmt(ctx: BuildContext, node: LoopNode): void {
  */
 function emitModuleScopeVars(ctx: BuildContext): string {
     const lines: string[] = [];
-    
+
     // Emit private variables
     for (const [, node] of ctx.privateVars) {
         if (node.init) {
@@ -1775,13 +1828,13 @@ function emitModuleScopeVars(ctx: BuildContext): string {
             lines.push(`var<private> ${node.varName}: ${node.type.wgslType};`);
         }
     }
-    
+
     // Emit workgroup variables (only in compute shaders - already validated in generateExpr)
     for (const [, node] of ctx.workgroupVars) {
         // Workgroup variables cannot have initializers in WGSL
         lines.push(`var<workgroup> ${node.varName}: ${node.type.wgslType};`);
     }
-    
+
     return lines.length > 0 ? lines.join('\n') + '\n' : '';
 }
 
@@ -1793,7 +1846,7 @@ function generateModuleScopeInitExpr(node: Node<d.Any>): string {
     if (node instanceof LiteralNode) {
         return constLiteral(node.type.wgslType, node.value);
     } else if (node instanceof ConstructNode) {
-        const args = node.args.map(a => generateModuleScopeInitExpr(a));
+        const args = node.args.map((a) => generateModuleScopeInitExpr(a));
         return `${node.type.wgslType}(${args.join(', ')})`;
     } else if (node instanceof BinopNode) {
         const left = generateModuleScopeInitExpr(node.left);
@@ -1801,13 +1854,13 @@ function generateModuleScopeInitExpr(node: Node<d.Any>): string {
         return `(${left} ${node.op} ${right})`;
     } else if (node instanceof CallNode) {
         // Only const-evaluable built-in functions are allowed
-        const args = node.args.map(a => generateModuleScopeInitExpr(a));
+        const args = node.args.map((a) => generateModuleScopeInitExpr(a));
         return `${node.fn}(${args.join(', ')})`;
     } else {
         throw new Error(
             `[builder] Module-scope variable initializer must be a const-expression. ` +
-            `Got ${node.constructor.name}. Only literals, constructors, and const-evaluable ` +
-            `built-in functions are allowed.`
+                `Got ${node.constructor.name}. Only literals, constructors, and const-evaluable ` +
+                `built-in functions are allowed.`,
         );
     }
 }
@@ -1827,7 +1880,7 @@ type BindingGroupData = {
 
 /**
  * Emit all bindings (uniforms, storage, textures, samplers) following Three.js pattern.
- * 
+ *
  * Three.js pattern:
  * - Each named group (render, object, etc.) gets its own @group(N) index
  * - Groups are sorted by UniformGroup.order
@@ -1884,7 +1937,7 @@ function emitAllBindings(ctx: BuildContext): {
     // step 2: sort groups by their order, then assign sequential group indices
     // This follows Three.js pattern: @group(N) is the sorted array position
     const sortedGroups = [...groupsByName.values()].sort((a, b) => a.groupNode.order - b.groupNode.order);
-    
+
     // Reassign groupIndex to be the sorted array position
     for (let i = 0; i < sortedGroups.length; i++) {
         sortedGroups[i].groupIndex = i;
@@ -1939,7 +1992,9 @@ function emitAllBindings(ctx: BuildContext): {
             }
 
             lines.push(`}`);
-            lines.push(`@group(${groupIndex}) @binding(${bindingIndex}) var<uniform> uniforms_${groupName}: Uniforms_${groupName};`);
+            lines.push(
+                `@group(${groupIndex}) @binding(${bindingIndex}) var<uniform> uniforms_${groupName}: Uniforms_${groupName};`,
+            );
             lines.push('');
 
             // Compute struct alignment (max alignment of all members)
@@ -1968,7 +2023,9 @@ function emitAllBindings(ctx: BuildContext): {
             const access = ctx.stage === 'compute' ? node.access : 'read';
             const accessStr = access === 'read_write' ? 'read_write' : 'read';
 
-            lines.push(`@group(${groupIndex}) @binding(${bindingIndex}) var<storage, ${accessStr}> ${name}: ${node.storageType};`);
+            lines.push(
+                `@group(${groupIndex}) @binding(${bindingIndex}) var<storage, ${accessStr}> ${name}: ${node.storageType};`,
+            );
 
             storageEntries.push({
                 node,
@@ -2022,7 +2079,7 @@ function emitAllBindings(ctx: BuildContext): {
 function emitWgslFunctions(ctx: BuildContext): string {
     const lines: string[] = [];
     const emitted = new Set<string>();
-    
+
     // emit wgslFn functions in dependency order
     for (const [_code, fn] of ctx.wgslFnDefs) {
         // emit includes first
@@ -2033,27 +2090,29 @@ function emitWgslFunctions(ctx: BuildContext): string {
                 emitted.add(inc.code);
             }
         }
-        
+
         if (!emitted.has(fn.code)) {
             lines.push(fn.code.trim());
             lines.push('');
             emitted.add(fn.code);
         }
     }
-    
+
     return lines.join('\n');
 }
 
 function emitDslFunctions(ctx: BuildContext): string {
     const lines: string[] = [];
-    
+
     for (const [name, { fn, traced }] of ctx.fnDefs) {
         // build parameter list
-        const params = traced.params.map((p, i) => {
-            const pName = p.paramName ?? `p${i}`;
-            return `${pName}: ${p.type.wgslType}`;
-        }).join(', ');
-        
+        const params = traced.params
+            .map((p, i) => {
+                const pName = p.paramName ?? `p${i}`;
+                return `${pName}: ${p.type.wgslType}`;
+            })
+            .join(', ');
+
         // generate function body
         const fnCtx = createContext(ctx.stage, ctx.isRender);
         fnCtx.usageCount = ctx.usageCount;
@@ -2063,20 +2122,20 @@ function emitDslFunctions(ctx: BuildContext): string {
         fnCtx.samplers = ctx.samplers;
         fnCtx.uniforms = ctx.uniforms;
         fnCtx.storages = ctx.storages;
-        
+
         // register param names in context
         for (const p of traced.params) {
             fnCtx.nodeVars.set(p.id, p.paramName ?? `p${p.paramIndex}`);
         }
-        
+
         // generate statements from body
         for (const stmt of traced.body.body) {
             generateStmt(fnCtx, stmt);
         }
-        
+
         // generate return expression
         const returnExpr = generateExpr(fnCtx, traced.output);
-        
+
         lines.push(`fn ${name}(${params}) -> ${fn.type.wgslType} {`);
         lines.push(...fnCtx.code);
         if (fn.type.wgslType !== 'void') {
@@ -2085,7 +2144,7 @@ function emitDslFunctions(ctx: BuildContext): string {
         lines.push(`}`);
         lines.push('');
     }
-    
+
     return lines.join('\n');
 }
 
@@ -2093,15 +2152,15 @@ function emitDslFunctions(ctx: BuildContext): string {
 
 function generateVertexShader(slots: CompileSlots, ctx: BuildContext): string {
     const lines: string[] = [];
-    
+
     // generate position expression
     const posExpr = generateExpr(ctx, slots.position);
-    
+
     // check if we have any vertex inputs (attributes or builtins)
     const hasVertexIndex = ctx.builtins.has('vertex_index');
     const hasInstanceIndex = ctx.builtins.has('instance_index');
     const hasInputs = ctx.attributes.size > 0 || hasVertexIndex || hasInstanceIndex;
-    
+
     // emit input struct only if we have inputs (WGSL structs must have at least one member)
     if (hasInputs) {
         lines.push('struct VertexInput {');
@@ -2117,7 +2176,7 @@ function generateVertexShader(slots: CompileSlots, ctx: BuildContext): string {
         lines.push('}');
         lines.push('');
     }
-    
+
     // emit output struct
     lines.push('struct VertexOutput {');
     lines.push('    @builtin(position) position: vec4f,');
@@ -2136,7 +2195,7 @@ function generateVertexShader(slots: CompileSlots, ctx: BuildContext): string {
     }
     lines.push('}');
     lines.push('');
-    
+
     // emit main function - omit input parameter if no inputs
     lines.push('@vertex');
     if (hasInputs) {
@@ -2147,37 +2206,41 @@ function generateVertexShader(slots: CompileSlots, ctx: BuildContext): string {
     lines.push('    var output: VertexOutput;');
     lines.push(...ctx.code);
     lines.push(`    output.position = ${posExpr};`);
-    
+
     // assign varyings
     for (const [name, { vertexExpr }] of ctx.varyings) {
         lines.push(`    output.${name} = ${vertexExpr};`);
     }
-    
+
     lines.push('    return output;');
     lines.push('}');
-    
+
     return lines.join('\n');
 }
 
 /* fragment shader generation */
 
-function generateFragmentShader(colorNode: Node<d.Any>, ctx: BuildContext, varyings: Map<string, { node: VaryingNode<d.Any>; vertexExpr: string }>): string {
+function generateFragmentShader(
+    colorNode: Node<d.Any>,
+    ctx: BuildContext,
+    varyings: Map<string, { node: VaryingNode<d.Any>; vertexExpr: string }>,
+): string {
     const lines: string[] = [];
-    
+
     // copy varyings from vertex stage
     for (const [name, data] of varyings) {
         if (!ctx.varyings.has(name)) {
             ctx.varyings.set(name, data);
         }
     }
-    
+
     // generate color expression
     const colorExpr = generateExpr(ctx, colorNode);
-    
+
     // check if we have any fragment inputs (varyings or builtins)
     const hasFragCoord = ctx.builtins.has('position');
     const hasInputs = ctx.varyings.size > 0 || hasFragCoord;
-    
+
     // emit input struct only if we have inputs (WGSL structs must have at least one member)
     if (hasInputs) {
         lines.push('struct FragmentInput {');
@@ -2200,11 +2263,11 @@ function generateFragmentShader(colorNode: Node<d.Any>, ctx: BuildContext, varyi
         lines.push('}');
         lines.push('');
     }
-    
+
     // check for MRT
     const isMRT = colorNode instanceof MRTNode;
-    const mrtNode = isMRT ? colorNode as MRTNode : null;
-    
+    const mrtNode = isMRT ? (colorNode as MRTNode) : null;
+
     // Pre-generate all MRT output expressions NOW so that CSE let-declarations
     // are pushed into ctx.code before we emit the function body.
     // (For non-MRT, colorExpr above already did this.)
@@ -2230,7 +2293,7 @@ function generateFragmentShader(colorNode: Node<d.Any>, ctx: BuildContext, varyi
     if (isMRT && mrtNode) {
         // generate MRT output struct with all outputs
         lines.push('struct FragmentOutput {');
-        
+
         // use members array (populated by resolveOutputs) for @location order
         // fall back to outputNodes keys if members not resolved yet
         if (mrtNode.members.length > 0) {
@@ -2250,12 +2313,12 @@ function generateFragmentShader(colorNode: Node<d.Any>, ctx: BuildContext, varyi
                 loc++;
             }
         }
-        
+
         lines.push('}');
     }
-    
+
     lines.push('');
-    
+
     // emit main function - omit input parameter if no inputs
     lines.push('@fragment');
     if (isMRT && mrtNode) {
@@ -2272,9 +2335,9 @@ function generateFragmentShader(colorNode: Node<d.Any>, ctx: BuildContext, varyi
             lines.push('fn fs_main() -> @location(0) vec4f {');
         }
     }
-    
+
     lines.push(...ctx.code);
-    
+
     if (isMRT && mrtExprs) {
         // Use pre-generated expressions (generated before ctx.code was emitted)
         for (const { name, expr } of mrtExprs) {
@@ -2284,9 +2347,9 @@ function generateFragmentShader(colorNode: Node<d.Any>, ctx: BuildContext, varyi
     } else {
         lines.push(`    return ${colorExpr};`);
     }
-    
+
     lines.push('}');
-    
+
     return lines.join('\n');
 }
 
@@ -2294,43 +2357,43 @@ function generateFragmentShader(colorNode: Node<d.Any>, ctx: BuildContext, varyi
 
 function generateComputeShader(node: ComputeNode, ctx: BuildContext): string {
     const lines: string[] = [];
-    
+
     // trace the FnNode
     const fn = node.fn;
     const traced = fn.trace();
-    
+
     // generate statements from body
     for (const stmt of traced.body.body) {
         generateStmt(ctx, stmt);
     }
-    
+
     // generate output if non-void
     if (fn.type.wgslType !== 'void') {
         const outputExpr = generateExpr(ctx, traced.output);
         ctx.code.push(`    // Output: ${outputExpr}`);
     }
-    
+
     // build workgroup size
     const wgSize = node.workgroupSize ?? [64, 1, 1];
     const [WX, WY, WZ] = wgSize;
-    
+
     // check if computeIndex is used
     const usesComputeIndex = (ctx.usageCount.get(computeIndex.id) ?? 0) > 0;
-    
+
     if (usesComputeIndex) {
         // computeIndex depends on global_id and num_workgroups
         ctx.builtins.add('global_invocation_id');
         ctx.builtins.add('num_workgroups');
-        
+
         // emit private variable for computeIndex
         lines.push('var<private> computeIndex: u32;');
         lines.push('');
     }
-    
+
     // emit main function
     lines.push(`@compute @workgroup_size(${WX}, ${WY}, ${WZ})`);
     lines.push('fn cs_main(');
-    
+
     const builtinParams: string[] = [];
     if (ctx.builtins.has('global_invocation_id')) {
         builtinParams.push('    @builtin(global_invocation_id) global_id: vec3u');
@@ -2347,17 +2410,19 @@ function generateComputeShader(node: ComputeNode, ctx: BuildContext): string {
     if (ctx.builtins.has('num_workgroups')) {
         builtinParams.push('    @builtin(num_workgroups) num_workgroups: vec3u');
     }
-    
+
     lines.push(builtinParams.join(',\n'));
     lines.push(') {');
-    
+
     // compute linearized index at start of function (only if used)
     if (usesComputeIndex) {
-        lines.push(`    computeIndex = global_id.x + global_id.y * (${WX}u * num_workgroups.x) + global_id.z * (${WX}u * num_workgroups.x) * (${WY}u * num_workgroups.y);`);
+        lines.push(
+            `    computeIndex = global_id.x + global_id.y * (${WX}u * num_workgroups.x) + global_id.z * (${WX}u * num_workgroups.x) * (${WY}u * num_workgroups.y);`,
+        );
     }
-    
+
     lines.push(...ctx.code);
     lines.push('}');
-    
+
     return lines.join('\n');
 }

@@ -12,6 +12,7 @@ import { createBoxGeometry, createCylinderGeometry, createTorusGeometry, createO
 import { positionClip } from '../nodes/nodes';
 import { uniform } from '../nodes/nodes';
 import { createVertexBuffer, createIndexBuffer } from '../core/gpu-buffer';
+import { OrthographicCamera } from '../camera/orthographic-camera';
 
 // ============================================================================
 // Types
@@ -664,8 +665,8 @@ class TransformControlsGizmo extends Object3D {
 
             // constant screen-size factor
             let factor: number;
-            if (this.camera && (this.camera as any).isOrthographicCamera) {
-                const ortho = this.camera as any;
+            if (this.camera && this.camera instanceof OrthographicCamera) {
+                const ortho = this.camera;
                 factor = (ortho.top - ortho.bottom) / ortho.zoom;
             } else if (this.camera) {
                 const cam = this.camera as any;
@@ -849,7 +850,7 @@ class TransformControlsRoot extends Object3D {
             controls.camera.matrixWorld,
         );
 
-        if ((controls.camera as any).isOrthographicCamera) {
+        if (controls.camera instanceof OrthographicCamera) {
             controls.camera.getWorldDirection(controls.eye);
             vec3.negate(controls.eye, controls.eye);
         } else {

@@ -899,10 +899,18 @@ var schema = /*#__PURE__*/Object.freeze({
 let _nodeId = 0;
 // ─── Runtime type lookup tables ───────────────────────────────────────────────
 const VEC_ELEMENT = {
-    vec2f: 'f32', vec3f: 'f32', vec4f: 'f32',
-    vec2i: 'i32', vec3i: 'i32', vec4i: 'i32',
-    vec2u: 'u32', vec3u: 'u32', vec4u: 'u32',
-    vec2h: 'f16', vec3h: 'f16', vec4h: 'f16',
+    vec2f: 'f32',
+    vec3f: 'f32',
+    vec4f: 'f32',
+    vec2i: 'i32',
+    vec3i: 'i32',
+    vec4i: 'i32',
+    vec2u: 'u32',
+    vec3u: 'u32',
+    vec4u: 'u32',
+    vec2h: 'f16',
+    vec3h: 'f16',
+    vec4h: 'f16',
 };
 new Set(Object.keys(VEC_ELEMENT));
 // ─── Stack context ────────────────────────────────────────────────────────────
@@ -912,7 +920,9 @@ function pushStack(stack) {
     currentStack = stack;
     return prev;
 }
-function popStack(prev) { currentStack = prev; }
+function popStack(prev) {
+    currentStack = prev;
+}
 function addToStack(node) {
     if (currentStack === null)
         throw new Error(`[gpucat] Control flow (toVar, If, For, Return, Discard) must be called inside a Fn body. ` +
@@ -945,25 +955,43 @@ class Node {
         this.update = callback;
         return this;
     }
-    onRenderUpdate(callback) { return this.onUpdate(callback, NodeUpdateType.RENDER); }
-    onObjectUpdate(callback) { return this.onUpdate(callback, NodeUpdateType.OBJECT); }
-    onFrameUpdate(callback) { return this.onUpdate(callback, NodeUpdateType.FRAME); }
+    onRenderUpdate(callback) {
+        return this.onUpdate(callback, NodeUpdateType.RENDER);
+    }
+    onObjectUpdate(callback) {
+        return this.onUpdate(callback, NodeUpdateType.OBJECT);
+    }
+    onFrameUpdate(callback) {
+        return this.onUpdate(callback, NodeUpdateType.FRAME);
+    }
     onBeforeUpdate(callback, updateType) {
         this.updateBeforeType = updateType;
         this.updateBefore = callback;
         return this;
     }
-    onBeforeRender(callback) { return this.onBeforeUpdate(callback, NodeUpdateType.RENDER); }
-    onBeforeObject(callback) { return this.onBeforeUpdate(callback, NodeUpdateType.OBJECT); }
-    onBeforeFrame(callback) { return this.onBeforeUpdate(callback, NodeUpdateType.FRAME); }
+    onBeforeRender(callback) {
+        return this.onBeforeUpdate(callback, NodeUpdateType.RENDER);
+    }
+    onBeforeObject(callback) {
+        return this.onBeforeUpdate(callback, NodeUpdateType.OBJECT);
+    }
+    onBeforeFrame(callback) {
+        return this.onBeforeUpdate(callback, NodeUpdateType.FRAME);
+    }
     onAfterUpdate(callback, updateType) {
         this.updateAfterType = updateType;
         this.updateAfter = callback;
         return this;
     }
-    onAfterRender(callback) { return this.onAfterUpdate(callback, NodeUpdateType.RENDER); }
-    onAfterObject(callback) { return this.onAfterUpdate(callback, NodeUpdateType.OBJECT); }
-    onAfterFrame(callback) { return this.onAfterUpdate(callback, NodeUpdateType.FRAME); }
+    onAfterRender(callback) {
+        return this.onAfterUpdate(callback, NodeUpdateType.RENDER);
+    }
+    onAfterObject(callback) {
+        return this.onAfterUpdate(callback, NodeUpdateType.OBJECT);
+    }
+    onAfterFrame(callback) {
+        return this.onAfterUpdate(callback, NodeUpdateType.FRAME);
+    }
     before(node) {
         if (this._beforeNodes === null)
             this._beforeNodes = [];
@@ -971,10 +999,18 @@ class Node {
         return this;
     }
     // ── Type conversions ──────────────────────────────────────────────────────
-    toF32() { return new CallNode(f32$1, 'f32', [this]); }
-    toF16() { return new CallNode(f16$1, 'f16', [this]); }
-    toU32() { return new CallNode(u32$1, 'u32', [this]); }
-    toI32() { return new CallNode(i32$1, 'i32', [this]); }
+    toF32() {
+        return new CallNode(f32$1, 'f32', [this]);
+    }
+    toF16() {
+        return new CallNode(f16$1, 'f16', [this]);
+    }
+    toU32() {
+        return new CallNode(u32$1, 'u32', [this]);
+    }
+    toI32() {
+        return new CallNode(i32$1, 'i32', [this]);
+    }
     // ── Field access ──────────────────────────────────────────────────────────
     field(name) {
         return field(this, name);
@@ -983,40 +1019,104 @@ class Node {
         return fields(this);
     }
     // ── Comparisons ───────────────────────────────────────────────────────────
-    greaterThan(b) { return greaterThan(this, b); }
-    lessThan(b) { return lessThan(this, b); }
-    greaterThanEqual(b) { return greaterThanEqual(this, b); }
-    lessThanEqual(b) { return lessThanEqual(this, b); }
-    equal(b) { return equal(this, b); }
-    notEqual(b) { return notEqual(this, b); }
+    greaterThan(b) {
+        return greaterThan(this, b);
+    }
+    lessThan(b) {
+        return lessThan(this, b);
+    }
+    greaterThanEqual(b) {
+        return greaterThanEqual(this, b);
+    }
+    lessThanEqual(b) {
+        return lessThanEqual(this, b);
+    }
+    equal(b) {
+        return equal(this, b);
+    }
+    notEqual(b) {
+        return notEqual(this, b);
+    }
     /** `select(falseVal, trueVal, this)` — use `this` node as the condition. */
-    select(ifTrue, ifFalse) { return new CondNode(this, ifTrue, ifFalse); }
-    any() { return any(this); }
-    all() { return all(this); }
+    select(ifTrue, ifFalse) {
+        return new CondNode(this, ifTrue, ifFalse);
+    }
+    any() {
+        return any(this);
+    }
+    all() {
+        return all(this);
+    }
     // ── Math ──────────────────────────────────────────────────────────────────
-    add(b) { return add$1(this, b); }
-    sub(b) { return sub(this, b); }
-    div(b) { return div(this, b); }
-    mul(b) { return mul(this, b); }
-    abs() { return abs(this); }
-    floor() { return floor(this); }
-    ceil() { return ceil(this); }
-    fract() { return fract(this); }
-    sqrt() { return sqrt(this); }
-    sin() { return sin(this); }
-    cos() { return cos(this); }
-    negate() { return negate$1(this); }
-    normalize() { return normalize$4(this); }
-    length() { return length$1(this); }
-    dot(b) { return dot$1(this, b); }
-    cross(b) { return cross$1(this, b); }
-    pow(b) { return pow(this, b); }
-    max(b) { return max(this, b); }
-    min(b) { return min(this, b); }
-    clamp(lo, hi) { return clamp(this, lo, hi); }
-    mix(b, t) { return mix(this, b, t); }
-    step(x) { return step(this, x); }
-    smoothstep(hi, x) { return smoothstep(this, hi, x); }
+    add(b) {
+        return add$1(this, b);
+    }
+    sub(b) {
+        return sub(this, b);
+    }
+    div(b) {
+        return div(this, b);
+    }
+    mul(b) {
+        return mul(this, b);
+    }
+    abs() {
+        return abs(this);
+    }
+    floor() {
+        return floor(this);
+    }
+    ceil() {
+        return ceil(this);
+    }
+    fract() {
+        return fract(this);
+    }
+    sqrt() {
+        return sqrt(this);
+    }
+    sin() {
+        return sin(this);
+    }
+    cos() {
+        return cos(this);
+    }
+    negate() {
+        return negate$1(this);
+    }
+    normalize() {
+        return normalize$4(this);
+    }
+    length() {
+        return length$1(this);
+    }
+    dot(b) {
+        return dot$1(this, b);
+    }
+    cross(b) {
+        return cross$1(this, b);
+    }
+    pow(b) {
+        return pow(this, b);
+    }
+    max(b) {
+        return max(this, b);
+    }
+    min(b) {
+        return min(this, b);
+    }
+    clamp(lo, hi) {
+        return clamp(this, lo, hi);
+    }
+    mix(b, t) {
+        return mix(this, b, t);
+    }
+    step(x) {
+        return step(this, x);
+    }
+    smoothstep(hi, x) {
+        return smoothstep(this, hi, x);
+    }
     // ── Element access ────────────────────────────────────────────────────────
     element(idx) {
         const t = this.type;
@@ -1032,242 +1132,712 @@ class Node {
         throw new Error(`[gpucat] Cannot index into type '${t.wgslType}' — only array, matrix, and vector types support .element().`);
     }
     // ── Lang ──────────────────────────────────────────────────────────────────
-    assign(value) { addToStack(new AssignNode(this, value)); }
-    toVar(label) { return Var(this, label); }
-    toConst(label) { return Let(this, label); }
-    addAssign(v) { addToStack(new AssignNode(this, add$1(this, v))); }
-    subAssign(v) { addToStack(new AssignNode(this, sub(this, v))); }
-    mulAssign(v) { addToStack(new AssignNode(this, mul(this, v))); }
-    divAssign(v) { addToStack(new AssignNode(this, div(this, v))); }
-    sign() { return sign(this); }
-    mod(b) { return mod(this, b); }
-    oneMinus() { return sub(f32(1), this); }
-    or(b) { return or(this, b); }
-    and(b) { return and(this, b); }
-    not() { return not(this); }
-    bitwiseAnd(b) { return bitwiseAnd(this, b); }
-    bitwiseOr(b) { return bitwiseOr(this, b); }
-    bitwiseXor(b) { return bitwiseXor(this, b); }
-    shiftLeft(b) { return shiftLeft(this, b); }
-    shiftRight(b) { return shiftRight(this, b); }
-    transpose() { return new CallNode(this.type, 'transpose', [this]); }
+    assign(value) {
+        addToStack(new AssignNode(this, value));
+    }
+    toVar(label) {
+        return Var(this, label);
+    }
+    toConst(label) {
+        return Let(this, label);
+    }
+    addAssign(v) {
+        addToStack(new AssignNode(this, add$1(this, v)));
+    }
+    subAssign(v) {
+        addToStack(new AssignNode(this, sub(this, v)));
+    }
+    mulAssign(v) {
+        addToStack(new AssignNode(this, mul(this, v)));
+    }
+    divAssign(v) {
+        addToStack(new AssignNode(this, div(this, v)));
+    }
+    sign() {
+        return sign(this);
+    }
+    mod(b) {
+        return mod(this, b);
+    }
+    oneMinus() {
+        return sub(f32(1), this);
+    }
+    or(b) {
+        return or(this, b);
+    }
+    and(b) {
+        return and(this, b);
+    }
+    not() {
+        return not(this);
+    }
+    bitwiseAnd(b) {
+        return bitwiseAnd(this, b);
+    }
+    bitwiseOr(b) {
+        return bitwiseOr(this, b);
+    }
+    bitwiseXor(b) {
+        return bitwiseXor(this, b);
+    }
+    shiftLeft(b) {
+        return shiftLeft(this, b);
+    }
+    shiftRight(b) {
+        return shiftRight(this, b);
+    }
+    transpose() {
+        return new CallNode(this.type, 'transpose', [this]);
+    }
     // ── Swizzles ──────────────────────────────────────────────────────────────
-    get x() { return new FieldNode(vecElementDescOrSelf(this.type), this, 'x'); }
-    get y() { return new FieldNode(vecElementDescOrSelf(this.type), this, 'y'); }
-    get z() { return new FieldNode(vecElementDescOrSelf(this.type), this, 'z'); }
-    get w() { return new FieldNode(vecElementDescOrSelf(this.type), this, 'w'); }
-    get r() { return new FieldNode(vecElementDescOrSelf(this.type), this, 'x'); }
-    get g() { return new FieldNode(vecElementDescOrSelf(this.type), this, 'y'); }
-    get b() { return new FieldNode(vecElementDescOrSelf(this.type), this, 'z'); }
-    get a() { return new FieldNode(vecElementDescOrSelf(this.type), this, 'w'); }
-    get xx() { return new FieldNode(vec2DescOf(this.type), this, 'xx'); }
-    get xy() { return new FieldNode(vec2DescOf(this.type), this, 'xy'); }
-    get xz() { return new FieldNode(vec2DescOf(this.type), this, 'xz'); }
-    get xw() { return new FieldNode(vec2DescOf(this.type), this, 'xw'); }
-    get yx() { return new FieldNode(vec2DescOf(this.type), this, 'yx'); }
-    get yy() { return new FieldNode(vec2DescOf(this.type), this, 'yy'); }
-    get yz() { return new FieldNode(vec2DescOf(this.type), this, 'yz'); }
-    get yw() { return new FieldNode(vec2DescOf(this.type), this, 'yw'); }
-    get zx() { return new FieldNode(vec2DescOf(this.type), this, 'zx'); }
-    get zy() { return new FieldNode(vec2DescOf(this.type), this, 'zy'); }
-    get zz() { return new FieldNode(vec2DescOf(this.type), this, 'zz'); }
-    get zw() { return new FieldNode(vec2DescOf(this.type), this, 'zw'); }
-    get wx() { return new FieldNode(vec2DescOf(this.type), this, 'wx'); }
-    get wy() { return new FieldNode(vec2DescOf(this.type), this, 'wy'); }
-    get wz() { return new FieldNode(vec2DescOf(this.type), this, 'wz'); }
-    get ww() { return new FieldNode(vec2DescOf(this.type), this, 'ww'); }
-    get rr() { return new FieldNode(vec2DescOf(this.type), this, 'xx'); }
-    get rg() { return new FieldNode(vec2DescOf(this.type), this, 'xy'); }
-    get rb() { return new FieldNode(vec2DescOf(this.type), this, 'xz'); }
-    get ra() { return new FieldNode(vec2DescOf(this.type), this, 'xw'); }
-    get gr() { return new FieldNode(vec2DescOf(this.type), this, 'yx'); }
-    get gg() { return new FieldNode(vec2DescOf(this.type), this, 'yy'); }
-    get gb() { return new FieldNode(vec2DescOf(this.type), this, 'yz'); }
-    get ga() { return new FieldNode(vec2DescOf(this.type), this, 'yw'); }
-    get br() { return new FieldNode(vec2DescOf(this.type), this, 'zx'); }
-    get bg() { return new FieldNode(vec2DescOf(this.type), this, 'zy'); }
-    get bb() { return new FieldNode(vec2DescOf(this.type), this, 'zz'); }
-    get ba() { return new FieldNode(vec2DescOf(this.type), this, 'zw'); }
-    get ar() { return new FieldNode(vec2DescOf(this.type), this, 'wx'); }
-    get ag() { return new FieldNode(vec2DescOf(this.type), this, 'wy'); }
-    get ab() { return new FieldNode(vec2DescOf(this.type), this, 'wz'); }
-    get aa() { return new FieldNode(vec2DescOf(this.type), this, 'ww'); }
-    get xxx() { return new FieldNode(vec3DescOf(this.type), this, 'xxx'); }
-    get xxy() { return new FieldNode(vec3DescOf(this.type), this, 'xxy'); }
-    get xxz() { return new FieldNode(vec3DescOf(this.type), this, 'xxz'); }
-    get xxw() { return new FieldNode(vec3DescOf(this.type), this, 'xxw'); }
-    get xyx() { return new FieldNode(vec3DescOf(this.type), this, 'xyx'); }
-    get xyy() { return new FieldNode(vec3DescOf(this.type), this, 'xyy'); }
-    get xyz() { return new FieldNode(vec3DescOf(this.type), this, 'xyz'); }
-    get xyw() { return new FieldNode(vec3DescOf(this.type), this, 'xyw'); }
-    get xzx() { return new FieldNode(vec3DescOf(this.type), this, 'xzx'); }
-    get xzy() { return new FieldNode(vec3DescOf(this.type), this, 'xzy'); }
-    get xzz() { return new FieldNode(vec3DescOf(this.type), this, 'xzz'); }
-    get xzw() { return new FieldNode(vec3DescOf(this.type), this, 'xzw'); }
-    get xwx() { return new FieldNode(vec3DescOf(this.type), this, 'xwx'); }
-    get xwy() { return new FieldNode(vec3DescOf(this.type), this, 'xwy'); }
-    get xwz() { return new FieldNode(vec3DescOf(this.type), this, 'xwz'); }
-    get xww() { return new FieldNode(vec3DescOf(this.type), this, 'xww'); }
-    get yxx() { return new FieldNode(vec3DescOf(this.type), this, 'yxx'); }
-    get yxy() { return new FieldNode(vec3DescOf(this.type), this, 'yxy'); }
-    get yxz() { return new FieldNode(vec3DescOf(this.type), this, 'yxz'); }
-    get yxw() { return new FieldNode(vec3DescOf(this.type), this, 'yxw'); }
-    get yyx() { return new FieldNode(vec3DescOf(this.type), this, 'yyx'); }
-    get yyy() { return new FieldNode(vec3DescOf(this.type), this, 'yyy'); }
-    get yyz() { return new FieldNode(vec3DescOf(this.type), this, 'yyz'); }
-    get yyw() { return new FieldNode(vec3DescOf(this.type), this, 'yyw'); }
-    get yzx() { return new FieldNode(vec3DescOf(this.type), this, 'yzx'); }
-    get yzy() { return new FieldNode(vec3DescOf(this.type), this, 'yzy'); }
-    get yzz() { return new FieldNode(vec3DescOf(this.type), this, 'yzz'); }
-    get yzw() { return new FieldNode(vec3DescOf(this.type), this, 'yzw'); }
-    get ywx() { return new FieldNode(vec3DescOf(this.type), this, 'ywx'); }
-    get ywy() { return new FieldNode(vec3DescOf(this.type), this, 'ywy'); }
-    get ywz() { return new FieldNode(vec3DescOf(this.type), this, 'ywz'); }
-    get yww() { return new FieldNode(vec3DescOf(this.type), this, 'yww'); }
-    get zxx() { return new FieldNode(vec3DescOf(this.type), this, 'zxx'); }
-    get zxy() { return new FieldNode(vec3DescOf(this.type), this, 'zxy'); }
-    get zxz() { return new FieldNode(vec3DescOf(this.type), this, 'zxz'); }
-    get zxw() { return new FieldNode(vec3DescOf(this.type), this, 'zxw'); }
-    get zyx() { return new FieldNode(vec3DescOf(this.type), this, 'zyx'); }
-    get zyy() { return new FieldNode(vec3DescOf(this.type), this, 'zyy'); }
-    get zyz() { return new FieldNode(vec3DescOf(this.type), this, 'zyz'); }
-    get zyw() { return new FieldNode(vec3DescOf(this.type), this, 'zyw'); }
-    get zzx() { return new FieldNode(vec3DescOf(this.type), this, 'zzx'); }
-    get zzy() { return new FieldNode(vec3DescOf(this.type), this, 'zzy'); }
-    get zzz() { return new FieldNode(vec3DescOf(this.type), this, 'zzz'); }
-    get zzw() { return new FieldNode(vec3DescOf(this.type), this, 'zzw'); }
-    get zwx() { return new FieldNode(vec3DescOf(this.type), this, 'zwx'); }
-    get zwy() { return new FieldNode(vec3DescOf(this.type), this, 'zwy'); }
-    get zwz() { return new FieldNode(vec3DescOf(this.type), this, 'zwz'); }
-    get zww() { return new FieldNode(vec3DescOf(this.type), this, 'zww'); }
-    get wxx() { return new FieldNode(vec3DescOf(this.type), this, 'wxx'); }
-    get wxy() { return new FieldNode(vec3DescOf(this.type), this, 'wxy'); }
-    get wxz() { return new FieldNode(vec3DescOf(this.type), this, 'wxz'); }
-    get wxw() { return new FieldNode(vec3DescOf(this.type), this, 'wxw'); }
-    get wyx() { return new FieldNode(vec3DescOf(this.type), this, 'wyx'); }
-    get wyy() { return new FieldNode(vec3DescOf(this.type), this, 'wyy'); }
-    get wyz() { return new FieldNode(vec3DescOf(this.type), this, 'wyz'); }
-    get wyw() { return new FieldNode(vec3DescOf(this.type), this, 'wyw'); }
-    get wzx() { return new FieldNode(vec3DescOf(this.type), this, 'wzx'); }
-    get wzy() { return new FieldNode(vec3DescOf(this.type), this, 'wzy'); }
-    get wzz() { return new FieldNode(vec3DescOf(this.type), this, 'wzz'); }
-    get wzw() { return new FieldNode(vec3DescOf(this.type), this, 'wzw'); }
-    get wwx() { return new FieldNode(vec3DescOf(this.type), this, 'wwx'); }
-    get wwy() { return new FieldNode(vec3DescOf(this.type), this, 'wwy'); }
-    get wwz() { return new FieldNode(vec3DescOf(this.type), this, 'wwz'); }
-    get www() { return new FieldNode(vec3DescOf(this.type), this, 'www'); }
-    get rrr() { return new FieldNode(vec3DescOf(this.type), this, 'xxx'); }
-    get rrg() { return new FieldNode(vec3DescOf(this.type), this, 'xxy'); }
-    get rrb() { return new FieldNode(vec3DescOf(this.type), this, 'xxz'); }
-    get rra() { return new FieldNode(vec3DescOf(this.type), this, 'xxw'); }
-    get rgr() { return new FieldNode(vec3DescOf(this.type), this, 'xyx'); }
-    get rgg() { return new FieldNode(vec3DescOf(this.type), this, 'xyy'); }
-    get rgb() { return new FieldNode(vec3DescOf(this.type), this, 'xyz'); }
-    get rga() { return new FieldNode(vec3DescOf(this.type), this, 'xyw'); }
-    get rbr() { return new FieldNode(vec3DescOf(this.type), this, 'xzx'); }
-    get rbg() { return new FieldNode(vec3DescOf(this.type), this, 'xzy'); }
-    get rbb() { return new FieldNode(vec3DescOf(this.type), this, 'xzz'); }
-    get rba() { return new FieldNode(vec3DescOf(this.type), this, 'xzw'); }
-    get rar() { return new FieldNode(vec3DescOf(this.type), this, 'xwx'); }
-    get rag() { return new FieldNode(vec3DescOf(this.type), this, 'xwy'); }
-    get rab() { return new FieldNode(vec3DescOf(this.type), this, 'xwz'); }
-    get raa() { return new FieldNode(vec3DescOf(this.type), this, 'xww'); }
-    get grr() { return new FieldNode(vec3DescOf(this.type), this, 'yxx'); }
-    get grg() { return new FieldNode(vec3DescOf(this.type), this, 'yxy'); }
-    get grb() { return new FieldNode(vec3DescOf(this.type), this, 'yxz'); }
-    get gra() { return new FieldNode(vec3DescOf(this.type), this, 'yxw'); }
-    get ggr() { return new FieldNode(vec3DescOf(this.type), this, 'yyx'); }
-    get ggg() { return new FieldNode(vec3DescOf(this.type), this, 'yyy'); }
-    get ggb() { return new FieldNode(vec3DescOf(this.type), this, 'yyz'); }
-    get gga() { return new FieldNode(vec3DescOf(this.type), this, 'yyw'); }
-    get gbr() { return new FieldNode(vec3DescOf(this.type), this, 'yzx'); }
-    get gbg() { return new FieldNode(vec3DescOf(this.type), this, 'yzy'); }
-    get gbb() { return new FieldNode(vec3DescOf(this.type), this, 'yzz'); }
-    get gba() { return new FieldNode(vec3DescOf(this.type), this, 'yzw'); }
-    get gar() { return new FieldNode(vec3DescOf(this.type), this, 'ywx'); }
-    get gag() { return new FieldNode(vec3DescOf(this.type), this, 'ywy'); }
-    get gab() { return new FieldNode(vec3DescOf(this.type), this, 'ywz'); }
-    get gaa() { return new FieldNode(vec3DescOf(this.type), this, 'yww'); }
-    get brr() { return new FieldNode(vec3DescOf(this.type), this, 'zxx'); }
-    get brg() { return new FieldNode(vec3DescOf(this.type), this, 'zxy'); }
-    get brb() { return new FieldNode(vec3DescOf(this.type), this, 'zxz'); }
-    get bra() { return new FieldNode(vec3DescOf(this.type), this, 'zxw'); }
-    get bgr() { return new FieldNode(vec3DescOf(this.type), this, 'zyx'); }
-    get bgg() { return new FieldNode(vec3DescOf(this.type), this, 'zyy'); }
-    get bgb() { return new FieldNode(vec3DescOf(this.type), this, 'zyz'); }
-    get bga() { return new FieldNode(vec3DescOf(this.type), this, 'zyw'); }
-    get bbr() { return new FieldNode(vec3DescOf(this.type), this, 'zzx'); }
-    get bbg() { return new FieldNode(vec3DescOf(this.type), this, 'zzy'); }
-    get bbb() { return new FieldNode(vec3DescOf(this.type), this, 'zzz'); }
-    get bba() { return new FieldNode(vec3DescOf(this.type), this, 'zzw'); }
-    get bar() { return new FieldNode(vec3DescOf(this.type), this, 'zwx'); }
-    get bag() { return new FieldNode(vec3DescOf(this.type), this, 'zwy'); }
-    get bab() { return new FieldNode(vec3DescOf(this.type), this, 'zwz'); }
-    get baa() { return new FieldNode(vec3DescOf(this.type), this, 'zww'); }
-    get arr() { return new FieldNode(vec3DescOf(this.type), this, 'wxx'); }
-    get arg() { return new FieldNode(vec3DescOf(this.type), this, 'wxy'); }
-    get arb() { return new FieldNode(vec3DescOf(this.type), this, 'wxz'); }
-    get ara() { return new FieldNode(vec3DescOf(this.type), this, 'wxw'); }
-    get agr() { return new FieldNode(vec3DescOf(this.type), this, 'wyx'); }
-    get agg() { return new FieldNode(vec3DescOf(this.type), this, 'wyy'); }
-    get agb() { return new FieldNode(vec3DescOf(this.type), this, 'wyz'); }
-    get aga() { return new FieldNode(vec3DescOf(this.type), this, 'wyw'); }
-    get abr() { return new FieldNode(vec3DescOf(this.type), this, 'wzx'); }
-    get abg() { return new FieldNode(vec3DescOf(this.type), this, 'wzy'); }
-    get abb() { return new FieldNode(vec3DescOf(this.type), this, 'wzz'); }
-    get aba() { return new FieldNode(vec3DescOf(this.type), this, 'wzw'); }
-    get aar() { return new FieldNode(vec3DescOf(this.type), this, 'wwx'); }
-    get aag() { return new FieldNode(vec3DescOf(this.type), this, 'wwy'); }
-    get aab() { return new FieldNode(vec3DescOf(this.type), this, 'wwz'); }
-    get aaa() { return new FieldNode(vec3DescOf(this.type), this, 'www'); }
-    get xyzw() { return new FieldNode(vec4DescOf(this.type), this, 'xyzw'); }
-    get xywz() { return new FieldNode(vec4DescOf(this.type), this, 'xywz'); }
-    get xzyw() { return new FieldNode(vec4DescOf(this.type), this, 'xzyw'); }
-    get xzwy() { return new FieldNode(vec4DescOf(this.type), this, 'xzwy'); }
-    get xwyz() { return new FieldNode(vec4DescOf(this.type), this, 'xwyz'); }
-    get xwzy() { return new FieldNode(vec4DescOf(this.type), this, 'xwzy'); }
-    get yxzw() { return new FieldNode(vec4DescOf(this.type), this, 'yxzw'); }
-    get yxwz() { return new FieldNode(vec4DescOf(this.type), this, 'yxwz'); }
-    get yzxw() { return new FieldNode(vec4DescOf(this.type), this, 'yzxw'); }
-    get yzwx() { return new FieldNode(vec4DescOf(this.type), this, 'yzwx'); }
-    get ywxz() { return new FieldNode(vec4DescOf(this.type), this, 'ywxz'); }
-    get ywzx() { return new FieldNode(vec4DescOf(this.type), this, 'ywzx'); }
-    get zxyw() { return new FieldNode(vec4DescOf(this.type), this, 'zxyw'); }
-    get zxwy() { return new FieldNode(vec4DescOf(this.type), this, 'zxwy'); }
-    get zyxw() { return new FieldNode(vec4DescOf(this.type), this, 'zyxw'); }
-    get zywx() { return new FieldNode(vec4DescOf(this.type), this, 'zywx'); }
-    get zwxy() { return new FieldNode(vec4DescOf(this.type), this, 'zwxy'); }
-    get zwyx() { return new FieldNode(vec4DescOf(this.type), this, 'zwyx'); }
-    get wxyz() { return new FieldNode(vec4DescOf(this.type), this, 'wxyz'); }
-    get wxzy() { return new FieldNode(vec4DescOf(this.type), this, 'wxzy'); }
-    get wyxz() { return new FieldNode(vec4DescOf(this.type), this, 'wyxz'); }
-    get wyzx() { return new FieldNode(vec4DescOf(this.type), this, 'wyzx'); }
-    get wzxy() { return new FieldNode(vec4DescOf(this.type), this, 'wzxy'); }
-    get wzyx() { return new FieldNode(vec4DescOf(this.type), this, 'wzyx'); }
-    get rgba() { return new FieldNode(vec4DescOf(this.type), this, 'xyzw'); }
-    get rgab() { return new FieldNode(vec4DescOf(this.type), this, 'xywz'); }
-    get rbga() { return new FieldNode(vec4DescOf(this.type), this, 'xzyw'); }
-    get rbag() { return new FieldNode(vec4DescOf(this.type), this, 'xzwy'); }
-    get ragb() { return new FieldNode(vec4DescOf(this.type), this, 'xwyz'); }
-    get rabg() { return new FieldNode(vec4DescOf(this.type), this, 'xwzy'); }
-    get grba() { return new FieldNode(vec4DescOf(this.type), this, 'yxzw'); }
-    get grab() { return new FieldNode(vec4DescOf(this.type), this, 'yxwz'); }
-    get gbra() { return new FieldNode(vec4DescOf(this.type), this, 'yzxw'); }
-    get gbar() { return new FieldNode(vec4DescOf(this.type), this, 'yzwx'); }
-    get garb() { return new FieldNode(vec4DescOf(this.type), this, 'ywxz'); }
-    get gabr() { return new FieldNode(vec4DescOf(this.type), this, 'ywzx'); }
-    get brga() { return new FieldNode(vec4DescOf(this.type), this, 'zxyw'); }
-    get brag() { return new FieldNode(vec4DescOf(this.type), this, 'zxwy'); }
-    get bgra() { return new FieldNode(vec4DescOf(this.type), this, 'zyxw'); }
-    get bgar() { return new FieldNode(vec4DescOf(this.type), this, 'zywx'); }
-    get barg() { return new FieldNode(vec4DescOf(this.type), this, 'zwxy'); }
-    get bagr() { return new FieldNode(vec4DescOf(this.type), this, 'zwyx'); }
-    get argb() { return new FieldNode(vec4DescOf(this.type), this, 'wxyz'); }
-    get arbg() { return new FieldNode(vec4DescOf(this.type), this, 'wxzy'); }
-    get agrb() { return new FieldNode(vec4DescOf(this.type), this, 'wyxz'); }
-    get agbr() { return new FieldNode(vec4DescOf(this.type), this, 'wyzx'); }
-    get abrg() { return new FieldNode(vec4DescOf(this.type), this, 'wzxy'); }
-    get abgr() { return new FieldNode(vec4DescOf(this.type), this, 'wzyx'); }
+    get x() {
+        return new FieldNode(vecElementDescOrSelf(this.type), this, 'x');
+    }
+    get y() {
+        return new FieldNode(vecElementDescOrSelf(this.type), this, 'y');
+    }
+    get z() {
+        return new FieldNode(vecElementDescOrSelf(this.type), this, 'z');
+    }
+    get w() {
+        return new FieldNode(vecElementDescOrSelf(this.type), this, 'w');
+    }
+    get r() {
+        return new FieldNode(vecElementDescOrSelf(this.type), this, 'x');
+    }
+    get g() {
+        return new FieldNode(vecElementDescOrSelf(this.type), this, 'y');
+    }
+    get b() {
+        return new FieldNode(vecElementDescOrSelf(this.type), this, 'z');
+    }
+    get a() {
+        return new FieldNode(vecElementDescOrSelf(this.type), this, 'w');
+    }
+    get xx() {
+        return new FieldNode(vec2DescOf(this.type), this, 'xx');
+    }
+    get xy() {
+        return new FieldNode(vec2DescOf(this.type), this, 'xy');
+    }
+    get xz() {
+        return new FieldNode(vec2DescOf(this.type), this, 'xz');
+    }
+    get xw() {
+        return new FieldNode(vec2DescOf(this.type), this, 'xw');
+    }
+    get yx() {
+        return new FieldNode(vec2DescOf(this.type), this, 'yx');
+    }
+    get yy() {
+        return new FieldNode(vec2DescOf(this.type), this, 'yy');
+    }
+    get yz() {
+        return new FieldNode(vec2DescOf(this.type), this, 'yz');
+    }
+    get yw() {
+        return new FieldNode(vec2DescOf(this.type), this, 'yw');
+    }
+    get zx() {
+        return new FieldNode(vec2DescOf(this.type), this, 'zx');
+    }
+    get zy() {
+        return new FieldNode(vec2DescOf(this.type), this, 'zy');
+    }
+    get zz() {
+        return new FieldNode(vec2DescOf(this.type), this, 'zz');
+    }
+    get zw() {
+        return new FieldNode(vec2DescOf(this.type), this, 'zw');
+    }
+    get wx() {
+        return new FieldNode(vec2DescOf(this.type), this, 'wx');
+    }
+    get wy() {
+        return new FieldNode(vec2DescOf(this.type), this, 'wy');
+    }
+    get wz() {
+        return new FieldNode(vec2DescOf(this.type), this, 'wz');
+    }
+    get ww() {
+        return new FieldNode(vec2DescOf(this.type), this, 'ww');
+    }
+    get rr() {
+        return new FieldNode(vec2DescOf(this.type), this, 'xx');
+    }
+    get rg() {
+        return new FieldNode(vec2DescOf(this.type), this, 'xy');
+    }
+    get rb() {
+        return new FieldNode(vec2DescOf(this.type), this, 'xz');
+    }
+    get ra() {
+        return new FieldNode(vec2DescOf(this.type), this, 'xw');
+    }
+    get gr() {
+        return new FieldNode(vec2DescOf(this.type), this, 'yx');
+    }
+    get gg() {
+        return new FieldNode(vec2DescOf(this.type), this, 'yy');
+    }
+    get gb() {
+        return new FieldNode(vec2DescOf(this.type), this, 'yz');
+    }
+    get ga() {
+        return new FieldNode(vec2DescOf(this.type), this, 'yw');
+    }
+    get br() {
+        return new FieldNode(vec2DescOf(this.type), this, 'zx');
+    }
+    get bg() {
+        return new FieldNode(vec2DescOf(this.type), this, 'zy');
+    }
+    get bb() {
+        return new FieldNode(vec2DescOf(this.type), this, 'zz');
+    }
+    get ba() {
+        return new FieldNode(vec2DescOf(this.type), this, 'zw');
+    }
+    get ar() {
+        return new FieldNode(vec2DescOf(this.type), this, 'wx');
+    }
+    get ag() {
+        return new FieldNode(vec2DescOf(this.type), this, 'wy');
+    }
+    get ab() {
+        return new FieldNode(vec2DescOf(this.type), this, 'wz');
+    }
+    get aa() {
+        return new FieldNode(vec2DescOf(this.type), this, 'ww');
+    }
+    get xxx() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xxx');
+    }
+    get xxy() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xxy');
+    }
+    get xxz() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xxz');
+    }
+    get xxw() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xxw');
+    }
+    get xyx() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xyx');
+    }
+    get xyy() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xyy');
+    }
+    get xyz() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xyz');
+    }
+    get xyw() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xyw');
+    }
+    get xzx() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xzx');
+    }
+    get xzy() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xzy');
+    }
+    get xzz() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xzz');
+    }
+    get xzw() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xzw');
+    }
+    get xwx() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xwx');
+    }
+    get xwy() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xwy');
+    }
+    get xwz() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xwz');
+    }
+    get xww() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xww');
+    }
+    get yxx() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yxx');
+    }
+    get yxy() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yxy');
+    }
+    get yxz() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yxz');
+    }
+    get yxw() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yxw');
+    }
+    get yyx() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yyx');
+    }
+    get yyy() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yyy');
+    }
+    get yyz() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yyz');
+    }
+    get yyw() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yyw');
+    }
+    get yzx() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yzx');
+    }
+    get yzy() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yzy');
+    }
+    get yzz() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yzz');
+    }
+    get yzw() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yzw');
+    }
+    get ywx() {
+        return new FieldNode(vec3DescOf(this.type), this, 'ywx');
+    }
+    get ywy() {
+        return new FieldNode(vec3DescOf(this.type), this, 'ywy');
+    }
+    get ywz() {
+        return new FieldNode(vec3DescOf(this.type), this, 'ywz');
+    }
+    get yww() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yww');
+    }
+    get zxx() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zxx');
+    }
+    get zxy() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zxy');
+    }
+    get zxz() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zxz');
+    }
+    get zxw() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zxw');
+    }
+    get zyx() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zyx');
+    }
+    get zyy() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zyy');
+    }
+    get zyz() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zyz');
+    }
+    get zyw() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zyw');
+    }
+    get zzx() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zzx');
+    }
+    get zzy() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zzy');
+    }
+    get zzz() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zzz');
+    }
+    get zzw() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zzw');
+    }
+    get zwx() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zwx');
+    }
+    get zwy() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zwy');
+    }
+    get zwz() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zwz');
+    }
+    get zww() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zww');
+    }
+    get wxx() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wxx');
+    }
+    get wxy() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wxy');
+    }
+    get wxz() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wxz');
+    }
+    get wxw() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wxw');
+    }
+    get wyx() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wyx');
+    }
+    get wyy() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wyy');
+    }
+    get wyz() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wyz');
+    }
+    get wyw() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wyw');
+    }
+    get wzx() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wzx');
+    }
+    get wzy() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wzy');
+    }
+    get wzz() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wzz');
+    }
+    get wzw() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wzw');
+    }
+    get wwx() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wwx');
+    }
+    get wwy() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wwy');
+    }
+    get wwz() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wwz');
+    }
+    get www() {
+        return new FieldNode(vec3DescOf(this.type), this, 'www');
+    }
+    get rrr() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xxx');
+    }
+    get rrg() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xxy');
+    }
+    get rrb() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xxz');
+    }
+    get rra() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xxw');
+    }
+    get rgr() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xyx');
+    }
+    get rgg() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xyy');
+    }
+    get rgb() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xyz');
+    }
+    get rga() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xyw');
+    }
+    get rbr() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xzx');
+    }
+    get rbg() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xzy');
+    }
+    get rbb() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xzz');
+    }
+    get rba() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xzw');
+    }
+    get rar() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xwx');
+    }
+    get rag() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xwy');
+    }
+    get rab() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xwz');
+    }
+    get raa() {
+        return new FieldNode(vec3DescOf(this.type), this, 'xww');
+    }
+    get grr() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yxx');
+    }
+    get grg() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yxy');
+    }
+    get grb() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yxz');
+    }
+    get gra() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yxw');
+    }
+    get ggr() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yyx');
+    }
+    get ggg() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yyy');
+    }
+    get ggb() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yyz');
+    }
+    get gga() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yyw');
+    }
+    get gbr() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yzx');
+    }
+    get gbg() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yzy');
+    }
+    get gbb() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yzz');
+    }
+    get gba() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yzw');
+    }
+    get gar() {
+        return new FieldNode(vec3DescOf(this.type), this, 'ywx');
+    }
+    get gag() {
+        return new FieldNode(vec3DescOf(this.type), this, 'ywy');
+    }
+    get gab() {
+        return new FieldNode(vec3DescOf(this.type), this, 'ywz');
+    }
+    get gaa() {
+        return new FieldNode(vec3DescOf(this.type), this, 'yww');
+    }
+    get brr() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zxx');
+    }
+    get brg() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zxy');
+    }
+    get brb() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zxz');
+    }
+    get bra() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zxw');
+    }
+    get bgr() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zyx');
+    }
+    get bgg() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zyy');
+    }
+    get bgb() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zyz');
+    }
+    get bga() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zyw');
+    }
+    get bbr() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zzx');
+    }
+    get bbg() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zzy');
+    }
+    get bbb() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zzz');
+    }
+    get bba() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zzw');
+    }
+    get bar() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zwx');
+    }
+    get bag() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zwy');
+    }
+    get bab() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zwz');
+    }
+    get baa() {
+        return new FieldNode(vec3DescOf(this.type), this, 'zww');
+    }
+    get arr() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wxx');
+    }
+    get arg() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wxy');
+    }
+    get arb() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wxz');
+    }
+    get ara() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wxw');
+    }
+    get agr() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wyx');
+    }
+    get agg() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wyy');
+    }
+    get agb() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wyz');
+    }
+    get aga() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wyw');
+    }
+    get abr() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wzx');
+    }
+    get abg() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wzy');
+    }
+    get abb() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wzz');
+    }
+    get aba() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wzw');
+    }
+    get aar() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wwx');
+    }
+    get aag() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wwy');
+    }
+    get aab() {
+        return new FieldNode(vec3DescOf(this.type), this, 'wwz');
+    }
+    get aaa() {
+        return new FieldNode(vec3DescOf(this.type), this, 'www');
+    }
+    get xyzw() {
+        return new FieldNode(vec4DescOf(this.type), this, 'xyzw');
+    }
+    get xywz() {
+        return new FieldNode(vec4DescOf(this.type), this, 'xywz');
+    }
+    get xzyw() {
+        return new FieldNode(vec4DescOf(this.type), this, 'xzyw');
+    }
+    get xzwy() {
+        return new FieldNode(vec4DescOf(this.type), this, 'xzwy');
+    }
+    get xwyz() {
+        return new FieldNode(vec4DescOf(this.type), this, 'xwyz');
+    }
+    get xwzy() {
+        return new FieldNode(vec4DescOf(this.type), this, 'xwzy');
+    }
+    get yxzw() {
+        return new FieldNode(vec4DescOf(this.type), this, 'yxzw');
+    }
+    get yxwz() {
+        return new FieldNode(vec4DescOf(this.type), this, 'yxwz');
+    }
+    get yzxw() {
+        return new FieldNode(vec4DescOf(this.type), this, 'yzxw');
+    }
+    get yzwx() {
+        return new FieldNode(vec4DescOf(this.type), this, 'yzwx');
+    }
+    get ywxz() {
+        return new FieldNode(vec4DescOf(this.type), this, 'ywxz');
+    }
+    get ywzx() {
+        return new FieldNode(vec4DescOf(this.type), this, 'ywzx');
+    }
+    get zxyw() {
+        return new FieldNode(vec4DescOf(this.type), this, 'zxyw');
+    }
+    get zxwy() {
+        return new FieldNode(vec4DescOf(this.type), this, 'zxwy');
+    }
+    get zyxw() {
+        return new FieldNode(vec4DescOf(this.type), this, 'zyxw');
+    }
+    get zywx() {
+        return new FieldNode(vec4DescOf(this.type), this, 'zywx');
+    }
+    get zwxy() {
+        return new FieldNode(vec4DescOf(this.type), this, 'zwxy');
+    }
+    get zwyx() {
+        return new FieldNode(vec4DescOf(this.type), this, 'zwyx');
+    }
+    get wxyz() {
+        return new FieldNode(vec4DescOf(this.type), this, 'wxyz');
+    }
+    get wxzy() {
+        return new FieldNode(vec4DescOf(this.type), this, 'wxzy');
+    }
+    get wyxz() {
+        return new FieldNode(vec4DescOf(this.type), this, 'wyxz');
+    }
+    get wyzx() {
+        return new FieldNode(vec4DescOf(this.type), this, 'wyzx');
+    }
+    get wzxy() {
+        return new FieldNode(vec4DescOf(this.type), this, 'wzxy');
+    }
+    get wzyx() {
+        return new FieldNode(vec4DescOf(this.type), this, 'wzyx');
+    }
+    get rgba() {
+        return new FieldNode(vec4DescOf(this.type), this, 'xyzw');
+    }
+    get rgab() {
+        return new FieldNode(vec4DescOf(this.type), this, 'xywz');
+    }
+    get rbga() {
+        return new FieldNode(vec4DescOf(this.type), this, 'xzyw');
+    }
+    get rbag() {
+        return new FieldNode(vec4DescOf(this.type), this, 'xzwy');
+    }
+    get ragb() {
+        return new FieldNode(vec4DescOf(this.type), this, 'xwyz');
+    }
+    get rabg() {
+        return new FieldNode(vec4DescOf(this.type), this, 'xwzy');
+    }
+    get grba() {
+        return new FieldNode(vec4DescOf(this.type), this, 'yxzw');
+    }
+    get grab() {
+        return new FieldNode(vec4DescOf(this.type), this, 'yxwz');
+    }
+    get gbra() {
+        return new FieldNode(vec4DescOf(this.type), this, 'yzxw');
+    }
+    get gbar() {
+        return new FieldNode(vec4DescOf(this.type), this, 'yzwx');
+    }
+    get garb() {
+        return new FieldNode(vec4DescOf(this.type), this, 'ywxz');
+    }
+    get gabr() {
+        return new FieldNode(vec4DescOf(this.type), this, 'ywzx');
+    }
+    get brga() {
+        return new FieldNode(vec4DescOf(this.type), this, 'zxyw');
+    }
+    get brag() {
+        return new FieldNode(vec4DescOf(this.type), this, 'zxwy');
+    }
+    get bgra() {
+        return new FieldNode(vec4DescOf(this.type), this, 'zyxw');
+    }
+    get bgar() {
+        return new FieldNode(vec4DescOf(this.type), this, 'zywx');
+    }
+    get barg() {
+        return new FieldNode(vec4DescOf(this.type), this, 'zwxy');
+    }
+    get bagr() {
+        return new FieldNode(vec4DescOf(this.type), this, 'zwyx');
+    }
+    get argb() {
+        return new FieldNode(vec4DescOf(this.type), this, 'wxyz');
+    }
+    get arbg() {
+        return new FieldNode(vec4DescOf(this.type), this, 'wxzy');
+    }
+    get agrb() {
+        return new FieldNode(vec4DescOf(this.type), this, 'wyxz');
+    }
+    get agbr() {
+        return new FieldNode(vec4DescOf(this.type), this, 'wyzx');
+    }
+    get abrg() {
+        return new FieldNode(vec4DescOf(this.type), this, 'wzxy');
+    }
+    get abgr() {
+        return new FieldNode(vec4DescOf(this.type), this, 'wzyx');
+    }
     // ── Inspector ─────────────────────────────────────────────────────────────
     inspect(name) {
         const inspector = new InspectorNode(this, name);
@@ -1275,7 +1845,9 @@ class Node {
         return this;
     }
 }
-function isNode(v) { return v instanceof Node; }
+function isNode(v) {
+    return v instanceof Node;
+}
 /**
  * Creates an empty lifecycle node.
  * Useful for attaching update callbacks via .onFrameUpdate(), .onRenderUpdate(), etc.
@@ -1719,7 +2291,9 @@ class StackNode extends Node {
         super(voidDesc);
         this.body = initial ? [...initial] : [];
     }
-    push(node) { this.body.push(node); }
+    push(node) {
+        this.body.push(node);
+    }
 }
 class FnNode extends Node {
     fnName;
@@ -1731,7 +2305,9 @@ class FnNode extends Node {
         this.paramDescs = paramDescs;
         this.jsFunc = jsFunc;
     }
-    compute(opts) { return new ComputeNode({ fn: this, ...opts }); }
+    compute(opts) {
+        return new ComputeNode({ fn: this, ...opts });
+    }
     trace() {
         const params = this.paramDescs.map((pd, i) => {
             const paramName = 'name' in pd ? pd.name : undefined;
@@ -1803,13 +2379,19 @@ class LoopNode extends Node {
     }
 }
 class BreakNode extends Node {
-    constructor() { super(voidDesc); }
+    constructor() {
+        super(voidDesc);
+    }
 }
 class ContinueNode extends Node {
-    constructor() { super(voidDesc); }
+    constructor() {
+        super(voidDesc);
+    }
 }
 class DiscardNode extends Node {
-    constructor() { super(voidDesc); }
+    constructor() {
+        super(voidDesc);
+    }
 }
 function If(condition, thenBody) {
     const thenStack = new StackNode();
@@ -1878,16 +2460,24 @@ function Loop(o, callback) {
     return node;
 }
 const For = Loop;
-function While(condition, body) { Loop(condition, body); }
+function While(condition, body) {
+    Loop(condition, body);
+}
 function Return(value) {
     if (value !== undefined)
         addToStack(new ReturnNode(value));
     else
         addToStack(new ReturnNode(new LiteralNode(voidDesc, 0)));
 }
-function Break() { addToStack(new BreakNode()); }
-function Continue() { addToStack(new ContinueNode()); }
-function Discard() { addToStack(new DiscardNode()); }
+function Break() {
+    addToStack(new BreakNode());
+}
+function Continue() {
+    addToStack(new ContinueNode());
+}
+function Discard() {
+    addToStack(new DiscardNode());
+}
 // Implementation
 function Fn(jsFunc, layout) {
     const paramDescs = layout?.params ?? [];
@@ -1921,6 +2511,8 @@ const select = (falseVal, trueVal, condition) => new CondNode(condition, trueVal
 function Var(init, label) {
     const varName = label ? `var_${_nodeId}_${label}` : `var_${_nodeId}`;
     const v = new VarNode(init.type, varName, init);
+    // Add to current stack if building inside Fn, otherwise return standalone node
+    // The standalone VarNode still participates in the graph via its `init` reference
     if (currentStack !== null)
         currentStack.push(v);
     return v;
@@ -1994,7 +2586,9 @@ class ComputeNode {
         this._onDispose?.();
     }
 }
-function compute(fn, opts) { return new ComputeNode({ fn, ...opts }); }
+function compute(fn, opts) {
+    return new ComputeNode({ fn, ...opts });
+}
 function struct(name, fields) {
     const members = Object.entries(fields).map(([n, desc]) => ({ name: n, type: desc }));
     const structDesc = { type: 'struct', wgslType: name, name, fields };
@@ -2005,7 +2599,7 @@ function struct(name, fields) {
             nestedDefs.set(desc.wgslType, desc);
     }
     function construct(fieldNodes) {
-        const args = members.map(m => fieldNodes[m.name]);
+        const args = members.map((m) => fieldNodes[m.name]);
         return new ConstructNode(def, args);
     }
     const def = { type: 'struct', wgslType: name, name, fields, members, node, nestedDefs, construct };
@@ -6515,6 +7109,7 @@ function compile(slots) {
         roots.push(slots.color);
     if (slots.depth)
         roots.push(slots.depth);
+    console.log('[compile] roots:', roots.map((r) => ({ id: r.id, type: r.type.wgslType })));
     // single discovery pass across all roots
     const discovered = discover(roots);
     vertexCtx.usageCount = discovered.usageCount;
@@ -6555,7 +7150,7 @@ function compile(slots) {
         // No need to merge bindings anymore - they're shared via discovered.*
     }
     // emit all bindings using Three.js pattern (each group gets its own @group index)
-    const { wgsl: bindingsWgsl, uniformBlocks, storageEntries, textureEntries: textures, samplerEntries: samplers } = emitAllBindings(vertexCtx);
+    const { wgsl: bindingsWgsl, uniformBlocks, storageEntries, textureEntries: textures, samplerEntries: samplers, } = emitAllBindings(vertexCtx);
     // emit module-scope variables (var<private>)
     const moduleScopeVarsWgsl = emitModuleScopeVars(vertexCtx);
     // emit functions
@@ -6584,7 +7179,7 @@ function compile(slots) {
     const graphInfo = new Map();
     for (const [id, node] of discovered.allNodes) {
         graphNodes.set(id, node);
-        graphEdges.set(id, getChildren(node).map(c => c.id));
+        graphEdges.set(id, getChildren(node).map((c) => c.id));
         graphInfo.set(id, {
             stages: [],
             cseVar: vertexCtx.nodeVars.get(id) ?? fragmentCtx.nodeVars.get(id),
@@ -6670,7 +7265,9 @@ function compileCompute(node) {
         dslFnsCode,
         '// Compute Shader',
         computeBody,
-    ].filter(Boolean).join('\n');
+    ]
+        .filter(Boolean)
+        .join('\n');
     // convert storage entries to compute format
     const computeStorage = storageEntries.map((e) => ({
         node: e.node,
@@ -6743,7 +7340,8 @@ function getChildren(node) {
     }
     else if (node instanceof VaryingNode) {
         // VaryingNode.node is a SubBuildNode wrapping the source
-        children.push(node.node);
+        // Push the actual source inside the SubBuildNode, not the wrapper itself
+        children.push(node.node.node);
     }
     else if (node instanceof AssignNode) {
         children.push(node.target, node.value);
@@ -6961,6 +7559,22 @@ function groupAttributesByBuffer(entries) {
     // Combine both maps into a single array, preserving order (name-based first, then buffer-based)
     return [...nameGroups.values(), ...bufferGroups.values()];
 }
+/**
+ * Recursively walk a type to find and register any struct definitions.
+ * Handles: struct, array, sized-array, vec, mat types.
+ */
+function walkTypeForStructs(type, register) {
+    if (isStructDef(type)) {
+        register(type);
+        return;
+    }
+    // For arrays, walk the element type
+    if (isArrayDesc(type) || isSizedArrayDesc(type)) {
+        walkTypeForStructs(type.element, register);
+        return;
+    }
+    // For vectors and matrices, no structs to find
+}
 function discover(roots) {
     const usageCount = new Map();
     const mutatedNodes = new Set();
@@ -7074,13 +7688,8 @@ function discover(roots) {
             if (!storages.has(storageName)) {
                 storages.set(storageName, node);
             }
-            const bufType = node.type;
-            if (isStructDef(bufType)) {
-                registerStructDef(bufType);
-            }
-            else if ((isArrayDesc(bufType) || isSizedArrayDesc(bufType)) && isStructDef(bufType.element)) {
-                registerStructDef(bufType.element);
-            }
+            // Walk the type to find and register any struct definitions
+            walkTypeForStructs(node.type, registerStructDef);
         }
         // Binding discovery: textures, samplers, uniforms
         if (node instanceof TextureBindingNode) {
@@ -7131,9 +7740,22 @@ function discover(roots) {
         visit(root);
     }
     return {
-        usageCount, mutatedNodes, fnDefs, wgslFnDefs, structDefs, storageNames,
-        allNodes, updateBeforeNodes, updateAfterNodes, updateNodes,
-        textures, samplers, uniforms, storages, privateVars, workgroupVars
+        usageCount,
+        mutatedNodes,
+        fnDefs,
+        wgslFnDefs,
+        structDefs,
+        storageNames,
+        allNodes,
+        updateBeforeNodes,
+        updateAfterNodes,
+        updateNodes,
+        textures,
+        samplers,
+        uniforms,
+        storages,
+        privateVars,
+        workgroupVars,
     };
 }
 /** Pre-collect VaryingNodes from roots and generate their vertex expressions. */
@@ -7248,11 +7870,11 @@ function generateExpr(ctx, node) {
         expr = generateCall(ctx, node);
     }
     else if (node instanceof ArrayNode) {
-        const args = node.elements.map(e => generateExpr(ctx, e));
+        const args = node.elements.map((e) => generateExpr(ctx, e));
         expr = `array<${node.type.element.wgslType}, ${node.elements.length}>(${args.join(', ')})`;
     }
     else if (node instanceof ConstructNode) {
-        const args = node.args.map(a => generateExpr(ctx, a));
+        const args = node.args.map((a) => generateExpr(ctx, a));
         expr = `${node.type.wgslType}(${args.join(', ')})`;
     }
     else if (node instanceof FieldNode) {
@@ -7699,14 +8321,14 @@ function generateVarying(ctx, node) {
 function generateBuiltin(ctx, node) {
     ctx.builtins.add(node.builtinKind);
     const builtinMap = {
-        'vertex_index': 'input.vertex_index',
-        'instance_index': 'input.instance_index',
-        'global_invocation_id': 'global_id',
-        'local_invocation_id': 'local_id',
-        'local_invocation_index': 'local_index',
-        'workgroup_id': 'workgroup_id',
-        'num_workgroups': 'num_workgroups',
-        'position': ctx.stage === 'fragment' ? 'input.position' : 'output.position',
+        vertex_index: 'input.vertex_index',
+        instance_index: 'input.instance_index',
+        global_invocation_id: 'global_id',
+        local_invocation_id: 'local_id',
+        local_invocation_index: 'local_index',
+        workgroup_id: 'workgroup_id',
+        num_workgroups: 'num_workgroups',
+        position: ctx.stage === 'fragment' ? 'input.position' : 'output.position',
     };
     return builtinMap[node.builtinKind] ?? `/* unknown builtin: ${node.builtinKind} */`;
 }
@@ -7733,7 +8355,7 @@ function generateCall(ctx, node) {
             }
         }
     }
-    const args = node.args.map(a => generateExpr(ctx, a));
+    const args = node.args.map((a) => generateExpr(ctx, a));
     // handle special cases
     if (node.fn === 'negate' && args.length === 1) {
         return `(-${args[0]})`;
@@ -7743,9 +8365,17 @@ function generateCall(ctx, node) {
     }
     // atomic functions need pointer reference
     const atomicFns = [
-        'atomicAdd', 'atomicSub', 'atomicMax', 'atomicMin',
-        'atomicAnd', 'atomicOr', 'atomicXor',
-        'atomicStore', 'atomicLoad', 'atomicExchange', 'atomicCompareExchangeWeak',
+        'atomicAdd',
+        'atomicSub',
+        'atomicMax',
+        'atomicMin',
+        'atomicAnd',
+        'atomicOr',
+        'atomicXor',
+        'atomicStore',
+        'atomicLoad',
+        'atomicExchange',
+        'atomicCompareExchangeWeak',
     ];
     if (atomicFns.includes(node.fn) && args.length >= 1) {
         const [ptr, ...rest] = args;
@@ -7854,7 +8484,10 @@ function generateLoopStmt(ctx, node) {
         const endExpr = generateExpr(ctx, config);
         loopHeader = `for (var ${wgslVarName}: i32 = 0i; ${wgslVarName} < ${endExpr}; ${wgslVarName}++)`;
     }
-    else if (typeof config === 'object' && config !== null && !(config instanceof LiteralNode) && !(config instanceof UniformNode)) {
+    else if (typeof config === 'object' &&
+        config !== null &&
+        !(config instanceof LiteralNode) &&
+        !(config instanceof UniformNode)) {
         const cfg = config;
         const typeDesc = cfg.type ?? i32$1;
         const typeStr = typeDesc.wgslType;
@@ -7920,7 +8553,7 @@ function generateModuleScopeInitExpr(node) {
         return constLiteral(node.type.wgslType, node.value);
     }
     else if (node instanceof ConstructNode) {
-        const args = node.args.map(a => generateModuleScopeInitExpr(a));
+        const args = node.args.map((a) => generateModuleScopeInitExpr(a));
         return `${node.type.wgslType}(${args.join(', ')})`;
     }
     else if (node instanceof BinopNode) {
@@ -7930,7 +8563,7 @@ function generateModuleScopeInitExpr(node) {
     }
     else if (node instanceof CallNode) {
         // Only const-evaluable built-in functions are allowed
-        const args = node.args.map(a => generateModuleScopeInitExpr(a));
+        const args = node.args.map((a) => generateModuleScopeInitExpr(a));
         return `${node.fn}(${args.join(', ')})`;
     }
     else {
@@ -8124,10 +8757,12 @@ function emitDslFunctions(ctx) {
     const lines = [];
     for (const [name, { fn, traced }] of ctx.fnDefs) {
         // build parameter list
-        const params = traced.params.map((p, i) => {
+        const params = traced.params
+            .map((p, i) => {
             const pName = p.paramName ?? `p${i}`;
             return `${pName}: ${p.type.wgslType}`;
-        }).join(', ');
+        })
+            .join(', ');
         // generate function body
         const fnCtx = createContext(ctx.stage, ctx.isRender);
         fnCtx.usageCount = ctx.usageCount;
@@ -8435,6 +9070,7 @@ function setNodeBuilderState(state, renderObject, nodeState) {
  * @returns the compiled NodeBuilderState and the raw CompileResult
  */
 function compileNodeState(state, renderObject, cacheKey) {
+    console.log('[compileNodeState] called for material:', renderObject.material.name);
     const material = renderObject.material;
     // compile the material's node graph
     const compileResult = compile({
@@ -18763,6 +19399,107 @@ function unproject(out, ndc, camera) {
 }
 
 /**
+ * Camera that uses orthographic projection.
+ *
+ * In this projection mode, an object's size in the rendered image stays constant
+ * regardless of its distance from the camera. Useful for 2D scenes, UI, and
+ * post-processing passes.
+ *
+ * Three.js aligned: mirrors THREE.OrthographicCamera.
+ * Uses WebGPU depth range (0→1) via orthoZO, matching PerspectiveCamera's perspectiveZO.
+ *
+ * ```ts
+ * const camera = new OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
+ * ```
+ */
+class OrthographicCamera extends Camera {
+    left;
+    right;
+    top;
+    bottom;
+    zoom = 1;
+    view = null;
+    /**
+     * @param left   - Left plane of the frustum.
+     * @param right  - Right plane of the frustum.
+     * @param top    - Top plane of the frustum.
+     * @param bottom - Bottom plane of the frustum.
+     * @param near   - Near plane. Unlike perspective cameras, 0 is valid here.
+     * @param far    - Far plane.
+     */
+    constructor(left = -1, right = 1, top = 1, bottom = -1, near = 0.1, far = 2000) {
+        super();
+        this.name = 'OrthographicCamera';
+        this.left = left;
+        this.right = right;
+        this.top = top;
+        this.bottom = bottom;
+        this.near = near;
+        this.far = far;
+        this.updateProjectionMatrix();
+    }
+    /**
+     * Sets an offset into a larger frustum for multi-window / multi-monitor setups.
+     *
+     * @param fullWidth  - Full width of the multiview setup.
+     * @param fullHeight - Full height of the multiview setup.
+     * @param x          - Horizontal offset of the subcamera.
+     * @param y          - Vertical offset of the subcamera.
+     * @param width      - Width of the subcamera.
+     * @param height     - Height of the subcamera.
+     */
+    setViewOffset(fullWidth, fullHeight, x, y, width, height) {
+        if (this.view === null) {
+            this.view = {
+                enabled: true,
+                fullWidth: 1,
+                fullHeight: 1,
+                offsetX: 0,
+                offsetY: 0,
+                width: 1,
+                height: 1,
+            };
+        }
+        this.view.enabled = true;
+        this.view.fullWidth = fullWidth;
+        this.view.fullHeight = fullHeight;
+        this.view.offsetX = x;
+        this.view.offsetY = y;
+        this.view.width = width;
+        this.view.height = height;
+        this.updateProjectionMatrix();
+    }
+    /** Removes any view offset and recomputes the projection matrix. */
+    clearViewOffset() {
+        if (this.view !== null) {
+            this.view.enabled = false;
+        }
+        this.updateProjectionMatrix();
+    }
+    /** Recompute the projection matrix from current frustum planes, zoom, and view offset. */
+    updateProjectionMatrix() {
+        const dx = (this.right - this.left) / (2 * this.zoom);
+        const dy = (this.top - this.bottom) / (2 * this.zoom);
+        const cx = (this.right + this.left) / 2;
+        const cy = (this.top + this.bottom) / 2;
+        let left = cx - dx;
+        let right = cx + dx;
+        let top = cy + dy;
+        let bottom = cy - dy;
+        if (this.view !== null && this.view.enabled) {
+            const scaleW = (this.right - this.left) / this.view.fullWidth / this.zoom;
+            const scaleH = (this.top - this.bottom) / this.view.fullHeight / this.zoom;
+            left += scaleW * this.view.offsetX;
+            right = left + scaleW * this.view.width;
+            top -= scaleH * this.view.offsetY;
+            bottom = top - scaleH * this.view.height;
+        }
+        // WebGPU depth range is 0→1, so use orthoZO (zero-to-one) to match perspectiveZO.
+        orthoZO(this.projectionMatrix, left, right, bottom, top, this.near, this.far);
+    }
+}
+
+/**
  * Möller–Trumbore ray-triangle intersection.
  * Returns raw t (distance along ray direction) or null if no hit.
  * Ported from Three.js Ray.intersectTriangle.
@@ -18871,7 +19608,7 @@ class Raycaster {
         copy$5(this.ray.direction, direction);
     }
     setFromCamera(coords, camera) {
-        const isOrthographic = 'isOrthographicCamera' in camera && camera.isOrthographicCamera;
+        const isOrthographic = camera instanceof OrthographicCamera;
         if (isOrthographic) {
             unproject(this.ray.origin, [coords[0], coords[1], 0], camera);
             const e = camera.matrixWorld;
@@ -22663,12 +23400,15 @@ class CanvasTarget {
     _height;
     /** Pixel ratio for high-DPI displays. */
     _pixelRatio = 1;
+    /** Alpha compositing mode for the WebGPU canvas context. */
+    alphaMode;
     /** Lazily-created WebGPU canvas context. Null until getContext() is called. */
     _context = null;
-    constructor(canvas) {
+    constructor(canvas, opts = {}) {
         this.domElement = canvas;
         this._width = canvas.width;
         this._height = canvas.height;
+        this.alphaMode = opts.alphaMode ?? 'opaque';
     }
     /**
      * Get (or lazily create) the WebGPU canvas context and configure it.
@@ -22677,15 +23417,15 @@ class CanvasTarget {
      *
      * @param device the GPUDevice to configure the context with.
      * @param format the preferred canvas format (e.g. 'bgra8unorm').
-     * @param alphaMode the alpha mode for the context (default 'opaque').
+     * @param alphaMode override for the alpha mode. defaults to the value set in the constructor.
      */
-    getContext(device, format, alphaMode = 'opaque') {
+    getContext(device, format, alphaMode) {
         if (!this._context) {
             const ctx = this.domElement.getContext('webgpu');
             if (!ctx) {
                 throw new Error('[CanvasTarget] Failed to get WebGPU context from canvas.');
             }
-            ctx.configure({ device, format, alphaMode });
+            ctx.configure({ device, format, alphaMode: alphaMode ?? this.alphaMode });
             this._context = ctx;
         }
         return this._context;
@@ -25006,7 +25746,7 @@ class TransformControlsGizmo extends Object3D {
             copy$5(handle.position, this.worldPosition);
             // constant screen-size factor
             let factor;
-            if (this.camera && this.camera.isOrthographicCamera) {
+            if (this.camera && this.camera instanceof OrthographicCamera) {
                 const ortho = this.camera;
                 factor = (ortho.top - ortho.bottom) / ortho.zoom;
             }
@@ -25151,7 +25891,7 @@ class TransformControlsRoot extends Object3D {
         }
         controls.camera.updateWorldMatrix();
         decompose(controls.cameraQuaternion, controls.cameraPosition, controls._cameraScale, controls.camera.matrixWorld);
-        if (controls.camera.isOrthographicCamera) {
+        if (controls.camera instanceof OrthographicCamera) {
             controls.camera.getWorldDirection(controls.eye);
             negate(controls.eye, controls.eye);
         }
@@ -25894,108 +26634,6 @@ class PerspectiveCamera extends Camera {
     /** Recompute the projection matrix from current fov / aspect / near / far. */
     updateProjectionMatrix() {
         perspectiveZO(this.projectionMatrix, this.fov, this.aspect, this.near, this.far);
-    }
-}
-
-/**
- * Camera that uses orthographic projection.
- *
- * In this projection mode, an object's size in the rendered image stays constant
- * regardless of its distance from the camera. Useful for 2D scenes, UI, and
- * post-processing passes.
- *
- * Three.js aligned: mirrors THREE.OrthographicCamera.
- * Uses WebGPU depth range (0→1) via orthoZO, matching PerspectiveCamera's perspectiveZO.
- *
- * ```ts
- * const camera = new OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
- * ```
- */
-class OrthographicCamera extends Camera {
-    isOrthographicCamera = true;
-    left;
-    right;
-    top;
-    bottom;
-    zoom = 1;
-    view = null;
-    /**
-     * @param left   - Left plane of the frustum.
-     * @param right  - Right plane of the frustum.
-     * @param top    - Top plane of the frustum.
-     * @param bottom - Bottom plane of the frustum.
-     * @param near   - Near plane. Unlike perspective cameras, 0 is valid here.
-     * @param far    - Far plane.
-     */
-    constructor(left = -1, right = 1, top = 1, bottom = -1, near = 0.1, far = 2000) {
-        super();
-        this.name = 'OrthographicCamera';
-        this.left = left;
-        this.right = right;
-        this.top = top;
-        this.bottom = bottom;
-        this.near = near;
-        this.far = far;
-        this.updateProjectionMatrix();
-    }
-    /**
-     * Sets an offset into a larger frustum for multi-window / multi-monitor setups.
-     *
-     * @param fullWidth  - Full width of the multiview setup.
-     * @param fullHeight - Full height of the multiview setup.
-     * @param x          - Horizontal offset of the subcamera.
-     * @param y          - Vertical offset of the subcamera.
-     * @param width      - Width of the subcamera.
-     * @param height     - Height of the subcamera.
-     */
-    setViewOffset(fullWidth, fullHeight, x, y, width, height) {
-        if (this.view === null) {
-            this.view = {
-                enabled: true,
-                fullWidth: 1,
-                fullHeight: 1,
-                offsetX: 0,
-                offsetY: 0,
-                width: 1,
-                height: 1,
-            };
-        }
-        this.view.enabled = true;
-        this.view.fullWidth = fullWidth;
-        this.view.fullHeight = fullHeight;
-        this.view.offsetX = x;
-        this.view.offsetY = y;
-        this.view.width = width;
-        this.view.height = height;
-        this.updateProjectionMatrix();
-    }
-    /** Removes any view offset and recomputes the projection matrix. */
-    clearViewOffset() {
-        if (this.view !== null) {
-            this.view.enabled = false;
-        }
-        this.updateProjectionMatrix();
-    }
-    /** Recompute the projection matrix from current frustum planes, zoom, and view offset. */
-    updateProjectionMatrix() {
-        const dx = (this.right - this.left) / (2 * this.zoom);
-        const dy = (this.top - this.bottom) / (2 * this.zoom);
-        const cx = (this.right + this.left) / 2;
-        const cy = (this.top + this.bottom) / 2;
-        let left = cx - dx;
-        let right = cx + dx;
-        let top = cy + dy;
-        let bottom = cy - dy;
-        if (this.view !== null && this.view.enabled) {
-            const scaleW = (this.right - this.left) / this.view.fullWidth / this.zoom;
-            const scaleH = (this.top - this.bottom) / this.view.fullHeight / this.zoom;
-            left += scaleW * this.view.offsetX;
-            right = left + scaleW * this.view.width;
-            top -= scaleH * this.view.offsetY;
-            bottom = top - scaleH * this.view.height;
-        }
-        // WebGPU depth range is 0→1, so use orthoZO (zero-to-one) to match perspectiveZO.
-        orthoZO(this.projectionMatrix, left, right, bottom, top, this.near, this.far);
     }
 }
 
@@ -27638,7 +28276,7 @@ class WebGPURenderer {
         if (!opts.canvas) {
             canvas.style.display = 'block';
         }
-        this._canvasTarget = new CanvasTarget(canvas);
+        this._canvasTarget = new CanvasTarget(canvas, { alphaMode: opts.alpha ? 'premultiplied' : 'opaque' });
         this._canvasTarget.isDefaultCanvasTarget = true;
         this._renderContexts = createRenderContextsState();
         this._computeContext = createComputeContext();
@@ -27681,9 +28319,7 @@ class WebGPURenderer {
             const requiredFeatures = Object.values(GPUFeatureName).filter((f) => adapter.features.has(f));
             // merge with any caller-supplied descriptor, deduplicating features.
             const callerFeatures = this._deviceDescriptor?.requiredFeatures ?? [];
-            const mergedFeatures = [
-                ...new Set([...requiredFeatures, ...callerFeatures]),
-            ];
+            const mergedFeatures = [...new Set([...requiredFeatures, ...callerFeatures])];
             const deviceDescriptor = {
                 ...this._deviceDescriptor,
                 requiredFeatures: mergedFeatures,
@@ -27708,7 +28344,7 @@ class WebGPURenderer {
             });
             // initialize the main canvas target context.
             this._format = navigator.gpu.getPreferredCanvasFormat();
-            this._canvasTarget.getContext(this._device, this._format, 'opaque');
+            this._canvasTarget.getContext(this._device, this._format);
         }
         const w = this.domElement.width || 1;
         const h = this.domElement.height || 1;
@@ -28028,7 +28664,7 @@ class WebGPURenderer {
             }
         }
         else {
-            const ctx = this._canvasTarget.getContext(this._device, this._format, 'opaque');
+            const ctx = this._canvasTarget.getContext(this._device, this._format);
             const swapchainView = ctx.getCurrentTexture().createView();
             if (this.samples > 1 && this._msaaTexture) {
                 colorAttachments.push({
@@ -28085,7 +28721,10 @@ class WebGPURenderer {
                 const renderObject = getRenderObject(this._renderObjects, item.mesh, item.material, scene, camera, passCtx, passId);
                 const initialized = initRenderObject(this._nodes, this._geometries, this._bindings, this._pipelines, this._device, this._buffers, renderObject, colorFormat, depthFormat);
                 if (!initialized || !renderObject.pipeline) {
-                    console.warn('[gpucat] initRenderObject failed or pipeline missing', { initialized, pipeline: renderObject.pipeline });
+                    console.warn('[gpucat] initRenderObject failed or pipeline missing', {
+                        initialized,
+                        pipeline: renderObject.pipeline,
+                    });
                     continue;
                 }
                 if (!renderObject.nodeBuilderState) {
@@ -28224,7 +28863,9 @@ class WebGPURenderer {
         const firstTex = renderTarget.textures[0] ?? renderTarget.depthTexture;
         if (firstTex) {
             const existingData = getTextureData(this._textures, firstTex._gpuTexture);
-            if (existingData && existingData.texture.width === renderTarget.width && existingData.texture.height === renderTarget.height) {
+            if (existingData &&
+                existingData.texture.width === renderTarget.width &&
+                existingData.texture.height === renderTarget.height) {
                 return;
             }
         }
@@ -28236,9 +28877,7 @@ class WebGPURenderer {
             const gpuTexture = this._device.createTexture({
                 size: [renderTarget.width, renderTarget.height],
                 format: tex.format ?? renderTarget.colorFormat,
-                usage: GPUTextureUsage.RENDER_ATTACHMENT |
-                    GPUTextureUsage.TEXTURE_BINDING |
-                    GPUTextureUsage.COPY_SRC,
+                usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
                 sampleCount,
             });
             // Register in texture cache (keyed by GpuTexture)

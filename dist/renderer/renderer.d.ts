@@ -34,6 +34,8 @@ export type WebGPURendererOptions = {
     format?: GPUTextureFormat;
     /** Canvas element to render into. If not provided, one will be created */
     canvas?: HTMLCanvasElement;
+    /** When true, the canvas context uses premultiplied alpha compositing (like three.js `alpha`). Defaults to false (opaque). */
+    alpha?: boolean;
 };
 export declare class WebGPURenderer {
     /** Whether the renderer has been initialized (adapter/device/context created) or not. @internal */

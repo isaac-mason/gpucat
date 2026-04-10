@@ -23,7 +23,6 @@ type ViewOffset = {
  * ```
  */
 export declare class OrthographicCamera extends Camera {
-    readonly isOrthographicCamera = true;
     left: number;
     right: number;
     top: number;
