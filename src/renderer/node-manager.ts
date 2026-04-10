@@ -83,7 +83,6 @@ export function compileNodeState(
     renderObject: RenderObject,
     cacheKey: string,
 ): { nodeState: NodeBuilderState; compileResult: CompileResult } {
-    console.log('[compileNodeState] called for material:', renderObject.material.name);
     const material = renderObject.material;
 
     // compile the material's node graph

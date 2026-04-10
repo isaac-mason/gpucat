@@ -7109,7 +7109,6 @@ function compile(slots) {
         roots.push(slots.color);
     if (slots.depth)
         roots.push(slots.depth);
-    console.log('[compile] roots:', roots.map((r) => ({ id: r.id, type: r.type.wgslType })));
     // single discovery pass across all roots
     const discovered = discover(roots);
     vertexCtx.usageCount = discovered.usageCount;
@@ -9070,7 +9069,6 @@ function setNodeBuilderState(state, renderObject, nodeState) {
  * @returns the compiled NodeBuilderState and the raw CompileResult
  */
 function compileNodeState(state, renderObject, cacheKey) {
-    console.log('[compileNodeState] called for material:', renderObject.material.name);
     const material = renderObject.material;
     // compile the material's node graph
     const compileResult = compile({

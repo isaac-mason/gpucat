@@ -57,11 +57,6 @@ export function compile(slots: CompileSlots): CompileResult {
     if (slots.color) roots.push(slots.color);
     if (slots.depth) roots.push(slots.depth);
 
-    console.log(
-        '[compile] roots:',
-        roots.map((r) => ({ id: r.id, type: r.type.wgslType })),
-    );
-
     // single discovery pass across all roots
     const discovered = discover(roots);
     vertexCtx.usageCount = discovered.usageCount;

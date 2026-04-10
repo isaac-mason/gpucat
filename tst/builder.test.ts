@@ -382,12 +382,8 @@ describe('struct storage buffer with index', () => {
         const result = compile({
             position: material.vertexNode,
             color: material.fragmentNode,
-            depth: null,
+            depth: undefined,
         });
-
-        // The struct should be defined in the generated WGSL
-        console.log('Generated WGSL:');
-        console.log(result.code);
 
         expect(result.code).toContain('struct Color');
         expect(result.code).toContain('array<Color>');
