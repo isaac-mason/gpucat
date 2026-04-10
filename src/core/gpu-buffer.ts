@@ -1,4 +1,18 @@
-import { isArrayDesc, isSizedArrayDesc, isStructDesc, itemSizeOf, typedArrayCtorOf, wgslSizeOf, u32 as u32Schema, type Any, type ArrayDesc, type SizedArrayDesc, type StructDesc, type StructSchema, type TypedArrayFor } from '../schema/schema';
+import {
+    isArrayDesc,
+    isSizedArrayDesc,
+    isStructDesc,
+    itemSizeOf,
+    typedArrayCtorOf,
+    wgslSizeOf,
+    u32 as u32Schema,
+    type Any,
+    type ArrayDesc,
+    type SizedArrayDesc,
+    type StructDesc,
+    type StructSchema,
+    type TypedArrayFor,
+} from '../schema/schema';
 
 /** determines how a buffer's lifecycle is managed */
 export enum BufferLifecycle {
@@ -8,58 +22,72 @@ export enum BufferLifecycle {
     MANUAL,
 }
 
-export type GpuTypedArray = Float32Array |
-    Int32Array |
-    Uint32Array |
-    Int16Array |
-    Uint16Array |
-    Int8Array |
-    Uint8Array;
+export type GpuTypedArray = Float32Array | Int32Array | Uint32Array | Int16Array | Uint16Array | Int8Array | Uint8Array;
 
-export type UpdateRange = { start: number; count: number; };
+export type UpdateRange = { start: number; count: number };
 
 /** Derive GPUVertexFormat from typed array type and itemSize */
 export function deriveVertexFormat(array: GpuTypedArray, itemSize: number): GPUVertexFormat | undefined {
     if (array instanceof Float32Array) {
         switch (itemSize) {
-            case 1: return 'float32';
-            case 2: return 'float32x2';
-            case 3: return 'float32x3';
-            case 4: return 'float32x4';
+            case 1:
+                return 'float32';
+            case 2:
+                return 'float32x2';
+            case 3:
+                return 'float32x3';
+            case 4:
+                return 'float32x4';
         }
     } else if (array instanceof Int32Array) {
         switch (itemSize) {
-            case 1: return 'sint32';
-            case 2: return 'sint32x2';
-            case 3: return 'sint32x3';
-            case 4: return 'sint32x4';
+            case 1:
+                return 'sint32';
+            case 2:
+                return 'sint32x2';
+            case 3:
+                return 'sint32x3';
+            case 4:
+                return 'sint32x4';
         }
     } else if (array instanceof Uint32Array) {
         switch (itemSize) {
-            case 1: return 'uint32';
-            case 2: return 'uint32x2';
-            case 3: return 'uint32x3';
-            case 4: return 'uint32x4';
+            case 1:
+                return 'uint32';
+            case 2:
+                return 'uint32x2';
+            case 3:
+                return 'uint32x3';
+            case 4:
+                return 'uint32x4';
         }
     } else if (array instanceof Int16Array) {
         switch (itemSize) {
-            case 2: return 'sint16x2';
-            case 4: return 'sint16x4';
+            case 2:
+                return 'sint16x2';
+            case 4:
+                return 'sint16x4';
         }
     } else if (array instanceof Uint16Array) {
         switch (itemSize) {
-            case 2: return 'uint16x2';
-            case 4: return 'uint16x4';
+            case 2:
+                return 'uint16x2';
+            case 4:
+                return 'uint16x4';
         }
     } else if (array instanceof Int8Array) {
         switch (itemSize) {
-            case 2: return 'sint8x2';
-            case 4: return 'sint8x4';
+            case 2:
+                return 'sint8x2';
+            case 4:
+                return 'sint8x4';
         }
     } else if (array instanceof Uint8Array) {
         switch (itemSize) {
-            case 2: return 'uint8x2';
-            case 4: return 'uint8x4';
+            case 2:
+                return 'uint8x2';
+            case 4:
+                return 'uint8x4';
         }
     }
     return undefined;
@@ -306,10 +334,7 @@ export class GpuBuffer<T extends Any = Any> {
  * @example
  * const positions = createVertexBuffer(d.vec3f, new Float32Array([...]));
  */
-export function createVertexBuffer<T extends Any>(
-    schema: T,
-    data: TypedArrayFor<T>,
-): GpuBuffer<T> {
+export function createVertexBuffer<T extends Any>(schema: T, data: TypedArrayFor<T>): GpuBuffer<T> {
     return new GpuBuffer(schema, {
         data,
         usage: 'vertex',
@@ -325,10 +350,7 @@ export function createVertexBuffer<T extends Any>(
  * @example
  * const particles = createStorageBuffer(d.array(Particle, 1000), new Float32Array(1000 * particleStride));
  */
-export function createStorageBuffer<T extends Any>(
-    schema: T,
-    data: TypedArrayFor<T>,
-): GpuBuffer<T> {
+export function createStorageBuffer<T extends Any>(schema: T, data: TypedArrayFor<T>): GpuBuffer<T> {
     return new GpuBuffer(schema, {
         data,
         usage: 'storage',
@@ -344,10 +366,7 @@ export function createStorageBuffer<T extends Any>(
  * @example
  * const uniforms = createUniformBuffer(MyUniforms, new Float32Array([...]));
  */
-export function createUniformBuffer<T extends Any>(
-    schema: T,
-    data: TypedArrayFor<T>,
-): GpuBuffer<T> {
+export function createUniformBuffer<T extends Any>(schema: T, data: TypedArrayFor<T>): GpuBuffer<T> {
     return new GpuBuffer(schema, {
         data,
         usage: 'uniform',
@@ -363,14 +382,11 @@ export function createUniformBuffer<T extends Any>(
  * @example
  * const indirectBuffer = createIndirectBuffer(DrawIndirectArgs, new Uint32Array([vertexCount, instanceCount, firstVertex, firstInstance]));
  */
-export function createIndirectBuffer<T extends Any>(
-    schema: T,
-    data: TypedArrayFor<T>,
-): GpuBuffer<T> {
+export function createIndirectBuffer<T extends Any>(schema: T, data: TypedArrayFor<T>): GpuBuffer<T> {
     return new GpuBuffer(schema, {
         data,
         usage: ['storage', 'indirect'],
-        lifecycle: BufferLifecycle.REF_COUNTED,
+        lifecycle: BufferLifecycle.MANUAL,
     });
 }
 
@@ -382,16 +398,11 @@ export function createIndirectBuffer<T extends Any>(
  * @example
  * const indices = createIndexBuffer(new Uint16Array([0, 1, 2, 2, 3, 0]));
  */
-export function createIndexBuffer(
-    data: Uint16Array | Uint32Array,
-): GpuBuffer<Any> {
-    return new GpuBuffer(
-        u32Schema,
-        {
-            // Cast is safe: we're storing uint16/uint32 indices, itemSize=1 matches
-            data: data as unknown as Uint32Array,
-            usage: 'index',
-            lifecycle: BufferLifecycle.REF_COUNTED,
-        }
-    );
+export function createIndexBuffer(data: Uint16Array | Uint32Array): GpuBuffer<Any> {
+    return new GpuBuffer(u32Schema, {
+        // Cast is safe: we're storing uint16/uint32 indices, itemSize=1 matches
+        data: data as unknown as Uint32Array,
+        usage: 'index',
+        lifecycle: BufferLifecycle.REF_COUNTED,
+    });
 }

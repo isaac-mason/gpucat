@@ -2760,50 +2760,70 @@ var BufferLifecycle;
 function deriveVertexFormat(array, itemSize) {
     if (array instanceof Float32Array) {
         switch (itemSize) {
-            case 1: return 'float32';
-            case 2: return 'float32x2';
-            case 3: return 'float32x3';
-            case 4: return 'float32x4';
+            case 1:
+                return 'float32';
+            case 2:
+                return 'float32x2';
+            case 3:
+                return 'float32x3';
+            case 4:
+                return 'float32x4';
         }
     }
     else if (array instanceof Int32Array) {
         switch (itemSize) {
-            case 1: return 'sint32';
-            case 2: return 'sint32x2';
-            case 3: return 'sint32x3';
-            case 4: return 'sint32x4';
+            case 1:
+                return 'sint32';
+            case 2:
+                return 'sint32x2';
+            case 3:
+                return 'sint32x3';
+            case 4:
+                return 'sint32x4';
         }
     }
     else if (array instanceof Uint32Array) {
         switch (itemSize) {
-            case 1: return 'uint32';
-            case 2: return 'uint32x2';
-            case 3: return 'uint32x3';
-            case 4: return 'uint32x4';
+            case 1:
+                return 'uint32';
+            case 2:
+                return 'uint32x2';
+            case 3:
+                return 'uint32x3';
+            case 4:
+                return 'uint32x4';
         }
     }
     else if (array instanceof Int16Array) {
         switch (itemSize) {
-            case 2: return 'sint16x2';
-            case 4: return 'sint16x4';
+            case 2:
+                return 'sint16x2';
+            case 4:
+                return 'sint16x4';
         }
     }
     else if (array instanceof Uint16Array) {
         switch (itemSize) {
-            case 2: return 'uint16x2';
-            case 4: return 'uint16x4';
+            case 2:
+                return 'uint16x2';
+            case 4:
+                return 'uint16x4';
         }
     }
     else if (array instanceof Int8Array) {
         switch (itemSize) {
-            case 2: return 'sint8x2';
-            case 4: return 'sint8x4';
+            case 2:
+                return 'sint8x2';
+            case 4:
+                return 'sint8x4';
         }
     }
     else if (array instanceof Uint8Array) {
         switch (itemSize) {
-            case 2: return 'uint8x2';
-            case 4: return 'uint8x4';
+            case 2:
+                return 'uint8x2';
+            case 4:
+                return 'uint8x4';
         }
     }
     return undefined;
@@ -3056,7 +3076,7 @@ function createIndirectBuffer(schema, data) {
     return new GpuBuffer(schema, {
         data,
         usage: ['storage', 'indirect'],
-        lifecycle: BufferLifecycle.REF_COUNTED,
+        lifecycle: BufferLifecycle.MANUAL,
     });
 }
 /**
