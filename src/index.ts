@@ -156,9 +156,20 @@ export {
 } from './schema/pack';
 
 export { Mesh } from './objects/mesh';
+
+export {
+    LineGeometry,
+    LineSegmentsGeometry,
+    LineMaterial,
+    type LineMaterialOptions,
+    Line,
+    LineSegments,
+} from './objects/line';
+
 export * from './core/object3d';
 
 export * from './core/render-target';
 
 export { WebGPURenderer, type DeviceLostInfo, type WebGPURendererOptions } from './renderer/renderer';
 export { RenderPipeline } from './renderer/render-pipeline';
+export { CanvasTarget } from './renderer/canvas-target';

@@ -14,6 +14,11 @@
         "description": "900 static meshes with no per-frame updates — measures pure rendering overhead.",
         "tags": ["stress-test"]
     },
+    "example-line": {
+        "title": "Line",
+        "description": "Screen-space expanded lines using createLineGeometry and createLineMaterial. A static closed pentagon and an animated sine wave demonstrate fixed-pixel-width lines with updateLineGeometry for dynamic point updates.",
+        "tags": ["geometry", "line", "animation"]
+    },
     "example-texture": {
         "title": "Texture",
         "description": "A textured spinning box demonstrating user-provided Texture, UV coordinates, and texture sampling.",

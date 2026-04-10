@@ -34,6 +34,7 @@ export declare class Raycaster {
     ray: Ray;
     near: number;
     far: number;
+    camera: Camera | null;
     constructor(origin?: Vec3, direction?: Vec3, near?: number, far?: number);
     set(origin: Vec3, direction: Vec3): void;
     setFromCamera(coords: [number, number], camera: Camera): void;

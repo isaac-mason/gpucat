@@ -123,6 +123,7 @@ export class Raycaster {
     ray: Ray;
     near: number;
     far: number;
+    camera: Camera | null = null;
 
     constructor(origin?: Vec3, direction?: Vec3, near: number = 0, far: number = Infinity) {
         this.ray = { origin: [0, 0, 0], direction: [0, 0, 0] };

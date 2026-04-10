@@ -1,13 +1,6 @@
-/**
- * color.ts — Linear-sRGB color utilities.
- *
- * A Color is a 3-element tuple [r, g, b] of linear-sRGB floats in [0, 1].
- *
- * All CSS-style / gamma-sRGB inputs are converted to linear RGB via the
- * standard sRGB gamma-expansion formula.
- */
 /** A linear-sRGB color: [r, g, b] floats in [0, 1]. */
 export type Color = [r: number, g: number, b: number];
+/** Accepted input types for creating or parsing a Color */
 export type ColorInput = string | number | [number, number, number];
 /** Create a new Color initialized to black [0, 0, 0]. */
 export declare function create(): Color;
@@ -38,9 +31,7 @@ export declare function fromSRGB(srgb: [number, number, number]): Color;
  *   - [r, g, b] array:       treated as already-linear [0, 1]
  */
 export declare function setFromColorInput(out: Color, input: ColorInput): Color;
-/** Parse any supported color input into a new Color. */
-export declare function fromColorInput(input: ColorInput): Color;
-/**
- * Return a CSS `rgb(...)` string in sRGB gamma space (for HTML/canvas use).
- */
+/** Parse any supported color input into a new Color */
+export declare function fromColorInput(input: ColorInput): Color | null;
+/** Create a CSS `rgb(...)` string in sRGB gamma space (for HTML/canvas use) */
 export declare function toCSS(c: Color): string;
