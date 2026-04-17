@@ -1117,6 +1117,33 @@ class Node {
     smoothstep(hi, x) {
         return smoothstep(this, hi, x);
     }
+    dpdx() {
+        return dpdx(this);
+    }
+    dpdy() {
+        return dpdy(this);
+    }
+    fwidth() {
+        return fwidth(this);
+    }
+    dpdxCoarse() {
+        return dpdxCoarse(this);
+    }
+    dpdyCoarse() {
+        return dpdyCoarse(this);
+    }
+    fwidthCoarse() {
+        return fwidthCoarse(this);
+    }
+    dpdxFine() {
+        return dpdxFine(this);
+    }
+    dpdyFine() {
+        return dpdyFine(this);
+    }
+    fwidthFine() {
+        return fwidthFine(this);
+    }
     // ── Element access ────────────────────────────────────────────────────────
     element(idx) {
         const t = this.type;
@@ -2279,6 +2306,16 @@ const or = (a, b) => new BinopNode('||', bool$1, a, b);
 const and = (a, b) => new BinopNode('&&', bool$1, a, b);
 const not = (a) => new CallNode(bool$1, 'not', [a]);
 const transpose$1 = (m) => new CallNode(m.type, 'transpose', [m]);
+// ── Derivative builtins (fragment-only) ───────────────────────────────────────
+const dpdx = (a) => new CallNode(a.type, 'dpdx', [a]);
+const dpdy = (a) => new CallNode(a.type, 'dpdy', [a]);
+const fwidth = (a) => new CallNode(a.type, 'fwidth', [a]);
+const dpdxCoarse = (a) => new CallNode(a.type, 'dpdxCoarse', [a]);
+const dpdyCoarse = (a) => new CallNode(a.type, 'dpdyCoarse', [a]);
+const fwidthCoarse = (a) => new CallNode(a.type, 'fwidthCoarse', [a]);
+const dpdxFine = (a) => new CallNode(a.type, 'dpdxFine', [a]);
+const dpdyFine = (a) => new CallNode(a.type, 'dpdyFine', [a]);
+const fwidthFine = (a) => new CallNode(a.type, 'fwidthFine', [a]);
 const bitwiseAnd = (a, b) => new BinopNode('&', a.type, a, b);
 const bitwiseOr = (a, b) => new BinopNode('|', a.type, a, b);
 const bitwiseXor = (a, b) => new BinopNode('^', a.type, a, b);
@@ -27100,9 +27137,7 @@ class LineGeometry extends Geometry {
         if (pointCount < 2)
             throw new Error('LineGeometry: need at least 2 points');
         const segmentCount = closed ? pointCount : pointCount - 1;
-        const maxSegs = maxPoints !== undefined
-            ? (closed ? maxPoints : maxPoints - 1)
-            : segmentCount;
+        const maxSegs = maxPoints !== undefined ? (closed ? maxPoints : maxPoints - 1) : segmentCount;
         if (maxSegs < segmentCount) {
             throw new Error('LineGeometry: maxPoints is smaller than the initial point count');
         }
@@ -27124,7 +27159,9 @@ class LineGeometry extends Geometry {
         this.drawRange = { start: 0, count: segmentCount * 6 };
     }
     /** Number of segments currently drawn. */
-    get segmentCount() { return this._segmentCount; }
+    get segmentCount() {
+        return this._segmentCount;
+    }
     /**
      * Update the line's point data in-place.
      *
@@ -27271,7 +27308,9 @@ class LineSegmentsGeometry extends Geometry {
         this.drawRange = { start: 0, count: segmentCount * 6 };
     }
     /** Number of segments currently drawn. */
-    get segmentCount() { return this._segmentCount; }
+    get segmentCount() {
+        return this._segmentCount;
+    }
     /**
      * Update the segment data in-place.
      *
@@ -27379,29 +27418,48 @@ function lineVertex(lineWidthNode, worldUnits = false) {
     const endAttr = attribute('instanceEnd', vec3f$1);
     const sideAttr = attribute('side', f32$1);
     const uvAttr = attribute('uv', vec2f$1);
-    // MVP transform both endpoints to clip space
-    const toClip = (p) => mul(cameraProjectionMatrix, mul(cameraViewMatrix, mul(modelWorldMatrix, vec4f(p, 1))));
-    const clipStart = toClip(startAttr);
-    const clipEnd = toClip(endAttr);
-    // Select clip position for this vertex: u=0 → start, u=1 → end
+    // model-view transform both endpoints to view (camera) space
+    const mv = mul(cameraViewMatrix, modelWorldMatrix);
+    const toView = (p) => mul(mv, vec4f(p, 1));
+    const viewStart = toView(startAttr);
+    const viewEnd = toView(endAttr);
+    // select view position for this vertex: u=0 → start, u=1 → end
     const atEnd = uvAttr.x.greaterThanEqual(f32(0.5));
+    const viewPos = atEnd.select(viewEnd, viewStart);
+    if (worldUnits) {
+        // world-units path: expand in view space like three.js
+        // line direction in view space
+        const lineDir = normalize$4(sub(viewEnd.xyz, viewStart.xyz));
+        // view-space forward: direction from midpoint to camera (camera is at origin in view space)
+        const midpoint = mul(add$1(viewStart.xyz, viewEnd.xyz), f32(0.5));
+        const viewFwd = normalize$4(midpoint.negate());
+        // perpendicular to both line direction and view forward
+        const up = normalize$4(cross$1(lineDir, viewFwd));
+        // offset in view space
+        const hw = mul(lineWidthNode, f32(0.5));
+        const offset = mul(up, mul(hw, sideAttr));
+        // apply offset to view-space position
+        const offsetView = vec4f(add$1(viewPos.xyz, offset), f32(1));
+        // project to clip space
+        return mul(cameraProjectionMatrix, offsetView);
+    }
+    // screen-space pixel path (original)
+    const clipStart = mul(cameraProjectionMatrix, viewStart);
+    const clipEnd = mul(cameraProjectionMatrix, viewEnd);
     const clipPos = atEnd.select(clipEnd, clipStart);
     // NDC xy (perspective divide)
     const ndcStart = div(clipStart.xy, clipStart.w);
     const ndcEnd = div(clipEnd.xy, clipEnd.w);
-    // Screen-space direction, corrected for aspect ratio
+    // screen-space direction, corrected for aspect ratio
     const aspect = div(screenSize.x, screenSize.y);
     const rawDir = sub(ndcEnd, ndcStart);
     const dirCorrected = vec2f(mul(rawDir.x, aspect), rawDir.y);
     const dir = normalize$4(dirCorrected);
-    // Perpendicular in screen space, un-corrected back to NDC
+    // perpendicular in screen space, un-corrected back to NDC
     const perp = vec2f(div(dir.y.negate(), aspect), dir.x);
-    // Offset magnitude: pixels → NDC (divide by screen height)
-    const width = worldUnits
-        ? mul(lineWidthNode, clipPos.w)
-        : lineWidthNode;
-    const halfOffset = mul(perp, div(mul(width, f32(0.5)), screenSize.y));
-    // Apply offset in clip space (multiply by w to go NDC → clip)
+    // offset magnitude: pixels → NDC (divide by screen height)
+    const halfOffset = mul(perp, div(mul(lineWidthNode, f32(0.5)), screenSize.y));
+    // apply offset in clip space (multiply by w to go NDC → clip)
     const offsetClip = mul(halfOffset, clipPos.w);
     const finalXY = add$1(clipPos.xy, mul(offsetClip, sideAttr));
     return vec4f(finalXY, clipPos.zw);
@@ -27509,9 +27567,8 @@ function raycastWorldUnits(object, starts, ends, n, matrixWorld, raycaster, line
         transformMat4$1(_start, _start, matrixWorld);
         transformMat4$1(_end, _end, matrixWorld);
         distanceSqToSegment(ray.origin, ray.direction, _start, _end, point, pointOnLine);
-        const isInside = Math.sqrt((point[0] - pointOnLine[0]) ** 2 +
-            (point[1] - pointOnLine[1]) ** 2 +
-            (point[2] - pointOnLine[2]) ** 2) < lineWidth * 0.5;
+        const isInside = Math.sqrt((point[0] - pointOnLine[0]) ** 2 + (point[1] - pointOnLine[1]) ** 2 + (point[2] - pointOnLine[2]) ** 2) <
+            lineWidth * 0.5;
         if (isInside) {
             intersects.push({
                 distance: distance(ray.origin, point),
@@ -27647,8 +27704,12 @@ function raycastLine(object, material, geometry, raycaster, threshold, intersect
         if (geometry.boundingBox) {
             // Bounding box test in world space
             const worldBox = [
-                geometry.boundingBox[0], geometry.boundingBox[1], geometry.boundingBox[2],
-                geometry.boundingBox[3], geometry.boundingBox[4], geometry.boundingBox[5],
+                geometry.boundingBox[0],
+                geometry.boundingBox[1],
+                geometry.boundingBox[2],
+                geometry.boundingBox[3],
+                geometry.boundingBox[4],
+                geometry.boundingBox[5],
             ];
             // Expand by lineWidth/2 (world units)
             const m = lineWidth * 0.5;
@@ -29113,5 +29174,5 @@ class RenderPipeline {
     }
 }
 
-export { ArrayTexture, Break, BufferLifecycle, Camera, CanvasTarget, Const, Continue, CubeTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, FlyControls, Fn, For, Geometry, GpuBuffer, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, Raycaster, RenderPipeline, RenderTarget, Return, Scene, TOUCH, Texture, TransformControls, Uniform, UniformGroup, UniformUpdateType, Var, WebGPURenderer, While, abs, acesToneMapping, add$1 as add, and, array, arrayTexture, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, ceil, clamp, color, comparisonSampler, compile, compileCompute, compute, computeIndex, cond, cos, createBoxGeometry, createCylinderGeometry, createFullscreenTriangleGeometry, createIndexBuffer, createIndirectBuffer, createOctahedronGeometry, createPlaneGeometry, createSphereGeometry, createStorageBuffer, createTorusGeometry, createUniformBuffer, createVertexBuffer, cross$1 as cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot$1 as dot, equal, f16, f32, field, fields, floor, fract, fragCoord, frameGroup, frustum, fxaa, getIndexFormat, globalId, greaterThan, greaterThanEqual, i32, index, instanceIndex, layoutSizeOf, layoutStrideOf, length$1 as length, lessThan, lessThanEqual, localId, localIndex, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, normalize$4 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, packArray, packTo, pass, positionClip, pow, privateVar, reinhardToneMapping, renderGroup, renderOutput, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, struct, sub, texture, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, timeDelta, timeElapsed, transpose$1 as transpose, u32, uniform, uniformGroup, unpack, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgsl, wgslFn, workgroupId, workgroupVar };
+export { ArrayTexture, Break, BufferLifecycle, Camera, CanvasTarget, Const, Continue, CubeTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, FlyControls, Fn, For, Geometry, GpuBuffer, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, Raycaster, RenderPipeline, RenderTarget, Return, Scene, TOUCH, Texture, TransformControls, Uniform, UniformGroup, UniformUpdateType, Var, WebGPURenderer, While, abs, acesToneMapping, add$1 as add, and, array, arrayTexture, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, ceil, clamp, color, comparisonSampler, compile, compileCompute, compute, computeIndex, cond, cos, createBoxGeometry, createCylinderGeometry, createFullscreenTriangleGeometry, createIndexBuffer, createIndirectBuffer, createOctahedronGeometry, createPlaneGeometry, createSphereGeometry, createStorageBuffer, createTorusGeometry, createUniformBuffer, createVertexBuffer, cross$1 as cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot$1 as dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, equal, f16, f32, field, fields, floor, fract, fragCoord, frameGroup, frustum, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, globalId, greaterThan, greaterThanEqual, i32, index, instanceIndex, layoutSizeOf, layoutStrideOf, length$1 as length, lessThan, lessThanEqual, localId, localIndex, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, normalize$4 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, packArray, packTo, pass, positionClip, pow, privateVar, reinhardToneMapping, renderGroup, renderOutput, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, struct, sub, texture, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, timeDelta, timeElapsed, transpose$1 as transpose, u32, uniform, uniformGroup, unpack, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgsl, wgslFn, workgroupId, workgroupVar };
 //# sourceMappingURL=index.js.map

@@ -41,10 +41,10 @@ export class FlyControls {
 
     // -- internal state --
 
-    private _yaw = 0;
-    private _pitch = 0;
+    _yaw = 0;
+    _pitch = 0;
 
-    private _moveState = {
+    _moveState = {
         forward: 0,
         back: 0,
         left: 0,
@@ -53,19 +53,19 @@ export class FlyControls {
         down: 0,
     };
 
-    private _looking = false;
+    _looking = false;
 
-    private _lastPosition: Vec3 = [0, 0, 0];
-    private _lastQuaternion: Quat = [0, 0, 0, 1];
+    _lastPosition: Vec3 = [0, 0, 0];
+    _lastQuaternion: Quat = [0, 0, 0, 1];
 
     // bound event handlers
-    private _onKeyDown: (e: KeyboardEvent) => void;
-    private _onKeyUp: (e: KeyboardEvent) => void;
-    private _onPointerDown: (e: PointerEvent) => void;
-    private _onPointerMove: (e: PointerEvent) => void;
-    private _onPointerUp: (e: PointerEvent) => void;
-    private _onContextMenu: (e: Event) => void;
-    private _onWheel: (e: WheelEvent) => void;
+    _onKeyDown: (e: KeyboardEvent) => void;
+    _onKeyUp: (e: KeyboardEvent) => void;
+    _onPointerDown: (e: PointerEvent) => void;
+    _onPointerMove: (e: PointerEvent) => void;
+    _onPointerUp: (e: PointerEvent) => void;
+    _onContextMenu: (e: Event) => void;
+    _onWheel: (e: WheelEvent) => void;
 
     onChange: Topic<[]> = topic<[]>();
 
@@ -194,7 +194,7 @@ export class FlyControls {
     // -- private --
 
     /** Extract yaw and pitch from the current camera quaternion. */
-    private _extractYawPitch(): void {
+    _extractYawPitch(): void {
         // Convert quaternion to a forward direction, then extract yaw/pitch.
         const q = this.object.quaternion;
 
@@ -216,13 +216,26 @@ function onKeyDown(this: FlyControls, event: KeyboardEvent): void {
     if (!this.enabled || event.altKey) return;
 
     switch (event.code) {
-        case 'KeyW': this['_moveState'].forward = 1; break;
-        case 'KeyS': this['_moveState'].back = 1; break;
-        case 'KeyA': this['_moveState'].left = 1; break;
-        case 'KeyD': this['_moveState'].right = 1; break;
-        case 'Space': this['_moveState'].up = 1; event.preventDefault(); break;
+        case 'KeyW':
+            this['_moveState'].forward = 1;
+            break;
+        case 'KeyS':
+            this['_moveState'].back = 1;
+            break;
+        case 'KeyA':
+            this['_moveState'].left = 1;
+            break;
+        case 'KeyD':
+            this['_moveState'].right = 1;
+            break;
+        case 'Space':
+            this['_moveState'].up = 1;
+            event.preventDefault();
+            break;
         case 'ShiftLeft':
-        case 'ShiftRight': this['_moveState'].down = 1; break;
+        case 'ShiftRight':
+            this['_moveState'].down = 1;
+            break;
     }
 }
 
@@ -230,13 +243,25 @@ function onKeyUp(this: FlyControls, event: KeyboardEvent): void {
     if (!this.enabled) return;
 
     switch (event.code) {
-        case 'KeyW': this['_moveState'].forward = 0; break;
-        case 'KeyS': this['_moveState'].back = 0; break;
-        case 'KeyA': this['_moveState'].left = 0; break;
-        case 'KeyD': this['_moveState'].right = 0; break;
-        case 'Space': this['_moveState'].up = 0; break;
+        case 'KeyW':
+            this['_moveState'].forward = 0;
+            break;
+        case 'KeyS':
+            this['_moveState'].back = 0;
+            break;
+        case 'KeyA':
+            this['_moveState'].left = 0;
+            break;
+        case 'KeyD':
+            this['_moveState'].right = 0;
+            break;
+        case 'Space':
+            this['_moveState'].up = 0;
+            break;
         case 'ShiftLeft':
-        case 'ShiftRight': this['_moveState'].down = 0; break;
+        case 'ShiftRight':
+            this['_moveState'].down = 0;
+            break;
     }
 }
 

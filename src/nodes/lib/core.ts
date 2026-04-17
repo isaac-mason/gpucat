@@ -429,6 +429,33 @@ export class Node<D extends Any> {
     smoothstep(hi: Node<D>, x: Node<D>): Node<D> {
         return smoothstep(this, hi, x) as Node<D>;
     }
+    dpdx(): Node<D> {
+        return dpdx(this) as Node<D>;
+    }
+    dpdy(): Node<D> {
+        return dpdy(this) as Node<D>;
+    }
+    fwidth(): Node<D> {
+        return fwidth(this) as Node<D>;
+    }
+    dpdxCoarse(): Node<D> {
+        return dpdxCoarse(this) as Node<D>;
+    }
+    dpdyCoarse(): Node<D> {
+        return dpdyCoarse(this) as Node<D>;
+    }
+    fwidthCoarse(): Node<D> {
+        return fwidthCoarse(this) as Node<D>;
+    }
+    dpdxFine(): Node<D> {
+        return dpdxFine(this) as Node<D>;
+    }
+    dpdyFine(): Node<D> {
+        return dpdyFine(this) as Node<D>;
+    }
+    fwidthFine(): Node<D> {
+        return fwidthFine(this) as Node<D>;
+    }
 
     // ── Element access ────────────────────────────────────────────────────────
     element(idx: Node<Any>): Node<d.ElementOf<D>> {
@@ -1736,6 +1763,17 @@ export const or = (a: Node<d.bool>, b: Node<d.bool>): Node<d.bool> => new BinopN
 export const and = (a: Node<d.bool>, b: Node<d.bool>): Node<d.bool> => new BinopNode('&&', d.bool, a, b);
 export const not = (a: Node<d.bool>): Node<d.bool> => new CallNode(d.bool, 'not', [a]);
 export const transpose = <D extends d.MatDesc>(m: Node<D>): Node<D> => new CallNode(m.type, 'transpose', [m]);
+
+// ── Derivative builtins (fragment-only) ───────────────────────────────────────
+export const dpdx = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'dpdx', [a]);
+export const dpdy = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'dpdy', [a]);
+export const fwidth = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'fwidth', [a]);
+export const dpdxCoarse = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'dpdxCoarse', [a]);
+export const dpdyCoarse = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'dpdyCoarse', [a]);
+export const fwidthCoarse = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'fwidthCoarse', [a]);
+export const dpdxFine = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'dpdxFine', [a]);
+export const dpdyFine = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'dpdyFine', [a]);
+export const fwidthFine = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'fwidthFine', [a]);
 
 export const bitwiseAnd = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new BinopNode('&', a.type, a, b);
 export const bitwiseOr = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new BinopNode('|', a.type, a, b);

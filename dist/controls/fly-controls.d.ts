@@ -1,3 +1,4 @@
+import { type Vec3, type Quat } from 'mathcat';
 import type { Camera } from '../camera/camera';
 import { type Topic } from '../utils/topic';
 /**
@@ -23,19 +24,26 @@ export declare class FlyControls {
     minSpeed: number;
     /** Maximum movementSpeed (clamped on scroll). */
     maxSpeed: number;
-    private _yaw;
-    private _pitch;
-    private _moveState;
-    private _looking;
-    private _lastPosition;
-    private _lastQuaternion;
-    private _onKeyDown;
-    private _onKeyUp;
-    private _onPointerDown;
-    private _onPointerMove;
-    private _onPointerUp;
-    private _onContextMenu;
-    private _onWheel;
+    _yaw: number;
+    _pitch: number;
+    _moveState: {
+        forward: number;
+        back: number;
+        left: number;
+        right: number;
+        up: number;
+        down: number;
+    };
+    _looking: boolean;
+    _lastPosition: Vec3;
+    _lastQuaternion: Quat;
+    _onKeyDown: (e: KeyboardEvent) => void;
+    _onKeyUp: (e: KeyboardEvent) => void;
+    _onPointerDown: (e: PointerEvent) => void;
+    _onPointerMove: (e: PointerEvent) => void;
+    _onPointerUp: (e: PointerEvent) => void;
+    _onContextMenu: (e: Event) => void;
+    _onWheel: (e: WheelEvent) => void;
     onChange: Topic<[]>;
     constructor(object: Camera, domElement?: HTMLElement | null);
     connect(element: HTMLElement): void;
@@ -47,5 +55,5 @@ export declare class FlyControls {
      */
     update(delta: number): void;
     /** Extract yaw and pitch from the current camera quaternion. */
-    private _extractYawPitch;
+    _extractYawPitch(): void;
 }
