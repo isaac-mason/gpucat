@@ -276,10 +276,11 @@ function uploadTextureData(
     // Check if it's typed array data (DataTexture pattern)
     if (isTypedArrayData(sourceData)) {
         const bytesPerPixel = getBytesPerPixel(texture.format);
+        const view = sourceData.data;
         device.queue.writeTexture(
             { texture: data.texture },
-            sourceData.buffer,
-            { offset: sourceData.byteOffset, bytesPerRow: width * bytesPerPixel, rowsPerImage: height },
+            view.buffer,
+            { offset: view.byteOffset, bytesPerRow: width * bytesPerPixel, rowsPerImage: height },
             [width, height],
         );
     } else if (isExternalImage(sourceData)) {
