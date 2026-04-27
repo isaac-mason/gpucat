@@ -512,9 +512,6 @@ function atomic(inner) {
     }
     return { type: 'atomic', wgslType: 'atomic<u32>', inner };
 }
-function struct$1(name, fields) {
-    return { type: 'struct', wgslType: name, name, fields };
-}
 function array$1(element) {
     return { type: 'array', wgslType: `array<${element.wgslType}>`, element };
 }
@@ -851,7 +848,6 @@ var schema = /*#__PURE__*/Object.freeze({
     samplerComparisonDesc: samplerComparisonDesc,
     samplerDesc: samplerDesc,
     sizedArray: sizedArray,
-    struct: struct$1,
     texture1d: texture1d,
     texture2d: texture2d,
     texture2dArray: texture2dArray,

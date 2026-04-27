@@ -762,13 +762,6 @@ export function atomic(inner: i32 | u32): anyAtomic {
     return { type: 'atomic', wgslType: 'atomic<u32>', inner };
 }
 
-export function struct<S extends Record<string, Any>, Name extends string>(
-    name: Name,
-    fields: S,
-): { readonly type: 'struct'; readonly wgslType: Name; readonly name: Name; readonly fields: S } {
-    return { type: 'struct', wgslType: name, name, fields };
-}
-
 export function array<E extends Any>(element: E): { readonly type: 'array'; readonly wgslType: `array<${E['wgslType']}>`; readonly element: E; readonly length?: undefined } {
     return { type: 'array', wgslType: `array<${element.wgslType}>`, element };
 }

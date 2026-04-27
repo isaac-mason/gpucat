@@ -435,12 +435,6 @@ export declare function isVecDesc(desc: Any): desc is anyVec;
 export declare function isStructDef(desc: Any): desc is StructDesc;
 export declare function atomic(inner: i32): atomicI32;
 export declare function atomic(inner: u32): atomicU32;
-export declare function struct<S extends Record<string, Any>, Name extends string>(name: Name, fields: S): {
-    readonly type: 'struct';
-    readonly wgslType: Name;
-    readonly name: Name;
-    readonly fields: S;
-};
 export declare function array<E extends Any>(element: E): {
     readonly type: 'array';
     readonly wgslType: `array<${E['wgslType']}>`;
