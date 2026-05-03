@@ -791,6 +791,8 @@ function walkTypeForStructs(type: d.Any, register: (def: StructDef<StructSchema>
 }
 
 function discover(roots: Node<d.Any>[]): DiscoverResult {
+    const allNodes = new Map<number, Node<d.Any>>();
+
     const usageCount = new Map<number, number>();
     const mutatedNodes = new Set<number>();
     const fnDefs = new Map<string, { fn: FnNode<d.Any>; traced: TracedFn }>();
@@ -803,10 +805,10 @@ function discover(roots: Node<d.Any>[]): DiscoverResult {
     const storages = new Map<string, StorageNode<d.Any>>();
     const privateVars = new Map<number, PrivateVarNode<d.Any>>();
     const workgroupVars = new Map<number, WorkgroupVarNode<d.Any>>();
-    const allNodes = new Map<number, Node<d.Any>>();
     const updateBeforeNodes: UpdateBeforeNode[] = [];
     const updateAfterNodes: UpdateAfterNode[] = [];
     const updateNodes: UpdateNode[] = [];
+
     const visited = new Set<number>();
 
     function registerStructDef(def: StructDef<StructSchema>): void {

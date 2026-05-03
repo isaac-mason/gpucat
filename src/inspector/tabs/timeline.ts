@@ -102,10 +102,18 @@ export class Timeline extends Tab {
         this.recordRefreshButton.style.display = 'flex';
         this.recordRefreshButton.style.alignItems = 'center';
         this.recordRefreshButton.addEventListener('click', () => {
-            const storage = JSON.parse(localStorage.getItem('gpucat-inspector') || '{}');
-            storage.timeline = storage.timeline || {};
-            storage.timeline.recording = true;
-            localStorage.setItem('gpucat-inspector', JSON.stringify(storage));
+            // Sandboxed iframes (no allow-same-origin) expose
+            // `localStorage` but throw on access. Swallow rather than
+            // surface; reload still happens so the user-facing action
+            // isn't silently dropped.
+            try {
+                const storage = JSON.parse(localStorage.getItem('gpucat-inspector') || '{}');
+                storage.timeline = storage.timeline || {};
+                storage.timeline.recording = true;
+                localStorage.setItem('gpucat-inspector', JSON.stringify(storage));
+            } catch (e) {
+                console.warn('gpucat-inspector: failed to persist record-refresh flag', e);
+            }
             window.location.reload();
         });
 
@@ -295,11 +303,19 @@ export class Timeline extends Tab {
 
     /** Called by Inspector.ts to set up auto-start from localStorage. */
     setRenderer(_renderer: unknown): void {
-        const storage = JSON.parse(localStorage.getItem('gpucat-inspector') || '{}');
-        if (storage.timeline?.recording) {
-            storage.timeline.recording = false;
-            localStorage.setItem('gpucat-inspector', JSON.stringify(storage));
-            this.toggleRecording();
+        // Sandboxed iframes (no allow-same-origin) expose
+        // `localStorage` but throw SecurityError on access. Without
+        // this wrap the throw escaped through the renderer's init
+        // path and aborted the whole boot.
+        try {
+            const storage = JSON.parse(localStorage.getItem('gpucat-inspector') || '{}');
+            if (storage.timeline?.recording) {
+                storage.timeline.recording = false;
+                localStorage.setItem('gpucat-inspector', JSON.stringify(storage));
+                this.toggleRecording();
+            }
+        } catch {
+            // storage unavailable — auto-start just doesn't fire
         }
     }
 
