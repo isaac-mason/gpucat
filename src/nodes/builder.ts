@@ -59,7 +59,7 @@ export function compile(slots: CompileSlots): CompileResult {
 
     // single discovery pass across all roots
     const discovered = discover(roots);
-    vertexCtx.usageCount = discovered.usageCount;
+    vertexCtx.usageCount = discovered.nodeIdToUsages;
     vertexCtx.mutatedNodes = discovered.mutatedNodes;
     vertexCtx.fnDefs = discovered.fnDefs;
     vertexCtx.wgslFnDefs = discovered.wgslFnDefs;
@@ -72,7 +72,7 @@ export function compile(slots: CompileSlots): CompileResult {
     vertexCtx.privateVars = discovered.privateVars;
     vertexCtx.workgroupVars = discovered.workgroupVars;
 
-    fragmentCtx.usageCount = discovered.usageCount;
+    fragmentCtx.usageCount = discovered.nodeIdToUsages;
     fragmentCtx.mutatedNodes = discovered.mutatedNodes;
     fragmentCtx.fnDefs = discovered.fnDefs;
     fragmentCtx.wgslFnDefs = discovered.wgslFnDefs;
@@ -141,7 +141,7 @@ export function compile(slots: CompileSlots): CompileResult {
     const graphEdges = new Map<number, readonly number[]>();
     const graphInfo = new Map<number, NodeGraphInfo>();
 
-    for (const [id, node] of discovered.allNodes) {
+    for (const [id, node] of discovered.nodeIdToNode) {
         graphNodes.set(id, node);
         graphEdges.set(
             id,
@@ -150,7 +150,7 @@ export function compile(slots: CompileSlots): CompileResult {
         graphInfo.set(id, {
             stages: [],
             cseVar: vertexCtx.nodeVars.get(id) ?? fragmentCtx.nodeVars.get(id),
-            usageCount: discovered.usageCount.get(id) ?? 0,
+            usageCount: discovered.nodeIdToUsages.get(id) ?? 0,
             expression: undefined,
         });
     }
@@ -207,7 +207,7 @@ export function compileCompute(node: ComputeNode): ComputeCompileResult {
 
     // single discovery pass
     const discovered = discover(roots);
-    ctx.usageCount = discovered.usageCount;
+    ctx.usageCount = discovered.nodeIdToUsages;
     ctx.mutatedNodes = discovered.mutatedNodes;
     ctx.fnDefs = discovered.fnDefs;
     ctx.wgslFnDefs = discovered.wgslFnDefs;
@@ -753,7 +753,7 @@ function groupAttributesByBuffer(entries: AttributeEntry[]): VertexBufferGroup[]
 
 /** Single DFS pass that discovers all metadata needed before code generation. */
 interface DiscoverResult {
-    usageCount: Map<number, number>;
+    nodeIdToUsages: Map<number, number>;
     mutatedNodes: Set<number>;
     fnDefs: Map<string, { fn: FnNode<d.Any>; traced: TracedFn }>;
     wgslFnDefs: Map<string, WgslFunctionNode>;
@@ -765,7 +765,7 @@ interface DiscoverResult {
     storages: Map<string, StorageNode<d.Any>>;
     privateVars: Map<number, PrivateVarNode<d.Any>>; // node.id -> node
     workgroupVars: Map<number, WorkgroupVarNode<d.Any>>; // node.id -> node
-    allNodes: Map<number, Node<d.Any>>;
+    nodeIdToNode: Map<number, Node<d.Any>>;
     updateBeforeNodes: UpdateBeforeNode[];
     updateAfterNodes: UpdateAfterNode[];
     updateNodes: UpdateNode[];
@@ -791,9 +791,9 @@ function walkTypeForStructs(type: d.Any, register: (def: StructDef<StructSchema>
 }
 
 function discover(roots: Node<d.Any>[]): DiscoverResult {
-    const allNodes = new Map<number, Node<d.Any>>();
+    const nodeIdToNode = new Map<number, Node<d.Any>>();
+    const nodeIdToUsages = new Map<number, number>();
 
-    const usageCount = new Map<number, number>();
     const mutatedNodes = new Set<number>();
     const fnDefs = new Map<string, { fn: FnNode<d.Any>; traced: TracedFn }>();
     const wgslFnDefs = new Map<string, WgslFunctionNode>();
@@ -857,14 +857,14 @@ function discover(roots: Node<d.Any>[]): DiscoverResult {
 
     function visit(node: Node<d.Any>) {
         // usage counting
-        usageCount.set(node.id, (usageCount.get(node.id) ?? 0) + 1);
+        nodeIdToUsages.set(node.id, (nodeIdToUsages.get(node.id) ?? 0) + 1);
 
         // exit if visited
         if (visited.has(node.id)) return;
         visited.add(node.id);
 
         // collect all nodes
-        allNodes.set(node.id, node);
+        nodeIdToNode.set(node.id, node);
 
         // collect update lifecycle nodes
         if (node.updateBeforeType !== 'none' && node.updateBefore) {
@@ -972,13 +972,13 @@ function discover(roots: Node<d.Any>[]): DiscoverResult {
     }
 
     return {
-        usageCount,
+        nodeIdToNode,
+        nodeIdToUsages,
         mutatedNodes,
         fnDefs,
         wgslFnDefs,
         structDefs,
         storageNames,
-        allNodes,
         updateBeforeNodes,
         updateAfterNodes,
         updateNodes,

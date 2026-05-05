@@ -586,7 +586,7 @@ class TransformControlsGizmo extends Object3D {
                         const newIdx = srcGeom.index.array instanceof Uint32Array
                             ? new Uint32Array(srcGeom.index.array)
                             : new Uint16Array(srcGeom.index.array as Uint16Array);
-                        clonedGeom.index = createIndexBuffer(newIdx as Uint16Array);
+                        clonedGeom.setIndex(createIndexBuffer(newIdx as Uint16Array));
                     }
                     clonedGeom.drawRange = { ...srcGeom.drawRange };
                     if (srcGeom.boundingBox) clonedGeom.boundingBox = [...srcGeom.boundingBox] as any;

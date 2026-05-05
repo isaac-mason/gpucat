@@ -102,7 +102,7 @@ export function createBoxGeometry(width = 1, height = 1, depth = 1): Geometry {
     geom.setBuffer('position', createVertexBuffer(d.vec3f, positions));
     geom.setBuffer('normal', createVertexBuffer(d.vec3f, normals));
     geom.setBuffer('uv', createVertexBuffer(d.vec2f, uvs));
-    geom.index = createIndexBuffer(indices);
+    geom.setIndex(createIndexBuffer(indices));
     geom.boundingBox = [-hw, -hh, -hd, hw, hh, hd];
     geom.boundingSphere = { center: [0, 0, 0], radius: Math.sqrt(hw * hw + hh * hh + hd * hd) };
     return geom;
@@ -166,7 +166,7 @@ export function createSphereGeometry(radius = 0.5, widthSegments = 16, heightSeg
     geom.setBuffer('position', createVertexBuffer(d.vec3f, positions));
     geom.setBuffer('normal', createVertexBuffer(d.vec3f, normals));
     geom.setBuffer('uv', createVertexBuffer(d.vec2f, uvs));
-    geom.index = createIndexBuffer(indices);
+    geom.setIndex(createIndexBuffer(indices));
     geom.boundingBox = [-radius, -radius, -radius, radius, radius, radius];
     geom.boundingSphere = { center: [0, 0, 0], radius };
     return geom;
@@ -240,7 +240,7 @@ export function createPlaneGeometry(width = 1, height = 1, widthSegments = 1, he
     geom.setBuffer('position', createVertexBuffer(d.vec3f, positions));
     geom.setBuffer('normal', createVertexBuffer(d.vec3f, normals));
     geom.setBuffer('uv', createVertexBuffer(d.vec2f, uvs));
-    geom.index = createIndexBuffer(indices as Uint16Array);
+    geom.setIndex(createIndexBuffer(indices as Uint16Array));
     geom.boundingBox = [-hw, -hh, 0, hw, hh, 0];
     geom.boundingSphere = {
         center: [0, 0, 0],
@@ -473,7 +473,7 @@ export function createCylinderGeometry(
     geom.setBuffer('position', createVertexBuffer(d.vec3f, positions));
     geom.setBuffer('normal', createVertexBuffer(d.vec3f, normals));
     geom.setBuffer('uv', createVertexBuffer(d.vec2f, uvs));
-    geom.index = createIndexBuffer(indices);
+    geom.setIndex(createIndexBuffer(indices));
     geom.boundingBox = [-maxR, -halfHeight, -maxR, maxR, halfHeight, maxR];
     geom.boundingSphere = { center: [0, 0, 0], radius: Math.sqrt(maxR * maxR + halfHeight * halfHeight) };
     return geom;
@@ -567,7 +567,7 @@ export function createTorusGeometry(
     geom.setBuffer('position', createVertexBuffer(d.vec3f, positions));
     geom.setBuffer('normal', createVertexBuffer(d.vec3f, normals));
     geom.setBuffer('uv', createVertexBuffer(d.vec2f, uvArr));
-    geom.index = createIndexBuffer(indices);
+    geom.setIndex(createIndexBuffer(indices));
     geom.boundingBox = [-outerR, -outerR, -tube, outerR, outerR, tube];
     geom.boundingSphere = { center: [0, 0, 0], radius: outerR };
     return geom;
@@ -687,7 +687,7 @@ export function createOctahedronGeometry(radius = 1, detail = 0): Geometry {
     geom.setBuffer('position', createVertexBuffer(d.vec3f, positions));
     geom.setBuffer('normal', createVertexBuffer(d.vec3f, normalsArr));
     geom.setBuffer('uv', createVertexBuffer(d.vec2f, uvsArr));
-    geom.index = createIndexBuffer(indexData as Uint16Array);
+    geom.setIndex(createIndexBuffer(indexData as Uint16Array));
     geom.boundingBox = [-radius, -radius, -radius, radius, radius, radius];
     geom.boundingSphere = { center: [0, 0, 0], radius };
     return geom;

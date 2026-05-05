@@ -7164,7 +7164,7 @@ function compile(slots) {
         roots.push(slots.depth);
     // single discovery pass across all roots
     const discovered = discover(roots);
-    vertexCtx.usageCount = discovered.usageCount;
+    vertexCtx.usageCount = discovered.nodeIdToUsages;
     vertexCtx.mutatedNodes = discovered.mutatedNodes;
     vertexCtx.fnDefs = discovered.fnDefs;
     vertexCtx.wgslFnDefs = discovered.wgslFnDefs;
@@ -7176,7 +7176,7 @@ function compile(slots) {
     vertexCtx.storages = discovered.storages;
     vertexCtx.privateVars = discovered.privateVars;
     vertexCtx.workgroupVars = discovered.workgroupVars;
-    fragmentCtx.usageCount = discovered.usageCount;
+    fragmentCtx.usageCount = discovered.nodeIdToUsages;
     fragmentCtx.mutatedNodes = discovered.mutatedNodes;
     fragmentCtx.fnDefs = discovered.fnDefs;
     fragmentCtx.wgslFnDefs = discovered.wgslFnDefs;
@@ -7229,13 +7229,13 @@ function compile(slots) {
     const graphNodes = new Map();
     const graphEdges = new Map();
     const graphInfo = new Map();
-    for (const [id, node] of discovered.allNodes) {
+    for (const [id, node] of discovered.nodeIdToNode) {
         graphNodes.set(id, node);
         graphEdges.set(id, getChildren(node).map((c) => c.id));
         graphInfo.set(id, {
             stages: [],
             cseVar: vertexCtx.nodeVars.get(id) ?? fragmentCtx.nodeVars.get(id),
-            usageCount: discovered.usageCount.get(id) ?? 0,
+            usageCount: discovered.nodeIdToUsages.get(id) ?? 0,
             expression: undefined,
         });
     }
@@ -7284,7 +7284,7 @@ function compileCompute(node) {
     const roots = [traced.body, traced.output].filter((n) => n != null);
     // single discovery pass
     const discovered = discover(roots);
-    ctx.usageCount = discovered.usageCount;
+    ctx.usageCount = discovered.nodeIdToUsages;
     ctx.mutatedNodes = discovered.mutatedNodes;
     ctx.fnDefs = discovered.fnDefs;
     ctx.wgslFnDefs = discovered.wgslFnDefs;
@@ -7628,8 +7628,8 @@ function walkTypeForStructs(type, register) {
     // For vectors and matrices, no structs to find
 }
 function discover(roots) {
-    const allNodes = new Map();
-    const usageCount = new Map();
+    const nodeIdToNode = new Map();
+    const nodeIdToUsages = new Map();
     const mutatedNodes = new Set();
     const fnDefs = new Map();
     const wgslFnDefs = new Map();
@@ -7688,13 +7688,13 @@ function discover(roots) {
     }
     function visit(node) {
         // usage counting
-        usageCount.set(node.id, (usageCount.get(node.id) ?? 0) + 1);
+        nodeIdToUsages.set(node.id, (nodeIdToUsages.get(node.id) ?? 0) + 1);
         // exit if visited
         if (visited.has(node.id))
             return;
         visited.add(node.id);
         // collect all nodes
-        allNodes.set(node.id, node);
+        nodeIdToNode.set(node.id, node);
         // collect update lifecycle nodes
         if (node.updateBeforeType !== 'none' && node.updateBefore) {
             updateBeforeNodes.push(node);
@@ -7792,13 +7792,13 @@ function discover(roots) {
         visit(root);
     }
     return {
-        usageCount,
+        nodeIdToNode,
+        nodeIdToUsages,
         mutatedNodes,
         fnDefs,
         wgslFnDefs,
         structDefs,
         storageNames,
-        allNodes,
         updateBeforeNodes,
         updateAfterNodes,
         updateNodes,
@@ -20117,7 +20117,7 @@ function createBoxGeometry(width = 1, height = 1, depth = 1) {
     geom.setBuffer('position', createVertexBuffer(vec3f$1, positions));
     geom.setBuffer('normal', createVertexBuffer(vec3f$1, normals));
     geom.setBuffer('uv', createVertexBuffer(vec2f$1, uvs));
-    geom.index = createIndexBuffer(indices);
+    geom.setIndex(createIndexBuffer(indices));
     geom.boundingBox = [-hw, -hh, -hd, hw, hh, hd];
     geom.boundingSphere = { center: [0, 0, 0], radius: Math.sqrt(hw * hw + hh * hh + hd * hd) };
     return geom;
@@ -20175,7 +20175,7 @@ function createSphereGeometry(radius = 0.5, widthSegments = 16, heightSegments =
     geom.setBuffer('position', createVertexBuffer(vec3f$1, positions));
     geom.setBuffer('normal', createVertexBuffer(vec3f$1, normals));
     geom.setBuffer('uv', createVertexBuffer(vec2f$1, uvs));
-    geom.index = createIndexBuffer(indices);
+    geom.setIndex(createIndexBuffer(indices));
     geom.boundingBox = [-radius, -radius, -radius, radius, radius, radius];
     geom.boundingSphere = { center: [0, 0, 0], radius };
     return geom;
@@ -20243,7 +20243,7 @@ function createPlaneGeometry(width = 1, height = 1, widthSegments = 1, heightSeg
     geom.setBuffer('position', createVertexBuffer(vec3f$1, positions));
     geom.setBuffer('normal', createVertexBuffer(vec3f$1, normals));
     geom.setBuffer('uv', createVertexBuffer(vec2f$1, uvs));
-    geom.index = createIndexBuffer(indices);
+    geom.setIndex(createIndexBuffer(indices));
     geom.boundingBox = [-hw, -hh, 0, hw, hh, 0];
     geom.boundingSphere = {
         center: [0, 0, 0],
@@ -20446,7 +20446,7 @@ function createCylinderGeometry(radiusTop = 1, radiusBottom = 1, height = 1, rad
     geom.setBuffer('position', createVertexBuffer(vec3f$1, positions));
     geom.setBuffer('normal', createVertexBuffer(vec3f$1, normals));
     geom.setBuffer('uv', createVertexBuffer(vec2f$1, uvs));
-    geom.index = createIndexBuffer(indices);
+    geom.setIndex(createIndexBuffer(indices));
     geom.boundingBox = [-maxR, -halfHeight, -maxR, maxR, halfHeight, maxR];
     geom.boundingSphere = { center: [0, 0, 0], radius: Math.sqrt(maxR * maxR + halfHeight * halfHeight) };
     return geom;
@@ -20525,7 +20525,7 @@ function createTorusGeometry(radius = 1, tube = 0.4, radialSegments = 12, tubula
     geom.setBuffer('position', createVertexBuffer(vec3f$1, positions));
     geom.setBuffer('normal', createVertexBuffer(vec3f$1, normals));
     geom.setBuffer('uv', createVertexBuffer(vec2f$1, uvArr));
-    geom.index = createIndexBuffer(indices);
+    geom.setIndex(createIndexBuffer(indices));
     geom.boundingBox = [-outerR, -outerR, -tube, outerR, outerR, tube];
     geom.boundingSphere = { center: [0, 0, 0], radius: outerR };
     return geom;
@@ -20632,7 +20632,7 @@ function createOctahedronGeometry(radius = 1, detail = 0) {
     geom.setBuffer('position', createVertexBuffer(vec3f$1, positions));
     geom.setBuffer('normal', createVertexBuffer(vec3f$1, normalsArr));
     geom.setBuffer('uv', createVertexBuffer(vec2f$1, uvsArr));
-    geom.index = createIndexBuffer(indexData);
+    geom.setIndex(createIndexBuffer(indexData));
     geom.boundingBox = [-radius, -radius, -radius, radius, radius, radius];
     geom.boundingSphere = { center: [0, 0, 0], radius };
     return geom;
@@ -25749,7 +25749,7 @@ class TransformControlsGizmo extends Object3D {
                         const newIdx = srcGeom.index.array instanceof Uint32Array
                             ? new Uint32Array(srcGeom.index.array)
                             : new Uint16Array(srcGeom.index.array);
-                        clonedGeom.index = createIndexBuffer(newIdx);
+                        clonedGeom.setIndex(createIndexBuffer(newIdx));
                     }
                     clonedGeom.drawRange = { ...srcGeom.drawRange };
                     if (srcGeom.boundingBox)
