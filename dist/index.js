@@ -28684,6 +28684,9 @@ class WebGPURenderer {
         if (!this._initialized) {
             throw new Error('[WebGPURenderer] render() called before init(). Await renderer.init() first.');
         }
+        // Skip swapchain renders when canvas has zero dimensions (e.g. minimized or hidden).
+        if (!this.renderTarget && (this.domElement.width === 0 || this.domElement.height === 0))
+            return;
         // Save previous renderId to support nested renders (e.g. PassNode calling render() in updateBefore).
         // Each render() call gets its own renderId so RENDER-level updates run once per render call.
         // At top level (depth 0), just increment. When nested, save/restore parent's renderId.
@@ -28720,6 +28723,10 @@ class WebGPURenderer {
         passCtx.height = height;
         passCtx.camera = camera;
         passCtx.clearColorValue = { r: cr, g: cg, b: cb, a: ca };
+        // Recreate depth/MSAA textures if the canvas was resized externally (bypassing setSize).
+        if (!renderTarget && (this._depthTexture.width !== width || this._depthTexture.height !== height)) {
+            this._onResize(width, height);
+        }
         const clearColor = { r: cr, g: cg, b: cb, a: ca };
         const { colorAttachments, depthAttachment } = this._render_resolve(renderTarget, clearColor);
         this._device.pushErrorScope('validation');
