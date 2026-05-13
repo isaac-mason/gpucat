@@ -3,8 +3,9 @@ import { RenderTarget } from '../../../core/render-target';
 import type { NodeFrame } from '../../../renderer/node-frame';
 import type { Scene } from '../../../scene/scene';
 import { Texture } from '../../../texture/texture';
+import { DepthTexture } from '../../../texture/depth-texture';
 import type { MRTNode } from '../mrt';
-import { TextureBindingNode, TextureNode } from '../texture';
+import { DepthTextureNode, TextureBindingNode, TextureNode } from '../texture';
 import { Node } from '../core';
 import * as d from '../../../schema/schema';
 /**
@@ -102,6 +103,7 @@ export declare class PassNode extends Node<d.vec4f> {
     private readonly _textureNodes;
     private readonly _previousTextures;
     private readonly _previousTextureNodes;
+    private readonly _depthTextureNodes;
     private readonly _viewZNodes;
     private readonly _linearDepthNodes;
     constructor(scope: 'color' | 'depth', scene: Scene, camera: Camera, options?: PassNodeOptions);
@@ -135,6 +137,22 @@ export declare class PassNode extends Node<d.vec4f> {
      * Switches current and previous textures for the given output name.
      */
     toggleTexture(name: string): void;
+    /**
+     * Returns the underlying DepthTexture for the given attachment (typically
+     * `'depth'`). Null if the pass has no depth attachment.
+     */
+    getDepthTexture(name?: string): DepthTexture | null;
+    /**
+     * Returns a depth-typed texture node for the given attachment.
+     * Use this instead of `getTextureNode('depth')` — depth-format render
+     * targets must be bound as `texture_depth_2d` (sampleType 'depth')
+     * because WebGPU rejects them as filterable Float.
+     *
+     * The pass's depth attachment is a stable reference (RenderTarget.setSize
+     * mutates in place), so the binding's `value` is set once at construction
+     * and never needs to be refreshed.
+     */
+    getDepthTextureNode(name?: string): DepthTextureNode;
     /**
      * Returns the texture node for the given output name.
      */

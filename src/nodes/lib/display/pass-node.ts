@@ -6,11 +6,12 @@ import { type ImageSize } from '../../../texture/source';
 import { Texture } from '../../../texture/texture';
 import { DepthTexture } from '../../../texture/depth-texture';
 import type { MRTNode } from '../mrt';
-import { TextureBindingNode, TextureNode } from '../texture';
-import { Node } from '../core';
+import { DepthTextureNode, TextureBindingNode, TextureNode } from '../texture';
+import { Node, vec2i } from '../core';
 import { cameraFar, cameraNear } from '../camera';
 import * as d from '../../../schema/schema';
 import { objectGroup } from '../uniform';
+import { screenCoordinate } from './screen';
 
 /** Union type for textures that can be stored in a pass */
 type PassTexture = Texture | DepthTexture;
@@ -110,6 +111,7 @@ export class PassMultipleTextureNode extends PassTextureNode {
     }
 }
 
+
 export type PassNodeOptions = {
     /** RGBA clear color for this pass's color attachment. Defaults to [0, 0, 0, 1]. */
     clearColor?: [number, number, number, number];
@@ -171,6 +173,8 @@ export class PassNode extends Node<d.vec4f> {
     private readonly _previousTextures: Record<string, PassTexture> = {};
 
     private readonly _previousTextureNodes: Record<string, PassMultipleTextureNode> = {};
+
+    private readonly _depthTextureNodes: Record<string, DepthTextureNode> = {};
 
     private readonly _viewZNodes: Record<string, Node<d.f32>> = {};
 
@@ -322,6 +326,39 @@ export class PassNode extends Node<d.vec4f> {
     }
 
     /**
+     * Returns the underlying DepthTexture for the given attachment (typically
+     * `'depth'`). Null if the pass has no depth attachment.
+     */
+    getDepthTexture(name = 'depth'): DepthTexture | null {
+        const tex = this._textures[name];
+        return tex instanceof DepthTexture ? tex : null;
+    }
+
+    /**
+     * Returns a depth-typed texture node for the given attachment.
+     * Use this instead of `getTextureNode('depth')` — depth-format render
+     * targets must be bound as `texture_depth_2d` (sampleType 'depth')
+     * because WebGPU rejects them as filterable Float.
+     *
+     * The pass's depth attachment is a stable reference (RenderTarget.setSize
+     * mutates in place), so the binding's `value` is set once at construction
+     * and never needs to be refreshed.
+     */
+    getDepthTextureNode(name = 'depth'): DepthTextureNode {
+        let node = this._depthTextureNodes[name];
+        if (node === undefined) {
+            const depthTex = this.getDepthTexture(name);
+            if (!depthTex) throw new Error(`PassNode: no '${name}' depth attachment to bind`);
+            const binding = new TextureBindingNode(d.textureDepth2d, `_pass${this.passId}_${name}`, objectGroup);
+            binding.value = depthTex._gpuTexture;
+            node = new DepthTextureNode(binding);
+            node.before(this);
+            this._depthTextureNodes[name] = node;
+        }
+        return node;
+    }
+
+    /**
      * Returns the texture node for the given output name.
      */
     getTextureNode(name = 'output'): PassMultipleTextureNode {
@@ -364,10 +401,12 @@ export class PassNode extends Node<d.vec4f> {
         let viewZNode = this._viewZNodes[name];
 
         if (viewZNode === undefined) {
-            const depthTextureNode = this.getTextureNode(name);
-
-            // Get depth value from texture (TextureNode generates textureSample())
-            const depth = depthTextureNode.r as Node<d.f32>;
+            // Depth-format attachments must be sampled via `texture_depth_2d`
+            // + `textureLoad` (no sampler — pixel-coord fetch). Sampling
+            // through `textureSample` would require a 'float' sample type,
+            // which WebGPU rejects for depth24plus / depth32float.
+            const depthNode = this.getDepthTextureNode(name);
+            const depth = depthNode.load(vec2i(screenCoordinate));
 
             // perspectiveDepthToViewZ formula (non-reversed depth buffer):
             // viewZ = near.mul(far).div(far.sub(near).mul(depth).sub(far))
@@ -449,6 +488,7 @@ export class PassNode extends Node<d.vec4f> {
         for (const name in this._textureNodes) {
             this._textureNodes[name].updateTexture();
         }
+        // Depth attachments are stable references — no per-frame refresh.
     }
 
     /**

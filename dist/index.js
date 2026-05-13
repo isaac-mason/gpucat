@@ -5314,6 +5314,41 @@ function textureGatherCompare(t, s, coords, depthRef, offset) {
     return new CallNode(vec4f$1, 'textureGatherCompare', args);
 }
 
+/**
+ * Screen coordinate — the current fragment's xy position in pixels.
+ * Equivalent to @builtin(position).xy in WGSL.
+ *
+ * @example
+ * // Get pixel position
+ * const pixelPos = screenCoordinate;
+ */
+const screenCoordinate = fragCoord.xy;
+/**
+ * Screen/viewport size in pixels. Updated per render by the renderer.
+ * In renderGroup so it's shared across all objects in a frame.
+ *
+ * @example
+ * // Get screen dimensions
+ * const size = screenSize; // vec2f(width, height)
+ */
+const screenSize = /*@__PURE__*/ new UniformNode(new Uniform(vec2f$1, undefined, renderGroup), 'screenSize').onRenderUpdate(({ width, height }) => [width, height]);
+/**
+ * Normalized screen UV coordinates in [0, 1] range.
+ * Computed as screenCoordinate / screenSize.
+ *
+ * (0, 0) is top-left, (1, 1) is bottom-right (following WebGPU conventions).
+ *
+ * @example
+ * // Sample a texture using screen UV
+ * const color = texture.sample(screenUV);
+ *
+ * // Use x component for horizontal effects
+ * const x = screenUV.x;
+ */
+const screenUV = /*@__PURE__*/ (() => {
+    return div(screenCoordinate, screenSize);
+})();
+
 let _passCount = 0;
 /**
  * Represents the texture of a pass node.
@@ -5432,6 +5467,7 @@ class PassNode extends Node {
     _textureNodes = {};
     _previousTextures = {};
     _previousTextureNodes = {};
+    _depthTextureNodes = {};
     _viewZNodes = {};
     _linearDepthNodes = {};
     constructor(scope, scene, camera, options = {}) {
@@ -5554,6 +5590,38 @@ class PassNode extends Node {
         }
     }
     /**
+     * Returns the underlying DepthTexture for the given attachment (typically
+     * `'depth'`). Null if the pass has no depth attachment.
+     */
+    getDepthTexture(name = 'depth') {
+        const tex = this._textures[name];
+        return tex instanceof DepthTexture ? tex : null;
+    }
+    /**
+     * Returns a depth-typed texture node for the given attachment.
+     * Use this instead of `getTextureNode('depth')` — depth-format render
+     * targets must be bound as `texture_depth_2d` (sampleType 'depth')
+     * because WebGPU rejects them as filterable Float.
+     *
+     * The pass's depth attachment is a stable reference (RenderTarget.setSize
+     * mutates in place), so the binding's `value` is set once at construction
+     * and never needs to be refreshed.
+     */
+    getDepthTextureNode(name = 'depth') {
+        let node = this._depthTextureNodes[name];
+        if (node === undefined) {
+            const depthTex = this.getDepthTexture(name);
+            if (!depthTex)
+                throw new Error(`PassNode: no '${name}' depth attachment to bind`);
+            const binding = new TextureBindingNode(textureDepth2d, `_pass${this.passId}_${name}`, objectGroup);
+            binding.value = depthTex._gpuTexture;
+            node = new DepthTextureNode(binding);
+            node.before(this);
+            this._depthTextureNodes[name] = node;
+        }
+        return node;
+    }
+    /**
      * Returns the texture node for the given output name.
      */
     getTextureNode(name = 'output') {
@@ -5588,9 +5656,12 @@ class PassNode extends Node {
     getViewZNode(name = 'depth') {
         let viewZNode = this._viewZNodes[name];
         if (viewZNode === undefined) {
-            const depthTextureNode = this.getTextureNode(name);
-            // Get depth value from texture (TextureNode generates textureSample())
-            const depth = depthTextureNode.r;
+            // Depth-format attachments must be sampled via `texture_depth_2d`
+            // + `textureLoad` (no sampler — pixel-coord fetch). Sampling
+            // through `textureSample` would require a 'float' sample type,
+            // which WebGPU rejects for depth24plus / depth32float.
+            const depthNode = this.getDepthTextureNode(name);
+            const depth = depthNode.load(vec2i(screenCoordinate));
             // perspectiveDepthToViewZ formula (non-reversed depth buffer):
             // viewZ = near.mul(far).div(far.sub(near).mul(depth).sub(far))
             viewZNode = cameraNear
@@ -5654,6 +5725,7 @@ class PassNode extends Node {
         for (const name in this._textureNodes) {
             this._textureNodes[name].updateTexture();
         }
+        // Depth attachments are stable references — no per-frame refresh.
     }
     /**
      * Frees internal resources. Should be called when the node is no longer in use.
@@ -5734,41 +5806,6 @@ function applyToneMapping(rgb, mode) {
         case 'none': return rgb;
     }
 }
-
-/**
- * Screen coordinate — the current fragment's xy position in pixels.
- * Equivalent to @builtin(position).xy in WGSL.
- *
- * @example
- * // Get pixel position
- * const pixelPos = screenCoordinate;
- */
-const screenCoordinate = fragCoord.xy;
-/**
- * Screen/viewport size in pixels. Updated per render by the renderer.
- * In renderGroup so it's shared across all objects in a frame.
- *
- * @example
- * // Get screen dimensions
- * const size = screenSize; // vec2f(width, height)
- */
-const screenSize = /*@__PURE__*/ new UniformNode(new Uniform(vec2f$1, undefined, renderGroup), 'screenSize').onRenderUpdate(({ width, height }) => [width, height]);
-/**
- * Normalized screen UV coordinates in [0, 1] range.
- * Computed as screenCoordinate / screenSize.
- *
- * (0, 0) is top-left, (1, 1) is bottom-right (following WebGPU conventions).
- *
- * @example
- * // Sample a texture using screen UV
- * const color = texture.sample(screenUV);
- *
- * // Use x component for horizontal effects
- * const x = screenUV.x;
- */
-const screenUV = /*@__PURE__*/ (() => {
-    return div(screenCoordinate, screenSize);
-})();
 
 const EDGE_STEP_COUNT = 6;
 const EDGE_GUESS = 8.0;
@@ -19182,41 +19219,61 @@ function fromValues(x, y, z, order) {
     return [x, y, z, order];
 }
 
-const _transformMat4_corner = /*@__PURE__*/ create$6();
 /**
- * Transform a bounding box by a 4x4 matrix
- * Transforms all 8 corners and creates a new AABB that encompasses them
+ * Transform a bounding box by a 4x4 matrix.
+ * Uses Arvo's trick — transform the center, build new half-extents from
+ * |M| · extents — which is ~4× fewer ops than transforming all 8 corners.
+ * Reference: Jim Arvo, "Transforming Axis-Aligned Bounding Boxes",
+ * Graphics Gems I (1990).
+ * https://github.com/erich666/GraphicsGems/blob/master/gems/TransBox.c
+ * Assumes mat is affine (no perspective), which is always true for AABB
+ * transforms in practice.
+ * Safe under aliasing (out and box may be the same array): all six box
+ * components are read into locals before out is written.
  * @param out - The output Box3
  * @param box - The input Box3
  * @param mat - The 4x4 transformation matrix
  * @returns The transformed Box3
  */
 function transformMat4(out, box, mat) {
-    out[0] = Number.POSITIVE_INFINITY;
-    out[1] = Number.POSITIVE_INFINITY;
-    out[2] = Number.POSITIVE_INFINITY;
-    out[3] = Number.NEGATIVE_INFINITY;
-    out[4] = Number.NEGATIVE_INFINITY;
-    out[5] = Number.NEGATIVE_INFINITY;
-    // transform all 8 corners of the box and expand the output AABB
-    for (let i = 0; i < 8; i++) {
-        _transformMat4_corner[0] = (i & 1) === 0 ? box[0] : box[3];
-        _transformMat4_corner[1] = (i & 2) === 0 ? box[1] : box[4];
-        _transformMat4_corner[2] = (i & 4) === 0 ? box[2] : box[5];
-        transformMat4$1(_transformMat4_corner, _transformMat4_corner, mat);
-        if (_transformMat4_corner[0] < out[0])
-            out[0] = _transformMat4_corner[0];
-        if (_transformMat4_corner[0] > out[3])
-            out[3] = _transformMat4_corner[0];
-        if (_transformMat4_corner[1] < out[1])
-            out[1] = _transformMat4_corner[1];
-        if (_transformMat4_corner[1] > out[4])
-            out[4] = _transformMat4_corner[1];
-        if (_transformMat4_corner[2] < out[2])
-            out[2] = _transformMat4_corner[2];
-        if (_transformMat4_corner[2] > out[5])
-            out[5] = _transformMat4_corner[2];
+    const bMinX = box[0];
+    const bMinY = box[1];
+    const bMinZ = box[2];
+    const bMaxX = box[3];
+    const bMaxY = box[4];
+    const bMaxZ = box[5];
+    // empty input → empty output (preserve sentinel rather than producing
+    // a bogus transformed box from negative extents)
+    if (bMinX > bMaxX || bMinY > bMaxY || bMinZ > bMaxZ) {
+        out[0] = Number.POSITIVE_INFINITY;
+        out[1] = Number.POSITIVE_INFINITY;
+        out[2] = Number.POSITIVE_INFINITY;
+        out[3] = Number.NEGATIVE_INFINITY;
+        out[4] = Number.NEGATIVE_INFINITY;
+        out[5] = Number.NEGATIVE_INFINITY;
+        return out;
     }
+    const cx = (bMinX + bMaxX) * 0.5;
+    const cy = (bMinY + bMaxY) * 0.5;
+    const cz = (bMinZ + bMaxZ) * 0.5;
+    const ex = (bMaxX - bMinX) * 0.5;
+    const ey = (bMaxY - bMinY) * 0.5;
+    const ez = (bMaxZ - bMinZ) * 0.5;
+    const m0 = mat[0], m1 = mat[1], m2 = mat[2];
+    const m4 = mat[4], m5 = mat[5], m6 = mat[6];
+    const m8 = mat[8], m9 = mat[9], m10 = mat[10];
+    const tcx = m0 * cx + m4 * cy + m8 * cz + mat[12];
+    const tcy = m1 * cx + m5 * cy + m9 * cz + mat[13];
+    const tcz = m2 * cx + m6 * cy + m10 * cz + mat[14];
+    const tex = Math.abs(m0) * ex + Math.abs(m4) * ey + Math.abs(m8) * ez;
+    const tey = Math.abs(m1) * ex + Math.abs(m5) * ey + Math.abs(m9) * ez;
+    const tez = Math.abs(m2) * ex + Math.abs(m6) * ey + Math.abs(m10) * ez;
+    out[0] = tcx - tex;
+    out[1] = tcy - tey;
+    out[2] = tcz - tez;
+    out[3] = tcx + tex;
+    out[4] = tcy + tey;
+    out[5] = tcz + tez;
     return out;
 }
 new Array(27); // 9 axes * 3 components
