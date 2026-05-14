@@ -29,6 +29,7 @@ export * from './material/material';
 export * from './material/material';
 
 export * from './texture/texture';
+export * from './texture/canvas-texture';
 export * from './texture/cube-texture';
 export * from './texture/depth-texture';
 export * from './texture/array-texture';
@@ -272,6 +273,7 @@ export {
     type FnLayout,
     // render pass
     pass,
+    type PassNode,
     type PassNodeOptions,
     // render output
     renderOutput,
