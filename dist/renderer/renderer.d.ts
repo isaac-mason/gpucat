@@ -32,10 +32,16 @@ export type WebGPURendererOptions = {
     adapter?: GPUAdapter;
     /** Canvas texture format. Defaults to navigator.gpu.getPreferredCanvasFormat() or 'bgra8unorm' when using a pre-created device. */
     format?: GPUTextureFormat;
-    /** Canvas element to render into. If not provided, one will be created */
+    /** Canvas element to render into. If not provided, one will be created. Ignored when `headless` is true. */
     canvas?: HTMLCanvasElement;
     /** When true, the canvas context uses premultiplied alpha compositing (like three.js `alpha`). Defaults to false (opaque). */
     alpha?: boolean;
+    /**
+     * Headless mode — no canvas, no swapchain. Requires a pre-created `device`.
+     * Renders must target a `RenderTarget` (set via `renderer.renderTarget`).
+     * Useful for Node.js with a native WebGPU library, or for off-screen rendering pipelines.
+     */
+    headless?: boolean;
 };
 export declare class WebGPURenderer {
     /** Whether the renderer has been initialized (adapter/device/context created) or not. @internal */
@@ -44,7 +50,7 @@ export declare class WebGPURenderer {
     _isDeviceLost: boolean;
     /** Inspector. Replace with a RendererInspector or Inspector instance to enable profiling. */
     inspector: InspectorBase;
-    /** The canvas dom element for the current canvas target */
+    /** The canvas dom element for the current canvas target. Throws in headless mode. */
     get domElement(): HTMLCanvasElement;
     /** The WebGPU GPU adapter in use. */
     _adapter: GPUAdapter;
@@ -101,11 +107,11 @@ export declare class WebGPURenderer {
     renderTarget: RenderTarget | null;
     /** when set, all meshes in the scene render with this material instead of their own. */
     overrideMaterial: Material | null;
-    /** @internal current canvas target. the inspector viewer swaps this for preview renders. */
+    /** @internal current canvas target. the inspector viewer swaps this for preview renders. null in headless mode. */
     private _canvasTarget;
     /** swap the active canvas target (used by inspector viewer for preview renders). */
-    setCanvasTarget(canvasTarget: CanvasTarget): this;
-    getCanvasTarget(): CanvasTarget;
+    setCanvasTarget(canvasTarget: CanvasTarget | null): this;
+    getCanvasTarget(): CanvasTarget | null;
     /** @internal Pre-created device (for device sharing or testing) */
     private _preDevice?;
     /** @internal Pre-created adapter */
@@ -122,13 +128,13 @@ export declare class WebGPURenderer {
     init(): Promise<this>;
     /** recreate depth/msaa textures after a resize. */
     private _onResize;
-    /** set the device pixel ratio. call before setSize(). */
+    /** set the device pixel ratio. call before setSize(). Throws in headless mode. */
     setPixelRatio(value: number): void;
     /** call once per animation frame before any compute() or render() calls. bumps frameId, updates time/deltaTime. */
     beginFrame(): number;
     /** call once per animation frame after all compute() and render() calls. */
     endFrame(): void;
-    /** resize the canvas to logical pixel dimensions (physical = logical * pixelRatio). */
+    /** resize the canvas to logical pixel dimensions (physical = logical * pixelRatio). Throws in headless mode. */
     setSize(width: number, height: number, updateStyle?: boolean): void;
     /**
      * Check if a GPU feature is available on the current device.

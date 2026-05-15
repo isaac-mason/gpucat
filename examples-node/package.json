@@ -1,0 +1,22 @@
+{
+    "name": "gpucat-examples-node",
+    "private": true,
+    "version": "0.0.0",
+    "type": "module",
+    "scripts": {
+        "render": "tsx src/render-to-png.ts"
+    },
+    "dependencies": {
+        "gpucat": "workspace:*",
+        "mathcat": "*",
+        "pngjs": "^7.0.0",
+        "webgpu": "^0.2.12"
+    },
+    "devDependencies": {
+        "@types/node": "^22.10.0",
+        "@types/pngjs": "^6.0.5",
+        "@webgpu/types": "^0.1.50",
+        "tsx": "^4.19.0",
+        "typescript": "^5.9.3"
+    }
+}

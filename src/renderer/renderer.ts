@@ -46,11 +46,18 @@ export type WebGPURendererOptions = {
     /** Canvas texture format. Defaults to navigator.gpu.getPreferredCanvasFormat() or 'bgra8unorm' when using a pre-created device. */
     format?: GPUTextureFormat;
 
-    /** Canvas element to render into. If not provided, one will be created */
+    /** Canvas element to render into. If not provided, one will be created. Ignored when `headless` is true. */
     canvas?: HTMLCanvasElement;
 
     /** When true, the canvas context uses premultiplied alpha compositing (like three.js `alpha`). Defaults to false (opaque). */
     alpha?: boolean;
+
+    /**
+     * Headless mode — no canvas, no swapchain. Requires a pre-created `device`.
+     * Renders must target a `RenderTarget` (set via `renderer.renderTarget`).
+     * Useful for Node.js with a native WebGPU library, or for off-screen rendering pipelines.
+     */
+    headless?: boolean;
 };
 
 export class WebGPURenderer {
@@ -63,8 +70,11 @@ export class WebGPURenderer {
     /** Inspector. Replace with a RendererInspector or Inspector instance to enable profiling. */
     inspector: InspectorBase = new InspectorBase();
 
-    /** The canvas dom element for the current canvas target */
+    /** The canvas dom element for the current canvas target. Throws in headless mode. */
     get domElement(): HTMLCanvasElement {
+        if (!this._canvasTarget) {
+            throw new Error('[WebGPURenderer] no canvas: renderer was created in headless mode. Render to a RenderTarget instead.');
+        }
         return this._canvasTarget.domElement;
     }
 
@@ -147,16 +157,16 @@ export class WebGPURenderer {
     /** when set, all meshes in the scene render with this material instead of their own. */
     overrideMaterial: Material | null = null;
 
-    /** @internal current canvas target. the inspector viewer swaps this for preview renders. */
-    private _canvasTarget!: CanvasTarget;
+    /** @internal current canvas target. the inspector viewer swaps this for preview renders. null in headless mode. */
+    private _canvasTarget: CanvasTarget | null = null;
 
     /** swap the active canvas target (used by inspector viewer for preview renders). */
-    setCanvasTarget(canvasTarget: CanvasTarget): this {
+    setCanvasTarget(canvasTarget: CanvasTarget | null): this {
         this._canvasTarget = canvasTarget;
         return this;
     }
 
-    getCanvasTarget(): CanvasTarget {
+    getCanvasTarget(): CanvasTarget | null {
         return this._canvasTarget;
     }
 
@@ -181,14 +191,21 @@ export class WebGPURenderer {
         this._preAdapter = opts.adapter;
         this._preFormat = opts.format;
 
-        // Create the main canvas and wrap it as the default CanvasTarget.
-        // Use provided canvas if given, otherwise create one.
-        const canvas = opts.canvas ?? document.createElement('canvas');
-        if (!opts.canvas) {
-            canvas.style.display = 'block';
+        if (opts.headless) {
+            if (!opts.device) {
+                throw new Error('[WebGPURenderer] headless mode requires a pre-created `device`.');
+            }
+            // _canvasTarget stays null
+        } else {
+            // Create the main canvas and wrap it as the default CanvasTarget.
+            // Use provided canvas if given, otherwise create one.
+            const canvas = opts.canvas ?? document.createElement('canvas');
+            if (!opts.canvas) {
+                canvas.style.display = 'block';
+            }
+            this._canvasTarget = new CanvasTarget(canvas, { alphaMode: opts.alpha ? 'premultiplied' : 'opaque' });
+            this._canvasTarget.isDefaultCanvasTarget = true;
         }
-        this._canvasTarget = new CanvasTarget(canvas, { alphaMode: opts.alpha ? 'premultiplied' : 'opaque' });
-        this._canvasTarget.isDefaultCanvasTarget = true;
 
         this._renderContexts = RenderContext.createRenderContextsState();
         this._computeContext = RenderContext.createComputeContext();
@@ -268,14 +285,18 @@ export class WebGPURenderer {
 
             // initialize the main canvas target context.
             this._format = navigator.gpu.getPreferredCanvasFormat();
-            this._canvasTarget.getContext(this._device, this._format);
+            this._canvasTarget!.getContext(this._device, this._format);
         }
 
-        const w = this.domElement.width || 1;
-        const h = this.domElement.height || 1;
-        this._depthTexture = this._createDepthTexture(w, h);
-        if (this.samples > 1) {
-            this._msaaTexture = this._createMsaaTexture(w, h);
+        // Swapchain depth/msaa textures are only needed when rendering to a canvas.
+        // In headless mode the RenderTarget owns its own depth/msaa.
+        if (this._canvasTarget) {
+            const w = this.domElement.width || 1;
+            const h = this.domElement.height || 1;
+            this._depthTexture = this._createDepthTexture(w, h);
+            if (this.samples > 1) {
+                this._msaaTexture = this._createMsaaTexture(w, h);
+            }
         }
 
         this._initialized = true;
@@ -295,8 +316,11 @@ export class WebGPURenderer {
         }
     }
 
-    /** set the device pixel ratio. call before setSize(). */
+    /** set the device pixel ratio. call before setSize(). Throws in headless mode. */
     setPixelRatio(value: number): void {
+        if (!this._canvasTarget) {
+            throw new Error('[WebGPURenderer] setPixelRatio is not available in headless mode.');
+        }
         this._canvasTarget.setPixelRatio(value);
     }
 
@@ -313,8 +337,11 @@ export class WebGPURenderer {
         this.inspector.finish(this._nodes.nodeFrame.frameId);
     }
 
-    /** resize the canvas to logical pixel dimensions (physical = logical * pixelRatio). */
+    /** resize the canvas to logical pixel dimensions (physical = logical * pixelRatio). Throws in headless mode. */
     setSize(width: number, height: number, updateStyle: boolean = true): void {
+        if (!this._canvasTarget) {
+            throw new Error('[WebGPURenderer] setSize is not available in headless mode. Resize the RenderTarget instead.');
+        }
         this._canvasTarget.setSize(width, height, updateStyle);
 
         if (!this._initialized) return;
@@ -659,8 +686,13 @@ export class WebGPURenderer {
             throw new Error('[WebGPURenderer] render() called before init(). Await renderer.init() first.');
         }
 
-        // Skip swapchain renders when canvas has zero dimensions (e.g. minimized or hidden).
-        if (!this.renderTarget && (this.domElement.width === 0 || this.domElement.height === 0)) return;
+        if (!this.renderTarget) {
+            if (!this._canvasTarget) {
+                throw new Error('[WebGPURenderer] render() in headless mode requires renderer.renderTarget to be set.');
+            }
+            // Skip swapchain renders when canvas has zero dimensions (e.g. minimized or hidden).
+            if (this.domElement.width === 0 || this.domElement.height === 0) return;
+        }
 
         // Save previous renderId to support nested renders (e.g. PassNode calling render() in updateBefore).
         // Each render() call gets its own renderId so RENDER-level updates run once per render call.
@@ -684,8 +716,8 @@ export class WebGPURenderer {
         const samples = renderTarget?.samples ?? this.samples;
         const colorFormat = renderTarget?.colorFormat ?? this._format;
         const depthFormat = renderTarget?.depthTexture?.format ?? DEPTH_FORMAT;
-        const width = this.domElement.width || 1;
-        const height = this.domElement.height || 1;
+        const width = renderTarget ? renderTarget.width : this.domElement.width || 1;
+        const height = renderTarget ? renderTarget.height : this.domElement.height || 1;
         const [cr, cg, cb, ca] = this.clearColor;
 
         this.inspector.beginRenderScene(passId, scene, samples, colorFormat, frame.frameId);
@@ -772,7 +804,7 @@ export class WebGPURenderer {
                 });
             }
         } else {
-            const ctx = this._canvasTarget.getContext(this._device, this._format);
+            const ctx = this._canvasTarget!.getContext(this._device, this._format);
             const swapchainView = ctx.getCurrentTexture().createView();
             if (this.samples > 1 && this._msaaTexture) {
                 colorAttachments.push({
@@ -1137,7 +1169,7 @@ export class WebGPURenderer {
         this._nodes.computeStates.clear();
 
         // Unconfigure the canvas context
-        this._canvasTarget.dispose();
+        this._canvasTarget?.dispose();
 
         // Destroy the device unless it was externally provided
         if (!this._preDevice && this._device) {

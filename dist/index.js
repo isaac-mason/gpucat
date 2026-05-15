@@ -28346,8 +28346,11 @@ class WebGPURenderer {
     _isDeviceLost = false;
     /** Inspector. Replace with a RendererInspector or Inspector instance to enable profiling. */
     inspector = new InspectorBase();
-    /** The canvas dom element for the current canvas target */
+    /** The canvas dom element for the current canvas target. Throws in headless mode. */
     get domElement() {
+        if (!this._canvasTarget) {
+            throw new Error('[WebGPURenderer] no canvas: renderer was created in headless mode. Render to a RenderTarget instead.');
+        }
         return this._canvasTarget.domElement;
     }
     /** The WebGPU GPU adapter in use. */
@@ -28405,8 +28408,8 @@ class WebGPURenderer {
     renderTarget = null;
     /** when set, all meshes in the scene render with this material instead of their own. */
     overrideMaterial = null;
-    /** @internal current canvas target. the inspector viewer swaps this for preview renders. */
-    _canvasTarget;
+    /** @internal current canvas target. the inspector viewer swaps this for preview renders. null in headless mode. */
+    _canvasTarget = null;
     /** swap the active canvas target (used by inspector viewer for preview renders). */
     setCanvasTarget(canvasTarget) {
         this._canvasTarget = canvasTarget;
@@ -28435,14 +28438,22 @@ class WebGPURenderer {
         this._preDevice = opts.device;
         this._preAdapter = opts.adapter;
         this._preFormat = opts.format;
-        // Create the main canvas and wrap it as the default CanvasTarget.
-        // Use provided canvas if given, otherwise create one.
-        const canvas = opts.canvas ?? document.createElement('canvas');
-        if (!opts.canvas) {
-            canvas.style.display = 'block';
+        if (opts.headless) {
+            if (!opts.device) {
+                throw new Error('[WebGPURenderer] headless mode requires a pre-created `device`.');
+            }
+            // _canvasTarget stays null
         }
-        this._canvasTarget = new CanvasTarget(canvas, { alphaMode: opts.alpha ? 'premultiplied' : 'opaque' });
-        this._canvasTarget.isDefaultCanvasTarget = true;
+        else {
+            // Create the main canvas and wrap it as the default CanvasTarget.
+            // Use provided canvas if given, otherwise create one.
+            const canvas = opts.canvas ?? document.createElement('canvas');
+            if (!opts.canvas) {
+                canvas.style.display = 'block';
+            }
+            this._canvasTarget = new CanvasTarget(canvas, { alphaMode: opts.alpha ? 'premultiplied' : 'opaque' });
+            this._canvasTarget.isDefaultCanvasTarget = true;
+        }
         this._renderContexts = createRenderContextsState();
         this._computeContext = createComputeContext();
         this._nodes = createNodeManagerState();
@@ -28511,11 +28522,15 @@ class WebGPURenderer {
             this._format = navigator.gpu.getPreferredCanvasFormat();
             this._canvasTarget.getContext(this._device, this._format);
         }
-        const w = this.domElement.width || 1;
-        const h = this.domElement.height || 1;
-        this._depthTexture = this._createDepthTexture(w, h);
-        if (this.samples > 1) {
-            this._msaaTexture = this._createMsaaTexture(w, h);
+        // Swapchain depth/msaa textures are only needed when rendering to a canvas.
+        // In headless mode the RenderTarget owns its own depth/msaa.
+        if (this._canvasTarget) {
+            const w = this.domElement.width || 1;
+            const h = this.domElement.height || 1;
+            this._depthTexture = this._createDepthTexture(w, h);
+            if (this.samples > 1) {
+                this._msaaTexture = this._createMsaaTexture(w, h);
+            }
         }
         this._initialized = true;
         this.inspector.setRenderer(this);
@@ -28531,8 +28546,11 @@ class WebGPURenderer {
             this._msaaTexture = this._createMsaaTexture(width, height);
         }
     }
-    /** set the device pixel ratio. call before setSize(). */
+    /** set the device pixel ratio. call before setSize(). Throws in headless mode. */
     setPixelRatio(value) {
+        if (!this._canvasTarget) {
+            throw new Error('[WebGPURenderer] setPixelRatio is not available in headless mode.');
+        }
         this._canvasTarget.setPixelRatio(value);
     }
     /** call once per animation frame before any compute() or render() calls. bumps frameId, updates time/deltaTime. */
@@ -28546,8 +28564,11 @@ class WebGPURenderer {
     endFrame() {
         this.inspector.finish(this._nodes.nodeFrame.frameId);
     }
-    /** resize the canvas to logical pixel dimensions (physical = logical * pixelRatio). */
+    /** resize the canvas to logical pixel dimensions (physical = logical * pixelRatio). Throws in headless mode. */
     setSize(width, height, updateStyle = true) {
+        if (!this._canvasTarget) {
+            throw new Error('[WebGPURenderer] setSize is not available in headless mode. Resize the RenderTarget instead.');
+        }
         this._canvasTarget.setSize(width, height, updateStyle);
         if (!this._initialized)
             return;
@@ -28755,9 +28776,14 @@ class WebGPURenderer {
         if (!this._initialized) {
             throw new Error('[WebGPURenderer] render() called before init(). Await renderer.init() first.');
         }
-        // Skip swapchain renders when canvas has zero dimensions (e.g. minimized or hidden).
-        if (!this.renderTarget && (this.domElement.width === 0 || this.domElement.height === 0))
-            return;
+        if (!this.renderTarget) {
+            if (!this._canvasTarget) {
+                throw new Error('[WebGPURenderer] render() in headless mode requires renderer.renderTarget to be set.');
+            }
+            // Skip swapchain renders when canvas has zero dimensions (e.g. minimized or hidden).
+            if (this.domElement.width === 0 || this.domElement.height === 0)
+                return;
+        }
         // Save previous renderId to support nested renders (e.g. PassNode calling render() in updateBefore).
         // Each render() call gets its own renderId so RENDER-level updates run once per render call.
         // At top level (depth 0), just increment. When nested, save/restore parent's renderId.
@@ -28776,8 +28802,8 @@ class WebGPURenderer {
         const samples = renderTarget?.samples ?? this.samples;
         const colorFormat = renderTarget?.colorFormat ?? this._format;
         const depthFormat = renderTarget?.depthTexture?.format ?? DEPTH_FORMAT;
-        const width = this.domElement.width || 1;
-        const height = this.domElement.height || 1;
+        const width = renderTarget ? renderTarget.width : this.domElement.width || 1;
+        const height = renderTarget ? renderTarget.height : this.domElement.height || 1;
         const [cr, cg, cb, ca] = this.clearColor;
         this.inspector.beginRenderScene(passId, scene, samples, colorFormat, frame.frameId);
         this.inspector.beginRender(passId, frame.frameId);
@@ -29118,7 +29144,7 @@ class WebGPURenderer {
         // Clear compute node states
         this._nodes.computeStates.clear();
         // Unconfigure the canvas context
-        this._canvasTarget.dispose();
+        this._canvasTarget?.dispose();
         // Destroy the device unless it was externally provided
         if (!this._preDevice && this._device) {
             this._device.destroy();
@@ -29267,5 +29293,56 @@ class RenderPipeline {
     }
 }
 
-export { ArrayTexture, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CubeTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, FlyControls, Fn, For, Geometry, GpuBuffer, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, Raycaster, RenderPipeline, RenderTarget, Return, Scene, TOUCH, Texture, TransformControls, Uniform, UniformGroup, UniformUpdateType, Var, WebGPURenderer, While, abs, acesToneMapping, add$1 as add, and, array, arrayTexture, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, ceil, clamp, color, comparisonSampler, compile, compileCompute, compute, computeIndex, cond, cos, createBoxGeometry, createCylinderGeometry, createFullscreenTriangleGeometry, createIndexBuffer, createIndirectBuffer, createOctahedronGeometry, createPlaneGeometry, createSphereGeometry, createStorageBuffer, createTorusGeometry, createUniformBuffer, createVertexBuffer, cross$1 as cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot$1 as dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, equal, f16, f32, field, fields, floor, fract, fragCoord, frameGroup, frustum, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, globalId, greaterThan, greaterThanEqual, i32, index, instanceIndex, layoutSizeOf, layoutStrideOf, length$1 as length, lessThan, lessThanEqual, localId, localIndex, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, normalize$4 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, packArray, packTo, pass, positionClip, pow, privateVar, reinhardToneMapping, renderGroup, renderOutput, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, struct, sub, texture, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, timeDelta, timeElapsed, transpose$1 as transpose, u32, uniform, uniformGroup, unpack, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgsl, wgslFn, workgroupId, workgroupVar };
+/**
+ * Read pixels from a RenderTarget color attachment back to a tightly-packed Uint8Array.
+ *
+ * The target's color format must be a 4-byte format (`rgba8unorm`, `bgra8unorm`,
+ * `rgba8unorm-srgb`, `bgra8unorm-srgb`). For HDR formats like `rgba16float`,
+ * render through `renderOutput()` into an `rgba8unorm` RenderTarget first.
+ *
+ * Returns rows top-to-bottom, RGBA (or BGRA) order, length = width * height * 4.
+ * Must be called after `render()` has populated the target.
+ */
+async function readPixels(renderer, renderTarget, attachmentIndex = 0) {
+    const tex = renderTarget.textures[attachmentIndex];
+    if (!tex) {
+        throw new Error(`[readPixels] no color attachment at index ${attachmentIndex}.`);
+    }
+    const fmt = renderTarget.colorFormat;
+    if (fmt !== 'rgba8unorm' &&
+        fmt !== 'bgra8unorm' &&
+        fmt !== 'rgba8unorm-srgb' &&
+        fmt !== 'bgra8unorm-srgb') {
+        throw new Error(`[readPixels] unsupported colorFormat '${fmt}'. Render through an rgba8unorm RenderTarget first.`);
+    }
+    const textureData = getTextureData(renderer._textures, tex._gpuTexture);
+    if (!textureData) {
+        throw new Error('[readPixels] render target has not been rendered to yet.');
+    }
+    const { width, height } = renderTarget;
+    const bytesPerPixel = 4;
+    // copyTextureToBuffer requires bytesPerRow to be a multiple of 256.
+    const bytesPerRow = Math.ceil((width * bytesPerPixel) / 256) * 256;
+    const bufferSize = bytesPerRow * height;
+    const device = renderer._device;
+    const stagingBuffer = device.createBuffer({
+        size: bufferSize,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+    const encoder = device.createCommandEncoder();
+    encoder.copyTextureToBuffer({ texture: textureData.texture }, { buffer: stagingBuffer, bytesPerRow, rowsPerImage: height }, { width, height, depthOrArrayLayers: 1 });
+    device.queue.submit([encoder.finish()]);
+    await stagingBuffer.mapAsync(GPUMapMode.READ);
+    const padded = new Uint8Array(stagingBuffer.getMappedRange());
+    const tightlyPacked = new Uint8Array(width * height * bytesPerPixel);
+    const rowBytes = width * bytesPerPixel;
+    for (let row = 0; row < height; row++) {
+        tightlyPacked.set(padded.subarray(row * bytesPerRow, row * bytesPerRow + rowBytes), row * rowBytes);
+    }
+    stagingBuffer.unmap();
+    stagingBuffer.destroy();
+    return tightlyPacked;
+}
+
+export { ArrayTexture, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CubeTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, FlyControls, Fn, For, Geometry, GpuBuffer, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, Raycaster, RenderPipeline, RenderTarget, Return, Scene, Source, TOUCH, Texture, TransformControls, Uniform, UniformGroup, UniformUpdateType, Var, WebGPURenderer, While, abs, acesToneMapping, add$1 as add, and, array, arrayTexture, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, ceil, clamp, color, comparisonSampler, compile, compileCompute, compute, computeIndex, cond, cos, createBoxGeometry, createCylinderGeometry, createFullscreenTriangleGeometry, createIndexBuffer, createIndirectBuffer, createOctahedronGeometry, createPlaneGeometry, createSphereGeometry, createStorageBuffer, createTorusGeometry, createUniformBuffer, createVertexBuffer, cross$1 as cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot$1 as dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, equal, f16, f32, field, fields, floor, fract, fragCoord, frameGroup, frustum, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, globalId, greaterThan, greaterThanEqual, i32, index, instanceIndex, layoutSizeOf, layoutStrideOf, length$1 as length, lessThan, lessThanEqual, localId, localIndex, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, normalize$4 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, packArray, packTo, pass, positionClip, pow, privateVar, readPixels, reinhardToneMapping, renderGroup, renderOutput, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, struct, sub, texture, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, timeDelta, timeElapsed, transpose$1 as transpose, u32, uniform, uniformGroup, unpack, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgsl, wgslFn, workgroupId, workgroupVar };
 //# sourceMappingURL=index.js.map

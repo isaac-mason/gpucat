@@ -29,6 +29,8 @@ export * from './material/material';
 export * from './material/material';
 
 export * from './texture/texture';
+export type { DataTextureImage, ImageSize, SourceData } from './texture/source';
+export { Source } from './texture/source';
 export * from './texture/canvas-texture';
 export * from './texture/cube-texture';
 export * from './texture/depth-texture';
@@ -321,3 +323,4 @@ export * from './core/render-target';
 export { WebGPURenderer, type DeviceLostInfo, type WebGPURendererOptions } from './renderer/renderer';
 export { RenderPipeline } from './renderer/render-pipeline';
 export { CanvasTarget, type CanvasTargetOptions } from './renderer/canvas-target';
+export { readPixels } from './renderer/read-pixels';
