@@ -35,8 +35,8 @@ import { buildProbeWGSL } from './probe-wgsl';
 import type { ProbeTarget } from './probe-wgsl';
 import type { RenderObject } from '../renderer/render-object';
 import { buildVertexBufferLayouts } from '../renderer/pipelines';
-import * as buffers from '../renderer/buffers';
-import * as bindings from '../renderer/bindings';
+import * as Buffers from '../renderer/buffers';
+import * as Bindings from '../renderer/bindings';
 import { getIndexFormat } from '../core/gpu-buffer';
 import { Any } from '../schema/schema';
 
@@ -364,7 +364,7 @@ export class Inspector extends RendererInspector {
         console.groupEnd();
 
         // Build probe pipeline: same bind group layouts, patched shader
-        const bindGroupLayouts = bindings.getRenderBindGroupLayouts(renderer._bindings, sourceRO);
+        const bindGroupLayouts = Bindings.getRenderBindGroupLayouts(renderer._bindings, sourceRO);
         if (bindGroupLayouts.length === 0) {
             console.warn('[gpucat probe] bind group layouts not yet initialised — try clicking again after the first frame renders');
             return null;
@@ -660,7 +660,7 @@ export class Inspector extends RendererInspector {
                 // Geometry-based group - resolve buffer by name
                 const bufAttr = geometry.buffers.get(group.name);
                 if (bufAttr) {
-                    const gpuBuf = buffers.ensureUploaded(bufferCache, renderer._device, bufAttr);
+                    const gpuBuf = Buffers.ensureUploaded(bufferCache, renderer._device, bufAttr);
                     pass.setVertexBuffer(slot, gpuBuf);
                 }
             } else {
@@ -671,7 +671,7 @@ export class Inspector extends RendererInspector {
                 }
                 const arr = gpuBuffer.array;
                 if (arr) {
-                    const gpuBuf = buffers.uploadRaw(
+                    const gpuBuf = Buffers.uploadRaw(
                         bufferCache,
                         renderer._device,
                         gpuBuffer,
@@ -688,10 +688,10 @@ export class Inspector extends RendererInspector {
         // indirect draw support.  The indirect GPU buffer was already written by
         // the compute pass this frame; getUploaded() does a non-uploading lookup.
         if (geometry.index) {
-            const idxBuf = buffers.ensureUploaded(bufferCache, renderer._device, geometry.index);
+            const idxBuf = Buffers.ensureUploaded(bufferCache, renderer._device, geometry.index);
             pass.setIndexBuffer(idxBuf, getIndexFormat(geometry.index.array)!);
             if (geometry.indirect) {
-                const indBuf = buffers.getUploaded(bufferCache, geometry.indirect);
+                const indBuf = Buffers.getUploaded(bufferCache, geometry.indirect);
                 if (indBuf) {
                     const byteStride = geometry.indirect.itemSize * 4;
                     for (let d = 0; d < geometry.indirect.count; d++) {
@@ -703,7 +703,7 @@ export class Inspector extends RendererInspector {
             }
         } else {
             if (geometry.indirect) {
-                const indBuf = buffers.getUploaded(bufferCache, geometry.indirect);
+                const indBuf = Buffers.getUploaded(bufferCache, geometry.indirect);
                 if (indBuf) {
                     const byteStride = geometry.indirect.itemSize * 4;
                     for (let d = 0; d < geometry.indirect.count; d++) {

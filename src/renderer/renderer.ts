@@ -1,5 +1,5 @@
 import { Camera } from '../camera/camera';
-import { getIndexFormat, GpuBuffer as GpuBufferClass, type GpuBuffer } from '../core/gpu-buffer';
+import { getIndexFormat, type GpuBuffer } from '../core/gpu-buffer';
 import { Object3D } from '../core/object3d';
 import type { RenderTarget } from '../core/render-target';
 import { InspectorBase } from '../inspector/inspector-base';
@@ -8,20 +8,20 @@ import { ComputeNode, MRTNode } from '../nodes/nodes';
 import * as d from '../schema/schema';
 import { Scene } from '../scene/scene';
 import { yieldToMain } from '../utils/yield-to-main';
-import * as bindings from './bindings';
-import * as buffers from './buffers';
+import * as Bindings from './bindings';
+import * as Buffers from './buffers';
 import { CanvasTarget } from './canvas-target';
-import * as geometries from './geometries';
+import * as Geometries from './geometries';
 import { GPUFeatureName } from './gpu-constants';
-import * as nodeManager from './node-manager';
+import * as NodeManager from './node-manager';
 import * as RenderContext from './pass-context';
-import * as pipelines from './pipelines';
+import * as Pipelines from './pipelines';
 import { DEPTH_FORMAT } from './pipelines';
 import type { RenderItem } from './render-list';
-import * as renderLists from './render-list';
+import * as RenderLists from './render-list';
 import type { RenderObject } from './render-object';
-import * as renderObjects from './render-objects';
-import * as textures from './textures';
+import * as RenderObjects from './render-objects';
+import * as Textures from './textures';
 import { disposeMipmapState } from './mipmap-utils';
 
 export type WebGPURendererOptions = {
@@ -59,6 +59,38 @@ export type WebGPURendererOptions = {
      */
     headless?: boolean;
 };
+
+/**
+ * Per-call options for `WebGPURenderer.compute()`.
+ *
+ * Either `dispatch` (CPU-side workgroup counts) or `indirect` (GPU buffer holding counts)
+ * must be provided. `buffers` (optional, on either form) overrides named storage refs.
+ */
+export type ComputeOptions =
+    | {
+        /** Workgroup counts [x, y, z] dispatched from the CPU. */
+        dispatch: [number, number, number];
+        indirect?: never;
+        indirectOffset?: never;
+        /**
+         * Override map for named storage buffers (those declared via `storage('name', schema, ...)`).
+         * Takes precedence over the node's value/geometry — lets one ComputeNode be reused
+         * across different buffers without recompiling the pipeline.
+         */
+        buffers?: Record<string, GpuBuffer<d.Any>>;
+    }
+    | {
+        /**
+         * GPU buffer holding `[countX, countY, countZ]` as u32 (matches `dispatchWorkgroupsIndirect` layout).
+         * Buffer must have 'indirect' usage. Typically written by an earlier compute pass.
+         */
+        indirect: GpuBuffer<d.Any>;
+        /** Byte offset into `indirect`. Defaults to 0. */
+        indirectOffset?: number;
+        dispatch?: never;
+        /** See `dispatch` form for details. */
+        buffers?: Record<string, GpuBuffer<d.Any>>;
+    };
 
 export class WebGPURenderer {
     /** Whether the renderer has been initialized (adapter/device/context created) or not. @internal */
@@ -113,13 +145,13 @@ export class WebGPURenderer {
     _msaaTexture: GPUTexture | null = null;
 
     /** @internal */
-    _buffers: buffers.BufferCache;
+    _buffers: Buffers.BufferCache;
 
     /** @internal */
-    _textures: textures.TextureCache;
+    _textures: Textures.TextureCache;
 
     /** @internal */
-    _pipelines: pipelines.PipelinesState;
+    _pipelines: Pipelines.PipelinesState;
 
     /** @internal */
     _renderContexts: RenderContext.RenderContextsState;
@@ -128,19 +160,19 @@ export class WebGPURenderer {
     _computeContext: RenderContext.ComputeContext;
 
     /** @internal */
-    _geometries: geometries.GeometriesState;
+    _geometries: Geometries.GeometriesState;
 
     /** @internal */
-    _nodes: nodeManager.NodeManagerState;
+    _nodes: NodeManager.NodeManagerState;
 
     /** @internal */
-    _bindings: bindings.BindingsState;
+    _bindings: Bindings.BindingsState;
 
     /** @internal */
-    _renderObjects: renderObjects.RenderObjectsState;
+    _renderObjects: RenderObjects.RenderObjectsState;
 
     /** @internal */
-    _renderLists: renderLists.RenderListsState;
+    _renderLists: RenderLists.RenderListsState;
 
     /** Render call depth for nested render support. 0 = top-level render. @internal */
     _renderCallDepth: number = 0;
@@ -209,14 +241,14 @@ export class WebGPURenderer {
 
         this._renderContexts = RenderContext.createRenderContextsState();
         this._computeContext = RenderContext.createComputeContext();
-        this._nodes = nodeManager.createNodeManagerState();
-        this._renderLists = renderLists.createRenderListsState();
-        this._bindings = bindings.createBindingsState();
-        this._pipelines = pipelines.createPipelinesState();
-        this._renderObjects = renderObjects.createRenderObjectsState();
-        this._buffers = buffers.createBufferCache();
-        this._textures = textures.createTextureCache();
-        this._geometries = geometries.createGeometriesState();
+        this._nodes = NodeManager.createNodeManagerState();
+        this._renderLists = RenderLists.createRenderListsState();
+        this._bindings = Bindings.createBindingsState();
+        this._pipelines = Pipelines.createPipelinesState();
+        this._renderObjects = RenderObjects.createRenderObjectsState();
+        this._buffers = Buffers.createBufferCache();
+        this._textures = Textures.createTextureCache();
+        this._geometries = Geometries.createGeometriesState();
     }
 
     /**
@@ -377,7 +409,7 @@ export class WebGPURenderer {
         const resolvedFormat = format ?? this._format;
 
         // use new RenderLists system to collect visible meshes
-        const renderList = renderLists.collectRenderList(this._renderLists, scene, camera);
+        const renderList = RenderLists.collectRenderList(this._renderLists, scene, camera);
         const allItems = [...renderList.opaque, ...renderList.transparent];
 
         if (allItems.length === 0) return;
@@ -400,7 +432,7 @@ export class WebGPURenderer {
             if (!item.mesh || !item.material || !item.geometry) continue;
 
             // get or create RenderObject
-            const renderObject = renderObjects.getRenderObject(
+            const renderObject = RenderObjects.getRenderObject(
                 this._renderObjects,
                 item.mesh,
                 item.material,
@@ -412,7 +444,7 @@ export class WebGPURenderer {
 
             // kick off async initialization (compiles shader, creates pipeline)
             const pipelinePromises: Promise<void>[] = [];
-            renderObjects.initRenderObjectWithPromises(
+            RenderObjects.initRenderObjectWithPromises(
                 this._nodes,
                 this._geometries,
                 this._bindings,
@@ -438,7 +470,7 @@ export class WebGPURenderer {
             const geometry = item.geometry;
 
             // get the existing RenderObject (already created and initialized above)
-            const renderObject = renderObjects.getRenderObject(
+            const renderObject = RenderObjects.getRenderObject(
                 this._renderObjects,
                 mesh,
                 item.material,
@@ -453,8 +485,8 @@ export class WebGPURenderer {
             if (nodeState) {
                 // upload storage buffers
                 for (const s of nodeState.storage) {
-                    const buffer = buffers.resolveStorageBuffer(s.node, geometry);
-                    buffers.ensureUploaded(this._buffers, this._device, buffer);
+                    const buffer = Buffers.resolveStorageBuffer(s.node, geometry, null);
+                    Buffers.ensureUploaded(this._buffers, this._device, buffer);
                 }
 
                 // upload vertex buffers
@@ -462,7 +494,7 @@ export class WebGPURenderer {
                     if (attrEntry.kind === 'geometry') {
                         const bufAttr = geometry.buffers.get(attrEntry.name!);
                         if (bufAttr) {
-                            buffers.ensureUploaded(this._buffers, this._device, bufAttr);
+                            Buffers.ensureUploaded(this._buffers, this._device, bufAttr);
                         }
                     } else {
                         const gpuBuffer = attrEntry.node.buffer;
@@ -471,7 +503,7 @@ export class WebGPURenderer {
                         }
                         const arr = gpuBuffer.array;
                         if (arr) {
-                            buffers.uploadRaw(
+                            Buffers.uploadRaw(
                                 this._buffers,
                                 this._device,
                                 attrEntry.node,
@@ -484,7 +516,7 @@ export class WebGPURenderer {
 
                 // upload index buffer if present
                 if (geometry.index) {
-                    buffers.ensureUploaded(this._buffers, this._device, geometry.index);
+                    Buffers.ensureUploaded(this._buffers, this._device, geometry.index);
                 }
             }
 
@@ -499,7 +531,7 @@ export class WebGPURenderer {
             preWarmFrame.material = renderObject.material;
             preWarmFrame.width = width;
             preWarmFrame.height = height;
-            renderObjects.updateRenderObject(
+            RenderObjects.updateRenderObject(
                 this._bindings,
                 this._geometries,
                 this._device,
@@ -527,70 +559,49 @@ export class WebGPURenderer {
             throw new Error('[WebGPURenderer] compileCompute() called before init(). Await renderer.init() first.');
         }
         const promises: Promise<void>[] = [];
-        pipelines.getForCompute(this._pipelines, this._device, this._nodes, computeNode, this._computeContext, promises);
+        Pipelines.getForCompute(this._pipelines, this._device, this._nodes, computeNode, this._computeContext, promises);
         await Promise.all(promises);
     }
 
     /**
-     * Encode a compute dispatch for `node` using the renderer's current
-     * command encoder.  Must be called **inside** a `requestAnimationFrame`
-     * callback, before `renderPipeline.render()`, so that the compute pass is
-     * submitted in the same command buffer as the render pass.
+     * Encode a compute dispatch for `node`. Must be called **inside** a
+     * `requestAnimationFrame` callback, before `renderPipeline.render()`, so
+     * the compute pass is submitted alongside the render pass.
      *
-     * Typical usage:
+     * Supply either `dispatch: [x, y, z]` (CPU-side counts) or `indirect: gpuBuffer`
+     * (GPU-side counts, layout matches `dispatchWorkgroupsIndirect`). Optionally
+     * pass `buffers` to override named storage refs without recompiling the pipeline.
+     *
      * ```ts
-     * await renderer.compile(updateParticles);
-     * const renderPipeline = new RenderPipeline(renderer, outputNode);
-     *
-     * function frame() {
-     *     renderer.compute(updateParticles, [particleCount / 64, 1, 1]);
-     *     renderPipeline.render();
-     *     requestAnimationFrame(frame);
-     * }
+     * renderer.compute(updateParticles, { dispatch: [Math.ceil(N / 64), 1, 1] });
+     * renderer.compute(updateParticles, { indirect: indirectBuf });
+     * renderer.compute(reusable, { dispatch: [n, 1, 1], buffers: { particles: bufA } });
      * ```
      *
-     * @param node The ComputeNode to dispatch.
-     * @param dispatch Workgroup counts [x, y, z] to dispatch.
      * @throws if the renderer has not been initialised.
-     * @throws if the pipeline has not been compiled yet (call renderer.compile() first).
+     * @throws if the pipeline has not been compiled yet.
      */
-    compute(node: ComputeNode, dispatch: [number, number, number]): void;
-
-    /**
-     * Encode an indirect compute dispatch. Workgroup counts are read from
-     * the GPU buffer backing `indirectBuffer` — no CPU-side dispatch count needed.
-     *
-     * The `GpuBuffer` must hold `[countX, countY, countZ]`
-     * as u32 values (same layout as `dispatchWorkgroupsIndirect`).
-     * Must have 'indirect' usage.
-     *
-     * Typically the indirect buffer is written by a small "workgroup kernel"
-     * compute shader earlier in the frame.
-     *
-     * @param node The ComputeNode to dispatch.
-     * @param indirectBuffer The indirect buffer holding GPU-side dispatch counts.
-     */
-    compute(node: ComputeNode, indirectBuffer: GpuBuffer<d.Any>): void;
-
-    compute(node: ComputeNode, dispatchOrIndirect: [number, number, number] | GpuBuffer<d.Any>): void {
+    compute(node: ComputeNode, options: ComputeOptions): void {
         if (this._isDeviceLost) return;
 
         if (!this._initialized) {
             throw new Error('[WebGPURenderer] compute() called before init(). Await renderer.init() first.');
         }
 
-        const entry = pipelines.getForCompute(this._pipelines, this._device, this._nodes, node, this._computeContext);
+        const entry = Pipelines.getForCompute(this._pipelines, this._device, this._nodes, node, this._computeContext);
 
         const perfId = `compute: ${node.id}`;
         this.inspector.perf.start(perfId);
 
         const encoder = this._device.createCommandEncoder();
 
-        if (dispatchOrIndirect instanceof GpuBufferClass) {
-            const gpuBuf = buffers.ensureUploaded(this._buffers, this._device, dispatchOrIndirect);
-            this._dispatchComputeNode(entry, node, encoder, undefined, gpuBuf, 0);
+        const buffers = options.buffers ?? null;
+
+        if (options.indirect) {
+            const gpuBuf = Buffers.ensureUploaded(this._buffers, this._device, options.indirect);
+            this._dispatchComputeNode(entry, node, encoder, undefined, gpuBuf, options.indirectOffset ?? 0, buffers);
         } else {
-            this._dispatchComputeNode(entry, node, encoder, dispatchOrIndirect, undefined, undefined);
+            this._dispatchComputeNode(entry, node, encoder, options.dispatch, undefined, undefined, buffers);
         }
 
         this._device.queue.submit([encoder.finish()]);
@@ -599,12 +610,13 @@ export class WebGPURenderer {
     }
 
     private _dispatchComputeNode(
-        entry: pipelines.ComputePipelineEntry,
+        entry: Pipelines.ComputePipelineEntry,
         node: ComputeNode,
         encoder: GPUCommandEncoder,
         dispatch: [number, number, number] | undefined,
         indirectBuffer: GPUBuffer | undefined,
         indirectOffset: number | undefined,
+        buffers: Record<string, GpuBuffer<d.Any>> | null,
     ): void {
         const { nodeBuilderState } = entry;
         const frame = this._nodes.nodeFrame;
@@ -614,17 +626,18 @@ export class WebGPURenderer {
 
         // Update node uniforms
         this.inspector.perf.start('updateForCompute');
-        nodeManager.updateForCompute(this._nodes, node);
+        NodeManager.updateForCompute(this._nodes, node);
         this.inspector.perf.end('updateForCompute');
 
         // Update all bindings and get GPUBindGroups
-        const gpuBindGroups = bindings.updateComputeBindings(
+        const gpuBindGroups = Bindings.updateComputeBindings(
             this._bindings,
             nodeBuilderState,
             frame,
             this._device,
             this._buffers,
             this._textures,
+            buffers,
         );
 
         // Notify inspector before creating pass (so timestamp writes are available)
@@ -730,7 +743,7 @@ export class WebGPURenderer {
         frame.width = width;
         frame.height = height;
 
-        geometries.incrementCallId(this._geometries);
+        Geometries.incrementCallId(this._geometries);
 
         const passCtx = RenderContext.getRenderContext(this._renderContexts, renderTarget, mrt, 0);
         passCtx.sampleCount = samples;
@@ -792,7 +805,7 @@ export class WebGPURenderer {
             this._ensureRenderTargetAllocated(renderTarget);
 
             for (const tex of renderTarget.textures) {
-                const textureData = textures.getTextureData(this._textures, tex._gpuTexture);
+                const textureData = Textures.getTextureData(this._textures, tex._gpuTexture);
                 if (!textureData) {
                     throw new Error('[WebGPURenderer] Render target texture not found in cache');
                 }
@@ -827,7 +840,7 @@ export class WebGPURenderer {
         let depthAttachment: GPURenderPassDepthStencilAttachment | undefined;
         if (renderTarget) {
             if (renderTarget.depthTexture) {
-                const depthTextureData = textures.getTextureData(this._textures, renderTarget.depthTexture._gpuTexture);
+                const depthTextureData = Textures.getTextureData(this._textures, renderTarget.depthTexture._gpuTexture);
                 if (depthTextureData) {
                     depthAttachment = {
                         view: depthTextureData.texture.createView(),
@@ -860,7 +873,7 @@ export class WebGPURenderer {
         overrideMaterial: Material | null,
     ): PreparedRenderObject[] {
         this.inspector.perf.start('collectRenderList');
-        const renderList = renderLists.collectRenderList(this._renderLists, scene, camera, overrideMaterial);
+        const renderList = RenderLists.collectRenderList(this._renderLists, scene, camera, overrideMaterial);
         this.inspector.perf.end('collectRenderList');
 
         const preparedObjects: PreparedRenderObject[] = [];
@@ -869,7 +882,7 @@ export class WebGPURenderer {
             for (const item of items) {
                 if (!item.mesh || !item.material || !item.geometry) continue;
 
-                const renderObject = renderObjects.getRenderObject(
+                const renderObject = RenderObjects.getRenderObject(
                     this._renderObjects,
                     item.mesh,
                     item.material,
@@ -879,7 +892,7 @@ export class WebGPURenderer {
                     passId,
                 );
 
-                const initialized = renderObjects.initRenderObject(
+                const initialized = RenderObjects.initRenderObject(
                     this._nodes,
                     this._geometries,
                     this._bindings,
@@ -904,7 +917,7 @@ export class WebGPURenderer {
                 }
 
                 this.inspector.perf.start('updateBefore');
-                nodeManager.updateBefore(this._nodes, renderObject);
+                NodeManager.updateBefore(this._nodes, renderObject);
                 this.inspector.perf.end('updateBefore');
 
                 preparedObjects.push({ renderObject, item });
@@ -952,10 +965,10 @@ export class WebGPURenderer {
             frame.camera = renderObject.camera;
             frame.scene = renderObject.scene;
 
-            nodeManager.updateForRender(this._nodes, renderObject);
+            NodeManager.updateForRender(this._nodes, renderObject);
 
             this.inspector.perf.start('updateForRender');
-            renderObjects.updateRenderObject(
+            RenderObjects.updateRenderObject(
                 this._bindings,
                 this._geometries,
                 this._device,
@@ -993,7 +1006,7 @@ export class WebGPURenderer {
                         slot++;
                         continue;
                     }
-                    gpuBuf = buffers.ensureUploaded(this._buffers, this._device, bufAttr);
+                    gpuBuf = Buffers.ensureUploaded(this._buffers, this._device, bufAttr);
                 } else {
                     // Direct buffer group
                     const gpuBuffer = group.buffer;
@@ -1004,7 +1017,7 @@ export class WebGPURenderer {
                     if (!arr) {
                         throw new Error(`[gpucat] VertexBufferGroup buffer array is null`);
                     }
-                    gpuBuf = buffers.uploadRaw(
+                    gpuBuf = Buffers.uploadRaw(
                         this._buffers,
                         this._device,
                         gpuBuffer,
@@ -1020,14 +1033,14 @@ export class WebGPURenderer {
             }
 
             if (geometry.index) {
-                const idxBuf = buffers.ensureUploaded(this._buffers, this._device, geometry.index);
+                const idxBuf = Buffers.ensureUploaded(this._buffers, this._device, geometry.index);
                 if (currentSets.index !== idxBuf) {
                     passSetIndexBuffer(gpuPass, this.inspector, idxBuf, getIndexFormat(geometry.index.array)!);
                     currentSets.index = idxBuf;
                 }
                 if (geometry.indirect) {
                     const indirect = geometry.indirect;
-                    const indBuf = buffers.ensureUploaded(this._buffers, this._device, indirect);
+                    const indBuf = Buffers.ensureUploaded(this._buffers, this._device, indirect);
                     const byteStride = indirect.itemSize * 4;
                     const baseOffset = geometry.indirectOffset;
                     for (let d = 0; d < indirect.count; d++) {
@@ -1040,7 +1053,7 @@ export class WebGPURenderer {
             } else {
                 if (geometry.indirect) {
                     const indirect = geometry.indirect;
-                    const indBuf = buffers.ensureUploaded(this._buffers, this._device, indirect);
+                    const indBuf = Buffers.ensureUploaded(this._buffers, this._device, indirect);
                     const byteStride = indirect.itemSize * 4;
                     const baseOffset = geometry.indirectOffset;
                     for (let d = 0; d < indirect.count; d++) {
@@ -1052,7 +1065,7 @@ export class WebGPURenderer {
             }
 
             this.inspector.perf.start('updateAfter');
-            nodeManager.updateAfter(this._nodes, renderObject);
+            NodeManager.updateAfter(this._nodes, renderObject);
             this.inspector.perf.end('updateAfter');
         }
 
@@ -1067,7 +1080,7 @@ export class WebGPURenderer {
         // For depth-only render targets (count: 0), check the depth texture instead
         const firstTex = renderTarget.textures[0] ?? renderTarget.depthTexture;
         if (firstTex) {
-            const existingData = textures.getTextureData(this._textures, firstTex._gpuTexture);
+            const existingData = Textures.getTextureData(this._textures, firstTex._gpuTexture);
             if (
                 existingData &&
                 existingData.texture.width === renderTarget.width &&
@@ -1092,7 +1105,7 @@ export class WebGPURenderer {
             });
 
             // Register in texture cache (keyed by GpuTexture)
-            textures.setRenderTargetTexture(this._textures, tex._gpuTexture, gpuTexture);
+            Textures.setRenderTargetTexture(this._textures, tex._gpuTexture, gpuTexture);
         }
 
         if (renderTarget.depthTexture) {
@@ -1104,7 +1117,7 @@ export class WebGPURenderer {
             });
 
             // Register in texture cache (keyed by GpuTexture)
-            textures.setRenderTargetTexture(this._textures, renderTarget.depthTexture._gpuTexture, gpuDepthTexture);
+            Textures.setRenderTargetTexture(this._textures, renderTarget.depthTexture._gpuTexture, gpuDepthTexture);
         }
     }
 

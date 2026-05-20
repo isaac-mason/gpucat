@@ -3,7 +3,7 @@ import { createIndexBuffer, type GpuBuffer } from '../core/gpu-buffer';
 import type { Any } from '../schema/schema';
 import type { RenderObject } from './render-object';
 import type { BufferCache } from './buffers';
-import * as buffers from './buffers';
+import * as Buffers from './buffers';
 
 /**
  * @deprecated No longer used — all buffer types route through ensureUploaded.
@@ -105,7 +105,7 @@ export function updateBuffer(
     switch (type) {
         case 'vertex':
         case 'indirect':
-            buffers.ensureUploaded(bufferCache, device, buffer);
+            Buffers.ensureUploaded(bufferCache, device, buffer);
             break;
         // Note: 'index' type uses updateIndex() instead
     }
@@ -131,7 +131,7 @@ export function updateIndex(
     // Mark as updated for this frame
     state.bufferCall.set(index, callId);
 
-    buffers.ensureUploaded(bufferCache, device, index);
+    Buffers.ensureUploaded(bufferCache, device, index);
 }
 
 /**
@@ -142,7 +142,7 @@ export function getIndirectBuffer(
     bufferCache: BufferCache,
     buffer: GpuBuffer<Any>,
 ): GPUBuffer | undefined {
-    return buffers.getUploaded(bufferCache, buffer);
+    return Buffers.getUploaded(bufferCache, buffer);
 }
 
 /**

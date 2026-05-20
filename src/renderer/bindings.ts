@@ -1,6 +1,8 @@
 import type { UniformGroupBlock } from '../nodes/builder';
+import type { GpuBuffer } from '../core/gpu-buffer';
 import type { Geometry } from '../geometry/geometry';
 import type { Material } from '../material/material';
+import type { Any } from '../schema/schema';
 import type {
     BindGroup,
     SamplerBinding,
@@ -129,7 +131,7 @@ export function updateRenderBindings(
         const data = getData(state, bindGroup);
         updateRenderBindGroup(data, bindGroup, renderObject, frame, device, bufferCache, textureCache);
         if (data.needsUpdate || !data.bindGroup) {
-            rebuildGPUBindGroup(device, bufferCache, textureCache, bindGroup, data, renderObject.geometry);
+            rebuildGPUBindGroup(device, bufferCache, textureCache, bindGroup, data, renderObject.geometry, null);
             data.needsUpdate = false;
         }
 
@@ -150,6 +152,7 @@ export function updateComputeBindings(
     device: GPUDevice,
     bufferCache: BufferCache,
     textureCache: TextureCache,
+    buffers: Record<string, GpuBuffer<Any>> | null,
 ): GPUBindGroup[] {
     const gpuBindGroups: GPUBindGroup[] = [];
 
@@ -159,11 +162,11 @@ export function updateComputeBindings(
 
         // Update bindings
         const data = getData(state, bindGroup);
-        updateComputeBindGroup(data, bufferCache, textureCache, device, bindGroup, frame);
+        updateComputeBindGroup(data, bufferCache, textureCache, device, bindGroup, frame, buffers);
 
         // Rebuild GPU bind group if needed
         if (data.needsUpdate || !data.bindGroup) {
-            rebuildGPUBindGroup(device, bufferCache, textureCache, bindGroup, data, null);
+            rebuildGPUBindGroup(device, bufferCache, textureCache, bindGroup, data, null, buffers);
             data.needsUpdate = false;
         }
 
@@ -384,7 +387,7 @@ function updateRenderBindGroup(
                 break;
 
             case 'storage':
-                updateStorageBinding(bufferCache, device, binding, data, renderObject.geometry);
+                updateStorageBinding(bufferCache, device, binding, data, renderObject.geometry, null);
                 break;
         }
     }
@@ -561,9 +564,10 @@ function updateStorageBinding(
     binding: StorageBinding,
     data: BindGroupData,
     geometry: Geometry | null,
+    buffers: Record<string, GpuBuffer<Any>> | null,
 ): void {
     const node = binding.entry.node;
-    const buffer = resolveStorageBuffer(node, geometry);
+    const buffer = resolveStorageBuffer(node, geometry, buffers);
 
     // If buffer identity changed, need to rebuild bind group
     if (buffer !== binding.lastBuffer) {
@@ -583,6 +587,7 @@ function rebuildGPUBindGroup(
     bindGroup: BindGroup,
     data: BindGroupData,
     geometry: Geometry | null,
+    buffers: Record<string, GpuBuffer<Any>> | null,
 ): void {
     if (!data.bindGroupLayout) return;
 
@@ -601,7 +606,7 @@ function rebuildGPUBindGroup(
             }
 
             case 'storage': {
-                const buffer = resolveStorageBuffer(binding.entry.node, geometry);
+                const buffer = resolveStorageBuffer(binding.entry.node, geometry, buffers);
                 const buf = getUploaded(bufferCache, buffer);
                 if (buf) {
                     entries.push({ binding: binding.entry.binding, resource: { buffer: buf } });
@@ -675,6 +680,7 @@ function updateComputeBindGroup(
     device: GPUDevice,
     bindGroup: BindGroup,
     frame: NodeFrame,
+    buffers: Record<string, GpuBuffer<Any>> | null,
 ): void {
     for (const binding of bindGroup.bindings) {
         switch (binding.kind) {
@@ -683,7 +689,7 @@ function updateComputeBindGroup(
                 break;
 
             case 'storage':
-                updateStorageBinding(bufferCache, device, binding, data, null);
+                updateStorageBinding(bufferCache, device, binding, data, null, buffers);
                 break;
 
             case 'texture':

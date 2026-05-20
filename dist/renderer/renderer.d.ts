@@ -7,16 +7,16 @@ import type { Material } from '../material/material';
 import { ComputeNode, MRTNode } from '../nodes/nodes';
 import * as d from '../schema/schema';
 import { Scene } from '../scene/scene';
-import * as bindings from './bindings';
-import * as buffers from './buffers';
+import * as Bindings from './bindings';
+import * as Buffers from './buffers';
 import { CanvasTarget } from './canvas-target';
-import * as geometries from './geometries';
-import * as nodeManager from './node-manager';
+import * as Geometries from './geometries';
+import * as NodeManager from './node-manager';
 import * as RenderContext from './pass-context';
-import * as pipelines from './pipelines';
-import * as renderLists from './render-list';
-import * as renderObjects from './render-objects';
-import * as textures from './textures';
+import * as Pipelines from './pipelines';
+import * as RenderLists from './render-list';
+import * as RenderObjects from './render-objects';
+import * as Textures from './textures';
 export type WebGPURendererOptions = {
     /** Enable 4x MSAA antialiasing. Overridden by `samples` if both set. */
     antialias?: boolean;
@@ -42,6 +42,35 @@ export type WebGPURendererOptions = {
      * Useful for Node.js with a native WebGPU library, or for off-screen rendering pipelines.
      */
     headless?: boolean;
+};
+/**
+ * Per-call options for `WebGPURenderer.compute()`.
+ *
+ * Either `dispatch` (CPU-side workgroup counts) or `indirect` (GPU buffer holding counts)
+ * must be provided. `buffers` (optional, on either form) overrides named storage refs.
+ */
+export type ComputeOptions = {
+    /** Workgroup counts [x, y, z] dispatched from the CPU. */
+    dispatch: [number, number, number];
+    indirect?: never;
+    indirectOffset?: never;
+    /**
+     * Override map for named storage buffers (those declared via `storage('name', schema, ...)`).
+     * Takes precedence over the node's value/geometry — lets one ComputeNode be reused
+     * across different buffers without recompiling the pipeline.
+     */
+    buffers?: Record<string, GpuBuffer<d.Any>>;
+} | {
+    /**
+     * GPU buffer holding `[countX, countY, countZ]` as u32 (matches `dispatchWorkgroupsIndirect` layout).
+     * Buffer must have 'indirect' usage. Typically written by an earlier compute pass.
+     */
+    indirect: GpuBuffer<d.Any>;
+    /** Byte offset into `indirect`. Defaults to 0. */
+    indirectOffset?: number;
+    dispatch?: never;
+    /** See `dispatch` form for details. */
+    buffers?: Record<string, GpuBuffer<d.Any>>;
 };
 export declare class WebGPURenderer {
     /** Whether the renderer has been initialized (adapter/device/context created) or not. @internal */
@@ -78,25 +107,25 @@ export declare class WebGPURenderer {
     /** MSAA color texture (null when samples <= 1). Only used for swapchain passes */
     _msaaTexture: GPUTexture | null;
     /** @internal */
-    _buffers: buffers.BufferCache;
+    _buffers: Buffers.BufferCache;
     /** @internal */
-    _textures: textures.TextureCache;
+    _textures: Textures.TextureCache;
     /** @internal */
-    _pipelines: pipelines.PipelinesState;
+    _pipelines: Pipelines.PipelinesState;
     /** @internal */
     _renderContexts: RenderContext.RenderContextsState;
     /** @internal */
     _computeContext: RenderContext.ComputeContext;
     /** @internal */
-    _geometries: geometries.GeometriesState;
+    _geometries: Geometries.GeometriesState;
     /** @internal */
-    _nodes: nodeManager.NodeManagerState;
+    _nodes: NodeManager.NodeManagerState;
     /** @internal */
-    _bindings: bindings.BindingsState;
+    _bindings: Bindings.BindingsState;
     /** @internal */
-    _renderObjects: renderObjects.RenderObjectsState;
+    _renderObjects: RenderObjects.RenderObjectsState;
     /** @internal */
-    _renderLists: renderLists.RenderListsState;
+    _renderLists: RenderLists.RenderListsState;
     /** Render call depth for nested render support. 0 = top-level render. @internal */
     _renderCallDepth: number;
     /** clear color for the final swapchain composite pass. defaults to opaque black. */
@@ -162,44 +191,24 @@ export declare class WebGPURenderer {
      */
     compileCompute(computeNode: ComputeNode): Promise<void>;
     /**
-     * Encode a compute dispatch for `node` using the renderer's current
-     * command encoder.  Must be called **inside** a `requestAnimationFrame`
-     * callback, before `renderPipeline.render()`, so that the compute pass is
-     * submitted in the same command buffer as the render pass.
+     * Encode a compute dispatch for `node`. Must be called **inside** a
+     * `requestAnimationFrame` callback, before `renderPipeline.render()`, so
+     * the compute pass is submitted alongside the render pass.
      *
-     * Typical usage:
+     * Supply either `dispatch: [x, y, z]` (CPU-side counts) or `indirect: gpuBuffer`
+     * (GPU-side counts, layout matches `dispatchWorkgroupsIndirect`). Optionally
+     * pass `buffers` to override named storage refs without recompiling the pipeline.
+     *
      * ```ts
-     * await renderer.compile(updateParticles);
-     * const renderPipeline = new RenderPipeline(renderer, outputNode);
-     *
-     * function frame() {
-     *     renderer.compute(updateParticles, [particleCount / 64, 1, 1]);
-     *     renderPipeline.render();
-     *     requestAnimationFrame(frame);
-     * }
+     * renderer.compute(updateParticles, { dispatch: [Math.ceil(N / 64), 1, 1] });
+     * renderer.compute(updateParticles, { indirect: indirectBuf });
+     * renderer.compute(reusable, { dispatch: [n, 1, 1], buffers: { particles: bufA } });
      * ```
      *
-     * @param node The ComputeNode to dispatch.
-     * @param dispatch Workgroup counts [x, y, z] to dispatch.
      * @throws if the renderer has not been initialised.
-     * @throws if the pipeline has not been compiled yet (call renderer.compile() first).
+     * @throws if the pipeline has not been compiled yet.
      */
-    compute(node: ComputeNode, dispatch: [number, number, number]): void;
-    /**
-     * Encode an indirect compute dispatch. Workgroup counts are read from
-     * the GPU buffer backing `indirectBuffer` — no CPU-side dispatch count needed.
-     *
-     * The `GpuBuffer` must hold `[countX, countY, countZ]`
-     * as u32 values (same layout as `dispatchWorkgroupsIndirect`).
-     * Must have 'indirect' usage.
-     *
-     * Typically the indirect buffer is written by a small "workgroup kernel"
-     * compute shader earlier in the frame.
-     *
-     * @param node The ComputeNode to dispatch.
-     * @param indirectBuffer The indirect buffer holding GPU-side dispatch counts.
-     */
-    compute(node: ComputeNode, indirectBuffer: GpuBuffer<d.Any>): void;
+    compute(node: ComputeNode, options: ComputeOptions): void;
     private _dispatchComputeNode;
     /** save the current renderer state into a plain object and return it */
     saveRendererState(): {

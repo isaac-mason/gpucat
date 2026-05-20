@@ -249,9 +249,9 @@ await renderer.compileCompute(computeUpdate);
 function frame() {
     renderer.beginFrame();
     // seed draw args
-    renderer.compute(computeInit, [1, 1, 1]);
+    renderer.compute(computeInit, { dispatch: [1, 1, 1] });
     // GPU writes instanceCount
-    renderer.compute(computeUpdate, [Math.ceil(INSTANCES / 64), 1, 1]);
+    renderer.compute(computeUpdate, { dispatch: [Math.ceil(INSTANCES / 64), 1, 1] });
     // render — drawIndirect reads GPU-written instanceCount
     renderPipeline.render();
     renderer.endFrame();

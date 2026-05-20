@@ -1,4 +1,6 @@
 import type { UniformGroupBlock } from '../nodes/builder';
+import type { GpuBuffer } from '../core/gpu-buffer';
+import type { Any } from '../schema/schema';
 import type { BindGroup } from './bind-group';
 import { type BindGroupLayoutCache } from './bind-group-layout';
 import type { BufferCache } from './buffers';
@@ -33,7 +35,7 @@ export declare function createBindingsState(): BindingsState;
 /** Update all bindings for a RenderObject. */
 export declare function updateRenderBindings(state: BindingsState, renderObject: RenderObject, frame: NodeFrame, device: GPUDevice, bufferCache: BufferCache, textureCache: TextureCache): void;
 /** Update all bindings for a compute pass and return GPUBindGroups. */
-export declare function updateComputeBindings(state: BindingsState, nodeBuilderState: NodeBuilderState, frame: NodeFrame, device: GPUDevice, bufferCache: BufferCache, textureCache: TextureCache): GPUBindGroup[];
+export declare function updateComputeBindings(state: BindingsState, nodeBuilderState: NodeBuilderState, frame: NodeFrame, device: GPUDevice, bufferCache: BufferCache, textureCache: TextureCache, buffers: Record<string, GpuBuffer<Any>> | null): GPUBindGroup[];
 /** Initialize bindings for a RenderObject. */
 export declare function initRenderBindings(state: BindingsState, renderObject: RenderObject, device: GPUDevice): void;
 /** Get the bind group layouts for a RenderObject. Used for pipeline creation. */

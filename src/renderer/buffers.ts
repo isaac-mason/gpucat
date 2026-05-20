@@ -138,22 +138,24 @@ export function getUploaded(cache: BufferCache, buffer: GpuBuffer): GPUBuffer | 
 /**
  * Resolve a GpuBuffer from a StorageNode.
  *
- * For named references, the buffer is resolved from geometry.buffers.
+ * For named references, lookup order is: `buffers` (per-call override) → `geometry.buffers`.
  * For value references, the buffer is taken from node.value.
  */
-export function resolveStorageBuffer(node: StorageNode<Any>, geometry: Geometry | null): GpuBuffer {
+export function resolveStorageBuffer(
+    node: StorageNode<Any>,
+    geometry: Geometry | null,
+    buffers: Record<string, GpuBuffer<Any>> | null,
+): GpuBuffer {
     if (node.isNamedReference) {
-        if (!geometry) {
-            throw new Error(
-                `[gpucat] resolveStorageBuffer: storage node '${node.bufferName}' is name-based but no geometry was provided`
-            );
-        }
-        const buffer = geometry.buffers.get(node.bufferName!);
+        const name = node.bufferName!;
+        const buffer = buffers?.[name] ?? geometry?.buffers.get(name);
+
         if (!buffer) {
             throw new Error(
-                `[gpucat] resolveStorageBuffer: buffer '${node.bufferName}' not found in geometry.buffers`
+                `[gpucat] resolveStorageBuffer: buffer '${name}' not found in compute buffers map or geometry.buffers`
             );
         }
+
         return buffer;
     } else {
         const buffer = node.value;

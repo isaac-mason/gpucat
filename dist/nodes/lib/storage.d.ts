@@ -23,9 +23,9 @@ import { UniformGroup } from './uniform';
  */
 export declare class StorageNode<D extends Any> extends Node<D> {
     /** Buffer name (for geometry.buffers lookup) — null if value-based */
-    readonly bufferName: string | null;
+    bufferName: string | null;
     /** Direct buffer reference — null if name-based */
-    private _value;
+    value: GpuBuffer<D> | null;
     /** The WGSL type string, e.g. 'array<mat4x4f>'. Emitted verbatim. */
     readonly storageType: string;
     /** Access mode for the storage buffer. */
@@ -39,10 +39,6 @@ export declare class StorageNode<D extends Any> extends Node<D> {
     get isNamedReference(): boolean;
     /** Whether this is an indirect storage buffer (has 'indirect' usage) */
     get isIndirectStorageBuffer(): boolean;
-    /** Get the current buffer value (for value-based nodes). Returns null for name-based nodes. */
-    get value(): GpuBuffer<D> | null;
-    /** Set a new buffer value (for value-based nodes). Allows swapping buffers for double-buffering. */
-    set value(buffer: GpuBuffer<D> | null);
     /** Defines whether the node is atomic or not */
     setAtomic(value: boolean): this;
     /** Convenience method for making this node atomic */

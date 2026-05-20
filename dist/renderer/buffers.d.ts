@@ -39,10 +39,10 @@ export declare function getUploaded(cache: BufferCache, buffer: GpuBuffer): GPUB
 /**
  * Resolve a GpuBuffer from a StorageNode.
  *
- * For named references, the buffer is resolved from geometry.buffers.
+ * For named references, lookup order is: `buffers` (per-call override) → `geometry.buffers`.
  * For value references, the buffer is taken from node.value.
  */
-export declare function resolveStorageBuffer(node: StorageNode<Any>, geometry: Geometry | null): GpuBuffer;
+export declare function resolveStorageBuffer(node: StorageNode<Any>, geometry: Geometry | null, buffers: Record<string, GpuBuffer<Any>> | null): GpuBuffer;
 /**
  * Result of uploadRaw - includes buffer and whether it was newly created.
  */

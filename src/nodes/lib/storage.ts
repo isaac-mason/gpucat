@@ -24,10 +24,10 @@ import { UniformGroup, objectGroup } from './uniform';
  */
 export class StorageNode<D extends Any> extends Node<D> {
     /** Buffer name (for geometry.buffers lookup) — null if value-based */
-    readonly bufferName: string | null;
+    bufferName: string | null;
 
     /** Direct buffer reference — null if name-based */
-    private _value: GpuBuffer<D> | null;
+    value: GpuBuffer<D> | null;
 
     /** The WGSL type string, e.g. 'array<mat4x4f>'. Emitted verbatim. */
     readonly storageType: string;
@@ -51,10 +51,10 @@ export class StorageNode<D extends Any> extends Node<D> {
 
         if (typeof nameOrBuffer === 'string') {
             this.bufferName = nameOrBuffer;
-            this._value = null;
+            this.value = null;
         } else {
             this.bufferName = null;
-            this._value = nameOrBuffer;
+            this.value = nameOrBuffer;
         }
 
         this.storageType = schema.wgslType;
@@ -69,20 +69,7 @@ export class StorageNode<D extends Any> extends Node<D> {
 
     /** Whether this is an indirect storage buffer (has 'indirect' usage) */
     get isIndirectStorageBuffer(): boolean {
-        return this._value?.usage.has('indirect') ?? false;
-    }
-
-    /** Get the current buffer value (for value-based nodes). Returns null for name-based nodes. */
-    get value(): GpuBuffer<D> | null {
-        return this._value;
-    }
-
-    /** Set a new buffer value (for value-based nodes). Allows swapping buffers for double-buffering. */
-    set value(buffer: GpuBuffer<D> | null) {
-        if (this.bufferName !== null) {
-            throw new Error('[gpucat] Cannot set .value on a name-based storage node. Use geometry.setBuffer() instead.');
-        }
-        this._value = buffer;
+        return this.value?.usage.has('indirect') ?? false;
     }
 
     /** Defines whether the node is atomic or not */
@@ -102,7 +89,7 @@ export class StorageNode<D extends Any> extends Node<D> {
         if (this.bufferName !== null) {
             return new StorageNode(this.type, this.bufferName, 'read', this.groupNode);
         } else {
-            return new StorageNode(this.type, this._value!, 'read', this.groupNode);
+            return new StorageNode(this.type, this.value!, 'read', this.groupNode);
         }
     }
 }

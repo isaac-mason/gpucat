@@ -253,17 +253,15 @@ function getUploaded(cache, buffer) {
 /**
  * Resolve a GpuBuffer from a StorageNode.
  *
- * For named references, the buffer is resolved from geometry.buffers.
+ * For named references, lookup order is: `buffers` (per-call override) → `geometry.buffers`.
  * For value references, the buffer is taken from node.value.
  */
-function resolveStorageBuffer(node, geometry) {
+function resolveStorageBuffer(node, geometry, buffers) {
     if (node.isNamedReference) {
-        if (!geometry) {
-            throw new Error(`[gpucat] resolveStorageBuffer: storage node '${node.bufferName}' is name-based but no geometry was provided`);
-        }
-        const buffer = geometry.buffers.get(node.bufferName);
+        const name = node.bufferName;
+        const buffer = buffers?.[name] ?? geometry?.buffers.get(name);
         if (!buffer) {
-            throw new Error(`[gpucat] resolveStorageBuffer: buffer '${node.bufferName}' not found in geometry.buffers`);
+            throw new Error(`[gpucat] resolveStorageBuffer: buffer '${name}' not found in compute buffers map or geometry.buffers`);
         }
         return buffer;
     }
@@ -6183,7 +6181,7 @@ class StorageNode extends Node {
     /** Buffer name (for geometry.buffers lookup) — null if value-based */
     bufferName;
     /** Direct buffer reference — null if name-based */
-    _value;
+    value;
     /** The WGSL type string, e.g. 'array<mat4x4f>'. Emitted verbatim. */
     storageType;
     /** Access mode for the storage buffer. */
@@ -6196,11 +6194,11 @@ class StorageNode extends Node {
         super(schema);
         if (typeof nameOrBuffer === 'string') {
             this.bufferName = nameOrBuffer;
-            this._value = null;
+            this.value = null;
         }
         else {
             this.bufferName = null;
-            this._value = nameOrBuffer;
+            this.value = nameOrBuffer;
         }
         this.storageType = schema.wgslType;
         this.access = access;
@@ -6212,18 +6210,7 @@ class StorageNode extends Node {
     }
     /** Whether this is an indirect storage buffer (has 'indirect' usage) */
     get isIndirectStorageBuffer() {
-        return this._value?.usage.has('indirect') ?? false;
-    }
-    /** Get the current buffer value (for value-based nodes). Returns null for name-based nodes. */
-    get value() {
-        return this._value;
-    }
-    /** Set a new buffer value (for value-based nodes). Allows swapping buffers for double-buffering. */
-    set value(buffer) {
-        if (this.bufferName !== null) {
-            throw new Error('[gpucat] Cannot set .value on a name-based storage node. Use geometry.setBuffer() instead.');
-        }
-        this._value = buffer;
+        return this.value?.usage.has('indirect') ?? false;
     }
     /** Defines whether the node is atomic or not */
     setAtomic(value) {
@@ -6242,7 +6229,7 @@ class StorageNode extends Node {
             return new StorageNode(this.type, this.bufferName, 'read', this.groupNode);
         }
         else {
-            return new StorageNode(this.type, this._value, 'read', this.groupNode);
+            return new StorageNode(this.type, this.value, 'read', this.groupNode);
         }
     }
 }
@@ -11463,7 +11450,7 @@ function updateRenderBindings(state, renderObject, frame, device, bufferCache, t
         const data = getData(state, bindGroup);
         updateRenderBindGroup(data, bindGroup, renderObject, frame, device, bufferCache, textureCache);
         if (data.needsUpdate || !data.bindGroup) {
-            rebuildGPUBindGroup(device, bufferCache, textureCache, bindGroup, data, renderObject.geometry);
+            rebuildGPUBindGroup(device, bufferCache, textureCache, bindGroup, data, renderObject.geometry, null);
             data.needsUpdate = false;
         }
         if (data.bindGroup) {
@@ -11474,17 +11461,17 @@ function updateRenderBindings(state, renderObject, frame, device, bufferCache, t
     renderObject.bindGroups = gpuBindGroups;
 }
 /** Update all bindings for a compute pass and return GPUBindGroups. */
-function updateComputeBindings(state, nodeBuilderState, frame, device, bufferCache, textureCache) {
+function updateComputeBindings(state, nodeBuilderState, frame, device, bufferCache, textureCache, buffers) {
     const gpuBindGroups = [];
     for (const bindGroup of nodeBuilderState.bindings) {
         // Initialize bind group layout if needed
         initBindGroup(state, bindGroup, device, GPUShaderStage.COMPUTE);
         // Update bindings
         const data = getData(state, bindGroup);
-        updateComputeBindGroup(data, bufferCache, textureCache, device, bindGroup, frame);
+        updateComputeBindGroup(data, bufferCache, textureCache, device, bindGroup, frame, buffers);
         // Rebuild GPU bind group if needed
         if (data.needsUpdate || !data.bindGroup) {
-            rebuildGPUBindGroup(device, bufferCache, textureCache, bindGroup, data, null);
+            rebuildGPUBindGroup(device, bufferCache, textureCache, bindGroup, data, null, buffers);
             data.needsUpdate = false;
         }
         if (data.bindGroup) {
@@ -11594,7 +11581,7 @@ function updateRenderBindGroup(data, bindGroup, renderObject, frame, device, buf
                 updateSamplerBinding(textureCache, device, binding, data);
                 break;
             case 'storage':
-                updateStorageBinding(bufferCache, device, binding, data, renderObject.geometry);
+                updateStorageBinding(bufferCache, device, binding, data, renderObject.geometry, null);
                 break;
         }
     }
@@ -11728,9 +11715,9 @@ function updateSamplerBinding(textureCache, device, binding, data) {
     }
 }
 /** Update a storage binding - detect buffer swaps and flush data to GPU. */
-function updateStorageBinding(bufferCache, device, binding, data, geometry) {
+function updateStorageBinding(bufferCache, device, binding, data, geometry, buffers) {
     const node = binding.entry.node;
-    const buffer = resolveStorageBuffer(node, geometry);
+    const buffer = resolveStorageBuffer(node, geometry, buffers);
     // If buffer identity changed, need to rebuild bind group
     if (buffer !== binding.lastBuffer) {
         binding.lastBuffer = buffer;
@@ -11740,7 +11727,7 @@ function updateStorageBinding(bufferCache, device, binding, data, geometry) {
     ensureUploaded(bufferCache, device, buffer);
 }
 /** Rebuild the GPU bind group for a BindGroup */
-function rebuildGPUBindGroup(device, bufferCache, textureCache, bindGroup, data, geometry) {
+function rebuildGPUBindGroup(device, bufferCache, textureCache, bindGroup, data, geometry, buffers) {
     if (!data.bindGroupLayout)
         return;
     const entries = [];
@@ -11756,7 +11743,7 @@ function rebuildGPUBindGroup(device, bufferCache, textureCache, bindGroup, data,
                 break;
             }
             case 'storage': {
-                const buffer = resolveStorageBuffer(binding.entry.node, geometry);
+                const buffer = resolveStorageBuffer(binding.entry.node, geometry, buffers);
                 const buf = getUploaded(bufferCache, buffer);
                 if (buf) {
                     entries.push({ binding: binding.entry.binding, resource: { buffer: buf } });
@@ -11814,14 +11801,14 @@ function invokeUniformGroupCallbacks(block, frame) {
     }
 }
 /** Update a compute BindGroup (uniforms, textures, samplers, storage). */
-function updateComputeBindGroup(data, bufferCache, textureCache, device, bindGroup, frame) {
+function updateComputeBindGroup(data, bufferCache, textureCache, device, bindGroup, frame, buffers) {
     for (const binding of bindGroup.bindings) {
         switch (binding.kind) {
             case 'uniform':
                 updateUniformBinding(bufferCache, device, binding, frame, data);
                 break;
             case 'storage':
-                updateStorageBinding(bufferCache, device, binding, data, null);
+                updateStorageBinding(bufferCache, device, binding, data, null, buffers);
                 break;
             case 'texture':
                 updateTextureBinding(textureCache, device, binding, data);
@@ -28638,7 +28625,7 @@ class WebGPURenderer {
             if (nodeState) {
                 // upload storage buffers
                 for (const s of nodeState.storage) {
-                    const buffer = resolveStorageBuffer(s.node, geometry);
+                    const buffer = resolveStorageBuffer(s.node, geometry, null);
                     ensureUploaded(this._buffers, this._device, buffer);
                 }
                 // upload vertex buffers
@@ -28697,7 +28684,25 @@ class WebGPURenderer {
         getForCompute(this._pipelines, this._device, this._nodes, computeNode, this._computeContext, promises);
         await Promise.all(promises);
     }
-    compute(node, dispatchOrIndirect) {
+    /**
+     * Encode a compute dispatch for `node`. Must be called **inside** a
+     * `requestAnimationFrame` callback, before `renderPipeline.render()`, so
+     * the compute pass is submitted alongside the render pass.
+     *
+     * Supply either `dispatch: [x, y, z]` (CPU-side counts) or `indirect: gpuBuffer`
+     * (GPU-side counts, layout matches `dispatchWorkgroupsIndirect`). Optionally
+     * pass `buffers` to override named storage refs without recompiling the pipeline.
+     *
+     * ```ts
+     * renderer.compute(updateParticles, { dispatch: [Math.ceil(N / 64), 1, 1] });
+     * renderer.compute(updateParticles, { indirect: indirectBuf });
+     * renderer.compute(reusable, { dispatch: [n, 1, 1], buffers: { particles: bufA } });
+     * ```
+     *
+     * @throws if the renderer has not been initialised.
+     * @throws if the pipeline has not been compiled yet.
+     */
+    compute(node, options) {
         if (this._isDeviceLost)
             return;
         if (!this._initialized) {
@@ -28707,17 +28712,18 @@ class WebGPURenderer {
         const perfId = `compute: ${node.id}`;
         this.inspector.perf.start(perfId);
         const encoder = this._device.createCommandEncoder();
-        if (dispatchOrIndirect instanceof GpuBuffer) {
-            const gpuBuf = ensureUploaded(this._buffers, this._device, dispatchOrIndirect);
-            this._dispatchComputeNode(entry, node, encoder, undefined, gpuBuf, 0);
+        const buffers = options.buffers ?? null;
+        if (options.indirect) {
+            const gpuBuf = ensureUploaded(this._buffers, this._device, options.indirect);
+            this._dispatchComputeNode(entry, node, encoder, undefined, gpuBuf, options.indirectOffset ?? 0, buffers);
         }
         else {
-            this._dispatchComputeNode(entry, node, encoder, dispatchOrIndirect, undefined, undefined);
+            this._dispatchComputeNode(entry, node, encoder, options.dispatch, undefined, undefined, buffers);
         }
         this._device.queue.submit([encoder.finish()]);
         this.inspector.perf.end(perfId);
     }
-    _dispatchComputeNode(entry, node, encoder, dispatch, indirectBuffer, indirectOffset) {
+    _dispatchComputeNode(entry, node, encoder, dispatch, indirectBuffer, indirectOffset, buffers) {
         const { nodeBuilderState } = entry;
         const frame = this._nodes.nodeFrame;
         frame.renderer = this;
@@ -28728,7 +28734,7 @@ class WebGPURenderer {
         updateForCompute(this._nodes, node);
         this.inspector.perf.end('updateForCompute');
         // Update all bindings and get GPUBindGroups
-        const gpuBindGroups = updateComputeBindings(this._bindings, nodeBuilderState, frame, this._device, this._buffers, this._textures);
+        const gpuBindGroups = updateComputeBindings(this._bindings, nodeBuilderState, frame, this._device, this._buffers, this._textures, buffers);
         // Notify inspector before creating pass (so timestamp writes are available)
         this.inspector.beginCompute(node, this._nodes.nodeFrame.frameId);
         // Get timestamp writes for GPU timing (if available)
@@ -29248,7 +29254,7 @@ class RenderPipeline {
      * compute and render work for the frame. Example:
      * ```ts
      * renderer.beginFrame();
-     * renderer.compute(myCompute, dispatch);
+     * renderer.compute(myCompute, { dispatch: [n, 1, 1] });
      * renderPipeline.render();
      * renderer.endFrame();
      * ```
