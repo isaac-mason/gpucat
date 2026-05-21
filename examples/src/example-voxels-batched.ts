@@ -813,7 +813,7 @@ async function main() {
 
         // GPU cull pass — writes indirectBuf slots
         renderer.beginFrame();
-        renderer.compute(cullCompute, { dispatch: [Math.ceil(POOL_PAGES / 64), 1, 1] });
+        renderer.compute([{ node: cullCompute, dispatch: [Math.ceil(POOL_PAGES / 64), 1, 1] }]);
 
         renderPipeline.render();
         renderer.endFrame();

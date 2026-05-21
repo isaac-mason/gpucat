@@ -150,7 +150,7 @@ const renderPipeline = new RenderPipeline(renderer, outputNode);
 function frame() {
     renderer.beginFrame();
     // Dispatch the compute pass first, then render.
-    renderer.compute(updateParticles, { dispatch: [Math.ceil(N / WG_SIZE), 1, 1] });
+    renderer.compute([{ node: updateParticles, dispatch: [Math.ceil(N / WG_SIZE), 1, 1] }]);
     renderPipeline.render();
     renderer.endFrame();
     requestAnimationFrame(frame);

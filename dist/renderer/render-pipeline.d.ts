@@ -43,7 +43,7 @@ export declare class RenderPipeline {
      * compute and render work for the frame. Example:
      * ```ts
      * renderer.beginFrame();
-     * renderer.compute(myCompute, { dispatch: [n, 1, 1] });
+     * renderer.compute([{ node: myCompute, dispatch: [n, 1, 1] }]);
      * renderPipeline.render();
      * renderer.endFrame();
      * ```

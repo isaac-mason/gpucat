@@ -320,7 +320,7 @@ export * from './core/object3d';
 
 export * from './core/render-target';
 
-export { WebGPURenderer, type DeviceLostInfo, type WebGPURendererOptions } from './renderer/renderer';
+export { WebGPURenderer, type ComputeDispatch, type DeviceLostInfo, type WebGPURendererOptions } from './renderer/renderer';
 export { RenderPipeline } from './renderer/render-pipeline';
 export { CanvasTarget, type CanvasTargetOptions } from './renderer/canvas-target';
 export { readPixels } from './renderer/read-pixels';

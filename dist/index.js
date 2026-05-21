@@ -28685,76 +28685,79 @@ class WebGPURenderer {
         await Promise.all(promises);
     }
     /**
-     * Encode a compute dispatch for `node`. Must be called **inside** a
-     * `requestAnimationFrame` callback, before `renderPipeline.render()`, so
-     * the compute pass is submitted alongside the render pass.
+     * Encode and submit a batch of compute dispatches. Must be called **inside** a
+     * `requestAnimationFrame` callback, before `renderPipeline.render()`, so the
+     * compute work is submitted alongside the render pass.
      *
-     * Supply either `dispatch: [x, y, z]` (CPU-side counts) or `indirect: gpuBuffer`
-     * (GPU-side counts, layout matches `dispatchWorkgroupsIndirect`). Optionally
-     * pass `buffers` to override named storage refs without recompiling the pipeline.
+     * All entries share a single command encoder and a single `queue.submit()`,
+     * minimizing CPU round-trip overhead. Each entry gets its own compute pass
+     * so per-node inspector hooks (timestamps, perf) still work.
+     *
+     * Each entry supplies `dispatch: [x, y, z]` (CPU-side counts) or
+     * `indirect: gpuBuffer` (GPU-side counts). Optional `buffers` overrides named
+     * storage refs without recompiling the pipeline.
      *
      * ```ts
-     * renderer.compute(updateParticles, { dispatch: [Math.ceil(N / 64), 1, 1] });
-     * renderer.compute(updateParticles, { indirect: indirectBuf });
-     * renderer.compute(reusable, { dispatch: [n, 1, 1], buffers: { particles: bufA } });
+     * renderer.compute([
+     *     { node: updateParticles, dispatch: [Math.ceil(N / 64), 1, 1] },
+     * ]);
+     *
+     * renderer.compute([
+     *     { node: cull,  dispatch: [n, 1, 1], buffers: { visible: bufA } },
+     *     { node: build, indirect: indirectBuf },
+     * ]);
      * ```
      *
      * @throws if the renderer has not been initialised.
-     * @throws if the pipeline has not been compiled yet.
      */
-    compute(node, options) {
+    compute(entries) {
         if (this._isDeviceLost)
             return;
         if (!this._initialized) {
             throw new Error('[WebGPURenderer] compute() called before init(). Await renderer.init() first.');
         }
-        const entry = getForCompute(this._pipelines, this._device, this._nodes, node, this._computeContext);
-        const perfId = `compute: ${node.id}`;
-        this.inspector.perf.start(perfId);
-        const encoder = this._device.createCommandEncoder();
-        const buffers = options.buffers ?? null;
-        if (options.indirect) {
-            const gpuBuf = ensureUploaded(this._buffers, this._device, options.indirect);
-            this._dispatchComputeNode(entry, node, encoder, undefined, gpuBuf, options.indirectOffset ?? 0, buffers);
-        }
-        else {
-            this._dispatchComputeNode(entry, node, encoder, options.dispatch, undefined, undefined, buffers);
-        }
-        this._device.queue.submit([encoder.finish()]);
-        this.inspector.perf.end(perfId);
-    }
-    _dispatchComputeNode(entry, node, encoder, dispatch, indirectBuffer, indirectOffset, buffers) {
-        const { nodeBuilderState } = entry;
+        if (entries.length === 0)
+            return;
         const frame = this._nodes.nodeFrame;
         frame.renderer = this;
         frame.width = this.domElement.width || 1;
         frame.height = this.domElement.height || 1;
-        // Update node uniforms
-        this.inspector.perf.start('updateForCompute');
-        updateForCompute(this._nodes, node);
-        this.inspector.perf.end('updateForCompute');
-        // Update all bindings and get GPUBindGroups
-        const gpuBindGroups = updateComputeBindings(this._bindings, nodeBuilderState, frame, this._device, this._buffers, this._textures, buffers);
-        // Notify inspector before creating pass (so timestamp writes are available)
-        this.inspector.beginCompute(node, this._nodes.nodeFrame.frameId);
-        // Get timestamp writes for GPU timing (if available)
-        const timestampWrites = this.inspector.getTimestampWrites(node.id);
-        // Encode the compute pass
-        const computePass = encoder.beginComputePass({ timestampWrites });
-        computePass.setPipeline(entry.pipeline);
-        // Set bind groups
-        for (let i = 0; i < gpuBindGroups.length; i++) {
-            computePass.setBindGroup(i, gpuBindGroups[i]);
+        this.inspector.perf.start('compute');
+        const encoder = this._device.createCommandEncoder();
+        for (const entry of entries) {
+            const { node } = entry;
+            const pipelineEntry = getForCompute(this._pipelines, this._device, this._nodes, node, this._computeContext);
+            const { nodeBuilderState } = pipelineEntry;
+            const buffers = entry.buffers ?? null;
+            this.inspector.perf.start(`compute: ${node.id}`);
+            // Update node uniforms
+            this.inspector.perf.start('updateForCompute');
+            updateForCompute(this._nodes, node);
+            this.inspector.perf.end('updateForCompute');
+            // Update all bindings and get GPUBindGroups
+            const gpuBindGroups = updateComputeBindings(this._bindings, nodeBuilderState, frame, this._device, this._buffers, this._textures, buffers);
+            // Notify inspector before creating pass (so timestamp writes are available)
+            this.inspector.beginCompute(node, frame.frameId);
+            const timestampWrites = this.inspector.getTimestampWrites(node.id);
+            const computePass = encoder.beginComputePass({ timestampWrites });
+            computePass.setPipeline(pipelineEntry.pipeline);
+            for (let i = 0; i < gpuBindGroups.length; i++) {
+                computePass.setBindGroup(i, gpuBindGroups[i]);
+            }
+            if (entry.indirect) {
+                const gpuBuf = ensureUploaded(this._buffers, this._device, entry.indirect);
+                computeDispatchWorkgroupsIndirect(computePass, this.inspector, gpuBuf, entry.indirectOffset ?? 0);
+            }
+            else {
+                const [dx, dy, dz] = entry.dispatch;
+                computeDispatchWorkgroups(computePass, this.inspector, dx, dy, dz);
+            }
+            computePass.end();
+            this.inspector.finishCompute(node.id, frame.frameId);
+            this.inspector.perf.end(`compute: ${node.id}`);
         }
-        if (indirectBuffer) {
-            computeDispatchWorkgroupsIndirect(computePass, this.inspector, indirectBuffer, indirectOffset ?? 0);
-        }
-        else {
-            const [dx, dy, dz] = dispatch;
-            computeDispatchWorkgroups(computePass, this.inspector, dx, dy, dz);
-        }
-        computePass.end();
-        this.inspector.finishCompute(node.id, this._nodes.nodeFrame.frameId);
+        this._device.queue.submit([encoder.finish()]);
+        this.inspector.perf.end('compute');
     }
     /** save the current renderer state into a plain object and return it */
     saveRendererState() {
@@ -29254,7 +29257,7 @@ class RenderPipeline {
      * compute and render work for the frame. Example:
      * ```ts
      * renderer.beginFrame();
-     * renderer.compute(myCompute, { dispatch: [n, 1, 1] });
+     * renderer.compute([{ node: myCompute, dispatch: [n, 1, 1] }]);
      * renderPipeline.render();
      * renderer.endFrame();
      * ```

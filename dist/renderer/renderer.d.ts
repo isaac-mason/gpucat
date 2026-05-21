@@ -44,12 +44,14 @@ export type WebGPURendererOptions = {
     headless?: boolean;
 };
 /**
- * Per-call options for `WebGPURenderer.compute()`.
+ * A single compute dispatch in a `WebGPURenderer.compute()` batch.
  *
  * Either `dispatch` (CPU-side workgroup counts) or `indirect` (GPU buffer holding counts)
  * must be provided. `buffers` (optional, on either form) overrides named storage refs.
  */
-export type ComputeOptions = {
+export type ComputeDispatch = {
+    /** The ComputeNode to dispatch. */
+    node: ComputeNode;
     /** Workgroup counts [x, y, z] dispatched from the CPU. */
     dispatch: [number, number, number];
     indirect?: never;
@@ -61,6 +63,8 @@ export type ComputeOptions = {
      */
     buffers?: Record<string, GpuBuffer<d.Any>>;
 } | {
+    /** The ComputeNode to dispatch. */
+    node: ComputeNode;
     /**
      * GPU buffer holding `[countX, countY, countZ]` as u32 (matches `dispatchWorkgroupsIndirect` layout).
      * Buffer must have 'indirect' usage. Typically written by an earlier compute pass.
@@ -191,25 +195,32 @@ export declare class WebGPURenderer {
      */
     compileCompute(computeNode: ComputeNode): Promise<void>;
     /**
-     * Encode a compute dispatch for `node`. Must be called **inside** a
-     * `requestAnimationFrame` callback, before `renderPipeline.render()`, so
-     * the compute pass is submitted alongside the render pass.
+     * Encode and submit a batch of compute dispatches. Must be called **inside** a
+     * `requestAnimationFrame` callback, before `renderPipeline.render()`, so the
+     * compute work is submitted alongside the render pass.
      *
-     * Supply either `dispatch: [x, y, z]` (CPU-side counts) or `indirect: gpuBuffer`
-     * (GPU-side counts, layout matches `dispatchWorkgroupsIndirect`). Optionally
-     * pass `buffers` to override named storage refs without recompiling the pipeline.
+     * All entries share a single command encoder and a single `queue.submit()`,
+     * minimizing CPU round-trip overhead. Each entry gets its own compute pass
+     * so per-node inspector hooks (timestamps, perf) still work.
+     *
+     * Each entry supplies `dispatch: [x, y, z]` (CPU-side counts) or
+     * `indirect: gpuBuffer` (GPU-side counts). Optional `buffers` overrides named
+     * storage refs without recompiling the pipeline.
      *
      * ```ts
-     * renderer.compute(updateParticles, { dispatch: [Math.ceil(N / 64), 1, 1] });
-     * renderer.compute(updateParticles, { indirect: indirectBuf });
-     * renderer.compute(reusable, { dispatch: [n, 1, 1], buffers: { particles: bufA } });
+     * renderer.compute([
+     *     { node: updateParticles, dispatch: [Math.ceil(N / 64), 1, 1] },
+     * ]);
+     *
+     * renderer.compute([
+     *     { node: cull,  dispatch: [n, 1, 1], buffers: { visible: bufA } },
+     *     { node: build, indirect: indirectBuf },
+     * ]);
      * ```
      *
      * @throws if the renderer has not been initialised.
-     * @throws if the pipeline has not been compiled yet.
      */
-    compute(node: ComputeNode, options: ComputeOptions): void;
-    private _dispatchComputeNode;
+    compute(entries: ComputeDispatch[]): void;
     /** save the current renderer state into a plain object and return it */
     saveRendererState(): {
         renderTarget: RenderTarget | null;
