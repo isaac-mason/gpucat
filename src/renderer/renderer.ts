@@ -1043,7 +1043,8 @@ export class WebGPURenderer {
                     const indBuf = Buffers.ensureUploaded(this._buffers, this._device, indirect);
                     const byteStride = indirect.itemSize * 4;
                     const baseOffset = geometry.indirectOffset;
-                    for (let d = 0; d < indirect.count; d++) {
+                    const drawCount = geometry.indirectDrawCount ?? indirect.count;
+                    for (let d = 0; d < drawCount; d++) {
                         passDrawIndexedIndirect(gpuPass, this.inspector, indBuf, baseOffset + d * byteStride);
                     }
                 } else {
@@ -1056,7 +1057,8 @@ export class WebGPURenderer {
                     const indBuf = Buffers.ensureUploaded(this._buffers, this._device, indirect);
                     const byteStride = indirect.itemSize * 4;
                     const baseOffset = geometry.indirectOffset;
-                    for (let d = 0; d < indirect.count; d++) {
+                    const drawCount = geometry.indirectDrawCount ?? indirect.count;
+                    for (let d = 0; d < drawCount; d++) {
                         passDrawIndirect(gpuPass, this.inspector, indBuf, baseOffset + d * byteStride);
                     }
                 } else {

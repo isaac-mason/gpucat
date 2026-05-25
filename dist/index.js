@@ -19971,6 +19971,16 @@ class Geometry {
      */
     indirectOffset = 0;
     /**
+     * Number of indirect draws to issue from `indirect`. Defaults to `undefined`,
+     * meaning "use the full buffer" (`indirect.count`). Set this when the buffer
+     * is pre-sized to a capacity and only a prefix of entries are active —
+     * avoids padding unused slots with zero-instance entries.
+     *
+     * When stable WebGPU multi-draw lands, this is the natural place to map to
+     * the native `drawCount` parameter — same semantics, same field.
+     */
+    indirectDrawCount = undefined;
+    /**
      * Axis-aligned bounding box in local space.
      * Set by createBoxGeometry / createSphereGeometry / createPlaneGeometry.
      * You may set this manually for custom geometry to enable frustum culling.
@@ -29033,7 +29043,8 @@ class WebGPURenderer {
                     const indBuf = ensureUploaded(this._buffers, this._device, indirect);
                     const byteStride = indirect.itemSize * 4;
                     const baseOffset = geometry.indirectOffset;
-                    for (let d = 0; d < indirect.count; d++) {
+                    const drawCount = geometry.indirectDrawCount ?? indirect.count;
+                    for (let d = 0; d < drawCount; d++) {
                         passDrawIndexedIndirect(gpuPass, this.inspector, indBuf, baseOffset + d * byteStride);
                     }
                 }
@@ -29048,7 +29059,8 @@ class WebGPURenderer {
                     const indBuf = ensureUploaded(this._buffers, this._device, indirect);
                     const byteStride = indirect.itemSize * 4;
                     const baseOffset = geometry.indirectOffset;
-                    for (let d = 0; d < indirect.count; d++) {
+                    const drawCount = geometry.indirectDrawCount ?? indirect.count;
+                    for (let d = 0; d < drawCount; d++) {
                         passDrawIndirect(gpuPass, this.inspector, indBuf, baseOffset + d * byteStride);
                     }
                 }
