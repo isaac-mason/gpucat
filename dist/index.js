@@ -7320,8 +7320,10 @@ function compileCompute(node) {
     ctx.storages = discovered.storages;
     ctx.privateVars = discovered.privateVars;
     ctx.workgroupVars = discovered.workgroupVars;
-    // generate compute shader body
-    const computeBody = generateComputeShader(node, ctx);
+    // generate compute shader body (reuse the trace above — re-tracing would
+    // produce fresh StorageNode/etc. ids that aren't in discovered.storageNames,
+    // causing emits like `undefined[...]`).
+    const computeBody = generateComputeShader(node, traced, ctx);
     // emit all bindings using Three.js pattern (each group gets its own @group index)
     const { wgsl: bindingsWgsl, uniformBlocks, storageEntries } = emitAllBindings(ctx);
     // emit module-scope variables (var<private>, var<workgroup>)
@@ -9052,11 +9054,9 @@ function generateFragmentShader(colorNode, ctx, varyings) {
     return lines.join('\n');
 }
 /* compute shader generation */
-function generateComputeShader(node, ctx) {
+function generateComputeShader(node, traced, ctx) {
     const lines = [];
-    // trace the FnNode
     const fn = node.fn;
-    const traced = fn.trace();
     // generate statements from body
     for (const stmt of traced.body.body) {
         generateStmt(ctx, stmt);

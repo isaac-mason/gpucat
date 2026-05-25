@@ -14,7 +14,6 @@ import { PerspectiveCamera } from '../src/camera/perspective-camera';
 import { Mesh } from '../src/objects/mesh';
 import { Material } from '../src/material/material';
 import { createBoxGeometry } from '../src/geometry/geometry-helpers';
-import { pass } from '../src/nodes/lib/display/pass-node';
 import {
     attribute,
     vec4,
@@ -26,6 +25,7 @@ import {
     renderGroup,
     objectGroup,
     UniformNode,
+    Uniform,
 } from '../src/nodes/nodes';
 import * as d from '../src/schema/schema';
 
@@ -64,7 +64,7 @@ describe('uniform group deduplication', () => {
      * Create a simple material with standard transforms.
      */
     function createBasicMaterial(): Material {
-        const position = attribute(d.vec3f, 'position');
+        const position = attribute('position', d.vec3f);
         const localPosition = vec4(position, f32(1));
         const worldPosition = mul(modelWorldMatrix, localPosition);
         const viewPosition = mul(cameraViewMatrix, worldPosition);
@@ -80,15 +80,14 @@ describe('uniform group deduplication', () => {
      * Create a material with a renderGroup uniform.
      */
     function createRenderGroupMaterial(): Material {
-        const position = attribute(d.vec3f, 'position');
+        const position = attribute('position', d.vec3f);
         const localPosition = vec4(position, f32(1));
         const worldPosition = mul(modelWorldMatrix, localPosition);
         const viewPosition = mul(cameraViewMatrix, worldPosition);
         const clipPosition = mul(cameraProjectionMatrix, viewPosition);
 
         // Shared uniform - should only be written once regardless of mesh count
-        const sharedValue = new UniformNode('f32', 'sharedTestValue', renderGroup);
-        sharedValue.value = 1.0;
+        const sharedValue = new UniformNode(new Uniform(d.f32, 1.0, renderGroup), 'sharedTestValue');
 
         return new Material({
             vertex: clipPosition,
@@ -100,15 +99,14 @@ describe('uniform group deduplication', () => {
      * Create a material with an objectGroup uniform.
      */
     function createObjectGroupMaterial(): Material {
-        const position = attribute(d.vec3f, 'position');
+        const position = attribute('position', d.vec3f);
         const localPosition = vec4(position, f32(1));
         const worldPosition = mul(modelWorldMatrix, localPosition);
         const viewPosition = mul(cameraViewMatrix, worldPosition);
         const clipPosition = mul(cameraProjectionMatrix, viewPosition);
 
         // Per-object uniform - should be written once per mesh
-        const perObjectValue = new UniformNode('f32', 'perObjectTestValue', objectGroup);
-        perObjectValue.value = 1.0;
+        const perObjectValue = new UniformNode(new Uniform(d.f32, 1.0, objectGroup), 'perObjectTestValue');
 
         return new Material({
             vertex: clipPosition,
@@ -124,10 +122,7 @@ describe('uniform group deduplication', () => {
             scene.add(mesh);
             mesh.updateWorldMatrix();
 
-            const scenePass = pass(scene, camera);
-            const outputNode = scenePass.getTextureNode();
-
-            renderer.render(outputNode);
+            renderer.render(scene, camera);
 
             // Should have at least one draw call
             expect(stub.stats.drawCalls).toBeGreaterThanOrEqual(1);
@@ -147,17 +142,14 @@ describe('uniform group deduplication', () => {
                 mesh.updateWorldMatrix();
             }
 
-            const scenePass = pass(scene, camera);
-            const outputNode = scenePass.getTextureNode();
-
             // First frame - capture baseline
-            renderer.render(outputNode);
+            renderer.render(scene, camera);
             const firstFrameWrites = stub.stats.bufferWrites;
 
             stub.stats.reset();
 
             // Second frame - shared uniforms should not re-upload
-            renderer.render(outputNode);
+            renderer.render(scene, camera);
             const secondFrameWrites = stub.stats.bufferWrites;
 
             // Second frame should have fewer or equal writes (shared groups deduplicated)
@@ -183,10 +175,7 @@ describe('uniform group deduplication', () => {
                 mesh.updateWorldMatrix();
             }
 
-            const scenePass = pass(scene, camera);
-            const outputNode = scenePass.getTextureNode();
-
-            renderer.render(outputNode);
+            renderer.render(scene, camera);
 
             // Should have draw calls for each mesh
             expect(stub.stats.drawCalls).toBeGreaterThanOrEqual(5);
@@ -201,11 +190,8 @@ describe('uniform group deduplication', () => {
             scene.add(mesh);
             mesh.updateWorldMatrix();
 
-            const scenePass = pass(scene, camera);
-            const outputNode = scenePass.getTextureNode();
-
             // First frame
-            renderer.render(outputNode);
+            renderer.render(scene, camera);
             stub.stats.reset();
 
             // Move the mesh (changes modelWorldMatrix) - stay within frustum
@@ -213,7 +199,7 @@ describe('uniform group deduplication', () => {
             mesh.updateWorldMatrix();
 
             // Second frame - object group should re-upload due to matrix change
-            renderer.render(outputNode);
+            renderer.render(scene, camera);
 
             // Should have buffer writes for the changed matrix
             expect(stub.stats.bufferWrites).toBeGreaterThan(0);
