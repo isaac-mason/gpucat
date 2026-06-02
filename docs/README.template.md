@@ -4,7 +4,7 @@
 > npm install isaac-mason/gpucat
 ```
 
-> npm package coming soon!
+> gpucat is being built in public. as such, docs are sparse, and installation is via the github repo instead of npm for now.
 
 # gpucat
 
