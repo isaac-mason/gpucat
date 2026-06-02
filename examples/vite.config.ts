@@ -16,6 +16,7 @@ for (const path of htmlFiles) {
 
 export default defineConfig({
     root: './',
+    base: './',
     build: {
         outDir: './dist',
         rollupOptions: {
