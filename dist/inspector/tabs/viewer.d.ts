@@ -21,15 +21,15 @@
  * Three.js equivalent: canvasData.quad.render(renderer) — QuadMesh.render()
  * calls renderer.render(scene, camera) directly without updateBefore.
  */
-import { Tab } from '../ui/tab';
-import { List } from '../ui/list';
-import { Item } from '../ui/item';
-import { type Node } from '../../nodes/nodes';
-import * as d from '../../schema/schema';
-import type { Inspector } from '../inspector';
-import { CanvasTarget } from '../../renderer/canvas-target';
-import { Material } from '../../material/material';
-import { QuadMesh } from '../../objects/quad-mesh';
+import { Tab } from 'gpucat/dist/inspector/ui/tab';
+import { List } from 'gpucat/dist/inspector/ui/list';
+import { Item } from 'gpucat/dist/inspector/ui/item';
+import { type Node } from 'gpucat/dist/nodes/nodes';
+import * as d from 'gpucat/dist/schema/schema';
+import type { Inspector } from 'gpucat/dist/inspector/inspector';
+import { CanvasTarget } from 'gpucat/dist/renderer/canvas-target';
+import { Material } from 'gpucat/dist/material/material';
+import { QuadMesh } from 'gpucat/dist/objects/quad-mesh';
 export type CanvasData = {
     /** Stable ID (= node.id) */
     id: number;

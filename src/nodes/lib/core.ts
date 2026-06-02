@@ -1264,7 +1264,8 @@ export class InspectorNode<D extends Any> extends Node<D> {
      * Registers this node with the renderer's inspector.
      */
     override update = (frame: NodeFrame): void => {
-        frame.renderer!.inspector.inspect(this as unknown as InspectorNode<Any>);
+        const inspector = frame.renderer!.inspector;
+        if (inspector) inspector.inspect(this as unknown as InspectorNode<Any>);
     };
 
     /**

@@ -9,11 +9,11 @@
  *
  * Mirrors the structure of draw-calls.ts.
  */
-import { Tab } from '../ui/tab';
-import { List } from '../ui/list';
-import type { Inspector } from '../inspector';
-import type { ComputeNode } from '../../nodes/nodes';
-import type { WebGPURenderer } from '../../renderer/renderer';
+import { Tab } from 'gpucat/dist/inspector/ui/tab';
+import { List } from 'gpucat/dist/inspector/ui/list';
+import type { Inspector } from 'gpucat/dist/inspector/inspector';
+import type { ComputeNode } from 'gpucat/dist/nodes/nodes';
+import type { WebGPURenderer } from 'gpucat/dist/renderer/renderer';
 export declare class ComputeCalls extends Tab {
     readonly list: List;
     /** node.id → ComputeNodeRecord for every currently-displayed ComputeNode */

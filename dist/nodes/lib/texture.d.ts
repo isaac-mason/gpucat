@@ -1,13 +1,13 @@
-import { Texture } from '../../texture/texture';
-import { CubeTexture } from '../../texture/cube-texture';
-import { DepthTexture } from '../../texture/depth-texture';
-import { ArrayTexture } from '../../texture/array-texture';
-import { GpuTexture } from '../../core/gpu-texture';
-import { GpuSampler } from '../../core/gpu-sampler';
-import { CallNode, Node } from './core';
-import { type FlatDepthTextureDesc, type FlatSampledTextureDesc, type CubeSampledTextureDesc, type Any, type AnyTextureDesc } from '../../schema/schema';
-import * as d from '../../schema/schema';
-import { UniformGroup } from './uniform';
+import { Texture } from 'gpucat/dist/texture/texture';
+import { CubeTexture } from 'gpucat/dist/texture/cube-texture';
+import { DepthTexture } from 'gpucat/dist/texture/depth-texture';
+import { ArrayTexture } from 'gpucat/dist/texture/array-texture';
+import { GpuTexture } from 'gpucat/dist/core/gpu-texture';
+import { GpuSampler } from 'gpucat/dist/core/gpu-sampler';
+import { CallNode, Node } from 'gpucat/dist/nodes/lib/core';
+import { type FlatDepthTextureDesc, type FlatSampledTextureDesc, type CubeSampledTextureDesc, type Any, type AnyTextureDesc } from 'gpucat/dist/schema/schema';
+import * as d from 'gpucat/dist/schema/schema';
+import { UniformGroup } from 'gpucat/dist/nodes/lib/uniform';
 /**
  * SamplerNode - represents a sampler binding.
  *

@@ -1,6 +1,6 @@
 import { type Vec3, type Mat4, type Box3 } from 'mathcat';
-import type { Object3D } from '../core/object3d';
-import { Camera } from '../camera/camera';
+import type { Object3D } from 'gpucat/dist/core/object3d';
+import { Camera } from 'gpucat/dist/camera/camera';
 export type Ray = {
     origin: Vec3;
     direction: Vec3;

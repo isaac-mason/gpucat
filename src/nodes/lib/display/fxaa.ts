@@ -13,8 +13,7 @@ const SUBPIXEL_BLENDING = 1.0;
 /**
  * FXAA (Fast Approximate Anti-Aliasing) post-processing effect.
  *
- * This implementation ports the Three.js TSL FXAANode to gpucat's functional DSL.
- * It uses the standard FXAA 3.11 algorithm:
+ * Uses the standard FXAA 3.11 algorithm:
  * 1. Samples luminance of neighboring pixels
  * 2. Detects edges based on contrast
  * 3. Blends pixels along detected edges to smooth jaggies

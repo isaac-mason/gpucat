@@ -177,7 +177,6 @@ export function createSphereGeometry(radius = 0.5, widthSegments = 16, heightSeg
  *
  * Vertices span [-width/2, width/2] in X and [-height/2, height/2] in Y, at z=0.
  * Normals point +Z. Triangles wound CCW when viewed from +Z.
- * Matches three.js PlaneGeometry orientation.
  *
  * @param width - Total width along X. Defaults to 1.
  * @param height - Total height along Y. Defaults to 1.
@@ -506,7 +505,6 @@ export function createTorusGeometry(
     const indices = new Uint16Array(indexCount);
 
     // Ring lies in XY plane, tube cross-section sweeps around Z.
-    // Matches Three.js TorusGeometry orientation.
     let vi = 0;
     for (let j = 0; j <= radialSegments; j++) {
         const v = (j / radialSegments) * Math.PI * 2;

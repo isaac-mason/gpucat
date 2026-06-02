@@ -1,5 +1,5 @@
-import { Node } from './core';
-import * as d from '../../schema/schema';
+import { Node } from 'gpucat/dist/nodes/lib/core';
+import * as d from 'gpucat/dist/schema/schema';
 /**
  * Inline WGSL expression node.
  *

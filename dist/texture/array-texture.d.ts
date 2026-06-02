@@ -1,8 +1,8 @@
-import { GpuTexture } from '../core/gpu-texture';
-import { GpuSampler } from '../core/gpu-sampler';
-import { Source, type DataTextureImage } from './source';
-import * as d from '../schema/schema';
-import type { WrapMode, FilterMode, MipmapFilterMode, TextureOptions } from './texture';
+import { GpuTexture } from 'gpucat/dist/core/gpu-texture';
+import { GpuSampler } from 'gpucat/dist/core/gpu-sampler';
+import { Source, type DataTextureImage } from 'gpucat/dist/texture/source';
+import * as d from 'gpucat/dist/schema/schema';
+import type { WrapMode, FilterMode, MipmapFilterMode, TextureOptions } from 'gpucat/dist/texture/texture';
 /** Data format for array textures - typed array with width, height, and layer count */
 export type ArrayTextureImage = DataTextureImage & {
     depth: number;

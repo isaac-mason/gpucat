@@ -1,5 +1,5 @@
-import { Texture } from '../texture/texture';
-import { DepthTexture, type DepthTextureFormat } from '../texture/depth-texture';
+import { Texture } from 'gpucat/dist/texture/texture';
+import { DepthTexture, type DepthTextureFormat } from 'gpucat/dist/texture/depth-texture';
 export type RenderTargetOptions = {
     /** Color attachment format. Default: 'rgba16float'. Applied to all attachments. */
     colorFormat?: GPUTextureFormat;

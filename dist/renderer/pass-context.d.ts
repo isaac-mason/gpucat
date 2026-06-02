@@ -9,9 +9,9 @@
  *
  * Functional pattern: state object + functions.
  */
-import type { Camera } from '../camera/camera';
-import type { RenderTarget } from '../core/render-target';
-import type { MRTNode } from '../nodes/lib/mrt';
+import type { Camera } from 'gpucat/dist/camera/camera';
+import type { RenderTarget } from 'gpucat/dist/core/render-target';
+import type { MRTNode } from 'gpucat/dist/nodes/lib/mrt';
 /**
  * RGBA clear color value.
  */

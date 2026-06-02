@@ -68,7 +68,7 @@ function mat4GetColumn(out: Vec3, m: ArrayLike<number>, col: 0 | 1 | 2): Vec3 {
 // ---------------------------------------------------------------------------
 
 /**
- * OrbitControls — mirrors Three.js OrbitControls.
+ * OrbitControls
  *
  * Orbit: left mouse / one-finger touch.
  * Zoom:  middle mouse / wheel / two-finger pinch.
@@ -248,7 +248,6 @@ export class OrbitControls {
         // Build the quaternion that rotates camera.up → world +Y
         const up: Vec3 = [0, 1, 0];
         // camera.up equivalent: we use +Y by default since Object3D doesn't carry an "up" field
-        // (same as Three.js default).  Users can override _quat / _quatInverse after construction
         // if they need a different up axis.
         this._quat = quat.rotationTo(quat.create(), up, up); // identity — up already is +Y
         this._quatInverse = quat.conjugate(quat.create(), this._quat);
@@ -728,8 +727,7 @@ export class OrbitControls {
 
         // Dolly direction: un-project the mouse position through the camera.
         // We approximate by setting dollyDirection to normalized (offset from camera to target)
-        // adjusted by mouse NDC. Matches Three.js approach of projecting through the camera.
-        // Since we don't have a full unproject here, we compute it from the view direction.
+        // adjusted by mouse NDC.
         vec3.subtract(this._dollyDirection, this.target, this.object.position);
         vec3.normalize(this._dollyDirection, this._dollyDirection);
     }

@@ -1,4 +1,4 @@
-import type { BindGroup as NodeBindGroup } from './bind-group';
+import type { BindGroup as NodeBindGroup } from 'gpucat/dist/renderer/bind-group';
 export type BindGroupLayoutCache = {
     cache: Map<string, GPUBindGroupLayout>;
 };

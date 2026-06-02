@@ -6,7 +6,6 @@ import type { WebGPURenderer } from '../renderer/renderer';
 
 /**
  * Shared fullscreen triangle geometry with position and uv vertex buffers.
- * Three.js aligned: mirrors the private QuadGeometry in QuadMesh.js.
  */
 const _geometry = /* @__PURE__ */ createFullscreenTriangleGeometry();
 
@@ -23,8 +22,6 @@ _camera.name = '__quadCamera__';
  *
  * It wraps a fullscreen triangle geometry and provides a `render()` method
  * that draws the quad to the renderer's current target (canvas or render target).
- *
- * Three.js aligned: mirrors src/renderers/common/QuadMesh.js
  *
  * Usage:
  * ```ts

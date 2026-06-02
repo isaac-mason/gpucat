@@ -3,7 +3,7 @@
  *
  * This mirrors the browser's GPUFeatureName type but as a runtime-accessible
  * object so we can iterate over its values when requesting device features.
- * Kept in sync with the WebGPU spec and Three.js's WebGPUConstants.js.
+ * Kept in sync with the WebGPU spec.
  */
 export const GPUFeatureName = {
     CoreFeaturesAndLimits: 'core-features-and-limits',

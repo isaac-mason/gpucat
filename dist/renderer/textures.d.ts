@@ -12,9 +12,9 @@
  * 4. Uploads image data if source.dataReady
  * 5. Updates version tracking (textureData.version = texture.version)
  */
-import { GpuSampler } from '../core/gpu-sampler';
-import { GpuTexture } from '../core/gpu-texture';
-import { type MipmapState } from './mipmap-utils';
+import { GpuSampler } from 'gpucat/dist/core/gpu-sampler';
+import { GpuTexture } from 'gpucat/dist/core/gpu-texture';
+import { type MipmapState } from 'gpucat/dist/renderer/mipmap-utils';
 /** Data stored per Texture in the cache */
 export type TextureData = {
     /** The GPU texture resource */

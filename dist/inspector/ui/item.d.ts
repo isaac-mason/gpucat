@@ -1,4 +1,4 @@
-import type { List } from './list';
+import type { List } from 'gpucat/dist/inspector/ui/list';
 export declare class Item {
     children: Item[];
     isOpen: boolean;

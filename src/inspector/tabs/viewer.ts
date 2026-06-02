@@ -1,8 +1,6 @@
 /**
  * viewer.ts — Inspector Viewer tab.
  *
- * Three.js aligned: mirrors examples/jsm/inspector/tabs/Viewer.js
- *
  * Pattern:
  *   getCanvasDataByNode() — creates a CanvasTarget + wraps the node as vec4(vec3(node), 1)
  *                           + builds a Material. Cached per node, never recreated.
@@ -17,9 +15,6 @@
  * renderQuad() is used instead of renderer.render(wrappedNode) to avoid
  * triggering updateBefore() on PassNodes, which would cause a stack overflow
  * by recursively rendering the scene inside the inspector viewer.
- *
- * Three.js equivalent: canvasData.quad.render(renderer) — QuadMesh.render()
- * calls renderer.render(scene, camera) directly without updateBefore.
  */
 
 import { Tab } from '../ui/tab';
@@ -49,8 +44,7 @@ export type CanvasData = {
     name: string;
     /**
      * Optional folder path — the part of the name before the last '/'.
-     * Three.js aligned: canvasData.path is used to group items in the viewer.
-     * Undefined if no path component.
+     * Used to group items in the viewer. Undefined if no path component.
      */
     path?: string;
 };
@@ -67,7 +61,7 @@ export class Viewer extends Tab {
     /** Cached item DOM rows, keyed by canvasData.id */
     private _itemLibrary: Map<number, Item> = new Map();
 
-    /** Cached folder items, keyed by path name. Three.js aligned: folderLibrary */
+    /** Cached folder items, keyed by path name. */
     private _folderLibrary: Map<string, Item> = new Map();
 
     /** Current list of canvasData shown in the viewer */
@@ -98,7 +92,6 @@ export class Viewer extends Tab {
 
     /**
      * Get or create a folder item for the given path name.
-     * Three.js aligned: mirrors Viewer.getFolder().
      */
     getFolder(name: string): Item {
         let folder = this._folderLibrary.get(name);
@@ -114,7 +107,6 @@ export class Viewer extends Tab {
 
     /**
      * Update the viewer: render every inspectable node into its preview canvas.
-     * Three.js aligned: mirrors Viewer.update(renderer, canvasDataList).
      *
      * For each canvasData:
      *   1. Save renderer state (renderTarget, mrt, clearColor)
@@ -126,8 +118,7 @@ export class Viewer extends Tab {
      *
      * Using renderQuad() instead of render(node) is the critical difference:
      * render(node) calls updateBefore() which triggers PassNode.updateBefore()
-     * causing a stack overflow. renderQuad() skips updateBefore entirely,
-     * mirroring how Three.js uses QuadMesh.render() → renderer.render(scene, camera).
+     * causing a stack overflow. renderQuad() skips updateBefore entirely.
      */
     update(inspector: Inspector, canvasDataList: CanvasData[]): void {
         if (!this.isActive && !this.isDetached) return;
@@ -136,7 +127,7 @@ export class Viewer extends Tab {
         if (!renderer) return;
 
         // --- Remove items for nodes no longer in the list ---
-        // Three.js aligned: remove old items + clean up empty folders
+        // Remove old items + clean up empty folders
         const previousDataList = [...this._currentDataList];
         for (const canvasData of previousDataList) {
             if (this._itemLibrary.has(canvasData.id) && canvasDataList.indexOf(canvasData) === -1) {
@@ -146,7 +137,7 @@ export class Viewer extends Tab {
                 if (parent) {
                     parent.remove(item);
 
-                    // Three.js aligned: remove empty folder from nodeList
+                    // Remove empty folder from nodeList
                     if (canvasData.path && this._folderLibrary.has(canvasData.path)) {
                         const folder = this._folderLibrary.get(canvasData.path)!;
                         if ((folder as Item & { children?: unknown[] }).children?.length === 0) {
@@ -163,7 +154,7 @@ export class Viewer extends Tab {
         this._currentDataList = canvasDataList;
 
         // --- Add / render each node ---
-        // Three.js aligned: indexes tracks insertion order within each folder
+        // indexes tracks insertion order within each folder
         const indexes: Record<string, number> = {};
 
         for (const canvasData of canvasDataList) {
@@ -188,7 +179,7 @@ export class Viewer extends Tab {
                 }
             }
 
-            // Save renderer state — mirrors RendererUtils.resetRendererState()
+            // Save renderer state for restoration after the preview render
             const savedState = renderer.saveRendererState();
 
             // Reset to clean defaults for the preview render

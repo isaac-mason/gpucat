@@ -381,7 +381,6 @@ class TransformControlsGizmo extends Object3D {
 
         function CircleGeometry(radius: number, arc: number): Geometry {
             const geom = createTorusGeometry(radius, 0.0075, 3, 64, arc * Math.PI * 2);
-            // Match Three.js: geometry.rotateY(π/2) then geometry.rotateX(π/2)
             // Sequential application: v' = Rx * Ry * v
             const m = mat4.create();
             mat4.rotateX(m, m, Math.PI / 2);
@@ -1001,7 +1000,7 @@ export class TransformControls {
             const pointer = getPointer(this.domElement!, event);
             // During a drag, pointermove events have event.button === 0, but
             // pointerMove() expects button === -1 to distinguish move-during-drag
-            // from a fresh click (matching Three.js convention).
+            // from a fresh click
             pointer.button = -1;
             this.pointerMove(pointer);
         };

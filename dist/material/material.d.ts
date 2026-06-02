@@ -1,6 +1,6 @@
-import type { Node } from '../nodes/nodes';
-import type { Any } from '../schema/schema';
-import type { Uniform } from '../core/uniform';
+import type { Node } from 'gpucat/dist/nodes/nodes';
+import type { Any } from 'gpucat/dist/schema/schema';
+import type { Uniform } from 'gpucat/dist/core/uniform';
 export interface MaterialOptions {
     /** Material name, for debugging. */
     name?: string;

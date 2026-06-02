@@ -1,13 +1,13 @@
-import type { Camera } from '../../../camera/camera';
-import { RenderTarget } from '../../../core/render-target';
-import type { NodeFrame } from '../../../renderer/node-frame';
-import type { Scene } from '../../../scene/scene';
-import { Texture } from '../../../texture/texture';
-import { DepthTexture } from '../../../texture/depth-texture';
-import type { MRTNode } from '../mrt';
-import { DepthTextureNode, TextureBindingNode, TextureNode } from '../texture';
-import { Node } from '../core';
-import * as d from '../../../schema/schema';
+import type { Camera } from 'gpucat/dist/camera/camera';
+import { RenderTarget } from 'gpucat/dist/core/render-target';
+import type { NodeFrame } from 'gpucat/dist/renderer/node-frame';
+import type { Scene } from 'gpucat/dist/scene/scene';
+import { Texture } from 'gpucat/dist/texture/texture';
+import { DepthTexture } from 'gpucat/dist/texture/depth-texture';
+import type { MRTNode } from 'gpucat/dist/nodes/lib/mrt';
+import { DepthTextureNode, TextureBindingNode, TextureNode } from 'gpucat/dist/nodes/lib/texture';
+import { Node } from 'gpucat/dist/nodes/lib/core';
+import * as d from 'gpucat/dist/schema/schema';
 /**
  * Represents the texture of a pass node.
  * Extends TextureNode to ensure proper registration during setup for sampler generation.

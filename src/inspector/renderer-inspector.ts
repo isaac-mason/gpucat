@@ -19,6 +19,7 @@
  */
 
 import { InspectorBase } from './inspector-base';
+import type { WebGPURenderer } from '../renderer/renderer';
 import type { InspectorNode, ComputeNode } from '../nodes/nodes';
 import type { Object3D } from '../core/object3d';
 import { getBufferCacheStats } from '../renderer/buffers';
@@ -130,6 +131,7 @@ export class RendererInspector extends InspectorBase {
 
     // GPU timestamp state
     protected hasTimestamps = false;
+    private _gpuInitialized = false;
     private _querySet: GPUQuerySet | null = null;
     private _resolveBuffer: GPUBuffer | null = null;
     private _readbackBuffer: GPUBuffer | null = null;
@@ -165,8 +167,19 @@ export class RendererInspector extends InspectorBase {
     // Map of name → stack of open entries with that name (handles same-name passes)
     private _entryRefs: Map<string, TimelineEntry[]> = new Map();
 
+    override setRenderer(renderer: WebGPURenderer | null): void {
+        if (renderer === null) {
+            this._destroyTimestampGpu();
+            super.setRenderer(null);
+            return;
+        }
+        super.setRenderer(renderer);
+        // GPU setup runs lazily on first begin() — by then renderer is guaranteed
+        // to be initialized (the renderer asserts init before render/compute).
+    }
+
     override init(): void {
-        if (!this.renderer) return;
+        if (this._gpuInitialized || !this.renderer) return;
         const device = this.renderer._device;
 
         this.hasTimestamps = device?.features?.has('timestamp-query') ?? false;
@@ -187,9 +200,27 @@ export class RendererInspector extends InspectorBase {
                 usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
             });
         }
+
+        this._gpuInitialized = true;
+    }
+
+    private _destroyTimestampGpu(): void {
+        this._querySet?.destroy();
+        this._querySet = null;
+        // GPUBuffers don't always expose destroy on all browsers; guard.
+        if (this._resolveBuffer?.destroy) this._resolveBuffer.destroy();
+        this._resolveBuffer = null;
+        if (this._readbackBuffer?.destroy) this._readbackBuffer.destroy();
+        this._readbackBuffer = null;
+        this.hasTimestamps = false;
+        this._gpuInitialized = false;
     }
 
     override begin(frameId: number): void {
+        // Lazy GPU setup: renderer is guaranteed initialized by the time begin()
+        // runs (render/compute assert init), so this is the natural place.
+        if (!this._gpuInitialized) this.init();
+
         this._frameStart = performance.now();
         this._currentQuerySlot = 0;
         this._pendingInspectables = [];

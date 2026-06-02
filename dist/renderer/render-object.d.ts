@@ -15,16 +15,16 @@
  * Unlike Three.js, we use a plain object type with factory function
  * rather than a class.
  */
-import type { Geometry } from '../geometry/geometry';
-import { type GpuBuffer } from '../core/gpu-buffer';
-import type { Any } from '../schema/schema';
-import type { Material } from '../material/material';
-import type { Mesh } from '../objects/mesh';
-import type { Camera } from '../camera/camera';
-import type { Object3D } from '../core/object3d';
-import type { RenderContext } from './pass-context';
-import type { NodeBuilderState } from './node-builder-state';
-import type { BindGroup } from './bind-group';
+import type { Geometry } from 'gpucat/dist/geometry/geometry';
+import { type GpuBuffer } from 'gpucat/dist/core/gpu-buffer';
+import type { Any } from 'gpucat/dist/schema/schema';
+import type { Material } from 'gpucat/dist/material/material';
+import type { Mesh } from 'gpucat/dist/objects/mesh';
+import type { Camera } from 'gpucat/dist/camera/camera';
+import type { Object3D } from 'gpucat/dist/core/object3d';
+import type { RenderContext } from 'gpucat/dist/renderer/pass-context';
+import type { NodeBuilderState } from 'gpucat/dist/renderer/node-builder-state';
+import type { BindGroup } from 'gpucat/dist/renderer/bind-group';
 /**
  * RenderObject - Per-draw-call state container.
  *

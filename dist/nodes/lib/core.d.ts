@@ -1,7 +1,7 @@
-import type { NodeFrame } from '../../renderer/node-frame';
-import type { Any, WgslType, MulResultDesc, ArithResultDesc, CompareResultDesc, StructField, StructKeys, VecElementDesc, Vec2DescOf, Vec3DescOf, Vec4DescOf } from '../../schema/schema';
-import * as d from '../../schema/schema';
-export type { WgslType } from '../../schema/schema';
+import type { NodeFrame } from 'gpucat/dist/renderer/node-frame';
+import type { Any, WgslType, MulResultDesc, ArithResultDesc, CompareResultDesc, StructField, StructKeys, VecElementDesc, Vec2DescOf, Vec3DescOf, Vec4DescOf } from 'gpucat/dist/schema/schema';
+import * as d from 'gpucat/dist/schema/schema';
+export type { WgslType } from 'gpucat/dist/schema/schema';
 export type ScalarType = 'f32' | 'i32' | 'u32' | 'bool' | 'f16';
 export type AtomicType = 'atomic<i32>' | 'atomic<u32>';
 export type Vec2Type = 'vec2f' | 'vec2i' | 'vec2u' | 'vec2<bool>' | 'vec2h';

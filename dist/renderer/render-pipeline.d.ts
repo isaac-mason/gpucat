@@ -1,6 +1,6 @@
-import type { Node } from '../nodes/nodes';
-import type { Any } from '../schema/schema';
-import type { WebGPURenderer } from './renderer';
+import type { Node } from 'gpucat/dist/nodes/nodes';
+import type { Any } from 'gpucat/dist/schema/schema';
+import type { WebGPURenderer } from 'gpucat/dist/renderer/renderer';
 /**
  * RenderPipeline - manages the rendering pipeline for fullscreen effects.
  *

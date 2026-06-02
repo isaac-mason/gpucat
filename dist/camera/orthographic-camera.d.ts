@@ -1,4 +1,4 @@
-import { Camera } from './camera';
+import { Camera } from 'gpucat/dist/camera/camera';
 type ViewOffset = {
     enabled: boolean;
     fullWidth: number;

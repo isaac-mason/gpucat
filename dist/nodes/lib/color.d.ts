@@ -1,4 +1,4 @@
-import { type ColorInput } from '../../utils/color';
+import { type ColorInput } from 'gpucat/dist/utils/color';
 /**
  * Convert any color input to a `vec3f` linear RGB node.
  *
@@ -17,4 +17,4 @@ import { type ColorInput } from '../../utils/color';
  * rgb(0xff8800);
  * rgb([1, 0.5, 0]);
  */
-export declare function rgb(input: ColorInput): import("./core").ConstructNode<import("../../schema/schema").vec3f>;
+export declare function rgb(input: ColorInput): import("gpucat/dist/nodes/lib/core").ConstructNode<import("gpucat/dist/schema/schema").vec3f>;

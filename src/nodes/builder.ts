@@ -102,7 +102,7 @@ export function compile(slots: CompileSlots): CompileResult {
         // No need to merge bindings anymore - they're shared via discovered.*
     }
 
-    // emit all bindings using Three.js pattern (each group gets its own @group index)
+    // emit all bindings (each group gets its own @group index)
     const {
         wgsl: bindingsWgsl,
         uniformBlocks,
@@ -225,7 +225,7 @@ export function compileCompute(node: ComputeNode): ComputeCompileResult {
     // causing emits like `undefined[...]`).
     const computeBody = generateComputeShader(node, traced, ctx);
 
-    // emit all bindings using Three.js pattern (each group gets its own @group index)
+    // emit all bindings (each group gets its own @group index)
     const { wgsl: bindingsWgsl, uniformBlocks, storageEntries } = emitAllBindings(ctx);
 
     // emit module-scope variables (var<private>, var<workgroup>)
@@ -1064,7 +1064,7 @@ function generateExpr(ctx: BuildContext, node: Node<d.Any>): string {
     } else if (node instanceof StorageNode) {
         expr = generateStorage(ctx, node);
     } else if (node instanceof PassNode) {
-        // PassNode used as expression delegates to its texture node (like three.js setup())
+        // PassNode used as expression delegates to its texture node
         const textureNode = node.scope === 'color' ? node.getTextureNode() : node.getLinearDepthNode();
         expr = generateExpr(ctx, textureNode);
     } else if (node instanceof TextureBindingNode) {
@@ -1878,9 +1878,8 @@ type BindingGroupData = {
 };
 
 /**
- * Emit all bindings (uniforms, storage, textures, samplers) following Three.js pattern.
+ * Emit all bindings (uniforms, storage, textures, samplers).
  *
- * Three.js pattern:
  * - Each named group (render, object, etc.) gets its own @group(N) index
  * - Groups are sorted by UniformGroup.order
  * - The @group(N) index is the SORTED ARRAY POSITION, not the order value directly
@@ -1934,7 +1933,7 @@ function emitAllBindings(ctx: BuildContext): {
     }
 
     // step 2: sort groups by their order, then assign sequential group indices
-    // This follows Three.js pattern: @group(N) is the sorted array position
+    // @group(N) is the sorted array position
     const sortedGroups = [...groupsByName.values()].sort((a, b) => a.groupNode.order - b.groupNode.order);
 
     // Reassign groupIndex to be the sorted array position

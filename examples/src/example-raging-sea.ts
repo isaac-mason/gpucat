@@ -274,14 +274,14 @@ const viewDir = cameraPosition.sub(vWorldPos).normalize().toVar('viewDir');
 const halfVec = lightDir.add(viewDir).normalize().toVar('halfVec');
 const specular = normal.dot(halfVec).max(f32(0)).pow(f32(64)).mul(f32(0.4)).toVar('specular');
 
-// flat dark purple base colour (matches Three.js #271442)
+// flat dark purple base colour
 const baseColor = vec3(f32(0.153), f32(0.078), f32(0.259)).toVar('baseColor');
 const litColor = baseColor
     .mul(diffuse)
     .add(vec3(f32(1), f32(1), f32(1)).mul(specular))
     .toVar('litColor');
 
-// emissive foam: glows at TROUGHS (low elevation) — matches Three.js remap(high, low)
+// emissive foam: glows at TROUGHS (low elevation)
 // elevation.remap(emissiveHigh, emissiveLow) = (elev - high) / (low - high), clamped 0..1
 const emissiveColor = vec3(f32(1.0), f32(0.039), f32(0.506)).toVar('emissiveColor'); // #ff0a81
 const emissiveLow = f32(-0.25);

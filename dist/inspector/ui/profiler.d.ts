@@ -1,4 +1,4 @@
-import type { Tab } from './tab';
+import type { Tab } from 'gpucat/dist/inspector/ui/tab';
 interface DetachedWindow {
     panel: HTMLElement;
     tab: Tab;
@@ -33,10 +33,20 @@ export declare class Profiler {
     nextTabOriginalIndex: number;
     isLoadingLayout: boolean;
     pendingDetachedTabs: DetachedTabData[] | null;
+    /** Persistent window listeners — stashed so dispose() can remove them. */
+    private _orientationListener;
+    private _resizeListener;
     constructor();
     detectMobile(): boolean;
     setupOrientationListener(): void;
     setupWindowResizeListener(): void;
+    /**
+     * Tear down everything this Profiler installed on global state: persistent
+     * window listeners and detached tab panels (which live as `document.body`
+     * children, not under `domElement`). The main panel + its subtree are NOT
+     * removed here — the Inspector owns `domElement.remove()`.
+     */
+    dispose(): void;
     constrainWindowToBounds(windowPanel: HTMLElement): void;
     setupShell(): void;
     setupResizing(): void;

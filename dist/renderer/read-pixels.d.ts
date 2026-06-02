@@ -1,5 +1,5 @@
-import type { RenderTarget } from '../core/render-target';
-import type { WebGPURenderer } from './renderer';
+import type { RenderTarget } from 'gpucat/dist/core/render-target';
+import type { WebGPURenderer } from 'gpucat/dist/renderer/renderer';
 /**
  * Read pixels from a RenderTarget color attachment back to a tightly-packed Uint8Array.
  *

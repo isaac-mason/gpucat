@@ -12,12 +12,12 @@
  * - Opaque: sorted by material/pipeline key to minimize state changes
  * - Transparent: sorted back-to-front by view-space Z
  */
-import type { Camera } from '../camera/camera';
-import type { Object3D } from '../core/object3d';
-import { Mesh } from '../objects/mesh';
-import * as chainMap from './chain-map';
-import type { Geometry } from '../geometry/geometry';
-import type { Material } from '../material/material';
+import type { Camera } from 'gpucat/dist/camera/camera';
+import type { Object3D } from 'gpucat/dist/core/object3d';
+import { Mesh } from 'gpucat/dist/objects/mesh';
+import * as chainMap from 'gpucat/dist/renderer/chain-map';
+import type { Geometry } from 'gpucat/dist/geometry/geometry';
+import type { Material } from 'gpucat/dist/material/material';
 /**
  * RenderItem - A single item in the render list.
  *

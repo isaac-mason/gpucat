@@ -27,7 +27,7 @@ import type { RenderContext, ComputeContext } from './pass-context';
 export type BindingContext = RenderContext | ComputeContext;
 
 /**
- * Global cache for shared BindGroups (Three.js pattern: _bindingGroupsCache).
+ * Global cache for shared BindGroups.
  *
  * Structure: WeakMap<BindingContext, Map<cacheKey, BindGroup>>
  *
@@ -40,7 +40,7 @@ export type BindingContext = RenderContext | ComputeContext;
 const _bindingGroupsCache = new WeakMap<BindingContext, Map<string, BindGroup>>();
 
 /**
- * Simple string hash function (matches Three.js hashString pattern).
+ * Simple string hash function.
  */
 function hashString(str: string): string {
     let hash = 0;
@@ -55,7 +55,7 @@ function hashString(str: string): string {
 /**
  * NodeBuilderState - Compiled shader state for both render and compute.
  *
- * Follows three.js pattern: single monomorphic type with all fields present.
+ * Single monomorphic type with all fields present.
  * For render: vertexCode/fragmentCode populated, computeCode null
  * For compute: computeCode populated, vertexCode/fragmentCode null
  *
@@ -230,7 +230,7 @@ export function createNodeBuilderStateForCompute(
  * otherwise defaults to false (per-object).
  *
  * For shared uniform-only groups, uses _bindingGroupsCache to return the same
- * BindGroup instance across all compilations (Three.js pattern).
+ * BindGroup instance across all compilations.
  */
 function buildTemplateBindGroups(
     uniformGroups: UniformGroupBlock[],
@@ -274,7 +274,7 @@ function buildTemplateBindGroups(
         if (uniformGroup && groupStorage.length === 0 && groupTextures.length === 0 && groupSamplers.length === 0) {
             // uniform-only group
             if (shared) {
-                // Shared group: use cache (Three.js pattern)
+                // Shared group: use cache
                 // Build cache key from sorted uniform node IDs
                 const members = [...uniformGroup.members].sort((a, b) => a.node.id - b.node.id);
                 const cacheKeyString = members.map(m => m.node.id).join(',');

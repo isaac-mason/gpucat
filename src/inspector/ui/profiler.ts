@@ -49,6 +49,10 @@ export class Profiler {
 	isLoadingLayout = false;
 	pendingDetachedTabs: DetachedTabData[] | null = null;
 
+	/** Persistent window listeners — stashed so dispose() can remove them. */
+	private _orientationListener: (() => void) | null = null;
+	private _resizeListener: (() => void) | null = null;
+
 	constructor() {
 		this.isMobile = this.detectMobile();
 
@@ -81,6 +85,7 @@ export class Profiler {
 			}
 		};
 		handleOrientationChange();
+		this._orientationListener = handleOrientationChange;
 		window.addEventListener('orientationchange', handleOrientationChange);
 		window.addEventListener('resize', handleOrientationChange);
 	}
@@ -112,10 +117,35 @@ export class Profiler {
 			}
 		};
 
-		window.addEventListener('resize', () => {
+		const onResize = () => {
 			constrainDetachedWindows();
 			constrainMainPanel();
-		});
+		};
+		this._resizeListener = onResize;
+		window.addEventListener('resize', onResize);
+	}
+
+	/**
+	 * Tear down everything this Profiler installed on global state: persistent
+	 * window listeners and detached tab panels (which live as `document.body`
+	 * children, not under `domElement`). The main panel + its subtree are NOT
+	 * removed here — the Inspector owns `domElement.remove()`.
+	 */
+	dispose(): void {
+		if (this._orientationListener) {
+			window.removeEventListener('orientationchange', this._orientationListener);
+			window.removeEventListener('resize', this._orientationListener);
+			this._orientationListener = null;
+		}
+		if (this._resizeListener) {
+			window.removeEventListener('resize', this._resizeListener);
+			this._resizeListener = null;
+		}
+		// Detached tab panels were appended to document.body — drop them here.
+		for (const dw of this.detachedWindows) {
+			dw.panel.remove();
+		}
+		this.detachedWindows.length = 0;
 	}
 
 	constrainWindowToBounds(windowPanel: HTMLElement): void {

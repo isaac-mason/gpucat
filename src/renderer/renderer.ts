@@ -49,7 +49,7 @@ export type WebGPURendererOptions = {
     /** Canvas element to render into. If not provided, one will be created. Ignored when `headless` is true. */
     canvas?: HTMLCanvasElement;
 
-    /** When true, the canvas context uses premultiplied alpha compositing (like three.js `alpha`). Defaults to false (opaque). */
+    /** When true, the canvas context uses premultiplied alpha compositing. Defaults to false (opaque). */
     alpha?: boolean;
 
     /**
@@ -103,8 +103,26 @@ export class WebGPURenderer {
     /** Indicates whether the device has been lost or not. When this is set to `true`, rendering isn't possible anymore. @internal */
     _isDeviceLost = false;
 
-    /** Inspector. Replace with a RendererInspector or Inspector instance to enable profiling. */
-    inspector: InspectorBase = new InspectorBase();
+    /**
+     * Inspector. `null` means no inspector is attached — hot path pays zero cost.
+     * Install with `renderer.setInspector(new Inspector())` and remove with
+     * `renderer.setInspector(null)`. The inspector subclass handles its own
+     * setup/teardown via setRenderer(); ordering relative to renderer.init()
+     * does not matter (inspectors set up lazily on first frame).
+     */
+    inspector: InspectorBase | null = null;
+
+    /**
+     * Install or remove the inspector. Safe to call at any time, including
+     * before `renderer.init()`. Passing `null` triggers the old inspector's
+     * detach path (releases GPU resources, removes DOM, drops listeners).
+     */
+    setInspector(next: InspectorBase | null): void {
+        if (this.inspector === next) return;
+        this.inspector?.setRenderer(null);   // detach signal — old disposes
+        this.inspector = next;
+        next?.setRenderer(this);              // attach signal — new sets up (lazily if needed)
+    }
 
     /** The canvas dom element for the current canvas target. Throws in headless mode. */
     get domElement(): HTMLCanvasElement {
@@ -336,8 +354,6 @@ export class WebGPURenderer {
         }
 
         this._initialized = true;
-        this.inspector.setRenderer(this);
-        this.inspector.init();
         return this;
     }
 
@@ -364,13 +380,15 @@ export class WebGPURenderer {
     beginFrame(): number {
         this._nodes.nodeFrame.update();
         const frameId = this._nodes.nodeFrame.frameId;
-        this.inspector.begin(frameId);
+        const inspector = this.inspector;
+        if (inspector) inspector.begin(frameId);
         return frameId;
     }
 
     /** call once per animation frame after all compute() and render() calls. */
     endFrame(): void {
-        this.inspector.finish(this._nodes.nodeFrame.frameId);
+        const inspector = this.inspector;
+        if (inspector) inspector.finish(this._nodes.nodeFrame.frameId);
     }
 
     /** resize the canvas to logical pixel dimensions (physical = logical * pixelRatio). Throws in headless mode. */
@@ -607,7 +625,8 @@ export class WebGPURenderer {
         frame.width = this.domElement.width || 1;
         frame.height = this.domElement.height || 1;
 
-        this.inspector.perf.start('compute');
+        const inspector = this.inspector;
+        if (inspector) inspector.perf.start('compute');
 
         const encoder = this._device.createCommandEncoder();
 
@@ -617,12 +636,13 @@ export class WebGPURenderer {
             const { nodeBuilderState } = pipelineEntry;
             const buffers = entry.buffers ?? null;
 
-            this.inspector.perf.start(`compute: ${node.id}`);
-
+            if (inspector) {
+                inspector.perf.start(`compute: ${node.id}`);
+                inspector.perf.start('updateForCompute');
+            }
             // Update node uniforms
-            this.inspector.perf.start('updateForCompute');
             NodeManager.updateForCompute(this._nodes, node);
-            this.inspector.perf.end('updateForCompute');
+            if (inspector) inspector.perf.end('updateForCompute');
 
             // Update all bindings and get GPUBindGroups
             const gpuBindGroups = Bindings.updateComputeBindings(
@@ -636,9 +656,11 @@ export class WebGPURenderer {
             );
 
             // Notify inspector before creating pass (so timestamp writes are available)
-            this.inspector.beginCompute(node, frame.frameId);
-
-            const timestampWrites = this.inspector.getTimestampWrites(node.id);
+            let timestampWrites: GPUComputePassTimestampWrites | undefined;
+            if (inspector) {
+                inspector.beginCompute(node, frame.frameId);
+                timestampWrites = inspector.getTimestampWrites(node.id);
+            }
 
             const computePass = encoder.beginComputePass({ timestampWrites });
             computePass.setPipeline(pipelineEntry.pipeline!);
@@ -649,20 +671,22 @@ export class WebGPURenderer {
 
             if (entry.indirect) {
                 const gpuBuf = Buffers.ensureUploaded(this._buffers, this._device, entry.indirect);
-                computeDispatchWorkgroupsIndirect(computePass, this.inspector, gpuBuf, entry.indirectOffset ?? 0);
+                computeDispatchWorkgroupsIndirect(computePass, inspector, gpuBuf, entry.indirectOffset ?? 0);
             } else {
                 const [dx, dy, dz] = entry.dispatch;
-                computeDispatchWorkgroups(computePass, this.inspector, dx, dy, dz);
+                computeDispatchWorkgroups(computePass, inspector, dx, dy, dz);
             }
 
             computePass.end();
-            this.inspector.finishCompute(node.id, frame.frameId);
-            this.inspector.perf.end(`compute: ${node.id}`);
+            if (inspector) {
+                inspector.finishCompute(node.id, frame.frameId);
+                inspector.perf.end(`compute: ${node.id}`);
+            }
         }
 
         this._device.queue.submit([encoder.finish()]);
 
-        this.inspector.perf.end('compute');
+        if (inspector) inspector.perf.end('compute');
     }
 
     /** save the current renderer state into a plain object and return it */
@@ -714,7 +738,8 @@ export class WebGPURenderer {
         const previousRenderId = frame.renderId;
         this._renderCallDepth++;
         frame.renderId++;
-        this.inspector.perf.start('render');
+        const inspector = this.inspector;
+        if (inspector) inspector.perf.start('render');
 
         const renderTarget = this.renderTarget;
         const mrt = this.mrt;
@@ -733,8 +758,10 @@ export class WebGPURenderer {
         const height = renderTarget ? renderTarget.height : this.domElement.height || 1;
         const [cr, cg, cb, ca] = this.clearColor;
 
-        this.inspector.beginRenderScene(passId, scene, samples, colorFormat, frame.frameId);
-        this.inspector.beginRender(passId, frame.frameId);
+        if (inspector) {
+            inspector.beginRenderScene(passId, scene, samples, colorFormat, frame.frameId);
+            inspector.beginRender(passId, frame.frameId);
+        }
 
         frame.renderer = this;
         frame.camera = camera;
@@ -782,7 +809,7 @@ export class WebGPURenderer {
             if (err) console.error('[WebGPU render validation error]', err.message);
         });
 
-        this.inspector.perf.end('render');
+        if (inspector) inspector.perf.end('render');
 
         // Restore previous renderId only for nested renders. Top-level keeps its incremented value.
         this._renderCallDepth--;
@@ -872,9 +899,10 @@ export class WebGPURenderer {
         depthFormat: GPUTextureFormat,
         overrideMaterial: Material | null,
     ): PreparedRenderObject[] {
-        this.inspector.perf.start('collectRenderList');
+        const inspector = this.inspector;
+        if (inspector) inspector.perf.start('collectRenderList');
         const renderList = RenderLists.collectRenderList(this._renderLists, scene, camera, overrideMaterial);
-        this.inspector.perf.end('collectRenderList');
+        if (inspector) inspector.perf.end('collectRenderList');
 
         const preparedObjects: PreparedRenderObject[] = [];
 
@@ -916,9 +944,9 @@ export class WebGPURenderer {
                     continue;
                 }
 
-                this.inspector.perf.start('updateBefore');
+                if (inspector) inspector.perf.start('updateBefore');
                 NodeManager.updateBefore(this._nodes, renderObject);
-                this.inspector.perf.end('updateBefore');
+                if (inspector) inspector.perf.end('updateBefore');
 
                 preparedObjects.push({ renderObject, item });
             }
@@ -935,7 +963,8 @@ export class WebGPURenderer {
         depthAttachment: GPURenderPassDepthStencilAttachment | undefined,
         passId: string,
     ): void {
-        const timestampWrites = this.inspector.getTimestampWrites(passId);
+        const inspector = this.inspector;
+        const timestampWrites = inspector ? inspector.getTimestampWrites(passId) : undefined;
         const gpuPass = encoder.beginRenderPass({
             colorAttachments,
             depthStencilAttachment: depthAttachment,
@@ -949,7 +978,7 @@ export class WebGPURenderer {
             pipeline: null,
         };
 
-        this.inspector.perf.start('drawCalls');
+        if (inspector) inspector.perf.start('drawCalls');
 
         for (const { renderObject, item } of preparedObjects) {
             const mesh = item.mesh!;
@@ -967,7 +996,7 @@ export class WebGPURenderer {
 
             NodeManager.updateForRender(this._nodes, renderObject);
 
-            this.inspector.perf.start('updateForRender');
+            if (inspector) inspector.perf.start('updateForRender');
             RenderObjects.updateRenderObject(
                 this._bindings,
                 this._geometries,
@@ -977,10 +1006,10 @@ export class WebGPURenderer {
                 renderObject,
                 frame,
             );
-            this.inspector.perf.end('updateForRender');
+            if (inspector) inspector.perf.end('updateForRender');
 
             if (renderObject.pipeline !== currentSets.pipeline) {
-                passSetPipeline(gpuPass, this.inspector, renderObject.pipeline!, mesh.name || material.constructor.name);
+                passSetPipeline(gpuPass, inspector, renderObject.pipeline!, mesh.name || material.constructor.name);
                 currentSets.pipeline = renderObject.pipeline;
             }
 
@@ -990,7 +1019,7 @@ export class WebGPURenderer {
                 for (let i = 0; i < bindGroups.length; i++) {
                     const bindGroupId = logicalBindGroups[i]?.id ?? -1;
                     if (currentSets.bindingGroups[i] !== bindGroupId) {
-                        passSetBindGroup(gpuPass, this.inspector, i, bindGroups[i], mesh.name || '');
+                        passSetBindGroup(gpuPass, inspector, i, bindGroups[i], mesh.name || '');
                         currentSets.bindingGroups[i] = bindGroupId;
                     }
                 }
@@ -1026,7 +1055,7 @@ export class WebGPURenderer {
                     ).buffer;
                 }
                 if (currentSets.attributes[slot] !== gpuBuf) {
-                    passSetVertexBuffer(gpuPass, this.inspector, slot, gpuBuf);
+                    passSetVertexBuffer(gpuPass, inspector, slot, gpuBuf);
                     currentSets.attributes[slot] = gpuBuf;
                 }
                 slot++;
@@ -1035,7 +1064,7 @@ export class WebGPURenderer {
             if (geometry.index) {
                 const idxBuf = Buffers.ensureUploaded(this._buffers, this._device, geometry.index);
                 if (currentSets.index !== idxBuf) {
-                    passSetIndexBuffer(gpuPass, this.inspector, idxBuf, getIndexFormat(geometry.index.array)!);
+                    passSetIndexBuffer(gpuPass, inspector, idxBuf, getIndexFormat(geometry.index.array)!);
                     currentSets.index = idxBuf;
                 }
                 if (geometry.indirect) {
@@ -1045,11 +1074,11 @@ export class WebGPURenderer {
                     const baseOffset = geometry.indirectOffset;
                     const drawCount = geometry.indirectDrawCount ?? indirect.count;
                     for (let d = 0; d < drawCount; d++) {
-                        passDrawIndexedIndirect(gpuPass, this.inspector, indBuf, baseOffset + d * byteStride);
+                        passDrawIndexedIndirect(gpuPass, inspector, indBuf, baseOffset + d * byteStride);
                     }
                 } else {
                     const indexCount = Math.min(geometry.drawRange.count, geometry.index.array!.length);
-                    passDrawIndexed(gpuPass, this.inspector, indexCount, mesh.count, geometry.drawRange.start);
+                    passDrawIndexed(gpuPass, inspector, indexCount, mesh.count, geometry.drawRange.start);
                 }
             } else {
                 if (geometry.indirect) {
@@ -1059,22 +1088,22 @@ export class WebGPURenderer {
                     const baseOffset = geometry.indirectOffset;
                     const drawCount = geometry.indirectDrawCount ?? indirect.count;
                     for (let d = 0; d < drawCount; d++) {
-                        passDrawIndirect(gpuPass, this.inspector, indBuf, baseOffset + d * byteStride);
+                        passDrawIndirect(gpuPass, inspector, indBuf, baseOffset + d * byteStride);
                     }
                 } else {
-                    passDraw(gpuPass, this.inspector, geometry.drawRange.count, mesh.count, geometry.drawRange.start);
+                    passDraw(gpuPass, inspector, geometry.drawRange.count, mesh.count, geometry.drawRange.start);
                 }
             }
 
-            this.inspector.perf.start('updateAfter');
+            if (inspector) inspector.perf.start('updateAfter');
             NodeManager.updateAfter(this._nodes, renderObject);
-            this.inspector.perf.end('updateAfter');
+            if (inspector) inspector.perf.end('updateAfter');
         }
 
-        this.inspector.perf.end('drawCalls');
+        if (inspector) inspector.perf.end('drawCalls');
 
         gpuPass.end();
-        this.inspector.finishRender(passId, this._nodes.nodeFrame.frameId);
+        if (inspector) inspector.finishRender(passId, this._nodes.nodeFrame.frameId);
     }
 
     private _ensureRenderTargetAllocated(renderTarget: RenderTarget): void {
@@ -1227,90 +1256,90 @@ export type DeviceLostInfo = {
 // accumulate per-command boilerplate.
 // ---------------------------------------------------------------------------
 
-function passSetPipeline(pass: GPURenderPassEncoder, inspector: InspectorBase, pipeline: GPURenderPipeline, label: string): void {
+function passSetPipeline(pass: GPURenderPassEncoder, inspector: InspectorBase | null, pipeline: GPURenderPipeline, label: string): void {
     pass.setPipeline(pipeline);
-    inspector.setPipeline(label);
+    if (inspector) inspector.setPipeline(label);
 }
 
 function passSetBindGroup(
     pass: GPURenderPassEncoder,
-    inspector: InspectorBase,
+    inspector: InspectorBase | null,
     index: number,
     bindGroup: GPUBindGroup,
     label: string,
 ): void {
     pass.setBindGroup(index, bindGroup);
-    inspector.setBindGroup(index, label);
+    if (inspector) inspector.setBindGroup(index, label);
 }
 
-function passSetVertexBuffer(pass: GPURenderPassEncoder, inspector: InspectorBase, slot: number, buffer: GPUBuffer): void {
+function passSetVertexBuffer(pass: GPURenderPassEncoder, inspector: InspectorBase | null, slot: number, buffer: GPUBuffer): void {
     pass.setVertexBuffer(slot, buffer);
-    inspector.setVertexBuffer(slot);
+    if (inspector) inspector.setVertexBuffer(slot);
 }
 
 function passSetIndexBuffer(
     pass: GPURenderPassEncoder,
-    inspector: InspectorBase,
+    inspector: InspectorBase | null,
     buffer: GPUBuffer,
     format: GPUIndexFormat,
 ): void {
     pass.setIndexBuffer(buffer, format);
-    inspector.setIndexBuffer();
+    if (inspector) inspector.setIndexBuffer();
 }
 
 function passDraw(
     pass: GPURenderPassEncoder,
-    inspector: InspectorBase,
+    inspector: InspectorBase | null,
     vertexCount: number,
     instanceCount: number,
     firstVertex: number,
 ): void {
     pass.draw(vertexCount, instanceCount, firstVertex);
-    inspector.draw(vertexCount, instanceCount);
+    if (inspector) inspector.draw(vertexCount, instanceCount);
 }
 
 function passDrawIndexed(
     pass: GPURenderPassEncoder,
-    inspector: InspectorBase,
+    inspector: InspectorBase | null,
     indexCount: number,
     instanceCount: number,
     firstIndex: number,
 ): void {
     pass.drawIndexed(indexCount, instanceCount, firstIndex);
-    inspector.drawIndexed(indexCount, instanceCount);
+    if (inspector) inspector.drawIndexed(indexCount, instanceCount);
 }
 
 function passDrawIndirect(
     pass: GPURenderPassEncoder,
-    inspector: InspectorBase,
+    inspector: InspectorBase | null,
     indirectBuffer: GPUBuffer,
     indirectOffset: number,
 ): void {
     pass.drawIndirect(indirectBuffer, indirectOffset);
-    inspector.drawIndirect();
+    if (inspector) inspector.drawIndirect();
 }
 
 function passDrawIndexedIndirect(
     pass: GPURenderPassEncoder,
-    inspector: InspectorBase,
+    inspector: InspectorBase | null,
     indirectBuffer: GPUBuffer,
     indirectOffset: number,
 ): void {
     pass.drawIndexedIndirect(indirectBuffer, indirectOffset);
-    inspector.drawIndexedIndirect();
+    if (inspector) inspector.drawIndexedIndirect();
 }
 
-function computeDispatchWorkgroups(pass: GPUComputePassEncoder, inspector: InspectorBase, x: number, y: number, z: number): void {
+function computeDispatchWorkgroups(pass: GPUComputePassEncoder, inspector: InspectorBase | null, x: number, y: number, z: number): void {
     pass.dispatchWorkgroups(x, y, z);
-    inspector.dispatchWorkgroups(x, y, z);
+    if (inspector) inspector.dispatchWorkgroups(x, y, z);
 }
 
 function computeDispatchWorkgroupsIndirect(
     pass: GPUComputePassEncoder,
-    inspector: InspectorBase,
+    inspector: InspectorBase | null,
     indirectBuffer: GPUBuffer,
     offset: number,
 ): void {
     pass.dispatchWorkgroupsIndirect(indirectBuffer, offset);
-    inspector.dispatchWorkgroupsIndirect(indirectBuffer, offset);
+    if (inspector) inspector.dispatchWorkgroupsIndirect(indirectBuffer, offset);
 }

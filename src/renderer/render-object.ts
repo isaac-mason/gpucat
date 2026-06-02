@@ -1,19 +1,15 @@
 /**
  * render-object.ts - Per-draw-call state container.
  *
- * Aligned with Three.js RenderObject:
  * - Central hub owning all per-draw-call state
  * - One RenderObject per unique (mesh, material, renderContext, passId) tuple
  * - Caches nodeBuilderState, pipeline, bindings, attributes
  * - Lazily initialized - starts empty, populated on first render
  *
- * Key Three.js pattern:
+ * Binding lifecycle:
  * - _bindings is lazily created via getBindings()
  * - getBindings() calls NodeBuilderState.createBindings() which clones non-shared groups
  * - This ensures shared groups (camera, time) are reused across all RenderObjects
- *
- * Unlike Three.js, we use a plain object type with factory function
- * rather than a class.
  */
 
 import type { Geometry } from '../geometry/geometry';
@@ -265,7 +261,6 @@ export function disposeRenderObject(renderObject: RenderObject): void {
 /**
  * Get the BindGroups for a RenderObject, lazily creating them.
  *
- * Three.js pattern (RenderObject.getBindings):
  * - First access calls NodeBuilderState.createBindings()
  * - This clones non-shared groups, reuses shared groups
  * - Subsequent accesses return the cached bindings

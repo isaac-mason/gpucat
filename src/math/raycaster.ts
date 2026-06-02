@@ -11,7 +11,6 @@ export type Ray = {
 /**
  * Möller–Trumbore ray-triangle intersection.
  * Returns raw t (distance along ray direction) or null if no hit.
- * Ported from Three.js Ray.intersectTriangle.
  */
 export function rayTriangleIntersection(
     origin: Vec3, direction: Vec3,

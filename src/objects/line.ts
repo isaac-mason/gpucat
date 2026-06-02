@@ -548,7 +548,7 @@ function lineVertex(lineWidthNode: Node<d.f32>, worldUnits = false): Node<d.vec4
     const viewPos = atEnd.select(viewEnd, viewStart) as unknown as Node<d.vec4f>;
 
     if (worldUnits) {
-        // world-units path: expand in view space like three.js
+        // world-units path: expand in view space
         // line direction in view space
         const lineDir = normalize(sub(viewEnd.xyz, viewStart.xyz));
 
@@ -697,7 +697,7 @@ function closestPointOnSegment(out: Vec3, point: Vec3, a: Vec3, b: Vec3): number
  * Both are in the same space as inputs.
  */
 function distanceSqToSegment(rayOrigin: Vec3, rayDir: Vec3, a: Vec3, b: Vec3, point: Vec3, pointOnLine: Vec3): number {
-    // Closest point on segment to ray origin (approximation matching Three.js Ray.distanceSqToSegment)
+    // Closest point on segment to ray origin (approximation)
     closestPointOnSegment(pointOnLine, rayOrigin, a, b);
 
     // Project pointOnLine onto ray
@@ -828,7 +828,7 @@ function raycastScreenSpace(
         // Skip if entirely behind near plane
         if (_start4[2] > near && _end4[2] > near) continue;
 
-        // Clip to near plane — lerp toward the other endpoint, matching Three.js
+        // Clip to near plane — lerp toward the other endpoint
         if (_start4[2] > near) {
             const t = (_start4[2] - near) / (_start4[2] - _end4[2]);
             _start4[0] = _start4[0] + t * (_end4[0] - _start4[0]);
@@ -879,7 +879,7 @@ function raycastScreenSpace(
         // Pixel distance from ray to closest point on segment
         const pixDist = Math.sqrt((ssOx - cpx) ** 2 + (ssOy - cpy) ** 2);
 
-        // Compare pixel distance directly to lineWidth/2 (same as Three.js)
+        // Compare pixel distance directly to lineWidth/2
         const isInside = pixDist < lineWidth * 0.5;
 
         if (isInside) {

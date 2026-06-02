@@ -1,22 +1,22 @@
-import { Camera } from '../camera/camera';
-import { type GpuBuffer } from '../core/gpu-buffer';
-import { Object3D } from '../core/object3d';
-import type { RenderTarget } from '../core/render-target';
-import { InspectorBase } from '../inspector/inspector-base';
-import type { Material } from '../material/material';
-import { ComputeNode, MRTNode } from '../nodes/nodes';
-import * as d from '../schema/schema';
-import { Scene } from '../scene/scene';
-import * as Bindings from './bindings';
-import * as Buffers from './buffers';
-import { CanvasTarget } from './canvas-target';
-import * as Geometries from './geometries';
-import * as NodeManager from './node-manager';
-import * as RenderContext from './pass-context';
-import * as Pipelines from './pipelines';
-import * as RenderLists from './render-list';
-import * as RenderObjects from './render-objects';
-import * as Textures from './textures';
+import { Camera } from 'gpucat/dist/camera/camera';
+import { type GpuBuffer } from 'gpucat/dist/core/gpu-buffer';
+import { Object3D } from 'gpucat/dist/core/object3d';
+import type { RenderTarget } from 'gpucat/dist/core/render-target';
+import { InspectorBase } from 'gpucat/dist/inspector/inspector-base';
+import type { Material } from 'gpucat/dist/material/material';
+import { ComputeNode, MRTNode } from 'gpucat/dist/nodes/nodes';
+import * as d from 'gpucat/dist/schema/schema';
+import { Scene } from 'gpucat/dist/scene/scene';
+import * as Bindings from 'gpucat/dist/renderer/bindings';
+import * as Buffers from 'gpucat/dist/renderer/buffers';
+import { CanvasTarget } from 'gpucat/dist/renderer/canvas-target';
+import * as Geometries from 'gpucat/dist/renderer/geometries';
+import * as NodeManager from 'gpucat/dist/renderer/node-manager';
+import * as RenderContext from 'gpucat/dist/renderer/pass-context';
+import * as Pipelines from 'gpucat/dist/renderer/pipelines';
+import * as RenderLists from 'gpucat/dist/renderer/render-list';
+import * as RenderObjects from 'gpucat/dist/renderer/render-objects';
+import * as Textures from 'gpucat/dist/renderer/textures';
 export type WebGPURendererOptions = {
     /** Enable 4x MSAA antialiasing. Overridden by `samples` if both set. */
     antialias?: boolean;
@@ -81,8 +81,20 @@ export declare class WebGPURenderer {
     _initialized: boolean;
     /** Indicates whether the device has been lost or not. When this is set to `true`, rendering isn't possible anymore. @internal */
     _isDeviceLost: boolean;
-    /** Inspector. Replace with a RendererInspector or Inspector instance to enable profiling. */
-    inspector: InspectorBase;
+    /**
+     * Inspector. `null` means no inspector is attached — hot path pays zero cost.
+     * Install with `renderer.setInspector(new Inspector())` and remove with
+     * `renderer.setInspector(null)`. The inspector subclass handles its own
+     * setup/teardown via setRenderer(); ordering relative to renderer.init()
+     * does not matter (inspectors set up lazily on first frame).
+     */
+    inspector: InspectorBase | null;
+    /**
+     * Install or remove the inspector. Safe to call at any time, including
+     * before `renderer.init()`. Passing `null` triggers the old inspector's
+     * detach path (releases GPU resources, removes DOM, drops listeners).
+     */
+    setInspector(next: InspectorBase | null): void;
     /** The canvas dom element for the current canvas target. Throws in headless mode. */
     get domElement(): HTMLCanvasElement;
     /** The WebGPU GPU adapter in use. */

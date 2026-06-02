@@ -1,5 +1,5 @@
-import { Node } from './core';
-import type { Any } from '../../schema/schema';
+import { Node } from 'gpucat/dist/nodes/lib/core';
+import type { Any } from 'gpucat/dist/schema/schema';
 /**
  * SubBuildNode - wraps a node to build it in a specific sub-build context.
  * Used by VaryingNode to ensure source nodes are built in VERTEX stage.

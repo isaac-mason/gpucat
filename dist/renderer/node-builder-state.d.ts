@@ -1,6 +1,6 @@
-import type { CompileResult, ComputeCompileResult, AttributeEntry, VaryingEntry, VertexBufferGroup, UniformGroupBlock, StorageEntry, TextureEntry, SamplerEntry, UpdateBeforeNode, UpdateAfterNode, UpdateNode } from '../nodes/builder';
-import { type BindGroup } from './bind-group';
-import type { RenderContext, ComputeContext } from './pass-context';
+import type { CompileResult, ComputeCompileResult, AttributeEntry, VaryingEntry, VertexBufferGroup, UniformGroupBlock, StorageEntry, TextureEntry, SamplerEntry, UpdateBeforeNode, UpdateAfterNode, UpdateNode } from 'gpucat/dist/nodes/builder';
+import { type BindGroup } from 'gpucat/dist/renderer/bind-group';
+import type { RenderContext, ComputeContext } from 'gpucat/dist/renderer/pass-context';
 /**
  * Context type for bind group caching.
  * RenderContext for render passes, ComputeContext for compute passes.

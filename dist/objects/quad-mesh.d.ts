@@ -1,7 +1,7 @@
-import { Mesh } from './mesh';
-import { Camera } from '../camera/camera';
-import type { Material } from '../material/material';
-import type { WebGPURenderer } from '../renderer/renderer';
+import { Mesh } from 'gpucat/dist/objects/mesh';
+import { Camera } from 'gpucat/dist/camera/camera';
+import type { Material } from 'gpucat/dist/material/material';
+import type { WebGPURenderer } from 'gpucat/dist/renderer/renderer';
 /**
  * QuadMesh is a helper for rendering fullscreen effects.
  *

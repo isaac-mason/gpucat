@@ -17,10 +17,11 @@
  *   buffer and read them back asynchronously after each submit.
  *   Each pass gets two slots: [begin, end]. Max 64 passes per frame.
  */
-import { InspectorBase } from './inspector-base';
-import type { InspectorNode, ComputeNode } from '../nodes/nodes';
-import type { Object3D } from '../core/object3d';
-import { Any } from '../schema/schema';
+import { InspectorBase } from 'gpucat/dist/inspector/inspector-base';
+import type { WebGPURenderer } from 'gpucat/dist/renderer/renderer';
+import type { InspectorNode, ComputeNode } from 'gpucat/dist/nodes/nodes';
+import type { Object3D } from 'gpucat/dist/core/object3d';
+import { Any } from 'gpucat/dist/schema/schema';
 /** Base fields shared by all timeline entries */
 type TimelineEntryBase = {
     /** Entry name (pass ID or marker name) */
@@ -105,6 +106,7 @@ export declare class RendererInspector extends InspectorBase {
     /** Live registry of compute nodes seen by the inspector. */
     readonly computeNodes: Map<string, ComputeNode>;
     protected hasTimestamps: boolean;
+    private _gpuInitialized;
     private _querySet;
     private _resolveBuffer;
     private _readbackBuffer;
@@ -118,7 +120,9 @@ export declare class RendererInspector extends InspectorBase {
     private _entryStack;
     private _rootTimeline;
     private _entryRefs;
+    setRenderer(renderer: WebGPURenderer | null): void;
     init(): void;
+    private _destroyTimestampGpu;
     begin(frameId: number): void;
     finish(frameId: number): void;
     beginRender(passId: string, _frameId: number): void;

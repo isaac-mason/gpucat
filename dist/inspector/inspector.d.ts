@@ -8,26 +8,26 @@
  *  - Console monkey-patching of console.warn / console.error
  *  - Viewer tab: inspectable node canvases
  */
-import { RendererInspector } from './renderer-inspector';
-export type { TimelineEntry, MarkerEntry, RenderEntry, ComputeEntry, FrameRecord, PassRecord, SceneRecord } from './renderer-inspector';
-import { Profiler } from './ui/profiler';
-import { Parameters } from './tabs/parameters';
-import { GUI } from './gui/GUI';
-import { Performance } from './tabs/performance';
-import { Memory } from './tabs/memory';
-import { Timeline } from './tabs/timeline';
-import { Console } from './tabs/console';
-import { Settings } from './tabs/settings';
-import { Viewer, type CanvasData } from './tabs/viewer';
-import { SceneHierarchy } from './tabs/scene-hierarchy';
-import { DrawCalls } from './tabs/draw-calls';
-import { ComputeCalls } from './tabs/compute-calls';
-import { PerformanceTimeline } from './tabs/performance-timeline';
-import type { InspectorNode, ComputeNode } from '../nodes/nodes';
-import type { WebGPURenderer } from '../renderer/renderer';
-import type { ProbeTarget } from './probe-wgsl';
-import type { RenderObject } from '../renderer/render-object';
-import { Any } from '../schema/schema';
+import { RendererInspector } from 'gpucat/dist/inspector/renderer-inspector';
+export type { TimelineEntry, MarkerEntry, RenderEntry, ComputeEntry, FrameRecord, PassRecord, SceneRecord } from 'gpucat/dist/inspector/renderer-inspector';
+import { Profiler } from 'gpucat/dist/inspector/ui/profiler';
+import { Parameters } from 'gpucat/dist/inspector/tabs/parameters';
+import { GUI } from 'gpucat/dist/inspector/gui/GUI';
+import { Performance } from 'gpucat/dist/inspector/tabs/performance';
+import { Memory } from 'gpucat/dist/inspector/tabs/memory';
+import { Timeline } from 'gpucat/dist/inspector/tabs/timeline';
+import { Console } from 'gpucat/dist/inspector/tabs/console';
+import { Settings } from 'gpucat/dist/inspector/tabs/settings';
+import { Viewer, type CanvasData } from 'gpucat/dist/inspector/tabs/viewer';
+import { SceneHierarchy } from 'gpucat/dist/inspector/tabs/scene-hierarchy';
+import { DrawCalls } from 'gpucat/dist/inspector/tabs/draw-calls';
+import { ComputeCalls } from 'gpucat/dist/inspector/tabs/compute-calls';
+import { PerformanceTimeline } from 'gpucat/dist/inspector/tabs/performance-timeline';
+import type { InspectorNode, ComputeNode } from 'gpucat/dist/nodes/nodes';
+import type { WebGPURenderer } from 'gpucat/dist/renderer/renderer';
+import type { ProbeTarget } from 'gpucat/dist/inspector/probe-wgsl';
+import type { RenderObject } from 'gpucat/dist/renderer/render-object';
+import { Any } from 'gpucat/dist/schema/schema';
 export declare class Inspector extends RendererInspector {
     readonly profiler: Profiler;
     readonly performance: Performance;
@@ -49,8 +49,26 @@ export declare class Inspector extends RendererInspector {
     private _activeProbe;
     constructor();
     get domElement(): HTMLElement;
-    setRenderer(renderer: WebGPURenderer): void;
-    init(): void;
+    /**
+     * Surface log messages in the Console tab AND devtools. Overrides the
+     * no-op base. Callers route via `renderer.inspector?.log.warn('...')`.
+     */
+    readonly log: {
+        info: (msg: string) => void;
+        warn: (msg: string) => void;
+        error: (msg: string) => void;
+    };
+    setRenderer(renderer: WebGPURenderer | null): void;
+    /**
+     * Release everything this Inspector owns: GPU resources (probe + timestamp
+     * query state), DOM (panel + any detached tab windows), and window
+     * listeners. Safe to call multiple times. After dispose the instance is
+     * dead — discard it and `new Inspector()` if you need one again.
+     *
+     * Normally called automatically via `renderer.setInspector(null)`; expose
+     * directly for callers that want explicit teardown.
+     */
+    dispose(): void;
     begin(frameId: number): void;
     beginRender(passId: string, frameId: number): void;
     finishRender(passId: string, frameId: number): void;

@@ -1,6 +1,6 @@
-import { Tab } from '../ui/tab';
-import type { FrameRecord } from '../renderer-inspector';
-import type { RendererInspector } from '../renderer-inspector';
+import { Tab } from 'gpucat/dist/inspector/ui/tab';
+import type { FrameRecord } from 'gpucat/dist/inspector/renderer-inspector';
+import type { RendererInspector } from 'gpucat/dist/inspector/renderer-inspector';
 export declare class PerformanceTimeline extends Tab {
     private _canvas;
     private _ctx;

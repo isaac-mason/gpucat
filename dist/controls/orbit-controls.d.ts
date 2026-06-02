@@ -1,5 +1,5 @@
 import { type Vec3, type Vec2, type Quat, type Spherical } from 'mathcat';
-import type { Camera } from '../camera/camera';
+import type { Camera } from 'gpucat/dist/camera/camera';
 declare const STATE: {
     readonly NONE: -1;
     readonly ROTATE: 0;

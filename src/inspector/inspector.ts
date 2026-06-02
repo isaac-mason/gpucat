@@ -171,39 +171,53 @@ export class Inspector extends RendererInspector {
     // Lifecycle
     // -----------------------------------------------------------------------
 
-    override setRenderer(renderer: WebGPURenderer): void {
+    /**
+     * Surface log messages in the Console tab AND devtools. Overrides the
+     * no-op base. Callers route via `renderer.inspector?.log.warn('...')`.
+     */
+    override readonly log = {
+        info:  (msg: string): void => { this.console.addMessage('info',  msg); },
+        warn:  (msg: string): void => { this.console.addMessage('warn',  msg); console.warn(msg); },
+        error: (msg: string): void => { this.console.addMessage('error', msg); console.error(msg); },
+    };
+
+    override setRenderer(renderer: WebGPURenderer | null): void {
+        if (renderer === null) {
+            this.dispose();
+            super.setRenderer(null);
+            return;
+        }
+
         super.setRenderer(renderer);
+        this.timeline.setRenderer(renderer);
+        this.log.info('gpucat WebGPU Renderer [ "WebGPU" ]');
 
-        if (renderer !== null) {
-            // Forward console warnings / errors into the console tab
-            const origWarn  = console.warn.bind(console);
-            const origError = console.error.bind(console);
-            const self = this;
-
-            console.warn = (...args: unknown[]) => {
-                const msg = args.map(String).join(' ');
-                self.console.addMessage('warn', msg);
-                origWarn(...args);
-            };
-            console.error = (...args: unknown[]) => {
-                const msg = args.map(String).join(' ');
-                self.console.addMessage('error', msg);
-                origError(...args);
-            };
-
-            this.timeline.setRenderer(renderer);
+        // Self-attach the panel to the canvas parent, if there is one. Callers
+        // that don't mount the WebGPURenderer's implicit canvas (e.g. engines
+        // rendering to per-room canvases via render targets) should append
+        // `inspector.domElement` to the DOM themselves.
+        if (this.domElement.parentElement === null && renderer.domElement.parentElement) {
+            renderer.domElement.parentElement.appendChild(this.domElement);
         }
     }
 
-    override init(): void {
-        super.init();
-
-        this.console.addMessage('info', 'gpucat WebGPU Renderer [ "WebGPU" ]');
-
-        const renderer = this.getRenderer();
-        if (this.domElement.parentElement === null && renderer?.domElement.parentElement !== null) {
-            renderer!.domElement.parentElement!.appendChild(this.domElement);
+    /**
+     * Release everything this Inspector owns: GPU resources (probe + timestamp
+     * query state), DOM (panel + any detached tab windows), and window
+     * listeners. Safe to call multiple times. After dispose the instance is
+     * dead — discard it and `new Inspector()` if you need one again.
+     *
+     * Normally called automatically via `renderer.setInspector(null)`; expose
+     * directly for callers that want explicit teardown.
+     */
+    dispose(): void {
+        this.clearProbe();
+        for (const cd of this._canvasNodes.values()) {
+            cd.canvasTarget.dispose();
         }
+        this._canvasNodes.clear();
+        this.profiler.dispose();
+        this.domElement.remove();
     }
 
     // -----------------------------------------------------------------------
@@ -366,7 +380,7 @@ export class Inspector extends RendererInspector {
         // Build probe pipeline: same bind group layouts, patched shader
         const bindGroupLayouts = Bindings.getRenderBindGroupLayouts(renderer._bindings, sourceRO);
         if (bindGroupLayouts.length === 0) {
-            console.warn('[gpucat probe] bind group layouts not yet initialised — try clicking again after the first frame renders');
+            this.log.warn('[gpucat probe] bind group layouts not yet initialised — try clicking again after the first frame renders');
             return null;
         }
 
@@ -412,7 +426,7 @@ export class Inspector extends RendererInspector {
                 },
             });
         } catch (e) {
-            console.error('[gpucat probe] Failed to create probe pipeline:', e);
+            this.log.error(`[gpucat probe] Failed to create probe pipeline: ${e}`);
             return null;
         }
 
@@ -552,10 +566,6 @@ export class Inspector extends RendererInspector {
      * Get or create the CanvasData for an inspectable node.
      * Creates a 140×140 CanvasTarget, wraps the node as vec4(vec3(node), 1),
      * and builds a fullscreen Material. Cached per node — never recreated.
-     *
-     * Three.js aligned: mirrors Inspector.getCanvasDataByNode().
-     * - setPixelRatio(window.devicePixelRatio) on the canvas target
-     * - splitCamelCase + splitPath to derive { path, name } from the node label
      */
     getCanvasDataByNode(node: InspectorNode<Any>): CanvasData {
         let canvasData = this._canvasNodes.get(node);

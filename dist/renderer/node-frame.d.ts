@@ -1,9 +1,9 @@
-import type { WebGPURenderer } from './renderer';
-import type { Camera } from '../camera/camera';
-import type { Mesh } from '../objects/mesh';
-import type { Object3D } from '../core/object3d';
-import type { Material } from '../material/material';
-import type { UpdateBeforeNode, UpdateAfterNode, UpdateNode } from '../nodes/builder';
+import type { WebGPURenderer } from 'gpucat/dist/renderer/renderer';
+import type { Camera } from 'gpucat/dist/camera/camera';
+import type { Mesh } from 'gpucat/dist/objects/mesh';
+import type { Object3D } from 'gpucat/dist/core/object3d';
+import type { Material } from 'gpucat/dist/material/material';
+import type { UpdateBeforeNode, UpdateAfterNode, UpdateNode } from 'gpucat/dist/nodes/builder';
 /**
  * Update tracking maps for deduplication.
  * Tracks when a node was last updated to prevent redundant updates.

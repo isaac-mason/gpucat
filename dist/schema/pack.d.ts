@@ -1,4 +1,4 @@
-import { type Any, type Infer } from './schema';
+import { type Any, type Infer } from 'gpucat/dist/schema/schema';
 export type AddressSpace = 'storage' | 'uniform';
 export type CompiledLayout<T = unknown> = {
     /** Size of one element in bytes */

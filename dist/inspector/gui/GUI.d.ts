@@ -1,10 +1,10 @@
-import { Controller, type ChangeEvent } from './Controller';
-import { NumberController } from './NumberController';
-import { BooleanController } from './BooleanController';
-import { StringController } from './StringController';
-import { ColorController } from './ColorController';
-import { OptionController } from './OptionController';
-import { FunctionController } from './FunctionController';
+import { Controller, type ChangeEvent } from 'gpucat/dist/inspector/gui/Controller';
+import { NumberController } from 'gpucat/dist/inspector/gui/NumberController';
+import { BooleanController } from 'gpucat/dist/inspector/gui/BooleanController';
+import { StringController } from 'gpucat/dist/inspector/gui/StringController';
+import { ColorController } from 'gpucat/dist/inspector/gui/ColorController';
+import { OptionController } from 'gpucat/dist/inspector/gui/OptionController';
+import { FunctionController } from 'gpucat/dist/inspector/gui/FunctionController';
 export interface GUIOptions {
     parent?: GUI;
     title?: string;

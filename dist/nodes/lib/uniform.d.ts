@@ -1,7 +1,7 @@
-import { Node, type StructDef, type StructInstance, ConstructNode, LiteralNode } from './core';
-import type { StructSchema, Any } from '../../schema/schema';
-import type { NodeFrame } from '../../renderer/node-frame';
-import { Uniform, UniformGroup, UniformUpdateType, objectGroup, renderGroup, frameGroup, type UniformValue } from '../../core/uniform';
+import { Node, type StructDef, type StructInstance, ConstructNode, LiteralNode } from 'gpucat/dist/nodes/lib/core';
+import type { StructSchema, Any } from 'gpucat/dist/schema/schema';
+import type { NodeFrame } from 'gpucat/dist/renderer/node-frame';
+import { Uniform, UniformGroup, UniformUpdateType, objectGroup, renderGroup, frameGroup, type UniformValue } from 'gpucat/dist/core/uniform';
 export declare class UniformNode<D extends Any> extends Node<D> {
     /** uniform name */
     name: string;

@@ -26,7 +26,7 @@ import {
 export type TextureData = {
     /** The GPU texture resource */
     texture: GPUTexture;
-    /** Texture version at last upload — tracks when needsUpdate was set (Three.js aligned) */
+    /** Texture version at last upload — tracks when needsUpdate was set */
     version: number;
     /** Generation — increments when GPU texture object is recreated */
     generation: number;

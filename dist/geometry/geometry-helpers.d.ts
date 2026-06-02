@@ -1,4 +1,4 @@
-import { Geometry } from './geometry';
+import { Geometry } from 'gpucat/dist/geometry/geometry';
 export declare function createBoxGeometry(width?: number, height?: number, depth?: number): Geometry;
 export declare function createSphereGeometry(radius?: number, widthSegments?: number, heightSegments?: number): Geometry;
 /**

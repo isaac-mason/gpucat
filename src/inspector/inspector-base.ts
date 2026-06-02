@@ -1,13 +1,18 @@
 /**
- * InspectorBase.ts — Abstract no-op inspector interface.
+ * InspectorBase.ts — Abstract inspector interface.
  *
- * Mirrors Three's InspectorBase.js. The renderer holds a reference to one
- * of these (defaulting to a bare InspectorBase instance whose methods are all
- * no-ops). Swap it for a RendererInspector / Inspector instance to enable
- * profiling and the full Inspector UI.
+ * The renderer's `inspector` field is `InspectorBase | null` — null means no
+ * inspector is attached (zero hot-path cost). Install one with
+ * `renderer.setInspector(new Inspector())` and remove with
+ * `renderer.setInspector(null)`.
  *
- * Hook call sites in WebGPURenderer:
- *   init()                 → inspector.setRenderer(renderer); inspector.init()
+ * Lifecycle (driven by the renderer's setInspector):
+ *   attach   → inspector.setRenderer(renderer)
+ *              (subclass runs setup lazily; defers GPU work until renderer is initialized)
+ *   detach   → inspector.setRenderer(null)
+ *              (subclass releases GPU resources, removes DOM, drops listeners)
+ *
+ * Hook call sites in WebGPURenderer (all guarded by `if (inspector)`):
  *   render() start         → inspector.begin(frameId)
  *   render() end           → inspector.finish(frameId)
  *   _renderPassNode start  → inspector.beginRender(passId, frameId)
@@ -37,28 +42,54 @@ import { Any } from '../schema/schema';
 
 export class InspectorBase {
     /** Back-reference to the renderer. Set by renderer after init(). */
-    protected renderer: WebGPURenderer | null = null;
+    renderer: WebGPURenderer | null = null;
 
     // -----------------------------------------------------------------------
     // Performance markers (no-op in base class)
     // -----------------------------------------------------------------------
 
     /** Performance marker API - no-op in base class, implemented in RendererInspector */
-    readonly perf = {
+    perf = {
         start: (_name: string): void => {},
         end: (_name: string): void => {},
+    };
+
+    /**
+     * Diagnostic log API — call sites that want their message surfaced in the
+     * Inspector's Console tab go through here, e.g.
+     *   `renderer.inspector?.log.warn('shader compile failed')`.
+     *
+     * Base implementation routes warn/error to `console.warn`/`console.error`
+     * so devtools still sees them when no full Inspector is attached. The full
+     * `Inspector` subclass also pushes into the Console tab. Random gpucat
+     * `console.warn` sites that don't care about tab routing can keep using
+     * the global `console` directly.
+     */
+    log = {
+        info:  (msg: string): void => { void msg; },
+        warn:  (msg: string): void => { console.warn(msg); },
+        error: (msg: string): void => { console.error(msg); },
     };
 
     // -----------------------------------------------------------------------
     // Lifecycle
     // -----------------------------------------------------------------------
 
-    /** Called once after the renderer's GPUDevice is ready. */
-    setRenderer(renderer: WebGPURenderer): void {
+    /**
+     * Attach (renderer non-null) or detach (renderer null).
+     * Subclasses override to perform setup on attach and teardown on detach.
+     * Setup may be deferred (e.g. until renderer._initialized is true) — see
+     * subclasses for the specific lazy strategy.
+     */
+    setRenderer(renderer: WebGPURenderer | null): void {
         this.renderer = renderer;
     }
 
-    /** Called after setRenderer() — subclasses perform one-time GPU resource setup here. */
+    /**
+     * Subclasses run one-time GPU resource setup here. Called by subclasses
+     * themselves from setRenderer() once the renderer is initialized — the
+     * top-level renderer does NOT call this.
+     */
     init(): void {}
 
     // -----------------------------------------------------------------------

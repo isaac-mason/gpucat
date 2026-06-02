@@ -1,7 +1,7 @@
-import { Source, type SourceData } from './source';
-import { GpuTexture } from '../core/gpu-texture';
-import { GpuSampler } from '../core/gpu-sampler';
-import * as d from '../schema/schema';
+import { Source, type SourceData } from 'gpucat/dist/texture/source';
+import { GpuTexture } from 'gpucat/dist/core/gpu-texture';
+import { GpuSampler } from 'gpucat/dist/core/gpu-sampler';
+import * as d from 'gpucat/dist/schema/schema';
 /** Wrap modes matching WebGPU GPUAddressMode */
 export type WrapMode = 'clamp-to-edge' | 'repeat' | 'mirror-repeat';
 /** Filter modes matching WebGPU GPUFilterMode */

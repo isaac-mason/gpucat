@@ -1,8 +1,6 @@
 /**
  * Mipmap generation utilities using direct WebGPU pipelines.
  *
- * Three.js aligned: mirrors WebGPUTexturePassUtils.js
- *
  * Uses render passes to downsample each mip level from the previous one.
  * Pipelines are cached per texture format for efficiency.
  */

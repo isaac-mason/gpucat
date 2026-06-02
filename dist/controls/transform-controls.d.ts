@@ -1,8 +1,8 @@
 import { type Vec3, type Quat } from 'mathcat';
-import { Object3D } from '../core/object3d';
-import { Camera } from '../camera/camera';
-import { Raycaster } from '../math/raycaster';
-import { type Topic } from '../utils/topic';
+import { Object3D } from 'gpucat/dist/core/object3d';
+import { Camera } from 'gpucat/dist/camera/camera';
+import { Raycaster } from 'gpucat/dist/math/raycaster';
+import { type Topic } from 'gpucat/dist/utils/topic';
 export type TransformMode = 'translate' | 'rotate' | 'scale';
 export type TransformSpace = 'world' | 'local';
 declare class TransformControlsRoot extends Object3D {

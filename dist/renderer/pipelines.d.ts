@@ -1,11 +1,11 @@
-import { type ComputeNode } from '../nodes/nodes';
-import type { Material } from '../material/material';
-import type { Geometry } from '../geometry/geometry';
-import type { RenderObject } from './render-object';
-import type { NodeBuilderState } from './node-builder-state';
-import type { NodeManagerState } from './node-manager';
-import type { ComputeContext } from './pass-context';
-import { type BindGroupLayoutCache } from './bind-group-layout';
+import { type ComputeNode } from 'gpucat/dist/nodes/nodes';
+import type { Material } from 'gpucat/dist/material/material';
+import type { Geometry } from 'gpucat/dist/geometry/geometry';
+import type { RenderObject } from 'gpucat/dist/renderer/render-object';
+import type { NodeBuilderState } from 'gpucat/dist/renderer/node-builder-state';
+import type { NodeManagerState } from 'gpucat/dist/renderer/node-manager';
+import type { ComputeContext } from 'gpucat/dist/renderer/pass-context';
+import { type BindGroupLayoutCache } from 'gpucat/dist/renderer/bind-group-layout';
 export type ComputePipelineEntry = {
     pipeline: GPUComputePipeline | null;
     nodeBuilderState: NodeBuilderState;

@@ -18,7 +18,6 @@ type ViewOffset = {
  * regardless of its distance from the camera. Useful for 2D scenes, UI, and
  * post-processing passes.
  *
- * Three.js aligned: mirrors THREE.OrthographicCamera.
  * Uses WebGPU depth range (0→1) via orthoZO, matching PerspectiveCamera's perspectiveZO.
  *
  * ```ts

@@ -1,4 +1,4 @@
-import { Camera } from './camera';
+import { Camera } from 'gpucat/dist/camera/camera';
 export declare class PerspectiveCamera extends Camera {
     fov: number;
     aspect: number;

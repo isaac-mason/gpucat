@@ -158,7 +158,6 @@ export class Material {
     /**
      * Frees GPU-related resources allocated for this material.
      * Call this method when the material is no longer used.
-     * Mirrors Three.js Material.dispose().
      */
     dispose(): void {
         if (this.disposed) return;

@@ -1,5 +1,5 @@
-import type { GpuBuffer } from '../core/gpu-buffer';
-import type { UniformGroupBlock, StorageEntry, TextureEntry, SamplerEntry } from '../nodes/builder';
+import type { GpuBuffer } from 'gpucat/dist/core/gpu-buffer';
+import type { UniformGroupBlock, StorageEntry, TextureEntry, SamplerEntry } from 'gpucat/dist/nodes/builder';
 /**
  * A single binding within a BindGroup.
  * Can be a uniform buffer, storage buffer, texture, or sampler.

@@ -1,6 +1,6 @@
 import { type Vec3, type Quat } from 'mathcat';
-import type { Camera } from '../camera/camera';
-import { type Topic } from '../utils/topic';
+import type { Camera } from 'gpucat/dist/camera/camera';
+import { type Topic } from 'gpucat/dist/utils/topic';
 /**
  * FlyControls — WASD + right-click look camera controller.
  *

@@ -1,13 +1,18 @@
 /**
- * InspectorBase.ts — Abstract no-op inspector interface.
+ * InspectorBase.ts — Abstract inspector interface.
  *
- * Mirrors Three's InspectorBase.js. The renderer holds a reference to one
- * of these (defaulting to a bare InspectorBase instance whose methods are all
- * no-ops). Swap it for a RendererInspector / Inspector instance to enable
- * profiling and the full Inspector UI.
+ * The renderer's `inspector` field is `InspectorBase | null` — null means no
+ * inspector is attached (zero hot-path cost). Install one with
+ * `renderer.setInspector(new Inspector())` and remove with
+ * `renderer.setInspector(null)`.
  *
- * Hook call sites in WebGPURenderer:
- *   init()                 → inspector.setRenderer(renderer); inspector.init()
+ * Lifecycle (driven by the renderer's setInspector):
+ *   attach   → inspector.setRenderer(renderer)
+ *              (subclass runs setup lazily; defers GPU work until renderer is initialized)
+ *   detach   → inspector.setRenderer(null)
+ *              (subclass releases GPU resources, removes DOM, drops listeners)
+ *
+ * Hook call sites in WebGPURenderer (all guarded by `if (inspector)`):
  *   render() start         → inspector.begin(frameId)
  *   render() end           → inspector.finish(frameId)
  *   _renderPassNode start  → inspector.beginRender(passId, frameId)
@@ -40,14 +45,39 @@ class InspectorBase {
         start: (_name) => { },
         end: (_name) => { },
     };
+    /**
+     * Diagnostic log API — call sites that want their message surfaced in the
+     * Inspector's Console tab go through here, e.g.
+     *   `renderer.inspector?.log.warn('shader compile failed')`.
+     *
+     * Base implementation routes warn/error to `console.warn`/`console.error`
+     * so devtools still sees them when no full Inspector is attached. The full
+     * `Inspector` subclass also pushes into the Console tab. Random gpucat
+     * `console.warn` sites that don't care about tab routing can keep using
+     * the global `console` directly.
+     */
+    log = {
+        info: (msg) => { },
+        warn: (msg) => { console.warn(msg); },
+        error: (msg) => { console.error(msg); },
+    };
     // -----------------------------------------------------------------------
     // Lifecycle
     // -----------------------------------------------------------------------
-    /** Called once after the renderer's GPUDevice is ready. */
+    /**
+     * Attach (renderer non-null) or detach (renderer null).
+     * Subclasses override to perform setup on attach and teardown on detach.
+     * Setup may be deferred (e.g. until renderer._initialized is true) — see
+     * subclasses for the specific lazy strategy.
+     */
     setRenderer(renderer) {
         this.renderer = renderer;
     }
-    /** Called after setRenderer() — subclasses perform one-time GPU resource setup here. */
+    /**
+     * Subclasses run one-time GPU resource setup here. Called by subclasses
+     * themselves from setRenderer() once the renderer is initialized — the
+     * top-level renderer does NOT call this.
+     */
     init() { }
     // -----------------------------------------------------------------------
     // Frame hooks
@@ -1921,7 +1951,9 @@ class InspectorNode extends Node {
      * Registers this node with the renderer's inspector.
      */
     update = (frame) => {
-        frame.renderer.inspector.inspect(this);
+        const inspector = frame.renderer.inspector;
+        if (inspector)
+            inspector.inspect(this);
     };
     /**
      * Returns the display name for the inspector.
@@ -5810,16 +5842,9 @@ const EDGE_GUESS = 8.0;
 const CONTRAST_THRESHOLD = 0.0312;
 const RELATIVE_THRESHOLD = 0.063;
 const SUBPIXEL_BLENDING = 1.0;
+
 /**
  * FXAA (Fast Approximate Anti-Aliasing) post-processing effect.
- *
- * This implementation ports the Three.js TSL FXAANode to gpucat's functional DSL.
- * It uses the standard FXAA 3.11 algorithm:
- * 1. Samples luminance of neighboring pixels
- * 2. Detects edges based on contrast
- * 3. Blends pixels along detected edges to smooth jaggies
- *
- * The inverse texture size uniform is automatically updated each frame.
  *
  * @param textureNode - The texture to apply FXAA to (typically from pass.getTextureNode())
  * @returns A vec4f node containing the anti-aliased color
@@ -6528,7 +6553,7 @@ function cloneBindGroup(source) {
 }
 
 /**
- * Global cache for shared BindGroups (Three.js pattern: _bindingGroupsCache).
+ * Global cache for shared BindGroups
  *
  * Structure: WeakMap<BindingContext, Map<cacheKey, BindGroup>>
  *
@@ -6539,8 +6564,9 @@ function cloneBindGroup(source) {
  * This ensures currentSets comparison works correctly - shared groups have the same `id`.
  */
 const _bindingGroupsCache = new WeakMap();
+
 /**
- * Simple string hash function (matches Three.js hashString pattern).
+ * Simple string hash function.
  */
 function hashString$1(str) {
     let hash = 0;
@@ -6636,7 +6662,7 @@ function createNodeBuilderStateForCompute(compileResult, context) {
  * otherwise defaults to false (per-object).
  *
  * For shared uniform-only groups, uses _bindingGroupsCache to return the same
- * BindGroup instance across all compilations (Three.js pattern).
+ * BindGroup instance across all compilations.
  */
 function buildTemplateBindGroups(uniformGroups, storage, textures, samplers, context) {
     // Get or create the cache for this context
@@ -12304,6 +12330,7 @@ class RendererInspector extends InspectorBase {
     computeNodes = new Map();
     // GPU timestamp state
     hasTimestamps = false;
+    _gpuInitialized = false;
     _querySet = null;
     _resolveBuffer = null;
     _readbackBuffer = null;
@@ -12336,8 +12363,18 @@ class RendererInspector extends InspectorBase {
     _rootTimeline = [];
     // Map of name → stack of open entries with that name (handles same-name passes)
     _entryRefs = new Map();
+    setRenderer(renderer) {
+        if (renderer === null) {
+            this._destroyTimestampGpu();
+            super.setRenderer(null);
+            return;
+        }
+        super.setRenderer(renderer);
+        // GPU setup runs lazily on first begin() — by then renderer is guaranteed
+        // to be initialized (the renderer asserts init before render/compute).
+    }
     init() {
-        if (!this.renderer)
+        if (this._gpuInitialized || !this.renderer)
             return;
         const device = this.renderer._device;
         this.hasTimestamps = device?.features?.has('timestamp-query') ?? false;
@@ -12356,8 +12393,26 @@ class RendererInspector extends InspectorBase {
                 usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
             });
         }
+        this._gpuInitialized = true;
+    }
+    _destroyTimestampGpu() {
+        this._querySet?.destroy();
+        this._querySet = null;
+        // GPUBuffers don't always expose destroy on all browsers; guard.
+        if (this._resolveBuffer?.destroy)
+            this._resolveBuffer.destroy();
+        this._resolveBuffer = null;
+        if (this._readbackBuffer?.destroy)
+            this._readbackBuffer.destroy();
+        this._readbackBuffer = null;
+        this.hasTimestamps = false;
+        this._gpuInitialized = false;
     }
     begin(frameId) {
+        // Lazy GPU setup: renderer is guaranteed initialized by the time begin()
+        // runs (render/compute assert init), so this is the natural place.
+        if (!this._gpuInitialized)
+            this.init();
         this._frameStart = performance.now();
         this._currentQuerySlot = 0;
         this._pendingInspectables = [];
@@ -14299,6 +14354,9 @@ class Profiler {
     nextTabOriginalIndex = 0;
     isLoadingLayout = false;
     pendingDetachedTabs = null;
+    /** Persistent window listeners — stashed so dispose() can remove them. */
+    _orientationListener = null;
+    _resizeListener = null;
     constructor() {
         this.isMobile = this.detectMobile();
         injectStyle();
@@ -14325,6 +14383,7 @@ class Profiler {
             }
         };
         handleOrientationChange();
+        this._orientationListener = handleOrientationChange;
         window.addEventListener('orientationchange', handleOrientationChange);
         window.addEventListener('resize', handleOrientationChange);
     }
@@ -14354,10 +14413,34 @@ class Profiler {
                 }
             }
         };
-        window.addEventListener('resize', () => {
+        const onResize = () => {
             constrainDetachedWindows();
             constrainMainPanel();
-        });
+        };
+        this._resizeListener = onResize;
+        window.addEventListener('resize', onResize);
+    }
+    /**
+     * Tear down everything this Profiler installed on global state: persistent
+     * window listeners and detached tab panels (which live as `document.body`
+     * children, not under `domElement`). The main panel + its subtree are NOT
+     * removed here — the Inspector owns `domElement.remove()`.
+     */
+    dispose() {
+        if (this._orientationListener) {
+            window.removeEventListener('orientationchange', this._orientationListener);
+            window.removeEventListener('resize', this._orientationListener);
+            this._orientationListener = null;
+        }
+        if (this._resizeListener) {
+            window.removeEventListener('resize', this._resizeListener);
+            this._resizeListener = null;
+        }
+        // Detached tab panels were appended to document.body — drop them here.
+        for (const dw of this.detachedWindows) {
+            dw.panel.remove();
+        }
+        this.detachedWindows.length = 0;
     }
     constrainWindowToBounds(windowPanel) {
         const windowWidth = window.innerWidth;
@@ -23717,33 +23800,49 @@ class Inspector extends RendererInspector {
     // -----------------------------------------------------------------------
     // Lifecycle
     // -----------------------------------------------------------------------
+    /**
+     * Surface log messages in the Console tab AND devtools. Overrides the
+     * no-op base. Callers route via `renderer.inspector?.log.warn('...')`.
+     */
+    log = {
+        info: (msg) => { this.console.addMessage('info', msg); },
+        warn: (msg) => { this.console.addMessage('warn', msg); console.warn(msg); },
+        error: (msg) => { this.console.addMessage('error', msg); console.error(msg); },
+    };
     setRenderer(renderer) {
-        super.setRenderer(renderer);
-        if (renderer !== null) {
-            // Forward console warnings / errors into the console tab
-            const origWarn = console.warn.bind(console);
-            const origError = console.error.bind(console);
-            const self = this;
-            console.warn = (...args) => {
-                const msg = args.map(String).join(' ');
-                self.console.addMessage('warn', msg);
-                origWarn(...args);
-            };
-            console.error = (...args) => {
-                const msg = args.map(String).join(' ');
-                self.console.addMessage('error', msg);
-                origError(...args);
-            };
-            this.timeline.setRenderer(renderer);
+        if (renderer === null) {
+            this.dispose();
+            super.setRenderer(null);
+            return;
         }
-    }
-    init() {
-        super.init();
-        this.console.addMessage('info', 'gpucat WebGPU Renderer [ "WebGPU" ]');
-        const renderer = this.getRenderer();
-        if (this.domElement.parentElement === null && renderer?.domElement.parentElement !== null) {
+        super.setRenderer(renderer);
+        this.timeline.setRenderer(renderer);
+        this.log.info('gpucat WebGPU Renderer [ "WebGPU" ]');
+        // Self-attach the panel to the canvas parent, if there is one. Callers
+        // that don't mount the WebGPURenderer's implicit canvas (e.g. engines
+        // rendering to per-room canvases via render targets) should append
+        // `inspector.domElement` to the DOM themselves.
+        if (this.domElement.parentElement === null && renderer.domElement.parentElement) {
             renderer.domElement.parentElement.appendChild(this.domElement);
         }
+    }
+    /**
+     * Release everything this Inspector owns: GPU resources (probe + timestamp
+     * query state), DOM (panel + any detached tab windows), and window
+     * listeners. Safe to call multiple times. After dispose the instance is
+     * dead — discard it and `new Inspector()` if you need one again.
+     *
+     * Normally called automatically via `renderer.setInspector(null)`; expose
+     * directly for callers that want explicit teardown.
+     */
+    dispose() {
+        this.clearProbe();
+        for (const cd of this._canvasNodes.values()) {
+            cd.canvasTarget.dispose();
+        }
+        this._canvasNodes.clear();
+        this.profiler.dispose();
+        this.domElement.remove();
     }
     // -----------------------------------------------------------------------
     // Timeline hooks — forward calls to timeline.onCall()
@@ -23882,7 +23981,7 @@ class Inspector extends RendererInspector {
         // Build probe pipeline: same bind group layouts, patched shader
         const bindGroupLayouts = getRenderBindGroupLayouts(renderer._bindings, sourceRO);
         if (bindGroupLayouts.length === 0) {
-            console.warn('[gpucat probe] bind group layouts not yet initialised — try clicking again after the first frame renders');
+            this.log.warn('[gpucat probe] bind group layouts not yet initialised — try clicking again after the first frame renders');
             return null;
         }
         const pipelineLayout = renderer._device.createPipelineLayout({ bindGroupLayouts });
@@ -23921,7 +24020,7 @@ class Inspector extends RendererInspector {
             });
         }
         catch (e) {
-            console.error('[gpucat probe] Failed to create probe pipeline:', e);
+            this.log.error(`[gpucat probe] Failed to create probe pipeline: ${e}`);
             return null;
         }
         // Create preview canvas + depth texture
@@ -28341,8 +28440,26 @@ class WebGPURenderer {
     _initialized = false;
     /** Indicates whether the device has been lost or not. When this is set to `true`, rendering isn't possible anymore. @internal */
     _isDeviceLost = false;
-    /** Inspector. Replace with a RendererInspector or Inspector instance to enable profiling. */
-    inspector = new InspectorBase();
+    /**
+     * Inspector. `null` means no inspector is attached — hot path pays zero cost.
+     * Install with `renderer.setInspector(new Inspector())` and remove with
+     * `renderer.setInspector(null)`. The inspector subclass handles its own
+     * setup/teardown via setRenderer(); ordering relative to renderer.init()
+     * does not matter (inspectors set up lazily on first frame).
+     */
+    inspector = null;
+    /**
+     * Install or remove the inspector. Safe to call at any time, including
+     * before `renderer.init()`. Passing `null` triggers the old inspector's
+     * detach path (releases GPU resources, removes DOM, drops listeners).
+     */
+    setInspector(next) {
+        if (this.inspector === next)
+            return;
+        this.inspector?.setRenderer(null); // detach signal — old disposes
+        this.inspector = next;
+        next?.setRenderer(this); // attach signal — new sets up (lazily if needed)
+    }
     /** The canvas dom element for the current canvas target. Throws in headless mode. */
     get domElement() {
         if (!this._canvasTarget) {
@@ -28530,8 +28647,6 @@ class WebGPURenderer {
             }
         }
         this._initialized = true;
-        this.inspector.setRenderer(this);
-        this.inspector.init();
         return this;
     }
     /** recreate depth/msaa textures after a resize. */
@@ -28554,12 +28669,16 @@ class WebGPURenderer {
     beginFrame() {
         this._nodes.nodeFrame.update();
         const frameId = this._nodes.nodeFrame.frameId;
-        this.inspector.begin(frameId);
+        const inspector = this.inspector;
+        if (inspector)
+            inspector.begin(frameId);
         return frameId;
     }
     /** call once per animation frame after all compute() and render() calls. */
     endFrame() {
-        this.inspector.finish(this._nodes.nodeFrame.frameId);
+        const inspector = this.inspector;
+        if (inspector)
+            inspector.finish(this._nodes.nodeFrame.frameId);
     }
     /** resize the canvas to logical pixel dimensions (physical = logical * pixelRatio). Throws in headless mode. */
     setSize(width, height, updateStyle = true) {
@@ -28732,23 +28851,31 @@ class WebGPURenderer {
         frame.renderer = this;
         frame.width = this.domElement.width || 1;
         frame.height = this.domElement.height || 1;
-        this.inspector.perf.start('compute');
+        const inspector = this.inspector;
+        if (inspector)
+            inspector.perf.start('compute');
         const encoder = this._device.createCommandEncoder();
         for (const entry of entries) {
             const { node } = entry;
             const pipelineEntry = getForCompute(this._pipelines, this._device, this._nodes, node, this._computeContext);
             const { nodeBuilderState } = pipelineEntry;
             const buffers = entry.buffers ?? null;
-            this.inspector.perf.start(`compute: ${node.id}`);
+            if (inspector) {
+                inspector.perf.start(`compute: ${node.id}`);
+                inspector.perf.start('updateForCompute');
+            }
             // Update node uniforms
-            this.inspector.perf.start('updateForCompute');
             updateForCompute(this._nodes, node);
-            this.inspector.perf.end('updateForCompute');
+            if (inspector)
+                inspector.perf.end('updateForCompute');
             // Update all bindings and get GPUBindGroups
             const gpuBindGroups = updateComputeBindings(this._bindings, nodeBuilderState, frame, this._device, this._buffers, this._textures, buffers);
             // Notify inspector before creating pass (so timestamp writes are available)
-            this.inspector.beginCompute(node, frame.frameId);
-            const timestampWrites = this.inspector.getTimestampWrites(node.id);
+            let timestampWrites;
+            if (inspector) {
+                inspector.beginCompute(node, frame.frameId);
+                timestampWrites = inspector.getTimestampWrites(node.id);
+            }
             const computePass = encoder.beginComputePass({ timestampWrites });
             computePass.setPipeline(pipelineEntry.pipeline);
             for (let i = 0; i < gpuBindGroups.length; i++) {
@@ -28756,18 +28883,21 @@ class WebGPURenderer {
             }
             if (entry.indirect) {
                 const gpuBuf = ensureUploaded(this._buffers, this._device, entry.indirect);
-                computeDispatchWorkgroupsIndirect(computePass, this.inspector, gpuBuf, entry.indirectOffset ?? 0);
+                computeDispatchWorkgroupsIndirect(computePass, inspector, gpuBuf, entry.indirectOffset ?? 0);
             }
             else {
                 const [dx, dy, dz] = entry.dispatch;
-                computeDispatchWorkgroups(computePass, this.inspector, dx, dy, dz);
+                computeDispatchWorkgroups(computePass, inspector, dx, dy, dz);
             }
             computePass.end();
-            this.inspector.finishCompute(node.id, frame.frameId);
-            this.inspector.perf.end(`compute: ${node.id}`);
+            if (inspector) {
+                inspector.finishCompute(node.id, frame.frameId);
+                inspector.perf.end(`compute: ${node.id}`);
+            }
         }
         this._device.queue.submit([encoder.finish()]);
-        this.inspector.perf.end('compute');
+        if (inspector)
+            inspector.perf.end('compute');
     }
     /** save the current renderer state into a plain object and return it */
     saveRendererState() {
@@ -28810,7 +28940,9 @@ class WebGPURenderer {
         const previousRenderId = frame.renderId;
         this._renderCallDepth++;
         frame.renderId++;
-        this.inspector.perf.start('render');
+        const inspector = this.inspector;
+        if (inspector)
+            inspector.perf.start('render');
         const renderTarget = this.renderTarget;
         const mrt = this.mrt;
         if (mrt && renderTarget) {
@@ -28824,8 +28956,10 @@ class WebGPURenderer {
         const width = renderTarget ? renderTarget.width : this.domElement.width || 1;
         const height = renderTarget ? renderTarget.height : this.domElement.height || 1;
         const [cr, cg, cb, ca] = this.clearColor;
-        this.inspector.beginRenderScene(passId, scene, samples, colorFormat, frame.frameId);
-        this.inspector.beginRender(passId, frame.frameId);
+        if (inspector) {
+            inspector.beginRenderScene(passId, scene, samples, colorFormat, frame.frameId);
+            inspector.beginRender(passId, frame.frameId);
+        }
         frame.renderer = this;
         frame.camera = camera;
         frame.scene = scene;
@@ -28855,7 +28989,8 @@ class WebGPURenderer {
             if (err)
                 console.error('[WebGPU render validation error]', err.message);
         });
-        this.inspector.perf.end('render');
+        if (inspector)
+            inspector.perf.end('render');
         // Restore previous renderId only for nested renders. Top-level keeps its incremented value.
         this._renderCallDepth--;
         if (this._renderCallDepth > 0) {
@@ -28927,9 +29062,12 @@ class WebGPURenderer {
     }
     /** Collect visible meshes, init render objects, and run updateBefore (may trigger nested renders). */
     _render_prepare(scene, camera, passCtx, passId, colorFormat, depthFormat, overrideMaterial) {
-        this.inspector.perf.start('collectRenderList');
+        const inspector = this.inspector;
+        if (inspector)
+            inspector.perf.start('collectRenderList');
         const renderList = collectRenderList(this._renderLists, scene, camera, overrideMaterial);
-        this.inspector.perf.end('collectRenderList');
+        if (inspector)
+            inspector.perf.end('collectRenderList');
         const preparedObjects = [];
         for (const items of [renderList.opaque, renderList.transparent]) {
             for (const item of items) {
@@ -28948,9 +29086,11 @@ class WebGPURenderer {
                     console.warn('[gpucat] no nodeBuilderState');
                     continue;
                 }
-                this.inspector.perf.start('updateBefore');
+                if (inspector)
+                    inspector.perf.start('updateBefore');
                 updateBefore(this._nodes, renderObject);
-                this.inspector.perf.end('updateBefore');
+                if (inspector)
+                    inspector.perf.end('updateBefore');
                 preparedObjects.push({ renderObject, item });
             }
         }
@@ -28958,7 +29098,8 @@ class WebGPURenderer {
     }
     /** Begin the GPU render pass, issue all draw calls, and end the pass. */
     _render_draw(encoder, preparedObjects, colorAttachments, depthAttachment, passId) {
-        const timestampWrites = this.inspector.getTimestampWrites(passId);
+        const inspector = this.inspector;
+        const timestampWrites = inspector ? inspector.getTimestampWrites(passId) : undefined;
         const gpuPass = encoder.beginRenderPass({
             colorAttachments,
             depthStencilAttachment: depthAttachment,
@@ -28970,7 +29111,8 @@ class WebGPURenderer {
             index: null,
             pipeline: null,
         };
-        this.inspector.perf.start('drawCalls');
+        if (inspector)
+            inspector.perf.start('drawCalls');
         for (const { renderObject, item } of preparedObjects) {
             const mesh = item.mesh;
             const material = item.material;
@@ -28984,11 +29126,13 @@ class WebGPURenderer {
             frame.camera = renderObject.camera;
             frame.scene = renderObject.scene;
             updateForRender$1(this._nodes, renderObject);
-            this.inspector.perf.start('updateForRender');
+            if (inspector)
+                inspector.perf.start('updateForRender');
             updateRenderObject(this._bindings, this._geometries, this._device, this._buffers, this._textures, renderObject, frame);
-            this.inspector.perf.end('updateForRender');
+            if (inspector)
+                inspector.perf.end('updateForRender');
             if (renderObject.pipeline !== currentSets.pipeline) {
-                passSetPipeline(gpuPass, this.inspector, renderObject.pipeline, mesh.name || material.constructor.name);
+                passSetPipeline(gpuPass, inspector, renderObject.pipeline, mesh.name || material.constructor.name);
                 currentSets.pipeline = renderObject.pipeline;
             }
             const bindGroups = renderObject.bindGroups;
@@ -28997,7 +29141,7 @@ class WebGPURenderer {
                 for (let i = 0; i < bindGroups.length; i++) {
                     const bindGroupId = logicalBindGroups[i]?.id ?? -1;
                     if (currentSets.bindingGroups[i] !== bindGroupId) {
-                        passSetBindGroup(gpuPass, this.inspector, i, bindGroups[i], mesh.name || '');
+                        passSetBindGroup(gpuPass, inspector, i, bindGroups[i], mesh.name || '');
                         currentSets.bindingGroups[i] = bindGroupId;
                     }
                 }
@@ -29027,7 +29171,7 @@ class WebGPURenderer {
                     gpuBuf = uploadRaw(this._buffers, this._device, gpuBuffer, arr, GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST).buffer;
                 }
                 if (currentSets.attributes[slot] !== gpuBuf) {
-                    passSetVertexBuffer(gpuPass, this.inspector, slot, gpuBuf);
+                    passSetVertexBuffer(gpuPass, inspector, slot, gpuBuf);
                     currentSets.attributes[slot] = gpuBuf;
                 }
                 slot++;
@@ -29035,7 +29179,7 @@ class WebGPURenderer {
             if (geometry.index) {
                 const idxBuf = ensureUploaded(this._buffers, this._device, geometry.index);
                 if (currentSets.index !== idxBuf) {
-                    passSetIndexBuffer(gpuPass, this.inspector, idxBuf, getIndexFormat(geometry.index.array));
+                    passSetIndexBuffer(gpuPass, inspector, idxBuf, getIndexFormat(geometry.index.array));
                     currentSets.index = idxBuf;
                 }
                 if (geometry.indirect) {
@@ -29045,12 +29189,12 @@ class WebGPURenderer {
                     const baseOffset = geometry.indirectOffset;
                     const drawCount = geometry.indirectDrawCount ?? indirect.count;
                     for (let d = 0; d < drawCount; d++) {
-                        passDrawIndexedIndirect(gpuPass, this.inspector, indBuf, baseOffset + d * byteStride);
+                        passDrawIndexedIndirect(gpuPass, inspector, indBuf, baseOffset + d * byteStride);
                     }
                 }
                 else {
                     const indexCount = Math.min(geometry.drawRange.count, geometry.index.array.length);
-                    passDrawIndexed(gpuPass, this.inspector, indexCount, mesh.count, geometry.drawRange.start);
+                    passDrawIndexed(gpuPass, inspector, indexCount, mesh.count, geometry.drawRange.start);
                 }
             }
             else {
@@ -29061,20 +29205,24 @@ class WebGPURenderer {
                     const baseOffset = geometry.indirectOffset;
                     const drawCount = geometry.indirectDrawCount ?? indirect.count;
                     for (let d = 0; d < drawCount; d++) {
-                        passDrawIndirect(gpuPass, this.inspector, indBuf, baseOffset + d * byteStride);
+                        passDrawIndirect(gpuPass, inspector, indBuf, baseOffset + d * byteStride);
                     }
                 }
                 else {
-                    passDraw(gpuPass, this.inspector, geometry.drawRange.count, mesh.count, geometry.drawRange.start);
+                    passDraw(gpuPass, inspector, geometry.drawRange.count, mesh.count, geometry.drawRange.start);
                 }
             }
-            this.inspector.perf.start('updateAfter');
+            if (inspector)
+                inspector.perf.start('updateAfter');
             updateAfter(this._nodes, renderObject);
-            this.inspector.perf.end('updateAfter');
+            if (inspector)
+                inspector.perf.end('updateAfter');
         }
-        this.inspector.perf.end('drawCalls');
+        if (inspector)
+            inspector.perf.end('drawCalls');
         gpuPass.end();
-        this.inspector.finishRender(passId, this._nodes.nodeFrame.frameId);
+        if (inspector)
+            inspector.finishRender(passId, this._nodes.nodeFrame.frameId);
     }
     _ensureRenderTargetAllocated(renderTarget) {
         // Check if already allocated at correct size via texture cache
@@ -29181,43 +29329,53 @@ class WebGPURenderer {
 // ---------------------------------------------------------------------------
 function passSetPipeline(pass, inspector, pipeline, label) {
     pass.setPipeline(pipeline);
-    inspector.setPipeline(label);
+    if (inspector)
+        inspector.setPipeline(label);
 }
 function passSetBindGroup(pass, inspector, index, bindGroup, label) {
     pass.setBindGroup(index, bindGroup);
-    inspector.setBindGroup(index, label);
+    if (inspector)
+        inspector.setBindGroup(index, label);
 }
 function passSetVertexBuffer(pass, inspector, slot, buffer) {
     pass.setVertexBuffer(slot, buffer);
-    inspector.setVertexBuffer(slot);
+    if (inspector)
+        inspector.setVertexBuffer(slot);
 }
 function passSetIndexBuffer(pass, inspector, buffer, format) {
     pass.setIndexBuffer(buffer, format);
-    inspector.setIndexBuffer();
+    if (inspector)
+        inspector.setIndexBuffer();
 }
 function passDraw(pass, inspector, vertexCount, instanceCount, firstVertex) {
     pass.draw(vertexCount, instanceCount, firstVertex);
-    inspector.draw(vertexCount, instanceCount);
+    if (inspector)
+        inspector.draw(vertexCount, instanceCount);
 }
 function passDrawIndexed(pass, inspector, indexCount, instanceCount, firstIndex) {
     pass.drawIndexed(indexCount, instanceCount, firstIndex);
-    inspector.drawIndexed(indexCount, instanceCount);
+    if (inspector)
+        inspector.drawIndexed(indexCount, instanceCount);
 }
 function passDrawIndirect(pass, inspector, indirectBuffer, indirectOffset) {
     pass.drawIndirect(indirectBuffer, indirectOffset);
-    inspector.drawIndirect();
+    if (inspector)
+        inspector.drawIndirect();
 }
 function passDrawIndexedIndirect(pass, inspector, indirectBuffer, indirectOffset) {
     pass.drawIndexedIndirect(indirectBuffer, indirectOffset);
-    inspector.drawIndexedIndirect();
+    if (inspector)
+        inspector.drawIndexedIndirect();
 }
 function computeDispatchWorkgroups(pass, inspector, x, y, z) {
     pass.dispatchWorkgroups(x, y, z);
-    inspector.dispatchWorkgroups(x, y, z);
+    if (inspector)
+        inspector.dispatchWorkgroups(x, y, z);
 }
 function computeDispatchWorkgroupsIndirect(pass, inspector, indirectBuffer, offset) {
     pass.dispatchWorkgroupsIndirect(indirectBuffer, offset);
-    inspector.dispatchWorkgroupsIndirect(indirectBuffer, offset);
+    if (inspector)
+        inspector.dispatchWorkgroupsIndirect(indirectBuffer, offset);
 }
 
 /**

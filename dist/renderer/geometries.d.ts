@@ -1,8 +1,8 @@
-import type { Geometry } from '../geometry/geometry';
-import { type GpuBuffer } from '../core/gpu-buffer';
-import type { Any } from '../schema/schema';
-import type { RenderObject } from './render-object';
-import type { BufferCache } from './buffers';
+import type { Geometry } from 'gpucat/dist/geometry/geometry';
+import { type GpuBuffer } from 'gpucat/dist/core/gpu-buffer';
+import type { Any } from 'gpucat/dist/schema/schema';
+import type { RenderObject } from 'gpucat/dist/renderer/render-object';
+import type { BufferCache } from 'gpucat/dist/renderer/buffers';
 /**
  * @deprecated No longer used — all buffer types route through ensureUploaded.
  * Kept temporarily while call sites that pass this type are migrated.
