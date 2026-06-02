@@ -1,3 +1,4 @@
+/* SNIPPET_START: spinning-cube */
 import {
     attribute,
     cameraProjectionMatrix,
@@ -23,7 +24,6 @@ import {
 } from 'gpucat';
 import { quat } from 'mathcat';
 
-/* SNIPPET_START: spinning-cube */
 // renderer
 const renderer = new WebGPURenderer({ antialias: true });
 await renderer.init();

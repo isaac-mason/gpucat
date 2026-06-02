@@ -17,6 +17,31 @@ It provides you with a declarative data-oriented API for managing resources, a t
 A minimal spinning cube — renderer setup, a node-based material, and a `requestAnimationFrame` loop:
 
 ```ts
+import {
+    attribute,
+    cameraProjectionMatrix,
+    cameraViewMatrix,
+    createBoxGeometry,
+    d,
+    f32,
+    Material,
+    Mesh,
+    modelNormalMatrix,
+    modelWorldMatrix,
+    mul,
+    normalize,
+    pass,
+    PerspectiveCamera,
+    renderOutput,
+    RenderPipeline,
+    Scene,
+    varying,
+    vec3,
+    vec4,
+    WebGPURenderer,
+} from 'gpucat';
+import { quat } from 'mathcat';
+
 // renderer
 const renderer = new WebGPURenderer({ antialias: true });
 await renderer.init();
