@@ -1,5 +1,9 @@
 import { LiteralNode, vec4f, Node } from './core';
 import * as d from '../../schema/schema';
+import { BlendMode } from '../../material/blend-mode';
+
+const _noBlending = /*#__PURE__*/ new BlendMode('no');
+const _materialBlending = /*#__PURE__*/ new BlendMode('material');
 
 /**
  * Represents a fragment shader output struct with multiple @location outputs.
@@ -38,6 +42,12 @@ export class MRTNode extends OutputStructNode {
      */
     outputNodes: Record<string, Node<d.Any>>;
 
+    /**
+     * Per-output blend modes. Default `output` uses the material's blend;
+     * any name without an entry falls back to no-blend.
+     */
+    blendModes: Record<string, BlendMode> = { output: _materialBlending };
+
     /** Type flag for runtime checking. */
     readonly isMRTNode = true;
 
@@ -51,6 +61,15 @@ export class MRTNode extends OutputStructNode {
     constructor(outputNodes: Record<string, Node<d.Any>>) {
         super([]);
         this.outputNodes = outputNodes;
+    }
+
+    setBlendMode(name: string, blend: BlendMode): this {
+        this.blendModes[name] = blend;
+        return this;
+    }
+
+    getBlendMode(name: string): BlendMode {
+        return this.blendModes[name] || _noBlending;
     }
 
     /**
@@ -72,7 +91,9 @@ export class MRTNode extends OutputStructNode {
      * Returns a new MRTNode with combined outputs (other's outputs override this's).
      */
     merge(other: MRTNode): MRTNode {
-        return new MRTNode({ ...this.outputNodes, ...other.outputNodes });
+        const merged = new MRTNode({ ...this.outputNodes, ...other.outputNodes });
+        merged.blendModes = { ...this.blendModes, ...other.blendModes };
+        return merged;
     }
 
     /**

@@ -5,13 +5,11 @@
  * - RenderContext: Configuration for render passes (framebuffer, clear state, viewport, etc.)
  * - ComputeContext: Configuration for compute passes (currently minimal, used for bind group caching)
  *
- * Aligned with Three.js RenderContext + RenderContexts pattern.
- *
  * Functional pattern: state object + functions.
  */
-import type { Camera } from 'gpucat/dist/camera/camera';
-import type { RenderTarget } from 'gpucat/dist/core/render-target';
-import type { MRTNode } from 'gpucat/dist/nodes/lib/mrt';
+import type { Camera } from '../camera/camera';
+import type { RenderTarget } from '../core/render-target';
+import type { MRTNode } from '../nodes/lib/mrt';
 /**
  * RGBA clear color value.
  */
@@ -46,8 +44,6 @@ export type ScissorValue = {
  *
  * This is the internal representation of render pass state that gets
  * translated into GPURenderPassDescriptor by the backend.
- *
- * Aligned with Three.js RenderContext structure.
  */
 export type RenderContext = {
     /** Unique identifier for this context. */
@@ -144,7 +140,6 @@ export declare function createRenderContextsState(): RenderContextsState;
 /**
  * Get or create a RenderContext for the given configuration.
  *
- * Aligned with Three.js RenderContexts.get():
  * - Returns cached context if configuration matches
  * - Creates new context if not found
  * - Updates dynamic values (clear values, sample count) on each access

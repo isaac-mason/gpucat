@@ -1,7 +1,7 @@
-import type { NodeFrame } from 'gpucat/dist/renderer/node-frame';
-import type { Any, WgslType, MulResultDesc, ArithResultDesc, CompareResultDesc, StructField, StructKeys, VecElementDesc, Vec2DescOf, Vec3DescOf, Vec4DescOf } from 'gpucat/dist/schema/schema';
-import * as d from 'gpucat/dist/schema/schema';
-export type { WgslType } from 'gpucat/dist/schema/schema';
+import type { NodeFrame } from '../../renderer/node-frame';
+import type { Any, WgslType, MulResultDesc, ArithResultDesc, CompareResultDesc, StructField, StructKeys, VecElementDesc, Vec2DescOf, Vec3DescOf, Vec4DescOf } from '../../schema/schema';
+import * as d from '../../schema/schema';
+export type { WgslType } from '../../schema/schema';
 export type ScalarType = 'f32' | 'i32' | 'u32' | 'bool' | 'f16';
 export type AtomicType = 'atomic<i32>' | 'atomic<u32>';
 export type Vec2Type = 'vec2f' | 'vec2i' | 'vec2u' | 'vec2<bool>' | 'vec2h';
@@ -527,6 +527,12 @@ export declare const toF32: <D extends Any>(node: Node<D>) => Node<d.f32>;
 export declare const toF16: <D extends Any>(node: Node<D>) => Node<d.f16>;
 export declare const toU32: <D extends Any>(node: Node<D>) => Node<d.u32>;
 export declare const toI32: <D extends Any>(node: Node<D>) => Node<d.i32>;
+/** Reinterpret a u32 or i32 bit pattern as f32. WGSL: `bitcast<f32>(x)`. */
+export declare const bitcastF32: (node: Node<d.u32 | d.i32>) => Node<d.f32>;
+/** Reinterpret an f32 or i32 bit pattern as u32. WGSL: `bitcast<u32>(x)`. */
+export declare const bitcastU32: (node: Node<d.f32 | d.i32>) => Node<d.u32>;
+/** Reinterpret an f32 or u32 bit pattern as i32. WGSL: `bitcast<i32>(x)`. */
+export declare const bitcastI32: (node: Node<d.f32 | d.u32>) => Node<d.i32>;
 export declare const greaterThan: <D extends Any>(a: Node<D>, b: Node<D>) => Node<CompareResultDesc<D>>;
 export declare const lessThan: <D extends Any>(a: Node<D>, b: Node<D>) => Node<CompareResultDesc<D>>;
 export declare const greaterThanEqual: <D extends Any>(a: Node<D>, b: Node<D>) => Node<CompareResultDesc<D>>;
@@ -702,6 +708,26 @@ export declare const dot: (a: Node<Any>, b: Node<Any>) => Node<d.f32>;
 export declare const cross: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
 export declare const normalize: <D extends Any>(a: Node<D>) => Node<D>;
 export declare const length: (a: Node<Any>) => Node<d.f32>;
+/** Pack two f32s as halves into a u32. Lower 16 bits = v.x, upper = v.y. WGSL: `pack2x16float`. */
+export declare const pack2x16float: (v: Node<d.vec2f>) => Node<d.u32>;
+/** Unpack a u32 into two f32s from half-precision. WGSL: `unpack2x16float`. */
+export declare const unpack2x16float: (v: Node<d.u32>) => Node<d.vec2f>;
+/** Pack two f32s in [-1, 1] into a u32 as 16-bit snorm. WGSL: `pack2x16snorm`. */
+export declare const pack2x16snorm: (v: Node<d.vec2f>) => Node<d.u32>;
+/** Unpack a u32 into two f32s as 16-bit snorm. WGSL: `unpack2x16snorm`. */
+export declare const unpack2x16snorm: (v: Node<d.u32>) => Node<d.vec2f>;
+/** Pack two f32s in [0, 1] into a u32 as 16-bit unorm. WGSL: `pack2x16unorm`. */
+export declare const pack2x16unorm: (v: Node<d.vec2f>) => Node<d.u32>;
+/** Unpack a u32 into two f32s as 16-bit unorm. WGSL: `unpack2x16unorm`. */
+export declare const unpack2x16unorm: (v: Node<d.u32>) => Node<d.vec2f>;
+/** Pack four f32s in [-1, 1] into a u32 as 8-bit snorm. WGSL: `pack4x8snorm`. */
+export declare const pack4x8snorm: (v: Node<d.vec4f>) => Node<d.u32>;
+/** Unpack a u32 into four f32s as 8-bit snorm. WGSL: `unpack4x8snorm`. */
+export declare const unpack4x8snorm: (v: Node<d.u32>) => Node<d.vec4f>;
+/** Pack four f32s in [0, 1] into a u32 as 8-bit unorm. WGSL: `pack4x8unorm`. */
+export declare const pack4x8unorm: (v: Node<d.vec4f>) => Node<d.u32>;
+/** Unpack a u32 into four f32s as 8-bit unorm. WGSL: `unpack4x8unorm`. */
+export declare const unpack4x8unorm: (v: Node<d.u32>) => Node<d.vec4f>;
 export declare const abs: <D extends Any>(a: Node<D>) => Node<D>;
 export declare const floor: <D extends Any>(a: Node<D>) => Node<D>;
 export declare const ceil: <D extends Any>(a: Node<D>) => Node<D>;
@@ -711,6 +737,16 @@ export declare const sin: <D extends Any>(a: Node<D>) => Node<D>;
 export declare const cos: <D extends Any>(a: Node<D>) => Node<D>;
 export declare const negate: <D extends Any>(a: Node<D>) => Node<D>;
 export declare const pow: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
+export declare const exp: <D extends Any>(a: Node<D>) => Node<D>;
+export declare const log: <D extends Any>(a: Node<D>) => Node<D>;
+export declare const exp2: <D extends Any>(a: Node<D>) => Node<D>;
+export declare const log2: <D extends Any>(a: Node<D>) => Node<D>;
+export declare const tan: <D extends Any>(a: Node<D>) => Node<D>;
+export declare const atan: <D extends Any>(a: Node<D>) => Node<D>;
+export declare const atan2: <D extends Any>(y: Node<D>, x: Node<D>) => Node<D>;
+export declare const asin: <D extends Any>(a: Node<D>) => Node<D>;
+export declare const acos: <D extends Any>(a: Node<D>) => Node<D>;
+export declare const inverseSqrt: <D extends Any>(a: Node<D>) => Node<D>;
 export declare function max<D extends Any>(a: Node<D>, b: Node<D>, ...rest: Node<D>[]): Node<D>;
 export declare function min<D extends Any>(a: Node<D>, b: Node<D>, ...rest: Node<D>[]): Node<D>;
 export declare const clamp: <D extends Any>(a: Node<D>, lo: Node<D>, hi: Node<D>) => Node<D>;
@@ -723,6 +759,12 @@ export declare const or: (a: Node<d.bool>, b: Node<d.bool>) => Node<d.bool>;
 export declare const and: (a: Node<d.bool>, b: Node<d.bool>) => Node<d.bool>;
 export declare const not: (a: Node<d.bool>) => Node<d.bool>;
 export declare const transpose: <D extends d.MatDesc>(m: Node<D>) => Node<D>;
+export declare const countOneBits: <D extends Any>(a: Node<D>) => Node<D>;
+export declare const countTrailingZeros: <D extends Any>(a: Node<D>) => Node<D>;
+export declare const countLeadingZeros: <D extends Any>(a: Node<D>) => Node<D>;
+export declare const reverseBits: <D extends Any>(a: Node<D>) => Node<D>;
+export declare const firstLeadingBit: <D extends Any>(a: Node<D>) => Node<D>;
+export declare const firstTrailingBit: <D extends Any>(a: Node<D>) => Node<D>;
 export declare const dpdx: <D extends Any>(a: Node<D>) => Node<D>;
 export declare const dpdy: <D extends Any>(a: Node<D>) => Node<D>;
 export declare const fwidth: <D extends Any>(a: Node<D>) => Node<D>;
@@ -819,6 +861,12 @@ export declare function Return<D extends Any>(value: Node<D>): void;
 export declare function Break(): void;
 export declare function Continue(): void;
 export declare function Discard(): void;
+/** Workgroup synchronization barrier. WGSL: `workgroupBarrier()`. */
+export declare function workgroupBarrier(): void;
+/** Storage-buffer write/read sync within a workgroup. WGSL: `storageBarrier()`. */
+export declare function storageBarrier(): void;
+/** Texture write/read sync within a workgroup. WGSL: `textureBarrier()`. */
+export declare function textureBarrier(): void;
 export type ParamDesc = {
     readonly name: string;
     readonly type: Any;

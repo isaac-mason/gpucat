@@ -1,5 +1,5 @@
-import * as d from 'gpucat/dist/schema/schema';
-import { CallNode, Node, ParamDesc, ParamDescsToNodes } from 'gpucat/dist/nodes/lib/core';
+import * as d from '../../schema/schema';
+import { CallNode, Node, ParamDesc, ParamDescsToNodes } from './core';
 /**
  * Parsed WGSL function info returned by parseWgslFunction().
  */

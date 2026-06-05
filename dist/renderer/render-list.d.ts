@@ -1,7 +1,6 @@
 /**
  * render-list.ts - Sorted render item list with object pooling and scene collection.
  *
- * Aligned with Three.js RenderList + RenderLists:
  * - Object pooling for RenderItems (avoids GC pressure)
  * - Sorted opaque and transparent lists
  * - Cached per scene/camera using ChainMap
@@ -12,12 +11,12 @@
  * - Opaque: sorted by material/pipeline key to minimize state changes
  * - Transparent: sorted back-to-front by view-space Z
  */
-import type { Camera } from 'gpucat/dist/camera/camera';
-import type { Object3D } from 'gpucat/dist/core/object3d';
-import { Mesh } from 'gpucat/dist/objects/mesh';
-import * as chainMap from 'gpucat/dist/renderer/chain-map';
-import type { Geometry } from 'gpucat/dist/geometry/geometry';
-import type { Material } from 'gpucat/dist/material/material';
+import type { Camera } from '../camera/camera';
+import type { Object3D } from '../core/object3d';
+import { Mesh } from '../objects/mesh';
+import * as chainMap from './chain-map';
+import type { Geometry } from '../geometry/geometry';
+import type { Material } from '../material/material';
 /**
  * RenderItem - A single item in the render list.
  *
@@ -119,13 +118,13 @@ export declare function sortRenderList(list: RenderList, customOpaqueSort?: (a: 
 /**
  * Default sort for opaque items.
  *
- * Sort priority (matches Three.js painterSortStable):
+ * Sort priority:
  * 1. groupOrder (render layers)
  * 2. renderOrder (manual ordering)
  * 3. Z (front-to-back for early-z rejection)
  * 4. ID (stability)
  *
- * Note: Three.js does NOT sort by material/pipeline. Pipeline switching is
+ * Note: we do NOT sort by material/pipeline. Pipeline switching is
  * minimized at draw time by tracking the active pipeline in setPipeline().
  */
 export declare function painterSortStable(a: RenderItem, b: RenderItem): number;

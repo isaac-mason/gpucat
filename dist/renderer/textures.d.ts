@@ -12,14 +12,14 @@
  * 4. Uploads image data if source.dataReady
  * 5. Updates version tracking (textureData.version = texture.version)
  */
-import { GpuSampler } from 'gpucat/dist/core/gpu-sampler';
-import { GpuTexture } from 'gpucat/dist/core/gpu-texture';
-import { type MipmapState } from 'gpucat/dist/renderer/mipmap-utils';
+import { GpuSampler } from '../core/gpu-sampler';
+import { GpuTexture } from '../core/gpu-texture';
+import { type MipmapState } from './mipmap-utils';
 /** Data stored per Texture in the cache */
 export type TextureData = {
     /** The GPU texture resource */
     texture: GPUTexture;
-    /** Texture version at last upload — tracks when needsUpdate was set (Three.js aligned) */
+    /** Texture version at last upload — tracks when needsUpdate was set */
     version: number;
     /** Generation — increments when GPU texture object is recreated */
     generation: number;

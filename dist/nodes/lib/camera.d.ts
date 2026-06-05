@@ -1,5 +1,5 @@
-import { UniformNode } from 'gpucat/dist/nodes/lib/uniform';
-import * as d from 'gpucat/dist/schema/schema';
+import { UniformNode } from './uniform';
+import * as d from '../../schema/schema';
 /** Projection matrix of the scene camera. In renderGroup. */
 export declare const cameraProjectionMatrix: UniformNode<d.mat4x4f>;
 /** View (world-to-camera) matrix. In renderGroup. */

@@ -1,4 +1,4 @@
-import { Tab } from 'gpucat/dist/inspector/ui/tab';
+import { Tab } from '../ui/tab';
 export declare class Console extends Tab {
     filters: {
         info: boolean;

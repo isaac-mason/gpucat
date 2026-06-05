@@ -1,8 +1,8 @@
-import { Tab } from 'gpucat/dist/inspector/ui/tab';
-import { Graph } from 'gpucat/dist/inspector/ui/graph';
-import { Item } from 'gpucat/dist/inspector/ui/item';
-import type { FrameRecord } from 'gpucat/dist/inspector/renderer-inspector';
-import type { RendererInspector } from 'gpucat/dist/inspector/renderer-inspector';
+import { Tab } from '../ui/tab';
+import { Graph } from '../ui/graph';
+import { Item } from '../ui/item';
+import type { FrameRecord } from '../renderer-inspector';
+import type { RendererInspector } from '../renderer-inspector';
 export declare class Performance extends Tab {
     graph: Graph;
     graphStats: Item;

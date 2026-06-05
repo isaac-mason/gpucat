@@ -1,6 +1,6 @@
-import { Node } from 'gpucat/dist/nodes/lib/core';
-import type { Any } from 'gpucat/dist/schema/schema';
-import { SubBuildNode } from 'gpucat/dist/nodes/lib/sub-build';
+import { Node } from './core';
+import type { Any } from '../../schema/schema';
+import { SubBuildNode } from './sub-build';
 /**
  * WGSL @interpolate interpolation type.
  *   - perspective  : values are interpolated in a perspective-correct manner (default for float types)

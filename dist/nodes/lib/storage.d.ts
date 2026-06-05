@@ -1,7 +1,7 @@
-import { GpuBuffer } from 'gpucat/dist/core/gpu-buffer';
-import type { Any } from 'gpucat/dist/schema/schema';
-import { Node } from 'gpucat/dist/nodes/lib/core';
-import { UniformGroup } from 'gpucat/dist/nodes/lib/uniform';
+import { GpuBuffer } from '../../core/gpu-buffer';
+import type { Any } from '../../schema/schema';
+import { Node } from './core';
+import { UniformGroup } from './uniform';
 /**
  * StorageNode — declares a storage buffer binding in a shader.
  *

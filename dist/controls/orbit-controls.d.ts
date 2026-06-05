@@ -1,5 +1,5 @@
 import { type Vec3, type Vec2, type Quat, type Spherical } from 'mathcat';
-import type { Camera } from 'gpucat/dist/camera/camera';
+import type { Camera } from '../camera/camera';
 declare const STATE: {
     readonly NONE: -1;
     readonly ROTATE: 0;
@@ -31,7 +31,7 @@ export interface OrbitControlsEvent {
 }
 export type OrbitControlsEventListener = (event: OrbitControlsEvent) => void;
 /**
- * OrbitControls — mirrors Three.js OrbitControls.
+ * OrbitControls
  *
  * Orbit: left mouse / one-finger touch.
  * Zoom:  middle mouse / wheel / two-finger pinch.

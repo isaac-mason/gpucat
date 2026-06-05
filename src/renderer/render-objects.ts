@@ -142,8 +142,6 @@ export function initRenderObject(
     device: GPUDevice,
     bufferCache: BufferCache,
     renderObject: RenderObject,
-    colorFormat: GPUTextureFormat,
-    depthFormat: GPUTextureFormat | null,
 ): boolean {
     const material = renderObject.material;
     const geometry = renderObject.geometry;
@@ -177,8 +175,6 @@ export function initRenderObject(
             device,
             renderObject,
             bindGroupLayouts,
-            colorFormat,
-            depthFormat,
             null, // sync
         );
         renderObject.pipeline = entry.pipeline;
@@ -230,8 +226,6 @@ export function initRenderObjectWithPromises(
     device: GPUDevice,
     bufferCache: BufferCache,
     renderObject: RenderObject,
-    colorFormat: GPUTextureFormat,
-    depthFormat: GPUTextureFormat | null,
     promises: Promise<void>[],
 ): boolean {
     const material = renderObject.material;
@@ -266,8 +260,6 @@ export function initRenderObjectWithPromises(
             device,
             renderObject,
             bindGroupLayouts,
-            colorFormat,
-            depthFormat,
             promises, // async - will push promise to array
         );
         // Pipeline will be set when promise resolves, but we track the entry

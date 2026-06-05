@@ -262,13 +262,13 @@ function buildAttachmentState(renderTarget: RenderTarget | null): string {
         return 'default';
     }
 
-    const format = renderTarget.colorFormat;
+    const formats = renderTarget.textures.map((t) => t.format).join(',');
     const count = renderTarget.textures.length;
     const samples = renderTarget.samples;
-    const depth = renderTarget.depthFormat !== null;
+    const depth = renderTarget.depthTexture !== null;
     const stencil = false; // TODO: Add stencil support to RenderTarget
 
-    return `${count}:${format}:${samples}:${depth}:${stencil}`;
+    return `${count}:${formats}:${samples}:${depth}:${stencil}`;
 }
 
 /**
@@ -320,13 +320,14 @@ export function getRenderContext(
     if (context === undefined) {
         context = createRenderContext();
         context.mrt = mrt;
+        context.renderTarget = renderTarget;
         state.contexts.set(cacheKey, context);
     }
 
     // Update dynamic values on each access
     if (renderTarget !== null) {
         context.sampleCount = renderTarget.samples === 0 ? 1 : renderTarget.samples;
-        context.depth = renderTarget.depthFormat !== null;
+        context.depth = renderTarget.depthTexture !== null;
     }
 
     context.clearDepthValue = state.defaultClearDepth;

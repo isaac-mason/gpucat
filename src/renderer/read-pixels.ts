@@ -21,7 +21,7 @@ export async function readPixels(
     if (!tex) {
         throw new Error(`[readPixels] no color attachment at index ${attachmentIndex}.`);
     }
-    const fmt = renderTarget.colorFormat;
+    const fmt = tex.format;
     if (
         fmt !== 'rgba8unorm' &&
         fmt !== 'bgra8unorm' &&
@@ -29,7 +29,7 @@ export async function readPixels(
         fmt !== 'bgra8unorm-srgb'
     ) {
         throw new Error(
-            `[readPixels] unsupported colorFormat '${fmt}'. Render through an rgba8unorm RenderTarget first.`,
+            `[readPixels] unsupported attachment format '${fmt}' at index ${attachmentIndex}. Render through an rgba8unorm RenderTarget first.`,
         );
     }
 

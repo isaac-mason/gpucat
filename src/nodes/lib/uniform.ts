@@ -22,10 +22,10 @@ export class UniformNode<D extends Any> extends Node<D> {
     get groupNode(): UniformGroup { return this.uniform.group; }
 
     /** Get the current value */
-    get value(): UniformValue | null { return this.uniform.value; }
+    get value(): UniformValue<D> | null { return this.uniform.value; }
 
     /** Set value directly */
-    set value(v: UniformValue | null) { this.uniform.value = v; }
+    set value(v: UniformValue<D> | null) { this.uniform.value = v; }
 
     constructor(uniform: Uniform<D>, name: string) {
         super(uniform.schema);
@@ -42,7 +42,7 @@ export class UniformNode<D extends Any> extends Node<D> {
         this.update = (frame: NodeFrame) => {
             const value = callback(frame);
             if (value !== undefined) {
-                this.uniform.value = value as UniformValue;
+                this.uniform.value = value as UniformValue<D>;
             }
         };
         return this;
@@ -130,7 +130,7 @@ export function uniform<D extends Any, S extends StructSchema>(
     // Extract initial value from the node
     const initialValue = extractValue(initNode);
     
-    const u = new Uniform(initNode.type, initialValue);
+    const u = new Uniform(initNode.type, initialValue as UniformValue<D>);
     return new UniformNode(u, uniformId);
 }
 

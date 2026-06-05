@@ -1,4 +1,4 @@
-import { type Any, type TypedArrayFor } from 'gpucat/dist/schema/schema';
+import { type Any, type TypedArrayFor } from '../schema/schema';
 /** determines how a buffer's lifecycle is managed */
 export declare enum BufferLifecycle {
     /** Usages are tracked, GPU resources are disposed when usage count hits 0 */

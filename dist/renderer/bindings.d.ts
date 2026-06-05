@@ -1,13 +1,13 @@
-import type { UniformGroupBlock } from 'gpucat/dist/nodes/builder';
-import type { GpuBuffer } from 'gpucat/dist/core/gpu-buffer';
-import type { Any } from 'gpucat/dist/schema/schema';
-import type { BindGroup } from 'gpucat/dist/renderer/bind-group';
-import { type BindGroupLayoutCache } from 'gpucat/dist/renderer/bind-group-layout';
-import type { BufferCache } from 'gpucat/dist/renderer/buffers';
-import type { NodeBuilderState } from 'gpucat/dist/renderer/node-builder-state';
-import type { NodeFrame } from 'gpucat/dist/renderer/node-frame';
-import type { RenderObject } from 'gpucat/dist/renderer/render-object';
-import type { TextureCache } from 'gpucat/dist/renderer/textures';
+import type { UniformGroupBlock } from '../nodes/builder';
+import type { GpuBuffer } from '../core/gpu-buffer';
+import type { Any } from '../schema/schema';
+import type { BindGroup } from './bind-group';
+import { type BindGroupLayoutCache } from './bind-group-layout';
+import type { BufferCache } from './buffers';
+import type { NodeBuilderState } from './node-builder-state';
+import type { NodeFrame } from './node-frame';
+import type { RenderObject } from './render-object';
+import type { TextureCache } from './textures';
 /**
  * Per-BindGroup data (GPU resources).
  * Keyed by BindGroup object identity in a WeakMap.

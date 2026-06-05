@@ -1,5 +1,5 @@
-import type { Any } from 'gpucat/dist/schema/schema';
-export type UniformValue = number | number[] | Float32Array | Int32Array | Uint32Array;
+import type { Any, Infer, TypedArrayFor } from '../schema/schema';
+export type UniformValue<T extends Any = Any> = Any extends T ? number | number[] | Float32Array | Int32Array | Uint32Array : Infer<T> | number[] | TypedArrayFor<T>;
 /**
  * Update frequency for uniform groups.
  */
@@ -62,6 +62,6 @@ export declare const objectGroup: UniformGroup;
 export declare class Uniform<T extends Any = Any> {
     readonly schema: T;
     readonly group: UniformGroup;
-    value: UniformValue | null;
-    constructor(schema: T, initialValue?: UniformValue, group?: UniformGroup);
+    value: UniformValue<T> | null;
+    constructor(schema: T, initialValue?: UniformValue<T>, group?: UniformGroup);
 }

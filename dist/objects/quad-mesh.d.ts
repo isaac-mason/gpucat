@@ -1,14 +1,12 @@
-import { Mesh } from 'gpucat/dist/objects/mesh';
-import { Camera } from 'gpucat/dist/camera/camera';
-import type { Material } from 'gpucat/dist/material/material';
-import type { WebGPURenderer } from 'gpucat/dist/renderer/renderer';
+import { Mesh } from './mesh';
+import { Camera } from '../camera/camera';
+import type { Material } from '../material/material';
+import type { WebGPURenderer } from '../renderer/renderer';
 /**
  * QuadMesh is a helper for rendering fullscreen effects.
  *
  * It wraps a fullscreen triangle geometry and provides a `render()` method
  * that draws the quad to the renderer's current target (canvas or render target).
- *
- * Three.js aligned: mirrors src/renderers/common/QuadMesh.js
  *
  * Usage:
  * ```ts

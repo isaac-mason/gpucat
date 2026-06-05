@@ -1,6 +1,6 @@
-import { Node } from 'gpucat/dist/nodes/lib/core';
-import type { Any } from 'gpucat/dist/schema/schema';
-import * as d from 'gpucat/dist/schema/schema';
+import { Node } from './core';
+import type { Any } from '../../schema/schema';
+import * as d from '../../schema/schema';
 type AtomicPtrDesc = d.i32 | d.u32 | d.atomicI32 | d.atomicU32;
 type ScalarResultDesc = d.i32 | d.u32;
 /**

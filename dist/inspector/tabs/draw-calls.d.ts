@@ -13,12 +13,12 @@
  *   update() diffs by ro.id — only adds/removes items on structural changes.
  *   The static detail panel is only rebuilt when _selectedRO changes.
  */
-import { Tab } from 'gpucat/dist/inspector/ui/tab';
-import { List } from 'gpucat/dist/inspector/ui/list';
-import type { Inspector } from 'gpucat/dist/inspector/inspector';
-import type { RenderObject } from 'gpucat/dist/renderer/render-object';
-import type { WebGPURenderer } from 'gpucat/dist/renderer/renderer';
-import type { NodeBuilderState } from 'gpucat/dist/renderer/node-builder-state';
+import { Tab } from '../ui/tab';
+import { List } from '../ui/list';
+import type { Inspector } from '../inspector';
+import type { RenderObject } from '../../renderer/render-object';
+import type { WebGPURenderer } from '../../renderer/renderer';
+import type { NodeBuilderState } from '../../renderer/node-builder-state';
 export declare class DrawCalls extends Tab {
     readonly list: List;
     /** ro.id → RONode for every currently-displayed RenderObject */

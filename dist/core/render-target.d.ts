@@ -1,10 +1,18 @@
-import { Texture } from 'gpucat/dist/texture/texture';
-import { DepthTexture, type DepthTextureFormat } from 'gpucat/dist/texture/depth-texture';
+import { Texture } from '../texture/texture';
+import { DepthTexture, type DepthTextureFormat } from '../texture/depth-texture';
 export type RenderTargetOptions = {
-    /** Color attachment format. Default: 'rgba16float'. Applied to all attachments. */
+    /**
+     * Default format applied to every color attachment at construction.
+     * For per-attachment formats (MRT with mixed formats), mutate `rt.textures[i].format` after construction.
+     * Default: 'rgba16float'.
+     */
     colorFormat?: GPUTextureFormat;
-    /** Depth attachment format. `null` = no depth attachment. Default: 'depth24plus'. */
-    depthFormat?: DepthTextureFormat | null;
+    /** Whether to allocate a depth attachment. Default: true. */
+    depthBuffer?: boolean;
+    /** Format of the auto-allocated DepthTexture. Default: 'depth24plus'. Ignored if `depthTexture` is provided or `depthBuffer` is false. */
+    depthFormat?: DepthTextureFormat;
+    /** Caller-provided depth texture. Overrides `depthBuffer`/`depthFormat`. */
+    depthTexture?: DepthTexture;
     /** MSAA sample count. Default: 1. */
     samples?: number;
     /** Number of color attachments (MRT). Default: 1. */
@@ -21,16 +29,12 @@ export declare class RenderTarget {
     width: number;
     /** The height of the render target */
     height: number;
-    /** The color format of the render target's texture(s) */
-    readonly colorFormat: GPUTextureFormat;
-    /** The depth format of the render target's depth texture, or null if no depth attachment */
-    readonly depthFormat: DepthTextureFormat | null;
     /** The MSAA sample count of the render target */
     readonly samples: number;
     /**
      * Array of color attachment textures.
-     * Each has a `.name` for MRT mapping, the first texture is also accessible via the `texture` getter.
-     * These are Texture instances with isRenderTargetTexture = true.
+     * Each has its own mutable `.format` (per-attachment formats supported by mutating `textures[i].format`).
+     * Each has a `.name` for MRT mapping; the first texture is also accessible via the `texture` getter.
      */
     textures: Texture[];
     /** Depth texture, or null if no depth */

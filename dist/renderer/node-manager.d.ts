@@ -1,8 +1,8 @@
-import type { RenderObject } from 'gpucat/dist/renderer/render-object';
-import { NodeFrame } from 'gpucat/dist/renderer/node-frame';
-import type { NodeBuilderState, BindingContext } from 'gpucat/dist/renderer/node-builder-state';
-import type { CompileResult } from 'gpucat/dist/nodes/builder';
-import type { ComputeNode } from 'gpucat/dist/nodes/nodes';
+import type { RenderObject } from './render-object';
+import { NodeFrame } from './node-frame';
+import type { NodeBuilderState, BindingContext } from './node-builder-state';
+import type { CompileResult } from '../nodes/builder';
+import type { ComputeNode } from '../nodes/nodes';
 /** node compilation and updates state */
 export type NodeManagerState = {
     /**

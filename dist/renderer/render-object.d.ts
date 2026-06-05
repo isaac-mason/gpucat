@@ -1,30 +1,26 @@
 /**
  * render-object.ts - Per-draw-call state container.
  *
- * Aligned with Three.js RenderObject:
  * - Central hub owning all per-draw-call state
  * - One RenderObject per unique (mesh, material, renderContext, passId) tuple
  * - Caches nodeBuilderState, pipeline, bindings, attributes
  * - Lazily initialized - starts empty, populated on first render
  *
- * Key Three.js pattern:
+ * Binding lifecycle:
  * - _bindings is lazily created via getBindings()
  * - getBindings() calls NodeBuilderState.createBindings() which clones non-shared groups
  * - This ensures shared groups (camera, time) are reused across all RenderObjects
- *
- * Unlike Three.js, we use a plain object type with factory function
- * rather than a class.
  */
-import type { Geometry } from 'gpucat/dist/geometry/geometry';
-import { type GpuBuffer } from 'gpucat/dist/core/gpu-buffer';
-import type { Any } from 'gpucat/dist/schema/schema';
-import type { Material } from 'gpucat/dist/material/material';
-import type { Mesh } from 'gpucat/dist/objects/mesh';
-import type { Camera } from 'gpucat/dist/camera/camera';
-import type { Object3D } from 'gpucat/dist/core/object3d';
-import type { RenderContext } from 'gpucat/dist/renderer/pass-context';
-import type { NodeBuilderState } from 'gpucat/dist/renderer/node-builder-state';
-import type { BindGroup } from 'gpucat/dist/renderer/bind-group';
+import type { Geometry } from '../geometry/geometry';
+import { type GpuBuffer } from '../core/gpu-buffer';
+import type { Any } from '../schema/schema';
+import type { Material } from '../material/material';
+import type { Mesh } from '../objects/mesh';
+import type { Camera } from '../camera/camera';
+import type { Object3D } from '../core/object3d';
+import type { RenderContext } from './pass-context';
+import type { NodeBuilderState } from './node-builder-state';
+import type { BindGroup } from './bind-group';
 /**
  * RenderObject - Per-draw-call state container.
  *
@@ -122,7 +118,6 @@ export type RenderObject = {
      * Whether this RenderObject has been disposed.
      */
     disposed: boolean;
-    readonly isRenderObject: true;
 };
 /**
  * Create a new RenderObject.
@@ -144,7 +139,6 @@ export declare function disposeRenderObject(renderObject: RenderObject): void;
 /**
  * Get the BindGroups for a RenderObject, lazily creating them.
  *
- * Three.js pattern (RenderObject.getBindings):
  * - First access calls NodeBuilderState.createBindings()
  * - This clones non-shared groups, reuses shared groups
  * - Subsequent accesses return the cached bindings
@@ -161,20 +155,3 @@ export declare function getBindings(renderObject: RenderObject): BindGroup[];
  * The key includes render state, geometry attributes, and context configuration.
  */
 export declare function computeRenderObjectCacheKey(material: Material, geometry: Geometry, renderContext: RenderContext): string;
-/**
- * Get or compute the cached pipeline key for a RenderObject.
- *
- * The pipeline key is used for:
- * 1. Pipeline cache lookup (avoid recomputing expensive key strings)
- * 2. Opaque sorting by pipeline (minimize setPipeline calls)
- *
- * The key is invalidated when material.version changes.
- *
- * @param renderObject - The RenderObject
- * @param samples - MSAA sample count
- * @param colorFormat - Color texture format
- * @param depthFormat - Depth texture format (undefined for no depth)
- * @param makeKeyFn - Function to compute the pipeline key (from pipelines.ts)
- * @returns The cached or newly computed pipeline key
- */
-export declare function getCachedPipelineKey(renderObject: RenderObject, samples: number, colorFormat: GPUTextureFormat, depthFormat: GPUTextureFormat | undefined, makeKeyFn: (material: Material, samples: number, format: GPUTextureFormat, depthFormat?: GPUTextureFormat) => string): string;

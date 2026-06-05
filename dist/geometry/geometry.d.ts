@@ -1,6 +1,6 @@
 import type { Box3, Sphere } from 'mathcat';
-import type { GpuBuffer } from 'gpucat/dist/core/gpu-buffer';
-import type { Any } from 'gpucat/dist/schema/schema';
+import type { GpuBuffer } from '../core/gpu-buffer';
+import type { Any } from '../schema/schema';
 /**
  * Subset of geometry to draw.
  * - `start` maps to `firstVertex` (non-indexed) or `firstIndex` (indexed).

@@ -1,4 +1,4 @@
-import { Item } from 'gpucat/dist/inspector/ui/item';
+import { Item } from './item';
 export declare class List {
     headers: string[];
     children: Item[];

@@ -1,6 +1,6 @@
 import { type Vec3, type Mat4, type Box3 } from 'mathcat';
-import type { Object3D } from 'gpucat/dist/core/object3d';
-import { Camera } from 'gpucat/dist/camera/camera';
+import type { Object3D } from '../core/object3d';
+import { Camera } from '../camera/camera';
 export type Ray = {
     origin: Vec3;
     direction: Vec3;
@@ -8,7 +8,6 @@ export type Ray = {
 /**
  * Möller–Trumbore ray-triangle intersection.
  * Returns raw t (distance along ray direction) or null if no hit.
- * Ported from Three.js Ray.intersectTriangle.
  */
 export declare function rayTriangleIntersection(origin: Vec3, direction: Vec3, a: Vec3, b: Vec3, c: Vec3, backfaceCulling: boolean): number | null;
 /**

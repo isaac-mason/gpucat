@@ -1,8 +1,8 @@
-import type { GpuBuffer } from 'gpucat/dist/core/gpu-buffer';
-import type { GpuTypedArray } from 'gpucat/dist/core/gpu-buffer';
-import type { Geometry } from 'gpucat/dist/geometry/geometry';
-import type { StorageNode } from 'gpucat/dist/nodes/nodes';
-import type { Any } from 'gpucat/dist/schema/schema';
+import type { GpuBuffer } from '../core/gpu-buffer';
+import type { GpuTypedArray } from '../core/gpu-buffer';
+import type { Geometry } from '../geometry/geometry';
+import type { StorageNode } from '../nodes/nodes';
+import type { Any } from '../schema/schema';
 type CacheEntry = {
     buf: GPUBuffer;
     version: number;

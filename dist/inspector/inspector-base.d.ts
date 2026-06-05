@@ -34,15 +34,15 @@
  * Per-dispatch hooks (inside a compute pass):
  *   _dispatchComputeNode    → inspector.dispatchWorkgroups(x, y, z)
  */
-import type { WebGPURenderer } from 'gpucat/dist/renderer/renderer';
-import type { InspectorNode, ComputeNode } from 'gpucat/dist/nodes/nodes';
-import type { Object3D } from 'gpucat/dist/core/object3d';
-import { Any } from 'gpucat/dist/schema/schema';
+import type { WebGPURenderer } from '../renderer/renderer';
+import type { InspectorNode, ComputeNode } from '../nodes/nodes';
+import type { Object3D } from '../core/object3d';
+import { Any } from '../schema/schema';
 export declare class InspectorBase {
     /** Back-reference to the renderer. Set by renderer after init(). */
-    protected renderer: WebGPURenderer | null;
+    renderer: WebGPURenderer | null;
     /** Performance marker API - no-op in base class, implemented in RendererInspector */
-    readonly perf: {
+    perf: {
         start: (_name: string) => void;
         end: (_name: string) => void;
     };
@@ -57,7 +57,7 @@ export declare class InspectorBase {
      * `console.warn` sites that don't care about tab routing can keep using
      * the global `console` directly.
      */
-    readonly log: {
+    log: {
         info: (msg: string) => void;
         warn: (msg: string) => void;
         error: (msg: string) => void;

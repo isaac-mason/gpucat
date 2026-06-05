@@ -2142,6 +2142,12 @@ function fields(node) {
     }
     return result;
 }
+/** Reinterpret a u32 or i32 bit pattern as f32. WGSL: `bitcast<f32>(x)`. */
+const bitcastF32 = (node) => new CallNode(f32$1, 'bitcast<f32>', [node]);
+/** Reinterpret an f32 or i32 bit pattern as u32. WGSL: `bitcast<u32>(x)`. */
+const bitcastU32 = (node) => new CallNode(u32$1, 'bitcast<u32>', [node]);
+/** Reinterpret an f32 or u32 bit pattern as i32. WGSL: `bitcast<i32>(x)`. */
+const bitcastI32 = (node) => new CallNode(i32$1, 'bitcast<i32>', [node]);
 const greaterThan = (a, b) => new BinopNode('>', compareResultDesc(a.type), a, b);
 const lessThan = (a, b) => new BinopNode('<', compareResultDesc(a.type), a, b);
 const greaterThanEqual = (a, b) => new BinopNode('>=', compareResultDesc(a.type), a, b);
@@ -2299,6 +2305,26 @@ const dot$1 = (a, b) => new CallNode(f32$1, 'dot', [a, b]);
 const cross$1 = (a, b) => new CallNode(a.type, 'cross', [a, b]);
 const normalize$4 = (a) => new CallNode(a.type, 'normalize', [a]);
 const length$1 = (a) => new CallNode(f32$1, 'length', [a]);
+/** Pack two f32s as halves into a u32. Lower 16 bits = v.x, upper = v.y. WGSL: `pack2x16float`. */
+const pack2x16float = (v) => new CallNode(u32$1, 'pack2x16float', [v]);
+/** Unpack a u32 into two f32s from half-precision. WGSL: `unpack2x16float`. */
+const unpack2x16float = (v) => new CallNode(vec2f$1, 'unpack2x16float', [v]);
+/** Pack two f32s in [-1, 1] into a u32 as 16-bit snorm. WGSL: `pack2x16snorm`. */
+const pack2x16snorm = (v) => new CallNode(u32$1, 'pack2x16snorm', [v]);
+/** Unpack a u32 into two f32s as 16-bit snorm. WGSL: `unpack2x16snorm`. */
+const unpack2x16snorm = (v) => new CallNode(vec2f$1, 'unpack2x16snorm', [v]);
+/** Pack two f32s in [0, 1] into a u32 as 16-bit unorm. WGSL: `pack2x16unorm`. */
+const pack2x16unorm = (v) => new CallNode(u32$1, 'pack2x16unorm', [v]);
+/** Unpack a u32 into two f32s as 16-bit unorm. WGSL: `unpack2x16unorm`. */
+const unpack2x16unorm = (v) => new CallNode(vec2f$1, 'unpack2x16unorm', [v]);
+/** Pack four f32s in [-1, 1] into a u32 as 8-bit snorm. WGSL: `pack4x8snorm`. */
+const pack4x8snorm = (v) => new CallNode(u32$1, 'pack4x8snorm', [v]);
+/** Unpack a u32 into four f32s as 8-bit snorm. WGSL: `unpack4x8snorm`. */
+const unpack4x8snorm = (v) => new CallNode(vec4f$1, 'unpack4x8snorm', [v]);
+/** Pack four f32s in [0, 1] into a u32 as 8-bit unorm. WGSL: `pack4x8unorm`. */
+const pack4x8unorm = (v) => new CallNode(u32$1, 'pack4x8unorm', [v]);
+/** Unpack a u32 into four f32s as 8-bit unorm. WGSL: `unpack4x8unorm`. */
+const unpack4x8unorm = (v) => new CallNode(vec4f$1, 'unpack4x8unorm', [v]);
 const abs = (a) => new CallNode(a.type, 'abs', [a]);
 const floor = (a) => new CallNode(a.type, 'floor', [a]);
 const ceil = (a) => new CallNode(a.type, 'ceil', [a]);
@@ -2308,6 +2334,16 @@ const sin = (a) => new CallNode(a.type, 'sin', [a]);
 const cos = (a) => new CallNode(a.type, 'cos', [a]);
 const negate$1 = (a) => new CallNode(a.type, 'negate', [a]);
 const pow = (a, b) => new CallNode(a.type, 'pow', [a, b]);
+const exp = (a) => new CallNode(a.type, 'exp', [a]);
+const log = (a) => new CallNode(a.type, 'log', [a]);
+const exp2 = (a) => new CallNode(a.type, 'exp2', [a]);
+const log2 = (a) => new CallNode(a.type, 'log2', [a]);
+const tan = (a) => new CallNode(a.type, 'tan', [a]);
+const atan = (a) => new CallNode(a.type, 'atan', [a]);
+const atan2 = (y, x) => new CallNode(y.type, 'atan2', [y, x]);
+const asin = (a) => new CallNode(a.type, 'asin', [a]);
+const acos = (a) => new CallNode(a.type, 'acos', [a]);
+const inverseSqrt = (a) => new CallNode(a.type, 'inverseSqrt', [a]);
 function max(a, b, ...rest) {
     let result = new CallNode(a.type, 'max', [a, b]);
     for (const n of rest) {
@@ -2332,6 +2368,13 @@ const or = (a, b) => new BinopNode('||', bool$1, a, b);
 const and = (a, b) => new BinopNode('&&', bool$1, a, b);
 const not = (a) => new CallNode(bool$1, 'not', [a]);
 const transpose$1 = (m) => new CallNode(m.type, 'transpose', [m]);
+// ── Bit-count builtins (integer-only) ────────────────────────────────────────
+const countOneBits = (a) => new CallNode(a.type, 'countOneBits', [a]);
+const countTrailingZeros = (a) => new CallNode(a.type, 'countTrailingZeros', [a]);
+const countLeadingZeros = (a) => new CallNode(a.type, 'countLeadingZeros', [a]);
+const reverseBits = (a) => new CallNode(a.type, 'reverseBits', [a]);
+const firstLeadingBit = (a) => new CallNode(a.type, 'firstLeadingBit', [a]);
+const firstTrailingBit = (a) => new CallNode(a.type, 'firstTrailingBit', [a]);
 // ── Derivative builtins (fragment-only) ───────────────────────────────────────
 const dpdx = (a) => new CallNode(a.type, 'dpdx', [a]);
 const dpdy = (a) => new CallNode(a.type, 'dpdy', [a]);
@@ -2540,6 +2583,18 @@ function Continue() {
 }
 function Discard() {
     addToStack(new DiscardNode());
+}
+/** Workgroup synchronization barrier. WGSL: `workgroupBarrier()`. */
+function workgroupBarrier() {
+    addToStack(new CallNode(voidDesc, 'workgroupBarrier', []));
+}
+/** Storage-buffer write/read sync within a workgroup. WGSL: `storageBarrier()`. */
+function storageBarrier() {
+    addToStack(new CallNode(voidDesc, 'storageBarrier', []));
+}
+/** Texture write/read sync within a workgroup. WGSL: `textureBarrier()`. */
+function textureBarrier() {
+    addToStack(new CallNode(voidDesc, 'textureBarrier', []));
 }
 // Implementation
 function Fn(jsFunc, layout) {
@@ -4405,16 +4460,12 @@ class RenderTarget {
     width;
     /** The height of the render target */
     height;
-    /** The color format of the render target's texture(s) */
-    colorFormat;
-    /** The depth format of the render target's depth texture, or null if no depth attachment */
-    depthFormat;
     /** The MSAA sample count of the render target */
     samples;
     /**
      * Array of color attachment textures.
-     * Each has a `.name` for MRT mapping, the first texture is also accessible via the `texture` getter.
-     * These are Texture instances with isRenderTargetTexture = true.
+     * Each has its own mutable `.format` (per-attachment formats supported by mutating `textures[i].format`).
+     * Each has a `.name` for MRT mapping; the first texture is also accessible via the `texture` getter.
      */
     textures;
     /** Depth texture, or null if no depth */
@@ -4423,20 +4474,21 @@ class RenderTarget {
     constructor(width, height, opts = {}) {
         this.width = width;
         this.height = height;
-        this.colorFormat = opts.colorFormat ?? 'rgba16float';
-        this.depthFormat = opts.depthFormat !== undefined ? opts.depthFormat : 'depth24plus';
         this.samples = opts.samples ?? 1;
-        // Create color attachment textures
+        const defaultFormat = opts.colorFormat ?? 'rgba16float';
         const count = opts.count ?? 1;
         this.textures = [];
         for (let i = 0; i < count; i++) {
-            const texture = createRenderTargetTexture(this, width, height, this.colorFormat);
+            const texture = createRenderTargetTexture(this, width, height, defaultFormat);
             texture.name = i === 0 ? 'output' : `output${i}`;
             this.textures.push(texture);
         }
-        // Create depth texture if depth format specified
-        if (this.depthFormat) {
-            const depthTexture = new DepthTexture(width, height, this.depthFormat);
+        if (opts.depthTexture) {
+            this.depthTexture = opts.depthTexture;
+            this.depthTexture._gpuTexture.isRenderTargetTexture = true;
+        }
+        else if (opts.depthBuffer !== false) {
+            const depthTexture = new DepthTexture(width, height, opts.depthFormat ?? 'depth24plus');
             depthTexture.name = 'depth';
             depthTexture._gpuTexture.isRenderTargetTexture = true;
             this.depthTexture = depthTexture;
@@ -5842,9 +5894,15 @@ const EDGE_GUESS = 8.0;
 const CONTRAST_THRESHOLD = 0.0312;
 const RELATIVE_THRESHOLD = 0.063;
 const SUBPIXEL_BLENDING = 1.0;
-
 /**
  * FXAA (Fast Approximate Anti-Aliasing) post-processing effect.
+ *
+ * Uses the standard FXAA 3.11 algorithm:
+ * 1. Samples luminance of neighboring pixels
+ * 2. Detects edges based on contrast
+ * 3. Blends pixels along detected edges to smooth jaggies
+ *
+ * The inverse texture size uniform is automatically updated each frame.
  *
  * @param textureNode - The texture to apply FXAA to (typically from pass.getTextureNode())
  * @returns A vec4f node containing the anti-aliased color
@@ -6070,6 +6128,43 @@ const positionClip = (() => {
     return clipPos;
 })();
 
+class BlendMode {
+    blending;
+    blendSrc;
+    blendDst;
+    blendEquation;
+    blendSrcAlpha;
+    blendDstAlpha;
+    blendEquationAlpha;
+    premultiplyAlpha;
+    constructor(blending = 'normal') {
+        this.blending = blending;
+        this.blendSrc = 'src-alpha';
+        this.blendDst = 'one-minus-src-alpha';
+        this.blendEquation = 'add';
+        this.blendSrcAlpha = null;
+        this.blendDstAlpha = null;
+        this.blendEquationAlpha = null;
+        this.premultiplyAlpha = false;
+    }
+    copy(source) {
+        this.blending = source.blending;
+        this.blendSrc = source.blendSrc;
+        this.blendDst = source.blendDst;
+        this.blendEquation = source.blendEquation;
+        this.blendSrcAlpha = source.blendSrcAlpha;
+        this.blendDstAlpha = source.blendDstAlpha;
+        this.blendEquationAlpha = source.blendEquationAlpha;
+        this.premultiplyAlpha = source.premultiplyAlpha;
+        return this;
+    }
+    clone() {
+        return new BlendMode().copy(this);
+    }
+}
+
+const _noBlending = /*#__PURE__*/ new BlendMode('no');
+const _materialBlending = /*#__PURE__*/ new BlendMode('material');
 /**
  * Represents a fragment shader output struct with multiple @location outputs.
  * Used for MRT (Multiple Render Targets).
@@ -6102,6 +6197,11 @@ class MRTNode extends OutputStructNode {
      * values are nodes producing vec4f values.
      */
     outputNodes;
+    /**
+     * Per-output blend modes. Default `output` uses the material's blend;
+     * any name without an entry falls back to no-blend.
+     */
+    blendModes = { output: _materialBlending };
     /** Type flag for runtime checking. */
     isMRTNode = true;
     /**
@@ -6113,6 +6213,13 @@ class MRTNode extends OutputStructNode {
     constructor(outputNodes) {
         super([]);
         this.outputNodes = outputNodes;
+    }
+    setBlendMode(name, blend) {
+        this.blendModes[name] = blend;
+        return this;
+    }
+    getBlendMode(name) {
+        return this.blendModes[name] || _noBlending;
     }
     /**
      * Returns true if this MRT node has an output with the given name.
@@ -6131,7 +6238,9 @@ class MRTNode extends OutputStructNode {
      * Returns a new MRTNode with combined outputs (other's outputs override this's).
      */
     merge(other) {
-        return new MRTNode({ ...this.outputNodes, ...other.outputNodes });
+        const merged = new MRTNode({ ...this.outputNodes, ...other.outputNodes });
+        merged.blendModes = { ...this.blendModes, ...other.blendModes };
+        return merged;
     }
     /**
      * Resolve output names to @location indices based on render target textures.
@@ -6462,481 +6571,6 @@ function wgslFn(source, layoutOrIncludes, includesArg) {
     return fn;
 }
 
-let bindGroupIdCounter = 0;
-/** Create a BindGroup from uniform group block */
-function createUniformBindGroup(block) {
-    const binding = {
-        kind: 'uniform',
-        block,
-        bufferKey: null,
-        lastFrameId: -1,
-        lastRenderId: -1,
-        currentBuffer: null,
-        scratchBuffer: null,
-    };
-    return {
-        id: bindGroupIdCounter++,
-        name: block.groupName,
-        groupIndex: block.groupIndex,
-        shared: block.shared,
-        bindings: [binding],
-        isBindGroup: true,
-    };
-}
-/** Create a BindGroup for storage/texture/sampler bindings in a group */
-function createResourceBindGroup(name, groupIndex, shared, storage, textures, samplers) {
-    const bindings = [];
-    for (const entry of storage) {
-        bindings.push({ kind: 'storage', entry, lastBuffer: null });
-    }
-    for (const entry of textures) {
-        bindings.push({ kind: 'texture', entry, generation: 0, lastGpuTexture: null });
-    }
-    for (const entry of samplers) {
-        bindings.push({ kind: 'sampler', entry, samplerKey: null });
-    }
-    return {
-        id: bindGroupIdCounter++,
-        name,
-        groupIndex,
-        shared,
-        bindings,
-        isBindGroup: true,
-    };
-}
-/**
- * Clone a BindGroup (deep clone of bindings).
- * Used for non-shared groups that need per-RenderObject instances.
- */
-function cloneBindGroup(source) {
-    const clonedBindings = source.bindings.map((binding) => {
-        switch (binding.kind) {
-            case 'uniform':
-                return {
-                    kind: 'uniform',
-                    block: binding.block,
-                    bufferKey: null, // New buffer key for cloned group
-                    lastFrameId: -1,
-                    lastRenderId: -1,
-                    currentBuffer: null,
-                    scratchBuffer: null,
-                };
-            case 'storage':
-                return {
-                    kind: 'storage',
-                    entry: binding.entry,
-                    lastBuffer: null,
-                };
-            case 'texture':
-                return {
-                    kind: 'texture',
-                    entry: binding.entry,
-                    generation: 0,
-                    lastGpuTexture: null,
-                };
-            case 'sampler':
-                return {
-                    kind: 'sampler',
-                    entry: binding.entry,
-                    samplerKey: null,
-                };
-        }
-    });
-    return {
-        id: bindGroupIdCounter++,
-        name: source.name,
-        groupIndex: source.groupIndex,
-        shared: source.shared,
-        bindings: clonedBindings,
-        isBindGroup: true,
-    };
-}
-
-/**
- * Global cache for shared BindGroups
- *
- * Structure: WeakMap<BindingContext, Map<cacheKey, BindGroup>>
- *
- * - Outer WeakMap is keyed by context (RenderContext or ComputeContext), allowing GC when context is disposed
- * - Inner Map is keyed by a hash of uniform node IDs in the shared group
- * - All compilations using the same shared uniforms get the same BindGroup instance
- *
- * This ensures currentSets comparison works correctly - shared groups have the same `id`.
- */
-const _bindingGroupsCache = new WeakMap();
-
-/**
- * Simple string hash function.
- */
-function hashString$1(str) {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-        const char = str.charCodeAt(i);
-        hash = ((hash << 5) - hash) + char;
-        hash |= 0; // Convert to 32bit integer
-    }
-    return hash.toString(36);
-}
-/**
- * Create a NodeBuilderState from a render CompileResult.
- *
- * This builds the template BindGroups from the compile result.
- * Template groups are later cloned (non-shared) or reused (shared) via createBindings().
- *
- * @param compileResult - The compiler output
- * @param cacheKey - Pipeline cache key
- * @param context - The binding context (RenderContext) for shared bind group caching
- */
-function createNodeBuilderState(compileResult, cacheKey, context) {
-    // build template BindGroups from compile result
-    const bindings = buildTemplateBindGroups(compileResult.uniformGroups, compileResult.storage, compileResult.textures, compileResult.samplers, context);
-    return {
-        // Render shaders: combined vertex+fragment in single module
-        vertexCode: compileResult.code,
-        fragmentCode: null, // Same module, different entry point
-        // No compute
-        computeCode: null,
-        workgroupSize: null,
-        // Bindings
-        attributes: compileResult.attributes,
-        vertexBufferGroups: compileResult.vertexBufferGroups,
-        uniformGroups: compileResult.uniformGroups,
-        storage: compileResult.storage,
-        textures: compileResult.textures,
-        samplers: compileResult.samplers,
-        varyings: compileResult.varyings,
-        builtinsUsed: compileResult.builtinsUsed,
-        bindings,
-        updateBeforeNodes: compileResult.updateBeforeNodes,
-        updateAfterNodes: compileResult.updateAfterNodes,
-        updateNodes: compileResult.updateNodes,
-        cacheKey,
-        isNodeBuilderState: true,
-    };
-}
-/**
- * Create a NodeBuilderState from a compute CompileResult.
- *
- * @param compileResult - The compute compiler output
- * @param context - The binding context (ComputeContext) for shared bind group caching
- */
-function createNodeBuilderStateForCompute(compileResult, context) {
-    // build template BindGroups from compile result
-    const bindings = buildTemplateBindGroups(compileResult.uniformGroups, compileResult.storage, [], // no textures for compute (for now)
-    [], // no samplers for compute (for now)
-    context);
-    return {
-        // No render shaders
-        vertexCode: null,
-        fragmentCode: null,
-        // Compute shader
-        computeCode: compileResult.code,
-        workgroupSize: compileResult.workgroupSize,
-        // Bindings
-        attributes: [], // no vertex attributes for compute
-        vertexBufferGroups: [], // no vertex buffer groups for compute
-        uniformGroups: compileResult.uniformGroups,
-        storage: compileResult.storage,
-        textures: [], // no textures for compute (for now)
-        samplers: [], // no samplers for compute (for now)
-        varyings: [], // no varyings for compute
-        builtinsUsed: compileResult.builtinsUsed,
-        bindings,
-        updateBeforeNodes: [], // compute doesn't have these yet
-        updateAfterNodes: [],
-        updateNodes: [],
-        cacheKey: '', // no cache key for compute pipelines
-        isNodeBuilderState: true,
-    };
-}
-/**
- * Build template BindGroups from compile result.
- *
- * Creates one BindGroup per @group(N) index. Each group contains:
- * - Uniform buffer (if present)
- * - Storage buffers (if present)
- * - Textures (if present)
- * - Samplers (if present)
- *
- * The `shared` flag is taken from the uniform group (if present),
- * otherwise defaults to false (per-object).
- *
- * For shared uniform-only groups, uses _bindingGroupsCache to return the same
- * BindGroup instance across all compilations.
- */
-function buildTemplateBindGroups(uniformGroups, storage, textures, samplers, context) {
-    // Get or create the cache for this context
-    let contextCache = _bindingGroupsCache.get(context);
-    if (contextCache === undefined) {
-        contextCache = new Map();
-        _bindingGroupsCache.set(context, contextCache);
-    }
-    // collect all group indices
-    const groupIndices = new Set();
-    for (const ug of uniformGroups) {
-        if (ug.members.length > 0)
-            groupIndices.add(ug.groupIndex);
-    }
-    for (const s of storage)
-        groupIndices.add(s.group);
-    for (const t of textures)
-        groupIndices.add(t.group);
-    for (const s of samplers)
-        groupIndices.add(s.group);
-    // build BindGroup for each index
-    const bindGroups = [];
-    const sortedIndices = [...groupIndices].sort((a, b) => a - b);
-    for (const groupIdx of sortedIndices) {
-        // find uniform group for this index
-        const uniformGroup = uniformGroups.find((g) => g.groupIndex === groupIdx && g.members.length > 0);
-        // collect resources for this group
-        const groupStorage = storage.filter((s) => s.group === groupIdx);
-        const groupTextures = textures.filter((t) => t.group === groupIdx);
-        const groupSamplers = samplers.filter((s) => s.group === groupIdx);
-        // determine shared flag (from uniform group if present, otherwise false)
-        const shared = uniformGroup?.shared ?? false;
-        if (uniformGroup && groupStorage.length === 0 && groupTextures.length === 0 && groupSamplers.length === 0) {
-            // uniform-only group
-            if (shared) {
-                // Shared group: use cache (Three.js pattern)
-                // Build cache key from sorted uniform node IDs
-                const members = [...uniformGroup.members].sort((a, b) => a.node.id - b.node.id);
-                const cacheKeyString = members.map(m => m.node.id).join(',');
-                const cacheKey = hashString$1(cacheKeyString);
-                let bindGroup = contextCache.get(cacheKey);
-                if (bindGroup === undefined) {
-                    bindGroup = createUniformBindGroup(uniformGroup);
-                    contextCache.set(cacheKey, bindGroup);
-                }
-                bindGroups.push(bindGroup);
-            }
-            else {
-                // Non-shared: always create new
-                bindGroups.push(createUniformBindGroup(uniformGroup));
-            }
-        }
-        else if (uniformGroup) {
-            // mixed group: uniform + other resources
-            // create a combined bind group (not cached - has textures/storage which vary)
-            const bindGroup = createUniformBindGroup(uniformGroup);
-            // add storage/texture/sampler bindings
-            for (const s of groupStorage) {
-                bindGroup.bindings.push({ kind: 'storage', entry: s, lastBuffer: null });
-            }
-            for (const t of groupTextures) {
-                bindGroup.bindings.push({ kind: 'texture', entry: t, generation: 0, lastGpuTexture: null });
-            }
-            for (const s of groupSamplers) {
-                bindGroup.bindings.push({ kind: 'sampler', entry: s, samplerKey: null });
-            }
-            bindGroups.push(bindGroup);
-        }
-        else {
-            // resource-only group (no uniform)
-            bindGroups.push(createResourceBindGroup(`group${groupIdx}`, groupIdx, shared, groupStorage, groupTextures, groupSamplers));
-        }
-    }
-    return bindGroups;
-}
-/**
- * Create bindings for a RenderObject from a NodeBuilderState.
- *
- * Shared groups are reused directly (same BindGroup instance)
- * Non-shared groups are cloned (new BindGroup instance per RenderObject)
- *
- * This is the key to efficient uniform buffer sharing - camera/time buffers
- * are shared across all RenderObjects, while object uniforms get their own.
- *
- * @param state the NodeBuilderState (template)
- * @returns array of BindGroups for this RenderObject
- */
-function createBindings(state) {
-    const bindings = [];
-    for (const templateGroup of state.bindings) {
-        if (templateGroup.shared) {
-            // shared: reuse the same BindGroup instance
-            bindings.push(templateGroup);
-        }
-        else {
-            // non-shared: clone the BindGroup
-            bindings.push(cloneBindGroup(templateGroup));
-        }
-    }
-    return bindings;
-}
-
-/**
- * render-object.ts - Per-draw-call state container.
- *
- * Aligned with Three.js RenderObject:
- * - Central hub owning all per-draw-call state
- * - One RenderObject per unique (mesh, material, renderContext, passId) tuple
- * - Caches nodeBuilderState, pipeline, bindings, attributes
- * - Lazily initialized - starts empty, populated on first render
- *
- * Key Three.js pattern:
- * - _bindings is lazily created via getBindings()
- * - getBindings() calls NodeBuilderState.createBindings() which clones non-shared groups
- * - This ensures shared groups (camera, time) are reused across all RenderObjects
- *
- * Unlike Three.js, we use a plain object type with factory function
- * rather than a class.
- */
-let renderObjectIdCounter = 0;
-/**
- * Create a new RenderObject.
- *
- * @param mesh - The mesh to render
- * @param material - The material to use
- * @param scene - The scene/object containing the mesh
- * @param camera - The camera for rendering
- */
-function createRenderObject(mesh, material, scene, camera, renderContext) {
-    return {
-        id: renderObjectIdCounter++,
-        // Source references
-        mesh,
-        material,
-        geometry: mesh.geometry,
-        camera,
-        scene,
-        renderContext,
-        passId: '',
-        // Compiled state (lazy)
-        nodeBuilderState: null,
-        pipeline: null,
-        bindGroups: null,
-        _bindings: null,
-        // Attribute state (lazy)
-        vertexBuffers: null,
-        indexBuffer: null,
-        // Cache keys
-        initialCacheKey: '',
-        version: 0,
-        materialVersion: 0,
-        geometryVersion: 0,
-        // Pipeline key cache
-        _cachedPipelineKey: null,
-        _pipelineKeyVersion: 0,
-        // Disposal
-        onDispose: null,
-        disposed: false,
-        // Type flag
-        isRenderObject: true,
-    };
-}
-/**
- * Dispose a RenderObject and clean up GPU resources.
- */
-function disposeRenderObject(renderObject) {
-    if (renderObject.disposed)
-        return;
-    renderObject.disposed = true;
-    renderObject.onDispose?.();
-    // Clear references
-    renderObject.nodeBuilderState = null;
-    renderObject.pipeline = null;
-    renderObject.bindGroups = null;
-    renderObject._bindings = null;
-    renderObject.vertexBuffers = null;
-    renderObject.indexBuffer = null;
-    renderObject.onDispose = null;
-}
-/**
- * Get the BindGroups for a RenderObject, lazily creating them.
- *
- * Three.js pattern (RenderObject.getBindings):
- * - First access calls NodeBuilderState.createBindings()
- * - This clones non-shared groups, reuses shared groups
- * - Subsequent accesses return the cached bindings
- *
- * @param renderObject - The RenderObject
- * @returns Array of BindGroups for this RenderObject
- * @throws Error if nodeBuilderState is not set
- */
-function getBindings(renderObject) {
-    if (renderObject._bindings !== null) {
-        return renderObject._bindings;
-    }
-    if (renderObject.nodeBuilderState === null) {
-        throw new Error('Cannot get bindings: nodeBuilderState is not set');
-    }
-    // Create bindings from NodeBuilderState (clones non-shared, reuses shared)
-    renderObject._bindings = createBindings(renderObject.nodeBuilderState);
-    return renderObject._bindings;
-}
-/**
- * Compute the cache key for a RenderObject based on material and geometry.
- *
- * This is used to detect when recompilation is needed.
- * The key includes render state, geometry attributes, and context configuration.
- */
-function computeRenderObjectCacheKey(material, geometry, renderContext) {
-    // Build cache key from material render state
-    const parts = [];
-    // Material render state
-    parts.push(material.transparent ? 't' : 'o');
-    parts.push(material.depthTest ? 'd' : '');
-    parts.push(material.depthWrite ? 'w' : '');
-    parts.push(material.depthCompare);
-    parts.push(material.cullMode);
-    parts.push(material.alphaToCoverage ? 'a' : '');
-    parts.push(`v${material.version}`);
-    // Blend state (if present)
-    if (material.blend) {
-        parts.push('b');
-        parts.push(material.blend.color?.operation ?? 'add');
-        parts.push(material.blend.alpha?.operation ?? 'add');
-    }
-    // Geometry buffers (names and formats)
-    const bufferKeys = [];
-    for (const [name, buffer] of geometry.buffers) {
-        bufferKeys.push(`${name}:${buffer.format ?? 'auto'}`);
-    }
-    bufferKeys.sort();
-    parts.push(bufferKeys.join(','));
-    // Index format
-    if (geometry.index) {
-        const fmt = getIndexFormat(geometry.index.array);
-        if (fmt)
-            parts.push(fmt);
-    }
-    // Render context (sample count, attachment config)
-    parts.push(`s${renderContext.sampleCount}`);
-    parts.push(renderContext.depth ? 'D' : '');
-    parts.push(renderContext.stencil ? 'S' : '');
-    return parts.join('|');
-}
-/**
- * Get or compute the cached pipeline key for a RenderObject.
- *
- * The pipeline key is used for:
- * 1. Pipeline cache lookup (avoid recomputing expensive key strings)
- * 2. Opaque sorting by pipeline (minimize setPipeline calls)
- *
- * The key is invalidated when material.version changes.
- *
- * @param renderObject - The RenderObject
- * @param samples - MSAA sample count
- * @param colorFormat - Color texture format
- * @param depthFormat - Depth texture format (undefined for no depth)
- * @param makeKeyFn - Function to compute the pipeline key (from pipelines.ts)
- * @returns The cached or newly computed pipeline key
- */
-function getCachedPipelineKey(renderObject, samples, colorFormat, depthFormat, makeKeyFn) {
-    const currentVersion = renderObject.material.version;
-    // Check if cache is valid
-    if (renderObject._cachedPipelineKey !== null &&
-        renderObject._pipelineKeyVersion === currentVersion) {
-        return renderObject._cachedPipelineKey;
-    }
-    // Recompute and cache
-    const key = makeKeyFn(renderObject.material, samples, colorFormat, depthFormat);
-    renderObject._cachedPipelineKey = key;
-    renderObject._pipelineKeyVersion = currentVersion;
-    return key;
-}
-
 /**
  * NodeFrame — unified frame context for all node update callbacks.
  *
@@ -7251,7 +6885,7 @@ function compile(slots) {
         fragmentBody = generateFragmentShader(slots.color, fragmentCtx, vertexCtx.varyings);
         // No need to merge bindings anymore - they're shared via discovered.*
     }
-    // emit all bindings using Three.js pattern (each group gets its own @group index)
+    // emit all bindings (each group gets its own @group index)
     const { wgsl: bindingsWgsl, uniformBlocks, storageEntries, textureEntries: textures, samplerEntries: samplers, } = emitAllBindings(vertexCtx);
     // emit module-scope variables (var<private>)
     const moduleScopeVarsWgsl = emitModuleScopeVars(vertexCtx);
@@ -7350,7 +6984,7 @@ function compileCompute(node) {
     // produce fresh StorageNode/etc. ids that aren't in discovered.storageNames,
     // causing emits like `undefined[...]`).
     const computeBody = generateComputeShader(node, traced, ctx);
-    // emit all bindings using Three.js pattern (each group gets its own @group index)
+    // emit all bindings (each group gets its own @group index)
     const { wgsl: bindingsWgsl, uniformBlocks, storageEntries } = emitAllBindings(ctx);
     // emit module-scope variables (var<private>, var<workgroup>)
     const moduleScopeVarsWgsl = emitModuleScopeVars(ctx);
@@ -7940,7 +7574,7 @@ function generateExpr(ctx, node) {
         expr = generateStorage(ctx, node);
     }
     else if (node instanceof PassNode) {
-        // PassNode used as expression delegates to its texture node (like three.js setup())
+        // PassNode used as expression delegates to its texture node
         const textureNode = node.scope === 'color' ? node.getTextureNode() : node.getLinearDepthNode();
         expr = generateExpr(ctx, textureNode);
     }
@@ -8677,9 +8311,8 @@ function generateModuleScopeInitExpr(node) {
     }
 }
 /**
- * Emit all bindings (uniforms, storage, textures, samplers) following Three.js pattern.
+ * Emit all bindings (uniforms, storage, textures, samplers).
  *
- * Three.js pattern:
  * - Each named group (render, object, etc.) gets its own @group(N) index
  * - Groups are sorted by UniformGroup.order
  * - The @group(N) index is the SORTED ARRAY POSITION, not the order value directly
@@ -8721,7 +8354,7 @@ function emitAllBindings(ctx) {
         getGroup(node.groupNode).samplers.push({ name, node });
     }
     // step 2: sort groups by their order, then assign sequential group indices
-    // This follows Three.js pattern: @group(N) is the sorted array position
+    // @group(N) is the sorted array position
     const sortedGroups = [...groupsByName.values()].sort((a, b) => a.groupNode.order - b.groupNode.order);
     // Reassign groupIndex to be the sorted array position
     for (let i = 0; i < sortedGroups.length; i++) {
@@ -9135,6 +8768,308 @@ function generateComputeShader(node, traced, ctx) {
     return lines.join('\n');
 }
 
+let bindGroupIdCounter = 0;
+/** Create a BindGroup from uniform group block */
+function createUniformBindGroup(block) {
+    const binding = {
+        kind: 'uniform',
+        block,
+        bufferKey: null,
+        lastFrameId: -1,
+        lastRenderId: -1,
+        currentBuffer: null,
+        scratchBuffer: null,
+    };
+    return {
+        id: bindGroupIdCounter++,
+        name: block.groupName,
+        groupIndex: block.groupIndex,
+        shared: block.shared,
+        bindings: [binding],
+        isBindGroup: true,
+    };
+}
+/** Create a BindGroup for storage/texture/sampler bindings in a group */
+function createResourceBindGroup(name, groupIndex, shared, storage, textures, samplers) {
+    const bindings = [];
+    for (const entry of storage) {
+        bindings.push({ kind: 'storage', entry, lastBuffer: null });
+    }
+    for (const entry of textures) {
+        bindings.push({ kind: 'texture', entry, generation: 0, lastGpuTexture: null });
+    }
+    for (const entry of samplers) {
+        bindings.push({ kind: 'sampler', entry, samplerKey: null });
+    }
+    return {
+        id: bindGroupIdCounter++,
+        name,
+        groupIndex,
+        shared,
+        bindings,
+        isBindGroup: true,
+    };
+}
+/**
+ * Clone a BindGroup (deep clone of bindings).
+ * Used for non-shared groups that need per-RenderObject instances.
+ */
+function cloneBindGroup(source) {
+    const clonedBindings = source.bindings.map((binding) => {
+        switch (binding.kind) {
+            case 'uniform':
+                return {
+                    kind: 'uniform',
+                    block: binding.block,
+                    bufferKey: null, // New buffer key for cloned group
+                    lastFrameId: -1,
+                    lastRenderId: -1,
+                    currentBuffer: null,
+                    scratchBuffer: null,
+                };
+            case 'storage':
+                return {
+                    kind: 'storage',
+                    entry: binding.entry,
+                    lastBuffer: null,
+                };
+            case 'texture':
+                return {
+                    kind: 'texture',
+                    entry: binding.entry,
+                    generation: 0,
+                    lastGpuTexture: null,
+                };
+            case 'sampler':
+                return {
+                    kind: 'sampler',
+                    entry: binding.entry,
+                    samplerKey: null,
+                };
+        }
+    });
+    return {
+        id: bindGroupIdCounter++,
+        name: source.name,
+        groupIndex: source.groupIndex,
+        shared: source.shared,
+        bindings: clonedBindings,
+        isBindGroup: true,
+    };
+}
+
+/**
+ * Global cache for shared BindGroups.
+ *
+ * Structure: WeakMap<BindingContext, Map<cacheKey, BindGroup>>
+ *
+ * - Outer WeakMap is keyed by context (RenderContext or ComputeContext), allowing GC when context is disposed
+ * - Inner Map is keyed by a hash of uniform node IDs in the shared group
+ * - All compilations using the same shared uniforms get the same BindGroup instance
+ *
+ * This ensures currentSets comparison works correctly - shared groups have the same `id`.
+ */
+const _bindingGroupsCache = new WeakMap();
+/**
+ * Simple string hash function.
+ */
+function hashString$1(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash |= 0; // Convert to 32bit integer
+    }
+    return hash.toString(36);
+}
+/**
+ * Create a NodeBuilderState from a render CompileResult.
+ *
+ * This builds the template BindGroups from the compile result.
+ * Template groups are later cloned (non-shared) or reused (shared) via createBindings().
+ *
+ * @param compileResult - The compiler output
+ * @param cacheKey - Pipeline cache key
+ * @param context - The binding context (RenderContext) for shared bind group caching
+ */
+function createNodeBuilderState(compileResult, cacheKey, context) {
+    // build template BindGroups from compile result
+    const bindings = buildTemplateBindGroups(compileResult.uniformGroups, compileResult.storage, compileResult.textures, compileResult.samplers, context);
+    return {
+        // Render shaders: combined vertex+fragment in single module
+        vertexCode: compileResult.code,
+        fragmentCode: null, // Same module, different entry point
+        // No compute
+        computeCode: null,
+        workgroupSize: null,
+        // Bindings
+        attributes: compileResult.attributes,
+        vertexBufferGroups: compileResult.vertexBufferGroups,
+        uniformGroups: compileResult.uniformGroups,
+        storage: compileResult.storage,
+        textures: compileResult.textures,
+        samplers: compileResult.samplers,
+        varyings: compileResult.varyings,
+        builtinsUsed: compileResult.builtinsUsed,
+        bindings,
+        updateBeforeNodes: compileResult.updateBeforeNodes,
+        updateAfterNodes: compileResult.updateAfterNodes,
+        updateNodes: compileResult.updateNodes,
+        cacheKey,
+        isNodeBuilderState: true,
+    };
+}
+/**
+ * Create a NodeBuilderState from a compute CompileResult.
+ *
+ * @param compileResult - The compute compiler output
+ * @param context - The binding context (ComputeContext) for shared bind group caching
+ */
+function createNodeBuilderStateForCompute(compileResult, context) {
+    // build template BindGroups from compile result
+    const bindings = buildTemplateBindGroups(compileResult.uniformGroups, compileResult.storage, [], // no textures for compute (for now)
+    [], // no samplers for compute (for now)
+    context);
+    return {
+        // No render shaders
+        vertexCode: null,
+        fragmentCode: null,
+        // Compute shader
+        computeCode: compileResult.code,
+        workgroupSize: compileResult.workgroupSize,
+        // Bindings
+        attributes: [], // no vertex attributes for compute
+        vertexBufferGroups: [], // no vertex buffer groups for compute
+        uniformGroups: compileResult.uniformGroups,
+        storage: compileResult.storage,
+        textures: [], // no textures for compute (for now)
+        samplers: [], // no samplers for compute (for now)
+        varyings: [], // no varyings for compute
+        builtinsUsed: compileResult.builtinsUsed,
+        bindings,
+        updateBeforeNodes: [], // compute doesn't have these yet
+        updateAfterNodes: [],
+        updateNodes: [],
+        cacheKey: '', // no cache key for compute pipelines
+        isNodeBuilderState: true,
+    };
+}
+/**
+ * Build template BindGroups from compile result.
+ *
+ * Creates one BindGroup per @group(N) index. Each group contains:
+ * - Uniform buffer (if present)
+ * - Storage buffers (if present)
+ * - Textures (if present)
+ * - Samplers (if present)
+ *
+ * The `shared` flag is taken from the uniform group (if present),
+ * otherwise defaults to false (per-object).
+ *
+ * For shared uniform-only groups, uses _bindingGroupsCache to return the same
+ * BindGroup instance across all compilations.
+ */
+function buildTemplateBindGroups(uniformGroups, storage, textures, samplers, context) {
+    // Get or create the cache for this context
+    let contextCache = _bindingGroupsCache.get(context);
+    if (contextCache === undefined) {
+        contextCache = new Map();
+        _bindingGroupsCache.set(context, contextCache);
+    }
+    // collect all group indices
+    const groupIndices = new Set();
+    for (const ug of uniformGroups) {
+        if (ug.members.length > 0)
+            groupIndices.add(ug.groupIndex);
+    }
+    for (const s of storage)
+        groupIndices.add(s.group);
+    for (const t of textures)
+        groupIndices.add(t.group);
+    for (const s of samplers)
+        groupIndices.add(s.group);
+    // build BindGroup for each index
+    const bindGroups = [];
+    const sortedIndices = [...groupIndices].sort((a, b) => a - b);
+    for (const groupIdx of sortedIndices) {
+        // find uniform group for this index
+        const uniformGroup = uniformGroups.find((g) => g.groupIndex === groupIdx && g.members.length > 0);
+        // collect resources for this group
+        const groupStorage = storage.filter((s) => s.group === groupIdx);
+        const groupTextures = textures.filter((t) => t.group === groupIdx);
+        const groupSamplers = samplers.filter((s) => s.group === groupIdx);
+        // determine shared flag (from uniform group if present, otherwise false)
+        const shared = uniformGroup?.shared ?? false;
+        if (uniformGroup && groupStorage.length === 0 && groupTextures.length === 0 && groupSamplers.length === 0) {
+            // uniform-only group
+            if (shared) {
+                // Shared group: use cache
+                // Build cache key from sorted uniform node IDs
+                const members = [...uniformGroup.members].sort((a, b) => a.node.id - b.node.id);
+                const cacheKeyString = members.map(m => m.node.id).join(',');
+                const cacheKey = hashString$1(cacheKeyString);
+                let bindGroup = contextCache.get(cacheKey);
+                if (bindGroup === undefined) {
+                    bindGroup = createUniformBindGroup(uniformGroup);
+                    contextCache.set(cacheKey, bindGroup);
+                }
+                bindGroups.push(bindGroup);
+            }
+            else {
+                // Non-shared: always create new
+                bindGroups.push(createUniformBindGroup(uniformGroup));
+            }
+        }
+        else if (uniformGroup) {
+            // mixed group: uniform + other resources
+            // create a combined bind group (not cached - has textures/storage which vary)
+            const bindGroup = createUniformBindGroup(uniformGroup);
+            // add storage/texture/sampler bindings
+            for (const s of groupStorage) {
+                bindGroup.bindings.push({ kind: 'storage', entry: s, lastBuffer: null });
+            }
+            for (const t of groupTextures) {
+                bindGroup.bindings.push({ kind: 'texture', entry: t, generation: 0, lastGpuTexture: null });
+            }
+            for (const s of groupSamplers) {
+                bindGroup.bindings.push({ kind: 'sampler', entry: s, samplerKey: null });
+            }
+            bindGroups.push(bindGroup);
+        }
+        else {
+            // resource-only group (no uniform)
+            bindGroups.push(createResourceBindGroup(`group${groupIdx}`, groupIdx, shared, groupStorage, groupTextures, groupSamplers));
+        }
+    }
+    return bindGroups;
+}
+/**
+ * Create bindings for a RenderObject from a NodeBuilderState.
+ *
+ * Shared groups are reused directly (same BindGroup instance)
+ * Non-shared groups are cloned (new BindGroup instance per RenderObject)
+ *
+ * This is the key to efficient uniform buffer sharing - camera/time buffers
+ * are shared across all RenderObjects, while object uniforms get their own.
+ *
+ * @param state the NodeBuilderState (template)
+ * @returns array of BindGroups for this RenderObject
+ */
+function createBindings(state) {
+    const bindings = [];
+    for (const templateGroup of state.bindings) {
+        if (templateGroup.shared) {
+            // shared: reuse the same BindGroup instance
+            bindings.push(templateGroup);
+        }
+        else {
+            // non-shared: clone the BindGroup
+            bindings.push(cloneBindGroup(templateGroup));
+        }
+    }
+    return bindings;
+}
+
 /** create a new NodeManager state */
 function createNodeManagerState() {
     return {
@@ -9452,7 +9387,32 @@ function createPipelinesState() {
         bindGroupLayoutCache: createBindGroupLayoutCache(),
         renderPipelines: new Map(),
         computePipelines: new Map(),
+        canvasFormat: 'bgra8unorm',
+        canvasDepthFormat: DEPTH_FORMAT,
     };
+}
+/**
+ * Per-attachment color formats for a render context.
+ * Reads each `renderTarget.textures[i].format`; falls back to the canvas format for the swapchain.
+ */
+function getRenderContextColorFormats(renderContext, canvasFormat) {
+    const rt = renderContext.renderTarget;
+    if (rt === null)
+        return [canvasFormat];
+    const out = [];
+    for (const tex of rt.textures)
+        out.push(tex.format);
+    return out;
+}
+/**
+ * Depth-stencil format for a render context, or null if the target has no depth attachment.
+ * Reads `renderTarget.depthTexture?.format`; falls back to the swapchain depth format.
+ */
+function getRenderContextDepthFormat(renderContext, canvasDepthFormat) {
+    const rt = renderContext.renderTarget;
+    if (rt === null)
+        return canvasDepthFormat;
+    return rt.depthTexture ? rt.depthTexture.format : null;
 }
 /**
  * Get cache statistics.
@@ -9475,8 +9435,10 @@ function getStats(state) {
  * @param promises - Optional array to collect async compilation promises (for compileAsync)
  * @returns The render pipeline entry
  */
-function getForRender(state, device, renderObject, bindGroupLayouts, colorFormat, depthFormat, promises = null) {
-    const cacheKey = getCachedPipelineKey(renderObject, renderObject.renderContext.sampleCount, colorFormat, depthFormat ?? undefined, makeRenderPipelineKey);
+function getForRender(state, device, renderObject, bindGroupLayouts, promises = null) {
+    const colorFormats = getRenderContextColorFormats(renderObject.renderContext, state.canvasFormat);
+    const depthFormat = getRenderContextDepthFormat(renderObject.renderContext, state.canvasDepthFormat);
+    const cacheKey = getCachedPipelineKey(renderObject, renderObject.renderContext.sampleCount, colorFormats, depthFormat);
     let entry = state.renderPipelines.get(cacheKey);
     if (entry)
         return entry;
@@ -9488,7 +9450,7 @@ function getForRender(state, device, renderObject, bindGroupLayouts, colorFormat
     };
     state.renderPipelines.set(cacheKey, entry);
     // Build pipeline descriptor
-    const descriptor = buildRenderPipelineDescriptor(device, renderObject, nodeState, bindGroupLayouts, colorFormat, depthFormat);
+    const descriptor = buildRenderPipelineDescriptor(device, renderObject, nodeState, bindGroupLayouts, colorFormats, depthFormat);
     if (promises === null) {
         // Sync compilation
         entry.pipeline = device.createRenderPipeline(descriptor);
@@ -9507,7 +9469,7 @@ function getForRender(state, device, renderObject, bindGroupLayouts, colorFormat
     }
     return entry;
 }
-function buildRenderPipelineDescriptor(device, renderObject, nodeState, bindGroupLayouts, colorFormat, depthFormat) {
+function buildRenderPipelineDescriptor(device, renderObject, nodeState, bindGroupLayouts, colorFormats, depthFormat) {
     const material = renderObject.material;
     const geometry = renderObject.geometry;
     const renderContext = renderObject.renderContext;
@@ -9529,13 +9491,32 @@ function buildRenderPipelineDescriptor(device, renderObject, nodeState, bindGrou
             }
         }
     });
+    // Material-level blend (applied to attachments tagged 'material' or non-MRT pipelines).
+    const materialBlending = material.transparent
+        ? (material.blend ?? getDefaultBlendState())
+        : undefined;
     // Build color targets (supports MRT). Empty for depth-only pipelines.
     const targetCount = getTargetCount(material.fragmentNode);
+    const textures = renderContext.renderTarget?.textures ?? null;
+    const mrt = renderContext.mrt;
     const colorTargets = [];
     for (let i = 0; i < targetCount; i++) {
+        let blend;
+        if (mrt !== null && textures !== null) {
+            const blendMode = mrt.getBlendMode(textures[i]?.name ?? '');
+            if (blendMode.blending === 'material') {
+                blend = materialBlending;
+            }
+            else if (blendMode.blending !== 'no') {
+                blend = _getBlending(blendMode);
+            }
+        }
+        else {
+            blend = materialBlending;
+        }
         colorTargets.push({
-            format: colorFormat,
-            blend: material.transparent ? getDefaultBlendState() : undefined,
+            format: colorFormats[i] ?? colorFormats[0],
+            blend,
             writeMask: GPUColorWrite.ALL,
         });
     }
@@ -9657,9 +9638,36 @@ function getTargetCount(fragmentNode) {
     return 1;
 }
 /**
+ * Get or compute the cached pipeline key for a RenderObject.
+ *
+ * The pipeline key is used for:
+ * 1. Pipeline cache lookup (avoid recomputing expensive key strings)
+ * 2. Opaque sorting by pipeline (minimize setPipeline calls)
+ *
+ * The key is memoized on the RenderObject and invalidated when material.version
+ * changes.
+ *
+ * @param renderObject - The RenderObject
+ * @param samples - MSAA sample count
+ * @param colorFormats - Color texture formats
+ * @param depthFormat - Depth texture format (null for no depth)
+ * @returns The cached or newly computed pipeline key
+ */
+function getCachedPipelineKey(renderObject, samples, colorFormats, depthFormat) {
+    const currentVersion = renderObject.material.version;
+    if (renderObject._cachedPipelineKey !== null &&
+        renderObject._pipelineKeyVersion === currentVersion) {
+        return renderObject._cachedPipelineKey;
+    }
+    const key = makeRenderPipelineKey(renderObject.material, samples, colorFormats, depthFormat, renderObject.renderContext.mrt);
+    renderObject._cachedPipelineKey = key;
+    renderObject._pipelineKeyVersion = currentVersion;
+    return key;
+}
+/**
  * Stable cache key for a material + MSAA sample count + color format + optional depth format.
  */
-function makeRenderPipelineKey(material, samples, format, depthFormat = 'depth24plus') {
+function makeRenderPipelineKey(material, samples, formats, depthFormat, mrt) {
     const posId = material.vertexNode ? material.vertexNode.id : '__default__';
     const colId = material.fragmentNode ? material.fragmentNode.id : '__depthOnly__';
     const depId = material.depthNode ? material.depthNode.id : '__none__';
@@ -9675,9 +9683,10 @@ function makeRenderPipelineKey(material, samples, format, depthFormat = 'depth24
         material.depthBiasClamp,
         getTargetCount(material.fragmentNode),
         samples,
-        format,
+        formats.join(','),
         depthFormat ?? 'none',
         material.blend ? JSON.stringify(material.blend) : 'none',
+        mrt ? `mrt${mrt.id}` : 'none',
     ].join('|');
     return `${posId}::${colId}::${depId}::${rs}`;
 }
@@ -9826,11 +9835,192 @@ function getDefaultBlendState() {
         },
     };
 }
+// (srcRGB, dstRGB, srcAlpha, dstAlpha) → GPUBlendState with 'add' for both ops.
+const _add = (srcRGB, dstRGB, srcA, dstA) => ({
+    color: { srcFactor: srcRGB, dstFactor: dstRGB, operation: 'add' },
+    alpha: { srcFactor: srcA, dstFactor: dstA, operation: 'add' },
+});
+/**
+ * Translate a BlendMode into a GPUBlendState for pipeline creation.
+ * Mirrors three.js's WebGPUPipelineUtils._getBlending. Only runs on pipeline
+ * cache miss, so the state is built on demand rather than precomputed.
+ *
+ * subtractive/multiply are only defined for premultiplied alpha, matching
+ * three.js, which errors on the non-premultiplied combinations.
+ */
+function _getBlending(blendMode) {
+    const { blending, premultiplyAlpha: pm } = blendMode;
+    if (blending === 'custom') {
+        const { blendSrc, blendDst, blendEquation } = blendMode;
+        return {
+            color: { srcFactor: blendSrc, dstFactor: blendDst, operation: blendEquation },
+            alpha: {
+                srcFactor: blendMode.blendSrcAlpha ?? blendSrc,
+                dstFactor: blendMode.blendDstAlpha ?? blendDst,
+                operation: blendMode.blendEquationAlpha ?? blendEquation,
+            },
+        };
+    }
+    switch (blending) {
+        case 'normal':
+            return pm
+                ? _add('one', 'one-minus-src-alpha', 'one', 'one-minus-src-alpha')
+                : _add('src-alpha', 'one-minus-src-alpha', 'one', 'one-minus-src-alpha');
+        case 'additive':
+            return pm
+                ? _add('one', 'one', 'one', 'one')
+                : _add('src-alpha', 'one', 'one', 'one');
+        case 'subtractive':
+            if (pm)
+                return _add('zero', 'one-minus-src', 'zero', 'one');
+            break;
+        case 'multiply':
+            if (pm)
+                return _add('dst', 'one-minus-src-alpha', 'zero', 'one');
+            break;
+    }
+    console.error(`[pipelines] ${blending} blending requires premultiplyAlpha=true.`);
+    return getDefaultBlendState();
+}
+
+/**
+ * render-object.ts - Per-draw-call state container.
+ *
+ * - Central hub owning all per-draw-call state
+ * - One RenderObject per unique (mesh, material, renderContext, passId) tuple
+ * - Caches nodeBuilderState, pipeline, bindings, attributes
+ * - Lazily initialized - starts empty, populated on first render
+ *
+ * Binding lifecycle:
+ * - _bindings is lazily created via getBindings()
+ * - getBindings() calls NodeBuilderState.createBindings() which clones non-shared groups
+ * - This ensures shared groups (camera, time) are reused across all RenderObjects
+ */
+let renderObjectIdCounter = 0;
+/**
+ * Create a new RenderObject.
+ *
+ * @param mesh - The mesh to render
+ * @param material - The material to use
+ * @param scene - The scene/object containing the mesh
+ * @param camera - The camera for rendering
+ */
+function createRenderObject(mesh, material, scene, camera, renderContext) {
+    return {
+        id: renderObjectIdCounter++,
+        // Source references
+        mesh,
+        material,
+        geometry: mesh.geometry,
+        camera,
+        scene,
+        renderContext,
+        passId: '',
+        // Compiled state (lazy)
+        nodeBuilderState: null,
+        pipeline: null,
+        bindGroups: null,
+        _bindings: null,
+        // Attribute state (lazy)
+        vertexBuffers: null,
+        indexBuffer: null,
+        // Cache keys
+        initialCacheKey: '',
+        version: 0,
+        materialVersion: 0,
+        geometryVersion: 0,
+        // Pipeline key cache
+        _cachedPipelineKey: null,
+        _pipelineKeyVersion: 0,
+        // Disposal
+        onDispose: null,
+        disposed: false,
+    };
+}
+/**
+ * Dispose a RenderObject and clean up GPU resources.
+ */
+function disposeRenderObject(renderObject) {
+    if (renderObject.disposed)
+        return;
+    renderObject.disposed = true;
+    renderObject.onDispose?.();
+    // Clear references
+    renderObject.nodeBuilderState = null;
+    renderObject.pipeline = null;
+    renderObject.bindGroups = null;
+    renderObject._bindings = null;
+    renderObject.vertexBuffers = null;
+    renderObject.indexBuffer = null;
+    renderObject.onDispose = null;
+}
+/**
+ * Get the BindGroups for a RenderObject, lazily creating them.
+ *
+ * - First access calls NodeBuilderState.createBindings()
+ * - This clones non-shared groups, reuses shared groups
+ * - Subsequent accesses return the cached bindings
+ *
+ * @param renderObject - The RenderObject
+ * @returns Array of BindGroups for this RenderObject
+ * @throws Error if nodeBuilderState is not set
+ */
+function getBindings(renderObject) {
+    if (renderObject._bindings !== null) {
+        return renderObject._bindings;
+    }
+    if (renderObject.nodeBuilderState === null) {
+        throw new Error('Cannot get bindings: nodeBuilderState is not set');
+    }
+    // Create bindings from NodeBuilderState (clones non-shared, reuses shared)
+    renderObject._bindings = createBindings(renderObject.nodeBuilderState);
+    return renderObject._bindings;
+}
+/**
+ * Compute the cache key for a RenderObject based on material and geometry.
+ *
+ * This is used to detect when recompilation is needed.
+ * The key includes render state, geometry attributes, and context configuration.
+ */
+function computeRenderObjectCacheKey(material, geometry, renderContext) {
+    // Build cache key from material render state
+    const parts = [];
+    // Material render state
+    parts.push(material.transparent ? 't' : 'o');
+    parts.push(material.depthTest ? 'd' : '');
+    parts.push(material.depthWrite ? 'w' : '');
+    parts.push(material.depthCompare);
+    parts.push(material.cullMode);
+    parts.push(material.alphaToCoverage ? 'a' : '');
+    parts.push(`v${material.version}`);
+    // Blend state (if present)
+    if (material.blend) {
+        parts.push('b');
+        parts.push(material.blend.color?.operation ?? 'add');
+        parts.push(material.blend.alpha?.operation ?? 'add');
+    }
+    // Geometry buffers (names and formats)
+    const bufferKeys = [];
+    for (const [name, buffer] of geometry.buffers) {
+        bufferKeys.push(`${name}:${buffer.format ?? 'auto'}`);
+    }
+    bufferKeys.sort();
+    parts.push(bufferKeys.join(','));
+    // Index format
+    if (geometry.index) {
+        const fmt = getIndexFormat(geometry.index.array);
+        if (fmt)
+            parts.push(fmt);
+    }
+    // Render context (sample count, attachment config)
+    parts.push(`s${renderContext.sampleCount}`);
+    parts.push(renderContext.depth ? 'D' : '');
+    parts.push(renderContext.stencil ? 'S' : '');
+    return parts.join('|');
+}
 
 /**
  * Mipmap generation utilities using direct WebGPU pipelines.
- *
- * Three.js aligned: mirrors WebGPUTexturePassUtils.js
  *
  * Uses render passes to downsample each mip level from the previous one.
  * Pipelines are cached per texture format for efficiency.
@@ -12180,7 +12370,7 @@ function getRenderObject(state, mesh, material, scene, camera, renderContext, pa
  *
  * @returns true if initialization succeeded
  */
-function initRenderObject(nodes, geometriesState, bindingsState, pipelinesState, device, bufferCache, renderObject, colorFormat, depthFormat) {
+function initRenderObject(nodes, geometriesState, bindingsState, pipelinesState, device, bufferCache, renderObject) {
     const material = renderObject.material;
     const geometry = renderObject.geometry;
     const renderContext = renderObject.renderContext;
@@ -12203,7 +12393,7 @@ function initRenderObject(nodes, geometriesState, bindingsState, pipelinesState,
     // Check if we need to create/update pipeline
     if (!renderObject.pipeline) {
         // Create pipeline using the unified pipelines system (sync)
-        const entry = getForRender(pipelinesState, device, renderObject, bindGroupLayouts, colorFormat, depthFormat, null);
+        const entry = getForRender(pipelinesState, device, renderObject, bindGroupLayouts, null);
         renderObject.pipeline = entry.pipeline;
     }
     // Update geometry attributes
@@ -12232,7 +12422,7 @@ function updateRenderObject(bindingsState, geometriesState, device, bufferCache,
  *
  * @returns true if initialization succeeded (pipeline may still be compiling)
  */
-function initRenderObjectWithPromises(nodes, geometriesState, bindingsState, pipelinesState, device, bufferCache, renderObject, colorFormat, depthFormat, promises) {
+function initRenderObjectWithPromises(nodes, geometriesState, bindingsState, pipelinesState, device, bufferCache, renderObject, promises) {
     const material = renderObject.material;
     const geometry = renderObject.geometry;
     const renderContext = renderObject.renderContext;
@@ -12255,7 +12445,7 @@ function initRenderObjectWithPromises(nodes, geometriesState, bindingsState, pip
     // Check if we need to create/update pipeline
     if (!renderObject.pipeline) {
         // Create pipeline asynchronously using the unified pipelines system
-        const entry = getForRender(pipelinesState, device, renderObject, bindGroupLayouts, colorFormat, depthFormat, promises);
+        const entry = getForRender(pipelinesState, device, renderObject, bindGroupLayouts, promises);
         // Pipeline will be set when promise resolves, but we track the entry
         // The actual pipeline assignment happens after promises resolve
         promises.push(Promise.resolve().then(() => {
@@ -17580,7 +17770,6 @@ class Material {
     /**
      * Frees GPU-related resources allocated for this material.
      * Call this method when the material is no longer used.
-     * Mirrors Three.js Material.dispose().
      */
     dispose() {
         if (this.disposed)
@@ -17592,8 +17781,6 @@ class Material {
 
 /**
  * viewer.ts — Inspector Viewer tab.
- *
- * Three.js aligned: mirrors examples/jsm/inspector/tabs/Viewer.js
  *
  * Pattern:
  *   getCanvasDataByNode() — creates a CanvasTarget + wraps the node as vec4(vec3(node), 1)
@@ -17609,9 +17796,6 @@ class Material {
  * renderQuad() is used instead of renderer.render(wrappedNode) to avoid
  * triggering updateBefore() on PassNodes, which would cause a stack overflow
  * by recursively rendering the scene inside the inspector viewer.
- *
- * Three.js equivalent: canvasData.quad.render(renderer) — QuadMesh.render()
- * calls renderer.render(scene, camera) directly without updateBefore.
  */
 // ---------------------------------------------------------------------------
 // Viewer Tab
@@ -17621,7 +17805,7 @@ class Viewer extends Tab {
     nodes;
     /** Cached item DOM rows, keyed by canvasData.id */
     _itemLibrary = new Map();
-    /** Cached folder items, keyed by path name. Three.js aligned: folderLibrary */
+    /** Cached folder items, keyed by path name. */
     _folderLibrary = new Map();
     /** Current list of canvasData shown in the viewer */
     _currentDataList = [];
@@ -17644,7 +17828,6 @@ class Viewer extends Tab {
     // -----------------------------------------------------------------------
     /**
      * Get or create a folder item for the given path name.
-     * Three.js aligned: mirrors Viewer.getFolder().
      */
     getFolder(name) {
         let folder = this._folderLibrary.get(name);
@@ -17657,7 +17840,6 @@ class Viewer extends Tab {
     }
     /**
      * Update the viewer: render every inspectable node into its preview canvas.
-     * Three.js aligned: mirrors Viewer.update(renderer, canvasDataList).
      *
      * For each canvasData:
      *   1. Save renderer state (renderTarget, mrt, clearColor)
@@ -17669,8 +17851,7 @@ class Viewer extends Tab {
      *
      * Using renderQuad() instead of render(node) is the critical difference:
      * render(node) calls updateBefore() which triggers PassNode.updateBefore()
-     * causing a stack overflow. renderQuad() skips updateBefore entirely,
-     * mirroring how Three.js uses QuadMesh.render() → renderer.render(scene, camera).
+     * causing a stack overflow. renderQuad() skips updateBefore entirely.
      */
     update(inspector, canvasDataList) {
         if (!this.isActive && !this.isDetached)
@@ -17679,7 +17860,7 @@ class Viewer extends Tab {
         if (!renderer)
             return;
         // --- Remove items for nodes no longer in the list ---
-        // Three.js aligned: remove old items + clean up empty folders
+        // Remove old items + clean up empty folders
         const previousDataList = [...this._currentDataList];
         for (const canvasData of previousDataList) {
             if (this._itemLibrary.has(canvasData.id) && canvasDataList.indexOf(canvasData) === -1) {
@@ -17687,7 +17868,7 @@ class Viewer extends Tab {
                 const parent = item.parent;
                 if (parent) {
                     parent.remove(item);
-                    // Three.js aligned: remove empty folder from nodeList
+                    // Remove empty folder from nodeList
                     if (canvasData.path && this._folderLibrary.has(canvasData.path)) {
                         const folder = this._folderLibrary.get(canvasData.path);
                         if (folder.children?.length === 0) {
@@ -17702,7 +17883,7 @@ class Viewer extends Tab {
         }
         this._currentDataList = canvasDataList;
         // --- Add / render each node ---
-        // Three.js aligned: indexes tracks insertion order within each folder
+        // indexes tracks insertion order within each folder
         const indexes = {};
         for (const canvasData of canvasDataList) {
             const item = this._addNodeItem(canvasData);
@@ -17722,7 +17903,7 @@ class Viewer extends Tab {
                     this.nodes.add(item);
                 }
             }
-            // Save renderer state — mirrors RendererUtils.resetRendererState()
+            // Save renderer state for restoration after the preview render
             const savedState = renderer.saveRendererState();
             // Reset to clean defaults for the preview render
             renderer.mrt = null;
@@ -19602,7 +19783,6 @@ function unproject(out, ndc, camera) {
  * regardless of its distance from the camera. Useful for 2D scenes, UI, and
  * post-processing passes.
  *
- * Three.js aligned: mirrors THREE.OrthographicCamera.
  * Uses WebGPU depth range (0→1) via orthoZO, matching PerspectiveCamera's perspectiveZO.
  *
  * ```ts
@@ -19699,7 +19879,6 @@ class OrthographicCamera extends Camera {
 /**
  * Möller–Trumbore ray-triangle intersection.
  * Returns raw t (distance along ray direction) or null if no hit.
- * Ported from Three.js Ray.intersectTriangle.
  */
 function rayTriangleIntersection(origin, direction, a, b, c, backfaceCulling) {
     // edge1 = b - a, edge2 = c - a
@@ -20322,7 +20501,6 @@ function createSphereGeometry(radius = 0.5, widthSegments = 16, heightSegments =
  *
  * Vertices span [-width/2, width/2] in X and [-height/2, height/2] in Y, at z=0.
  * Normals point +Z. Triangles wound CCW when viewed from +Z.
- * Matches three.js PlaneGeometry orientation.
  *
  * @param width - Total width along X. Defaults to 1.
  * @param height - Total height along Y. Defaults to 1.
@@ -20607,7 +20785,6 @@ function createTorusGeometry(radius = 1, tube = 0.4, radialSegments = 12, tubula
     const uvArr = new Float32Array(vertexCount * 2);
     const indices = new Uint16Array(indexCount);
     // Ring lies in XY plane, tube cross-section sweeps around Z.
-    // Matches Three.js TorusGeometry orientation.
     let vi = 0;
     for (let j = 0; j <= radialSegments; j++) {
         const v = (j / radialSegments) * Math.PI * 2;
@@ -20777,7 +20954,6 @@ function createOctahedronGeometry(radius = 1, detail = 0) {
 
 /**
  * Shared fullscreen triangle geometry with position and uv vertex buffers.
- * Three.js aligned: mirrors the private QuadGeometry in QuadMesh.js.
  */
 const _geometry = /* @__PURE__ */ createFullscreenTriangleGeometry();
 /**
@@ -20792,8 +20968,6 @@ _camera.name = '__quadCamera__';
  *
  * It wraps a fullscreen triangle geometry and provides a `render()` method
  * that draws the quad to the renderer's current target (canvas or render target).
- *
- * Three.js aligned: mirrors src/renderers/common/QuadMesh.js
  *
  * Usage:
  * ```ts
@@ -24139,10 +24313,6 @@ class Inspector extends RendererInspector {
      * Get or create the CanvasData for an inspectable node.
      * Creates a 140×140 CanvasTarget, wraps the node as vec4(vec3(node), 1),
      * and builds a fullscreen Material. Cached per node — never recreated.
-     *
-     * Three.js aligned: mirrors Inspector.getCanvasDataByNode().
-     * - setPixelRatio(window.devicePixelRatio) on the canvas target
-     * - splitCamelCase + splitPath to derive { path, name } from the node label
      */
     getCanvasDataByNode(node) {
         let canvasData = this._canvasNodes.get(node);
@@ -24333,7 +24503,7 @@ function mat4GetColumn(out, m, col) {
 // OrbitControls
 // ---------------------------------------------------------------------------
 /**
- * OrbitControls — mirrors Three.js OrbitControls.
+ * OrbitControls
  *
  * Orbit: left mouse / one-finger touch.
  * Zoom:  middle mouse / wheel / two-finger pinch.
@@ -24463,7 +24633,6 @@ class OrbitControls {
         // Build the quaternion that rotates camera.up → world +Y
         const up = [0, 1, 0];
         // camera.up equivalent: we use +Y by default since Object3D doesn't carry an "up" field
-        // (same as Three.js default).  Users can override _quat / _quatInverse after construction
         // if they need a different up axis.
         this._quat = rotationTo(create$3(), up, up); // identity — up already is +Y
         this._quatInverse = conjugate(create$3(), this._quat);
@@ -24848,8 +25017,7 @@ class OrbitControls {
         this._mouse[1] = -(dy / rect.height) * 2 + 1;
         // Dolly direction: un-project the mouse position through the camera.
         // We approximate by setting dollyDirection to normalized (offset from camera to target)
-        // adjusted by mouse NDC. Matches Three.js approach of projecting through the camera.
-        // Since we don't have a full unproject here, we compute it from the view direction.
+        // adjusted by mouse NDC.
         subtract(this._dollyDirection, this.target, this.object.position);
         normalize$3(this._dollyDirection, this._dollyDirection);
     }
@@ -25715,7 +25883,6 @@ class TransformControlsGizmo extends Object3D {
         applyMatrix4ToGeometry(lineGeometry2, fromTranslation(create$5(), [0, 0.25, 0]));
         function CircleGeometry(radius, arc) {
             const geom = createTorusGeometry(radius, 0.0075, 3, 64, arc * Math.PI * 2);
-            // Match Three.js: geometry.rotateY(π/2) then geometry.rotateX(π/2)
             // Sequential application: v' = Rx * Ry * v
             const m = create$5();
             rotateX(m, m, Math.PI / 2);
@@ -26248,7 +26415,7 @@ class TransformControls {
             const pointer = getPointer(this.domElement, event);
             // During a drag, pointermove events have event.button === 0, but
             // pointerMove() expects button === -1 to distinguish move-during-drag
-            // from a fresh click (matching Three.js convention).
+            // from a fresh click
             pointer.button = -1;
             this.pointerMove(pointer);
         };
@@ -27609,7 +27776,7 @@ function lineVertex(lineWidthNode, worldUnits = false) {
     const atEnd = uvAttr.x.greaterThanEqual(f32(0.5));
     const viewPos = atEnd.select(viewEnd, viewStart);
     if (worldUnits) {
-        // world-units path: expand in view space like three.js
+        // world-units path: expand in view space
         // line direction in view space
         const lineDir = normalize$4(sub(viewEnd.xyz, viewStart.xyz));
         // view-space forward: direction from midpoint to camera (camera is at origin in view space)
@@ -27718,7 +27885,7 @@ function closestPointOnSegment(out, point, a, b) {
  * Both are in the same space as inputs.
  */
 function distanceSqToSegment(rayOrigin, rayDir, a, b, point, pointOnLine) {
-    // Closest point on segment to ray origin (approximation matching Three.js Ray.distanceSqToSegment)
+    // Closest point on segment to ray origin (approximation)
     closestPointOnSegment(pointOnLine, rayOrigin, a, b);
     // Project pointOnLine onto ray
     const dx = pointOnLine[0] - rayOrigin[0];
@@ -27801,7 +27968,7 @@ function raycastScreenSpace(object, starts, ends, n, matrixWorld, raycaster, lin
         // Skip if entirely behind near plane
         if (_start4[2] > near && _end4[2] > near)
             continue;
-        // Clip to near plane — lerp toward the other endpoint, matching Three.js
+        // Clip to near plane — lerp toward the other endpoint
         if (_start4[2] > near) {
             const t = (_start4[2] - near) / (_start4[2] - _end4[2]);
             _start4[0] = _start4[0] + t * (_end4[0] - _start4[0]);
@@ -27846,7 +28013,7 @@ function raycastScreenSpace(object, starts, ends, n, matrixWorld, raycaster, lin
             continue;
         // Pixel distance from ray to closest point on segment
         const pixDist = Math.sqrt((ssOx - cpx) ** 2 + (ssOy - cpy) ** 2);
-        // Compare pixel distance directly to lineWidth/2 (same as Three.js)
+        // Compare pixel distance directly to lineWidth/2
         const isInside = pixDist < lineWidth * 0.5;
         if (isInside) {
             // World-space hit point: transform original (unclipped) endpoints to world space,
@@ -27964,7 +28131,7 @@ function yieldToMain() {
  *
  * This mirrors the browser's GPUFeatureName type but as a runtime-accessible
  * object so we can iterate over its values when requesting device features.
- * Kept in sync with the WebGPU spec and Three.js's WebGPUConstants.js.
+ * Kept in sync with the WebGPU spec.
  */
 const GPUFeatureName = {
     CoreFeaturesAndLimits: 'core-features-and-limits',
@@ -27995,8 +28162,6 @@ const GPUFeatureName = {
  * Contains context types for both render and compute passes:
  * - RenderContext: Configuration for render passes (framebuffer, clear state, viewport, etc.)
  * - ComputeContext: Configuration for compute passes (currently minimal, used for bind group caching)
- *
- * Aligned with Three.js RenderContext + RenderContexts pattern.
  *
  * Functional pattern: state object + functions.
  */
@@ -28081,12 +28246,12 @@ function buildAttachmentState(renderTarget) {
     if (renderTarget === null) {
         return 'default';
     }
-    const format = renderTarget.colorFormat;
+    const formats = renderTarget.textures.map((t) => t.format).join(',');
     const count = renderTarget.textures.length;
     const samples = renderTarget.samples;
-    const depth = renderTarget.depthFormat !== null;
+    const depth = renderTarget.depthTexture !== null;
     const stencil = false; // TODO: Add stencil support to RenderTarget
-    return `${count}:${format}:${samples}:${depth}:${stencil}`;
+    return `${count}:${formats}:${samples}:${depth}:${stencil}`;
 }
 /**
  * Build the MRT state portion of the cache key.
@@ -28108,7 +28273,6 @@ function buildCacheKey(renderTarget, mrt, callDepth) {
 /**
  * Get or create a RenderContext for the given configuration.
  *
- * Aligned with Three.js RenderContexts.get():
  * - Returns cached context if configuration matches
  * - Creates new context if not found
  * - Updates dynamic values (clear values, sample count) on each access
@@ -28125,12 +28289,13 @@ function getRenderContext(state, renderTarget, mrt, callDepth) {
     if (context === undefined) {
         context = createRenderContext();
         context.mrt = mrt;
+        context.renderTarget = renderTarget;
         state.contexts.set(cacheKey, context);
     }
     // Update dynamic values on each access
     if (renderTarget !== null) {
         context.sampleCount = renderTarget.samples === 0 ? 1 : renderTarget.samples;
-        context.depth = renderTarget.depthFormat !== null;
+        context.depth = renderTarget.depthTexture !== null;
     }
     context.clearDepthValue = state.defaultClearDepth;
     context.clearStencilValue = state.defaultClearStencil;
@@ -28140,7 +28305,6 @@ function getRenderContext(state, renderTarget, mrt, callDepth) {
 /**
  * render-list.ts - Sorted render item list with object pooling and scene collection.
  *
- * Aligned with Three.js RenderList + RenderLists:
  * - Object pooling for RenderItems (avoids GC pressure)
  * - Sorted opaque and transparent lists
  * - Cached per scene/camera using ChainMap
@@ -28280,13 +28444,13 @@ function sortRenderList(list, customOpaqueSort, customTransparentSort) {
 /**
  * Default sort for opaque items.
  *
- * Sort priority (matches Three.js painterSortStable):
+ * Sort priority:
  * 1. groupOrder (render layers)
  * 2. renderOrder (manual ordering)
  * 3. Z (front-to-back for early-z rejection)
  * 4. ID (stability)
  *
- * Note: Three.js does NOT sort by material/pipeline. Pipeline switching is
+ * Note: we do NOT sort by material/pipeline. Pipeline switching is
  * minimized at draw time by tracking the active pipeline in setPipeline().
  */
 function painterSortStable(a, b) {
@@ -28636,6 +28800,10 @@ class WebGPURenderer {
             this._format = navigator.gpu.getPreferredCanvasFormat();
             this._canvasTarget.getContext(this._device, this._format);
         }
+        // Publish the swapchain formats to the pipelines layer so the fallback path
+        // (renderTarget === null) builds pipelines with the right attachment formats.
+        this._pipelines.canvasFormat = this._format;
+        this._pipelines.canvasDepthFormat = DEPTH_FORMAT;
         // Swapchain depth/msaa textures are only needed when rendering to a canvas.
         // In headless mode the RenderTarget owns its own depth/msaa.
         if (this._canvasTarget) {
@@ -28708,12 +28876,11 @@ class WebGPURenderer {
      * Pre-compile render pipelines and pre-upload GPU resources for a scene.
      * Optional — resources are created on-demand during the first render if not pre-warmed.
      */
-    async compile(scene, camera, samples, format) {
+    async compile(scene, camera, samples) {
         if (!this._initialized) {
             throw new Error('[WebGPURenderer] compile() called before init(). Await renderer.init() first.');
         }
         const resolvedSamples = samples ?? this.samples;
-        const resolvedFormat = format ?? this._format;
         // use new RenderLists system to collect visible meshes
         const renderList = collectRenderList(this._renderLists, scene, camera);
         const allItems = [...renderList.opaque, ...renderList.transparent];
@@ -28725,7 +28892,6 @@ class WebGPURenderer {
         compileContext.sampleCount = resolvedSamples;
         compileContext.width = this.domElement.width || 1;
         compileContext.height = this.domElement.height || 1;
-        const depthFormat = this.renderTarget?.depthTexture?.format ?? DEPTH_FORMAT;
         const width = compileContext.width;
         const height = compileContext.height;
         // phase 1: Kick off all async pipeline compilations in parallel
@@ -28737,7 +28903,7 @@ class WebGPURenderer {
             const renderObject = getRenderObject(this._renderObjects, item.mesh, item.material, scene, camera, compileContext, 'compile');
             // kick off async initialization (compiles shader, creates pipeline)
             const pipelinePromises = [];
-            initRenderObjectWithPromises(this._nodes, this._geometries, this._bindings, this._pipelines, this._device, this._buffers, renderObject, resolvedFormat, depthFormat, pipelinePromises);
+            initRenderObjectWithPromises(this._nodes, this._geometries, this._bindings, this._pipelines, this._device, this._buffers, renderObject, pipelinePromises);
             initPromises.push(...pipelinePromises);
         }
         // wait for all pipelines to compile
@@ -28951,13 +29117,12 @@ class WebGPURenderer {
         const ownEncoder = !commandEncoder;
         const encoder = commandEncoder ?? this._device.createCommandEncoder();
         const samples = renderTarget?.samples ?? this.samples;
-        const colorFormat = renderTarget?.colorFormat ?? this._format;
-        const depthFormat = renderTarget?.depthTexture?.format ?? DEPTH_FORMAT;
+        const primaryColorFormat = renderTarget?.textures[0]?.format ?? this._format;
         const width = renderTarget ? renderTarget.width : this.domElement.width || 1;
         const height = renderTarget ? renderTarget.height : this.domElement.height || 1;
         const [cr, cg, cb, ca] = this.clearColor;
         if (inspector) {
-            inspector.beginRenderScene(passId, scene, samples, colorFormat, frame.frameId);
+            inspector.beginRenderScene(passId, scene, samples, primaryColorFormat, frame.frameId);
             inspector.beginRender(passId, frame.frameId);
         }
         frame.renderer = this;
@@ -28980,7 +29145,7 @@ class WebGPURenderer {
         const clearColor = { r: cr, g: cg, b: cb, a: ca };
         const { colorAttachments, depthAttachment } = this._render_resolve(renderTarget, clearColor);
         this._device.pushErrorScope('validation');
-        const preparedObjects = this._render_prepare(scene, camera, passCtx, passId, colorFormat, depthFormat, this.overrideMaterial);
+        const preparedObjects = this._render_prepare(scene, camera, passCtx, passId, this.overrideMaterial);
         this._render_draw(encoder, preparedObjects, colorAttachments, depthAttachment, passId);
         if (ownEncoder) {
             this._device.queue.submit([encoder.finish()]);
@@ -29061,7 +29226,7 @@ class WebGPURenderer {
         return { colorAttachments, depthAttachment };
     }
     /** Collect visible meshes, init render objects, and run updateBefore (may trigger nested renders). */
-    _render_prepare(scene, camera, passCtx, passId, colorFormat, depthFormat, overrideMaterial) {
+    _render_prepare(scene, camera, passCtx, passId, overrideMaterial) {
         const inspector = this.inspector;
         if (inspector)
             inspector.perf.start('collectRenderList');
@@ -29074,7 +29239,7 @@ class WebGPURenderer {
                 if (!item.mesh || !item.material || !item.geometry)
                     continue;
                 const renderObject = getRenderObject(this._renderObjects, item.mesh, item.material, scene, camera, passCtx, passId);
-                const initialized = initRenderObject(this._nodes, this._geometries, this._bindings, this._pipelines, this._device, this._buffers, renderObject, colorFormat, depthFormat);
+                const initialized = initRenderObject(this._nodes, this._geometries, this._bindings, this._pipelines, this._device, this._buffers, renderObject);
                 if (!initialized || !renderObject.pipeline) {
                     console.warn('[gpucat] initRenderObject failed or pipeline missing', {
                         initialized,
@@ -29243,7 +29408,7 @@ class WebGPURenderer {
         for (const tex of renderTarget.textures) {
             const gpuTexture = this._device.createTexture({
                 size: [renderTarget.width, renderTarget.height],
-                format: tex.format ?? renderTarget.colorFormat,
+                format: tex.format,
                 usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
                 sampleCount,
             });
@@ -29487,12 +29652,12 @@ async function readPixels(renderer, renderTarget, attachmentIndex = 0) {
     if (!tex) {
         throw new Error(`[readPixels] no color attachment at index ${attachmentIndex}.`);
     }
-    const fmt = renderTarget.colorFormat;
+    const fmt = tex.format;
     if (fmt !== 'rgba8unorm' &&
         fmt !== 'bgra8unorm' &&
         fmt !== 'rgba8unorm-srgb' &&
         fmt !== 'bgra8unorm-srgb') {
-        throw new Error(`[readPixels] unsupported colorFormat '${fmt}'. Render through an rgba8unorm RenderTarget first.`);
+        throw new Error(`[readPixels] unsupported attachment format '${fmt}' at index ${attachmentIndex}. Render through an rgba8unorm RenderTarget first.`);
     }
     const textureData = getTextureData(renderer._textures, tex._gpuTexture);
     if (!textureData) {
@@ -29523,5 +29688,5 @@ async function readPixels(renderer, renderTarget, attachmentIndex = 0) {
     return tightlyPacked;
 }
 
-export { ArrayTexture, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CubeTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, FlyControls, Fn, For, Geometry, GpuBuffer, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, Raycaster, RenderPipeline, RenderTarget, Return, Scene, Source, TOUCH, Texture, TransformControls, Uniform, UniformGroup, UniformUpdateType, Var, WebGPURenderer, While, abs, acesToneMapping, add$1 as add, and, array, arrayTexture, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, ceil, clamp, color, comparisonSampler, compile, compileCompute, compute, computeIndex, cond, cos, createBoxGeometry, createCylinderGeometry, createFullscreenTriangleGeometry, createIndexBuffer, createIndirectBuffer, createOctahedronGeometry, createPlaneGeometry, createSphereGeometry, createStorageBuffer, createTorusGeometry, createUniformBuffer, createVertexBuffer, cross$1 as cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot$1 as dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, equal, f16, f32, field, fields, floor, fract, fragCoord, frameGroup, frustum, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, globalId, greaterThan, greaterThanEqual, i32, index, instanceIndex, layoutSizeOf, layoutStrideOf, length$1 as length, lessThan, lessThanEqual, localId, localIndex, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, normalize$4 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, packArray, packTo, pass, positionClip, pow, privateVar, readPixels, reinhardToneMapping, renderGroup, renderOutput, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, struct, sub, texture, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, timeDelta, timeElapsed, transpose$1 as transpose, u32, uniform, uniformGroup, unpack, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgsl, wgslFn, workgroupId, workgroupVar };
+export { ArrayTexture, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CubeTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, FlyControls, Fn, For, Geometry, GpuBuffer, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, Raycaster, RenderPipeline, RenderTarget, Return, Scene, Source, TOUCH, Texture, TransformControls, Uniform, UniformGroup, UniformUpdateType, Var, WebGPURenderer, While, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, ceil, clamp, color, comparisonSampler, compile, compileCompute, compute, computeIndex, cond, cos, countLeadingZeros, countOneBits, countTrailingZeros, createBoxGeometry, createCylinderGeometry, createFullscreenTriangleGeometry, createIndexBuffer, createIndirectBuffer, createOctahedronGeometry, createPlaneGeometry, createSphereGeometry, createStorageBuffer, createTorusGeometry, createUniformBuffer, createVertexBuffer, cross$1 as cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot$1 as dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frameGroup, frustum, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, globalId, greaterThan, greaterThanEqual, i32, index, instanceIndex, inverseSqrt, layoutSizeOf, layoutStrideOf, length$1 as length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, normalize$4 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, pass, positionClip, pow, privateVar, readPixels, reinhardToneMapping, renderGroup, renderOutput, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, struct, sub, tan, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, timeDelta, timeElapsed, transpose$1 as transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgsl, wgslFn, workgroupBarrier, workgroupId, workgroupVar };
 //# sourceMappingURL=index.js.map

@@ -1,6 +1,9 @@
-import type { Any } from '../schema/schema';
+import type { Any, Infer, TypedArrayFor } from '../schema/schema';
 
-export type UniformValue = number | number[] | Float32Array | Int32Array | Uint32Array;
+export type UniformValue<T extends Any = Any> =
+    Any extends T
+        ? number | number[] | Float32Array | Int32Array | Uint32Array
+        : Infer<T> | number[] | TypedArrayFor<T>;
 
 /**
  * Update frequency for uniform groups.
@@ -90,9 +93,9 @@ export const objectGroup = /*@__PURE__*/ uniformGroup('object', 1, UniformUpdate
 export class Uniform<T extends Any = Any> {
     readonly schema: T;
     readonly group: UniformGroup;
-    value: UniformValue | null = null;
+    value: UniformValue<T> | null = null;
 
-    constructor(schema: T, initialValue?: UniformValue, group: UniformGroup = objectGroup) {
+    constructor(schema: T, initialValue?: UniformValue<T>, group: UniformGroup = objectGroup) {
         this.schema = schema;
         this.group = group;
         if (initialValue !== undefined) {

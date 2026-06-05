@@ -1,22 +1,22 @@
-import { Camera } from 'gpucat/dist/camera/camera';
-import { type GpuBuffer } from 'gpucat/dist/core/gpu-buffer';
-import { Object3D } from 'gpucat/dist/core/object3d';
-import type { RenderTarget } from 'gpucat/dist/core/render-target';
-import { InspectorBase } from 'gpucat/dist/inspector/inspector-base';
-import type { Material } from 'gpucat/dist/material/material';
-import { ComputeNode, MRTNode } from 'gpucat/dist/nodes/nodes';
-import * as d from 'gpucat/dist/schema/schema';
-import { Scene } from 'gpucat/dist/scene/scene';
-import * as Bindings from 'gpucat/dist/renderer/bindings';
-import * as Buffers from 'gpucat/dist/renderer/buffers';
-import { CanvasTarget } from 'gpucat/dist/renderer/canvas-target';
-import * as Geometries from 'gpucat/dist/renderer/geometries';
-import * as NodeManager from 'gpucat/dist/renderer/node-manager';
-import * as RenderContext from 'gpucat/dist/renderer/pass-context';
-import * as Pipelines from 'gpucat/dist/renderer/pipelines';
-import * as RenderLists from 'gpucat/dist/renderer/render-list';
-import * as RenderObjects from 'gpucat/dist/renderer/render-objects';
-import * as Textures from 'gpucat/dist/renderer/textures';
+import { Camera } from '../camera/camera';
+import { type GpuBuffer } from '../core/gpu-buffer';
+import { Object3D } from '../core/object3d';
+import type { RenderTarget } from '../core/render-target';
+import { InspectorBase } from '../inspector/inspector-base';
+import type { Material } from '../material/material';
+import { ComputeNode, MRTNode } from '../nodes/nodes';
+import * as d from '../schema/schema';
+import { Scene } from '../scene/scene';
+import * as Bindings from './bindings';
+import * as Buffers from './buffers';
+import { CanvasTarget } from './canvas-target';
+import * as Geometries from './geometries';
+import * as NodeManager from './node-manager';
+import * as RenderContext from './pass-context';
+import * as Pipelines from './pipelines';
+import * as RenderLists from './render-list';
+import * as RenderObjects from './render-objects';
+import * as Textures from './textures';
 export type WebGPURendererOptions = {
     /** Enable 4x MSAA antialiasing. Overridden by `samples` if both set. */
     antialias?: boolean;
@@ -34,7 +34,7 @@ export type WebGPURendererOptions = {
     format?: GPUTextureFormat;
     /** Canvas element to render into. If not provided, one will be created. Ignored when `headless` is true. */
     canvas?: HTMLCanvasElement;
-    /** When true, the canvas context uses premultiplied alpha compositing (like three.js `alpha`). Defaults to false (opaque). */
+    /** When true, the canvas context uses premultiplied alpha compositing. Defaults to false (opaque). */
     alpha?: boolean;
     /**
      * Headless mode — no canvas, no swapchain. Requires a pre-created `device`.
@@ -196,7 +196,7 @@ export declare class WebGPURenderer {
      * Pre-compile render pipelines and pre-upload GPU resources for a scene.
      * Optional — resources are created on-demand during the first render if not pre-warmed.
      */
-    compile(scene: Scene, camera: Camera, samples?: number, format?: GPUTextureFormat): Promise<void>;
+    compile(scene: Scene, camera: Camera, samples?: number): Promise<void>;
     /**
      * Pre-compile a compute pipeline before the render loop starts.
      * This is optional — pipelines are compiled on-demand during the first

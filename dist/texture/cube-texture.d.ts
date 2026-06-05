@@ -1,7 +1,7 @@
-import { Source, type SourceData } from 'gpucat/dist/texture/source';
-import { GpuTexture } from 'gpucat/dist/core/gpu-texture';
-import { GpuSampler } from 'gpucat/dist/core/gpu-sampler';
-import * as d from 'gpucat/dist/schema/schema';
+import { Source, type SourceData } from './source';
+import { GpuTexture } from '../core/gpu-texture';
+import { GpuSampler } from '../core/gpu-sampler';
+import * as d from '../schema/schema';
 /**
  * Cube texture mapping modes.
  * Determines which vector to use for cube texture sampling.

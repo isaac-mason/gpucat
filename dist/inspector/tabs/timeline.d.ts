@@ -1,5 +1,5 @@
-import { Tab } from 'gpucat/dist/inspector/ui/tab';
-import { Graph } from 'gpucat/dist/inspector/ui/graph';
+import { Tab } from '../ui/tab';
+import { Graph } from '../ui/graph';
 type TimelineFrame = {
     id: string;
     calls: Array<{

@@ -1,7 +1,7 @@
-import { Node, type StructDef, type StructInstance, ConstructNode, LiteralNode } from 'gpucat/dist/nodes/lib/core';
-import type { StructSchema, Any } from 'gpucat/dist/schema/schema';
-import type { NodeFrame } from 'gpucat/dist/renderer/node-frame';
-import { Uniform, UniformGroup, UniformUpdateType, objectGroup, renderGroup, frameGroup, type UniformValue } from 'gpucat/dist/core/uniform';
+import { Node, type StructDef, type StructInstance, ConstructNode, LiteralNode } from './core';
+import type { StructSchema, Any } from '../../schema/schema';
+import type { NodeFrame } from '../../renderer/node-frame';
+import { Uniform, UniformGroup, UniformUpdateType, objectGroup, renderGroup, frameGroup, type UniformValue } from '../../core/uniform';
 export declare class UniformNode<D extends Any> extends Node<D> {
     /** uniform name */
     name: string;
@@ -10,9 +10,9 @@ export declare class UniformNode<D extends Any> extends Node<D> {
     /** Get the uniform group */
     get groupNode(): UniformGroup;
     /** Get the current value */
-    get value(): UniformValue | null;
+    get value(): UniformValue<D> | null;
     /** Set value directly */
-    set value(v: UniformValue | null);
+    set value(v: UniformValue<D> | null);
     constructor(uniform: Uniform<D>, name: string);
     /**
      * Register an update callback that runs per frame/render/object.

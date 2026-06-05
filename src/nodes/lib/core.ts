@@ -1506,6 +1506,16 @@ export const toF16 = <D extends Any>(node: Node<D>): Node<d.f16> => new CallNode
 export const toU32 = <D extends Any>(node: Node<D>): Node<d.u32> => new CallNode(d.u32, 'u32', [node]);
 export const toI32 = <D extends Any>(node: Node<D>): Node<d.i32> => new CallNode(d.i32, 'i32', [node]);
 
+/** Reinterpret a u32 or i32 bit pattern as f32. WGSL: `bitcast<f32>(x)`. */
+export const bitcastF32 = (node: Node<d.u32 | d.i32>): Node<d.f32> =>
+    new CallNode(d.f32, 'bitcast<f32>', [node]);
+/** Reinterpret an f32 or i32 bit pattern as u32. WGSL: `bitcast<u32>(x)`. */
+export const bitcastU32 = (node: Node<d.f32 | d.i32>): Node<d.u32> =>
+    new CallNode(d.u32, 'bitcast<u32>', [node]);
+/** Reinterpret an f32 or u32 bit pattern as i32. WGSL: `bitcast<i32>(x)`. */
+export const bitcastI32 = (node: Node<d.f32 | d.u32>): Node<d.i32> =>
+    new CallNode(d.i32, 'bitcast<i32>', [node]);
+
 export const greaterThan = <D extends Any>(a: Node<D>, b: Node<D>): Node<CompareResultDesc<D>> =>
     new BinopNode('>', d.compareResultDesc(a.type), a, b) as unknown as Node<CompareResultDesc<D>>;
 export const lessThan = <D extends Any>(a: Node<D>, b: Node<D>): Node<CompareResultDesc<D>> =>
@@ -1727,6 +1737,37 @@ export const dot = (a: Node<Any>, b: Node<Any>): Node<d.f32> => new CallNode(d.f
 export const cross = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new CallNode(a.type, 'cross', [a, b]);
 export const normalize = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'normalize', [a]);
 export const length = (a: Node<Any>): Node<d.f32> => new CallNode(d.f32, 'length', [a]);
+
+/** Pack two f32s as halves into a u32. Lower 16 bits = v.x, upper = v.y. WGSL: `pack2x16float`. */
+export const pack2x16float = (v: Node<d.vec2f>): Node<d.u32> =>
+    new CallNode(d.u32, 'pack2x16float', [v]);
+/** Unpack a u32 into two f32s from half-precision. WGSL: `unpack2x16float`. */
+export const unpack2x16float = (v: Node<d.u32>): Node<d.vec2f> =>
+    new CallNode(d.vec2f, 'unpack2x16float', [v]);
+/** Pack two f32s in [-1, 1] into a u32 as 16-bit snorm. WGSL: `pack2x16snorm`. */
+export const pack2x16snorm = (v: Node<d.vec2f>): Node<d.u32> =>
+    new CallNode(d.u32, 'pack2x16snorm', [v]);
+/** Unpack a u32 into two f32s as 16-bit snorm. WGSL: `unpack2x16snorm`. */
+export const unpack2x16snorm = (v: Node<d.u32>): Node<d.vec2f> =>
+    new CallNode(d.vec2f, 'unpack2x16snorm', [v]);
+/** Pack two f32s in [0, 1] into a u32 as 16-bit unorm. WGSL: `pack2x16unorm`. */
+export const pack2x16unorm = (v: Node<d.vec2f>): Node<d.u32> =>
+    new CallNode(d.u32, 'pack2x16unorm', [v]);
+/** Unpack a u32 into two f32s as 16-bit unorm. WGSL: `unpack2x16unorm`. */
+export const unpack2x16unorm = (v: Node<d.u32>): Node<d.vec2f> =>
+    new CallNode(d.vec2f, 'unpack2x16unorm', [v]);
+/** Pack four f32s in [-1, 1] into a u32 as 8-bit snorm. WGSL: `pack4x8snorm`. */
+export const pack4x8snorm = (v: Node<d.vec4f>): Node<d.u32> =>
+    new CallNode(d.u32, 'pack4x8snorm', [v]);
+/** Unpack a u32 into four f32s as 8-bit snorm. WGSL: `unpack4x8snorm`. */
+export const unpack4x8snorm = (v: Node<d.u32>): Node<d.vec4f> =>
+    new CallNode(d.vec4f, 'unpack4x8snorm', [v]);
+/** Pack four f32s in [0, 1] into a u32 as 8-bit unorm. WGSL: `pack4x8unorm`. */
+export const pack4x8unorm = (v: Node<d.vec4f>): Node<d.u32> =>
+    new CallNode(d.u32, 'pack4x8unorm', [v]);
+/** Unpack a u32 into four f32s as 8-bit unorm. WGSL: `unpack4x8unorm`. */
+export const unpack4x8unorm = (v: Node<d.u32>): Node<d.vec4f> =>
+    new CallNode(d.vec4f, 'unpack4x8unorm', [v]);
 export const abs = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'abs', [a]);
 export const floor = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'floor', [a]);
 export const ceil = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'ceil', [a]);
@@ -1736,6 +1777,16 @@ export const sin = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 
 export const cos = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'cos', [a]);
 export const negate = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'negate', [a]);
 export const pow = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => new CallNode(a.type, 'pow', [a, b]);
+export const exp = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'exp', [a]);
+export const log = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'log', [a]);
+export const exp2 = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'exp2', [a]);
+export const log2 = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'log2', [a]);
+export const tan = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'tan', [a]);
+export const atan = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'atan', [a]);
+export const atan2 = <D extends Any>(y: Node<D>, x: Node<D>): Node<D> => new CallNode(y.type, 'atan2', [y, x]);
+export const asin = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'asin', [a]);
+export const acos = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'acos', [a]);
+export const inverseSqrt = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'inverseSqrt', [a]);
 
 export function max<D extends Any>(a: Node<D>, b: Node<D>, ...rest: Node<D>[]): Node<D> {
     let result: Node<D> = new CallNode(a.type, 'max', [a, b]);
@@ -1764,6 +1815,14 @@ export const or = (a: Node<d.bool>, b: Node<d.bool>): Node<d.bool> => new BinopN
 export const and = (a: Node<d.bool>, b: Node<d.bool>): Node<d.bool> => new BinopNode('&&', d.bool, a, b);
 export const not = (a: Node<d.bool>): Node<d.bool> => new CallNode(d.bool, 'not', [a]);
 export const transpose = <D extends d.MatDesc>(m: Node<D>): Node<D> => new CallNode(m.type, 'transpose', [m]);
+
+// ── Bit-count builtins (integer-only) ────────────────────────────────────────
+export const countOneBits = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'countOneBits', [a]);
+export const countTrailingZeros = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'countTrailingZeros', [a]);
+export const countLeadingZeros = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'countLeadingZeros', [a]);
+export const reverseBits = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'reverseBits', [a]);
+export const firstLeadingBit = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'firstLeadingBit', [a]);
+export const firstTrailingBit = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'firstTrailingBit', [a]);
 
 // ── Derivative builtins (fragment-only) ───────────────────────────────────────
 export const dpdx = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'dpdx', [a]);
@@ -2004,6 +2063,18 @@ export function Continue(): void {
 }
 export function Discard(): void {
     addToStack(new DiscardNode());
+}
+/** Workgroup synchronization barrier. WGSL: `workgroupBarrier()`. */
+export function workgroupBarrier(): void {
+    addToStack(new CallNode(d.voidDesc, 'workgroupBarrier', []));
+}
+/** Storage-buffer write/read sync within a workgroup. WGSL: `storageBarrier()`. */
+export function storageBarrier(): void {
+    addToStack(new CallNode(d.voidDesc, 'storageBarrier', []));
+}
+/** Texture write/read sync within a workgroup. WGSL: `textureBarrier()`. */
+export function textureBarrier(): void {
+    addToStack(new CallNode(d.voidDesc, 'textureBarrier', []));
 }
 
 export type ParamDesc = { readonly name: string; readonly type: Any };

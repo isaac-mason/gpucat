@@ -1,5 +1,5 @@
-import * as d from 'gpucat/dist/schema/schema';
-import { type Node } from 'gpucat/dist/nodes/lib/core';
+import * as d from '../../../schema/schema';
+import { type Node } from '../core';
 export type ToneMappingMode = 'aces' | 'reinhard' | 'linear' | 'none';
 export type OutputColorSpace = 'srgb' | 'linear';
 export type RenderOutputOptions = {

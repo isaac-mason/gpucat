@@ -1,9 +1,9 @@
-import { Geometry } from 'gpucat/dist/geometry/geometry';
-import { Material } from 'gpucat/dist/material/material';
-import { Mesh } from 'gpucat/dist/objects/mesh';
-import { type Raycaster, type Intersection } from 'gpucat/dist/math/raycaster';
-import * as d from 'gpucat/dist/schema/schema';
-import { type Node } from 'gpucat/dist/nodes/nodes';
+import { Geometry } from '../geometry/geometry';
+import { Material } from '../material/material';
+import { Mesh } from './mesh';
+import { type Raycaster, type Intersection } from '../math/raycaster';
+import * as d from '../schema/schema';
+import { type Node } from '../nodes/nodes';
 /**
  * Screen-space expanded line geometry.
  *

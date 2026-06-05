@@ -1,5 +1,5 @@
-import * as d from 'gpucat/dist/schema/schema';
-import { Source, type SourceData } from 'gpucat/dist/texture/source';
+import * as d from '../schema/schema';
+import { Source, type SourceData } from '../texture/source';
 /** GPU texture dimension from schema type */
 export type DimensionOf<D extends d.AnyTextureDesc> = D extends d.texture1d ? '1d' : D extends d.texture3d ? '3d' : '2d';
 /** View dimension from schema type (for GPUTextureView) */

@@ -342,6 +342,11 @@ export class WebGPURenderer {
             this._canvasTarget!.getContext(this._device, this._format);
         }
 
+        // Publish the swapchain formats to the pipelines layer so the fallback path
+        // (renderTarget === null) builds pipelines with the right attachment formats.
+        this._pipelines.canvasFormat = this._format;
+        this._pipelines.canvasDepthFormat = DEPTH_FORMAT;
+
         // Swapchain depth/msaa textures are only needed when rendering to a canvas.
         // In headless mode the RenderTarget owns its own depth/msaa.
         if (this._canvasTarget) {
@@ -422,13 +427,12 @@ export class WebGPURenderer {
      * Pre-compile render pipelines and pre-upload GPU resources for a scene.
      * Optional — resources are created on-demand during the first render if not pre-warmed.
      */
-    async compile(scene: Scene, camera: Camera, samples?: number, format?: GPUTextureFormat): Promise<void> {
+    async compile(scene: Scene, camera: Camera, samples?: number): Promise<void> {
         if (!this._initialized) {
             throw new Error('[WebGPURenderer] compile() called before init(). Await renderer.init() first.');
         }
 
         const resolvedSamples = samples ?? this.samples;
-        const resolvedFormat = format ?? this._format;
 
         // use new RenderLists system to collect visible meshes
         const renderList = RenderLists.collectRenderList(this._renderLists, scene, camera);
@@ -443,7 +447,6 @@ export class WebGPURenderer {
         compileContext.width = this.domElement.width || 1;
         compileContext.height = this.domElement.height || 1;
 
-        const depthFormat = this.renderTarget?.depthTexture?.format ?? DEPTH_FORMAT;
         const width = compileContext.width;
         const height = compileContext.height;
 
@@ -474,8 +477,6 @@ export class WebGPURenderer {
                 this._device,
                 this._buffers,
                 renderObject,
-                resolvedFormat,
-                depthFormat,
                 pipelinePromises,
             );
             initPromises.push(...pipelinePromises);
@@ -752,14 +753,13 @@ export class WebGPURenderer {
         const encoder = commandEncoder ?? this._device.createCommandEncoder();
 
         const samples = renderTarget?.samples ?? this.samples;
-        const colorFormat = renderTarget?.colorFormat ?? this._format;
-        const depthFormat = renderTarget?.depthTexture?.format ?? DEPTH_FORMAT;
+        const primaryColorFormat = renderTarget?.textures[0]?.format ?? this._format;
         const width = renderTarget ? renderTarget.width : this.domElement.width || 1;
         const height = renderTarget ? renderTarget.height : this.domElement.height || 1;
         const [cr, cg, cb, ca] = this.clearColor;
 
         if (inspector) {
-            inspector.beginRenderScene(passId, scene, samples, colorFormat, frame.frameId);
+            inspector.beginRenderScene(passId, scene, samples, primaryColorFormat, frame.frameId);
             inspector.beginRender(passId, frame.frameId);
         }
 
@@ -794,8 +794,6 @@ export class WebGPURenderer {
             camera,
             passCtx,
             passId,
-            colorFormat,
-            depthFormat,
             this.overrideMaterial,
         );
 
@@ -895,8 +893,6 @@ export class WebGPURenderer {
         camera: Camera,
         passCtx: RenderContext.RenderContext,
         passId: string,
-        colorFormat: GPUTextureFormat,
-        depthFormat: GPUTextureFormat,
         overrideMaterial: Material | null,
     ): PreparedRenderObject[] {
         const inspector = this.inspector;
@@ -928,8 +924,6 @@ export class WebGPURenderer {
                     this._device,
                     this._buffers,
                     renderObject,
-                    colorFormat,
-                    depthFormat,
                 );
                 if (!initialized || !renderObject.pipeline) {
                     console.warn('[gpucat] initRenderObject failed or pipeline missing', {
@@ -1130,7 +1124,7 @@ export class WebGPURenderer {
         for (const tex of renderTarget.textures) {
             const gpuTexture = this._device.createTexture({
                 size: [renderTarget.width, renderTarget.height],
-                format: tex.format ?? renderTarget.colorFormat,
+                format: tex.format,
                 usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
                 sampleCount,
             });

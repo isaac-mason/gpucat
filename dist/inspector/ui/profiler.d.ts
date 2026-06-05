@@ -1,4 +1,4 @@
-import type { Tab } from 'gpucat/dist/inspector/ui/tab';
+import type { Tab } from './tab';
 interface DetachedWindow {
     panel: HTMLElement;
     tab: Tab;

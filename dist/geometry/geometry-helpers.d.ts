@@ -1,4 +1,4 @@
-import { Geometry } from 'gpucat/dist/geometry/geometry';
+import { Geometry } from './geometry';
 export declare function createBoxGeometry(width?: number, height?: number, depth?: number): Geometry;
 export declare function createSphereGeometry(radius?: number, widthSegments?: number, heightSegments?: number): Geometry;
 /**
@@ -6,7 +6,6 @@ export declare function createSphereGeometry(radius?: number, widthSegments?: nu
  *
  * Vertices span [-width/2, width/2] in X and [-height/2, height/2] in Y, at z=0.
  * Normals point +Z. Triangles wound CCW when viewed from +Z.
- * Matches three.js PlaneGeometry orientation.
  *
  * @param width - Total width along X. Defaults to 1.
  * @param height - Total height along Y. Defaults to 1.

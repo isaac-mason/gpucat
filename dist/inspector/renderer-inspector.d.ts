@@ -17,11 +17,11 @@
  *   buffer and read them back asynchronously after each submit.
  *   Each pass gets two slots: [begin, end]. Max 64 passes per frame.
  */
-import { InspectorBase } from 'gpucat/dist/inspector/inspector-base';
-import type { WebGPURenderer } from 'gpucat/dist/renderer/renderer';
-import type { InspectorNode, ComputeNode } from 'gpucat/dist/nodes/nodes';
-import type { Object3D } from 'gpucat/dist/core/object3d';
-import { Any } from 'gpucat/dist/schema/schema';
+import { InspectorBase } from './inspector-base';
+import type { WebGPURenderer } from '../renderer/renderer';
+import type { InspectorNode, ComputeNode } from '../nodes/nodes';
+import type { Object3D } from '../core/object3d';
+import { Any } from '../schema/schema';
 /** Base fields shared by all timeline entries */
 type TimelineEntryBase = {
     /** Entry name (pass ID or marker name) */

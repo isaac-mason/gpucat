@@ -1,4 +1,4 @@
-import type { GUI } from 'gpucat/dist/inspector/gui/GUI';
+import type { GUI } from './GUI';
 export interface ChangeEvent<T = unknown> {
     object: object;
     property: string;

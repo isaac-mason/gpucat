@@ -1,6 +1,6 @@
-import { Node } from 'gpucat/dist/nodes/lib/core';
-import { UniformNode } from 'gpucat/dist/nodes/lib/uniform';
-import * as d from 'gpucat/dist/schema/schema';
+import { Node } from '../core';
+import { UniformNode } from '../uniform';
+import * as d from '../../../schema/schema';
 /**
  * Screen coordinate — the current fragment's xy position in pixels.
  * Equivalent to @builtin(position).xy in WGSL.

@@ -41,10 +41,6 @@ export type RenderObject = {
     /** Unique identifier. */
     readonly id: number;
 
-    // -------------------------------------------------------------------------
-    // Source References
-    // -------------------------------------------------------------------------
-
     /** The mesh being rendered. */
     mesh: Mesh;
 
@@ -65,10 +61,6 @@ export type RenderObject = {
 
     /** The render pass this RenderObject belongs to (e.g. 'default', 'shadow'). */
     passId: string;
-
-    // -------------------------------------------------------------------------
-    // Compiled State (lazily initialized)
-    // -------------------------------------------------------------------------
 
     /**
      * Compiled shader state.
@@ -96,10 +88,6 @@ export type RenderObject = {
      */
     _bindings: BindGroup[] | null;
 
-    // -------------------------------------------------------------------------
-    // Buffer State
-    // -------------------------------------------------------------------------
-
     /**
      * Vertex buffers used by this draw.
      * null until buffers are resolved.
@@ -111,10 +99,6 @@ export type RenderObject = {
      * null for non-indexed draws.
      */
     indexBuffer: GpuBuffer<Any> | null;
-
-    // -------------------------------------------------------------------------
-    // Cache Keys & Version Tracking
-    // -------------------------------------------------------------------------
 
     /**
      * Initial cache key computed when RenderObject was created.
@@ -139,10 +123,6 @@ export type RenderObject = {
      */
     geometryVersion: number;
 
-    // -------------------------------------------------------------------------
-    // Pipeline Key Cache
-    // -------------------------------------------------------------------------
-
     /**
      * Cached pipeline key to avoid recomputation every frame.
      * null until first computation.
@@ -155,10 +135,6 @@ export type RenderObject = {
      */
     _pipelineKeyVersion: number;
 
-    // -------------------------------------------------------------------------
-    // Disposal
-    // -------------------------------------------------------------------------
-
     /**
      * Callback to clean up GPU resources when disposed.
      */
@@ -168,12 +144,6 @@ export type RenderObject = {
      * Whether this RenderObject has been disposed.
      */
     disposed: boolean;
-
-    // -------------------------------------------------------------------------
-    // Type Flag
-    // -------------------------------------------------------------------------
-
-    readonly isRenderObject: true;
 };
 
 /**
@@ -226,9 +196,6 @@ export function createRenderObject(
         // Disposal
         onDispose: null,
         disposed: false,
-
-        // Type flag
-        isRenderObject: true,
     };
 }
 
@@ -333,45 +300,4 @@ export function computeRenderObjectCacheKey(
     parts.push(renderContext.stencil ? 'S' : '');
 
     return parts.join('|');
-}
-
-/**
- * Get or compute the cached pipeline key for a RenderObject.
- *
- * The pipeline key is used for:
- * 1. Pipeline cache lookup (avoid recomputing expensive key strings)
- * 2. Opaque sorting by pipeline (minimize setPipeline calls)
- *
- * The key is invalidated when material.version changes.
- *
- * @param renderObject - The RenderObject
- * @param samples - MSAA sample count
- * @param colorFormat - Color texture format
- * @param depthFormat - Depth texture format (undefined for no depth)
- * @param makeKeyFn - Function to compute the pipeline key (from pipelines.ts)
- * @returns The cached or newly computed pipeline key
- */
-export function getCachedPipelineKey(
-    renderObject: RenderObject,
-    samples: number,
-    colorFormat: GPUTextureFormat,
-    depthFormat: GPUTextureFormat | undefined,
-    makeKeyFn: (material: Material, samples: number, format: GPUTextureFormat, depthFormat?: GPUTextureFormat) => string,
-): string {
-    const currentVersion = renderObject.material.version;
-
-    // Check if cache is valid
-    if (
-        renderObject._cachedPipelineKey !== null &&
-        renderObject._pipelineKeyVersion === currentVersion
-    ) {
-        return renderObject._cachedPipelineKey;
-    }
-
-    // Recompute and cache
-    const key = makeKeyFn(renderObject.material, samples, colorFormat, depthFormat);
-    renderObject._cachedPipelineKey = key;
-    renderObject._pipelineKeyVersion = currentVersion;
-
-    return key;
 }

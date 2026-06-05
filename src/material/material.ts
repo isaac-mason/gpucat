@@ -106,7 +106,7 @@ export class Material {
      * Used for name-based uniform resolution: uniform('roughness', d.f32) resolves
      * to material.uniforms.get('roughness') at render time.
      */
-    uniforms: Map<string, Uniform> = new Map();
+    uniforms: Map<string, Uniform<any>> = new Map();
 
     constructor(opts: MaterialOptions) {
         this.name = opts.name ?? '';

@@ -6,20 +6,20 @@
  * bufferCache, textureCache) are passed as function parameters — not stored
  * in state.
  */
-import type { Camera } from 'gpucat/dist/camera/camera';
-import type { Material } from 'gpucat/dist/material/material';
-import type { Mesh } from 'gpucat/dist/objects/mesh';
-import type { Object3D } from 'gpucat/dist/core/object3d';
-import type { BindingsState } from 'gpucat/dist/renderer/bindings';
-import type { BufferCache } from 'gpucat/dist/renderer/buffers';
-import * as chainMap from 'gpucat/dist/renderer/chain-map';
-import type { GeometriesState } from 'gpucat/dist/renderer/geometries';
-import type { NodeFrame } from 'gpucat/dist/renderer/node-frame';
-import type { NodeManagerState } from 'gpucat/dist/renderer/node-manager';
-import * as pipelines from 'gpucat/dist/renderer/pipelines';
-import type { RenderContext } from 'gpucat/dist/renderer/pass-context';
-import type { RenderObject } from 'gpucat/dist/renderer/render-object';
-import type { TextureCache } from 'gpucat/dist/renderer/textures';
+import type { Camera } from '../camera/camera';
+import type { Material } from '../material/material';
+import type { Mesh } from '../objects/mesh';
+import type { Object3D } from '../core/object3d';
+import type { BindingsState } from './bindings';
+import type { BufferCache } from './buffers';
+import * as chainMap from './chain-map';
+import type { GeometriesState } from './geometries';
+import type { NodeFrame } from './node-frame';
+import type { NodeManagerState } from './node-manager';
+import * as pipelines from './pipelines';
+import type { RenderContext } from './pass-context';
+import type { RenderObject } from './render-object';
+import type { TextureCache } from './textures';
 /**
  * RenderObjects state — owns only the caching structures.
  * All subsystem deps are passed to functions that need them.
@@ -58,7 +58,7 @@ export declare function getRenderObject(state: RenderObjectsState, mesh: Mesh, m
  *
  * @returns true if initialization succeeded
  */
-export declare function initRenderObject(nodes: NodeManagerState, geometriesState: GeometriesState, bindingsState: BindingsState, pipelinesState: pipelines.PipelinesState, device: GPUDevice, bufferCache: BufferCache, renderObject: RenderObject, colorFormat: GPUTextureFormat, depthFormat: GPUTextureFormat | null): boolean;
+export declare function initRenderObject(nodes: NodeManagerState, geometriesState: GeometriesState, bindingsState: BindingsState, pipelinesState: pipelines.PipelinesState, device: GPUDevice, bufferCache: BufferCache, renderObject: RenderObject): boolean;
 /**
  * Update a RenderObject for rendering.
  *
@@ -76,7 +76,7 @@ export declare function updateRenderObject(bindingsState: BindingsState, geometr
  *
  * @returns true if initialization succeeded (pipeline may still be compiling)
  */
-export declare function initRenderObjectWithPromises(nodes: NodeManagerState, geometriesState: GeometriesState, bindingsState: BindingsState, pipelinesState: pipelines.PipelinesState, device: GPUDevice, bufferCache: BufferCache, renderObject: RenderObject, colorFormat: GPUTextureFormat, depthFormat: GPUTextureFormat | null, promises: Promise<void>[]): boolean;
+export declare function initRenderObjectWithPromises(nodes: NodeManagerState, geometriesState: GeometriesState, bindingsState: BindingsState, pipelinesState: pipelines.PipelinesState, device: GPUDevice, bufferCache: BufferCache, renderObject: RenderObject, promises: Promise<void>[]): boolean;
 /** Dispose all RenderObjects for a specific mesh. */
 export declare function disposeRenderObjectsForMesh(state: RenderObjectsState, mesh: Mesh): void;
 /** Dispose all RenderObjects for a specific material. */

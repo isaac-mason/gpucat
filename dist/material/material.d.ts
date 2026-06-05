@@ -1,6 +1,6 @@
-import type { Node } from 'gpucat/dist/nodes/nodes';
-import type { Any } from 'gpucat/dist/schema/schema';
-import type { Uniform } from 'gpucat/dist/core/uniform';
+import type { Node } from '../nodes/nodes';
+import type { Any } from '../schema/schema';
+import type { Uniform } from '../core/uniform';
 export interface MaterialOptions {
     /** Material name, for debugging. */
     name?: string;
@@ -77,7 +77,7 @@ export declare class Material {
      * Used for name-based uniform resolution: uniform('roughness', d.f32) resolves
      * to material.uniforms.get('roughness') at render time.
      */
-    uniforms: Map<string, Uniform>;
+    uniforms: Map<string, Uniform<any>>;
     constructor(opts: MaterialOptions);
     /**
      * Incremented whenever the material's node graph configuration changes in a
@@ -104,7 +104,6 @@ export declare class Material {
     /**
      * Frees GPU-related resources allocated for this material.
      * Call this method when the material is no longer used.
-     * Mirrors Three.js Material.dispose().
      */
     dispose(): void;
 }

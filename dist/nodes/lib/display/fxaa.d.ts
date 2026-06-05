@@ -1,11 +1,10 @@
-import { Node } from 'gpucat/dist/nodes/lib/core';
-import { TextureNode } from 'gpucat/dist/nodes/lib/texture';
-import * as d from 'gpucat/dist/schema/schema';
+import { Node } from '../core';
+import { TextureNode } from '../texture';
+import * as d from '../../../schema/schema';
 /**
  * FXAA (Fast Approximate Anti-Aliasing) post-processing effect.
  *
- * This implementation ports the Three.js TSL FXAANode to gpucat's functional DSL.
- * It uses the standard FXAA 3.11 algorithm:
+ * Uses the standard FXAA 3.11 algorithm:
  * 1. Samples luminance of neighboring pixels
  * 2. Detects edges based on contrast
  * 3. Blends pixels along detected edges to smooth jaggies

@@ -1,5 +1,5 @@
-import type { GUI } from 'gpucat/dist/inspector/gui/GUI';
-import { Controller } from 'gpucat/dist/inspector/gui/Controller';
+import type { GUI } from './GUI';
+import { Controller } from './Controller';
 export declare class NumberController extends Controller<number> {
     $input: HTMLInputElement;
     $slider: HTMLDivElement | undefined;

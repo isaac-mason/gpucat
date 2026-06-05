@@ -3,10 +3,11 @@ import type { Any } from '../schema/schema';
 import type { Material } from '../material/material';
 import type { Geometry } from '../geometry/geometry';
 import type { RenderObject } from './render-object';
-import { getCachedPipelineKey } from './render-object';
 import type { NodeBuilderState } from './node-builder-state';
 import type { NodeManagerState } from './node-manager';
 import type { ComputeContext } from './pass-context';
+import type { MRTNode } from '../nodes/lib/mrt';
+import { BlendMode } from '../material/blend-mode';
 import * as NodeManager from './node-manager';
 import {
     type BindGroupLayoutCache,
@@ -43,6 +44,18 @@ export type PipelinesState = {
 
     /** Compute pipelines - keyed by node id. */
     computePipelines: Map<string, ComputePipelineEntry>;
+
+    /**
+     * Fallback color format used when rendering to the swapchain (renderTarget === null).
+     * Set by the renderer once the canvas format is known.
+     */
+    canvasFormat: GPUTextureFormat;
+
+    /**
+     * Fallback depth format used when rendering to the swapchain (renderTarget === null).
+     * Set by the renderer to match the swapchain depth texture format.
+     */
+    canvasDepthFormat: GPUTextureFormat;
 };
 
 export const DEPTH_FORMAT: GPUTextureFormat = 'depth24plus';
@@ -55,7 +68,37 @@ export function createPipelinesState(): PipelinesState {
         bindGroupLayoutCache: createBindGroupLayoutCache(),
         renderPipelines: new Map(),
         computePipelines: new Map(),
+        canvasFormat: 'bgra8unorm',
+        canvasDepthFormat: DEPTH_FORMAT,
     };
+}
+
+/**
+ * Per-attachment color formats for a render context.
+ * Reads each `renderTarget.textures[i].format`; falls back to the canvas format for the swapchain.
+ */
+export function getRenderContextColorFormats(
+    renderContext: { renderTarget: { textures: { format: GPUTextureFormat }[] } | null },
+    canvasFormat: GPUTextureFormat,
+): GPUTextureFormat[] {
+    const rt = renderContext.renderTarget;
+    if (rt === null) return [canvasFormat];
+    const out: GPUTextureFormat[] = [];
+    for (const tex of rt.textures) out.push(tex.format);
+    return out;
+}
+
+/**
+ * Depth-stencil format for a render context, or null if the target has no depth attachment.
+ * Reads `renderTarget.depthTexture?.format`; falls back to the swapchain depth format.
+ */
+export function getRenderContextDepthFormat(
+    renderContext: { renderTarget: { depthTexture: { format: GPUTextureFormat } | null } | null },
+    canvasDepthFormat: GPUTextureFormat,
+): GPUTextureFormat | null {
+    const rt = renderContext.renderTarget;
+    if (rt === null) return canvasDepthFormat;
+    return rt.depthTexture ? rt.depthTexture.format : null;
 }
 
 /**
@@ -85,16 +128,15 @@ export function getForRender(
     device: GPUDevice,
     renderObject: RenderObject,
     bindGroupLayouts: GPUBindGroupLayout[],
-    colorFormat: GPUTextureFormat,
-    depthFormat: GPUTextureFormat | null,
     promises: Promise<void>[] | null = null,
 ): RenderPipelineEntry {
+    const colorFormats = getRenderContextColorFormats(renderObject.renderContext, state.canvasFormat);
+    const depthFormat = getRenderContextDepthFormat(renderObject.renderContext, state.canvasDepthFormat);
     const cacheKey = getCachedPipelineKey(
         renderObject,
         renderObject.renderContext.sampleCount,
-        colorFormat,
-        depthFormat ?? undefined,
-        makeRenderPipelineKey,
+        colorFormats,
+        depthFormat,
     );
 
     let entry = state.renderPipelines.get(cacheKey);
@@ -114,7 +156,7 @@ export function getForRender(
         renderObject,
         nodeState,
         bindGroupLayouts,
-        colorFormat,
+        colorFormats,
         depthFormat,
     );
 
@@ -139,13 +181,14 @@ export function getForRender(
 /**
  * Check if a render pipeline is ready for rendering.
  */
-export function isReady(state: PipelinesState, renderObject: RenderObject, colorFormat: GPUTextureFormat, depthFormat: GPUTextureFormat | null): boolean {
+export function isReady(state: PipelinesState, renderObject: RenderObject): boolean {
+    const colorFormats = getRenderContextColorFormats(renderObject.renderContext, state.canvasFormat);
+    const depthFormat = getRenderContextDepthFormat(renderObject.renderContext, state.canvasDepthFormat);
     const cacheKey = getCachedPipelineKey(
         renderObject,
         renderObject.renderContext.sampleCount,
-        colorFormat,
-        depthFormat ?? undefined,
-        makeRenderPipelineKey,
+        colorFormats,
+        depthFormat,
     );
     const entry = state.renderPipelines.get(cacheKey);
     return entry !== undefined && entry.pipeline !== null;
@@ -156,7 +199,7 @@ function buildRenderPipelineDescriptor(
     renderObject: RenderObject,
     nodeState: NodeBuilderState,
     bindGroupLayouts: GPUBindGroupLayout[],
-    colorFormat: GPUTextureFormat,
+    colorFormats: GPUTextureFormat[],
     depthFormat: GPUTextureFormat | null,
 ): GPURenderPipelineDescriptor {
     const material = renderObject.material;
@@ -184,13 +227,31 @@ function buildRenderPipelineDescriptor(
         }
     });
 
+    // Material-level blend (applied to attachments tagged 'material' or non-MRT pipelines).
+    const materialBlending: GPUBlendState | undefined = material.transparent
+        ? (material.blend ?? getDefaultBlendState())
+        : undefined;
+
     // Build color targets (supports MRT). Empty for depth-only pipelines.
     const targetCount = getTargetCount(material.fragmentNode);
+    const textures = renderContext.renderTarget?.textures ?? null;
+    const mrt: MRTNode | null = renderContext.mrt;
     const colorTargets: GPUColorTargetState[] = [];
     for (let i = 0; i < targetCount; i++) {
+        let blend: GPUBlendState | undefined;
+        if (mrt !== null && textures !== null) {
+            const blendMode = mrt.getBlendMode(textures[i]?.name ?? '');
+            if (blendMode.blending === 'material') {
+                blend = materialBlending;
+            } else if (blendMode.blending !== 'no') {
+                blend = _getBlending(blendMode);
+            }
+        } else {
+            blend = materialBlending;
+        }
         colorTargets.push({
-            format: colorFormat,
-            blend: material.transparent ? getDefaultBlendState() : undefined,
+            format: colorFormats[i] ?? colorFormats[0],
+            blend,
             writeMask: GPUColorWrite.ALL,
         });
     }
@@ -342,13 +403,58 @@ function getTargetCount(fragmentNode: Node<Any> | null): number {
 }
 
 /**
+ * Get or compute the cached pipeline key for a RenderObject.
+ *
+ * The pipeline key is used for:
+ * 1. Pipeline cache lookup (avoid recomputing expensive key strings)
+ * 2. Opaque sorting by pipeline (minimize setPipeline calls)
+ *
+ * The key is memoized on the RenderObject and invalidated when material.version
+ * changes.
+ *
+ * @param renderObject - The RenderObject
+ * @param samples - MSAA sample count
+ * @param colorFormats - Color texture formats
+ * @param depthFormat - Depth texture format (null for no depth)
+ * @returns The cached or newly computed pipeline key
+ */
+function getCachedPipelineKey(
+    renderObject: RenderObject,
+    samples: number,
+    colorFormats: GPUTextureFormat[],
+    depthFormat: GPUTextureFormat | null,
+): string {
+    const currentVersion = renderObject.material.version;
+
+    if (
+        renderObject._cachedPipelineKey !== null &&
+        renderObject._pipelineKeyVersion === currentVersion
+    ) {
+        return renderObject._cachedPipelineKey;
+    }
+
+    const key = makeRenderPipelineKey(
+        renderObject.material,
+        samples,
+        colorFormats,
+        depthFormat,
+        renderObject.renderContext.mrt,
+    );
+    renderObject._cachedPipelineKey = key;
+    renderObject._pipelineKeyVersion = currentVersion;
+
+    return key;
+}
+
+/**
  * Stable cache key for a material + MSAA sample count + color format + optional depth format.
  */
 export function makeRenderPipelineKey(
     material: Material,
     samples: number,
-    format: GPUTextureFormat,
-    depthFormat: GPUTextureFormat | undefined = 'depth24plus',
+    formats: GPUTextureFormat[],
+    depthFormat: GPUTextureFormat | null,
+    mrt: MRTNode | null,
 ): string {
     const posId = material.vertexNode ? material.vertexNode.id : '__default__';
     const colId = material.fragmentNode ? material.fragmentNode.id : '__depthOnly__';
@@ -366,9 +472,10 @@ export function makeRenderPipelineKey(
         material.depthBiasClamp,
         getTargetCount(material.fragmentNode),
         samples,
-        format,
+        formats.join(','),
         depthFormat ?? 'none',
         material.blend ? JSON.stringify(material.blend) : 'none',
+        mrt ? `mrt${mrt.id}` : 'none',
     ].join('|');
 
     return `${posId}::${colId}::${depId}::${rs}`;
@@ -528,4 +635,61 @@ function getDefaultBlendState(): GPUBlendState {
             operation: 'add',
         },
     };
+}
+
+// (srcRGB, dstRGB, srcAlpha, dstAlpha) → GPUBlendState with 'add' for both ops.
+const _add = (
+    srcRGB: GPUBlendFactor,
+    dstRGB: GPUBlendFactor,
+    srcA: GPUBlendFactor,
+    dstA: GPUBlendFactor,
+): GPUBlendState => ({
+    color: { srcFactor: srcRGB, dstFactor: dstRGB, operation: 'add' },
+    alpha: { srcFactor: srcA, dstFactor: dstA, operation: 'add' },
+});
+
+/**
+ * Translate a BlendMode into a GPUBlendState for pipeline creation.
+ * Mirrors three.js's WebGPUPipelineUtils._getBlending. Only runs on pipeline
+ * cache miss, so the state is built on demand rather than precomputed.
+ *
+ * subtractive/multiply are only defined for premultiplied alpha, matching
+ * three.js, which errors on the non-premultiplied combinations.
+ */
+function _getBlending(blendMode: BlendMode): GPUBlendState {
+    const { blending, premultiplyAlpha: pm } = blendMode;
+
+    if (blending === 'custom') {
+        const { blendSrc, blendDst, blendEquation } = blendMode;
+        return {
+            color: { srcFactor: blendSrc, dstFactor: blendDst, operation: blendEquation },
+            alpha: {
+                srcFactor: blendMode.blendSrcAlpha ?? blendSrc,
+                dstFactor: blendMode.blendDstAlpha ?? blendDst,
+                operation: blendMode.blendEquationAlpha ?? blendEquation,
+            },
+        };
+    }
+
+    switch (blending) {
+        case 'normal':
+            return pm
+                ? _add('one', 'one-minus-src-alpha', 'one', 'one-minus-src-alpha')
+                : _add('src-alpha', 'one-minus-src-alpha', 'one', 'one-minus-src-alpha');
+        case 'additive':
+            return pm
+                ? _add('one', 'one', 'one', 'one')
+                : _add('src-alpha', 'one', 'one', 'one');
+        case 'subtractive':
+            if (pm) return _add('zero', 'one-minus-src', 'zero', 'one');
+            break;
+        case 'multiply':
+            if (pm) return _add('dst', 'one-minus-src-alpha', 'zero', 'one');
+            break;
+    }
+
+    console.error(
+        `[pipelines] ${blending} blending requires premultiplyAlpha=true.`,
+    );
+    return getDefaultBlendState();
 }

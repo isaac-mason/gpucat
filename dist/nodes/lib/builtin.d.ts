@@ -1,6 +1,6 @@
-import { Node } from 'gpucat/dist/nodes/lib/core';
-import type { Any } from 'gpucat/dist/schema/schema';
-import * as d from 'gpucat/dist/schema/schema';
+import { Node } from './core';
+import type { Any } from '../../schema/schema';
+import * as d from '../../schema/schema';
 export type BuiltinKind = 'instance_index' | 'instance_data' | 'vertex_index' | 'global_invocation_id' | 'local_invocation_id' | 'local_invocation_index' | 'workgroup_id' | 'num_workgroups' | 'position';
 export declare class BuiltinNode<D extends Any> extends Node<D> {
     readonly builtinKind: BuiltinKind;

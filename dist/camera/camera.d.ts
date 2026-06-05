@@ -1,5 +1,5 @@
 import { type Vec3 } from 'mathcat';
-import { Object3D } from 'gpucat/dist/core/object3d';
+import { Object3D } from '../core/object3d';
 export declare class Camera extends Object3D {
     near: number;
     far: number;

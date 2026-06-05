@@ -1,6 +1,6 @@
-import { GpuTexture } from 'gpucat/dist/core/gpu-texture';
-import { GpuSampler } from 'gpucat/dist/core/gpu-sampler';
-import * as d from 'gpucat/dist/schema/schema';
+import { GpuTexture } from '../core/gpu-texture';
+import { GpuSampler } from '../core/gpu-sampler';
+import * as d from '../schema/schema';
 export type DepthTextureFormat = 'depth16unorm' | 'depth24plus' | 'depth24plus-stencil8' | 'depth32float' | 'depth32float-stencil8';
 /**
  * A texture for storing depth information.

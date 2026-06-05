@@ -3,11 +3,21 @@ import { Texture } from '../texture/texture';
 import { DepthTexture, type DepthTextureFormat } from '../texture/depth-texture';
 
 export type RenderTargetOptions = {
-    /** Color attachment format. Default: 'rgba16float'. Applied to all attachments. */
+    /**
+     * Default format applied to every color attachment at construction.
+     * For per-attachment formats (MRT with mixed formats), mutate `rt.textures[i].format` after construction.
+     * Default: 'rgba16float'.
+     */
     colorFormat?: GPUTextureFormat;
 
-    /** Depth attachment format. `null` = no depth attachment. Default: 'depth24plus'. */
-    depthFormat?: DepthTextureFormat | null;
+    /** Whether to allocate a depth attachment. Default: true. */
+    depthBuffer?: boolean;
+
+    /** Format of the auto-allocated DepthTexture. Default: 'depth24plus'. Ignored if `depthTexture` is provided or `depthBuffer` is false. */
+    depthFormat?: DepthTextureFormat;
+
+    /** Caller-provided depth texture. Overrides `depthBuffer`/`depthFormat`. */
+    depthTexture?: DepthTexture;
 
     /** MSAA sample count. Default: 1. */
     samples?: number;
@@ -29,19 +39,13 @@ export class RenderTarget {
     /** The height of the render target */
     height: number;
 
-    /** The color format of the render target's texture(s) */
-    readonly colorFormat: GPUTextureFormat;
-
-    /** The depth format of the render target's depth texture, or null if no depth attachment */
-    readonly depthFormat: DepthTextureFormat | null;
-
     /** The MSAA sample count of the render target */
     readonly samples: number;
 
     /**
      * Array of color attachment textures.
-     * Each has a `.name` for MRT mapping, the first texture is also accessible via the `texture` getter.
-     * These are Texture instances with isRenderTargetTexture = true.
+     * Each has its own mutable `.format` (per-attachment formats supported by mutating `textures[i].format`).
+     * Each has a `.name` for MRT mapping; the first texture is also accessible via the `texture` getter.
      */
     textures: Texture[];
 
@@ -52,22 +56,22 @@ export class RenderTarget {
     constructor(width: number, height: number, opts: RenderTargetOptions = {}) {
         this.width = width;
         this.height = height;
-        this.colorFormat = opts.colorFormat ?? 'rgba16float';
-        this.depthFormat = opts.depthFormat !== undefined ? opts.depthFormat : 'depth24plus';
         this.samples = opts.samples ?? 1;
 
-        // Create color attachment textures
+        const defaultFormat = opts.colorFormat ?? 'rgba16float';
         const count = opts.count ?? 1;
         this.textures = [];
         for (let i = 0; i < count; i++) {
-            const texture = createRenderTargetTexture(this, width, height, this.colorFormat);
+            const texture = createRenderTargetTexture(this, width, height, defaultFormat);
             texture.name = i === 0 ? 'output' : `output${i}`;
             this.textures.push(texture);
         }
 
-        // Create depth texture if depth format specified
-        if (this.depthFormat) {
-            const depthTexture = new DepthTexture(width, height, this.depthFormat);
+        if (opts.depthTexture) {
+            this.depthTexture = opts.depthTexture;
+            this.depthTexture._gpuTexture.isRenderTargetTexture = true;
+        } else if (opts.depthBuffer !== false) {
+            const depthTexture = new DepthTexture(width, height, opts.depthFormat ?? 'depth24plus');
             depthTexture.name = 'depth';
             depthTexture._gpuTexture.isRenderTargetTexture = true;
             this.depthTexture = depthTexture;

@@ -1,4 +1,4 @@
-import { Texture } from 'gpucat/dist/texture/texture';
+import { Texture } from './texture';
 /**
  * A texture created from a canvas element.
  * Convenience subclass that sets appropriate defaults.

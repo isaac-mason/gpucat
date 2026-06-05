@@ -1,5 +1,6 @@
-import { Node } from 'gpucat/dist/nodes/lib/core';
-import * as d from 'gpucat/dist/schema/schema';
+import { Node } from './core';
+import * as d from '../../schema/schema';
+import { BlendMode } from '../../material/blend-mode';
 /**
  * Represents a fragment shader output struct with multiple @location outputs.
  * Used for MRT (Multiple Render Targets).
@@ -29,6 +30,11 @@ export declare class MRTNode extends OutputStructNode {
      * values are nodes producing vec4f values.
      */
     outputNodes: Record<string, Node<d.Any>>;
+    /**
+     * Per-output blend modes. Default `output` uses the material's blend;
+     * any name without an entry falls back to no-blend.
+     */
+    blendModes: Record<string, BlendMode>;
     /** Type flag for runtime checking. */
     readonly isMRTNode = true;
     /**
@@ -38,6 +44,8 @@ export declare class MRTNode extends OutputStructNode {
      */
     _resolvedNames: string[];
     constructor(outputNodes: Record<string, Node<d.Any>>);
+    setBlendMode(name: string, blend: BlendMode): this;
+    getBlendMode(name: string): BlendMode;
     /**
      * Returns true if this MRT node has an output with the given name.
      */

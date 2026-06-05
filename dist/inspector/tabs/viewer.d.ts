@@ -1,8 +1,6 @@
 /**
  * viewer.ts — Inspector Viewer tab.
  *
- * Three.js aligned: mirrors examples/jsm/inspector/tabs/Viewer.js
- *
  * Pattern:
  *   getCanvasDataByNode() — creates a CanvasTarget + wraps the node as vec4(vec3(node), 1)
  *                           + builds a Material. Cached per node, never recreated.
@@ -17,19 +15,16 @@
  * renderQuad() is used instead of renderer.render(wrappedNode) to avoid
  * triggering updateBefore() on PassNodes, which would cause a stack overflow
  * by recursively rendering the scene inside the inspector viewer.
- *
- * Three.js equivalent: canvasData.quad.render(renderer) — QuadMesh.render()
- * calls renderer.render(scene, camera) directly without updateBefore.
  */
-import { Tab } from 'gpucat/dist/inspector/ui/tab';
-import { List } from 'gpucat/dist/inspector/ui/list';
-import { Item } from 'gpucat/dist/inspector/ui/item';
-import { type Node } from 'gpucat/dist/nodes/nodes';
-import * as d from 'gpucat/dist/schema/schema';
-import type { Inspector } from 'gpucat/dist/inspector/inspector';
-import { CanvasTarget } from 'gpucat/dist/renderer/canvas-target';
-import { Material } from 'gpucat/dist/material/material';
-import { QuadMesh } from 'gpucat/dist/objects/quad-mesh';
+import { Tab } from '../ui/tab';
+import { List } from '../ui/list';
+import { Item } from '../ui/item';
+import { type Node } from '../../nodes/nodes';
+import * as d from '../../schema/schema';
+import type { Inspector } from '../inspector';
+import { CanvasTarget } from '../../renderer/canvas-target';
+import { Material } from '../../material/material';
+import { QuadMesh } from '../../objects/quad-mesh';
 export type CanvasData = {
     /** Stable ID (= node.id) */
     id: number;
@@ -43,8 +38,7 @@ export type CanvasData = {
     name: string;
     /**
      * Optional folder path — the part of the name before the last '/'.
-     * Three.js aligned: canvasData.path is used to group items in the viewer.
-     * Undefined if no path component.
+     * Used to group items in the viewer. Undefined if no path component.
      */
     path?: string;
 };
@@ -53,7 +47,7 @@ export declare class Viewer extends Tab {
     nodes: Item;
     /** Cached item DOM rows, keyed by canvasData.id */
     private _itemLibrary;
-    /** Cached folder items, keyed by path name. Three.js aligned: folderLibrary */
+    /** Cached folder items, keyed by path name. */
     private _folderLibrary;
     /** Current list of canvasData shown in the viewer */
     private _currentDataList;
@@ -63,12 +57,10 @@ export declare class Viewer extends Tab {
     });
     /**
      * Get or create a folder item for the given path name.
-     * Three.js aligned: mirrors Viewer.getFolder().
      */
     getFolder(name: string): Item;
     /**
      * Update the viewer: render every inspectable node into its preview canvas.
-     * Three.js aligned: mirrors Viewer.update(renderer, canvasDataList).
      *
      * For each canvasData:
      *   1. Save renderer state (renderTarget, mrt, clearColor)
@@ -80,8 +72,7 @@ export declare class Viewer extends Tab {
      *
      * Using renderQuad() instead of render(node) is the critical difference:
      * render(node) calls updateBefore() which triggers PassNode.updateBefore()
-     * causing a stack overflow. renderQuad() skips updateBefore entirely,
-     * mirroring how Three.js uses QuadMesh.render() → renderer.render(scene, camera).
+     * causing a stack overflow. renderQuad() skips updateBefore entirely.
      */
     update(inspector: Inspector, canvasDataList: CanvasData[]): void;
     private _addNodeItem;
