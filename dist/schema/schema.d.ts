@@ -230,17 +230,17 @@ export type StructDesc<S extends StructSchema = StructSchema> = {
     readonly name: string;
     readonly fields: S;
 };
-export type ArrayDesc = {
-    readonly type: 'array';
-    readonly wgslType: `array<${string}>`;
-    readonly element: Any;
-    readonly length?: undefined;
+export type ArrayDesc<E extends Any = Any> = {
+    type: 'array';
+    wgslType: `array<${E['wgslType']}>`;
+    element: E;
+    length?: undefined;
 };
-export type SizedArrayDesc = {
-    readonly type: 'sized-array';
-    readonly wgslType: `array<${string}, ${number}>`;
-    readonly element: Any;
-    readonly length: number;
+export type SizedArrayDesc<E extends Any = Any, N extends number = number> = {
+    type: 'sized-array';
+    wgslType: `array<${E['wgslType']}, ${N}>`;
+    element: E;
+    length: N;
 };
 /** TextureSampleType — the scalar descriptor types valid as texture sample type parameters in WGSL. */
 export type TextureSampleType = f32 | i32 | u32;
@@ -367,7 +367,7 @@ export type wgslfn = {
 };
 export declare const wgslfn: wgslfn;
 export type WgslFnDesc = wgslfn;
-export type Any = f32 | i32 | u32 | bool | f16 | vec2f | vec2i | vec2u | vec2bool | vec2h | vec3f | vec3i | vec3u | vec3bool | vec3h | vec4f | vec4i | vec4u | vec4bool | vec4h | mat2x2f | mat2x3f | mat2x4f | mat3x2f | mat3x3f | mat3x4f | mat4x2f | mat4x3f | mat4x4f | mat2x2h | mat2x3h | mat2x4h | mat3x2h | mat3x3h | mat3x4h | mat4x2h | mat4x3h | mat4x4h | atomicI32 | atomicU32 | StructDesc | ArrayDesc | SizedArrayDesc | texture1d | texture2d | texture2dArray | texture3d | textureCube | textureCubeArray | textureMultisampled2d | textureDepth2d | textureDepth2dArray | textureDepthCube | textureDepthCubeArray | textureDepthMultisampled2d | SamplerDesc | SamplerComparisonDesc | VoidDesc | WgslFnDesc;
+export type Any = f32 | i32 | u32 | bool | f16 | vec2f | vec2i | vec2u | vec2bool | vec2h | vec3f | vec3i | vec3u | vec3bool | vec3h | vec4f | vec4i | vec4u | vec4bool | vec4h | mat2x2f | mat2x3f | mat2x4f | mat3x2f | mat3x3f | mat3x4f | mat4x2f | mat4x3f | mat4x4f | mat2x2h | mat2x3h | mat2x4h | mat3x2h | mat3x3h | mat3x4h | mat4x2h | mat4x3h | mat4x4h | atomicI32 | atomicU32 | StructDesc | ArrayDesc<any> | SizedArrayDesc<any> | texture1d | texture2d | texture2dArray | texture3d | textureCube | textureCubeArray | textureMultisampled2d | textureDepth2d | textureDepth2dArray | textureDepthCube | textureDepthCubeArray | textureDepthMultisampled2d | SamplerDesc | SamplerComparisonDesc | VoidDesc | WgslFnDesc;
 /** Extract the descriptor type for a field K from struct descriptor D */
 export type StructField<D extends Any, K extends string> = D extends StructDesc<infer S> ? (K extends keyof S ? S[K] : never) : never;
 /** Extract keys from a struct descriptor */
@@ -435,17 +435,19 @@ export declare function isVecDesc(desc: Any): desc is anyVec;
 export declare function isStructDef(desc: Any): desc is StructDesc;
 export declare function atomic(inner: i32): atomicI32;
 export declare function atomic(inner: u32): atomicU32;
+export type array<E extends Any = Any> = ArrayDesc<E>;
 export declare function array<E extends Any>(element: E): {
-    readonly type: 'array';
-    readonly wgslType: `array<${E['wgslType']}>`;
-    readonly element: E;
-    readonly length?: undefined;
+    type: 'array';
+    wgslType: `array<${E['wgslType']}>`;
+    element: E;
+    length?: undefined;
 };
+export type sizedArray<E extends Any = Any, N extends number = number> = SizedArrayDesc<E, N>;
 export declare function sizedArray<E extends Any, N extends number>(element: E, length: N): {
-    readonly type: 'sized-array';
-    readonly wgslType: `array<${E['wgslType']}, ${N}>`;
-    readonly element: E;
-    readonly length: N;
+    type: 'sized-array';
+    wgslType: `array<${E['wgslType']}, ${N}>`;
+    element: E;
+    length: N;
 };
 export declare const samplerDesc: () => SamplerDesc;
 export declare const samplerComparisonDesc: () => SamplerComparisonDesc;

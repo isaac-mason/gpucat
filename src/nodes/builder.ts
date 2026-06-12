@@ -753,8 +753,8 @@ function groupAttributesByBuffer(entries: AttributeEntry[]): VertexBufferGroup[]
     return [...nameGroups.values(), ...bufferGroups.values()];
 }
 
-/** Single DFS pass that discovers all metadata needed before code generation. */
-interface DiscoverResult {
+/** result of a single DFS pass that discovers all metadata needed before code generation */
+type Discovery = {
     nodeIdToUsages: Map<number, number>;
     mutatedNodes: Set<number>;
     fnDefs: Map<string, { fn: FnNode<d.Any>; traced: TracedFn }>;
@@ -792,7 +792,7 @@ function walkTypeForStructs(type: d.Any, register: (def: StructDef<StructSchema>
     // For vectors and matrices, no structs to find
 }
 
-function discover(roots: Node<d.Any>[]): DiscoverResult {
+function discover(roots: Node<d.Any>[]): Discovery {
     const nodeIdToNode = new Map<number, Node<d.Any>>();
     const nodeIdToUsages = new Map<number, number>();
 

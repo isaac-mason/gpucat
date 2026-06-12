@@ -234,18 +234,18 @@ export type StructDesc<S extends StructSchema = StructSchema> = {
 // Array descriptors
 // ---------------------------------------------------------------------------
 
-export type ArrayDesc = {
-    readonly type: 'array';
-    readonly wgslType: `array<${string}>`;
-    readonly element: Any;
-    readonly length?: undefined;
+export type ArrayDesc<E extends Any = Any> = {
+    type: 'array';
+    wgslType: `array<${E['wgslType']}>`;
+    element: E;
+    length?: undefined;
 };
 
-export type SizedArrayDesc = {
-    readonly type: 'sized-array';
-    readonly wgslType: `array<${string}, ${number}>`;
-    readonly element: Any;
-    readonly length: number;
+export type SizedArrayDesc<E extends Any = Any, N extends number = number> = {
+    type: 'sized-array';
+    wgslType: `array<${E['wgslType']}, ${N}>`;
+    element: E;
+    length: N;
 };
 
 // ---------------------------------------------------------------------------
@@ -505,8 +505,10 @@ export type Any =
     | atomicU32
     // Composites
     | StructDesc
-    | ArrayDesc
-    | SizedArrayDesc
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- pin element to `any` here: ArrayDesc<Any> would make `Any` reference itself through `E['wgslType']`
+    | ArrayDesc<any>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see above
+    | SizedArrayDesc<any>
     // Textures (sampled)
     | texture1d
     | texture2d
@@ -762,11 +764,15 @@ export function atomic(inner: i32 | u32): anyAtomic {
     return { type: 'atomic', wgslType: 'atomic<u32>', inner };
 }
 
-export function array<E extends Any>(element: E): { readonly type: 'array'; readonly wgslType: `array<${E['wgslType']}>`; readonly element: E; readonly length?: undefined } {
+export type array<E extends Any = Any> = ArrayDesc<E>;
+
+export function array<E extends Any>(element: E): { type: 'array'; wgslType: `array<${E['wgslType']}>`; element: E; length?: undefined } {
     return { type: 'array', wgslType: `array<${element.wgslType}>`, element };
 }
 
-export function sizedArray<E extends Any, N extends number>(element: E, length: N): { readonly type: 'sized-array'; readonly wgslType: `array<${E['wgslType']}, ${N}>`; readonly element: E; readonly length: N } {
+export type sizedArray<E extends Any = Any, N extends number = number> = SizedArrayDesc<E, N>;
+
+export function sizedArray<E extends Any, N extends number>(element: E, length: N): { type: 'sized-array'; wgslType: `array<${E['wgslType']}, ${N}>`; element: E; length: N } {
     return { type: 'sized-array', wgslType: `array<${element.wgslType}, ${length}>`, element, length };
 }
 
