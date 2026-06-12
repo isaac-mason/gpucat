@@ -419,7 +419,7 @@ const cullCompute = Fn(() => {
     const aabbMin = page.aabbMin.toVar('aabbMin');
     const aabbMax = page.aabbMax.toVar('aabbMax');
 
-    const visible = Var(count.greaterThan(u32(0)), 'visible');
+    const visible = Var('visible', count.greaterThan(u32(0)));
 
     for (let i = 0; i < 6; i++) {
         const plane = frustumStorage.field("planes").element(u32(i)).toVar(`plane${i}`);

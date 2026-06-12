@@ -14,8 +14,8 @@ import {
     Const,
     Var,
     Let,
-    privateVar,
-    workgroupVar,
+    PrivateVar,
+    WorkgroupVar,
     compileCompute,
     globalId,
     computeIndex,
@@ -130,7 +130,7 @@ describe('control flow', () => {
 describe('variables', () => {
     test('Var creates mutable variable with assignment', () => {
         const fn = Fn(() => {
-            const x = Var(f32(0), 'x');
+            const x = Var('x', f32(0));
             x.assign(f32(10));
             x.assign(x.add(f32(5)));
         });
@@ -142,8 +142,8 @@ describe('variables', () => {
 
     test('Const creates immutable let binding', () => {
         const fn = Fn(() => {
-            const x = Const(f32(42), 'x');
-            const y = Var(f32(0), 'y');
+            const x = Const('x', f32(42));
+            const y = Var('y', f32(0));
             y.assign(x.add(f32(1)));
         });
 
@@ -225,7 +225,7 @@ describe('struct.construct', () => {
 
 describe('module-scope variables', () => {
     test('privateVar without initializer emits var<private> declaration', () => {
-        const counter = privateVar(d.u32, 'counter');
+        const counter = PrivateVar('counter', d.u32);
 
         const fn = Fn(() => {
             counter.assign(counter.add(i32(1).toU32()));
@@ -239,10 +239,10 @@ describe('module-scope variables', () => {
     });
 
     test('privateVar with literal initializer emits var<private> with init', () => {
-        const scale = privateVar(f32(2.5), 'scale');
+        const scale = PrivateVar('scale', f32(2.5));
 
         const fn = Fn(() => {
-            const x = Var(f32(1), 'x');
+            const x = Var('x', f32(1));
             x.assign(x.mul(scale));
         });
 
@@ -252,10 +252,10 @@ describe('module-scope variables', () => {
     });
 
     test('privateVar with vec3 initializer emits proper constructor', () => {
-        const gravity = privateVar(vec3(f32(0), f32(-9.8), f32(0)), 'gravity');
+        const gravity = PrivateVar('gravity', vec3(f32(0), f32(-9.8), f32(0)));
 
         const fn = Fn(() => {
-            const vel = Var(vec3(f32(0), f32(0), f32(0)), 'vel');
+            const vel = Var('vel', vec3(f32(0), f32(0), f32(0)));
             vel.assign(vel.add(gravity));
         });
 
@@ -265,7 +265,7 @@ describe('module-scope variables', () => {
     });
 
     test('workgroupVar emits var<workgroup> declaration', () => {
-        const shared = workgroupVar(d.sizedArray(d.f32, 256), 'sharedData');
+        const shared = WorkgroupVar('sharedData', d.sizedArray(d.f32, 256));
 
         const fn = Fn(() => {
             shared.element(i32(0)).assign(f32(42));
@@ -277,8 +277,8 @@ describe('module-scope variables', () => {
     });
 
     test('multiple module-scope vars are emitted before functions', () => {
-        const counter = privateVar(d.u32, 'counter');
-        const shared = workgroupVar(d.sizedArray(d.u32, 64), 'sharedBuf');
+        const counter = PrivateVar('counter', d.u32);
+        const shared = WorkgroupVar('sharedBuf', d.sizedArray(d.u32, 64));
 
         const fn = Fn(() => {
             shared.element(i32(0)).assign(counter);
@@ -302,8 +302,8 @@ describe('module-scope variables', () => {
 
     test('Let creates immutable let binding (same as deprecated Const)', () => {
         const fn = Fn(() => {
-            const x = Let(f32(42), 'immutable');
-            const y = Var(f32(0), 'mutable');
+            const x = Let('immutable', f32(42));
+            const y = Var('mutable', f32(0));
             y.assign(x.add(f32(1)));
         });
 

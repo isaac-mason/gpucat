@@ -30,9 +30,9 @@ const velocities = storage(velocityBuffer);
 /* compute function */
 
 const updateParticles = Fn(() => {
-    const idx = Var(globalId.x, 'idx');
-    const pos = Var(index(positions, idx), 'pos');
-    const vel = Var(index(velocities, idx), 'vel');
+    const idx = Var('idx', globalId.x);
+    const pos = Var('pos', index(positions, idx));
+    const vel = Var('vel', index(velocities, idx));
 
     // advance
     const newX = pos.x.add(vel.x);

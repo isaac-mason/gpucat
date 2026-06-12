@@ -231,8 +231,8 @@ export {
     Var,
     Const,
     Let,
-    privateVar,
-    workgroupVar,
+    PrivateVar,
+    WorkgroupVar,
     // control flow
     If,
     Loop,

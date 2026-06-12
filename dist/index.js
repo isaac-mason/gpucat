@@ -1187,10 +1187,10 @@ class Node {
         addToStack(new AssignNode(this, value));
     }
     toVar(label) {
-        return Var(this, label);
+        return makeVar(this, label);
     }
     toConst(label) {
-        return Let(this, label);
+        return makeLet(this, label);
     }
     addAssign(v) {
         addToStack(new AssignNode(this, add$1(this, v)));
@@ -1997,10 +1997,10 @@ class VarNode extends Node {
  * within the same shader invocation.
  *
  * @example
- * const counter = privateVar(d.u32, 'counter');
+ * const counter = PrivateVar('counter', d.u32);
  * // → var<private> counter: u32;
  *
- * const gravity = privateVar(vec3f(0, -9.8, 0), 'gravity');
+ * const gravity = PrivateVar('gravity', vec3f(0, -9.8, 0));
  * // → var<private> gravity: vec3f = vec3f(0.0, -9.8, 0.0);
  */
 class PrivateVarNode extends Node {
@@ -2019,7 +2019,7 @@ class PrivateVarNode extends Node {
  * Only valid in compute shaders. Cannot have an initializer.
  *
  * @example
- * const shared = workgroupVar(d.array(d.f32, 256), 'sharedData');
+ * const shared = WorkgroupVar('sharedData', d.array(d.f32, 256));
  * // → var<workgroup> sharedData: array<f32, 256>;
  */
 class WorkgroupVarNode extends Node {
@@ -2626,37 +2626,50 @@ const cond = (condition, ifTrue, ifFalse) => new CondNode(condition, ifTrue, ifF
  * Returns `trueVal` when `condition` is true, `falseVal` otherwise.
  */
 const select = (falseVal, trueVal, condition) => new CondNode(condition, trueVal, falseVal);
-function Var(init, label) {
+function makeVar(init, label) {
     const varName = label ? `var_${_nodeId}_${label}` : `var_${_nodeId}`;
     const v = new VarNode(init.type, varName, init);
-    // Add to current stack if building inside Fn, otherwise return standalone node
-    // The standalone VarNode still participates in the graph via its `init` reference
+    // Add to current stack if building inside Fn, otherwise return standalone node.
+    // The standalone VarNode still participates in the graph via its `init` reference.
     if (currentStack !== null)
         currentStack.push(v);
     return v;
 }
-function Let(init, label) {
+function makeLet(init, label) {
     const varName = label ? `let_${_nodeId}_${label}` : `let_${_nodeId}`;
     const v = new LetNode(init.type, varName, init);
     if (currentStack !== null)
         currentStack.push(v);
     return v;
 }
-/** @deprecated Use Let() instead */
-function Const(init, label) {
-    return Let(init, label);
+/**
+ * Function-scope mutable variable: `var name = init;`
+ *
+ * @example
+ * const velocity = Var('velocity', vec3f(0));
+ * // → var velocity = vec3f(0.0);
+ */
+function Var(name, init) {
+    return makeVar(init, name);
 }
-function privateVar(typeOrInit, name) {
-    // Check if first arg is a Node (has .type property and is instanceof Node)
-    if (typeOrInit instanceof Node) {
-        const init = typeOrInit;
-        const varName = name ?? `private_${_nodeId}`;
-        return new PrivateVarNode(init.type, varName, init);
-    }
-    // Otherwise it's a type descriptor
-    const type = typeOrInit;
-    const varName = name ?? `private_${_nodeId}`;
-    return new PrivateVarNode(type, varName);
+/**
+ * Function-scope immutable binding: `let name = init;`
+ *
+ * @example
+ * const half = Let('half', value.mul(0.5));
+ * // → let half = (value * 0.5);
+ */
+function Let(name, init) {
+    return makeLet(init, name);
+}
+/** @deprecated Use Let() instead */
+function Const(name, init) {
+    return makeLet(init, name);
+}
+function PrivateVar(name, typeOrInit) {
+    if (typeOrInit instanceof Node)
+        return new PrivateVarNode(typeOrInit.type, name, typeOrInit);
+    return new PrivateVarNode(typeOrInit, name);
 }
 /**
  * Create a module-scope workgroup variable: `var<workgroup> name: T;`
@@ -2665,10 +2678,10 @@ function privateVar(typeOrInit, name) {
  * Only valid in compute shaders. Cannot have an initializer.
  *
  * @example
- * const shared = workgroupVar(d.array(d.f32, 256), 'sharedData');
+ * const shared = WorkgroupVar('sharedData', d.array(d.f32, 256));
  * // → var<workgroup> sharedData: array<f32, 256>;
  */
-function workgroupVar(type, name) {
+function WorkgroupVar(name, type) {
     return new WorkgroupVarNode(type, name);
 }
 let _computeCounter = 0;
@@ -7316,6 +7329,7 @@ function walkTypeForStructs(type, register) {
 function discover(roots) {
     const nodeIdToNode = new Map();
     const nodeIdToUsages = new Map();
+    const visited = new Set();
     const mutatedNodes = new Set();
     const fnDefs = new Map();
     const wgslFnDefs = new Map();
@@ -7330,7 +7344,6 @@ function discover(roots) {
     const updateBeforeNodes = [];
     const updateAfterNodes = [];
     const updateNodes = [];
-    const visited = new Set();
     function registerStructDef(def) {
         if (structDefs.has(def.wgslType))
             return;
@@ -7429,7 +7442,7 @@ function discover(roots) {
             // Walk the type to find and register any struct definitions
             walkTypeForStructs(node.type, registerStructDef);
         }
-        // Binding discovery: textures, samplers, uniforms
+        // binding discovery: textures, samplers, uniforms
         if (node instanceof TextureBindingNode) {
             const name = node.textureId;
             if (!textures.has(name)) {
@@ -7458,7 +7471,7 @@ function discover(roots) {
                 uniforms.set(name, { node, group });
             }
         }
-        // Module-scope variable discovery
+        // module scope variable discovery
         if (node instanceof PrivateVarNode) {
             if (!privateVars.has(node.id)) {
                 privateVars.set(node.id, node);
@@ -29688,5 +29701,5 @@ async function readPixels(renderer, renderTarget, attachmentIndex = 0) {
     return tightlyPacked;
 }
 
-export { ArrayTexture, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CubeTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, FlyControls, Fn, For, Geometry, GpuBuffer, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, Raycaster, RenderPipeline, RenderTarget, Return, Scene, Source, TOUCH, Texture, TransformControls, Uniform, UniformGroup, UniformUpdateType, Var, WebGPURenderer, While, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, ceil, clamp, color, comparisonSampler, compile, compileCompute, compute, computeIndex, cond, cos, countLeadingZeros, countOneBits, countTrailingZeros, createBoxGeometry, createCylinderGeometry, createFullscreenTriangleGeometry, createIndexBuffer, createIndirectBuffer, createOctahedronGeometry, createPlaneGeometry, createSphereGeometry, createStorageBuffer, createTorusGeometry, createUniformBuffer, createVertexBuffer, cross$1 as cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot$1 as dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frameGroup, frustum, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, globalId, greaterThan, greaterThanEqual, i32, index, instanceIndex, inverseSqrt, layoutSizeOf, layoutStrideOf, length$1 as length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, normalize$4 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, pass, positionClip, pow, privateVar, readPixels, reinhardToneMapping, renderGroup, renderOutput, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, struct, sub, tan, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, timeDelta, timeElapsed, transpose$1 as transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgsl, wgslFn, workgroupBarrier, workgroupId, workgroupVar };
+export { ArrayTexture, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CubeTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, FlyControls, Fn, For, Geometry, GpuBuffer, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, Raycaster, RenderPipeline, RenderTarget, Return, Scene, Source, TOUCH, Texture, TransformControls, Uniform, UniformGroup, UniformUpdateType, Var, WebGPURenderer, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, ceil, clamp, color, comparisonSampler, compile, compileCompute, compute, computeIndex, cond, cos, countLeadingZeros, countOneBits, countTrailingZeros, createBoxGeometry, createCylinderGeometry, createFullscreenTriangleGeometry, createIndexBuffer, createIndirectBuffer, createOctahedronGeometry, createPlaneGeometry, createSphereGeometry, createStorageBuffer, createTorusGeometry, createUniformBuffer, createVertexBuffer, cross$1 as cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot$1 as dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frameGroup, frustum, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, globalId, greaterThan, greaterThanEqual, i32, index, instanceIndex, inverseSqrt, layoutSizeOf, layoutStrideOf, length$1 as length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, normalize$4 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, pass, positionClip, pow, readPixels, reinhardToneMapping, renderGroup, renderOutput, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, struct, sub, tan, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, timeDelta, timeElapsed, transpose$1 as transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgsl, wgslFn, workgroupBarrier, workgroupId };
 //# sourceMappingURL=index.js.map

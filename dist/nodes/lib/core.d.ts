@@ -427,10 +427,10 @@ export declare class VarNode<D extends Any> extends Node<D> {
  * within the same shader invocation.
  *
  * @example
- * const counter = privateVar(d.u32, 'counter');
+ * const counter = PrivateVar('counter', d.u32);
  * // → var<private> counter: u32;
  *
- * const gravity = privateVar(vec3f(0, -9.8, 0), 'gravity');
+ * const gravity = PrivateVar('gravity', vec3f(0, -9.8, 0));
  * // → var<private> gravity: vec3f = vec3f(0.0, -9.8, 0.0);
  */
 export declare class PrivateVarNode<D extends Any> extends Node<D> {
@@ -445,7 +445,7 @@ export declare class PrivateVarNode<D extends Any> extends Node<D> {
  * Only valid in compute shaders. Cannot have an initializer.
  *
  * @example
- * const shared = workgroupVar(d.array(d.f32, 256), 'sharedData');
+ * const shared = WorkgroupVar('sharedData', d.array(d.f32, 256));
  * // → var<workgroup> sharedData: array<f32, 256>;
  */
 export declare class WorkgroupVarNode<D extends Any> extends Node<D> {
@@ -887,25 +887,39 @@ export declare const cond: <D extends Any>(condition: Node<Any>, ifTrue: Node<D>
  * Returns `trueVal` when `condition` is true, `falseVal` otherwise.
  */
 export declare const select: <D extends Any>(falseVal: Node<D>, trueVal: Node<D>, condition: Node<Any>) => Node<D>;
-export declare function Var<D extends Any>(init: Node<D>, label?: string): VarNode<D>;
-export declare function Let<D extends Any>(init: Node<D>, label?: string): LetNode<D>;
+/**
+ * Function-scope mutable variable: `var name = init;`
+ *
+ * @example
+ * const velocity = Var('velocity', vec3f(0));
+ * // → var velocity = vec3f(0.0);
+ */
+export declare function Var<D extends Any>(name: string, init: Node<D>): VarNode<D>;
+/**
+ * Function-scope immutable binding: `let name = init;`
+ *
+ * @example
+ * const half = Let('half', value.mul(0.5));
+ * // → let half = (value * 0.5);
+ */
+export declare function Let<D extends Any>(name: string, init: Node<D>): LetNode<D>;
 /** @deprecated Use Let() instead */
-export declare function Const<D extends Any>(init: Node<D>, label?: string): LetNode<D>;
+export declare function Const<D extends Any>(name: string, init: Node<D>): LetNode<D>;
 /**
  * Create a module-scope private variable: `var<private> name: T [= init];`
  *
  * Private variables are per-invocation storage at module scope.
  *
  * @example Type-only (no initializer)
- * const counter = privateVar(d.u32, 'counter');
+ * const counter = PrivateVar('counter', d.u32);
  * // → var<private> counter: u32;
  *
  * @example With initializer (type inferred from node)
- * const gravity = privateVar(vec3f(0, -9.8, 0), 'gravity');
+ * const gravity = PrivateVar('gravity', vec3f(0, -9.8, 0));
  * // → var<private> gravity: vec3f = vec3f(0.0, -9.8, 0.0);
  */
-export declare function privateVar<D extends Any>(type: D, name?: string): PrivateVarNode<D>;
-export declare function privateVar<D extends Any>(init: Node<D>, name?: string): PrivateVarNode<D>;
+export declare function PrivateVar<D extends Any>(name: string, type: D): PrivateVarNode<D>;
+export declare function PrivateVar<D extends Any>(name: string, init: Node<D>): PrivateVarNode<D>;
 /**
  * Create a module-scope workgroup variable: `var<workgroup> name: T;`
  *
@@ -913,10 +927,10 @@ export declare function privateVar<D extends Any>(init: Node<D>, name?: string):
  * Only valid in compute shaders. Cannot have an initializer.
  *
  * @example
- * const shared = workgroupVar(d.array(d.f32, 256), 'sharedData');
+ * const shared = WorkgroupVar('sharedData', d.array(d.f32, 256));
  * // → var<workgroup> sharedData: array<f32, 256>;
  */
-export declare function workgroupVar<D extends Any>(type: D, name: string): WorkgroupVarNode<D>;
+export declare function WorkgroupVar<D extends Any>(name: string, type: D): WorkgroupVarNode<D>;
 export declare function assign<D extends Any>(target: Node<D>, value: Node<D>): void;
 export type ComputeOptions = {
     workgroupSize: [x: number, y: number, z: number];

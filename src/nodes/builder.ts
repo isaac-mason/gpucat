@@ -796,7 +796,9 @@ function discover(roots: Node<d.Any>[]): DiscoverResult {
     const nodeIdToNode = new Map<number, Node<d.Any>>();
     const nodeIdToUsages = new Map<number, number>();
 
+    const visited = new Set<number>();
     const mutatedNodes = new Set<number>();
+
     const fnDefs = new Map<string, { fn: FnNode<d.Any>; traced: TracedFn }>();
     const wgslFnDefs = new Map<string, WgslFunctionNode>();
     const structDefs = new Map<string, StructDef<StructSchema>>();
@@ -810,8 +812,6 @@ function discover(roots: Node<d.Any>[]): DiscoverResult {
     const updateBeforeNodes: UpdateBeforeNode[] = [];
     const updateAfterNodes: UpdateAfterNode[] = [];
     const updateNodes: UpdateNode[] = [];
-
-    const visited = new Set<number>();
 
     function registerStructDef(def: StructDef<StructSchema>): void {
         if (structDefs.has(def.wgslType)) return;
@@ -921,7 +921,7 @@ function discover(roots: Node<d.Any>[]): DiscoverResult {
             walkTypeForStructs(node.type, registerStructDef);
         }
 
-        // Binding discovery: textures, samplers, uniforms
+        // binding discovery: textures, samplers, uniforms
         if (node instanceof TextureBindingNode) {
             const name = node.textureId;
             if (!textures.has(name)) {
@@ -951,7 +951,7 @@ function discover(roots: Node<d.Any>[]): DiscoverResult {
             }
         }
 
-        // Module-scope variable discovery
+        // module scope variable discovery
         if (node instanceof PrivateVarNode) {
             if (!privateVars.has(node.id)) {
                 privateVars.set(node.id, node);

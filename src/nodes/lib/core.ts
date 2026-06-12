@@ -479,10 +479,10 @@ export class Node<D extends Any> {
         addToStack(new AssignNode(this, value));
     }
     toVar(label?: string): VarNode<D> {
-        return Var(this, label);
+        return makeVar(this, label);
     }
     toConst(label?: string): LetNode<D> {
-        return Let(this, label);
+        return makeLet(this, label);
     }
 
     addAssign<N extends Node<Any>>(v: N): void {
@@ -1317,10 +1317,10 @@ export class VarNode<D extends Any> extends Node<D> {
  * within the same shader invocation.
  *
  * @example
- * const counter = privateVar(d.u32, 'counter');
+ * const counter = PrivateVar('counter', d.u32);
  * // → var<private> counter: u32;
  *
- * const gravity = privateVar(vec3f(0, -9.8, 0), 'gravity');
+ * const gravity = PrivateVar('gravity', vec3f(0, -9.8, 0));
  * // → var<private> gravity: vec3f = vec3f(0.0, -9.8, 0.0);
  */
 export class PrivateVarNode<D extends Any> extends Node<D> {
@@ -1340,7 +1340,7 @@ export class PrivateVarNode<D extends Any> extends Node<D> {
  * Only valid in compute shaders. Cannot have an initializer.
  *
  * @example
- * const shared = workgroupVar(d.array(d.f32, 256), 'sharedData');
+ * const shared = WorkgroupVar('sharedData', d.array(d.f32, 256));
  * // → var<workgroup> sharedData: array<f32, 256>;
  */
 export class WorkgroupVarNode<D extends Any> extends Node<D> {
@@ -2133,25 +2133,47 @@ export const cond = <D extends Any>(condition: Node<Any>, ifTrue: Node<D>, ifFal
 export const select = <D extends Any>(falseVal: Node<D>, trueVal: Node<D>, condition: Node<Any>): Node<D> =>
     new CondNode(condition, trueVal, falseVal);
 
-export function Var<D extends Any>(init: Node<D>, label?: string): VarNode<D> {
+function makeVar<D extends Any>(init: Node<D>, label?: string): VarNode<D> {
     const varName = label ? `var_${_nodeId}_${label}` : `var_${_nodeId}`;
     const v = new VarNode(init.type, varName, init);
-    // Add to current stack if building inside Fn, otherwise return standalone node
-    // The standalone VarNode still participates in the graph via its `init` reference
+    // Add to current stack if building inside Fn, otherwise return standalone node.
+    // The standalone VarNode still participates in the graph via its `init` reference.
     if (currentStack !== null) currentStack.push(v);
     return v;
 }
 
-export function Let<D extends Any>(init: Node<D>, label?: string): LetNode<D> {
+function makeLet<D extends Any>(init: Node<D>, label?: string): LetNode<D> {
     const varName = label ? `let_${_nodeId}_${label}` : `let_${_nodeId}`;
     const v = new LetNode(init.type, varName, init);
     if (currentStack !== null) currentStack.push(v);
     return v;
 }
 
+/**
+ * Function-scope mutable variable: `var name = init;`
+ *
+ * @example
+ * const velocity = Var('velocity', vec3f(0));
+ * // → var velocity = vec3f(0.0);
+ */
+export function Var<D extends Any>(name: string, init: Node<D>): VarNode<D> {
+    return makeVar(init, name);
+}
+
+/**
+ * Function-scope immutable binding: `let name = init;`
+ *
+ * @example
+ * const half = Let('half', value.mul(0.5));
+ * // → let half = (value * 0.5);
+ */
+export function Let<D extends Any>(name: string, init: Node<D>): LetNode<D> {
+    return makeLet(init, name);
+}
+
 /** @deprecated Use Let() instead */
-export function Const<D extends Any>(init: Node<D>, label?: string): LetNode<D> {
-    return Let(init, label);
+export function Const<D extends Any>(name: string, init: Node<D>): LetNode<D> {
+    return makeLet(init, name);
 }
 
 // ─── Module-scope variable factories ──────────────────────────────────────────
@@ -2162,26 +2184,18 @@ export function Const<D extends Any>(init: Node<D>, label?: string): LetNode<D> 
  * Private variables are per-invocation storage at module scope.
  *
  * @example Type-only (no initializer)
- * const counter = privateVar(d.u32, 'counter');
+ * const counter = PrivateVar('counter', d.u32);
  * // → var<private> counter: u32;
  *
  * @example With initializer (type inferred from node)
- * const gravity = privateVar(vec3f(0, -9.8, 0), 'gravity');
+ * const gravity = PrivateVar('gravity', vec3f(0, -9.8, 0));
  * // → var<private> gravity: vec3f = vec3f(0.0, -9.8, 0.0);
  */
-export function privateVar<D extends Any>(type: D, name?: string): PrivateVarNode<D>;
-export function privateVar<D extends Any>(init: Node<D>, name?: string): PrivateVarNode<D>;
-export function privateVar<D extends Any>(typeOrInit: D | Node<D>, name?: string): PrivateVarNode<D> {
-    // Check if first arg is a Node (has .type property and is instanceof Node)
-    if (typeOrInit instanceof Node) {
-        const init = typeOrInit;
-        const varName = name ?? `private_${_nodeId}`;
-        return new PrivateVarNode(init.type, varName, init);
-    }
-    // Otherwise it's a type descriptor
-    const type = typeOrInit;
-    const varName = name ?? `private_${_nodeId}`;
-    return new PrivateVarNode(type, varName);
+export function PrivateVar<D extends Any>(name: string, type: D): PrivateVarNode<D>;
+export function PrivateVar<D extends Any>(name: string, init: Node<D>): PrivateVarNode<D>;
+export function PrivateVar<D extends Any>(name: string, typeOrInit: D | Node<D>): PrivateVarNode<D> {
+    if (typeOrInit instanceof Node) return new PrivateVarNode(typeOrInit.type, name, typeOrInit);
+    return new PrivateVarNode(typeOrInit, name);
 }
 
 /**
@@ -2191,10 +2205,10 @@ export function privateVar<D extends Any>(typeOrInit: D | Node<D>, name?: string
  * Only valid in compute shaders. Cannot have an initializer.
  *
  * @example
- * const shared = workgroupVar(d.array(d.f32, 256), 'sharedData');
+ * const shared = WorkgroupVar('sharedData', d.array(d.f32, 256));
  * // → var<workgroup> sharedData: array<f32, 256>;
  */
-export function workgroupVar<D extends Any>(type: D, name: string): WorkgroupVarNode<D> {
+export function WorkgroupVar<D extends Any>(name: string, type: D): WorkgroupVarNode<D> {
     return new WorkgroupVarNode(type, name);
 }
 
