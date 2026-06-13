@@ -107,7 +107,7 @@ export type SamplerEntry = {
     type: 'sampler' | 'sampler_comparison';
     group: number;
     binding: number;
-    samplerNode: SamplerNode<d.SamplerDesc | d.SamplerComparisonDesc>;
+    samplerNode: SamplerNode<d.sampler | d.samplerComparison>;
 };
 export type ComputeStorageEntry = {
     node: StorageNode<d.Any>;
@@ -124,8 +124,8 @@ export type NodeGraphInfo = {
     expression: string | undefined;
 };
 export type CompileSlots = {
-    position: Node<d.Any>;
-    color: Node<d.Any> | null;
+    vertex: Node<d.Any>;
+    fragment?: Node<d.Any>;
     depth?: Node<d.Any>;
 };
 export type CompileResult = {

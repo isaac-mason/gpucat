@@ -7,8 +7,8 @@ import {
     wgslSizeOf,
     u32 as u32Schema,
     type Any,
-    type ArrayDesc,
-    type SizedArrayDesc,
+    type array,
+    type sizedArray,
     type StructDesc,
     type StructSchema,
     type TypedArrayFor,
@@ -142,7 +142,7 @@ function normalizeUsage(usage?: BufferUsage | BufferUsage[]): Set<BufferUsage> {
  */
 function schemaItemSize(schema: Any): number {
     if (isArrayDesc(schema) || isSizedArrayDesc(schema)) {
-        const element = (schema as ArrayDesc | SizedArrayDesc).element;
+        const element = (schema as array | sizedArray).element;
         return schemaItemSize(element);
     }
     if (isStructDesc(schema)) return wgslSizeOf(schema as StructDesc<StructSchema>) / 4;

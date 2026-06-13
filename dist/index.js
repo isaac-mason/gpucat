@@ -351,9 +351,6 @@ function alignTo4(n) {
 /**
  * schema.ts — WGSL type descriptors following packcat's discriminated union pattern.
  *
- * Import this module as:
- *   import * as d from './schema'
- *
  * Every descriptor has:
  *   - `type`     — discriminant string for type-level narrowing and runtime switching
  *   - `wgslType` — the WGSL type name string
@@ -361,9 +358,7 @@ function alignTo4(n) {
  * For primitives, type === wgslType (e.g. { type: 'f32'; wgslType: 'f32' }).
  * For composites, type is the discriminant ('array', 'struct') and wgslType is computed.
  */
-// ---------------------------------------------------------------------------
-// Scalar descriptors
-// ---------------------------------------------------------------------------
+/* scalar descriptors */
 const f32$1 = { type: 'f32', wgslType: 'f32' };
 const i32$1 = { type: 'i32', wgslType: 'i32' };
 const u32$1 = { type: 'u32', wgslType: 'u32' };
@@ -451,11 +446,9 @@ const textureDepthCubeArray = { type: 'texture_depth_cube_array', wgslType: 'tex
 const textureDepthMultisampled2d = { type: 'texture_depth_multisampled_2d', wgslType: 'texture_depth_multisampled_2d' };
 const sampler$1 = { type: 'sampler', wgslType: 'sampler' };
 const samplerComparison = { type: 'sampler_comparison', wgslType: 'sampler_comparison' };
-const voidDesc = { type: 'void', wgslType: 'void' };
-const wgslfn = { type: 'wgslfn', wgslType: 'wgslfn' };
-// ---------------------------------------------------------------------------
-// Type guards
-// ---------------------------------------------------------------------------
+const Void = { type: 'void', wgslType: 'void' };
+const WgslFn = { type: 'wgslfn', wgslType: 'wgslfn' };
+/* type guards */
 function isAtomicDesc(desc) {
     return desc.type === 'atomic';
 }
@@ -546,18 +539,13 @@ function array$1(element) {
 function sizedArray(element, length) {
     return { type: 'sized-array', wgslType: `array<${element.wgslType}, ${length}>`, element, length };
 }
-// ---------------------------------------------------------------------------
-// Sampler factory functions
-// ---------------------------------------------------------------------------
 const samplerDesc = () => ({
     type: 'sampler', wgslType: 'sampler',
 });
 const samplerComparisonDesc = () => ({
     type: 'sampler_comparison', wgslType: 'sampler_comparison',
 });
-// ---------------------------------------------------------------------------
-// WGSL std430 layout utilities
-// ---------------------------------------------------------------------------
+/* WGSL std430 layout utilities */
 function roundUp$1(n, align) {
     return Math.ceil(n / align) * align;
 }
@@ -679,9 +667,7 @@ function wgslSizeOf(desc) {
 function wgslStrideOf(desc) {
     return roundUp$1(wgslSizeOf(desc), wgslAlignOf(desc));
 }
-// ---------------------------------------------------------------------------
-// Buffer packing helpers
-// ---------------------------------------------------------------------------
+/* buffer packing helpers */
 function itemSizeOf(desc) {
     const t = desc.wgslType;
     if (t === 'f32' || t === 'i32' || t === 'u32' || t === 'bool' || t === 'f16')
@@ -714,9 +700,7 @@ function typedArrayCtorOf(desc) {
         return Uint32Array;
     return Float32Array;
 }
-// ---------------------------------------------------------------------------
-// Lookup descriptor by WGSL type string
-// ---------------------------------------------------------------------------
+/* lookup descriptor by WGSL type string */
 const WGSL_TYPE_TO_DESC = {
     'f32': f32$1, 'i32': i32$1, 'u32': u32$1, 'bool': bool$1, 'f16': f16$1,
     'vec2f': vec2f$1, 'vec3f': vec3f$1, 'vec4f': vec4f$1,
@@ -733,7 +717,7 @@ const WGSL_TYPE_TO_DESC = {
     'mat3x2h': mat3x2h$1, 'mat3x3h': mat3x3h$1, 'mat3x4h': mat3x4h$1,
     'mat4x2h': mat4x2h$1, 'mat4x3h': mat4x3h$1, 'mat4x4h': mat4x4h$1,
     'sampler': sampler$1, 'sampler_comparison': samplerComparison,
-    'void': voidDesc,
+    'void': Void,
 };
 function descFromWgslType(wgslType) {
     const desc = WGSL_TYPE_TO_DESC[wgslType];
@@ -742,9 +726,7 @@ function descFromWgslType(wgslType) {
     // For custom types (structs, arrays, textures), return a generic descriptor
     return { type: 'string', wgslType };
 }
-// ---------------------------------------------------------------------------
-// Descriptor-based swizzle helpers (runtime)
-// ---------------------------------------------------------------------------
+/* descriptor-based swizzle helpers (runtime) */
 const VEC_ELEMENT_DESC = {
     vec2f: f32$1, vec3f: f32$1, vec4f: f32$1,
     vec2i: i32$1, vec3i: i32$1, vec4i: i32$1,
@@ -790,9 +772,7 @@ const MAT_COLUMN_DESC = {
 function matColumnDesc(desc) {
     return MAT_COLUMN_DESC[desc.wgslType];
 }
-// ---------------------------------------------------------------------------
-// Arithmetic result descriptor helpers (runtime)
-// ---------------------------------------------------------------------------
+/* arithmetic result descriptor helpers (runtime) */
 const MAT_TYPES_SET = new Set([
     'mat2x2f', 'mat2x3f', 'mat2x4f', 'mat3x2f', 'mat3x3f', 'mat3x4f', 'mat4x2f', 'mat4x3f', 'mat4x4f',
     'mat2x2h', 'mat2x3h', 'mat2x4h', 'mat3x2h', 'mat3x3h', 'mat3x4h', 'mat4x2h', 'mat4x3h', 'mat4x4h',
@@ -824,6 +804,8 @@ function compareResultDesc(d) {
 
 var schema = /*#__PURE__*/Object.freeze({
     __proto__: null,
+    Void: Void,
+    WgslFn: WgslFn,
     arithResultDesc: arithResultDesc,
     array: array$1,
     atomic: atomic,
@@ -912,11 +894,9 @@ var schema = /*#__PURE__*/Object.freeze({
     vec4i: vec4i$1,
     vec4u: vec4u$1,
     vecElementDescOrSelf: vecElementDescOrSelf,
-    voidDesc: voidDesc,
     wgslAlignOf: wgslAlignOf,
     wgslSizeOf: wgslSizeOf,
-    wgslStrideOf: wgslStrideOf,
-    wgslfn: wgslfn
+    wgslStrideOf: wgslStrideOf
 });
 
 // ─── Node id utilities ────────────────────────────────────────────────────────
@@ -1063,7 +1043,7 @@ class Node {
     }
     /** `select(falseVal, trueVal, this)` — use `this` node as the condition. */
     select(ifTrue, ifFalse) {
-        return new CondNode(this, ifTrue, ifFalse);
+        return new ConditionalNode(this, ifTrue, ifFalse);
     }
     any() {
         return any(this);
@@ -1911,7 +1891,7 @@ function isNode(v) {
  * return myOutputNode.before(updater);
  */
 function node() {
-    return new Node(voidDesc);
+    return new Node(Void);
 }
 // ─── InspectorNode ────────────────────────────────────────────────────────────
 /**
@@ -2033,12 +2013,12 @@ class AssignNode extends Node {
     target;
     value;
     constructor(target, value) {
-        super(voidDesc);
+        super(Void);
         this.target = target;
         this.value = value;
     }
 }
-class BinopNode extends Node {
+class BinaryOpNode extends Node {
     op;
     left;
     right;
@@ -2148,12 +2128,12 @@ const bitcastF32 = (node) => new CallNode(f32$1, 'bitcast<f32>', [node]);
 const bitcastU32 = (node) => new CallNode(u32$1, 'bitcast<u32>', [node]);
 /** Reinterpret an f32 or u32 bit pattern as i32. WGSL: `bitcast<i32>(x)`. */
 const bitcastI32 = (node) => new CallNode(i32$1, 'bitcast<i32>', [node]);
-const greaterThan = (a, b) => new BinopNode('>', compareResultDesc(a.type), a, b);
-const lessThan = (a, b) => new BinopNode('<', compareResultDesc(a.type), a, b);
-const greaterThanEqual = (a, b) => new BinopNode('>=', compareResultDesc(a.type), a, b);
-const lessThanEqual = (a, b) => new BinopNode('<=', compareResultDesc(a.type), a, b);
-const equal = (a, b) => new BinopNode('==', compareResultDesc(a.type), a, b);
-const notEqual = (a, b) => new BinopNode('!=', compareResultDesc(a.type), a, b);
+const greaterThan = (a, b) => new BinaryOpNode('>', compareResultDesc(a.type), a, b);
+const lessThan = (a, b) => new BinaryOpNode('<', compareResultDesc(a.type), a, b);
+const greaterThanEqual = (a, b) => new BinaryOpNode('>=', compareResultDesc(a.type), a, b);
+const lessThanEqual = (a, b) => new BinaryOpNode('<=', compareResultDesc(a.type), a, b);
+const equal = (a, b) => new BinaryOpNode('==', compareResultDesc(a.type), a, b);
+const notEqual = (a, b) => new BinaryOpNode('!=', compareResultDesc(a.type), a, b);
 const any = (a) => new CallNode(bool$1, 'any', [a]);
 const all = (a) => new CallNode(bool$1, 'all', [a]);
 /**
@@ -2297,10 +2277,10 @@ function mat3(c0, c1, c2, s10, s11, s12, s20, s21, s22) {
     return new ConstructNode(mat3x3f$1, [c0, z, z, z, c0, z, z, z, c0]);
 }
 // ── Standalone math functions ─────────────────────────────────────────────────
-const add$1 = (a, b) => new BinopNode('+', arithResultDesc(a.type, b.type), a, b);
-const sub = (a, b) => new BinopNode('-', arithResultDesc(a.type, b.type), a, b);
-const div = (a, b) => new BinopNode('/', arithResultDesc(a.type, b.type), a, b);
-const mul = (a, b) => new BinopNode('*', mulResultDesc(a.type, b.type), a, b);
+const add$1 = (a, b) => new BinaryOpNode('+', arithResultDesc(a.type, b.type), a, b);
+const sub = (a, b) => new BinaryOpNode('-', arithResultDesc(a.type, b.type), a, b);
+const div = (a, b) => new BinaryOpNode('/', arithResultDesc(a.type, b.type), a, b);
+const mul = (a, b) => new BinaryOpNode('*', mulResultDesc(a.type, b.type), a, b);
 const dot$1 = (a, b) => new CallNode(f32$1, 'dot', [a, b]);
 const cross$1 = (a, b) => new CallNode(a.type, 'cross', [a, b]);
 const normalize$4 = (a) => new CallNode(a.type, 'normalize', [a]);
@@ -2363,9 +2343,9 @@ const mix = (a, b, t) => new CallNode(a.type, 'mix', [a, b, t]);
 const step = (edge, x) => new CallNode(x.type, 'step', [edge, x]);
 const smoothstep = (lo, hi, x) => new CallNode(x.type, 'smoothstep', [lo, hi, x]);
 const sign = (a) => new CallNode(a.type, 'sign', [a]);
-const mod = (a, b) => new BinopNode('%', a.type, a, b);
-const or = (a, b) => new BinopNode('||', bool$1, a, b);
-const and = (a, b) => new BinopNode('&&', bool$1, a, b);
+const mod = (a, b) => new BinaryOpNode('%', a.type, a, b);
+const or = (a, b) => new BinaryOpNode('||', bool$1, a, b);
+const and = (a, b) => new BinaryOpNode('&&', bool$1, a, b);
 const not = (a) => new CallNode(bool$1, 'not', [a]);
 const transpose$1 = (m) => new CallNode(m.type, 'transpose', [m]);
 // ── Bit-count builtins (integer-only) ────────────────────────────────────────
@@ -2385,16 +2365,16 @@ const fwidthCoarse = (a) => new CallNode(a.type, 'fwidthCoarse', [a]);
 const dpdxFine = (a) => new CallNode(a.type, 'dpdxFine', [a]);
 const dpdyFine = (a) => new CallNode(a.type, 'dpdyFine', [a]);
 const fwidthFine = (a) => new CallNode(a.type, 'fwidthFine', [a]);
-const bitwiseAnd = (a, b) => new BinopNode('&', a.type, a, b);
-const bitwiseOr = (a, b) => new BinopNode('|', a.type, a, b);
-const bitwiseXor = (a, b) => new BinopNode('^', a.type, a, b);
-const shiftLeft = (a, b) => new BinopNode('<<', a.type, a, b);
-const shiftRight = (a, b) => new BinopNode('>>', a.type, a, b);
+const bitwiseAnd = (a, b) => new BinaryOpNode('&', a.type, a, b);
+const bitwiseOr = (a, b) => new BinaryOpNode('|', a.type, a, b);
+const bitwiseXor = (a, b) => new BinaryOpNode('^', a.type, a, b);
+const shiftLeft = (a, b) => new BinaryOpNode('<<', a.type, a, b);
+const shiftRight = (a, b) => new BinaryOpNode('>>', a.type, a, b);
 // ── Lang ──────────────────────────────────────────────────────────────────────
 class StackNode extends Node {
     body;
     constructor(initial) {
-        super(voidDesc);
+        super(Void);
         this.body = initial ? [...initial] : [];
     }
     push(node) {
@@ -2418,7 +2398,7 @@ class FnNode extends Node {
         const params = this.paramDescs.map((pd, i) => {
             const paramName = 'name' in pd ? pd.name : undefined;
             const desc = 'name' in pd ? pd.type : pd;
-            return new ParamNode(desc, i, paramName);
+            return new ParameterNode(desc, i, paramName);
         });
         const stack = new StackNode();
         const prev = pushStack(stack);
@@ -2432,7 +2412,7 @@ class FnNode extends Node {
         return { params, body: stack, output };
     }
 }
-class ParamNode extends Node {
+class ParameterNode extends Node {
     paramIndex;
     paramName;
     constructor(type, paramIndex, paramName) {
@@ -2448,7 +2428,7 @@ class ReturnNode extends Node {
         this.value = value;
     }
 }
-class CondNode extends Node {
+class ConditionalNode extends Node {
     condition;
     ifTrue;
     ifFalse;
@@ -2465,7 +2445,7 @@ class IfNode extends Node {
     elseIfBranches = [];
     elseBody = null;
     constructor(condition, thenBody) {
-        super(voidDesc);
+        super(Void);
         this.condition = condition;
         this.thenBody = thenBody;
     }
@@ -2477,7 +2457,7 @@ class LoopNode extends Node {
     callbackKey;
     body;
     constructor(config, loopVar, callbackKey, body) {
-        super(voidDesc);
+        super(Void);
         this.config = config;
         this.loopVar = loopVar;
         this.callbackKey = callbackKey;
@@ -2486,17 +2466,17 @@ class LoopNode extends Node {
 }
 class BreakNode extends Node {
     constructor() {
-        super(voidDesc);
+        super(Void);
     }
 }
 class ContinueNode extends Node {
     constructor() {
-        super(voidDesc);
+        super(Void);
     }
 }
 class DiscardNode extends Node {
     constructor() {
-        super(voidDesc);
+        super(Void);
     }
 }
 function If(condition, thenBody) {
@@ -2550,8 +2530,8 @@ function Loop(o, callback) {
         if (cfg.name)
             callbackKey = cfg.name;
     }
-    // Create the loop variable ParamNode
-    const loopVar = new ParamNode(loopVarType, 0, varName);
+    // Create the loop variable ParameterNode
+    const loopVar = new ParameterNode(loopVarType, 0, varName);
     // Eagerly capture the body (like If does)
     const bodyStack = new StackNode();
     const prev = pushStack(bodyStack);
@@ -2573,7 +2553,7 @@ function Return(value) {
     if (value !== undefined)
         addToStack(new ReturnNode(value));
     else
-        addToStack(new ReturnNode(new LiteralNode(voidDesc, 0)));
+        addToStack(new ReturnNode(new LiteralNode(Void, 0)));
 }
 function Break() {
     addToStack(new BreakNode());
@@ -2586,15 +2566,15 @@ function Discard() {
 }
 /** Workgroup synchronization barrier. WGSL: `workgroupBarrier()`. */
 function workgroupBarrier() {
-    addToStack(new CallNode(voidDesc, 'workgroupBarrier', []));
+    addToStack(new CallNode(Void, 'workgroupBarrier', []));
 }
 /** Storage-buffer write/read sync within a workgroup. WGSL: `storageBarrier()`. */
 function storageBarrier() {
-    addToStack(new CallNode(voidDesc, 'storageBarrier', []));
+    addToStack(new CallNode(Void, 'storageBarrier', []));
 }
 /** Texture write/read sync within a workgroup. WGSL: `textureBarrier()`. */
 function textureBarrier() {
-    addToStack(new CallNode(voidDesc, 'textureBarrier', []));
+    addToStack(new CallNode(Void, 'textureBarrier', []));
 }
 // Implementation
 function Fn(jsFunc, layout) {
@@ -2602,30 +2582,30 @@ function Fn(jsFunc, layout) {
     const dummyParams = paramDescs.map((pd, i) => {
         const paramName = 'name' in pd ? pd.name : undefined;
         const desc = 'name' in pd ? pd.type : pd;
-        return new ParamNode(desc, i, paramName);
+        return new ParameterNode(desc, i, paramName);
     });
     const traceStack = new StackNode();
     const prev = pushStack(traceStack);
     let returnType;
     try {
         const output = jsFunc(...dummyParams);
-        returnType = output != null ? output.type : voidDesc;
+        returnType = output != null ? output.type : Void;
     }
     finally {
         popStack(prev);
     }
-    if (returnType === voidDesc && paramDescs.length === 0 && !layout) {
-        return new FnNode(voidDesc, [], jsFunc, undefined);
+    if (returnType === Void && paramDescs.length === 0 && !layout) {
+        return new FnNode(Void, [], jsFunc, undefined);
     }
     const fnNode = new FnNode(returnType, paramDescs, jsFunc, layout?.name);
     return (...args) => new CallNode(returnType, fnNode.fnName, args, fnNode);
 }
-const cond = (condition, ifTrue, ifFalse) => new CondNode(condition, ifTrue, ifFalse);
+const cond = (condition, ifTrue, ifFalse) => new ConditionalNode(condition, ifTrue, ifFalse);
 /**
  * WGSL `select(falseVal, trueVal, condition)`.
  * Returns `trueVal` when `condition` is true, `falseVal` otherwise.
  */
-const select = (falseVal, trueVal, condition) => new CondNode(condition, trueVal, falseVal);
+const select = (falseVal, trueVal, condition) => new ConditionalNode(condition, trueVal, falseVal);
 function makeVar(init, label) {
     const varName = label ? `var_${_nodeId}_${label}` : `var_${_nodeId}`;
     const v = new VarNode(init.type, varName, init);
@@ -2768,7 +2748,7 @@ function atomicAdd(ptr, value) {
  * In WGSL: `atomicStore(&ptr, value)`
  */
 function atomicStore(ptr, value) {
-    addToStack(new CallNode(voidDesc, 'atomicStore', [ptr, value]));
+    addToStack(new CallNode(Void, 'atomicStore', [ptr, value]));
 }
 /**
  * Atomically loads the value from the atomic location at `ptr`.
@@ -2874,7 +2854,7 @@ function atomicExchange(ptr, value) {
  * which you need to access via .old_value and .exchanged fields.
  */
 function atomicCompareExchangeWeak(ptr, comparator, value) {
-    const node = new CallNode(voidDesc, 'atomicCompareExchangeWeak', [ptr, comparator, value]);
+    const node = new CallNode(Void, 'atomicCompareExchangeWeak', [ptr, comparator, value]);
     addToStack(node);
     return node;
 }
@@ -4862,7 +4842,7 @@ function texture(source, gpuSampler) {
         if (!gpuSampler) {
             throw new Error('texture(): GpuSampler required when passing GpuTexture directly');
         }
-        // Widen the type for the binding to FlatSampledTextureDesc
+        // Widen the type for the binding to FlatSampledTexture
         const desc = source.type;
         const binding = new TextureBindingNode(desc, `t${_textureIdCounter++}`);
         binding.value = source;
@@ -4872,7 +4852,7 @@ function texture(source, gpuSampler) {
     }
     else {
         // Texture._gpuTexture is GpuTexture<d.texture2d>
-        // Widen to FlatSampledTextureDesc for the binding
+        // Widen to FlatSampledTexture for the binding
         const gpuTex = source._gpuTexture;
         const desc = gpuTex.type;
         const binding = new TextureBindingNode(desc, `t${source.id}`);
@@ -5372,7 +5352,7 @@ function textureLoad(t, coords, level) {
  */
 function textureStore(t, // StorageTextureNode when we add it
 coords, value) {
-    return new CallNode(voidDesc, 'textureStore', [t, coords, value]);
+    return new CallNode(Void, 'textureStore', [t, coords, value]);
 }
 /**
  * textureDimensions - Get texture dimensions.
@@ -5533,11 +5513,11 @@ class PassMultipleTextureNode extends PassTextureNode {
  */
 class PassNode extends Node {
     /** @static */
-    static COLOR = 'color';
+    static FRAGMENT = 'fragment';
     /** @static */
     static DEPTH = 'depth';
     /**
-     * The scope of the pass. The scope determines whether the node outputs color or depth.
+     * The scope of the pass. The scope determines whether the node outputs a fragment or depth.
      */
     scope;
     /** A reference to the scene. */
@@ -5831,7 +5811,7 @@ class PassNode extends Node {
 }
 /** creates a pass node */
 const pass = (scene, camera, options) => {
-    return new PassNode(PassNode.COLOR, scene, camera, options);
+    return new PassNode(PassNode.FRAGMENT, scene, camera, options);
 };
 
 /**
@@ -6505,7 +6485,7 @@ class WgslFunctionNode extends Node {
     /** Type marker for runtime checking */
     isFunctionNode = true;
     constructor(code = '', includes = []) {
-        super(wgslfn);
+        super(WgslFn);
         this.code = code;
         this.includes = includes;
     }
@@ -6852,11 +6832,11 @@ function compile(slots) {
     // create contexts for both stages
     const vertexCtx = createContext('vertex', true);
     const fragmentCtx = createContext('fragment', true);
-    const hasFragment = slots.color !== null;
+    const hasFragment = slots.fragment !== null;
     // collect all roots
-    const roots = [slots.position];
-    if (slots.color)
-        roots.push(slots.color);
+    const roots = [slots.vertex];
+    if (slots.fragment)
+        roots.push(slots.fragment);
     if (slots.depth)
         roots.push(slots.depth);
     // single discovery pass across all roots
@@ -6887,7 +6867,7 @@ function compile(slots) {
     fragmentCtx.workgroupVars = discovered.workgroupVars;
     // pre-collect varyings from fragment roots (so vertex shader knows what to output)
     if (hasFragment) {
-        const fragmentRoots = [slots.color];
+        const fragmentRoots = [slots.fragment];
         collectVaryings(fragmentRoots, vertexCtx);
     }
     // generate vertex shader
@@ -6895,7 +6875,7 @@ function compile(slots) {
     // generate fragment shader (skip for depth-only pipelines)
     let fragmentBody = '';
     if (hasFragment) {
-        fragmentBody = generateFragmentShader(slots.color, fragmentCtx, vertexCtx.varyings);
+        fragmentBody = generateFragmentShader(slots.fragment, fragmentCtx, vertexCtx.varyings);
         // No need to merge bindings anymore - they're shared via discovered.*
     }
     // emit all bindings (each group gets its own @group index)
@@ -7074,7 +7054,7 @@ function getChildren(node) {
     if (node._beforeNodes) {
         children.push(...node._beforeNodes);
     }
-    if (node instanceof BinopNode) {
+    if (node instanceof BinaryOpNode) {
         children.push(node.left, node.right);
     }
     else if (node instanceof CallNode) {
@@ -7105,7 +7085,7 @@ function getChildren(node) {
             children.push(node.init);
     }
     else if (node instanceof WorkgroupVarNode) ;
-    else if (node instanceof CondNode) {
+    else if (node instanceof ConditionalNode) {
         children.push(node.condition, node.ifTrue);
         if (node.ifFalse)
             children.push(node.ifFalse);
@@ -7121,7 +7101,7 @@ function getChildren(node) {
     }
     else if (node instanceof PassNode) {
         // PassNode delegates to its texture node during code generation
-        const textureNode = node.scope === 'color' ? node.getTextureNode() : node.getLinearDepthNode();
+        const textureNode = node.scope === 'fragment' ? node.getTextureNode() : node.getLinearDepthNode();
         children.push(textureNode);
     }
     else if (node instanceof TextureBindingNode) ;
@@ -7588,7 +7568,7 @@ function generateExpr(ctx, node) {
     }
     else if (node instanceof PassNode) {
         // PassNode used as expression delegates to its texture node
-        const textureNode = node.scope === 'color' ? node.getTextureNode() : node.getLinearDepthNode();
+        const textureNode = node.scope === 'fragment' ? node.getTextureNode() : node.getLinearDepthNode();
         expr = generateExpr(ctx, textureNode);
     }
     else if (node instanceof TextureBindingNode) {
@@ -7612,7 +7592,7 @@ function generateExpr(ctx, node) {
     else if (node instanceof VaryingNode) {
         expr = generateVarying(ctx, node);
     }
-    else if (node instanceof BinopNode) {
+    else if (node instanceof BinaryOpNode) {
         const left = generateExpr(ctx, node.left);
         const right = generateExpr(ctx, node.right);
         expr = `(${left} ${node.op} ${right})`;
@@ -7643,7 +7623,7 @@ function generateExpr(ctx, node) {
     else if (node instanceof ComputeIndexNode) {
         expr = 'computeIndex';
     }
-    else if (node instanceof CondNode) {
+    else if (node instanceof ConditionalNode) {
         const cond = generateExpr(ctx, node.condition);
         const t = generateExpr(ctx, node.ifTrue);
         const f = node.ifFalse ? generateExpr(ctx, node.ifFalse) : `${node.type.wgslType}()`;
@@ -7693,7 +7673,7 @@ function generateExpr(ctx, node) {
         ctx.nodeVars.set(node.id, node.varName);
         expr = node.varName;
     }
-    else if (node instanceof ParamNode) {
+    else if (node instanceof ParameterNode) {
         expr = node.paramName ?? `p${node.paramIndex}`;
     }
     else if (node instanceof InspectorNode) {
@@ -7746,7 +7726,7 @@ function isTrivialExpr(node) {
         node instanceof VarNode ||
         node instanceof PrivateVarNode ||
         node instanceof WorkgroupVarNode ||
-        node instanceof ParamNode ||
+        node instanceof ParameterNode ||
         node instanceof BuiltinNode ||
         node instanceof FieldNode ||
         // binding references are global names
@@ -8307,7 +8287,7 @@ function generateModuleScopeInitExpr(node) {
         const args = node.args.map((a) => generateModuleScopeInitExpr(a));
         return `${node.type.wgslType}(${args.join(', ')})`;
     }
-    else if (node instanceof BinopNode) {
+    else if (node instanceof BinaryOpNode) {
         const left = generateModuleScopeInitExpr(node.left);
         const right = generateModuleScopeInitExpr(node.right);
         return `(${left} ${node.op} ${right})`;
@@ -8545,8 +8525,8 @@ function emitDslFunctions(ctx) {
 /* vertex shader generation */
 function generateVertexShader(slots, ctx) {
     const lines = [];
-    // generate position expression
-    const posExpr = generateExpr(ctx, slots.position);
+    // generate vertex expression
+    const vertexExpr = generateExpr(ctx, slots.vertex);
     // check if we have any vertex inputs (attributes or builtins)
     const hasVertexIndex = ctx.builtins.has('vertex_index');
     const hasInstanceIndex = ctx.builtins.has('instance_index');
@@ -8594,7 +8574,7 @@ function generateVertexShader(slots, ctx) {
     }
     lines.push('    var output: VertexOutput;');
     lines.push(...ctx.code);
-    lines.push(`    output.position = ${posExpr};`);
+    lines.push(`    output.position = ${vertexExpr};`);
     // assign varyings
     for (const [name, { vertexExpr }] of ctx.varyings) {
         lines.push(`    output.${name} = ${vertexExpr};`);
@@ -8604,7 +8584,7 @@ function generateVertexShader(slots, ctx) {
     return lines.join('\n');
 }
 /* fragment shader generation */
-function generateFragmentShader(colorNode, ctx, varyings) {
+function generateFragmentShader(fragmentNode, ctx, varyings) {
     const lines = [];
     // copy varyings from vertex stage
     for (const [name, data] of varyings) {
@@ -8613,7 +8593,7 @@ function generateFragmentShader(colorNode, ctx, varyings) {
         }
     }
     // generate color expression
-    const colorExpr = generateExpr(ctx, colorNode);
+    const fragmentExpr = generateExpr(ctx, fragmentNode);
     // check if we have any fragment inputs (varyings or builtins)
     const hasFragCoord = ctx.builtins.has('position');
     const hasInputs = ctx.varyings.size > 0 || hasFragCoord;
@@ -8640,8 +8620,8 @@ function generateFragmentShader(colorNode, ctx, varyings) {
         lines.push('');
     }
     // check for MRT
-    const isMRT = colorNode instanceof MRTNode;
-    const mrtNode = isMRT ? colorNode : null;
+    const isMRT = fragmentNode instanceof MRTNode;
+    const mrtNode = isMRT ? fragmentNode : null;
     // Pre-generate all MRT output expressions NOW so that CSE let-declarations
     // are pushed into ctx.code before we emit the function body.
     // (For non-MRT, colorExpr above already did this.)
@@ -8720,7 +8700,7 @@ function generateFragmentShader(colorNode, ctx, varyings) {
         lines.push('    return output;');
     }
     else {
-        lines.push(`    return ${colorExpr};`);
+        lines.push(`    return ${fragmentExpr};`);
     }
     lines.push('}');
     return lines.join('\n');
@@ -9123,9 +9103,9 @@ function compileNodeState(state, renderObject, cacheKey) {
     const material = renderObject.material;
     // compile the material's node graph
     const compileResult = compile({
-        position: material.vertexNode,
-        color: material.fragmentNode,
-        depth: material.depthNode,
+        vertex: material.vertex,
+        fragment: material.fragment,
+        depth: material.depth,
     });
     // create NodeBuilderState from compile result (pass renderContext for shared bind group caching)
     const nodeState = createNodeBuilderState(compileResult, cacheKey, renderObject.renderContext);
@@ -9509,7 +9489,7 @@ function buildRenderPipelineDescriptor(device, renderObject, nodeState, bindGrou
         ? (material.blend ?? getDefaultBlendState())
         : undefined;
     // Build color targets (supports MRT). Empty for depth-only pipelines.
-    const targetCount = getTargetCount(material.fragmentNode);
+    const targetCount = getTargetCount(material.fragment);
     const textures = renderContext.renderTarget?.textures ?? null;
     const mrt = renderContext.mrt;
     const colorTargets = [];
@@ -9534,7 +9514,7 @@ function buildRenderPipelineDescriptor(device, renderObject, nodeState, bindGrou
         });
     }
     // Build pipeline descriptor
-    // For depth-only pipelines (null fragmentNode), omit the fragment stage entirely.
+    // For depth-only pipelines (no fragment node), omit the fragment stage entirely.
     // WebGPU spec section 23.2.8 explicitly supports "No Color Output" mode:
     // the pipeline still rasterizes and produces depth values from vertex positions.
     const fragment = targetCount > 0
@@ -9643,7 +9623,7 @@ function lookupCompute(state, node) {
  * Returns 0 for depth-only pipelines (null fragment node).
  */
 function getTargetCount(fragmentNode) {
-    if (fragmentNode === null)
+    if (!fragmentNode)
         return 0;
     if (fragmentNode instanceof OutputStructNode) {
         return Math.max(1, fragmentNode.members.length);
@@ -9681,9 +9661,9 @@ function getCachedPipelineKey(renderObject, samples, colorFormats, depthFormat) 
  * Stable cache key for a material + MSAA sample count + color format + optional depth format.
  */
 function makeRenderPipelineKey(material, samples, formats, depthFormat, mrt) {
-    const posId = material.vertexNode ? material.vertexNode.id : '__default__';
-    const colId = material.fragmentNode ? material.fragmentNode.id : '__depthOnly__';
-    const depId = material.depthNode ? material.depthNode.id : '__none__';
+    const posId = material.vertex ? material.vertex.id : '__default__';
+    const colId = material.fragment ? material.fragment.id : '__depthOnly__';
+    const depId = material.depth ? material.depth.id : '__none__';
     const rs = [
         material.transparent ? 1 : 0,
         material.depthWrite ? 1 : 0,
@@ -9694,7 +9674,7 @@ function makeRenderPipelineKey(material, samples, formats, depthFormat, mrt) {
         material.depthBias,
         material.depthBiasSlopeScale,
         material.depthBiasClamp,
-        getTargetCount(material.fragmentNode),
+        getTargetCount(material.fragment),
         samples,
         formats.join(','),
         depthFormat ?? 'none',
@@ -17707,12 +17687,12 @@ class Settings extends Parameters {
 class Material {
     /** Material name, for debugging. */
     name;
-    /** vec4f clip-space position. */
-    vertexNode;
-    /** Fragment output. Can be vec4f, OutputStructNode for MRT, or null for depth-only. */
-    fragmentNode;
+    /** Vertex node. Use `positionClip` for standard MVP transform. */
+    vertex;
+    /** Fragment output. Can be vec4f, OutputStructNode for MRT, or undefined for depth-only. */
+    fragment;
     /** f32 depth override — written to @builtin(frag_depth) */
-    depthNode;
+    depth;
     /** Controls draw sort order (opaque vs transparent) AND the default for depthWrite. */
     transparent;
     /** Optional blend state. Only meaningful when transparent=true or custom blending. */
@@ -17741,9 +17721,9 @@ class Material {
     uniforms = new Map();
     constructor(opts) {
         this.name = opts.name ?? '';
-        this.vertexNode = opts.vertex;
-        this.fragmentNode = opts.fragment ?? null;
-        this.depthNode = opts.depth;
+        this.vertex = opts.vertex;
+        this.fragment = opts.fragment;
+        this.depth = opts.depth;
         this.transparent = opts.transparent ?? false;
         this.blend = opts.blend;
         this.depthTest = opts.depthTest ?? true;

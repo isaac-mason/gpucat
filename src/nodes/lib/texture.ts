@@ -5,7 +5,7 @@ import { ArrayTexture } from '../../texture/array-texture';
 import { GpuTexture } from '../../core/gpu-texture';
 import { GpuSampler } from '../../core/gpu-sampler';
 import { CallNode, Node } from './core';
-import { type FlatDepthTextureDesc, type FlatSampledTextureDesc, type CubeSampledTextureDesc, type Any, type AnyTextureDesc } from '../../schema/schema';
+import { type FlatDepthTexture, type FlatSampledTexture, type CubeSampledTexture, type Any } from '../../schema/schema';
 import * as d from '../../schema/schema';
 import { UniformGroup, objectGroup } from './uniform';
 import { uv } from './attribute';
@@ -19,7 +19,7 @@ import { varying } from './varying';
  * 
  * Holds a reference to a GpuSampler which contains the actual settings.
  */
-export class SamplerNode<D extends d.SamplerDesc | d.SamplerComparisonDesc = d.SamplerDesc> extends Node<D> {
+export class SamplerNode<D extends d.sampler | d.samplerComparison = d.sampler> extends Node<D> {
     /** The GpuSampler - always has a valid default */
     value: GpuSampler = new GpuSampler();
 
@@ -81,7 +81,7 @@ export class SamplerNode<D extends d.SamplerDesc | d.SamplerComparisonDesc = d.S
  * Holds a reference to a GpuTexture<D> which the renderer uses to create/update
  * the GPU texture.
  */
-export class TextureBindingNode<D extends AnyTextureDesc = AnyTextureDesc> extends Node<D> {
+export class TextureBindingNode<D extends d.Texture = d.Texture> extends Node<D> {
     /** The GpuTexture */
     value: GpuTexture<D> | null = null;
 
@@ -132,7 +132,7 @@ export class TextureNode extends Node<d.vec4f> {
     readonly isTextureNode = true;
 
     /** The texture binding — holds GPU resource, textureId, groupNode. */
-    readonly bindingNode: TextureBindingNode<FlatSampledTextureDesc>;
+    readonly bindingNode: TextureBindingNode<FlatSampledTexture>;
 
     /**
      * The UV node for texture coordinates.
@@ -151,7 +151,7 @@ export class TextureNode extends Node<d.vec4f> {
      * Auto-created by texture() factory from texture settings.
      * Can be set explicitly for custom sampler sharing.
      */
-    samplerNode: SamplerNode<d.SamplerDesc> | null = null;
+    samplerNode: SamplerNode<d.sampler> | null = null;
 
     /* ─────────────────────────────────────────────────────────────────────────
      * Sampling mode properties
@@ -179,7 +179,7 @@ export class TextureNode extends Node<d.vec4f> {
     loadLevel: Node<d.i32> | null = null;
 
     constructor(
-        bindingNode: TextureBindingNode<FlatSampledTextureDesc>,
+        bindingNode: TextureBindingNode<FlatSampledTexture>,
         uvNode: Node<d.vec2f> | null = null,
     ) {
         // Node type is vec4f (the sampled color)
@@ -194,7 +194,7 @@ export class TextureNode extends Node<d.vec4f> {
     }
 
     /** Convert this texture node to a sampler type */
-    convert(type: 'sampler' | 'sampler_comparison'): CallNode<d.SamplerDesc | d.SamplerComparisonDesc> {
+    convert(type: 'sampler' | 'sampler_comparison'): CallNode<d.sampler | d.samplerComparison> {
         const desc = type === 'sampler' ? d.sampler : d.samplerComparison;
         return new CallNode(desc, type, [this]);
     }
@@ -305,9 +305,9 @@ let _samplerIdCounter = 0;
  * const gpuSampler = new GpuSampler({ minFilter: 'nearest' });
  * const s = sampler(gpuSampler);
  */
-export function sampler(source: GpuSampler, groupNode?: UniformGroup): SamplerNode<d.SamplerDesc>;
-export function sampler(source: HighLevelTexture, groupNode?: UniformGroup): SamplerNode<d.SamplerDesc>;
-export function sampler(source: GpuSampler | HighLevelTexture, groupNode: UniformGroup = objectGroup): SamplerNode<d.SamplerDesc> {
+export function sampler(source: GpuSampler, groupNode?: UniformGroup): SamplerNode<d.sampler>;
+export function sampler(source: HighLevelTexture, groupNode?: UniformGroup): SamplerNode<d.sampler>;
+export function sampler(source: GpuSampler | HighLevelTexture, groupNode: UniformGroup = objectGroup): SamplerNode<d.sampler> {
     if (source instanceof GpuSampler) {
         const node = new SamplerNode(d.sampler, `s${_samplerIdCounter++}`, groupNode);
         node.value = source;
@@ -334,13 +334,13 @@ export function sampler(source: GpuSampler | HighLevelTexture, groupNode: Unifor
  * const gpuSampler = new GpuSampler({ minFilter: 'linear' });
  * const cmpSampler = comparisonSampler(gpuSampler, 'less');
  */
-export function comparisonSampler(source: GpuSampler, compare?: GPUCompareFunction, groupNode?: UniformGroup): SamplerNode<d.SamplerComparisonDesc>;
-export function comparisonSampler(source: HighLevelTexture, compare?: GPUCompareFunction, groupNode?: UniformGroup): SamplerNode<d.SamplerComparisonDesc>;
+export function comparisonSampler(source: GpuSampler, compare?: GPUCompareFunction, groupNode?: UniformGroup): SamplerNode<d.samplerComparison>;
+export function comparisonSampler(source: HighLevelTexture, compare?: GPUCompareFunction, groupNode?: UniformGroup): SamplerNode<d.samplerComparison>;
 export function comparisonSampler(
     source: GpuSampler | HighLevelTexture,
     compare: GPUCompareFunction = 'less',
     groupNode: UniformGroup = objectGroup
-): SamplerNode<d.SamplerComparisonDesc> {
+): SamplerNode<d.samplerComparison> {
     const baseSampler = source instanceof GpuSampler ? source : source._gpuSampler;
     const samplerId = source instanceof GpuSampler ? `s${_samplerIdCounter++}_cmp` : `s${source.id}_cmp`;
     
@@ -386,17 +386,17 @@ let _textureIdCounter = 0;
  * albedo.load(vec2i(10, 20))           // textureLoad
  */
 export function texture(tex: Texture): TextureNode;
-export function texture(gpuTex: GpuTexture<FlatSampledTextureDesc>, gpuSampler: GpuSampler): TextureNode;
+export function texture(gpuTex: GpuTexture<FlatSampledTexture>, gpuSampler: GpuSampler): TextureNode;
 export function texture(
-    source: Texture | GpuTexture<FlatSampledTextureDesc>,
+    source: Texture | GpuTexture<FlatSampledTexture>,
     gpuSampler?: GpuSampler
 ): TextureNode {
     if (source instanceof GpuTexture) {
         if (!gpuSampler) {
             throw new Error('texture(): GpuSampler required when passing GpuTexture directly');
         }
-        // Widen the type for the binding to FlatSampledTextureDesc
-        const desc = source.type as FlatSampledTextureDesc;
+        // Widen the type for the binding to FlatSampledTexture
+        const desc = source.type as FlatSampledTexture;
         const binding = new TextureBindingNode(desc, `t${_textureIdCounter++}`);
         binding.value = source;
         const node = new TextureNode(binding);
@@ -404,9 +404,9 @@ export function texture(
         return node;
     } else {
         // Texture._gpuTexture is GpuTexture<d.texture2d>
-        // Widen to FlatSampledTextureDesc for the binding
+        // Widen to FlatSampledTexture for the binding
         const gpuTex = source._gpuTexture;
-        const desc = gpuTex.type as FlatSampledTextureDesc;
+        const desc = gpuTex.type as FlatSampledTexture;
         const binding = new TextureBindingNode(desc, `t${source.id}`);
         binding.value = gpuTex;
         const node = new TextureNode(binding);
@@ -422,7 +422,7 @@ export function texture(
  * (textureSample, textureLoad, etc.) instead of the high-level TextureNode
  * sampling API.
  */
-export const textureBinding = <D extends AnyTextureDesc>(
+export const textureBinding = <D extends d.Texture>(
     tex: { _gpuTexture: GpuTexture<D>; id: number },
     textureDesc: D
 ): TextureBindingNode<D> => {
@@ -460,7 +460,7 @@ export class CubeTextureNode extends Node<d.vec4f> {
     readonly isCubeTextureNode = true;
 
     /** The texture binding — holds GPU resource, textureId, groupNode. */
-    readonly bindingNode: TextureBindingNode<CubeSampledTextureDesc>;
+    readonly bindingNode: TextureBindingNode<CubeSampledTexture>;
 
     /**
      * The direction node for cube texture sampling (vec3f).
@@ -478,7 +478,7 @@ export class CubeTextureNode extends Node<d.vec4f> {
      * The sampler node for this texture.
      * Auto-created by cubeTexture() factory from texture settings.
      */
-    samplerNode: SamplerNode<d.SamplerDesc> | null = null;
+    samplerNode: SamplerNode<d.sampler> | null = null;
 
     /* ─────────────────────────────────────────────────────────────────────────
      * Sampling mode properties
@@ -497,7 +497,7 @@ export class CubeTextureNode extends Node<d.vec4f> {
     gradNode: [Node<d.vec3f>, Node<d.vec3f>] | null = null;
 
     constructor(
-        bindingNode: TextureBindingNode<CubeSampledTextureDesc>,
+        bindingNode: TextureBindingNode<CubeSampledTexture>,
         directionNode: Node<d.vec3f> | null = null,
     ) {
         // Node type is vec4f (the sampled color)
@@ -589,16 +589,16 @@ export class CubeTextureNode extends Node<d.vec4f> {
  * // NO .load() - not supported for cube textures
  */
 export function cubeTexture(tex: CubeTexture): CubeTextureNode;
-export function cubeTexture(gpuTex: GpuTexture<CubeSampledTextureDesc>, gpuSampler: GpuSampler): CubeTextureNode;
+export function cubeTexture(gpuTex: GpuTexture<CubeSampledTexture>, gpuSampler: GpuSampler): CubeTextureNode;
 export function cubeTexture(
-    source: CubeTexture | GpuTexture<CubeSampledTextureDesc>,
+    source: CubeTexture | GpuTexture<CubeSampledTexture>,
     gpuSampler?: GpuSampler
 ): CubeTextureNode {
     if (source instanceof GpuTexture) {
         if (!gpuSampler) {
             throw new Error('cubeTexture(): GpuSampler required when passing GpuTexture directly');
         }
-        const desc = source.type as CubeSampledTextureDesc;
+        const desc = source.type as CubeSampledTexture;
         const binding = new TextureBindingNode(desc, `t${_textureIdCounter++}`);
         binding.value = source;
         const node = new CubeTextureNode(binding);
@@ -606,7 +606,7 @@ export function cubeTexture(
         return node;
     } else {
         const gpuTex = source._gpuTexture;
-        const desc = gpuTex.type as CubeSampledTextureDesc;
+        const desc = gpuTex.type as CubeSampledTexture;
         const binding = new TextureBindingNode(desc, `t${source.id}`);
         binding.value = gpuTex;
         const node = new CubeTextureNode(binding);
@@ -649,7 +649,7 @@ export class DepthTextureNode extends Node<d.f32> {
     readonly isDepthTextureNode = true;
 
     /** The texture binding — holds GPU resource, textureId, groupNode. */
-    readonly bindingNode: TextureBindingNode<FlatDepthTextureDesc>;
+    readonly bindingNode: TextureBindingNode<FlatDepthTexture>;
 
     /**
      * The UV node for texture coordinates (vec2f).
@@ -669,7 +669,7 @@ export class DepthTextureNode extends Node<d.f32> {
      * This is a regular sampler for textureSample/textureSampleLevel.
      * For comparison sampling, use comparisonSampler() and the free functions.
      */
-    samplerNode: SamplerNode<d.SamplerDesc> | null = null;
+    samplerNode: SamplerNode<d.sampler> | null = null;
 
     /* ─────────────────────────────────────────────────────────────────────────
      * Sampling mode properties
@@ -691,7 +691,7 @@ export class DepthTextureNode extends Node<d.f32> {
     loadLevel: Node<d.i32> | null = null;
 
     constructor(
-        bindingNode: TextureBindingNode<FlatDepthTextureDesc>,
+        bindingNode: TextureBindingNode<FlatDepthTexture>,
         uvNode: Node<d.vec2f> | null = null,
     ) {
         // Node type is f32 (depth value)
@@ -789,16 +789,16 @@ export class DepthTextureNode extends Node<d.f32> {
  * const shadow = depthTexture(gpuDepthTex, gpuSampler);
  */
 export function depthTexture(tex: DepthTexture): DepthTextureNode;
-export function depthTexture(gpuTex: GpuTexture<FlatDepthTextureDesc>, gpuSampler: GpuSampler): DepthTextureNode;
+export function depthTexture(gpuTex: GpuTexture<FlatDepthTexture>, gpuSampler: GpuSampler): DepthTextureNode;
 export function depthTexture(
-    source: DepthTexture | GpuTexture<FlatDepthTextureDesc>,
+    source: DepthTexture | GpuTexture<FlatDepthTexture>,
     gpuSampler?: GpuSampler
 ): DepthTextureNode {
     if (source instanceof GpuTexture) {
         if (!gpuSampler) {
             throw new Error('depthTexture(): GpuSampler required when passing GpuTexture directly');
         }
-        const desc = source.type as FlatDepthTextureDesc;
+        const desc = source.type as FlatDepthTexture;
         const binding = new TextureBindingNode(desc, `t${_textureIdCounter++}`);
         binding.value = source;
         const node = new DepthTextureNode(binding);
@@ -806,7 +806,7 @@ export function depthTexture(
         return node;
     } else {
         const gpuTex = source._gpuTexture;
-        const desc = gpuTex.type as FlatDepthTextureDesc;
+        const desc = gpuTex.type as FlatDepthTexture;
         const binding = new TextureBindingNode(desc, `t${source.id}`);
         binding.value = gpuTex;
         const node = new DepthTextureNode(binding);
@@ -869,7 +869,7 @@ export class ArrayTextureNode extends Node<d.vec4f> {
      * The sampler node for this texture.
      * Auto-created by arrayTexture() factory from texture settings.
      */
-    samplerNode: SamplerNode<d.SamplerDesc> | null = null;
+    samplerNode: SamplerNode<d.sampler> | null = null;
 
     /* ─────────────────────────────────────────────────────────────────────────
      * Sampling mode properties
@@ -1054,14 +1054,14 @@ export function arrayTexture(
  * ──────────────────────────────────────────────────────────────────────────── */
 
 // Type aliases for free function parameters
-type AnySamplerNode = SamplerNode<d.SamplerDesc>;
-type AnyComparisonSamplerNode = SamplerNode<d.SamplerComparisonDesc>;
+type AnySamplerNode = SamplerNode<d.sampler>;
+type AnyComparisonSamplerNode = SamplerNode<d.samplerComparison>;
 
 /**
  * textureSample - Sample a texture at UV coordinates.
  * Fragment shader only.
  */
-export function textureSample<D extends FlatSampledTextureDesc>(
+export function textureSample<D extends FlatSampledTexture>(
     t: TextureBindingNode<D>,
     s: AnySamplerNode,
     coords: Node<d.vec2f>,
@@ -1075,7 +1075,7 @@ export function textureSample<D extends FlatSampledTextureDesc>(
  * textureSampleLevel - Sample a texture at a specific mip level.
  * Works in any shader stage.
  */
-export function textureSampleLevel<D extends FlatSampledTextureDesc>(
+export function textureSampleLevel<D extends FlatSampledTexture>(
     t: TextureBindingNode<D>,
     s: AnySamplerNode,
     coords: Node<d.vec2f>,
@@ -1090,7 +1090,7 @@ export function textureSampleLevel<D extends FlatSampledTextureDesc>(
  * textureSampleBias - Sample a texture with mip level bias.
  * Fragment shader only. Not supported for depth textures.
  */
-export function textureSampleBias<D extends FlatSampledTextureDesc>(
+export function textureSampleBias<D extends FlatSampledTexture>(
     t: TextureBindingNode<D>,
     s: AnySamplerNode,
     coords: Node<d.vec2f>,
@@ -1105,7 +1105,7 @@ export function textureSampleBias<D extends FlatSampledTextureDesc>(
  * textureSampleGrad - Sample a texture with explicit gradients.
  * Works in any shader stage. Not supported for depth textures.
  */
-export function textureSampleGrad<D extends FlatSampledTextureDesc>(
+export function textureSampleGrad<D extends FlatSampledTexture>(
     t: TextureBindingNode<D>,
     s: AnySamplerNode,
     coords: Node<d.vec2f>,
@@ -1122,7 +1122,7 @@ export function textureSampleGrad<D extends FlatSampledTextureDesc>(
  * Fragment shader only. Requires sampler_comparison.
  */
 export function textureSampleCompare(
-    t: TextureBindingNode<FlatDepthTextureDesc>,
+    t: TextureBindingNode<FlatDepthTexture>,
     s: AnyComparisonSamplerNode,
     coords: Node<d.vec2f>,
     depthRef: Node<d.f32>,
@@ -1137,7 +1137,7 @@ export function textureSampleCompare(
  * Works in any shader stage. Requires sampler_comparison.
  */
 export function textureSampleCompareLevel(
-    t: TextureBindingNode<FlatDepthTextureDesc>,
+    t: TextureBindingNode<FlatDepthTexture>,
     s: AnyComparisonSamplerNode,
     coords: Node<d.vec2f>,
     depthRef: Node<d.f32>,
@@ -1152,7 +1152,7 @@ export function textureSampleCompareLevel(
  * textureLoad - Load a texel directly without filtering.
  * Works in any shader stage. No sampler needed.
  */
-export function textureLoad<D extends AnyTextureDesc>(
+export function textureLoad<D extends d.Texture>(
     t: TextureBindingNode<D>,
     coords: Node<d.vec2i>,
     level: Node<d.i32>
@@ -1167,8 +1167,8 @@ export function textureStore(
     t: Node<Any>, // StorageTextureNode when we add it
     coords: Node<d.vec2i>,
     value: Node<d.vec4f>
-): CallNode<d.voidDesc> {
-    return new CallNode(d.voidDesc, 'textureStore', [t, coords, value]);
+): CallNode<d.Void> {
+    return new CallNode(d.Void, 'textureStore', [t, coords, value]);
 }
 
 /**
@@ -1199,7 +1199,7 @@ export function textureNumLayers(t: Node<Any>): CallNode<d.u32> {
 /**
  * textureGather - Gather a single component from 4 texels.
  */
-export function textureGather<D extends FlatSampledTextureDesc>(
+export function textureGather<D extends FlatSampledTexture>(
     component: Node<d.i32>,
     t: TextureBindingNode<D>,
     s: AnySamplerNode,
@@ -1215,7 +1215,7 @@ export function textureGather<D extends FlatSampledTextureDesc>(
  * Requires sampler_comparison.
  */
 export function textureGatherCompare(
-    t: TextureBindingNode<FlatDepthTextureDesc>,
+    t: TextureBindingNode<FlatDepthTexture>,
     s: AnyComparisonSamplerNode,
     coords: Node<d.vec2f>,
     depthRef: Node<d.f32>,

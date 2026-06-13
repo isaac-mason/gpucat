@@ -2,13 +2,13 @@ import * as d from '../schema/schema';
 import { Source, type SourceData } from '../texture/source';
 
 /** GPU texture dimension from schema type */
-export type DimensionOf<D extends d.AnyTextureDesc> =
+export type DimensionOf<D extends d.Texture> =
     D extends d.texture1d ? '1d'
     : D extends d.texture3d ? '3d'
     : '2d';  // All others: 2d, 2d_array, cube, cube_array, multisampled, depth variants
 
 /** View dimension from schema type (for GPUTextureView) */
-export type ViewDimensionOf<D extends d.AnyTextureDesc> =
+export type ViewDimensionOf<D extends d.Texture> =
     D extends d.texture1d ? '1d'
     : D extends d.texture2d | d.textureDepth2d | d.textureMultisampled2d | d.textureDepthMultisampled2d ? '2d'
     : D extends d.texture2dArray | d.textureDepth2dArray ? '2d-array'
@@ -66,7 +66,7 @@ type Options1D = BaseOptions & {
 };
 
 /** Map schema type → options type */
-export type GpuTextureOptions<D extends d.AnyTextureDesc> =
+export type GpuTextureOptions<D extends d.Texture> =
     D extends d.texture1d ? Options1D
     : D extends d.texture2d | d.textureDepth2d | d.textureMultisampled2d | d.textureDepthMultisampled2d ? Options2D
     : D extends d.texture2dArray | d.textureDepth2dArray ? Options2DArray
@@ -77,7 +77,7 @@ export type GpuTextureOptions<D extends d.AnyTextureDesc> =
 
 let _textureId = 0;
 
-export class GpuTexture<D extends d.AnyTextureDesc = d.AnyTextureDesc> {
+export class GpuTexture<D extends d.Texture = d.Texture> {
     /** Unique ID */
     readonly id = _textureId++;
     
@@ -250,7 +250,7 @@ export class GpuTexture<D extends d.AnyTextureDesc = d.AnyTextureDesc> {
     }
 }
 
-function extractTextureSize(type: d.AnyTextureDesc, options: GpuTextureOptions<d.AnyTextureDesc>): { 
+function extractTextureSize(type: d.Texture, options: GpuTextureOptions<d.Texture>): { 
     width: number; 
     height: number; 
     depthOrArrayLayers: number;

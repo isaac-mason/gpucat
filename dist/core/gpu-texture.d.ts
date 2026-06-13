@@ -1,9 +1,9 @@
 import * as d from '../schema/schema';
 import { Source, type SourceData } from '../texture/source';
 /** GPU texture dimension from schema type */
-export type DimensionOf<D extends d.AnyTextureDesc> = D extends d.texture1d ? '1d' : D extends d.texture3d ? '3d' : '2d';
+export type DimensionOf<D extends d.Texture> = D extends d.texture1d ? '1d' : D extends d.texture3d ? '3d' : '2d';
 /** View dimension from schema type (for GPUTextureView) */
-export type ViewDimensionOf<D extends d.AnyTextureDesc> = D extends d.texture1d ? '1d' : D extends d.texture2d | d.textureDepth2d | d.textureMultisampled2d | d.textureDepthMultisampled2d ? '2d' : D extends d.texture2dArray | d.textureDepth2dArray ? '2d-array' : D extends d.textureCube | d.textureDepthCube ? 'cube' : D extends d.textureCubeArray | d.textureDepthCubeArray ? 'cube-array' : D extends d.texture3d ? '3d' : '2d';
+export type ViewDimensionOf<D extends d.Texture> = D extends d.texture1d ? '1d' : D extends d.texture2d | d.textureDepth2d | d.textureMultisampled2d | d.textureDepthMultisampled2d ? '2d' : D extends d.texture2dArray | d.textureDepth2dArray ? '2d-array' : D extends d.textureCube | d.textureDepthCube ? 'cube' : D extends d.textureCubeArray | d.textureDepthCubeArray ? 'cube-array' : D extends d.texture3d ? '3d' : '2d';
 type BaseOptions = {
     format?: GPUTextureFormat;
     usage?: GPUTextureUsageFlags;
@@ -42,8 +42,8 @@ type Options1D = BaseOptions & {
     width: number;
 };
 /** Map schema type → options type */
-export type GpuTextureOptions<D extends d.AnyTextureDesc> = D extends d.texture1d ? Options1D : D extends d.texture2d | d.textureDepth2d | d.textureMultisampled2d | d.textureDepthMultisampled2d ? Options2D : D extends d.texture2dArray | d.textureDepth2dArray ? Options2DArray : D extends d.textureCube | d.textureDepthCube ? OptionsCube : D extends d.textureCubeArray | d.textureDepthCubeArray ? OptionsCubeArray : D extends d.texture3d ? Options3D : Options2D;
-export declare class GpuTexture<D extends d.AnyTextureDesc = d.AnyTextureDesc> {
+export type GpuTextureOptions<D extends d.Texture> = D extends d.texture1d ? Options1D : D extends d.texture2d | d.textureDepth2d | d.textureMultisampled2d | d.textureDepthMultisampled2d ? Options2D : D extends d.texture2dArray | d.textureDepth2dArray ? Options2DArray : D extends d.textureCube | d.textureDepthCube ? OptionsCube : D extends d.textureCubeArray | d.textureDepthCubeArray ? OptionsCubeArray : D extends d.texture3d ? Options3D : Options2D;
+export declare class GpuTexture<D extends d.Texture = d.Texture> {
     /** Unique ID */
     readonly id: number;
     /** Schema type descriptor — source of truth for WGSL type */

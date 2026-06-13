@@ -380,8 +380,8 @@ describe('struct storage buffer with index', () => {
 
         // Compile and check that the struct is found
         const result = compile({
-            position: material.vertexNode,
-            color: material.fragmentNode,
+            vertex: material.vertex,
+            fragment: material.fragment,
             depth: undefined,
         });
 

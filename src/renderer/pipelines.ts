@@ -233,7 +233,7 @@ function buildRenderPipelineDescriptor(
         : undefined;
 
     // Build color targets (supports MRT). Empty for depth-only pipelines.
-    const targetCount = getTargetCount(material.fragmentNode);
+    const targetCount = getTargetCount(material.fragment);
     const textures = renderContext.renderTarget?.textures ?? null;
     const mrt: MRTNode | null = renderContext.mrt;
     const colorTargets: GPUColorTargetState[] = [];
@@ -257,7 +257,7 @@ function buildRenderPipelineDescriptor(
     }
 
     // Build pipeline descriptor
-    // For depth-only pipelines (null fragmentNode), omit the fragment stage entirely.
+    // For depth-only pipelines (no fragment node), omit the fragment stage entirely.
     // WebGPU spec section 23.2.8 explicitly supports "No Color Output" mode:
     // the pipeline still rasterizes and produces depth values from vertex positions.
     const fragment: GPURenderPipelineDescriptor['fragment'] = targetCount > 0
@@ -394,8 +394,8 @@ export function lookupCompute(state: PipelinesState, node: ComputeNode): Compute
  * Get the number of render targets for a fragment node.
  * Returns 0 for depth-only pipelines (null fragment node).
  */
-function getTargetCount(fragmentNode: Node<Any> | null): number {
-    if (fragmentNode === null) return 0;
+function getTargetCount(fragmentNode: Node<Any> | undefined): number {
+    if (!fragmentNode) return 0;
     if (fragmentNode instanceof OutputStructNode) {
         return Math.max(1, fragmentNode.members.length);
     }
@@ -456,9 +456,9 @@ export function makeRenderPipelineKey(
     depthFormat: GPUTextureFormat | null,
     mrt: MRTNode | null,
 ): string {
-    const posId = material.vertexNode ? material.vertexNode.id : '__default__';
-    const colId = material.fragmentNode ? material.fragmentNode.id : '__depthOnly__';
-    const depId = material.depthNode ? material.depthNode.id : '__none__';
+    const posId = material.vertex ? material.vertex.id : '__default__';
+    const colId = material.fragment ? material.fragment.id : '__depthOnly__';
+    const depId = material.depth ? material.depth.id : '__none__';
 
     const rs = [
         material.transparent ? 1 : 0,
@@ -470,7 +470,7 @@ export function makeRenderPipelineKey(
         material.depthBias,
         material.depthBiasSlopeScale,
         material.depthBiasClamp,
-        getTargetCount(material.fragmentNode),
+        getTargetCount(material.fragment),
         samples,
         formats.join(','),
         depthFormat ?? 'none',

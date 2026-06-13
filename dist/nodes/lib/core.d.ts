@@ -21,7 +21,7 @@ export type Swizzle1<T extends WgslType> = T extends VecType ? VecElement<T> : T
 export type Swizzle2<T extends WgslType> = T extends VecType ? Vec2Of<VecElement<T>> : WgslType;
 export type Swizzle3<T extends WgslType> = T extends VecType ? Vec3Of<VecElement<T>> : WgslType;
 export type Swizzle4<T extends WgslType> = T extends VecType ? Vec4Of<VecElement<T>> : WgslType;
-export type BinopOp = '+' | '-' | '*' | '/' | '%' | '==' | '!=' | '<' | '>' | '<=' | '>=' | '||' | '&&' | '&' | '|' | '^' | '<<' | '>>';
+export type BinaryOp = '+' | '-' | '*' | '/' | '%' | '==' | '!=' | '<' | '>' | '<=' | '>=' | '||' | '&&' | '&' | '|' | '^' | '<<' | '>>';
 export declare let _nodeId: number;
 export declare const isVecType: (t: string) => boolean;
 export declare const isMatType: (t: string) => boolean;
@@ -368,7 +368,7 @@ export declare function isNode(v: unknown): v is Node<Any>;
  * });
  * return myOutputNode.before(updater);
  */
-export declare function node(): Node<d.VoidDesc>;
+export declare function node(): Node<d.Void>;
 /**
  * InspectorNode wraps a node and registers it with the inspector every frame.
  *
@@ -452,16 +452,16 @@ export declare class WorkgroupVarNode<D extends Any> extends Node<D> {
     readonly varName: string;
     constructor(type: D, varName: string);
 }
-export declare class AssignNode extends Node<d.VoidDesc> {
+export declare class AssignNode extends Node<d.Void> {
     readonly target: Node<Any>;
     readonly value: Node<Any>;
     constructor(target: Node<Any>, value: Node<Any>);
 }
-export declare class BinopNode<D extends Any> extends Node<D> {
-    readonly op: BinopOp;
+export declare class BinaryOpNode<D extends Any> extends Node<D> {
+    readonly op: BinaryOp;
     readonly left: Node<Any>;
     readonly right: Node<Any>;
-    constructor(op: BinopOp, type: D, left: Node<Any>, right: Node<Any>);
+    constructor(op: BinaryOp, type: D, left: Node<Any>, right: Node<Any>);
 }
 /** Opaque reference to WgslFunctionNode to avoid circular import */
 export interface WgslFunctionNodeRef {
@@ -566,16 +566,16 @@ export declare function u32(v?: number): LiteralNode<d.u32>;
 export declare function u32(v: Node<Any>): Node<d.u32>;
 export declare const bool: (v: boolean) => LiteralNode<d.bool>;
 type Scalar = Node<Any> | number | boolean;
-export declare function makeVec2<D extends d.Vec2Desc>(desc: D): {
+export declare function makeVec2<D extends d.Vec2>(desc: D): {
     (v: Scalar): ConstructNode<D>;
     (x: Scalar, y: Scalar): ConstructNode<D>;
 };
-export declare function makeVec3<D extends d.Vec3Desc>(desc: D): {
+export declare function makeVec3<D extends d.Vec3>(desc: D): {
     (v: Scalar): ConstructNode<D>;
     (xy: Node<Any>, z: Scalar): ConstructNode<D>;
     (x: Scalar, y: Scalar, z: Scalar): ConstructNode<D>;
 };
-export declare function makeVec4<D extends d.Vec4Desc>(desc: D): {
+export declare function makeVec4<D extends d.Vec4>(desc: D): {
     (v: Scalar): ConstructNode<D>;
     (xy: Node<Any>, zw: Node<Any>): ConstructNode<D>;
     (xy: Node<Any>, z: Scalar, w: Scalar): ConstructNode<D>;
@@ -696,8 +696,8 @@ export declare const mat3x4h: (...v: number[]) => LiteralNode<d.mat3x4h>;
 export declare const mat4x2h: (...v: number[]) => LiteralNode<d.mat4x2h>;
 export declare const mat4x3h: (...v: number[]) => LiteralNode<d.mat4x3h>;
 export declare const mat4x4h: (...v: number[]) => LiteralNode<d.mat4x4h>;
-export declare const mat4: (c0: Node<d.Vec4Desc>, c1: Node<d.Vec4Desc>, c2: Node<d.Vec4Desc>, c3: Node<d.Vec4Desc>) => ConstructNode<d.mat4x4f>;
-export declare function mat3(c0: Node<d.Vec3Desc>, c1: Node<d.Vec3Desc>, c2: Node<d.Vec3Desc>): Node<d.mat3x3f>;
+export declare const mat4: (c0: Node<d.Vec4>, c1: Node<d.Vec4>, c2: Node<d.Vec4>, c3: Node<d.Vec4>) => ConstructNode<d.mat4x4f>;
+export declare function mat3(c0: Node<d.Vec3>, c1: Node<d.Vec3>, c2: Node<d.Vec3>): Node<d.mat3x3f>;
 export declare function mat3(diag: Node<d.f32>): Node<d.mat3x3f>;
 export declare function mat3(s00: Node<d.f32>, s01: Node<d.f32>, s02: Node<d.f32>, s10: Node<d.f32>, s11: Node<d.f32>, s12: Node<d.f32>, s20: Node<d.f32>, s21: Node<d.f32>, s22: Node<d.f32>): Node<d.mat3x3f>;
 export declare const add: <NA extends Node<Any>, NB extends Node<Any>>(a: NA, b: NB) => Node<ArithResultDesc<NA["type"], NB["type"]>>;
@@ -758,7 +758,7 @@ export declare const mod: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
 export declare const or: (a: Node<d.bool>, b: Node<d.bool>) => Node<d.bool>;
 export declare const and: (a: Node<d.bool>, b: Node<d.bool>) => Node<d.bool>;
 export declare const not: (a: Node<d.bool>) => Node<d.bool>;
-export declare const transpose: <D extends d.MatDesc>(m: Node<D>) => Node<D>;
+export declare const transpose: <D extends d.Mat>(m: Node<D>) => Node<D>;
 export declare const countOneBits: <D extends Any>(a: Node<D>) => Node<D>;
 export declare const countTrailingZeros: <D extends Any>(a: Node<D>) => Node<D>;
 export declare const countLeadingZeros: <D extends Any>(a: Node<D>) => Node<D>;
@@ -779,7 +779,7 @@ export declare const bitwiseOr: <D extends Any>(a: Node<D>, b: Node<D>) => Node<
 export declare const bitwiseXor: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
 export declare const shiftLeft: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
 export declare const shiftRight: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
-export declare class StackNode extends Node<d.VoidDesc> {
+export declare class StackNode extends Node<d.Void> {
     readonly body: Node<Any>[];
     constructor(initial?: Node<Any>[]);
     push(node: Node<Any>): void;
@@ -791,12 +791,12 @@ export declare class FnNode<D extends Any> extends Node<D> {
     constructor(returnType: D, paramDescs: (ParamDesc | Any)[], jsFunc: (...args: Node<Any>[]) => Node<D>, fnName?: string);
     compute(opts: ComputeOptions): ComputeNode;
     trace(): {
-        params: ParamNode<Any>[];
+        params: ParameterNode<Any>[];
         body: StackNode;
         output: Node<D>;
     };
 }
-export declare class ParamNode<D extends Any> extends Node<D> {
+export declare class ParameterNode<D extends Any> extends Node<D> {
     readonly paramIndex: number;
     readonly paramName?: string | undefined;
     constructor(type: D, paramIndex: number, paramName?: string | undefined);
@@ -805,7 +805,7 @@ export declare class ReturnNode<D extends Any> extends Node<D> {
     readonly value: Node<D>;
     constructor(value: Node<D>);
 }
-export declare class CondNode<D extends Any> extends Node<D> {
+export declare class ConditionalNode<D extends Any> extends Node<D> {
     readonly condition: Node<Any>;
     readonly ifTrue: Node<D>;
     readonly ifFalse?: Node<Any>;
@@ -815,7 +815,7 @@ export type ElseIfBranch = {
     condition: Node<Any>;
     body: StackNode;
 };
-export declare class IfNode extends Node<d.VoidDesc> {
+export declare class IfNode extends Node<d.Void> {
     readonly condition: Node<Any>;
     readonly thenBody: StackNode;
     elseIfBranches: ElseIfBranch[];
@@ -825,25 +825,25 @@ export declare class IfNode extends Node<d.VoidDesc> {
 export type LoopParam = Node<Any> | number | {
     start?: Node<Any> | number;
     end?: Node<Any> | number;
-    type?: d.ScalarDesc;
+    type?: d.Scalar;
     condition?: '<' | '<=' | '>' | '>=';
     update?: Node<Any> | number | string | ((...args: unknown[]) => void);
     name?: string;
 };
-export declare class LoopNode extends Node<d.VoidDesc> {
+export declare class LoopNode extends Node<d.Void> {
     readonly config: LoopParam;
-    readonly loopVar: ParamNode<Any>;
+    readonly loopVar: ParameterNode<Any>;
     readonly callbackKey: string;
     readonly body: StackNode;
-    constructor(config: LoopParam, loopVar: ParamNode<Any>, callbackKey: string, body: StackNode);
+    constructor(config: LoopParam, loopVar: ParameterNode<Any>, callbackKey: string, body: StackNode);
 }
-export declare class BreakNode extends Node<d.VoidDesc> {
+export declare class BreakNode extends Node<d.Void> {
     constructor();
 }
-export declare class ContinueNode extends Node<d.VoidDesc> {
+export declare class ContinueNode extends Node<d.Void> {
     constructor();
 }
-export declare class DiscardNode extends Node<d.VoidDesc> {
+export declare class DiscardNode extends Node<d.Void> {
     constructor();
 }
 export type IfChain = {
@@ -879,9 +879,9 @@ export type FnLayout<P extends readonly ParamDesc[]> = {
     readonly params: [...P];
 };
 export declare function Fn<D extends Any, P extends readonly ParamDesc[]>(jsFunc: (...args: ParamDescsToNodes<P>) => Node<D>, layout: FnLayout<P>): (...args: ParamDescsToNodes<P>) => CallNode<D>;
-export declare function Fn(jsFunc: () => void): FnNode<d.VoidDesc>;
+export declare function Fn(jsFunc: () => void): FnNode<d.Void>;
 export declare function Fn<D extends Any>(jsFunc: (...args: Node<Any>[]) => Node<D>): (...args: Node<Any>[]) => CallNode<D>;
-export declare const cond: <D extends Any>(condition: Node<Any>, ifTrue: Node<D>, ifFalse?: Node<D>) => CondNode<D>;
+export declare const cond: <D extends Any>(condition: Node<Any>, ifTrue: Node<D>, ifFalse?: Node<D>) => ConditionalNode<D>;
 /**
  * WGSL `select(falseVal, trueVal, condition)`.
  * Returns `trueVal` when `condition` is true, `falseVal` otherwise.

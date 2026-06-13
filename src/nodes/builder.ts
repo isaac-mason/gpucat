@@ -4,7 +4,7 @@ import {
     type ComputeNode,
     type StructDef,
     StackNode,
-    BinopNode,
+    BinaryOpNode,
     CallNode,
     ConstructNode,
     FieldNode,
@@ -23,10 +23,10 @@ import {
     BreakNode,
     ContinueNode,
     DiscardNode,
-    CondNode,
+    ConditionalNode,
     ReturnNode,
     FnNode,
-    ParamNode,
+    ParameterNode,
 } from './lib/core';
 import { type InterpolationType, type InterpolationSampling, VaryingNode } from './lib/varying';
 import { WgslNode } from './lib/wgsl';
@@ -50,11 +50,11 @@ export function compile(slots: CompileSlots): CompileResult {
     const vertexCtx = createContext('vertex', true);
     const fragmentCtx = createContext('fragment', true);
 
-    const hasFragment = slots.color !== null;
+    const hasFragment = slots.fragment !== null;
 
     // collect all roots
-    const roots: Node<d.Any>[] = [slots.position];
-    if (slots.color) roots.push(slots.color);
+    const roots: Node<d.Any>[] = [slots.vertex];
+    if (slots.fragment) roots.push(slots.fragment);
     if (slots.depth) roots.push(slots.depth);
 
     // single discovery pass across all roots
@@ -87,7 +87,7 @@ export function compile(slots: CompileSlots): CompileResult {
 
     // pre-collect varyings from fragment roots (so vertex shader knows what to output)
     if (hasFragment) {
-        const fragmentRoots: Node<d.Any>[] = [slots.color!];
+        const fragmentRoots: Node<d.Any>[] = [slots.fragment!];
         collectVaryings(fragmentRoots, vertexCtx);
     }
 
@@ -97,7 +97,7 @@ export function compile(slots: CompileSlots): CompileResult {
     // generate fragment shader (skip for depth-only pipelines)
     let fragmentBody = '';
     if (hasFragment) {
-        fragmentBody = generateFragmentShader(slots.color!, fragmentCtx, vertexCtx.varyings);
+        fragmentBody = generateFragmentShader(slots.fragment!, fragmentCtx, vertexCtx.varyings);
 
         // No need to merge bindings anymore - they're shared via discovered.*
     }
@@ -381,7 +381,7 @@ export type SamplerEntry = {
     type: 'sampler' | 'sampler_comparison';
     group: number;
     binding: number;
-    samplerNode: SamplerNode<d.SamplerDesc | d.SamplerComparisonDesc>;
+    samplerNode: SamplerNode<d.sampler | d.samplerComparison>;
 };
 
 export type ComputeStorageEntry = {
@@ -401,8 +401,8 @@ export type NodeGraphInfo = {
 };
 
 export type CompileSlots = {
-    position: Node<d.Any>;
-    color: Node<d.Any> | null;
+    vertex: Node<d.Any>;
+    fragment?: Node<d.Any>;
     depth?: Node<d.Any>;
 };
 
@@ -438,7 +438,7 @@ type ShaderStage = 'vertex' | 'fragment' | 'compute';
 
 /** Traced FnNode data */
 type TracedFn = {
-    params: ParamNode<d.Any>[];
+    params: ParameterNode<d.Any>[];
     body: StackNode;
     output: Node<d.Any>;
 };
@@ -530,7 +530,7 @@ function getChildren(node: Node<d.Any>): Node<d.Any>[] {
         children.push(...node._beforeNodes);
     }
 
-    if (node instanceof BinopNode) {
+    if (node instanceof BinaryOpNode) {
         children.push(node.left, node.right);
     } else if (node instanceof CallNode) {
         children.push(...node.args);
@@ -552,7 +552,7 @@ function getChildren(node: Node<d.Any>): Node<d.Any>[] {
         if (node.init) children.push(node.init);
     } else if (node instanceof WorkgroupVarNode) {
         // WorkgroupVarNode has no initializer (WGSL doesn't allow it)
-    } else if (node instanceof CondNode) {
+    } else if (node instanceof ConditionalNode) {
         children.push(node.condition, node.ifTrue);
         if (node.ifFalse) children.push(node.ifFalse);
     } else if (node instanceof WgslNode) {
@@ -563,7 +563,7 @@ function getChildren(node: Node<d.Any>): Node<d.Any>[] {
         children.push(node.wrappedNode);
     } else if (node instanceof PassNode) {
         // PassNode delegates to its texture node during code generation
-        const textureNode = node.scope === 'color' ? node.getTextureNode() : node.getLinearDepthNode();
+        const textureNode = node.scope === 'fragment' ? node.getTextureNode() : node.getLinearDepthNode();
         children.push(textureNode);
     } else if (node instanceof TextureBindingNode) {
         // TextureBindingNode is a leaf — no children
@@ -1065,7 +1065,7 @@ function generateExpr(ctx: BuildContext, node: Node<d.Any>): string {
         expr = generateStorage(ctx, node);
     } else if (node instanceof PassNode) {
         // PassNode used as expression delegates to its texture node
-        const textureNode = node.scope === 'color' ? node.getTextureNode() : node.getLinearDepthNode();
+        const textureNode = node.scope === 'fragment' ? node.getTextureNode() : node.getLinearDepthNode();
         expr = generateExpr(ctx, textureNode);
     } else if (node instanceof TextureBindingNode) {
         expr = generateTextureBinding(ctx, node);
@@ -1081,7 +1081,7 @@ function generateExpr(ctx: BuildContext, node: Node<d.Any>): string {
         expr = generateSampler(ctx, node);
     } else if (node instanceof VaryingNode) {
         expr = generateVarying(ctx, node);
-    } else if (node instanceof BinopNode) {
+    } else if (node instanceof BinaryOpNode) {
         const left = generateExpr(ctx, node.left);
         const right = generateExpr(ctx, node.right);
         expr = `(${left} ${node.op} ${right})`;
@@ -1104,7 +1104,7 @@ function generateExpr(ctx: BuildContext, node: Node<d.Any>): string {
         expr = generateBuiltin(ctx, node);
     } else if (node instanceof ComputeIndexNode) {
         expr = 'computeIndex';
-    } else if (node instanceof CondNode) {
+    } else if (node instanceof ConditionalNode) {
         const cond = generateExpr(ctx, node.condition);
         const t = generateExpr(ctx, node.ifTrue);
         const f = node.ifFalse ? generateExpr(ctx, node.ifFalse) : `${node.type.wgslType}()`;
@@ -1150,7 +1150,7 @@ function generateExpr(ctx: BuildContext, node: Node<d.Any>): string {
         }
         ctx.nodeVars.set(node.id, node.varName);
         expr = node.varName;
-    } else if (node instanceof ParamNode) {
+    } else if (node instanceof ParameterNode) {
         expr = node.paramName ?? `p${node.paramIndex}`;
     } else if (node instanceof InspectorNode) {
         // inspector is transparent - just generate the wrapped node
@@ -1205,7 +1205,7 @@ function isTrivialExpr(node: Node<d.Any>): boolean {
         node instanceof VarNode ||
         node instanceof PrivateVarNode ||
         node instanceof WorkgroupVarNode ||
-        node instanceof ParamNode ||
+        node instanceof ParameterNode ||
         node instanceof BuiltinNode ||
         node instanceof FieldNode ||
         // binding references are global names
@@ -1769,7 +1769,7 @@ function generateLoopStmt(ctx: BuildContext, node: LoopNode): void {
         const cfg = config as {
             start?: Node<d.Any> | number;
             end?: Node<d.Any> | number;
-            type?: d.ScalarDesc;
+            type?: d.Scalar;
             condition?: '<' | '<=' | '>' | '>=';
             name?: string;
         };
@@ -1847,7 +1847,7 @@ function generateModuleScopeInitExpr(node: Node<d.Any>): string {
     } else if (node instanceof ConstructNode) {
         const args = node.args.map((a) => generateModuleScopeInitExpr(a));
         return `${node.type.wgslType}(${args.join(', ')})`;
-    } else if (node instanceof BinopNode) {
+    } else if (node instanceof BinaryOpNode) {
         const left = generateModuleScopeInitExpr(node.left);
         const right = generateModuleScopeInitExpr(node.right);
         return `(${left} ${node.op} ${right})`;
@@ -2151,8 +2151,8 @@ function emitDslFunctions(ctx: BuildContext): string {
 function generateVertexShader(slots: CompileSlots, ctx: BuildContext): string {
     const lines: string[] = [];
 
-    // generate position expression
-    const posExpr = generateExpr(ctx, slots.position);
+    // generate vertex expression
+    const vertexExpr = generateExpr(ctx, slots.vertex);
 
     // check if we have any vertex inputs (attributes or builtins)
     const hasVertexIndex = ctx.builtins.has('vertex_index');
@@ -2203,7 +2203,7 @@ function generateVertexShader(slots: CompileSlots, ctx: BuildContext): string {
     }
     lines.push('    var output: VertexOutput;');
     lines.push(...ctx.code);
-    lines.push(`    output.position = ${posExpr};`);
+    lines.push(`    output.position = ${vertexExpr};`);
 
     // assign varyings
     for (const [name, { vertexExpr }] of ctx.varyings) {
@@ -2219,7 +2219,7 @@ function generateVertexShader(slots: CompileSlots, ctx: BuildContext): string {
 /* fragment shader generation */
 
 function generateFragmentShader(
-    colorNode: Node<d.Any>,
+    fragmentNode: Node<d.Any>,
     ctx: BuildContext,
     varyings: Map<string, { node: VaryingNode<d.Any>; vertexExpr: string }>,
 ): string {
@@ -2233,7 +2233,7 @@ function generateFragmentShader(
     }
 
     // generate color expression
-    const colorExpr = generateExpr(ctx, colorNode);
+    const fragmentExpr = generateExpr(ctx, fragmentNode);
 
     // check if we have any fragment inputs (varyings or builtins)
     const hasFragCoord = ctx.builtins.has('position');
@@ -2263,8 +2263,8 @@ function generateFragmentShader(
     }
 
     // check for MRT
-    const isMRT = colorNode instanceof MRTNode;
-    const mrtNode = isMRT ? (colorNode as MRTNode) : null;
+    const isMRT = fragmentNode instanceof MRTNode;
+    const mrtNode = isMRT ? (fragmentNode as MRTNode) : null;
 
     // Pre-generate all MRT output expressions NOW so that CSE let-declarations
     // are pushed into ctx.code before we emit the function body.
@@ -2343,7 +2343,7 @@ function generateFragmentShader(
         }
         lines.push('    return output;');
     } else {
-        lines.push(`    return ${colorExpr};`);
+        lines.push(`    return ${fragmentExpr};`);
     }
 
     lines.push('}');

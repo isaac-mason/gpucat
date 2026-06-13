@@ -79,7 +79,7 @@ function parseWgslFunction(source: string): WgslNodeFunction {
     };
 }
 
-export class WgslFunctionNode extends Node<d.WgslFnDesc> {
+export class WgslFunctionNode extends Node<d.WgslFn> {
     /** Type marker for runtime checking */
     readonly isCodeNode = true;
 
@@ -96,7 +96,7 @@ export class WgslFunctionNode extends Node<d.WgslFnDesc> {
     readonly isFunctionNode = true;
 
     constructor(code = '', includes: WgslFunctionNode[] = []) {
-        super(d.wgslfn);
+        super(d.WgslFn);
         this.code = code;
         this.includes = includes;
     }

@@ -280,7 +280,7 @@ export {
     DrawIndirect,
     DrawIndexedIndirect,
     // types
-    type BinopOp,
+    type BinaryOp,
     type BuiltinKind,
     type ComputeNodeOptions,
     type ComputeOptions,

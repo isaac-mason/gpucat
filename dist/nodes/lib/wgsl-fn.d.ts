@@ -17,7 +17,7 @@ export type WgslNodeFunction = {
     outputType: string;
     getCode(name?: string): string;
 };
-export declare class WgslFunctionNode extends Node<d.WgslFnDesc> {
+export declare class WgslFunctionNode extends Node<d.WgslFn> {
     /** Type marker for runtime checking */
     readonly isCodeNode = true;
     /** Global nodes use globalCache for deduplication */

@@ -87,9 +87,9 @@ export function compileNodeState(
 
     // compile the material's node graph
     const compileResult: CompileResult = compile({
-        position: material.vertexNode,
-        color: material.fragmentNode,
-        depth: material.depthNode,
+        vertex: material.vertex,
+        fragment: material.fragment,
+        depth: material.depth,
     });
 
     // create NodeBuilderState from compile result (pass renderContext for shared bind group caching)

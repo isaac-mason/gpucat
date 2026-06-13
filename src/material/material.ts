@@ -18,7 +18,7 @@ export interface MaterialOptions {
      * - An OutputStructNode/MRTNode for multiple render targets
      * - Omitted/null for depth-only rendering (e.g. shadow passes)
      */
-    fragment?: Node<Any> | null;
+    fragment?: Node<Any>;
 
     /**
      * An optional `f32` override for the fragment depth written to the depth buffer.
@@ -62,14 +62,14 @@ export class Material {
     /** Material name, for debugging. */
     name: string;
 
-    /** vec4f clip-space position. */
-    vertexNode: Node<Any>;
+    /** Vertex node. Use `positionClip` for standard MVP transform. */
+    vertex: Node<Any>;
 
-    /** Fragment output. Can be vec4f, OutputStructNode for MRT, or null for depth-only. */
-    fragmentNode: Node<Any> | null;
+    /** Fragment output. Can be vec4f, OutputStructNode for MRT, or undefined for depth-only. */
+    fragment: Node<Any> | undefined;
 
     /** f32 depth override — written to @builtin(frag_depth) */
-    depthNode: Node<Any> | undefined;
+    depth: Node<Any> | undefined;
 
     /** Controls draw sort order (opaque vs transparent) AND the default for depthWrite. */
     transparent: boolean;
@@ -111,9 +111,9 @@ export class Material {
     constructor(opts: MaterialOptions) {
         this.name = opts.name ?? '';
 
-        this.vertexNode = opts.vertex;
-        this.fragmentNode = opts.fragment ?? null;
-        this.depthNode = opts.depth;
+        this.vertex = opts.vertex;
+        this.fragment = opts.fragment;
+        this.depth = opts.depth;
 
         this.transparent = opts.transparent ?? false;
         this.blend = opts.blend;

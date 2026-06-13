@@ -35,7 +35,7 @@ export function atomicAdd<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i
  * In WGSL: `atomicStore(&ptr, value)`
  */
 export function atomicStore<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): void {
-    addToStack(new CallNode(d.voidDesc, 'atomicStore', [ptr, value]));
+    addToStack(new CallNode(d.Void, 'atomicStore', [ptr, value]));
 }
 
 /**
@@ -154,7 +154,7 @@ export function atomicCompareExchangeWeak<D extends AtomicPtrDesc>(
     comparator: Node<d.i32 | d.u32>,
     value: Node<d.i32 | d.u32>
 ): Node<Any> {
-    const node = new CallNode(d.voidDesc, 'atomicCompareExchangeWeak', [ptr, comparator, value]);
+    const node = new CallNode(d.Void, 'atomicCompareExchangeWeak', [ptr, comparator, value]);
     addToStack(node);
     return node;
 }

@@ -2,7 +2,7 @@ import {
     type Any,
     type Infer,
     type StructDesc,
-    type SizedArrayDesc,
+    type sizedArray,
     isStructDesc,
     isSizedArrayDesc,
     isArrayDesc,
@@ -393,7 +393,7 @@ function emitStructWrites(ctx: LayoutContext, schema: StructDesc, accessor: stri
     ctx.offset = roundUp(ctx.offset, structAlign);
 }
 
-function emitArrayWrites(ctx: LayoutContext, schema: SizedArrayDesc, accessor: string): void {
+function emitArrayWrites(ctx: LayoutContext, schema: sizedArray, accessor: string): void {
     const stride = arrayElementStrideOf(schema.element, ctx.addressSpace);
     const startOffset = ctx.offset;
 
@@ -619,7 +619,7 @@ function emitStructRead(ctx: LayoutContext, schema: StructDesc): string {
     return `{${fields.join(',')}}`;
 }
 
-function emitArrayRead(ctx: LayoutContext, schema: SizedArrayDesc): string {
+function emitArrayRead(ctx: LayoutContext, schema: sizedArray): string {
     const elements: string[] = [];
     const stride = arrayElementStrideOf(schema.element, ctx.addressSpace);
     const startOffset = ctx.offset;

@@ -37,7 +37,7 @@ export class PassTextureNode extends TextureNode {
      * @param textureId - Optional custom texture ID. If not provided, uses default pass output ID.
      * @param existingBinding - If provided, reuse this binding instead of creating a new one (used by clone).
      */
-    constructor(passNode: PassNode, texture: Texture | null = null, textureId?: string, existingBinding?: TextureBindingNode<d.FlatSampledTextureDesc>) {
+    constructor(passNode: PassNode, texture: Texture | null = null, textureId?: string, existingBinding?: TextureBindingNode<d.FlatSampledTexture>) {
         const binding = existingBinding ?? new TextureBindingNode(d.texture2d(), textureId ?? `_pass${passNode.passId}_output`, objectGroup);
         super(binding);
         this.passNode = passNode;
@@ -77,7 +77,7 @@ export class PassMultipleTextureNode extends PassTextureNode {
      * @param textureName - The output texture name.
      * @param previousTexture - Whether previous frame data should be used.
      */
-    constructor(passNode: PassNode, textureName: string, previousTexture = false, existingBinding?: TextureBindingNode<d.FlatSampledTextureDesc>) {
+    constructor(passNode: PassNode, textureName: string, previousTexture = false, existingBinding?: TextureBindingNode<d.FlatSampledTexture>) {
         // Compute the unique textureId BEFORE calling super so it's used in the node ID
         const uniqueTextureId = `${passNode.passId}_${textureName}${previousTexture ? '_prev' : ''}`;
         
@@ -128,15 +128,15 @@ export type PassNodeOptions = {
  */
 export class PassNode extends Node<d.vec4f> {
     /** @static */
-    static readonly COLOR: 'color' = 'color';
+    static readonly FRAGMENT: 'fragment' = 'fragment';
 
     /** @static */
     static readonly DEPTH: 'depth' = 'depth';
 
     /**
-     * The scope of the pass. The scope determines whether the node outputs color or depth.
+     * The scope of the pass. The scope determines whether the node outputs a fragment or depth.
      */
-    readonly scope: 'color' | 'depth';
+    readonly scope: 'fragment' | 'depth';
 
     /** A reference to the scene. */
     readonly scene: Scene;
@@ -180,7 +180,7 @@ export class PassNode extends Node<d.vec4f> {
 
     private readonly _linearDepthNodes: Record<string, Node<d.f32>> = {};
 
-    constructor(scope: 'color' | 'depth', scene: Scene, camera: Camera, options: PassNodeOptions = {}) {
+    constructor(scope: 'fragment' | 'depth', scene: Scene, camera: Camera, options: PassNodeOptions = {}) {
         const pid = `_pass${_passCount++}`;
         super(d.vec4f);
 
@@ -501,7 +501,7 @@ export class PassNode extends Node<d.vec4f> {
 
 /** creates a pass node */
 export const pass = (scene: Scene, camera: Camera, options?: PassNodeOptions): PassNode => {
-    return new PassNode(PassNode.COLOR, scene, camera, options);
+    return new PassNode(PassNode.FRAGMENT, scene, camera, options);
 }
 
 /** creates a depth pass node */

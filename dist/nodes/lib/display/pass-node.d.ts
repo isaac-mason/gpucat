@@ -25,7 +25,7 @@ export declare class PassTextureNode extends TextureNode {
      * @param textureId - Optional custom texture ID. If not provided, uses default pass output ID.
      * @param existingBinding - If provided, reuse this binding instead of creating a new one (used by clone).
      */
-    constructor(passNode: PassNode, texture?: Texture | null, textureId?: string, existingBinding?: TextureBindingNode<d.FlatSampledTextureDesc>);
+    constructor(passNode: PassNode, texture?: Texture | null, textureId?: string, existingBinding?: TextureBindingNode<d.FlatSampledTexture>);
     clone(): PassTextureNode;
 }
 /**
@@ -46,7 +46,7 @@ export declare class PassMultipleTextureNode extends PassTextureNode {
      * @param textureName - The output texture name.
      * @param previousTexture - Whether previous frame data should be used.
      */
-    constructor(passNode: PassNode, textureName: string, previousTexture?: boolean, existingBinding?: TextureBindingNode<d.FlatSampledTextureDesc>);
+    constructor(passNode: PassNode, textureName: string, previousTexture?: boolean, existingBinding?: TextureBindingNode<d.FlatSampledTexture>);
     /**
      * Updates the texture reference of this node.
      * Called in setup() to get the current texture.
@@ -74,13 +74,13 @@ export type PassNodeOptions = {
  */
 export declare class PassNode extends Node<d.vec4f> {
     /** @static */
-    static readonly COLOR: 'color';
+    static readonly FRAGMENT: 'fragment';
     /** @static */
     static readonly DEPTH: 'depth';
     /**
-     * The scope of the pass. The scope determines whether the node outputs color or depth.
+     * The scope of the pass. The scope determines whether the node outputs a fragment or depth.
      */
-    readonly scope: 'color' | 'depth';
+    readonly scope: 'fragment' | 'depth';
     /** A reference to the scene. */
     readonly scene: Scene;
     /** A reference to the camera. */
@@ -106,7 +106,7 @@ export declare class PassNode extends Node<d.vec4f> {
     private readonly _depthTextureNodes;
     private readonly _viewZNodes;
     private readonly _linearDepthNodes;
-    constructor(scope: 'color' | 'depth', scene: Scene, camera: Camera, options?: PassNodeOptions);
+    constructor(scope: 'fragment' | 'depth', scene: Scene, camera: Camera, options?: PassNodeOptions);
     /**
      * Sets the resolution scale for the pass.
      * The resolution scale is a factor that is multiplied with the renderer's width and height.
