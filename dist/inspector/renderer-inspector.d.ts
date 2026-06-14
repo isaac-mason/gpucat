@@ -1,5 +1,5 @@
 /**
- * RendererInspector.ts — Stats-collecting inspector layer.
+ * RendererInspector.ts, Stats-collecting inspector layer.
  *
  * Extends InspectorBase with per-frame stats accumulation, a rolling frame
  * history buffer (512 frames), and optional GPU timestamp-query support.
@@ -112,6 +112,7 @@ export declare class RendererInspector extends InspectorBase {
     private _readbackBuffer;
     private _lastFinishTime;
     private _deltaTimes;
+    private _frameHadRender;
     get fps(): number;
     private _frameStart;
     private _currentQuerySlot;

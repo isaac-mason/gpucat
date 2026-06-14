@@ -1,5 +1,5 @@
 /**
- * shader-panel.ts — Inline WGSL shader viewer for the Inspector.
+ * shader-panel.ts, Inline WGSL shader viewer for the Inspector.
  *
  * Given a RenderObject, it:
  *  1. Splits nodeBuilderState.code into vertex/fragment sections.
@@ -115,17 +115,17 @@ export class ShaderPanel {
     /** Raw compute shader code (used in compute mode). */
     private _computeCode: string | null = null;
 
-    /** The raw code string last written to innerHTML — skips re-render if unchanged. */
+    /** The raw code string last written to innerHTML, skips re-render if unchanged. */
     private _lastRenderedCode: string | null = null;
 
     /** The RenderObject found during the last update() call. */
     private _renderObject: RenderObject | null = null;
 
-    /** Inspector reference — set on first update() call. */
+    /** Inspector reference, set on first update() call. */
     private _inspector: Inspector | null = null;
 
     // -----------------------------------------------------------------------
-    // Probe popover — floats next to the cursor while hovering a probeable line
+    // Probe popover, floats next to the cursor while hovering a probeable line
     // -----------------------------------------------------------------------
 
     /** Floating popover element, appended to document.body. */
@@ -141,7 +141,7 @@ export class ShaderPanel {
 
     /**
      * When true the current probe was triggered by a text selection, not a
-     * hover.  Mousemove events will NOT clear it — only a mousedown outside
+     * hover.  Mousemove events will NOT clear it, only a mousedown outside
      * the code block (or a new selection) will.
      */
     private _selectionLocked = false;
@@ -321,7 +321,7 @@ export class ShaderPanel {
     }
 
     // -----------------------------------------------------------------------
-    // Private — stage selection
+    // Private, stage selection
     // -----------------------------------------------------------------------
 
     private _selectStage(stage: Stage): void {
@@ -362,7 +362,7 @@ export class ShaderPanel {
     }
 
     // -----------------------------------------------------------------------
-    // Private — hover / probe
+    // Private, hover / probe
     // -----------------------------------------------------------------------
 
     private _onMouseLeave(): void {
@@ -378,7 +378,7 @@ export class ShaderPanel {
             return;
         }
 
-        // Probing only works for the fragment stage — vertex variables don't
+        // Probing only works for the fragment stage, vertex variables don't
         // exist in fs_main, so attempts on other stages produce a broken canvas.
         if (this._currentStage !== 'fragment') {
             this._hidePopover();

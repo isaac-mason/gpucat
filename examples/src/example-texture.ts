@@ -132,9 +132,7 @@ async function main() {
         quat.fromEuler(mesh.quaternion, [angle * 0.3, angle, 0, 'yxz'] as Euler);
         mesh.updateWorldMatrix();
 
-        renderer.beginFrame();
         renderPipeline.render();
-        renderer.endFrame();
         requestAnimationFrame(frame);
     }
 

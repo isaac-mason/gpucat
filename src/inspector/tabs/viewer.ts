@@ -1,10 +1,10 @@
 /**
- * viewer.ts — Inspector Viewer tab.
+ * viewer.ts, Inspector Viewer tab.
  *
  * Pattern:
- *   getCanvasDataByNode() — creates a CanvasTarget + wraps the node as vec4(vec3(node), 1)
+ *   getCanvasDataByNode(), creates a CanvasTarget + wraps the node as vec4(vec3(node), 1)
  *                           + builds a Material. Cached per node, never recreated.
- *   update()              — for each canvasData:
+ *   update(), for each canvasData:
  *                             1. save renderer state (renderTarget, mrt, clearColor)
  *                             2. reset state (setMRT(null), clearColor black)
  *                             3. setCanvasTarget(canvasData.canvasTarget)
@@ -28,7 +28,7 @@ import { Material } from '../../material/material';
 import { QuadMesh } from '../../objects/quad-mesh';
 
 // ---------------------------------------------------------------------------
-// CanvasData — one entry per inspectable node (cached, never recreated)
+// CanvasData, one entry per inspectable node (cached, never recreated)
 // ---------------------------------------------------------------------------
 
 export type CanvasData = {
@@ -43,7 +43,7 @@ export type CanvasData = {
     /** Human-readable label (leaf name after splitPath) */
     name: string;
     /**
-     * Optional folder path — the part of the name before the last '/'.
+     * Optional folder path, the part of the name before the last '/'.
      * Used to group items in the viewer. Undefined if no path component.
      */
     path?: string;
@@ -87,7 +87,7 @@ export class Viewer extends Tab {
     }
 
     // -----------------------------------------------------------------------
-    // Public API — called by Inspector each frame
+    // Public API, called by Inspector each frame
     // -----------------------------------------------------------------------
 
     /**
@@ -110,7 +110,7 @@ export class Viewer extends Tab {
      *
      * For each canvasData:
      *   1. Save renderer state (renderTarget, mrt, clearColor)
-     *   2. Reset state — setMRT(null), clearColor → black
+     *   2. Reset state, setMRT(null), clearColor → black
      *   3. renderer.setCanvasTarget(canvasData.canvasTarget)
      *   4. renderer.renderQuad(canvasData.material, encoder)  ← no updateBefore!
      *   5. renderer.setCanvasTarget(previousTarget)
@@ -219,7 +219,7 @@ export class Viewer extends Tab {
 }
 
 // ---------------------------------------------------------------------------
-// Module-level helpers — used by Inspector.getCanvasDataByNode()
+// Module-level helpers, used by Inspector.getCanvasDataByNode()
 // ---------------------------------------------------------------------------
 
 /**
@@ -290,12 +290,12 @@ function nodeToVec4f(node: Node<d.Any>): Node<d.vec4f> {
         return wgsl(d.vec4f)`vec4f(f32((${ node }).x), f32((${ node }).y), f32((${ node }).z), 1.0)`;
     }
 
-    // ---- matrices — show first column as RGB ----
+    // ---- matrices, show first column as RGB ----
     if (t.startsWith('mat')) {
         return wgsl(d.vec4f)`vec4f(f32((${ node })[0][0]), f32((${ node })[0][1]), f32((${ node })[0][2]), 1.0)`;
     }
 
-    // ---- texture / sampler / unknown — assume textureSample gives vec4f ----
+    // ---- texture / sampler / unknown, assume textureSample gives vec4f ----
     return wgsl(d.vec4f)`vec4f((${ node }).xyz, 1.0)`;
 }
 

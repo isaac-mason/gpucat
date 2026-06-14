@@ -118,9 +118,7 @@ function frame() {
     mesh.updateWorldMatrix();
 
     controls.update();
-    renderer.beginFrame();
     renderPipeline.render();
-    renderer.endFrame();
     requestAnimationFrame(frame);
 }
 

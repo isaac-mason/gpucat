@@ -168,7 +168,7 @@ export function compile(slots: CompileSlots): CompileResult {
         });
     }
 
-    // Build attributes array — unified, all entries already in ctx.attributes
+    // Build attributes array, unified, all entries already in ctx.attributes
     const allAttributes: AttributeEntry[] = Array.from(vertexCtx.attributes.values());
 
     // Group attributes by underlying buffer for efficient vertex buffer binding
@@ -220,7 +220,7 @@ export function compileCompute(node: ComputeNode): ComputeCompileResult {
     ctx.privateVars = discovered.privateVars;
     ctx.workgroupVars = discovered.workgroupVars;
 
-    // generate compute shader body (reuse the trace above — re-tracing would
+    // generate compute shader body (reuse the trace above, re-tracing would
     // produce fresh StorageNode/etc. ids that aren't in discovered.storageNames,
     // causing emits like `undefined[...]`).
     const computeBody = generateComputeShader(node, traced, ctx);
@@ -307,7 +307,7 @@ export type AttributeEntry = {
 };
 
 /**
- * VertexBufferGroup — groups attributes that share the same underlying buffer.
+ * VertexBufferGroup, groups attributes that share the same underlying buffer.
  *
  * For interleaved vertex data, multiple attributes may reference the same buffer
  * with different offsets. Grouping them enables:
@@ -566,7 +566,7 @@ function getChildren(node: Node<d.Any>): Node<d.Any>[] {
         const textureNode = node.scope === 'fragment' ? node.getTextureNode() : node.getLinearDepthNode();
         children.push(textureNode);
     } else if (node instanceof TextureBindingNode) {
-        // TextureBindingNode is a leaf — no children
+        // TextureBindingNode is a leaf, no children
     } else if (node instanceof TextureNode) {
         // TextureNode owns a bindingNode for the texture var declaration
         children.push(node.bindingNode);
@@ -945,7 +945,7 @@ function discover(roots: Node<d.Any>[]): Discovery {
         }
         if (node instanceof UniformNode) {
             const name = node.name;
-            const group = node.groupNode;
+            const group = node.group;
             if (!uniforms.has(name)) {
                 uniforms.set(name, { node, group });
             }
@@ -1239,7 +1239,7 @@ function isStorageElementAccess(node: Node<d.Any>): boolean {
 
 function generateUniform(ctx: BuildContext, node: UniformNode<d.Any>): string {
     const name = node.name;
-    const group = node.groupNode;
+    const group = node.group;
     ctx.uniforms.set(name, { node, group });
 
     return `uniforms_${group.name}.${name}`;
@@ -1256,7 +1256,7 @@ function generateAttribute(ctx: BuildContext, node: AttributeNode<d.Any>): strin
         );
     }
 
-    // Deduplicate by node.id — same node always returns the same WGSL name
+    // Deduplicate by node.id, same node always returns the same WGSL name
     const existing = ctx.attributes.get(node.id);
     if (existing) {
         return `input.${existing.shaderName}`;
@@ -1444,7 +1444,7 @@ function generateDepthTexture(ctx: BuildContext, node: DepthTextureNode): string
     const binding = node.bindingNode;
     const name = generateTextureBinding(ctx, binding);
 
-    // textureLoad mode — no sampler needed
+    // textureLoad mode, no sampler needed
     if (node.samplingMode === 'load') {
         if (!node.loadCoords) {
             throw new Error(`[builder] DepthTextureNode '${name}' in load mode has no loadCoords`);
@@ -1479,7 +1479,7 @@ function generateDepthTexture(ctx: BuildContext, node: DepthTextureNode): string
         return `textureSampleLevel(${name}, ${samplerName}, ${uvExpr}, ${level}${offsetSuffix})`;
     }
 
-    // textureSample (default) — returns f32
+    // textureSample (default), returns f32
     return `textureSample(${name}, ${samplerName}, ${uvExpr}${offsetSuffix})`;
 }
 
@@ -1489,7 +1489,7 @@ function generateArrayTexture(ctx: BuildContext, node: ArrayTextureNode): string
 
     const layerExpr = generateExpr(ctx, node.layerNode);
 
-    // textureLoad mode — no sampler needed
+    // textureLoad mode, no sampler needed
     // WGSL: textureLoad(t, coords, array_index, level)
     if (node.samplingMode === 'load') {
         if (!node.loadCoords) {
@@ -1701,7 +1701,12 @@ function generateStmt(ctx: BuildContext, node: Node<d.Any>): void {
     } else {
         // treat as expression statement
         const expr = generateExpr(ctx, node);
-        if (expr && !expr.startsWith('/*')) {
+        // If the node was hoisted to a CSE variable, its expression (and any side
+        // effect, e.g. atomicAdd) was already emitted in the `let`/`var` binding.
+        // Re-emitting it here would be a bare `_vN;` reference, which is dead code
+        // and invalid WGSL, so skip it.
+        const hoisted = ctx.nodeVars.get(node.id);
+        if (expr && !expr.startsWith('/*') && expr !== hoisted) {
             ctx.code.push(`${ind}${expr};`);
         }
     }

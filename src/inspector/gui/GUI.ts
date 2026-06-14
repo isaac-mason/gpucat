@@ -126,7 +126,7 @@ export class GUI {
 				return new FunctionController(this, object, property);
 		}
 
-		console.error('GUI.add failed — unsupported type', { object, property, value });
+		console.error('GUI.add failed, unsupported type', { object, property, value });
 		// Return a no-op controller to avoid crashing call sites
 		return new Controller(this, object, property, 'gui-unknown');
 	}

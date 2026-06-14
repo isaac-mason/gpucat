@@ -439,9 +439,7 @@ async function main() {
     function frame() {
         controls.update();
         camera.updateViewMatrix();
-        renderer.beginFrame();
         renderPipeline.render();
-        renderer.endFrame();
         requestAnimationFrame(frame);
     }
 

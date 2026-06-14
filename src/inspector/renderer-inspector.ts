@@ -1,5 +1,5 @@
 /**
- * RendererInspector.ts — Stats-collecting inspector layer.
+ * RendererInspector.ts, Stats-collecting inspector layer.
  *
  * Extends InspectorBase with per-frame stats accumulation, a rolling frame
  * history buffer (512 frames), and optional GPU timestamp-query support.
@@ -139,6 +139,10 @@ export class RendererInspector extends InspectorBase {
     // FPS tracking
     private _lastFinishTime = 0;
     private _deltaTimes: number[] = [];
+    // Whether the current frame did any rendering. The FPS counts render frames
+    // only, so a separate compute() dispatch in the same animation frame does not
+    // inflate the rate.
+    private _frameHadRender = false;
 
     get fps(): number {
         const deltas = this._deltaTimes;
@@ -174,7 +178,7 @@ export class RendererInspector extends InspectorBase {
             return;
         }
         super.setRenderer(renderer);
-        // GPU setup runs lazily on first begin() — by then renderer is guaranteed
+        // GPU setup runs lazily on first begin(), by then renderer is guaranteed
         // to be initialized (the renderer asserts init before render/compute).
     }
 
@@ -228,6 +232,7 @@ export class RendererInspector extends InspectorBase {
         this._entryStack = [];
         this._rootTimeline = [];
         this._entryRefs.clear();
+        this._frameHadRender = false;
         void frameId;
     }
 
@@ -237,12 +242,16 @@ export class RendererInspector extends InspectorBase {
         const now = performance.now();
         const cpuMs = now - this._frameStart;
 
-        // FPS tracking
-        if (this._lastFinishTime > 0) {
-            this._deltaTimes.push(now - this._lastFinishTime);
-            if (this._deltaTimes.length > 60) this._deltaTimes.shift();
+        // FPS tracking: only count frames that rendered, so a separate compute()
+        // dispatch in the same animation frame does not inflate the rate. Deltas
+        // span render-to-render.
+        if (this._frameHadRender) {
+            if (this._lastFinishTime > 0) {
+                this._deltaTimes.push(now - this._lastFinishTime);
+                if (this._deltaTimes.length > 60) this._deltaTimes.shift();
+            }
+            this._lastFinishTime = now;
         }
-        this._lastFinishTime = now;
 
         // Close any unclosed entries (shouldn't happen, but be safe)
         while (this._entryStack.length > 0) {
@@ -271,6 +280,7 @@ export class RendererInspector extends InspectorBase {
     }
 
     override beginRender(passId: string, _frameId: number): void {
+        this._frameHadRender = true;
         const now = performance.now();
         const slot = this._currentQuerySlot++;
         const entry: RenderEntry = {

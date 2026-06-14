@@ -13,29 +13,19 @@ type UpdateMaps = {
     renderId: number;
 };
 /**
- * NodeFrame — unified frame context for all node update callbacks.
+ * NodeFrame, unified frame context for all node update callbacks.
  *
  * Properties are set by the renderer/NodeManager before calling update methods.
  * Nodes access whatever context they need from the frame.
  */
 export declare class NodeFrame {
     /**
-     * Elapsed time in seconds since renderer start.
-     * Updated each frame.
-     */
-    time: number;
-    /**
-     * Delta time in seconds since last frame.
-     * Updated each frame.
-     */
-    deltaTime: number;
-    /**
-     * Frame ID — incremented once per animation frame.
+     * Frame ID, incremented once per top-level render()/compute() call.
      * Used for FRAME-level update deduplication.
      */
     frameId: number;
     /**
-     * Render ID — incremented per render() call.
+     * Render ID, incremented per render() call.
      * Multiple renders can happen per frame (shadows, reflections, VR).
      * Used for RENDER-level update deduplication.
      */
@@ -74,7 +64,6 @@ export declare class NodeFrame {
      * Render target height in pixels.
      */
     height: number;
-    private _lastTime;
     /**
      * Used to control Node.update() calls.
      * Maps nodes to their last update frame/render IDs.
@@ -88,10 +77,6 @@ export declare class NodeFrame {
      * Used to control Node.updateAfter() calls.
      */
     readonly updateAfterMap: WeakMap<UpdateAfterNode, UpdateMaps>;
-    /**
-     * Update timing state. Called once per animation frame.
-     */
-    update(): void;
     private _getMaps;
     /**
      * Execute updateBefore for a node, respecting its updateBeforeType.

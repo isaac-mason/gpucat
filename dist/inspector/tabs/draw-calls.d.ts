@@ -1,16 +1,16 @@
 /**
- * draw-calls.ts — Inspector "Draw Calls" tab.
+ * draw-calls.ts, Inspector "Draw Calls" tab.
  *
- * Surfaces renderer-level RenderObject data — one entry per GPU draw call.
+ * Surfaces renderer-level RenderObject data, one entry per GPU draw call.
  * ROs are grouped under their render pass (via ro.passId).
  *
  * When a RO is selected a detail panel appears with three sub-tabs:
- *   [Shader]   — reuses ShaderPanel (with probe hover/selection support)
- *   [Pipeline] — material / render-context state table
- *   [Bindings] — bind group layout table (uniform groups, textures, samplers, storage)
+ *   [Shader], reuses ShaderPanel (with probe hover/selection support)
+ *   [Pipeline], material / render-context state table
+ *   [Bindings], bind group layout table (uniform groups, textures, samplers, storage)
  *
  * Update strategy (60 fps concern):
- *   update() diffs by ro.id — only adds/removes items on structural changes.
+ *   update() diffs by ro.id, only adds/removes items on structural changes.
  *   The static detail panel is only rebuilt when _selectedRO changes.
  */
 import { Tab } from '../ui/tab';
@@ -37,7 +37,7 @@ export declare class DrawCalls extends Tab {
     constructor();
     /**
      * Called by Inspector._processFrame() every frame.
-     * Only diffs by ro.id — does NOT repaint the detail panel unless the
+     * Only diffs by ro.id, does NOT repaint the detail panel unless the
      * selected RO changed.
      *
      * Structure: pass header items are top-level in the List; RO items are

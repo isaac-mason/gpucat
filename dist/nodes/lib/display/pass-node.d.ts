@@ -50,7 +50,7 @@ export declare class PassMultipleTextureNode extends PassTextureNode {
     /**
      * Updates the texture reference of this node.
      * Called in setup() to get the current texture.
-     * Stores the GpuTexture — GPU resources are accessed at bind time via the texture cache.
+     * Stores the GpuTexture, GPU resources are accessed at bind time via the texture cache.
      */
     updateTexture(): void;
     /**
@@ -144,7 +144,7 @@ export declare class PassNode extends Node<d.vec4f> {
     getDepthTexture(name?: string): DepthTexture | null;
     /**
      * Returns a depth-typed texture node for the given attachment.
-     * Use this instead of `getTextureNode('depth')` — depth-format render
+     * Use this instead of `getTextureNode('depth')`, depth-format render
      * targets must be bound as `texture_depth_2d` (sampleType 'depth')
      * because WebGPU rejects them as filterable Float.
      *

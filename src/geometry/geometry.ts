@@ -48,11 +48,11 @@ export class Geometry {
     /**
      * Number of indirect draws to issue from `indirect`. Defaults to `undefined`,
      * meaning "use the full buffer" (`indirect.count`). Set this when the buffer
-     * is pre-sized to a capacity and only a prefix of entries are active —
+     * is pre-sized to a capacity and only a prefix of entries are active, 
      * avoids padding unused slots with zero-instance entries.
      *
      * When stable WebGPU multi-draw lands, this is the natural place to map to
-     * the native `drawCount` parameter — same semantics, same field.
+     * the native `drawCount` parameter, same semantics, same field.
      */
     indirectDrawCount: number | undefined = undefined;
 

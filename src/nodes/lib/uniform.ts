@@ -18,8 +18,13 @@ export class UniformNode<D extends Any> extends Node<D> {
     /** The underlying Uniform data container */
     uniform: Uniform<D>;
 
-    /** Get the uniform group */
-    get groupNode(): UniformGroup { return this.uniform.group; }
+    /**
+     * The uniform group, determines the WGSL @group index, update cadence, and
+     * struct packing. Defaults to `objectGroup`; reassign (e.g. `u.group = renderGroup`)
+     * before the node is first rendered to move it to a shared group.
+     */
+    get group(): UniformGroup { return this.uniform.group; }
+    set group(g: UniformGroup) { this.uniform.group = g; }
 
     /** Get the current value */
     get value(): UniformValue<D> | null { return this.uniform.value; }
@@ -70,17 +75,17 @@ export { Uniform, UniformGroup, UniformUpdateType, objectGroup, renderGroup, fra
 /**
  * Declare a material uniform.
  *
- * **Value-based form** — pass a Uniform object; the node references it:
+ * **Value-based form**, pass a Uniform object; the node references it:
  *   const roughnessU = new Uniform(d.f32, 0.5);
  *   const roughness = uniform(roughnessU);
  *   roughnessU.set(0.8);  // update via Uniform
  *
- * **Name-based form** — resolved from material.uniforms at render time:
+ * **Name-based form**, resolved from material.uniforms at render time:
  *   const roughness = uniform('roughness', d.f32);
  *   const myVal = uniform('myVal', MyStruct);  // struct variant
  *
- * **Inline form** — pass a typed LiteralNode as the initialiser:
- *   uniform(f32(0.5))               // anonymous — uniformId derived from type
+ * **Inline form**, pass a typed LiteralNode as the initialiser:
+ *   uniform(f32(0.5))               // anonymous, uniformId derived from type
  *   uniform(f32(0.5), 'roughness')  // explicit name used as the WGSL field name
  *   uniform(vec4f(1, 0, 0, 1), 'baseColor')
  */
@@ -117,7 +122,7 @@ export function uniform<D extends Any, S extends StructSchema>(
             return fields(node);
         }
 
-        // Regular schema — create Uniform for name-based resolution
+        // Regular schema, create Uniform for name-based resolution
         const u = new Uniform(schema as D);
         return new UniformNode(u, name);
     }
@@ -126,10 +131,10 @@ export function uniform<D extends Any, S extends StructSchema>(
     const initNode = init as LiteralNode<D> | ConstructNode<D>;
     const name = nameOrSchema as string | undefined;
     const uniformId = name ?? `${initNode.type.wgslType}_${_nodeId}`;
-    
+
     // Extract initial value from the node
     const initialValue = extractValue(initNode);
-    
+
     const u = new Uniform(initNode.type, initialValue as UniformValue<D>);
     return new UniformNode(u, uniformId);
 }

@@ -1,5 +1,5 @@
 /**
- * probe-wgsl.ts — WGSL string patching helpers for the shader value probe.
+ * probe-wgsl.ts, WGSL string patching helpers for the shader value probe.
  *
  * The probe re-uses the source mesh's vertex shader verbatim (including camera
  * transforms) so that the probe canvas renders the mesh from the real camera's
@@ -8,7 +8,7 @@
  */
 
 // ---------------------------------------------------------------------------
-// ProbeTarget — what to probe from a hovered line
+// ProbeTarget, what to probe from a hovered line
 // ---------------------------------------------------------------------------
 
 export type ProbeTarget = {
@@ -32,7 +32,7 @@ export type ProbeTarget = {
 };
 
 // ---------------------------------------------------------------------------
-// extractProbeTarget — parse a hovered WGSL line into a ProbeTarget
+// extractProbeTarget, parse a hovered WGSL line into a ProbeTarget
 // ---------------------------------------------------------------------------
 
 /**
@@ -73,7 +73,7 @@ export function extractProbeTarget(line: string): ProbeTarget | null {
         return { expr: letMatch[1], anchor: letMatch[1], anchorKind: 'let_var' };
     }
 
-    // `var identifier [: type] [= <expr>];`  — only probe if there's an initialiser
+    // `var identifier [: type] [= <expr>];`, only probe if there's an initialiser
     const varMatch = trimmed.match(/^var\s+(\w+)\s*(?::\s*[\w<>, ]+\s*)?=\s*([\s\S]+?)\s*;?\s*$/);
     if (varMatch) {
         return { expr: varMatch[1], anchor: varMatch[1], anchorKind: 'let_var' };
@@ -83,12 +83,12 @@ export function extractProbeTarget(line: string): ProbeTarget | null {
     const returnMatch = trimmed.match(/^return\s+([\s\S]+?)\s*;?\s*$/);
     if (returnMatch) {
         const retExpr = returnMatch[1];
-        // Skip `return _out;` — _out is a FragmentOutput struct, not a vec value
+        // Skip `return _out;`, _out is a FragmentOutput struct, not a vec value
         if (/^\w+$/.test(retExpr) && retExpr.startsWith('_out')) return null;
         return { expr: retExpr, anchor: '__return__', anchorKind: 'return' };
     }
 
-    // `<lhs> = <rhs>;`  — any assignment: covers `_out.color = _v2`, `out.pos = _v0`, `myVar = expr`
+    // `<lhs> = <rhs>;`, any assignment: covers `_out.color = _v2`, `out.pos = _v0`, `myVar = expr`
     const assignMatch = trimmed.match(/^([\w.[\]]+)\s*=\s*([\s\S]+?)\s*;?\s*$/);
     if (assignMatch) {
         const rhs = assignMatch[2];
@@ -104,7 +104,7 @@ export function extractProbeVar(line: string): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// Type environment — struct field maps parsed from WGSL preamble
+// Type environment, struct field maps parsed from WGSL preamble
 // ---------------------------------------------------------------------------
 
 /**
@@ -121,7 +121,7 @@ type StructFieldMap = Map<string, Map<string, string>>;
  *   - bare `name : type,` (no attribute)
  *
  * This is intentionally domain-specific to our own generated WGSL so we
- * don't need a full parser — we just need the structs compile.ts emits.
+ * don't need a full parser, we just need the structs compile.ts emits.
  */
 function buildStructFieldMap(wgsl: string): StructFieldMap {
     const result: StructFieldMap = new Map();
@@ -185,7 +185,7 @@ function stripOuterParens(s: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Type inference — figure out WGSL component type from an expression
+// Type inference, figure out WGSL component type from an expression
 // ---------------------------------------------------------------------------
 
 type WgslVecKind = 'vec4f' | 'vec3f' | 'vec2f' | 'f32' | 'i32' | 'u32' | 'bool' | 'unknown';
@@ -196,7 +196,7 @@ type WgslVecKind = 'vec4f' | 'vec3f' | 'vec2f' | 'f32' | 'i32' | 'u32' | 'bool' 
  * found in the full WGSL body.  Also resolves `in.fieldName` and
  * `_out.fieldName` via the struct field map parsed from the full WGSL.
  *
- * This is intentionally best-effort — unknown falls back to vec4f coercion.
+ * This is intentionally best-effort, unknown falls back to vec4f coercion.
  */
 function inferType(
     expr: string,
@@ -235,7 +235,7 @@ function inferType(
         }
     }
 
-    // `in.fieldName` — look up the FragmentInput struct (or any struct the
+    // `in.fieldName`, look up the FragmentInput struct (or any struct the
     // `in` parameter is typed as).  We also handle `_out.fieldName` via
     // FragmentOutput for completeness.
     const memberMatch = e.match(/^(\w+)\.(\w+)$/);
@@ -293,7 +293,7 @@ function inferType(
             const t = inferType(arg, fullBody, varDecls, structFields);
             if (t !== 'unknown') return t;
         }
-        // Argument unresolvable — these builtins always return f32 in our context
+        // Argument unresolvable, these builtins always return f32 in our context
         return 'f32';
     }
 
@@ -337,7 +337,7 @@ function inferType(
     const stripped = stripOuterParens(e);
     if (stripped !== e) return inferType(stripped, fullBody, varDecls, structFields);
 
-    // Arithmetic / compound expression — walk tokens to find a typed operand.
+    // Arithmetic / compound expression, walk tokens to find a typed operand.
     // The first word token that resolves via varDecls wins.
     const firstToken = e.match(/^(\w+)/)?.[1];
     if (firstToken && varDecls.has(firstToken)) {
@@ -360,7 +360,7 @@ function inferType(
         }
     }
 
-    // Scan expression for any vec constructor literal — catches `(a * vec3f(...) + b)` etc.
+    // Scan expression for any vec constructor literal, catches `(a * vec3f(...) + b)` etc.
     const vecInExpr = e.match(/\b(vec4[fi]?|vec3[fi]?|vec2[fi]?|vec4f|vec3f|vec2f|vec4|vec3|vec2)\s*\(/);
     if (vecInExpr) return normaliseType(vecInExpr[1]);
 
@@ -398,7 +398,7 @@ function coerceToVec4f(expr: string, kind: WgslVecKind): string {
         case 'i32':   return `vec4f(vec3f(f32(${expr})), 1.0f)`;
         case 'u32':   return `vec4f(vec3f(f32(${expr})), 1.0f)`;
         case 'bool':  return `vec4f(vec3f(f32(${expr})), 1.0f)`;
-        // unknown — pass through bare, same as fragcoord's fallback.
+        // unknown, pass through bare, same as fragcoord's fallback.
         // If the expression is already vec4f this is correct.  If it's
         // something else the shader compiler will surface a clear error
         // rather than silently emitting a wrong value (or failing with a
@@ -408,7 +408,7 @@ function coerceToVec4f(expr: string, kind: WgslVecKind): string {
 }
 
 // ---------------------------------------------------------------------------
-// buildProbeWGSL — patch combined WGSL to output a single probe variable
+// buildProbeWGSL, patch combined WGSL to output a single probe variable
 // ---------------------------------------------------------------------------
 
 /**
@@ -460,10 +460,10 @@ export function buildProbeWGSL(code: string, target: ProbeTarget): string | null
     const varDecls = new Map<string, string>();
     for (const bl of bodyLines) {
         const trimmed = bl.trim();
-        // `var name : type;` — explicit type, no initializer
+        // `var name : type;`, explicit type, no initializer
         const vmNoInit = trimmed.match(/^var\s+(\w+)\s*:\s*([\w<>, ]+?)\s*;/);
         if (vmNoInit) { varDecls.set(vmNoInit[1], vmNoInit[2]); continue; }
-        // `var name [: type] = <rhs>;` — explicit type annotation OR infer from RHS constructor
+        // `var name [: type] = <rhs>;`, explicit type annotation OR infer from RHS constructor
         const vmInit = trimmed.match(/^var\s+(\w+)\s*(?::\s*([\w<>, ]+?)\s*)?=\s*([\s\S]+?)\s*;?\s*$/);
         if (vmInit) {
             const [, name, explicitType, rhs] = vmInit;
@@ -475,7 +475,7 @@ export function buildProbeWGSL(code: string, target: ProbeTarget): string | null
             }
             continue;
         }
-        // `let name [: type] = <rhs>;` — infer type from explicit annotation or RHS constructor
+        // `let name [: type] = <rhs>;`, infer type from explicit annotation or RHS constructor
         const lm = trimmed.match(/^let\s+(\w+)\s*(?::\s*([\w<>, ]+?)\s*)?=\s*([\s\S]+?)\s*;?\s*$/);
         if (lm) {
             const [, name, explicitType, rhs] = lm;
@@ -528,7 +528,7 @@ export function buildProbeWGSL(code: string, target: ProbeTarget): string | null
     //    - `var _out : FragmentOutput;` is kept only when the probed expression
     //      references `_out` (e.g. user selected `_out.diffuse`).
     //    - `return _out;` and other FragmentOutput returns are always dropped
-    //      — they appear at the end of the body, past our injected return.
+    //, they appear at the end of the body, past our injected return.
     // -----------------------------------------------------------------------
     const exprUsesOut = /\b_out\b/.test(target.expr);
 
@@ -541,7 +541,7 @@ export function buildProbeWGSL(code: string, target: ProbeTarget): string | null
         // Stop at closing brace of fs_main
         if (trimmed === '}') break;
 
-        // Once we've injected our return, stop emitting — no dead code.
+        // Once we've injected our return, stop emitting, no dead code.
         if (found) break;
 
         // Strip `var _out : FragmentOutput;` unless the probe expr uses `_out`.
@@ -549,7 +549,7 @@ export function buildProbeWGSL(code: string, target: ProbeTarget): string | null
             if (!exprUsesOut) continue;
         }
 
-        // Drop `return _out;` — MRT body always ends with this, it returns
+        // Drop `return _out;`, MRT body always ends with this, it returns
         // FragmentOutput which is incompatible with our patched `-> vec4f`.
         // extractProbeTarget already blocks probing this line directly, so
         // we only ever hit it as a trailing line we need to skip.

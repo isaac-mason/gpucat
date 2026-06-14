@@ -39,7 +39,7 @@ export class CanvasTarget {
 
     /**
      * Get (or lazily create) the WebGPU canvas context and configure it.
-     * Safe to call multiple times — returns the cached context after first call.
+     * Safe to call multiple times, returns the cached context after first call.
      * WebGPURenderer lazily reads the context from the current canvasTarget.
      *
      * @param device the GPUDevice to configure the context with.

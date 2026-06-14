@@ -21,10 +21,11 @@ import {
     pass,
     PerspectiveCamera,
     pow,
+    renderGroup,
     Scene,
     storage,
-    timeElapsed,
     u32,
+    uniform,
     varying,
     vec4,
     WebGPURenderer,
@@ -129,10 +130,16 @@ const computeInit = Fn(() => {
     drawStorageInstance.firstInstance.assign(u32(0));
 }).compute({ workgroupSize: [1, 1, 1] });
 
+// `time` is a user-driven uniform (seconds), updated each frame in the loop —
+// read here in the compute pass and below in the render graph. renderGroup
+// (shared, uploaded once per pass) so it binds cleanly in both compute and render.
+const time = uniform(f32(0), 'time');
+time.group = renderGroup;
+
 const computeUpdate = Fn(() => {
     // only thread 0 writes — avoids needing atomics.
     If(globalId.x.equal(u32(0)), () => {
-        const halfTime = timeElapsed.mul(f32(0.5)).sin();
+        const halfTime = time.mul(f32(0.5)).sin();
         // map sin ∈ [-1,1] → range 1→0→1 → then pow4 → count
         const sinPlus1 = halfTime.add(f32(1)); // [0,2]
         const raised = pow(sinPlus1, f32(4)); // [0,16]
@@ -156,7 +163,7 @@ const orientationStart = attrOrientationStart;
 const orientationEnd = attrOrientationEnd;
 
 // animate: halfTime ∈ [-1, 1]
-const halfTime = timeElapsed.mul(f32(0.5)).sin();
+const halfTime = time.mul(f32(0.5)).sin();
 
 // oscillate vertex position with offset
 const oscRange = abs(halfTime.mul(f32(2.0)).add(f32(1.0))).max(f32(0.5));
@@ -186,7 +193,7 @@ const clipPos = mul(cameraProjectionMatrix, viewPos);
 
 // fragment: base color + sin ripple on x and time
 const fragColor = vec4(
-    vColor.x.add(vPosition.x.mul(f32(10)).add(timeElapsed).sin().mul(f32(0.5))),
+    vColor.x.add(vPosition.x.mul(f32(10)).add(time).sin().mul(f32(0.5))),
     vColor.y,
     vColor.z,
     vColor.w,
@@ -247,7 +254,7 @@ await renderer.compileCompute(computeInit);
 await renderer.compileCompute(computeUpdate);
 
 function frame() {
-    renderer.beginFrame();
+    time.value = performance.now() / 1000;
     // seed draw args
     // seed draw args + GPU writes instanceCount — batched into one submit
     renderer.compute([
@@ -256,7 +263,6 @@ function frame() {
     ]);
     // render — drawIndirect reads GPU-written instanceCount
     renderPipeline.render();
-    renderer.endFrame();
 
     requestAnimationFrame(frame);
 }

@@ -1,11 +1,11 @@
 /**
- * compute-calls.ts — Inspector "Compute Calls" tab.
+ * compute-calls.ts, Inspector "Compute Calls" tab.
  *
- * Surfaces compute node data — one entry per compute dispatch.
+ * Surfaces compute node data, one entry per compute dispatch.
  *
  * When a compute node is selected, a detail panel appears with two sub-tabs:
- *   [Shader]   — displays the compute WGSL using ShaderPanel in compute mode
- *   [Bindings] — bind group layout table (uniform groups, storage buffers)
+ *   [Shader], displays the compute WGSL using ShaderPanel in compute mode
+ *   [Bindings], bind group layout table (uniform groups, storage buffers)
  *
  * Mirrors the structure of draw-calls.ts.
  */
@@ -30,7 +30,7 @@ export declare class ComputeCalls extends Tab {
     constructor();
     /**
      * Called by Inspector._processFrame() every frame when compute passes exist.
-     * Diffs by node.id — only adds/removes items on structural changes.
+     * Diffs by node.id, only adds/removes items on structural changes.
      */
     update(inspector: Inspector, renderer: WebGPURenderer): void;
     /**

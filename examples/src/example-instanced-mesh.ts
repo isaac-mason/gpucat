@@ -55,8 +55,10 @@ const worldPos = g.mul(instanceTransform, localPos);
 const viewPos  = g.mul(g.cameraViewMatrix, worldPos);
 const clipPos  = g.mul(g.cameraProjectionMatrix, viewPos);
 
+// `time` is a user-driven uniform (seconds), updated each frame in the loop.
+const time = g.uniform(g.f32(0), 'time');
 // pulse: gentle brightness oscillation each second
-const tScaled = g.timeElapsed.mul(g.f32(2.0));
+const tScaled = time.mul(g.f32(2.0));
 const pulse = g.f32(0.12).mul(
     g.f32(1.0).add(tScaled.sin()),
 );
@@ -106,9 +108,8 @@ async function main() {
     const renderPipeline = new g.RenderPipeline(renderer, outputNode);
 
     function frame() {
-        renderer.beginFrame();
+        time.value = performance.now() / 1000;
         renderPipeline.render();
-        renderer.endFrame();
         requestAnimationFrame(frame);
     }
 

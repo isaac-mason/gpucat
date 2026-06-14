@@ -21,7 +21,6 @@ import {
     RenderPipeline,
     renderOutput,
     Scene,
-    timeElapsed,
     uniform,
     varying,
     vec2,
@@ -221,8 +220,11 @@ const wavesElevationWithGradient = Fn(
     },
 );
 
+// `uTime` is a user-driven time uniform (seconds), updated each frame in the loop.
+const uTime = uniform(f32(0), 'time');
+
 function elevWithGradient(pos: Node<d.vec2f>): Node<d.vec3f> {
-    return wavesElevationWithGradient(pos, timeElapsed, uFreqX, uFreqY, uSpeed, uAmp, uSmallFreq, uSmallSpeed, uSmallAmp) as Node<d.vec3f>;
+    return wavesElevationWithGradient(pos, uTime, uFreqX, uFreqY, uSpeed, uAmp, uSmallFreq, uSmallSpeed, uSmallAmp) as Node<d.vec3f>;
 }
 
 function elev(pos: Node<d.vec2f>): Node<d.f32> {
@@ -352,12 +354,11 @@ const outputNode = renderOutput(scenePass.getTextureNode());
 const renderPipeline = new RenderPipeline(renderer, outputNode);
 
 function frame() {
-    renderer.beginFrame();
+    uTime.value = performance.now() / 1000;
     controls.update();
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
     renderPipeline.render();
-    renderer.endFrame();
     requestAnimationFrame(frame);
 }
 

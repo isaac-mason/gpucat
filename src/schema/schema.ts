@@ -1,9 +1,9 @@
 /**
- * schema.ts — WGSL type descriptors following packcat's discriminated union pattern.
+ * schema.ts, WGSL type descriptors following packcat's discriminated union pattern.
  *
  * Every descriptor has:
- *   - `type`     — discriminant string for type-level narrowing and runtime switching
- *   - `wgslType` — the WGSL type name string
+ *   - `type`, discriminant string for type-level narrowing and runtime switching
+ *   - `wgslType`, the WGSL type name string
  *
  * For primitives, type === wgslType (e.g. { type: 'f32'; wgslType: 'f32' }).
  * For composites, type is the discriminant ('array', 'struct') and wgslType is computed.
@@ -106,7 +106,7 @@ export type Vec4 = vec4f | vec4i | vec4u | vec4bool | vec4h;
 
 export type Vec = Vec2 | Vec3 | Vec4;
 
-/* matrix descriptors — f32 */
+/* matrix descriptors, f32 */
 
 export type mat2x2f = { type: 'mat2x2f'; wgslType: 'mat2x2f'; };
 export const mat2x2f: mat2x2f = { type: 'mat2x2f', wgslType: 'mat2x2f' };
@@ -140,7 +140,7 @@ export type MatF =
     | mat3x2f | mat3x3f | mat3x4f
     | mat4x2f | mat4x3f | mat4x4f;
 
-/* matrix descriptors — f16 */
+/* matrix descriptors, f16 */
 
 export type mat2x2h = { type: 'mat2x2h'; wgslType: 'mat2x2h'; };
 export const mat2x2h: mat2x2h = { type: 'mat2x2h', wgslType: 'mat2x2h' };
@@ -196,7 +196,7 @@ export type atomicU32 = {
 
 export type Atomic = atomicI32 | atomicU32;
 
-/* struct descriptor — fields use Record<string, WgslDesc> like packcat */
+/* struct descriptor, fields use Record<string, WgslDesc> like packcat */
 
 // Struct schema is a record of field names to descriptors
 // Defined with inline type to avoid circular reference
@@ -209,7 +209,7 @@ export type StructDesc<S extends StructSchema = StructSchema> = {
     fields: S;
 };
 
-/** TextureSampleType — the scalar descriptor types valid as texture sample type parameters in WGSL. */
+/** TextureSampleType, the scalar descriptor types valid as texture sample type parameters in WGSL. */
 export type TextureSampleType = f32 | i32 | u32;
 
 // -- Sampled texture descriptors (each a distinct WGSL type) ----------------
@@ -294,7 +294,7 @@ export type SampledTexture =
     | textureCubeArray
     | textureMultisampled2d;
 
-/** Non-cube sampled textures — used by TextureNode. */
+/** Non-cube sampled textures, used by TextureNode. */
 export type FlatSampledTexture =
     | texture1d
     | texture2d
@@ -302,7 +302,7 @@ export type FlatSampledTexture =
     | texture3d
     | textureMultisampled2d;
 
-/** Cube sampled textures — used by CubeTextureNode. */
+/** Cube sampled textures, used by CubeTextureNode. */
 export type CubeSampledTexture =
     | textureCube
     | textureCubeArray;
@@ -314,7 +314,7 @@ export type SampleResultOf<S extends TextureSampleType> =
     : S extends u32 ? vec4u
     : never;
 
-/** Runtime version of SampleResultOf — maps a sample type descriptor to its vec4 result. */
+/** Runtime version of SampleResultOf, maps a sample type descriptor to its vec4 result. */
 export function sampleResultOf(s: TextureSampleType): vec4f | vec4i | vec4u {
     if (s.type === 'f32') return vec4f;
     if (s.type === 'i32') return vec4i;
@@ -335,7 +335,7 @@ export type TextureSampleResultOf<D extends Texture> =
     : D extends { sampleType: infer S extends TextureSampleType } ? SampleResultOf<S>
     : never;
 
-/** Runtime version of TextureSampleResultOf — maps a texture descriptor to its sampling return descriptor. */
+/** Runtime version of TextureSampleResultOf, maps a texture descriptor to its sampling return descriptor. */
 export function textureSampleResultOf(desc: Texture): vec4f | vec4i | vec4u | f32 {
     if (isDepthTextureDesc(desc)) return f32;
     return sampleResultOf((desc as SampledTexture).sampleType);
@@ -366,13 +366,13 @@ export type DepthTexture =
     | textureDepthCubeArray
     | textureDepthMultisampled2d;
 
-/** Non-cube depth textures — used by DepthTextureNode. */
+/** Non-cube depth textures, used by DepthTextureNode. */
 export type FlatDepthTexture =
     | textureDepth2d
     | textureDepth2dArray
     | textureDepthMultisampled2d;
 
-/** Cube depth textures — for future DepthCubeTextureNode. */
+/** Cube depth textures, for future DepthCubeTextureNode. */
 export type CubeDepthTexture =
     | textureDepthCube
     | textureDepthCubeArray;
@@ -398,7 +398,7 @@ export const Void: Void = { type: 'void', wgslType: 'void' };
 export type WgslFn = { type: 'wgslfn'; wgslType: 'wgslfn'; };
 export const WgslFn: WgslFn = { type: 'wgslfn', wgslType: 'wgslfn' };
 
-/* any — the master union of all descriptor types */
+/* any, the master union of all descriptor types */
 
 export type Any =
     // Scalars
@@ -574,7 +574,7 @@ export type TypedArrayFor<D extends Any> =
     D extends f32 | vec2f | vec3f | vec4f | mat2x2f | mat2x3f | mat2x4f | mat3x2f | mat3x3f | mat3x4f | mat4x2f | mat4x3f | mat4x4f ? Float32Array :
     Float32Array | Int32Array | Uint32Array | Uint16Array | Int16Array | Uint8Array | Int8Array;
 
-/* wgslType — string-literal union of all WGSL type strings */
+/* wgslType, string-literal union of all WGSL type strings */
 
 export type ScalarType = 'f32' | 'i32' | 'u32' | 'bool' | 'f16';
 export type Vec2Type = 'vec2f' | 'vec2i' | 'vec2u' | 'vec2<bool>' | 'vec2h';
@@ -737,7 +737,7 @@ export const samplerComparisonDesc = (): samplerComparison => ({
 });
 
 export type Infer<D extends Any> =
-    // Struct — match structurally
+    // Struct, match structurally
     D extends { type: 'struct'; fields: infer S extends Record<string, Any> }
         ? { [K in keyof S]: Infer<S[K]> }
     // Atomic
@@ -773,10 +773,10 @@ export type Infer<D extends Any> =
     // Mat3x4, Mat4x3
     : D extends mat3x4f | mat3x4h | mat4x3f | mat4x3h
         ? [number, number, number, number, number, number, number, number, number, number, number, number]
-    // SizedArray — match structurally
+    // SizedArray, match structurally
     : D extends { type: 'sized-array'; element: infer E extends Any }
         ? Infer<E>[]
-    // Array — match structurally
+    // Array, match structurally
     : D extends { type: 'array'; element: infer E extends Any }
         ? Infer<E>[]
     : never;
@@ -785,7 +785,7 @@ export type Infer<D extends Any> =
 export type StructFields<D extends Any> =
     D extends { type: 'struct'; fields: infer S extends Record<string, Any> } ? S : never;
 
-/* matColumnDesc — matrix descriptor → column vector descriptor; matCxR has C columns of vecR, so R determines the column type */
+/* matColumnDesc, matrix descriptor → column vector descriptor; matCxR has C columns of vecR, so R determines the column type */
 
 export type MatColumnDesc<D extends Any> =
     D extends mat2x2f | mat3x2f | mat4x2f ? vec2f :
@@ -796,7 +796,7 @@ export type MatColumnDesc<D extends Any> =
     D extends mat2x4h | mat3x4h | mat4x4h ? vec4h :
     never;
 
-/* elementOf — element type for bracket indexing; array[i] → element, matrix[i] → column vector, vector[i] → scalar */
+/* elementOf, element type for bracket indexing; array[i] → element, matrix[i] → column vector, vector[i] → scalar */
 
 export type ElementOf<D extends Any> =
     D extends { type: 'array'; element: infer E extends Any } ? E :
@@ -908,6 +908,7 @@ export function wgslStrideOf(desc: Any): number {
 /* buffer packing helpers */
 
 export function itemSizeOf(desc: Any): number {
+    if (isAtomicDesc(desc)) return 1; // atomic<i32> / atomic<u32> are single 4-byte scalars
     const t = desc.wgslType;
     if (t === 'f32' || t === 'i32' || t === 'u32' || t === 'bool' || t === 'f16') return 1;
     if (t === 'vec2f' || t === 'vec2i' || t === 'vec2u' || t === 'vec2<bool>' || t === 'vec2h') return 2;

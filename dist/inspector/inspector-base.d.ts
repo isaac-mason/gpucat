@@ -1,7 +1,7 @@
 /**
- * InspectorBase.ts — Abstract inspector interface.
+ * InspectorBase.ts, Abstract inspector interface.
  *
- * The renderer's `inspector` field is `InspectorBase | null` — null means no
+ * The renderer's `inspector` field is `InspectorBase | null`, null means no
  * inspector is attached (zero hot-path cost). Install one with
  * `renderer.setInspector(new Inspector())` and remove with
  * `renderer.setInspector(null)`.
@@ -47,7 +47,7 @@ export declare class InspectorBase {
         end: (_name: string) => void;
     };
     /**
-     * Diagnostic log API — call sites that want their message surfaced in the
+     * Diagnostic log API, call sites that want their message surfaced in the
      * Inspector's Console tab go through here, e.g.
      *   `renderer.inspector?.log.warn('shader compile failed')`.
      *
@@ -65,13 +65,13 @@ export declare class InspectorBase {
     /**
      * Attach (renderer non-null) or detach (renderer null).
      * Subclasses override to perform setup on attach and teardown on detach.
-     * Setup may be deferred (e.g. until renderer._initialized is true) — see
+     * Setup may be deferred (e.g. until renderer._initialized is true), see
      * subclasses for the specific lazy strategy.
      */
     setRenderer(renderer: WebGPURenderer | null): void;
     /**
      * Subclasses run one-time GPU resource setup here. Called by subclasses
-     * themselves from setRenderer() once the renderer is initialized — the
+     * themselves from setRenderer() once the renderer is initialized, the
      * top-level renderer does NOT call this.
      */
     init(): void;

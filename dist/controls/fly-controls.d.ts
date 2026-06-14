@@ -2,7 +2,7 @@ import { type Vec3, type Quat } from 'mathcat';
 import type { Camera } from '../camera/camera';
 import { type Topic } from '../utils/topic';
 /**
- * FlyControls — WASD + right-click look camera controller.
+ * FlyControls, WASD + right-click look camera controller.
  *
  * Movement: W/S forward/back, A/D strafe left/right, Space up, Shift down.
  * Look: Right-click + drag to yaw/pitch.

@@ -13,7 +13,7 @@ export type BufferCache = {
     /** Plain-object-keyed buffers (instance matrices, material UBOs, camera, time). */
     rawMap: WeakMap<object, GPUBuffer>;
 
-    /** Mutable stats counters (approximate — tracks allocations, not deallocations) */
+    /** Mutable stats counters (approximate, tracks allocations, not deallocations) */
     bufferCount: number;
     rawCount: number;
 };
@@ -72,7 +72,7 @@ function deriveGPUUsage(buffer: GpuBuffer): GPUBufferUsageFlags {
 export function ensureUploaded(cache: BufferCache, device: GPUDevice, buffer: GpuBuffer): GPUBuffer {
     const arr = buffer.array;
 
-    // CPU memory was released — return existing GPU buffer.
+    // CPU memory was released, return existing GPU buffer.
     if (!arr) {
         const entry = cache.bufferMap.get(buffer);
         if (!entry) {
@@ -107,7 +107,7 @@ export function ensureUploaded(cache: BufferCache, device: GPUDevice, buffer: Gp
     const { buf } = entry;
 
     if (buffer.updateRanges.length > 0) {
-        // Partial upload — ranges are flat component indices; convert to bytes.
+        // Partial upload, ranges are flat component indices; convert to bytes.
         const bytesPerComponent = arr.BYTES_PER_ELEMENT;
         for (const { start, count } of buffer.updateRanges) {
             const byteOffset = start * bytesPerComponent;
@@ -129,7 +129,7 @@ export function ensureUploaded(cache: BufferCache, device: GPUDevice, buffer: Gp
  * Return the GPUBuffer for an already-uploaded GpuBuffer, or undefined
  * if it has not been uploaded yet.
  *
- * This is a pure lookup — no data transfer occurs.
+ * This is a pure lookup, no data transfer occurs.
  */
 export function getUploaded(cache: BufferCache, buffer: GpuBuffer): GPUBuffer | undefined {
     return cache.bufferMap.get(buffer)?.buf;
@@ -206,7 +206,7 @@ export function uploadRaw(cache: BufferCache, device: GPUDevice, key: object, da
 
 /**
  * Get a previously created raw buffer, or undefined.
- * Does NOT upload — use uploadRaw for that.
+ * Does NOT upload, use uploadRaw for that.
  */
 export function getRaw(cache: BufferCache, key: object): GPUBuffer | undefined {
     return cache.rawMap.get(key);

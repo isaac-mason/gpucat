@@ -39,13 +39,11 @@ export declare class RenderPipeline {
     /**
      * Renders the output node to the renderer's current target.
      *
-     * Call `renderer.beginFrame()` before and `renderer.endFrame()` after all
-     * compute and render work for the frame. Example:
+     * Each top-level `render()`/`compute()` call is a self-contained frame: it advances
+     * the frame id and brackets inspector capture on its own. Example:
      * ```ts
-     * renderer.beginFrame();
      * renderer.compute([{ node: myCompute, dispatch: [n, 1, 1] }]);
      * renderPipeline.render();
-     * renderer.endFrame();
      * ```
      */
     render(): void;

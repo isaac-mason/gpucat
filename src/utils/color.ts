@@ -315,7 +315,7 @@ export function toCSS(c: Color): string {
 }
 
 function parse(input: ColorInput): Color | null {
-    // [r, g, b] array — treated as already-linear
+    // [r, g, b] array, treated as already-linear
     if (Array.isArray(input)) {
         return [input[0] ?? 0, input[1] ?? 0, input[2] ?? 0];
     }

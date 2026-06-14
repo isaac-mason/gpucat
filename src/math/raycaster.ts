@@ -9,7 +9,7 @@ export type Ray = {
 };
 
 /**
- * Möller–Trumbore ray-triangle intersection.
+ * Möller-Trumbore ray-triangle intersection.
  * Returns raw t (distance along ray direction) or null if no hit.
  */
 export function rayTriangleIntersection(

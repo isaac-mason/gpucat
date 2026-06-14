@@ -1,5 +1,5 @@
 /**
- * probe-wgsl.ts — WGSL string patching helpers for the shader value probe.
+ * probe-wgsl.ts, WGSL string patching helpers for the shader value probe.
  *
  * The probe re-uses the source mesh's vertex shader verbatim (including camera
  * transforms) so that the probe canvas renders the mesh from the real camera's

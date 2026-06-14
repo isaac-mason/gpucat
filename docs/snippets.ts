@@ -74,9 +74,7 @@ function frame() {
     scene.updateWorldMatrix();
     camera.updateViewMatrix();
 
-    renderer.beginFrame();
     renderPipeline.render();
-    renderer.endFrame();
     requestAnimationFrame(frame);
 }
 

@@ -163,9 +163,7 @@ function frame() {
     orbitControls.update();
     scene.updateWorldMatrix();
 
-    renderer.beginFrame();
     renderPipeline.render();
-    renderer.endFrame();
     requestAnimationFrame(frame);
 }
 

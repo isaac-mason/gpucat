@@ -39,7 +39,7 @@ export type AttributeEntry = {
     instanced: boolean;
 };
 /**
- * VertexBufferGroup — groups attributes that share the same underlying buffer.
+ * VertexBufferGroup, groups attributes that share the same underlying buffer.
  *
  * For interleaved vertex data, multiple attributes may reference the same buffer
  * with different offsets. Grouping them enables:

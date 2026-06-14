@@ -1,5 +1,5 @@
 /**
- * Inspector.ts — Full gpucat Inspector UI shell.
+ * Inspector.ts, Full gpucat Inspector UI shell.
  *
  * Extends RendererInspector with:
  *  - A Profiler UI panel housing all tabs
@@ -44,7 +44,7 @@ import { Any } from '../schema/schema';
 type DisplayCycleEntry = { needsUpdate: boolean; duration: number; time: number };
 
 // ---------------------------------------------------------------------------
-// ProbeEntry — live shader value inspector canvas
+// ProbeEntry, live shader value inspector canvas
 // ---------------------------------------------------------------------------
 
 type ProbeEntry = {
@@ -205,7 +205,7 @@ export class Inspector extends RendererInspector {
      * Release everything this Inspector owns: GPU resources (probe + timestamp
      * query state), DOM (panel + any detached tab windows), and window
      * listeners. Safe to call multiple times. After dispose the instance is
-     * dead — discard it and `new Inspector()` if you need one again.
+     * dead, discard it and `new Inspector()` if you need one again.
      *
      * Normally called automatically via `renderer.setInspector(null)`; expose
      * directly for callers that want explicit teardown.
@@ -221,7 +221,7 @@ export class Inspector extends RendererInspector {
     }
 
     // -----------------------------------------------------------------------
-    // Timeline hooks — forward calls to timeline.onCall()
+    // Timeline hooks, forward calls to timeline.onCall()
     // -----------------------------------------------------------------------
 
     override begin(frameId: number): void {
@@ -326,7 +326,7 @@ export class Inspector extends RendererInspector {
     }
 
     // -----------------------------------------------------------------------
-    // createParameters — expose dat.GUI-style groups via the Parameters tab
+    // createParameters, expose dat.GUI-style groups via the Parameters tab
     // -----------------------------------------------------------------------
 
     createParameters(name: string): GUI {
@@ -340,7 +340,7 @@ export class Inspector extends RendererInspector {
     }
 
     // -----------------------------------------------------------------------
-    // Probe API — shader value live inspector
+    // Probe API, shader value live inspector
     // -----------------------------------------------------------------------
 
     /**
@@ -380,7 +380,7 @@ export class Inspector extends RendererInspector {
         // Build probe pipeline: same bind group layouts, patched shader
         const bindGroupLayouts = Bindings.getRenderBindGroupLayouts(renderer._bindings, sourceRO);
         if (bindGroupLayouts.length === 0) {
-            this.log.warn('[gpucat probe] bind group layouts not yet initialised — try clicking again after the first frame renders');
+            this.log.warn('[gpucat probe] bind group layouts not yet initialised, try clicking again after the first frame renders');
             return null;
         }
 
@@ -467,7 +467,7 @@ export class Inspector extends RendererInspector {
     }
 
     // -----------------------------------------------------------------------
-    // navigateToRO — jump to a RenderObject in the Draw Calls tab
+    // navigateToRO, jump to a RenderObject in the Draw Calls tab
     // -----------------------------------------------------------------------
 
     navigateToRO(ro: RenderObject): void {
@@ -565,7 +565,7 @@ export class Inspector extends RendererInspector {
     /**
      * Get or create the CanvasData for an inspectable node.
      * Creates a 140×140 CanvasTarget, wraps the node as vec4(vec3(node), 1),
-     * and builds a fullscreen Material. Cached per node — never recreated.
+     * and builds a fullscreen Material. Cached per node, never recreated.
      */
     getCanvasDataByNode(node: InspectorNode<Any>): CanvasData {
         let canvasData = this._canvasNodes.get(node);
@@ -656,12 +656,12 @@ export class Inspector extends RendererInspector {
 
         pass.setPipeline(probe.pipeline);
 
-        // Bind groups (camera, object uniforms, textures — same as main draw)
+        // Bind groups (camera, object uniforms, textures, same as main draw)
         for (let i = 0; i < bindGroups.length; i++) {
             pass.setBindGroup(i, bindGroups[i]);
         }
 
-        // Vertex buffers — look up uploaded GPU buffers from the geometry
+        // Vertex buffers, look up uploaded GPU buffers from the geometry
         let slot = 0;
         const geometry = ro.geometry;
         const bufferCache = renderer._buffers;
@@ -694,7 +694,7 @@ export class Inspector extends RendererInspector {
             slot++;
         }
 
-        // Issue draw call — mirrors renderer.ts issueDraws exactly, including
+        // Issue draw call, mirrors renderer.ts issueDraws exactly, including
         // indirect draw support.  The indirect GPU buffer was already written by
         // the compute pass this frame; getUploaded() does a non-uploading lookup.
         if (geometry.index) {

@@ -3,7 +3,7 @@
  *
  * Coordinates initialization of NodeBuilderState, pipeline, bindings.
  * Subsystem dependencies (nodes, geometries, bindings, pipelines, device,
- * bufferCache, textureCache) are passed as function parameters — not stored
+ * bufferCache, textureCache) are passed as function parameters, not stored
  * in state.
  */
 
@@ -27,7 +27,7 @@ import { computeRenderObjectCacheKey, createRenderObject, disposeRenderObject } 
 import type { TextureCache } from './textures';
 
 /**
- * RenderObjects state — owns only the caching structures.
+ * RenderObjects state, owns only the caching structures.
  * All subsystem deps are passed to functions that need them.
  */
 export type RenderObjectsState = {

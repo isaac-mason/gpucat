@@ -4,7 +4,7 @@ import { Node } from './core';
 import { UniformGroup, objectGroup } from './uniform';
 
 /**
- * StorageNode — declares a storage buffer binding in a shader.
+ * StorageNode, declares a storage buffer binding in a shader.
  *
  * Two forms:
  * 1. **Named reference**: Resolved from `geometry.buffers` at render time
@@ -23,10 +23,10 @@ import { UniformGroup, objectGroup } from './uniform';
  * particles.value = otherBuffer;  // swap buffers for double-buffering
  */
 export class StorageNode<D extends Any> extends Node<D> {
-    /** Buffer name (for geometry.buffers lookup) — null if value-based */
+    /** Buffer name (for geometry.buffers lookup), null if value-based */
     bufferName: string | null;
 
-    /** Direct buffer reference — null if name-based */
+    /** Direct buffer reference, null if name-based */
     value: GpuBuffer<D> | null;
 
     /** The WGSL type string, e.g. 'array<mat4x4f>'. Emitted verbatim. */
@@ -38,7 +38,7 @@ export class StorageNode<D extends Any> extends Node<D> {
     /** Whether the node is atomic or not. */
     isAtomic: boolean = false;
 
-    /** Uniform group — determines @group index. Defaults to objectGroup. */
+    /** Uniform group, determines @group index. Defaults to objectGroup. */
     groupNode: UniformGroup;
 
     constructor(

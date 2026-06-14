@@ -157,9 +157,7 @@ function frame() {
     flyControls.update(delta);
     scene.updateWorldMatrix();
 
-    renderer.beginFrame();
     renderPipeline.render();
-    renderer.endFrame();
     requestAnimationFrame(frame);
 }
 

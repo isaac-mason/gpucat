@@ -37,7 +37,7 @@ export type WebGPURendererOptions = {
     /** When true, the canvas context uses premultiplied alpha compositing. Defaults to false (opaque). */
     alpha?: boolean;
     /**
-     * Headless mode — no canvas, no swapchain. Requires a pre-created `device`.
+     * Headless mode, no canvas, no swapchain. Requires a pre-created `device`.
      * Renders must target a `RenderTarget` (set via `renderer.renderTarget`).
      * Useful for Node.js with a native WebGPU library, or for off-screen rendering pipelines.
      */
@@ -58,7 +58,7 @@ export type ComputeDispatch = {
     indirectOffset?: never;
     /**
      * Override map for named storage buffers (those declared via `storage('name', schema, ...)`).
-     * Takes precedence over the node's value/geometry — lets one ComputeNode be reused
+     * Takes precedence over the node's value/geometry, lets one ComputeNode be reused
      * across different buffers without recompiling the pipeline.
      */
     buffers?: Record<string, GpuBuffer<d.Any>>;
@@ -81,18 +81,21 @@ export declare class WebGPURenderer {
     _initialized: boolean;
     /** Indicates whether the device has been lost or not. When this is set to `true`, rendering isn't possible anymore. @internal */
     _isDeviceLost: boolean;
+    /** @internal */
+    _inspector: InspectorBase | null;
     /**
-     * Inspector. `null` means no inspector is attached — hot path pays zero cost.
-     * Install with `renderer.setInspector(new Inspector())` and remove with
-     * `renderer.setInspector(null)`. The inspector subclass handles its own
-     * setup/teardown via setRenderer(); ordering relative to renderer.init()
-     * does not matter (inspectors set up lazily on first frame).
+     * Inspector. `null` means no inspector is attached, hot path pays zero cost.
+     * Assigning (`renderer.inspector = new Inspector()`) attaches it, and so does
+     * `setInspector(...)`; both are equivalent. Assigning `null` detaches and
+     * disposes the old one. Ordering relative to `renderer.init()` does not matter.
      */
-    inspector: InspectorBase | null;
+    get inspector(): InspectorBase | null;
+    set inspector(next: InspectorBase | null);
     /**
-     * Install or remove the inspector. Safe to call at any time, including
-     * before `renderer.init()`. Passing `null` triggers the old inspector's
-     * detach path (releases GPU resources, removes DOM, drops listeners).
+     * Install or remove the inspector. Equivalent to assigning `renderer.inspector`.
+     * Safe to call at any time, including before `renderer.init()`. Passing `null`
+     * triggers the old inspector's detach path (releases GPU resources, removes DOM,
+     * drops listeners).
      */
     setInspector(next: InspectorBase | null): void;
     /** The canvas dom element for the current canvas target. Throws in headless mode. */
@@ -175,10 +178,6 @@ export declare class WebGPURenderer {
     private _onResize;
     /** set the device pixel ratio. call before setSize(). Throws in headless mode. */
     setPixelRatio(value: number): void;
-    /** call once per animation frame before any compute() or render() calls. bumps frameId, updates time/deltaTime. */
-    beginFrame(): number;
-    /** call once per animation frame after all compute() and render() calls. */
-    endFrame(): void;
     /** resize the canvas to logical pixel dimensions (physical = logical * pixelRatio). Throws in headless mode. */
     setSize(width: number, height: number, updateStyle?: boolean): void;
     /**
@@ -194,12 +193,12 @@ export declare class WebGPURenderer {
     hasFeature(feature: GPUFeatureName): boolean;
     /**
      * Pre-compile render pipelines and pre-upload GPU resources for a scene.
-     * Optional — resources are created on-demand during the first render if not pre-warmed.
+     * Optional, resources are created on-demand during the first render if not pre-warmed.
      */
     compile(scene: Scene, camera: Camera, samples?: number): Promise<void>;
     /**
      * Pre-compile a compute pipeline before the render loop starts.
-     * This is optional — pipelines are compiled on-demand during the first
+     * This is optional, pipelines are compiled on-demand during the first
      * dispatch if not pre-warmed.
      *
      * @param computeNode The ComputeNode to pre-compile.

@@ -61,8 +61,10 @@ const spinOffset = g.attribute(spinOffsets, d.f32, { stride: 4, offset: 0, insta
 // derive a per-instance Y-axis rotation node from the spin offset attribute.
 // we fold it into the final clip position rather than modifying the storage matrix.
 // rotation angle = elapsed * speed + spinOffset
+// `time` is a user-driven uniform (seconds), updated each frame in the loop.
+const time    = g.uniform(g.f32(0), 'time');
 const speed   = g.f32(0.8);
-const angle   = g.timeElapsed.mul(speed).add(spinOffset);
+const angle   = time.mul(speed).add(spinOffset);
 const cosA    = angle.cos();
 const sinA    = angle.sin();
 
@@ -89,7 +91,7 @@ const clipPos   = g.mul(g.cameraProjectionMatrix, viewPos);
 const vColor    = g.varying(rawColor, 'v_color');
 
 // pulse brightness with time
-const pulse     = g.f32(0.08).mul(g.f32(1).add(g.timeElapsed.mul(g.f32(3)).sin()));
+const pulse     = g.f32(0.08).mul(g.f32(1).add(time.mul(g.f32(3)).sin()));
 const finalColor = g.vec4(
     vColor.rgb.add(g.vec3f(1, 1, 1).mul(pulse)),
     g.f32(1),
@@ -135,9 +137,8 @@ const outputNode = g.renderOutput(scenePass.getTextureNode());
 const renderPipeline = new g.RenderPipeline(renderer, outputNode);
 
 function frame() {
-    renderer.beginFrame();
+    time.value = performance.now() / 1000;
     renderPipeline.render();
-    renderer.endFrame();
     requestAnimationFrame(frame);
 }
 

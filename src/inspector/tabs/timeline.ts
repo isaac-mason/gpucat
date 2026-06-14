@@ -315,7 +315,7 @@ export class Timeline extends Tab {
                 this.toggleRecording();
             }
         } catch {
-            // storage unavailable — auto-start just doesn't fire
+            // storage unavailable, auto-start just doesn't fire
         }
     }
 
@@ -350,7 +350,7 @@ export class Timeline extends Tab {
     }
 
     stopRecording(): void {
-        // Nothing to undo — no monkey-patching happened.
+        // Nothing to undo, no monkey-patching happened.
         if (this.currentFrame) {
             // mark fps from outside
         }
@@ -365,7 +365,7 @@ export class Timeline extends Tab {
         if (!this.isRecording) return;
 
         if (method === 'begin') {
-            // A new frame started — seal the previous frame
+            // A new frame started, seal the previous frame
             if (this.currentFrame) {
                 this.currentFrame.fps = fps;
                 if (!isFinite(this.currentFrame.fps)) this.currentFrame.fps = 0;

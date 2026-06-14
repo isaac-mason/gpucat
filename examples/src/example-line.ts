@@ -172,9 +172,7 @@ function frame(t: number) {
     }
 
     controls.update();
-    renderer.beginFrame();
     renderPipeline.render();
-    renderer.endFrame();
     requestAnimationFrame(frame);
 }
 

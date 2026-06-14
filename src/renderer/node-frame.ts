@@ -15,32 +15,20 @@ type UpdateMaps = {
 };
 
 /**
- * NodeFrame — unified frame context for all node update callbacks.
+ * NodeFrame, unified frame context for all node update callbacks.
  *
  * Properties are set by the renderer/NodeManager before calling update methods.
  * Nodes access whatever context they need from the frame.
  */
 export class NodeFrame {
     /**
-     * Elapsed time in seconds since renderer start.
-     * Updated each frame.
-     */
-    time: number = 0;
-
-    /**
-     * Delta time in seconds since last frame.
-     * Updated each frame.
-     */
-    deltaTime: number = 0;
-
-    /**
-     * Frame ID — incremented once per animation frame.
+     * Frame ID, incremented once per top-level render()/compute() call.
      * Used for FRAME-level update deduplication.
      */
     frameId: number = 0;
 
     /**
-     * Render ID — incremented per render() call.
+     * Render ID, incremented per render() call.
      * Multiple renders can happen per frame (shadows, reflections, VR).
      * Used for RENDER-level update deduplication.
      */
@@ -97,12 +85,6 @@ export class NodeFrame {
     height: number = 0;
 
     // -----------------------------------------------------------------------
-    // Internal: for tracking last update time
-    // -----------------------------------------------------------------------
-
-    private _lastTime: number | undefined = undefined;
-
-    // -----------------------------------------------------------------------
     // Deduplication Maps
     // -----------------------------------------------------------------------
 
@@ -125,22 +107,6 @@ export class NodeFrame {
     // -----------------------------------------------------------------------
     // Methods
     // -----------------------------------------------------------------------
-
-    /**
-     * Update timing state. Called once per animation frame.
-     */
-    update(): void {
-        this.frameId++;
-
-        const now = performance.now();
-        if (this._lastTime === undefined) {
-            this._lastTime = now;
-        }
-
-        this.deltaTime = (now - this._lastTime) / 1000;
-        this._lastTime = now;
-        this.time += this.deltaTime;
-    }
 
     private _getMaps<T extends object>(
         map: WeakMap<T, UpdateMaps>,

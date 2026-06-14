@@ -1,5 +1,5 @@
 /**
- * textures.ts — GPUTexture/GPUSampler cache and upload helpers.
+ * textures.ts, GPUTexture/GPUSampler cache and upload helpers.
  *
  * Uses WeakMap-based caching keyed by GpuTexture object.
  * Tracks texture.version for cache invalidation.
@@ -7,7 +7,7 @@
  *
  * Flow:
  * 1. `updateTexture()` is called during binding updates (before draw)
- * 2. Checks texture.version — skips if already up to date
+ * 2. Checks texture.version, skips if already up to date
  * 3. Creates GPU texture if needed
  * 4. Uploads image data if source.dataReady
  * 5. Updates version tracking (textureData.version = texture.version)
@@ -19,9 +19,9 @@ import { type MipmapState } from './mipmap-utils';
 export type TextureData = {
     /** The GPU texture resource */
     texture: GPUTexture;
-    /** Texture version at last upload — tracks when needsUpdate was set */
+    /** Texture version at last upload, tracks when needsUpdate was set */
     version: number;
-    /** Generation — increments when GPU texture object is recreated */
+    /** Generation, increments when GPU texture object is recreated */
     generation: number;
     /** Whether this texture has been initialized */
     initialized: boolean;
@@ -53,7 +53,7 @@ export type TextureCacheStats = {
 };
 export declare function createTextureCache(): TextureCache;
 /**
- * Update a texture — checks source version and uploads if needed.
+ * Update a texture, checks source version and uploads if needed.
  * Returns the TextureData for the texture.
  */
 export declare function updateTexture(cache: TextureCache, device: GPUDevice, texture: GpuTexture): TextureData;

@@ -152,14 +152,12 @@ function frame() {
 
     controls.update();
 
-    renderer.beginFrame();
 
     // Single render call — PassNode.updateBefore() automatically renders
     // the inner scene to its offscreen target before the outer scene draws.
     renderer.clearColor = [1, 1, 1, 1];
     renderer.render(outerScene, outerCamera);
 
-    renderer.endFrame();
 
     requestAnimationFrame(frame);
 }

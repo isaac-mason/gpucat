@@ -4,7 +4,7 @@ import type { Any } from '../schema/schema';
 import type { RenderObject } from './render-object';
 import type { BufferCache } from './buffers';
 /**
- * @deprecated No longer used — all buffer types route through ensureUploaded.
+ * @deprecated No longer used, all buffer types route through ensureUploaded.
  * Kept temporarily while call sites that pass this type are migrated.
  */
 export type BufferType = 'vertex' | 'index' | 'indirect';
@@ -54,7 +54,7 @@ export declare function incrementCallId(state: GeometriesState): void;
  * Update a buffer, uploading to GPU if needed.
  * Implements per-frame deduplication - each buffer is uploaded at most once per frame.
  *
- * Version tracking is delegated to buffers.ts — we only track per-frame deduplication here.
+ * Version tracking is delegated to buffers.ts, we only track per-frame deduplication here.
  */
 export declare function updateBuffer(state: GeometriesState, bufferCache: BufferCache, device: GPUDevice, buffer: GpuBuffer<Any>, type: BufferType): void;
 /**

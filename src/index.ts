@@ -178,6 +178,7 @@ export {
     field,
     fields,
     uniform,
+    type UniformNode,
     storage,
     array,
     texture,
@@ -253,9 +254,6 @@ export {
     cameraPosition,
     cameraNear,
     cameraFar,
-    // time uniforms
-    timeElapsed,
-    timeDelta,
     // model uniforms
     modelWorldMatrix,
     modelNormalMatrix,

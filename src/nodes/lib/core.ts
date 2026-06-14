@@ -217,7 +217,7 @@ export function addToStack(node: Node<Any>): void {
     if (currentStack === null)
         throw new Error(
             `[gpucat] Control flow (toVar, If, For, Return, Discard) must be called inside a Fn body. ` +
-                `You are calling it outside of any Fn — wrap your code in Fn([...], () => { ... }).`,
+                `You are calling it outside of any Fn, wrap your code in Fn([...], () => { ... }).`,
         );
     currentStack.push(node);
 }
@@ -347,7 +347,7 @@ export class Node<D extends Any> {
         return notEqual(this, b);
     }
 
-    /** `select(falseVal, trueVal, this)` — use `this` node as the condition. */
+    /** `select(falseVal, trueVal, this)`, use `this` node as the condition. */
     select<T extends Any>(ifTrue: Node<T>, ifFalse: Node<T>): Node<T> {
         return new ConditionalNode(this as Node<Any>, ifTrue, ifFalse);
     }
@@ -470,7 +470,7 @@ export class Node<D extends Any> {
             return new IndexNode(d.vecElementDescOrSelf(t), this, idx) as unknown as Node<d.ElementOf<D>>;
         }
         throw new Error(
-            `[gpucat] Cannot index into type '${t.wgslType}' — only array, matrix, and vector types support .element().`,
+            `[gpucat] Cannot index into type '${t.wgslType}', only array, matrix, and vector types support .element().`,
         );
     }
 
@@ -1469,7 +1469,7 @@ export const index = <N extends Node<Any>>(array: N, idx: Node<Any>): Node<d.Ele
         elementDesc = d.vecElementDescOrSelf(t);
     } else {
         throw new Error(
-            `[gpucat] Cannot index into type '${t.wgslType}' — only array, matrix, and vector types support indexing.`,
+            `[gpucat] Cannot index into type '${t.wgslType}', only array, matrix, and vector types support indexing.`,
         );
     }
     return new IndexNode(elementDesc, array, idx) as unknown as Node<d.ElementOf<N['type']>>;
@@ -1710,7 +1710,7 @@ export function mat3(
     s21?: Node<d.f32>,
     s22?: Node<d.f32>,
 ): Node<d.mat3x3f> {
-    // 9-scalar overload: mat3x3f(s00..s22) — column-major scalars
+    // 9-scalar overload: mat3x3f(s00..s22), column-major scalars
     if (s10 !== undefined) {
         return new ConstructNode(d.mat3x3f, [c0, c1!, c2!, s10, s11!, s12!, s20!, s21!, s22!]);
     }
@@ -2081,18 +2081,31 @@ export type ParamDesc = { readonly name: string; readonly type: Any };
 export type ParamDescsToNodes<P extends readonly ParamDesc[]> = {
     [K in keyof P]: P[K] extends ParamDesc ? Node<P[K]['type']> : never;
 };
-export type FnLayout<P extends readonly ParamDesc[]> = { readonly name: string; readonly params: [...P] };
+export type FnLayout<P extends readonly ParamDesc[]> = {
+    /** Function name in the generated WGSL. */
+    readonly name: string;
+    /** Named, typed parameters, in order. */
+    readonly params: [...P];
+    /** Explicit return type (WGSL `-> return`), checked against the body. Omit to infer from the body. */
+    readonly return?: Any;
+};
 
-// Overload 1 — with layout
+// Overload 1a, layout with an explicit return type (checked against the body)
+export function Fn<R extends Any, P extends readonly ParamDesc[]>(
+    jsFunc: (...args: ParamDescsToNodes<P>) => Node<R>,
+    layout: { readonly name: string; readonly params: [...P]; readonly return: R },
+): (...args: ParamDescsToNodes<P>) => CallNode<R>;
+
+// Overload 1b, layout with the return type inferred from the body (no `return`)
 export function Fn<D extends Any, P extends readonly ParamDesc[]>(
     jsFunc: (...args: ParamDescsToNodes<P>) => Node<D>,
-    layout: FnLayout<P>,
+    layout: { readonly name: string; readonly params: [...P]; readonly return?: undefined },
 ): (...args: ParamDescsToNodes<P>) => CallNode<D>;
 
-// Overload 2 — no-params void body
+// Overload 2, no-params void body
 export function Fn(jsFunc: () => void): FnNode<d.Void>;
 
-// Overload 3 — no layout
+// Overload 3, no layout
 export function Fn<D extends Any>(jsFunc: (...args: Node<Any>[]) => Node<D>): (...args: Node<Any>[]) => CallNode<D>;
 
 // Implementation
@@ -2106,14 +2119,26 @@ export function Fn<D extends Any>(
         const desc = 'name' in pd ? (pd as ParamDesc).type : (pd as Any);
         return new ParameterNode(desc, i, paramName);
     });
+
     const traceStack = new StackNode();
     const prev = pushStack(traceStack);
-    let returnType: D | d.Void;
+    let inferred: D | d.Void;
     try {
         const output = (jsFunc as (...args: Node<Any>[]) => Node<D> | undefined)(...dummyParams);
-        returnType = output != null ? output.type : d.Void;
+        inferred = output != null ? output.type : d.Void;
     } finally {
         popStack(prev);
+    }
+
+    let returnType: D | d.Void = inferred;
+    if (layout?.return) {
+        // Verify the declared return matches what the body actually returns.
+        if (inferred.wgslType !== layout.return.wgslType) {
+            throw new Error(
+                `[gpucat] Fn '${layout.name}' declares return '${layout.return.wgslType}' but the body returns '${inferred.wgslType}'.`,
+            );
+        }
+        returnType = layout.return as D;
     }
 
     if (returnType === d.Void && paramDescs.length === 0 && !layout) {

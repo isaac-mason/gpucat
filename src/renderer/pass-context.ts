@@ -1,5 +1,5 @@
 /**
- * pass-context.ts — GPU pass configuration and caching.
+ * pass-context.ts, GPU pass configuration and caching.
  *
  * Contains context types for both render and compute passes:
  * - RenderContext: Configuration for render passes (framebuffer, clear state, viewport, etc.)

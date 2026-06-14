@@ -5,7 +5,7 @@ import type { RendererInspector } from '../renderer-inspector';
 // Max number of flat entries retained during recording (~3 min at 60fps with ~20 entries/frame)
 const MAX_ENTRIES = 200_000;
 
-// Entries narrower than this in CSS pixels are skipped in the detail view — no point drawing sub-pixel bars
+// Entries narrower than this in CSS pixels are skipped in the detail view, no point drawing sub-pixel bars
 const MIN_BAR_PX = 1;
 
 // Layout
@@ -263,7 +263,7 @@ export class PerformanceTimeline extends Tab {
         }
 
         this._updateStatus();
-        // Don't render while recording — render once when recording stops
+        // Don't render while recording, render once when recording stops
     }
 
     private _flattenFrame(entries: TimelineEntry[], frameStartMs: number, depth = 0): void {

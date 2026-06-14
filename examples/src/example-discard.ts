@@ -32,7 +32,7 @@ import {
     renderOutput,
     Scene,
     sin,
-    timeElapsed,
+    uniform,
     varying,
     vec3,
     vec4,
@@ -128,8 +128,9 @@ async function main() {
     const baseColor = vec3(0.9, 0.3, 0.1);
     const litColor = vec4(baseColor.mul(diffuse), f32(1));
 
-    // Opacity oscillates 0..1 via sin(time)
-    const opacity = sin(timeElapsed.mul(f32(1.5))).mul(f32(0.5)).add(f32(0.5));
+    // Opacity oscillates 0..1 via sin(time). `time` is a user-driven uniform (seconds).
+    const time = uniform(f32(0), 'time');
+    const opacity = sin(time.mul(f32(1.5))).mul(f32(0.5)).add(f32(0.5));
     const screenPos = fragCoord.xy as Node<d.vec2f>;
 
     const fragmentOutput = ditherFragment(litColor, screenPos, opacity) as Node<d.vec4f>;
@@ -157,15 +158,14 @@ async function main() {
         const now = performance.now() / 1000;
         const dt = now - prevTime;
         prevTime = now;
+        time.value = now;
 
         angle += dt * 0.3;
         quat.fromEuler(mesh.quaternion, [angle * 0.5, angle, 0, 'yxz'] as Euler);
         mesh.updateWorldMatrix();
 
         controls.update();
-        renderer.beginFrame();
         renderPipeline.render();
-        renderer.endFrame();
         requestAnimationFrame(frame);
     }
 

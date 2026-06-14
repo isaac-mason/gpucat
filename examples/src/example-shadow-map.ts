@@ -418,7 +418,6 @@ function frame() {
 
     controls.update();
 
-    renderer.beginFrame();
 
     // Pass 1: shadow map (depth-only render into shadowRT)
     // Hide the frustum helper so it doesn't write into the shadow map
@@ -433,7 +432,6 @@ function frame() {
     // Pass 2: scene with shadow sampling
     renderer.render(scene, camera);
 
-    renderer.endFrame();
     requestAnimationFrame(frame);
 }
 

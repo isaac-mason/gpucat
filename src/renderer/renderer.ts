@@ -53,7 +53,7 @@ export type WebGPURendererOptions = {
     alpha?: boolean;
 
     /**
-     * Headless mode — no canvas, no swapchain. Requires a pre-created `device`.
+     * Headless mode, no canvas, no swapchain. Requires a pre-created `device`.
      * Renders must target a `RenderTarget` (set via `renderer.renderTarget`).
      * Useful for Node.js with a native WebGPU library, or for off-screen rendering pipelines.
      */
@@ -76,7 +76,7 @@ export type ComputeDispatch =
         indirectOffset?: never;
         /**
          * Override map for named storage buffers (those declared via `storage('name', schema, ...)`).
-         * Takes precedence over the node's value/geometry — lets one ComputeNode be reused
+         * Takes precedence over the node's value/geometry, lets one ComputeNode be reused
          * across different buffers without recompiling the pipeline.
          */
         buffers?: Record<string, GpuBuffer<d.Any>>;
@@ -103,25 +103,33 @@ export class WebGPURenderer {
     /** Indicates whether the device has been lost or not. When this is set to `true`, rendering isn't possible anymore. @internal */
     _isDeviceLost = false;
 
-    /**
-     * Inspector. `null` means no inspector is attached — hot path pays zero cost.
-     * Install with `renderer.setInspector(new Inspector())` and remove with
-     * `renderer.setInspector(null)`. The inspector subclass handles its own
-     * setup/teardown via setRenderer(); ordering relative to renderer.init()
-     * does not matter (inspectors set up lazily on first frame).
-     */
-    inspector: InspectorBase | null = null;
+    /** @internal */
+    _inspector: InspectorBase | null = null;
 
     /**
-     * Install or remove the inspector. Safe to call at any time, including
-     * before `renderer.init()`. Passing `null` triggers the old inspector's
-     * detach path (releases GPU resources, removes DOM, drops listeners).
+     * Inspector. `null` means no inspector is attached, hot path pays zero cost.
+     * Assigning (`renderer.inspector = new Inspector()`) attaches it, and so does
+     * `setInspector(...)`; both are equivalent. Assigning `null` detaches and
+     * disposes the old one. Ordering relative to `renderer.init()` does not matter.
+     */
+    get inspector(): InspectorBase | null {
+        return this._inspector;
+    }
+    set inspector(next: InspectorBase | null) {
+        this.setInspector(next);
+    }
+
+    /**
+     * Install or remove the inspector. Equivalent to assigning `renderer.inspector`.
+     * Safe to call at any time, including before `renderer.init()`. Passing `null`
+     * triggers the old inspector's detach path (releases GPU resources, removes DOM,
+     * drops listeners).
      */
     setInspector(next: InspectorBase | null): void {
-        if (this.inspector === next) return;
-        this.inspector?.setRenderer(null);   // detach signal — old disposes
-        this.inspector = next;
-        next?.setRenderer(this);              // attach signal — new sets up (lazily if needed)
+        if (this._inspector === next) return;
+        this._inspector?.setRenderer(null);   // detach signal, old disposes
+        this._inspector = next;
+        next?.setRenderer(this);              // attach signal, new sets up
     }
 
     /** The canvas dom element for the current canvas target. Throws in headless mode. */
@@ -381,21 +389,6 @@ export class WebGPURenderer {
         this._canvasTarget.setPixelRatio(value);
     }
 
-    /** call once per animation frame before any compute() or render() calls. bumps frameId, updates time/deltaTime. */
-    beginFrame(): number {
-        this._nodes.nodeFrame.update();
-        const frameId = this._nodes.nodeFrame.frameId;
-        const inspector = this.inspector;
-        if (inspector) inspector.begin(frameId);
-        return frameId;
-    }
-
-    /** call once per animation frame after all compute() and render() calls. */
-    endFrame(): void {
-        const inspector = this.inspector;
-        if (inspector) inspector.finish(this._nodes.nodeFrame.frameId);
-    }
-
     /** resize the canvas to logical pixel dimensions (physical = logical * pixelRatio). Throws in headless mode. */
     setSize(width: number, height: number, updateStyle: boolean = true): void {
         if (!this._canvasTarget) {
@@ -425,7 +418,7 @@ export class WebGPURenderer {
 
     /**
      * Pre-compile render pipelines and pre-upload GPU resources for a scene.
-     * Optional — resources are created on-demand during the first render if not pre-warmed.
+     * Optional, resources are created on-demand during the first render if not pre-warmed.
      */
     async compile(scene: Scene, camera: Camera, samples?: number): Promise<void> {
         if (!this._initialized) {
@@ -571,7 +564,7 @@ export class WebGPURenderer {
 
     /**
      * Pre-compile a compute pipeline before the render loop starts.
-     * This is optional — pipelines are compiled on-demand during the first
+     * This is optional, pipelines are compiled on-demand during the first
      * dispatch if not pre-warmed.
      *
      * @param computeNode The ComputeNode to pre-compile.
@@ -622,11 +615,19 @@ export class WebGPURenderer {
         if (entries.length === 0) return;
 
         const frame = this._nodes.nodeFrame;
+        const inspector = this.inspector;
+        // Top-level entry: advance the frame id and open the inspector frame
+        // (one top-level render()/compute() call == one frame).
+        if (this._renderCallDepth === 0) {
+            frame.frameId++;
+            if (inspector) inspector.begin(frame.frameId);
+        }
+        this._renderCallDepth++;
+
         frame.renderer = this;
         frame.width = this.domElement.width || 1;
         frame.height = this.domElement.height || 1;
 
-        const inspector = this.inspector;
         if (inspector) inspector.perf.start('compute');
 
         const encoder = this._device.createCommandEncoder();
@@ -688,6 +689,10 @@ export class WebGPURenderer {
         this._device.queue.submit([encoder.finish()]);
 
         if (inspector) inspector.perf.end('compute');
+
+        // Top-level call complete (encoder submitted): close the inspector frame.
+        this._renderCallDepth--;
+        if (this._renderCallDepth === 0 && inspector) inspector.finish(frame.frameId);
     }
 
     /** save the current renderer state into a plain object and return it */
@@ -737,9 +742,16 @@ export class WebGPURenderer {
         // At top level (depth 0), just increment. When nested, save/restore parent's renderId.
         const frame = this._nodes.nodeFrame;
         const previousRenderId = frame.renderId;
+        const inspector = this.inspector;
+        // Top-level entry: advance the frame id and open the inspector frame.
+        // A "frame" is one top-level render()/compute() call; nested renders (PassNode)
+        // run at depth > 0 and share the same frameId.
+        if (this._renderCallDepth === 0) {
+            frame.frameId++;
+            if (inspector) inspector.begin(frame.frameId);
+        }
         this._renderCallDepth++;
         frame.renderId++;
-        const inspector = this.inspector;
         if (inspector) inspector.perf.start('render');
 
         const renderTarget = this.renderTarget;
@@ -813,6 +825,9 @@ export class WebGPURenderer {
         this._renderCallDepth--;
         if (this._renderCallDepth > 0) {
             frame.renderId = previousRenderId;
+        } else if (inspector) {
+            // Top-level call complete (encoder already submitted): close the inspector frame.
+            inspector.finish(frame.frameId);
         }
     }
 
@@ -1173,7 +1188,7 @@ export class WebGPURenderer {
      */
     dispose(): void {
         // Drop render object caches. No need to call disposeRenderObject on each
-        // one — device.destroy() invalidates all GPU resources, and the individual
+        // one, device.destroy() invalidates all GPU resources, and the individual
         // onDispose callbacks just do ChainMap/Set bookkeeping we're about to clear.
         this._renderObjects.renderObjects.clear();
         this._renderObjects.chainMaps.clear();
@@ -1245,7 +1260,7 @@ export type DeviceLostInfo = {
 };
 
 // ---------------------------------------------------------------------------
-// Pass-command helpers — issue the real GPU encoder call AND the inspector hook
+// Pass-command helpers, issue the real GPU encoder call AND the inspector hook
 // in one place so neither renderer.ts call sites nor the inspector interface
 // accumulate per-command boilerplate.
 // ---------------------------------------------------------------------------

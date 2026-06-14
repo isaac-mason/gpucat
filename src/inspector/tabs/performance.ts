@@ -17,7 +17,7 @@ export class Performance extends Tab {
     constructor(options: { name?: string; allowDetach?: boolean } = {}) {
         super('Performance', options);
 
-        // Graph pinned above the list — full width, fixed height
+        // Graph pinned above the list, full width, fixed height
         const graphContainer = document.createElement('div');
         graphContainer.className = 'graph-container';
 
@@ -79,7 +79,7 @@ export class Performance extends Tab {
             }
         }
 
-        void this._list; // suppress unused warning — list is owned by DOM
+        void this._list; // suppress unused warning, list is owned by DOM
     }
 
     /** Recursively update/create items for timeline entries */

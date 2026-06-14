@@ -1,5 +1,5 @@
 /**
- * style.ts — Injects the inspector CSS into the document once.
+ * style.ts, Injects the inspector CSS into the document once.
  * CSS targets the actual class/id names emitted by profiler.ts, tab.ts,
  * list.ts, item.ts, graph.ts, values.ts and the tab files.
  */
@@ -17,7 +17,7 @@ export function injectStyle(): void {
 
 const CSS = `
 /* ============================================================
-   gpucat Inspector — CSS variables (scoped to profiler shell)
+   gpucat Inspector, CSS variables (scoped to profiler shell)
    ============================================================ */
 
 #profiler-shell,
@@ -238,7 +238,7 @@ const CSS = `
 	transition: none;
 }
 
-/* No tabs — shrink panel to header only */
+/* No tabs, shrink panel to header only */
 #profiler-panel.no-tabs .profiler-content-wrapper {
 	display: none;
 }
@@ -897,7 +897,7 @@ const CSS = `
 }
 
 /* ============================================================
-   Parameters tab — .parameters class on list-container
+   Parameters tab, .parameters class on list-container
    ============================================================ */
 
 .parameters .list-item-row {
@@ -1017,7 +1017,7 @@ const CSS = `
 }
 
 /* ============================================================
-   Scene Hierarchy tab — type badges + selection highlight
+   Scene Hierarchy tab, type badges + selection highlight
    ============================================================ */
 
 .hierarchy-type-badge {
@@ -1057,7 +1057,7 @@ const CSS = `
 }
 
 /* ============================================================
-   Scene hierarchy — row layout
+   Scene hierarchy, row layout
    ============================================================ */
 
 .scene-hierarchy-layout {
@@ -1079,7 +1079,7 @@ const CSS = `
 }
 
 /* ============================================================
-   Shader panel — right-side WGSL viewer
+   Shader panel, right-side WGSL viewer
    ============================================================ */
 
 .shader-container {
@@ -1164,7 +1164,7 @@ pre.shader-code {
 	color: var(--text-primary);
 	background: var(--background-color);
 	tab-size: 4;
-	/* NOT overflow:auto here — scroll is on the wrapper so Chrome doesn't
+	/* NOT overflow:auto here, scroll is on the wrapper so Chrome doesn't
 	   intercept click-drag as a scroll gesture, blocking text selection */
 	overflow: visible;
 	user-select: text;
@@ -1181,7 +1181,7 @@ pre.shader-code {
 .wgsl-attribute { color: #c3e88d; }
 
 /* ============================================================
-   Shader probe — hoverable lines + floating popover
+   Shader probe, hoverable lines + floating popover
    ============================================================ */
 
 .shader-line {
@@ -1227,7 +1227,7 @@ pre.shader-code {
 }
 
 /* ============================================================
-   Draw Calls tab — detail panel, kv tables, nav link
+   Draw Calls tab, detail panel, kv tables, nav link
    ============================================================ */
 
 .dc-detail-panel {
@@ -1343,7 +1343,7 @@ pre.shader-code {
 }
 
 .gui-root {
-	/* Root GUI when used standalone — no extra styles needed in inspector context */
+	/* Root GUI when used standalone, no extra styles needed in inspector context */
 }
 
 .gui-title {
@@ -1423,7 +1423,7 @@ pre.shader-code {
 	pointer-events: none;
 }
 
-/* BooleanController uses <label> as root — full row is clickable */
+/* BooleanController uses <label> as root, full row is clickable */
 label.gui-controller {
 	cursor: pointer;
 }

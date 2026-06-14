@@ -33,7 +33,7 @@ export declare class Profiler {
     nextTabOriginalIndex: number;
     isLoadingLayout: boolean;
     pendingDetachedTabs: DetachedTabData[] | null;
-    /** Persistent window listeners — stashed so dispose() can remove them. */
+    /** Persistent window listeners, stashed so dispose() can remove them. */
     private _orientationListener;
     private _resizeListener;
     constructor();
@@ -44,7 +44,7 @@ export declare class Profiler {
      * Tear down everything this Profiler installed on global state: persistent
      * window listeners and detached tab panels (which live as `document.body`
      * children, not under `domElement`). The main panel + its subtree are NOT
-     * removed here — the Inspector owns `domElement.remove()`.
+     * removed here, the Inspector owns `domElement.remove()`.
      */
     dispose(): void;
     constrainWindowToBounds(windowPanel: HTMLElement): void;

@@ -1,5 +1,5 @@
 /**
- * Inspector.ts — Full gpucat Inspector UI shell.
+ * Inspector.ts, Full gpucat Inspector UI shell.
  *
  * Extends RendererInspector with:
  *  - A Profiler UI panel housing all tabs
@@ -63,7 +63,7 @@ export declare class Inspector extends RendererInspector {
      * Release everything this Inspector owns: GPU resources (probe + timestamp
      * query state), DOM (panel + any detached tab windows), and window
      * listeners. Safe to call multiple times. After dispose the instance is
-     * dead — discard it and `new Inspector()` if you need one again.
+     * dead, discard it and `new Inspector()` if you need one again.
      *
      * Normally called automatically via `renderer.setInspector(null)`; expose
      * directly for callers that want explicit teardown.
@@ -107,7 +107,7 @@ export declare class Inspector extends RendererInspector {
     /**
      * Get or create the CanvasData for an inspectable node.
      * Creates a 140×140 CanvasTarget, wraps the node as vec4(vec3(node), 1),
-     * and builds a fullscreen Material. Cached per node — never recreated.
+     * and builds a fullscreen Material. Cached per node, never recreated.
      */
     getCanvasDataByNode(node: InspectorNode<Any>): CanvasData;
     private _tickCycle;

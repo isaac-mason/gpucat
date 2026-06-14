@@ -82,7 +82,7 @@ export declare class Node<D extends Any> {
     lessThanEqual(b: Node<D>): Node<CompareResultDesc<D>>;
     equal(b: Node<D>): Node<CompareResultDesc<D>>;
     notEqual(b: Node<D>): Node<CompareResultDesc<D>>;
-    /** `select(falseVal, trueVal, this)` — use `this` node as the condition. */
+    /** `select(falseVal, trueVal, this)`, use `this` node as the condition. */
     select<T extends Any>(ifTrue: Node<T>, ifFalse: Node<T>): Node<T>;
     any(): Node<d.bool>;
     all(): Node<d.bool>;
@@ -875,10 +875,23 @@ export type ParamDescsToNodes<P extends readonly ParamDesc[]> = {
     [K in keyof P]: P[K] extends ParamDesc ? Node<P[K]['type']> : never;
 };
 export type FnLayout<P extends readonly ParamDesc[]> = {
+    /** Function name in the generated WGSL. */
+    readonly name: string;
+    /** Named, typed parameters, in order. */
+    readonly params: [...P];
+    /** Explicit return type (WGSL `-> return`), checked against the body. Omit to infer from the body. */
+    readonly return?: Any;
+};
+export declare function Fn<R extends Any, P extends readonly ParamDesc[]>(jsFunc: (...args: ParamDescsToNodes<P>) => Node<R>, layout: {
     readonly name: string;
     readonly params: [...P];
-};
-export declare function Fn<D extends Any, P extends readonly ParamDesc[]>(jsFunc: (...args: ParamDescsToNodes<P>) => Node<D>, layout: FnLayout<P>): (...args: ParamDescsToNodes<P>) => CallNode<D>;
+    readonly return: R;
+}): (...args: ParamDescsToNodes<P>) => CallNode<R>;
+export declare function Fn<D extends Any, P extends readonly ParamDesc[]>(jsFunc: (...args: ParamDescsToNodes<P>) => Node<D>, layout: {
+    readonly name: string;
+    readonly params: [...P];
+    readonly return?: undefined;
+}): (...args: ParamDescsToNodes<P>) => CallNode<D>;
 export declare function Fn(jsFunc: () => void): FnNode<d.Void>;
 export declare function Fn<D extends Any>(jsFunc: (...args: Node<Any>[]) => Node<D>): (...args: Node<Any>[]) => CallNode<D>;
 export declare const cond: <D extends Any>(condition: Node<Any>, ifTrue: Node<D>, ifFalse?: Node<D>) => ConditionalNode<D>;

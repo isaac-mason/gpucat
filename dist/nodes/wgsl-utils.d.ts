@@ -1,5 +1,5 @@
 /**
- * wgsl-utils.ts — WGSL code generation utilities shared across node compilation.
+ * wgsl-utils.ts, WGSL code generation utilities shared across node compilation.
  *
  * These are pure functions that convert JavaScript values to WGSL syntax strings.
  */

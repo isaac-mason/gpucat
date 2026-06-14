@@ -1,10 +1,10 @@
 /**
- * viewer.ts — Inspector Viewer tab.
+ * viewer.ts, Inspector Viewer tab.
  *
  * Pattern:
- *   getCanvasDataByNode() — creates a CanvasTarget + wraps the node as vec4(vec3(node), 1)
+ *   getCanvasDataByNode(), creates a CanvasTarget + wraps the node as vec4(vec3(node), 1)
  *                           + builds a Material. Cached per node, never recreated.
- *   update()              — for each canvasData:
+ *   update(), for each canvasData:
  *                             1. save renderer state (renderTarget, mrt, clearColor)
  *                             2. reset state (setMRT(null), clearColor black)
  *                             3. setCanvasTarget(canvasData.canvasTarget)
@@ -37,7 +37,7 @@ export type CanvasData = {
     /** Human-readable label (leaf name after splitPath) */
     name: string;
     /**
-     * Optional folder path — the part of the name before the last '/'.
+     * Optional folder path, the part of the name before the last '/'.
      * Used to group items in the viewer. Undefined if no path component.
      */
     path?: string;
@@ -64,7 +64,7 @@ export declare class Viewer extends Tab {
      *
      * For each canvasData:
      *   1. Save renderer state (renderTarget, mrt, clearColor)
-     *   2. Reset state — setMRT(null), clearColor → black
+     *   2. Reset state, setMRT(null), clearColor → black
      *   3. renderer.setCanvasTarget(canvasData.canvasTarget)
      *   4. renderer.renderQuad(canvasData.material, encoder)  ← no updateBefore!
      *   5. renderer.setCanvasTarget(previousTarget)

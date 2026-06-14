@@ -1,7 +1,7 @@
 /**
- * InspectorBase.ts — Abstract inspector interface.
+ * InspectorBase.ts, Abstract inspector interface.
  *
- * The renderer's `inspector` field is `InspectorBase | null` — null means no
+ * The renderer's `inspector` field is `InspectorBase | null`, null means no
  * inspector is attached (zero hot-path cost). Install one with
  * `renderer.setInspector(new Inspector())` and remove with
  * `renderer.setInspector(null)`.
@@ -46,7 +46,7 @@ class InspectorBase {
         end: (_name) => { },
     };
     /**
-     * Diagnostic log API — call sites that want their message surfaced in the
+     * Diagnostic log API, call sites that want their message surfaced in the
      * Inspector's Console tab go through here, e.g.
      *   `renderer.inspector?.log.warn('shader compile failed')`.
      *
@@ -67,7 +67,7 @@ class InspectorBase {
     /**
      * Attach (renderer non-null) or detach (renderer null).
      * Subclasses override to perform setup on attach and teardown on detach.
-     * Setup may be deferred (e.g. until renderer._initialized is true) — see
+     * Setup may be deferred (e.g. until renderer._initialized is true), see
      * subclasses for the specific lazy strategy.
      */
     setRenderer(renderer) {
@@ -75,7 +75,7 @@ class InspectorBase {
     }
     /**
      * Subclasses run one-time GPU resource setup here. Called by subclasses
-     * themselves from setRenderer() once the renderer is initialized — the
+     * themselves from setRenderer() once the renderer is initialized, the
      * top-level renderer does NOT call this.
      */
     init() { }
@@ -227,7 +227,7 @@ function deriveGPUUsage(buffer) {
  */
 function ensureUploaded(cache, device, buffer) {
     const arr = buffer.array;
-    // CPU memory was released — return existing GPU buffer.
+    // CPU memory was released, return existing GPU buffer.
     if (!arr) {
         const entry = cache.bufferMap.get(buffer);
         if (!entry) {
@@ -254,7 +254,7 @@ function ensureUploaded(cache, device, buffer) {
     }
     const { buf } = entry;
     if (buffer.updateRanges.length > 0) {
-        // Partial upload — ranges are flat component indices; convert to bytes.
+        // Partial upload, ranges are flat component indices; convert to bytes.
         const bytesPerComponent = arr.BYTES_PER_ELEMENT;
         for (const { start, count } of buffer.updateRanges) {
             const byteOffset = start * bytesPerComponent;
@@ -275,7 +275,7 @@ function ensureUploaded(cache, device, buffer) {
  * Return the GPUBuffer for an already-uploaded GpuBuffer, or undefined
  * if it has not been uploaded yet.
  *
- * This is a pure lookup — no data transfer occurs.
+ * This is a pure lookup, no data transfer occurs.
  */
 function getUploaded(cache, buffer) {
     return cache.bufferMap.get(buffer)?.buf;
@@ -327,7 +327,7 @@ function uploadRaw(cache, device, key, data, usage) {
 }
 /**
  * Get a previously created raw buffer, or undefined.
- * Does NOT upload — use uploadRaw for that.
+ * Does NOT upload, use uploadRaw for that.
  */
 function getRaw(cache, key) {
     return cache.rawMap.get(key);
@@ -349,11 +349,11 @@ function alignTo4(n) {
 }
 
 /**
- * schema.ts — WGSL type descriptors following packcat's discriminated union pattern.
+ * schema.ts, WGSL type descriptors following packcat's discriminated union pattern.
  *
  * Every descriptor has:
- *   - `type`     — discriminant string for type-level narrowing and runtime switching
- *   - `wgslType` — the WGSL type name string
+ *   - `type`, discriminant string for type-level narrowing and runtime switching
+ *   - `wgslType`, the WGSL type name string
  *
  * For primitives, type === wgslType (e.g. { type: 'f32'; wgslType: 'f32' }).
  * For composites, type is the discriminant ('array', 'struct') and wgslType is computed.
@@ -425,7 +425,7 @@ function textureMultisampled2d(sampleType) {
     const s = (sampleType ?? f32$1);
     return { type: 'texture_multisampled_2d', wgslType: `texture_multisampled_2d<${s.wgslType}>`, sampleType: s };
 }
-/** Runtime version of SampleResultOf — maps a sample type descriptor to its vec4 result. */
+/** Runtime version of SampleResultOf, maps a sample type descriptor to its vec4 result. */
 function sampleResultOf(s) {
     if (s.type === 'f32')
         return vec4f$1;
@@ -433,7 +433,7 @@ function sampleResultOf(s) {
         return vec4i$1;
     return vec4u$1;
 }
-/** Runtime version of TextureSampleResultOf — maps a texture descriptor to its sampling return descriptor. */
+/** Runtime version of TextureSampleResultOf, maps a texture descriptor to its sampling return descriptor. */
 function textureSampleResultOf(desc) {
     if (isDepthTextureDesc(desc))
         return f32$1;
@@ -669,6 +669,8 @@ function wgslStrideOf(desc) {
 }
 /* buffer packing helpers */
 function itemSizeOf(desc) {
+    if (isAtomicDesc(desc))
+        return 1; // atomic<i32> / atomic<u32> are single 4-byte scalars
     const t = desc.wgslType;
     if (t === 'f32' || t === 'i32' || t === 'u32' || t === 'bool' || t === 'f16')
         return 1;
@@ -930,7 +932,7 @@ function popStack(prev) {
 function addToStack(node) {
     if (currentStack === null)
         throw new Error(`[gpucat] Control flow (toVar, If, For, Return, Discard) must be called inside a Fn body. ` +
-            `You are calling it outside of any Fn — wrap your code in Fn([...], () => { ... }).`);
+            `You are calling it outside of any Fn, wrap your code in Fn([...], () => { ... }).`);
     currentStack.push(node);
 }
 // ─── Node base class ──────────────────────────────────────────────────────────
@@ -1041,7 +1043,7 @@ class Node {
     notEqual(b) {
         return notEqual(this, b);
     }
-    /** `select(falseVal, trueVal, this)` — use `this` node as the condition. */
+    /** `select(falseVal, trueVal, this)`, use `this` node as the condition. */
     select(ifTrue, ifFalse) {
         return new ConditionalNode(this, ifTrue, ifFalse);
     }
@@ -1160,7 +1162,7 @@ class Node {
         if (isVecDesc(t)) {
             return new IndexNode(vecElementDescOrSelf(t), this, idx);
         }
-        throw new Error(`[gpucat] Cannot index into type '${t.wgslType}' — only array, matrix, and vector types support .element().`);
+        throw new Error(`[gpucat] Cannot index into type '${t.wgslType}', only array, matrix, and vector types support .element().`);
     }
     // ── Lang ──────────────────────────────────────────────────────────────────
     assign(value) {
@@ -2106,7 +2108,7 @@ const index = (array, idx) => {
         elementDesc = vecElementDescOrSelf(t);
     }
     else {
-        throw new Error(`[gpucat] Cannot index into type '${t.wgslType}' — only array, matrix, and vector types support indexing.`);
+        throw new Error(`[gpucat] Cannot index into type '${t.wgslType}', only array, matrix, and vector types support indexing.`);
     }
     return new IndexNode(elementDesc, array, idx);
 };
@@ -2264,7 +2266,7 @@ const mat4x3h = (...v) => new LiteralNode(mat4x3h$1, v.length ? v : []);
 const mat4x4h = (...v) => new LiteralNode(mat4x4h$1, v.length ? v : []);
 const mat4 = (c0, c1, c2, c3) => new ConstructNode(mat4x4f$1, [c0, c1, c2, c3]);
 function mat3(c0, c1, c2, s10, s11, s12, s20, s21, s22) {
-    // 9-scalar overload: mat3x3f(s00..s22) — column-major scalars
+    // 9-scalar overload: mat3x3f(s00..s22), column-major scalars
     if (s10 !== undefined) {
         return new ConstructNode(mat3x3f$1, [c0, c1, c2, s10, s11, s12, s20, s21, s22]);
     }
@@ -2586,13 +2588,21 @@ function Fn(jsFunc, layout) {
     });
     const traceStack = new StackNode();
     const prev = pushStack(traceStack);
-    let returnType;
+    let inferred;
     try {
         const output = jsFunc(...dummyParams);
-        returnType = output != null ? output.type : Void;
+        inferred = output != null ? output.type : Void;
     }
     finally {
         popStack(prev);
+    }
+    let returnType = inferred;
+    if (layout?.return) {
+        // Verify the declared return matches what the body actually returns.
+        if (inferred.wgslType !== layout.return.wgslType) {
+            throw new Error(`[gpucat] Fn '${layout.name}' declares return '${layout.return.wgslType}' but the body returns '${inferred.wgslType}'.`);
+        }
+        returnType = layout.return;
     }
     if (returnType === Void && paramDescs.length === 0 && !layout) {
         return new FnNode(Void, [], jsFunc, undefined);
@@ -3208,7 +3218,7 @@ function createIndexBuffer(data) {
 }
 
 /**
- * AttributeNode — a vertex attribute that reads from either:
+ * AttributeNode, a vertex attribute that reads from either:
  * 1. A named geometry buffer (looked up at render time by name)
  * 2. A direct GpuBuffer reference
  *
@@ -3322,23 +3332,23 @@ class BuiltinNode extends Node {
     }
 }
 const builtin = (builtinKind, desc) => new BuiltinNode(builtinKind, desc);
-/** @builtin(instance_index) — the instance index for instanced draw calls. */
+/** @builtin(instance_index), the instance index for instanced draw calls. */
 const instanceIndex = /*@__PURE__*/ builtin('instance_index', u32$1);
-/** @builtin(vertex_index) — the vertex index in the current draw call. */
+/** @builtin(vertex_index), the vertex index in the current draw call. */
 const vertexIndex = /*@__PURE__*/ builtin('vertex_index', u32$1);
-/** @builtin(global_invocation_id) — unique thread ID across the entire dispatch. */
+/** @builtin(global_invocation_id), unique thread ID across the entire dispatch. */
 const globalId = /*@__PURE__*/ builtin('global_invocation_id', vec3u$1);
-/** @builtin(local_invocation_id) — thread ID within its workgroup. */
+/** @builtin(local_invocation_id), thread ID within its workgroup. */
 const localId = /*@__PURE__*/ builtin('local_invocation_id', vec3u$1);
-/** @builtin(local_invocation_index) — flat 1-D index within the workgroup. */
+/** @builtin(local_invocation_index), flat 1-D index within the workgroup. */
 const localIndex = /*@__PURE__*/ builtin('local_invocation_index', u32$1);
-/** @builtin(workgroup_id) — workgroup coordinate in the dispatch grid. */
+/** @builtin(workgroup_id), workgroup coordinate in the dispatch grid. */
 const workgroupId = /*@__PURE__*/ builtin('workgroup_id', vec3u$1);
-/** @builtin(num_workgroups) — total number of workgroups dispatched. */
+/** @builtin(num_workgroups), total number of workgroups dispatched. */
 const numWorkgroups = /*@__PURE__*/ builtin('num_workgroups', vec3u$1);
 /**
  * Fragment position in window/pixel coordinates.
- * @builtin(position) in the fragment shader — vec4f where xy are pixel coordinates.
+ * @builtin(position) in the fragment shader, vec4f where xy are pixel coordinates.
  *
  * This is the raw fragment coordinate from the rasterizer.
  * Use screenCoordinate.xy for 2D pixel position.
@@ -3373,7 +3383,7 @@ const UniformUpdateType = {
     OBJECT: 'object',
 };
 /**
- * Uniform group — determines WGSL @group index and struct packing.
+ * Uniform group, determines WGSL @group index and struct packing.
  */
 class UniformGroup {
     name;
@@ -3392,19 +3402,18 @@ const uniformGroup = (name, order = 1, updateType = UniformUpdateType.NONE) => n
 /** Create a shared uniform group. */
 const sharedUniformGroup = (name, order = 0, updateType = UniformUpdateType.NONE) => new UniformGroup(name, true, order, updateType);
 /**
- * frameGroup — shared uniforms updated once per frame.
- * Contains time uniforms (timeElapsed, timeDelta).
+ * frameGroup, shared uniforms updated once per frame.
  * Maps to @group(0) with FRAME update type.
  */
 const frameGroup = /*@__PURE__*/ sharedUniformGroup('frame', 0, UniformUpdateType.FRAME);
 /**
- * renderGroup — shared uniforms updated per render() call.
+ * renderGroup, shared uniforms updated per render() call.
  * Contains camera uniforms (projection, view, position, near, far).
  * Maps to @group(0) with RENDER update type.
  */
 const renderGroup = /*@__PURE__*/ sharedUniformGroup('render', 0, UniformUpdateType.RENDER);
 /**
- * objectGroup — per-object uniforms updated per draw call.
+ * objectGroup, per-object uniforms updated per draw call.
  * Contains mesh matrices (modelWorldMatrix, modelNormalMatrix) and user material uniforms.
  * Maps to @group(1) with OBJECT update type.
  */
@@ -3428,6 +3437,8 @@ const objectGroup = /*@__PURE__*/ uniformGroup('object', 1, UniformUpdateType.OB
  */
 class Uniform {
     schema;
+    /** Determines @group index, update cadence, and packing. Mutable, but only
+     *  read at compile time, set it before the owning node is first rendered. */
     group;
     value = null;
     constructor(schema, initialValue, group = objectGroup) {
@@ -3444,8 +3455,13 @@ class UniformNode extends Node {
     name;
     /** The underlying Uniform data container */
     uniform;
-    /** Get the uniform group */
-    get groupNode() { return this.uniform.group; }
+    /**
+     * The uniform group, determines the WGSL @group index, update cadence, and
+     * struct packing. Defaults to `objectGroup`; reassign (e.g. `u.group = renderGroup`)
+     * before the node is first rendered to move it to a shared group.
+     */
+    get group() { return this.uniform.group; }
+    set group(g) { this.uniform.group = g; }
     /** Get the current value */
     get value() { return this.uniform.value; }
     /** Set value directly */
@@ -3500,7 +3516,7 @@ function uniform(init, nameOrSchema) {
             const node = new UniformNode(u, name);
             return fields(node);
         }
-        // Regular schema — create Uniform for name-based resolution
+        // Regular schema, create Uniform for name-based resolution
         const u = new Uniform(schema);
         return new UniformNode(u, name);
     }
@@ -3853,7 +3869,7 @@ function toCSS(c) {
     return `rgb(${r}, ${g}, ${b})`;
 }
 function parse(input) {
-    // [r, g, b] array — treated as already-linear
+    // [r, g, b] array, treated as already-linear
     if (Array.isArray(input)) {
         return [input[0] ?? 0, input[1] ?? 0, input[2] ?? 0];
     }
@@ -3907,7 +3923,7 @@ var color = /*#__PURE__*/Object.freeze({
  *
  * This is the primary way to introduce a color into the node graph.
  * The resulting node has type `vec3f` so it can be used anywhere a `vec3f`
- * is expected — including as the first argument to `vec4(xyz, w)`.
+ * is expected, including as the first argument to `vec4(xyz, w)`.
  *
  * @example
  * import { rgb, vec4, f32 } from 'gpucat';
@@ -4004,7 +4020,7 @@ let _textureId = 0;
 class GpuTexture {
     /** Unique ID */
     id = _textureId++;
-    /** Schema type descriptor — source of truth for WGSL type */
+    /** Schema type descriptor, source of truth for WGSL type */
     type;
     /** GPU texture dimension ('1d', '2d', '3d') */
     dimension;
@@ -4610,7 +4626,7 @@ class SamplerNode extends Node {
     value = new GpuSampler();
     /** Unique ID for this sampler instance */
     samplerId;
-    /** Uniform group — determines @group index. */
+    /** Uniform group, determines @group index. */
     groupNode;
     constructor(desc, samplerId, groupNode = objectGroup) {
         super(desc);
@@ -4645,7 +4661,7 @@ class SamplerNode extends Node {
  *
  * This mirrors how SamplerNode works: it represents a `var t : texture_2d<f32>`
  * (or texture_cube<f32>, texture_depth_2d, etc.) at module scope. When used as
- * an expression, it generates just the binding name — never a sampling operation.
+ * an expression, it generates just the binding name, never a sampling operation.
  *
  * The existing TextureNode/CubeTextureNode/DepthTextureNode own a
  * TextureBindingNode internally and delegate binding registration to it.
@@ -4660,7 +4676,7 @@ class TextureBindingNode extends Node {
     value = null;
     /** Unique ID for this texture binding (e.g. 'tAlbedo', 'tShadowMap'). */
     textureId;
-    /** Uniform group — determines @group index. */
+    /** Uniform group, determines @group index. */
     groupNode;
     constructor(desc, textureId, groupNode = objectGroup) {
         super(desc);
@@ -4686,7 +4702,7 @@ class TextureBindingNode extends Node {
  */
 class TextureNode extends Node {
     isTextureNode = true;
-    /** The texture binding — holds GPU resource, textureId, groupNode. */
+    /** The texture binding, holds GPU resource, textureId, groupNode. */
     bindingNode;
     /**
      * The UV node for texture coordinates.
@@ -4891,7 +4907,7 @@ const textureBinding = (tex, textureDesc) => {
  */
 class CubeTextureNode extends Node {
     isCubeTextureNode = true;
-    /** The texture binding — holds GPU resource, textureId, groupNode. */
+    /** The texture binding, holds GPU resource, textureId, groupNode. */
     bindingNode;
     /**
      * The direction node for cube texture sampling (vec3f).
@@ -5010,7 +5026,7 @@ function cubeTexture(source, gpuSampler) {
  * - NO textureSampleGrad support
  * - Supports offset (2D depth textures)
  * - Comparison sampling via free functions (textureSampleCompare/textureSampleCompareLevel)
- *   which require a sampler_comparison — use comparisonSampler() to create one
+ *   which require a sampler_comparison, use comparisonSampler() to create one
  *
  * Supports chainable methods:
  * - .sample(uv) - set UV coordinates
@@ -5020,7 +5036,7 @@ function cubeTexture(source, gpuSampler) {
  */
 class DepthTextureNode extends Node {
     isDepthTextureNode = true;
-    /** The texture binding — holds GPU resource, textureId, groupNode. */
+    /** The texture binding, holds GPU resource, textureId, groupNode. */
     bindingNode;
     /**
      * The UV node for texture coordinates (vec2f).
@@ -5153,7 +5169,7 @@ function depthTexture(source, gpuSampler) {
  */
 class ArrayTextureNode extends Node {
     isArrayTextureNode = true;
-    /** The texture binding — holds GPU resource, textureId, groupNode. */
+    /** The texture binding, holds GPU resource, textureId, groupNode. */
     bindingNode;
     /**
      * The UV node for texture coordinates (vec2f).
@@ -5390,7 +5406,7 @@ function textureGatherCompare(t, s, coords, depthRef, offset) {
 }
 
 /**
- * Screen coordinate — the current fragment's xy position in pixels.
+ * Screen coordinate, the current fragment's xy position in pixels.
  * Equivalent to @builtin(position).xy in WGSL.
  *
  * @example
@@ -5487,7 +5503,7 @@ class PassMultipleTextureNode extends PassTextureNode {
     /**
      * Updates the texture reference of this node.
      * Called in setup() to get the current texture.
-     * Stores the GpuTexture — GPU resources are accessed at bind time via the texture cache.
+     * Stores the GpuTexture, GPU resources are accessed at bind time via the texture cache.
      */
     updateTexture() {
         const texture = this.previousTexture
@@ -5674,7 +5690,7 @@ class PassNode extends Node {
     }
     /**
      * Returns a depth-typed texture node for the given attachment.
-     * Use this instead of `getTextureNode('depth')` — depth-format render
+     * Use this instead of `getTextureNode('depth')`, depth-format render
      * targets must be bound as `texture_depth_2d` (sampleType 'depth')
      * because WebGPU rejects them as filterable Float.
      *
@@ -5732,7 +5748,7 @@ class PassNode extends Node {
         let viewZNode = this._viewZNodes[name];
         if (viewZNode === undefined) {
             // Depth-format attachments must be sampled via `texture_depth_2d`
-            // + `textureLoad` (no sampler — pixel-coord fetch). Sampling
+            // + `textureLoad` (no sampler, pixel-coord fetch). Sampling
             // through `textureSample` would require a 'float' sample type,
             // which WebGPU rejects for depth24plus / depth32float.
             const depthNode = this.getDepthTextureNode(name);
@@ -5800,7 +5816,7 @@ class PassNode extends Node {
         for (const name in this._textureNodes) {
             this._textureNodes[name].updateTexture();
         }
-        // Depth attachments are stable references — no per-frame refresh.
+        // Depth attachments are stable references, no per-frame refresh.
     }
     /**
      * Frees internal resources. Should be called when the node is no longer in use.
@@ -6286,7 +6302,7 @@ function mrt(outputNodes) {
 }
 
 /**
- * StorageNode — declares a storage buffer binding in a shader.
+ * StorageNode, declares a storage buffer binding in a shader.
  *
  * Two forms:
  * 1. **Named reference**: Resolved from `geometry.buffers` at render time
@@ -6305,9 +6321,9 @@ function mrt(outputNodes) {
  * particles.value = otherBuffer;  // swap buffers for double-buffering
  */
 class StorageNode extends Node {
-    /** Buffer name (for geometry.buffers lookup) — null if value-based */
+    /** Buffer name (for geometry.buffers lookup), null if value-based */
     bufferName;
-    /** Direct buffer reference — null if name-based */
+    /** Direct buffer reference, null if name-based */
     value;
     /** The WGSL type string, e.g. 'array<mat4x4f>'. Emitted verbatim. */
     storageType;
@@ -6315,7 +6331,7 @@ class StorageNode extends Node {
     access;
     /** Whether the node is atomic or not. */
     isAtomic = false;
-    /** Uniform group — determines @group index. Defaults to objectGroup. */
+    /** Uniform group, determines @group index. Defaults to objectGroup. */
     groupNode;
     constructor(schema, nameOrBuffer, access = 'read', groupNode = objectGroup) {
         super(schema);
@@ -6374,11 +6390,6 @@ function storage(nameOrBuffer, schemaOrAccess, accessArg) {
         return new StorageNode(buffer.schema, buffer, access, objectGroup);
     }
 }
-
-/** Elapsed time in seconds. In renderGroup. */
-const timeElapsed = /*@__PURE__*/ new UniformNode(new Uniform(f32$1, undefined, renderGroup), 'timeElapsed').onRenderUpdate((frame) => frame.time);
-/** Frame delta time in seconds. In renderGroup. */
-const timeDelta = /*@__PURE__*/ new UniformNode(new Uniform(f32$1, undefined, renderGroup), 'timeDelta').onRenderUpdate((frame) => frame.deltaTime);
 
 /**
  * Inline WGSL expression node.
@@ -6565,29 +6576,19 @@ function wgslFn(source, layoutOrIncludes, includesArg) {
 }
 
 /**
- * NodeFrame — unified frame context for all node update callbacks.
+ * NodeFrame, unified frame context for all node update callbacks.
  *
  * Properties are set by the renderer/NodeManager before calling update methods.
  * Nodes access whatever context they need from the frame.
  */
 class NodeFrame {
     /**
-     * Elapsed time in seconds since renderer start.
-     * Updated each frame.
-     */
-    time = 0;
-    /**
-     * Delta time in seconds since last frame.
-     * Updated each frame.
-     */
-    deltaTime = 0;
-    /**
-     * Frame ID — incremented once per animation frame.
+     * Frame ID, incremented once per top-level render()/compute() call.
      * Used for FRAME-level update deduplication.
      */
     frameId = 0;
     /**
-     * Render ID — incremented per render() call.
+     * Render ID, incremented per render() call.
      * Multiple renders can happen per frame (shadows, reflections, VR).
      * Used for RENDER-level update deduplication.
      */
@@ -6633,10 +6634,6 @@ class NodeFrame {
      */
     height = 0;
     // -----------------------------------------------------------------------
-    // Internal: for tracking last update time
-    // -----------------------------------------------------------------------
-    _lastTime = undefined;
-    // -----------------------------------------------------------------------
     // Deduplication Maps
     // -----------------------------------------------------------------------
     /**
@@ -6655,19 +6652,6 @@ class NodeFrame {
     // -----------------------------------------------------------------------
     // Methods
     // -----------------------------------------------------------------------
-    /**
-     * Update timing state. Called once per animation frame.
-     */
-    update() {
-        this.frameId++;
-        const now = performance.now();
-        if (this._lastTime === undefined) {
-            this._lastTime = now;
-        }
-        this.deltaTime = (now - this._lastTime) / 1000;
-        this._lastTime = now;
-        this.time += this.deltaTime;
-    }
     _getMaps(map, node) {
         let maps = map.get(node);
         if (!maps) {
@@ -6775,7 +6759,7 @@ function createNodeFrame() {
 }
 
 /**
- * wgsl-utils.ts — WGSL code generation utilities shared across node compilation.
+ * wgsl-utils.ts, WGSL code generation utilities shared across node compilation.
  *
  * These are pure functions that convert JavaScript values to WGSL syntax strings.
  */
@@ -6928,7 +6912,7 @@ function compile(slots) {
             interpolationSampling: node.interpolationSampling ?? null,
         });
     }
-    // Build attributes array — unified, all entries already in ctx.attributes
+    // Build attributes array, unified, all entries already in ctx.attributes
     const allAttributes = Array.from(vertexCtx.attributes.values());
     // Group attributes by underlying buffer for efficient vertex buffer binding
     const vertexBufferGroups = groupAttributesByBuffer(allAttributes);
@@ -6973,7 +6957,7 @@ function compileCompute(node) {
     ctx.storages = discovered.storages;
     ctx.privateVars = discovered.privateVars;
     ctx.workgroupVars = discovered.workgroupVars;
-    // generate compute shader body (reuse the trace above — re-tracing would
+    // generate compute shader body (reuse the trace above, re-tracing would
     // produce fresh StorageNode/etc. ids that aren't in discovered.storageNames,
     // causing emits like `undefined[...]`).
     const computeBody = generateComputeShader(node, traced, ctx);
@@ -7446,7 +7430,7 @@ function discover(roots) {
         }
         if (node instanceof UniformNode) {
             const name = node.name;
-            const group = node.groupNode;
+            const group = node.group;
             if (!uniforms.has(name)) {
                 uniforms.set(name, { node, group });
             }
@@ -7759,7 +7743,7 @@ function isStorageElementAccess(node) {
 /* binding generation */
 function generateUniform(ctx, node) {
     const name = node.name;
-    const group = node.groupNode;
+    const group = node.group;
     ctx.uniforms.set(name, { node, group });
     return `uniforms_${group.name}.${name}`;
 }
@@ -7771,7 +7755,7 @@ function generateAttribute(ctx, node) {
             `Common cause: TextureNode with default uvNode (which uses uv() attribute) being sampled in fragment shader without explicit UV coordinates. ` +
             `Fix: use textureNode.sample(yourUV) with a varying or fragment-stage UV.`);
     }
-    // Deduplicate by node.id — same node always returns the same WGSL name
+    // Deduplicate by node.id, same node always returns the same WGSL name
     const existing = ctx.attributes.get(node.id);
     if (existing) {
         return `input.${existing.shaderName}`;
@@ -7932,7 +7916,7 @@ function generateCubeTexture(ctx, node) {
 function generateDepthTexture(ctx, node) {
     const binding = node.bindingNode;
     const name = generateTextureBinding(ctx, binding);
-    // textureLoad mode — no sampler needed
+    // textureLoad mode, no sampler needed
     if (node.samplingMode === 'load') {
         if (!node.loadCoords) {
             throw new Error(`[builder] DepthTextureNode '${name}' in load mode has no loadCoords`);
@@ -7961,14 +7945,14 @@ function generateDepthTexture(ctx, node) {
         const level = generateExpr(ctx, node.levelNode);
         return `textureSampleLevel(${name}, ${samplerName}, ${uvExpr}, ${level}${offsetSuffix})`;
     }
-    // textureSample (default) — returns f32
+    // textureSample (default), returns f32
     return `textureSample(${name}, ${samplerName}, ${uvExpr}${offsetSuffix})`;
 }
 function generateArrayTexture(ctx, node) {
     const binding = node.bindingNode;
     const name = generateTextureBinding(ctx, binding);
     const layerExpr = generateExpr(ctx, node.layerNode);
-    // textureLoad mode — no sampler needed
+    // textureLoad mode, no sampler needed
     // WGSL: textureLoad(t, coords, array_index, level)
     if (node.samplingMode === 'load') {
         if (!node.loadCoords) {
@@ -8164,7 +8148,12 @@ function generateStmt(ctx, node) {
     else {
         // treat as expression statement
         const expr = generateExpr(ctx, node);
-        if (expr && !expr.startsWith('/*')) {
+        // If the node was hoisted to a CSE variable, its expression (and any side
+        // effect, e.g. atomicAdd) was already emitted in the `let`/`var` binding.
+        // Re-emitting it here would be a bare `_vN;` reference, which is dead code
+        // and invalid WGSL, so skip it.
+        const hoisted = ctx.nodeVars.get(node.id);
+        if (expr && !expr.startsWith('/*') && expr !== hoisted) {
             ctx.code.push(`${ind}${expr};`);
         }
     }
@@ -9700,7 +9689,7 @@ function buildVertexBufferLayouts(geometry, nodeState) {
                 shaderLocation: attr.shaderLocation,
             });
         }
-        // Compute arrayStride — use explicit stride if set, otherwise derive from buffer or first attribute
+        // Compute arrayStride, use explicit stride if set, otherwise derive from buffer or first attribute
         let arrayStride;
         if (group.stride > 0) {
             arrayStride = group.stride;
@@ -10388,7 +10377,7 @@ function disposeMipmapState(state) {
 }
 
 /**
- * textures.ts — GPUTexture/GPUSampler cache and upload helpers.
+ * textures.ts, GPUTexture/GPUSampler cache and upload helpers.
  *
  * Uses WeakMap-based caching keyed by GpuTexture object.
  * Tracks texture.version for cache invalidation.
@@ -10396,7 +10385,7 @@ function disposeMipmapState(state) {
  *
  * Flow:
  * 1. `updateTexture()` is called during binding updates (before draw)
- * 2. Checks texture.version — skips if already up to date
+ * 2. Checks texture.version, skips if already up to date
  * 3. Creates GPU texture if needed
  * 4. Uploads image data if source.dataReady
  * 5. Updates version tracking (textureData.version = texture.version)
@@ -10435,7 +10424,7 @@ function getMipmapState(cache, device) {
     return cache.mipmapState;
 }
 /**
- * Update a texture — checks source version and uploads if needed.
+ * Update a texture, checks source version and uploads if needed.
  * Returns the TextureData for the texture.
  */
 function updateTexture(cache, device, texture) {
@@ -10470,7 +10459,7 @@ function updateTexture(cache, device, texture) {
         }
         return data;
     }
-    // First time or was using default — create real GPU texture
+    // First time or was using default, create real GPU texture
     if (!data || data.isDefaultTexture) {
         const gpuTextureResource = createGPUTexture(device, texture);
         if (!data) {
@@ -10485,7 +10474,7 @@ function updateTexture(cache, device, texture) {
             cache.textureCount++;
         }
         else {
-            // Was default, now real — update generation
+            // Was default, now real, update generation
             data.texture = gpuTextureResource;
             data.generation = texture.version;
             data.isDefaultTexture = false;
@@ -10615,7 +10604,7 @@ function isExternalImage(data) {
         (typeof ImageData !== 'undefined' && data instanceof ImageData));
 }
 /**
- * Upload cube texture data — copies each of the 6 face images to the
+ * Upload cube texture data, copies each of the 6 face images to the
  * corresponding array layer of the GPU texture.
  *
  * Face order: +X, -X, +Y, -Y, +Z, -Z (matches sources array).
@@ -10643,7 +10632,7 @@ function uploadCubeTextureData(device, texture, data) {
     }
 }
 /**
- * Upload array texture data — copies each layer's data to the corresponding
+ * Upload array texture data, copies each layer's data to the corresponding
  * array layer of the GPU texture.
  *
  * Supports two modes:
@@ -10698,7 +10687,7 @@ function uploadArrayTextureData(device, texture, data) {
     }, [width, height, layerCount]);
 }
 /**
- * Get bytes per pixel for a format (simplified — handles common formats).
+ * Get bytes per pixel for a format (simplified, handles common formats).
  */
 function getBytesPerPixel(format) {
     switch (format) {
@@ -12138,7 +12127,7 @@ function incrementCallId(state) {
  * Update a buffer, uploading to GPU if needed.
  * Implements per-frame deduplication - each buffer is uploaded at most once per frame.
  *
- * Version tracking is delegated to buffers.ts — we only track per-frame deduplication here.
+ * Version tracking is delegated to buffers.ts, we only track per-frame deduplication here.
  */
 function updateBuffer(state, bufferCache, device, buffer, type) {
     const callId = state.currentCallId;
@@ -12285,7 +12274,7 @@ function disposeGeometry(state, geometry) {
  *
  * Coordinates initialization of NodeBuilderState, pipeline, bindings.
  * Subsystem dependencies (nodes, geometries, bindings, pipelines, device,
- * bufferCache, textureCache) are passed as function parameters — not stored
+ * bufferCache, textureCache) are passed as function parameters, not stored
  * in state.
  */
 /**
@@ -12481,7 +12470,7 @@ function getRenderObjectsStats(state) {
 }
 
 /**
- * RendererInspector.ts — Stats-collecting inspector layer.
+ * RendererInspector.ts, Stats-collecting inspector layer.
  *
  * Extends InspectorBase with per-frame stats accumulation, a rolling frame
  * history buffer (512 frames), and optional GPU timestamp-query support.
@@ -12520,6 +12509,10 @@ class RendererInspector extends InspectorBase {
     // FPS tracking
     _lastFinishTime = 0;
     _deltaTimes = [];
+    // Whether the current frame did any rendering. The FPS counts render frames
+    // only, so a separate compute() dispatch in the same animation frame does not
+    // inflate the rate.
+    _frameHadRender = false;
     get fps() {
         const deltas = this._deltaTimes;
         if (deltas.length === 0)
@@ -12553,7 +12546,7 @@ class RendererInspector extends InspectorBase {
             return;
         }
         super.setRenderer(renderer);
-        // GPU setup runs lazily on first begin() — by then renderer is guaranteed
+        // GPU setup runs lazily on first begin(), by then renderer is guaranteed
         // to be initialized (the renderer asserts init before render/compute).
     }
     init() {
@@ -12603,19 +12596,24 @@ class RendererInspector extends InspectorBase {
         this._entryStack = [];
         this._rootTimeline = [];
         this._entryRefs.clear();
+        this._frameHadRender = false;
     }
     finish(frameId) {
         if (!this.renderer)
             return;
         const now = performance.now();
         const cpuMs = now - this._frameStart;
-        // FPS tracking
-        if (this._lastFinishTime > 0) {
-            this._deltaTimes.push(now - this._lastFinishTime);
-            if (this._deltaTimes.length > 60)
-                this._deltaTimes.shift();
+        // FPS tracking: only count frames that rendered, so a separate compute()
+        // dispatch in the same animation frame does not inflate the rate. Deltas
+        // span render-to-render.
+        if (this._frameHadRender) {
+            if (this._lastFinishTime > 0) {
+                this._deltaTimes.push(now - this._lastFinishTime);
+                if (this._deltaTimes.length > 60)
+                    this._deltaTimes.shift();
+            }
+            this._lastFinishTime = now;
         }
-        this._lastFinishTime = now;
         // Close any unclosed entries (shouldn't happen, but be safe)
         while (this._entryStack.length > 0) {
             this._closeCurrentEntry(now);
@@ -12639,6 +12637,7 @@ class RendererInspector extends InspectorBase {
         }
     }
     beginRender(passId, _frameId) {
+        this._frameHadRender = true;
         const now = performance.now();
         const slot = this._currentQuerySlot++;
         const entry = {
@@ -12866,7 +12865,7 @@ class RendererInspector extends InspectorBase {
 }
 
 /**
- * style.ts — Injects the inspector CSS into the document once.
+ * style.ts, Injects the inspector CSS into the document once.
  * CSS targets the actual class/id names emitted by profiler.ts, tab.ts,
  * list.ts, item.ts, graph.ts, values.ts and the tab files.
  */
@@ -12881,7 +12880,7 @@ function injectStyle() {
 }
 const CSS = `
 /* ============================================================
-   gpucat Inspector — CSS variables (scoped to profiler shell)
+   gpucat Inspector, CSS variables (scoped to profiler shell)
    ============================================================ */
 
 #profiler-shell,
@@ -13102,7 +13101,7 @@ const CSS = `
 	transition: none;
 }
 
-/* No tabs — shrink panel to header only */
+/* No tabs, shrink panel to header only */
 #profiler-panel.no-tabs .profiler-content-wrapper {
 	display: none;
 }
@@ -13761,7 +13760,7 @@ const CSS = `
 }
 
 /* ============================================================
-   Parameters tab — .parameters class on list-container
+   Parameters tab, .parameters class on list-container
    ============================================================ */
 
 .parameters .list-item-row {
@@ -13881,7 +13880,7 @@ const CSS = `
 }
 
 /* ============================================================
-   Scene Hierarchy tab — type badges + selection highlight
+   Scene Hierarchy tab, type badges + selection highlight
    ============================================================ */
 
 .hierarchy-type-badge {
@@ -13921,7 +13920,7 @@ const CSS = `
 }
 
 /* ============================================================
-   Scene hierarchy — row layout
+   Scene hierarchy, row layout
    ============================================================ */
 
 .scene-hierarchy-layout {
@@ -13943,7 +13942,7 @@ const CSS = `
 }
 
 /* ============================================================
-   Shader panel — right-side WGSL viewer
+   Shader panel, right-side WGSL viewer
    ============================================================ */
 
 .shader-container {
@@ -14028,7 +14027,7 @@ pre.shader-code {
 	color: var(--text-primary);
 	background: var(--background-color);
 	tab-size: 4;
-	/* NOT overflow:auto here — scroll is on the wrapper so Chrome doesn't
+	/* NOT overflow:auto here, scroll is on the wrapper so Chrome doesn't
 	   intercept click-drag as a scroll gesture, blocking text selection */
 	overflow: visible;
 	user-select: text;
@@ -14045,7 +14044,7 @@ pre.shader-code {
 .wgsl-attribute { color: #c3e88d; }
 
 /* ============================================================
-   Shader probe — hoverable lines + floating popover
+   Shader probe, hoverable lines + floating popover
    ============================================================ */
 
 .shader-line {
@@ -14091,7 +14090,7 @@ pre.shader-code {
 }
 
 /* ============================================================
-   Draw Calls tab — detail panel, kv tables, nav link
+   Draw Calls tab, detail panel, kv tables, nav link
    ============================================================ */
 
 .dc-detail-panel {
@@ -14207,7 +14206,7 @@ pre.shader-code {
 }
 
 .gui-root {
-	/* Root GUI when used standalone — no extra styles needed in inspector context */
+	/* Root GUI when used standalone, no extra styles needed in inspector context */
 }
 
 .gui-title {
@@ -14287,7 +14286,7 @@ pre.shader-code {
 	pointer-events: none;
 }
 
-/* BooleanController uses <label> as root — full row is clickable */
+/* BooleanController uses <label> as root, full row is clickable */
 label.gui-controller {
 	cursor: pointer;
 }
@@ -14537,7 +14536,7 @@ class Profiler {
     nextTabOriginalIndex = 0;
     isLoadingLayout = false;
     pendingDetachedTabs = null;
-    /** Persistent window listeners — stashed so dispose() can remove them. */
+    /** Persistent window listeners, stashed so dispose() can remove them. */
     _orientationListener = null;
     _resizeListener = null;
     constructor() {
@@ -14607,7 +14606,7 @@ class Profiler {
      * Tear down everything this Profiler installed on global state: persistent
      * window listeners and detached tab panels (which live as `document.body`
      * children, not under `domElement`). The main panel + its subtree are NOT
-     * removed here — the Inspector owns `domElement.remove()`.
+     * removed here, the Inspector owns `domElement.remove()`.
      */
     dispose() {
         if (this._orientationListener) {
@@ -14619,7 +14618,7 @@ class Profiler {
             window.removeEventListener('resize', this._resizeListener);
             this._resizeListener = null;
         }
-        // Detached tab panels were appended to document.body — drop them here.
+        // Detached tab panels were appended to document.body, drop them here.
         for (const dw of this.detachedWindows) {
             dw.panel.remove();
         }
@@ -15739,7 +15738,7 @@ class Controller {
     hide() {
         return this.show(false);
     }
-    // No-ops on base — overridden in NumberController
+    // No-ops on base, overridden in NumberController
     min(_min) { return this; }
     max(_max) { return this; }
     step(_step) { return this; }
@@ -16441,7 +16440,7 @@ class GUI {
             case 'function':
                 return new FunctionController(this, object, property);
         }
-        console.error('GUI.add failed — unsupported type', { object, property, value });
+        console.error('GUI.add failed, unsupported type', { object, property, value });
         // Return a no-op controller to avoid crashing call sites
         return new Controller(this, object, property, 'gui-unknown');
     }
@@ -16819,7 +16818,7 @@ class Performance extends Tab {
     _list;
     constructor(options = {}) {
         super('Performance', options);
-        // Graph pinned above the list — full width, fixed height
+        // Graph pinned above the list, full width, fixed height
         const graphContainer = document.createElement('div');
         graphContainer.className = 'graph-container';
         const graph = new Graph();
@@ -16868,7 +16867,7 @@ class Performance extends Tab {
                 this._entryItems.delete(name);
             }
         }
-        void this._list; // suppress unused warning — list is owned by DOM
+        void this._list; // suppress unused warning, list is owned by DOM
     }
     /** Recursively update/create items for timeline entries */
     _updateEntries(entries, parentItem, seenNames, pathPrefix) {
@@ -16915,7 +16914,7 @@ class Memory extends Tab {
     computePipelines;
     constructor(options = {}) {
         super('Memory', options);
-        // Graph pinned above the list — full width, fixed height
+        // Graph pinned above the list, full width, fixed height
         const graphContainer = document.createElement('div');
         graphContainer.className = 'graph-container';
         const graph = new Graph();
@@ -17255,7 +17254,7 @@ class Timeline extends Tab {
             }
         }
         catch {
-            // storage unavailable — auto-start just doesn't fire
+            // storage unavailable, auto-start just doesn't fire
         }
     }
     toggleRecording() {
@@ -17287,7 +17286,7 @@ class Timeline extends Tab {
         // and calling timeline.onCall(method, label).
     }
     stopRecording() {
-        // Nothing to undo — no monkey-patching happened.
+        // Nothing to undo, no monkey-patching happened.
         if (this.currentFrame) ;
     }
     /**
@@ -17299,7 +17298,7 @@ class Timeline extends Tab {
         if (!this.isRecording)
             return;
         if (method === 'begin') {
-            // A new frame started — seal the previous frame
+            // A new frame started, seal the previous frame
             if (this.currentFrame) {
                 this.currentFrame.fps = fps;
                 if (!isFinite(this.currentFrame.fps))
@@ -17691,7 +17690,7 @@ class Material {
     vertex;
     /** Fragment output. Can be vec4f, OutputStructNode for MRT, or undefined for depth-only. */
     fragment;
-    /** f32 depth override — written to @builtin(frag_depth) */
+    /** f32 depth override, written to @builtin(frag_depth) */
     depth;
     /** Controls draw sort order (opaque vs transparent) AND the default for depthWrite. */
     transparent;
@@ -17773,12 +17772,12 @@ class Material {
 }
 
 /**
- * viewer.ts — Inspector Viewer tab.
+ * viewer.ts, Inspector Viewer tab.
  *
  * Pattern:
- *   getCanvasDataByNode() — creates a CanvasTarget + wraps the node as vec4(vec3(node), 1)
+ *   getCanvasDataByNode(), creates a CanvasTarget + wraps the node as vec4(vec3(node), 1)
  *                           + builds a Material. Cached per node, never recreated.
- *   update()              — for each canvasData:
+ *   update(), for each canvasData:
  *                             1. save renderer state (renderTarget, mrt, clearColor)
  *                             2. reset state (setMRT(null), clearColor black)
  *                             3. setCanvasTarget(canvasData.canvasTarget)
@@ -17817,7 +17816,7 @@ class Viewer extends Tab {
         this.nodes = nodes;
     }
     // -----------------------------------------------------------------------
-    // Public API — called by Inspector each frame
+    // Public API, called by Inspector each frame
     // -----------------------------------------------------------------------
     /**
      * Get or create a folder item for the given path name.
@@ -17836,7 +17835,7 @@ class Viewer extends Tab {
      *
      * For each canvasData:
      *   1. Save renderer state (renderTarget, mrt, clearColor)
-     *   2. Reset state — setMRT(null), clearColor → black
+     *   2. Reset state, setMRT(null), clearColor → black
      *   3. renderer.setCanvasTarget(canvasData.canvasTarget)
      *   4. renderer.renderQuad(canvasData.material, encoder)  ← no updateBefore!
      *   5. renderer.setCanvasTarget(previousTarget)
@@ -17927,7 +17926,7 @@ class Viewer extends Tab {
     }
 }
 // ---------------------------------------------------------------------------
-// Module-level helpers — used by Inspector.getCanvasDataByNode()
+// Module-level helpers, used by Inspector.getCanvasDataByNode()
 // ---------------------------------------------------------------------------
 /**
  * Split a camelCase / PascalCase name into space-separated words.
@@ -17991,11 +17990,11 @@ function nodeToVec4f(node) {
     if (t === 'vec4i' || t === 'vec4u') {
         return wgsl(vec4f$1) `vec4f(f32((${node}).x), f32((${node}).y), f32((${node}).z), 1.0)`;
     }
-    // ---- matrices — show first column as RGB ----
+    // ---- matrices, show first column as RGB ----
     if (t.startsWith('mat')) {
         return wgsl(vec4f$1) `vec4f(f32((${node})[0][0]), f32((${node})[0][1]), f32((${node})[0][2]), 1.0)`;
     }
-    // ---- texture / sampler / unknown — assume textureSample gives vec4f ----
+    // ---- texture / sampler / unknown, assume textureSample gives vec4f ----
     return wgsl(vec4f$1) `vec4f((${node}).xyz, 1.0)`;
 }
 /**
@@ -19870,7 +19869,7 @@ class OrthographicCamera extends Camera {
 }
 
 /**
- * Möller–Trumbore ray-triangle intersection.
+ * Möller-Trumbore ray-triangle intersection.
  * Returns raw t (distance along ray direction) or null if no hit.
  */
 function rayTriangleIntersection(origin, direction, a, b, c, backfaceCulling) {
@@ -20228,11 +20227,11 @@ class Geometry {
     /**
      * Number of indirect draws to issue from `indirect`. Defaults to `undefined`,
      * meaning "use the full buffer" (`indirect.count`). Set this when the buffer
-     * is pre-sized to a capacity and only a prefix of entries are active —
+     * is pre-sized to a capacity and only a prefix of entries are active,
      * avoids padding unused slots with zero-instance entries.
      *
      * When stable WebGPU multi-draw lands, this is the natural place to map to
-     * the native `drawCount` parameter — same semantics, same field.
+     * the native `drawCount` parameter, same semantics, same field.
      */
     indirectDrawCount = undefined;
     /**
@@ -20896,7 +20895,7 @@ function createOctahedronGeometry(radius = 1, detail = 0) {
         }
         faces = newFaces;
     }
-    // build arrays — each face gets its own 3 vertices (flat shading normals)
+    // build arrays, each face gets its own 3 vertices (flat shading normals)
     const faceCount = faces.length / 3;
     const vertexCount = faceCount * 3;
     const positions = new Float32Array(vertexCount * 3);
@@ -21005,7 +21004,7 @@ class QuadMesh extends Mesh {
 }
 
 /**
- * scene-hierarchy.ts — Inspector Scene Hierarchy tab.
+ * scene-hierarchy.ts, Inspector Scene Hierarchy tab.
  *
  * Walks the Object3D tree for every scene record in a frame and displays it
  * as a collapsible tree using the existing List/Item UI components.
@@ -21030,7 +21029,7 @@ function typeLabel(obj) {
         return 'Scene';
     return 'Object3D';
 }
-/** Display name — prefer obj.name, fall back to type + objectId. */
+/** Display name, prefer obj.name, fall back to type + objectId. */
 function displayName(obj) {
     return obj.name || `${typeLabel(obj)} #${obj.objectId}`;
 }
@@ -21073,9 +21072,9 @@ class SceneHierarchy extends Tab {
     _sceneRoots = new Map();
     /** Currently selected mesh */
     _selectedMesh = null;
-    /** The inspector reference passed into update() — used for navigation */
+    /** The inspector reference passed into update(), used for navigation */
     _inspector = null;
-    /** Right-side detail panel — shown when a Mesh is selected */
+    /** Right-side detail panel, shown when a Mesh is selected */
     _detailPanel;
     constructor() {
         super('Scene');
@@ -21176,7 +21175,7 @@ class SceneHierarchy extends Tab {
         for (const child of parent.children) {
             let hn = parentNode.children.get(child.objectId);
             if (!hn) {
-                // New child — create item
+                // New child, create item
                 const badge = makeTypeBadge(typeLabel(child));
                 const nameEl = document.createElement('span');
                 nameEl.className = 'hierarchy-name';
@@ -21204,7 +21203,7 @@ class SceneHierarchy extends Tab {
                 this._nodes.set(child.objectId, hn);
             }
             else {
-                // Existing child — update name in case it changed
+                // Existing child, update name in case it changed
                 const nameEl = hn.item.itemRow.querySelector('.hierarchy-name');
                 if (nameEl)
                     nameEl.textContent = displayName(child);
@@ -21272,7 +21271,7 @@ class SceneHierarchy extends Tab {
         else {
             table.appendChild(makeKVRow('buffers', 'none'));
         }
-        // Bounding box — Box3 is [minX, minY, minZ, maxX, maxY, maxZ]
+        // Bounding box, Box3 is [minX, minY, minZ, maxX, maxY, maxZ]
         if (geo.boundingBox) {
             const bb = geo.boundingBox;
             const minStr = `(${bb[0].toFixed(2)}, ${bb[1].toFixed(2)}, ${bb[2].toFixed(2)})`;
@@ -21339,7 +21338,7 @@ class SceneHierarchy extends Tab {
 }
 
 /**
- * probe-wgsl.ts — WGSL string patching helpers for the shader value probe.
+ * probe-wgsl.ts, WGSL string patching helpers for the shader value probe.
  *
  * The probe re-uses the source mesh's vertex shader verbatim (including camera
  * transforms) so that the probe canvas renders the mesh from the real camera's
@@ -21347,7 +21346,7 @@ class SceneHierarchy extends Tab {
  * chosen intermediate variable.
  */
 // ---------------------------------------------------------------------------
-// extractProbeTarget — parse a hovered WGSL line into a ProbeTarget
+// extractProbeTarget, parse a hovered WGSL line into a ProbeTarget
 // ---------------------------------------------------------------------------
 /**
  * Given the raw text of a single WGSL source line, return a ProbeTarget
@@ -21387,7 +21386,7 @@ function extractProbeTarget(line) {
     if (letMatch) {
         return { expr: letMatch[1], anchor: letMatch[1], anchorKind: 'let_var' };
     }
-    // `var identifier [: type] [= <expr>];`  — only probe if there's an initialiser
+    // `var identifier [: type] [= <expr>];`, only probe if there's an initialiser
     const varMatch = trimmed.match(/^var\s+(\w+)\s*(?::\s*[\w<>, ]+\s*)?=\s*([\s\S]+?)\s*;?\s*$/);
     if (varMatch) {
         return { expr: varMatch[1], anchor: varMatch[1], anchorKind: 'let_var' };
@@ -21396,12 +21395,12 @@ function extractProbeTarget(line) {
     const returnMatch = trimmed.match(/^return\s+([\s\S]+?)\s*;?\s*$/);
     if (returnMatch) {
         const retExpr = returnMatch[1];
-        // Skip `return _out;` — _out is a FragmentOutput struct, not a vec value
+        // Skip `return _out;`, _out is a FragmentOutput struct, not a vec value
         if (/^\w+$/.test(retExpr) && retExpr.startsWith('_out'))
             return null;
         return { expr: retExpr, anchor: '__return__', anchorKind: 'return' };
     }
-    // `<lhs> = <rhs>;`  — any assignment: covers `_out.color = _v2`, `out.pos = _v0`, `myVar = expr`
+    // `<lhs> = <rhs>;`, any assignment: covers `_out.color = _v2`, `out.pos = _v0`, `myVar = expr`
     const assignMatch = trimmed.match(/^([\w.[\]]+)\s*=\s*([\s\S]+?)\s*;?\s*$/);
     if (assignMatch) {
         const rhs = assignMatch[2];
@@ -21417,7 +21416,7 @@ function extractProbeTarget(line) {
  *   - bare `name : type,` (no attribute)
  *
  * This is intentionally domain-specific to our own generated WGSL so we
- * don't need a full parser — we just need the structs compile.ts emits.
+ * don't need a full parser, we just need the structs compile.ts emits.
  */
 function buildStructFieldMap(wgsl) {
     const result = new Map();
@@ -21486,7 +21485,7 @@ function stripOuterParens(s) {
  * found in the full WGSL body.  Also resolves `in.fieldName` and
  * `_out.fieldName` via the struct field map parsed from the full WGSL.
  *
- * This is intentionally best-effort — unknown falls back to vec4f coercion.
+ * This is intentionally best-effort, unknown falls back to vec4f coercion.
  */
 function inferType(expr, fullBody, varDecls, structFields) {
     const e = expr.trim();
@@ -21521,7 +21520,7 @@ function inferType(expr, fullBody, varDecls, structFields) {
             }
         }
     }
-    // `in.fieldName` — look up the FragmentInput struct (or any struct the
+    // `in.fieldName`, look up the FragmentInput struct (or any struct the
     // `in` parameter is typed as).  We also handle `_out.fieldName` via
     // FragmentOutput for completeness.
     const memberMatch = e.match(/^(\w+)\.(\w+)$/);
@@ -21582,7 +21581,7 @@ function inferType(expr, fullBody, varDecls, structFields) {
             if (t !== 'unknown')
                 return t;
         }
-        // Argument unresolvable — these builtins always return f32 in our context
+        // Argument unresolvable, these builtins always return f32 in our context
         return 'f32';
     }
     // Builtins that return same type as their first argument (polymorphic).
@@ -21629,7 +21628,7 @@ function inferType(expr, fullBody, varDecls, structFields) {
     const stripped = stripOuterParens(e);
     if (stripped !== e)
         return inferType(stripped, fullBody, varDecls, structFields);
-    // Arithmetic / compound expression — walk tokens to find a typed operand.
+    // Arithmetic / compound expression, walk tokens to find a typed operand.
     // The first word token that resolves via varDecls wins.
     const firstToken = e.match(/^(\w+)/)?.[1];
     if (firstToken && varDecls.has(firstToken)) {
@@ -21652,7 +21651,7 @@ function inferType(expr, fullBody, varDecls, structFields) {
                 return rhsKind;
         }
     }
-    // Scan expression for any vec constructor literal — catches `(a * vec3f(...) + b)` etc.
+    // Scan expression for any vec constructor literal, catches `(a * vec3f(...) + b)` etc.
     const vecInExpr = e.match(/\b(vec4[fi]?|vec3[fi]?|vec2[fi]?|vec4f|vec3f|vec2f|vec4|vec3|vec2)\s*\(/);
     if (vecInExpr)
         return normaliseType(vecInExpr[1]);
@@ -21694,7 +21693,7 @@ function coerceToVec4f(expr, kind) {
         case 'i32': return `vec4f(vec3f(f32(${expr})), 1.0f)`;
         case 'u32': return `vec4f(vec3f(f32(${expr})), 1.0f)`;
         case 'bool': return `vec4f(vec3f(f32(${expr})), 1.0f)`;
-        // unknown — pass through bare, same as fragcoord's fallback.
+        // unknown, pass through bare, same as fragcoord's fallback.
         // If the expression is already vec4f this is correct.  If it's
         // something else the shader compiler will surface a clear error
         // rather than silently emitting a wrong value (or failing with a
@@ -21703,7 +21702,7 @@ function coerceToVec4f(expr, kind) {
     }
 }
 // ---------------------------------------------------------------------------
-// buildProbeWGSL — patch combined WGSL to output a single probe variable
+// buildProbeWGSL, patch combined WGSL to output a single probe variable
 // ---------------------------------------------------------------------------
 /**
  * Patch the combined WGSL emitted by compile.ts so that:
@@ -21751,13 +21750,13 @@ function buildProbeWGSL(code, target) {
     const varDecls = new Map();
     for (const bl of bodyLines) {
         const trimmed = bl.trim();
-        // `var name : type;` — explicit type, no initializer
+        // `var name : type;`, explicit type, no initializer
         const vmNoInit = trimmed.match(/^var\s+(\w+)\s*:\s*([\w<>, ]+?)\s*;/);
         if (vmNoInit) {
             varDecls.set(vmNoInit[1], vmNoInit[2]);
             continue;
         }
-        // `var name [: type] = <rhs>;` — explicit type annotation OR infer from RHS constructor
+        // `var name [: type] = <rhs>;`, explicit type annotation OR infer from RHS constructor
         const vmInit = trimmed.match(/^var\s+(\w+)\s*(?::\s*([\w<>, ]+?)\s*)?=\s*([\s\S]+?)\s*;?\s*$/);
         if (vmInit) {
             const [, name, explicitType, rhs] = vmInit;
@@ -21771,7 +21770,7 @@ function buildProbeWGSL(code, target) {
             }
             continue;
         }
-        // `let name [: type] = <rhs>;` — infer type from explicit annotation or RHS constructor
+        // `let name [: type] = <rhs>;`, infer type from explicit annotation or RHS constructor
         const lm = trimmed.match(/^let\s+(\w+)\s*(?::\s*([\w<>, ]+?)\s*)?=\s*([\s\S]+?)\s*;?\s*$/);
         if (lm) {
             const [, name, explicitType, rhs] = lm;
@@ -21825,7 +21824,7 @@ function buildProbeWGSL(code, target) {
     //    - `var _out : FragmentOutput;` is kept only when the probed expression
     //      references `_out` (e.g. user selected `_out.diffuse`).
     //    - `return _out;` and other FragmentOutput returns are always dropped
-    //      — they appear at the end of the body, past our injected return.
+    //, they appear at the end of the body, past our injected return.
     // -----------------------------------------------------------------------
     const exprUsesOut = /\b_out\b/.test(target.expr);
     const keptLines = [];
@@ -21835,7 +21834,7 @@ function buildProbeWGSL(code, target) {
         // Stop at closing brace of fs_main
         if (trimmed === '}')
             break;
-        // Once we've injected our return, stop emitting — no dead code.
+        // Once we've injected our return, stop emitting, no dead code.
         if (found)
             break;
         // Strip `var _out : FragmentOutput;` unless the probe expr uses `_out`.
@@ -21843,7 +21842,7 @@ function buildProbeWGSL(code, target) {
             if (!exprUsesOut)
                 continue;
         }
-        // Drop `return _out;` — MRT body always ends with this, it returns
+        // Drop `return _out;`, MRT body always ends with this, it returns
         // FragmentOutput which is incompatible with our patched `-> vec4f`.
         // extractProbeTarget already blocks probing this line directly, so
         // we only ever hit it as a trailing line we need to skip.
@@ -21904,7 +21903,7 @@ function escapeRegex(s) {
 }
 
 /**
- * shader-panel.ts — Inline WGSL shader viewer for the Inspector.
+ * shader-panel.ts, Inline WGSL shader viewer for the Inspector.
  *
  * Given a RenderObject, it:
  *  1. Splits nodeBuilderState.code into vertex/fragment sections.
@@ -21970,14 +21969,14 @@ class ShaderPanel {
     _stages = null;
     /** Raw compute shader code (used in compute mode). */
     _computeCode = null;
-    /** The raw code string last written to innerHTML — skips re-render if unchanged. */
+    /** The raw code string last written to innerHTML, skips re-render if unchanged. */
     _lastRenderedCode = null;
     /** The RenderObject found during the last update() call. */
     _renderObject = null;
-    /** Inspector reference — set on first update() call. */
+    /** Inspector reference, set on first update() call. */
     _inspector = null;
     // -----------------------------------------------------------------------
-    // Probe popover — floats next to the cursor while hovering a probeable line
+    // Probe popover, floats next to the cursor while hovering a probeable line
     // -----------------------------------------------------------------------
     /** Floating popover element, appended to document.body. */
     _popover;
@@ -21989,7 +21988,7 @@ class ShaderPanel {
     _popoverVisible = false;
     /**
      * When true the current probe was triggered by a text selection, not a
-     * hover.  Mousemove events will NOT clear it — only a mousedown outside
+     * hover.  Mousemove events will NOT clear it, only a mousedown outside
      * the code block (or a new selection) will.
      */
     _selectionLocked = false;
@@ -22139,7 +22138,7 @@ class ShaderPanel {
         return this._currentStage;
     }
     // -----------------------------------------------------------------------
-    // Private — stage selection
+    // Private, stage selection
     // -----------------------------------------------------------------------
     _selectStage(stage) {
         this._currentStage = stage;
@@ -22172,7 +22171,7 @@ class ShaderPanel {
         this._codeBlock.innerHTML = html;
     }
     // -----------------------------------------------------------------------
-    // Private — hover / probe
+    // Private, hover / probe
     // -----------------------------------------------------------------------
     _onMouseLeave() {
         if (!this._selectionLocked) {
@@ -22186,7 +22185,7 @@ class ShaderPanel {
                 this._positionPopover(e.clientX, e.clientY);
             return;
         }
-        // Probing only works for the fragment stage — vertex variables don't
+        // Probing only works for the fragment stage, vertex variables don't
         // exist in fs_main, so attempts on other stages produce a broken canvas.
         if (this._currentStage !== 'fragment') {
             this._hidePopover();
@@ -22388,18 +22387,18 @@ class ShaderPanel {
 }
 
 /**
- * draw-calls.ts — Inspector "Draw Calls" tab.
+ * draw-calls.ts, Inspector "Draw Calls" tab.
  *
- * Surfaces renderer-level RenderObject data — one entry per GPU draw call.
+ * Surfaces renderer-level RenderObject data, one entry per GPU draw call.
  * ROs are grouped under their render pass (via ro.passId).
  *
  * When a RO is selected a detail panel appears with three sub-tabs:
- *   [Shader]   — reuses ShaderPanel (with probe hover/selection support)
- *   [Pipeline] — material / render-context state table
- *   [Bindings] — bind group layout table (uniform groups, textures, samplers, storage)
+ *   [Shader], reuses ShaderPanel (with probe hover/selection support)
+ *   [Pipeline], material / render-context state table
+ *   [Bindings], bind group layout table (uniform groups, textures, samplers, storage)
  *
  * Update strategy (60 fps concern):
- *   update() diffs by ro.id — only adds/removes items on structural changes.
+ *   update() diffs by ro.id, only adds/removes items on structural changes.
  *   The static detail panel is only rebuilt when _selectedRO changes.
  */
 // ---------------------------------------------------------------------------
@@ -22482,7 +22481,7 @@ class DrawCalls extends Tab {
     // -----------------------------------------------------------------------
     /**
      * Called by Inspector._processFrame() every frame.
-     * Only diffs by ro.id — does NOT repaint the detail panel unless the
+     * Only diffs by ro.id, does NOT repaint the detail panel unless the
      * selected RO changed.
      *
      * Structure: pass header items are top-level in the List; RO items are
@@ -22613,7 +22612,7 @@ class DrawCalls extends Tab {
     // Detail panel population
     // -----------------------------------------------------------------------
     _populateDetail(ro, inspector) {
-        // Shader pane — delegate to ShaderPanel (reuses probe support)
+        // Shader pane, delegate to ShaderPanel (reuses probe support)
         this._shaderPanel.updateFromRO(inspector, ro);
         // Pipeline pane
         this._pipelinePane.innerHTML = '';
@@ -22845,13 +22844,13 @@ function sectionHeader(text) {
 }
 
 /**
- * compute-calls.ts — Inspector "Compute Calls" tab.
+ * compute-calls.ts, Inspector "Compute Calls" tab.
  *
- * Surfaces compute node data — one entry per compute dispatch.
+ * Surfaces compute node data, one entry per compute dispatch.
  *
  * When a compute node is selected, a detail panel appears with two sub-tabs:
- *   [Shader]   — displays the compute WGSL using ShaderPanel in compute mode
- *   [Bindings] — bind group layout table (uniform groups, storage buffers)
+ *   [Shader], displays the compute WGSL using ShaderPanel in compute mode
+ *   [Bindings], bind group layout table (uniform groups, storage buffers)
  *
  * Mirrors the structure of draw-calls.ts.
  */
@@ -22933,7 +22932,7 @@ class ComputeCalls extends Tab {
     // -----------------------------------------------------------------------
     /**
      * Called by Inspector._processFrame() every frame when compute passes exist.
-     * Diffs by node.id — only adds/removes items on structural changes.
+     * Diffs by node.id, only adds/removes items on structural changes.
      */
     update(inspector, renderer) {
         const liveNodes = inspector.computeNodes;
@@ -23003,14 +23002,14 @@ class ComputeCalls extends Tab {
     // Detail panel population
     // -----------------------------------------------------------------------
     _populateDetail(node, _inspector, renderer) {
-        // Metadata pane — workgroup size
+        // Metadata pane, workgroup size
         this._metaPane.innerHTML = '';
         const ws = node.workgroupSize;
         const metaTable = document.createElement('div');
         metaTable.className = 'dc-kv-table';
         metaTable.appendChild(kvRow('Workgroup Size', `[${ws[0]}, ${ws[1]}, ${ws[2]}]`));
         this._metaPane.appendChild(metaTable);
-        // Shader pane — delegate to ShaderPanel (compute mode)
+        // Shader pane, delegate to ShaderPanel (compute mode)
         this._refreshShaderPanel(renderer);
         // Bindings pane
         this._bindingsPane.innerHTML = '';
@@ -23065,7 +23064,7 @@ function _nodeDisplayName(node) {
 
 // Max number of flat entries retained during recording (~3 min at 60fps with ~20 entries/frame)
 const MAX_ENTRIES = 200_000;
-// Entries narrower than this in CSS pixels are skipped in the detail view — no point drawing sub-pixel bars
+// Entries narrower than this in CSS pixels are skipped in the detail view, no point drawing sub-pixel bars
 const MIN_BAR_PX = 1;
 // Layout
 const ROW_HEIGHT = 20;
@@ -23289,7 +23288,7 @@ class PerformanceTimeline extends Tab {
             this._viewportStartMs = Math.max(0, recordingDuration - this._viewportDurationMs);
         }
         this._updateStatus();
-        // Don't render while recording — render once when recording stops
+        // Don't render while recording, render once when recording stops
     }
     _flattenFrame(entries, frameStartMs, depth = 0) {
         for (const entry of entries) {
@@ -23786,7 +23785,7 @@ class CanvasTarget {
     }
     /**
      * Get (or lazily create) the WebGPU canvas context and configure it.
-     * Safe to call multiple times — returns the cached context after first call.
+     * Safe to call multiple times, returns the cached context after first call.
      * WebGPURenderer lazily reads the context from the current canvasTarget.
      *
      * @param device the GPUDevice to configure the context with.
@@ -23878,7 +23877,7 @@ class CanvasTarget {
 }
 
 /**
- * Inspector.ts — Full gpucat Inspector UI shell.
+ * Inspector.ts, Full gpucat Inspector UI shell.
  *
  * Extends RendererInspector with:
  *  - A Profiler UI panel housing all tabs
@@ -23997,7 +23996,7 @@ class Inspector extends RendererInspector {
      * Release everything this Inspector owns: GPU resources (probe + timestamp
      * query state), DOM (panel + any detached tab windows), and window
      * listeners. Safe to call multiple times. After dispose the instance is
-     * dead — discard it and `new Inspector()` if you need one again.
+     * dead, discard it and `new Inspector()` if you need one again.
      *
      * Normally called automatically via `renderer.setInspector(null)`; expose
      * directly for callers that want explicit teardown.
@@ -24012,7 +24011,7 @@ class Inspector extends RendererInspector {
         this.domElement.remove();
     }
     // -----------------------------------------------------------------------
-    // Timeline hooks — forward calls to timeline.onCall()
+    // Timeline hooks, forward calls to timeline.onCall()
     // -----------------------------------------------------------------------
     begin(frameId) {
         super.begin(frameId);
@@ -24101,7 +24100,7 @@ class Inspector extends RendererInspector {
             this._processFrame(record);
     }
     // -----------------------------------------------------------------------
-    // createParameters — expose dat.GUI-style groups via the Parameters tab
+    // createParameters, expose dat.GUI-style groups via the Parameters tab
     // -----------------------------------------------------------------------
     createParameters(name) {
         // Activate the mini-panel (top-right floating panel) without showing
@@ -24113,7 +24112,7 @@ class Inspector extends RendererInspector {
         return this.parameters.createGroup(name);
     }
     // -----------------------------------------------------------------------
-    // Probe API — shader value live inspector
+    // Probe API, shader value live inspector
     // -----------------------------------------------------------------------
     /**
      * Set the active probe to the given variable expression in the given mesh's
@@ -24148,7 +24147,7 @@ class Inspector extends RendererInspector {
         // Build probe pipeline: same bind group layouts, patched shader
         const bindGroupLayouts = getRenderBindGroupLayouts(renderer._bindings, sourceRO);
         if (bindGroupLayouts.length === 0) {
-            this.log.warn('[gpucat probe] bind group layouts not yet initialised — try clicking again after the first frame renders');
+            this.log.warn('[gpucat probe] bind group layouts not yet initialised, try clicking again after the first frame renders');
             return null;
         }
         const pipelineLayout = renderer._device.createPipelineLayout({ bindGroupLayouts });
@@ -24222,7 +24221,7 @@ class Inspector extends RendererInspector {
         }
     }
     // -----------------------------------------------------------------------
-    // navigateToRO — jump to a RenderObject in the Draw Calls tab
+    // navigateToRO, jump to a RenderObject in the Draw Calls tab
     // -----------------------------------------------------------------------
     navigateToRO(ro) {
         this.profiler.setActiveTab(this.drawCalls.id);
@@ -24305,7 +24304,7 @@ class Inspector extends RendererInspector {
     /**
      * Get or create the CanvasData for an inspectable node.
      * Creates a 140×140 CanvasTarget, wraps the node as vec4(vec3(node), 1),
-     * and builds a fullscreen Material. Cached per node — never recreated.
+     * and builds a fullscreen Material. Cached per node, never recreated.
      */
     getCanvasDataByNode(node) {
         let canvasData = this._canvasNodes.get(node);
@@ -24384,11 +24383,11 @@ class Inspector extends RendererInspector {
             },
         });
         pass.setPipeline(probe.pipeline);
-        // Bind groups (camera, object uniforms, textures — same as main draw)
+        // Bind groups (camera, object uniforms, textures, same as main draw)
         for (let i = 0; i < bindGroups.length; i++) {
             pass.setBindGroup(i, bindGroups[i]);
         }
-        // Vertex buffers — look up uploaded GPU buffers from the geometry
+        // Vertex buffers, look up uploaded GPU buffers from the geometry
         let slot = 0;
         const geometry = ro.geometry;
         const bufferCache = renderer._buffers;
@@ -24415,7 +24414,7 @@ class Inspector extends RendererInspector {
             }
             slot++;
         }
-        // Issue draw call — mirrors renderer.ts issueDraws exactly, including
+        // Issue draw call, mirrors renderer.ts issueDraws exactly, including
         // indirect draw support.  The indirect GPU buffer was already written by
         // the compute pass this frame; getUploaded() does a non-uploading lookup.
         if (geometry.index) {
@@ -24627,7 +24626,7 @@ class OrbitControls {
         const up = [0, 1, 0];
         // camera.up equivalent: we use +Y by default since Object3D doesn't carry an "up" field
         // if they need a different up axis.
-        this._quat = rotationTo(create$3(), up, up); // identity — up already is +Y
+        this._quat = rotationTo(create$3(), up, up); // identity, up already is +Y
         this._quatInverse = conjugate(create$3(), this._quat);
         // Saved state snapshots
         this.target0 = clone$2(this.target);
@@ -24788,7 +24787,7 @@ class OrbitControls {
         this.update();
     }
     // -------------------------------------------------------------------------
-    // update() — call every frame when damping/autoRotate are enabled
+    // update(), call every frame when damping/autoRotate are enabled
     // -------------------------------------------------------------------------
     update(deltaTime = null) {
         const position = this.object.position;
@@ -24988,8 +24987,8 @@ class OrbitControls {
             this._panUp((2 * deltaY * targetDistance) / element.clientHeight, this.object.matrix);
         }
         else {
-            // Fallback — disable pan for unknown camera type
-            console.warn('OrbitControls: unknown camera type — pan disabled.');
+            // Fallback, disable pan for unknown camera type
+            console.warn('OrbitControls: unknown camera type, pan disabled.');
             this.enablePan = false;
         }
     }
@@ -25680,7 +25679,7 @@ function applyMatrix4ToGeometry(geometry, matrix) {
     }
 }
 // ============================================================================
-// Raycaster helper — intersect including invisible objects
+// Raycaster helper, intersect including invisible objects
 // ============================================================================
 function intersectObjectWithRay(object, raycaster, includeInvisible = false) {
     const allIntersections = intersectObjectRecursive(object, raycaster, [], true, includeInvisible);
@@ -25805,7 +25804,7 @@ class TransformControlsPlane extends Mesh {
     }
 }
 // ============================================================================
-// GizmoMesh — Mesh with extra tag/name fields for gizmo logic
+// GizmoMesh, Mesh with extra tag/name fields for gizmo logic
 // ============================================================================
 class GizmoMesh extends Mesh {
     tag;
@@ -26744,7 +26743,7 @@ const _forward = [0, 0, 0];
 const _right = [0, 0, 0];
 const _moveDir = [0, 0, 0];
 /**
- * FlyControls — WASD + right-click look camera controller.
+ * FlyControls, WASD + right-click look camera controller.
  *
  * Movement: W/S forward/back, A/D strafe left/right, Space up, Shift down.
  * Look: Right-click + drag to yaw/pitch.
@@ -26890,7 +26889,7 @@ class FlyControls {
         // forward = quaternion * (0, 0, -1)
         set$1(_forward, 0, 0, -1);
         transformQuat(_forward, _forward, q);
-        // yaw = atan2(forward.x, forward.z) — but forward is -Z, so:
+        // yaw = atan2(forward.x, forward.z), but forward is -Z, so:
         this._yaw = Math.atan2(-_forward[0], -_forward[2]);
         // pitch = asin(-forward.y), clamped
         this._pitch = Math.asin(Math.max(-1, Math.min(1, -_forward[1])));
@@ -27394,7 +27393,7 @@ var frustum = /*#__PURE__*/Object.freeze({
 
 // ─── Geometry ────────────────────────────────────────────────────────────────
 /**
- * Shared inner loop — writes one quad into pre-allocated arrays at segment slot `segmentOffset + s`.
+ * Shared inner loop, writes one quad into pre-allocated arrays at segment slot `segmentOffset + s`.
  */
 function writeQuad(s, segmentOffset, sx, sy, sz, ex, ey, ez, instanceStart, instanceEnd, side, uv, indices) {
     const vi = (segmentOffset + s) * 4;
@@ -27452,13 +27451,13 @@ function writeSegmentPairs(src, segmentCount, instanceStart, instanceEnd, side, 
  *
  * Allocates GPU buffers once at construction for up to `maxPoints` points.
  * Subsequent calls to `update()` write into the existing buffers and adjust
- * `drawRange.count` — no reallocation unless the point array exceeds `maxPoints`.
+ * `drawRange.count`, no reallocation unless the point array exceeds `maxPoints`.
  *
  * Vertex buffers (per-vertex, 4 verts per segment):
- *   'instanceStart'  vec3f  – world-space segment start
- *   'instanceEnd'    vec3f  – world-space segment end
- *   'side'           f32    – +1 / -1 expansion side
- *   'uv'             vec2f  – u along segment, v across width
+ *   'instanceStart'  vec3f  - world-space segment start
+ *   'instanceEnd'    vec3f  - world-space segment end
+ *   'side'           f32    - +1 / -1 expansion side
+ *   'uv'             vec2f  - u along segment, v across width
  *
  * Pair with a `LineMaterial`.
  *
@@ -27508,7 +27507,7 @@ class LineGeometry extends Geometry {
      * Update the line's point data in-place.
      *
      * If the new point count fits within the pre-allocated capacity, this only
-     * writes into existing typed arrays and adjusts `drawRange.count` — no GPU
+     * writes into existing typed arrays and adjusts `drawRange.count`, no GPU
      * buffer reallocation occurs. If the new count exceeds capacity, buffers are
      * reallocated to the new size (capacity grows, never shrinks).
      *
@@ -27538,7 +27537,7 @@ class LineGeometry extends Geometry {
             this._maxSegments = segmentCount;
         }
         else {
-            // Write into existing buffers — no reallocation
+            // Write into existing buffers, no reallocation
             const startBuf = this.getBuffer('instanceStart');
             const endBuf = this.getBuffer('instanceEnd');
             const sideBuf = this.getBuffer('side');
@@ -27575,7 +27574,7 @@ class LineGeometry extends Geometry {
         const dEnd = new Float32Array(n * 4);
         let cumulative = 0;
         for (let s = 0; s < n; s++) {
-            // All 4 verts of a segment share the same start/end — read vertex 0 of the quad
+            // All 4 verts of a segment share the same start/end, read vertex 0 of the quad
             const vi = s * 4;
             const ax = starts[vi * 3], ay = starts[vi * 3 + 1], az = starts[vi * 3 + 2];
             const bx = ends[vi * 3], by = ends[vi * 3 + 1], bz = ends[vi * 3 + 2];
@@ -27611,7 +27610,7 @@ class LineGeometry extends Geometry {
  *
  * Allocates GPU buffers once at construction for up to `maxPoints` points.
  * Subsequent calls to `update()` write into the existing buffers and adjust
- * `drawRange.count` — no reallocation unless the point array exceeds `maxPoints`.
+ * `drawRange.count`, no reallocation unless the point array exceeds `maxPoints`.
  *
  * Pair with a `LineMaterial`.
  *
@@ -27657,7 +27656,7 @@ class LineSegmentsGeometry extends Geometry {
      * Update the segment data in-place.
      *
      * If the new point count fits within the pre-allocated capacity, this only
-     * writes into existing typed arrays and adjusts `drawRange.count` — no GPU
+     * writes into existing typed arrays and adjusts `drawRange.count`, no GPU
      * buffer reallocation occurs. If the new count exceeds capacity, buffers are
      * reallocated to the new size (capacity grows, never shrinks).
      *
@@ -27961,7 +27960,7 @@ function raycastScreenSpace(object, starts, ends, n, matrixWorld, raycaster, lin
         // Skip if entirely behind near plane
         if (_start4[2] > near && _end4[2] > near)
             continue;
-        // Clip to near plane — lerp toward the other endpoint
+        // Clip to near plane, lerp toward the other endpoint
         if (_start4[2] > near) {
             const t = (_start4[2] - near) / (_start4[2] - _end4[2]);
             _start4[0] = _start4[0] + t * (_end4[0] - _start4[0]);
@@ -28150,7 +28149,7 @@ const GPUFeatureName = {
 };
 
 /**
- * pass-context.ts — GPU pass configuration and caching.
+ * pass-context.ts, GPU pass configuration and caching.
  *
  * Contains context types for both render and compute passes:
  * - RenderContext: Configuration for render passes (framebuffer, clear state, viewport, etc.)
@@ -28534,9 +28533,9 @@ function walkObject(list, obj, camera, overrideMaterial) {
  * Test whether a mesh should be included in the draw list.
  *
  * Uses frustum culling with bounding volumes:
- * 1. boundingSphere — cheapest test (6 dot-products)
- * 2. boundingBox — more precise but slightly more work
- * 3. no bounds — always visible (safe fallback)
+ * 1. boundingSphere, cheapest test (6 dot-products)
+ * 2. boundingBox, more precise but slightly more work
+ * 3. no bounds, always visible (safe fallback)
  */
 function isMeshVisible(mesh) {
     const geom = mesh.geometry;
@@ -28569,7 +28568,7 @@ function isMeshVisible(mesh) {
         transformMat4(_worldBox, geom.boundingBox, wm);
         return intersectsBox3(_frustum, _worldBox);
     }
-    // --- no bounds — always draw -------------------------------------------
+    // --- no bounds, always draw -------------------------------------------
     return true;
 }
 /**
@@ -28597,25 +28596,32 @@ class WebGPURenderer {
     _initialized = false;
     /** Indicates whether the device has been lost or not. When this is set to `true`, rendering isn't possible anymore. @internal */
     _isDeviceLost = false;
+    /** @internal */
+    _inspector = null;
     /**
-     * Inspector. `null` means no inspector is attached — hot path pays zero cost.
-     * Install with `renderer.setInspector(new Inspector())` and remove with
-     * `renderer.setInspector(null)`. The inspector subclass handles its own
-     * setup/teardown via setRenderer(); ordering relative to renderer.init()
-     * does not matter (inspectors set up lazily on first frame).
+     * Inspector. `null` means no inspector is attached, hot path pays zero cost.
+     * Assigning (`renderer.inspector = new Inspector()`) attaches it, and so does
+     * `setInspector(...)`; both are equivalent. Assigning `null` detaches and
+     * disposes the old one. Ordering relative to `renderer.init()` does not matter.
      */
-    inspector = null;
+    get inspector() {
+        return this._inspector;
+    }
+    set inspector(next) {
+        this.setInspector(next);
+    }
     /**
-     * Install or remove the inspector. Safe to call at any time, including
-     * before `renderer.init()`. Passing `null` triggers the old inspector's
-     * detach path (releases GPU resources, removes DOM, drops listeners).
+     * Install or remove the inspector. Equivalent to assigning `renderer.inspector`.
+     * Safe to call at any time, including before `renderer.init()`. Passing `null`
+     * triggers the old inspector's detach path (releases GPU resources, removes DOM,
+     * drops listeners).
      */
     setInspector(next) {
-        if (this.inspector === next)
+        if (this._inspector === next)
             return;
-        this.inspector?.setRenderer(null); // detach signal — old disposes
-        this.inspector = next;
-        next?.setRenderer(this); // attach signal — new sets up (lazily if needed)
+        this._inspector?.setRenderer(null); // detach signal, old disposes
+        this._inspector = next;
+        next?.setRenderer(this); // attach signal, new sets up
     }
     /** The canvas dom element for the current canvas target. Throws in headless mode. */
     get domElement() {
@@ -28826,21 +28832,6 @@ class WebGPURenderer {
         }
         this._canvasTarget.setPixelRatio(value);
     }
-    /** call once per animation frame before any compute() or render() calls. bumps frameId, updates time/deltaTime. */
-    beginFrame() {
-        this._nodes.nodeFrame.update();
-        const frameId = this._nodes.nodeFrame.frameId;
-        const inspector = this.inspector;
-        if (inspector)
-            inspector.begin(frameId);
-        return frameId;
-    }
-    /** call once per animation frame after all compute() and render() calls. */
-    endFrame() {
-        const inspector = this.inspector;
-        if (inspector)
-            inspector.finish(this._nodes.nodeFrame.frameId);
-    }
     /** resize the canvas to logical pixel dimensions (physical = logical * pixelRatio). Throws in headless mode. */
     setSize(width, height, updateStyle = true) {
         if (!this._canvasTarget) {
@@ -28867,7 +28858,7 @@ class WebGPURenderer {
     }
     /**
      * Pre-compile render pipelines and pre-upload GPU resources for a scene.
-     * Optional — resources are created on-demand during the first render if not pre-warmed.
+     * Optional, resources are created on-demand during the first render if not pre-warmed.
      */
     async compile(scene, camera, samples) {
         if (!this._initialized) {
@@ -28958,7 +28949,7 @@ class WebGPURenderer {
     }
     /**
      * Pre-compile a compute pipeline before the render loop starts.
-     * This is optional — pipelines are compiled on-demand during the first
+     * This is optional, pipelines are compiled on-demand during the first
      * dispatch if not pre-warmed.
      *
      * @param computeNode The ComputeNode to pre-compile.
@@ -29007,10 +28998,18 @@ class WebGPURenderer {
         if (entries.length === 0)
             return;
         const frame = this._nodes.nodeFrame;
+        const inspector = this.inspector;
+        // Top-level entry: advance the frame id and open the inspector frame
+        // (one top-level render()/compute() call == one frame).
+        if (this._renderCallDepth === 0) {
+            frame.frameId++;
+            if (inspector)
+                inspector.begin(frame.frameId);
+        }
+        this._renderCallDepth++;
         frame.renderer = this;
         frame.width = this.domElement.width || 1;
         frame.height = this.domElement.height || 1;
-        const inspector = this.inspector;
         if (inspector)
             inspector.perf.start('compute');
         const encoder = this._device.createCommandEncoder();
@@ -29057,6 +29056,10 @@ class WebGPURenderer {
         this._device.queue.submit([encoder.finish()]);
         if (inspector)
             inspector.perf.end('compute');
+        // Top-level call complete (encoder submitted): close the inspector frame.
+        this._renderCallDepth--;
+        if (this._renderCallDepth === 0 && inspector)
+            inspector.finish(frame.frameId);
     }
     /** save the current renderer state into a plain object and return it */
     saveRendererState() {
@@ -29097,9 +29100,17 @@ class WebGPURenderer {
         // At top level (depth 0), just increment. When nested, save/restore parent's renderId.
         const frame = this._nodes.nodeFrame;
         const previousRenderId = frame.renderId;
+        const inspector = this.inspector;
+        // Top-level entry: advance the frame id and open the inspector frame.
+        // A "frame" is one top-level render()/compute() call; nested renders (PassNode)
+        // run at depth > 0 and share the same frameId.
+        if (this._renderCallDepth === 0) {
+            frame.frameId++;
+            if (inspector)
+                inspector.begin(frame.frameId);
+        }
         this._renderCallDepth++;
         frame.renderId++;
-        const inspector = this.inspector;
         if (inspector)
             inspector.perf.start('render');
         const renderTarget = this.renderTarget;
@@ -29153,6 +29164,10 @@ class WebGPURenderer {
         this._renderCallDepth--;
         if (this._renderCallDepth > 0) {
             frame.renderId = previousRenderId;
+        }
+        else if (inspector) {
+            // Top-level call complete (encoder already submitted): close the inspector frame.
+            inspector.finish(frame.frameId);
         }
     }
     /** Build GPU color and depth attachments for the current render target or swapchain. */
@@ -29444,7 +29459,7 @@ class WebGPURenderer {
      */
     dispose() {
         // Drop render object caches. No need to call disposeRenderObject on each
-        // one — device.destroy() invalidates all GPU resources, and the individual
+        // one, device.destroy() invalidates all GPU resources, and the individual
         // onDispose callbacks just do ChainMap/Set bookkeeping we're about to clear.
         this._renderObjects.renderObjects.clear();
         this._renderObjects.chainMaps.clear();
@@ -29481,7 +29496,7 @@ class WebGPURenderer {
     }
 }
 // ---------------------------------------------------------------------------
-// Pass-command helpers — issue the real GPU encoder call AND the inspector hook
+// Pass-command helpers, issue the real GPU encoder call AND the inspector hook
 // in one place so neither renderer.ts call sites nor the inspector interface
 // accumulate per-command boilerplate.
 // ---------------------------------------------------------------------------
@@ -29581,13 +29596,11 @@ class RenderPipeline {
     /**
      * Renders the output node to the renderer's current target.
      *
-     * Call `renderer.beginFrame()` before and `renderer.endFrame()` after all
-     * compute and render work for the frame. Example:
+     * Each top-level `render()`/`compute()` call is a self-contained frame: it advances
+     * the frame id and brackets inspector capture on its own. Example:
      * ```ts
-     * renderer.beginFrame();
      * renderer.compute([{ node: myCompute, dispatch: [n, 1, 1] }]);
      * renderPipeline.render();
-     * renderer.endFrame();
      * ```
      */
     render() {
@@ -29681,5 +29694,5 @@ async function readPixels(renderer, renderTarget, attachmentIndex = 0) {
     return tightlyPacked;
 }
 
-export { ArrayTexture, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CubeTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, FlyControls, Fn, For, Geometry, GpuBuffer, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, Raycaster, RenderPipeline, RenderTarget, Return, Scene, Source, TOUCH, Texture, TransformControls, Uniform, UniformGroup, UniformUpdateType, Var, WebGPURenderer, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, ceil, clamp, color, comparisonSampler, compile, compileCompute, compute, computeIndex, cond, cos, countLeadingZeros, countOneBits, countTrailingZeros, createBoxGeometry, createCylinderGeometry, createFullscreenTriangleGeometry, createIndexBuffer, createIndirectBuffer, createOctahedronGeometry, createPlaneGeometry, createSphereGeometry, createStorageBuffer, createTorusGeometry, createUniformBuffer, createVertexBuffer, cross$1 as cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot$1 as dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frameGroup, frustum, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, globalId, greaterThan, greaterThanEqual, i32, index, instanceIndex, inverseSqrt, layoutSizeOf, layoutStrideOf, length$1 as length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, normalize$4 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, pass, positionClip, pow, readPixels, reinhardToneMapping, renderGroup, renderOutput, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, struct, sub, tan, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, timeDelta, timeElapsed, transpose$1 as transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgsl, wgslFn, workgroupBarrier, workgroupId };
+export { ArrayTexture, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CubeTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, FlyControls, Fn, For, Geometry, GpuBuffer, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, Raycaster, RenderPipeline, RenderTarget, Return, Scene, Source, TOUCH, Texture, TransformControls, Uniform, UniformGroup, UniformUpdateType, Var, WebGPURenderer, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, ceil, clamp, color, comparisonSampler, compile, compileCompute, compute, computeIndex, cond, cos, countLeadingZeros, countOneBits, countTrailingZeros, createBoxGeometry, createCylinderGeometry, createFullscreenTriangleGeometry, createIndexBuffer, createIndirectBuffer, createOctahedronGeometry, createPlaneGeometry, createSphereGeometry, createStorageBuffer, createTorusGeometry, createUniformBuffer, createVertexBuffer, cross$1 as cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot$1 as dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frameGroup, frustum, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, globalId, greaterThan, greaterThanEqual, i32, index, instanceIndex, inverseSqrt, layoutSizeOf, layoutStrideOf, length$1 as length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, normalize$4 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, pass, positionClip, pow, readPixels, reinhardToneMapping, renderGroup, renderOutput, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, struct, sub, tan, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transpose$1 as transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgsl, wgslFn, workgroupBarrier, workgroupId };
 //# sourceMappingURL=index.js.map

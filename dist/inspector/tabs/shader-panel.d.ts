@@ -1,5 +1,5 @@
 /**
- * shader-panel.ts — Inline WGSL shader viewer for the Inspector.
+ * shader-panel.ts, Inline WGSL shader viewer for the Inspector.
  *
  * Given a RenderObject, it:
  *  1. Splits nodeBuilderState.code into vertex/fragment sections.
@@ -23,11 +23,11 @@ export declare class ShaderPanel {
     private _stages;
     /** Raw compute shader code (used in compute mode). */
     private _computeCode;
-    /** The raw code string last written to innerHTML — skips re-render if unchanged. */
+    /** The raw code string last written to innerHTML, skips re-render if unchanged. */
     private _lastRenderedCode;
     /** The RenderObject found during the last update() call. */
     private _renderObject;
-    /** Inspector reference — set on first update() call. */
+    /** Inspector reference, set on first update() call. */
     private _inspector;
     /** Floating popover element, appended to document.body. */
     private _popover;
@@ -39,7 +39,7 @@ export declare class ShaderPanel {
     private _popoverVisible;
     /**
      * When true the current probe was triggered by a text selection, not a
-     * hover.  Mousemove events will NOT clear it — only a mousedown outside
+     * hover.  Mousemove events will NOT clear it, only a mousedown outside
      * the code block (or a new selection) will.
      */
     private _selectionLocked;

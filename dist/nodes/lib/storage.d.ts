@@ -3,7 +3,7 @@ import type { Any } from '../../schema/schema';
 import { Node } from './core';
 import { UniformGroup } from './uniform';
 /**
- * StorageNode — declares a storage buffer binding in a shader.
+ * StorageNode, declares a storage buffer binding in a shader.
  *
  * Two forms:
  * 1. **Named reference**: Resolved from `geometry.buffers` at render time
@@ -22,9 +22,9 @@ import { UniformGroup } from './uniform';
  * particles.value = otherBuffer;  // swap buffers for double-buffering
  */
 export declare class StorageNode<D extends Any> extends Node<D> {
-    /** Buffer name (for geometry.buffers lookup) — null if value-based */
+    /** Buffer name (for geometry.buffers lookup), null if value-based */
     bufferName: string | null;
-    /** Direct buffer reference — null if name-based */
+    /** Direct buffer reference, null if name-based */
     value: GpuBuffer<D> | null;
     /** The WGSL type string, e.g. 'array<mat4x4f>'. Emitted verbatim. */
     readonly storageType: string;
@@ -32,7 +32,7 @@ export declare class StorageNode<D extends Any> extends Node<D> {
     readonly access: 'read' | 'read_write';
     /** Whether the node is atomic or not. */
     isAtomic: boolean;
-    /** Uniform group — determines @group index. Defaults to objectGroup. */
+    /** Uniform group, determines @group index. Defaults to objectGroup. */
     groupNode: UniformGroup;
     constructor(schema: D, nameOrBuffer: string | GpuBuffer<D>, access?: 'read' | 'read_write', groupNode?: UniformGroup);
     /** Whether this is a named reference (resolved from geometry.buffers) */

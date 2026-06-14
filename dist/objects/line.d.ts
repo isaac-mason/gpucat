@@ -9,13 +9,13 @@ import { type Node } from '../nodes/nodes';
  *
  * Allocates GPU buffers once at construction for up to `maxPoints` points.
  * Subsequent calls to `update()` write into the existing buffers and adjust
- * `drawRange.count` — no reallocation unless the point array exceeds `maxPoints`.
+ * `drawRange.count`, no reallocation unless the point array exceeds `maxPoints`.
  *
  * Vertex buffers (per-vertex, 4 verts per segment):
- *   'instanceStart'  vec3f  – world-space segment start
- *   'instanceEnd'    vec3f  – world-space segment end
- *   'side'           f32    – +1 / -1 expansion side
- *   'uv'             vec2f  – u along segment, v across width
+ *   'instanceStart'  vec3f  - world-space segment start
+ *   'instanceEnd'    vec3f  - world-space segment end
+ *   'side'           f32    - +1 / -1 expansion side
+ *   'uv'             vec2f  - u along segment, v across width
  *
  * Pair with a `LineMaterial`.
  *
@@ -36,7 +36,7 @@ export declare class LineGeometry extends Geometry {
      * Update the line's point data in-place.
      *
      * If the new point count fits within the pre-allocated capacity, this only
-     * writes into existing typed arrays and adjusts `drawRange.count` — no GPU
+     * writes into existing typed arrays and adjusts `drawRange.count`, no GPU
      * buffer reallocation occurs. If the new count exceeds capacity, buffers are
      * reallocated to the new size (capacity grows, never shrinks).
      *
@@ -63,7 +63,7 @@ export declare class LineGeometry extends Geometry {
  *
  * Allocates GPU buffers once at construction for up to `maxPoints` points.
  * Subsequent calls to `update()` write into the existing buffers and adjust
- * `drawRange.count` — no reallocation unless the point array exceeds `maxPoints`.
+ * `drawRange.count`, no reallocation unless the point array exceeds `maxPoints`.
  *
  * Pair with a `LineMaterial`.
  *
@@ -81,7 +81,7 @@ export declare class LineSegmentsGeometry extends Geometry {
      * Update the segment data in-place.
      *
      * If the new point count fits within the pre-allocated capacity, this only
-     * writes into existing typed arrays and adjusts `drawRange.count` — no GPU
+     * writes into existing typed arrays and adjusts `drawRange.count`, no GPU
      * buffer reallocation occurs. If the new count exceeds capacity, buffers are
      * reallocated to the new size (capacity grows, never shrinks).
      *

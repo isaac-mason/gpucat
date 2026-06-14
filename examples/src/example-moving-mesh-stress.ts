@@ -115,9 +115,7 @@ async function main() {
             mesh.updateWorldMatrix();
         }
 
-        renderer.beginFrame();
         renderPipeline.render();
-        renderer.endFrame();
         controls.update();
         requestAnimationFrame(frame);
     }

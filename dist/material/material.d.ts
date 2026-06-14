@@ -50,7 +50,7 @@ export declare class Material {
     vertex: Node<Any>;
     /** Fragment output. Can be vec4f, OutputStructNode for MRT, or undefined for depth-only. */
     fragment: Node<Any> | undefined;
-    /** f32 depth override — written to @builtin(frag_depth) */
+    /** f32 depth override, written to @builtin(frag_depth) */
     depth: Node<Any> | undefined;
     /** Controls draw sort order (opaque vs transparent) AND the default for depthWrite. */
     transparent: boolean;

@@ -1,16 +1,16 @@
 /**
- * draw-calls.ts — Inspector "Draw Calls" tab.
+ * draw-calls.ts, Inspector "Draw Calls" tab.
  *
- * Surfaces renderer-level RenderObject data — one entry per GPU draw call.
+ * Surfaces renderer-level RenderObject data, one entry per GPU draw call.
  * ROs are grouped under their render pass (via ro.passId).
  *
  * When a RO is selected a detail panel appears with three sub-tabs:
- *   [Shader]   — reuses ShaderPanel (with probe hover/selection support)
- *   [Pipeline] — material / render-context state table
- *   [Bindings] — bind group layout table (uniform groups, textures, samplers, storage)
+ *   [Shader], reuses ShaderPanel (with probe hover/selection support)
+ *   [Pipeline], material / render-context state table
+ *   [Bindings], bind group layout table (uniform groups, textures, samplers, storage)
  *
  * Update strategy (60 fps concern):
- *   update() diffs by ro.id — only adds/removes items on structural changes.
+ *   update() diffs by ro.id, only adds/removes items on structural changes.
  *   The static detail panel is only rebuilt when _selectedRO changes.
  */
 
@@ -25,14 +25,14 @@ import { getIndexFormat } from '../../core/gpu-buffer';
 import type { NodeBuilderState } from '../../renderer/node-builder-state';
 
 // ---------------------------------------------------------------------------
-// Internal record — one per live RenderObject
+// Internal record, one per live RenderObject
 // ---------------------------------------------------------------------------
 
 type RONode = {
     id: number;
     ro: RenderObject;
     item: Item;
-    /** passId this RO was last filed under — lets us detect pass changes */
+    /** passId this RO was last filed under, lets us detect pass changes */
     passId: string;
 };
 
@@ -147,7 +147,7 @@ export class DrawCalls extends Tab {
 
     /**
      * Called by Inspector._processFrame() every frame.
-     * Only diffs by ro.id — does NOT repaint the detail panel unless the
+     * Only diffs by ro.id, does NOT repaint the detail panel unless the
      * selected RO changed.
      *
      * Structure: pass header items are top-level in the List; RO items are
@@ -287,7 +287,7 @@ export class DrawCalls extends Tab {
     // -----------------------------------------------------------------------
 
     private _populateDetail(ro: RenderObject, inspector: Inspector): void {
-        // Shader pane — delegate to ShaderPanel (reuses probe support)
+        // Shader pane, delegate to ShaderPanel (reuses probe support)
         this._shaderPanel.updateFromRO(inspector, ro);
 
         // Pipeline pane

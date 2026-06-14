@@ -83,8 +83,10 @@ const vHue = g.varying(instanceHue, 'v_hue');
 
 const diffuse = vNorm.normalize().dot(lightDir).max(g.f32(0.15));
 
+// `time` is a user-driven uniform (seconds), updated each frame in the loop.
+const time = g.uniform(g.f32(0), 'time');
 // HSV-like color from hue: oscillate through red→yellow→green→cyan→blue→magenta
-const pulse = g.timeElapsed.mul(g.f32(0.4)).sin().mul(g.f32(0.05)).add(g.f32(1.0));
+const pulse = time.mul(g.f32(0.4)).sin().mul(g.f32(0.05)).add(g.f32(1.0));
 const colR = vHue.mul(g.f32(Math.PI * 2)).sin().mul(g.f32(0.5)).add(g.f32(0.5));
 const colG = vHue.mul(g.f32(Math.PI * 2)).add(g.f32(Math.PI * 2 / 3)).sin().mul(g.f32(0.5)).add(g.f32(0.5));
 const colB = vHue.mul(g.f32(Math.PI * 2)).add(g.f32(Math.PI * 4 / 3)).sin().mul(g.f32(0.5)).add(g.f32(0.5));
@@ -198,9 +200,8 @@ async function main() {
     document.body.appendChild(ui);
 
     function frame() {
-        renderer.beginFrame();
+        time.value = performance.now() / 1000;
         renderPipeline.render();
-        renderer.endFrame();
         requestAnimationFrame(frame);
     }
 

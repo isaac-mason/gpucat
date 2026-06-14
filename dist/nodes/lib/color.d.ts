@@ -4,7 +4,7 @@ import { type ColorInput } from '../../utils/color';
  *
  * This is the primary way to introduce a color into the node graph.
  * The resulting node has type `vec3f` so it can be used anywhere a `vec3f`
- * is expected — including as the first argument to `vec4(xyz, w)`.
+ * is expected, including as the first argument to `vec4(xyz, w)`.
  *
  * @example
  * import { rgb, vec4, f32 } from 'gpucat';

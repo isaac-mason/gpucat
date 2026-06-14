@@ -249,7 +249,7 @@ export class OrbitControls {
         const up: Vec3 = [0, 1, 0];
         // camera.up equivalent: we use +Y by default since Object3D doesn't carry an "up" field
         // if they need a different up axis.
-        this._quat = quat.rotationTo(quat.create(), up, up); // identity — up already is +Y
+        this._quat = quat.rotationTo(quat.create(), up, up); // identity, up already is +Y
         this._quatInverse = quat.conjugate(quat.create(), this._quat);
 
         // Saved state snapshots
@@ -457,7 +457,7 @@ export class OrbitControls {
     }
 
     // -------------------------------------------------------------------------
-    // update() — call every frame when damping/autoRotate are enabled
+    // update(), call every frame when damping/autoRotate are enabled
     // -------------------------------------------------------------------------
 
     update(deltaTime: number | null = null): boolean {
@@ -699,8 +699,8 @@ export class OrbitControls {
                 this.object.matrix,
             );
         } else {
-            // Fallback — disable pan for unknown camera type
-            console.warn('OrbitControls: unknown camera type — pan disabled.');
+            // Fallback, disable pan for unknown camera type
+            console.warn('OrbitControls: unknown camera type, pan disabled.');
             this.enablePan = false;
         }
     }

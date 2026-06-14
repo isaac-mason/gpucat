@@ -7,8 +7,13 @@ export declare class UniformNode<D extends Any> extends Node<D> {
     name: string;
     /** The underlying Uniform data container */
     uniform: Uniform<D>;
-    /** Get the uniform group */
-    get groupNode(): UniformGroup;
+    /**
+     * The uniform group, determines the WGSL @group index, update cadence, and
+     * struct packing. Defaults to `objectGroup`; reassign (e.g. `u.group = renderGroup`)
+     * before the node is first rendered to move it to a shared group.
+     */
+    get group(): UniformGroup;
+    set group(g: UniformGroup);
     /** Get the current value */
     get value(): UniformValue<D> | null;
     /** Set value directly */
@@ -30,17 +35,17 @@ export { Uniform, UniformGroup, UniformUpdateType, objectGroup, renderGroup, fra
 /**
  * Declare a material uniform.
  *
- * **Value-based form** — pass a Uniform object; the node references it:
+ * **Value-based form**, pass a Uniform object; the node references it:
  *   const roughnessU = new Uniform(d.f32, 0.5);
  *   const roughness = uniform(roughnessU);
  *   roughnessU.set(0.8);  // update via Uniform
  *
- * **Name-based form** — resolved from material.uniforms at render time:
+ * **Name-based form**, resolved from material.uniforms at render time:
  *   const roughness = uniform('roughness', d.f32);
  *   const myVal = uniform('myVal', MyStruct);  // struct variant
  *
- * **Inline form** — pass a typed LiteralNode as the initialiser:
- *   uniform(f32(0.5))               // anonymous — uniformId derived from type
+ * **Inline form**, pass a typed LiteralNode as the initialiser:
+ *   uniform(f32(0.5))               // anonymous, uniformId derived from type
  *   uniform(f32(0.5), 'roughness')  // explicit name used as the WGSL field name
  *   uniform(vec4f(1, 0, 0, 1), 'baseColor')
  */

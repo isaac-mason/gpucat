@@ -139,7 +139,7 @@ function applyMatrix4ToGeometry(geometry: Geometry, matrix: Mat4): void {
 }
 
 // ============================================================================
-// Raycaster helper — intersect including invisible objects
+// Raycaster helper, intersect including invisible objects
 // ============================================================================
 
 function intersectObjectWithRay(
@@ -297,7 +297,7 @@ class TransformControlsPlane extends Mesh {
 }
 
 // ============================================================================
-// GizmoMesh — Mesh with extra tag/name fields for gizmo logic
+// GizmoMesh, Mesh with extra tag/name fields for gizmo logic
 // ============================================================================
 
 class GizmoMesh extends Mesh {

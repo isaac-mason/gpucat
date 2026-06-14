@@ -20,7 +20,7 @@ export class Memory extends Tab {
     constructor(options: { name?: string; allowDetach?: boolean } = {}) {
         super('Memory', options);
 
-        // Graph pinned above the list — full width, fixed height
+        // Graph pinned above the list, full width, fixed height
         const graphContainer = document.createElement('div');
         graphContainer.className = 'graph-container';
 

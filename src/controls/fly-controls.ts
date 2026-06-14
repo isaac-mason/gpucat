@@ -9,7 +9,7 @@ const _right: Vec3 = [0, 0, 0];
 const _moveDir: Vec3 = [0, 0, 0];
 
 /**
- * FlyControls — WASD + right-click look camera controller.
+ * FlyControls, WASD + right-click look camera controller.
  *
  * Movement: W/S forward/back, A/D strafe left/right, Space up, Shift down.
  * Look: Right-click + drag to yaw/pitch.
@@ -202,7 +202,7 @@ export class FlyControls {
         vec3.set(_forward, 0, 0, -1);
         vec3.transformQuat(_forward, _forward, q);
 
-        // yaw = atan2(forward.x, forward.z) — but forward is -Z, so:
+        // yaw = atan2(forward.x, forward.z), but forward is -Z, so:
         this._yaw = Math.atan2(-_forward[0], -_forward[2]);
 
         // pitch = asin(-forward.y), clamped

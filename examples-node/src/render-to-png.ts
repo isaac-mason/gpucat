@@ -200,9 +200,7 @@ for (let i = 0; i < FRAMES; i++) {
     mesh.updateWorldMatrix();
     scene.updateWorldMatrix();
 
-    renderer.beginFrame();
     pipeline.render();
-    renderer.endFrame();
     const renderMs = performance.now() - frameStart;
 
     const readStart = performance.now();

@@ -16,7 +16,7 @@ export type AttributeOptions = {
 };
 
 /**
- * AttributeNode — a vertex attribute that reads from either:
+ * AttributeNode, a vertex attribute that reads from either:
  * 1. A named geometry buffer (looked up at render time by name)
  * 2. A direct GpuBuffer reference
  *

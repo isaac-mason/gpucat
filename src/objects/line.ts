@@ -28,7 +28,7 @@ import {
 // ─── Geometry ────────────────────────────────────────────────────────────────
 
 /**
- * Shared inner loop — writes one quad into pre-allocated arrays at segment slot `segmentOffset + s`.
+ * Shared inner loop, writes one quad into pre-allocated arrays at segment slot `segmentOffset + s`.
  */
 function writeQuad(
     s: number,
@@ -154,13 +154,13 @@ function writeSegmentPairs(
  *
  * Allocates GPU buffers once at construction for up to `maxPoints` points.
  * Subsequent calls to `update()` write into the existing buffers and adjust
- * `drawRange.count` — no reallocation unless the point array exceeds `maxPoints`.
+ * `drawRange.count`, no reallocation unless the point array exceeds `maxPoints`.
  *
  * Vertex buffers (per-vertex, 4 verts per segment):
- *   'instanceStart'  vec3f  – world-space segment start
- *   'instanceEnd'    vec3f  – world-space segment end
- *   'side'           f32    – +1 / -1 expansion side
- *   'uv'             vec2f  – u along segment, v across width
+ *   'instanceStart'  vec3f  - world-space segment start
+ *   'instanceEnd'    vec3f  - world-space segment end
+ *   'side'           f32    - +1 / -1 expansion side
+ *   'uv'             vec2f  - u along segment, v across width
  *
  * Pair with a `LineMaterial`.
  *
@@ -220,7 +220,7 @@ export class LineGeometry extends Geometry {
      * Update the line's point data in-place.
      *
      * If the new point count fits within the pre-allocated capacity, this only
-     * writes into existing typed arrays and adjusts `drawRange.count` — no GPU
+     * writes into existing typed arrays and adjusts `drawRange.count`, no GPU
      * buffer reallocation occurs. If the new count exceeds capacity, buffers are
      * reallocated to the new size (capacity grows, never shrinks).
      *
@@ -253,7 +253,7 @@ export class LineGeometry extends Geometry {
 
             this._maxSegments = segmentCount;
         } else {
-            // Write into existing buffers — no reallocation
+            // Write into existing buffers, no reallocation
             const startBuf = this.getBuffer<d.vec3f>('instanceStart')!;
             const endBuf = this.getBuffer<d.vec3f>('instanceEnd')!;
             const sideBuf = this.getBuffer<d.f32>('side')!;
@@ -305,7 +305,7 @@ export class LineGeometry extends Geometry {
 
         let cumulative = 0;
         for (let s = 0; s < n; s++) {
-            // All 4 verts of a segment share the same start/end — read vertex 0 of the quad
+            // All 4 verts of a segment share the same start/end, read vertex 0 of the quad
             const vi = s * 4;
             const ax = starts[vi * 3],
                 ay = starts[vi * 3 + 1],
@@ -350,7 +350,7 @@ export class LineGeometry extends Geometry {
  *
  * Allocates GPU buffers once at construction for up to `maxPoints` points.
  * Subsequent calls to `update()` write into the existing buffers and adjust
- * `drawRange.count` — no reallocation unless the point array exceeds `maxPoints`.
+ * `drawRange.count`, no reallocation unless the point array exceeds `maxPoints`.
  *
  * Pair with a `LineMaterial`.
  *
@@ -406,7 +406,7 @@ export class LineSegmentsGeometry extends Geometry {
      * Update the segment data in-place.
      *
      * If the new point count fits within the pre-allocated capacity, this only
-     * writes into existing typed arrays and adjusts `drawRange.count` — no GPU
+     * writes into existing typed arrays and adjusts `drawRange.count`, no GPU
      * buffer reallocation occurs. If the new count exceeds capacity, buffers are
      * reallocated to the new size (capacity grows, never shrinks).
      *
@@ -828,7 +828,7 @@ function raycastScreenSpace(
         // Skip if entirely behind near plane
         if (_start4[2] > near && _end4[2] > near) continue;
 
-        // Clip to near plane — lerp toward the other endpoint
+        // Clip to near plane, lerp toward the other endpoint
         if (_start4[2] > near) {
             const t = (_start4[2] - near) / (_start4[2] - _end4[2]);
             _start4[0] = _start4[0] + t * (_end4[0] - _start4[0]);

@@ -125,7 +125,7 @@ export class Controller<T = unknown> {
 		return this.show(false);
 	}
 
-	// No-ops on base — overridden in NumberController
+	// No-ops on base, overridden in NumberController
 	min(_min: number): this { return this; }
 	max(_max: number): this { return this; }
 	step(_step: number): this { return this; }

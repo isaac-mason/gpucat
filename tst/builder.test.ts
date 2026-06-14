@@ -389,3 +389,21 @@ describe('struct storage buffer with index', () => {
         expect(result.code).toContain('array<Color>');
     });
 });
+
+describe('Fn explicit return', () => {
+    test('a matching return type is accepted', () => {
+        const splat = Fn((a) => vec3(a, a, a), {
+            name: 'splat',
+            params: [{ name: 'a', type: d.f32 }],
+            return: d.vec3f,
+        });
+        expect(typeof splat).toBe('function');
+    });
+
+    test('a return type that mismatches the body throws', () => {
+        expect(() =>
+            // @ts-expect-error  body returns f32 but the layout declares vec3f
+            Fn((a) => a, { name: 'bad', params: [{ name: 'a', type: d.f32 }], return: d.vec3f }),
+        ).toThrow(/declares return/);
+    });
+});

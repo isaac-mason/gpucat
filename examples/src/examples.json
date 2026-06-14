@@ -49,6 +49,11 @@
         "description": "8192 GPU-simulated particles updated each frame by a @compute shader (renderer.compute) and rendered as instanced quads — no CPU readback.",
         "tags": ["compute", "particles"]
     },
+    "example-ball-cluster": {
+        "title": "Ball Cluster",
+        "description": "Thousands of balls pulled toward the cursor and colliding into a packed cluster, simulated entirely on the GPU. Four compute passes per frame bin the balls into a spatial-hash grid, so each ball only tests its 27 neighbouring cells instead of every other ball.",
+        "tags": ["compute", "physics", "spatial-hash"]
+    },
     "example-indirect-batched": {
         "title": "Indirect Batched",
         "description": "CPU-driven indirect rendering: one merged geometry holds box and sphere data; two IndirectBuffers select sub-ranges via firstIndex + instanceCount. A slider moves the box/sphere split at runtime.",

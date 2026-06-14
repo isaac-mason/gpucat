@@ -7,23 +7,23 @@ export declare class BuiltinNode<D extends Any> extends Node<D> {
     constructor(builtinKind: BuiltinKind, desc: D);
 }
 export declare const builtin: <D extends Any>(builtinKind: BuiltinKind, desc: D) => BuiltinNode<D>;
-/** @builtin(instance_index) — the instance index for instanced draw calls. */
+/** @builtin(instance_index), the instance index for instanced draw calls. */
 export declare const instanceIndex: BuiltinNode<d.u32>;
-/** @builtin(vertex_index) — the vertex index in the current draw call. */
+/** @builtin(vertex_index), the vertex index in the current draw call. */
 export declare const vertexIndex: BuiltinNode<d.u32>;
-/** @builtin(global_invocation_id) — unique thread ID across the entire dispatch. */
+/** @builtin(global_invocation_id), unique thread ID across the entire dispatch. */
 export declare const globalId: BuiltinNode<d.vec3u>;
-/** @builtin(local_invocation_id) — thread ID within its workgroup. */
+/** @builtin(local_invocation_id), thread ID within its workgroup. */
 export declare const localId: BuiltinNode<d.vec3u>;
-/** @builtin(local_invocation_index) — flat 1-D index within the workgroup. */
+/** @builtin(local_invocation_index), flat 1-D index within the workgroup. */
 export declare const localIndex: BuiltinNode<d.u32>;
-/** @builtin(workgroup_id) — workgroup coordinate in the dispatch grid. */
+/** @builtin(workgroup_id), workgroup coordinate in the dispatch grid. */
 export declare const workgroupId: BuiltinNode<d.vec3u>;
-/** @builtin(num_workgroups) — total number of workgroups dispatched. */
+/** @builtin(num_workgroups), total number of workgroups dispatched. */
 export declare const numWorkgroups: BuiltinNode<d.vec3u>;
 /**
  * Fragment position in window/pixel coordinates.
- * @builtin(position) in the fragment shader — vec4f where xy are pixel coordinates.
+ * @builtin(position) in the fragment shader, vec4f where xy are pixel coordinates.
  *
  * This is the raw fragment coordinate from the rasterizer.
  * Use screenCoordinate.xy for 2D pixel position.

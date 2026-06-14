@@ -6,7 +6,7 @@ export type Ray = {
     direction: Vec3;
 };
 /**
- * Möller–Trumbore ray-triangle intersection.
+ * Möller-Trumbore ray-triangle intersection.
  * Returns raw t (distance along ray direction) or null if no hit.
  */
 export declare function rayTriangleIntersection(origin: Vec3, direction: Vec3, a: Vec3, b: Vec3, c: Vec3, backfaceCulling: boolean): number | null;

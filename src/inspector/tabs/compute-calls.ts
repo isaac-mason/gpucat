@@ -1,11 +1,11 @@
 /**
- * compute-calls.ts — Inspector "Compute Calls" tab.
+ * compute-calls.ts, Inspector "Compute Calls" tab.
  *
- * Surfaces compute node data — one entry per compute dispatch.
+ * Surfaces compute node data, one entry per compute dispatch.
  *
  * When a compute node is selected, a detail panel appears with two sub-tabs:
- *   [Shader]   — displays the compute WGSL using ShaderPanel in compute mode
- *   [Bindings] — bind group layout table (uniform groups, storage buffers)
+ *   [Shader], displays the compute WGSL using ShaderPanel in compute mode
+ *   [Bindings], bind group layout table (uniform groups, storage buffers)
  *
  * Mirrors the structure of draw-calls.ts.
  */
@@ -21,7 +21,7 @@ import type { WebGPURenderer } from '../../renderer/renderer';
 import * as pipelines from '../../renderer/pipelines';
 
 // ---------------------------------------------------------------------------
-// Internal record — one per live ComputeNode
+// Internal record, one per live ComputeNode
 // ---------------------------------------------------------------------------
 
 type ComputeNodeRecord = {
@@ -138,7 +138,7 @@ export class ComputeCalls extends Tab {
 
     /**
      * Called by Inspector._processFrame() every frame when compute passes exist.
-     * Diffs by node.id — only adds/removes items on structural changes.
+     * Diffs by node.id, only adds/removes items on structural changes.
      */
     update(inspector: Inspector, renderer: WebGPURenderer): void {
         const liveNodes = inspector.computeNodes;
@@ -218,7 +218,7 @@ export class ComputeCalls extends Tab {
     // -----------------------------------------------------------------------
 
     private _populateDetail(node: ComputeNode, _inspector: Inspector, renderer: WebGPURenderer): void {
-        // Metadata pane — workgroup size
+        // Metadata pane, workgroup size
         this._metaPane.innerHTML = '';
         const ws = node.workgroupSize;
         const metaTable = document.createElement('div');
@@ -226,7 +226,7 @@ export class ComputeCalls extends Tab {
         metaTable.appendChild(kvRow('Workgroup Size', `[${ws[0]}, ${ws[1]}, ${ws[2]}]`));
         this._metaPane.appendChild(metaTable);
 
-        // Shader pane — delegate to ShaderPanel (compute mode)
+        // Shader pane, delegate to ShaderPanel (compute mode)
         this._refreshShaderPanel(renderer);
 
         // Bindings pane

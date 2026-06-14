@@ -414,9 +414,9 @@ function walkObject(
  * Test whether a mesh should be included in the draw list.
  *
  * Uses frustum culling with bounding volumes:
- * 1. boundingSphere — cheapest test (6 dot-products)
- * 2. boundingBox — more precise but slightly more work
- * 3. no bounds — always visible (safe fallback)
+ * 1. boundingSphere, cheapest test (6 dot-products)
+ * 2. boundingBox, more precise but slightly more work
+ * 3. no bounds, always visible (safe fallback)
  */
 function isMeshVisible(mesh: Mesh): boolean {
     const geom = mesh.geometry;
@@ -455,7 +455,7 @@ function isMeshVisible(mesh: Mesh): boolean {
         return frustum.intersectsBox3(_frustum, _worldBox);
     }
 
-    // --- no bounds — always draw -------------------------------------------
+    // --- no bounds, always draw -------------------------------------------
     return true;
 }
 

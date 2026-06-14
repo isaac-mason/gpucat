@@ -12,7 +12,7 @@ export type BufferCache = {
     bufferMap: WeakMap<GpuBuffer, CacheEntry>;
     /** Plain-object-keyed buffers (instance matrices, material UBOs, camera, time). */
     rawMap: WeakMap<object, GPUBuffer>;
-    /** Mutable stats counters (approximate — tracks allocations, not deallocations) */
+    /** Mutable stats counters (approximate, tracks allocations, not deallocations) */
     bufferCount: number;
     rawCount: number;
 };
@@ -33,7 +33,7 @@ export declare function ensureUploaded(cache: BufferCache, device: GPUDevice, bu
  * Return the GPUBuffer for an already-uploaded GpuBuffer, or undefined
  * if it has not been uploaded yet.
  *
- * This is a pure lookup — no data transfer occurs.
+ * This is a pure lookup, no data transfer occurs.
  */
 export declare function getUploaded(cache: BufferCache, buffer: GpuBuffer): GPUBuffer | undefined;
 /**
@@ -59,7 +59,7 @@ export type UploadRawResult = {
 export declare function uploadRaw(cache: BufferCache, device: GPUDevice, key: object, data: GpuTypedArray, usage: GPUBufferUsageFlags): UploadRawResult;
 /**
  * Get a previously created raw buffer, or undefined.
- * Does NOT upload — use uploadRaw for that.
+ * Does NOT upload, use uploadRaw for that.
  */
 export declare function getRaw(cache: BufferCache, key: object): GPUBuffer | undefined;
 /**

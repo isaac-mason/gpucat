@@ -638,7 +638,7 @@ export function createOctahedronGeometry(radius = 1, detail = 0): Geometry {
         faces = newFaces;
     }
 
-    // build arrays — each face gets its own 3 vertices (flat shading normals)
+    // build arrays, each face gets its own 3 vertices (flat shading normals)
     const faceCount = faces.length / 3;
     const vertexCount = faceCount * 3;
     const positions = new Float32Array(vertexCount * 3);

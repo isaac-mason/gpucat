@@ -26,7 +26,7 @@ export class SamplerNode<D extends d.sampler | d.samplerComparison = d.sampler> 
     /** Unique ID for this sampler instance */
     readonly samplerId: string;
 
-    /** Uniform group — determines @group index. */
+    /** Uniform group, determines @group index. */
     groupNode: UniformGroup;
 
     constructor(
@@ -71,7 +71,7 @@ export class SamplerNode<D extends d.sampler | d.samplerComparison = d.sampler> 
  *
  * This mirrors how SamplerNode works: it represents a `var t : texture_2d<f32>`
  * (or texture_cube<f32>, texture_depth_2d, etc.) at module scope. When used as
- * an expression, it generates just the binding name — never a sampling operation.
+ * an expression, it generates just the binding name, never a sampling operation.
  *
  * The existing TextureNode/CubeTextureNode/DepthTextureNode own a
  * TextureBindingNode internally and delegate binding registration to it.
@@ -88,7 +88,7 @@ export class TextureBindingNode<D extends d.Texture = d.Texture> extends Node<D>
     /** Unique ID for this texture binding (e.g. 'tAlbedo', 'tShadowMap'). */
     readonly textureId: string;
 
-    /** Uniform group — determines @group index. */
+    /** Uniform group, determines @group index. */
     groupNode: UniformGroup;
 
     constructor(
@@ -131,7 +131,7 @@ export type SamplingMode = 'sample' | 'level' | 'bias' | 'grad' | 'load';
 export class TextureNode extends Node<d.vec4f> {
     readonly isTextureNode = true;
 
-    /** The texture binding — holds GPU resource, textureId, groupNode. */
+    /** The texture binding, holds GPU resource, textureId, groupNode. */
     readonly bindingNode: TextureBindingNode<FlatSampledTexture>;
 
     /**
@@ -459,7 +459,7 @@ export type CubeSamplingMode = 'sample' | 'level' | 'bias' | 'grad';
 export class CubeTextureNode extends Node<d.vec4f> {
     readonly isCubeTextureNode = true;
 
-    /** The texture binding — holds GPU resource, textureId, groupNode. */
+    /** The texture binding, holds GPU resource, textureId, groupNode. */
     readonly bindingNode: TextureBindingNode<CubeSampledTexture>;
 
     /**
@@ -637,7 +637,7 @@ export type DepthSamplingMode = 'sample' | 'level' | 'load';
  * - NO textureSampleGrad support
  * - Supports offset (2D depth textures)
  * - Comparison sampling via free functions (textureSampleCompare/textureSampleCompareLevel)
- *   which require a sampler_comparison — use comparisonSampler() to create one
+ *   which require a sampler_comparison, use comparisonSampler() to create one
  *
  * Supports chainable methods:
  * - .sample(uv) - set UV coordinates
@@ -648,7 +648,7 @@ export type DepthSamplingMode = 'sample' | 'level' | 'load';
 export class DepthTextureNode extends Node<d.f32> {
     readonly isDepthTextureNode = true;
 
-    /** The texture binding — holds GPU resource, textureId, groupNode. */
+    /** The texture binding, holds GPU resource, textureId, groupNode. */
     readonly bindingNode: TextureBindingNode<FlatDepthTexture>;
 
     /**
@@ -847,7 +847,7 @@ export type ArraySamplingMode = 'sample' | 'level' | 'bias' | 'grad' | 'load';
 export class ArrayTextureNode extends Node<d.vec4f> {
     readonly isArrayTextureNode = true;
 
-    /** The texture binding — holds GPU resource, textureId, groupNode. */
+    /** The texture binding, holds GPU resource, textureId, groupNode. */
     readonly bindingNode: TextureBindingNode<d.texture2dArray>;
 
     /**

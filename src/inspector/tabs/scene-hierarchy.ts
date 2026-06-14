@@ -1,5 +1,5 @@
 /**
- * scene-hierarchy.ts — Inspector Scene Hierarchy tab.
+ * scene-hierarchy.ts, Inspector Scene Hierarchy tab.
  *
  * Walks the Object3D tree for every scene record in a frame and displays it
  * as a collapsible tree using the existing List/Item UI components.
@@ -24,7 +24,7 @@ import type { Object3D } from '../../core/object3d';
 import { getIndexFormat } from '../../core/gpu-buffer';
 
 // ---------------------------------------------------------------------------
-// Internal node record — one per live Object3D in the tree
+// Internal node record, one per live Object3D in the tree
 // ---------------------------------------------------------------------------
 
 type HierarchyNode = {
@@ -48,7 +48,7 @@ function typeLabel(obj: Object3D): string {
     return 'Object3D';
 }
 
-/** Display name — prefer obj.name, fall back to type + objectId. */
+/** Display name, prefer obj.name, fall back to type + objectId. */
 function displayName(obj: Object3D): string {
     return obj.name || `${typeLabel(obj)} #${obj.objectId}`;
 }
@@ -104,10 +104,10 @@ export class SceneHierarchy extends Tab {
     /** Currently selected mesh */
     private _selectedMesh: Mesh | null = null;
 
-    /** The inspector reference passed into update() — used for navigation */
+    /** The inspector reference passed into update(), used for navigation */
     private _inspector: Inspector | null = null;
 
-    /** Right-side detail panel — shown when a Mesh is selected */
+    /** Right-side detail panel, shown when a Mesh is selected */
     private _detailPanel: HTMLDivElement;
 
     constructor() {
@@ -231,7 +231,7 @@ export class SceneHierarchy extends Tab {
             let hn = parentNode.children.get(child.objectId);
 
             if (!hn) {
-                // New child — create item
+                // New child, create item
                 const badge = makeTypeBadge(typeLabel(child));
                 const nameEl = document.createElement('span');
                 nameEl.className = 'hierarchy-name';
@@ -261,7 +261,7 @@ export class SceneHierarchy extends Tab {
                 parentNode.children.set(child.objectId, hn);
                 this._nodes.set(child.objectId, hn);
             } else {
-                // Existing child — update name in case it changed
+                // Existing child, update name in case it changed
                 const nameEl = hn.item.itemRow.querySelector('.hierarchy-name') as HTMLElement | null;
                 if (nameEl) nameEl.textContent = displayName(child);
             }
@@ -337,7 +337,7 @@ export class SceneHierarchy extends Tab {
             table.appendChild(makeKVRow('buffers', 'none'));
         }
 
-        // Bounding box — Box3 is [minX, minY, minZ, maxX, maxY, maxZ]
+        // Bounding box, Box3 is [minX, minY, minZ, maxX, maxY, maxZ]
         if (geo.boundingBox) {
             const bb = geo.boundingBox;
             const minStr = `(${bb[0].toFixed(2)}, ${bb[1].toFixed(2)}, ${bb[2].toFixed(2)})`;

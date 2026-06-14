@@ -504,7 +504,7 @@ export function buildVertexBufferLayouts(
             });
         }
 
-        // Compute arrayStride — use explicit stride if set, otherwise derive from buffer or first attribute
+        // Compute arrayStride, use explicit stride if set, otherwise derive from buffer or first attribute
         let arrayStride: number;
         if (group.stride > 0) {
             arrayStride = group.stride;

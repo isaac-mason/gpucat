@@ -81,7 +81,7 @@ export class GpuTexture<D extends d.Texture = d.Texture> {
     /** Unique ID */
     readonly id = _textureId++;
     
-    /** Schema type descriptor — source of truth for WGSL type */
+    /** Schema type descriptor, source of truth for WGSL type */
     readonly type: D;
     
     /** GPU texture dimension ('1d', '2d', '3d') */

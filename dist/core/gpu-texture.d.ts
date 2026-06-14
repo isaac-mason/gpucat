@@ -46,7 +46,7 @@ export type GpuTextureOptions<D extends d.Texture> = D extends d.texture1d ? Opt
 export declare class GpuTexture<D extends d.Texture = d.Texture> {
     /** Unique ID */
     readonly id: number;
-    /** Schema type descriptor — source of truth for WGSL type */
+    /** Schema type descriptor, source of truth for WGSL type */
     readonly type: D;
     /** GPU texture dimension ('1d', '2d', '3d') */
     readonly dimension: DimensionOf<D>;

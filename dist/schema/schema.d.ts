@@ -1,9 +1,9 @@
 /**
- * schema.ts — WGSL type descriptors following packcat's discriminated union pattern.
+ * schema.ts, WGSL type descriptors following packcat's discriminated union pattern.
  *
  * Every descriptor has:
- *   - `type`     — discriminant string for type-level narrowing and runtime switching
- *   - `wgslType` — the WGSL type name string
+ *   - `type`, discriminant string for type-level narrowing and runtime switching
+ *   - `wgslType`, the WGSL type name string
  *
  * For primitives, type === wgslType (e.g. { type: 'f32'; wgslType: 'f32' }).
  * For composites, type is the discriminant ('array', 'struct') and wgslType is computed.
@@ -227,7 +227,7 @@ export type StructDesc<S extends StructSchema = StructSchema> = {
     name: string;
     fields: S;
 };
-/** TextureSampleType — the scalar descriptor types valid as texture sample type parameters in WGSL. */
+/** TextureSampleType, the scalar descriptor types valid as texture sample type parameters in WGSL. */
 export type TextureSampleType = f32 | i32 | u32;
 export type texture1d<S extends TextureSampleType = TextureSampleType> = {
     type: 'texture_1d';
@@ -273,13 +273,13 @@ export type textureMultisampled2d<S extends TextureSampleType = TextureSampleTyp
 export declare function textureMultisampled2d<S extends TextureSampleType = f32>(sampleType?: S): textureMultisampled2d<S>;
 /** Union of all sampled texture descriptors. */
 export type SampledTexture = texture1d | texture2d | texture2dArray | texture3d | textureCube | textureCubeArray | textureMultisampled2d;
-/** Non-cube sampled textures — used by TextureNode. */
+/** Non-cube sampled textures, used by TextureNode. */
 export type FlatSampledTexture = texture1d | texture2d | texture2dArray | texture3d | textureMultisampled2d;
-/** Cube sampled textures — used by CubeTextureNode. */
+/** Cube sampled textures, used by CubeTextureNode. */
 export type CubeSampledTexture = textureCube | textureCubeArray;
 /** Maps a TextureSampleType descriptor to its vec4 result descriptor. */
 export type SampleResultOf<S extends TextureSampleType> = S extends f32 ? vec4f : S extends i32 ? vec4i : S extends u32 ? vec4u : never;
-/** Runtime version of SampleResultOf — maps a sample type descriptor to its vec4 result. */
+/** Runtime version of SampleResultOf, maps a sample type descriptor to its vec4 result. */
 export declare function sampleResultOf(s: TextureSampleType): vec4f | vec4i | vec4u;
 /** Extracts the sampleType field from a sampled texture descriptor. */
 export type SampleTypeOf<D> = D extends {
@@ -293,7 +293,7 @@ export type SampleTypeOf<D> = D extends {
 export type TextureSampleResultOf<D extends Texture> = D extends DepthTexture ? f32 : D extends {
     sampleType: infer S extends TextureSampleType;
 } ? SampleResultOf<S> : never;
-/** Runtime version of TextureSampleResultOf — maps a texture descriptor to its sampling return descriptor. */
+/** Runtime version of TextureSampleResultOf, maps a texture descriptor to its sampling return descriptor. */
 export declare function textureSampleResultOf(desc: Texture): vec4f | vec4i | vec4u | f32;
 export type textureDepth2d = {
     type: 'texture_depth_2d';
@@ -322,9 +322,9 @@ export type textureDepthMultisampled2d = {
 export declare const textureDepthMultisampled2d: textureDepthMultisampled2d;
 /** Union of all depth texture descriptors. */
 export type DepthTexture = textureDepth2d | textureDepth2dArray | textureDepthCube | textureDepthCubeArray | textureDepthMultisampled2d;
-/** Non-cube depth textures — used by DepthTextureNode. */
+/** Non-cube depth textures, used by DepthTextureNode. */
 export type FlatDepthTexture = textureDepth2d | textureDepth2dArray | textureDepthMultisampled2d;
-/** Cube depth textures — for future DepthCubeTextureNode. */
+/** Cube depth textures, for future DepthCubeTextureNode. */
 export type CubeDepthTexture = textureDepthCube | textureDepthCubeArray;
 /** Union of all texture descriptors (sampled + depth). */
 export type Texture = SampledTexture | DepthTexture;

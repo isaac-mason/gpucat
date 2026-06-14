@@ -174,9 +174,7 @@ function frame() {
     const frameIndex = Math.floor(now * FPS) % FRAME_COUNT;
     layerUniform.value = frameIndex;
 
-    renderer.beginFrame();
     renderPipeline.render();
-    renderer.endFrame();
     requestAnimationFrame(frame);
 }
 

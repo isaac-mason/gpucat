@@ -1,4 +1,4 @@
-import { d, createStorageBuffer, storage, Fn, Var, globalId, If, index, f32, vec4, instanceIndex, attribute, mul, cameraViewMatrix, cameraProjectionMatrix, varying, timeElapsed, Material, WebGPURenderer, Inspector, Scene, PerspectiveCamera, Geometry, Mesh, pass, createIndexBuffer, createVertexBuffer, RenderPipeline, renderOutput } from 'gpucat';
+import { d, createStorageBuffer, storage, Fn, Var, globalId, If, index, f32, vec4, instanceIndex, attribute, mul, cameraViewMatrix, cameraProjectionMatrix, varying, uniform, Material, WebGPURenderer, Inspector, Scene, PerspectiveCamera, Geometry, Mesh, pass, createIndexBuffer, createVertexBuffer, RenderPipeline, renderOutput } from 'gpucat';
 
 const N = 8192;
 const WG_SIZE = 64;
@@ -79,8 +79,10 @@ const colB = f32(1.0);
 const colA = lifetime.clamp(f32(0), f32(1));
 const particleColor = vec4(colR, colG, colB, colA);
 
-// Subtle time-driven pulse on brightness.
-const pulse = timeElapsed.mul(f32(2)).sin().mul(f32(0.05)).add(f32(1));
+// Subtle time-driven pulse on brightness. `time` is a user-driven uniform (seconds),
+// updated each frame in the loop — the renderer no longer ticks time itself.
+const time = uniform(f32(0), 'time');
+const pulse = time.mul(f32(2)).sin().mul(f32(0.05)).add(f32(1));
 const finalColor = vec4(
     particleColor.rgb.mul(pulse),
     particleColor.a,
@@ -148,11 +150,10 @@ const outputNode = renderOutput(scenePass.getTextureNode());
 const renderPipeline = new RenderPipeline(renderer, outputNode);
 
 function frame() {
-    renderer.beginFrame();
+    time.value = performance.now() / 1000;
     // Dispatch the compute pass first, then render.
     renderer.compute([{ node: updateParticles, dispatch: [Math.ceil(N / WG_SIZE), 1, 1] }]);
     renderPipeline.render();
-    renderer.endFrame();
     requestAnimationFrame(frame);
 }
 

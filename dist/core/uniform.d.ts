@@ -11,7 +11,7 @@ export declare const UniformUpdateType: {
 };
 export type UniformUpdateType = (typeof UniformUpdateType)[keyof typeof UniformUpdateType];
 /**
- * Uniform group — determines WGSL @group index and struct packing.
+ * Uniform group, determines WGSL @group index and struct packing.
  */
 export declare class UniformGroup {
     readonly name: string;
@@ -25,19 +25,18 @@ export declare const uniformGroup: (name: string, order?: number, updateType?: U
 /** Create a shared uniform group. */
 export declare const sharedUniformGroup: (name: string, order?: number, updateType?: UniformUpdateType) => UniformGroup;
 /**
- * frameGroup — shared uniforms updated once per frame.
- * Contains time uniforms (timeElapsed, timeDelta).
+ * frameGroup, shared uniforms updated once per frame.
  * Maps to @group(0) with FRAME update type.
  */
 export declare const frameGroup: UniformGroup;
 /**
- * renderGroup — shared uniforms updated per render() call.
+ * renderGroup, shared uniforms updated per render() call.
  * Contains camera uniforms (projection, view, position, near, far).
  * Maps to @group(0) with RENDER update type.
  */
 export declare const renderGroup: UniformGroup;
 /**
- * objectGroup — per-object uniforms updated per draw call.
+ * objectGroup, per-object uniforms updated per draw call.
  * Contains mesh matrices (modelWorldMatrix, modelNormalMatrix) and user material uniforms.
  * Maps to @group(1) with OBJECT update type.
  */
@@ -61,7 +60,9 @@ export declare const objectGroup: UniformGroup;
  */
 export declare class Uniform<T extends Any = Any> {
     readonly schema: T;
-    readonly group: UniformGroup;
+    /** Determines @group index, update cadence, and packing. Mutable, but only
+     *  read at compile time, set it before the owning node is first rendered. */
+    group: UniformGroup;
     value: UniformValue<T> | null;
     constructor(schema: T, initialValue?: UniformValue<T>, group?: UniformGroup);
 }

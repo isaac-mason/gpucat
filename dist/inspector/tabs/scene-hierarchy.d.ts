@@ -1,5 +1,5 @@
 /**
- * scene-hierarchy.ts — Inspector Scene Hierarchy tab.
+ * scene-hierarchy.ts, Inspector Scene Hierarchy tab.
  *
  * Walks the Object3D tree for every scene record in a frame and displays it
  * as a collapsible tree using the existing List/Item UI components.
@@ -25,9 +25,9 @@ export declare class SceneHierarchy extends Tab {
     private _sceneRoots;
     /** Currently selected mesh */
     private _selectedMesh;
-    /** The inspector reference passed into update() — used for navigation */
+    /** The inspector reference passed into update(), used for navigation */
     private _inspector;
-    /** Right-side detail panel — shown when a Mesh is selected */
+    /** Right-side detail panel, shown when a Mesh is selected */
     private _detailPanel;
     constructor();
     /**

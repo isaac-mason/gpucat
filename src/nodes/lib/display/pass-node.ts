@@ -90,7 +90,7 @@ export class PassMultipleTextureNode extends PassTextureNode {
     /**
      * Updates the texture reference of this node.
      * Called in setup() to get the current texture.
-     * Stores the GpuTexture — GPU resources are accessed at bind time via the texture cache.
+     * Stores the GpuTexture, GPU resources are accessed at bind time via the texture cache.
      */
     updateTexture(): void {
         const texture = this.previousTexture
@@ -336,7 +336,7 @@ export class PassNode extends Node<d.vec4f> {
 
     /**
      * Returns a depth-typed texture node for the given attachment.
-     * Use this instead of `getTextureNode('depth')` — depth-format render
+     * Use this instead of `getTextureNode('depth')`, depth-format render
      * targets must be bound as `texture_depth_2d` (sampleType 'depth')
      * because WebGPU rejects them as filterable Float.
      *
@@ -402,7 +402,7 @@ export class PassNode extends Node<d.vec4f> {
 
         if (viewZNode === undefined) {
             // Depth-format attachments must be sampled via `texture_depth_2d`
-            // + `textureLoad` (no sampler — pixel-coord fetch). Sampling
+            // + `textureLoad` (no sampler, pixel-coord fetch). Sampling
             // through `textureSample` would require a 'float' sample type,
             // which WebGPU rejects for depth24plus / depth32float.
             const depthNode = this.getDepthTextureNode(name);
@@ -488,7 +488,7 @@ export class PassNode extends Node<d.vec4f> {
         for (const name in this._textureNodes) {
             this._textureNodes[name].updateTexture();
         }
-        // Depth attachments are stable references — no per-frame refresh.
+        // Depth attachments are stable references, no per-frame refresh.
     }
 
     /**
