@@ -3169,16 +3169,17 @@ export type ComputeDispatch = {
 export class WebGPURenderer {
     /**
      * Inspector. `null` means no inspector is attached, hot path pays zero cost.
-     * Install with `renderer.setInspector(new Inspector())` and remove with
-     * `renderer.setInspector(null)`. The inspector subclass handles its own
-     * setup/teardown via setRenderer(); ordering relative to renderer.init()
-     * does not matter (inspectors set up lazily on first frame).
+     * Assigning (`renderer.inspector = new Inspector()`) attaches it, and so does
+     * `setInspector(...)`; both are equivalent. Assigning `null` detaches and
+     * disposes the old one. Ordering relative to `renderer.init()` does not matter.
      */
-    inspector: InspectorBase | null;
+    get inspector(): InspectorBase | null;
+    set inspector(next: InspectorBase | null);
     /**
-     * Install or remove the inspector. Safe to call at any time, including
-     * before `renderer.init()`. Passing `null` triggers the old inspector's
-     * detach path (releases GPU resources, removes DOM, drops listeners).
+     * Install or remove the inspector. Equivalent to assigning `renderer.inspector`.
+     * Safe to call at any time, including before `renderer.init()`. Passing `null`
+     * triggers the old inspector's detach path (releases GPU resources, removes DOM,
+     * drops listeners).
      */
     setInspector(next: InspectorBase | null): void;
     /** The canvas dom element for the current canvas target. Throws in headless mode. */
