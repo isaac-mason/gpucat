@@ -4,6 +4,11 @@
         "description": "A single spinning cube with directional and ambient lighting — the simplest possible gpucat scene.",
         "tags": ["hello-world", "lighting"]
     },
+    "example-point-lights": {
+        "title": "Point Lights",
+        "description": "Coloured point lights in a struct storage buffer, orbiting a grid of spheres. The fragment loops over them and sums diffuse plus falloff. gpucat ships no lights; you write your own.",
+        "tags": ["lighting", "storage-buffer"]
+    },
     "example-moving-mesh-stress": {
         "title": "Moving Mesh Stress",
         "description": "900 individually-animated meshes with per-frame quaternion updates and world matrix recalculations.",
@@ -51,7 +56,7 @@
     },
     "example-ball-cluster": {
         "title": "Ball Cluster",
-        "description": "Thousands of balls pulled toward the cursor and colliding into a packed cluster, simulated entirely on the GPU. Four compute passes per frame bin the balls into a spatial-hash grid, so each ball only tests its 27 neighbouring cells instead of every other ball.",
+        "description": "Thousands of balls pulled toward the cursor and colliding into a packed cluster, simulated entirely on the GPU. Three compute passes per frame bin the balls into a spatial-hash grid, so each ball only tests its 27 neighbouring cells instead of every other ball.",
         "tags": ["compute", "physics", "spatial-hash"]
     },
     "example-indirect-batched": {

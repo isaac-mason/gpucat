@@ -29,7 +29,12 @@ const VIEWPORT = { width: 1280, height: 720 };
 const examples = JSON.parse(
     readFileSync(resolve(examplesDir, 'src/examples.json'), 'utf8'),
 );
-const exampleKeys = Object.keys(examples);
+// Optionally screenshot a single example: `node scripts/screenshot.js <key>`
+const onlyKey = process.argv[2];
+const exampleKeys = onlyKey ? Object.keys(examples).filter((k) => k === onlyKey) : Object.keys(examples);
+if (onlyKey && exampleKeys.length === 0) {
+    throw new Error(`Unknown example key: ${onlyKey}`);
+}
 
 // ---------------------------------------------------------------------------
 // Ensure output directory exists

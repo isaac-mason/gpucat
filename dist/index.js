@@ -8491,6 +8491,7 @@ function emitDslFunctions(ctx) {
         fnCtx.samplers = ctx.samplers;
         fnCtx.uniforms = ctx.uniforms;
         fnCtx.storages = ctx.storages;
+        fnCtx.storageNames = ctx.storageNames;
         // register param names in context
         for (const p of traced.params) {
             fnCtx.nodeVars.set(p.id, p.paramName ?? `p${p.paramIndex}`);

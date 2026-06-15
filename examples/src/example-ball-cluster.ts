@@ -14,13 +14,14 @@ import { vec3 as v3 } from 'mathcat';
  * A few thousand balls hold together as a cluster (a gentle pull toward the
  * origin) and collide with each other so they never interpenetrate. The mouse
  * is a repulsion sphere that shoves balls out of the way. The whole thing runs
- * on the GPU in four compute passes per frame, using a uniform spatial-hash grid
+ * on the GPU in three compute passes per frame, using a uniform spatial-hash grid
  * so each ball only checks its 27 neighbouring cells, not every other ball.
  *
  * Contacts use a DEM (spring-dashpot) model: a normal spring pushes overlapping
  * balls apart, a normal dashpot gives restitution (bounce), and a tangential
- * dashpot gives friction. This needs neighbour velocities, so velocities are
- * snapshotted alongside positions each frame.
+ * dashpot gives friction. This needs a frozen snapshot of neighbour positions
+ * and velocities, so the bin pass stashes pos/vel into prev buffers as it visits
+ * each ball (no separate copy dispatch).
  */
 
 const N = 500;
@@ -57,8 +58,8 @@ for (let i = 0; i < N; i++) {
 }
 const positions = storage(createStorageBuffer(d.array(d.vec4f), positionData), 'read_write');
 
-// posPrev / velPrev: per-frame snapshots, so a contact reads a stable set of
-// neighbour positions and velocities.
+// posPrev / velPrev: per-frame snapshots (written by the bin pass), so a contact
+// reads a stable set of neighbour positions and velocities.
 const posPrev = storage(createStorageBuffer(d.array(d.vec4f), new Float32Array(N * 4)), 'read_write');
 const velPrev = storage(createStorageBuffer(d.array(d.vec4f), new Float32Array(N * 4)), 'read_write');
 const velocities = storage(createStorageBuffer(d.array(d.vec4f), new Float32Array(N * 4)), 'read_write');
@@ -82,16 +83,7 @@ const cellOf = (p: Node<d.vec3f>): Node<d.u32> => {
     return clampCoord(l.z).mul(u32(GRID_DIM * GRID_DIM)).add(clampCoord(l.y).mul(u32(GRID_DIM))).add(clampCoord(l.x));
 };
 
-/* pass 1: snapshot positions and velocities */
-const snapshot = Fn(() => {
-    const i = globalId.x;
-    If(i.lessThan(u32(N)), () => {
-        index(posPrev, i).assign(index(positions, i));
-        index(velPrev, i).assign(index(velocities, i));
-    });
-}).compute({ workgroupSize: [WG, 1, 1] });
-
-/* pass 2: clear the grid counts */
+/* pass 1: clear the grid counts */
 const clearGrid = Fn(() => {
     const c = globalId.x;
     If(c.lessThan(u32(NUM_CELLS)), () => {
@@ -99,11 +91,16 @@ const clearGrid = Fn(() => {
     });
 }).compute({ workgroupSize: [WG, 1, 1] });
 
-/* pass 3: bin each ball into its cell */
+/* pass 2: snapshot each ball's pos/vel into the prev buffers, then bin it.
+ * This pass already visits every ball, so it stashes the snapshot for free
+ * instead of paying for a separate copy dispatch. */
 const bin = Fn(() => {
     const i = globalId.x;
     If(i.lessThan(u32(N)), () => {
-        const cell = cellOf(index(posPrev, i).xyz);
+        const p = Var('p', index(positions, i));
+        index(posPrev, i).assign(p);
+        index(velPrev, i).assign(index(velocities, i));
+        const cell = cellOf(p.xyz);
         const slot = Var('slot', atomicAdd(index(gridCount, cell), u32(1)));
         If(slot.lessThan(u32(MAX_PER_CELL)), () => {
             index(gridItems, cell.mul(u32(MAX_PER_CELL)).add(slot)).assign(i);
@@ -111,7 +108,7 @@ const bin = Fn(() => {
     });
 }).compute({ workgroupSize: [WG, 1, 1] });
 
-/* pass 4: sum forces (cohesion + DEM contacts + cursor), then integrate */
+/* pass 3: sum forces (cohesion + DEM contacts + cursor), then integrate */
 const simulate = Fn(() => {
     const i = globalId.x;
     If(i.lessThan(u32(N)), () => {
@@ -262,7 +259,6 @@ function updateMouse() {
 
 /* pre-warm pipelines, then run */
 
-await renderer.compileCompute(snapshot);
 await renderer.compileCompute(clearGrid);
 await renderer.compileCompute(bin);
 await renderer.compileCompute(simulate);
@@ -280,7 +276,6 @@ function frame() {
     updateMouse();
 
     renderer.compute([
-        { node: snapshot, dispatch: [dispatchN, 1, 1] },
         { node: clearGrid, dispatch: [dispatchCells, 1, 1] },
         { node: bin, dispatch: [dispatchN, 1, 1] },
         { node: simulate, dispatch: [dispatchN, 1, 1] },

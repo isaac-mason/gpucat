@@ -16,11 +16,17 @@ You get a declarative API for GPU resources (buffers, uniforms, textures, materi
 
 Most WebGPU libraries either hide the GPU behind a scene abstraction or hand you raw WGSL strings. gpucat sits in between. You compose shaders as typed typescript expressions, so refactors and autocomplete work, but nothing stops you dropping down to the renderer, pipeline, and buffer level when you need to.
 
+## Examples
+
+Every screenshot links to its source in `examples/src`. Run them locally with `npm install && npm run dev` in `examples/`.
+
+<Examples />
+
 ## Contents
 
-- [Getting Started](#getting-started) · [Core Concepts](#core-concepts)
-- Build an app: [The Renderer](#the-renderer) · [Scene and Objects](#scene-and-objects) · [Geometry](#geometry) · [Materials](#materials) · [Uniforms and Data](#uniforms-and-data) · [Structs](#structs) · [Packing](#packing) · [Render Pipeline](#render-pipeline)
-- Shading language: [Constants](#constants-and-constructors) · [Operators](#operators) · [Variables](#variables) · [Control Flow](#control-flow) · [Method Chaining](#method-chaining) · [Functions](#functions) · [Building Blocks](#building-blocks) · [Varyings](#varyings) · [Textures](#textures-and-samplers) · [Atomics](#atomics) · [Builtins](#builtins) · [Context Uniforms](#context-uniforms)
+- [Examples](#examples) · [Getting Started](#getting-started) · [Core Concepts](#core-concepts)
+- Build an app: [The Renderer](#the-renderer) · [Scene and Objects](#scene-and-objects) · [Geometry](#geometry) · [Materials](#materials) · [Uniforms](#uniforms) · [Storage Buffers](#storage-buffers) · [Structs](#structs) · [Packing](#packing) · [Render Pipeline](#render-pipeline)
+- Shading language: [Constants](#constants-and-constructors) · [Operators](#operators) · [Variables](#variables) · [Control Flow](#control-flow) · [Method Chaining](#method-chaining) · [Functions](#functions) · [Building Blocks](#building-blocks) · [Varyings](#varyings) · [Textures](#textures-and-samplers) · [Atomics](#atomics) · [Builtins](#builtins) · [Included Uniforms](#included-uniforms)
 - [Compute](#compute) · [Drawing Many Things](#drawing-many-things) · [Controls and the Inspector](#controls-and-the-inspector)
 - [Compiling to WGSL](#compiling-to-wgsl) · [WGSL to gpucat](#wgsl-to-gpucat) · [API Reference](#api-reference)
 
@@ -35,6 +41,8 @@ A few things to notice:
 - The material is just two nodes: `vertex` (a clip-space position) and `fragment` (a `vec4f` color). You build them by composing smaller nodes, and gpucat compiles the resulting graph to WGSL.
 - You own the frame loop. gpucat never starts its own `requestAnimationFrame` and never reads a wall clock. You call `render()` (and `compute()`) when you want a frame, and you drive time yourself via plain uniforms, so it stays composable with your own update loop.
 - Resources are declarative. A `Mesh` is geometry plus material, a `RenderPipeline` is a renderer plus an output node. gpucat derives the pipeline, layouts, and bind groups from what you reference.
+
+<ExamplesTable ids="example-hello-world" />
 
 ## Core Concepts
 
@@ -116,6 +124,8 @@ Meshes are not game entities. gpucat does not tick them every frame or track cha
 
 `scene.updateWorldMatrix()` is the same call on the root: it walks the whole tree, parents before children. It is a convenience for initial setup or a one-off bulk update, not something to run every frame for a mostly-static scene. Be intelligent about it.
 
+<ExamplesTable ids="example-moving-mesh-stress,example-static-mesh-stress" />
+
 ## Geometry
 
 A `Geometry` is a set of named vertex buffers plus an optional index buffer. The buffer names line up with the `attribute('name', type)` nodes in your vertex shader.
@@ -129,24 +139,85 @@ geom.index = createIndexBuffer(indices);   // a Uint16Array or Uint32Array
 
 For common shapes, the `create*Geometry` helpers build the position, normal, and uv buffers and an index for you. See [`Geometry`](./api.md#geometry) and the helpers in [api.md](./api.md#geometry).
 
+<ExamplesTable ids="example-line,example-raging-sea,example-voxels,example-interleaved" />
+
 ## Materials
 
-A `Material` is the shaders plus the pipeline state. The `vertex` slot is a clip-space position, `fragment` is a `vec4f` color (or an `mrt(...)` node for multiple targets), and `depth` optionally overrides the written depth. Those slots are node graphs you build with the [shading language](#constants-and-constructors) below.
+A `Material` is the shaders plus the pipeline state. Three node slots define the shaders, and you build each one with the [shading language](#constants-and-constructors) below:
+
+- **`vertex`** a clip-space `vec4f` position. Use [`positionClip`](./api.md#positionclip) for the standard model-view-projection transform.
+- **`fragment`** a `vec4f` color, or an `mrt(...)` node for [multiple targets](#render-pipeline), or omit it entirely for a depth-only pass (shadow maps).
+- **`depth`** an optional `f32` that overrides the depth written to the buffer (emits `@builtin(frag_depth)`).
 
 ```ts
 const material = new Material({
     vertex: clipPos,
     fragment: litColor,
-    transparent: true,   // alpha blending; draws after opaque, depthWrite off by default
-    cullMode: 'back',    // 'back' (default), 'front', or 'none'
+    transparent: true,
+    cullMode: 'back',
 });
 ```
 
-The remaining options are the usual pipeline state: `depthTest`, `depthWrite`, `depthCompare`, `blend`, `alphaToCoverage`, and the depth-bias trio. After changing which node feeds a slot, set `material.needsUpdate = true` to force a recompile. See [`Material`](./api.md#material).
+Everything else is pipeline state:
 
-## Uniforms and Data
+| Option | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `transparent` | `boolean` | `false` | Draws after opaque objects and flips the `depthWrite` default. Turns on alpha blending unless you override `blend`. See [Blending](#blending). |
+| `blend` | `GPUBlendState` | standard alpha | Custom blend state. Only applied when `transparent` is true. |
+| `depthTest` | `boolean` | `true` | Whether the depth test runs. `false` forces `depthCompare` to `'always'`. |
+| `depthWrite` | `boolean` | `true` opaque, `false` transparent | Whether fragments write to the depth buffer. |
+| `depthCompare` | `GPUCompareFunction` | `'less'` | The depth comparison function. |
+| `cullMode` | `GPUCullMode` | `'back'` | Face culling: `'back'`, `'front'`, or `'none'`. |
+| `alphaToCoverage` | `boolean` | `false` | Alpha-to-coverage. Only meaningful when `renderer.samples > 1`. |
+| `depthBias` | `number` | `0` | Constant depth bias, in depth-buffer precision steps. |
+| `depthBiasSlopeScale` | `number` | `0` | Depth bias scaled by the fragment's depth slope. |
+| `depthBiasClamp` | `number` | `0` | Maximum absolute depth bias (`0` means no clamp). |
 
-Shader nodes pull from CPU data through uniforms and buffers, and you update that data from your own loop.
+After changing which node feeds a slot, set `material.needsUpdate = true` to force a recompile. See [`Material`](./api.md#material).
+
+### Blending
+
+A material is opaque by default: it writes depth and does not blend. Set `transparent: true` and three things happen. It draws after opaque objects, it stops writing depth (so overlapping transparent fragments blend instead of occluding each other), and it picks up standard alpha blending: `src-alpha`, `one-minus-src-alpha`.
+
+For anything else, pass an explicit `blend` (a WebGPU `GPUBlendState`). Common recipes, as the color `srcFactor` / `dstFactor` with an `add` operation:
+
+| Mode | `srcFactor` | `dstFactor` |
+| --- | --- | --- |
+| Normal (alpha) | `src-alpha` | `one-minus-src-alpha` |
+| Additive | `one` | `one` |
+| Multiply | `dst` | `zero` |
+
+```ts
+const glow = new Material({
+    vertex: clipPos,
+    fragment: emissive,
+    transparent: true,
+    blend: {
+        color: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
+        alpha: { srcFactor: 'one', dstFactor: 'one', operation: 'add' },
+    },
+});
+```
+
+### Lighting is yours to implement
+
+gpucat ships no lights. There is no `Light` object, no `addLight`, and no built-in shading model (no Lambert, Phong, or PBR material). Lighting is not built in; it is yours to implement, composed from the same reusable nodes and `Fn`s as everything else.
+
+A directional light plus an ambient term is just node math in the fragment:
+
+```ts
+const diffuse = worldNormal.dot(lightDir).max(f32(0));   // Lambert term
+const lighting = f32(0.15).add(diffuse);                 // ambient + diffuse
+const fragment = vec4(baseColor.mul(lighting), f32(1));
+```
+
+More advanced setups follow the same shape: keep lighting data in a [`storage` buffer](#storage-buffers) and consume it in the shader. Heavier techniques, like deferred or clustered shading, shadow mapping, image-based lighting, or a full PBR model, are all implementable in userland from the same primitives. The point lights example is a starting point.
+
+<ExamplesTable ids="example-point-lights" />
+
+## Uniforms
+
+A uniform is a single small value a shader reads, set from the CPU and updated from your own loop. For bulk arrays, see [Storage Buffers](#storage-buffers).
 
 A `Uniform` owns a value; `uniform(...)` turns it into a node. Set `.value` and the change uploads on the next frame:
 
@@ -165,7 +236,62 @@ material.uniforms.set('color', new Uniform(d.vec3f, [1, 0, 0]));  // per materia
 
 A uniform's **group** sets both its WGSL `@group` and how often it uploads: `objectGroup` (default, per draw call), `renderGroup` (per `render()` call), `frameGroup` (once per frame). The built-in camera and model uniforms already sit in the right groups.
 
-Buffers wrap a typed array as a `GpuBuffer`: `createVertexBuffer`, `createStorageBuffer`, `createUniformBuffer`, `createIndexBuffer`, `createIndirectBuffer`. To change the data, edit the array and mark it dirty:
+See [`Uniform`](./api.md#uniform-2).
+
+<ExamplesTable ids="example-uniforms" />
+
+## Storage Buffers
+
+A storage buffer is the bulk-data counterpart to a uniform: a large read or read-write array a shader works over, like instance transforms, particle state, or a spatial grid. It is the buffer a compute pass writes and a material reads.
+
+`storage(...)` turns a buffer into a node, and there are two forms:
+
+```ts
+// value form: bind a specific buffer
+const positions = storage(createStorageBuffer(d.array(d.vec4f), data), 'read_write');
+
+// named form: resolve the buffer by name at draw or dispatch time
+const positions = storage('positions', d.array(d.vec4f), 'read_write');
+```
+
+The **value form** points at one `GpuBuffer`. The **named form** holds no buffer; the buffer is looked up when the draw or dispatch runs, from the per-call `buffers` map first, then `geometry.buffers`. It is the same idea as named uniforms: one shader graph, a different buffer per mesh or per dispatch.
+
+The access mode is `'read'` (the default) or `'read_write'`. A vertex or fragment shader can only read storage; a compute kernel can read or write. Use `'read_write'` for anything a compute pass mutates. Index into it like an array, and assign to write:
+
+```ts
+const p = index(positions, i);           // read element i
+index(positions, i).assign(p.add(...));  // write element i (read_write only)
+```
+
+### Driving draws and compute from storage
+
+The reason storage matters is that the GPU can produce the data the GPU consumes, with no CPU in the loop. A compute pass writes the buffer, and the same buffer feeds a material that draws from it indexed by `instanceIndex`:
+
+```ts
+const positions = storage(positionBuffer, 'read_write');
+
+const sim = Fn(() => { /* update positions[globalId.x] */ }).compute({ workgroupSize: [64, 1, 1] });
+const world = index(positions, instanceIndex);   // material reads what the kernel wrote
+```
+
+You call `renderer.compute([{ node: sim, dispatch: [...] }])` then `renderPipeline.render()`, and nothing round-trips through the CPU. This is the spine of the particle and ball-cluster examples, and the same buffer-per-instance idea behind [Instancing](#instancing).
+
+### Ping-pong (double buffering)
+
+A kernel that reads and writes one buffer sees values its neighbours have already changed this frame. When each step needs a clean snapshot of the last, keep two buffers and alternate between them. The named form makes this tidy, since you bind the buffer per dispatch through the `buffers` map:
+
+```ts
+const state = storage('state', d.array(Particle), 'read_write');
+let [src, dst] = [bufferA, bufferB];
+
+// each frame:
+renderer.compute([{ node: sim, dispatch: [...], buffers: { state: src } }]);
+[src, dst] = [dst, src];   // swap for next frame
+```
+
+The ball-cluster example takes the other route: it copies positions and velocities into `prev` buffers (folded into the binning pass, which already visits every ball), so the physics pass reads a frozen previous state while writing the new one. Either works; pick whichever fits the kernel.
+
+To update storage from the CPU instead, edit the backing array and mark it dirty. This works for any `GpuBuffer` (vertex, index, storage, and the rest), not just storage:
 
 ```ts
 const buf = createStorageBuffer(d.array(d.vec4f), data);
@@ -174,7 +300,9 @@ buf.needsUpdate = true;     // re-upload the whole buffer
 buf.addUpdateRange(0, 4);   // or upload just 4 components from offset 0
 ```
 
-See [`Uniform`](./api.md#uniform-2), [`createStorageBuffer`](./api.md#createstoragebuffer), and [`GpuBuffer`](./api.md#gpubuffer).
+See [`storage`](./api.md#storage), [`createStorageBuffer`](./api.md#createstoragebuffer), and [`GpuBuffer`](./api.md#gpubuffer).
+
+<ExamplesTable ids="example-storage,example-instancing-storage-buffer,example-compute-particles" />
 
 ## Structs
 
@@ -233,10 +361,14 @@ Because a pass is just a texture node, you add post-processing by sampling it an
 <RenderCategory name="render pass" compact />
 <RenderCategory name="render output" compact />
 
+<ExamplesTable ids="example-render-to-texture,example-shadow-map" />
+
 ### Tonemapping and post-processing
 
 <RenderCategory name="tonemapping and color space conversions" compact />
 <RenderCategory name="post-processing effects" compact />
+
+<ExamplesTable ids="example-mrt,example-fxaa" />
 
 ## Constants and constructors
 
@@ -288,6 +420,8 @@ If(x.greaterThan(f32(0)), () => {
 ```
 
 <RenderCategory name="control flow" compact />
+
+<ExamplesTable ids="example-discard" />
 
 ## Method Chaining
 
@@ -388,25 +522,47 @@ const data = new DataTexture(pixels, 256, 256, { format: 'rgba8unorm' });
 
 `CubeTexture`, `ArrayTexture`, and `CanvasTexture` cover the other shapes, and sampler settings (`wrapS`, `magFilter`, `anisotropy`, and so on) live on the texture. A pass output is also a texture, which is what makes post-processing just node wiring. See [`Texture`](./api.md#texture).
 
+<ExamplesTable ids="example-texture,example-mipmaps,example-cubemap,example-array-texture" />
+
 ## Atomics
 
 Atomic operations on `atomic<i32>` / `atomic<u32>` storage, for compute.
 
 <RenderCategory name="atomic operations" compact />
 
+<ExamplesTable ids="example-ball-cluster" />
+
 ## Builtins
 
-WGSL builtin inputs: invocation and vertex indices, compute ids, and so on.
+WGSL builtin inputs: the vertex and instance indices in a draw, and the invocation ids in a compute dispatch.
 
-<RenderCategory name="builtins" compact />
+| Node | Type | WGSL builtin | What it is |
+| --- | --- | --- | --- |
+| [`vertexIndex`](./api.md#vertexindex) | `u32` | `vertex_index` | Index of the current vertex. |
+| [`instanceIndex`](./api.md#instanceindex) | `u32` | `instance_index` | Index of the current instance in an instanced draw. |
+| [`globalId`](./api.md#globalid) | `vec3u` | `global_invocation_id` | This thread's global id across the whole dispatch. |
+| [`localId`](./api.md#localid) | `vec3u` | `local_invocation_id` | This thread's id within its workgroup. |
+| [`localIndex`](./api.md#localindex) | `u32` | `local_invocation_index` | The flattened `localId` within the workgroup. |
+| [`workgroupId`](./api.md#workgroupid) | `vec3u` | `workgroup_id` | This workgroup's id within the dispatch. |
+| [`numWorkgroups`](./api.md#numworkgroups) | `vec3u` | `num_workgroups` | The dispatch size in workgroups. |
 
-## Context Uniforms
+## Included Uniforms
 
-gpucat provides the common per-frame and per-object uniforms as ready-made nodes, so you do not have to wire them up yourself: camera matrices and the model matrices.
+gpucat provides the common per-frame and per-object values as ready-made nodes, so you do not wire them up yourself. Drop them straight into a shader graph. Each links to its full entry in [api.md](./api.md).
 
-<RenderCategory name="camera uniforms" compact />
-<RenderCategory name="model uniforms" compact />
-<RenderCategory name="screen/viewport" compact />
+| Node | Type | What it is |
+| --- | --- | --- |
+| [`cameraProjectionMatrix`](./api.md#cameraprojectionmatrix) | `mat4x4f` | The camera's projection: view space to clip space. |
+| [`cameraViewMatrix`](./api.md#cameraviewmatrix) | `mat4x4f` | World space to view space (the camera's inverse world matrix). |
+| [`cameraPosition`](./api.md#cameraposition) | `vec3f` | The camera's world-space position. |
+| [`cameraNear`](./api.md#cameranear) | `f32` | Near clip plane distance. |
+| [`cameraFar`](./api.md#camerafar) | `f32` | Far clip plane distance. |
+| [`modelWorldMatrix`](./api.md#modelworldmatrix) | `mat4x4f` | The current object's local space to world space (its `matrixWorld`). |
+| [`modelNormalMatrix`](./api.md#modelnormalmatrix) | `mat3x3f` | Transforms normals to world space (inverse-transpose of the world matrix). |
+| [`fragCoord`](./api.md#fragcoord) | `vec4f` | Builtin fragment position: `.xy` in pixels, `.z` the depth. |
+| [`screenCoordinate`](./api.md#screencoordinate) | `vec2f` | Fragment pixel coordinate (`fragCoord.xy`). |
+| [`screenSize`](./api.md#screensize) | `vec2f` | Viewport size in pixels. |
+| [`screenUV`](./api.md#screenuv) | `vec2f` | Normalized screen position, `0` to `1`. |
 
 ## Compute
 
@@ -428,13 +584,20 @@ renderer.compute([{ node: sim, dispatch: [Math.ceil(N / 64), 1, 1] }]);
 
 The same buffer can feed a material, which is how the particle example draws what the compute pass just updated.
 
-For a full worked example, `examples/src/example-ball-cluster.ts` simulates thousands of balls that pull toward a point and collide into a packed cluster, all on the GPU. It runs four compute passes per frame (snapshot, clear grid, bin into a spatial-hash grid, then forces + collision against the 27 neighbouring cells), so each ball only checks nearby balls instead of every other one. `examples/src/example-compute-particles.ts` is a simpler starting point.
+For a full worked example, `examples/src/example-ball-cluster.ts` simulates balls that pull toward a point and collide into a packed cluster, all on the GPU. It runs three compute passes per frame (clear grid, bin into a spatial-hash grid while snapshotting the previous state, then forces + collision against the 27 neighbouring cells), so each ball only checks nearby balls instead of every other one. `examples/src/example-compute-particles.ts` is a simpler starting point.
 
 <RenderCategory name="compute" compact />
 
+<ExamplesTable ids="example-compute-particles,example-ball-cluster" />
+
 ## Drawing Many Things
 
-The scene graph (`Scene`, `Object3D`, `Mesh`) is a way to organise draws, not a semantic model of your world, and not one `Mesh` per entity. A `Mesh` is "draw this geometry with this material this many times". So whenever you have many of something, you draw it as a single instanced mesh and let the GPU drive the work. This is the intended way to use gpucat, not an optimisation you add later: instancing and GPU-driven techniques are the default, not the exception.
+The scene graph (`Scene`, `Object3D`, `Mesh`) organises draws; it is not a semantic model of your world, and not one `Mesh` per entity. A `Mesh` is "draw this geometry with this material this many times". When you have many of something, you do not give each one its own `Mesh`. You draw them together, with one of two techniques:
+
+- **Instancing** issues one geometry many times in a single draw call. Each instance reads its own data (a transform, a colour, a position) from a buffer, indexed by `instanceIndex`. You set the count from the CPU.
+- **Indirect drawing** moves the draw arguments themselves (how many indices, how many instances, where to start) into a GPU buffer. A compute pass can then write those arguments, so the GPU decides what and how much to draw without a CPU round-trip.
+
+They compose: an instanced draw can take its instance count from an indirect buffer that a compute pass culls into. Both are the intended way to draw anything you have a lot of, not an optimisation to add later.
 
 ### Instancing
 
@@ -448,6 +611,8 @@ mesh.count = N;
 ```
 
 A compute pass can fill or update that buffer, so the instances are driven entirely on the GPU. This is how the particle and ball-cluster examples work.
+
+<ExamplesTable ids="example-instanced-mesh,example-instancing-storage-buffer" />
 
 ### Indirect drawing
 
@@ -465,6 +630,8 @@ One buffer can hold several draws (`geometry.indirectDrawCount`), and `geometry.
 <RenderCategory name="indirect" compact />
 
 See `examples/src/example-indirect-batched.ts` (CPU-driven multi-draw) and `example-indirect-compute.ts` (a compute pass writes the draw args each frame).
+
+<ExamplesTable ids="example-indirect-batched,example-indirect-compute,example-voxels-batched" />
 
 ## Controls and the Inspector
 
@@ -486,6 +653,8 @@ document.body.appendChild(renderer.inspector.domElement);
 ```
 
 See [`OrbitControls`](./api.md#orbitcontrols) and [`Inspector`](./api.md#inspector).
+
+<ExamplesTable ids="example-transform-controls,example-fly-controls" />
 
 ## Compiling to WGSL
 

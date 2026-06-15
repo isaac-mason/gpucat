@@ -393,12 +393,76 @@ function renderNodeMethods() {
     return `\`\`\`ts\n${d.trim()}\n\`\`\`\n`;
 }
 
+/* A gallery table of examples with screenshots, read from examples.json.
+ * Each cell links to the example's source on GitHub and shows its screenshot
+ * from examples/public/screenshots/<key>.png. */
+const EXAMPLES_COLS = 3;
+const EXAMPLE_SOURCE_BASE = 'https://github.com/isaac-mason/gpucat/blob/main/examples/src';
+function renderExamples() {
+    const jsonPath = path.join(here, '../examples/src/examples.json');
+    if (!fs.existsSync(jsonPath)) return console.warn(`examples.json not found: ${jsonPath}`), '';
+    const data = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
+    const keys = Object.keys(data);
+    let out = '<table>\n';
+    for (let i = 0; i < keys.length; i += EXAMPLES_COLS) {
+        out += '  <tr>\n';
+        for (let j = 0; j < EXAMPLES_COLS && i + j < keys.length; ++j) {
+            const key = keys[i + j];
+            const title = data[key].title || key;
+            const img = `./examples/public/screenshots/${key}.png`;
+            const href = `${EXAMPLE_SOURCE_BASE}/${key}.ts`;
+            out += `    <td align="center">\n`;
+            out += `      <a href="${href}">\n`;
+            out += `        <img src="${img}" width="180" height="120" style="object-fit:cover;"/><br/>\n`;
+            out += `        ${title}\n`;
+            out += `      </a>\n`;
+            out += `    </td>\n`;
+        }
+        out += '  </tr>\n';
+    }
+    out += '</table>';
+    return out;
+}
+
+/* A one-row table of one or more examples, for interleaving inside a section.
+ * <ExamplesTable ids="example-texture,example-mipmaps" /> */
+function renderExamplesTable(idsStr) {
+    const jsonPath = path.join(here, '../examples/src/examples.json');
+    if (!fs.existsSync(jsonPath)) return console.warn(`examples.json not found: ${jsonPath}`), '';
+    const data = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
+    const ids = idsStr.split(',').map((s) => s.trim());
+    const valid = ids.filter((id) => data[id] || console.warn(`example '${id}' not in examples.json`));
+    if (valid.length === 0) return '';
+    const cells = valid
+        .map((id) => {
+            const title = data[id].title || id;
+            const img = `./examples/public/screenshots/${id}.png`;
+            const href = `${EXAMPLE_SOURCE_BASE}/${id}.ts`;
+            return (
+                `    <td align="center">\n` +
+                `      <a href="${href}">\n` +
+                `        <img src="${img}" width="200" height="133" style="object-fit:cover;"/><br/>\n` +
+                `        ${title}\n` +
+                `      </a>\n` +
+                `    </td>`
+            );
+        })
+        .join('\n');
+    return `<table>\n  <tr>\n${cells}\n  </tr>\n</table>`;
+}
+
 /* ─────────────────────────── template directives ───────────────────────── */
 
 /* Expand all directives in a template's text. Anchors are per-file, so the
  * collision set is reset for each render. */
 function render(text) {
     usedAnchors.clear();
+
+    /* <Examples /> - gallery table of examples with screenshots */
+    text = text.replace(/<Examples\s*\/>/g, () => renderExamples());
+
+    /* <ExamplesTable ids="a,b,c" /> - inline one-row table for a section */
+    text = text.replace(/<ExamplesTable\s+ids=["'](.+?)["']\s*\/>/g, (_full, ids) => renderExamplesTable(ids));
 
     /* <RenderAPI /> */
     text = text.replace(/<RenderAPI\s*\/>/g, () => generateApiDocs());

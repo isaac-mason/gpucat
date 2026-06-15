@@ -2125,6 +2125,7 @@ function emitDslFunctions(ctx: BuildContext): string {
         fnCtx.samplers = ctx.samplers;
         fnCtx.uniforms = ctx.uniforms;
         fnCtx.storages = ctx.storages;
+        fnCtx.storageNames = ctx.storageNames;
 
         // register param names in context
         for (const p of traced.params) {
