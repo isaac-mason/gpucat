@@ -202,7 +202,7 @@ export class PassNode extends Node<d.vec4f> {
         this.renderTarget = renderTarget;
 
         // Initialize _textures with output and depth
-        this._textures['output'] = renderTarget.texture!;
+        this._textures['output'] = renderTarget.texture! as Texture;
         if (renderTarget.depthTexture) {
             this._textures['depth'] = renderTarget.depthTexture;
         }

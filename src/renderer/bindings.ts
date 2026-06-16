@@ -22,7 +22,7 @@ import type { NodeFrame } from './node-frame';
 import type { RenderObject } from './render-object';
 import { getBindings as getRenderObjectBindings } from './render-object';
 import type { TextureCache } from './textures';
-import { getSampler, updateTexture, getTextureData } from './textures';
+import { getSampler, updateTexture, getTextureData, ensureRenderTargetTexturesAllocated } from './textures';
 import { packToView } from '../schema/pack';
 
 /**
@@ -524,7 +524,15 @@ function updateTextureBinding(
             data.needsUpdate = true;
         }
     } else {
-        // Render target texture - resource set externally, check cache for changes
+        // Render target texture - the GPU resource is created/resized by the owning
+        // render target's pass. If that pass hasn't run this frame (e.g. the target
+        // was resized between renders), lazily (re)allocate it here so we never sample
+        // a stale or destroyed texture. ensure...Allocated is idempotent and bumps
+        // generation on realloc, which the check below turns into a bind-group rebuild.
+        if (gpuTexture.renderTarget) {
+            ensureRenderTargetTexturesAllocated(textureCache, device, gpuTexture.renderTarget);
+        }
+
         const texData = getTextureData(textureCache, gpuTexture);
         if (texData) {
             if (binding.generation !== texData.generation) {
@@ -546,7 +554,6 @@ function updateSamplerBinding(
     const gpuSampler = samplerNode.value;
     
     // Create/get sampler from GpuSampler settings (this caches by settingsKey)
-    getSampler(textureCache, device, gpuSampler);
     getSampler(textureCache, device, gpuSampler);
     
     // Check for sampler changes using settingsKey

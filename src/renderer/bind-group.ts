@@ -55,8 +55,6 @@ export type TextureBinding = {
     entry: TextureEntry;
     /** Generation counter for detecting texture changes. */
     generation: number;
-    /** Last seen GPU texture (for detecting render target texture changes). */
-    lastGpuTexture: GPUTexture | null;
 };
 
 /** Sampler binding */
@@ -133,7 +131,7 @@ export function createResourceBindGroup(
     }
 
     for (const entry of textures) {
-        bindings.push({ kind: 'texture', entry, generation: 0, lastGpuTexture: null });
+        bindings.push({ kind: 'texture', entry, generation: 0 });
     }
 
     for (const entry of samplers) {
@@ -178,7 +176,6 @@ export function cloneBindGroup(source: BindGroup): BindGroup {
                     kind: 'texture' as const,
                     entry: binding.entry,
                     generation: 0,
-                    lastGpuTexture: null,
                 };
             case 'sampler':
                 return {

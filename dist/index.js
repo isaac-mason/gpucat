@@ -4069,6 +4069,12 @@ class GpuTexture {
      * created and managed by RenderTarget.
      */
     isRenderTargetTexture = false;
+    /**
+     * Render target this texture belongs to (color or depth attachment), or null.
+     * Lets the bind path lazily (re)allocate a sampled render target whose own
+     * render pass hasn't run this frame — e.g. it was resized between renders.
+     */
+    renderTarget = null;
     // ─────────────────────────────────────────────────────────────────────────
     // Lifecycle
     // ─────────────────────────────────────────────────────────────────────────
@@ -4490,6 +4496,7 @@ class RenderTarget {
         for (let i = 0; i < count; i++) {
             const texture = createRenderTargetTexture(this, width, height, defaultFormat);
             texture.name = i === 0 ? 'output' : `output${i}`;
+            texture._gpuTexture.renderTarget = this;
             this.textures.push(texture);
         }
         if (opts.depthTexture) {
@@ -4502,10 +4509,25 @@ class RenderTarget {
             depthTexture._gpuTexture.isRenderTargetTexture = true;
             this.depthTexture = depthTexture;
         }
+        if (this.depthTexture) {
+            this.depthTexture._gpuTexture.renderTarget = this;
+        }
     }
     /** The first color attachment texture, or undefined when count=0 (depth-only target). */
     get texture() {
         return this.textures[0];
+    }
+    set texture(value) {
+        if (value === undefined) {
+            this.textures.length = 0;
+            return;
+        }
+        if (this.textures.length === 0) {
+            this.textures.push(value);
+        }
+        else {
+            this.textures[0] = value;
+        }
     }
     /** Sets the size of the render target, disposes existing GPU resources; renderer will reallocate on next use */
     setSize(width, height) {
@@ -6588,11 +6610,36 @@ class NodeFrame {
      */
     frameId = 0;
     /**
-     * Render ID, incremented per render() call.
+     * Render ID — a globally-unique id for the current render() call.
      * Multiple renders can happen per frame (shadows, reflections, VR).
-     * Used for RENDER-level update deduplication.
+     * Used for RENDER-level update deduplication, so it MUST be unique per render;
+     * assign it only via {@link beginRender} (never `renderId++`).
      */
     renderId = 0;
+    /**
+     * Monotonic backing counter for renderId. Never reset, so ids are never reused.
+     * Advance it via {@link beginRender} rather than mutating directly.
+     */
+    renderIdCounter = 0;
+    /**
+     * Begin a render scope: assign a fresh, globally-unique `renderId` and return the
+     * previous one. A nested render passes the returned value to {@link endRender} to
+     * restore its parent's scope on exit.
+     *
+     * Using a monotonic counter (rather than `renderId++`) is what keeps ids unique
+     * across the save/restore: after a nested render restores the parent id, the next
+     * render still gets a brand-new id instead of colliding with the nested one — a
+     * collision would wrongly dedup-skip that render's RENDER-scope updates.
+     */
+    beginRender() {
+        const previous = this.renderId;
+        this.renderId = ++this.renderIdCounter;
+        return previous;
+    }
+    /** End a nested render scope, restoring the parent render's `renderId`. */
+    endRender(previousRenderId) {
+        this.renderId = previousRenderId;
+    }
     // -----------------------------------------------------------------------
     // Render Context (set before each update cycle)
     // -----------------------------------------------------------------------
@@ -7883,7 +7930,14 @@ function generateCubeTexture(ctx, node) {
     if (!node.directionNode) {
         throw new Error(`[builder] CubeTextureNode '${name}' has no directionNode. Use cubeTexture.sample(direction).`);
     }
-    const dirExpr = generateExpr(ctx, node.directionNode);
+    // three.js CubeTextureNode.setupUV() always negates X for WebGPU:
+    //   if (coordinateSystem === WebGPUCoordinateSystem || !isRenderTargetTexture)
+    //     uvNode = vec3(uvNode.x.negate(), uvNode.yz)
+    // Since gpucat is WebGPU-only, always negate X. The CubeCamera stores
+    // faces with swapped X (by design), and negating the sample direction
+    // un-does the swap so the correct face is selected by the hardware.
+    const rawDir = generateExpr(ctx, node.directionNode);
+    const sampleDir = `((${rawDir}) * vec3f(-1.0, 1.0, 1.0))`;
     // Cube textures do NOT support offset
     // textureSampleGrad (vec3f gradients for cube textures)
     if (node.samplingMode === 'grad') {
@@ -7892,7 +7946,7 @@ function generateCubeTexture(ctx, node) {
         }
         const ddx = generateExpr(ctx, node.gradNode[0]);
         const ddy = generateExpr(ctx, node.gradNode[1]);
-        return `textureSampleGrad(${name}, ${samplerName}, ${dirExpr}, ${ddx}, ${ddy})`;
+        return `textureSampleGrad(${name}, ${samplerName}, ${sampleDir}, ${ddx}, ${ddy})`;
     }
     // textureSampleBias
     if (node.samplingMode === 'bias') {
@@ -7900,7 +7954,7 @@ function generateCubeTexture(ctx, node) {
             throw new Error(`[builder] CubeTextureNode '${name}' in bias mode has no biasNode`);
         }
         const bias = generateExpr(ctx, node.biasNode);
-        return `textureSampleBias(${name}, ${samplerName}, ${dirExpr}, ${bias})`;
+        return `textureSampleBias(${name}, ${samplerName}, ${sampleDir}, ${bias})`;
     }
     // textureSampleLevel
     if (node.samplingMode === 'level') {
@@ -7908,10 +7962,10 @@ function generateCubeTexture(ctx, node) {
             throw new Error(`[builder] CubeTextureNode '${name}' in level mode has no levelNode`);
         }
         const level = generateExpr(ctx, node.levelNode);
-        return `textureSampleLevel(${name}, ${samplerName}, ${dirExpr}, ${level})`;
+        return `textureSampleLevel(${name}, ${samplerName}, ${sampleDir}, ${level})`;
     }
     // textureSample (default)
-    return `textureSample(${name}, ${samplerName}, ${dirExpr})`;
+    return `textureSample(${name}, ${samplerName}, ${sampleDir})`;
 }
 function generateDepthTexture(ctx, node) {
     const binding = node.bindingNode;
@@ -8779,7 +8833,7 @@ function createResourceBindGroup(name, groupIndex, shared, storage, textures, sa
         bindings.push({ kind: 'storage', entry, lastBuffer: null });
     }
     for (const entry of textures) {
-        bindings.push({ kind: 'texture', entry, generation: 0, lastGpuTexture: null });
+        bindings.push({ kind: 'texture', entry, generation: 0 });
     }
     for (const entry of samplers) {
         bindings.push({ kind: 'sampler', entry, samplerKey: null });
@@ -8821,7 +8875,6 @@ function cloneBindGroup(source) {
                     kind: 'texture',
                     entry: binding.entry,
                     generation: 0,
-                    lastGpuTexture: null,
                 };
             case 'sampler':
                 return {
@@ -9012,7 +9065,7 @@ function buildTemplateBindGroups(uniformGroups, storage, textures, samplers, con
                 bindGroup.bindings.push({ kind: 'storage', entry: s, lastBuffer: null });
             }
             for (const t of groupTextures) {
-                bindGroup.bindings.push({ kind: 'texture', entry: t, generation: 0, lastGpuTexture: null });
+                bindGroup.bindings.push({ kind: 'texture', entry: t, generation: 0 });
             }
             for (const s of groupSamplers) {
                 bindGroup.bindings.push({ kind: 'sampler', entry: s, samplerKey: null });
@@ -10003,6 +10056,200 @@ function computeRenderObjectCacheKey(material, geometry, renderContext) {
 }
 
 /**
+ * A texture for cubemaps (environment maps, skyboxes, etc).
+ *
+ * Stores 6 faces: +X, -X, +Y, -Y, +Z, -Z.
+ * Sampled using a 3D direction vector.
+ */
+class CubeTexture {
+    /** Type flag for runtime checking */
+    isCubeTexture = true;
+    /** The underlying GPU texture resource */
+    _gpuTexture;
+    /** The underlying sampler */
+    _gpuSampler;
+    /** Optional name for debugging */
+    name = '';
+    /**
+     * Mapping mode - determines default UV vector.
+     * - 'reflection': uses reflect(viewDir, normal)
+     * - 'refraction': uses refract(viewDir, normal, ior)
+     */
+    mapping;
+    /**
+     * Constructs a new CubeTexture.
+     *
+     * @param faces - Array of 6 images for cube faces (+X, -X, +Y, -Y, +Z, -Z)
+     * @param options - Texture options
+     */
+    constructor(faces = [], options = {}) {
+        // Determine size from the first face, or from options.size for a
+        // render-only cube (no face images, e.g. a CubeRenderTarget).
+        const firstFace = faces[0];
+        let size = options.size ?? 1;
+        if (firstFace) {
+            if (firstFace instanceof Source) {
+                size = firstFace.width || 1;
+            }
+            else if (typeof firstFace === 'object' && firstFace !== null && 'width' in firstFace) {
+                size = firstFace.width || 1;
+            }
+        }
+        this._gpuTexture = new GpuTexture(textureCube(), {
+            size,
+            faces: faces.map(f => f instanceof Source ? f : new Source(f)),
+            format: options.format,
+            generateMipmaps: options.generateMipmaps ?? true,
+            flipY: options.flipY ?? false,
+        });
+        // A render-only cube (no faces) is filled by the renderer, not uploaded.
+        if (faces.length === 0) {
+            this._gpuTexture.isRenderTargetTexture = true;
+        }
+        this._gpuSampler = new GpuSampler({
+            addressModeU: options.wrapS ?? 'clamp-to-edge',
+            addressModeV: options.wrapT ?? 'clamp-to-edge',
+            addressModeW: 'clamp-to-edge',
+            magFilter: options.magFilter ?? 'linear',
+            minFilter: options.minFilter ?? 'linear',
+            mipmapFilter: options.mipmapFilter ?? 'linear',
+        });
+        this.mapping = options.mapping ?? 'reflection';
+    }
+    // ─── Convenience getters/setters ───
+    get id() { return this._gpuTexture.id; }
+    get width() { return this._gpuTexture.width; }
+    get height() { return this._gpuTexture.height; }
+    get size() { return this._gpuTexture.size; }
+    /** Check if all 6 faces are present and ready */
+    get isComplete() { return this._gpuTexture.isComplete; }
+    /** The 6 face images as SourceData */
+    get images() {
+        return this._gpuTexture.sources.map(s => s.data);
+    }
+    set images(value) {
+        this._gpuTexture.sources = value.map(img => img instanceof Source ? img : new Source(img));
+        // Update size from first face
+        if (value.length > 0) {
+            const first = this._gpuTexture.sources[0];
+            if (first) {
+                this._gpuTexture.width = first.width || 1;
+                this._gpuTexture.height = first.height || 1;
+            }
+        }
+        this._gpuTexture.needsUpdate = true;
+    }
+    /** The 6 face Sources */
+    get imageSources() {
+        return this._gpuTexture.sources;
+    }
+    get wrapS() { return this._gpuSampler.addressModeU; }
+    set wrapS(v) { this._gpuSampler.addressModeU = v; }
+    get wrapT() { return this._gpuSampler.addressModeV; }
+    set wrapT(v) { this._gpuSampler.addressModeV = v; }
+    get magFilter() { return this._gpuSampler.magFilter; }
+    set magFilter(v) { this._gpuSampler.magFilter = v; }
+    get minFilter() { return this._gpuSampler.minFilter; }
+    set minFilter(v) { this._gpuSampler.minFilter = v; }
+    get mipmapFilter() { return this._gpuSampler.mipmapFilter; }
+    set mipmapFilter(v) { this._gpuSampler.mipmapFilter = v; }
+    get anisotropy() { return this._gpuSampler.maxAnisotropy; }
+    set anisotropy(v) { this._gpuSampler.maxAnisotropy = v; }
+    get format() { return this._gpuTexture.format; }
+    set format(v) { this._gpuTexture.format = v; }
+    get generateMipmaps() { return this._gpuTexture.generateMipmaps; }
+    set generateMipmaps(v) { this._gpuTexture.generateMipmaps = v; }
+    get flipY() { return this._gpuTexture.flipY; }
+    set flipY(v) { this._gpuTexture.flipY = v; }
+    get premultiplyAlpha() { return this._gpuTexture.premultiplyAlpha; }
+    set premultiplyAlpha(v) { this._gpuTexture.premultiplyAlpha = v; }
+    get version() { return this._gpuTexture.version; }
+    set needsUpdate(v) {
+        if (v)
+            this._gpuTexture.needsUpdate = true;
+    }
+    clone() {
+        const tex = new CubeTexture(this.images, {
+            wrapS: this.wrapS,
+            wrapT: this.wrapT,
+            magFilter: this.magFilter,
+            minFilter: this.minFilter,
+            mipmapFilter: this.mipmapFilter,
+            format: this.format,
+            generateMipmaps: this.generateMipmaps,
+            flipY: this.flipY,
+            mapping: this.mapping,
+        });
+        tex.name = this.name;
+        return tex;
+    }
+    dispose() {
+        this._gpuTexture.dispose();
+        this._gpuSampler.dispose();
+    }
+}
+
+/**
+ * A render target whose color attachment is a cube texture. Render each of the
+ * six faces (set `activeFace` and call `renderer.render(scene, faceCamera)`),
+ * then sample the result as an environment map via `cubeTexture(rt.texture)`.
+ *
+ * Usually driven by a `CubeCamera`, which sets up the six face cameras and loops
+ * the faces for you.
+ *
+ * Extends `RenderTarget`: the inherited 2D color texture carries the face format
+ * for pipeline creation, and the inherited 2D depth texture is reused across all
+ * six faces. The renderer attaches the cube face selected by `activeFace`.
+ */
+class CubeRenderTarget extends RenderTarget {
+    isCubeRenderTarget = true;
+    /** Face size in pixels (width = height). */
+    size;
+    /** Which cube face the next `render()` targets: 0..5 = +X, -X, +Y, -Y, +Z, -Z. */
+    activeFace = 0;
+    /** Which mip level the next `render()` targets. */
+    activeMipmapLevel = 0;
+    /** The cube texture rendered into and sampled by materials. */
+    _texture;
+    constructor(size, opts = {}) {
+        const format = opts.colorFormat ?? 'rgba8unorm';
+        super(size, size, {
+            colorFormat: format,
+            depthBuffer: opts.depthBuffer,
+            depthFormat: opts.depthFormat,
+            // Cube faces are sampled directly as an environment map; MSAA (which would
+            // need a per-face resolve) is not supported.
+            samples: 1,
+        });
+        this.size = size;
+        this._texture = new CubeTexture([], {
+            size,
+            format,
+            wrapS: opts.wrapS,
+            wrapT: opts.wrapT,
+            magFilter: opts.magFilter,
+            minFilter: opts.minFilter,
+            mipmapFilter: opts.mipmapFilter,
+            flipY: opts.flipY,
+            generateMipmaps: opts.generateMipmaps ?? false,
+        });
+        this._texture.name = 'output';
+        this._texture._gpuTexture.renderTarget = this;
+        this.textures[0] = this._texture;
+    }
+    get texture() {
+        return this._texture;
+    }
+    /** Resize all six faces (and the shared depth). */
+    setSize(size) {
+        if (this.size === size)
+            return;
+        super.setSize(size, size);
+        this.size = size;
+    }
+}
+
+/**
  * Mipmap generation utilities using direct WebGPU pipelines.
  *
  * Uses render passes to downsample each mip level from the previous one.
@@ -10391,6 +10638,22 @@ function disposeMipmapState(state) {
  * 4. Uploads image data if source.dataReady
  * 5. Updates version tracking (textureData.version = texture.version)
  */
+function createSwapchainDepthTexture(device, width, height, sampleCount) {
+    return device.createTexture({
+        size: [width, height],
+        format: 'depth24plus',
+        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        sampleCount,
+    });
+}
+function createSwapchainMsaaTexture(device, width, height, format, sampleCount) {
+    return device.createTexture({
+        size: [width, height],
+        format,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        sampleCount,
+    });
+}
 function createTextureCache() {
     return {
         textureMap: new WeakMap(),
@@ -10412,6 +10675,7 @@ function setupDispose(cache, texture) {
         const data = cache.textureMap.get(texture);
         if (data && !data.isDefaultTexture) {
             data.texture.destroy();
+            data.msaaTexture?.destroy();
         }
     };
 }
@@ -10423,6 +10687,29 @@ function getMipmapState(cache, device) {
         cache.mipmapState = createMipmapState(device);
     }
     return cache.mipmapState;
+}
+/**
+ * Generate mipmaps for an already-allocated GPU texture tracked in the cache.
+ * Used for render-target textures (e.g. CubeRenderTarget) that are not uploaded
+ * via updateTexture().
+ */
+function generateTextureMipmaps(cache, device, texture) {
+    const data = cache.textureMap.get(texture);
+    if (!data || data.isDefaultTexture)
+        return;
+    if (data.texture.mipLevelCount <= 1)
+        return;
+    const isCube = texture.viewDimension === 'cube' || texture.viewDimension === 'cube-array';
+    const isArray = texture.viewDimension === '2d-array';
+    const mipmapState = getMipmapState(cache, device);
+    generateMipmaps(mipmapState, data.texture, isCube, isArray ? texture.depthOrArrayLayers : 0);
+}
+function finalizeCubeRenderTargetCapture(cache, device, renderTarget, activeMipmapLevel) {
+    if (!renderTarget.texture.generateMipmaps)
+        return;
+    if (activeMipmapLevel !== 0)
+        return;
+    generateTextureMipmaps(cache, device, renderTarget.texture._gpuTexture);
 }
 /**
  * Update a texture, checks source version and uploads if needed.
@@ -10582,7 +10869,7 @@ function uploadTextureData(device, texture, data) {
     }
     else if (isExternalImage(sourceData)) {
         // HTMLImageElement, ImageBitmap, Canvas, Video, etc.
-        device.queue.copyExternalImageToTexture({ source: sourceData }, { texture: data.texture, premultipliedAlpha: texture.premultiplyAlpha }, [width, height]);
+        device.queue.copyExternalImageToTexture({ source: sourceData, flipY: texture.flipY }, { texture: data.texture, premultipliedAlpha: texture.premultiplyAlpha }, [width, height]);
     }
 }
 /** Check if source data is a typed array (from DataTextureImage) */
@@ -10598,6 +10885,7 @@ function isExternalImage(data) {
         return false;
     // Check for known browser types
     return ((typeof ImageBitmap !== 'undefined' && data instanceof ImageBitmap) ||
+        (typeof HTMLImageElement !== 'undefined' && data instanceof HTMLImageElement) ||
         (typeof HTMLCanvasElement !== 'undefined' && data instanceof HTMLCanvasElement) ||
         (typeof OffscreenCanvas !== 'undefined' && data instanceof OffscreenCanvas) ||
         (typeof HTMLVideoElement !== 'undefined' && data instanceof HTMLVideoElement) ||
@@ -10624,7 +10912,7 @@ function uploadCubeTextureData(device, texture, data) {
         if (!faceData)
             continue;
         if (isExternalImage(faceData)) {
-            device.queue.copyExternalImageToTexture({ source: faceData }, {
+            device.queue.copyExternalImageToTexture({ source: faceData, flipY: texture.flipY }, {
                 texture: data.texture,
                 premultipliedAlpha: texture.premultiplyAlpha,
                 origin: { x: 0, y: 0, z: faceIndex },
@@ -10663,7 +10951,7 @@ function uploadArrayTextureData(device, texture, data) {
                 }, [width, height]);
             }
             else if (isExternalImage(layerData)) {
-                device.queue.copyExternalImageToTexture({ source: layerData }, {
+                device.queue.copyExternalImageToTexture({ source: layerData, flipY: texture.flipY }, {
                     texture: data.texture,
                     premultipliedAlpha: texture.premultiplyAlpha,
                     origin: { x: 0, y: 0, z: layer },
@@ -10793,18 +11081,52 @@ function getTextureData(cache, texture) {
     return cache.textureMap.get(texture) ?? null;
 }
 /**
+ * Default render-attachment view for a render-target color/depth texture.
+ * Cached on the TextureData and recreated only when the GPU texture is swapped
+ * (setRenderTargetTexture clears it), so attachment resolution doesn't allocate
+ * a fresh GPUTextureView every frame.
+ */
+function getRenderTargetView(data) {
+    if (!data.view) {
+        data.view = data.texture.createView();
+    }
+    return data.view;
+}
+/**
+ * Cached view of the multisampled color texture for an MSAA render target.
+ * Returns null when the target is not multisampled.
+ */
+function getRenderTargetMsaaView(data) {
+    if (!data.msaaTexture)
+        return null;
+    if (!data.msaaView) {
+        data.msaaView = data.msaaTexture.createView();
+    }
+    return data.msaaView;
+}
+/**
  * Set the GPU texture resource for a render target texture.
  * Called by the renderer when creating/resizing render targets.
  *
  * Unlike regular textures which upload source data, render target textures
  * have their GPUTexture created externally and registered here.
  */
-function setRenderTargetTexture(cache, texture, gpuTextureResource) {
+function setRenderTargetTexture(cache, texture, gpuTextureResource, msaaTexture = null) {
     const existing = cache.textureMap.get(texture);
     if (existing) {
+        if (existing.texture !== gpuTextureResource && !existing.isDefaultTexture) {
+            existing.texture.destroy();
+        }
+        if (existing.msaaTexture && existing.msaaTexture !== msaaTexture) {
+            existing.msaaTexture.destroy();
+        }
         // Update existing entry with new GPU texture (e.g., after resize)
         existing.texture = gpuTextureResource;
+        existing.msaaTexture = msaaTexture;
+        existing.view = null; // cached attachment views belong to the old textures
+        existing.msaaView = null;
         existing.generation++;
+        existing.version = texture.version;
         existing.initialized = true;
         existing.isDefaultTexture = false;
     }
@@ -10812,13 +11134,138 @@ function setRenderTargetTexture(cache, texture, gpuTextureResource) {
         // First time - create new entry
         cache.textureMap.set(texture, {
             texture: gpuTextureResource,
+            msaaTexture,
             version: texture.version,
             generation: 1,
             initialized: true,
             isDefaultTexture: false,
         });
         cache.textureCount++;
-        setupDispose(cache, texture);
+    }
+    texture.disposed = false;
+    setupDispose(cache, texture);
+}
+function hasRenderTargetTextureAllocation(cache, texture, width, height, format, sampleCount, mipLevelCount) {
+    // A disposed wrapper's cache entry still points at a destroyed GPUTexture whose
+    // .width/.height/etc. read back stale-but-present; force reallocation so we never
+    // build an attachment/view from a destroyed texture (dispose-then-reuse path).
+    if (texture.disposed)
+        return false;
+    const data = cache.textureMap.get(texture);
+    if (!data || data.isDefaultTexture)
+        return false;
+    const gpu = data.texture;
+    return (gpu.width === width
+        && gpu.height === height
+        && gpu.format === format
+        && gpu.sampleCount === sampleCount
+        && gpu.mipLevelCount === mipLevelCount);
+}
+/**
+ * Check the multisampled sibling of a render-target color texture matches the
+ * desired sample count: present and sized correctly when `sampleCount > 1`,
+ * absent when the target is single-sample.
+ */
+function hasMatchingMsaaAllocation(cache, texture, width, height, format, sampleCount) {
+    const msaa = cache.textureMap.get(texture)?.msaaTexture;
+    if (sampleCount <= 1)
+        return !msaa;
+    return !!msaa
+        && msaa.width === width
+        && msaa.height === height
+        && msaa.format === format
+        && msaa.sampleCount === sampleCount;
+}
+function ensureRenderTargetTexturesAllocated(cache, device, renderTarget) {
+    if (renderTarget instanceof CubeRenderTarget) {
+        ensureCubeRenderTargetTexturesAllocated(cache, device, renderTarget);
+        return;
+    }
+    const { width, height } = renderTarget;
+    const sampleCount = renderTarget.samples > 1 ? renderTarget.samples : 1;
+    // Color attachments are sampled by shaders, so the cached `texture` is always the
+    // single-sample resolve target; MSAA adds a multisampled sibling rendered into and
+    // resolved from. Depth is kept at the pass sample count (all attachments must match).
+    // NB: don't seed this from `textures.length === 0` — a depth-only target (count: 0)
+    // has no color textures yet is fully allocated via its depth texture; seeding true
+    // there would reallocate the depth every frame and destroy the one just rendered into.
+    let needsAllocation = false;
+    for (const tex of renderTarget.textures) {
+        if (!hasRenderTargetTextureAllocation(cache, tex._gpuTexture, width, height, tex.format, 1, 1)
+            || !hasMatchingMsaaAllocation(cache, tex._gpuTexture, width, height, tex.format, sampleCount)) {
+            needsAllocation = true;
+            break;
+        }
+    }
+    if (!needsAllocation && renderTarget.depthTexture) {
+        needsAllocation = !hasRenderTargetTextureAllocation(cache, renderTarget.depthTexture._gpuTexture, width, height, renderTarget.depthTexture.format, sampleCount, 1);
+    }
+    if (!needsAllocation)
+        return;
+    // Don't release (delete) the cache entries here: setRenderTargetTexture()
+    // destroys the old GPU texture and bumps `generation` monotonically, which is
+    // what bind-group change detection relies on to rebuild views. Deleting the
+    // entry first would reset generation back to 1, so a bind group sampling this
+    // target would keep a view of the destroyed texture (-> "destroyed texture
+    // used in a submit").
+    for (const tex of renderTarget.textures) {
+        const resolveTexture = device.createTexture({
+            size: [width, height],
+            format: tex.format,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
+            sampleCount: 1,
+        });
+        // RENDER_ATTACHMENT-only multisampled texture; it is rendered into and resolved
+        // into resolveTexture, never sampled, so it needs no TEXTURE_BINDING/COPY_SRC.
+        const msaaTexture = sampleCount > 1
+            ? device.createTexture({
+                size: [width, height],
+                format: tex.format,
+                usage: GPUTextureUsage.RENDER_ATTACHMENT,
+                sampleCount,
+                mipLevelCount: 1,
+            })
+            : null;
+        setRenderTargetTexture(cache, tex._gpuTexture, resolveTexture, msaaTexture);
+    }
+    if (renderTarget.depthTexture) {
+        const gpuDepthTexture = device.createTexture({
+            size: [width, height],
+            format: renderTarget.depthTexture.format,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+            sampleCount,
+        });
+        setRenderTargetTexture(cache, renderTarget.depthTexture._gpuTexture, gpuDepthTexture);
+    }
+}
+function ensureCubeRenderTargetTexturesAllocated(cache, device, renderTarget) {
+    const cubeMipCount = renderTarget.texture.generateMipmaps
+        ? Math.floor(Math.log2(renderTarget.size)) + 1
+        : 1;
+    const cubeReady = hasRenderTargetTextureAllocation(cache, renderTarget.texture._gpuTexture, renderTarget.size, renderTarget.size, renderTarget.texture.format, 1, cubeMipCount);
+    const depthReady = !renderTarget.depthTexture || hasRenderTargetTextureAllocation(cache, renderTarget.depthTexture._gpuTexture, renderTarget.size, renderTarget.size, renderTarget.depthTexture.format, 1, 1);
+    if (cubeReady && depthReady)
+        return;
+    // See note in ensureRenderTargetTexturesAllocated: let setRenderTargetTexture()
+    // destroy the old GPU texture and bump generation rather than releasing the
+    // cache entry, so bind groups sampling this target are rebuilt on realloc.
+    const colorTex = device.createTexture({
+        dimension: '2d',
+        size: [renderTarget.size, renderTarget.size, 6],
+        format: renderTarget.texture.format,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
+        mipLevelCount: cubeMipCount,
+        sampleCount: 1,
+    });
+    setRenderTargetTexture(cache, renderTarget.texture._gpuTexture, colorTex);
+    if (renderTarget.depthTexture) {
+        const depthTex = device.createTexture({
+            size: [renderTarget.size, renderTarget.size],
+            format: renderTarget.depthTexture.format,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+            sampleCount: 1,
+        });
+        setRenderTargetTexture(cache, renderTarget.depthTexture._gpuTexture, depthTex);
     }
 }
 
@@ -11889,7 +12336,14 @@ function updateTextureBinding(textureCache, device, binding, data) {
         }
     }
     else {
-        // Render target texture - resource set externally, check cache for changes
+        // Render target texture - the GPU resource is created/resized by the owning
+        // render target's pass. If that pass hasn't run this frame (e.g. the target
+        // was resized between renders), lazily (re)allocate it here so we never sample
+        // a stale or destroyed texture. ensure...Allocated is idempotent and bumps
+        // generation on realloc, which the check below turns into a bind-group rebuild.
+        if (gpuTexture.renderTarget) {
+            ensureRenderTargetTexturesAllocated(textureCache, device, gpuTexture.renderTarget);
+        }
         const texData = getTextureData(textureCache, gpuTexture);
         if (texData) {
             if (binding.generation !== texData.generation) {
@@ -11904,7 +12358,6 @@ function updateSamplerBinding(textureCache, device, binding, data) {
     const samplerNode = binding.entry.samplerNode;
     const gpuSampler = samplerNode.value;
     // Create/get sampler from GpuSampler settings (this caches by settingsKey)
-    getSampler(textureCache, device, gpuSampler);
     getSampler(textureCache, device, gpuSampler);
     // Check for sampler changes using settingsKey
     const samplerKey = gpuSampler.settingsKey;
@@ -19956,7 +20409,7 @@ function rayIntersectsBox3(origin, direction, aabb, maxT) {
     return true;
 }
 // Reusable temp objects
-const _target = [0, 0, 0];
+const _target$1 = [0, 0, 0];
 const _direction = [0, 0, 0];
 class Raycaster {
     ray;
@@ -19986,8 +20439,8 @@ class Raycaster {
         }
         else {
             getTranslation(this.ray.origin, camera.matrixWorld);
-            unproject(_target, [coords[0], coords[1], 1], camera);
-            subtract(_direction, _target, this.ray.origin);
+            unproject(_target$1, [coords[0], coords[1], 1], camera);
+            subtract(_direction, _target$1, this.ray.origin);
             normalize$3(this.ray.direction, _direction);
         }
         this.near = camera.near;
@@ -20432,59 +20885,56 @@ function createBoxGeometry(width = 1, height = 1, depth = 1) {
     return geom;
 }
 function createSphereGeometry(radius = 0.5, widthSegments = 16, heightSegments = 8) {
-    const cols = widthSegments + 1;
-    const rows = heightSegments + 1;
-    const vertexCount = cols * rows;
-    const indexCount = widthSegments * heightSegments * 6;
-    const positions = new Float32Array(vertexCount * 3);
-    const normals = new Float32Array(vertexCount * 3);
-    const uvs = new Float32Array(vertexCount * 2);
-    const indices = new Uint16Array(indexCount);
-    let vi = 0;
-    for (let iy = 0; iy < rows; iy++) {
+    // Faithful port of three.js SphereGeometry (full sphere). Note the negated
+    // X and `1 - v` UV, which match three exactly, and the pole-triangle skipping.
+    widthSegments = Math.max(3, Math.floor(widthSegments));
+    heightSegments = Math.max(2, Math.floor(heightSegments));
+    const thetaEnd = Math.PI;
+    const positions = [];
+    const normals = [];
+    const uvs = [];
+    const indices = [];
+    const grid = [];
+    let index = 0;
+    for (let iy = 0; iy <= heightSegments; iy++) {
+        const verticesRow = [];
         const v = iy / heightSegments;
-        const phi = v * Math.PI;
-        const sinPhi = Math.sin(phi);
-        const cosPhi = Math.cos(phi);
-        for (let ix = 0; ix < cols; ix++) {
+        // special-case the poles for a slightly better UV at the seam
+        let uOffset = 0;
+        if (iy === 0)
+            uOffset = 0.5 / widthSegments;
+        else if (iy === heightSegments)
+            uOffset = -0.5 / widthSegments;
+        for (let ix = 0; ix <= widthSegments; ix++) {
             const u = ix / widthSegments;
-            const theta = u * Math.PI * 2;
-            const nx = Math.cos(theta) * sinPhi;
-            const ny = cosPhi;
-            const nz = Math.sin(theta) * sinPhi;
-            const pi = vi * 3;
-            const ui = vi * 2;
-            positions[pi] = nx * radius;
-            positions[pi + 1] = ny * radius;
-            positions[pi + 2] = nz * radius;
-            normals[pi] = nx;
-            normals[pi + 1] = ny;
-            normals[pi + 2] = nz;
-            uvs[ui] = u;
-            uvs[ui + 1] = v;
-            vi++;
+            const x = -radius * Math.cos(u * Math.PI * 2) * Math.sin(v * Math.PI);
+            const y = radius * Math.cos(v * Math.PI);
+            const z = radius * Math.sin(u * Math.PI * 2) * Math.sin(v * Math.PI);
+            positions.push(x, y, z);
+            const len = Math.hypot(x, y, z) || 1;
+            normals.push(x / len, y / len, z / len);
+            uvs.push(u + uOffset, 1 - v);
+            verticesRow.push(index++);
         }
+        grid.push(verticesRow);
     }
-    let ii = 0;
     for (let iy = 0; iy < heightSegments; iy++) {
         for (let ix = 0; ix < widthSegments; ix++) {
-            const a = iy * cols + ix;
-            const b = a + cols;
-            // CCW winding when viewed from outside the sphere
-            indices[ii] = a;
-            indices[ii + 1] = a + 1;
-            indices[ii + 2] = b;
-            indices[ii + 3] = b;
-            indices[ii + 4] = a + 1;
-            indices[ii + 5] = b + 1;
-            ii += 6;
+            const a = grid[iy][ix + 1];
+            const b = grid[iy][ix];
+            const c = grid[iy + 1][ix];
+            const dd = grid[iy + 1][ix + 1];
+            if (iy !== 0)
+                indices.push(a, b, dd);
+            if (iy !== heightSegments - 1 || thetaEnd < Math.PI)
+                indices.push(b, c, dd);
         }
     }
     const geom = new Geometry();
-    geom.setBuffer('position', createVertexBuffer(vec3f$1, positions));
-    geom.setBuffer('normal', createVertexBuffer(vec3f$1, normals));
-    geom.setBuffer('uv', createVertexBuffer(vec2f$1, uvs));
-    geom.setIndex(createIndexBuffer(indices));
+    geom.setBuffer('position', createVertexBuffer(vec3f$1, new Float32Array(positions)));
+    geom.setBuffer('normal', createVertexBuffer(vec3f$1, new Float32Array(normals)));
+    geom.setBuffer('uv', createVertexBuffer(vec2f$1, new Float32Array(uvs)));
+    geom.setIndex(createIndexBuffer(new Uint16Array(indices)));
     geom.boundingBox = [-radius, -radius, -radius, radius, radius, radius];
     geom.boundingSphere = { center: [0, 0, 0], radius };
     return geom;
@@ -27020,6 +27470,90 @@ class PerspectiveCamera extends Camera {
     }
 }
 
+/*
+ * Per-face look directions and up vectors, copied verbatim from three.js
+ * CubeCamera (WebGPU coordinate system). Cube layer order 0..5 = +X, -X, +Y, -Y, +Z, -Z.
+ */
+const DIRS = [
+    [-1, 0, 0],
+    [1, 0, 0],
+    [0, 1, 0],
+    [0, -1, 0],
+    [0, 0, 1],
+    [0, 0, -1],
+];
+const UPS = [
+    [0, -1, 0],
+    [0, -1, 0],
+    [0, 0, 1],
+    [0, 0, -1],
+    [0, -1, 0],
+    [0, -1, 0],
+];
+const _target = [0, 0, 0];
+const _worldPos = [0, 0, 0];
+/**
+ * A camera that renders its surroundings into the six faces of a
+ * {@link CubeRenderTarget}, for realtime environment maps and reflections.
+ *
+ * Position the cube camera where the reflective object sits, then call
+ * `update(renderer, scene)` to capture the scene into the target. Sample the
+ * result with `cubeTexture(cubeCamera.renderTarget.texture)`.
+ *
+ * Like the rest of gpucat, this does no automatic per-frame work: you call
+ * `update()` when you want to refresh the environment map (often after hiding
+ * the reflective object so it does not capture itself).
+ */
+class CubeCamera extends Object3D {
+    /** The cube render target this camera draws into. */
+    renderTarget;
+    /** The six per-face perspective cameras (90 degree fov, 1:1 aspect). */
+    cameras = [];
+    /** Active mip level written by update(). */
+    activeMipmapLevel = 0;
+    constructor(near, far, renderTarget) {
+        super();
+        this.name = 'CubeCamera';
+        this.renderTarget = renderTarget;
+        for (let i = 0; i < 6; i++) {
+            // three.js renders cube faces with a negative fov (-90 degrees), which
+            // makes perspectiveZO negate the X and Y scale of the projection.
+            this.cameras.push(new PerspectiveCamera(-Math.PI / 2, 1, near, far));
+        }
+    }
+    /**
+     * Render the scene into all six faces of the cube render target from this
+     * camera's world position. Restores the renderer's previous render target.
+     */
+    update(renderer, scene) {
+        if (this.parent === null)
+            this.updateWorldMatrix();
+        this.getWorldPosition(_worldPos);
+        const previous = renderer.renderTarget;
+        const previousFace = this.renderTarget.activeFace;
+        const previousMip = this.renderTarget.activeMipmapLevel;
+        const generateMipmaps = this.renderTarget.texture.generateMipmaps;
+        this.renderTarget.activeMipmapLevel = this.activeMipmapLevel;
+        this.renderTarget.texture.generateMipmaps = false;
+        renderer.renderTarget = this.renderTarget;
+        for (let face = 0; face < 6; face++) {
+            const camera = this.cameras[face];
+            copy$5(camera.position, _worldPos);
+            add(_target, _worldPos, DIRS[face]);
+            camera.lookAt(_target, UPS[face]);
+            camera.updateWorldMatrix();
+            camera.updateViewMatrix();
+            this.renderTarget.activeFace = face;
+            renderer.render(scene, camera);
+        }
+        this.renderTarget.texture.generateMipmaps = generateMipmaps;
+        finalizeCubeRenderTargetCapture(renderer._textures, renderer._device, this.renderTarget, this.activeMipmapLevel);
+        renderer.renderTarget = previous;
+        this.renderTarget.activeFace = previousFace;
+        this.renderTarget.activeMipmapLevel = previousMip;
+    }
+}
+
 /**
  * A texture created from a canvas element.
  * Convenience subclass that sets appropriate defaults.
@@ -27031,135 +27565,6 @@ class CanvasTexture extends Texture {
             generateMipmaps: false,
             flipY: false,
         });
-    }
-}
-
-/**
- * A texture for cubemaps (environment maps, skyboxes, etc).
- *
- * Stores 6 faces: +X, -X, +Y, -Y, +Z, -Z.
- * Sampled using a 3D direction vector.
- */
-class CubeTexture {
-    /** Type flag for runtime checking */
-    isCubeTexture = true;
-    /** The underlying GPU texture resource */
-    _gpuTexture;
-    /** The underlying sampler */
-    _gpuSampler;
-    /** Optional name for debugging */
-    name = '';
-    /**
-     * Mapping mode - determines default UV vector.
-     * - 'reflection': uses reflect(viewDir, normal)
-     * - 'refraction': uses refract(viewDir, normal, ior)
-     */
-    mapping;
-    /**
-     * Constructs a new CubeTexture.
-     *
-     * @param faces - Array of 6 images for cube faces (+X, -X, +Y, -Y, +Z, -Z)
-     * @param options - Texture options
-     */
-    constructor(faces = [], options = {}) {
-        // Determine size from first face
-        const firstFace = faces[0];
-        let size = 1;
-        if (firstFace) {
-            if (firstFace instanceof Source) {
-                size = firstFace.width || 1;
-            }
-            else if (typeof firstFace === 'object' && firstFace !== null && 'width' in firstFace) {
-                size = firstFace.width || 1;
-            }
-        }
-        this._gpuTexture = new GpuTexture(textureCube(), {
-            size,
-            faces: faces.map(f => f instanceof Source ? f : new Source(f)),
-            format: options.format,
-            generateMipmaps: options.generateMipmaps ?? true,
-            flipY: options.flipY ?? false,
-        });
-        this._gpuSampler = new GpuSampler({
-            addressModeU: options.wrapS ?? 'clamp-to-edge',
-            addressModeV: options.wrapT ?? 'clamp-to-edge',
-            addressModeW: 'clamp-to-edge',
-            magFilter: options.magFilter ?? 'linear',
-            minFilter: options.minFilter ?? 'linear',
-            mipmapFilter: options.mipmapFilter ?? 'linear',
-        });
-        this.mapping = options.mapping ?? 'reflection';
-    }
-    // ─── Convenience getters/setters ───
-    get id() { return this._gpuTexture.id; }
-    get width() { return this._gpuTexture.width; }
-    get height() { return this._gpuTexture.height; }
-    get size() { return this._gpuTexture.size; }
-    /** Check if all 6 faces are present and ready */
-    get isComplete() { return this._gpuTexture.isComplete; }
-    /** The 6 face images as SourceData */
-    get images() {
-        return this._gpuTexture.sources.map(s => s.data);
-    }
-    set images(value) {
-        this._gpuTexture.sources = value.map(img => img instanceof Source ? img : new Source(img));
-        // Update size from first face
-        if (value.length > 0) {
-            const first = this._gpuTexture.sources[0];
-            if (first) {
-                this._gpuTexture.width = first.width || 1;
-                this._gpuTexture.height = first.height || 1;
-            }
-        }
-        this._gpuTexture.needsUpdate = true;
-    }
-    /** The 6 face Sources */
-    get imageSources() {
-        return this._gpuTexture.sources;
-    }
-    get wrapS() { return this._gpuSampler.addressModeU; }
-    set wrapS(v) { this._gpuSampler.addressModeU = v; }
-    get wrapT() { return this._gpuSampler.addressModeV; }
-    set wrapT(v) { this._gpuSampler.addressModeV = v; }
-    get magFilter() { return this._gpuSampler.magFilter; }
-    set magFilter(v) { this._gpuSampler.magFilter = v; }
-    get minFilter() { return this._gpuSampler.minFilter; }
-    set minFilter(v) { this._gpuSampler.minFilter = v; }
-    get mipmapFilter() { return this._gpuSampler.mipmapFilter; }
-    set mipmapFilter(v) { this._gpuSampler.mipmapFilter = v; }
-    get anisotropy() { return this._gpuSampler.maxAnisotropy; }
-    set anisotropy(v) { this._gpuSampler.maxAnisotropy = v; }
-    get format() { return this._gpuTexture.format; }
-    set format(v) { this._gpuTexture.format = v; }
-    get generateMipmaps() { return this._gpuTexture.generateMipmaps; }
-    set generateMipmaps(v) { this._gpuTexture.generateMipmaps = v; }
-    get flipY() { return this._gpuTexture.flipY; }
-    set flipY(v) { this._gpuTexture.flipY = v; }
-    get premultiplyAlpha() { return this._gpuTexture.premultiplyAlpha; }
-    set premultiplyAlpha(v) { this._gpuTexture.premultiplyAlpha = v; }
-    get version() { return this._gpuTexture.version; }
-    set needsUpdate(v) {
-        if (v)
-            this._gpuTexture.needsUpdate = true;
-    }
-    clone() {
-        const tex = new CubeTexture(this.images, {
-            wrapS: this.wrapS,
-            wrapT: this.wrapT,
-            magFilter: this.magFilter,
-            minFilter: this.minFilter,
-            mipmapFilter: this.mipmapFilter,
-            format: this.format,
-            generateMipmaps: this.generateMipmaps,
-            flipY: this.flipY,
-            mapping: this.mapping,
-        });
-        tex.name = this.name;
-        return tex;
-    }
-    dispose() {
-        this._gpuTexture.dispose();
-        this._gpuSampler.dispose();
     }
 }
 
@@ -28654,8 +29059,12 @@ class WebGPURenderer {
     onDeviceLost = null;
     /** swapchain depth texture (recreated on resize) */
     _depthTexture = null;
+    /** Cached view of `_depthTexture` (recreated alongside the texture, not per frame). */
+    _depthTextureView = null;
     /** MSAA color texture (null when samples <= 1). Only used for swapchain passes */
     _msaaTexture = null;
+    /** Cached view of `_msaaTexture` (recreated alongside the texture, not per frame). */
+    _msaaTextureView = null;
     /** @internal */
     _buffers;
     /** @internal */
@@ -28809,21 +29218,29 @@ class WebGPURenderer {
         if (this._canvasTarget) {
             const w = this.domElement.width || 1;
             const h = this.domElement.height || 1;
-            this._depthTexture = this._createDepthTexture(w, h);
-            if (this.samples > 1) {
-                this._msaaTexture = this._createMsaaTexture(w, h);
-            }
+            this._recreateSwapchainTextures(w, h);
         }
         this._initialized = true;
         return this;
     }
     /** recreate depth/msaa textures after a resize. */
     _onResize(width, height) {
+        this._recreateSwapchainTextures(width, height);
+    }
+    /**
+     * (Re)create the swapchain depth and (optional) MSAA textures and cache their
+     * views. The views are stable until the next resize, so attachment resolution
+     * reuses them rather than calling createView() every frame.
+     */
+    _recreateSwapchainTextures(width, height) {
+        const sampleCount = this.samples > 1 ? this.samples : 1;
         this._depthTexture?.destroy();
-        this._depthTexture = this._createDepthTexture(width, height);
+        this._depthTexture = createSwapchainDepthTexture(this._device, width, height, sampleCount);
+        this._depthTextureView = this._depthTexture.createView();
         if (this.samples > 1) {
             this._msaaTexture?.destroy();
-            this._msaaTexture = this._createMsaaTexture(width, height);
+            this._msaaTexture = createSwapchainMsaaTexture(this._device, width, height, this._format, this.samples);
+            this._msaaTextureView = this._msaaTexture.createView();
         }
     }
     /** set the device pixel ratio. call before setSize(). Throws in headless mode. */
@@ -29096,11 +29513,7 @@ class WebGPURenderer {
             if (this.domElement.width === 0 || this.domElement.height === 0)
                 return;
         }
-        // Save previous renderId to support nested renders (e.g. PassNode calling render() in updateBefore).
-        // Each render() call gets its own renderId so RENDER-level updates run once per render call.
-        // At top level (depth 0), just increment. When nested, save/restore parent's renderId.
         const frame = this._nodes.nodeFrame;
-        const previousRenderId = frame.renderId;
         const inspector = this.inspector;
         // Top-level entry: advance the frame id and open the inspector frame.
         // A "frame" is one top-level render()/compute() call; nested renders (PassNode)
@@ -29111,7 +29524,9 @@ class WebGPURenderer {
                 inspector.begin(frame.frameId);
         }
         this._renderCallDepth++;
-        frame.renderId++;
+        // Each render() gets a fresh, globally-unique renderId so RENDER-scope updates
+        // run once per render call. Nested renders restore the parent's id on exit.
+        const previousRenderId = frame.beginRender();
         if (inspector)
             inspector.perf.start('render');
         const renderTarget = this.renderTarget;
@@ -29161,78 +29576,96 @@ class WebGPURenderer {
         });
         if (inspector)
             inspector.perf.end('render');
-        // Restore previous renderId only for nested renders. Top-level keeps its incremented value.
+        // Restore previous renderId only for nested renders. Top-level keeps its fresh value.
         this._renderCallDepth--;
         if (this._renderCallDepth > 0) {
-            frame.renderId = previousRenderId;
+            frame.endRender(previousRenderId);
         }
         else if (inspector) {
             // Top-level call complete (encoder already submitted): close the inspector frame.
             inspector.finish(frame.frameId);
         }
     }
-    /** Build GPU color and depth attachments for the current render target or swapchain. */
+    /** Build GPU color and depth attachments, dispatching on the target kind. */
     _render_resolve(renderTarget, clearColor) {
+        if (renderTarget instanceof CubeRenderTarget)
+            return this._resolveCubeAttachments(renderTarget, clearColor);
+        if (renderTarget)
+            return this._resolveRenderTargetAttachments(renderTarget, clearColor);
+        return this._resolveSwapchainAttachments(clearColor);
+    }
+    /** Attachments for a 2D render target (one color per attachment, MRT supported). */
+    _resolveRenderTargetAttachments(renderTarget, clearColor) {
+        ensureRenderTargetTexturesAllocated(this._textures, this._device, renderTarget);
         const colorAttachments = [];
-        if (renderTarget) {
-            this._ensureRenderTargetAllocated(renderTarget);
-            for (const tex of renderTarget.textures) {
-                const textureData = getTextureData(this._textures, tex._gpuTexture);
-                if (!textureData) {
-                    throw new Error('[WebGPURenderer] Render target texture not found in cache');
+        for (const tex of renderTarget.textures) {
+            const textureData = getTextureData(this._textures, tex._gpuTexture);
+            if (!textureData) {
+                throw new Error('[WebGPURenderer] Render target texture not found in cache');
+            }
+            // MSAA: render into the multisampled texture and resolve into the sampled
+            // single-sample texture. Otherwise render directly into the single texture.
+            const msaaView = getRenderTargetMsaaView(textureData);
+            colorAttachments.push(msaaView
+                ? {
+                    view: msaaView,
+                    resolveTarget: getRenderTargetView(textureData),
+                    clearValue: clearColor,
+                    loadOp: 'clear',
+                    storeOp: 'store',
                 }
-                colorAttachments.push({
-                    view: textureData.texture.createView(),
+                : {
+                    view: getRenderTargetView(textureData),
                     clearValue: clearColor,
                     loadOp: 'clear',
                     storeOp: 'store',
                 });
-            }
-        }
-        else {
-            const ctx = this._canvasTarget.getContext(this._device, this._format);
-            const swapchainView = ctx.getCurrentTexture().createView();
-            if (this.samples > 1 && this._msaaTexture) {
-                colorAttachments.push({
-                    view: this._msaaTexture.createView(),
-                    resolveTarget: swapchainView,
-                    clearValue: clearColor,
-                    loadOp: 'clear',
-                    storeOp: 'discard',
-                });
-            }
-            else {
-                colorAttachments.push({
-                    view: swapchainView,
-                    clearValue: clearColor,
-                    loadOp: 'clear',
-                    storeOp: 'store',
-                });
-            }
         }
         let depthAttachment;
-        if (renderTarget) {
-            if (renderTarget.depthTexture) {
-                const depthTextureData = getTextureData(this._textures, renderTarget.depthTexture._gpuTexture);
-                if (depthTextureData) {
-                    depthAttachment = {
-                        view: depthTextureData.texture.createView(),
-                        depthClearValue: 1.0,
-                        depthLoadOp: 'clear',
-                        depthStoreOp: 'store',
-                    };
-                }
+        if (renderTarget.depthTexture) {
+            const depthTextureData = getTextureData(this._textures, renderTarget.depthTexture._gpuTexture);
+            if (depthTextureData) {
+                depthAttachment = {
+                    view: getRenderTargetView(depthTextureData),
+                    depthClearValue: 1.0,
+                    depthLoadOp: 'clear',
+                    depthStoreOp: 'store',
+                };
             }
         }
+        return { colorAttachments, depthAttachment };
+    }
+    /** Attachments for the swapchain (canvas), resolving MSAA when enabled. */
+    _resolveSwapchainAttachments(clearColor) {
+        const ctx = this._canvasTarget.getContext(this._device, this._format);
+        const swapchainView = ctx.getCurrentTexture().createView();
+        const colorAttachments = [];
+        if (this.samples > 1 && this._msaaTextureView) {
+            colorAttachments.push({
+                view: this._msaaTextureView,
+                resolveTarget: swapchainView,
+                clearValue: clearColor,
+                loadOp: 'clear',
+                storeOp: 'discard',
+            });
+        }
         else {
-            depthAttachment = {
-                view: this._depthTexture.createView(),
+            colorAttachments.push({
+                view: swapchainView,
+                clearValue: clearColor,
+                loadOp: 'clear',
+                storeOp: 'store',
+            });
+        }
+        return {
+            colorAttachments,
+            depthAttachment: {
+                view: this._depthTextureView,
                 depthClearValue: 1.0,
                 depthLoadOp: 'clear',
                 depthStoreOp: 'store',
-            };
-        }
-        return { colorAttachments, depthAttachment };
+            },
+        };
     }
     /** Collect visible meshes, init render objects, and run updateBefore (may trigger nested renders). */
     _render_prepare(scene, camera, passCtx, passId, overrideMaterial) {
@@ -29398,58 +29831,39 @@ class WebGPURenderer {
         if (inspector)
             inspector.finishRender(passId, this._nodes.nodeFrame.frameId);
     }
-    _ensureRenderTargetAllocated(renderTarget) {
-        // Check if already allocated at correct size via texture cache
-        // For depth-only render targets (count: 0), check the depth texture instead
-        const firstTex = renderTarget.textures[0] ?? renderTarget.depthTexture;
-        if (firstTex) {
-            const existingData = getTextureData(this._textures, firstTex._gpuTexture);
-            if (existingData &&
-                existingData.texture.width === renderTarget.width &&
-                existingData.texture.height === renderTarget.height) {
-                return;
+    /** Build the color/depth attachments for a cube render target's active face. */
+    _resolveCubeAttachments(renderTarget, clearColor) {
+        ensureRenderTargetTexturesAllocated(this._textures, this._device, renderTarget);
+        const cubeData = getTextureData(this._textures, renderTarget.texture._gpuTexture);
+        if (!cubeData) {
+            throw new Error('[WebGPURenderer] Cube render target texture not found in cache');
+        }
+        // A 2D view of the single selected face (layer) of the cube texture.
+        const colorAttachments = [{
+                view: cubeData.texture.createView({
+                    dimension: '2d',
+                    baseArrayLayer: renderTarget.activeFace,
+                    arrayLayerCount: 1,
+                    baseMipLevel: renderTarget.activeMipmapLevel,
+                    mipLevelCount: 1,
+                }),
+                clearValue: clearColor,
+                loadOp: 'clear',
+                storeOp: 'store',
+            }];
+        let depthAttachment;
+        if (renderTarget.depthTexture) {
+            const depthData = getTextureData(this._textures, renderTarget.depthTexture._gpuTexture);
+            if (depthData) {
+                depthAttachment = {
+                    view: getRenderTargetView(depthData),
+                    depthClearValue: 1.0,
+                    depthLoadOp: 'clear',
+                    depthStoreOp: 'store',
+                };
             }
         }
-        // Dispose old resources via render target (which calls texture cache removal)
-        renderTarget.dispose();
-        // Allocate new GPU resources
-        const sampleCount = renderTarget.samples > 1 ? renderTarget.samples : 1;
-        for (const tex of renderTarget.textures) {
-            const gpuTexture = this._device.createTexture({
-                size: [renderTarget.width, renderTarget.height],
-                format: tex.format,
-                usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
-                sampleCount,
-            });
-            // Register in texture cache (keyed by GpuTexture)
-            setRenderTargetTexture(this._textures, tex._gpuTexture, gpuTexture);
-        }
-        if (renderTarget.depthTexture) {
-            const gpuDepthTexture = this._device.createTexture({
-                size: [renderTarget.width, renderTarget.height],
-                format: renderTarget.depthTexture.format, // DepthTexture always has format set
-                usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-                sampleCount,
-            });
-            // Register in texture cache (keyed by GpuTexture)
-            setRenderTargetTexture(this._textures, renderTarget.depthTexture._gpuTexture, gpuDepthTexture);
-        }
-    }
-    _createDepthTexture(width, height) {
-        return this._device.createTexture({
-            size: [width, height],
-            format: 'depth24plus',
-            usage: GPUTextureUsage.RENDER_ATTACHMENT,
-            sampleCount: this.samples > 1 ? this.samples : 1,
-        });
-    }
-    _createMsaaTexture(width, height) {
-        return this._device.createTexture({
-            size: [width, height],
-            format: this._format,
-            usage: GPUTextureUsage.RENDER_ATTACHMENT,
-            sampleCount: this.samples,
-        });
+        return { colorAttachments, depthAttachment };
     }
     /**
      * Dispose the renderer and release all GPU resources.
@@ -29653,8 +30067,11 @@ class RenderPipeline {
  *
  * Returns rows top-to-bottom, RGBA (or BGRA) order, length = width * height * 4.
  * Must be called after `render()` has populated the target.
+ *
+ * For a layered attachment (e.g. a CubeRenderTarget's cube texture), pass `layer`
+ * to read a specific array layer / cube face (0..5 = +X,-X,+Y,-Y,+Z,-Z).
  */
-async function readPixels(renderer, renderTarget, attachmentIndex = 0) {
+async function readPixels(renderer, renderTarget, attachmentIndex = 0, layer = 0) {
     const tex = renderTarget.textures[attachmentIndex];
     if (!tex) {
         throw new Error(`[readPixels] no color attachment at index ${attachmentIndex}.`);
@@ -29681,7 +30098,7 @@ async function readPixels(renderer, renderTarget, attachmentIndex = 0) {
         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
     });
     const encoder = device.createCommandEncoder();
-    encoder.copyTextureToBuffer({ texture: textureData.texture }, { buffer: stagingBuffer, bytesPerRow, rowsPerImage: height }, { width, height, depthOrArrayLayers: 1 });
+    encoder.copyTextureToBuffer({ texture: textureData.texture, origin: { x: 0, y: 0, z: layer } }, { buffer: stagingBuffer, bytesPerRow, rowsPerImage: height }, { width, height, depthOrArrayLayers: 1 });
     device.queue.submit([encoder.finish()]);
     await stagingBuffer.mapAsync(GPUMapMode.READ);
     const padded = new Uint8Array(stagingBuffer.getMappedRange());
@@ -29695,5 +30112,5 @@ async function readPixels(renderer, renderTarget, attachmentIndex = 0) {
     return tightlyPacked;
 }
 
-export { ArrayTexture, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CubeTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, FlyControls, Fn, For, Geometry, GpuBuffer, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, Raycaster, RenderPipeline, RenderTarget, Return, Scene, Source, TOUCH, Texture, TransformControls, Uniform, UniformGroup, UniformUpdateType, Var, WebGPURenderer, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, ceil, clamp, color, comparisonSampler, compile, compileCompute, compute, computeIndex, cond, cos, countLeadingZeros, countOneBits, countTrailingZeros, createBoxGeometry, createCylinderGeometry, createFullscreenTriangleGeometry, createIndexBuffer, createIndirectBuffer, createOctahedronGeometry, createPlaneGeometry, createSphereGeometry, createStorageBuffer, createTorusGeometry, createUniformBuffer, createVertexBuffer, cross$1 as cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot$1 as dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frameGroup, frustum, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, globalId, greaterThan, greaterThanEqual, i32, index, instanceIndex, inverseSqrt, layoutSizeOf, layoutStrideOf, length$1 as length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, normalize$4 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, pass, positionClip, pow, readPixels, reinhardToneMapping, renderGroup, renderOutput, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, struct, sub, tan, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transpose$1 as transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgsl, wgslFn, workgroupBarrier, workgroupId };
+export { ArrayTexture, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CubeCamera, CubeRenderTarget, CubeTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, FlyControls, Fn, For, Geometry, GpuBuffer, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, Raycaster, RenderPipeline, RenderTarget, Return, Scene, Source, TOUCH, Texture, TransformControls, Uniform, UniformGroup, UniformUpdateType, Var, WebGPURenderer, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, ceil, clamp, color, comparisonSampler, compile, compileCompute, compute, computeIndex, cond, cos, countLeadingZeros, countOneBits, countTrailingZeros, createBoxGeometry, createCylinderGeometry, createFullscreenTriangleGeometry, createIndexBuffer, createIndirectBuffer, createOctahedronGeometry, createPlaneGeometry, createSphereGeometry, createStorageBuffer, createTorusGeometry, createUniformBuffer, createVertexBuffer, cross$1 as cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot$1 as dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frameGroup, frustum, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, globalId, greaterThan, greaterThanEqual, i32, index, instanceIndex, inverseSqrt, layoutSizeOf, layoutStrideOf, length$1 as length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, normalize$4 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, pass, positionClip, pow, readPixels, reinhardToneMapping, renderGroup, renderOutput, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, struct, sub, tan, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transpose$1 as transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgsl, wgslFn, workgroupBarrier, workgroupId };
 //# sourceMappingURL=index.js.map

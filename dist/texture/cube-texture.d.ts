@@ -17,6 +17,11 @@ export type CubeTextureOptions = {
     generateMipmaps?: boolean;
     flipY?: boolean;
     mapping?: CubeTextureMapping;
+    /**
+     * Face size in pixels (width = height) for a render-only cube with no face
+     * images, e.g. a CubeRenderTarget. Ignored when `faces` are provided.
+     */
+    size?: number;
 };
 /**
  * A texture for cubemaps (environment maps, skyboxes, etc).

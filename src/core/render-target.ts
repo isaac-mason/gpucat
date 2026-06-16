@@ -1,6 +1,7 @@
 import { type ImageSize } from '../texture/source';
 import { Texture } from '../texture/texture';
 import { DepthTexture, type DepthTextureFormat } from '../texture/depth-texture';
+import type { CubeTexture } from '../texture/cube-texture';
 
 export type RenderTargetOptions = {
     /**
@@ -26,6 +27,8 @@ export type RenderTargetOptions = {
     count?: number;
 };
 
+export type RenderTargetTexture = Texture | CubeTexture;
+
 /**
  * A render target is a buffer where the video card draws pixels for a scene
  * that is being rendered in the background. It is used in different effects,
@@ -47,7 +50,7 @@ export class RenderTarget {
      * Each has its own mutable `.format` (per-attachment formats supported by mutating `textures[i].format`).
      * Each has a `.name` for MRT mapping; the first texture is also accessible via the `texture` getter.
      */
-    textures: Texture[];
+    textures: RenderTargetTexture[];
 
     /** Depth texture, or null if no depth */
     depthTexture: DepthTexture | null = null;
@@ -64,6 +67,7 @@ export class RenderTarget {
         for (let i = 0; i < count; i++) {
             const texture = createRenderTargetTexture(this, width, height, defaultFormat);
             texture.name = i === 0 ? 'output' : `output${i}`;
+            texture._gpuTexture.renderTarget = this;
             this.textures.push(texture);
         }
 
@@ -76,11 +80,26 @@ export class RenderTarget {
             depthTexture._gpuTexture.isRenderTargetTexture = true;
             this.depthTexture = depthTexture;
         }
+        if (this.depthTexture) {
+            this.depthTexture._gpuTexture.renderTarget = this;
+        }
     }
 
     /** The first color attachment texture, or undefined when count=0 (depth-only target). */
-    get texture(): Texture | undefined {
+    get texture(): RenderTargetTexture | undefined {
         return this.textures[0];
+    }
+
+    set texture(value: RenderTargetTexture | undefined) {
+        if (value === undefined) {
+            this.textures.length = 0;
+            return;
+        }
+        if (this.textures.length === 0) {
+            this.textures.push(value);
+        } else {
+            this.textures[0] = value;
+        }
     }
 
     /** Sets the size of the render target, disposes existing GPU resources; renderer will reallocate on next use */

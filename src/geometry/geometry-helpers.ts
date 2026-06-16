@@ -109,64 +109,66 @@ export function createBoxGeometry(width = 1, height = 1, depth = 1): Geometry {
 }
 
 export function createSphereGeometry(radius = 0.5, widthSegments = 16, heightSegments = 8): Geometry {
-    const cols = widthSegments + 1;
-    const rows = heightSegments + 1;
-    const vertexCount = cols * rows;
-    const indexCount = widthSegments * heightSegments * 6;
+    // Faithful port of three.js SphereGeometry (full sphere). Note the negated
+    // X and `1 - v` UV, which match three exactly, and the pole-triangle skipping.
+    widthSegments = Math.max(3, Math.floor(widthSegments));
+    heightSegments = Math.max(2, Math.floor(heightSegments));
 
-    const positions = new Float32Array(vertexCount * 3);
-    const normals = new Float32Array(vertexCount * 3);
-    const uvs = new Float32Array(vertexCount * 2);
-    const indices = new Uint16Array(indexCount);
+    const thetaEnd = Math.PI;
 
-    let vi = 0;
-    for (let iy = 0; iy < rows; iy++) {
+    const positions: number[] = [];
+    const normals: number[] = [];
+    const uvs: number[] = [];
+    const indices: number[] = [];
+
+    const grid: number[][] = [];
+    let index = 0;
+
+    for (let iy = 0; iy <= heightSegments; iy++) {
+        const verticesRow: number[] = [];
         const v = iy / heightSegments;
-        const phi = v * Math.PI;
-        const sinPhi = Math.sin(phi);
-        const cosPhi = Math.cos(phi);
-        for (let ix = 0; ix < cols; ix++) {
-            const u = ix / widthSegments;
-            const theta = u * Math.PI * 2;
-            const nx = Math.cos(theta) * sinPhi;
-            const ny = cosPhi;
-            const nz = Math.sin(theta) * sinPhi;
 
-            const pi = vi * 3;
-            const ui = vi * 2;
-            positions[pi] = nx * radius;
-            positions[pi + 1] = ny * radius;
-            positions[pi + 2] = nz * radius;
-            normals[pi] = nx;
-            normals[pi + 1] = ny;
-            normals[pi + 2] = nz;
-            uvs[ui] = u;
-            uvs[ui + 1] = v;
-            vi++;
+        // special-case the poles for a slightly better UV at the seam
+        let uOffset = 0;
+        if (iy === 0) uOffset = 0.5 / widthSegments;
+        else if (iy === heightSegments) uOffset = -0.5 / widthSegments;
+
+        for (let ix = 0; ix <= widthSegments; ix++) {
+            const u = ix / widthSegments;
+
+            const x = -radius * Math.cos(u * Math.PI * 2) * Math.sin(v * Math.PI);
+            const y = radius * Math.cos(v * Math.PI);
+            const z = radius * Math.sin(u * Math.PI * 2) * Math.sin(v * Math.PI);
+
+            positions.push(x, y, z);
+
+            const len = Math.hypot(x, y, z) || 1;
+            normals.push(x / len, y / len, z / len);
+
+            uvs.push(u + uOffset, 1 - v);
+
+            verticesRow.push(index++);
         }
+        grid.push(verticesRow);
     }
 
-    let ii = 0;
     for (let iy = 0; iy < heightSegments; iy++) {
         for (let ix = 0; ix < widthSegments; ix++) {
-            const a = iy * cols + ix;
-            const b = a + cols;
-            // CCW winding when viewed from outside the sphere
-            indices[ii] = a;
-            indices[ii + 1] = a + 1;
-            indices[ii + 2] = b;
-            indices[ii + 3] = b;
-            indices[ii + 4] = a + 1;
-            indices[ii + 5] = b + 1;
-            ii += 6;
+            const a = grid[iy][ix + 1];
+            const b = grid[iy][ix];
+            const c = grid[iy + 1][ix];
+            const dd = grid[iy + 1][ix + 1];
+
+            if (iy !== 0) indices.push(a, b, dd);
+            if (iy !== heightSegments - 1 || thetaEnd < Math.PI) indices.push(b, c, dd);
         }
     }
 
     const geom = new Geometry();
-    geom.setBuffer('position', createVertexBuffer(d.vec3f, positions));
-    geom.setBuffer('normal', createVertexBuffer(d.vec3f, normals));
-    geom.setBuffer('uv', createVertexBuffer(d.vec2f, uvs));
-    geom.setIndex(createIndexBuffer(indices));
+    geom.setBuffer('position', createVertexBuffer(d.vec3f, new Float32Array(positions)));
+    geom.setBuffer('normal', createVertexBuffer(d.vec3f, new Float32Array(normals)));
+    geom.setBuffer('uv', createVertexBuffer(d.vec2f, new Float32Array(uvs)));
+    geom.setIndex(createIndexBuffer(new Uint16Array(indices)));
     geom.boundingBox = [-radius, -radius, -radius, radius, radius, radius];
     geom.boundingSphere = { center: [0, 0, 0], radius };
     return geom;

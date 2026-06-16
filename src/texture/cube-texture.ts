@@ -24,6 +24,12 @@ export type CubeTextureOptions = {
     
     // Cube-specific
     mapping?: CubeTextureMapping;
+
+    /**
+     * Face size in pixels (width = height) for a render-only cube with no face
+     * images, e.g. a CubeRenderTarget. Ignored when `faces` are provided.
+     */
+    size?: number;
 };
 
 /**
@@ -62,9 +68,10 @@ export class CubeTexture {
         faces: [SourceData, SourceData, SourceData, SourceData, SourceData, SourceData] | SourceData[] = [],
         options: CubeTextureOptions = {}
     ) {
-        // Determine size from first face
+        // Determine size from the first face, or from options.size for a
+        // render-only cube (no face images, e.g. a CubeRenderTarget).
         const firstFace = faces[0];
-        let size = 1;
+        let size = options.size ?? 1;
         if (firstFace) {
             if (firstFace instanceof Source) {
                 size = firstFace.width || 1;
@@ -80,6 +87,11 @@ export class CubeTexture {
             generateMipmaps: options.generateMipmaps ?? true,
             flipY: options.flipY ?? false,
         });
+
+        // A render-only cube (no faces) is filled by the renderer, not uploaded.
+        if (faces.length === 0) {
+            this._gpuTexture.isRenderTargetTexture = true;
+        }
         
         this._gpuSampler = new GpuSampler({
             addressModeU: options.wrapS ?? 'clamp-to-edge',

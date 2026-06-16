@@ -1,5 +1,6 @@
 import * as d from '../schema/schema';
 import { Source, type SourceData } from '../texture/source';
+import type { RenderTarget } from './render-target';
 /** GPU texture dimension from schema type */
 export type DimensionOf<D extends d.Texture> = D extends d.texture1d ? '1d' : D extends d.texture3d ? '3d' : '2d';
 /** View dimension from schema type (for GPUTextureView) */
@@ -81,6 +82,12 @@ export declare class GpuTexture<D extends d.Texture = d.Texture> {
      * created and managed by RenderTarget.
      */
     isRenderTargetTexture: boolean;
+    /**
+     * Render target this texture belongs to (color or depth attachment), or null.
+     * Lets the bind path lazily (re)allocate a sampled render target whose own
+     * render pass hasn't run this frame — e.g. it was resized between renders.
+     */
+    renderTarget: RenderTarget | null;
     /** Renderer-set callback to destroy GPU resources */
     _onDispose: (() => void) | null;
     /** Set to true after dispose() */

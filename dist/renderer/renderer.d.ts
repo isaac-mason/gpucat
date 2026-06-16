@@ -123,8 +123,12 @@ export declare class WebGPURenderer {
     onDeviceLost: ((info: DeviceLostInfo) => void) | null;
     /** swapchain depth texture (recreated on resize) */
     _depthTexture: GPUTexture;
+    /** Cached view of `_depthTexture` (recreated alongside the texture, not per frame). */
+    _depthTextureView: GPUTextureView;
     /** MSAA color texture (null when samples <= 1). Only used for swapchain passes */
     _msaaTexture: GPUTexture | null;
+    /** Cached view of `_msaaTexture` (recreated alongside the texture, not per frame). */
+    _msaaTextureView: GPUTextureView | null;
     /** @internal */
     _buffers: Buffers.BufferCache;
     /** @internal */
@@ -176,6 +180,12 @@ export declare class WebGPURenderer {
     init(): Promise<this>;
     /** recreate depth/msaa textures after a resize. */
     private _onResize;
+    /**
+     * (Re)create the swapchain depth and (optional) MSAA textures and cache their
+     * views. The views are stable until the next resize, so attachment resolution
+     * reuses them rather than calling createView() every frame.
+     */
+    private _recreateSwapchainTextures;
     /** set the device pixel ratio. call before setSize(). Throws in headless mode. */
     setPixelRatio(value: number): void;
     /** resize the canvas to logical pixel dimensions (physical = logical * pixelRatio). Throws in headless mode. */
@@ -246,15 +256,18 @@ export declare class WebGPURenderer {
      * Renders to `this.renderTarget` if set, otherwise to the swapchain.
      */
     render(scene: Object3D, camera: Camera, commandEncoder?: GPUCommandEncoder, passId?: string): void;
-    /** Build GPU color and depth attachments for the current render target or swapchain. */
+    /** Build GPU color and depth attachments, dispatching on the target kind. */
     private _render_resolve;
+    /** Attachments for a 2D render target (one color per attachment, MRT supported). */
+    private _resolveRenderTargetAttachments;
+    /** Attachments for the swapchain (canvas), resolving MSAA when enabled. */
+    private _resolveSwapchainAttachments;
     /** Collect visible meshes, init render objects, and run updateBefore (may trigger nested renders). */
     private _render_prepare;
     /** Begin the GPU render pass, issue all draw calls, and end the pass. */
     private _render_draw;
-    private _ensureRenderTargetAllocated;
-    private _createDepthTexture;
-    private _createMsaaTexture;
+    /** Build the color/depth attachments for a cube render target's active face. */
+    private _resolveCubeAttachments;
     /**
      * Dispose the renderer and release all GPU resources.
      *

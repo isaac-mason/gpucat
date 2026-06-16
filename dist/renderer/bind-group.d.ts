@@ -45,8 +45,6 @@ export type TextureBinding = {
     entry: TextureEntry;
     /** Generation counter for detecting texture changes. */
     generation: number;
-    /** Last seen GPU texture (for detecting render target texture changes). */
-    lastGpuTexture: GPUTexture | null;
 };
 /** Sampler binding */
 export type SamplerBinding = {

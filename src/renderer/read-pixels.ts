@@ -11,11 +11,15 @@ import type { WebGPURenderer } from './renderer';
  *
  * Returns rows top-to-bottom, RGBA (or BGRA) order, length = width * height * 4.
  * Must be called after `render()` has populated the target.
+ *
+ * For a layered attachment (e.g. a CubeRenderTarget's cube texture), pass `layer`
+ * to read a specific array layer / cube face (0..5 = +X,-X,+Y,-Y,+Z,-Z).
  */
 export async function readPixels(
     renderer: WebGPURenderer,
     renderTarget: RenderTarget,
     attachmentIndex = 0,
+    layer = 0,
 ): Promise<Uint8Array> {
     const tex = renderTarget.textures[attachmentIndex];
     if (!tex) {
@@ -52,7 +56,7 @@ export async function readPixels(
 
     const encoder = device.createCommandEncoder();
     encoder.copyTextureToBuffer(
-        { texture: textureData.texture },
+        { texture: textureData.texture, origin: { x: 0, y: 0, z: layer } },
         { buffer: stagingBuffer, bytesPerRow, rowsPerImage: height },
         { width, height, depthOrArrayLayers: 1 },
     );

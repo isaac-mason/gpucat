@@ -2,6 +2,7 @@ import { Camera } from '../camera/camera';
 import { getIndexFormat, type GpuBuffer } from '../core/gpu-buffer';
 import { Object3D } from '../core/object3d';
 import type { RenderTarget } from '../core/render-target';
+import { CubeRenderTarget } from '../core/cube-render-target';
 import { InspectorBase } from '../inspector/inspector-base';
 import type { Material } from '../material/material';
 import { ComputeNode, MRTNode } from '../nodes/nodes';
@@ -170,9 +171,13 @@ export class WebGPURenderer {
 
     /** swapchain depth texture (recreated on resize) */
     _depthTexture: GPUTexture = null!;
+    /** Cached view of `_depthTexture` (recreated alongside the texture, not per frame). */
+    _depthTextureView: GPUTextureView = null!;
 
     /** MSAA color texture (null when samples <= 1). Only used for swapchain passes */
     _msaaTexture: GPUTexture | null = null;
+    /** Cached view of `_msaaTexture` (recreated alongside the texture, not per frame). */
+    _msaaTextureView: GPUTextureView | null = null;
 
     /** @internal */
     _buffers: Buffers.BufferCache;
@@ -360,10 +365,7 @@ export class WebGPURenderer {
         if (this._canvasTarget) {
             const w = this.domElement.width || 1;
             const h = this.domElement.height || 1;
-            this._depthTexture = this._createDepthTexture(w, h);
-            if (this.samples > 1) {
-                this._msaaTexture = this._createMsaaTexture(w, h);
-            }
+            this._recreateSwapchainTextures(w, h);
         }
 
         this._initialized = true;
@@ -372,12 +374,25 @@ export class WebGPURenderer {
 
     /** recreate depth/msaa textures after a resize. */
     private _onResize(width: number, height: number): void {
+        this._recreateSwapchainTextures(width, height);
+    }
+
+    /**
+     * (Re)create the swapchain depth and (optional) MSAA textures and cache their
+     * views. The views are stable until the next resize, so attachment resolution
+     * reuses them rather than calling createView() every frame.
+     */
+    private _recreateSwapchainTextures(width: number, height: number): void {
+        const sampleCount = this.samples > 1 ? this.samples : 1;
+
         this._depthTexture?.destroy();
-        this._depthTexture = this._createDepthTexture(width, height);
+        this._depthTexture = Textures.createSwapchainDepthTexture(this._device, width, height, sampleCount);
+        this._depthTextureView = this._depthTexture.createView();
 
         if (this.samples > 1) {
             this._msaaTexture?.destroy();
-            this._msaaTexture = this._createMsaaTexture(width, height);
+            this._msaaTexture = Textures.createSwapchainMsaaTexture(this._device, width, height, this._format, this.samples);
+            this._msaaTextureView = this._msaaTexture.createView();
         }
     }
 
@@ -737,11 +752,7 @@ export class WebGPURenderer {
             if (this.domElement.width === 0 || this.domElement.height === 0) return;
         }
 
-        // Save previous renderId to support nested renders (e.g. PassNode calling render() in updateBefore).
-        // Each render() call gets its own renderId so RENDER-level updates run once per render call.
-        // At top level (depth 0), just increment. When nested, save/restore parent's renderId.
         const frame = this._nodes.nodeFrame;
-        const previousRenderId = frame.renderId;
         const inspector = this.inspector;
         // Top-level entry: advance the frame id and open the inspector frame.
         // A "frame" is one top-level render()/compute() call; nested renders (PassNode)
@@ -751,7 +762,9 @@ export class WebGPURenderer {
             if (inspector) inspector.begin(frame.frameId);
         }
         this._renderCallDepth++;
-        frame.renderId++;
+        // Each render() gets a fresh, globally-unique renderId so RENDER-scope updates
+        // run once per render call. Nested renders restore the parent's id on exit.
+        const previousRenderId = frame.beginRender();
         if (inspector) inspector.perf.start('render');
 
         const renderTarget = this.renderTarget;
@@ -821,17 +834,17 @@ export class WebGPURenderer {
 
         if (inspector) inspector.perf.end('render');
 
-        // Restore previous renderId only for nested renders. Top-level keeps its incremented value.
+        // Restore previous renderId only for nested renders. Top-level keeps its fresh value.
         this._renderCallDepth--;
         if (this._renderCallDepth > 0) {
-            frame.renderId = previousRenderId;
+            frame.endRender(previousRenderId);
         } else if (inspector) {
             // Top-level call complete (encoder already submitted): close the inspector frame.
             inspector.finish(frame.frameId);
         }
     }
 
-    /** Build GPU color and depth attachments for the current render target or swapchain. */
+    /** Build GPU color and depth attachments, dispatching on the target kind. */
     private _render_resolve(
         renderTarget: RenderTarget | null,
         clearColor: GPUColorDict,
@@ -839,67 +852,99 @@ export class WebGPURenderer {
         colorAttachments: GPURenderPassColorAttachment[];
         depthAttachment: GPURenderPassDepthStencilAttachment | undefined;
     } {
+        if (renderTarget instanceof CubeRenderTarget) return this._resolveCubeAttachments(renderTarget, clearColor);
+        if (renderTarget) return this._resolveRenderTargetAttachments(renderTarget, clearColor);
+        return this._resolveSwapchainAttachments(clearColor);
+    }
+
+    /** Attachments for a 2D render target (one color per attachment, MRT supported). */
+    private _resolveRenderTargetAttachments(
+        renderTarget: RenderTarget,
+        clearColor: GPUColorDict,
+    ): {
+        colorAttachments: GPURenderPassColorAttachment[];
+        depthAttachment: GPURenderPassDepthStencilAttachment | undefined;
+    } {
+        Textures.ensureRenderTargetTexturesAllocated(this._textures, this._device, renderTarget);
+
         const colorAttachments: GPURenderPassColorAttachment[] = [];
-
-        if (renderTarget) {
-            this._ensureRenderTargetAllocated(renderTarget);
-
-            for (const tex of renderTarget.textures) {
-                const textureData = Textures.getTextureData(this._textures, tex._gpuTexture);
-                if (!textureData) {
-                    throw new Error('[WebGPURenderer] Render target texture not found in cache');
+        for (const tex of renderTarget.textures) {
+            const textureData = Textures.getTextureData(this._textures, tex._gpuTexture);
+            if (!textureData) {
+                throw new Error('[WebGPURenderer] Render target texture not found in cache');
+            }
+            // MSAA: render into the multisampled texture and resolve into the sampled
+            // single-sample texture. Otherwise render directly into the single texture.
+            const msaaView = Textures.getRenderTargetMsaaView(textureData);
+            colorAttachments.push(msaaView
+                ? {
+                    view: msaaView,
+                    resolveTarget: Textures.getRenderTargetView(textureData),
+                    clearValue: clearColor,
+                    loadOp: 'clear',
+                    storeOp: 'store',
                 }
-                colorAttachments.push({
-                    view: textureData.texture.createView(),
+                : {
+                    view: Textures.getRenderTargetView(textureData),
                     clearValue: clearColor,
                     loadOp: 'clear',
                     storeOp: 'store',
                 });
-            }
-        } else {
-            const ctx = this._canvasTarget!.getContext(this._device, this._format);
-            const swapchainView = ctx.getCurrentTexture().createView();
-            if (this.samples > 1 && this._msaaTexture) {
-                colorAttachments.push({
-                    view: this._msaaTexture.createView(),
-                    resolveTarget: swapchainView,
-                    clearValue: clearColor,
-                    loadOp: 'clear',
-                    storeOp: 'discard',
-                });
-            } else {
-                colorAttachments.push({
-                    view: swapchainView,
-                    clearValue: clearColor,
-                    loadOp: 'clear',
-                    storeOp: 'store',
-                });
-            }
         }
 
         let depthAttachment: GPURenderPassDepthStencilAttachment | undefined;
-        if (renderTarget) {
-            if (renderTarget.depthTexture) {
-                const depthTextureData = Textures.getTextureData(this._textures, renderTarget.depthTexture._gpuTexture);
-                if (depthTextureData) {
-                    depthAttachment = {
-                        view: depthTextureData.texture.createView(),
-                        depthClearValue: 1.0,
-                        depthLoadOp: 'clear',
-                        depthStoreOp: 'store',
-                    };
-                }
+        if (renderTarget.depthTexture) {
+            const depthTextureData = Textures.getTextureData(this._textures, renderTarget.depthTexture._gpuTexture);
+            if (depthTextureData) {
+                depthAttachment = {
+                    view: Textures.getRenderTargetView(depthTextureData),
+                    depthClearValue: 1.0,
+                    depthLoadOp: 'clear',
+                    depthStoreOp: 'store',
+                };
             }
-        } else {
-            depthAttachment = {
-                view: this._depthTexture.createView(),
-                depthClearValue: 1.0,
-                depthLoadOp: 'clear',
-                depthStoreOp: 'store',
-            };
         }
 
         return { colorAttachments, depthAttachment };
+    }
+
+    /** Attachments for the swapchain (canvas), resolving MSAA when enabled. */
+    private _resolveSwapchainAttachments(
+        clearColor: GPUColorDict,
+    ): {
+        colorAttachments: GPURenderPassColorAttachment[];
+        depthAttachment: GPURenderPassDepthStencilAttachment | undefined;
+    } {
+        const ctx = this._canvasTarget!.getContext(this._device, this._format);
+        const swapchainView = ctx.getCurrentTexture().createView();
+
+        const colorAttachments: GPURenderPassColorAttachment[] = [];
+        if (this.samples > 1 && this._msaaTextureView) {
+            colorAttachments.push({
+                view: this._msaaTextureView,
+                resolveTarget: swapchainView,
+                clearValue: clearColor,
+                loadOp: 'clear',
+                storeOp: 'discard',
+            });
+        } else {
+            colorAttachments.push({
+                view: swapchainView,
+                clearValue: clearColor,
+                loadOp: 'clear',
+                storeOp: 'store',
+            });
+        }
+
+        return {
+            colorAttachments,
+            depthAttachment: {
+                view: this._depthTextureView,
+                depthClearValue: 1.0,
+                depthLoadOp: 'clear',
+                depthStoreOp: 'store',
+            },
+        };
     }
 
     /** Collect visible meshes, init render objects, and run updateBefore (may trigger nested renders). */
@@ -1115,68 +1160,49 @@ export class WebGPURenderer {
         if (inspector) inspector.finishRender(passId, this._nodes.nodeFrame.frameId);
     }
 
-    private _ensureRenderTargetAllocated(renderTarget: RenderTarget): void {
-        // Check if already allocated at correct size via texture cache
-        // For depth-only render targets (count: 0), check the depth texture instead
-        const firstTex = renderTarget.textures[0] ?? renderTarget.depthTexture;
-        if (firstTex) {
-            const existingData = Textures.getTextureData(this._textures, firstTex._gpuTexture);
-            if (
-                existingData &&
-                existingData.texture.width === renderTarget.width &&
-                existingData.texture.height === renderTarget.height
-            ) {
-                return;
+    /** Build the color/depth attachments for a cube render target's active face. */
+    private _resolveCubeAttachments(
+        renderTarget: CubeRenderTarget,
+        clearColor: GPUColorDict,
+    ): {
+        colorAttachments: GPURenderPassColorAttachment[];
+        depthAttachment: GPURenderPassDepthStencilAttachment | undefined;
+    } {
+        Textures.ensureRenderTargetTexturesAllocated(this._textures, this._device, renderTarget);
+
+        const cubeData = Textures.getTextureData(this._textures, renderTarget.texture._gpuTexture);
+        if (!cubeData) {
+            throw new Error('[WebGPURenderer] Cube render target texture not found in cache');
+        }
+
+        // A 2D view of the single selected face (layer) of the cube texture.
+        const colorAttachments: GPURenderPassColorAttachment[] = [{
+            view: cubeData.texture.createView({
+                dimension: '2d',
+                baseArrayLayer: renderTarget.activeFace,
+                arrayLayerCount: 1,
+                baseMipLevel: renderTarget.activeMipmapLevel,
+                mipLevelCount: 1,
+            }),
+            clearValue: clearColor,
+            loadOp: 'clear',
+            storeOp: 'store',
+        }];
+
+        let depthAttachment: GPURenderPassDepthStencilAttachment | undefined;
+        if (renderTarget.depthTexture) {
+            const depthData = Textures.getTextureData(this._textures, renderTarget.depthTexture._gpuTexture);
+            if (depthData) {
+                depthAttachment = {
+                    view: Textures.getRenderTargetView(depthData),
+                    depthClearValue: 1.0,
+                    depthLoadOp: 'clear',
+                    depthStoreOp: 'store',
+                };
             }
         }
 
-        // Dispose old resources via render target (which calls texture cache removal)
-        renderTarget.dispose();
-
-        // Allocate new GPU resources
-        const sampleCount = renderTarget.samples > 1 ? renderTarget.samples : 1;
-
-        for (const tex of renderTarget.textures) {
-            const gpuTexture = this._device.createTexture({
-                size: [renderTarget.width, renderTarget.height],
-                format: tex.format,
-                usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
-                sampleCount,
-            });
-
-            // Register in texture cache (keyed by GpuTexture)
-            Textures.setRenderTargetTexture(this._textures, tex._gpuTexture, gpuTexture);
-        }
-
-        if (renderTarget.depthTexture) {
-            const gpuDepthTexture = this._device.createTexture({
-                size: [renderTarget.width, renderTarget.height],
-                format: renderTarget.depthTexture.format, // DepthTexture always has format set
-                usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-                sampleCount,
-            });
-
-            // Register in texture cache (keyed by GpuTexture)
-            Textures.setRenderTargetTexture(this._textures, renderTarget.depthTexture._gpuTexture, gpuDepthTexture);
-        }
-    }
-
-    private _createDepthTexture(width: number, height: number): GPUTexture {
-        return this._device.createTexture({
-            size: [width, height],
-            format: 'depth24plus',
-            usage: GPUTextureUsage.RENDER_ATTACHMENT,
-            sampleCount: this.samples > 1 ? this.samples : 1,
-        });
-    }
-
-    private _createMsaaTexture(width: number, height: number): GPUTexture {
-        return this._device.createTexture({
-            size: [width, height],
-            format: this._format,
-            usage: GPUTextureUsage.RENDER_ATTACHMENT,
-            sampleCount: this.samples,
-        });
+        return { colorAttachments, depthAttachment };
     }
 
     /**

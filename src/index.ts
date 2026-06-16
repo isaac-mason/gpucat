@@ -19,6 +19,7 @@ export * from './scene/scene';
 export * from './camera/camera';
 export * from './camera/perspective-camera';
 export * from './camera/orthographic-camera';
+export * from './camera/cube-camera';
 
 export * from './core/gpu-buffer';
 export * from './core/uniform';
@@ -349,6 +350,7 @@ export {
 export * from './core/object3d';
 
 export * from './core/render-target';
+export * from './core/cube-render-target';
 
 export { WebGPURenderer, type ComputeDispatch, type DeviceLostInfo, type WebGPURendererOptions } from './renderer/renderer';
 export { RenderPipeline } from './renderer/render-pipeline';

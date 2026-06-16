@@ -32,7 +32,7 @@ const SECTIONS = [
         blurb: 'Drive the GPU: create a renderer, build pipelines, render to the canvas or a target.',
         groups: [
             { title: 'Renderer', modules: ['renderer/renderer'] },
-            { title: 'Pipelines & targets', modules: ['renderer/render-pipeline', 'renderer/canvas-target', 'renderer/read-pixels', 'core/render-target'] },
+            { title: 'Pipelines & targets', modules: ['renderer/render-pipeline', 'renderer/canvas-target', 'renderer/read-pixels', 'core/render-target', 'core/cube-render-target'] },
         ],
     },
     {
@@ -40,7 +40,7 @@ const SECTIONS = [
         blurb: 'The scene graph, cameras, and the objects you put in it.',
         groups: [
             { title: 'Scene graph', modules: ['scene/scene', 'core/object3d'] },
-            { title: 'Cameras', modules: ['camera/camera', 'camera/perspective-camera', 'camera/orthographic-camera'] },
+            { title: 'Cameras', modules: ['camera/camera', 'camera/perspective-camera', 'camera/orthographic-camera', 'camera/cube-camera'] },
             { title: 'Objects', modules: ['objects/mesh', 'objects/line'] },
             { title: 'Geometry', modules: ['geometry/geometry', 'geometry/geometry-helpers'] },
         ],

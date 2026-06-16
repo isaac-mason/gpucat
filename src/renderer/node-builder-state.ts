@@ -299,7 +299,7 @@ function buildTemplateBindGroups(
                 bindGroup.bindings.push({ kind: 'storage', entry: s, lastBuffer: null });
             }
             for (const t of groupTextures) {
-                bindGroup.bindings.push({ kind: 'texture', entry: t, generation: 0, lastGpuTexture: null });
+                bindGroup.bindings.push({ kind: 'texture', entry: t, generation: 0 });
             }
             for (const s of groupSamplers) {
                 bindGroup.bindings.push({ kind: 'sampler', entry: s, samplerKey: null });

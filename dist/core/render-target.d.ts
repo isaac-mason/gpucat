@@ -1,5 +1,6 @@
 import { Texture } from '../texture/texture';
 import { DepthTexture, type DepthTextureFormat } from '../texture/depth-texture';
+import type { CubeTexture } from '../texture/cube-texture';
 export type RenderTargetOptions = {
     /**
      * Default format applied to every color attachment at construction.
@@ -18,6 +19,7 @@ export type RenderTargetOptions = {
     /** Number of color attachments (MRT). Default: 1. */
     count?: number;
 };
+export type RenderTargetTexture = Texture | CubeTexture;
 /**
  * A render target is a buffer where the video card draws pixels for a scene
  * that is being rendered in the background. It is used in different effects,
@@ -36,13 +38,14 @@ export declare class RenderTarget {
      * Each has its own mutable `.format` (per-attachment formats supported by mutating `textures[i].format`).
      * Each has a `.name` for MRT mapping; the first texture is also accessible via the `texture` getter.
      */
-    textures: Texture[];
+    textures: RenderTargetTexture[];
     /** Depth texture, or null if no depth */
     depthTexture: DepthTexture | null;
     /** Constructs a new render target */
     constructor(width: number, height: number, opts?: RenderTargetOptions);
     /** The first color attachment texture, or undefined when count=0 (depth-only target). */
-    get texture(): Texture | undefined;
+    get texture(): RenderTargetTexture | undefined;
+    set texture(value: RenderTargetTexture | undefined);
     /** Sets the size of the render target, disposes existing GPU resources; renderer will reallocate on next use */
     setSize(width: number, height: number): void;
     /**

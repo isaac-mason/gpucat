@@ -1,5 +1,6 @@
 import * as d from '../schema/schema';
 import { Source, type SourceData } from '../texture/source';
+import type { RenderTarget } from './render-target';
 
 /** GPU texture dimension from schema type */
 export type DimensionOf<D extends d.Texture> =
@@ -147,7 +148,14 @@ export class GpuTexture<D extends d.Texture = d.Texture> {
      * created and managed by RenderTarget.
      */
     isRenderTargetTexture = false;
-    
+
+    /**
+     * Render target this texture belongs to (color or depth attachment), or null.
+     * Lets the bind path lazily (re)allocate a sampled render target whose own
+     * render pass hasn't run this frame — e.g. it was resized between renders.
+     */
+    renderTarget: RenderTarget | null = null;
+
     // ─────────────────────────────────────────────────────────────────────────
     // Lifecycle
     // ─────────────────────────────────────────────────────────────────────────

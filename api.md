@@ -573,7 +573,7 @@ Drive the GPU: create a renderer, build pipelines, render to the canvas or a tar
 <table><tr>
 <td><a href="#renderpipeline"><code>RenderPipeline</code></a></td><td><a href="#canvastargetoptions"><code>CanvasTargetOptions</code></a></td><td><a href="#canvastarget"><code>CanvasTarget</code></a></td><td><a href="#readpixels"><code>readPixels</code></a></td>
 </tr><tr>
-<td><a href="#rendertargetoptions"><code>RenderTargetOptions</code></a></td><td><a href="#rendertarget"><code>RenderTarget</code></a></td><td></td><td></td>
+<td><a href="#rendertargetoptions"><code>RenderTargetOptions</code></a></td><td><a href="#rendertarget"><code>RenderTarget</code></a></td><td><a href="#cuberendertargetoptions"><code>CubeRenderTargetOptions</code></a></td><td><a href="#cuberendertarget"><code>CubeRenderTarget</code></a></td>
 </tr></table>
 
 ### Scene & objects
@@ -590,6 +590,8 @@ The scene graph, cameras, and the objects you put in it.
 
 <table><tr>
 <td><a href="#camera"><code>Camera</code></a></td><td><a href="#unproject"><code>unproject</code></a></td><td><a href="#perspectivecamera"><code>PerspectiveCamera</code></a></td><td><a href="#orthographiccamera"><code>OrthographicCamera</code></a></td>
+</tr><tr>
+<td><a href="#cubecamera"><code>CubeCamera</code></a></td><td></td><td></td><td></td>
 </tr></table>
 
 **Objects**
@@ -3520,6 +3522,51 @@ export class RenderTarget {
 }
 ```
 
+#### `CubeRenderTargetOptions`
+
+```ts
+export type CubeRenderTargetOptions = {
+    /** Color format of the cube faces. Default: 'rgba8unorm'. */
+    colorFormat?: GPUTextureFormat;
+    /** Whether to allocate a depth attachment (reused across faces). Default: true. */
+    depthBuffer?: boolean;
+    /** Depth format. Default: 'depth24plus'. */
+    depthFormat?: DepthTextureFormat;
+    /** Generate mipmaps for the cube (for rough reflections). Default: false. */
+    generateMipmaps?: boolean;
+};
+```
+
+#### `CubeRenderTarget`
+
+```ts
+/**
+ * A render target whose color attachment is a cube texture. Render each of the
+ * six faces (set `activeFace` and call `renderer.render(scene, faceCamera)`),
+ * then sample the result as an environment map via `cubeTexture(rt.cubeTexture)`.
+ *
+ * Usually driven by a `CubeCamera`, which sets up the six face cameras and loops
+ * the faces for you.
+ *
+ * Extends `RenderTarget`: the inherited 2D color texture carries the face format
+ * for pipeline creation, and the inherited 2D depth texture is reused across all
+ * six faces. The renderer attaches the cube face selected by `activeFace`.
+ */
+export class CubeRenderTarget extends RenderTarget {
+    readonly isCubeRenderTarget = true;
+    /** Face size in pixels (width = height). */
+    size: number;
+    /** Which cube face the next `render()` targets: 0..5 = +X, -X, +Y, -Y, +Z, -Z. */
+    activeFace: number;
+    /** The cube texture rendered into and sampled by materials. */
+    readonly cubeTexture: CubeTexture;
+    constructor(size: number, opts?: CubeRenderTargetOptions);
+    /** Resize all six faces (and the shared depth). */
+    setSize(size: number): void;
+    dispose(): void;
+}
+```
+
 ## Scene & objects
 
 The scene graph, cameras, and the objects you put in it.
@@ -3652,6 +3699,35 @@ export class OrthographicCamera extends Camera {
     clearViewOffset(): void;
     /** Recompute the projection matrix from current frustum planes, zoom, and view offset. */
     updateProjectionMatrix(): void;
+}
+```
+
+#### `CubeCamera`
+
+```ts
+/**
+ * A camera that renders its surroundings into the six faces of a
+ * {@link CubeRenderTarget}, for realtime environment maps and reflections.
+ *
+ * Position the cube camera where the reflective object sits, then call
+ * `update(renderer, scene)` to capture the scene into the target. Sample the
+ * result with `cubeTexture(cubeCamera.renderTarget.cubeTexture)`.
+ *
+ * Like the rest of gpucat, this does no automatic per-frame work: you call
+ * `update()` when you want to refresh the environment map (often after hiding
+ * the reflective object so it does not capture itself).
+ */
+export class CubeCamera extends Object3D {
+    /** The cube render target this camera draws into. */
+    readonly renderTarget: CubeRenderTarget;
+    /** The six per-face perspective cameras (90 degree fov, 1:1 aspect). */
+    readonly cameras: PerspectiveCamera[];
+    constructor(near: number, far: number, renderTarget: CubeRenderTarget);
+    /**
+     * Render the scene into all six faces of the cube render target from this
+     * camera's world position. Restores the renderer's previous render target.
+     */
+    update(renderer: WebGPURenderer, scene: Object3D): void;
 }
 ```
 
@@ -4735,6 +4811,11 @@ export type CubeTextureOptions = {
     generateMipmaps?: boolean;
     flipY?: boolean;
     mapping?: CubeTextureMapping;
+    /**
+     * Face size in pixels (width = height) for a render-only cube with no face
+     * images, e.g. a CubeRenderTarget. Ignored when `faces` are provided.
+     */
+    size?: number;
 };
 ```
 

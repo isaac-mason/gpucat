@@ -1404,7 +1404,14 @@ function generateCubeTexture(ctx: BuildContext, node: CubeTextureNode): string {
     if (!node.directionNode) {
         throw new Error(`[builder] CubeTextureNode '${name}' has no directionNode. Use cubeTexture.sample(direction).`);
     }
-    const dirExpr = generateExpr(ctx, node.directionNode);
+    // three.js CubeTextureNode.setupUV() always negates X for WebGPU:
+    //   if (coordinateSystem === WebGPUCoordinateSystem || !isRenderTargetTexture)
+    //     uvNode = vec3(uvNode.x.negate(), uvNode.yz)
+    // Since gpucat is WebGPU-only, always negate X. The CubeCamera stores
+    // faces with swapped X (by design), and negating the sample direction
+    // un-does the swap so the correct face is selected by the hardware.
+    const rawDir = generateExpr(ctx, node.directionNode);
+    const sampleDir = `((${rawDir}) * vec3f(-1.0, 1.0, 1.0))`;
 
     // Cube textures do NOT support offset
 
@@ -1415,7 +1422,7 @@ function generateCubeTexture(ctx: BuildContext, node: CubeTextureNode): string {
         }
         const ddx = generateExpr(ctx, node.gradNode[0]);
         const ddy = generateExpr(ctx, node.gradNode[1]);
-        return `textureSampleGrad(${name}, ${samplerName}, ${dirExpr}, ${ddx}, ${ddy})`;
+        return `textureSampleGrad(${name}, ${samplerName}, ${sampleDir}, ${ddx}, ${ddy})`;
     }
 
     // textureSampleBias
@@ -1424,7 +1431,7 @@ function generateCubeTexture(ctx: BuildContext, node: CubeTextureNode): string {
             throw new Error(`[builder] CubeTextureNode '${name}' in bias mode has no biasNode`);
         }
         const bias = generateExpr(ctx, node.biasNode);
-        return `textureSampleBias(${name}, ${samplerName}, ${dirExpr}, ${bias})`;
+        return `textureSampleBias(${name}, ${samplerName}, ${sampleDir}, ${bias})`;
     }
 
     // textureSampleLevel
@@ -1433,11 +1440,11 @@ function generateCubeTexture(ctx: BuildContext, node: CubeTextureNode): string {
             throw new Error(`[builder] CubeTextureNode '${name}' in level mode has no levelNode`);
         }
         const level = generateExpr(ctx, node.levelNode);
-        return `textureSampleLevel(${name}, ${samplerName}, ${dirExpr}, ${level})`;
+        return `textureSampleLevel(${name}, ${samplerName}, ${sampleDir}, ${level})`;
     }
 
     // textureSample (default)
-    return `textureSample(${name}, ${samplerName}, ${dirExpr})`;
+    return `textureSample(${name}, ${samplerName}, ${sampleDir})`;
 }
 
 function generateDepthTexture(ctx: BuildContext, node: DepthTextureNode): string {

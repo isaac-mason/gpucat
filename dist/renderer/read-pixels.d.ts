@@ -9,5 +9,8 @@ import type { WebGPURenderer } from './renderer';
  *
  * Returns rows top-to-bottom, RGBA (or BGRA) order, length = width * height * 4.
  * Must be called after `render()` has populated the target.
+ *
+ * For a layered attachment (e.g. a CubeRenderTarget's cube texture), pass `layer`
+ * to read a specific array layer / cube face (0..5 = +X,-X,+Y,-Y,+Z,-Z).
  */
-export declare function readPixels(renderer: WebGPURenderer, renderTarget: RenderTarget, attachmentIndex?: number): Promise<Uint8Array>;
+export declare function readPixels(renderer: WebGPURenderer, renderTarget: RenderTarget, attachmentIndex?: number, layer?: number): Promise<Uint8Array>;

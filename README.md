@@ -169,19 +169,25 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
       </a>
     </td>
     <td align="center">
+      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-cube-camera.ts">
+        <img src="./examples/public/screenshots/example-cube-camera.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Cube Camera
+      </a>
+    </td>
+    <td align="center">
       <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-discard.ts">
         <img src="./examples/public/screenshots/example-discard.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Discard
       </a>
     </td>
+  </tr>
+  <tr>
     <td align="center">
       <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-shadow-map.ts">
         <img src="./examples/public/screenshots/example-shadow-map.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Shadow Map
       </a>
     </td>
-  </tr>
-  <tr>
     <td align="center">
       <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-array-texture.ts">
         <img src="./examples/public/screenshots/example-array-texture.png" width="180" height="120" style="object-fit:cover;"/><br/>
@@ -194,14 +200,14 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
         FXAA
       </a>
     </td>
+  </tr>
+  <tr>
     <td align="center">
       <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-transform-controls.ts">
         <img src="./examples/public/screenshots/example-transform-controls.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Transform Controls
       </a>
     </td>
-  </tr>
-  <tr>
     <td align="center">
       <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-fly-controls.ts">
         <img src="./examples/public/screenshots/example-fly-controls.png" width="180" height="120" style="object-fit:cover;"/><br/>
@@ -739,6 +745,36 @@ Because a pass is just a texture node, you add post-processing by sampling it an
       <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-shadow-map.ts">
         <img src="./examples/public/screenshots/example-shadow-map.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Shadow Map
+      </a>
+    </td>
+  </tr>
+</table>
+
+### Environment maps with a cube camera
+
+A `CubeRenderTarget` is a render target whose color attachment is a cube texture, and a `CubeCamera` renders the surroundings into its six faces. Place the cube camera where a reflective object sits, call `update()` to capture the scene, then sample the result as an environment map with `cubeTexture(rt.texture)`. Rendering the cube each frame (rather than loading a static one) gives realtime reflections.
+
+```ts
+const cubeRT = new CubeRenderTarget(256);
+const cubeCamera = new CubeCamera(0.1, 100, cubeRT);
+
+// each frame, with the reflective object hidden so it does not reflect itself:
+reflector.visible = false;
+cubeCamera.update(renderer, scene);   // renders the 6 faces into cubeRT
+reflector.visible = true;
+
+// in the reflector's material, sample the cube along the reflection vector:
+const env = cubeTexture(cubeRT.texture).sample(reflectDir);
+```
+
+Like everything else, this does no automatic per-frame work: you call `update()` when you want to refresh the map. See [`CubeRenderTarget`](./api.md#cuberendertarget) and [`CubeCamera`](./api.md#cubecamera).
+
+<table>
+  <tr>
+    <td align="center">
+      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-cube-camera.ts">
+        <img src="./examples/public/screenshots/example-cube-camera.png" width="200" height="133" style="object-fit:cover;"/><br/>
+        Cube Camera
       </a>
     </td>
   </tr>

@@ -28,11 +28,39 @@ export class NodeFrame {
     frameId: number = 0;
 
     /**
-     * Render ID, incremented per render() call.
+     * Render ID — a globally-unique id for the current render() call.
      * Multiple renders can happen per frame (shadows, reflections, VR).
-     * Used for RENDER-level update deduplication.
+     * Used for RENDER-level update deduplication, so it MUST be unique per render;
+     * assign it only via {@link beginRender} (never `renderId++`).
      */
     renderId: number = 0;
+
+    /**
+     * Monotonic backing counter for renderId. Never reset, so ids are never reused.
+     * Advance it via {@link beginRender} rather than mutating directly.
+     */
+    renderIdCounter: number = 0;
+
+    /**
+     * Begin a render scope: assign a fresh, globally-unique `renderId` and return the
+     * previous one. A nested render passes the returned value to {@link endRender} to
+     * restore its parent's scope on exit.
+     *
+     * Using a monotonic counter (rather than `renderId++`) is what keeps ids unique
+     * across the save/restore: after a nested render restores the parent id, the next
+     * render still gets a brand-new id instead of colliding with the nested one — a
+     * collision would wrongly dedup-skip that render's RENDER-scope updates.
+     */
+    beginRender(): number {
+        const previous = this.renderId;
+        this.renderId = ++this.renderIdCounter;
+        return previous;
+    }
+
+    /** End a nested render scope, restoring the parent render's `renderId`. */
+    endRender(previousRenderId: number): void {
+        this.renderId = previousRenderId;
+    }
 
     // -----------------------------------------------------------------------
     // Render Context (set before each update cycle)

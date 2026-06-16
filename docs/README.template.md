@@ -363,6 +363,27 @@ Because a pass is just a texture node, you add post-processing by sampling it an
 
 <ExamplesTable ids="example-render-to-texture,example-shadow-map" />
 
+### Environment maps with a cube camera
+
+A `CubeRenderTarget` is a render target whose color attachment is a cube texture, and a `CubeCamera` renders the surroundings into its six faces. Place the cube camera where a reflective object sits, call `update()` to capture the scene, then sample the result as an environment map with `cubeTexture(rt.texture)`. Rendering the cube each frame (rather than loading a static one) gives realtime reflections.
+
+```ts
+const cubeRT = new CubeRenderTarget(256);
+const cubeCamera = new CubeCamera(0.1, 100, cubeRT);
+
+// each frame, with the reflective object hidden so it does not reflect itself:
+reflector.visible = false;
+cubeCamera.update(renderer, scene);   // renders the 6 faces into cubeRT
+reflector.visible = true;
+
+// in the reflector's material, sample the cube along the reflection vector:
+const env = cubeTexture(cubeRT.texture).sample(reflectDir);
+```
+
+Like everything else, this does no automatic per-frame work: you call `update()` when you want to refresh the map. See [`CubeRenderTarget`](./api.md#cuberendertarget) and [`CubeCamera`](./api.md#cubecamera).
+
+<ExamplesTable ids="example-cube-camera" />
+
 ### Tonemapping and post-processing
 
 <RenderCategory name="tonemapping and color space conversions" compact />
