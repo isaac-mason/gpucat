@@ -573,7 +573,9 @@ Drive the GPU: create a renderer, build pipelines, render to the canvas or a tar
 <table><tr>
 <td><a href="#renderpipeline"><code>RenderPipeline</code></a></td><td><a href="#canvastargetoptions"><code>CanvasTargetOptions</code></a></td><td><a href="#canvastarget"><code>CanvasTarget</code></a></td><td><a href="#readpixels"><code>readPixels</code></a></td>
 </tr><tr>
-<td><a href="#rendertargetoptions"><code>RenderTargetOptions</code></a></td><td><a href="#rendertarget"><code>RenderTarget</code></a></td><td><a href="#cuberendertargetoptions"><code>CubeRenderTargetOptions</code></a></td><td><a href="#cuberendertarget"><code>CubeRenderTarget</code></a></td>
+<td><a href="#rendertargetoptions"><code>RenderTargetOptions</code></a></td><td><a href="#rendertargettexture"><code>RenderTargetTexture</code></a></td><td><a href="#rendertarget"><code>RenderTarget</code></a></td><td><a href="#cuberendertargetoptions"><code>CubeRenderTargetOptions</code></a></td>
+</tr><tr>
+<td><a href="#cuberendertarget"><code>CubeRenderTarget</code></a></td><td></td><td></td><td></td>
 </tr></table>
 
 ### Scene & objects
@@ -3455,8 +3457,11 @@ export class CanvasTarget {
  *
  * Returns rows top-to-bottom, RGBA (or BGRA) order, length = width * height * 4.
  * Must be called after `render()` has populated the target.
+ *
+ * For a layered attachment (e.g. a CubeRenderTarget's cube texture), pass `layer`
+ * to read a specific array layer / cube face (0..5 = +X,-X,+Y,-Y,+Z,-Z).
  */
-export function readPixels(renderer: WebGPURenderer, renderTarget: RenderTarget, attachmentIndex?: number): Promise<Uint8Array>;
+export function readPixels(renderer: WebGPURenderer, renderTarget: RenderTarget, attachmentIndex?: number, layer?: number): Promise<Uint8Array>;
 ```
 
 #### `RenderTargetOptions`
@@ -3482,6 +3487,12 @@ export type RenderTargetOptions = {
 };
 ```
 
+#### `RenderTargetTexture`
+
+```ts
+export type RenderTargetTexture = Texture | CubeTexture;
+```
+
 #### `RenderTarget`
 
 ```ts
@@ -3503,13 +3514,14 @@ export class RenderTarget {
      * Each has its own mutable `.format` (per-attachment formats supported by mutating `textures[i].format`).
      * Each has a `.name` for MRT mapping; the first texture is also accessible via the `texture` getter.
      */
-    textures: Texture[];
+    textures: RenderTargetTexture[];
     /** Depth texture, or null if no depth */
     depthTexture: DepthTexture | null;
     /** Constructs a new render target */
     constructor(width: number, height: number, opts?: RenderTargetOptions);
     /** The first color attachment texture, or undefined when count=0 (depth-only target). */
-    get texture(): Texture | undefined;
+    get texture(): RenderTargetTexture | undefined;
+    set texture(value: RenderTargetTexture | undefined);
     /** Sets the size of the render target, disposes existing GPU resources; renderer will reallocate on next use */
     setSize(width: number, height: number): void;
     /**
@@ -3528,6 +3540,18 @@ export class RenderTarget {
 export type CubeRenderTargetOptions = {
     /** Color format of the cube faces. Default: 'rgba8unorm'. */
     colorFormat?: GPUTextureFormat;
+    /** Wrap mode U. Default: 'clamp-to-edge'. */
+    wrapS?: GPUAddressMode;
+    /** Wrap mode V. Default: 'clamp-to-edge'. */
+    wrapT?: GPUAddressMode;
+    /** Magnification filter. Default: 'linear'. */
+    magFilter?: GPUFilterMode;
+    /** Minification filter. Default: 'linear'. */
+    minFilter?: GPUFilterMode;
+    /** Mipmap filter. Default: 'linear'. */
+    mipmapFilter?: GPUMipmapFilterMode;
+    /** Flip source images on upload. Default: false. */
+    flipY?: boolean;
     /** Whether to allocate a depth attachment (reused across faces). Default: true. */
     depthBuffer?: boolean;
     /** Depth format. Default: 'depth24plus'. */
@@ -3543,7 +3567,7 @@ export type CubeRenderTargetOptions = {
 /**
  * A render target whose color attachment is a cube texture. Render each of the
  * six faces (set `activeFace` and call `renderer.render(scene, faceCamera)`),
- * then sample the result as an environment map via `cubeTexture(rt.cubeTexture)`.
+ * then sample the result as an environment map via `cubeTexture(rt.texture)`.
  *
  * Usually driven by a `CubeCamera`, which sets up the six face cameras and loops
  * the faces for you.
@@ -3558,12 +3582,12 @@ export class CubeRenderTarget extends RenderTarget {
     size: number;
     /** Which cube face the next `render()` targets: 0..5 = +X, -X, +Y, -Y, +Z, -Z. */
     activeFace: number;
-    /** The cube texture rendered into and sampled by materials. */
-    readonly cubeTexture: CubeTexture;
+    /** Which mip level the next `render()` targets. */
+    activeMipmapLevel: number;
     constructor(size: number, opts?: CubeRenderTargetOptions);
+    get texture(): CubeTexture;
     /** Resize all six faces (and the shared depth). */
     setSize(size: number): void;
-    dispose(): void;
 }
 ```
 
@@ -3711,7 +3735,7 @@ export class OrthographicCamera extends Camera {
  *
  * Position the cube camera where the reflective object sits, then call
  * `update(renderer, scene)` to capture the scene into the target. Sample the
- * result with `cubeTexture(cubeCamera.renderTarget.cubeTexture)`.
+ * result with `cubeTexture(cubeCamera.renderTarget.texture)`.
  *
  * Like the rest of gpucat, this does no automatic per-frame work: you call
  * `update()` when you want to refresh the environment map (often after hiding
@@ -3722,6 +3746,8 @@ export class CubeCamera extends Object3D {
     readonly renderTarget: CubeRenderTarget;
     /** The six per-face perspective cameras (90 degree fov, 1:1 aspect). */
     readonly cameras: PerspectiveCamera[];
+    /** Active mip level written by update(). */
+    activeMipmapLevel: number;
     constructor(near: number, far: number, renderTarget: CubeRenderTarget);
     /**
      * Render the scene into all six faces of the cube render target from this
