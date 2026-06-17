@@ -892,7 +892,7 @@ export class WebGPURenderer {
         colorAttachments: GPURenderPassColorAttachment[];
         depthAttachment: GPURenderPassDepthStencilAttachment | undefined;
     } {
-        if (renderTarget instanceof CubeRenderTarget) return this._resolveCubeAttachments(renderTarget, clearColor);
+        if (renderTarget?.isCubeRenderTarget) return this._resolveCubeAttachments(renderTarget as CubeRenderTarget, clearColor);
         if (renderTarget) return this._resolveRenderTargetAttachments(renderTarget, clearColor);
         return this._resolveSwapchainAttachments(clearColor);
     }

@@ -169,6 +169,7 @@ function schemaItemSize(schema: Any): number {
  * });
  */
 export class GpuBuffer<T extends Any = Any> {
+    readonly isGpuBuffer = true;
     /** Type descriptor (d.vec3f, d.array(Particle), etc.) */
     readonly schema: T;
 

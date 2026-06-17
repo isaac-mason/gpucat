@@ -389,14 +389,15 @@ function walkObject(
 ): void {
     if (!obj.visible) return;
 
-    if (obj instanceof Mesh) {
-        if (isMeshVisible(obj)) {
-            const material = overrideMaterial ?? obj.material;
-            const z = computeViewZ(obj, camera);
+    if (obj.isMesh) {
+        const mesh = obj as Mesh;
+        if (isMeshVisible(mesh)) {
+            const material = overrideMaterial ?? mesh.material;
+            const z = computeViewZ(mesh, camera);
             pushRenderItem(
                 list,
-                obj,
-                obj.geometry,
+                mesh,
+                mesh.geometry,
                 material,
                 0, // groupOrder - could be mesh.renderOrder or layer
                 z,

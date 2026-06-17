@@ -3168,6 +3168,7 @@ function schemaItemSize(schema) {
  * });
  */
 class GpuBuffer {
+    isGpuBuffer = true;
     /** Type descriptor (d.vec3f, d.array(Particle), etc.) */
     schema;
     /** Allowed usages */
@@ -3453,7 +3454,7 @@ function attribute(nameOrBufferOrData, schemaOrOptions, maybeOptions) {
         return new AttributeNode(schema, name, options);
     }
     // Overload 2: attribute(buffer, options?)
-    if (nameOrBufferOrData instanceof GpuBuffer) {
+    if ('isGpuBuffer' in nameOrBufferOrData) {
         const buffer = nameOrBufferOrData;
         const options = schemaOrOptions ?? {};
         return new AttributeNode(buffer.schema, buffer, options);
@@ -3605,6 +3606,7 @@ const objectGroup = /*@__PURE__*/ uniformGroup('object', 1, UniformUpdateType.OB
  * const time = new Uniform(d.f32, 0, frameGroup);
  */
 class Uniform {
+    isUniform = true;
     schema;
     /** Determines @group index, update cadence, and packing. Mutable, but only
      *  read at compile time, set it before the owning node is first rendered. */
@@ -3671,7 +3673,7 @@ class UniformNode extends Node {
 // Implementation
 function uniform(init, nameOrSchema) {
     // Value-based: uniform(Uniform)
-    if (init instanceof Uniform) {
+    if (typeof init === 'object' && init !== null && 'isUniform' in init) {
         const u = init;
         return new UniformNode(u, `uniform_${_nodeId}`);
     }
@@ -4198,6 +4200,7 @@ const TEXTURE_USAGE = {
     STORAGE_BINDING: 0x08};
 let _textureId = 0;
 class GpuTexture {
+    isGpuTexture = true;
     /** Unique ID */
     id = _textureId++;
     /** Schema type descriptor, source of truth for WGSL type */
@@ -4395,6 +4398,7 @@ let _samplerId = 0;
  * with the same settings share one GPUSampler).
  */
 class GpuSampler {
+    isGpuSampler = true;
     id = _samplerId++;
     minFilter;
     magFilter;
@@ -4617,6 +4621,7 @@ class Texture {
  * Defaults to comparison sampler for shadow mapping convenience.
  */
 class DepthTexture {
+    isDepthTexture = true;
     /** The underlying GPU texture resource */
     _gpuTexture;
     /** The underlying sampler */
@@ -4684,6 +4689,9 @@ class DepthTexture {
  * on the screen.
  */
 class RenderTarget {
+    isRenderTarget = true;
+    /** Brand set true on CubeRenderTarget; declared here so `rt.isCubeRenderTarget` types on a RenderTarget ref. */
+    isCubeRenderTarget;
     /** The width of the render target */
     width;
     /** The height of the render target */
@@ -5121,7 +5129,7 @@ class TextureNode extends Node {
 /** Counter for generating unique sampler IDs when using GpuSampler directly */
 let _samplerIdCounter = 0;
 function sampler(source, group = objectGroup) {
-    if (source instanceof GpuSampler) {
+    if ('isGpuSampler' in source) {
         const node = new SamplerNode(sampler$1, `s${_samplerIdCounter++}`, group);
         node.value = source;
         return node;
@@ -5133,8 +5141,8 @@ function sampler(source, group = objectGroup) {
     }
 }
 function comparisonSampler(source, compare = 'less', group = objectGroup) {
-    const baseSampler = source instanceof GpuSampler ? source : source._gpuSampler;
-    const samplerId = source instanceof GpuSampler ? `s${_samplerIdCounter++}_cmp` : `s${source.id}_cmp`;
+    const baseSampler = 'isGpuSampler' in source ? source : source._gpuSampler;
+    const samplerId = 'isGpuSampler' in source ? `s${_samplerIdCounter++}_cmp` : `s${source.id}_cmp`;
     const node = new SamplerNode(samplerComparison, samplerId, group);
     // Create a new GpuSampler with comparison function
     const cmpSampler = new GpuSampler({
@@ -5164,7 +5172,7 @@ function sampledDescForStorage(desc) {
     }
 }
 function texture(source, gpuSampler) {
-    if (source instanceof GpuTexture) {
+    if ('isGpuTexture' in source) {
         if (!gpuSampler) {
             throw new Error('texture(): GpuSampler required when passing GpuTexture directly');
         }
@@ -5315,7 +5323,7 @@ class CubeTextureNode extends Node {
     }
 }
 function cubeTexture(source, gpuSampler) {
-    if (source instanceof GpuTexture) {
+    if ('isGpuTexture' in source) {
         if (!gpuSampler) {
             throw new Error('cubeTexture(): GpuSampler required when passing GpuTexture directly');
         }
@@ -5449,7 +5457,7 @@ class DepthTextureNode extends Node {
     }
 }
 function depthTexture(source, gpuSampler) {
-    if (source instanceof GpuTexture) {
+    if ('isGpuTexture' in source) {
         if (!gpuSampler) {
             throw new Error('depthTexture(): GpuSampler required when passing GpuTexture directly');
         }
@@ -5611,7 +5619,7 @@ class ArrayTextureNode extends Node {
     }
 }
 function arrayTexture(source, samplerOrLayer, maybeLayerNode) {
-    if (source instanceof GpuTexture) {
+    if ('isGpuTexture' in source) {
         const gpuSampler = samplerOrLayer;
         const layerNode = maybeLayerNode;
         const binding = new TextureBindingNode(source.type, `t${_textureIdCounter++}`);
@@ -5996,9 +6004,9 @@ class PassNode extends Node {
         if (prevTexture !== undefined) {
             const texture = this._textures[name];
             // Swap in renderTarget.textures array (only for color textures, not depth)
-            if (texture && !(texture instanceof DepthTexture)) {
+            if (texture && !('isDepthTexture' in texture)) {
                 const index = this.renderTarget.textures.indexOf(texture);
-                if (index !== -1 && !(prevTexture instanceof DepthTexture)) {
+                if (index !== -1 && !('isDepthTexture' in prevTexture)) {
                     this.renderTarget.textures[index] = prevTexture;
                 }
             }
@@ -6014,7 +6022,7 @@ class PassNode extends Node {
      */
     getDepthTexture(name = 'depth') {
         const tex = this._textures[name];
-        return tex instanceof DepthTexture ? tex : null;
+        return tex && 'isDepthTexture' in tex ? tex : null;
     }
     /**
      * Returns a depth-typed texture node for the given attachment.
@@ -10460,200 +10468,6 @@ function computeRenderObjectCacheKey(material, geometry, renderContext) {
 }
 
 /**
- * A texture for cubemaps (environment maps, skyboxes, etc).
- *
- * Stores 6 faces: +X, -X, +Y, -Y, +Z, -Z.
- * Sampled using a 3D direction vector.
- */
-class CubeTexture {
-    /** Type flag for runtime checking */
-    isCubeTexture = true;
-    /** The underlying GPU texture resource */
-    _gpuTexture;
-    /** The underlying sampler */
-    _gpuSampler;
-    /** Optional name for debugging */
-    name = '';
-    /**
-     * Mapping mode - determines default UV vector.
-     * - 'reflection': uses reflect(viewDir, normal)
-     * - 'refraction': uses refract(viewDir, normal, ior)
-     */
-    mapping;
-    /**
-     * Constructs a new CubeTexture.
-     *
-     * @param faces - Array of 6 images for cube faces (+X, -X, +Y, -Y, +Z, -Z)
-     * @param options - Texture options
-     */
-    constructor(faces = [], options = {}) {
-        // Determine size from the first face, or from options.size for a
-        // render-only cube (no face images, e.g. a CubeRenderTarget).
-        const firstFace = faces[0];
-        let size = options.size ?? 1;
-        if (firstFace) {
-            if (firstFace instanceof Source) {
-                size = firstFace.width || 1;
-            }
-            else if (typeof firstFace === 'object' && firstFace !== null && 'width' in firstFace) {
-                size = firstFace.width || 1;
-            }
-        }
-        this._gpuTexture = new GpuTexture(textureCube(), {
-            size,
-            faces: faces.map(f => f instanceof Source ? f : new Source(f)),
-            format: options.format,
-            generateMipmaps: options.generateMipmaps ?? true,
-            flipY: options.flipY ?? false,
-        });
-        // A render-only cube (no faces) is filled by the renderer, not uploaded.
-        if (faces.length === 0) {
-            this._gpuTexture.isRenderTargetTexture = true;
-        }
-        this._gpuSampler = new GpuSampler({
-            addressModeU: options.wrapS ?? 'clamp-to-edge',
-            addressModeV: options.wrapT ?? 'clamp-to-edge',
-            addressModeW: 'clamp-to-edge',
-            magFilter: options.magFilter ?? 'linear',
-            minFilter: options.minFilter ?? 'linear',
-            mipmapFilter: options.mipmapFilter ?? 'linear',
-        });
-        this.mapping = options.mapping ?? 'reflection';
-    }
-    // ─── Convenience getters/setters ───
-    get id() { return this._gpuTexture.id; }
-    get width() { return this._gpuTexture.width; }
-    get height() { return this._gpuTexture.height; }
-    get size() { return this._gpuTexture.size; }
-    /** Check if all 6 faces are present and ready */
-    get isComplete() { return this._gpuTexture.isComplete; }
-    /** The 6 face images as SourceData */
-    get images() {
-        return this._gpuTexture.sources.map(s => s.data);
-    }
-    set images(value) {
-        this._gpuTexture.sources = value.map(img => img instanceof Source ? img : new Source(img));
-        // Update size from first face
-        if (value.length > 0) {
-            const first = this._gpuTexture.sources[0];
-            if (first) {
-                this._gpuTexture.width = first.width || 1;
-                this._gpuTexture.height = first.height || 1;
-            }
-        }
-        this._gpuTexture.needsUpdate = true;
-    }
-    /** The 6 face Sources */
-    get imageSources() {
-        return this._gpuTexture.sources;
-    }
-    get wrapS() { return this._gpuSampler.addressModeU; }
-    set wrapS(v) { this._gpuSampler.addressModeU = v; }
-    get wrapT() { return this._gpuSampler.addressModeV; }
-    set wrapT(v) { this._gpuSampler.addressModeV = v; }
-    get magFilter() { return this._gpuSampler.magFilter; }
-    set magFilter(v) { this._gpuSampler.magFilter = v; }
-    get minFilter() { return this._gpuSampler.minFilter; }
-    set minFilter(v) { this._gpuSampler.minFilter = v; }
-    get mipmapFilter() { return this._gpuSampler.mipmapFilter; }
-    set mipmapFilter(v) { this._gpuSampler.mipmapFilter = v; }
-    get anisotropy() { return this._gpuSampler.maxAnisotropy; }
-    set anisotropy(v) { this._gpuSampler.maxAnisotropy = v; }
-    get format() { return this._gpuTexture.format; }
-    set format(v) { this._gpuTexture.format = v; }
-    get generateMipmaps() { return this._gpuTexture.generateMipmaps; }
-    set generateMipmaps(v) { this._gpuTexture.generateMipmaps = v; }
-    get flipY() { return this._gpuTexture.flipY; }
-    set flipY(v) { this._gpuTexture.flipY = v; }
-    get premultiplyAlpha() { return this._gpuTexture.premultiplyAlpha; }
-    set premultiplyAlpha(v) { this._gpuTexture.premultiplyAlpha = v; }
-    get version() { return this._gpuTexture.version; }
-    set needsUpdate(v) {
-        if (v)
-            this._gpuTexture.needsUpdate = true;
-    }
-    clone() {
-        const tex = new CubeTexture(this.images, {
-            wrapS: this.wrapS,
-            wrapT: this.wrapT,
-            magFilter: this.magFilter,
-            minFilter: this.minFilter,
-            mipmapFilter: this.mipmapFilter,
-            format: this.format,
-            generateMipmaps: this.generateMipmaps,
-            flipY: this.flipY,
-            mapping: this.mapping,
-        });
-        tex.name = this.name;
-        return tex;
-    }
-    dispose() {
-        this._gpuTexture.dispose();
-        this._gpuSampler.dispose();
-    }
-}
-
-/**
- * A render target whose color attachment is a cube texture. Render each of the
- * six faces (set `activeFace` and call `renderer.render(scene, faceCamera)`),
- * then sample the result as an environment map via `cubeTexture(rt.texture)`.
- *
- * Usually driven by a `CubeCamera`, which sets up the six face cameras and loops
- * the faces for you.
- *
- * Extends `RenderTarget`: the inherited 2D color texture carries the face format
- * for pipeline creation, and the inherited 2D depth texture is reused across all
- * six faces. The renderer attaches the cube face selected by `activeFace`.
- */
-class CubeRenderTarget extends RenderTarget {
-    isCubeRenderTarget = true;
-    /** Face size in pixels (width = height). */
-    size;
-    /** Which cube face the next `render()` targets: 0..5 = +X, -X, +Y, -Y, +Z, -Z. */
-    activeFace = 0;
-    /** Which mip level the next `render()` targets. */
-    activeMipmapLevel = 0;
-    /** The cube texture rendered into and sampled by materials. */
-    _texture;
-    constructor(size, opts = {}) {
-        const format = opts.colorFormat ?? 'rgba8unorm';
-        super(size, size, {
-            colorFormat: format,
-            depthBuffer: opts.depthBuffer,
-            depthFormat: opts.depthFormat,
-            // Cube faces are sampled directly as an environment map; MSAA (which would
-            // need a per-face resolve) is not supported.
-            samples: 1,
-        });
-        this.size = size;
-        this._texture = new CubeTexture([], {
-            size,
-            format,
-            wrapS: opts.wrapS,
-            wrapT: opts.wrapT,
-            magFilter: opts.magFilter,
-            minFilter: opts.minFilter,
-            mipmapFilter: opts.mipmapFilter,
-            flipY: opts.flipY,
-            generateMipmaps: opts.generateMipmaps ?? false,
-        });
-        this._texture.name = 'output';
-        this._texture._gpuTexture.renderTarget = this;
-        this.textures[0] = this._texture;
-    }
-    get texture() {
-        return this._texture;
-    }
-    /** Resize all six faces (and the shared depth). */
-    setSize(size) {
-        if (this.size === size)
-            return;
-        super.setSize(size, size);
-        this.size = size;
-    }
-}
-
-/**
  * Mipmap generation utilities using direct WebGPU pipelines.
  *
  * Uses render passes to downsample each mip level from the previous one.
@@ -11620,7 +11434,7 @@ function hasMatchingMsaaAllocation(cache, texture, width, height, format, sample
         && msaa.sampleCount === sampleCount;
 }
 function ensureRenderTargetTexturesAllocated(cache, device, renderTarget) {
-    if (renderTarget instanceof CubeRenderTarget) {
+    if (renderTarget.isCubeRenderTarget) {
         ensureCubeRenderTargetTexturesAllocated(cache, device, renderTarget);
         return;
     }
@@ -20616,6 +20430,9 @@ function toVec3(out, a) {
 let objectIdCounter = 0;
 const _lookAt_tmp = create$5();
 class Object3D {
+    isObject3D = true;
+    /** Brand set true on Mesh (+ subclasses); declared here so `obj.isMesh` checks type on a base ref. */
+    isMesh;
     objectId = objectIdCounter++;
     name = '';
     visible = true;
@@ -20703,6 +20520,9 @@ class Object3D {
 
 const _invViewProj = create$5();
 class Camera extends Object3D {
+    isCamera = true;
+    /** Brand set true on OrthographicCamera; declared here so `camera.isOrthographicCamera` types on a Camera ref. */
+    isOrthographicCamera;
     near = 0.1;
     far = 100;
     projectionMatrix = create$5();
@@ -20727,106 +20547,6 @@ function unproject(out, ndc, camera) {
     invert$1(_invViewProj, _invViewProj);
     transformMat4$1(out, ndc, _invViewProj);
     return out;
-}
-
-/**
- * Camera that uses orthographic projection.
- *
- * In this projection mode, an object's size in the rendered image stays constant
- * regardless of its distance from the camera. Useful for 2D scenes, UI, and
- * post-processing passes.
- *
- * Uses WebGPU depth range (0→1) via orthoZO, matching PerspectiveCamera's perspectiveZO.
- *
- * ```ts
- * const camera = new OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
- * ```
- */
-class OrthographicCamera extends Camera {
-    left;
-    right;
-    top;
-    bottom;
-    zoom = 1;
-    view = null;
-    /**
-     * @param left   - Left plane of the frustum.
-     * @param right  - Right plane of the frustum.
-     * @param top    - Top plane of the frustum.
-     * @param bottom - Bottom plane of the frustum.
-     * @param near   - Near plane. Unlike perspective cameras, 0 is valid here.
-     * @param far    - Far plane.
-     */
-    constructor(left = -1, right = 1, top = 1, bottom = -1, near = 0.1, far = 2000) {
-        super();
-        this.name = 'OrthographicCamera';
-        this.left = left;
-        this.right = right;
-        this.top = top;
-        this.bottom = bottom;
-        this.near = near;
-        this.far = far;
-        this.updateProjectionMatrix();
-    }
-    /**
-     * Sets an offset into a larger frustum for multi-window / multi-monitor setups.
-     *
-     * @param fullWidth  - Full width of the multiview setup.
-     * @param fullHeight - Full height of the multiview setup.
-     * @param x          - Horizontal offset of the subcamera.
-     * @param y          - Vertical offset of the subcamera.
-     * @param width      - Width of the subcamera.
-     * @param height     - Height of the subcamera.
-     */
-    setViewOffset(fullWidth, fullHeight, x, y, width, height) {
-        if (this.view === null) {
-            this.view = {
-                enabled: true,
-                fullWidth: 1,
-                fullHeight: 1,
-                offsetX: 0,
-                offsetY: 0,
-                width: 1,
-                height: 1,
-            };
-        }
-        this.view.enabled = true;
-        this.view.fullWidth = fullWidth;
-        this.view.fullHeight = fullHeight;
-        this.view.offsetX = x;
-        this.view.offsetY = y;
-        this.view.width = width;
-        this.view.height = height;
-        this.updateProjectionMatrix();
-    }
-    /** Removes any view offset and recomputes the projection matrix. */
-    clearViewOffset() {
-        if (this.view !== null) {
-            this.view.enabled = false;
-        }
-        this.updateProjectionMatrix();
-    }
-    /** Recompute the projection matrix from current frustum planes, zoom, and view offset. */
-    updateProjectionMatrix() {
-        const dx = (this.right - this.left) / (2 * this.zoom);
-        const dy = (this.top - this.bottom) / (2 * this.zoom);
-        const cx = (this.right + this.left) / 2;
-        const cy = (this.top + this.bottom) / 2;
-        let left = cx - dx;
-        let right = cx + dx;
-        let top = cy + dy;
-        let bottom = cy - dy;
-        if (this.view !== null && this.view.enabled) {
-            const scaleW = (this.right - this.left) / this.view.fullWidth / this.zoom;
-            const scaleH = (this.top - this.bottom) / this.view.fullHeight / this.zoom;
-            left += scaleW * this.view.offsetX;
-            right = left + scaleW * this.view.width;
-            top -= scaleH * this.view.offsetY;
-            bottom = top - scaleH * this.view.height;
-        }
-        // WebGPU depth range is 0→1, so use orthoZO (zero-to-one) to match perspectiveZO.
-        orthoZO(this.projectionMatrix, left, right, bottom, top, this.near, this.far);
-    }
 }
 
 /**
@@ -20937,7 +20657,7 @@ class Raycaster {
         copy$5(this.ray.direction, direction);
     }
     setFromCamera(coords, camera) {
-        const isOrthographic = camera instanceof OrthographicCamera;
+        const isOrthographic = camera.isOrthographicCamera === true;
         if (isOrthographic) {
             unproject(this.ray.origin, [coords[0], coords[1], 0], camera);
             const e = camera.matrixWorld;
@@ -21092,6 +20812,7 @@ function computeBarycentricUV(point, vA, vB, vC, ia, ib, ic, uvs) {
 
 const _worldSphereCenter = [0, 0, 0];
 class Mesh extends Object3D {
+    isMesh = true;
     geometry;
     material;
     count = 1;
@@ -21981,7 +21702,7 @@ class QuadMesh extends Mesh {
 // ---------------------------------------------------------------------------
 /** Human-readable type label for an Object3D. */
 function typeLabel(obj) {
-    if (obj instanceof Mesh)
+    if (obj.isMesh)
         return 'Mesh';
     if (obj.constructor?.name === 'Scene')
         return 'Scene';
@@ -22179,10 +21900,11 @@ class SceneHierarchy extends Tab {
             const prevHn = this._nodes.get(this._selectedMesh.objectId);
             prevHn?.item.itemRow.classList.remove('hierarchy-selected');
         }
-        if (obj instanceof Mesh) {
-            this._selectedMesh = obj;
+        if (obj.isMesh) {
+            const mesh = obj;
+            this._selectedMesh = mesh;
             item.itemRow.classList.add('hierarchy-selected');
-            this._buildMeshDetail(obj);
+            this._buildMeshDetail(mesh);
             this._detailPanel.style.display = 'flex';
         }
         else {
@@ -27086,7 +26808,7 @@ class TransformControlsGizmo extends Object3D {
             copy$5(handle.position, this.worldPosition);
             // constant screen-size factor
             let factor;
-            if (this.camera && this.camera instanceof OrthographicCamera) {
+            if (this.camera?.isOrthographicCamera) {
                 const ortho = this.camera;
                 factor = (ortho.top - ortho.bottom) / ortho.zoom;
             }
@@ -27231,7 +26953,7 @@ class TransformControlsRoot extends Object3D {
         }
         controls.camera.updateWorldMatrix();
         decompose(controls.cameraQuaternion, controls.cameraPosition, controls._cameraScale, controls.camera.matrixWorld);
-        if (controls.camera instanceof OrthographicCamera) {
+        if (controls.camera?.isOrthographicCamera) {
             controls.camera.getWorldDirection(controls.eye);
             negate(controls.eye, controls.eye);
         }
@@ -27243,9 +26965,10 @@ class TransformControlsRoot extends Object3D {
     }
     dispose() {
         this.traverse((child) => {
-            if (child instanceof Mesh) {
-                child.geometry.dispose();
-                child.material.dispose();
+            if (child.isMesh) {
+                const mesh = child;
+                mesh.geometry.dispose();
+                mesh.material.dispose();
             }
         });
     }
@@ -27960,6 +27683,7 @@ class Scene extends Object3D {
 }
 
 class PerspectiveCamera extends Camera {
+    isPerspectiveCamera = true;
     fov;
     aspect;
     constructor(fov = Math.PI / 4, aspect = 1.0, near = 0.1, far = 1000.0) {
@@ -27974,6 +27698,107 @@ class PerspectiveCamera extends Camera {
     /** Recompute the projection matrix from current fov / aspect / near / far. */
     updateProjectionMatrix() {
         perspectiveZO(this.projectionMatrix, this.fov, this.aspect, this.near, this.far);
+    }
+}
+
+/**
+ * Camera that uses orthographic projection.
+ *
+ * In this projection mode, an object's size in the rendered image stays constant
+ * regardless of its distance from the camera. Useful for 2D scenes, UI, and
+ * post-processing passes.
+ *
+ * Uses WebGPU depth range (0→1) via orthoZO, matching PerspectiveCamera's perspectiveZO.
+ *
+ * ```ts
+ * const camera = new OrthographicCamera(-1, 1, 1, -1, 0.1, 100);
+ * ```
+ */
+class OrthographicCamera extends Camera {
+    isOrthographicCamera = true;
+    left;
+    right;
+    top;
+    bottom;
+    zoom = 1;
+    view = null;
+    /**
+     * @param left   - Left plane of the frustum.
+     * @param right  - Right plane of the frustum.
+     * @param top    - Top plane of the frustum.
+     * @param bottom - Bottom plane of the frustum.
+     * @param near   - Near plane. Unlike perspective cameras, 0 is valid here.
+     * @param far    - Far plane.
+     */
+    constructor(left = -1, right = 1, top = 1, bottom = -1, near = 0.1, far = 2000) {
+        super();
+        this.name = 'OrthographicCamera';
+        this.left = left;
+        this.right = right;
+        this.top = top;
+        this.bottom = bottom;
+        this.near = near;
+        this.far = far;
+        this.updateProjectionMatrix();
+    }
+    /**
+     * Sets an offset into a larger frustum for multi-window / multi-monitor setups.
+     *
+     * @param fullWidth  - Full width of the multiview setup.
+     * @param fullHeight - Full height of the multiview setup.
+     * @param x          - Horizontal offset of the subcamera.
+     * @param y          - Vertical offset of the subcamera.
+     * @param width      - Width of the subcamera.
+     * @param height     - Height of the subcamera.
+     */
+    setViewOffset(fullWidth, fullHeight, x, y, width, height) {
+        if (this.view === null) {
+            this.view = {
+                enabled: true,
+                fullWidth: 1,
+                fullHeight: 1,
+                offsetX: 0,
+                offsetY: 0,
+                width: 1,
+                height: 1,
+            };
+        }
+        this.view.enabled = true;
+        this.view.fullWidth = fullWidth;
+        this.view.fullHeight = fullHeight;
+        this.view.offsetX = x;
+        this.view.offsetY = y;
+        this.view.width = width;
+        this.view.height = height;
+        this.updateProjectionMatrix();
+    }
+    /** Removes any view offset and recomputes the projection matrix. */
+    clearViewOffset() {
+        if (this.view !== null) {
+            this.view.enabled = false;
+        }
+        this.updateProjectionMatrix();
+    }
+    /** Recompute the projection matrix from current frustum planes, zoom, and view offset. */
+    updateProjectionMatrix() {
+        const dx = (this.right - this.left) / (2 * this.zoom);
+        const dy = (this.top - this.bottom) / (2 * this.zoom);
+        const cx = (this.right + this.left) / 2;
+        const cy = (this.top + this.bottom) / 2;
+        let left = cx - dx;
+        let right = cx + dx;
+        let top = cy + dy;
+        let bottom = cy - dy;
+        if (this.view !== null && this.view.enabled) {
+            const scaleW = (this.right - this.left) / this.view.fullWidth / this.zoom;
+            const scaleH = (this.top - this.bottom) / this.view.fullHeight / this.zoom;
+            left += scaleW * this.view.offsetX;
+            right = left + scaleW * this.view.width;
+            top -= scaleH * this.view.offsetY;
+            bottom = top - scaleH * this.view.height;
+        }
+        // WebGPU depth range is 0→1, so use orthoZO (zero-to-one) to match perspectiveZO.
+        orthoZO(this.projectionMatrix, left, right, bottom, top, this.near, this.far);
     }
 }
 
@@ -28072,6 +27897,140 @@ class CanvasTexture extends Texture {
             generateMipmaps: false,
             flipY: false,
         });
+    }
+}
+
+/**
+ * A texture for cubemaps (environment maps, skyboxes, etc).
+ *
+ * Stores 6 faces: +X, -X, +Y, -Y, +Z, -Z.
+ * Sampled using a 3D direction vector.
+ */
+class CubeTexture {
+    /** Type flag for runtime checking */
+    isCubeTexture = true;
+    /** The underlying GPU texture resource */
+    _gpuTexture;
+    /** The underlying sampler */
+    _gpuSampler;
+    /** Optional name for debugging */
+    name = '';
+    /**
+     * Mapping mode - determines default UV vector.
+     * - 'reflection': uses reflect(viewDir, normal)
+     * - 'refraction': uses refract(viewDir, normal, ior)
+     */
+    mapping;
+    /**
+     * Constructs a new CubeTexture.
+     *
+     * @param faces - Array of 6 images for cube faces (+X, -X, +Y, -Y, +Z, -Z)
+     * @param options - Texture options
+     */
+    constructor(faces = [], options = {}) {
+        // Determine size from the first face, or from options.size for a
+        // render-only cube (no face images, e.g. a CubeRenderTarget).
+        const firstFace = faces[0];
+        let size = options.size ?? 1;
+        if (firstFace) {
+            if (firstFace instanceof Source) {
+                size = firstFace.width || 1;
+            }
+            else if (typeof firstFace === 'object' && firstFace !== null && 'width' in firstFace) {
+                size = firstFace.width || 1;
+            }
+        }
+        this._gpuTexture = new GpuTexture(textureCube(), {
+            size,
+            faces: faces.map(f => f instanceof Source ? f : new Source(f)),
+            format: options.format,
+            generateMipmaps: options.generateMipmaps ?? true,
+            flipY: options.flipY ?? false,
+        });
+        // A render-only cube (no faces) is filled by the renderer, not uploaded.
+        if (faces.length === 0) {
+            this._gpuTexture.isRenderTargetTexture = true;
+        }
+        this._gpuSampler = new GpuSampler({
+            addressModeU: options.wrapS ?? 'clamp-to-edge',
+            addressModeV: options.wrapT ?? 'clamp-to-edge',
+            addressModeW: 'clamp-to-edge',
+            magFilter: options.magFilter ?? 'linear',
+            minFilter: options.minFilter ?? 'linear',
+            mipmapFilter: options.mipmapFilter ?? 'linear',
+        });
+        this.mapping = options.mapping ?? 'reflection';
+    }
+    // ─── Convenience getters/setters ───
+    get id() { return this._gpuTexture.id; }
+    get width() { return this._gpuTexture.width; }
+    get height() { return this._gpuTexture.height; }
+    get size() { return this._gpuTexture.size; }
+    /** Check if all 6 faces are present and ready */
+    get isComplete() { return this._gpuTexture.isComplete; }
+    /** The 6 face images as SourceData */
+    get images() {
+        return this._gpuTexture.sources.map(s => s.data);
+    }
+    set images(value) {
+        this._gpuTexture.sources = value.map(img => img instanceof Source ? img : new Source(img));
+        // Update size from first face
+        if (value.length > 0) {
+            const first = this._gpuTexture.sources[0];
+            if (first) {
+                this._gpuTexture.width = first.width || 1;
+                this._gpuTexture.height = first.height || 1;
+            }
+        }
+        this._gpuTexture.needsUpdate = true;
+    }
+    /** The 6 face Sources */
+    get imageSources() {
+        return this._gpuTexture.sources;
+    }
+    get wrapS() { return this._gpuSampler.addressModeU; }
+    set wrapS(v) { this._gpuSampler.addressModeU = v; }
+    get wrapT() { return this._gpuSampler.addressModeV; }
+    set wrapT(v) { this._gpuSampler.addressModeV = v; }
+    get magFilter() { return this._gpuSampler.magFilter; }
+    set magFilter(v) { this._gpuSampler.magFilter = v; }
+    get minFilter() { return this._gpuSampler.minFilter; }
+    set minFilter(v) { this._gpuSampler.minFilter = v; }
+    get mipmapFilter() { return this._gpuSampler.mipmapFilter; }
+    set mipmapFilter(v) { this._gpuSampler.mipmapFilter = v; }
+    get anisotropy() { return this._gpuSampler.maxAnisotropy; }
+    set anisotropy(v) { this._gpuSampler.maxAnisotropy = v; }
+    get format() { return this._gpuTexture.format; }
+    set format(v) { this._gpuTexture.format = v; }
+    get generateMipmaps() { return this._gpuTexture.generateMipmaps; }
+    set generateMipmaps(v) { this._gpuTexture.generateMipmaps = v; }
+    get flipY() { return this._gpuTexture.flipY; }
+    set flipY(v) { this._gpuTexture.flipY = v; }
+    get premultiplyAlpha() { return this._gpuTexture.premultiplyAlpha; }
+    set premultiplyAlpha(v) { this._gpuTexture.premultiplyAlpha = v; }
+    get version() { return this._gpuTexture.version; }
+    set needsUpdate(v) {
+        if (v)
+            this._gpuTexture.needsUpdate = true;
+    }
+    clone() {
+        const tex = new CubeTexture(this.images, {
+            wrapS: this.wrapS,
+            wrapT: this.wrapT,
+            magFilter: this.magFilter,
+            minFilter: this.minFilter,
+            mipmapFilter: this.mipmapFilter,
+            format: this.format,
+            generateMipmaps: this.generateMipmaps,
+            flipY: this.flipY,
+            mapping: this.mapping,
+        });
+        tex.name = this.name;
+        return tex;
+    }
+    dispose() {
+        this._gpuTexture.dispose();
+        this._gpuSampler.dispose();
     }
 }
 
@@ -29009,6 +28968,7 @@ class LineSegments extends Mesh {
  * Scene object for rendering a continuous polyline with `LineGeometry` and `LineMaterial`.
  */
 class Line extends Mesh {
+    isLine = true;
     /**
      * Extra pick radius added to `material.lineWidth` for raycasting, in the same
      * units as the material (pixels for screen-space, world units for world-units mode).
@@ -29019,6 +28979,66 @@ class Line extends Mesh {
     }
     raycast(raycaster, intersects) {
         raycastLine(this, this.material, this.geometry, raycaster, this.threshold, intersects);
+    }
+}
+
+/**
+ * A render target whose color attachment is a cube texture. Render each of the
+ * six faces (set `activeFace` and call `renderer.render(scene, faceCamera)`),
+ * then sample the result as an environment map via `cubeTexture(rt.texture)`.
+ *
+ * Usually driven by a `CubeCamera`, which sets up the six face cameras and loops
+ * the faces for you.
+ *
+ * Extends `RenderTarget`: the inherited 2D color texture carries the face format
+ * for pipeline creation, and the inherited 2D depth texture is reused across all
+ * six faces. The renderer attaches the cube face selected by `activeFace`.
+ */
+class CubeRenderTarget extends RenderTarget {
+    isCubeRenderTarget = true;
+    /** Face size in pixels (width = height). */
+    size;
+    /** Which cube face the next `render()` targets: 0..5 = +X, -X, +Y, -Y, +Z, -Z. */
+    activeFace = 0;
+    /** Which mip level the next `render()` targets. */
+    activeMipmapLevel = 0;
+    /** The cube texture rendered into and sampled by materials. */
+    _texture;
+    constructor(size, opts = {}) {
+        const format = opts.colorFormat ?? 'rgba8unorm';
+        super(size, size, {
+            colorFormat: format,
+            depthBuffer: opts.depthBuffer,
+            depthFormat: opts.depthFormat,
+            // Cube faces are sampled directly as an environment map; MSAA (which would
+            // need a per-face resolve) is not supported.
+            samples: 1,
+        });
+        this.size = size;
+        this._texture = new CubeTexture([], {
+            size,
+            format,
+            wrapS: opts.wrapS,
+            wrapT: opts.wrapT,
+            magFilter: opts.magFilter,
+            minFilter: opts.minFilter,
+            mipmapFilter: opts.mipmapFilter,
+            flipY: opts.flipY,
+            generateMipmaps: opts.generateMipmaps ?? false,
+        });
+        this._texture.name = 'output';
+        this._texture._gpuTexture.renderTarget = this;
+        this.textures[0] = this._texture;
+    }
+    get texture() {
+        return this._texture;
+    }
+    /** Resize all six faces (and the shared depth). */
+    setSize(size) {
+        if (this.size === size)
+            return;
+        super.setSize(size, size);
+        this.size = size;
     }
 }
 
@@ -29429,11 +29449,12 @@ function collectRenderList(state, object, camera, overrideMaterial = null) {
 function walkObject(list, obj, camera, overrideMaterial) {
     if (!obj.visible)
         return;
-    if (obj instanceof Mesh) {
-        if (isMeshVisible(obj)) {
-            const material = overrideMaterial ?? obj.material;
-            const z = computeViewZ(obj, camera);
-            pushRenderItem(list, obj, obj.geometry, material, 0, // groupOrder - could be mesh.renderOrder or layer
+    if (obj.isMesh) {
+        const mesh = obj;
+        if (isMeshVisible(mesh)) {
+            const material = overrideMaterial ?? mesh.material;
+            const z = computeViewZ(mesh, camera);
+            pushRenderItem(list, mesh, mesh.geometry, material, 0, // groupOrder - could be mesh.renderOrder or layer
             z);
         }
     }
@@ -30131,7 +30152,7 @@ class WebGPURenderer {
     }
     /** Build GPU color and depth attachments, dispatching on the target kind. */
     _render_resolve(renderTarget, clearColor) {
-        if (renderTarget instanceof CubeRenderTarget)
+        if (renderTarget?.isCubeRenderTarget)
             return this._resolveCubeAttachments(renderTarget, clearColor);
         if (renderTarget)
             return this._resolveRenderTargetAttachments(renderTarget, clearColor);

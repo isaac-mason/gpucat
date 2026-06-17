@@ -991,6 +991,7 @@ export class LineSegments extends Mesh {
  * Scene object for rendering a continuous polyline with `LineGeometry` and `LineMaterial`.
  */
 export class Line extends Mesh {
+    readonly isLine = true;
     /**
      * Extra pick radius added to `material.lineWidth` for raycasting, in the same
      * units as the material (pixels for screen-space, world units for world-units mode).

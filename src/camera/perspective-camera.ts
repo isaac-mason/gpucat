@@ -2,6 +2,7 @@ import { mat4 } from 'mathcat';
 import { Camera } from './camera';
 
 export class PerspectiveCamera extends Camera {
+    readonly isPerspectiveCamera = true;
     fov: number;
     aspect: number;
 

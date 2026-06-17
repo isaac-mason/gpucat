@@ -1,5 +1,6 @@
 import { Camera } from './camera';
 export declare class PerspectiveCamera extends Camera {
+    readonly isPerspectiveCamera = true;
     fov: number;
     aspect: number;
     constructor(fov?: number, aspect?: number, near?: number, far?: number);

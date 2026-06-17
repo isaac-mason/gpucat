@@ -122,7 +122,7 @@ export function attribute<D extends Any>(
     }
 
     // Overload 2: attribute(buffer, options?)
-    if (nameOrBufferOrData instanceof GpuBuffer) {
+    if ('isGpuBuffer' in nameOrBufferOrData) {
         const buffer = nameOrBufferOrData;
         const options = (schemaOrOptions as AttributeOptions) ?? {};
         return new AttributeNode(buffer.schema, buffer, options);

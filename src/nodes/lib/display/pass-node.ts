@@ -305,9 +305,9 @@ export class PassNode extends Node<d.vec4f> {
             const texture = this._textures[name];
 
             // Swap in renderTarget.textures array (only for color textures, not depth)
-            if (texture && !(texture instanceof DepthTexture)) {
+            if (texture && !('isDepthTexture' in texture)) {
                 const index = this.renderTarget.textures.indexOf(texture as Texture);
-                if (index !== -1 && !(prevTexture instanceof DepthTexture)) {
+                if (index !== -1 && !('isDepthTexture' in prevTexture)) {
                     this.renderTarget.textures[index] = prevTexture as Texture;
                 }
             }
@@ -326,7 +326,7 @@ export class PassNode extends Node<d.vec4f> {
      */
     getDepthTexture(name = 'depth'): DepthTexture | null {
         const tex = this._textures[name];
-        return tex instanceof DepthTexture ? tex : null;
+        return tex && 'isDepthTexture' in tex ? tex : null;
     }
 
     /**

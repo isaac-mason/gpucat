@@ -36,7 +36,7 @@ export class OutputStructNode extends Node<d.vec4f> {
 }
 
 export class MRTNode extends OutputStructNode {
-    override readonly kind = NodeKind.MRT;
+    readonly kind = NodeKind.MRT;
     /**
      * Dictionary of named outputs. Keys are texture names,
      * values are nodes producing vec4f values.

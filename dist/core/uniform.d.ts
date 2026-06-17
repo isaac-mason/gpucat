@@ -59,6 +59,7 @@ export declare const objectGroup: UniformGroup;
  * const time = new Uniform(d.f32, 0, frameGroup);
  */
 export declare class Uniform<T extends Any = Any> {
+    readonly isUniform = true;
     readonly schema: T;
     /** Determines @group index, update cadence, and packing. Mutable, but only
      *  read at compile time, set it before the owning node is first rendered. */

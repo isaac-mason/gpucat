@@ -105,7 +105,7 @@ export function uniform<D extends Any, S extends StructSchema>(
     nameOrSchema?: string | D | StructDef<S>
 ): UniformNode<D> | StructInstance<S> {
     // Value-based: uniform(Uniform)
-    if (init instanceof Uniform) {
+    if (typeof init === 'object' && init !== null && 'isUniform' in init) {
         const u = init as Uniform<D>;
         return new UniformNode(u, `uniform_${_nodeId}`);
     }

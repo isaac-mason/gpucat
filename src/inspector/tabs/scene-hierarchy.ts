@@ -43,7 +43,7 @@ type HierarchyNode = {
 
 /** Human-readable type label for an Object3D. */
 function typeLabel(obj: Object3D): string {
-    if (obj instanceof Mesh) return 'Mesh';
+    if (obj.isMesh) return 'Mesh';
     if (obj.constructor?.name === 'Scene') return 'Scene';
     return 'Object3D';
 }
@@ -282,10 +282,11 @@ export class SceneHierarchy extends Tab {
             prevHn?.item.itemRow.classList.remove('hierarchy-selected');
         }
 
-        if (obj instanceof Mesh) {
-            this._selectedMesh = obj;
+        if (obj.isMesh) {
+            const mesh = obj as Mesh;
+            this._selectedMesh = mesh;
             item.itemRow.classList.add('hierarchy-selected');
-            this._buildMeshDetail(obj);
+            this._buildMeshDetail(mesh);
             this._detailPanel.style.display = 'flex';
         } else {
             this._selectedMesh = null;

@@ -47,6 +47,7 @@ type Options1D = BaseOptions & {
 /** Map schema type → options type */
 export type GpuTextureOptions<D extends d.Texture> = D extends d.texture1d | d.textureStorage1d ? Options1D : D extends d.texture2d | d.textureDepth2d | d.textureMultisampled2d | d.textureDepthMultisampled2d | d.textureStorage2d ? Options2D : D extends d.texture2dArray | d.textureDepth2dArray | d.textureStorage2dArray ? Options2DArray : D extends d.textureCube | d.textureDepthCube ? OptionsCube : D extends d.textureCubeArray | d.textureDepthCubeArray ? OptionsCubeArray : D extends d.texture3d | d.textureStorage3d ? Options3D : Options2D;
 export declare class GpuTexture<D extends d.Texture = d.Texture> {
+    readonly isGpuTexture = true;
     /** Unique ID */
     readonly id: number;
     /** Schema type descriptor, source of truth for WGSL type */

@@ -1,5 +1,8 @@
 import { type Quat, type Vec3 } from 'mathcat';
 export declare class Object3D {
+    readonly isObject3D = true;
+    /** Brand set true on Mesh (+ subclasses); declared here so `obj.isMesh` checks type on a base ref. */
+    readonly isMesh?: true;
     readonly objectId: number;
     name: string;
     visible: boolean;

@@ -4,6 +4,9 @@ import { Object3D } from '../core/object3d';
 const _invViewProj = mat4.create();
 
 export class Camera extends Object3D {
+    readonly isCamera = true;
+    /** Brand set true on OrthographicCamera; declared here so `camera.isOrthographicCamera` types on a Camera ref. */
+    readonly isOrthographicCamera?: true;
     near = 0.1;
     far = 100;
 

@@ -5,6 +5,9 @@ let objectIdCounter = 0;
 const _lookAt_tmp = mat4.create();
 
 export class Object3D {
+    readonly isObject3D = true;
+    /** Brand set true on Mesh (+ subclasses); declared here so `obj.isMesh` checks type on a base ref. */
+    readonly isMesh?: true;
     readonly objectId: number = objectIdCounter++;
 
     name: string = '';

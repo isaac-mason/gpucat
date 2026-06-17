@@ -824,8 +824,8 @@ export function ensureRenderTargetTexturesAllocated(
     device: GPUDevice,
     renderTarget: RenderTarget,
 ): void {
-    if (renderTarget instanceof CubeRenderTarget) {
-        ensureCubeRenderTargetTexturesAllocated(cache, device, renderTarget);
+    if (renderTarget.isCubeRenderTarget) {
+        ensureCubeRenderTargetTexturesAllocated(cache, device, renderTarget as CubeRenderTarget);
         return;
     }
 

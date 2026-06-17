@@ -1,6 +1,9 @@
 import { type Vec3 } from 'mathcat';
 import { Object3D } from '../core/object3d';
 export declare class Camera extends Object3D {
+    readonly isCamera = true;
+    /** Brand set true on OrthographicCamera; declared here so `camera.isOrthographicCamera` types on a Camera ref. */
+    readonly isOrthographicCamera?: true;
     near: number;
     far: number;
     projectionMatrix: import("mathcat").Mat4;

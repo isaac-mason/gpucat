@@ -3,6 +3,7 @@ import type { Geometry } from '../geometry/geometry';
 import type { Material } from '../material/material';
 import { type Raycaster, type Intersection } from '../math/raycaster';
 export declare class Mesh extends Object3D {
+    readonly isMesh = true;
     geometry: Geometry;
     material: Material;
     count: number;

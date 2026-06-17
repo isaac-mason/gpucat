@@ -1,7 +1,6 @@
 import { vec3, mat4, type Vec3, type Mat4, type Box3 } from 'mathcat';
 import type { Object3D } from '../core/object3d';
 import { Camera, unproject } from '../camera/camera';
-import { OrthographicCamera } from '../camera/orthographic-camera';
 
 export type Ray = {
     origin: Vec3;
@@ -139,7 +138,7 @@ export class Raycaster {
     }
 
     setFromCamera(coords: [number, number], camera: Camera): void {
-        const isOrthographic = camera instanceof OrthographicCamera;
+        const isOrthographic = camera.isOrthographicCamera === true;
 
         if (isOrthographic) {
             unproject(this.ray.origin, [coords[0], coords[1], 0], camera);

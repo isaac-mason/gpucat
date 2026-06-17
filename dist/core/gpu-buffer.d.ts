@@ -60,6 +60,7 @@ export type GpuBufferOptions<T extends Any = Any> = {
  * });
  */
 export declare class GpuBuffer<T extends Any = Any> {
+    readonly isGpuBuffer = true;
     /** Type descriptor (d.vec3f, d.array(Particle), etc.) */
     readonly schema: T;
     /** Allowed usages */

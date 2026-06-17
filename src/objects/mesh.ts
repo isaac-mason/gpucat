@@ -13,6 +13,7 @@ import {
 const _worldSphereCenter: Vec3 = [0, 0, 0];
 
 export class Mesh extends Object3D {
+    readonly isMesh = true;
     geometry: Geometry;
     material: Material;
     count: number = 1;

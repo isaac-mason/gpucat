@@ -11,6 +11,7 @@ export type DepthTextureFormat = 'depth16unorm' | 'depth24plus' | 'depth24plus-s
  * Defaults to comparison sampler for shadow mapping convenience.
  */
 export class DepthTexture {
+    readonly isDepthTexture = true;
     /** The underlying GPU texture resource */
     readonly _gpuTexture: GpuTexture<d.textureDepth2d>;
     

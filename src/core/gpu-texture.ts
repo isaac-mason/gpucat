@@ -94,6 +94,7 @@ const TEXTURE_USAGE = {
 let _textureId = 0;
 
 export class GpuTexture<D extends d.Texture = d.Texture> {
+    readonly isGpuTexture = true;
     /** Unique ID */
     readonly id = _textureId++;
     

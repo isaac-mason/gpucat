@@ -664,8 +664,8 @@ class TransformControlsGizmo extends Object3D {
 
             // constant screen-size factor
             let factor: number;
-            if (this.camera && this.camera instanceof OrthographicCamera) {
-                const ortho = this.camera;
+            if (this.camera?.isOrthographicCamera) {
+                const ortho = this.camera as OrthographicCamera;
                 factor = (ortho.top - ortho.bottom) / ortho.zoom;
             } else if (this.camera) {
                 const cam = this.camera as any;
@@ -849,7 +849,7 @@ class TransformControlsRoot extends Object3D {
             controls.camera.matrixWorld,
         );
 
-        if (controls.camera instanceof OrthographicCamera) {
+        if (controls.camera?.isOrthographicCamera) {
             controls.camera.getWorldDirection(controls.eye);
             vec3.negate(controls.eye, controls.eye);
         } else {
@@ -862,9 +862,10 @@ class TransformControlsRoot extends Object3D {
 
     dispose(): void {
         this.traverse((child) => {
-            if (child instanceof Mesh) {
-                child.geometry.dispose();
-                child.material.dispose();
+            if (child.isMesh) {
+                const mesh = child as Mesh;
+                mesh.geometry.dispose();
+                mesh.material.dispose();
             }
         });
     }

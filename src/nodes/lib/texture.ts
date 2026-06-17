@@ -394,7 +394,7 @@ let _samplerIdCounter = 0;
 export function sampler(source: GpuSampler, group?: UniformGroup): SamplerNode<d.sampler>;
 export function sampler(source: HighLevelTexture, group?: UniformGroup): SamplerNode<d.sampler>;
 export function sampler(source: GpuSampler | HighLevelTexture, group: UniformGroup = objectGroup): SamplerNode<d.sampler> {
-    if (source instanceof GpuSampler) {
+    if ('isGpuSampler' in source) {
         const node = new SamplerNode(d.sampler, `s${_samplerIdCounter++}`, group);
         node.value = source;
         return node;
@@ -427,8 +427,8 @@ export function comparisonSampler(
     compare: GPUCompareFunction = 'less',
     group: UniformGroup = objectGroup
 ): SamplerNode<d.samplerComparison> {
-    const baseSampler = source instanceof GpuSampler ? source : source._gpuSampler;
-    const samplerId = source instanceof GpuSampler ? `s${_samplerIdCounter++}_cmp` : `s${source.id}_cmp`;
+    const baseSampler = 'isGpuSampler' in source ? source : source._gpuSampler;
+    const samplerId = 'isGpuSampler' in source ? `s${_samplerIdCounter++}_cmp` : `s${source.id}_cmp`;
     
     const node = new SamplerNode(d.samplerComparison, samplerId, group);
     // Create a new GpuSampler with comparison function
@@ -497,7 +497,7 @@ export function texture(
     source: Texture | GpuTexture<FlatSampledTexture> | GpuTexture<d.StorageTexture>,
     gpuSampler?: GpuSampler
 ): TextureNode<FlatSampledTexture> {
-    if (source instanceof GpuTexture) {
+    if ('isGpuTexture' in source) {
         if (!gpuSampler) {
             throw new Error('texture(): GpuSampler required when passing GpuTexture directly');
         }
@@ -712,7 +712,7 @@ export function cubeTexture(
     source: CubeTexture | GpuTexture<CubeSampledTexture>,
     gpuSampler?: GpuSampler
 ): CubeTextureNode {
-    if (source instanceof GpuTexture) {
+    if ('isGpuTexture' in source) {
         if (!gpuSampler) {
             throw new Error('cubeTexture(): GpuSampler required when passing GpuTexture directly');
         }
@@ -912,7 +912,7 @@ export function depthTexture(
     source: DepthTexture | GpuTexture<FlatDepthTexture>,
     gpuSampler?: GpuSampler
 ): DepthTextureNode {
-    if (source instanceof GpuTexture) {
+    if ('isGpuTexture' in source) {
         if (!gpuSampler) {
             throw new Error('depthTexture(): GpuSampler required when passing GpuTexture directly');
         }
@@ -1144,7 +1144,7 @@ export function arrayTexture(
     samplerOrLayer: GpuSampler | Node<d.i32>,
     maybeLayerNode?: Node<d.i32>
 ): ArrayTextureNode {
-    if (source instanceof GpuTexture) {
+    if ('isGpuTexture' in source) {
         const gpuSampler = samplerOrLayer as GpuSampler;
         const layerNode = maybeLayerNode!;
         const binding = new TextureBindingNode(source.type, `t${_textureIdCounter++}`);

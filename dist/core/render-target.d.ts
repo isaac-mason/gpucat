@@ -27,6 +27,9 @@ export type RenderTargetTexture = Texture | CubeTexture;
  * on the screen.
  */
 export declare class RenderTarget {
+    readonly isRenderTarget = true;
+    /** Brand set true on CubeRenderTarget; declared here so `rt.isCubeRenderTarget` types on a RenderTarget ref. */
+    readonly isCubeRenderTarget?: true;
     /** The width of the render target */
     width: number;
     /** The height of the render target */

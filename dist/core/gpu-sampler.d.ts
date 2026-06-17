@@ -18,6 +18,7 @@ export type GpuSamplerOptions = {
  * with the same settings share one GPUSampler).
  */
 export declare class GpuSampler {
+    readonly isGpuSampler = true;
     readonly id: number;
     minFilter: GPUFilterMode;
     magFilter: GPUFilterMode;
