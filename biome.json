@@ -1,11 +1,11 @@
 {
-    "$schema": "https://biomejs.dev/schemas/2.2.0/schema.json",
+    "$schema": "https://biomejs.dev/schemas/2.4.6/schema.json",
     "vcs": {
         "enabled": false,
         "clientKind": "git",
         "useIgnoreFile": false
     },
-    "files": { "ignoreUnknown": false, "ignore": ["src/nodes/nodes.ts"] },
+    "files": { "ignoreUnknown": false, "includes": ["**", "!**/src/nodes/nodes.ts"] },
     "formatter": { "enabled": true, "indentStyle": "space", "indentWidth": 4, "lineWidth": 130 },
     "linter": {
         "enabled": true,
