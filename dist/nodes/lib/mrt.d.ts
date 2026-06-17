@@ -1,4 +1,4 @@
-import { Node } from './core';
+import { Node, NodeKind } from './core';
 import * as d from '../../schema/schema';
 import { BlendMode } from '../../material/blend-mode';
 /**
@@ -15,16 +15,16 @@ import { BlendMode } from '../../material/blend-mode';
  * // Typically created via mrt() helper instead.
  */
 export declare class OutputStructNode extends Node<d.vec4f> {
+    readonly kind: NodeKind.OutputStruct | NodeKind.MRT;
     /**
      * Array of output nodes. Each node maps to @location(index).
      * All nodes should produce vec4f values.
      */
     members: Node<d.Any>[];
-    /** Type flag for runtime checking. */
-    readonly isOutputStructNode = true;
     constructor(members?: Node<d.Any>[]);
 }
 export declare class MRTNode extends OutputStructNode {
+    readonly kind = NodeKind.MRT;
     /**
      * Dictionary of named outputs. Keys are texture names,
      * values are nodes producing vec4f values.
@@ -35,8 +35,6 @@ export declare class MRTNode extends OutputStructNode {
      * any name without an entry falls back to no-blend.
      */
     blendModes: Record<string, BlendMode>;
-    /** Type flag for runtime checking. */
-    readonly isMRTNode = true;
     /**
      * Resolved output names in order. Populated during setup() when
      * render target is known. Used by the compiler to emit correct

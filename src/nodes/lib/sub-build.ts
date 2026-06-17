@@ -1,4 +1,4 @@
-import { Node } from './core';
+import { Node, NodeKind } from './core';
 import type { Any } from '../../schema/schema';
 
 
@@ -8,7 +8,7 @@ import type { Any } from '../../schema/schema';
  */
 
 export class SubBuildNode<D extends Any> extends Node<D> {
-    readonly isSubBuildNode = true;
+    readonly kind = NodeKind.SubBuild;
 
     constructor(
         readonly node: Node<D>,

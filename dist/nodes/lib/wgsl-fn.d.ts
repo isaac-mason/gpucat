@@ -1,5 +1,5 @@
 import * as d from '../../schema/schema';
-import { CallNode, Node, ParamDesc, ParamDescsToNodes } from './core';
+import { CallNode, Node, NodeKind, ParamDesc, ParamDescsToNodes } from './core';
 /**
  * Parsed WGSL function info returned by parseWgslFunction().
  */
@@ -18,16 +18,13 @@ export type WgslNodeFunction = {
     getCode(name?: string): string;
 };
 export declare class WgslFunctionNode extends Node<d.WgslFn> {
-    /** Type marker for runtime checking */
-    readonly isCodeNode = true;
+    readonly kind = NodeKind.WgslFunction;
     /** Global nodes use globalCache for deduplication */
     global: boolean;
     /** The native shader code */
     code: string;
     /** Array of included CodeNodes/FunctionNodes */
     includes: WgslFunctionNode[];
-    /** Type marker for runtime checking */
-    readonly isFunctionNode = true;
     constructor(code?: string, includes?: WgslFunctionNode[]);
     setIncludes(includes: WgslFunctionNode[]): this;
     getIncludes(): WgslFunctionNode[];

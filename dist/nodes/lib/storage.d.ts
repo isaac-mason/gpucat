@@ -1,6 +1,6 @@
 import { GpuBuffer } from '../../core/gpu-buffer';
 import type { Any } from '../../schema/schema';
-import { Node } from './core';
+import { Node, NodeKind } from './core';
 import { UniformGroup } from './uniform';
 /**
  * StorageNode, declares a storage buffer binding in a shader.
@@ -22,6 +22,7 @@ import { UniformGroup } from './uniform';
  * particles.value = otherBuffer;  // swap buffers for double-buffering
  */
 export declare class StorageNode<D extends Any> extends Node<D> {
+    readonly kind = NodeKind.Storage;
     /** Buffer name (for geometry.buffers lookup), null if value-based */
     bufferName: string | null;
     /** Direct buffer reference, null if name-based */

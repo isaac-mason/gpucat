@@ -1,6 +1,6 @@
 
 import * as d from '../../schema/schema';
-import { CallNode, Node, ParamDesc, ParamDescsToNodes } from './core';
+import { CallNode, Node, NodeKind, ParamDesc, ParamDescsToNodes } from './core';
 
 /**
  * Parsed WGSL function info returned by parseWgslFunction().
@@ -80,9 +80,7 @@ function parseWgslFunction(source: string): WgslNodeFunction {
 }
 
 export class WgslFunctionNode extends Node<d.WgslFn> {
-    /** Type marker for runtime checking */
-    readonly isCodeNode = true;
-
+    readonly kind = NodeKind.WgslFunction;
     /** Global nodes use globalCache for deduplication */
     override global = true;
 
@@ -91,9 +89,6 @@ export class WgslFunctionNode extends Node<d.WgslFn> {
 
     /** Array of included CodeNodes/FunctionNodes */
     includes: WgslFunctionNode[];
-
-    /** Type marker for runtime checking */
-    readonly isFunctionNode = true;
 
     constructor(code = '', includes: WgslFunctionNode[] = []) {
         super(d.WgslFn);
@@ -248,7 +243,7 @@ export function wgslFn<D extends d.Any, P extends readonly ParamDesc[]>(
             if (fn) {
                 includeNodes.push(fn);
             }
-        } else if (include instanceof WgslFunctionNode) {
+        } else if (include.kind === NodeKind.WgslFunction) {
             includeNodes.push(include);
         }
     }

@@ -295,6 +295,12 @@ export type TextureSampleResultOf<D extends Texture> = D extends DepthTexture ? 
 } ? SampleResultOf<S> : never;
 /** Runtime version of TextureSampleResultOf, maps a texture descriptor to its sampling return descriptor. */
 export declare function textureSampleResultOf(desc: Texture): vec4f | vec4i | vec4u | f32;
+/**
+ * The float coordinate descriptor for *sampling* a texture of descriptor D:
+ * `f32` for 1D, `vec3f` for 3D, `vec2f` otherwise (2D / 2D-array / multisampled).
+ * Drives `TextureNode.sample()` so a 3D texture demands vec3 coords and a 2D one vec2.
+ */
+export type TextureCoordOf<D> = D extends texture1d ? f32 : D extends texture3d ? vec3f : vec2f;
 export type textureDepth2d = {
     type: 'texture_depth_2d';
     wgslType: 'texture_depth_2d';

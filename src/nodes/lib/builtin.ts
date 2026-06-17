@@ -1,4 +1,4 @@
-import { Node } from './core';
+import { Node, NodeKind } from './core';
 import type { Any } from '../../schema/schema';
 import * as d from '../../schema/schema';
 
@@ -8,6 +8,7 @@ export type BuiltinKind = 'instance_index' | 'instance_data' |
     'position';
 
 export class BuiltinNode<D extends Any> extends Node<D> {
+    readonly kind = NodeKind.Builtin;
     constructor(
         readonly builtinKind: BuiltinKind,
         desc: D
@@ -62,6 +63,7 @@ export const fragCoord: BuiltinNode<d.vec4f> = /*@__PURE__*/ builtin('position',
  * similar to how instanceIndex works in vertex shaders.
  */
 export class ComputeIndexNode extends Node<d.u32> {
+    readonly kind = NodeKind.ComputeIndex;
     constructor() {
         super(d.u32);
     }

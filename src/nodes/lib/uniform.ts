@@ -1,4 +1,4 @@
-import { Node, type StructDef, type StructInstance, ConstructNode, LiteralNode, fields, _nodeId } from './core';
+import { Node, NodeKind, type StructDef, type StructInstance, ConstructNode, LiteralNode, fields, _nodeId } from './core';
 import type { StructSchema, Any } from '../../schema/schema';
 import type { NodeFrame } from '../../renderer/node-frame';
 import {
@@ -12,6 +12,7 @@ import {
 } from '../../core/uniform';
 
 export class UniformNode<D extends Any> extends Node<D> {
+    readonly kind = NodeKind.Uniform;
     /** uniform name */
     name: string;
 
@@ -146,16 +147,17 @@ export function uniform<D extends Any, S extends StructSchema>(
  */
 function extractValue(node: LiteralNode<Any> | ConstructNode<Any>): UniformValue | undefined {
     // LiteralNode has a direct value
-    if (node instanceof LiteralNode) {
+    if (node.kind === NodeKind.Literal) {
         return node.value as UniformValue;
     }
     
     // ConstructNode: extract values from args (must all be LiteralNodes)
-    if (node instanceof ConstructNode) {
+    if (node.kind === NodeKind.Construct) {
         const values: number[] = [];
         for (const arg of node.args) {
-            if (arg instanceof LiteralNode && typeof arg.value === 'number') {
-                values.push(arg.value);
+            const lit = arg.kind === NodeKind.Literal ? (arg as LiteralNode<Any>) : null;
+            if (lit && typeof lit.value === 'number') {
+                values.push(lit.value);
             } else {
                 // Dynamic child - can't extract static value
                 return undefined;

@@ -1,4 +1,4 @@
-import { LiteralNode, vec4f, Node } from './core';
+import { LiteralNode, vec4f, Node, NodeKind } from './core';
 import * as d from '../../schema/schema';
 import { BlendMode } from '../../material/blend-mode';
 
@@ -20,14 +20,14 @@ const _materialBlending = /*#__PURE__*/ new BlendMode('material');
  */
 
 export class OutputStructNode extends Node<d.vec4f> {
+    // 2-literal union (not bare NodeKind) so MRTNode can override to MRT while
+    // keeping `kind === OutputStruct` narrowing clean for every other branch.
+    readonly kind: NodeKind.OutputStruct | NodeKind.MRT = NodeKind.OutputStruct;
     /**
      * Array of output nodes. Each node maps to @location(index).
      * All nodes should produce vec4f values.
      */
     members: Node<d.Any>[];
-
-    /** Type flag for runtime checking. */
-    readonly isOutputStructNode = true;
 
     constructor(members: Node<d.Any>[] = []) {
         super(d.vec4f);
@@ -36,6 +36,7 @@ export class OutputStructNode extends Node<d.vec4f> {
 }
 
 export class MRTNode extends OutputStructNode {
+    override readonly kind = NodeKind.MRT;
     /**
      * Dictionary of named outputs. Keys are texture names,
      * values are nodes producing vec4f values.
@@ -47,9 +48,6 @@ export class MRTNode extends OutputStructNode {
      * any name without an entry falls back to no-blend.
      */
     blendModes: Record<string, BlendMode> = { output: _materialBlending };
-
-    /** Type flag for runtime checking. */
-    readonly isMRTNode = true;
 
     /**
      * Resolved output names in order. Populated during setup() when

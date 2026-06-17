@@ -1,4 +1,4 @@
-import { Node } from './core';
+import { Node, NodeKind } from './core';
 import type { Any } from '../../schema/schema';
 /**
  * SubBuildNode - wraps a node to build it in a specific sub-build context.
@@ -7,7 +7,7 @@ import type { Any } from '../../schema/schema';
 export declare class SubBuildNode<D extends Any> extends Node<D> {
     readonly node: Node<D>;
     readonly subBuildName: string;
-    readonly isSubBuildNode = true;
+    readonly kind = NodeKind.SubBuild;
     constructor(node: Node<D>, subBuildName: string, nodeType?: D | null);
 }
 /**

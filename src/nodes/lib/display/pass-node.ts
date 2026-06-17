@@ -7,7 +7,7 @@ import { Texture } from '../../../texture/texture';
 import { DepthTexture } from '../../../texture/depth-texture';
 import type { MRTNode } from '../mrt';
 import { DepthTextureNode, TextureBindingNode, TextureNode } from '../texture';
-import { Node, vec2i } from '../core';
+import { Node, NodeKind, vec2i } from '../core';
 import { cameraFar, cameraNear } from '../camera';
 import * as d from '../../../schema/schema';
 import { objectGroup } from '../uniform';
@@ -25,9 +25,6 @@ let _passCount = 0;
 export class PassTextureNode extends TextureNode {
     /** A reference to the pass node. */
     readonly passNode: PassNode;
-
-    /** This flag can be used for type testing. */
-    readonly isPassTextureNode = true;
 
     /**
      * Constructs a new pass texture node.
@@ -66,9 +63,6 @@ export class PassMultipleTextureNode extends PassTextureNode {
 
     /** Whether previous frame data should be used or not. */
     readonly previousTexture: boolean;
-
-    /** This flag can be used for type testing. */
-    readonly isPassMultipleTextureNode = true;
 
     /**
      * Constructs a new pass multiple texture node.
@@ -127,6 +121,7 @@ export type PassNodeOptions = {
  * via MRT for further processing.
  */
 export class PassNode extends Node<d.vec4f> {
+    readonly kind = NodeKind.Pass;
     /** @static */
     static readonly FRAGMENT: 'fragment' = 'fragment';
 

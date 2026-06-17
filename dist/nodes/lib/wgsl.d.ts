@@ -1,4 +1,4 @@
-import { Node } from './core';
+import { Node, NodeKind } from './core';
 import * as d from '../../schema/schema';
 /**
  * Inline WGSL expression node.
@@ -13,6 +13,7 @@ import * as d from '../../schema/schema';
 export declare class WgslNode<D extends d.Any> extends Node<D> {
     readonly wgsl: string;
     readonly deps: Node<d.Any>[];
+    readonly kind = NodeKind.Wgsl;
     constructor(type: D, wgsl: string, deps: Node<d.Any>[]);
     /**
      * Returns a new WgslNode with additional unreferenced deps appended.

@@ -4,7 +4,7 @@ import { DepthTexture } from '../../texture/depth-texture';
 import { ArrayTexture } from '../../texture/array-texture';
 import { GpuTexture } from '../../core/gpu-texture';
 import { GpuSampler } from '../../core/gpu-sampler';
-import { CallNode, Node, addToStack } from './core';
+import { CallNode, Node, NodeKind, addToStack } from './core';
 import { type FlatDepthTexture, type FlatSampledTexture, type CubeSampledTexture, type Any } from '../../schema/schema';
 import * as d from '../../schema/schema';
 import { UniformGroup, objectGroup } from './uniform';
@@ -20,6 +20,7 @@ import { varying } from './varying';
  * Holds a reference to a GpuSampler which contains the actual settings.
  */
 export class SamplerNode<D extends d.sampler | d.samplerComparison = d.sampler> extends Node<D> {
+    readonly kind = NodeKind.Sampler;
     /** The GpuSampler - always has a valid default */
     value: GpuSampler = new GpuSampler();
 
@@ -82,6 +83,7 @@ export class SamplerNode<D extends d.sampler | d.samplerComparison = d.sampler> 
  * the GPU texture.
  */
 export class TextureBindingNode<D extends d.Texture = d.Texture> extends Node<D> {
+    readonly kind = NodeKind.TextureBinding;
     /** The GpuTexture */
     value: GpuTexture<D> | null = null;
 
@@ -117,6 +119,7 @@ export class TextureBindingNode<D extends d.Texture = d.Texture> extends Node<D>
  * mip the binding view targets (for manual mip-pyramid writes).
  */
 export class StorageTextureBindingNode<D extends d.StorageTexture = d.StorageTexture> extends Node<D> {
+    readonly kind = NodeKind.StorageTextureBinding;
     /** The GpuTexture */
     value: GpuTexture<D> | null = null;
 
@@ -209,8 +212,8 @@ export type SamplingMode = 'sample' | 'level' | 'bias' | 'grad' | 'load';
  * - .offset(offset) - add offset parameter (2D only)
  * - .load(coords, level?) - use textureLoad (no sampler)
  */
-    readonly isTextureNode = true;
 export class TextureNode<D extends FlatSampledTexture = d.texture2d> extends Node<d.vec4f> {
+    readonly kind = NodeKind.Texture;
 
     /** The texture binding, holds GPU resource, textureId, group. */
     readonly bindingNode: TextureBindingNode<D>;
@@ -572,7 +575,7 @@ export type CubeSamplingMode = 'sample' | 'level' | 'bias' | 'grad';
  * - .grad(ddx, ddy) - use textureSampleGrad
  */
 export class CubeTextureNode extends Node<d.vec4f> {
-    readonly isCubeTextureNode = true;
+    readonly kind = NodeKind.CubeTexture;
 
     /** The texture binding, holds GPU resource, textureId, group. */
     readonly bindingNode: TextureBindingNode<CubeSampledTexture>;
@@ -761,7 +764,7 @@ export type DepthSamplingMode = 'sample' | 'level' | 'load';
  * - .load(coords, level?) - use textureLoad
  */
 export class DepthTextureNode extends Node<d.f32> {
-    readonly isDepthTextureNode = true;
+    readonly kind = NodeKind.DepthTexture;
 
     /** The texture binding, holds GPU resource, textureId, group. */
     readonly bindingNode: TextureBindingNode<FlatDepthTexture>;
@@ -960,7 +963,7 @@ export type ArraySamplingMode = 'sample' | 'level' | 'bias' | 'grad' | 'load';
  * - .load(coords, level?) - use textureLoad
  */
 export class ArrayTextureNode extends Node<d.vec4f> {
-    readonly isArrayTextureNode = true;
+    readonly kind = NodeKind.ArrayTexture;
 
     /** The texture binding, holds GPU resource, textureId, group. */
     readonly bindingNode: TextureBindingNode<d.texture2dArray>;
@@ -1292,6 +1295,7 @@ export function textureLoad(
     coords: Node<Any>,
     levelOrLayer?: Node<Any>,
 ): CallNode<Any> {
+    if (t.kind === NodeKind.StorageTextureBinding) {
         if (t.access === 'write') {
             throw new Error(`[gpucat] textureLoad on a 'write' storage texture; bind it with access 'read' or 'read_write'.`);
         }

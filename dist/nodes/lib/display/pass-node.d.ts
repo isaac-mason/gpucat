@@ -6,7 +6,7 @@ import { Texture } from '../../../texture/texture';
 import { DepthTexture } from '../../../texture/depth-texture';
 import type { MRTNode } from '../mrt';
 import { DepthTextureNode, TextureBindingNode, TextureNode } from '../texture';
-import { Node } from '../core';
+import { Node, NodeKind } from '../core';
 import * as d from '../../../schema/schema';
 /**
  * Represents the texture of a pass node.
@@ -15,8 +15,6 @@ import * as d from '../../../schema/schema';
 export declare class PassTextureNode extends TextureNode {
     /** A reference to the pass node. */
     readonly passNode: PassNode;
-    /** This flag can be used for type testing. */
-    readonly isPassTextureNode = true;
     /**
      * Constructs a new pass texture node.
      *
@@ -25,7 +23,7 @@ export declare class PassTextureNode extends TextureNode {
      * @param textureId - Optional custom texture ID. If not provided, uses default pass output ID.
      * @param existingBinding - If provided, reuse this binding instead of creating a new one (used by clone).
      */
-    constructor(passNode: PassNode, texture?: Texture | null, textureId?: string, existingBinding?: TextureBindingNode<d.FlatSampledTexture>);
+    constructor(passNode: PassNode, texture?: Texture | null, textureId?: string, existingBinding?: TextureBindingNode<d.texture2d>);
     clone(): PassTextureNode;
 }
 /**
@@ -37,8 +35,6 @@ export declare class PassMultipleTextureNode extends PassTextureNode {
     readonly textureName: string;
     /** Whether previous frame data should be used or not. */
     readonly previousTexture: boolean;
-    /** This flag can be used for type testing. */
-    readonly isPassMultipleTextureNode = true;
     /**
      * Constructs a new pass multiple texture node.
      *
@@ -46,7 +42,7 @@ export declare class PassMultipleTextureNode extends PassTextureNode {
      * @param textureName - The output texture name.
      * @param previousTexture - Whether previous frame data should be used.
      */
-    constructor(passNode: PassNode, textureName: string, previousTexture?: boolean, existingBinding?: TextureBindingNode<d.FlatSampledTexture>);
+    constructor(passNode: PassNode, textureName: string, previousTexture?: boolean, existingBinding?: TextureBindingNode<d.texture2d>);
     /**
      * Updates the texture reference of this node.
      * Called in setup() to get the current texture.
@@ -73,6 +69,7 @@ export type PassNodeOptions = {
  * via MRT for further processing.
  */
 export declare class PassNode extends Node<d.vec4f> {
+    readonly kind = NodeKind.Pass;
     /** @static */
     static readonly FRAGMENT: 'fragment';
     /** @static */

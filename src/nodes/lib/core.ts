@@ -232,9 +232,75 @@ export const NodeUpdateType = {
 } as const;
 export type NodeUpdateType = (typeof NodeUpdateType)[keyof typeof NodeUpdateType];
 
+/**
+ * Numeric discriminant identifying a Node subclass.
+ *
+ * Used by the builder for fast, tree-shakeable dispatch: checking `node.kind`
+ * instead of `node instanceof XNode` avoids referencing the subclass constructor,
+ * so unused node types can be dropped by a bundler. Auto-incremented `enum` (not
+ * `const enum`, which is unsafe across the package boundary / under isolatedModules)
+ * for numeric-compare speed without hand-maintaining member values.
+ */
+export enum NodeKind {
+    // expression / core
+    Literal,
+    BinaryOp,
+    Call,
+    Construct,
+    Field,
+    Index,
+    Array,
+    Conditional,
+    Builtin,
+    ComputeIndex,
+    Parameter,
+    Struct,
+    // variables / statements
+    Let,
+    Var,
+    PrivateVar,
+    WorkgroupVar,
+    Assign,
+    Return,
+    Break,
+    Continue,
+    Discard,
+    Loop,
+    If,
+    Stack,
+    // functions
+    Fn,
+    WgslFunction,
+    Wgsl,
+    // IO / binding
+    Uniform,
+    Attribute,
+    Varying,
+    Storage,
+    OutputStruct,
+    MRT,
+    // textures
+    TextureBinding,
+    StorageTextureBinding,
+    Sampler,
+    Texture,
+    CubeTexture,
+    DepthTexture,
+    ArrayTexture,
+    // display
+    Pass,
+    // misc
+    Inspector,
+    SubBuild,
+    // base sentinel (the bare `Node` void placeholder; subclasses always override)
+    Node,
+}
+
 export class Node<D extends Any> {
     readonly id: number;
     readonly type: D;
+    /** Numeric discriminant for fast, tree-shakeable dispatch. Subclasses override. */
+    readonly kind: NodeKind = NodeKind.Node;
 
     _beforeNodes: Node<Any>[] | null = null;
     updateType: NodeUpdateType = NodeUpdateType.NONE;
@@ -1240,14 +1306,12 @@ export function node(): Node<d.Void> {
  * via node.before(), so it gets built and updated alongside the original node.
  */
 export class InspectorNode<D extends Any> extends Node<D> {
+    readonly kind = NodeKind.Inspector;
     /** The original node being inspected. */
     readonly wrappedNode: Node<D>;
 
     /** Display name for the inspector UI. */
     readonly inspectorName: string;
-
-    /** Marker for type checking. */
-    readonly isInspectorNode = true;
 
     constructor(node: Node<D>, name?: string) {
         super(node.type);
@@ -1279,6 +1343,7 @@ export class InspectorNode<D extends Any> extends Node<D> {
 // ─── Expr nodes ───────────────────────────────────────────────────────────────
 
 export class LiteralNode<D extends Any> extends Node<D> {
+    readonly kind = NodeKind.Literal;
     constructor(
         type: D,
         readonly value: number | number[] | string,
@@ -1288,6 +1353,7 @@ export class LiteralNode<D extends Any> extends Node<D> {
 }
 
 export class LetNode<D extends Any> extends Node<D> {
+    readonly kind = NodeKind.Let;
     constructor(
         type: D,
         readonly varName: string,
@@ -1298,6 +1364,7 @@ export class LetNode<D extends Any> extends Node<D> {
 }
 
 export class VarNode<D extends Any> extends Node<D> {
+    readonly kind = NodeKind.Var;
     constructor(
         type: D,
         readonly varName: string,
@@ -1324,6 +1391,7 @@ export class VarNode<D extends Any> extends Node<D> {
  * // → var<private> gravity: vec3f = vec3f(0.0, -9.8, 0.0);
  */
 export class PrivateVarNode<D extends Any> extends Node<D> {
+    readonly kind = NodeKind.PrivateVar;
     constructor(
         type: D,
         readonly varName: string,
@@ -1344,6 +1412,7 @@ export class PrivateVarNode<D extends Any> extends Node<D> {
  * // → var<workgroup> sharedData: array<f32, 256>;
  */
 export class WorkgroupVarNode<D extends Any> extends Node<D> {
+    readonly kind = NodeKind.WorkgroupVar;
     constructor(
         type: D,
         readonly varName: string,
@@ -1353,6 +1422,7 @@ export class WorkgroupVarNode<D extends Any> extends Node<D> {
 }
 
 export class AssignNode extends Node<d.Void> {
+    readonly kind = NodeKind.Assign;
     constructor(
         readonly target: Node<Any>,
         readonly value: Node<Any>,
@@ -1362,6 +1432,7 @@ export class AssignNode extends Node<d.Void> {
 }
 
 export class BinaryOpNode<D extends Any> extends Node<D> {
+    readonly kind = NodeKind.BinaryOp;
     constructor(
         readonly op: BinaryOp,
         type: D,
@@ -1380,6 +1451,7 @@ export interface WgslFunctionNodeRef {
 }
 
 export class CallNode<D extends Any> extends Node<D> {
+    readonly kind = NodeKind.Call;
     readonly fnNode?: FnNode<any>; // eslint-disable-line @typescript-eslint/no-explicit-any
     readonly wgslFnNode?: WgslFunctionNodeRef;
     constructor(
@@ -1396,6 +1468,7 @@ export class CallNode<D extends Any> extends Node<D> {
 }
 
 export class ConstructNode<D extends Any> extends Node<D> {
+    readonly kind = NodeKind.Construct;
     constructor(
         type: D,
         readonly args: Node<Any>[],
@@ -1405,6 +1478,7 @@ export class ConstructNode<D extends Any> extends Node<D> {
 }
 
 export class FieldNode<D extends Any> extends Node<D> {
+    readonly kind = NodeKind.Field;
     constructor(
         type: D,
         readonly object: Node<Any>,
@@ -1426,6 +1500,7 @@ export class ArrayNode<E extends Any> extends Node<{
     readonly element: E;
     readonly length: number;
 }> {
+    readonly kind = NodeKind.Array;
     readonly elements: Node<E>[];
     constructor(elementType: E, elements: Node<E>[]) {
         const sizedArrayDesc = {
@@ -1440,6 +1515,7 @@ export class ArrayNode<E extends Any> extends Node<{
 }
 
 export class IndexNode<D extends Any> extends Node<D> {
+    readonly kind = NodeKind.Index;
     constructor(
         type: D,
         readonly array: Node<Any>,
@@ -1448,7 +1524,6 @@ export class IndexNode<D extends Any> extends Node<D> {
         super(type);
     }
 }
-
 // ── Standalone expr functions ─────────────────────────────────────────────────
 
 /** Type-safe field access for structs - infers the field type from the struct descriptor */
@@ -1844,6 +1919,7 @@ export const shiftRight = <D extends Any>(a: Node<D>, b: Node<D>): Node<D> => ne
 // ── Lang ──────────────────────────────────────────────────────────────────────
 
 export class StackNode extends Node<d.Void> {
+    readonly kind = NodeKind.Stack;
     readonly body: Node<Any>[];
     constructor(initial?: Node<Any>[]) {
         super(d.Void);
@@ -1855,6 +1931,7 @@ export class StackNode extends Node<d.Void> {
 }
 
 export class FnNode<D extends Any> extends Node<D> {
+    readonly kind = NodeKind.Fn;
     readonly fnName: string;
     readonly paramDescs: (ParamDesc | Any)[];
     readonly jsFunc: (...args: Node<Any>[]) => Node<D>;
@@ -1889,6 +1966,7 @@ export class FnNode<D extends Any> extends Node<D> {
 }
 
 export class ParameterNode<D extends Any> extends Node<D> {
+    readonly kind = NodeKind.Parameter;
     constructor(
         type: D,
         readonly paramIndex: number,
@@ -1899,12 +1977,14 @@ export class ParameterNode<D extends Any> extends Node<D> {
 }
 
 export class ReturnNode<D extends Any> extends Node<D> {
+    readonly kind = NodeKind.Return;
     constructor(readonly value: Node<D>) {
         super(value.type);
     }
 }
 
 export class ConditionalNode<D extends Any> extends Node<D> {
+    readonly kind = NodeKind.Conditional;
     readonly ifFalse?: Node<Any>;
     constructor(
         readonly condition: Node<Any>,
@@ -1919,6 +1999,7 @@ export class ConditionalNode<D extends Any> extends Node<D> {
 export type ElseIfBranch = { condition: Node<Any>; body: StackNode };
 
 export class IfNode extends Node<d.Void> {
+    readonly kind = NodeKind.If;
     elseIfBranches: ElseIfBranch[] = [];
     elseBody: StackNode | null = null;
     constructor(
@@ -1944,6 +2025,7 @@ export type LoopParam =
 let _loopVarCounter = 0;
 
 export class LoopNode extends Node<d.Void> {
+    readonly kind = NodeKind.Loop;
     constructor(
         readonly config: LoopParam,
         readonly loopVar: ParameterNode<Any>,
@@ -1955,16 +2037,19 @@ export class LoopNode extends Node<d.Void> {
 }
 
 export class BreakNode extends Node<d.Void> {
+    readonly kind = NodeKind.Break;
     constructor() {
         super(d.Void);
     }
 }
 export class ContinueNode extends Node<d.Void> {
+    readonly kind = NodeKind.Continue;
     constructor() {
         super(d.Void);
     }
 }
 export class DiscardNode extends Node<d.Void> {
+    readonly kind = NodeKind.Discard;
     constructor() {
         super(d.Void);
     }
@@ -2326,6 +2411,7 @@ export function struct<S extends d.StructSchema>(name: string, fields: S): Struc
 }
 
 export class StructNode<S extends d.StructSchema = d.StructSchema> extends Node<d.StructDesc<S>> {
+    readonly kind = NodeKind.Struct;
     constructor(
         desc: d.StructDesc<S>,
         readonly members: StructMember[],

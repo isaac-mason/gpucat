@@ -1020,9 +1020,75 @@ const NodeUpdateType = {
     RENDER: 'render',
     OBJECT: 'object',
 };
+/**
+ * Numeric discriminant identifying a Node subclass.
+ *
+ * Used by the builder for fast, tree-shakeable dispatch: checking `node.kind`
+ * instead of `node instanceof XNode` avoids referencing the subclass constructor,
+ * so unused node types can be dropped by a bundler. Auto-incremented `enum` (not
+ * `const enum`, which is unsafe across the package boundary / under isolatedModules)
+ * for numeric-compare speed without hand-maintaining member values.
+ */
+var NodeKind;
+(function (NodeKind) {
+    // expression / core
+    NodeKind[NodeKind["Literal"] = 0] = "Literal";
+    NodeKind[NodeKind["BinaryOp"] = 1] = "BinaryOp";
+    NodeKind[NodeKind["Call"] = 2] = "Call";
+    NodeKind[NodeKind["Construct"] = 3] = "Construct";
+    NodeKind[NodeKind["Field"] = 4] = "Field";
+    NodeKind[NodeKind["Index"] = 5] = "Index";
+    NodeKind[NodeKind["Array"] = 6] = "Array";
+    NodeKind[NodeKind["Conditional"] = 7] = "Conditional";
+    NodeKind[NodeKind["Builtin"] = 8] = "Builtin";
+    NodeKind[NodeKind["ComputeIndex"] = 9] = "ComputeIndex";
+    NodeKind[NodeKind["Parameter"] = 10] = "Parameter";
+    NodeKind[NodeKind["Struct"] = 11] = "Struct";
+    // variables / statements
+    NodeKind[NodeKind["Let"] = 12] = "Let";
+    NodeKind[NodeKind["Var"] = 13] = "Var";
+    NodeKind[NodeKind["PrivateVar"] = 14] = "PrivateVar";
+    NodeKind[NodeKind["WorkgroupVar"] = 15] = "WorkgroupVar";
+    NodeKind[NodeKind["Assign"] = 16] = "Assign";
+    NodeKind[NodeKind["Return"] = 17] = "Return";
+    NodeKind[NodeKind["Break"] = 18] = "Break";
+    NodeKind[NodeKind["Continue"] = 19] = "Continue";
+    NodeKind[NodeKind["Discard"] = 20] = "Discard";
+    NodeKind[NodeKind["Loop"] = 21] = "Loop";
+    NodeKind[NodeKind["If"] = 22] = "If";
+    NodeKind[NodeKind["Stack"] = 23] = "Stack";
+    // functions
+    NodeKind[NodeKind["Fn"] = 24] = "Fn";
+    NodeKind[NodeKind["WgslFunction"] = 25] = "WgslFunction";
+    NodeKind[NodeKind["Wgsl"] = 26] = "Wgsl";
+    // IO / binding
+    NodeKind[NodeKind["Uniform"] = 27] = "Uniform";
+    NodeKind[NodeKind["Attribute"] = 28] = "Attribute";
+    NodeKind[NodeKind["Varying"] = 29] = "Varying";
+    NodeKind[NodeKind["Storage"] = 30] = "Storage";
+    NodeKind[NodeKind["OutputStruct"] = 31] = "OutputStruct";
+    NodeKind[NodeKind["MRT"] = 32] = "MRT";
+    // textures
+    NodeKind[NodeKind["TextureBinding"] = 33] = "TextureBinding";
+    NodeKind[NodeKind["StorageTextureBinding"] = 34] = "StorageTextureBinding";
+    NodeKind[NodeKind["Sampler"] = 35] = "Sampler";
+    NodeKind[NodeKind["Texture"] = 36] = "Texture";
+    NodeKind[NodeKind["CubeTexture"] = 37] = "CubeTexture";
+    NodeKind[NodeKind["DepthTexture"] = 38] = "DepthTexture";
+    NodeKind[NodeKind["ArrayTexture"] = 39] = "ArrayTexture";
+    // display
+    NodeKind[NodeKind["Pass"] = 40] = "Pass";
+    // misc
+    NodeKind[NodeKind["Inspector"] = 41] = "Inspector";
+    NodeKind[NodeKind["SubBuild"] = 42] = "SubBuild";
+    // base sentinel (the bare `Node` void placeholder; subclasses always override)
+    NodeKind[NodeKind["Node"] = 43] = "Node";
+})(NodeKind || (NodeKind = {}));
 class Node {
     id;
     type;
+    /** Numeric discriminant for fast, tree-shakeable dispatch. Subclasses override. */
+    kind = NodeKind.Node;
     _beforeNodes = null;
     updateType = NodeUpdateType.NONE;
     updateBeforeType = NodeUpdateType.NONE;
@@ -1993,12 +2059,11 @@ function node() {
  * via node.before(), so it gets built and updated alongside the original node.
  */
 class InspectorNode extends Node {
+    kind = NodeKind.Inspector;
     /** The original node being inspected. */
     wrappedNode;
     /** Display name for the inspector UI. */
     inspectorName;
-    /** Marker for type checking. */
-    isInspectorNode = true;
     constructor(node, name) {
         super(node.type);
         this.wrappedNode = node;
@@ -2025,6 +2090,7 @@ class InspectorNode extends Node {
 // ─── Expr nodes ───────────────────────────────────────────────────────────────
 class LiteralNode extends Node {
     value;
+    kind = NodeKind.Literal;
     constructor(type, value) {
         super(type);
         this.value = value;
@@ -2033,6 +2099,7 @@ class LiteralNode extends Node {
 class LetNode extends Node {
     varName;
     init;
+    kind = NodeKind.Let;
     constructor(type, varName, init) {
         super(type);
         this.varName = varName;
@@ -2042,6 +2109,7 @@ class LetNode extends Node {
 class VarNode extends Node {
     varName;
     init;
+    kind = NodeKind.Var;
     constructor(type, varName, init) {
         super(type);
         this.varName = varName;
@@ -2066,6 +2134,7 @@ class VarNode extends Node {
 class PrivateVarNode extends Node {
     varName;
     init;
+    kind = NodeKind.PrivateVar;
     constructor(type, varName, init) {
         super(type);
         this.varName = varName;
@@ -2084,6 +2153,7 @@ class PrivateVarNode extends Node {
  */
 class WorkgroupVarNode extends Node {
     varName;
+    kind = NodeKind.WorkgroupVar;
     constructor(type, varName) {
         super(type);
         this.varName = varName;
@@ -2092,6 +2162,7 @@ class WorkgroupVarNode extends Node {
 class AssignNode extends Node {
     target;
     value;
+    kind = NodeKind.Assign;
     constructor(target, value) {
         super(Void);
         this.target = target;
@@ -2102,6 +2173,7 @@ class BinaryOpNode extends Node {
     op;
     left;
     right;
+    kind = NodeKind.BinaryOp;
     constructor(op, type, left, right) {
         super(type);
         this.op = op;
@@ -2112,6 +2184,7 @@ class BinaryOpNode extends Node {
 class CallNode extends Node {
     fn;
     args;
+    kind = NodeKind.Call;
     fnNode; // eslint-disable-line @typescript-eslint/no-explicit-any
     wgslFnNode;
     constructor(type, fn, args, fnNode, wgslFnNode) {
@@ -2124,6 +2197,7 @@ class CallNode extends Node {
 }
 class ConstructNode extends Node {
     args;
+    kind = NodeKind.Construct;
     constructor(type, args) {
         super(type);
         this.args = args;
@@ -2132,6 +2206,7 @@ class ConstructNode extends Node {
 class FieldNode extends Node {
     object;
     fieldName;
+    kind = NodeKind.Field;
     constructor(type, object, fieldName) {
         super(type);
         this.object = object;
@@ -2145,6 +2220,7 @@ class FieldNode extends Node {
  * This corresponds to WGSL's array value constructor expression.
  */
 class ArrayNode extends Node {
+    kind = NodeKind.Array;
     elements;
     constructor(elementType, elements) {
         const sizedArrayDesc = {
@@ -2160,6 +2236,7 @@ class ArrayNode extends Node {
 class IndexNode extends Node {
     array;
     index;
+    kind = NodeKind.Index;
     constructor(type, array, index) {
         super(type);
         this.array = array;
@@ -2452,6 +2529,7 @@ const shiftLeft = (a, b) => new BinaryOpNode('<<', a.type, a, b);
 const shiftRight = (a, b) => new BinaryOpNode('>>', a.type, a, b);
 // ── Lang ──────────────────────────────────────────────────────────────────────
 class StackNode extends Node {
+    kind = NodeKind.Stack;
     body;
     constructor(initial) {
         super(Void);
@@ -2462,6 +2540,7 @@ class StackNode extends Node {
     }
 }
 class FnNode extends Node {
+    kind = NodeKind.Fn;
     fnName;
     paramDescs;
     jsFunc;
@@ -2495,6 +2574,7 @@ class FnNode extends Node {
 class ParameterNode extends Node {
     paramIndex;
     paramName;
+    kind = NodeKind.Parameter;
     constructor(type, paramIndex, paramName) {
         super(type);
         this.paramIndex = paramIndex;
@@ -2503,6 +2583,7 @@ class ParameterNode extends Node {
 }
 class ReturnNode extends Node {
     value;
+    kind = NodeKind.Return;
     constructor(value) {
         super(value.type);
         this.value = value;
@@ -2511,6 +2592,7 @@ class ReturnNode extends Node {
 class ConditionalNode extends Node {
     condition;
     ifTrue;
+    kind = NodeKind.Conditional;
     ifFalse;
     constructor(condition, ifTrue, ifFalse) {
         super(ifTrue.type);
@@ -2522,6 +2604,7 @@ class ConditionalNode extends Node {
 class IfNode extends Node {
     condition;
     thenBody;
+    kind = NodeKind.If;
     elseIfBranches = [];
     elseBody = null;
     constructor(condition, thenBody) {
@@ -2536,6 +2619,7 @@ class LoopNode extends Node {
     loopVar;
     callbackKey;
     body;
+    kind = NodeKind.Loop;
     constructor(config, loopVar, callbackKey, body) {
         super(Void);
         this.config = config;
@@ -2545,16 +2629,19 @@ class LoopNode extends Node {
     }
 }
 class BreakNode extends Node {
+    kind = NodeKind.Break;
     constructor() {
         super(Void);
     }
 }
 class ContinueNode extends Node {
+    kind = NodeKind.Continue;
     constructor() {
         super(Void);
     }
 }
 class DiscardNode extends Node {
+    kind = NodeKind.Discard;
     constructor() {
         super(Void);
     }
@@ -2806,6 +2893,7 @@ function struct(name, fields) {
 }
 class StructNode extends Node {
     members;
+    kind = NodeKind.Struct;
     constructor(desc, members) {
         super(desc);
         this.members = members;
@@ -3326,6 +3414,7 @@ function createIndexBuffer(data) {
  * const instanceMatrix = attribute(matricesBuffer, { stride: 64, offset: 0, instanced: true });
  */
 class AttributeNode extends Node {
+    kind = NodeKind.Attribute;
     /** Either a name (geometry lookup) or direct GpuBuffer reference */
     source;
     /** Byte stride between elements. 0 = tightly packed. */
@@ -3404,6 +3493,7 @@ const uv = (index = 0) => new AttributeNode(vec2f$1, 'uv' + (index > 0 ? index :
 
 class BuiltinNode extends Node {
     builtinKind;
+    kind = NodeKind.Builtin;
     constructor(builtinKind, desc) {
         super(desc);
         this.builtinKind = builtinKind;
@@ -3445,6 +3535,7 @@ const fragCoord = /*@__PURE__*/ builtin('position', vec4f$1);
  * similar to how instanceIndex works in vertex shaders.
  */
 class ComputeIndexNode extends Node {
+    kind = NodeKind.ComputeIndex;
     constructor() {
         super(u32$1);
     }
@@ -3529,6 +3620,7 @@ class Uniform {
 }
 
 class UniformNode extends Node {
+    kind = NodeKind.Uniform;
     /** uniform name */
     name;
     /** The underlying Uniform data container */
@@ -3614,15 +3706,16 @@ function uniform(init, nameOrSchema) {
  */
 function extractValue(node) {
     // LiteralNode has a direct value
-    if (node instanceof LiteralNode) {
+    if (node.kind === NodeKind.Literal) {
         return node.value;
     }
     // ConstructNode: extract values from args (must all be LiteralNodes)
-    if (node instanceof ConstructNode) {
+    if (node.kind === NodeKind.Construct) {
         const values = [];
         for (const arg of node.args) {
-            if (arg instanceof LiteralNode && typeof arg.value === 'number') {
-                values.push(arg.value);
+            const lit = arg.kind === NodeKind.Literal ? arg : null;
+            if (lit && typeof lit.value === 'number') {
+                values.push(lit.value);
             }
             else {
                 // Dynamic child - can't extract static value
@@ -4708,7 +4801,7 @@ function createRenderTargetTexture(_renderTarget, width, height, format) {
 class SubBuildNode extends Node {
     node;
     subBuildName;
-    isSubBuildNode = true;
+    kind = NodeKind.SubBuild;
     constructor(node, subBuildName, nodeType = null) {
         super(nodeType ?? node.type);
         this.node = node;
@@ -4727,7 +4820,7 @@ function subBuild(node, name, type = null) {
  * VaryingNode - represents shader varyings that pass data from vertex to fragment stage.
  */
 class VaryingNode extends Node {
-    isVaryingNode = true;
+    kind = NodeKind.Varying;
     /** The source node wrapped with subBuild('VERTEX') */
     node;
     /** The name of the varying in the shader (auto-generated if null) */
@@ -4764,6 +4857,7 @@ const varying = (source, name) => new VaryingNode(source, name ?? null);
  * Holds a reference to a GpuSampler which contains the actual settings.
  */
 class SamplerNode extends Node {
+    kind = NodeKind.Sampler;
     /** The GpuSampler - always has a valid default */
     value = new GpuSampler();
     /** Unique ID for this sampler instance */
@@ -4814,6 +4908,7 @@ class SamplerNode extends Node {
  * the GPU texture.
  */
 class TextureBindingNode extends Node {
+    kind = NodeKind.TextureBinding;
     /** The GpuTexture */
     value = null;
     /** Unique ID for this texture binding (e.g. 'tAlbedo', 'tShadowMap'). */
@@ -4840,6 +4935,7 @@ class TextureBindingNode extends Node {
  * mip the binding view targets (for manual mip-pyramid writes).
  */
 class StorageTextureBindingNode extends Node {
+    kind = NodeKind.StorageTextureBinding;
     /** The GpuTexture */
     value = null;
     /** Unique ID for this texture binding (e.g. 'st3'). */
@@ -4902,12 +4998,13 @@ function storageTexture(gpuTex, access = 'write') {
  * - .load(coords, level?) - use textureLoad (no sampler)
  */
 class TextureNode extends Node {
-    isTextureNode = true;
+    kind = NodeKind.Texture;
     /** The texture binding, holds GPU resource, textureId, group. */
     bindingNode;
     /**
-     * The UV node for texture coordinates.
-     * Defaults to varying(uv()) if not specified.
+     * The texture coordinate node, derived from the texture's dimensionality:
+     * `vec2f` for 2D, `vec3f` for 3D (e.g. raymarching a volume or a 3D LUT),
+     * `f32` for 1D. Defaults to varying(uv()) (2D).
      */
     uvNode;
     /**
@@ -4942,6 +5039,7 @@ class TextureNode extends Node {
         // Node type is vec4f (the sampled color)
         super(vec4f$1);
         this.bindingNode = bindingNode;
+        // Default uv() (vec2f) only applies to 2D; 3D/1D always pass coords via sample().
         this.uvNode = uvNode ?? varying(uv());
     }
     /** Get the base texture node (follows referenceNode chain) */
@@ -4972,7 +5070,7 @@ class TextureNode extends Node {
     /* ─────────────────────────────────────────────────────────────────────────
      * Chainable sampling methods
      * ───────────────────────────────────────────────────────────────────────── */
-    /** Sample the texture at the given UV coordinates */
+    /** Sample the texture at the given coordinates (vec2 for 2D, vec3 for 3D, f32 for 1D). */
     sample(uvNode) {
         const textureNode = this.clone();
         textureNode.uvNode = uvNode;
@@ -5130,7 +5228,7 @@ const textureBinding = (tex, textureDesc) => {
  * - .grad(ddx, ddy) - use textureSampleGrad
  */
 class CubeTextureNode extends Node {
-    isCubeTextureNode = true;
+    kind = NodeKind.CubeTexture;
     /** The texture binding, holds GPU resource, textureId, group. */
     bindingNode;
     /**
@@ -5259,7 +5357,7 @@ function cubeTexture(source, gpuSampler) {
  * - .load(coords, level?) - use textureLoad
  */
 class DepthTextureNode extends Node {
-    isDepthTextureNode = true;
+    kind = NodeKind.DepthTexture;
     /** The texture binding, holds GPU resource, textureId, group. */
     bindingNode;
     /**
@@ -5392,7 +5490,7 @@ function depthTexture(source, gpuSampler) {
  * - .load(coords, level?) - use textureLoad
  */
 class ArrayTextureNode extends Node {
-    isArrayTextureNode = true;
+    kind = NodeKind.ArrayTexture;
     /** The texture binding, holds GPU resource, textureId, group. */
     bindingNode;
     /**
@@ -5581,7 +5679,7 @@ function textureSampleCompareLevel(t, s, coords, depthRef, level, offset) {
     return new CallNode(f32$1, 'textureSampleCompareLevel', args);
 }
 function textureLoad(t, coords, levelOrLayer) {
-    if (t instanceof StorageTextureBindingNode) {
+    if (t.kind === NodeKind.StorageTextureBinding) {
         if (t.access === 'write') {
             throw new Error(`[gpucat] textureLoad on a 'write' storage texture; bind it with access 'read' or 'read_write'.`);
         }
@@ -5681,8 +5779,6 @@ let _passCount = 0;
 class PassTextureNode extends TextureNode {
     /** A reference to the pass node. */
     passNode;
-    /** This flag can be used for type testing. */
-    isPassTextureNode = true;
     /**
      * Constructs a new pass texture node.
      *
@@ -5716,8 +5812,6 @@ class PassMultipleTextureNode extends PassTextureNode {
     textureName;
     /** Whether previous frame data should be used or not. */
     previousTexture;
-    /** This flag can be used for type testing. */
-    isPassMultipleTextureNode = true;
     /**
      * Constructs a new pass multiple texture node.
      *
@@ -5761,6 +5855,7 @@ class PassMultipleTextureNode extends PassTextureNode {
  * via MRT for further processing.
  */
 class PassNode extends Node {
+    kind = NodeKind.Pass;
     /** @static */
     static FRAGMENT = 'fragment';
     /** @static */
@@ -6421,19 +6516,21 @@ const _materialBlending = /*#__PURE__*/ new BlendMode('material');
  * // Typically created via mrt() helper instead.
  */
 class OutputStructNode extends Node {
+    // 2-literal union (not bare NodeKind) so MRTNode can override to MRT while
+    // keeping `kind === OutputStruct` narrowing clean for every other branch.
+    kind = NodeKind.OutputStruct;
     /**
      * Array of output nodes. Each node maps to @location(index).
      * All nodes should produce vec4f values.
      */
     members;
-    /** Type flag for runtime checking. */
-    isOutputStructNode = true;
     constructor(members = []) {
         super(vec4f$1);
         this.members = members;
     }
 }
 class MRTNode extends OutputStructNode {
+    kind = NodeKind.MRT;
     /**
      * Dictionary of named outputs. Keys are texture names,
      * values are nodes producing vec4f values.
@@ -6444,8 +6541,6 @@ class MRTNode extends OutputStructNode {
      * any name without an entry falls back to no-blend.
      */
     blendModes = { output: _materialBlending };
-    /** Type flag for runtime checking. */
-    isMRTNode = true;
     /**
      * Resolved output names in order. Populated during setup() when
      * render target is known. Used by the compiler to emit correct
@@ -6554,6 +6649,7 @@ function mrt(outputNodes) {
  * particles.value = otherBuffer;  // swap buffers for double-buffering
  */
 class StorageNode extends Node {
+    kind = NodeKind.Storage;
     /** Buffer name (for geometry.buffers lookup), null if value-based */
     bufferName;
     /** Direct buffer reference, null if name-based */
@@ -6637,6 +6733,7 @@ function storage(nameOrBuffer, schemaOrAccess, accessArg) {
 class WgslNode extends Node {
     wgsl;
     deps;
+    kind = NodeKind.Wgsl;
     constructor(type, wgsl, deps) {
         super(type);
         this.wgsl = wgsl;
@@ -6718,16 +6815,13 @@ function parseWgslFunction(source) {
     };
 }
 class WgslFunctionNode extends Node {
-    /** Type marker for runtime checking */
-    isCodeNode = true;
+    kind = NodeKind.WgslFunction;
     /** Global nodes use globalCache for deduplication */
     global = true;
     /** The native shader code */
     code;
     /** Array of included CodeNodes/FunctionNodes */
     includes;
-    /** Type marker for runtime checking */
-    isFunctionNode = true;
     constructor(code = '', includes = []) {
         super(WgslFn);
         this.code = code;
@@ -6790,7 +6884,7 @@ function wgslFn(source, layoutOrIncludes, includesArg) {
                 includeNodes.push(fn);
             }
         }
-        else if (include instanceof WgslFunctionNode) {
+        else if (include.kind === NodeKind.WgslFunction) {
             includeNodes.push(include);
         }
     }
@@ -7295,66 +7389,67 @@ function createContext(stage, isRender) {
     };
 }
 /** Get all child nodes for traversal */
-function getChildren(node) {
+function getChildren(rawNode) {
+    const node = rawNode;
     const children = [];
     // _beforeNodes are dependencies that must be processed before this node.
     // They're part of the graph but don't generate sub-expressions for this node.
     if (node._beforeNodes) {
         children.push(...node._beforeNodes);
     }
-    if (node instanceof BinaryOpNode) {
+    if (node.kind === NodeKind.BinaryOp) {
         children.push(node.left, node.right);
     }
-    else if (node instanceof CallNode) {
+    else if (node.kind === NodeKind.Call) {
         children.push(...node.args);
     }
-    else if (node instanceof ConstructNode) {
+    else if (node.kind === NodeKind.Construct) {
         children.push(...node.args);
     }
-    else if (node instanceof FieldNode) {
+    else if (node.kind === NodeKind.Field) {
         children.push(node.object);
     }
-    else if (node instanceof IndexNode) {
+    else if (node.kind === NodeKind.Index) {
         children.push(node.array, node.index);
     }
-    else if (node instanceof VaryingNode) {
+    else if (node.kind === NodeKind.Varying) {
         // VaryingNode.node is a SubBuildNode wrapping the source
         // Push the actual source inside the SubBuildNode, not the wrapper itself
         children.push(node.node.node);
     }
-    else if (node instanceof AssignNode) {
+    else if (node.kind === NodeKind.Assign) {
         children.push(node.target, node.value);
     }
-    else if (node instanceof LetNode || node instanceof VarNode) {
+    else if (node.kind === NodeKind.Let || node.kind === NodeKind.Var) {
         children.push(node.init);
     }
-    else if (node instanceof PrivateVarNode) {
+    else if (node.kind === NodeKind.PrivateVar) {
         if (node.init)
             children.push(node.init);
     }
-    else if (node instanceof WorkgroupVarNode) ;
-    else if (node instanceof ConditionalNode) {
+    else if (node.kind === NodeKind.WorkgroupVar) ;
+    else if (node.kind === NodeKind.Conditional) {
         children.push(node.condition, node.ifTrue);
         if (node.ifFalse)
             children.push(node.ifFalse);
     }
-    else if (node instanceof WgslNode) {
+    else if (node.kind === NodeKind.Wgsl) {
         children.push(...node.deps);
     }
-    else if (node instanceof ReturnNode) {
+    else if (node.kind === NodeKind.Return) {
         children.push(node.value);
     }
-    else if (node instanceof InspectorNode) {
+    else if (node.kind === NodeKind.Inspector) {
         children.push(node.wrappedNode);
     }
-    else if (node instanceof PassNode) {
+    else if (node.kind === NodeKind.Pass) {
         // PassNode delegates to its texture node during code generation
         const textureNode = node.scope === 'fragment' ? node.getTextureNode() : node.getLinearDepthNode();
         children.push(textureNode);
     }
-    else if (node instanceof TextureBindingNode) ;
-    else if (node instanceof StorageTextureBindingNode) ;
-    else if (node instanceof TextureNode) {
+    else if (node.kind === NodeKind.TextureBinding) ;
+    else if (node.kind === NodeKind.StorageTextureBinding) ;
+    else if (node.kind === NodeKind.Texture) {
         // TextureNode owns a bindingNode for the texture var declaration
         children.push(node.bindingNode);
         if (node.samplerNode) {
@@ -7382,7 +7477,7 @@ function getChildren(node) {
             children.push(node.loadLevel);
         }
     }
-    else if (node instanceof CubeTextureNode) {
+    else if (node.kind === NodeKind.CubeTexture) {
         children.push(node.bindingNode);
         if (node.samplerNode) {
             children.push(node.samplerNode);
@@ -7400,7 +7495,7 @@ function getChildren(node) {
             children.push(node.gradNode[0], node.gradNode[1]);
         }
     }
-    else if (node instanceof DepthTextureNode) {
+    else if (node.kind === NodeKind.DepthTexture) {
         children.push(node.bindingNode);
         if (node.samplerNode) {
             children.push(node.samplerNode);
@@ -7421,7 +7516,7 @@ function getChildren(node) {
             children.push(node.loadLevel);
         }
     }
-    else if (node instanceof ArrayTextureNode) {
+    else if (node.kind === NodeKind.ArrayTexture) {
         children.push(node.bindingNode);
         if (node.samplerNode) {
             children.push(node.samplerNode);
@@ -7449,17 +7544,18 @@ function getChildren(node) {
             children.push(node.loadLevel);
         }
     }
-    else if (node instanceof MRTNode) {
-        // MRTNode stores outputs in outputNodes dict (members only populated post-resolve)
+    else if (node.kind === NodeKind.MRT) {
+        // MRTNode stores outputs in outputNodes dict (members only populated post-resolve).
+        // Cast: MRT shares OutputStruct's discriminant base, so narrowing stops at the union.
         children.push(...Object.values(node.outputNodes));
     }
-    else if (node instanceof OutputStructNode) {
+    else if (node.kind === NodeKind.OutputStruct) {
         children.push(...node.members);
     }
-    else if (node instanceof LoopNode) {
+    else if (node.kind === NodeKind.Loop) {
         children.push(node.body);
     }
-    else if (node instanceof IfNode) {
+    else if (node.kind === NodeKind.If) {
         children.push(node.condition);
         children.push(...node.thenBody.body);
         for (const branch of node.elseIfBranches) {
@@ -7470,7 +7566,7 @@ function getChildren(node) {
             children.push(...node.elseBody.body);
         }
     }
-    else if (node instanceof StackNode) {
+    else if (node.kind === NodeKind.Stack) {
         children.push(...node.body);
     }
     return children;
@@ -7582,12 +7678,13 @@ function discover(roots) {
         }
         structDefs.set(def.wgslType, def);
     }
-    function markTargetChain(node) {
+    function markTargetChain(rawNode) {
+        const node = rawNode;
         mutatedNodes.add(node.id);
-        if (node instanceof FieldNode) {
+        if (node.kind === NodeKind.Field) {
             markTargetChain(node.object);
         }
-        else if (node instanceof IndexNode) {
+        else if (node.kind === NodeKind.Index) {
             markTargetChain(node.array);
         }
     }
@@ -7615,7 +7712,8 @@ function discover(roots) {
             registerSampler(samplerNode);
         }
     }
-    function visit(node) {
+    function visit(rawNode) {
+        const node = rawNode;
         // usage counting
         nodeIdToUsages.set(node.id, (nodeIdToUsages.get(node.id) ?? 0) + 1);
         // exit if visited
@@ -7635,11 +7733,11 @@ function discover(roots) {
             updateNodes.push(node);
         }
         // mutated nodes: walk assignment target chains
-        if (node instanceof AssignNode) {
+        if (node.kind === NodeKind.Assign) {
             markTargetChain(node.target);
         }
         // function discovery
-        if (node instanceof CallNode && node.fnNode) {
+        if (node.kind === NodeKind.Call && node.fnNode) {
             const fn = node.fnNode;
             if (!fnDefs.has(fn.fnName)) {
                 const traced = fn.trace();
@@ -7648,19 +7746,19 @@ function discover(roots) {
                 visit(traced.output);
             }
         }
-        if (node instanceof CallNode && node.wgslFnNode) {
+        if (node.kind === NodeKind.Call && node.wgslFnNode) {
             const fn = node.wgslFnNode;
             if (!wgslFnDefs.has(fn.code)) {
                 wgslFnDefs.set(fn.code, fn);
                 for (const inc of fn.includes) {
-                    if (inc instanceof WgslFunctionNode && !wgslFnDefs.has(inc.code)) {
+                    if (inc.kind === NodeKind.WgslFunction && !wgslFnDefs.has(inc.code)) {
                         wgslFnDefs.set(inc.code, inc);
                     }
                 }
             }
         }
         // storage + struct definition discovery
-        if (node instanceof StorageNode) {
+        if (node.kind === NodeKind.Storage) {
             if (!storageNames.has(node.id)) {
                 storageNames.set(node.id, `_storage${storageNames.size}`);
             }
@@ -7673,34 +7771,34 @@ function discover(roots) {
             walkTypeForStructs(node.type, registerStructDef);
         }
         // binding discovery: textures, samplers, uniforms
-        if (node instanceof TextureBindingNode) {
+        if (node.kind === NodeKind.TextureBinding) {
             const name = node.textureId;
             if (!textures.has(name)) {
                 textures.set(name, node);
             }
         }
-        if (node instanceof StorageTextureBindingNode) {
+        if (node.kind === NodeKind.StorageTextureBinding) {
             const name = node.textureId;
             if (!storageTextures.has(name)) {
                 storageTextures.set(name, node);
             }
         }
-        if (node instanceof TextureNode) {
+        if (node.kind === NodeKind.Texture) {
             registerTextureWithSampler(node);
         }
-        if (node instanceof CubeTextureNode) {
+        if (node.kind === NodeKind.CubeTexture) {
             registerTextureWithSampler(node);
         }
-        if (node instanceof DepthTextureNode) {
+        if (node.kind === NodeKind.DepthTexture) {
             registerTextureWithSampler(node);
         }
-        if (node instanceof ArrayTextureNode) {
+        if (node.kind === NodeKind.ArrayTexture) {
             registerTextureWithSampler(node);
         }
-        if (node instanceof SamplerNode) {
+        if (node.kind === NodeKind.Sampler) {
             registerSampler(node);
         }
-        if (node instanceof UniformNode) {
+        if (node.kind === NodeKind.Uniform) {
             const name = node.name;
             const group = node.group;
             if (!uniforms.has(name)) {
@@ -7708,12 +7806,12 @@ function discover(roots) {
             }
         }
         // module scope variable discovery
-        if (node instanceof PrivateVarNode) {
+        if (node.kind === NodeKind.PrivateVar) {
             if (!privateVars.has(node.id)) {
                 privateVars.set(node.id, node);
             }
         }
-        if (node instanceof WorkgroupVarNode) {
+        if (node.kind === NodeKind.WorkgroupVar) {
             if (!workgroupVars.has(node.id)) {
                 workgroupVars.set(node.id, node);
             }
@@ -7749,11 +7847,12 @@ function discover(roots) {
 /** Pre-collect VaryingNodes from roots and generate their vertex expressions. */
 function collectVaryings(roots, ctx) {
     const visited = new Set();
-    function visit(node) {
+    function visit(rawNode) {
+        const node = rawNode;
         if (visited.has(node.id))
             return;
         visited.add(node.id);
-        if (node instanceof VaryingNode) {
+        if (node.kind === NodeKind.Varying) {
             const name = node.name ?? `v_${node.id}`;
             if (!ctx.varyings.has(name)) {
                 // generate vertex expression for this varying
@@ -7803,7 +7902,8 @@ function wgslSize(type) {
     return 4;
 }
 /* expression generation */
-function generateExpr(ctx, node) {
+function generateExpr(ctx, rawNode) {
+    const node = rawNode;
     // Record node for graph
     ctx.graphNodes.set(node.id, node);
     // CSE: if already computed and multi-use, return variable name
@@ -7811,85 +7911,85 @@ function generateExpr(ctx, node) {
         return ctx.nodeVars.get(node.id);
     }
     let expr;
-    if (node instanceof LiteralNode) {
+    if (node.kind === NodeKind.Literal) {
         expr = constLiteral(node.type.wgslType, node.value);
     }
-    else if (node instanceof UniformNode) {
+    else if (node.kind === NodeKind.Uniform) {
         expr = generateUniform(ctx, node);
     }
-    else if (node instanceof AttributeNode) {
+    else if (node.kind === NodeKind.Attribute) {
         expr = generateAttribute(ctx, node);
     }
-    else if (node instanceof StorageNode) {
+    else if (node.kind === NodeKind.Storage) {
         expr = generateStorage(ctx, node);
     }
-    else if (node instanceof PassNode) {
+    else if (node.kind === NodeKind.Pass) {
         // PassNode used as expression delegates to its texture node
         const textureNode = node.scope === 'fragment' ? node.getTextureNode() : node.getLinearDepthNode();
         expr = generateExpr(ctx, textureNode);
     }
-    else if (node instanceof TextureBindingNode) {
+    else if (node.kind === NodeKind.TextureBinding) {
         expr = generateTextureBinding(ctx, node);
     }
-    else if (node instanceof StorageTextureBindingNode) {
+    else if (node.kind === NodeKind.StorageTextureBinding) {
         expr = generateStorageTextureBinding(ctx, node);
     }
-    else if (node instanceof TextureNode) {
+    else if (node.kind === NodeKind.Texture) {
         expr = generateTexture(ctx, node);
     }
-    else if (node instanceof CubeTextureNode) {
+    else if (node.kind === NodeKind.CubeTexture) {
         expr = generateCubeTexture(ctx, node);
     }
-    else if (node instanceof DepthTextureNode) {
+    else if (node.kind === NodeKind.DepthTexture) {
         expr = generateDepthTexture(ctx, node);
     }
-    else if (node instanceof ArrayTextureNode) {
+    else if (node.kind === NodeKind.ArrayTexture) {
         expr = generateArrayTexture(ctx, node);
     }
-    else if (node instanceof SamplerNode) {
+    else if (node.kind === NodeKind.Sampler) {
         expr = generateSampler(ctx, node);
     }
-    else if (node instanceof VaryingNode) {
+    else if (node.kind === NodeKind.Varying) {
         expr = generateVarying(ctx, node);
     }
-    else if (node instanceof BinaryOpNode) {
+    else if (node.kind === NodeKind.BinaryOp) {
         const left = generateExpr(ctx, node.left);
         const right = generateExpr(ctx, node.right);
         expr = `(${left} ${node.op} ${right})`;
     }
-    else if (node instanceof CallNode) {
+    else if (node.kind === NodeKind.Call) {
         expr = generateCall(ctx, node);
     }
-    else if (node instanceof ArrayNode) {
+    else if (node.kind === NodeKind.Array) {
         const args = node.elements.map((e) => generateExpr(ctx, e));
         expr = `array<${node.type.element.wgslType}, ${node.elements.length}>(${args.join(', ')})`;
     }
-    else if (node instanceof ConstructNode) {
+    else if (node.kind === NodeKind.Construct) {
         const args = node.args.map((a) => generateExpr(ctx, a));
         expr = `${node.type.wgslType}(${args.join(', ')})`;
     }
-    else if (node instanceof FieldNode) {
+    else if (node.kind === NodeKind.Field) {
         const obj = generateExpr(ctx, node.object);
         expr = `${obj}.${node.fieldName}`;
     }
-    else if (node instanceof IndexNode) {
+    else if (node.kind === NodeKind.Index) {
         const arr = generateExpr(ctx, node.array);
         const idx = generateExpr(ctx, node.index);
         expr = `${arr}[${idx}]`;
     }
-    else if (node instanceof BuiltinNode) {
+    else if (node.kind === NodeKind.Builtin) {
         expr = generateBuiltin(ctx, node);
     }
-    else if (node instanceof ComputeIndexNode) {
+    else if (node.kind === NodeKind.ComputeIndex) {
         expr = 'computeIndex';
     }
-    else if (node instanceof ConditionalNode) {
+    else if (node.kind === NodeKind.Conditional) {
         const cond = generateExpr(ctx, node.condition);
         const t = generateExpr(ctx, node.ifTrue);
         const f = node.ifFalse ? generateExpr(ctx, node.ifFalse) : `${node.type.wgslType}()`;
         expr = `select(${f}, ${t}, ${cond})`;
     }
-    else if (node instanceof WgslNode) {
+    else if (node.kind === NodeKind.Wgsl) {
         // inline WGSL with $0, $1, ... placeholders
         let wgsl = node.wgsl;
         for (let i = 0; i < node.deps.length; i++) {
@@ -7898,7 +7998,7 @@ function generateExpr(ctx, node) {
         }
         expr = wgsl;
     }
-    else if (node instanceof LetNode) {
+    else if (node.kind === NodeKind.Let) {
         // LetNode as expression returns the variable name
         // If not yet declared, emit the declaration now
         if (!ctx.nodeVars.has(node.id)) {
@@ -7908,7 +8008,7 @@ function generateExpr(ctx, node) {
         }
         expr = node.varName;
     }
-    else if (node instanceof VarNode) {
+    else if (node.kind === NodeKind.Var) {
         // VarNode as expression returns the variable name
         // If not yet declared, emit the declaration now
         if (!ctx.nodeVars.has(node.id)) {
@@ -7918,13 +8018,13 @@ function generateExpr(ctx, node) {
         }
         expr = node.varName;
     }
-    else if (node instanceof PrivateVarNode) {
+    else if (node.kind === NodeKind.PrivateVar) {
         // PrivateVarNode is module-scope, emitted separately
         // Just return the variable name - declaration is in emitModuleScopeVars
         ctx.nodeVars.set(node.id, node.varName);
         expr = node.varName;
     }
-    else if (node instanceof WorkgroupVarNode) {
+    else if (node.kind === NodeKind.WorkgroupVar) {
         // WorkgroupVarNode is module-scope, emitted separately
         // Validate it's only used in compute shaders
         if (ctx.stage !== 'compute') {
@@ -7933,14 +8033,14 @@ function generateExpr(ctx, node) {
         ctx.nodeVars.set(node.id, node.varName);
         expr = node.varName;
     }
-    else if (node instanceof ParameterNode) {
+    else if (node.kind === NodeKind.Parameter) {
         expr = node.paramName ?? `p${node.paramIndex}`;
     }
-    else if (node instanceof InspectorNode) {
+    else if (node.kind === NodeKind.Inspector) {
         // inspector is transparent - just generate the wrapped node
         expr = generateExpr(ctx, node.wrappedNode);
     }
-    else if (node instanceof OutputStructNode || node instanceof MRTNode) {
+    else if (node.kind === NodeKind.OutputStruct || node.kind === NodeKind.MRT) {
         // these are handled specially at the fragment output level
         expr = `/* OutputStruct */`;
     }
@@ -7981,20 +8081,20 @@ function containsAtomics(desc) {
 }
 /** Check if expression is trivial enough that repeating it is cheap (no need to extract) */
 function isTrivialExpr(node) {
-    return (node instanceof LiteralNode ||
-        node instanceof LetNode ||
-        node instanceof VarNode ||
-        node instanceof PrivateVarNode ||
-        node instanceof WorkgroupVarNode ||
-        node instanceof ParameterNode ||
-        node instanceof BuiltinNode ||
-        node instanceof FieldNode ||
+    return (node.kind === NodeKind.Literal ||
+        node.kind === NodeKind.Let ||
+        node.kind === NodeKind.Var ||
+        node.kind === NodeKind.PrivateVar ||
+        node.kind === NodeKind.WorkgroupVar ||
+        node.kind === NodeKind.Parameter ||
+        node.kind === NodeKind.Builtin ||
+        node.kind === NodeKind.Field ||
         // binding references are global names
-        node instanceof StorageNode ||
-        node instanceof UniformNode ||
-        node instanceof TextureBindingNode ||
-        node instanceof SamplerNode ||
-        node instanceof AttributeNode);
+        node.kind === NodeKind.Storage ||
+        node.kind === NodeKind.Uniform ||
+        node.kind === NodeKind.TextureBinding ||
+        node.kind === NodeKind.Sampler ||
+        node.kind === NodeKind.Attribute);
 }
 /** Check if a node's type cannot be copied into a let binding */
 function isNonCopyable(node) {
@@ -8005,14 +8105,15 @@ function isNonCopyable(node) {
     return false;
 }
 /** Check if node is an access into storage (IndexNode into StorageNode, or FieldNode/IndexNode chain from one) */
-function isStorageElementAccess(node) {
-    if (node instanceof IndexNode) {
-        if (node.array instanceof StorageNode)
+function isStorageElementAccess(rawNode) {
+    const node = rawNode;
+    if (node.kind === NodeKind.Index) {
+        if (node.array.kind === NodeKind.Storage)
             return true;
         // Also check if indexing into something that's itself a storage access
         return isStorageElementAccess(node.array);
     }
-    if (node instanceof FieldNode)
+    if (node.kind === NodeKind.Field)
         return isStorageElementAccess(node.object);
     return false;
 }
@@ -8354,7 +8455,7 @@ function generateCall(ctx, node) {
             ctx.wgslFnDefs.set(fn.code, fn);
             // also register includes
             for (const inc of fn.includes) {
-                if (inc instanceof WgslFunctionNode && !ctx.wgslFnDefs.has(inc.code)) {
+                if (inc.kind === NodeKind.WgslFunction && !ctx.wgslFnDefs.has(inc.code)) {
                     ctx.wgslFnDefs.set(inc.code, inc);
                 }
             }
@@ -8389,39 +8490,40 @@ function generateCall(ctx, node) {
     return `${node.fn}(${args.join(', ')})`;
 }
 /* statement generation */
-function generateStmt(ctx, node) {
+function generateStmt(ctx, rawNode) {
+    const node = rawNode;
     const ind = '    '.repeat(ctx.indentLevel);
-    if (node instanceof LetNode) {
+    if (node.kind === NodeKind.Let) {
         const init = generateExpr(ctx, node.init);
         ctx.code.push(`${ind}let ${node.varName} = ${init};`);
         ctx.nodeVars.set(node.id, node.varName);
     }
-    else if (node instanceof VarNode) {
+    else if (node.kind === NodeKind.Var) {
         const init = generateExpr(ctx, node.init);
         ctx.code.push(`${ind}var ${node.varName} = ${init};`);
         ctx.nodeVars.set(node.id, node.varName);
     }
-    else if (node instanceof AssignNode) {
+    else if (node.kind === NodeKind.Assign) {
         const target = generateExpr(ctx, node.target);
         const value = generateExpr(ctx, node.value);
         ctx.code.push(`${ind}${target} = ${value};`);
     }
-    else if (node instanceof IfNode) {
+    else if (node.kind === NodeKind.If) {
         generateIfStmt(ctx, node);
     }
-    else if (node instanceof LoopNode) {
+    else if (node.kind === NodeKind.Loop) {
         generateLoopStmt(ctx, node);
     }
-    else if (node instanceof BreakNode) {
+    else if (node.kind === NodeKind.Break) {
         ctx.code.push(`${ind}break;`);
     }
-    else if (node instanceof ContinueNode) {
+    else if (node.kind === NodeKind.Continue) {
         ctx.code.push(`${ind}continue;`);
     }
-    else if (node instanceof DiscardNode) {
+    else if (node.kind === NodeKind.Discard) {
         ctx.code.push(`${ind}discard;`);
     }
-    else if (node instanceof ReturnNode) {
+    else if (node.kind === NodeKind.Return) {
         if (node.value.type.wgslType === 'void') {
             ctx.code.push(`${ind}return;`);
         }
@@ -8430,7 +8532,7 @@ function generateStmt(ctx, node) {
             ctx.code.push(`${ind}return ${val};`);
         }
     }
-    else if (node instanceof StackNode) {
+    else if (node.kind === NodeKind.Stack) {
         for (const child of node.body) {
             generateStmt(ctx, child);
         }
@@ -8490,14 +8592,14 @@ function generateLoopStmt(ctx, node) {
     if (typeof config === 'number') {
         loopHeader = `for (var ${wgslVarName}: i32 = 0i; ${wgslVarName} < ${config}i; ${wgslVarName}++)`;
     }
-    else if (config instanceof LiteralNode || config instanceof UniformNode) {
+    else if (isNode(config) && (config.kind === NodeKind.Literal || config.kind === NodeKind.Uniform)) {
         const endExpr = generateExpr(ctx, config);
         loopHeader = `for (var ${wgslVarName}: i32 = 0i; ${wgslVarName} < ${endExpr}; ${wgslVarName}++)`;
     }
     else if (typeof config === 'object' &&
         config !== null &&
-        !(config instanceof LiteralNode) &&
-        !(config instanceof UniformNode)) {
+        !(isNode(config) && config.kind === NodeKind.Literal) &&
+        !(isNode(config) && config.kind === NodeKind.Uniform)) {
         const cfg = config;
         const typeDesc = cfg.type ?? i32$1;
         const typeStr = typeDesc.wgslType;
@@ -8558,20 +8660,21 @@ function emitModuleScopeVars(ctx) {
  * Generate a const-expression for module-scope variable initializers.
  * Module-scope initializers must be const-expressions (compile-time constants).
  */
-function generateModuleScopeInitExpr(node) {
-    if (node instanceof LiteralNode) {
+function generateModuleScopeInitExpr(rawNode) {
+    const node = rawNode;
+    if (node.kind === NodeKind.Literal) {
         return constLiteral(node.type.wgslType, node.value);
     }
-    else if (node instanceof ConstructNode) {
+    else if (node.kind === NodeKind.Construct) {
         const args = node.args.map((a) => generateModuleScopeInitExpr(a));
         return `${node.type.wgslType}(${args.join(', ')})`;
     }
-    else if (node instanceof BinaryOpNode) {
+    else if (node.kind === NodeKind.BinaryOp) {
         const left = generateModuleScopeInitExpr(node.left);
         const right = generateModuleScopeInitExpr(node.right);
         return `(${left} ${node.op} ${right})`;
     }
-    else if (node instanceof CallNode) {
+    else if (node.kind === NodeKind.Call) {
         // Only const-evaluable built-in functions are allowed
         const args = node.args.map((a) => generateModuleScopeInitExpr(a));
         return `${node.fn}(${args.join(', ')})`;
@@ -8778,7 +8881,7 @@ function emitWgslFunctions(ctx) {
     for (const [_code, fn] of ctx.wgslFnDefs) {
         // emit includes first
         for (const inc of fn.includes) {
-            if (inc instanceof WgslFunctionNode && !emitted.has(inc.code)) {
+            if (inc.kind === NodeKind.WgslFunction && !emitted.has(inc.code)) {
                 lines.push(inc.code.trim());
                 lines.push('');
                 emitted.add(inc.code);
@@ -8930,7 +9033,7 @@ function generateFragmentShader(fragmentNode, ctx, varyings) {
         lines.push('');
     }
     // check for MRT
-    const isMRT = fragmentNode instanceof MRTNode;
+    const isMRT = fragmentNode.kind === NodeKind.MRT;
     const mrtNode = isMRT ? fragmentNode : null;
     // Pre-generate all MRT output expressions NOW so that CSE let-declarations
     // are pushed into ctx.code before we emit the function body.
@@ -9968,7 +10071,8 @@ function lookupCompute(state, node) {
 function getTargetCount(fragmentNode) {
     if (!fragmentNode)
         return 0;
-    if (fragmentNode instanceof OutputStructNode) {
+    // OutputStruct covers MRT too (MRTNode extends OutputStructNode)
+    if (fragmentNode.kind === NodeKind.OutputStruct || fragmentNode.kind === NodeKind.MRT) {
         return Math.max(1, fragmentNode.members.length);
     }
     return 1;

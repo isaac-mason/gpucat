@@ -1,4 +1,4 @@
-import { Node } from './core';
+import { Node, NodeKind } from './core';
 import type { Any } from '../../schema/schema';
 import { SubBuildNode, subBuild } from './sub-build';
 
@@ -25,7 +25,7 @@ export type InterpolationSampling = 'center' | 'centroid' | 'sample' | 'either';
  * VaryingNode - represents shader varyings that pass data from vertex to fragment stage.
  */
 export class VaryingNode<D extends Any> extends Node<D> {
-    readonly isVaryingNode = true;
+    readonly kind = NodeKind.Varying;
 
     /** The source node wrapped with subBuild('VERTEX') */
     readonly node: SubBuildNode<D>;

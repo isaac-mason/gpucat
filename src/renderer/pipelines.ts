@@ -1,4 +1,4 @@
-import { type Node, type ComputeNode, OutputStructNode } from '../nodes/nodes';
+import { type Node, type ComputeNode, OutputStructNode, NodeKind } from '../nodes/nodes';
 import type { Any } from '../schema/schema';
 import type { Material } from '../material/material';
 import type { Geometry } from '../geometry/geometry';
@@ -396,8 +396,9 @@ export function lookupCompute(state: PipelinesState, node: ComputeNode): Compute
  */
 function getTargetCount(fragmentNode: Node<Any> | undefined): number {
     if (!fragmentNode) return 0;
-    if (fragmentNode instanceof OutputStructNode) {
-        return Math.max(1, fragmentNode.members.length);
+    // OutputStruct covers MRT too (MRTNode extends OutputStructNode)
+    if (fragmentNode.kind === NodeKind.OutputStruct || fragmentNode.kind === NodeKind.MRT) {
+        return Math.max(1, (fragmentNode as OutputStructNode).members.length);
     }
     return 1;
 }

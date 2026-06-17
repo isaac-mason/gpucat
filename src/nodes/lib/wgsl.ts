@@ -1,4 +1,4 @@
-import { Node } from './core';
+import { Node, NodeKind } from './core';
 import * as d from '../../schema/schema';
 
 /**
@@ -12,6 +12,7 @@ import * as d from '../../schema/schema';
  * // generates: dot(a_expr, b_expr)
  */
 export class WgslNode<D extends d.Any> extends Node<D> {
+    readonly kind = NodeKind.Wgsl;
     constructor(
         type: D,
         readonly wgsl: string,

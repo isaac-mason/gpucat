@@ -1,5 +1,5 @@
 import { GpuBuffer } from '../../core/gpu-buffer';
-import { Node } from './core';
+import { Node, NodeKind } from './core';
 import type { Any, TypedArrayFor } from '../../schema/schema';
 import * as d from '../../schema/schema';
 /**
@@ -44,6 +44,7 @@ export type AttributeOptions = {
  * const instanceMatrix = attribute(matricesBuffer, { stride: 64, offset: 0, instanced: true });
  */
 export declare class AttributeNode<D extends Any> extends Node<D> {
+    readonly kind = NodeKind.Attribute;
     /** Either a name (geometry lookup) or direct GpuBuffer reference */
     readonly source: string | GpuBuffer<D>;
     /** Byte stride between elements. 0 = tightly packed. */
