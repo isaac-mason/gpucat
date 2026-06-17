@@ -1967,9 +1967,9 @@ export function array<E extends Any>(element: E): {
  * albedo.offset(vec2i(1, 0))           // with offset
  * albedo.load(vec2i(10, 20))           // textureLoad
  */
-export function texture(tex: Texture): TextureNode;
-export function texture(gpuTex: GpuTexture<FlatSampledTexture>, gpuSampler: GpuSampler): TextureNode;
-export function texture(storageTex: GpuTexture<d.StorageTexture>, gpuSampler: GpuSampler): TextureNode;
+export function texture(tex: Texture): TextureNode<d.texture2d>;
+export function texture<D extends FlatSampledTexture>(gpuTex: GpuTexture<D>, gpuSampler: GpuSampler): TextureNode<D>;
+export function texture<S extends d.StorageTexture>(storageTex: GpuTexture<S>, gpuSampler: GpuSampler): TextureNode<StorageSampledOf<S>>;
 ```
 
 #### `varying`

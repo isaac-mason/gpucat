@@ -103,11 +103,25 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
   </tr>
   <tr>
     <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-video-texture">
+        <img src="./examples/public/screenshots/example-video-texture.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Video Texture
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-volume">
+        <img src="./examples/public/screenshots/example-volume.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Volume
+      </a>
+    </td>
+    <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-ball-cluster">
         <img src="./examples/public/screenshots/example-ball-cluster.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Ball Cluster
       </a>
     </td>
+  </tr>
+  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-indirect-batched">
         <img src="./examples/public/screenshots/example-indirect-batched.png" width="180" height="120" style="object-fit:cover;"/><br/>
@@ -120,14 +134,14 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
         Indirect Compute
       </a>
     </td>
-  </tr>
-  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-mrt">
         <img src="./examples/public/screenshots/example-mrt.png" width="180" height="120" style="object-fit:cover;"/><br/>
         MRT (Multiple Render Targets)
       </a>
     </td>
+  </tr>
+  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-raging-sea">
         <img src="./examples/public/screenshots/example-raging-sea.png" width="180" height="120" style="object-fit:cover;"/><br/>
@@ -140,14 +154,14 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
         Uniforms
       </a>
     </td>
-  </tr>
-  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-storage">
         <img src="./examples/public/screenshots/example-storage.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Storage Buffers
       </a>
     </td>
+  </tr>
+  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-voxels">
         <img src="./examples/public/screenshots/example-voxels.png" width="180" height="120" style="object-fit:cover;"/><br/>
@@ -160,14 +174,14 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
         Voxels Batched
       </a>
     </td>
-  </tr>
-  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-interleaved">
         <img src="./examples/public/screenshots/example-interleaved.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Interleaved Vertex Buffers
       </a>
     </td>
+  </tr>
+  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-cubemap">
         <img src="./examples/public/screenshots/example-cubemap.png" width="180" height="120" style="object-fit:cover;"/><br/>
@@ -180,14 +194,14 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
         Cube Camera
       </a>
     </td>
-  </tr>
-  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-discard">
         <img src="./examples/public/screenshots/example-discard.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Discard
       </a>
     </td>
+  </tr>
+  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-shadow-map">
         <img src="./examples/public/screenshots/example-shadow-map.png" width="180" height="120" style="object-fit:cover;"/><br/>
@@ -200,14 +214,14 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
         Array Texture Flipbook
       </a>
     </td>
-  </tr>
-  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-fxaa">
         <img src="./examples/public/screenshots/example-fxaa.png" width="180" height="120" style="object-fit:cover;"/><br/>
         FXAA
       </a>
     </td>
+  </tr>
+  <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-transform-controls">
         <img src="./examples/public/screenshots/example-transform-controls.png" width="180" height="120" style="object-fit:cover;"/><br/>
@@ -1049,6 +1063,14 @@ const data = new DataTexture(pixels, 256, 256, { format: 'rgba8unorm' });
 
 `CubeTexture`, `ArrayTexture`, and `CanvasTexture` cover the other shapes, and sampler settings (`wrapS`, `magFilter`, `anisotropy`, and so on) live on the texture. A pass output is also a texture, which is what makes post-processing just node wiring. See [`Texture`](./api.md#texture).
 
+A video is just a texture whose contents change every frame — pass an `HTMLVideoElement` to `Texture` and mark it `needsUpdate` each frame; the renderer copies the current frame to the GPU. No special texture type:
+
+```ts
+const videoTexture = new Texture(videoElement);     // a playing HTMLVideoElement
+// in the frame loop:
+videoTexture.needsUpdate = true;                    // re-copy the current frame
+```
+
 <table>
   <tr>
     <td align="center">
@@ -1073,6 +1095,12 @@ const data = new DataTexture(pixels, 256, 256, { format: 'rgba8unorm' });
       <a href="https://isaac-mason.github.io/gpucat/#example-array-texture">
         <img src="./examples/public/screenshots/example-array-texture.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Array Texture Flipbook
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-video-texture">
+        <img src="./examples/public/screenshots/example-video-texture.png" width="200" height="133" style="object-fit:cover;"/><br/>
+        Video Texture
       </a>
     </td>
   </tr>
@@ -1102,12 +1130,20 @@ renderer.compute([{ node: paint, dispatch: [Math.ceil(256 / 8), Math.ceil(256 / 
 
 `access` is a property of the binding, not the texture, so one texture can be bound `write` in one kernel and `read` in another (e.g. ping-pong simulations). Reads use `textureLoad(node, coords)` (no mip level). Writes are compute-only; binding a `write`/`read_write` storage texture in a vertex or fragment shader is a compile error. `read_write` access is limited by WebGPU to the `r32uint` / `r32sint` / `r32float` formats; the value type of `textureStore`/`textureLoad` follows the format's channel (`vec4f` / `vec4u` / `vec4i`). If the texture has mips and `mipmapsAutoUpdate` is on (the default), its mips regenerate after a compute write so it can be sampled mipmapped.
 
+3D storage textures (`createStorageTexture3d`) work the same way and pair naturally with `texture_3d` sampling — write a volume in compute, then raymarch it in a render pass (`texture(volume, sampler).sample(vec3)`). The sample coordinate type is derived from the texture: a 3D texture's `.sample()` requires a `vec3`, a 2D one a `vec2`.
+
 <table>
   <tr>
     <td align="center">
       <a href="https://isaac-mason.github.io/gpucat/#example-compute-texture">
         <img src="./examples/public/screenshots/example-compute-texture.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Compute Texture
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-volume">
+        <img src="./examples/public/screenshots/example-volume.png" width="200" height="133" style="object-fit:cover;"/><br/>
+        Volume
       </a>
     </td>
   </tr>

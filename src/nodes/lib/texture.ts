@@ -209,23 +209,24 @@ export type SamplingMode = 'sample' | 'level' | 'bias' | 'grad' | 'load';
  * - .offset(offset) - add offset parameter (2D only)
  * - .load(coords, level?) - use textureLoad (no sampler)
  */
-export class TextureNode extends Node<d.vec4f> {
     readonly isTextureNode = true;
+export class TextureNode<D extends FlatSampledTexture = d.texture2d> extends Node<d.vec4f> {
 
     /** The texture binding, holds GPU resource, textureId, group. */
-    readonly bindingNode: TextureBindingNode<FlatSampledTexture>;
+    readonly bindingNode: TextureBindingNode<D>;
 
     /**
-     * The UV node for texture coordinates.
-     * Defaults to varying(uv()) if not specified.
+     * The texture coordinate node, derived from the texture's dimensionality:
+     * `vec2f` for 2D, `vec3f` for 3D (e.g. raymarching a volume or a 3D LUT),
+     * `f32` for 1D. Defaults to varying(uv()) (2D).
      */
-    uvNode: Node<d.vec2f>;
+    uvNode: Node<d.TextureCoordOf<D>>;
 
     /**
      * The reference node
      * When sampling with different UVs, this points to the base texture node.
      */
-    referenceNode: TextureNode | null = null;
+    referenceNode: TextureNode<D> | null = null;
 
     /**
      * The sampler node for this texture.
@@ -260,17 +261,18 @@ export class TextureNode extends Node<d.vec4f> {
     loadLevel: Node<d.i32> | null = null;
 
     constructor(
-        bindingNode: TextureBindingNode<FlatSampledTexture>,
-        uvNode: Node<d.vec2f> | null = null,
+        bindingNode: TextureBindingNode<D>,
+        uvNode: Node<d.TextureCoordOf<D>> | null = null,
     ) {
         // Node type is vec4f (the sampled color)
         super(d.vec4f);
         this.bindingNode = bindingNode;
-        this.uvNode = uvNode ?? varying(uv());
+        // Default uv() (vec2f) only applies to 2D; 3D/1D always pass coords via sample().
+        this.uvNode = uvNode ?? (varying(uv()) as unknown as Node<d.TextureCoordOf<D>>);
     }
 
     /** Get the base texture node (follows referenceNode chain) */
-    getBase(): TextureNode {
+    getBase(): TextureNode<D> {
         return this.referenceNode ? this.referenceNode.getBase() : this;
     }
 
@@ -281,8 +283,8 @@ export class TextureNode extends Node<d.vec4f> {
     }
 
     /** Clone this texture node with all sampling properties */
-    clone(): TextureNode {
-        const cloned = new TextureNode(this.bindingNode, this.uvNode);
+    clone(): TextureNode<D> {
+        const cloned = new TextureNode<D>(this.bindingNode, this.uvNode);
         
         // copy nodes
         cloned.referenceNode = this.referenceNode;
@@ -304,8 +306,8 @@ export class TextureNode extends Node<d.vec4f> {
      * Chainable sampling methods
      * ───────────────────────────────────────────────────────────────────────── */
 
-    /** Sample the texture at the given UV coordinates */
-    sample(uvNode: Node<d.vec2f>): TextureNode {
+    /** Sample the texture at the given coordinates (vec2 for 2D, vec3 for 3D, f32 for 1D). */
+    sample(uvNode: Node<d.TextureCoordOf<D>>): TextureNode<D> {
         const textureNode = this.clone();
         textureNode.uvNode = uvNode;
         textureNode.referenceNode = this.getBase();
@@ -313,7 +315,7 @@ export class TextureNode extends Node<d.vec4f> {
     }
 
     /** Use textureSampleLevel with explicit mip level */
-    level(levelNode: Node<d.f32>): TextureNode {
+    level(levelNode: Node<d.f32>): TextureNode<D> {
         const textureNode = this.clone();
         textureNode.samplingMode = 'level';
         textureNode.levelNode = levelNode;
@@ -322,7 +324,7 @@ export class TextureNode extends Node<d.vec4f> {
     }
 
     /** Use textureSampleBias with mip level bias */
-    bias(biasNode: Node<d.f32>): TextureNode {
+    bias(biasNode: Node<d.f32>): TextureNode<D> {
         const textureNode = this.clone();
         textureNode.samplingMode = 'bias';
         textureNode.biasNode = biasNode;
@@ -331,7 +333,7 @@ export class TextureNode extends Node<d.vec4f> {
     }
 
     /** Use textureSampleGrad with explicit gradients */
-    grad(ddx: Node<d.vec2f>, ddy: Node<d.vec2f>): TextureNode {
+    grad(ddx: Node<d.vec2f>, ddy: Node<d.vec2f>): TextureNode<D> {
         const textureNode = this.clone();
         textureNode.samplingMode = 'grad';
         textureNode.gradNode = [ddx, ddy];
@@ -340,7 +342,7 @@ export class TextureNode extends Node<d.vec4f> {
     }
 
     /** Add offset to sampling (2D and 2D-array only, must be const expression) */
-    offset(offsetNode: Node<d.vec2i>): TextureNode {
+    offset(offsetNode: Node<d.vec2i>): TextureNode<D> {
         const textureNode = this.clone();
         textureNode.offsetNode = offsetNode;
         textureNode.referenceNode = this.getBase();
@@ -348,7 +350,7 @@ export class TextureNode extends Node<d.vec4f> {
     }
 
     /** Use textureLoad for direct texel fetch (no filtering) */
-    load(coords: Node<d.vec2i>, level?: Node<d.i32>): TextureNode {
+    load(coords: Node<d.vec2i>, level?: Node<d.i32>): TextureNode<D> {
         const textureNode = this.clone();
         textureNode.samplingMode = 'load';
         textureNode.loadCoords = coords;
@@ -444,6 +446,13 @@ export function comparisonSampler(
 /** Counter for generating unique texture IDs when using GpuTexture directly */
 let _textureIdCounter = 0;
 
+/** The sampled-texture descriptor a storage texture is sampled as (dual-usage). */
+type StorageSampledOf<S extends d.StorageTexture> =
+    S extends d.textureStorage3d ? d.texture3d
+    : S extends d.textureStorage2dArray ? d.texture2dArray
+    : S extends d.textureStorage1d ? d.texture1d
+    : d.texture2d;
+
 /** Build the sampled texture descriptor for sampling a storage texture (dual-usage). */
 function sampledDescForStorage(desc: d.StorageTexture): FlatSampledTexture {
     const channel = d.STORAGE_FORMATS[desc.format].channel;
@@ -478,13 +487,13 @@ function sampledDescForStorage(desc: d.StorageTexture): FlatSampledTexture {
  * albedo.offset(vec2i(1, 0))           // with offset
  * albedo.load(vec2i(10, 20))           // textureLoad
  */
-export function texture(tex: Texture): TextureNode;
-export function texture(gpuTex: GpuTexture<FlatSampledTexture>, gpuSampler: GpuSampler): TextureNode;
-export function texture(storageTex: GpuTexture<d.StorageTexture>, gpuSampler: GpuSampler): TextureNode;
+export function texture(tex: Texture): TextureNode<d.texture2d>;
+export function texture<D extends FlatSampledTexture>(gpuTex: GpuTexture<D>, gpuSampler: GpuSampler): TextureNode<D>;
+export function texture<S extends d.StorageTexture>(storageTex: GpuTexture<S>, gpuSampler: GpuSampler): TextureNode<StorageSampledOf<S>>;
 export function texture(
     source: Texture | GpuTexture<FlatSampledTexture> | GpuTexture<d.StorageTexture>,
     gpuSampler?: GpuSampler
-): TextureNode {
+): TextureNode<FlatSampledTexture> {
     if (source instanceof GpuTexture) {
         if (!gpuSampler) {
             throw new Error('texture(): GpuSampler required when passing GpuTexture directly');
@@ -1283,7 +1292,6 @@ export function textureLoad(
     coords: Node<Any>,
     levelOrLayer?: Node<Any>,
 ): CallNode<Any> {
-    if (t instanceof StorageTextureBindingNode) {
         if (t.access === 'write') {
             throw new Error(`[gpucat] textureLoad on a 'write' storage texture; bind it with access 'read' or 'read_write'.`);
         }

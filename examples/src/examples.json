@@ -59,6 +59,16 @@
         "description": "A compute shader writes an animated plasma into a storage texture (texture_storage_2d + textureStore), then a render pass samples that same texture onto a fullscreen quad — the canonical storage-texture write→sample round-trip.",
         "tags": ["compute", "storage-texture", "texture"]
     },
+    "example-video-texture": {
+        "title": "Video Texture",
+        "description": "An HTMLVideoElement used directly as a texture, mapped onto a spinning cube: each frame the texture is marked needsUpdate and the renderer copies the current video frame to the GPU. Clip: Big Buck Bunny (CC-BY, Blender Foundation).",
+        "tags": ["texture", "video"]
+    },
+    "example-volume": {
+        "title": "Volume",
+        "description": "A compute pass writes an animated value-noise density field into a 3D storage texture (texture_storage_3d + textureStore); a render pass raymarches its bounding box, sampling the same texture as a texture_3d with self-shadowing for a wispy, lit volumetric cloud. Drag to orbit.",
+        "tags": ["compute", "storage-texture", "3d-texture", "volume", "raymarch"]
+    },
     "example-ball-cluster": {
         "title": "Ball Cluster",
         "description": "Thousands of balls pulled toward the cursor and colliding into a packed cluster, simulated entirely on the GPU. Three compute passes per frame bin the balls into a spatial-hash grid, so each ball only tests its 27 neighbouring cells instead of every other ball.",

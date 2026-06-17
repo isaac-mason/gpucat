@@ -543,7 +543,15 @@ const data = new DataTexture(pixels, 256, 256, { format: 'rgba8unorm' });
 
 `CubeTexture`, `ArrayTexture`, and `CanvasTexture` cover the other shapes, and sampler settings (`wrapS`, `magFilter`, `anisotropy`, and so on) live on the texture. A pass output is also a texture, which is what makes post-processing just node wiring. See [`Texture`](./api.md#texture).
 
-<ExamplesTable ids="example-texture,example-mipmaps,example-cubemap,example-array-texture" />
+A video is just a texture whose contents change every frame — pass an `HTMLVideoElement` to `Texture` and mark it `needsUpdate` each frame; the renderer copies the current frame to the GPU. No special texture type:
+
+```ts
+const videoTexture = new Texture(videoElement);     // a playing HTMLVideoElement
+// in the frame loop:
+videoTexture.needsUpdate = true;                    // re-copy the current frame
+```
+
+<ExamplesTable ids="example-texture,example-mipmaps,example-cubemap,example-array-texture,example-video-texture" />
 
 ### Storage textures
 
@@ -569,7 +577,9 @@ renderer.compute([{ node: paint, dispatch: [Math.ceil(256 / 8), Math.ceil(256 / 
 
 `access` is a property of the binding, not the texture, so one texture can be bound `write` in one kernel and `read` in another (e.g. ping-pong simulations). Reads use `textureLoad(node, coords)` (no mip level). Writes are compute-only; binding a `write`/`read_write` storage texture in a vertex or fragment shader is a compile error. `read_write` access is limited by WebGPU to the `r32uint` / `r32sint` / `r32float` formats; the value type of `textureStore`/`textureLoad` follows the format's channel (`vec4f` / `vec4u` / `vec4i`). If the texture has mips and `mipmapsAutoUpdate` is on (the default), its mips regenerate after a compute write so it can be sampled mipmapped.
 
-<ExamplesTable ids="example-compute-texture" />
+3D storage textures (`createStorageTexture3d`) work the same way and pair naturally with `texture_3d` sampling — write a volume in compute, then raymarch it in a render pass (`texture(volume, sampler).sample(vec3)`). The sample coordinate type is derived from the texture: a 3D texture's `.sample()` requires a `vec3`, a 2D one a `vec2`.
+
+<ExamplesTable ids="example-compute-texture,example-volume" />
 
 ## Atomics
 

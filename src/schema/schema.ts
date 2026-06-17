@@ -341,6 +341,16 @@ export function textureSampleResultOf(desc: Texture): vec4f | vec4i | vec4u | f3
     return sampleResultOf((desc as SampledTexture).sampleType);
 }
 
+/**
+ * The float coordinate descriptor for *sampling* a texture of descriptor D:
+ * `f32` for 1D, `vec3f` for 3D, `vec2f` otherwise (2D / 2D-array / multisampled).
+ * Drives `TextureNode.sample()` so a 3D texture demands vec3 coords and a 2D one vec2.
+ */
+export type TextureCoordOf<D> =
+    D extends texture1d ? f32
+    : D extends texture3d ? vec3f
+    : vec2f;
+
 /* depth texture descriptors (each a distinct WGSL type, no sample type) */
 
 export type textureDepth2d = { type: 'texture_depth_2d'; wgslType: 'texture_depth_2d'; };
