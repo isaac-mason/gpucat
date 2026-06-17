@@ -22,6 +22,17 @@ export * from './camera/orthographic-camera';
 export * from './camera/cube-camera';
 
 export * from './core/gpu-buffer';
+export {
+    GpuTexture,
+    createStorageTexture,
+    createStorageTexture3d,
+    createStorageTextureArray,
+    createStorageTexture1d,
+    type GpuTextureOptions,
+    type DimensionOf,
+    type ViewDimensionOf,
+} from './core/gpu-texture';
+export { GpuSampler, type GpuSamplerOptions } from './core/gpu-sampler';
 export * from './core/uniform';
 export * from './geometry/geometry';
 export * from './geometry/geometry-helpers';
@@ -197,6 +208,7 @@ export {
     depthTexture,
     arrayTexture,
     textureBinding,
+    storageTexture,
     textureSample,
     textureSampleLevel,
     textureSampleBias,
@@ -217,6 +229,7 @@ export {
     type DepthTextureNode,
     type ArrayTextureNode,
     type TextureBindingNode,
+    type StorageTextureBindingNode,
     // atomic operations
     atomicAdd,
     atomicStore,

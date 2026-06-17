@@ -7,6 +7,7 @@ import type {
     UniformGroupBlock,
     StorageEntry,
     TextureEntry,
+    StorageTextureEntry,
     SamplerEntry,
     UpdateBeforeNode,
     UpdateAfterNode,
@@ -144,6 +145,7 @@ export function createNodeBuilderState(
         compileResult.uniformGroups,
         compileResult.storage,
         compileResult.textures,
+        compileResult.storageTextures,
         compileResult.samplers,
         context,
     );
@@ -187,7 +189,8 @@ export function createNodeBuilderStateForCompute(
     const bindings = buildTemplateBindGroups(
         compileResult.uniformGroups,
         compileResult.storage,
-        [], // no textures for compute (for now)
+        [], // no sampled textures for compute
+        compileResult.storageTextures,
         [], // no samplers for compute (for now)
         context,
     );
@@ -236,6 +239,7 @@ function buildTemplateBindGroups(
     uniformGroups: UniformGroupBlock[],
     storage: StorageEntry[],
     textures: TextureEntry[],
+    storageTextures: StorageTextureEntry[],
     samplers: SamplerEntry[],
     context: BindingContext,
 ): BindGroup[] {
@@ -253,6 +257,7 @@ function buildTemplateBindGroups(
     }
     for (const s of storage) groupIndices.add(s.group);
     for (const t of textures) groupIndices.add(t.group);
+    for (const st of storageTextures) groupIndices.add(st.group);
     for (const s of samplers) groupIndices.add(s.group);
 
     // build BindGroup for each index
@@ -266,12 +271,13 @@ function buildTemplateBindGroups(
         // collect resources for this group
         const groupStorage = storage.filter((s) => s.group === groupIdx);
         const groupTextures = textures.filter((t) => t.group === groupIdx);
+        const groupStorageTextures = storageTextures.filter((st) => st.group === groupIdx);
         const groupSamplers = samplers.filter((s) => s.group === groupIdx);
 
         // determine shared flag (from uniform group if present, otherwise false)
         const shared = uniformGroup?.shared ?? false;
 
-        if (uniformGroup && groupStorage.length === 0 && groupTextures.length === 0 && groupSamplers.length === 0) {
+        if (uniformGroup && groupStorage.length === 0 && groupTextures.length === 0 && groupStorageTextures.length === 0 && groupSamplers.length === 0) {
             // uniform-only group
             if (shared) {
                 // Shared group: use cache
@@ -301,6 +307,9 @@ function buildTemplateBindGroups(
             for (const t of groupTextures) {
                 bindGroup.bindings.push({ kind: 'texture', entry: t, generation: 0 });
             }
+            for (const st of groupStorageTextures) {
+                bindGroup.bindings.push({ kind: 'storageTexture', entry: st, generation: 0 });
+            }
             for (const s of groupSamplers) {
                 bindGroup.bindings.push({ kind: 'sampler', entry: s, samplerKey: null });
             }
@@ -313,6 +322,7 @@ function buildTemplateBindGroups(
                 shared,
                 groupStorage,
                 groupTextures,
+                groupStorageTextures,
                 groupSamplers,
             ));
         }

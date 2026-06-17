@@ -326,8 +326,131 @@ export type DepthTexture = textureDepth2d | textureDepth2dArray | textureDepthCu
 export type FlatDepthTexture = textureDepth2d | textureDepth2dArray | textureDepthMultisampled2d;
 /** Cube depth textures, for future DepthCubeTextureNode. */
 export type CubeDepthTexture = textureDepthCube | textureDepthCubeArray;
-/** Union of all texture descriptors (sampled + depth). */
-export type Texture = SampledTexture | DepthTexture;
+/** WGSL access mode for a storage texture binding. */
+export type StorageTextureAccess = 'read' | 'write' | 'read_write';
+/**
+ * Per-format info for storage textures. `channel` is the WGSL channel type of the texel value
+ * (drives the textureStore/textureLoad value type `vec4<channel>`); `readWrite` is whether the
+ * format permits `access: 'read_write'`.
+ *
+ * Per the core WebGPU "Texture Format Capabilities" table, ONLY the 32-bit single-channel
+ * formats — `r32uint`, `r32sint`, `r32float` — support `read_write` storage access. Every other
+ * storage-capable format is read-only / write-only. (`bgra8unorm` storage also needs the
+ * `bgra8unorm-storage` feature.) This is enforced in `storageTexture()` as a friendly early error;
+ * the device is the ultimate authority.
+ */
+export declare const STORAGE_FORMATS: {
+    readonly rgba8unorm: {
+        readonly channel: "f32";
+        readonly readWrite: false;
+    };
+    readonly rgba8snorm: {
+        readonly channel: "f32";
+        readonly readWrite: false;
+    };
+    readonly rgba8uint: {
+        readonly channel: "u32";
+        readonly readWrite: false;
+    };
+    readonly rgba8sint: {
+        readonly channel: "i32";
+        readonly readWrite: false;
+    };
+    readonly bgra8unorm: {
+        readonly channel: "f32";
+        readonly readWrite: false;
+    };
+    readonly rgba16uint: {
+        readonly channel: "u32";
+        readonly readWrite: false;
+    };
+    readonly rgba16sint: {
+        readonly channel: "i32";
+        readonly readWrite: false;
+    };
+    readonly rgba16float: {
+        readonly channel: "f32";
+        readonly readWrite: false;
+    };
+    readonly r32uint: {
+        readonly channel: "u32";
+        readonly readWrite: true;
+    };
+    readonly r32sint: {
+        readonly channel: "i32";
+        readonly readWrite: true;
+    };
+    readonly r32float: {
+        readonly channel: "f32";
+        readonly readWrite: true;
+    };
+    readonly rg32uint: {
+        readonly channel: "u32";
+        readonly readWrite: false;
+    };
+    readonly rg32sint: {
+        readonly channel: "i32";
+        readonly readWrite: false;
+    };
+    readonly rg32float: {
+        readonly channel: "f32";
+        readonly readWrite: false;
+    };
+    readonly rgba32uint: {
+        readonly channel: "u32";
+        readonly readWrite: false;
+    };
+    readonly rgba32sint: {
+        readonly channel: "i32";
+        readonly readWrite: false;
+    };
+    readonly rgba32float: {
+        readonly channel: "f32";
+        readonly readWrite: false;
+    };
+};
+/** A WebGPU storage-capable texel format. */
+export type StorageTextureFormat = keyof typeof STORAGE_FORMATS;
+/** The vec4 value descriptor for a storage format's channel (textureStore/Load value type). */
+export type StorageValueOf<F extends StorageTextureFormat> = (typeof STORAGE_FORMATS)[F]['channel'] extends 'u32' ? vec4u : (typeof STORAGE_FORMATS)[F]['channel'] extends 'i32' ? vec4i : vec4f;
+/** Runtime version of StorageValueOf — maps a format to its vec4 value descriptor. */
+export declare function storageValueOf(format: StorageTextureFormat): vec4f | vec4i | vec4u;
+export type textureStorage1d<F extends StorageTextureFormat = StorageTextureFormat, A extends StorageTextureAccess = StorageTextureAccess> = {
+    type: 'texture_storage_1d';
+    wgslType: `texture_storage_1d<${F}, ${A}>`;
+    dim: '1d';
+    format: F;
+    access: A;
+};
+export declare function textureStorage1d<F extends StorageTextureFormat = 'rgba8unorm', A extends StorageTextureAccess = 'write'>(format?: F, access?: A): textureStorage1d<F, A>;
+export type textureStorage2d<F extends StorageTextureFormat = StorageTextureFormat, A extends StorageTextureAccess = StorageTextureAccess> = {
+    type: 'texture_storage_2d';
+    wgslType: `texture_storage_2d<${F}, ${A}>`;
+    dim: '2d';
+    format: F;
+    access: A;
+};
+export declare function textureStorage2d<F extends StorageTextureFormat = 'rgba8unorm', A extends StorageTextureAccess = 'write'>(format?: F, access?: A): textureStorage2d<F, A>;
+export type textureStorage2dArray<F extends StorageTextureFormat = StorageTextureFormat, A extends StorageTextureAccess = StorageTextureAccess> = {
+    type: 'texture_storage_2d_array';
+    wgslType: `texture_storage_2d_array<${F}, ${A}>`;
+    dim: '2d_array';
+    format: F;
+    access: A;
+};
+export declare function textureStorage2dArray<F extends StorageTextureFormat = 'rgba8unorm', A extends StorageTextureAccess = 'write'>(format?: F, access?: A): textureStorage2dArray<F, A>;
+export type textureStorage3d<F extends StorageTextureFormat = StorageTextureFormat, A extends StorageTextureAccess = StorageTextureAccess> = {
+    type: 'texture_storage_3d';
+    wgslType: `texture_storage_3d<${F}, ${A}>`;
+    dim: '3d';
+    format: F;
+    access: A;
+};
+export declare function textureStorage3d<F extends StorageTextureFormat = 'rgba8unorm', A extends StorageTextureAccess = 'write'>(format?: F, access?: A): textureStorage3d<F, A>;
+/** Union of all storage texture descriptors. */
+export type StorageTexture = textureStorage1d | textureStorage2d | textureStorage2dArray | textureStorage3d;
+/** Union of all texture descriptors (sampled + depth + storage). */
+export type Texture = SampledTexture | DepthTexture | StorageTexture;
 export type sampler = {
     type: 'sampler';
     wgslType: 'sampler';
@@ -348,7 +471,7 @@ export type WgslFn = {
     wgslType: 'wgslfn';
 };
 export declare const WgslFn: WgslFn;
-export type Any = f32 | i32 | u32 | bool | f16 | vec2f | vec2i | vec2u | vec2bool | vec2h | vec3f | vec3i | vec3u | vec3bool | vec3h | vec4f | vec4i | vec4u | vec4bool | vec4h | mat2x2f | mat2x3f | mat2x4f | mat3x2f | mat3x3f | mat3x4f | mat4x2f | mat4x3f | mat4x4f | mat2x2h | mat2x3h | mat2x4h | mat3x2h | mat3x3h | mat3x4h | mat4x2h | mat4x3h | mat4x4h | atomicI32 | atomicU32 | StructDesc | array<any> | sizedArray<any> | texture1d | texture2d | texture2dArray | texture3d | textureCube | textureCubeArray | textureMultisampled2d | textureDepth2d | textureDepth2dArray | textureDepthCube | textureDepthCubeArray | textureDepthMultisampled2d | sampler | samplerComparison | Void | WgslFn;
+export type Any = f32 | i32 | u32 | bool | f16 | vec2f | vec2i | vec2u | vec2bool | vec2h | vec3f | vec3i | vec3u | vec3bool | vec3h | vec4f | vec4i | vec4u | vec4bool | vec4h | mat2x2f | mat2x3f | mat2x4f | mat3x2f | mat3x3f | mat3x4f | mat4x2f | mat4x3f | mat4x4f | mat2x2h | mat2x3h | mat2x4h | mat3x2h | mat3x3h | mat3x4h | mat4x2h | mat4x3h | mat4x4h | atomicI32 | atomicU32 | StructDesc | array<any> | sizedArray<any> | texture1d | texture2d | texture2dArray | texture3d | textureCube | textureCubeArray | textureMultisampled2d | textureDepth2d | textureDepth2dArray | textureDepthCube | textureDepthCubeArray | textureDepthMultisampled2d | textureStorage1d | textureStorage2d | textureStorage2dArray | textureStorage3d | sampler | samplerComparison | Void | WgslFn;
 /** Extract the descriptor type for a field K from struct descriptor D */
 export type StructField<D extends Any, K extends string> = D extends StructDesc<infer S> ? (K extends keyof S ? S[K] : never) : never;
 /** Extract keys from a struct descriptor */
@@ -401,6 +524,7 @@ export declare function isArrayDesc(desc: Any): desc is array;
 export declare function isSizedArrayDesc(desc: Any): desc is sizedArray;
 export declare function isTextureDesc(desc: Any): desc is SampledTexture;
 export declare function isDepthTextureDesc(desc: Any): desc is DepthTexture;
+export declare function isStorageTextureDesc(desc: Any): desc is StorageTexture;
 export declare function isAnyTextureDesc(desc: Any): desc is Texture;
 export declare function isCubeTextureDesc(desc: Texture): boolean;
 export declare function isCubeArrayTextureDesc(desc: Texture): boolean;

@@ -1,5 +1,5 @@
 import type { GpuBuffer } from '../core/gpu-buffer';
-import type { UniformGroupBlock, StorageEntry, TextureEntry, SamplerEntry } from '../nodes/builder';
+import type { UniformGroupBlock, StorageEntry, TextureEntry, StorageTextureEntry, SamplerEntry } from '../nodes/builder';
 
 let bindGroupIdCounter = 0;
 
@@ -11,6 +11,7 @@ export type Binding =
     | UniformBinding
     | StorageBinding
     | TextureBinding
+    | StorageTextureBinding
     | SamplerBinding;
 
 /** Uniform buffer binding (UBO) */
@@ -53,6 +54,15 @@ export type TextureBinding = {
     readonly kind: 'texture';
     /** The texture entry from compilation. */
     entry: TextureEntry;
+    /** Generation counter for detecting texture changes. */
+    generation: number;
+};
+
+/** Storage texture binding (compute write / read) */
+export type StorageTextureBinding = {
+    readonly kind: 'storageTexture';
+    /** The storage texture entry from compilation. */
+    entry: StorageTextureEntry;
     /** Generation counter for detecting texture changes. */
     generation: number;
 };
@@ -122,6 +132,7 @@ export function createResourceBindGroup(
     shared: boolean,
     storage: StorageEntry[],
     textures: TextureEntry[],
+    storageTextures: StorageTextureEntry[],
     samplers: SamplerEntry[],
 ): BindGroup {
     const bindings: Binding[] = [];
@@ -132,6 +143,10 @@ export function createResourceBindGroup(
 
     for (const entry of textures) {
         bindings.push({ kind: 'texture', entry, generation: 0 });
+    }
+
+    for (const entry of storageTextures) {
+        bindings.push({ kind: 'storageTexture', entry, generation: 0 });
     }
 
     for (const entry of samplers) {
@@ -174,6 +189,12 @@ export function cloneBindGroup(source: BindGroup): BindGroup {
             case 'texture':
                 return {
                     kind: 'texture' as const,
+                    entry: binding.entry,
+                    generation: 0,
+                };
+            case 'storageTexture':
+                return {
+                    kind: 'storageTexture' as const,
                     entry: binding.entry,
                     generation: 0,
                 };

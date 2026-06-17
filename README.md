@@ -23,19 +23,19 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
 <table>
   <tr>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-hello-world.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-hello-world">
         <img src="./examples/public/screenshots/example-hello-world.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Hello World
       </a>
     </td>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-point-lights.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-point-lights">
         <img src="./examples/public/screenshots/example-point-lights.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Point Lights
       </a>
     </td>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-moving-mesh-stress.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-moving-mesh-stress">
         <img src="./examples/public/screenshots/example-moving-mesh-stress.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Moving Mesh Stress
       </a>
@@ -43,19 +43,19 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
   </tr>
   <tr>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-static-mesh-stress.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-static-mesh-stress">
         <img src="./examples/public/screenshots/example-static-mesh-stress.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Static Mesh Stress
       </a>
     </td>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-line.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-line">
         <img src="./examples/public/screenshots/example-line.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Line
       </a>
     </td>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-texture.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-texture">
         <img src="./examples/public/screenshots/example-texture.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Texture
       </a>
@@ -63,19 +63,19 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
   </tr>
   <tr>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-render-to-texture.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-render-to-texture">
         <img src="./examples/public/screenshots/example-render-to-texture.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Render to Texture
       </a>
     </td>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-mipmaps.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-mipmaps">
         <img src="./examples/public/screenshots/example-mipmaps.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Mipmaps
       </a>
     </td>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-instanced-mesh.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-instanced-mesh">
         <img src="./examples/public/screenshots/example-instanced-mesh.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Instanced Mesh
       </a>
@@ -83,133 +83,139 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
   </tr>
   <tr>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-instancing-storage-buffer.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-instancing-storage-buffer">
         <img src="./examples/public/screenshots/example-instancing-storage-buffer.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Instancing with Storage Buffer
       </a>
     </td>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-compute-particles.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-compute-particles">
         <img src="./examples/public/screenshots/example-compute-particles.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Compute Particles
       </a>
     </td>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-ball-cluster.ts">
-        <img src="./examples/public/screenshots/example-ball-cluster.png" width="180" height="120" style="object-fit:cover;"/><br/>
-        Ball Cluster
+      <a href="https://isaac-mason.github.io/gpucat/#example-compute-texture">
+        <img src="./examples/public/screenshots/example-compute-texture.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Compute Texture
       </a>
     </td>
   </tr>
   <tr>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-indirect-batched.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-ball-cluster">
+        <img src="./examples/public/screenshots/example-ball-cluster.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Ball Cluster
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-indirect-batched">
         <img src="./examples/public/screenshots/example-indirect-batched.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Indirect Batched
       </a>
     </td>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-indirect-compute.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-indirect-compute">
         <img src="./examples/public/screenshots/example-indirect-compute.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Indirect Compute
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-mrt.ts">
-        <img src="./examples/public/screenshots/example-mrt.png" width="180" height="120" style="object-fit:cover;"/><br/>
-        MRT (Multiple Render Targets)
       </a>
     </td>
   </tr>
   <tr>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-raging-sea.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-mrt">
+        <img src="./examples/public/screenshots/example-mrt.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        MRT (Multiple Render Targets)
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-raging-sea">
         <img src="./examples/public/screenshots/example-raging-sea.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Raging Sea
       </a>
     </td>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-uniforms.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-uniforms">
         <img src="./examples/public/screenshots/example-uniforms.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Uniforms
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-storage.ts">
-        <img src="./examples/public/screenshots/example-storage.png" width="180" height="120" style="object-fit:cover;"/><br/>
-        Storage Buffers
       </a>
     </td>
   </tr>
   <tr>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-voxels.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-storage">
+        <img src="./examples/public/screenshots/example-storage.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Storage Buffers
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-voxels">
         <img src="./examples/public/screenshots/example-voxels.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Voxels
       </a>
     </td>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-voxels-batched.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-voxels-batched">
         <img src="./examples/public/screenshots/example-voxels-batched.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Voxels Batched
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-interleaved.ts">
-        <img src="./examples/public/screenshots/example-interleaved.png" width="180" height="120" style="object-fit:cover;"/><br/>
-        Interleaved Vertex Buffers
       </a>
     </td>
   </tr>
   <tr>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-cubemap.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-interleaved">
+        <img src="./examples/public/screenshots/example-interleaved.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Interleaved Vertex Buffers
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-cubemap">
         <img src="./examples/public/screenshots/example-cubemap.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Cube Texture Skybox
       </a>
     </td>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-cube-camera.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-cube-camera">
         <img src="./examples/public/screenshots/example-cube-camera.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Cube Camera
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-discard.ts">
-        <img src="./examples/public/screenshots/example-discard.png" width="180" height="120" style="object-fit:cover;"/><br/>
-        Discard
       </a>
     </td>
   </tr>
   <tr>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-shadow-map.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-discard">
+        <img src="./examples/public/screenshots/example-discard.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Discard
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-shadow-map">
         <img src="./examples/public/screenshots/example-shadow-map.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Shadow Map
       </a>
     </td>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-array-texture.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-array-texture">
         <img src="./examples/public/screenshots/example-array-texture.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Array Texture Flipbook
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-fxaa.ts">
-        <img src="./examples/public/screenshots/example-fxaa.png" width="180" height="120" style="object-fit:cover;"/><br/>
-        FXAA
       </a>
     </td>
   </tr>
   <tr>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-transform-controls.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-fxaa">
+        <img src="./examples/public/screenshots/example-fxaa.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        FXAA
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-transform-controls">
         <img src="./examples/public/screenshots/example-transform-controls.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Transform Controls
       </a>
     </td>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-fly-controls.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-fly-controls">
         <img src="./examples/public/screenshots/example-fly-controls.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Fly Controls
       </a>
@@ -321,7 +327,7 @@ A few things to notice:
 <table>
   <tr>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-hello-world.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-hello-world">
         <img src="./examples/public/screenshots/example-hello-world.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Hello World
       </a>
@@ -412,13 +418,13 @@ Meshes are not game entities. gpucat does not tick them every frame or track cha
 <table>
   <tr>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-moving-mesh-stress.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-moving-mesh-stress">
         <img src="./examples/public/screenshots/example-moving-mesh-stress.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Moving Mesh Stress
       </a>
     </td>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-static-mesh-stress.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-static-mesh-stress">
         <img src="./examples/public/screenshots/example-static-mesh-stress.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Static Mesh Stress
       </a>
@@ -442,25 +448,25 @@ For common shapes, the `create*Geometry` helpers build the position, normal, and
 <table>
   <tr>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-line.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-line">
         <img src="./examples/public/screenshots/example-line.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Line
       </a>
     </td>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-raging-sea.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-raging-sea">
         <img src="./examples/public/screenshots/example-raging-sea.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Raging Sea
       </a>
     </td>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-voxels.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-voxels">
         <img src="./examples/public/screenshots/example-voxels.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Voxels
       </a>
     </td>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-interleaved.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-interleaved">
         <img src="./examples/public/screenshots/example-interleaved.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Interleaved Vertex Buffers
       </a>
@@ -543,7 +549,7 @@ More advanced setups follow the same shape: keep lighting data in a [`storage` b
 <table>
   <tr>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-point-lights.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-point-lights">
         <img src="./examples/public/screenshots/example-point-lights.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Point Lights
       </a>
@@ -577,7 +583,7 @@ See [`Uniform`](./api.md#uniform-2).
 <table>
   <tr>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-uniforms.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-uniforms">
         <img src="./examples/public/screenshots/example-uniforms.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Uniforms
       </a>
@@ -650,19 +656,19 @@ See [`storage`](./api.md#storage), [`createStorageBuffer`](./api.md#createstorag
 <table>
   <tr>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-storage.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-storage">
         <img src="./examples/public/screenshots/example-storage.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Storage Buffers
       </a>
     </td>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-instancing-storage-buffer.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-instancing-storage-buffer">
         <img src="./examples/public/screenshots/example-instancing-storage-buffer.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Instancing with Storage Buffer
       </a>
     </td>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-compute-particles.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-compute-particles">
         <img src="./examples/public/screenshots/example-compute-particles.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Compute Particles
       </a>
@@ -736,13 +742,13 @@ Because a pass is just a texture node, you add post-processing by sampling it an
 <table>
   <tr>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-render-to-texture.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-render-to-texture">
         <img src="./examples/public/screenshots/example-render-to-texture.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Render to Texture
       </a>
     </td>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-shadow-map.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-shadow-map">
         <img src="./examples/public/screenshots/example-shadow-map.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Shadow Map
       </a>
@@ -772,7 +778,7 @@ Like everything else, this does no automatic per-frame work: you call `update()`
 <table>
   <tr>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-cube-camera.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-cube-camera">
         <img src="./examples/public/screenshots/example-cube-camera.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Cube Camera
       </a>
@@ -794,13 +800,13 @@ Like everything else, this does no automatic per-frame work: you call `update()`
 <table>
   <tr>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-mrt.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-mrt">
         <img src="./examples/public/screenshots/example-mrt.png" width="200" height="133" style="object-fit:cover;"/><br/>
         MRT (Multiple Render Targets)
       </a>
     </td>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-fxaa.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-fxaa">
         <img src="./examples/public/screenshots/example-fxaa.png" width="200" height="133" style="object-fit:cover;"/><br/>
         FXAA
       </a>
@@ -920,7 +926,7 @@ If(x.greaterThan(f32(0)), () => {
 <table>
   <tr>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-discard.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-discard">
         <img src="./examples/public/screenshots/example-discard.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Discard
       </a>
@@ -1024,11 +1030,11 @@ const exact = textureLoad(myTexture, coords); // no sampler
 <table><tr>
 <td><a href="./api.md#sampler"><code>sampler</code></a></td><td><a href="./api.md#comparisonsampler"><code>comparisonSampler</code></a></td><td><a href="./api.md#cubetexture"><code>cubeTexture</code></a></td><td><a href="./api.md#depthtexture"><code>depthTexture</code></a></td><td><a href="./api.md#arraytexture"><code>arrayTexture</code></a></td><td><a href="./api.md#texturebinding"><code>textureBinding</code></a></td>
 </tr><tr>
-<td><a href="./api.md#texturesample"><code>textureSample</code></a></td><td><a href="./api.md#texturesamplelevel"><code>textureSampleLevel</code></a></td><td><a href="./api.md#texturesamplebias"><code>textureSampleBias</code></a></td><td><a href="./api.md#texturesamplegrad"><code>textureSampleGrad</code></a></td><td><a href="./api.md#texturesamplecompare"><code>textureSampleCompare</code></a></td><td><a href="./api.md#texturesamplecomparelevel"><code>textureSampleCompareLevel</code></a></td>
+<td><a href="./api.md#storagetexture"><code>storageTexture</code></a></td><td><a href="./api.md#texturesample"><code>textureSample</code></a></td><td><a href="./api.md#texturesamplelevel"><code>textureSampleLevel</code></a></td><td><a href="./api.md#texturesamplebias"><code>textureSampleBias</code></a></td><td><a href="./api.md#texturesamplegrad"><code>textureSampleGrad</code></a></td><td><a href="./api.md#texturesamplecompare"><code>textureSampleCompare</code></a></td>
 </tr><tr>
-<td><a href="./api.md#textureload"><code>textureLoad</code></a></td><td><a href="./api.md#texturestore"><code>textureStore</code></a></td><td><a href="./api.md#texturedimensions"><code>textureDimensions</code></a></td><td><a href="./api.md#texturenumlevels"><code>textureNumLevels</code></a></td><td><a href="./api.md#texturenumlayers"><code>textureNumLayers</code></a></td><td><a href="./api.md#texturegather"><code>textureGather</code></a></td>
+<td><a href="./api.md#texturesamplecomparelevel"><code>textureSampleCompareLevel</code></a></td><td><a href="./api.md#textureload"><code>textureLoad</code></a></td><td><a href="./api.md#texturestore"><code>textureStore</code></a></td><td><a href="./api.md#texturedimensions"><code>textureDimensions</code></a></td><td><a href="./api.md#texturenumlevels"><code>textureNumLevels</code></a></td><td><a href="./api.md#texturenumlayers"><code>textureNumLayers</code></a></td>
 </tr><tr>
-<td><a href="./api.md#texturegathercompare"><code>textureGatherCompare</code></a></td><td></td><td></td><td></td><td></td><td></td>
+<td><a href="./api.md#texturegather"><code>textureGather</code></a></td><td><a href="./api.md#texturegathercompare"><code>textureGatherCompare</code></a></td><td></td><td></td><td></td><td></td>
 </tr></table>
 
 
@@ -1046,27 +1052,62 @@ const data = new DataTexture(pixels, 256, 256, { format: 'rgba8unorm' });
 <table>
   <tr>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-texture.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-texture">
         <img src="./examples/public/screenshots/example-texture.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Texture
       </a>
     </td>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-mipmaps.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-mipmaps">
         <img src="./examples/public/screenshots/example-mipmaps.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Mipmaps
       </a>
     </td>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-cubemap.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-cubemap">
         <img src="./examples/public/screenshots/example-cubemap.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Cube Texture Skybox
       </a>
     </td>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-array-texture.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-array-texture">
         <img src="./examples/public/screenshots/example-array-texture.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Array Texture Flipbook
+      </a>
+    </td>
+  </tr>
+</table>
+
+### Storage textures
+
+A storage texture is one a compute shader can **write** to (and optionally read), the texture analogue of a storage buffer. You create it with a `create*StorageTexture` helper, write texels with `textureStore` in a compute kernel, and — because the same texture is created with both storage and sampling usage — sample it in a later render pass with the ordinary `texture()` node. The classic use is generating or simulating an image on the GPU.
+
+```ts
+const tex = createStorageTexture(256, 256, 'rgba8unorm');   // 2d; also 3d / Array / 1d helpers
+
+// compute: write each texel
+const write = storageTexture(tex, 'write');                 // access: 'write' | 'read' | 'read_write'
+const paint = Fn(() => {
+    const p = vec2u(globalId.x, globalId.y);
+    textureStore(write, p, vec4(/* … */));
+}).compute({ workgroupSize: [8, 8, 1] });
+
+// render: sample the same texture (dual usage — no copy)
+const sampler = new GpuSampler({ minFilter: 'linear', magFilter: 'linear' });
+const color = texture(tex, sampler).sample(screenUV);
+
+// each frame: compute writes, then render samples
+renderer.compute([{ node: paint, dispatch: [Math.ceil(256 / 8), Math.ceil(256 / 8), 1] }]);
+```
+
+`access` is a property of the binding, not the texture, so one texture can be bound `write` in one kernel and `read` in another (e.g. ping-pong simulations). Reads use `textureLoad(node, coords)` (no mip level). Writes are compute-only; binding a `write`/`read_write` storage texture in a vertex or fragment shader is a compile error. `read_write` access is limited by WebGPU to the `r32uint` / `r32sint` / `r32float` formats; the value type of `textureStore`/`textureLoad` follows the format's channel (`vec4f` / `vec4u` / `vec4i`). If the texture has mips and `mipmapsAutoUpdate` is on (the default), its mips regenerate after a compute write so it can be sampled mipmapped.
+
+<table>
+  <tr>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-compute-texture">
+        <img src="./examples/public/screenshots/example-compute-texture.png" width="200" height="133" style="object-fit:cover;"/><br/>
+        Compute Texture
       </a>
     </td>
   </tr>
@@ -1086,7 +1127,7 @@ Atomic operations on `atomic<i32>` / `atomic<u32>` storage, for compute.
 <table>
   <tr>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-ball-cluster.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-ball-cluster">
         <img src="./examples/public/screenshots/example-ball-cluster.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Ball Cluster
       </a>
@@ -1144,7 +1185,7 @@ const sim = Fn(() => {
 renderer.compute([{ node: sim, dispatch: [Math.ceil(N / 64), 1, 1] }]);
 ```
 
-The same buffer can feed a material, which is how the particle example draws what the compute pass just updated.
+The same buffer can feed a material, which is how the particle example draws what the compute pass just updated. A compute kernel can also write to a texture instead of a buffer — see [Storage textures](#storage-textures).
 
 For a full worked example, `examples/src/example-ball-cluster.ts` simulates balls that pull toward a point and collide into a packed cluster, all on the GPU. It runs three compute passes per frame (clear grid, bin into a spatial-hash grid while snapshotting the previous state, then forces + collision against the 27 neighbouring cells), so each ball only checks nearby balls instead of every other one. `examples/src/example-compute-particles.ts` is a simpler starting point.
 
@@ -1156,13 +1197,13 @@ For a full worked example, `examples/src/example-ball-cluster.ts` simulates ball
 <table>
   <tr>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-compute-particles.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-compute-particles">
         <img src="./examples/public/screenshots/example-compute-particles.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Compute Particles
       </a>
     </td>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-ball-cluster.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-ball-cluster">
         <img src="./examples/public/screenshots/example-ball-cluster.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Ball Cluster
       </a>
@@ -1195,13 +1236,13 @@ A compute pass can fill or update that buffer, so the instances are driven entir
 <table>
   <tr>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-instanced-mesh.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-instanced-mesh">
         <img src="./examples/public/screenshots/example-instanced-mesh.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Instanced Mesh
       </a>
     </td>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-instancing-storage-buffer.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-instancing-storage-buffer">
         <img src="./examples/public/screenshots/example-instancing-storage-buffer.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Instancing with Storage Buffer
       </a>
@@ -1232,19 +1273,19 @@ See `examples/src/example-indirect-batched.ts` (CPU-driven multi-draw) and `exam
 <table>
   <tr>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-indirect-batched.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-indirect-batched">
         <img src="./examples/public/screenshots/example-indirect-batched.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Indirect Batched
       </a>
     </td>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-indirect-compute.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-indirect-compute">
         <img src="./examples/public/screenshots/example-indirect-compute.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Indirect Compute
       </a>
     </td>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-voxels-batched.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-voxels-batched">
         <img src="./examples/public/screenshots/example-voxels-batched.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Voxels Batched
       </a>
@@ -1276,13 +1317,13 @@ See [`OrbitControls`](./api.md#orbitcontrols) and [`Inspector`](./api.md#inspect
 <table>
   <tr>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-transform-controls.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-transform-controls">
         <img src="./examples/public/screenshots/example-transform-controls.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Transform Controls
       </a>
     </td>
     <td align="center">
-      <a href="https://github.com/isaac-mason/gpucat/blob/main/examples/src/example-fly-controls.ts">
+      <a href="https://isaac-mason.github.io/gpucat/#example-fly-controls">
         <img src="./examples/public/screenshots/example-fly-controls.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Fly Controls
       </a>

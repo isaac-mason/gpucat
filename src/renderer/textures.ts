@@ -198,6 +198,38 @@ export function updateTexture(
 
     const isCube = texture.viewDimension === 'cube' || texture.viewDimension === 'cube-array';
     const isArray = texture.viewDimension === '2d-array';
+    const isStorage = texture.type.type.startsWith('texture_storage_');
+
+    // Storage textures have no source data — their contents are written by a compute
+    // pass via textureStore. Create the real GPU texture (with STORAGE_BINDING usage) and
+    // skip the source-upload path entirely; never fall back to the default texture.
+    // A version bump (e.g. resize via needsUpdate) recreates the GPU texture at the new size.
+    if (isStorage) {
+        if (data && data.version === texture.version) {
+            return data;
+        }
+        const gpuTextureResource = createGPUTexture(device, texture);
+        if (!data) {
+            data = {
+                texture: gpuTextureResource,
+                version: texture.version,
+                generation: texture.version,
+                initialized: true,
+                isDefaultTexture: false,
+            };
+            cache.textureMap.set(texture, data);
+            cache.textureCount++;
+            setupDispose(cache, texture);
+        } else {
+            // Recreate at the new size: destroy the old GPU texture, swap in the new one,
+            // and bump generation so dependent bind groups rebuild with the fresh view.
+            data.texture.destroy();
+            data.texture = gpuTextureResource;
+            data.version = texture.version;
+            data.generation = texture.version;
+        }
+        return data;
+    }
 
     // Check if source data is ready
     // For cube textures, check all face sources
@@ -310,11 +342,19 @@ function createGPUTexture(device: GPUDevice, texture: GpuTexture): GPUTexture {
         ? Math.floor(Math.log2(Math.max(texture.width, texture.height))) + 1
         : texture.mipLevelCount;
 
+    // RENDER_ATTACHMENT is forced on so render-pass mipmap generation works. But NOT for single-mip
+    // storage textures: some storage formats (e.g. rgba8snorm) aren't renderable, so force-adding it
+    // would fail createTexture — and a storage texture with no mips never needs render-pass mip-gen.
+    const isStorage = texture.type.type.startsWith('texture_storage_');
+    const usage = (!isStorage || mipLevelCount > 1)
+        ? texture.usage | GPUTextureUsage.RENDER_ATTACHMENT
+        : texture.usage;
+
     const gpuTexture = device.createTexture({
         dimension: texture.dimension,
         size: [texture.width, texture.height, texture.depthOrArrayLayers],
         format: texture.format,
-        usage: texture.usage | GPUTextureUsage.RENDER_ATTACHMENT, // RENDER_ATTACHMENT needed for mipmap generation
+        usage,
         mipLevelCount,
         sampleCount: texture.sampleCount,
     });

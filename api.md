@@ -333,7 +333,11 @@ The full node DSL, grouped by category. Learn it with examples in the [guide](./
 <table><tr>
 <td><a href="#orbitcontrolsevent"><code>OrbitControlsEvent</code></a></td><td><a href="#orbitcontrolseventlistener"><code>OrbitControlsEventListener</code></a></td><td><a href="#orbitcontrolseventtype"><code>OrbitControlsEventType</code></a></td><td><a href="#mouseaction"><code>MouseAction</code></a></td>
 </tr><tr>
-<td><a href="#touchaction"><code>TouchAction</code></a></td><td></td><td></td><td></td>
+<td><a href="#touchaction"><code>TouchAction</code></a></td><td><a href="#gputexture"><code>GpuTexture</code></a></td><td><a href="#createstoragetexture"><code>createStorageTexture</code></a></td><td><a href="#createstoragetexture3d"><code>createStorageTexture3d</code></a></td>
+</tr><tr>
+<td><a href="#createstoragetexturearray"><code>createStorageTextureArray</code></a></td><td><a href="#createstoragetexture1d"><code>createStorageTexture1d</code></a></td><td><a href="#gputextureoptions"><code>GpuTextureOptions</code></a></td><td><a href="#dimensionof"><code>DimensionOf</code></a></td>
+</tr><tr>
+<td><a href="#viewdimensionof"><code>ViewDimensionOf</code></a></td><td></td><td></td><td></td>
 </tr></table>
 
 **constructors**
@@ -433,13 +437,13 @@ The full node DSL, grouped by category. Learn it with examples in the [guide](./
 <table><tr>
 <td><a href="#sampler"><code>sampler</code></a></td><td><a href="#comparisonsampler"><code>comparisonSampler</code></a></td><td><a href="#cubetexture"><code>cubeTexture</code></a></td><td><a href="#depthtexture"><code>depthTexture</code></a></td>
 </tr><tr>
-<td><a href="#arraytexture"><code>arrayTexture</code></a></td><td><a href="#texturebinding"><code>textureBinding</code></a></td><td><a href="#texturesample"><code>textureSample</code></a></td><td><a href="#texturesamplelevel"><code>textureSampleLevel</code></a></td>
+<td><a href="#arraytexture"><code>arrayTexture</code></a></td><td><a href="#texturebinding"><code>textureBinding</code></a></td><td><a href="#storagetexture"><code>storageTexture</code></a></td><td><a href="#texturesample"><code>textureSample</code></a></td>
 </tr><tr>
-<td><a href="#texturesamplebias"><code>textureSampleBias</code></a></td><td><a href="#texturesamplegrad"><code>textureSampleGrad</code></a></td><td><a href="#texturesamplecompare"><code>textureSampleCompare</code></a></td><td><a href="#texturesamplecomparelevel"><code>textureSampleCompareLevel</code></a></td>
+<td><a href="#texturesamplelevel"><code>textureSampleLevel</code></a></td><td><a href="#texturesamplebias"><code>textureSampleBias</code></a></td><td><a href="#texturesamplegrad"><code>textureSampleGrad</code></a></td><td><a href="#texturesamplecompare"><code>textureSampleCompare</code></a></td>
 </tr><tr>
-<td><a href="#textureload"><code>textureLoad</code></a></td><td><a href="#texturestore"><code>textureStore</code></a></td><td><a href="#texturedimensions"><code>textureDimensions</code></a></td><td><a href="#texturenumlevels"><code>textureNumLevels</code></a></td>
+<td><a href="#texturesamplecomparelevel"><code>textureSampleCompareLevel</code></a></td><td><a href="#textureload"><code>textureLoad</code></a></td><td><a href="#texturestore"><code>textureStore</code></a></td><td><a href="#texturedimensions"><code>textureDimensions</code></a></td>
 </tr><tr>
-<td><a href="#texturenumlayers"><code>textureNumLayers</code></a></td><td><a href="#texturegather"><code>textureGather</code></a></td><td><a href="#texturegathercompare"><code>textureGatherCompare</code></a></td><td></td>
+<td><a href="#texturenumlevels"><code>textureNumLevels</code></a></td><td><a href="#texturenumlayers"><code>textureNumLayers</code></a></td><td><a href="#texturegather"><code>textureGather</code></a></td><td><a href="#texturegathercompare"><code>textureGatherCompare</code></a></td>
 </tr></table>
 
 **atomic operations**
@@ -667,9 +671,9 @@ Turn a node graph into WGSL.
 </tr><tr>
 <td><a href="#varyingentry"><code>VaryingEntry</code></a></td><td><a href="#uniformmember"><code>UniformMember</code></a></td><td><a href="#uniformgroupblock"><code>UniformGroupBlock</code></a></td><td><a href="#storageentry"><code>StorageEntry</code></a></td>
 </tr><tr>
-<td><a href="#textureentry"><code>TextureEntry</code></a></td><td><a href="#samplerentry"><code>SamplerEntry</code></a></td><td><a href="#computestorageentry"><code>ComputeStorageEntry</code></a></td><td><a href="#nodegraphinfo"><code>NodeGraphInfo</code></a></td>
+<td><a href="#textureentry"><code>TextureEntry</code></a></td><td><a href="#storagetextureentry"><code>StorageTextureEntry</code></a></td><td><a href="#samplerentry"><code>SamplerEntry</code></a></td><td><a href="#computestorageentry"><code>ComputeStorageEntry</code></a></td>
 </tr><tr>
-<td><a href="#compileslots"><code>CompileSlots</code></a></td><td><a href="#compileresult"><code>CompileResult</code></a></td><td><a href="#computecompileresult"><code>ComputeCompileResult</code></a></td><td></td>
+<td><a href="#nodegraphinfo"><code>NodeGraphInfo</code></a></td><td><a href="#compileslots"><code>CompileSlots</code></a></td><td><a href="#compileresult"><code>CompileResult</code></a></td><td><a href="#computecompileresult"><code>ComputeCompileResult</code></a></td>
 </tr></table>
 
 ### Schema (`d`)
@@ -756,6 +760,123 @@ export type MouseAction = (typeof MOUSE)[keyof typeof MOUSE];
 
 ```ts
 export type TouchAction = (typeof TOUCH)[keyof typeof TOUCH];
+```
+
+#### `GpuTexture`
+
+```ts
+export class GpuTexture<D extends d.Texture = d.Texture> {
+    /** Unique ID */
+    readonly id: number;
+    /** Schema type descriptor, source of truth for WGSL type */
+    readonly type: D;
+    /** GPU texture dimension ('1d', '2d', '3d') */
+    readonly dimension: DimensionOf<D>;
+    /** View dimension for createView() */
+    readonly viewDimension: ViewDimensionOf<D>;
+    width: number;
+    height: number;
+    depthOrArrayLayers: number;
+    format: GPUTextureFormat;
+    usage: GPUTextureUsageFlags;
+    mipLevelCount: number;
+    sampleCount: number;
+    /** Primary source (for 2D/3D) */
+    source: Source | null;
+    /** Per-layer/face sources (for array/cube textures) */
+    sources: Source[];
+    /** Generate mipmaps on upload */
+    generateMipmaps: boolean;
+    /** Storage textures: regenerate mips after a compute pass writes this texture (if it has mips). */
+    mipmapsAutoUpdate: boolean;
+    /** Flip Y on upload (for image sources) */
+    flipY: boolean;
+    /** Premultiply alpha on upload */
+    premultiplyAlpha: boolean;
+    /** Version number, incremented when needsUpdate is set */
+    version: number;
+    /** Mark texture as needing re-upload */
+    set needsUpdate(_: true);
+    /** Track which layers need updating (for 2D array textures) */
+    readonly layerUpdates: Set<number>;
+    /**
+     * Whether this texture is a render target (managed by RenderTarget system).
+     * When true, the renderer skips source data upload - the GPU texture is
+     * created and managed by RenderTarget.
+     */
+    isRenderTargetTexture: boolean;
+    /**
+     * Render target this texture belongs to (color or depth attachment), or null.
+     * Lets the bind path lazily (re)allocate a sampled render target whose own
+     * render pass hasn't run this frame — e.g. it was resized between renders.
+     */
+    renderTarget: RenderTarget | null;
+    /** Set to true after dispose() */
+    disposed: boolean;
+    constructor(type: D, options: GpuTextureOptions<D>);
+    /** For cube textures: the size (width = height) */
+    get size(): number;
+    /** For 2D array: number of layers */
+    get layers(): number;
+    /** For 3D: depth */
+    get depth(): number;
+    /** For cube array: number of cubes */
+    get cubeCount(): number;
+    /** Is this a depth texture? */
+    get isDepth(): boolean;
+    /** Is all source data ready for upload? */
+    get isComplete(): boolean;
+    dispose(): void;
+}
+```
+
+#### `createStorageTexture`
+
+```ts
+/** Create a 2D storage texture (`texture_storage_2d<format, _>`). */
+export function createStorageTexture<F extends d.StorageTextureFormat = 'rgba8unorm'>(width: number, height: number, format?: F): GpuTexture<d.textureStorage2d<F, 'write'>>;
+```
+
+#### `createStorageTexture3d`
+
+```ts
+/** Create a 3D storage texture (`texture_storage_3d<format, _>`). */
+export function createStorageTexture3d<F extends d.StorageTextureFormat = 'rgba8unorm'>(width: number, height: number, depth: number, format?: F): GpuTexture<d.textureStorage3d<F, 'write'>>;
+```
+
+#### `createStorageTextureArray`
+
+```ts
+/** Create a 2D-array storage texture (`texture_storage_2d_array<format, _>`). */
+export function createStorageTextureArray<F extends d.StorageTextureFormat = 'rgba8unorm'>(width: number, height: number, layers: number, format?: F): GpuTexture<d.textureStorage2dArray<F, 'write'>>;
+```
+
+#### `createStorageTexture1d`
+
+```ts
+/** Create a 1D storage texture (`texture_storage_1d<format, _>`). */
+export function createStorageTexture1d<F extends d.StorageTextureFormat = 'rgba8unorm'>(width: number, format?: F): GpuTexture<d.textureStorage1d<F, 'write'>>;
+```
+
+#### `GpuTextureOptions`
+
+```ts
+/** Map schema type → options type */
+export type GpuTextureOptions<D extends d.Texture> = D extends d.texture1d | d.textureStorage1d ? Options1D : D extends d.texture2d | d.textureDepth2d | d.textureMultisampled2d | d.textureDepthMultisampled2d | d.textureStorage2d ? Options2D : D extends d.texture2dArray | d.textureDepth2dArray | d.textureStorage2dArray ? Options2DArray : D extends d.textureCube | d.textureDepthCube ? OptionsCube : D extends d.textureCubeArray | d.textureDepthCubeArray ? OptionsCubeArray : D extends d.texture3d | d.textureStorage3d ? Options3D : Options2D;
+```
+
+#### `DimensionOf`
+
+```ts
+/** GPU texture dimension from schema type */
+export type DimensionOf<D extends d.Texture> = D extends d.texture1d | d.textureStorage1d ? '1d' : D extends d.texture3d | d.textureStorage3d ? '3d' : '2d';
+```
+
+#### `ViewDimensionOf`
+
+```ts
+/** View dimension from schema type (for GPUTextureView) */
+export type ViewDimensionOf<D extends d.Texture> = D extends d.texture1d | d.textureStorage1d ? '1d' : D extends d.texture2d | d.textureDepth2d | d.textureMultisampled2d | d.textureDepthMultisampled2d | d.textureStorage2d ? '2d' : D extends d.texture2dArray | d.textureDepth2dArray | d.textureStorage2dArray ? '2d-array' : D extends d.textureCube | d.textureDepthCube ? 'cube' : D extends d.textureCubeArray | d.textureDepthCubeArray ? 'cube-array' : D extends d.texture3d | d.textureStorage3d ? '3d' : '2d';
 ```
 
 #### `f16`
@@ -1848,6 +1969,7 @@ export function array<E extends Any>(element: E): {
  */
 export function texture(tex: Texture): TextureNode;
 export function texture(gpuTex: GpuTexture<FlatSampledTexture>, gpuSampler: GpuSampler): TextureNode;
+export function texture(storageTex: GpuTexture<d.StorageTexture>, gpuSampler: GpuSampler): TextureNode;
 ```
 
 #### `varying`
@@ -2011,8 +2133,8 @@ export const sampler: sampler;
  * const gpuSampler = new GpuSampler({ minFilter: 'linear' });
  * const cmpSampler = comparisonSampler(gpuSampler, 'less');
  */
-export function comparisonSampler(source: GpuSampler, compare?: GPUCompareFunction, groupNode?: UniformGroup): SamplerNode<d.samplerComparison>;
-export function comparisonSampler(source: HighLevelTexture, compare?: GPUCompareFunction, groupNode?: UniformGroup): SamplerNode<d.samplerComparison>;
+export function comparisonSampler(source: GpuSampler, compare?: GPUCompareFunction, group?: UniformGroup): SamplerNode<d.samplerComparison>;
+export function comparisonSampler(source: HighLevelTexture, compare?: GPUCompareFunction, group?: UniformGroup): SamplerNode<d.samplerComparison>;
 ```
 
 #### `cubeTexture`
@@ -2122,6 +2244,18 @@ export const textureBinding: <D extends d.Texture>(tex: {
 }, textureDesc: D) => TextureBindingNode<D>;
 ```
 
+#### `storageTexture`
+
+```ts
+/**
+ * storageTexture - bind a GpuTexture as a storage texture for compute writes/reads.
+ *
+ * @param gpuTex - a storage GpuTexture (e.g. from `createStorageTexture(...)`)
+ * @param access - 'write' (default), 'read', or 'read_write'
+ */
+export function storageTexture<D extends d.StorageTexture>(gpuTex: GpuTexture<D>, access?: d.StorageTextureAccess): StorageTextureBindingNode<D>;
+```
+
 #### `textureSample`
 
 ```ts
@@ -2187,19 +2321,23 @@ export function textureSampleCompareLevel(t: TextureBindingNode<FlatDepthTexture
 ```ts
 /**
  * textureLoad - Load a texel directly without filtering.
- * Works in any shader stage. No sampler needed.
+ * - Sampled textures: needs a mip `level`. Works in any stage. No sampler.
+ * - Storage textures (read / read_write): no level; returns `vec4<channel>` for the format.
  */
 export function textureLoad<D extends d.Texture>(t: TextureBindingNode<D>, coords: Node<d.vec2i>, level: Node<d.i32>): CallNode<d.TextureSampleResultOf<D>>;
+export function textureLoad<D extends d.StorageTexture>(t: StorageTextureBindingNode<D>, coords: StorageCoord, layer?: Node<d.i32> | Node<d.u32>): CallNode<d.vec4f | d.vec4i | d.vec4u>;
 ```
 
 #### `textureStore`
 
 ```ts
 /**
- * textureStore - Store a value to a storage texture.
+ * textureStore - Store a value into a storage texture (a statement / side effect).
+ *
+ * 2D/3D: `textureStore(tex, coords, value)`. 2D-array: pass the array `layer` between
+ * coords and value. The binding must have access 'write' or 'read_write'.
  */
-export function textureStore(t: Node<Any>, // StorageTextureNode when we add it
-coords: Node<d.vec2i>, value: Node<d.vec4f>): CallNode<d.Void>;
+export function textureStore<D extends d.StorageTexture>(t: StorageTextureBindingNode<D>, coords: StorageCoord, value: StorageValue, layer?: Node<d.i32> | Node<d.u32>): void;
 ```
 
 #### `textureDimensions`
@@ -5180,7 +5318,7 @@ export type UniformGroupBlock = {
     shared: boolean;
     members: UniformMember[];
     totalBytes: number;
-    groupNode: UniformGroup;
+    group: UniformGroup;
 };
 ```
 
@@ -5206,6 +5344,22 @@ export type TextureEntry = {
     group: number;
     binding: number;
     node: TextureBindingNode;
+};
+```
+
+#### `StorageTextureEntry`
+
+```ts
+export type StorageTextureEntry = {
+    textureId: string;
+    /** Composed WGSL binding type, e.g. `texture_storage_2d<rgba8unorm, write>`. */
+    type: string;
+    format: d.StorageTextureFormat;
+    access: d.StorageTextureAccess;
+    dim: '1d' | '2d' | '2d_array' | '3d';
+    group: number;
+    binding: number;
+    node: StorageTextureBindingNode;
 };
 ```
 
@@ -5268,6 +5422,7 @@ export type CompileResult = {
     uniformGroups: UniformGroupBlock[];
     storage: StorageEntry[];
     textures: TextureEntry[];
+    storageTextures: StorageTextureEntry[];
     samplers: SamplerEntry[];
     builtinsUsed: Set<string>;
     updateBeforeNodes: UpdateBeforeNode[];
@@ -5285,6 +5440,7 @@ export type CompileResult = {
 export type ComputeCompileResult = {
     code: string;
     storage: ComputeStorageEntry[];
+    storageTextures: StorageTextureEntry[];
     workgroupSize: [number, number, number];
     builtinsUsed: Set<string>;
     uniformGroups: UniformGroupBlock[];

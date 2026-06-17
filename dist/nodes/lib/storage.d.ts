@@ -33,8 +33,8 @@ export declare class StorageNode<D extends Any> extends Node<D> {
     /** Whether the node is atomic or not. */
     isAtomic: boolean;
     /** Uniform group, determines @group index. Defaults to objectGroup. */
-    groupNode: UniformGroup;
-    constructor(schema: D, nameOrBuffer: string | GpuBuffer<D>, access?: 'read' | 'read_write', groupNode?: UniformGroup);
+    group: UniformGroup;
+    constructor(schema: D, nameOrBuffer: string | GpuBuffer<D>, access?: 'read' | 'read_write', group?: UniformGroup);
     /** Whether this is a named reference (resolved from geometry.buffers) */
     get isNamedReference(): boolean;
     /** Whether this is an indirect storage buffer (has 'indirect' usage) */

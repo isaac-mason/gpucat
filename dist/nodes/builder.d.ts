@@ -3,7 +3,7 @@ import { type Node, type ComputeNode } from './lib/core';
 import { type InterpolationType, type InterpolationSampling } from './lib/varying';
 import { AttributeNode } from './lib/attribute';
 import { GpuBuffer } from '../core/gpu-buffer';
-import { TextureBindingNode, SamplerNode } from './lib/texture';
+import { TextureBindingNode, StorageTextureBindingNode, SamplerNode } from './lib/texture';
 import { StorageNode } from './lib/storage';
 import { UniformNode, UniformGroup } from './lib/uniform';
 import * as d from '../schema/schema';
@@ -85,7 +85,7 @@ export type UniformGroupBlock = {
     shared: boolean;
     members: UniformMember[];
     totalBytes: number;
-    groupNode: UniformGroup;
+    group: UniformGroup;
 };
 export type StorageEntry = {
     node: StorageNode<d.Any>;
@@ -101,6 +101,17 @@ export type TextureEntry = {
     group: number;
     binding: number;
     node: TextureBindingNode;
+};
+export type StorageTextureEntry = {
+    textureId: string;
+    /** Composed WGSL binding type, e.g. `texture_storage_2d<rgba8unorm, write>`. */
+    type: string;
+    format: d.StorageTextureFormat;
+    access: d.StorageTextureAccess;
+    dim: '1d' | '2d' | '2d_array' | '3d';
+    group: number;
+    binding: number;
+    node: StorageTextureBindingNode;
 };
 export type SamplerEntry = {
     samplerId: string;
@@ -138,6 +149,7 @@ export type CompileResult = {
     uniformGroups: UniformGroupBlock[];
     storage: StorageEntry[];
     textures: TextureEntry[];
+    storageTextures: StorageTextureEntry[];
     samplers: SamplerEntry[];
     builtinsUsed: Set<string>;
     updateBeforeNodes: UpdateBeforeNode[];
@@ -150,6 +162,7 @@ export type CompileResult = {
 export type ComputeCompileResult = {
     code: string;
     storage: ComputeStorageEntry[];
+    storageTextures: StorageTextureEntry[];
     workgroupSize: [number, number, number];
     builtinsUsed: Set<string>;
     uniformGroups: UniformGroupBlock[];

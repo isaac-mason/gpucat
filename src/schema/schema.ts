@@ -377,8 +377,100 @@ export type CubeDepthTexture =
     | textureDepthCube
     | textureDepthCubeArray;
 
-/** Union of all texture descriptors (sampled + depth). */
-export type Texture = SampledTexture | DepthTexture;
+/* storage texture descriptors (texture_storage_<dim><format, access>) */
+
+/** WGSL access mode for a storage texture binding. */
+export type StorageTextureAccess = 'read' | 'write' | 'read_write';
+
+/**
+ * Per-format info for storage textures. `channel` is the WGSL channel type of the texel value
+ * (drives the textureStore/textureLoad value type `vec4<channel>`); `readWrite` is whether the
+ * format permits `access: 'read_write'`.
+ *
+ * Per the core WebGPU "Texture Format Capabilities" table, ONLY the 32-bit single-channel
+ * formats — `r32uint`, `r32sint`, `r32float` — support `read_write` storage access. Every other
+ * storage-capable format is read-only / write-only. (`bgra8unorm` storage also needs the
+ * `bgra8unorm-storage` feature.) This is enforced in `storageTexture()` as a friendly early error;
+ * the device is the ultimate authority.
+ */
+export const STORAGE_FORMATS = {
+    rgba8unorm:  { channel: 'f32', readWrite: false },
+    rgba8snorm:  { channel: 'f32', readWrite: false },
+    rgba8uint:   { channel: 'u32', readWrite: false },
+    rgba8sint:   { channel: 'i32', readWrite: false },
+    bgra8unorm:  { channel: 'f32', readWrite: false },
+    rgba16uint:  { channel: 'u32', readWrite: false },
+    rgba16sint:  { channel: 'i32', readWrite: false },
+    rgba16float: { channel: 'f32', readWrite: false },
+    r32uint:     { channel: 'u32', readWrite: true  },
+    r32sint:     { channel: 'i32', readWrite: true  },
+    r32float:    { channel: 'f32', readWrite: true  },
+    rg32uint:    { channel: 'u32', readWrite: false },
+    rg32sint:    { channel: 'i32', readWrite: false },
+    rg32float:   { channel: 'f32', readWrite: false },
+    rgba32uint:  { channel: 'u32', readWrite: false },
+    rgba32sint:  { channel: 'i32', readWrite: false },
+    rgba32float: { channel: 'f32', readWrite: false },
+} as const;
+
+/** A WebGPU storage-capable texel format. */
+export type StorageTextureFormat = keyof typeof STORAGE_FORMATS;
+
+/** The vec4 value descriptor for a storage format's channel (textureStore/Load value type). */
+export type StorageValueOf<F extends StorageTextureFormat> =
+    (typeof STORAGE_FORMATS)[F]['channel'] extends 'u32' ? vec4u
+    : (typeof STORAGE_FORMATS)[F]['channel'] extends 'i32' ? vec4i
+    : vec4f;
+
+/** Runtime version of StorageValueOf — maps a format to its vec4 value descriptor. */
+export function storageValueOf(format: StorageTextureFormat): vec4f | vec4i | vec4u {
+    const channel = STORAGE_FORMATS[format].channel;
+    if (channel === 'u32') return vec4u;
+    if (channel === 'i32') return vec4i;
+    return vec4f;
+}
+
+export type textureStorage1d<F extends StorageTextureFormat = StorageTextureFormat, A extends StorageTextureAccess = StorageTextureAccess> = {
+    type: 'texture_storage_1d'; wgslType: `texture_storage_1d<${F}, ${A}>`; dim: '1d'; format: F; access: A;
+};
+export function textureStorage1d<F extends StorageTextureFormat = 'rgba8unorm', A extends StorageTextureAccess = 'write'>(format?: F, access?: A): textureStorage1d<F, A> {
+    const f = (format ?? 'rgba8unorm') as F; const a = (access ?? 'write') as A;
+    return { type: 'texture_storage_1d', wgslType: `texture_storage_1d<${f}, ${a}>`, dim: '1d', format: f, access: a };
+}
+
+export type textureStorage2d<F extends StorageTextureFormat = StorageTextureFormat, A extends StorageTextureAccess = StorageTextureAccess> = {
+    type: 'texture_storage_2d'; wgslType: `texture_storage_2d<${F}, ${A}>`; dim: '2d'; format: F; access: A;
+};
+export function textureStorage2d<F extends StorageTextureFormat = 'rgba8unorm', A extends StorageTextureAccess = 'write'>(format?: F, access?: A): textureStorage2d<F, A> {
+    const f = (format ?? 'rgba8unorm') as F; const a = (access ?? 'write') as A;
+    return { type: 'texture_storage_2d', wgslType: `texture_storage_2d<${f}, ${a}>`, dim: '2d', format: f, access: a };
+}
+
+export type textureStorage2dArray<F extends StorageTextureFormat = StorageTextureFormat, A extends StorageTextureAccess = StorageTextureAccess> = {
+    type: 'texture_storage_2d_array'; wgslType: `texture_storage_2d_array<${F}, ${A}>`; dim: '2d_array'; format: F; access: A;
+};
+export function textureStorage2dArray<F extends StorageTextureFormat = 'rgba8unorm', A extends StorageTextureAccess = 'write'>(format?: F, access?: A): textureStorage2dArray<F, A> {
+    const f = (format ?? 'rgba8unorm') as F; const a = (access ?? 'write') as A;
+    return { type: 'texture_storage_2d_array', wgslType: `texture_storage_2d_array<${f}, ${a}>`, dim: '2d_array', format: f, access: a };
+}
+
+export type textureStorage3d<F extends StorageTextureFormat = StorageTextureFormat, A extends StorageTextureAccess = StorageTextureAccess> = {
+    type: 'texture_storage_3d'; wgslType: `texture_storage_3d<${F}, ${A}>`; dim: '3d'; format: F; access: A;
+};
+export function textureStorage3d<F extends StorageTextureFormat = 'rgba8unorm', A extends StorageTextureAccess = 'write'>(format?: F, access?: A): textureStorage3d<F, A> {
+    const f = (format ?? 'rgba8unorm') as F; const a = (access ?? 'write') as A;
+    return { type: 'texture_storage_3d', wgslType: `texture_storage_3d<${f}, ${a}>`, dim: '3d', format: f, access: a };
+}
+
+/** Union of all storage texture descriptors. */
+export type StorageTexture =
+    | textureStorage1d
+    | textureStorage2d
+    | textureStorage2dArray
+    | textureStorage3d;
+
+/** Union of all texture descriptors (sampled + depth + storage). */
+export type Texture = SampledTexture | DepthTexture | StorageTexture;
 
 /* sampler descriptors */
 
@@ -468,6 +560,11 @@ export type Any =
     | textureDepthCube
     | textureDepthCubeArray
     | textureDepthMultisampled2d
+    // Textures (storage)
+    | textureStorage1d
+    | textureStorage2d
+    | textureStorage2dArray
+    | textureStorage3d
     // Samplers
     | sampler
     | samplerComparison
@@ -614,11 +711,17 @@ export function isSizedArrayDesc(desc: Any): desc is sizedArray {
 }
 
 export function isTextureDesc(desc: Any): desc is SampledTexture {
-    return desc.type.startsWith('texture_') && !desc.type.startsWith('texture_depth_');
+    return desc.type.startsWith('texture_')
+        && !desc.type.startsWith('texture_depth_')
+        && !desc.type.startsWith('texture_storage_');
 }
 
 export function isDepthTextureDesc(desc: Any): desc is DepthTexture {
     return desc.type.startsWith('texture_depth_');
+}
+
+export function isStorageTextureDesc(desc: Any): desc is StorageTexture {
+    return desc.type.startsWith('texture_storage_');
 }
 
 export function isAnyTextureDesc(desc: Any): desc is Texture {
@@ -639,8 +742,8 @@ export function isArrayTextureDesc(desc: Texture): boolean {
 
 /** Returns the GPUTextureDimension for a texture schema type */
 export function textureDimension(desc: Texture): GPUTextureDimension {
-    if (desc.type === 'texture_1d') return '1d';
-    if (desc.type === 'texture_3d') return '3d';
+    if (desc.type === 'texture_1d' || desc.type === 'texture_storage_1d') return '1d';
+    if (desc.type === 'texture_3d' || desc.type === 'texture_storage_3d') return '3d';
     return '2d';
 }
 
@@ -663,7 +766,14 @@ export function textureViewDimension(desc: Texture): GPUTextureViewDimension {
         case 'texture_depth_cube_array':
             return 'cube-array';
         case 'texture_3d':
+        case 'texture_storage_3d':
             return '3d';
+        case 'texture_storage_1d':
+            return '1d';
+        case 'texture_storage_2d':
+            return '2d';
+        case 'texture_storage_2d_array':
+            return '2d-array';
         default:
             return '2d';
     }

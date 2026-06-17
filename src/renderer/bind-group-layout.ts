@@ -105,6 +105,27 @@ export function buildComputeBindGroupLayouts(
                     });
                     break;
                 }
+                case 'storageTexture': {
+                    const access: GPUStorageTextureAccess =
+                        binding.entry.access === 'write' ? 'write-only'
+                        : binding.entry.access === 'read_write' ? 'read-write'
+                        : 'read-only';
+                    const viewDimension: GPUTextureViewDimension =
+                        binding.entry.dim === '1d' ? '1d'
+                        : binding.entry.dim === '2d_array' ? '2d-array'
+                        : binding.entry.dim === '3d' ? '3d'
+                        : '2d';
+                    entries.push({
+                        binding: binding.entry.binding,
+                        visibility: vis,
+                        storageTexture: {
+                            access,
+                            format: binding.entry.format as GPUTextureFormat,
+                            viewDimension,
+                        },
+                    });
+                    break;
+                }
                 case 'sampler':
                     entries.push({
                         binding: binding.entry.binding,

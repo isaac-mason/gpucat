@@ -39,13 +39,13 @@ export class StorageNode<D extends Any> extends Node<D> {
     isAtomic: boolean = false;
 
     /** Uniform group, determines @group index. Defaults to objectGroup. */
-    groupNode: UniformGroup;
+    group: UniformGroup;
 
     constructor(
         schema: D,
         nameOrBuffer: string | GpuBuffer<D>,
         access: 'read' | 'read_write' = 'read',
-        groupNode: UniformGroup = objectGroup
+        group: UniformGroup = objectGroup
     ) {
         super(schema);
 
@@ -59,7 +59,7 @@ export class StorageNode<D extends Any> extends Node<D> {
 
         this.storageType = schema.wgslType;
         this.access = access;
-        this.groupNode = groupNode;
+        this.group = group;
     }
 
     /** Whether this is a named reference (resolved from geometry.buffers) */
@@ -87,9 +87,9 @@ export class StorageNode<D extends Any> extends Node<D> {
     toReadOnly(): StorageNode<D> {
         if (this.access === 'read') return this;
         if (this.bufferName !== null) {
-            return new StorageNode(this.type, this.bufferName, 'read', this.groupNode);
+            return new StorageNode(this.type, this.bufferName, 'read', this.group);
         } else {
-            return new StorageNode(this.type, this.value!, 'read', this.groupNode);
+            return new StorageNode(this.type, this.value!, 'read', this.group);
         }
     }
 }

@@ -545,6 +545,32 @@ const data = new DataTexture(pixels, 256, 256, { format: 'rgba8unorm' });
 
 <ExamplesTable ids="example-texture,example-mipmaps,example-cubemap,example-array-texture" />
 
+### Storage textures
+
+A storage texture is one a compute shader can **write** to (and optionally read), the texture analogue of a storage buffer. You create it with a `create*StorageTexture` helper, write texels with `textureStore` in a compute kernel, and — because the same texture is created with both storage and sampling usage — sample it in a later render pass with the ordinary `texture()` node. The classic use is generating or simulating an image on the GPU.
+
+```ts
+const tex = createStorageTexture(256, 256, 'rgba8unorm');   // 2d; also 3d / Array / 1d helpers
+
+// compute: write each texel
+const write = storageTexture(tex, 'write');                 // access: 'write' | 'read' | 'read_write'
+const paint = Fn(() => {
+    const p = vec2u(globalId.x, globalId.y);
+    textureStore(write, p, vec4(/* … */));
+}).compute({ workgroupSize: [8, 8, 1] });
+
+// render: sample the same texture (dual usage — no copy)
+const sampler = new GpuSampler({ minFilter: 'linear', magFilter: 'linear' });
+const color = texture(tex, sampler).sample(screenUV);
+
+// each frame: compute writes, then render samples
+renderer.compute([{ node: paint, dispatch: [Math.ceil(256 / 8), Math.ceil(256 / 8), 1] }]);
+```
+
+`access` is a property of the binding, not the texture, so one texture can be bound `write` in one kernel and `read` in another (e.g. ping-pong simulations). Reads use `textureLoad(node, coords)` (no mip level). Writes are compute-only; binding a `write`/`read_write` storage texture in a vertex or fragment shader is a compile error. `read_write` access is limited by WebGPU to the `r32uint` / `r32sint` / `r32float` formats; the value type of `textureStore`/`textureLoad` follows the format's channel (`vec4f` / `vec4u` / `vec4i`). If the texture has mips and `mipmapsAutoUpdate` is on (the default), its mips regenerate after a compute write so it can be sampled mipmapped.
+
+<ExamplesTable ids="example-compute-texture" />
+
 ## Atomics
 
 Atomic operations on `atomic<i32>` / `atomic<u32>` storage, for compute.
@@ -603,7 +629,7 @@ const sim = Fn(() => {
 renderer.compute([{ node: sim, dispatch: [Math.ceil(N / 64), 1, 1] }]);
 ```
 
-The same buffer can feed a material, which is how the particle example draws what the compute pass just updated.
+The same buffer can feed a material, which is how the particle example draws what the compute pass just updated. A compute kernel can also write to a texture instead of a buffer — see [Storage textures](#storage-textures).
 
 For a full worked example, `examples/src/example-ball-cluster.ts` simulates balls that pull toward a point and collide into a packed cluster, all on the GPU. It runs three compute passes per frame (clear grid, bin into a spatial-hash grid while snapshotting the previous state, then forces + collision against the 27 neighbouring cells), so each ball only checks nearby balls instead of every other one. `examples/src/example-compute-particles.ts` is a simpler starting point.
 

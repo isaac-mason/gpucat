@@ -7,6 +7,7 @@ import type {
     BindGroup,
     SamplerBinding,
     StorageBinding,
+    StorageTextureBinding,
     TextureBinding,
     UniformBinding,
 } from './bind-group';
@@ -86,6 +87,25 @@ function getTextureLayoutFromType(wgslType: string): GPUTextureBindingLayout {
     // default is 'float'
 
     return layout;
+}
+
+/** Map a storage texture WGSL dimension tag to a GPU view dimension. */
+function storageViewDimension(dim: '1d' | '2d' | '2d_array' | '3d'): GPUTextureViewDimension {
+    switch (dim) {
+        case '1d': return '1d';
+        case '2d_array': return '2d-array';
+        case '3d': return '3d';
+        default: return '2d';
+    }
+}
+
+/** Map a WGSL storage access keyword to the bind-group-layout access enum. */
+function storageLayoutAccess(access: 'read' | 'write' | 'read_write'): GPUStorageTextureAccess {
+    switch (access) {
+        case 'write': return 'write-only';
+        case 'read_write': return 'read-write';
+        default: return 'read-only';
+    }
 }
 
 /**
@@ -344,6 +364,19 @@ function buildLayoutEntries(
                 break;
             }
 
+            case 'storageTexture': {
+                entries.push({
+                    binding: binding.entry.binding,
+                    visibility,
+                    storageTexture: {
+                        access: storageLayoutAccess(binding.entry.access),
+                        format: binding.entry.format as GPUTextureFormat,
+                        viewDimension: storageViewDimension(binding.entry.dim),
+                    },
+                });
+                break;
+            }
+
             case 'sampler':
                 entries.push({
                     binding: binding.entry.binding,
@@ -382,6 +415,10 @@ function updateRenderBindGroup(
                 updateTextureBinding(textureCache, device, binding, data);
                 break;
 
+            case 'storageTexture':
+                updateStorageTextureBinding(textureCache, device, binding, data);
+                break;
+
             case 'sampler':
                 updateSamplerBinding(textureCache, device, binding, data);
                 break;
@@ -405,13 +442,13 @@ function updateUniformBinding(
     const block = binding.block;
 
     // Deduplication gate: skip if this binding was already processed at the current frame/render ID.
-    // Based on groupNode.updateType:
+    // Based on group.updateType:
     //   'frame'  - check frameId (once per animation frame)
     //   'render' - check renderId (once per render() call)
     //   'object' - always process (content changes per-mesh)
     //   'none'   - always process
-    if (block.groupNode.shared) {
-        const updateType = block.groupNode.updateType;
+    if (block.group.shared) {
+        const updateType = block.group.updateType;
         if (updateType === 'frame') {
             if (binding.lastFrameId === frame.frameId) return;
             binding.lastFrameId = frame.frameId;
@@ -543,6 +580,25 @@ function updateTextureBinding(
     }
 }
 
+/** Update a storage texture binding — ensure GPU texture exists, detect changes. */
+function updateStorageTextureBinding(
+    textureCache: TextureCache,
+    device: GPUDevice,
+    binding: StorageTextureBinding,
+    data: BindGroupData,
+): void {
+    const gpuTexture = binding.entry.node.value;
+    if (gpuTexture === null) return;
+
+    // Storage textures hold no source data; updateTexture just ensures the GPU
+    // texture exists and returns its cache entry (with a generation counter).
+    const texData = updateTexture(textureCache, device, gpuTexture);
+    if (binding.generation !== texData.generation) {
+        binding.generation = texData.generation;
+        data.needsUpdate = true;
+    }
+}
+
 /** Update a sampler binding. */
 function updateSamplerBinding(
     textureCache: TextureCache,
@@ -635,6 +691,23 @@ function rebuildGPUBindGroup(
                 break;
             }
 
+            case 'storageTexture': {
+                const gpuTexture = binding.entry.node.value;
+                if (!gpuTexture) break;
+
+                const texData = getTextureData(textureCache, gpuTexture);
+                if (texData) {
+                    // Storage views target a single mip level at the node's chosen baseMipLevel.
+                    const view = texData.texture.createView({
+                        dimension: storageViewDimension(binding.entry.dim),
+                        baseMipLevel: binding.entry.node.mipLevel,
+                        mipLevelCount: 1,
+                    });
+                    entries.push({ binding: binding.entry.binding, resource: view });
+                }
+                break;
+            }
+
             case 'sampler': {
                 const samplerNode = binding.entry.samplerNode;
                 const gpuSampler = samplerNode.value;
@@ -701,6 +774,10 @@ function updateComputeBindGroup(
 
             case 'texture':
                 updateTextureBinding(textureCache, device, binding, data);
+                break;
+
+            case 'storageTexture':
+                updateStorageTextureBinding(textureCache, device, binding, data);
                 break;
 
             case 'sampler':

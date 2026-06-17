@@ -54,6 +54,11 @@
         "description": "8192 GPU-simulated particles updated each frame by a @compute shader (renderer.compute) and rendered as instanced quads — no CPU readback.",
         "tags": ["compute", "particles"]
     },
+    "example-compute-texture": {
+        "title": "Compute Texture",
+        "description": "A compute shader writes an animated plasma into a storage texture (texture_storage_2d + textureStore), then a render pass samples that same texture onto a fullscreen quad — the canonical storage-texture write→sample round-trip.",
+        "tags": ["compute", "storage-texture", "texture"]
+    },
     "example-ball-cluster": {
         "title": "Ball Cluster",
         "description": "Thousands of balls pulled toward the cursor and colliding into a packed cluster, simulated entirely on the GPU. Three compute passes per frame bin the balls into a spatial-hash grid, so each ball only tests its 27 neighbouring cells instead of every other ball.",

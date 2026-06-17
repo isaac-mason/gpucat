@@ -1,10 +1,10 @@
 import type { GpuBuffer } from '../core/gpu-buffer';
-import type { UniformGroupBlock, StorageEntry, TextureEntry, SamplerEntry } from '../nodes/builder';
+import type { UniformGroupBlock, StorageEntry, TextureEntry, StorageTextureEntry, SamplerEntry } from '../nodes/builder';
 /**
  * A single binding within a BindGroup.
  * Can be a uniform buffer, storage buffer, texture, or sampler.
  */
-export type Binding = UniformBinding | StorageBinding | TextureBinding | SamplerBinding;
+export type Binding = UniformBinding | StorageBinding | TextureBinding | StorageTextureBinding | SamplerBinding;
 /** Uniform buffer binding (UBO) */
 export type UniformBinding = {
     readonly kind: 'uniform';
@@ -46,6 +46,14 @@ export type TextureBinding = {
     /** Generation counter for detecting texture changes. */
     generation: number;
 };
+/** Storage texture binding (compute write / read) */
+export type StorageTextureBinding = {
+    readonly kind: 'storageTexture';
+    /** The storage texture entry from compilation. */
+    entry: StorageTextureEntry;
+    /** Generation counter for detecting texture changes. */
+    generation: number;
+};
 /** Sampler binding */
 export type SamplerBinding = {
     readonly kind: 'sampler';
@@ -78,7 +86,7 @@ export type BindGroup = {
 /** Create a BindGroup from uniform group block */
 export declare function createUniformBindGroup(block: UniformGroupBlock): BindGroup;
 /** Create a BindGroup for storage/texture/sampler bindings in a group */
-export declare function createResourceBindGroup(name: string, groupIndex: number, shared: boolean, storage: StorageEntry[], textures: TextureEntry[], samplers: SamplerEntry[]): BindGroup;
+export declare function createResourceBindGroup(name: string, groupIndex: number, shared: boolean, storage: StorageEntry[], textures: TextureEntry[], storageTextures: StorageTextureEntry[], samplers: SamplerEntry[]): BindGroup;
 /**
  * Clone a BindGroup (deep clone of bindings).
  * Used for non-shared groups that need per-RenderObject instances.

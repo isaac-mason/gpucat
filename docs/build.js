@@ -394,10 +394,10 @@ function renderNodeMethods() {
 }
 
 /* A gallery table of examples with screenshots, read from examples.json.
- * Each cell links to the example's source on GitHub and shows its screenshot
+ * Each cell links to the live example on GitHub Pages and shows its screenshot
  * from examples/public/screenshots/<key>.png. */
 const EXAMPLES_COLS = 3;
-const EXAMPLE_SOURCE_BASE = 'https://github.com/isaac-mason/gpucat/blob/main/examples/src';
+const EXAMPLE_PAGES_BASE = 'https://isaac-mason.github.io/gpucat/#';
 function renderExamples() {
     const jsonPath = path.join(here, '../examples/src/examples.json');
     if (!fs.existsSync(jsonPath)) return console.warn(`examples.json not found: ${jsonPath}`), '';
@@ -410,7 +410,7 @@ function renderExamples() {
             const key = keys[i + j];
             const title = data[key].title || key;
             const img = `./examples/public/screenshots/${key}.png`;
-            const href = `${EXAMPLE_SOURCE_BASE}/${key}.ts`;
+            const href = `${EXAMPLE_PAGES_BASE}${key}`;
             out += `    <td align="center">\n`;
             out += `      <a href="${href}">\n`;
             out += `        <img src="${img}" width="180" height="120" style="object-fit:cover;"/><br/>\n`;
@@ -437,7 +437,7 @@ function renderExamplesTable(idsStr) {
         .map((id) => {
             const title = data[id].title || id;
             const img = `./examples/public/screenshots/${id}.png`;
-            const href = `${EXAMPLE_SOURCE_BASE}/${id}.ts`;
+            const href = `${EXAMPLE_PAGES_BASE}${id}`;
             return (
                 `    <td align="center">\n` +
                 `      <a href="${href}">\n` +

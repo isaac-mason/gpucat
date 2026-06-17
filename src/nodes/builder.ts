@@ -32,7 +32,7 @@ import { type InterpolationType, type InterpolationSampling, VaryingNode } from 
 import { WgslNode } from './lib/wgsl';
 import { AttributeNode } from './lib/attribute';
 import { GpuBuffer } from '../core/gpu-buffer';
-import { TextureNode, CubeTextureNode, DepthTextureNode, ArrayTextureNode, TextureBindingNode, SamplerNode } from './lib/texture';
+import { TextureNode, CubeTextureNode, DepthTextureNode, ArrayTextureNode, TextureBindingNode, StorageTextureBindingNode, SamplerNode } from './lib/texture';
 import { StorageNode } from './lib/storage';
 import { UniformNode, UniformGroup } from './lib/uniform';
 import { WgslFunctionNode } from './lib/wgsl-fn';
@@ -66,6 +66,7 @@ export function compile(slots: CompileSlots): CompileResult {
     vertexCtx.structDefs = discovered.structDefs;
     vertexCtx.storageNames = discovered.storageNames;
     vertexCtx.textures = discovered.textures;
+    vertexCtx.storageTextures = discovered.storageTextures;
     vertexCtx.samplers = discovered.samplers;
     vertexCtx.uniforms = discovered.uniforms;
     vertexCtx.storages = discovered.storages;
@@ -79,6 +80,7 @@ export function compile(slots: CompileSlots): CompileResult {
     fragmentCtx.structDefs = discovered.structDefs;
     fragmentCtx.storageNames = discovered.storageNames;
     fragmentCtx.textures = discovered.textures;
+    fragmentCtx.storageTextures = discovered.storageTextures;
     fragmentCtx.samplers = discovered.samplers;
     fragmentCtx.uniforms = discovered.uniforms;
     fragmentCtx.storages = discovered.storages;
@@ -108,6 +110,7 @@ export function compile(slots: CompileSlots): CompileResult {
         uniformBlocks,
         storageEntries,
         textureEntries: textures,
+        storageTextureEntries: storageTextures,
         samplerEntries: samplers,
     } = emitAllBindings(vertexCtx);
 
@@ -184,6 +187,7 @@ export function compile(slots: CompileSlots): CompileResult {
         uniformGroups: uniformBlocks,
         storage: storageEntries,
         textures,
+        storageTextures,
         samplers,
         builtinsUsed: new Set([...vertexCtx.builtins, ...fragmentCtx.builtins]),
         updateBeforeNodes: discovered.updateBeforeNodes,
@@ -214,6 +218,7 @@ export function compileCompute(node: ComputeNode): ComputeCompileResult {
     ctx.structDefs = discovered.structDefs;
     ctx.storageNames = discovered.storageNames;
     ctx.textures = discovered.textures;
+    ctx.storageTextures = discovered.storageTextures;
     ctx.samplers = discovered.samplers;
     ctx.uniforms = discovered.uniforms;
     ctx.storages = discovered.storages;
@@ -226,7 +231,7 @@ export function compileCompute(node: ComputeNode): ComputeCompileResult {
     const computeBody = generateComputeShader(node, traced, ctx);
 
     // emit all bindings (each group gets its own @group index)
-    const { wgsl: bindingsWgsl, uniformBlocks, storageEntries } = emitAllBindings(ctx);
+    const { wgsl: bindingsWgsl, uniformBlocks, storageEntries, storageTextureEntries: storageTextures } = emitAllBindings(ctx);
 
     // emit module-scope variables (var<private>, var<workgroup>)
     const moduleScopeVarsWgsl = emitModuleScopeVars(ctx);
@@ -264,6 +269,7 @@ export function compileCompute(node: ComputeNode): ComputeCompileResult {
     return {
         code,
         storage: computeStorage,
+        storageTextures,
         workgroupSize: node.workgroupSize ?? [64, 1, 1],
         builtinsUsed: ctx.builtins,
         uniformGroups: uniformBlocks,
@@ -356,7 +362,7 @@ export type UniformGroupBlock = {
     shared: boolean;
     members: UniformMember[];
     totalBytes: number;
-    groupNode: UniformGroup;
+    group: UniformGroup;
 };
 
 export type StorageEntry = {
@@ -374,6 +380,18 @@ export type TextureEntry = {
     group: number;
     binding: number;
     node: TextureBindingNode;
+};
+
+export type StorageTextureEntry = {
+    textureId: string;
+    /** Composed WGSL binding type, e.g. `texture_storage_2d<rgba8unorm, write>`. */
+    type: string;
+    format: d.StorageTextureFormat;
+    access: d.StorageTextureAccess;
+    dim: '1d' | '2d' | '2d_array' | '3d';
+    group: number;
+    binding: number;
+    node: StorageTextureBindingNode;
 };
 
 export type SamplerEntry = {
@@ -416,6 +434,7 @@ export type CompileResult = {
     uniformGroups: UniformGroupBlock[];
     storage: StorageEntry[];
     textures: TextureEntry[];
+    storageTextures: StorageTextureEntry[];
     samplers: SamplerEntry[];
     builtinsUsed: Set<string>;
     updateBeforeNodes: UpdateBeforeNode[];
@@ -429,6 +448,7 @@ export type CompileResult = {
 export type ComputeCompileResult = {
     code: string;
     storage: ComputeStorageEntry[];
+    storageTextures: StorageTextureEntry[];
     workgroupSize: [number, number, number];
     builtinsUsed: Set<string>;
     uniformGroups: UniformGroupBlock[];
@@ -453,6 +473,7 @@ interface BuildContext {
     storages: Map<string, StorageNode<d.Any>>;
     storageNames: Map<number, string>; // node.id -> generated name
     textures: Map<string, TextureBindingNode>;
+    storageTextures: Map<string, StorageTextureBindingNode>;
     samplers: Map<string, SamplerNode>; // keyed by settingsKey for deduplication
     attributes: Map<number, AttributeEntry>; // node.id -> entry
     attrCounter: number;
@@ -497,6 +518,7 @@ function createContext(stage: ShaderStage, isRender: boolean): BuildContext {
         storages: new Map(),
         storageNames: new Map(),
         textures: new Map(),
+        storageTextures: new Map(),
         samplers: new Map(),
         attributes: new Map(),
         attrCounter: 0,
@@ -567,6 +589,8 @@ function getChildren(node: Node<d.Any>): Node<d.Any>[] {
         children.push(textureNode);
     } else if (node instanceof TextureBindingNode) {
         // TextureBindingNode is a leaf, no children
+    } else if (node instanceof StorageTextureBindingNode) {
+        // StorageTextureBindingNode is a leaf, no children
     } else if (node instanceof TextureNode) {
         // TextureNode owns a bindingNode for the texture var declaration
         children.push(node.bindingNode);
@@ -762,6 +786,7 @@ type Discovery = {
     structDefs: Map<string, StructDef<StructSchema>>;
     storageNames: Map<number, string>; // node.id -> globally unique name
     textures: Map<string, TextureBindingNode>;
+    storageTextures: Map<string, StorageTextureBindingNode>;
     samplers: Map<string, SamplerNode>; // keyed by settingsKey for deduplication
     uniforms: Map<string, { node: UniformNode<d.Any>; group: UniformGroup }>;
     storages: Map<string, StorageNode<d.Any>>;
@@ -804,6 +829,7 @@ function discover(roots: Node<d.Any>[]): Discovery {
     const structDefs = new Map<string, StructDef<StructSchema>>();
     const storageNames = new Map<number, string>();
     const textures = new Map<string, TextureBindingNode>();
+    const storageTextures = new Map<string, StorageTextureBindingNode>();
     const samplers = new Map<string, SamplerNode>(); // keyed by settingsKey
     const uniforms = new Map<string, { node: UniformNode<d.Any>; group: UniformGroup }>();
     const storages = new Map<string, StorageNode<d.Any>>();
@@ -850,7 +876,7 @@ function discover(roots: Node<d.Any>[]): Discovery {
             let samplerNode = textureNode.samplerNode;
             if (!samplerNode) {
                 // Create default sampler (same logic as generateTexture had)
-                samplerNode = new SamplerNode(d.sampler, name, binding.groupNode);
+                samplerNode = new SamplerNode(d.sampler, name, binding.group);
                 textureNode.samplerNode = samplerNode;
             }
             registerSampler(samplerNode);
@@ -928,6 +954,12 @@ function discover(roots: Node<d.Any>[]): Discovery {
                 textures.set(name, node);
             }
         }
+        if (node instanceof StorageTextureBindingNode) {
+            const name = node.textureId;
+            if (!storageTextures.has(name)) {
+                storageTextures.set(name, node);
+            }
+        }
         if (node instanceof TextureNode) {
             registerTextureWithSampler(node);
         }
@@ -985,6 +1017,7 @@ function discover(roots: Node<d.Any>[]): Discovery {
         updateAfterNodes,
         updateNodes,
         textures,
+        storageTextures,
         samplers,
         uniforms,
         storages,
@@ -1069,6 +1102,8 @@ function generateExpr(ctx: BuildContext, node: Node<d.Any>): string {
         expr = generateExpr(ctx, textureNode);
     } else if (node instanceof TextureBindingNode) {
         expr = generateTextureBinding(ctx, node);
+    } else if (node instanceof StorageTextureBindingNode) {
+        expr = generateStorageTextureBinding(ctx, node);
     } else if (node instanceof TextureNode) {
         expr = generateTexture(ctx, node);
     } else if (node instanceof CubeTextureNode) {
@@ -1317,6 +1352,14 @@ function generateTextureBinding(ctx: BuildContext, node: TextureBindingNode): st
     return name;
 }
 
+function generateStorageTextureBinding(ctx: BuildContext, node: StorageTextureBindingNode): string {
+    const name = node.textureId;
+    if (!ctx.storageTextures.has(name)) {
+        ctx.storageTextures.set(name, node);
+    }
+    return name;
+}
+
 function generateTexture(ctx: BuildContext, node: TextureNode): string {
     const binding = node.bindingNode;
     const name = generateTextureBinding(ctx, binding);
@@ -1335,7 +1378,7 @@ function generateTexture(ctx: BuildContext, node: TextureNode): string {
     // If no samplerNode exists (e.g., PassTextureNode), create a default one
     let samplerNode = node.samplerNode;
     if (!samplerNode) {
-        samplerNode = new SamplerNode(d.sampler, name, binding.groupNode);
+        samplerNode = new SamplerNode(d.sampler, name, binding.group);
         // Store it on the node so it's consistent across calls
         node.samplerNode = samplerNode;
     }
@@ -1393,7 +1436,7 @@ function generateCubeTexture(ctx: BuildContext, node: CubeTextureNode): string {
     // Sampling modes require a sampler
     let samplerNode = node.samplerNode;
     if (!samplerNode) {
-        samplerNode = new SamplerNode(d.sampler, name, binding.groupNode);
+        samplerNode = new SamplerNode(d.sampler, name, binding.group);
         node.samplerNode = samplerNode;
     }
 
@@ -1464,7 +1507,7 @@ function generateDepthTexture(ctx: BuildContext, node: DepthTextureNode): string
     // Sampling modes require a sampler
     let samplerNode = node.samplerNode;
     if (!samplerNode) {
-        samplerNode = new SamplerNode(d.sampler, name, binding.groupNode);
+        samplerNode = new SamplerNode(d.sampler, name, binding.group);
         node.samplerNode = samplerNode;
     }
 
@@ -1510,7 +1553,7 @@ function generateArrayTexture(ctx: BuildContext, node: ArrayTextureNode): string
     // Sampling modes require a sampler
     let samplerNode = node.samplerNode;
     if (!samplerNode) {
-        samplerNode = new SamplerNode(d.sampler, name, binding.groupNode);
+        samplerNode = new SamplerNode(d.sampler, name, binding.group);
         node.samplerNode = samplerNode;
     }
 
@@ -1881,11 +1924,12 @@ function generateModuleScopeInitExpr(node: Node<d.Any>): string {
  * each named group gets its own @group index.
  */
 type BindingGroupData = {
-    groupNode: UniformGroup;
+    group: UniformGroup;
     groupIndex: number;
     uniforms: UniformNode<d.Any>[];
     storages: { name: string; node: StorageNode<d.Any> }[];
     textures: { name: string; node: TextureBindingNode }[];
+    storageTextures: { name: string; node: StorageTextureBindingNode }[];
     samplers: { name: string; node: SamplerNode }[];
 };
 
@@ -1902,21 +1946,23 @@ function emitAllBindings(ctx: BuildContext): {
     uniformBlocks: UniformGroupBlock[];
     storageEntries: StorageEntry[];
     textureEntries: TextureEntry[];
+    storageTextureEntries: StorageTextureEntry[];
     samplerEntries: SamplerEntry[];
 } {
     // step 1: collect all resources by their group
     const groupsByName = new Map<string, BindingGroupData>();
 
     // helper to get or create a group
-    const getGroup = (groupNode: UniformGroup): BindingGroupData => {
-        const name = groupNode.name;
+    const getGroup = (group: UniformGroup): BindingGroupData => {
+        const name = group.name;
         if (!groupsByName.has(name)) {
             groupsByName.set(name, {
-                groupNode,
-                groupIndex: groupNode.order, // temporary, will be reassigned after sorting
+                group,
+                groupIndex: group.order, // temporary, will be reassigned after sorting
                 uniforms: [],
                 storages: [],
                 textures: [],
+                storageTextures: [],
                 samplers: [],
             });
         }
@@ -1930,23 +1976,28 @@ function emitAllBindings(ctx: BuildContext): {
 
     // collect storage buffers
     for (const [name, node] of ctx.storages) {
-        getGroup(node.groupNode).storages.push({ name, node });
+        getGroup(node.group).storages.push({ name, node });
     }
 
     // collect textures
     for (const [name, node] of ctx.textures) {
-        getGroup(node.groupNode).textures.push({ name, node });
+        getGroup(node.group).textures.push({ name, node });
+    }
+
+    // collect storage textures
+    for (const [name, node] of ctx.storageTextures) {
+        getGroup(node.group).storageTextures.push({ name, node });
     }
 
     // collect samplers (deduplicated by settingsKey)
     for (const [_settingsKey, node] of ctx.samplers) {
         const name = node.samplerId;
-        getGroup(node.groupNode).samplers.push({ name, node });
+        getGroup(node.group).samplers.push({ name, node });
     }
 
     // step 2: sort groups by their order, then assign sequential group indices
     // @group(N) is the sorted array position
-    const sortedGroups = [...groupsByName.values()].sort((a, b) => a.groupNode.order - b.groupNode.order);
+    const sortedGroups = [...groupsByName.values()].sort((a, b) => a.group.order - b.group.order);
 
     // Reassign groupIndex to be the sorted array position
     for (let i = 0; i < sortedGroups.length; i++) {
@@ -1958,6 +2009,7 @@ function emitAllBindings(ctx: BuildContext): {
     const uniformBlocks: UniformGroupBlock[] = [];
     const storageEntries: StorageEntry[] = [];
     const textureEntries: TextureEntry[] = [];
+    const storageTextureEntries: StorageTextureEntry[] = [];
     const samplerEntries: SamplerEntry[] = [];
 
     // emit struct definitions required by storage bindings (topological order)
@@ -1970,19 +2022,19 @@ function emitAllBindings(ctx: BuildContext): {
         lines.push('');
     }
 
-    for (const group of sortedGroups) {
-        const groupIndex = group.groupIndex;
-        const groupName = group.groupNode.name;
+    for (const bindGroup of sortedGroups) {
+        const groupIndex = bindGroup.groupIndex;
+        const groupName = bindGroup.group.name;
         let bindingIndex = 0;
 
         // emit uniform struct and binding (if any uniforms)
-        if (group.uniforms.length > 0) {
+        if (bindGroup.uniforms.length > 0) {
             lines.push(`struct Uniforms_${groupName} {`);
 
             const members: UniformMember[] = [];
             let offset = 0;
 
-            for (const u of group.uniforms) {
+            for (const u of bindGroup.uniforms) {
                 const align = wgslAlign(u.type.wgslType);
                 const size = wgslSize(u.type.wgslType);
 
@@ -2009,7 +2061,7 @@ function emitAllBindings(ctx: BuildContext): {
 
             // Compute struct alignment (max alignment of all members)
             let structAlign = 4;
-            for (const u of group.uniforms) {
+            for (const u of bindGroup.uniforms) {
                 structAlign = Math.max(structAlign, wgslAlign(u.type.wgslType));
             }
             // Round up totalBytes to struct alignment
@@ -2019,17 +2071,17 @@ function emitAllBindings(ctx: BuildContext): {
                 groupName,
                 groupIndex,
                 binding: bindingIndex,
-                shared: group.groupNode.shared,
+                shared: bindGroup.group.shared,
                 members,
                 totalBytes,
-                groupNode: group.groupNode,
+                group: bindGroup.group,
             });
 
             bindingIndex++;
         }
 
         // emit storage bindings
-        for (const { name, node } of group.storages) {
+        for (const { name, node } of bindGroup.storages) {
             const access = ctx.stage === 'compute' ? node.access : 'read';
             const accessStr = access === 'read_write' ? 'read_write' : 'read';
 
@@ -2050,7 +2102,7 @@ function emitAllBindings(ctx: BuildContext): {
         }
 
         // emit texture and sampler bindings
-        for (const { name, node } of group.textures) {
+        for (const { name, node } of bindGroup.textures) {
             lines.push(`@group(${groupIndex}) @binding(${bindingIndex}) var ${name}: ${node.type.wgslType};`);
             textureEntries.push({
                 textureId: name,
@@ -2062,7 +2114,33 @@ function emitAllBindings(ctx: BuildContext): {
             bindingIndex++;
         }
 
-        for (const { name, node } of group.samplers) {
+        // emit storage texture bindings
+        for (const { name, node } of bindGroup.storageTextures) {
+            // WGSL forbids write/read_write storage textures outside compute. Force read in
+            // render stages so the emitted var access matches the bind-group layout access.
+            const access = ctx.stage === 'compute' ? node.access : 'read';
+            if (access !== node.access && node.access !== 'read') {
+                throw new Error(
+                    `[gpucat] storage texture '${name}' uses access '${node.access}' but is referenced in a ` +
+                    `${ctx.stage} shader; write/read_write storage textures are compute-only.`,
+                );
+            }
+            const wgslType = `texture_storage_${node.dim}<${node.format}, ${access}>`;
+            lines.push(`@group(${groupIndex}) @binding(${bindingIndex}) var ${name}: ${wgslType};`);
+            storageTextureEntries.push({
+                textureId: name,
+                type: wgslType,
+                format: node.format,
+                access,
+                dim: node.dim,
+                group: groupIndex,
+                binding: bindingIndex,
+                node,
+            });
+            bindingIndex++;
+        }
+
+        for (const { name, node } of bindGroup.samplers) {
             // node is now a SamplerNode - get sampler type from its compare property
             const samplerType = node.compare ? 'sampler_comparison' : 'sampler';
             lines.push(`@group(${groupIndex}) @binding(${bindingIndex}) var ${name}_sampler: ${samplerType};`);
@@ -2082,6 +2160,7 @@ function emitAllBindings(ctx: BuildContext): {
         uniformBlocks,
         storageEntries,
         textureEntries,
+        storageTextureEntries,
         samplerEntries,
     };
 }

@@ -1,5 +1,6 @@
 import { Camera } from '../camera/camera';
 import { getIndexFormat, type GpuBuffer } from '../core/gpu-buffer';
+import { GpuTexture } from '../core/gpu-texture';
 import { Object3D } from '../core/object3d';
 import type { RenderTarget } from '../core/render-target';
 import { CubeRenderTarget } from '../core/cube-render-target';
@@ -24,6 +25,18 @@ import type { RenderObject } from './render-object';
 import * as RenderObjects from './render-objects';
 import * as Textures from './textures';
 import { disposeMipmapState } from './mipmap-utils';
+
+/**
+ * Storage formats whose mips can be auto-generated. Render-pass mip generation samples
+ * the prior level through a filtering sampler, so only filterable renderable formats qualify
+ * (8-bit unorm + 16-bit float). Integer and 32-bit-float storage formats are excluded.
+ */
+const FILTERABLE_STORAGE_FORMATS = new Set<string>([
+    'rgba8unorm', 'rgba8snorm', 'bgra8unorm', 'rgba16float',
+]);
+function isFilterableStorageFormat(format: string): boolean {
+    return FILTERABLE_STORAGE_FORMATS.has(format);
+}
 
 export type WebGPURendererOptions = {
     /** Enable 4x MSAA antialiasing. Overridden by `samples` if both set. */
@@ -647,11 +660,23 @@ export class WebGPURenderer {
 
         const encoder = this._device.createCommandEncoder();
 
+        // Storage textures written this batch that want their mips regenerated after submit.
+        const mipDirty = new Set<GpuTexture<d.StorageTexture>>();
+
         for (const entry of entries) {
             const { node } = entry;
             const pipelineEntry = Pipelines.getForCompute(this._pipelines, this._device, this._nodes, node, this._computeContext);
             const { nodeBuilderState } = pipelineEntry;
             const buffers = entry.buffers ?? null;
+
+            // Track written storage textures (with mips + auto-update) for post-submit mip regen.
+            for (const bg of nodeBuilderState.bindings) {
+                for (const b of bg.bindings) {
+                    if (b.kind !== 'storageTexture' || b.entry.access === 'read') continue;
+                    const tex = b.entry.node.value;
+                    if (tex && tex.mipmapsAutoUpdate && tex.mipLevelCount > 1) mipDirty.add(tex);
+                }
+            }
 
             if (inspector) {
                 inspector.perf.start(`compute: ${node.id}`);
@@ -702,6 +727,21 @@ export class WebGPURenderer {
         }
 
         this._device.queue.submit([encoder.finish()]);
+
+        // Regenerate mips for written storage textures so a later render pass can sample
+        // them mipmapped. Render-pass mip-gen samples through a filtering sampler, so only
+        // filterable renderable formats are supported (others would need a compute downsample).
+        for (const tex of mipDirty) {
+            if (isFilterableStorageFormat(tex.format)) {
+                Textures.generateTextureMipmaps(this._textures, this._device, tex as unknown as GpuTexture);
+            } else {
+                console.warn(
+                    `[WebGPURenderer] mipmapsAutoUpdate skipped: storage format '${tex.format}' is not ` +
+                    `filterable, so render-pass mip generation can't sample it. Set mipmapsAutoUpdate=false ` +
+                    `and generate mips manually, or use a filterable format (rgba8unorm/rgba16float).`,
+                );
+            }
+        }
 
         if (inspector) inspector.perf.end('compute');
 

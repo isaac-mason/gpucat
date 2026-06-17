@@ -444,6 +444,65 @@ const textureDepth2dArray = { type: 'texture_depth_2d_array', wgslType: 'texture
 const textureDepthCube = { type: 'texture_depth_cube', wgslType: 'texture_depth_cube' };
 const textureDepthCubeArray = { type: 'texture_depth_cube_array', wgslType: 'texture_depth_cube_array' };
 const textureDepthMultisampled2d = { type: 'texture_depth_multisampled_2d', wgslType: 'texture_depth_multisampled_2d' };
+/**
+ * Per-format info for storage textures. `channel` is the WGSL channel type of the texel value
+ * (drives the textureStore/textureLoad value type `vec4<channel>`); `readWrite` is whether the
+ * format permits `access: 'read_write'`.
+ *
+ * Per the core WebGPU "Texture Format Capabilities" table, ONLY the 32-bit single-channel
+ * formats — `r32uint`, `r32sint`, `r32float` — support `read_write` storage access. Every other
+ * storage-capable format is read-only / write-only. (`bgra8unorm` storage also needs the
+ * `bgra8unorm-storage` feature.) This is enforced in `storageTexture()` as a friendly early error;
+ * the device is the ultimate authority.
+ */
+const STORAGE_FORMATS = {
+    rgba8unorm: { channel: 'f32', readWrite: false },
+    rgba8snorm: { channel: 'f32', readWrite: false },
+    rgba8uint: { channel: 'u32', readWrite: false },
+    rgba8sint: { channel: 'i32', readWrite: false },
+    bgra8unorm: { channel: 'f32', readWrite: false },
+    rgba16uint: { channel: 'u32', readWrite: false },
+    rgba16sint: { channel: 'i32', readWrite: false },
+    rgba16float: { channel: 'f32', readWrite: false },
+    r32uint: { channel: 'u32', readWrite: true },
+    r32sint: { channel: 'i32', readWrite: true },
+    r32float: { channel: 'f32', readWrite: true },
+    rg32uint: { channel: 'u32', readWrite: false },
+    rg32sint: { channel: 'i32', readWrite: false },
+    rg32float: { channel: 'f32', readWrite: false },
+    rgba32uint: { channel: 'u32', readWrite: false },
+    rgba32sint: { channel: 'i32', readWrite: false },
+    rgba32float: { channel: 'f32', readWrite: false },
+};
+/** Runtime version of StorageValueOf — maps a format to its vec4 value descriptor. */
+function storageValueOf(format) {
+    const channel = STORAGE_FORMATS[format].channel;
+    if (channel === 'u32')
+        return vec4u$1;
+    if (channel === 'i32')
+        return vec4i$1;
+    return vec4f$1;
+}
+function textureStorage1d(format, access) {
+    const f = (format ?? 'rgba8unorm');
+    const a = (access ?? 'write');
+    return { type: 'texture_storage_1d', wgslType: `texture_storage_1d<${f}, ${a}>`, dim: '1d', format: f, access: a };
+}
+function textureStorage2d(format, access) {
+    const f = (format ?? 'rgba8unorm');
+    const a = (access ?? 'write');
+    return { type: 'texture_storage_2d', wgslType: `texture_storage_2d<${f}, ${a}>`, dim: '2d', format: f, access: a };
+}
+function textureStorage2dArray(format, access) {
+    const f = (format ?? 'rgba8unorm');
+    const a = (access ?? 'write');
+    return { type: 'texture_storage_2d_array', wgslType: `texture_storage_2d_array<${f}, ${a}>`, dim: '2d_array', format: f, access: a };
+}
+function textureStorage3d(format, access) {
+    const f = (format ?? 'rgba8unorm');
+    const a = (access ?? 'write');
+    return { type: 'texture_storage_3d', wgslType: `texture_storage_3d<${f}, ${a}>`, dim: '3d', format: f, access: a };
+}
 const sampler$1 = { type: 'sampler', wgslType: 'sampler' };
 const samplerComparison = { type: 'sampler_comparison', wgslType: 'sampler_comparison' };
 const Void = { type: 'void', wgslType: 'void' };
@@ -462,10 +521,15 @@ function isSizedArrayDesc(desc) {
     return desc.type === 'sized-array';
 }
 function isTextureDesc(desc) {
-    return desc.type.startsWith('texture_') && !desc.type.startsWith('texture_depth_');
+    return desc.type.startsWith('texture_')
+        && !desc.type.startsWith('texture_depth_')
+        && !desc.type.startsWith('texture_storage_');
 }
 function isDepthTextureDesc(desc) {
     return desc.type.startsWith('texture_depth_');
+}
+function isStorageTextureDesc(desc) {
+    return desc.type.startsWith('texture_storage_');
 }
 function isAnyTextureDesc(desc) {
     return desc.type.startsWith('texture_');
@@ -481,9 +545,9 @@ function isArrayTextureDesc(desc) {
 }
 /** Returns the GPUTextureDimension for a texture schema type */
 function textureDimension(desc) {
-    if (desc.type === 'texture_1d')
+    if (desc.type === 'texture_1d' || desc.type === 'texture_storage_1d')
         return '1d';
-    if (desc.type === 'texture_3d')
+    if (desc.type === 'texture_3d' || desc.type === 'texture_storage_3d')
         return '3d';
     return '2d';
 }
@@ -506,7 +570,14 @@ function textureViewDimension(desc) {
         case 'texture_depth_cube_array':
             return 'cube-array';
         case 'texture_3d':
+        case 'texture_storage_3d':
             return '3d';
+        case 'texture_storage_1d':
+            return '1d';
+        case 'texture_storage_2d':
+            return '2d';
+        case 'texture_storage_2d_array':
+            return '2d-array';
         default:
             return '2d';
     }
@@ -806,6 +877,7 @@ function compareResultDesc(d) {
 
 var schema = /*#__PURE__*/Object.freeze({
     __proto__: null,
+    STORAGE_FORMATS: STORAGE_FORMATS,
     Void: Void,
     WgslFn: WgslFn,
     arithResultDesc: arithResultDesc,
@@ -828,6 +900,7 @@ var schema = /*#__PURE__*/Object.freeze({
     isSamplerComparisonDesc: isSamplerComparisonDesc,
     isSamplerDesc: isSamplerDesc,
     isSizedArrayDesc: isSizedArrayDesc,
+    isStorageTextureDesc: isStorageTextureDesc,
     isStructDef: isStructDef,
     isStructDesc: isStructDesc,
     isTextureDesc: isTextureDesc,
@@ -860,6 +933,7 @@ var schema = /*#__PURE__*/Object.freeze({
     samplerComparisonDesc: samplerComparisonDesc,
     samplerDesc: samplerDesc,
     sizedArray: sizedArray,
+    storageValueOf: storageValueOf,
     texture1d: texture1d,
     texture2d: texture2d,
     texture2dArray: texture2dArray,
@@ -874,6 +948,10 @@ var schema = /*#__PURE__*/Object.freeze({
     textureDimension: textureDimension,
     textureMultisampled2d: textureMultisampled2d,
     textureSampleResultOf: textureSampleResultOf,
+    textureStorage1d: textureStorage1d,
+    textureStorage2d: textureStorage2d,
+    textureStorage2dArray: textureStorage2dArray,
+    textureStorage3d: textureStorage3d,
     textureViewDimension: textureViewDimension,
     typedArrayCtorOf: typedArrayCtorOf,
     u32: u32$1,
@@ -4016,6 +4094,15 @@ class Source {
     }
 }
 
+/**
+ * GPUTextureUsage flag bits, spec-fixed numeric values. Used instead of the global
+ * `GPUTextureUsage` so texture construction works in headless/Node (no WebGPU global).
+ */
+const TEXTURE_USAGE = {
+    COPY_SRC: 0x01,
+    COPY_DST: 0x02,
+    TEXTURE_BINDING: 0x04,
+    STORAGE_BINDING: 0x08};
 let _textureId = 0;
 class GpuTexture {
     /** Unique ID */
@@ -4045,6 +4132,8 @@ class GpuTexture {
     sources = [];
     /** Generate mipmaps on upload */
     generateMipmaps = false;
+    /** Storage textures: regenerate mips after a compute pass writes this texture (if it has mips). */
+    mipmapsAutoUpdate = true;
     /** Flip Y on upload (for image sources) */
     flipY = false;
     /** Premultiply alpha on upload */
@@ -4095,10 +4184,16 @@ class GpuTexture {
         this.width = width;
         this.height = height;
         this.depthOrArrayLayers = depthOrArrayLayers;
-        // Format defaults based on whether it's a depth texture
-        this.format = options.format ?? (isDepthTextureDesc(type) ? 'depth32float' : 'rgba8unorm');
-        // Usage defaults
-        this.usage = options.usage ?? (GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST);
+        // Format defaults: storage → descriptor's format, depth → depth32float, else rgba8unorm.
+        this.format = options.format ?? (isStorageTextureDesc(type) ? type.format
+            : isDepthTextureDesc(type) ? 'depth32float'
+                : 'rgba8unorm');
+        // Usage defaults. Storage textures get STORAGE_BINDING and keep TEXTURE_BINDING (so the same
+        // texture can be sampled in a later render pass) plus COPY_SRC for readback.
+        this.usage = options.usage ?? (isStorageTextureDesc(type)
+            ? TEXTURE_USAGE.STORAGE_BINDING | TEXTURE_USAGE.TEXTURE_BINDING | TEXTURE_USAGE.COPY_DST | TEXTURE_USAGE.COPY_SRC
+            : TEXTURE_USAGE.TEXTURE_BINDING | TEXTURE_USAGE.COPY_DST);
+        this.mipmapsAutoUpdate = options.mipmapsAutoUpdate ?? true;
         // Mip levels
         this.mipLevelCount = options.mipLevelCount ?? 1;
         this.sampleCount = options.sampleCount ?? 1;
@@ -4171,6 +4266,31 @@ function extractTextureSize(type, options) {
         default:
             return { width: opts.width, height: opts.height, depthOrArrayLayers: 1 };
     }
+}
+// ─────────────────────────────────────────────────────────────────────────────
+// Storage texture creation helpers
+// ─────────────────────────────────────────────────────────────────────────────
+//
+// Storage textures are written from compute shaders via `textureStore` and read via
+// `textureLoad`. They default to STORAGE_BINDING | TEXTURE_BINDING usage, so the same
+// texture can be written in compute and then sampled in a later render pass.
+// `access` is a per-binding property set on the node (see `storageTexture(...)`), not
+// the texture — the descriptor's default `'write'` is just the node's default.
+/** Create a 2D storage texture (`texture_storage_2d<format, _>`). */
+function createStorageTexture(width, height, format) {
+    return new GpuTexture(textureStorage2d(format), { width, height });
+}
+/** Create a 3D storage texture (`texture_storage_3d<format, _>`). */
+function createStorageTexture3d(width, height, depth, format) {
+    return new GpuTexture(textureStorage3d(format), { width, height, depth });
+}
+/** Create a 2D-array storage texture (`texture_storage_2d_array<format, _>`). */
+function createStorageTextureArray(width, height, layers, format) {
+    return new GpuTexture(textureStorage2dArray(format), { width, height, layers });
+}
+/** Create a 1D storage texture (`texture_storage_1d<format, _>`). */
+function createStorageTexture1d(width, format) {
+    return new GpuTexture(textureStorage1d(format), { width });
 }
 
 let _samplerId = 0;
@@ -4649,11 +4769,11 @@ class SamplerNode extends Node {
     /** Unique ID for this sampler instance */
     samplerId;
     /** Uniform group, determines @group index. */
-    groupNode;
-    constructor(desc, samplerId, groupNode = objectGroup) {
+    group;
+    constructor(desc, samplerId, group = objectGroup) {
         super(desc);
         this.samplerId = samplerId;
-        this.groupNode = groupNode;
+        this.group = group;
     }
     /** Settings key from the GpuSampler (for deduplication) */
     get settingsKey() {
@@ -4670,7 +4790,7 @@ class SamplerNode extends Node {
     get compare() { return this.value.compare; }
     /** Clone this sampler (shares same GpuSampler reference) */
     clone() {
-        const cloned = new SamplerNode(this.type, this.samplerId, this.groupNode);
+        const cloned = new SamplerNode(this.type, this.samplerId, this.group);
         cloned.value = this.value;
         return cloned;
     }
@@ -4699,12 +4819,71 @@ class TextureBindingNode extends Node {
     /** Unique ID for this texture binding (e.g. 'tAlbedo', 'tShadowMap'). */
     textureId;
     /** Uniform group, determines @group index. */
-    groupNode;
-    constructor(desc, textureId, groupNode = objectGroup) {
+    group;
+    constructor(desc, textureId, group = objectGroup) {
         super(desc);
         this.textureId = textureId;
-        this.groupNode = groupNode;
+        this.group = group;
     }
+}
+/* ────────────────────────────────────────────────────────────────────────────
+ * StorageTextureBindingNode
+ * ──────────────────────────────────────────────────────────────────────────── */
+/**
+ * StorageTextureBindingNode - a module-scope storage texture binding, i.e.
+ * `var t : texture_storage_2d<rgba8unorm, write>`. Written via `textureStore`
+ * and read via `textureLoad` (no sampler).
+ *
+ * Format + dimension come from the GpuTexture's descriptor; `access` is a
+ * per-binding property (default `'write'`), so the same GpuTexture can be bound
+ * `write` in one shader and `read` in another (ping-pong). `mipLevel` selects the
+ * mip the binding view targets (for manual mip-pyramid writes).
+ */
+class StorageTextureBindingNode extends Node {
+    /** The GpuTexture */
+    value = null;
+    /** Unique ID for this texture binding (e.g. 'st3'). */
+    textureId;
+    /** Uniform group, determines @group index. */
+    group;
+    /** WGSL access mode for THIS binding (overrides the descriptor default). */
+    access;
+    /** Mip level the binding view targets. */
+    mipLevel = 0;
+    constructor(desc, textureId, access, group = objectGroup) {
+        super(desc);
+        this.textureId = textureId;
+        this.access = access;
+        this.group = group;
+    }
+    /** The storage texel format (from the descriptor). */
+    get format() { return this.type.format; }
+    /** The WGSL storage dimension tag ('1d' | '2d' | '2d_array' | '3d'). */
+    get dim() { return this.type.dim; }
+    /** The composed WGSL binding type, e.g. `texture_storage_2d<rgba8unorm, write>`. */
+    get wgslBindingType() {
+        return `texture_storage_${this.type.dim}<${this.type.format}, ${this.access}>`;
+    }
+    /** Set the mip level this binding view targets (for manual mip writes). */
+    setMipLevel(level) {
+        this.mipLevel = level;
+        return this;
+    }
+}
+/**
+ * storageTexture - bind a GpuTexture as a storage texture for compute writes/reads.
+ *
+ * @param gpuTex - a storage GpuTexture (e.g. from `createStorageTexture(...)`)
+ * @param access - 'write' (default), 'read', or 'read_write'
+ */
+function storageTexture(gpuTex, access = 'write') {
+    if (access === 'read_write' && !STORAGE_FORMATS[gpuTex.type.format].readWrite) {
+        throw new Error(`[gpucat] storage format '${gpuTex.type.format}' does not support 'read_write' access. ` +
+            `Use 'write' or 'read', or pick a read_write-capable format.`);
+    }
+    const node = new StorageTextureBindingNode(gpuTex.type, `st${gpuTex.id}`, access);
+    node.value = gpuTex;
+    return node;
 }
 /**
  * TextureNode - represents a texture sample operation.
@@ -4724,7 +4903,7 @@ class TextureBindingNode extends Node {
  */
 class TextureNode extends Node {
     isTextureNode = true;
-    /** The texture binding, holds GPU resource, textureId, groupNode. */
+    /** The texture binding, holds GPU resource, textureId, group. */
     bindingNode;
     /**
      * The UV node for texture coordinates.
@@ -4843,22 +5022,22 @@ class TextureNode extends Node {
 }
 /** Counter for generating unique sampler IDs when using GpuSampler directly */
 let _samplerIdCounter = 0;
-function sampler(source, groupNode = objectGroup) {
+function sampler(source, group = objectGroup) {
     if (source instanceof GpuSampler) {
-        const node = new SamplerNode(sampler$1, `s${_samplerIdCounter++}`, groupNode);
+        const node = new SamplerNode(sampler$1, `s${_samplerIdCounter++}`, group);
         node.value = source;
         return node;
     }
     else {
-        const node = new SamplerNode(sampler$1, `s${source.id}`, groupNode);
+        const node = new SamplerNode(sampler$1, `s${source.id}`, group);
         node.value = source._gpuSampler;
         return node;
     }
 }
-function comparisonSampler(source, compare = 'less', groupNode = objectGroup) {
+function comparisonSampler(source, compare = 'less', group = objectGroup) {
     const baseSampler = source instanceof GpuSampler ? source : source._gpuSampler;
     const samplerId = source instanceof GpuSampler ? `s${_samplerIdCounter++}_cmp` : `s${source.id}_cmp`;
-    const node = new SamplerNode(samplerComparison, samplerId, groupNode);
+    const node = new SamplerNode(samplerComparison, samplerId, group);
     // Create a new GpuSampler with comparison function
     const cmpSampler = new GpuSampler({
         minFilter: baseSampler.minFilter,
@@ -4875,17 +5054,40 @@ function comparisonSampler(source, compare = 'less', groupNode = objectGroup) {
 }
 /** Counter for generating unique texture IDs when using GpuTexture directly */
 let _textureIdCounter = 0;
+/** Build the sampled texture descriptor for sampling a storage texture (dual-usage). */
+function sampledDescForStorage(desc) {
+    const channel = STORAGE_FORMATS[desc.format].channel;
+    const sampleType = channel === 'u32' ? u32$1 : channel === 'i32' ? i32$1 : f32$1;
+    switch (desc.dim) {
+        case '1d': return texture1d(sampleType);
+        case '2d_array': return texture2dArray(sampleType);
+        case '3d': return texture3d(sampleType);
+        default: return texture2d(sampleType);
+    }
+}
 function texture(source, gpuSampler) {
     if (source instanceof GpuTexture) {
         if (!gpuSampler) {
             throw new Error('texture(): GpuSampler required when passing GpuTexture directly');
         }
+        // Storage textures are dual-usage (STORAGE_BINDING | TEXTURE_BINDING): the same GPU
+        // texture written in compute can be sampled here. Bind it as a sampled texture whose
+        // sample type matches the storage format's channel.
+        if (isStorageTextureDesc(source.type)) {
+            const sampledDesc = sampledDescForStorage(source.type);
+            const binding = new TextureBindingNode(sampledDesc, `t${_textureIdCounter++}`);
+            binding.value = source;
+            const node = new TextureNode(binding);
+            node.samplerNode = sampler(gpuSampler, binding.group);
+            return node;
+        }
         // Widen the type for the binding to FlatSampledTexture
-        const desc = source.type;
+        const sampledSource = source;
+        const desc = sampledSource.type;
         const binding = new TextureBindingNode(desc, `t${_textureIdCounter++}`);
-        binding.value = source;
+        binding.value = sampledSource;
         const node = new TextureNode(binding);
-        node.samplerNode = sampler(gpuSampler, binding.groupNode);
+        node.samplerNode = sampler(gpuSampler, binding.group);
         return node;
     }
     else {
@@ -4896,7 +5098,7 @@ function texture(source, gpuSampler) {
         const binding = new TextureBindingNode(desc, `t${source.id}`);
         binding.value = gpuTex;
         const node = new TextureNode(binding);
-        node.samplerNode = sampler(source._gpuSampler, binding.groupNode);
+        node.samplerNode = sampler(source._gpuSampler, binding.group);
         return node;
     }
 }
@@ -4929,7 +5131,7 @@ const textureBinding = (tex, textureDesc) => {
  */
 class CubeTextureNode extends Node {
     isCubeTextureNode = true;
-    /** The texture binding, holds GPU resource, textureId, groupNode. */
+    /** The texture binding, holds GPU resource, textureId, group. */
     bindingNode;
     /**
      * The direction node for cube texture sampling (vec3f).
@@ -5023,7 +5225,7 @@ function cubeTexture(source, gpuSampler) {
         const binding = new TextureBindingNode(desc, `t${_textureIdCounter++}`);
         binding.value = source;
         const node = new CubeTextureNode(binding);
-        node.samplerNode = sampler(gpuSampler, binding.groupNode);
+        node.samplerNode = sampler(gpuSampler, binding.group);
         return node;
     }
     else {
@@ -5032,7 +5234,7 @@ function cubeTexture(source, gpuSampler) {
         const binding = new TextureBindingNode(desc, `t${source.id}`);
         binding.value = gpuTex;
         const node = new CubeTextureNode(binding);
-        node.samplerNode = sampler(source._gpuSampler, binding.groupNode);
+        node.samplerNode = sampler(source._gpuSampler, binding.group);
         return node;
     }
 }
@@ -5058,7 +5260,7 @@ function cubeTexture(source, gpuSampler) {
  */
 class DepthTextureNode extends Node {
     isDepthTextureNode = true;
-    /** The texture binding, holds GPU resource, textureId, groupNode. */
+    /** The texture binding, holds GPU resource, textureId, group. */
     bindingNode;
     /**
      * The UV node for texture coordinates (vec2f).
@@ -5157,7 +5359,7 @@ function depthTexture(source, gpuSampler) {
         const binding = new TextureBindingNode(desc, `t${_textureIdCounter++}`);
         binding.value = source;
         const node = new DepthTextureNode(binding);
-        node.samplerNode = sampler(gpuSampler, binding.groupNode);
+        node.samplerNode = sampler(gpuSampler, binding.group);
         return node;
     }
     else {
@@ -5166,7 +5368,7 @@ function depthTexture(source, gpuSampler) {
         const binding = new TextureBindingNode(desc, `t${source.id}`);
         binding.value = gpuTex;
         const node = new DepthTextureNode(binding);
-        node.samplerNode = sampler(source._gpuSampler, binding.groupNode);
+        node.samplerNode = sampler(source._gpuSampler, binding.group);
         return node;
     }
 }
@@ -5191,7 +5393,7 @@ function depthTexture(source, gpuSampler) {
  */
 class ArrayTextureNode extends Node {
     isArrayTextureNode = true;
-    /** The texture binding, holds GPU resource, textureId, groupNode. */
+    /** The texture binding, holds GPU resource, textureId, group. */
     bindingNode;
     /**
      * The UV node for texture coordinates (vec2f).
@@ -5317,7 +5519,7 @@ function arrayTexture(source, samplerOrLayer, maybeLayerNode) {
         const binding = new TextureBindingNode(source.type, `t${_textureIdCounter++}`);
         binding.value = source;
         const node = new ArrayTextureNode(binding, layerNode);
-        node.samplerNode = sampler(gpuSampler, binding.groupNode);
+        node.samplerNode = sampler(gpuSampler, binding.group);
         return node;
     }
     else {
@@ -5326,7 +5528,7 @@ function arrayTexture(source, samplerOrLayer, maybeLayerNode) {
         const binding = new TextureBindingNode(gpuTex.type, `t${source.id}`);
         binding.value = gpuTex;
         const node = new ArrayTextureNode(binding, layerNode);
-        node.samplerNode = sampler(source._gpuSampler, binding.groupNode);
+        node.samplerNode = sampler(source._gpuSampler, binding.group);
         return node;
     }
 }
@@ -5378,19 +5580,28 @@ function textureSampleCompareLevel(t, s, coords, depthRef, level, offset) {
     const args = offset ? [t, s, coords, depthRef, level, offset] : [t, s, coords, depthRef, level];
     return new CallNode(f32$1, 'textureSampleCompareLevel', args);
 }
-/**
- * textureLoad - Load a texel directly without filtering.
- * Works in any shader stage. No sampler needed.
- */
-function textureLoad(t, coords, level) {
-    return new CallNode(textureSampleResultOf(t.type), 'textureLoad', [t, coords, level]);
+function textureLoad(t, coords, levelOrLayer) {
+    if (t instanceof StorageTextureBindingNode) {
+        if (t.access === 'write') {
+            throw new Error(`[gpucat] textureLoad on a 'write' storage texture; bind it with access 'read' or 'read_write'.`);
+        }
+        const args = levelOrLayer !== undefined ? [t, coords, levelOrLayer] : [t, coords];
+        return new CallNode(storageValueOf(t.type.format), 'textureLoad', args);
+    }
+    return new CallNode(textureSampleResultOf(t.type), 'textureLoad', [t, coords, levelOrLayer]);
 }
 /**
- * textureStore - Store a value to a storage texture.
+ * textureStore - Store a value into a storage texture (a statement / side effect).
+ *
+ * 2D/3D: `textureStore(tex, coords, value)`. 2D-array: pass the array `layer` between
+ * coords and value. The binding must have access 'write' or 'read_write'.
  */
-function textureStore(t, // StorageTextureNode when we add it
-coords, value) {
-    return new CallNode(Void, 'textureStore', [t, coords, value]);
+function textureStore(t, coords, value, layer) {
+    if (t.access === 'read') {
+        throw new Error(`[gpucat] textureStore on a 'read' storage texture; bind it with access 'write' or 'read_write'.`);
+    }
+    const args = layer !== undefined ? [t, coords, layer, value] : [t, coords, value];
+    addToStack(new CallNode(Void, 'textureStore', args));
 }
 /**
  * textureDimensions - Get texture dimensions.
@@ -6354,8 +6565,8 @@ class StorageNode extends Node {
     /** Whether the node is atomic or not. */
     isAtomic = false;
     /** Uniform group, determines @group index. Defaults to objectGroup. */
-    groupNode;
-    constructor(schema, nameOrBuffer, access = 'read', groupNode = objectGroup) {
+    group;
+    constructor(schema, nameOrBuffer, access = 'read', group = objectGroup) {
         super(schema);
         if (typeof nameOrBuffer === 'string') {
             this.bufferName = nameOrBuffer;
@@ -6367,7 +6578,7 @@ class StorageNode extends Node {
         }
         this.storageType = schema.wgslType;
         this.access = access;
-        this.groupNode = groupNode;
+        this.group = group;
     }
     /** Whether this is a named reference (resolved from geometry.buffers) */
     get isNamedReference() {
@@ -6391,10 +6602,10 @@ class StorageNode extends Node {
         if (this.access === 'read')
             return this;
         if (this.bufferName !== null) {
-            return new StorageNode(this.type, this.bufferName, 'read', this.groupNode);
+            return new StorageNode(this.type, this.bufferName, 'read', this.group);
         }
         else {
-            return new StorageNode(this.type, this.value, 'read', this.groupNode);
+            return new StorageNode(this.type, this.value, 'read', this.group);
         }
     }
 }
@@ -6879,6 +7090,7 @@ function compile(slots) {
     vertexCtx.structDefs = discovered.structDefs;
     vertexCtx.storageNames = discovered.storageNames;
     vertexCtx.textures = discovered.textures;
+    vertexCtx.storageTextures = discovered.storageTextures;
     vertexCtx.samplers = discovered.samplers;
     vertexCtx.uniforms = discovered.uniforms;
     vertexCtx.storages = discovered.storages;
@@ -6891,6 +7103,7 @@ function compile(slots) {
     fragmentCtx.structDefs = discovered.structDefs;
     fragmentCtx.storageNames = discovered.storageNames;
     fragmentCtx.textures = discovered.textures;
+    fragmentCtx.storageTextures = discovered.storageTextures;
     fragmentCtx.samplers = discovered.samplers;
     fragmentCtx.uniforms = discovered.uniforms;
     fragmentCtx.storages = discovered.storages;
@@ -6910,7 +7123,7 @@ function compile(slots) {
         // No need to merge bindings anymore - they're shared via discovered.*
     }
     // emit all bindings (each group gets its own @group index)
-    const { wgsl: bindingsWgsl, uniformBlocks, storageEntries, textureEntries: textures, samplerEntries: samplers, } = emitAllBindings(vertexCtx);
+    const { wgsl: bindingsWgsl, uniformBlocks, storageEntries, textureEntries: textures, storageTextureEntries: storageTextures, samplerEntries: samplers, } = emitAllBindings(vertexCtx);
     // emit module-scope variables (var<private>)
     const moduleScopeVarsWgsl = emitModuleScopeVars(vertexCtx);
     // emit functions
@@ -6973,6 +7186,7 @@ function compile(slots) {
         uniformGroups: uniformBlocks,
         storage: storageEntries,
         textures,
+        storageTextures,
         samplers,
         builtinsUsed: new Set([...vertexCtx.builtins, ...fragmentCtx.builtins]),
         updateBeforeNodes: discovered.updateBeforeNodes,
@@ -6999,6 +7213,7 @@ function compileCompute(node) {
     ctx.structDefs = discovered.structDefs;
     ctx.storageNames = discovered.storageNames;
     ctx.textures = discovered.textures;
+    ctx.storageTextures = discovered.storageTextures;
     ctx.samplers = discovered.samplers;
     ctx.uniforms = discovered.uniforms;
     ctx.storages = discovered.storages;
@@ -7009,7 +7224,7 @@ function compileCompute(node) {
     // causing emits like `undefined[...]`).
     const computeBody = generateComputeShader(node, traced, ctx);
     // emit all bindings (each group gets its own @group index)
-    const { wgsl: bindingsWgsl, uniformBlocks, storageEntries } = emitAllBindings(ctx);
+    const { wgsl: bindingsWgsl, uniformBlocks, storageEntries, storageTextureEntries: storageTextures } = emitAllBindings(ctx);
     // emit module-scope variables (var<private>, var<workgroup>)
     const moduleScopeVarsWgsl = emitModuleScopeVars(ctx);
     // emit functions
@@ -7042,6 +7257,7 @@ function compileCompute(node) {
     return {
         code,
         storage: computeStorage,
+        storageTextures,
         workgroupSize: node.workgroupSize ?? [64, 1, 1],
         builtinsUsed: ctx.builtins,
         uniformGroups: uniformBlocks,
@@ -7055,6 +7271,7 @@ function createContext(stage, isRender) {
         storages: new Map(),
         storageNames: new Map(),
         textures: new Map(),
+        storageTextures: new Map(),
         samplers: new Map(),
         attributes: new Map(),
         attrCounter: 0,
@@ -7136,6 +7353,7 @@ function getChildren(node) {
         children.push(textureNode);
     }
     else if (node instanceof TextureBindingNode) ;
+    else if (node instanceof StorageTextureBindingNode) ;
     else if (node instanceof TextureNode) {
         // TextureNode owns a bindingNode for the texture var declaration
         children.push(node.bindingNode);
@@ -7347,6 +7565,7 @@ function discover(roots) {
     const structDefs = new Map();
     const storageNames = new Map();
     const textures = new Map();
+    const storageTextures = new Map();
     const samplers = new Map(); // keyed by settingsKey
     const uniforms = new Map();
     const storages = new Map();
@@ -7390,7 +7609,7 @@ function discover(roots) {
             let samplerNode = textureNode.samplerNode;
             if (!samplerNode) {
                 // Create default sampler (same logic as generateTexture had)
-                samplerNode = new SamplerNode(sampler$1, name, binding.groupNode);
+                samplerNode = new SamplerNode(sampler$1, name, binding.group);
                 textureNode.samplerNode = samplerNode;
             }
             registerSampler(samplerNode);
@@ -7460,6 +7679,12 @@ function discover(roots) {
                 textures.set(name, node);
             }
         }
+        if (node instanceof StorageTextureBindingNode) {
+            const name = node.textureId;
+            if (!storageTextures.has(name)) {
+                storageTextures.set(name, node);
+            }
+        }
         if (node instanceof TextureNode) {
             registerTextureWithSampler(node);
         }
@@ -7513,6 +7738,7 @@ function discover(roots) {
         updateAfterNodes,
         updateNodes,
         textures,
+        storageTextures,
         samplers,
         uniforms,
         storages,
@@ -7604,6 +7830,9 @@ function generateExpr(ctx, node) {
     }
     else if (node instanceof TextureBindingNode) {
         expr = generateTextureBinding(ctx, node);
+    }
+    else if (node instanceof StorageTextureBindingNode) {
+        expr = generateStorageTextureBinding(ctx, node);
     }
     else if (node instanceof TextureNode) {
         expr = generateTexture(ctx, node);
@@ -7857,6 +8086,13 @@ function generateTextureBinding(ctx, node) {
     }
     return name;
 }
+function generateStorageTextureBinding(ctx, node) {
+    const name = node.textureId;
+    if (!ctx.storageTextures.has(name)) {
+        ctx.storageTextures.set(name, node);
+    }
+    return name;
+}
 function generateTexture(ctx, node) {
     const binding = node.bindingNode;
     const name = generateTextureBinding(ctx, binding);
@@ -7873,7 +8109,7 @@ function generateTexture(ctx, node) {
     // If no samplerNode exists (e.g., PassTextureNode), create a default one
     let samplerNode = node.samplerNode;
     if (!samplerNode) {
-        samplerNode = new SamplerNode(sampler$1, name, binding.groupNode);
+        samplerNode = new SamplerNode(sampler$1, name, binding.group);
         // Store it on the node so it's consistent across calls
         node.samplerNode = samplerNode;
     }
@@ -7921,7 +8157,7 @@ function generateCubeTexture(ctx, node) {
     // Sampling modes require a sampler
     let samplerNode = node.samplerNode;
     if (!samplerNode) {
-        samplerNode = new SamplerNode(sampler$1, name, binding.groupNode);
+        samplerNode = new SamplerNode(sampler$1, name, binding.group);
         node.samplerNode = samplerNode;
     }
     // Register the sampler (this handles deduplication by settingsKey)
@@ -7982,7 +8218,7 @@ function generateDepthTexture(ctx, node) {
     // Sampling modes require a sampler
     let samplerNode = node.samplerNode;
     if (!samplerNode) {
-        samplerNode = new SamplerNode(sampler$1, name, binding.groupNode);
+        samplerNode = new SamplerNode(sampler$1, name, binding.group);
         node.samplerNode = samplerNode;
     }
     const samplerName = generateSampler(ctx, samplerNode);
@@ -8019,7 +8255,7 @@ function generateArrayTexture(ctx, node) {
     // Sampling modes require a sampler
     let samplerNode = node.samplerNode;
     if (!samplerNode) {
-        samplerNode = new SamplerNode(sampler$1, name, binding.groupNode);
+        samplerNode = new SamplerNode(sampler$1, name, binding.group);
         node.samplerNode = samplerNode;
     }
     const samplerName = generateSampler(ctx, samplerNode);
@@ -8358,15 +8594,16 @@ function emitAllBindings(ctx) {
     // step 1: collect all resources by their group
     const groupsByName = new Map();
     // helper to get or create a group
-    const getGroup = (groupNode) => {
-        const name = groupNode.name;
+    const getGroup = (group) => {
+        const name = group.name;
         if (!groupsByName.has(name)) {
             groupsByName.set(name, {
-                groupNode,
-                groupIndex: groupNode.order, // temporary, will be reassigned after sorting
+                group,
+                groupIndex: group.order, // temporary, will be reassigned after sorting
                 uniforms: [],
                 storages: [],
                 textures: [],
+                storageTextures: [],
                 samplers: [],
             });
         }
@@ -8378,20 +8615,24 @@ function emitAllBindings(ctx) {
     }
     // collect storage buffers
     for (const [name, node] of ctx.storages) {
-        getGroup(node.groupNode).storages.push({ name, node });
+        getGroup(node.group).storages.push({ name, node });
     }
     // collect textures
     for (const [name, node] of ctx.textures) {
-        getGroup(node.groupNode).textures.push({ name, node });
+        getGroup(node.group).textures.push({ name, node });
+    }
+    // collect storage textures
+    for (const [name, node] of ctx.storageTextures) {
+        getGroup(node.group).storageTextures.push({ name, node });
     }
     // collect samplers (deduplicated by settingsKey)
     for (const [_settingsKey, node] of ctx.samplers) {
         const name = node.samplerId;
-        getGroup(node.groupNode).samplers.push({ name, node });
+        getGroup(node.group).samplers.push({ name, node });
     }
     // step 2: sort groups by their order, then assign sequential group indices
     // @group(N) is the sorted array position
-    const sortedGroups = [...groupsByName.values()].sort((a, b) => a.groupNode.order - b.groupNode.order);
+    const sortedGroups = [...groupsByName.values()].sort((a, b) => a.group.order - b.group.order);
     // Reassign groupIndex to be the sorted array position
     for (let i = 0; i < sortedGroups.length; i++) {
         sortedGroups[i].groupIndex = i;
@@ -8401,6 +8642,7 @@ function emitAllBindings(ctx) {
     const uniformBlocks = [];
     const storageEntries = [];
     const textureEntries = [];
+    const storageTextureEntries = [];
     const samplerEntries = [];
     // emit struct definitions required by storage bindings (topological order)
     for (const [_typeName, def] of ctx.structDefs) {
@@ -8411,16 +8653,16 @@ function emitAllBindings(ctx) {
         lines.push(`}`);
         lines.push('');
     }
-    for (const group of sortedGroups) {
-        const groupIndex = group.groupIndex;
-        const groupName = group.groupNode.name;
+    for (const bindGroup of sortedGroups) {
+        const groupIndex = bindGroup.groupIndex;
+        const groupName = bindGroup.group.name;
         let bindingIndex = 0;
         // emit uniform struct and binding (if any uniforms)
-        if (group.uniforms.length > 0) {
+        if (bindGroup.uniforms.length > 0) {
             lines.push(`struct Uniforms_${groupName} {`);
             const members = [];
             let offset = 0;
-            for (const u of group.uniforms) {
+            for (const u of bindGroup.uniforms) {
                 const align = wgslAlign(u.type.wgslType);
                 const size = wgslSize(u.type.wgslType);
                 // align offset
@@ -8440,7 +8682,7 @@ function emitAllBindings(ctx) {
             lines.push('');
             // Compute struct alignment (max alignment of all members)
             let structAlign = 4;
-            for (const u of group.uniforms) {
+            for (const u of bindGroup.uniforms) {
                 structAlign = Math.max(structAlign, wgslAlign(u.type.wgslType));
             }
             // Round up totalBytes to struct alignment
@@ -8449,15 +8691,15 @@ function emitAllBindings(ctx) {
                 groupName,
                 groupIndex,
                 binding: bindingIndex,
-                shared: group.groupNode.shared,
+                shared: bindGroup.group.shared,
                 members,
                 totalBytes,
-                groupNode: group.groupNode,
+                group: bindGroup.group,
             });
             bindingIndex++;
         }
         // emit storage bindings
-        for (const { name, node } of group.storages) {
+        for (const { name, node } of bindGroup.storages) {
             const access = ctx.stage === 'compute' ? node.access : 'read';
             const accessStr = access === 'read_write' ? 'read_write' : 'read';
             lines.push(`@group(${groupIndex}) @binding(${bindingIndex}) var<storage, ${accessStr}> ${name}: ${node.storageType};`);
@@ -8472,7 +8714,7 @@ function emitAllBindings(ctx) {
             bindingIndex++;
         }
         // emit texture and sampler bindings
-        for (const { name, node } of group.textures) {
+        for (const { name, node } of bindGroup.textures) {
             lines.push(`@group(${groupIndex}) @binding(${bindingIndex}) var ${name}: ${node.type.wgslType};`);
             textureEntries.push({
                 textureId: name,
@@ -8483,7 +8725,30 @@ function emitAllBindings(ctx) {
             });
             bindingIndex++;
         }
-        for (const { name, node } of group.samplers) {
+        // emit storage texture bindings
+        for (const { name, node } of bindGroup.storageTextures) {
+            // WGSL forbids write/read_write storage textures outside compute. Force read in
+            // render stages so the emitted var access matches the bind-group layout access.
+            const access = ctx.stage === 'compute' ? node.access : 'read';
+            if (access !== node.access && node.access !== 'read') {
+                throw new Error(`[gpucat] storage texture '${name}' uses access '${node.access}' but is referenced in a ` +
+                    `${ctx.stage} shader; write/read_write storage textures are compute-only.`);
+            }
+            const wgslType = `texture_storage_${node.dim}<${node.format}, ${access}>`;
+            lines.push(`@group(${groupIndex}) @binding(${bindingIndex}) var ${name}: ${wgslType};`);
+            storageTextureEntries.push({
+                textureId: name,
+                type: wgslType,
+                format: node.format,
+                access,
+                dim: node.dim,
+                group: groupIndex,
+                binding: bindingIndex,
+                node,
+            });
+            bindingIndex++;
+        }
+        for (const { name, node } of bindGroup.samplers) {
             // node is now a SamplerNode - get sampler type from its compare property
             const samplerType = node.compare ? 'sampler_comparison' : 'sampler';
             lines.push(`@group(${groupIndex}) @binding(${bindingIndex}) var ${name}_sampler: ${samplerType};`);
@@ -8502,6 +8767,7 @@ function emitAllBindings(ctx) {
         uniformBlocks,
         storageEntries,
         textureEntries,
+        storageTextureEntries,
         samplerEntries,
     };
 }
@@ -8827,13 +9093,16 @@ function createUniformBindGroup(block) {
     };
 }
 /** Create a BindGroup for storage/texture/sampler bindings in a group */
-function createResourceBindGroup(name, groupIndex, shared, storage, textures, samplers) {
+function createResourceBindGroup(name, groupIndex, shared, storage, textures, storageTextures, samplers) {
     const bindings = [];
     for (const entry of storage) {
         bindings.push({ kind: 'storage', entry, lastBuffer: null });
     }
     for (const entry of textures) {
         bindings.push({ kind: 'texture', entry, generation: 0 });
+    }
+    for (const entry of storageTextures) {
+        bindings.push({ kind: 'storageTexture', entry, generation: 0 });
     }
     for (const entry of samplers) {
         bindings.push({ kind: 'sampler', entry, samplerKey: null });
@@ -8873,6 +9142,12 @@ function cloneBindGroup(source) {
             case 'texture':
                 return {
                     kind: 'texture',
+                    entry: binding.entry,
+                    generation: 0,
+                };
+            case 'storageTexture':
+                return {
+                    kind: 'storageTexture',
                     entry: binding.entry,
                     generation: 0,
                 };
@@ -8930,7 +9205,7 @@ function hashString$1(str) {
  */
 function createNodeBuilderState(compileResult, cacheKey, context) {
     // build template BindGroups from compile result
-    const bindings = buildTemplateBindGroups(compileResult.uniformGroups, compileResult.storage, compileResult.textures, compileResult.samplers, context);
+    const bindings = buildTemplateBindGroups(compileResult.uniformGroups, compileResult.storage, compileResult.textures, compileResult.storageTextures, compileResult.samplers, context);
     return {
         // Render shaders: combined vertex+fragment in single module
         vertexCode: compileResult.code,
@@ -8963,8 +9238,8 @@ function createNodeBuilderState(compileResult, cacheKey, context) {
  */
 function createNodeBuilderStateForCompute(compileResult, context) {
     // build template BindGroups from compile result
-    const bindings = buildTemplateBindGroups(compileResult.uniformGroups, compileResult.storage, [], // no textures for compute (for now)
-    [], // no samplers for compute (for now)
+    const bindings = buildTemplateBindGroups(compileResult.uniformGroups, compileResult.storage, [], // no sampled textures for compute
+    compileResult.storageTextures, [], // no samplers for compute (for now)
     context);
     return {
         // No render shaders
@@ -9005,7 +9280,7 @@ function createNodeBuilderStateForCompute(compileResult, context) {
  * For shared uniform-only groups, uses _bindingGroupsCache to return the same
  * BindGroup instance across all compilations.
  */
-function buildTemplateBindGroups(uniformGroups, storage, textures, samplers, context) {
+function buildTemplateBindGroups(uniformGroups, storage, textures, storageTextures, samplers, context) {
     // Get or create the cache for this context
     let contextCache = _bindingGroupsCache.get(context);
     if (contextCache === undefined) {
@@ -9022,6 +9297,8 @@ function buildTemplateBindGroups(uniformGroups, storage, textures, samplers, con
         groupIndices.add(s.group);
     for (const t of textures)
         groupIndices.add(t.group);
+    for (const st of storageTextures)
+        groupIndices.add(st.group);
     for (const s of samplers)
         groupIndices.add(s.group);
     // build BindGroup for each index
@@ -9033,10 +9310,11 @@ function buildTemplateBindGroups(uniformGroups, storage, textures, samplers, con
         // collect resources for this group
         const groupStorage = storage.filter((s) => s.group === groupIdx);
         const groupTextures = textures.filter((t) => t.group === groupIdx);
+        const groupStorageTextures = storageTextures.filter((st) => st.group === groupIdx);
         const groupSamplers = samplers.filter((s) => s.group === groupIdx);
         // determine shared flag (from uniform group if present, otherwise false)
         const shared = uniformGroup?.shared ?? false;
-        if (uniformGroup && groupStorage.length === 0 && groupTextures.length === 0 && groupSamplers.length === 0) {
+        if (uniformGroup && groupStorage.length === 0 && groupTextures.length === 0 && groupStorageTextures.length === 0 && groupSamplers.length === 0) {
             // uniform-only group
             if (shared) {
                 // Shared group: use cache
@@ -9067,6 +9345,9 @@ function buildTemplateBindGroups(uniformGroups, storage, textures, samplers, con
             for (const t of groupTextures) {
                 bindGroup.bindings.push({ kind: 'texture', entry: t, generation: 0 });
             }
+            for (const st of groupStorageTextures) {
+                bindGroup.bindings.push({ kind: 'storageTexture', entry: st, generation: 0 });
+            }
             for (const s of groupSamplers) {
                 bindGroup.bindings.push({ kind: 'sampler', entry: s, samplerKey: null });
             }
@@ -9074,7 +9355,7 @@ function buildTemplateBindGroups(uniformGroups, storage, textures, samplers, con
         }
         else {
             // resource-only group (no uniform)
-            bindGroups.push(createResourceBindGroup(`group${groupIdx}`, groupIdx, shared, groupStorage, groupTextures, groupSamplers));
+            bindGroups.push(createResourceBindGroup(`group${groupIdx}`, groupIdx, shared, groupStorage, groupTextures, groupStorageTextures, groupSamplers));
         }
     }
     return bindGroups;
@@ -9395,6 +9676,25 @@ function buildComputeBindGroupLayouts(device, bindings, layoutCache) {
                         binding: binding.entry.binding,
                         visibility: vis,
                         texture: texLayout,
+                    });
+                    break;
+                }
+                case 'storageTexture': {
+                    const access = binding.entry.access === 'write' ? 'write-only'
+                        : binding.entry.access === 'read_write' ? 'read-write'
+                            : 'read-only';
+                    const viewDimension = binding.entry.dim === '1d' ? '1d'
+                        : binding.entry.dim === '2d_array' ? '2d-array'
+                            : binding.entry.dim === '3d' ? '3d'
+                                : '2d';
+                    entries.push({
+                        binding: binding.entry.binding,
+                        visibility: vis,
+                        storageTexture: {
+                            access,
+                            format: binding.entry.format,
+                            viewDimension,
+                        },
                     });
                     break;
                 }
@@ -10723,6 +11023,38 @@ function updateTexture(cache, device, texture) {
     }
     const isCube = texture.viewDimension === 'cube' || texture.viewDimension === 'cube-array';
     const isArray = texture.viewDimension === '2d-array';
+    const isStorage = texture.type.type.startsWith('texture_storage_');
+    // Storage textures have no source data — their contents are written by a compute
+    // pass via textureStore. Create the real GPU texture (with STORAGE_BINDING usage) and
+    // skip the source-upload path entirely; never fall back to the default texture.
+    // A version bump (e.g. resize via needsUpdate) recreates the GPU texture at the new size.
+    if (isStorage) {
+        if (data && data.version === texture.version) {
+            return data;
+        }
+        const gpuTextureResource = createGPUTexture(device, texture);
+        if (!data) {
+            data = {
+                texture: gpuTextureResource,
+                version: texture.version,
+                generation: texture.version,
+                initialized: true,
+                isDefaultTexture: false,
+            };
+            cache.textureMap.set(texture, data);
+            cache.textureCount++;
+            setupDispose(cache, texture);
+        }
+        else {
+            // Recreate at the new size: destroy the old GPU texture, swap in the new one,
+            // and bump generation so dependent bind groups rebuild with the fresh view.
+            data.texture.destroy();
+            data.texture = gpuTextureResource;
+            data.version = texture.version;
+            data.generation = texture.version;
+        }
+        return data;
+    }
     // Check if source data is ready
     // For cube textures, check all face sources
     // For array textures, check all layer sources
@@ -10830,11 +11162,18 @@ function createGPUTexture(device, texture) {
     const mipLevelCount = texture.generateMipmaps
         ? Math.floor(Math.log2(Math.max(texture.width, texture.height))) + 1
         : texture.mipLevelCount;
+    // RENDER_ATTACHMENT is forced on so render-pass mipmap generation works. But NOT for single-mip
+    // storage textures: some storage formats (e.g. rgba8snorm) aren't renderable, so force-adding it
+    // would fail createTexture — and a storage texture with no mips never needs render-pass mip-gen.
+    const isStorage = texture.type.type.startsWith('texture_storage_');
+    const usage = (!isStorage || mipLevelCount > 1)
+        ? texture.usage | GPUTextureUsage.RENDER_ATTACHMENT
+        : texture.usage;
     const gpuTexture = device.createTexture({
         dimension: texture.dimension,
         size: [texture.width, texture.height, texture.depthOrArrayLayers],
         format: texture.format,
-        usage: texture.usage | GPUTextureUsage.RENDER_ATTACHMENT, // RENDER_ATTACHMENT needed for mipmap generation
+        usage,
         mipLevelCount,
         sampleCount: texture.sampleCount,
     });
@@ -12064,6 +12403,23 @@ function getTextureLayoutFromType(wgslType) {
     // default is 'float'
     return layout;
 }
+/** Map a storage texture WGSL dimension tag to a GPU view dimension. */
+function storageViewDimension(dim) {
+    switch (dim) {
+        case '1d': return '1d';
+        case '2d_array': return '2d-array';
+        case '3d': return '3d';
+        default: return '2d';
+    }
+}
+/** Map a WGSL storage access keyword to the bind-group-layout access enum. */
+function storageLayoutAccess(access) {
+    switch (access) {
+        case 'write': return 'write-only';
+        case 'read_write': return 'read-write';
+        default: return 'read-only';
+    }
+}
 /**
  * Get or create BindGroupData for a BindGroup.
  * This is the DataMap pattern - auto-creates data on first access.
@@ -12198,6 +12554,18 @@ function buildLayoutEntries(bindGroup, visibility) {
                 });
                 break;
             }
+            case 'storageTexture': {
+                entries.push({
+                    binding: binding.entry.binding,
+                    visibility,
+                    storageTexture: {
+                        access: storageLayoutAccess(binding.entry.access),
+                        format: binding.entry.format,
+                        viewDimension: storageViewDimension(binding.entry.dim),
+                    },
+                });
+                break;
+            }
             case 'sampler':
                 entries.push({
                     binding: binding.entry.binding,
@@ -12223,6 +12591,9 @@ function updateRenderBindGroup(data, bindGroup, renderObject, frame, device, buf
             case 'texture':
                 updateTextureBinding(textureCache, device, binding, data);
                 break;
+            case 'storageTexture':
+                updateStorageTextureBinding(textureCache, device, binding, data);
+                break;
             case 'sampler':
                 updateSamplerBinding(textureCache, device, binding, data);
                 break;
@@ -12236,13 +12607,13 @@ function updateRenderBindGroup(data, bindGroup, renderObject, frame, device, buf
 function updateUniformBinding(bufferCache, device, binding, frame, data, material = null) {
     const block = binding.block;
     // Deduplication gate: skip if this binding was already processed at the current frame/render ID.
-    // Based on groupNode.updateType:
+    // Based on group.updateType:
     //   'frame'  - check frameId (once per animation frame)
     //   'render' - check renderId (once per render() call)
     //   'object' - always process (content changes per-mesh)
     //   'none'   - always process
-    if (block.groupNode.shared) {
-        const updateType = block.groupNode.updateType;
+    if (block.group.shared) {
+        const updateType = block.group.updateType;
         if (updateType === 'frame') {
             if (binding.lastFrameId === frame.frameId)
                 return;
@@ -12353,6 +12724,19 @@ function updateTextureBinding(textureCache, device, binding, data) {
         }
     }
 }
+/** Update a storage texture binding — ensure GPU texture exists, detect changes. */
+function updateStorageTextureBinding(textureCache, device, binding, data) {
+    const gpuTexture = binding.entry.node.value;
+    if (gpuTexture === null)
+        return;
+    // Storage textures hold no source data; updateTexture just ensures the GPU
+    // texture exists and returns its cache entry (with a generation counter).
+    const texData = updateTexture(textureCache, device, gpuTexture);
+    if (binding.generation !== texData.generation) {
+        binding.generation = texData.generation;
+        data.needsUpdate = true;
+    }
+}
 /** Update a sampler binding. */
 function updateSamplerBinding(textureCache, device, binding, data) {
     const samplerNode = binding.entry.samplerNode;
@@ -12415,6 +12799,22 @@ function rebuildGPUBindGroup(device, bufferCache, textureCache, bindGroup, data,
                 }
                 break;
             }
+            case 'storageTexture': {
+                const gpuTexture = binding.entry.node.value;
+                if (!gpuTexture)
+                    break;
+                const texData = getTextureData(textureCache, gpuTexture);
+                if (texData) {
+                    // Storage views target a single mip level at the node's chosen baseMipLevel.
+                    const view = texData.texture.createView({
+                        dimension: storageViewDimension(binding.entry.dim),
+                        baseMipLevel: binding.entry.node.mipLevel,
+                        mipLevelCount: 1,
+                    });
+                    entries.push({ binding: binding.entry.binding, resource: view });
+                }
+                break;
+            }
             case 'sampler': {
                 const samplerNode = binding.entry.samplerNode;
                 const gpuSampler = samplerNode.value;
@@ -12464,6 +12864,9 @@ function updateComputeBindGroup(data, bufferCache, textureCache, device, bindGro
                 break;
             case 'texture':
                 updateTextureBinding(textureCache, device, binding, data);
+                break;
+            case 'storageTexture':
+                updateStorageTextureBinding(textureCache, device, binding, data);
                 break;
             case 'sampler':
                 updateSamplerBinding(textureCache, device, binding, data);
@@ -28997,6 +29400,17 @@ function computeViewZ(mesh, camera) {
     return vm[2] * wx + vm[6] * wy + vm[10] * wz + vm[14];
 }
 
+/**
+ * Storage formats whose mips can be auto-generated. Render-pass mip generation samples
+ * the prior level through a filtering sampler, so only filterable renderable formats qualify
+ * (8-bit unorm + 16-bit float). Integer and 32-bit-float storage formats are excluded.
+ */
+const FILTERABLE_STORAGE_FORMATS = new Set([
+    'rgba8unorm', 'rgba8snorm', 'bgra8unorm', 'rgba16float',
+]);
+function isFilterableStorageFormat(format) {
+    return FILTERABLE_STORAGE_FORMATS.has(format);
+}
 class WebGPURenderer {
     /** Whether the renderer has been initialized (adapter/device/context created) or not. @internal */
     _initialized = false;
@@ -29431,11 +29845,23 @@ class WebGPURenderer {
         if (inspector)
             inspector.perf.start('compute');
         const encoder = this._device.createCommandEncoder();
+        // Storage textures written this batch that want their mips regenerated after submit.
+        const mipDirty = new Set();
         for (const entry of entries) {
             const { node } = entry;
             const pipelineEntry = getForCompute(this._pipelines, this._device, this._nodes, node, this._computeContext);
             const { nodeBuilderState } = pipelineEntry;
             const buffers = entry.buffers ?? null;
+            // Track written storage textures (with mips + auto-update) for post-submit mip regen.
+            for (const bg of nodeBuilderState.bindings) {
+                for (const b of bg.bindings) {
+                    if (b.kind !== 'storageTexture' || b.entry.access === 'read')
+                        continue;
+                    const tex = b.entry.node.value;
+                    if (tex && tex.mipmapsAutoUpdate && tex.mipLevelCount > 1)
+                        mipDirty.add(tex);
+                }
+            }
             if (inspector) {
                 inspector.perf.start(`compute: ${node.id}`);
                 inspector.perf.start('updateForCompute');
@@ -29472,6 +29898,19 @@ class WebGPURenderer {
             }
         }
         this._device.queue.submit([encoder.finish()]);
+        // Regenerate mips for written storage textures so a later render pass can sample
+        // them mipmapped. Render-pass mip-gen samples through a filtering sampler, so only
+        // filterable renderable formats are supported (others would need a compute downsample).
+        for (const tex of mipDirty) {
+            if (isFilterableStorageFormat(tex.format)) {
+                generateTextureMipmaps(this._textures, this._device, tex);
+            }
+            else {
+                console.warn(`[WebGPURenderer] mipmapsAutoUpdate skipped: storage format '${tex.format}' is not ` +
+                    `filterable, so render-pass mip generation can't sample it. Set mipmapsAutoUpdate=false ` +
+                    `and generate mips manually, or use a filterable format (rgba8unorm/rgba16float).`);
+            }
+        }
         if (inspector)
             inspector.perf.end('compute');
         // Top-level call complete (encoder submitted): close the inspector frame.
@@ -30112,5 +30551,5 @@ async function readPixels(renderer, renderTarget, attachmentIndex = 0, layer = 0
     return tightlyPacked;
 }
 
-export { ArrayTexture, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CubeCamera, CubeRenderTarget, CubeTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, FlyControls, Fn, For, Geometry, GpuBuffer, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, Raycaster, RenderPipeline, RenderTarget, Return, Scene, Source, TOUCH, Texture, TransformControls, Uniform, UniformGroup, UniformUpdateType, Var, WebGPURenderer, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, ceil, clamp, color, comparisonSampler, compile, compileCompute, compute, computeIndex, cond, cos, countLeadingZeros, countOneBits, countTrailingZeros, createBoxGeometry, createCylinderGeometry, createFullscreenTriangleGeometry, createIndexBuffer, createIndirectBuffer, createOctahedronGeometry, createPlaneGeometry, createSphereGeometry, createStorageBuffer, createTorusGeometry, createUniformBuffer, createVertexBuffer, cross$1 as cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot$1 as dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frameGroup, frustum, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, globalId, greaterThan, greaterThanEqual, i32, index, instanceIndex, inverseSqrt, layoutSizeOf, layoutStrideOf, length$1 as length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, normalize$4 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, pass, positionClip, pow, readPixels, reinhardToneMapping, renderGroup, renderOutput, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, struct, sub, tan, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transpose$1 as transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgsl, wgslFn, workgroupBarrier, workgroupId };
+export { ArrayTexture, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CubeCamera, CubeRenderTarget, CubeTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, FlyControls, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, Raycaster, RenderPipeline, RenderTarget, Return, Scene, Source, TOUCH, Texture, TransformControls, Uniform, UniformGroup, UniformUpdateType, Var, WebGPURenderer, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, ceil, clamp, color, comparisonSampler, compile, compileCompute, compute, computeIndex, cond, cos, countLeadingZeros, countOneBits, countTrailingZeros, createBoxGeometry, createCylinderGeometry, createFullscreenTriangleGeometry, createIndexBuffer, createIndirectBuffer, createOctahedronGeometry, createPlaneGeometry, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createTorusGeometry, createUniformBuffer, createVertexBuffer, cross$1 as cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot$1 as dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frameGroup, frustum, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, globalId, greaterThan, greaterThanEqual, i32, index, instanceIndex, inverseSqrt, layoutSizeOf, layoutStrideOf, length$1 as length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, normalize$4 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, pass, positionClip, pow, readPixels, reinhardToneMapping, renderGroup, renderOutput, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub, tan, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transpose$1 as transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgsl, wgslFn, workgroupBarrier, workgroupId };
 //# sourceMappingURL=index.js.map
