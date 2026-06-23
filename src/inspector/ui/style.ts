@@ -37,8 +37,17 @@ const CSS = `
 	--color-yellow: #ffc107;
 	--color-red: #f44336;
 	--color-orange: #ff9800;
+	/* shape + density tokens (single source of truth for the reskin) */
+	--radius: 0px;          /* roundedness off; bump to 2px to soften */
+	--space-1: 2px;
+	--space-2: 4px;
+	--space-3: 8px;
+	--font-size: 11px;
+	--font-size-sm: 10px;
+	--control-h: 20px;      /* rows, inputs, buttons */
+	--header-h: 24px;       /* tab bar / title / toggle pill */
 	font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-	font-size: 12px;
+	font-size: var(--font-size);
 	color: var(--text-primary);
 	box-sizing: border-box;
 }
@@ -60,19 +69,19 @@ const CSS = `
 	display: flex;
 	align-items: center;
 	gap: 6px;
-	padding: 4px 10px 4px 6px;
+	padding: var(--space-2) var(--space-3);
 	background: var(--header-bg);
 	border: 1px solid var(--border-color);
 	border-bottom: none;
-	border-radius: 6px 6px 0 0;
+	border-radius: var(--radius);
 	color: var(--text-primary);
 	cursor: pointer;
 	font-family: inherit;
-	font-size: 12px;
+	font-size: var(--font-size);
 	line-height: 1;
 	user-select: none;
 	white-space: nowrap;
-	min-height: 28px;
+	min-height: var(--header-h);
 }
 
 #profiler-toggle:hover {
@@ -84,7 +93,7 @@ const CSS = `
 	top: 0;
 	left: auto;
 	right: 0;
-	border-radius: 0 0 0 6px;
+	border-radius: var(--radius);
 	border-bottom: 1px solid var(--border-color);
 	border-right: none;
 }
@@ -98,7 +107,7 @@ const CSS = `
 }
 
 .fps-label {
-	font-size: 10px;
+	font-size: var(--font-size-sm);
 	color: var(--text-muted);
 	text-transform: uppercase;
 }
@@ -124,11 +133,11 @@ const CSS = `
 .builtin-tab-btn {
 	background: none;
 	border: 1px solid transparent;
-	border-radius: 4px;
+	border-radius: var(--radius);
 	color: var(--text-secondary);
 	cursor: pointer;
 	padding: 3px 5px;
-	font-size: 11px;
+	font-size: var(--font-size);
 	line-height: 1;
 	font-family: inherit;
 	display: flex;
@@ -156,7 +165,7 @@ const CSS = `
 	z-index: 1000;
 	background: var(--panel-bg);
 	border: 1px solid var(--border-color);
-	border-radius: 6px 6px 0 0;
+	border-radius: var(--radius);
 	min-width: 300px;
 	max-width: 420px;
 	max-height: 80vh;
@@ -175,7 +184,7 @@ const CSS = `
 	top: 32px;
 	left: auto;
 	right: 0;
-	border-radius: 0 0 6px 6px;
+	border-radius: var(--radius);
 	box-shadow: 0 4px 16px rgba(0,0,0,0.4);
 }
 
@@ -284,7 +293,7 @@ const CSS = `
 	border-bottom: 1px solid var(--border-color);
 	flex-shrink: 0;
 	overflow: hidden;
-	min-height: 34px;
+	min-height: var(--header-h);
 }
 
 .profiler-tabs {
@@ -302,21 +311,21 @@ const CSS = `
 }
 
 .tab-btn {
-	padding: 0 14px;
+	padding: 0 var(--space-3);
 	background: none;
 	border: none;
 	border-bottom: 2px solid transparent;
 	color: var(--text-secondary);
 	cursor: grab;
 	font-family: inherit;
-	font-size: 12px;
+	font-size: var(--font-size);
 	white-space: nowrap;
 	user-select: none;
 	flex-shrink: 0;
 	display: flex;
 	align-items: center;
 	transition: color 0.1s;
-	min-height: 34px;
+	min-height: var(--header-h);
 }
 
 .tab-btn:hover {
@@ -344,16 +353,16 @@ const CSS = `
 .profiler-controls button {
 	background: none;
 	border: 1px solid transparent;
-	border-radius: 4px;
+	border-radius: var(--radius);
 	color: var(--text-secondary);
 	cursor: pointer;
 	padding: 3px 6px;
-	font-size: 12px;
+	font-size: var(--font-size);
 	line-height: 1;
 	font-family: inherit;
 	display: flex;
 	align-items: center;
-	min-height: 24px;
+	min-height: var(--control-h);
 }
 
 .profiler-controls button:hover {
@@ -401,7 +410,7 @@ const CSS = `
 	height: 300px;
 	background: var(--panel-bg);
 	border: 1px solid var(--border-color);
-	border-radius: 6px;
+	border-radius: var(--radius);
 	box-shadow: 0 8px 32px rgba(0,0,0,0.5);
 	display: flex;
 	flex-direction: column;
@@ -419,9 +428,9 @@ const CSS = `
 	cursor: grab;
 	flex-shrink: 0;
 	user-select: none;
-	font-size: 12px;
+	font-size: var(--font-size);
 	color: var(--text-primary);
-	min-height: 30px;
+	min-height: var(--header-h);
 }
 
 .detached-tab-header:active {
@@ -437,11 +446,11 @@ const CSS = `
 .detached-reattach-btn {
 	background: none;
 	border: 1px solid var(--border-color);
-	border-radius: 4px;
+	border-radius: var(--radius);
 	color: var(--text-secondary);
 	cursor: pointer;
 	padding: 2px 6px;
-	font-size: 13px;
+	font-size: var(--font-size);
 	line-height: 1;
 }
 
@@ -512,7 +521,7 @@ const CSS = `
 .list-header {
 	display: grid;
 	padding: 5px 8px;
-	font-size: 10px;
+	font-size: var(--font-size-sm);
 	color: var(--text-muted);
 	text-transform: uppercase;
 	letter-spacing: 0.05em;
@@ -542,7 +551,7 @@ const CSS = `
 	padding: 3px 8px;
 	cursor: default;
 	align-items: center;
-	min-height: 26px;
+	min-height: var(--control-h);
 }
 
 .list-item-row:hover {
@@ -569,7 +578,7 @@ const CSS = `
 	white-space: nowrap;
 	gap: 4px;
 	color: var(--text-primary);
-	font-size: 12px;
+	font-size: var(--font-size);
 }
 
 .list-item-cell:not(:first-child) {
@@ -581,7 +590,7 @@ const CSS = `
 .list-item-wrapper.header-wrapper > .list-item-row {
 	background: var(--header-bg);
 	color: var(--text-secondary);
-	font-size: 11px;
+	font-size: var(--font-size);
 	border-top: 1px solid var(--border-color);
 }
 
@@ -594,7 +603,7 @@ const CSS = `
 	display: inline-block;
 	width: 14px;
 	flex-shrink: 0;
-	font-size: 9px;
+	font-size: var(--font-size-sm);
 	color: var(--text-muted);
 	text-align: center;
 }
@@ -683,10 +692,10 @@ const CSS = `
 .param-control input[type="number"] {
 	background: #111;
 	border: 1px solid var(--border-color);
-	border-radius: 3px;
+	border-radius: var(--radius);
 	color: var(--text-primary);
 	font-family: inherit;
-	font-size: 11px;
+	font-size: var(--font-size);
 	padding: 2px 4px;
 	width: 80px;
 	outline: none;
@@ -707,10 +716,10 @@ const CSS = `
 .param-control select {
 	background: #111;
 	border: 1px solid var(--border-color);
-	border-radius: 3px;
+	border-radius: var(--radius);
 	color: var(--text-primary);
 	font-family: inherit;
-	font-size: 11px;
+	font-size: var(--font-size);
 	padding: 2px 4px;
 	cursor: pointer;
 	outline: none;
@@ -719,9 +728,9 @@ const CSS = `
 
 .param-control input[type="color"] {
 	width: 30px;
-	height: 22px;
+	height: var(--control-h);
 	border: 1px solid var(--border-color);
-	border-radius: 3px;
+	border-radius: var(--radius);
 	cursor: pointer;
 	padding: 1px;
 	background: none;
@@ -730,12 +739,12 @@ const CSS = `
 .param-control button {
 	background: rgba(255,255,255,0.07);
 	border: 1px solid var(--border-color);
-	border-radius: 3px;
+	border-radius: var(--radius);
 	color: var(--text-primary);
 	cursor: pointer;
 	font-family: inherit;
-	font-size: 11px;
-	padding: 3px 10px;
+	font-size: var(--font-size);
+	padding: var(--space-1) var(--space-3);
 	width: 100%;
 }
 
@@ -751,7 +760,7 @@ const CSS = `
 	gap: 5px;
 	cursor: pointer;
 	user-select: none;
-	font-size: 11px;
+	font-size: var(--font-size);
 }
 
 .custom-checkbox input[type="checkbox"] {
@@ -763,7 +772,7 @@ const CSS = `
 	width: 14px;
 	height: 14px;
 	border: 1px solid var(--border-color);
-	border-radius: 3px;
+	border-radius: var(--radius);
 	background: #111;
 	flex-shrink: 0;
 	position: relative;
@@ -812,10 +821,10 @@ const CSS = `
 	flex: 1;
 	background: #111;
 	border: 1px solid var(--border-color);
-	border-radius: 3px;
+	border-radius: var(--radius);
 	color: var(--text-primary);
 	font-family: inherit;
-	font-size: 11px;
+	font-size: var(--font-size);
 	padding: 3px 6px;
 	outline: none;
 }
@@ -833,11 +842,11 @@ const CSS = `
 .console-copy-button {
 	background: rgba(255,255,255,0.06);
 	border: 1px solid var(--border-color);
-	border-radius: 4px;
+	border-radius: var(--radius);
 	color: var(--text-secondary);
 	cursor: pointer;
 	padding: 3px 6px;
-	font-size: 11px;
+	font-size: var(--font-size);
 	font-family: inherit;
 	display: flex;
 	align-items: center;
@@ -861,11 +870,11 @@ const CSS = `
 }
 
 .log-message {
-	padding: 4px 10px;
+	padding: var(--space-2) var(--space-3);
 	border-bottom: 1px solid rgba(255,255,255,0.04);
 	word-break: break-all;
 	line-height: 1.5;
-	font-size: 11px;
+	font-size: var(--font-size);
 	color: var(--text-primary);
 }
 
@@ -891,9 +900,9 @@ const CSS = `
 .log-code {
 	font-family: inherit;
 	background: rgba(255,255,255,0.08);
-	border-radius: 2px;
+	border-radius: var(--radius);
 	padding: 0 3px;
-	font-size: 11px;
+	font-size: var(--font-size);
 }
 
 /* ============================================================
@@ -925,7 +934,7 @@ const CSS = `
 .detached-tab-panel ::-webkit-scrollbar-thumb,
 #profiler-mini-panel ::-webkit-scrollbar-thumb {
 	background: var(--border-color);
-	border-radius: 3px;
+	border-radius: var(--radius);
 }
 
 #profiler-panel ::-webkit-scrollbar-thumb:hover,
@@ -1011,9 +1020,9 @@ const CSS = `
 	justify-content: center;
 	height: 100%;
 	color: var(--text-muted);
-	font-size: 12px;
+	font-size: var(--font-size);
 	text-align: center;
-	padding: 16px;
+	padding: var(--space-3);
 }
 
 /* ============================================================
@@ -1022,11 +1031,11 @@ const CSS = `
 
 .hierarchy-type-badge {
 	display: inline-block;
-	font-size: 10px;
+	font-size: var(--font-size-sm);
 	font-weight: 600;
 	letter-spacing: 0.04em;
 	padding: 1px 5px;
-	border-radius: 3px;
+	border-radius: var(--radius);
 	white-space: nowrap;
 	text-transform: uppercase;
 	background: rgba(255,255,255,0.07);
@@ -1123,11 +1132,11 @@ const CSS = `
 .shader-stage-btn {
 	background: none;
 	border: 1px solid transparent;
-	border-radius: 4px;
+	border-radius: var(--radius);
 	color: var(--text-secondary);
 	cursor: pointer;
 	font-family: inherit;
-	font-size: 11px;
+	font-size: var(--font-size);
 	padding: 3px 8px;
 	line-height: 1;
 	transition: color 0.1s;
@@ -1156,9 +1165,9 @@ const CSS = `
 
 pre.shader-code {
 	margin: 0;
-	padding: 8px 12px;
+	padding: var(--space-2) var(--space-3);
 	font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-	font-size: 11px;
+	font-size: var(--font-size);
 	line-height: 1.55;
 	white-space: pre;
 	color: var(--text-primary);
@@ -1202,10 +1211,10 @@ pre.shader-code {
     display: flex;
     flex-direction: column;
     gap: 6px;
-    padding: 8px 10px;
+    padding: var(--space-2) var(--space-3);
     background: var(--panel-bg, #1e1e1e);
     border: 1px solid var(--border-color, #383838);
-    border-radius: 6px;
+    border-radius: var(--radius);
     box-shadow: 0 4px 20px rgba(0,0,0,0.5);
     pointer-events: none;
     min-width: 160px;
@@ -1213,7 +1222,7 @@ pre.shader-code {
 }
 
 .probe-popover-label {
-    font-size: 10px;
+    font-size: var(--font-size-sm);
     color: var(--text-muted, #666);
     font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
     white-space: nowrap;
@@ -1222,7 +1231,7 @@ pre.shader-code {
 }
 
 .probe-popover-canvas canvas {
-    border-radius: 4px;
+    border-radius: var(--radius);
     display: block;
 }
 
@@ -1282,7 +1291,7 @@ pre.shader-code {
 
 .dc-kv-key {
     color: var(--text-muted);
-    font-size: 11px;
+    font-size: var(--font-size);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1290,7 +1299,7 @@ pre.shader-code {
 
 .dc-kv-val {
     color: var(--text-primary);
-    font-size: 11px;
+    font-size: var(--font-size);
     font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1299,7 +1308,7 @@ pre.shader-code {
 
 .dc-section-header {
     padding: 6px 8px;
-    font-size: 10px;
+    font-size: var(--font-size-sm);
     color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: .05em;
@@ -1309,12 +1318,12 @@ pre.shader-code {
 }
 
 .dc-nav-link {
-    font-size: 10px;
+    font-size: var(--font-size-sm);
     color: var(--accent-color);
     cursor: pointer;
     padding: 2px 6px;
     border: 1px solid var(--accent-dim);
-    border-radius: 3px;
+    border-radius: var(--radius);
     background: none;
     font-family: inherit;
     flex-shrink: 0;
@@ -1336,7 +1345,7 @@ pre.shader-code {
 
 .gui {
 	font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-	font-size: 12px;
+	font-size: var(--font-size);
 	color: var(--text-primary);
 	user-select: none;
 	-webkit-user-select: none;
@@ -1358,13 +1367,13 @@ pre.shader-code {
 	color: var(--text-secondary);
 	cursor: pointer;
 	font-family: inherit;
-	font-size: 11px;
+	font-size: var(--font-size);
 	font-weight: normal;
 	text-align: left;
 	text-transform: uppercase;
 	letter-spacing: 0.05em;
 	line-height: 1;
-	min-height: 26px;
+	min-height: var(--control-h);
 }
 
 .gui-title:hover {
@@ -1376,7 +1385,7 @@ pre.shader-code {
 .gui-title::before {
 	content: '▶';
 	display: inline-block;
-	font-size: 9px;
+	font-size: var(--font-size-sm);
 	margin-right: 6px;
 	color: var(--text-muted);
 	transition: transform 0.15s ease;
@@ -1410,7 +1419,7 @@ pre.shader-code {
 	grid-template-columns: 0.5fr 1fr;
 	align-items: center;
 	padding: 3px 8px;
-	min-height: 26px;
+	min-height: var(--control-h);
 	border-bottom: 1px solid rgba(56, 56, 56, 0.4);
 }
 
@@ -1430,7 +1439,7 @@ label.gui-controller {
 
 .gui-name {
 	color: var(--text-primary);
-	font-size: 12px;
+	font-size: var(--font-size);
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
@@ -1449,10 +1458,10 @@ label.gui-controller {
 .gui-number .gui-widget input {
 	background: #111;
 	border: 1px solid var(--border-color);
-	border-radius: 3px;
+	border-radius: var(--radius);
 	color: var(--text-primary);
 	font-family: inherit;
-	font-size: 11px;
+	font-size: var(--font-size);
 	padding: 2px 4px;
 	width: 100%;
 	outline: none;
@@ -1471,10 +1480,10 @@ label.gui-controller {
 .gui-slider {
 	position: relative;
 	flex: 1;
-	height: 22px;
+	height: var(--control-h);
 	background: #111;
 	border: 1px solid var(--border-color);
-	border-radius: 3px;
+	border-radius: var(--radius);
 	cursor: ew-resize;
 	overflow: hidden;
 }
@@ -1513,7 +1522,7 @@ label.gui-controller {
 	width: 14px;
 	height: 14px;
 	border: 1px solid var(--border-color);
-	border-radius: 3px;
+	border-radius: var(--radius);
 	background: #111;
 	flex-shrink: 0;
 	position: relative;
@@ -1542,10 +1551,10 @@ label.gui-controller {
 .gui-string input[type="text"] {
 	background: #111;
 	border: 1px solid var(--border-color);
-	border-radius: 3px;
+	border-radius: var(--radius);
 	color: var(--text-primary);
 	font-family: inherit;
-	font-size: 11px;
+	font-size: var(--font-size);
 	padding: 2px 4px;
 	width: 100%;
 	outline: none;
@@ -1565,7 +1574,7 @@ label.gui-controller {
 	width: 22px;
 	height: 18px;
 	border: 1px solid var(--border-color);
-	border-radius: 3px;
+	border-radius: var(--radius);
 	cursor: pointer;
 	flex-shrink: 0;
 	position: relative;
@@ -1587,10 +1596,10 @@ label.gui-controller {
 .gui-color input[type="text"] {
 	background: #111;
 	border: 1px solid var(--border-color);
-	border-radius: 3px;
+	border-radius: var(--radius);
 	color: var(--text-primary);
 	font-family: inherit;
-	font-size: 11px;
+	font-size: var(--font-size);
 	padding: 2px 4px;
 	flex: 1;
 	min-width: 0;
@@ -1606,10 +1615,10 @@ label.gui-controller {
 .gui-option select {
 	background: #111;
 	border: 1px solid var(--border-color);
-	border-radius: 3px;
+	border-radius: var(--radius);
 	color: var(--text-primary);
 	font-family: inherit;
-	font-size: 11px;
+	font-size: var(--font-size);
 	padding: 2px 4px;
 	cursor: pointer;
 	outline: none;
@@ -1625,12 +1634,12 @@ label.gui-controller {
 .gui-function button {
 	background: rgba(255, 255, 255, 0.07);
 	border: 1px solid var(--border-color);
-	border-radius: 3px;
+	border-radius: var(--radius);
 	color: var(--text-primary);
 	cursor: pointer;
 	font-family: inherit;
-	font-size: 11px;
-	padding: 4px 10px;
+	font-size: var(--font-size);
+	padding: var(--space-2) var(--space-3);
 	width: 100%;
 	text-align: left;
 }
@@ -1647,7 +1656,7 @@ label.gui-controller {
 
 .gui-children .gui .gui-title {
 	padding-left: 16px;
-	font-size: 10px;
+	font-size: var(--font-size-sm);
 }
 `;
 

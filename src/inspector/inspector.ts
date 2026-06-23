@@ -433,7 +433,6 @@ export class Inspector extends RendererInspector {
         // Create preview canvas + depth texture
         const canvas = document.createElement('canvas');
         canvas.style.display = 'block';
-        canvas.style.borderRadius = '4px';
         const canvasTarget = new CanvasTarget(canvas);
         canvasTarget.setSize(140, 140);
 
@@ -573,7 +572,6 @@ export class Inspector extends RendererInspector {
         if (canvasData === undefined) {
             const canvas = document.createElement('canvas');
             canvas.style.display = 'block';
-            canvas.style.borderRadius = '4px';
 
             const canvasTarget = new CanvasTarget(canvas);
             canvasTarget.setPixelRatio(window.devicePixelRatio);

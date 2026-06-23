@@ -161,7 +161,7 @@ export class PerformanceTimeline extends Tab {
             background: #333;
             color: ${COLORS.text};
             padding: 8px 10px;
-            border-radius: 4px;
+            border-radius: var(--radius);
             font: 11px/1.4 monospace;
             pointer-events: none;
             z-index: 1000;
@@ -190,7 +190,7 @@ export class PerformanceTimeline extends Tab {
             background: #404040;
             color: ${COLORS.text};
             border: 1px solid ${COLORS.border};
-            border-radius: 3px;
+            border-radius: var(--radius);
             cursor: pointer;
         `;
     }
