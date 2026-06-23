@@ -688,7 +688,7 @@ One buffer can hold several draws (`geometry.indirectDrawCount`), and `geometry.
 
 See `examples/src/example-indirect-batched.ts` (CPU-driven multi-draw) and `example-indirect-compute.ts` (a compute pass writes the draw args each frame).
 
-<ExamplesTable ids="example-indirect-batched,example-indirect-compute,example-voxels-batched" />
+<ExamplesTable ids="example-indirect-batched,example-indirect-compute,example-voxels" />
 
 ## Controls and the Inspector
 

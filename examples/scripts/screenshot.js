@@ -91,9 +91,19 @@ try {
     console.log(`Vite ready at ${url}`);
 
     const browser = await chromium.launch({
+        // Headless by default so the run doesn't steal desktop focus.
+        // Set HEADED=1 to watch it drive a real window.
+        headless: process.env.HEADED !== '1',
         // On macOS, WebGPU works out of the box in modern Chromium.
-        // --use-angle=metal gives the best GPU path on Apple Silicon / Intel Mac.
-        args: ['--use-angle=metal'],
+        // --use-angle=metal gives the best GPU path on Apple Silicon / Intel Mac;
+        // --enable-unsafe-webgpu keeps WebGPU available in headless.
+        // Window is shoved far offscreen so that if Chromium ever falls back to a
+        // headed window (some WebGPU/macOS combos do), it can't cover your work.
+        args: [
+            '--use-angle=metal',
+            '--enable-unsafe-webgpu',
+            '--window-position=-10000,-10000',
+        ],
     });
 
     const context = await browser.newContext({ viewport: VIEWPORT });

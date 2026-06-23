@@ -158,9 +158,9 @@ fn gradNoise3DWithDerivatives(p: vec3f) -> vec4f {
 
 // uniforms
 
-const uFreqX = uniform(f32(3.0), 'freqX');
-const uFreqY = uniform(f32(1.5), 'freqY');
-const uSpeed = uniform(f32(1.0), 'speed');
+const uFreqX = uniform(f32(2.0), 'freqX');
+const uFreqY = uniform(f32(1.0), 'freqY');
+const uSpeed = uniform(f32(1.25), 'speed');
 const uAmp = uniform(f32(0.15), 'amplitude');
 
 const uSmallFreq = uniform(f32(2.0), 'smallFreq');
@@ -195,11 +195,19 @@ const wavesElevationWithGradient = Fn(
             // returns vec4(noise, dNoise/dx, dNoise/dy, dNoise/dz)
             const noiseResult = gradNoise3DWithDerivatives(noiseInput);
             const ampScale = sAmp.div(scale);
-            
-            elev.assign(elev.sub(noiseResult.x.mul(ampScale)));
-            // chain rule: dElev/dx = -dNoise/dx * freqScale * ampScale
-            dElevDx.assign(dElevDx.sub(noiseResult.y.mul(freqScale).mul(ampScale)));
-            dElevDy.assign(dElevDy.sub(noiseResult.z.mul(freqScale).mul(ampScale)));
+
+            // Folding the noise at its zero-crossings (an abs) is what makes the
+            // crests choppy and "raging". A hard abs() gives razor-sharp ridges
+            // whose exact analytical normal flips instantly (the "pointy" look);
+            // a smooth abs — sqrt(n^2 + k) — rounds the ridge so it reads as water.
+            // Its derivative n/sqrt(n^2 + k) is a softened sign, exact everywhere.
+            const n = noiseResult.x.toVar('n');
+            const a = n.mul(n).add(f32(0.04)).sqrt().toVar('a'); // smooth abs; k=0.04 sets ridge roundness
+            const s = n.div(a).toVar('s');                       // smoothed sign in (-1,1)
+            elev.assign(elev.sub(a.mul(ampScale)));
+            // chain rule: dElev/dx = -(n/a) * dNoise/dx * freqScale * ampScale
+            dElevDx.assign(dElevDx.sub(s.mul(noiseResult.y).mul(freqScale).mul(ampScale)));
+            dElevDy.assign(dElevDy.sub(s.mul(noiseResult.z).mul(freqScale).mul(ampScale)));
         }
 
         return vec3(elev, dElevDx, dElevDy);
@@ -328,7 +336,7 @@ window.addEventListener('resize', () => {
     camera.updateProjectionMatrix();
 });
 
-const geometry = createPlaneGeometry(4, 4, 128, 128);
+const geometry = createPlaneGeometry(4, 4, 256, 256);
 const mesh = new Mesh(geometry, material);
 // rotate XY plane to XZ orientation for water surface
 quat.rotateX(mesh.quaternion, mesh.quaternion, -Math.PI / 2);
@@ -350,7 +358,8 @@ smallParams.add(uSmallSpeed, 'value', 0.0, 5.0, 0.05).name('Speed');
 smallParams.add(uSmallAmp, 'value', 0.0, 1.0, 0.01).name('Amplitude');
 
 const scenePass = pass(scene, camera);
-const outputNode = renderOutput(scenePass.getTextureNode());
+// match the reference: no tone mapping, so the neon-pink crests stay punchy
+const outputNode = renderOutput(scenePass.getTextureNode(), { toneMapping: 'none' });
 const renderPipeline = new RenderPipeline(renderer, outputNode);
 
 function frame() {

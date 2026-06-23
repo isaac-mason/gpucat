@@ -12,6 +12,8 @@ Most DSL operations are also methods on `Node` (`a.mul(b)`, `.toVar()`, `.xyz`, 
 export class Node<D extends Any> {
     readonly id: number;
     readonly type: D;
+    /** Numeric discriminant for fast, tree-shakeable dispatch. Subclasses override. */
+    readonly kind: NodeKind;
     updateType: NodeUpdateType;
     updateBeforeType: NodeUpdateType;
     updateAfterType: NodeUpdateType;
@@ -766,6 +768,7 @@ export type TouchAction = (typeof TOUCH)[keyof typeof TOUCH];
 
 ```ts
 export class GpuTexture<D extends d.Texture = d.Texture> {
+    readonly isGpuTexture = true;
     /** Unique ID */
     readonly id: number;
     /** Schema type descriptor, source of truth for WGSL type */
@@ -3641,6 +3644,9 @@ export type RenderTargetTexture = Texture | CubeTexture;
  * on the screen.
  */
 export class RenderTarget {
+    readonly isRenderTarget = true;
+    /** Brand set true on CubeRenderTarget; declared here so `rt.isCubeRenderTarget` types on a RenderTarget ref. */
+    readonly isCubeRenderTarget?: true;
     /** The width of the render target */
     width: number;
     /** The height of the render target */
@@ -3745,6 +3751,9 @@ export class Scene extends Object3D {
 
 ```ts
 export class Object3D {
+    readonly isObject3D = true;
+    /** Brand set true on Mesh (+ subclasses); declared here so `obj.isMesh` checks type on a base ref. */
+    readonly isMesh?: true;
     readonly objectId: number;
     name: string;
     visible: boolean;
@@ -3782,6 +3791,9 @@ export class Object3D {
 
 ```ts
 export class Camera extends Object3D {
+    readonly isCamera = true;
+    /** Brand set true on OrthographicCamera; declared here so `camera.isOrthographicCamera` types on a Camera ref. */
+    readonly isOrthographicCamera?: true;
     near: number;
     far: number;
     projectionMatrix: import("mathcat").Mat4;
@@ -3806,6 +3818,7 @@ export function unproject(out: Vec3, ndc: Vec3, camera: Camera): Vec3;
 
 ```ts
 export class PerspectiveCamera extends Camera {
+    readonly isPerspectiveCamera = true;
     fov: number;
     aspect: number;
     constructor(fov?: number, aspect?: number, near?: number, far?: number);
@@ -3831,6 +3844,7 @@ export class PerspectiveCamera extends Camera {
  * ```
  */
 export class OrthographicCamera extends Camera {
+    readonly isOrthographicCamera = true;
     left: number;
     right: number;
     top: number;
@@ -3899,6 +3913,7 @@ export class CubeCamera extends Object3D {
 
 ```ts
 export class Mesh extends Object3D {
+    readonly isMesh = true;
     geometry: Geometry;
     material: Material;
     count: number;
@@ -4072,6 +4087,7 @@ export class LineSegments extends Mesh {
  * Scene object for rendering a continuous polyline with `LineGeometry` and `LineMaterial`.
  */
 export class Line extends Mesh {
+    readonly isLine = true;
     /**
      * Extra pick radius added to `material.lineWidth` for raycasting, in the same
      * units as the material (pixels for screen-space, world units for world-units mode).
@@ -4401,6 +4417,7 @@ export type GpuBufferOptions<T extends Any = Any> = {
  * });
  */
 export class GpuBuffer<T extends Any = Any> {
+    readonly isGpuBuffer = true;
     /** Type descriptor (d.vec3f, d.array(Particle), etc.) */
     readonly schema: T;
     /** Allowed usages */
@@ -4625,6 +4642,7 @@ export const objectGroup: UniformGroup;
  * const time = new Uniform(d.f32, 0, frameGroup);
  */
 export class Uniform<T extends Any = Any> {
+    readonly isUniform = true;
     readonly schema: T;
     /** Determines @group index, update cadence, and packing. Mutable, but only
      *  read at compile time, set it before the owning node is first rendered. */
@@ -5064,6 +5082,7 @@ export type DepthTextureFormat = 'depth16unorm' | 'depth24plus' | 'depth24plus-s
  * Defaults to comparison sampler for shadow mapping convenience.
  */
 export class DepthTexture {
+    readonly isDepthTexture = true;
     /** Optional name for debugging */
     name: string;
     /**

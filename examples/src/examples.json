@@ -1,162 +1,162 @@
 {
-    "example-hello-world": {
-        "title": "Hello World",
-        "description": "A single spinning cube with directional and ambient lighting — the simplest possible gpucat scene.",
-        "tags": ["hello-world", "lighting"]
+    "example-raging-sea": {
+        "title": "Raging Sea",
+        "description": "A choppy neon ocean, animated entirely on the GPU.",
+        "tags": ["geometry", "animation", "noise"]
+    },
+    "example-compute-birds": {
+        "title": "Compute Birds",
+        "description": "Thousands of GPU-flocked birds, wings flapping, fleeing your cursor.",
+        "tags": ["compute", "spatial-hash", "flocking", "instancing"]
+    },
+    "example-ball-cluster": {
+        "title": "Ball Cluster",
+        "description": "1000 balls collide into a cluster on the GPU; the cursor shoves them around.",
+        "tags": ["compute", "physics", "spatial-hash"]
+    },
+    "example-voxels": {
+        "title": "Voxels",
+        "description": "A GPU-culled voxel world drawn from packed quads in one indirect pass. Click to dig.",
+        "tags": ["voxels", "compute", "indirect", "culling", "noise"]
+    },
+    "example-volume": {
+        "title": "Volume",
+        "description": "A lit volumetric cloud, raymarched from a 3D texture. Drag to orbit.",
+        "tags": ["compute", "storage-texture", "3d-texture", "volume", "raymarch"]
+    },
+    "example-compute-particles": {
+        "title": "Compute Particles",
+        "description": "8192 GPU-simulated particles, no CPU readback.",
+        "tags": ["compute", "particles"]
+    },
+    "example-cube-camera": {
+        "title": "Cube Camera",
+        "description": "A chrome sphere reflecting its surroundings in realtime.",
+        "tags": ["camera", "cubemap", "render-target", "reflection", "multi-pass"]
     },
     "example-point-lights": {
         "title": "Point Lights",
-        "description": "Coloured point lights in a struct storage buffer, orbiting a grid of spheres. The fragment loops over them and sums diffuse plus falloff. gpucat ships no lights; you write your own.",
+        "description": "Colored point lights orbiting spheres; lighting you write yourself.",
         "tags": ["lighting", "storage-buffer"]
     },
-    "example-moving-mesh-stress": {
-        "title": "Moving Mesh Stress",
-        "description": "900 individually-animated meshes with per-frame quaternion updates and world matrix recalculations.",
-        "tags": ["stress-test", "animation"]
+    "example-indirect-batched": {
+        "title": "Indirect Batched",
+        "description": "CPU-driven indirect draws from one merged geometry.",
+        "tags": ["indirect", "batched-mesh"]
     },
-    "example-static-mesh-stress": {
-        "title": "Static Mesh Stress",
-        "description": "900 static meshes with no per-frame updates — measures pure rendering overhead.",
-        "tags": ["stress-test"]
+    "example-compute-texture": {
+        "title": "Compute Texture",
+        "description": "A compute shader writes a texture; a render pass samples it.",
+        "tags": ["compute", "storage-texture", "texture"]
     },
-    "example-line": {
-        "title": "Line",
-        "description": "Screen-space expanded lines using createLineGeometry and createLineMaterial. A static closed pentagon and an animated sine wave demonstrate fixed-pixel-width lines with updateLineGeometry for dynamic point updates.",
-        "tags": ["geometry", "line", "animation"]
+    "example-indirect-compute": {
+        "title": "Indirect Compute",
+        "description": "A compute shader drives the draw count, culling on the GPU.",
+        "tags": ["indirect", "compute", "culling"]
+    },
+    "example-hello-world": {
+        "title": "Hello World",
+        "description": "A single spinning, lit cube: the simplest scene.",
+        "tags": ["hello-world", "lighting"]
+    },
+    "example-uniforms": {
+        "title": "Uniforms",
+        "description": "Inline vs. name-based uniform patterns.",
+        "tags": ["uniforms", "material"]
     },
     "example-texture": {
         "title": "Texture",
-        "description": "A textured spinning box demonstrating user-provided Texture, UV coordinates, and texture sampling.",
+        "description": "A textured spinning box.",
         "tags": ["texture"]
-    },
-    "example-render-to-texture": {
-        "title": "Render to Texture",
-        "description": "Two-scene render-to-texture: an inner scene renders a textured spinning cube into an offscreen pass, then the outer scene samples the result onto a second cube.",
-        "tags": ["render-target", "texture", "multi-pass"]
-    },
-    "example-mipmaps": {
-        "title": "Mipmaps",
-        "description": "Side-by-side comparison of textures with and without mipmaps. Left plane uses mipmaps + 16x anisotropic filtering, right plane has no mipmaps — notice the aliasing in the distance.",
-        "tags": ["texture", "mipmaps"]
     },
     "example-instanced-mesh": {
         "title": "Instanced Mesh",
-        "description": "30 instanced boxes with per-instance transforms and colours via InstancedBufferAttributeNode.",
+        "description": "30 instanced boxes with per-instance transforms and colors.",
         "tags": ["instancing"]
     },
     "example-instancing-storage-buffer": {
         "title": "Instancing with Storage Buffer",
-        "description": "35 instanced boxes using storage buffers (mat4x4f transforms + vec4f colours) indexed by instance_index, combined with an instancedBufferAttribute for per-instance spin offset.",
+        "description": "Instanced boxes driven by a storage buffer.",
         "tags": ["instancing", "storage-buffer"]
-    },
-    "example-compute-particles": {
-        "title": "Compute Particles",
-        "description": "8192 GPU-simulated particles updated each frame by a @compute shader (renderer.compute) and rendered as instanced quads — no CPU readback.",
-        "tags": ["compute", "particles"]
-    },
-    "example-compute-texture": {
-        "title": "Compute Texture",
-        "description": "A compute shader writes an animated plasma into a storage texture (texture_storage_2d + textureStore), then a render pass samples that same texture onto a fullscreen quad — the canonical storage-texture write→sample round-trip.",
-        "tags": ["compute", "storage-texture", "texture"]
-    },
-    "example-video-texture": {
-        "title": "Video Texture",
-        "description": "An HTMLVideoElement used directly as a texture, mapped onto a spinning cube: each frame the texture is marked needsUpdate and the renderer copies the current video frame to the GPU. Clip: Big Buck Bunny (CC-BY, Blender Foundation).",
-        "tags": ["texture", "video"]
-    },
-    "example-volume": {
-        "title": "Volume",
-        "description": "A compute pass writes an animated value-noise density field into a 3D storage texture (texture_storage_3d + textureStore); a render pass raymarches its bounding box, sampling the same texture as a texture_3d with self-shadowing for a wispy, lit volumetric cloud. Drag to orbit.",
-        "tags": ["compute", "storage-texture", "3d-texture", "volume", "raymarch"]
-    },
-    "example-ball-cluster": {
-        "title": "Ball Cluster",
-        "description": "Thousands of balls pulled toward the cursor and colliding into a packed cluster, simulated entirely on the GPU. Three compute passes per frame bin the balls into a spatial-hash grid, so each ball only tests its 27 neighbouring cells instead of every other ball.",
-        "tags": ["compute", "physics", "spatial-hash"]
-    },
-    "example-indirect-batched": {
-        "title": "Indirect Batched",
-        "description": "CPU-driven indirect rendering: one merged geometry holds box and sphere data; two IndirectBuffers select sub-ranges via firstIndex + instanceCount. A slider moves the box/sphere split at runtime.",
-        "tags": ["indirect", "batched-mesh"]
-    },
-    "example-indirect-compute": {
-        "title": "Indirect Compute",
-        "description": "GPU-driven indirect rendering: a compute shader writes instanceCount directly into the indirect draw buffer each frame via IndirectBuffer.asStorageNode(), culling instances by distance — no CPU readback.",
-        "tags": ["indirect", "compute", "culling"]
-    },
-    "example-mrt": {
-        "title": "MRT (Multiple Render Targets)",
-        "description": "Multiple Render Targets (MRT): renders a sphere to 4 targets (output, normal, diffuse, emissive) and composites them side-by-side for visualization.",
-        "tags": ["mrt", "post-processing"]
-    },
-    "example-raging-sea": {
-        "title": "Raging Sea",
-        "description": "Animated ocean surface using sinusoidal large waves and multi-octave value noise small waves, with finite-difference normals and emissive wave crests — all computed on the GPU via vertex shader uniforms.",
-        "tags": ["geometry", "animation", "noise"]
-    },
-    "example-uniforms": {
-        "title": "Uniforms",
-        "description": "Demonstrates two uniform patterns: inline uniforms (shared across meshes) and name-based uniforms (per-material values resolved at render time).",
-        "tags": ["uniforms", "material"]
     },
     "example-storage": {
         "title": "Storage Buffers",
-        "description": "Demonstrates two storage buffer patterns: inline storage (buffer passed directly) and name-based storage (resolved from geometry.buffers at render time).",
+        "description": "Inline vs. name-based storage buffer patterns.",
         "tags": ["storage-buffer", "instancing"]
-    },
-    "example-voxels": {
-        "title": "Voxels",
-        "description": "Procedurally generated voxel landscape using layered simplex noise, with culled meshing per chunk and per-vertex ambient occlusion computed on the CPU.",
-        "tags": ["geometry", "noise", "voxels"]
-    },
-    "example-voxels-batched": {
-        "title": "Voxels Batched",
-        "description": "Batched voxel renderer with slab-allocated merged geometry, GPU frustum culling via compute shader, indirect draws, render distance management, and realtime voxel editing.",
-        "tags": ["voxels", "indirect", "compute", "culling", "batched-mesh"]
     },
     "example-interleaved": {
         "title": "Interleaved Vertex Buffers",
-        "description": "Demonstrates interleaved vertex attributes: normal and per-vertex color are packed into a single GpuBuffer with shared stride, producing one setVertexBuffer call for both attributes.",
+        "description": "Interleaved vertex attributes packed into one buffer.",
         "tags": ["geometry", "interleaved", "vertex-buffers"]
     },
-    "example-cubemap": {
-        "title": "Cube Texture Skybox",
-        "description": "Cube texture skybox rendered from inside a box. Each face has a distinct color and label to verify correct face mapping and cube texture sampling.",
-        "tags": ["texture", "cubemap", "skybox"]
+    "example-line": {
+        "title": "Line",
+        "description": "Fixed-width screen-space lines, static and animated.",
+        "tags": ["geometry", "line", "animation"]
     },
-    "example-cube-camera": {
-        "title": "Cube Camera",
-        "description": "A chrome sphere reflecting an animated environment in realtime. A CubeCamera renders the surroundings into the six faces of a CubeRenderTarget each frame, and the sphere samples that cube along its reflection vector.",
-        "tags": ["camera", "cubemap", "render-target", "reflection", "multi-pass"]
-    },
-    "example-discard": {
-        "title": "Discard",
-        "description": "Animated dissolve effect using the Discard() control flow node with a 4x4 Bayer dither matrix. Opacity oscillates via sin(time), discarding fragments below the dither threshold.",
-        "tags": ["discard", "dithering", "control-flow"]
-    },
-    "example-shadow-map": {
-        "title": "Shadow Map",
-        "description": "Two-pass shadow mapping: a depth-only pass renders the scene from the light's orthographic camera into a depth texture, then the scene pass samples it with textureSampleCompare() to produce hard shadows.",
-        "tags": ["shadows", "depth-texture", "render-target", "multi-pass"]
+    "example-video-texture": {
+        "title": "Video Texture",
+        "description": "A video played live onto a spinning cube.",
+        "tags": ["texture", "video"]
     },
     "example-array-texture": {
         "title": "Array Texture Flipbook",
-        "description": "Flipbook animation using a 2D array texture. 16 procedurally generated frames are stored as layers in a DataArrayTexture; a uniform layer index cycles through them at 8 FPS.",
+        "description": "A flipbook animation from a 2D array texture.",
         "tags": ["texture", "array-texture", "animation"]
+    },
+    "example-mipmaps": {
+        "title": "Mipmaps",
+        "description": "Mipmaps + anisotropy vs. none, side by side.",
+        "tags": ["texture", "mipmaps"]
+    },
+    "example-render-to-texture": {
+        "title": "Render to Texture",
+        "description": "Render one scene into a texture, sample it in another.",
+        "tags": ["render-target", "texture", "multi-pass"]
+    },
+    "example-mrt": {
+        "title": "MRT (Multiple Render Targets)",
+        "description": "Render to 4 targets at once, composited side by side.",
+        "tags": ["mrt", "post-processing"]
+    },
+    "example-shadow-map": {
+        "title": "Shadow Map",
+        "description": "Two-pass shadow mapping with a depth texture.",
+        "tags": ["shadows", "depth-texture", "render-target", "multi-pass"]
+    },
+    "example-cubemap": {
+        "title": "Cube Texture Skybox",
+        "description": "A cube-texture skybox viewed from inside.",
+        "tags": ["texture", "cubemap", "skybox"]
+    },
+    "example-discard": {
+        "title": "Discard",
+        "description": "An animated dither dissolve via Discard().",
+        "tags": ["discard", "dithering", "control-flow"]
     },
     "example-fxaa": {
         "title": "FXAA",
-        "description": "Fast Approximate Anti-Aliasing (FXAA) post-processing effect. Renders a high-contrast rotating cube to demonstrate edge smoothing compared to raw aliased output.",
+        "description": "FXAA anti-aliasing on a high-contrast cube.",
         "tags": ["post-processing", "anti-aliasing", "fxaa"]
     },
     "example-transform-controls": {
         "title": "Transform Controls",
-        "description": "Interactive translate/rotate/scale gizmo attached to scene objects. Press T/R/S to switch modes, Q to toggle world/local space, Tab to switch objects.",
+        "description": "A translate/rotate/scale gizmo. T/R/S to switch modes.",
         "tags": ["controls", "gizmo", "interaction"]
     },
     "example-fly-controls": {
         "title": "Fly Controls",
-        "description": "First-person fly camera with WASD movement, right-click drag to look, Space/Shift for vertical movement, and scroll wheel to adjust speed.",
+        "description": "A first-person WASD fly camera.",
         "tags": ["controls", "camera", "interaction"]
+    },
+    "example-moving-mesh-stress": {
+        "title": "Moving Mesh Stress",
+        "description": "900 individually animated meshes.",
+        "tags": ["stress-test", "animation"]
+    },
+    "example-static-mesh-stress": {
+        "title": "Static Mesh Stress",
+        "description": "900 static meshes; pure render overhead.",
+        "tags": ["stress-test"]
     }
 }

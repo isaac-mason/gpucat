@@ -24,22 +24,22 @@ import { vec3 as v3 } from 'mathcat';
  * each ball (no separate copy dispatch).
  */
 
-const N = 500;
+const N = 1000;
 const WG = 64;
 const BALL_RADIUS = 0.5;
 const CELL = 2 * BALL_RADIUS;     // a ball only touches balls in adjacent cells
 const GRID_MIN = -16;             // world-space corner of the grid
 const GRID_DIM = Math.ceil((-2 * GRID_MIN) / CELL); // cells per axis
 const NUM_CELLS = GRID_DIM * GRID_DIM * GRID_DIM;
-const MAX_PER_CELL = 24;          // fixed per-cell capacity (overflow is dropped)
+const MAX_PER_CELL = 32;          // fixed per-cell capacity (overflow is dropped)
 // DEM (spring-dashpot) contact coefficients. Tune these for feel.
-const KN = 120;                   // normal stiffness: push out of overlaps
-const GN = 8;                     // normal damping: lower = bouncier (restitution)
+const KN = 500;                   // normal stiffness: push out of overlaps (high = snappy collisions)
+const GN = 6;                     // normal damping: lower = bouncier (restitution)
 const GT = 3;                     // tangential damping: higher = more friction / grip
-const COHESION = 1.2;             // gentle pull toward the origin, holds the cluster
-const GLOBAL_DAMP = 0.99;         // light air drag
-const MOUSE_RADIUS = 3.5;         // cursor repulsion sphere
-const MOUSE_STRENGTH = 25;        // how hard the cursor shoves balls
+const COHESION = 5.0;             // pull toward the origin — high = fast, energetic gather
+const GLOBAL_DAMP = 0.994;        // light air drag (closer to 1 = livelier, keeps energy)
+const MOUSE_RADIUS = 6.0;         // cursor repulsion sphere
+const MOUSE_STRENGTH = 110;       // how hard the cursor shoves balls
 const DT = 1 / 60;
 
 /* storage buffers */
