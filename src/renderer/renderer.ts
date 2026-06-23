@@ -154,6 +154,18 @@ export class WebGPURenderer {
         return this._canvasTarget.domElement;
     }
 
+    private _frameWidth(): number {
+        if (this.renderTarget) return this.renderTarget.width;
+        if (this._canvasTarget) return this.domElement.width || 1;
+        return 1;
+    }
+
+    private _frameHeight(): number {
+        if (this.renderTarget) return this.renderTarget.height;
+        if (this._canvasTarget) return this.domElement.height || 1;
+        return 1;
+    }
+
     /** The WebGPU GPU adapter in use. */
     _adapter: GPUAdapter = null!;
 
@@ -465,8 +477,8 @@ export class WebGPURenderer {
         // this is needed because RenderObjects are cached by (mesh, material, renderContext)
         const compileContext = RenderContext.getRenderContext(this._renderContexts, null, null, 0);
         compileContext.sampleCount = resolvedSamples;
-        compileContext.width = this.domElement.width || 1;
-        compileContext.height = this.domElement.height || 1;
+        compileContext.width = this._frameWidth();
+        compileContext.height = this._frameHeight();
 
         const width = compileContext.width;
         const height = compileContext.height;
@@ -653,8 +665,8 @@ export class WebGPURenderer {
         this._renderCallDepth++;
 
         frame.renderer = this;
-        frame.width = this.domElement.width || 1;
-        frame.height = this.domElement.height || 1;
+        frame.width = this._frameWidth();
+        frame.height = this._frameHeight();
 
         if (inspector) inspector.perf.start('compute');
 

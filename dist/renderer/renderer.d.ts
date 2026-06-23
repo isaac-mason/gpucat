@@ -100,6 +100,8 @@ export declare class WebGPURenderer {
     setInspector(next: InspectorBase | null): void;
     /** The canvas dom element for the current canvas target. Throws in headless mode. */
     get domElement(): HTMLCanvasElement;
+    private _frameWidth;
+    private _frameHeight;
     /** The WebGPU GPU adapter in use. */
     _adapter: GPUAdapter;
     /** The WebGPU GPU device in use. */
