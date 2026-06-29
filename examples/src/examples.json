@@ -1,13 +1,13 @@
 {
-    "example-raging-sea": {
-        "title": "Raging Sea",
-        "description": "A choppy neon ocean, animated entirely on the GPU.",
-        "tags": ["geometry", "animation", "noise"]
-    },
     "example-compute-birds": {
         "title": "Compute Birds",
         "description": "Thousands of GPU-flocked birds, wings flapping, fleeing your cursor.",
         "tags": ["compute", "spatial-hash", "flocking", "instancing"]
+    },
+    "example-raging-sea": {
+        "title": "Raging Sea",
+        "description": "A choppy neon ocean of GPU-displaced waves, after Bruno Simon's Three.js Journey lesson.",
+        "tags": ["geometry", "animation", "noise"]
     },
     "example-ball-cluster": {
         "title": "Ball Cluster",
