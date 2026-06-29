@@ -3,31 +3,45 @@ import { Source, type SourceData } from '../texture/source';
 import type { RenderTarget } from './render-target';
 
 /** GPU texture dimension from schema type */
-export type DimensionOf<D extends d.Texture> =
-    D extends d.texture1d | d.textureStorage1d ? '1d'
-    : D extends d.texture3d | d.textureStorage3d ? '3d'
-    : '2d';  // All others: 2d, 2d_array, cube, cube_array, multisampled, depth, storage 2d/2d_array
+export type DimensionOf<D extends d.Texture> = D extends d.texture1d | d.textureStorage1d
+    ? '1d'
+    : D extends d.texture3d | d.textureStorage3d
+      ? '3d'
+      : '2d'; // All others: 2d, 2d_array, cube, cube_array, multisampled, depth, storage 2d/2d_array
 
 /** View dimension from schema type (for GPUTextureView) */
-export type ViewDimensionOf<D extends d.Texture> =
-    D extends d.texture1d | d.textureStorage1d ? '1d'
-    : D extends d.texture2d | d.textureDepth2d | d.textureMultisampled2d | d.textureDepthMultisampled2d | d.textureStorage2d ? '2d'
-    : D extends d.texture2dArray | d.textureDepth2dArray | d.textureStorage2dArray ? '2d-array'
-    : D extends d.textureCube | d.textureDepthCube ? 'cube'
-    : D extends d.textureCubeArray | d.textureDepthCubeArray ? 'cube-array'
-    : D extends d.texture3d | d.textureStorage3d ? '3d'
-    : '2d';
+export type ViewDimensionOf<D extends d.Texture> = D extends d.texture1d | d.textureStorage1d
+    ? '1d'
+    : D extends d.texture2d | d.textureDepth2d | d.textureMultisampled2d | d.textureDepthMultisampled2d | d.textureStorage2d
+      ? '2d'
+      : D extends d.texture2dArray | d.textureDepth2dArray | d.textureStorage2dArray
+        ? '2d-array'
+        : D extends d.textureCube | d.textureDepthCube
+          ? 'cube'
+          : D extends d.textureCubeArray | d.textureDepthCubeArray
+            ? 'cube-array'
+            : D extends d.texture3d | d.textureStorage3d
+              ? '3d'
+              : '2d';
 
 type BaseOptions = {
     format?: GPUTextureFormat;
     usage?: GPUTextureUsageFlags;
     mipLevelCount?: number;
     sampleCount?: number;
-    
+
     // Source data
     source?: Source | SourceData;
     generateMipmaps?: boolean;
-    
+
+    /**
+     * User-supplied mip levels (index 0 = level 1, since level 0 is `source`/`sources`).
+     * When non-empty the renderer uploads these verbatim and skips GPU mip generation.
+     * Each entry holds the packed data for *all* layers at that level (array/cube),
+     * or the single image (2D).
+     */
+    mipmaps?: (Source | SourceData)[];
+
     // Upload options
     flipY?: boolean;
     premultiplyAlpha?: boolean;
@@ -50,7 +64,16 @@ type Options2DArray = BaseOptions & {
 
 type OptionsCube = BaseOptions & {
     size: number;
-    faces?: [Source | SourceData, Source | SourceData, Source | SourceData, Source | SourceData, Source | SourceData, Source | SourceData] | (Source | SourceData)[];
+    faces?:
+        | [
+              Source | SourceData,
+              Source | SourceData,
+              Source | SourceData,
+              Source | SourceData,
+              Source | SourceData,
+              Source | SourceData,
+          ]
+        | (Source | SourceData)[];
 };
 
 type OptionsCubeArray = BaseOptions & {
@@ -70,14 +93,19 @@ type Options1D = BaseOptions & {
 };
 
 /** Map schema type → options type */
-export type GpuTextureOptions<D extends d.Texture> =
-    D extends d.texture1d | d.textureStorage1d ? Options1D
-    : D extends d.texture2d | d.textureDepth2d | d.textureMultisampled2d | d.textureDepthMultisampled2d | d.textureStorage2d ? Options2D
-    : D extends d.texture2dArray | d.textureDepth2dArray | d.textureStorage2dArray ? Options2DArray
-    : D extends d.textureCube | d.textureDepthCube ? OptionsCube
-    : D extends d.textureCubeArray | d.textureDepthCubeArray ? OptionsCubeArray
-    : D extends d.texture3d | d.textureStorage3d ? Options3D
-    : Options2D;
+export type GpuTextureOptions<D extends d.Texture> = D extends d.texture1d | d.textureStorage1d
+    ? Options1D
+    : D extends d.texture2d | d.textureDepth2d | d.textureMultisampled2d | d.textureDepthMultisampled2d | d.textureStorage2d
+      ? Options2D
+      : D extends d.texture2dArray | d.textureDepth2dArray | d.textureStorage2dArray
+        ? Options2DArray
+        : D extends d.textureCube | d.textureDepthCube
+          ? OptionsCube
+          : D extends d.textureCubeArray | d.textureDepthCubeArray
+            ? OptionsCubeArray
+            : D extends d.texture3d | d.textureStorage3d
+              ? Options3D
+              : Options2D;
 
 /**
  * GPUTextureUsage flag bits, spec-fixed numeric values. Used instead of the global
@@ -97,70 +125,76 @@ export class GpuTexture<D extends d.Texture = d.Texture> {
     readonly isGpuTexture = true;
     /** Unique ID */
     readonly id = _textureId++;
-    
+
     /** Schema type descriptor, source of truth for WGSL type */
     readonly type: D;
-    
+
     /** GPU texture dimension ('1d', '2d', '3d') */
     readonly dimension: DimensionOf<D>;
-    
+
     /** View dimension for createView() */
     readonly viewDimension: ViewDimensionOf<D>;
-    
+
     // ─────────────────────────────────────────────────────────────────────────
     // GPUTextureDescriptor fields
     // ─────────────────────────────────────────────────────────────────────────
-    
+
     width: number;
     height: number;
     depthOrArrayLayers: number;
-    
+
     format: GPUTextureFormat;
     usage: GPUTextureUsageFlags;
     mipLevelCount: number;
     sampleCount: number;
-    
+
     // ─────────────────────────────────────────────────────────────────────────
     // Source data
     // ─────────────────────────────────────────────────────────────────────────
-    
+
     /** Primary source (for 2D/3D) */
     source: Source | null = null;
-    
+
     /** Per-layer/face sources (for array/cube textures) */
     sources: Source[] = [];
-    
+
+    /**
+     * User-supplied mip levels (index 0 = level 1; level 0 lives in `source`/`sources`).
+     * When non-empty the renderer uploads these and skips render-pass mip generation.
+     */
+    mipmaps: Source[] = [];
+
     /** Generate mipmaps on upload */
     generateMipmaps: boolean = false;
 
     /** Storage textures: regenerate mips after a compute pass writes this texture (if it has mips). */
     mipmapsAutoUpdate: boolean = true;
-    
+
     /** Flip Y on upload (for image sources) */
     flipY: boolean = false;
-    
+
     /** Premultiply alpha on upload */
     premultiplyAlpha: boolean = false;
-    
+
     // ─────────────────────────────────────────────────────────────────────────
     // Dirty tracking (same pattern as GpuBuffer)
     // ─────────────────────────────────────────────────────────────────────────
-    
+
     /** Version number, incremented when needsUpdate is set */
     version = 0;
-    
+
     /** Mark texture as needing re-upload */
     set needsUpdate(_: true) {
         this.version++;
     }
-    
+
     /** Track which layers need updating (for 2D array textures) */
     readonly layerUpdates: Set<number> = new Set();
-    
+
     // ─────────────────────────────────────────────────────────────────────────
     // Render target flag
     // ─────────────────────────────────────────────────────────────────────────
-    
+
     /**
      * Whether this texture is a render target (managed by RenderTarget system).
      * When true, the renderer skips source data upload - the GPU texture is
@@ -178,94 +212,100 @@ export class GpuTexture<D extends d.Texture = d.Texture> {
     // ─────────────────────────────────────────────────────────────────────────
     // Lifecycle
     // ─────────────────────────────────────────────────────────────────────────
-    
+
     /** Renderer-set callback to destroy GPU resources */
     _onDispose: (() => void) | null = null;
-    
+
     /** Set to true after dispose() */
     disposed = false;
-    
+
     // ─────────────────────────────────────────────────────────────────────────
     // Constructor
     // ─────────────────────────────────────────────────────────────────────────
-    
+
     constructor(type: D, options: GpuTextureOptions<D>) {
         this.type = type;
-        
+
         // Derive dimension and viewDimension from schema type
         this.dimension = d.textureDimension(type) as DimensionOf<D>;
         this.viewDimension = d.textureViewDimension(type) as ViewDimensionOf<D>;
-        
+
         // Extract size from options (type-safe per schema)
         const { width, height, depthOrArrayLayers } = extractTextureSize(type, options);
         this.width = width;
         this.height = height;
         this.depthOrArrayLayers = depthOrArrayLayers;
-        
+
         // Format defaults: storage → descriptor's format, depth → depth32float, else rgba8unorm.
-        this.format = options.format ?? (
-            d.isStorageTextureDesc(type) ? type.format
-            : d.isDepthTextureDesc(type) ? 'depth32float'
-            : 'rgba8unorm'
-        );
+        this.format =
+            options.format ??
+            (d.isStorageTextureDesc(type) ? type.format : d.isDepthTextureDesc(type) ? 'depth32float' : 'rgba8unorm');
 
         // Usage defaults. Storage textures get STORAGE_BINDING and keep TEXTURE_BINDING (so the same
         // texture can be sampled in a later render pass) plus COPY_SRC for readback.
-        this.usage = options.usage ?? (
-            d.isStorageTextureDesc(type)
+        this.usage =
+            options.usage ??
+            (d.isStorageTextureDesc(type)
                 ? TEXTURE_USAGE.STORAGE_BINDING | TEXTURE_USAGE.TEXTURE_BINDING | TEXTURE_USAGE.COPY_DST | TEXTURE_USAGE.COPY_SRC
-                : TEXTURE_USAGE.TEXTURE_BINDING | TEXTURE_USAGE.COPY_DST
-        );
+                : TEXTURE_USAGE.TEXTURE_BINDING | TEXTURE_USAGE.COPY_DST);
         this.mipmapsAutoUpdate = options.mipmapsAutoUpdate ?? true;
-        
+
         // Mip levels
         this.mipLevelCount = options.mipLevelCount ?? 1;
         this.sampleCount = options.sampleCount ?? 1;
-        
+
         // Source handling
         this.generateMipmaps = options.generateMipmaps ?? false;
         this.flipY = options.flipY ?? false;
         this.premultiplyAlpha = options.premultiplyAlpha ?? false;
-        
+
         // Handle source(s) based on texture type
         const opts = options as BaseOptions & { sources?: (Source | SourceData)[]; faces?: (Source | SourceData)[] };
-        
+
+        if (opts.mipmaps) {
+            this.mipmaps = opts.mipmaps.map((s: Source | SourceData) => (s instanceof Source ? s : new Source(s)));
+        }
+
         if (opts.source) {
-            this.source = opts.source instanceof Source 
-                ? opts.source 
-                : new Source(opts.source);
+            this.source = opts.source instanceof Source ? opts.source : new Source(opts.source);
         }
-        
+
         if (opts.sources) {
-            this.sources = opts.sources.map((s: Source | SourceData) => 
-                s instanceof Source ? s : new Source(s)
-            );
+            this.sources = opts.sources.map((s: Source | SourceData) => (s instanceof Source ? s : new Source(s)));
         }
-        
+
         if (opts.faces) {
-            this.sources = opts.faces.map((s: Source | SourceData) =>
-                s instanceof Source ? s : new Source(s)
-            );
+            this.sources = opts.faces.map((s: Source | SourceData) => (s instanceof Source ? s : new Source(s)));
         }
     }
-    
+
     // Convenience getters
-    
+
     /** For cube textures: the size (width = height) */
-    get size(): number { return this.width; }
-    
+    get size(): number {
+        return this.width;
+    }
+
     /** For 2D array: number of layers */
-    get layers(): number { return this.depthOrArrayLayers; }
-    
+    get layers(): number {
+        return this.depthOrArrayLayers;
+    }
+
     /** For 3D: depth */
-    get depth(): number { return this.depthOrArrayLayers; }
-    
+    get depth(): number {
+        return this.depthOrArrayLayers;
+    }
+
     /** For cube array: number of cubes */
-    get cubeCount(): number { return this.depthOrArrayLayers / 6; }
-    
+    get cubeCount(): number {
+        return this.depthOrArrayLayers / 6;
+    }
+
     /** Is this a depth texture? */
-    get isDepth(): boolean { return d.isDepthTextureDesc(this.type); }
-    
+    get isDepth(): boolean {
+        return d.isDepthTextureDesc(this.type);
+    }
+
     /** Is all source data ready for upload? */
     get isComplete(): boolean {
         if (this.source && !this.source.dataReady) return false;
@@ -284,22 +324,30 @@ export class GpuTexture<D extends d.Texture = d.Texture> {
         this._onDispose = null;
         this.source = null;
         this.sources = [];
+        this.mipmaps = [];
     }
 }
 
-function extractTextureSize(type: d.Texture, options: GpuTextureOptions<d.Texture>): { 
-    width: number; 
-    height: number; 
+function extractTextureSize(
+    type: d.Texture,
+    options: GpuTextureOptions<d.Texture>,
+): {
+    width: number;
+    height: number;
     depthOrArrayLayers: number;
 } {
     const viewDim = d.textureViewDimension(type);
     const opts = options as Record<string, unknown>;
-    
+
     switch (viewDim) {
         case 'cube':
             return { width: opts.size as number, height: opts.size as number, depthOrArrayLayers: 6 };
         case 'cube-array':
-            return { width: opts.size as number, height: opts.size as number, depthOrArrayLayers: (opts.cubeCount as number) * 6 };
+            return {
+                width: opts.size as number,
+                height: opts.size as number,
+                depthOrArrayLayers: (opts.cubeCount as number) * 6,
+            };
         case '2d-array':
             return { width: opts.width as number, height: opts.height as number, depthOrArrayLayers: opts.layers as number };
         case '3d':
@@ -336,7 +384,9 @@ export function createStorageTexture3d<F extends d.StorageTextureFormat = 'rgba8
     depth: number,
     format?: F,
 ): GpuTexture<d.textureStorage3d<F, 'write'>> {
-    return new GpuTexture(d.textureStorage3d(format), { width, height, depth } as GpuTextureOptions<d.textureStorage3d<F, 'write'>>);
+    return new GpuTexture(d.textureStorage3d(format), { width, height, depth } as GpuTextureOptions<
+        d.textureStorage3d<F, 'write'>
+    >);
 }
 
 /** Create a 2D-array storage texture (`texture_storage_2d_array<format, _>`). */
@@ -346,7 +396,9 @@ export function createStorageTextureArray<F extends d.StorageTextureFormat = 'rg
     layers: number,
     format?: F,
 ): GpuTexture<d.textureStorage2dArray<F, 'write'>> {
-    return new GpuTexture(d.textureStorage2dArray(format), { width, height, layers } as GpuTextureOptions<d.textureStorage2dArray<F, 'write'>>);
+    return new GpuTexture(d.textureStorage2dArray(format), { width, height, layers } as GpuTextureOptions<
+        d.textureStorage2dArray<F, 'write'>
+    >);
 }
 
 /** Create a 1D storage texture (`texture_storage_1d<format, _>`). */

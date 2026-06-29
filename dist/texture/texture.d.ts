@@ -1,7 +1,7 @@
-import { Source, type SourceData } from './source';
-import { GpuTexture } from '../core/gpu-texture';
 import { GpuSampler } from '../core/gpu-sampler';
+import { GpuTexture } from '../core/gpu-texture';
 import * as d from '../schema/schema';
+import { Source, type SourceData } from './source';
 /** Wrap modes matching WebGPU GPUAddressMode */
 export type WrapMode = 'clamp-to-edge' | 'repeat' | 'mirror-repeat';
 /** Filter modes matching WebGPU GPUFilterMode */
@@ -34,11 +34,6 @@ export declare class Texture<out T extends SourceData = SourceData> {
     readonly _gpuSampler: GpuSampler;
     /** Optional name for debugging */
     name: string;
-    /**
-     * User-provided mipmaps as Sources. If empty, mipmaps are auto-generated
-     * when `generateMipmaps` is true.
-     */
-    mipmaps: Source[];
     /**
      * Callback fired when the texture is updated.
      */
@@ -93,6 +88,12 @@ export declare class Texture<out T extends SourceData = SourceData> {
     /** Whether to auto-generate mipmaps. */
     get generateMipmaps(): boolean;
     set generateMipmaps(v: boolean);
+    /**
+     * User-provided mip levels (index 0 = level 1). When non-empty the renderer
+     * uploads these and skips auto-generation. Empty by default.
+     */
+    get mipmaps(): Source[];
+    set mipmaps(v: Source[]);
     /** Whether to flip the image vertically when uploading. */
     get flipY(): boolean;
     set flipY(v: boolean);

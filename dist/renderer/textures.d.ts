@@ -12,10 +12,10 @@
  * 4. Uploads image data if source.dataReady
  * 5. Updates version tracking (textureData.version = texture.version)
  */
-import { GpuSampler } from '../core/gpu-sampler';
-import { GpuTexture } from '../core/gpu-texture';
+import type { CubeRenderTarget } from '../core/cube-render-target';
+import type { GpuSampler } from '../core/gpu-sampler';
+import type { GpuTexture } from '../core/gpu-texture';
 import type { RenderTarget } from '../core/render-target';
-import { CubeRenderTarget } from '../core/cube-render-target';
 import { type MipmapState } from './mipmap-utils';
 /** Data stored per Texture in the cache */
 export type TextureData = {

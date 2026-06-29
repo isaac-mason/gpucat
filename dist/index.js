@@ -4116,6 +4116,63 @@ function rgb(input) {
     return vec3f(c[0], c[1], c[2]);
 }
 
+let _samplerId = 0;
+/**
+ * Declarative sampler settings.
+ *
+ * Does NOT hold the GPU resource - that's managed by the renderer's cache.
+ * The settingsKey is used for deduplication (multiple GpuSampler instances
+ * with the same settings share one GPUSampler).
+ */
+class GpuSampler {
+    isGpuSampler = true;
+    id = _samplerId++;
+    minFilter;
+    magFilter;
+    mipmapFilter;
+    addressModeU;
+    addressModeV;
+    addressModeW;
+    maxAnisotropy;
+    lodMinClamp;
+    lodMaxClamp;
+    /** For comparison samplers (shadow mapping) */
+    compare;
+    /** Renderer-set callback to clean up cache entry */
+    _onDispose = null;
+    disposed = false;
+    constructor(options = {}) {
+        this.minFilter = options.minFilter ?? 'linear';
+        this.magFilter = options.magFilter ?? 'linear';
+        this.mipmapFilter = options.mipmapFilter ?? 'linear';
+        this.addressModeU = options.addressModeU ?? 'clamp-to-edge';
+        this.addressModeV = options.addressModeV ?? 'clamp-to-edge';
+        this.addressModeW = options.addressModeW ?? 'clamp-to-edge';
+        this.maxAnisotropy = options.maxAnisotropy ?? 1;
+        this.lodMinClamp = options.lodMinClamp ?? 0;
+        this.lodMaxClamp = options.lodMaxClamp ?? 32;
+        this.compare = options.compare;
+    }
+    /** Is this a comparison sampler? */
+    get isComparison() {
+        return this.compare !== undefined;
+    }
+    /** Settings key for deduplication */
+    get settingsKey() {
+        const base = `${this.minFilter}-${this.magFilter}-${this.mipmapFilter}-` +
+            `${this.addressModeU}-${this.addressModeV}-${this.addressModeW}-` +
+            `${this.maxAnisotropy}-${this.lodMinClamp}-${this.lodMaxClamp}`;
+        return this.compare ? `${base}-cmp-${this.compare}` : base;
+    }
+    dispose() {
+        if (this.disposed)
+            return;
+        this.disposed = true;
+        this._onDispose?.();
+        this._onDispose = null;
+    }
+}
+
 let _sourceId = 0;
 /**
  * Represents the data source of a texture.
@@ -4226,6 +4283,11 @@ class GpuTexture {
     source = null;
     /** Per-layer/face sources (for array/cube textures) */
     sources = [];
+    /**
+     * User-supplied mip levels (index 0 = level 1; level 0 lives in `source`/`sources`).
+     * When non-empty the renderer uploads these and skips render-pass mip generation.
+     */
+    mipmaps = [];
     /** Generate mipmaps on upload */
     generateMipmaps = false;
     /** Storage textures: regenerate mips after a compute pass writes this texture (if it has mips). */
@@ -4281,14 +4343,16 @@ class GpuTexture {
         this.height = height;
         this.depthOrArrayLayers = depthOrArrayLayers;
         // Format defaults: storage → descriptor's format, depth → depth32float, else rgba8unorm.
-        this.format = options.format ?? (isStorageTextureDesc(type) ? type.format
-            : isDepthTextureDesc(type) ? 'depth32float'
-                : 'rgba8unorm');
+        this.format =
+            options.format ??
+                (isStorageTextureDesc(type) ? type.format : isDepthTextureDesc(type) ? 'depth32float' : 'rgba8unorm');
         // Usage defaults. Storage textures get STORAGE_BINDING and keep TEXTURE_BINDING (so the same
         // texture can be sampled in a later render pass) plus COPY_SRC for readback.
-        this.usage = options.usage ?? (isStorageTextureDesc(type)
-            ? TEXTURE_USAGE.STORAGE_BINDING | TEXTURE_USAGE.TEXTURE_BINDING | TEXTURE_USAGE.COPY_DST | TEXTURE_USAGE.COPY_SRC
-            : TEXTURE_USAGE.TEXTURE_BINDING | TEXTURE_USAGE.COPY_DST);
+        this.usage =
+            options.usage ??
+                (isStorageTextureDesc(type)
+                    ? TEXTURE_USAGE.STORAGE_BINDING | TEXTURE_USAGE.TEXTURE_BINDING | TEXTURE_USAGE.COPY_DST | TEXTURE_USAGE.COPY_SRC
+                    : TEXTURE_USAGE.TEXTURE_BINDING | TEXTURE_USAGE.COPY_DST);
         this.mipmapsAutoUpdate = options.mipmapsAutoUpdate ?? true;
         // Mip levels
         this.mipLevelCount = options.mipLevelCount ?? 1;
@@ -4299,29 +4363,40 @@ class GpuTexture {
         this.premultiplyAlpha = options.premultiplyAlpha ?? false;
         // Handle source(s) based on texture type
         const opts = options;
+        if (opts.mipmaps) {
+            this.mipmaps = opts.mipmaps.map((s) => (s instanceof Source ? s : new Source(s)));
+        }
         if (opts.source) {
-            this.source = opts.source instanceof Source
-                ? opts.source
-                : new Source(opts.source);
+            this.source = opts.source instanceof Source ? opts.source : new Source(opts.source);
         }
         if (opts.sources) {
-            this.sources = opts.sources.map((s) => s instanceof Source ? s : new Source(s));
+            this.sources = opts.sources.map((s) => (s instanceof Source ? s : new Source(s)));
         }
         if (opts.faces) {
-            this.sources = opts.faces.map((s) => s instanceof Source ? s : new Source(s));
+            this.sources = opts.faces.map((s) => (s instanceof Source ? s : new Source(s)));
         }
     }
     // Convenience getters
     /** For cube textures: the size (width = height) */
-    get size() { return this.width; }
+    get size() {
+        return this.width;
+    }
     /** For 2D array: number of layers */
-    get layers() { return this.depthOrArrayLayers; }
+    get layers() {
+        return this.depthOrArrayLayers;
+    }
     /** For 3D: depth */
-    get depth() { return this.depthOrArrayLayers; }
+    get depth() {
+        return this.depthOrArrayLayers;
+    }
     /** For cube array: number of cubes */
-    get cubeCount() { return this.depthOrArrayLayers / 6; }
+    get cubeCount() {
+        return this.depthOrArrayLayers / 6;
+    }
     /** Is this a depth texture? */
-    get isDepth() { return isDepthTextureDesc(this.type); }
+    get isDepth() {
+        return isDepthTextureDesc(this.type);
+    }
     /** Is all source data ready for upload? */
     get isComplete() {
         if (this.source && !this.source.dataReady)
@@ -4343,6 +4418,7 @@ class GpuTexture {
         this._onDispose = null;
         this.source = null;
         this.sources = [];
+        this.mipmaps = [];
     }
 }
 function extractTextureSize(type, options) {
@@ -4352,7 +4428,11 @@ function extractTextureSize(type, options) {
         case 'cube':
             return { width: opts.size, height: opts.size, depthOrArrayLayers: 6 };
         case 'cube-array':
-            return { width: opts.size, height: opts.size, depthOrArrayLayers: opts.cubeCount * 6 };
+            return {
+                width: opts.size,
+                height: opts.size,
+                depthOrArrayLayers: opts.cubeCount * 6,
+            };
         case '2d-array':
             return { width: opts.width, height: opts.height, depthOrArrayLayers: opts.layers };
         case '3d':
@@ -4389,63 +4469,6 @@ function createStorageTexture1d(width, format) {
     return new GpuTexture(textureStorage1d(format), { width });
 }
 
-let _samplerId = 0;
-/**
- * Declarative sampler settings.
- *
- * Does NOT hold the GPU resource - that's managed by the renderer's cache.
- * The settingsKey is used for deduplication (multiple GpuSampler instances
- * with the same settings share one GPUSampler).
- */
-class GpuSampler {
-    isGpuSampler = true;
-    id = _samplerId++;
-    minFilter;
-    magFilter;
-    mipmapFilter;
-    addressModeU;
-    addressModeV;
-    addressModeW;
-    maxAnisotropy;
-    lodMinClamp;
-    lodMaxClamp;
-    /** For comparison samplers (shadow mapping) */
-    compare;
-    /** Renderer-set callback to clean up cache entry */
-    _onDispose = null;
-    disposed = false;
-    constructor(options = {}) {
-        this.minFilter = options.minFilter ?? 'linear';
-        this.magFilter = options.magFilter ?? 'linear';
-        this.mipmapFilter = options.mipmapFilter ?? 'linear';
-        this.addressModeU = options.addressModeU ?? 'clamp-to-edge';
-        this.addressModeV = options.addressModeV ?? 'clamp-to-edge';
-        this.addressModeW = options.addressModeW ?? 'clamp-to-edge';
-        this.maxAnisotropy = options.maxAnisotropy ?? 1;
-        this.lodMinClamp = options.lodMinClamp ?? 0;
-        this.lodMaxClamp = options.lodMaxClamp ?? 32;
-        this.compare = options.compare;
-    }
-    /** Is this a comparison sampler? */
-    get isComparison() {
-        return this.compare !== undefined;
-    }
-    /** Settings key for deduplication */
-    get settingsKey() {
-        const base = `${this.minFilter}-${this.magFilter}-${this.mipmapFilter}-` +
-            `${this.addressModeU}-${this.addressModeV}-${this.addressModeW}-` +
-            `${this.maxAnisotropy}-${this.lodMinClamp}-${this.lodMaxClamp}`;
-        return this.compare ? `${base}-cmp-${this.compare}` : base;
-    }
-    dispose() {
-        if (this.disposed)
-            return;
-        this.disposed = true;
-        this._onDispose?.();
-        this._onDispose = null;
-    }
-}
-
 /**
  * High-level 2D texture class.
  *
@@ -4460,11 +4483,6 @@ class Texture {
     _gpuSampler;
     /** Optional name for debugging */
     name = '';
-    /**
-     * User-provided mipmaps as Sources. If empty, mipmaps are auto-generated
-     * when `generateMipmaps` is true.
-     */
-    mipmaps = [];
     /**
      * Callback fired when the texture is updated.
      */
@@ -4483,11 +4501,7 @@ class Texture {
      */
     constructor(image, options = {}) {
         // Create the source
-        const src = image instanceof Source
-            ? image
-            : image !== null
-                ? new Source(image)
-                : null;
+        const src = image instanceof Source ? image : image !== null ? new Source(image) : null;
         // Create the underlying GpuTexture
         this._gpuTexture = new GpuTexture(texture2d(), {
             width: src?.width || 1,
@@ -4510,13 +4524,21 @@ class Texture {
     }
     // ─── Convenience getters/setters that forward to internals ───
     /** Unique numeric ID */
-    get id() { return this._gpuTexture.id; }
+    get id() {
+        return this._gpuTexture.id;
+    }
     /** Returns the width of the source, or 1 if no data. */
-    get width() { return this._gpuTexture.width; }
+    get width() {
+        return this._gpuTexture.width;
+    }
     /** Returns the height of the source, or 1 if no data. */
-    get height() { return this._gpuTexture.height; }
+    get height() {
+        return this._gpuTexture.height;
+    }
     /** The data source for this texture. */
-    get source() { return this._gpuTexture.source; }
+    get source() {
+        return this._gpuTexture.source;
+    }
     set source(s) {
         this._gpuTexture.source = s;
         if (s) {
@@ -4538,37 +4560,89 @@ class Texture {
         }
     }
     /** Horizontal wrap mode (U direction). */
-    get wrapS() { return this._gpuSampler.addressModeU; }
-    set wrapS(v) { this._gpuSampler.addressModeU = v; }
+    get wrapS() {
+        return this._gpuSampler.addressModeU;
+    }
+    set wrapS(v) {
+        this._gpuSampler.addressModeU = v;
+    }
     /** Vertical wrap mode (V direction). */
-    get wrapT() { return this._gpuSampler.addressModeV; }
-    set wrapT(v) { this._gpuSampler.addressModeV = v; }
+    get wrapT() {
+        return this._gpuSampler.addressModeV;
+    }
+    set wrapT(v) {
+        this._gpuSampler.addressModeV = v;
+    }
     /** Magnification filter. */
-    get magFilter() { return this._gpuSampler.magFilter; }
-    set magFilter(v) { this._gpuSampler.magFilter = v; }
+    get magFilter() {
+        return this._gpuSampler.magFilter;
+    }
+    set magFilter(v) {
+        this._gpuSampler.magFilter = v;
+    }
     /** Minification filter. */
-    get minFilter() { return this._gpuSampler.minFilter; }
-    set minFilter(v) { this._gpuSampler.minFilter = v; }
+    get minFilter() {
+        return this._gpuSampler.minFilter;
+    }
+    set minFilter(v) {
+        this._gpuSampler.minFilter = v;
+    }
     /** Mipmap filter mode. */
-    get mipmapFilter() { return this._gpuSampler.mipmapFilter; }
-    set mipmapFilter(v) { this._gpuSampler.mipmapFilter = v; }
+    get mipmapFilter() {
+        return this._gpuSampler.mipmapFilter;
+    }
+    set mipmapFilter(v) {
+        this._gpuSampler.mipmapFilter = v;
+    }
     /** Anisotropic filtering level. */
-    get anisotropy() { return this._gpuSampler.maxAnisotropy; }
-    set anisotropy(v) { this._gpuSampler.maxAnisotropy = v; }
+    get anisotropy() {
+        return this._gpuSampler.maxAnisotropy;
+    }
+    set anisotropy(v) {
+        this._gpuSampler.maxAnisotropy = v;
+    }
     /** WebGPU texture format. */
-    get format() { return this._gpuTexture.format; }
-    set format(v) { this._gpuTexture.format = v; }
+    get format() {
+        return this._gpuTexture.format;
+    }
+    set format(v) {
+        this._gpuTexture.format = v;
+    }
     /** Whether to auto-generate mipmaps. */
-    get generateMipmaps() { return this._gpuTexture.generateMipmaps; }
-    set generateMipmaps(v) { this._gpuTexture.generateMipmaps = v; }
+    get generateMipmaps() {
+        return this._gpuTexture.generateMipmaps;
+    }
+    set generateMipmaps(v) {
+        this._gpuTexture.generateMipmaps = v;
+    }
+    /**
+     * User-provided mip levels (index 0 = level 1). When non-empty the renderer
+     * uploads these and skips auto-generation. Empty by default.
+     */
+    get mipmaps() {
+        return this._gpuTexture.mipmaps;
+    }
+    set mipmaps(v) {
+        this._gpuTexture.mipmaps = v;
+    }
     /** Whether to flip the image vertically when uploading. */
-    get flipY() { return this._gpuTexture.flipY; }
-    set flipY(v) { this._gpuTexture.flipY = v; }
+    get flipY() {
+        return this._gpuTexture.flipY;
+    }
+    set flipY(v) {
+        this._gpuTexture.flipY = v;
+    }
     /** Whether to premultiply alpha. */
-    get premultiplyAlpha() { return this._gpuTexture.premultiplyAlpha; }
-    set premultiplyAlpha(v) { this._gpuTexture.premultiplyAlpha = v; }
+    get premultiplyAlpha() {
+        return this._gpuTexture.premultiplyAlpha;
+    }
+    set premultiplyAlpha(v) {
+        this._gpuTexture.premultiplyAlpha = v;
+    }
     /** Version for dirty tracking. */
-    get version() { return this._gpuTexture.version; }
+    get version() {
+        return this._gpuTexture.version;
+    }
     /** Set to `true` to trigger a GPU upload on the next render. */
     set needsUpdate(value) {
         if (value) {
@@ -4610,7 +4684,6 @@ class Texture {
     dispose() {
         this._gpuTexture.dispose();
         this._gpuSampler.dispose();
-        this.mipmaps = [];
     }
 }
 
@@ -11023,8 +11096,11 @@ function updateTexture(cache, device, texture) {
     }
     // Upload image data
     uploadTextureData(device, texture, data);
-    // Generate mipmaps if requested and texture has multiple mip levels
-    if (texture.generateMipmaps && data.texture.mipLevelCount > 1) {
+    // Mip levels: user-supplied explicit mips take precedence over render-pass generation.
+    if (texture.mipmaps.length > 0) {
+        uploadExplicitMips(device, texture, data);
+    }
+    else if (texture.generateMipmaps && data.texture.mipLevelCount > 1) {
         const mipmapState = getMipmapState(cache, device);
         generateMipmaps(mipmapState, data.texture, isCube, isArray ? texture.depthOrArrayLayers : 0);
     }
@@ -11076,17 +11152,18 @@ function areArraySourcesReady(texture) {
  * Create a GPUTexture for a GpuTexture.
  */
 function createGPUTexture(device, texture) {
-    // Calculate mip level count if generating mipmaps
-    const mipLevelCount = texture.generateMipmaps
-        ? Math.floor(Math.log2(Math.max(texture.width, texture.height))) + 1
-        : texture.mipLevelCount;
+    // Calculate mip level count. Explicit user mipmaps win (level 0 + supplied levels);
+    // otherwise derive the full chain when auto-generating, else the descriptor's count.
+    const mipLevelCount = texture.mipmaps.length > 0
+        ? texture.mipmaps.length + 1
+        : texture.generateMipmaps
+            ? Math.floor(Math.log2(Math.max(texture.width, texture.height))) + 1
+            : texture.mipLevelCount;
     // RENDER_ATTACHMENT is forced on so render-pass mipmap generation works. But NOT for single-mip
     // storage textures: some storage formats (e.g. rgba8snorm) aren't renderable, so force-adding it
     // would fail createTexture — and a storage texture with no mips never needs render-pass mip-gen.
     const isStorage = texture.type.type.startsWith('texture_storage_');
-    const usage = (!isStorage || mipLevelCount > 1)
-        ? texture.usage | GPUTextureUsage.RENDER_ATTACHMENT
-        : texture.usage;
+    const usage = !isStorage || mipLevelCount > 1 ? texture.usage | GPUTextureUsage.RENDER_ATTACHMENT : texture.usage;
     const gpuTexture = device.createTexture({
         dimension: texture.dimension,
         size: [texture.width, texture.height, texture.depthOrArrayLayers],
@@ -11233,6 +11310,41 @@ function uploadArrayTextureData(device, texture, data) {
     }, [width, height, layerCount]);
 }
 /**
+ * Upload user-supplied explicit mip levels (texture.mipmaps), one per level
+ * starting at level 1 (level 0 is the primary source, already uploaded).
+ *
+ * Each mip Source carries its own dimensions. For array/cube textures the data
+ * is packed across all layers (depth = layer count), uploaded in a single
+ * writeTexture per level; for 2D it's a single image. Sources with no data or
+ * not yet ready are skipped (their level keeps whatever was there).
+ */
+function uploadExplicitMips(device, texture, data) {
+    const bytesPerPixel = getBytesPerPixel(texture.format);
+    for (let i = 0; i < texture.mipmaps.length; i++) {
+        const source = texture.mipmaps[i];
+        if (!source.dataReady)
+            continue;
+        const img = source.data;
+        if (!img)
+            continue;
+        const mipLevel = i + 1;
+        const width = source.width;
+        const height = source.height;
+        const layers = Math.max(source.depth, 1);
+        if (isTypedArrayData(img)) {
+            const srcData = img.data;
+            device.queue.writeTexture({ texture: data.texture, mipLevel }, srcData.buffer, {
+                offset: srcData.byteOffset,
+                bytesPerRow: width * bytesPerPixel,
+                rowsPerImage: height,
+            }, [width, height, layers]);
+        }
+        else if (isExternalImage(img)) {
+            device.queue.copyExternalImageToTexture({ source: img, flipY: texture.flipY }, { texture: data.texture, premultipliedAlpha: texture.premultiplyAlpha, mipLevel }, [width, height]);
+        }
+    }
+}
+/**
  * Get bytes per pixel for a format (simplified, handles common formats).
  */
 function getBytesPerPixel(format) {
@@ -11304,7 +11416,7 @@ function getDefaultTexture(cache, device, format) {
  */
 function getSampler(cache, device, gpuSampler) {
     const key = gpuSampler.settingsKey;
-    let data = cache.samplerCache.get(key);
+    const data = cache.samplerCache.get(key);
     if (data) {
         data.usedTimes++;
         return data.sampler;
@@ -11412,11 +11524,11 @@ function hasRenderTargetTextureAllocation(cache, texture, width, height, format,
     if (!data || data.isDefaultTexture)
         return false;
     const gpu = data.texture;
-    return (gpu.width === width
-        && gpu.height === height
-        && gpu.format === format
-        && gpu.sampleCount === sampleCount
-        && gpu.mipLevelCount === mipLevelCount);
+    return (gpu.width === width &&
+        gpu.height === height &&
+        gpu.format === format &&
+        gpu.sampleCount === sampleCount &&
+        gpu.mipLevelCount === mipLevelCount);
 }
 /**
  * Check the multisampled sibling of a render-target color texture matches the
@@ -11427,11 +11539,7 @@ function hasMatchingMsaaAllocation(cache, texture, width, height, format, sample
     const msaa = cache.textureMap.get(texture)?.msaaTexture;
     if (sampleCount <= 1)
         return !msaa;
-    return !!msaa
-        && msaa.width === width
-        && msaa.height === height
-        && msaa.format === format
-        && msaa.sampleCount === sampleCount;
+    return !!msaa && msaa.width === width && msaa.height === height && msaa.format === format && msaa.sampleCount === sampleCount;
 }
 function ensureRenderTargetTexturesAllocated(cache, device, renderTarget) {
     if (renderTarget.isCubeRenderTarget) {
@@ -11448,8 +11556,8 @@ function ensureRenderTargetTexturesAllocated(cache, device, renderTarget) {
     // there would reallocate the depth every frame and destroy the one just rendered into.
     let needsAllocation = false;
     for (const tex of renderTarget.textures) {
-        if (!hasRenderTargetTextureAllocation(cache, tex._gpuTexture, width, height, tex.format, 1, 1)
-            || !hasMatchingMsaaAllocation(cache, tex._gpuTexture, width, height, tex.format, sampleCount)) {
+        if (!hasRenderTargetTextureAllocation(cache, tex._gpuTexture, width, height, tex.format, 1, 1) ||
+            !hasMatchingMsaaAllocation(cache, tex._gpuTexture, width, height, tex.format, sampleCount)) {
             needsAllocation = true;
             break;
         }
@@ -11496,11 +11604,10 @@ function ensureRenderTargetTexturesAllocated(cache, device, renderTarget) {
     }
 }
 function ensureCubeRenderTargetTexturesAllocated(cache, device, renderTarget) {
-    const cubeMipCount = renderTarget.texture.generateMipmaps
-        ? Math.floor(Math.log2(renderTarget.size)) + 1
-        : 1;
+    const cubeMipCount = renderTarget.texture.generateMipmaps ? Math.floor(Math.log2(renderTarget.size)) + 1 : 1;
     const cubeReady = hasRenderTargetTextureAllocation(cache, renderTarget.texture._gpuTexture, renderTarget.size, renderTarget.size, renderTarget.texture.format, 1, cubeMipCount);
-    const depthReady = !renderTarget.depthTexture || hasRenderTargetTextureAllocation(cache, renderTarget.depthTexture._gpuTexture, renderTarget.size, renderTarget.size, renderTarget.depthTexture.format, 1, 1);
+    const depthReady = !renderTarget.depthTexture ||
+        hasRenderTargetTextureAllocation(cache, renderTarget.depthTexture._gpuTexture, renderTarget.size, renderTarget.size, renderTarget.depthTexture.format, 1, 1);
     if (cubeReady && depthReady)
         return;
     // See note in ensureRenderTargetTexturesAllocated: let setRenderTargetTexture()
@@ -28067,9 +28174,7 @@ class ArrayTexture {
      */
     constructor(data = null, width = 1, height = 1, depth = 1, options = {}) {
         // Create source if data provided
-        const src = data !== null
-            ? new Source({ data, width, height, depth })
-            : null;
+        const src = data !== null ? new Source({ data, width, height, depth }) : null;
         // Create the underlying GpuTexture
         this._gpuTexture = new GpuTexture(texture2dArray(), {
             width,
@@ -28093,13 +28198,21 @@ class ArrayTexture {
     }
     // ─── Convenience getters/setters that forward to internals ───
     /** Unique numeric ID */
-    get id() { return this._gpuTexture.id; }
+    get id() {
+        return this._gpuTexture.id;
+    }
     /** Returns the width of each layer. */
-    get width() { return this._gpuTexture.width; }
+    get width() {
+        return this._gpuTexture.width;
+    }
     /** Returns the height of each layer. */
-    get height() { return this._gpuTexture.height; }
+    get height() {
+        return this._gpuTexture.height;
+    }
     /** Depth (number of layers) of the texture array */
-    get depth() { return this._gpuTexture.depthOrArrayLayers; }
+    get depth() {
+        return this._gpuTexture.depthOrArrayLayers;
+    }
     /** The data source for this texture. */
     get source() {
         return this._gpuTexture.source;
@@ -28109,37 +28222,90 @@ class ArrayTexture {
         return this._gpuTexture.source?.data;
     }
     /** Horizontal wrap mode (U direction). */
-    get wrapS() { return this._gpuSampler.addressModeU; }
-    set wrapS(v) { this._gpuSampler.addressModeU = v; }
+    get wrapS() {
+        return this._gpuSampler.addressModeU;
+    }
+    set wrapS(v) {
+        this._gpuSampler.addressModeU = v;
+    }
     /** Vertical wrap mode (V direction). */
-    get wrapT() { return this._gpuSampler.addressModeV; }
-    set wrapT(v) { this._gpuSampler.addressModeV = v; }
+    get wrapT() {
+        return this._gpuSampler.addressModeV;
+    }
+    set wrapT(v) {
+        this._gpuSampler.addressModeV = v;
+    }
     /** Magnification filter. */
-    get magFilter() { return this._gpuSampler.magFilter; }
-    set magFilter(v) { this._gpuSampler.magFilter = v; }
+    get magFilter() {
+        return this._gpuSampler.magFilter;
+    }
+    set magFilter(v) {
+        this._gpuSampler.magFilter = v;
+    }
     /** Minification filter. */
-    get minFilter() { return this._gpuSampler.minFilter; }
-    set minFilter(v) { this._gpuSampler.minFilter = v; }
+    get minFilter() {
+        return this._gpuSampler.minFilter;
+    }
+    set minFilter(v) {
+        this._gpuSampler.minFilter = v;
+    }
     /** Mipmap filter mode. */
-    get mipmapFilter() { return this._gpuSampler.mipmapFilter; }
-    set mipmapFilter(v) { this._gpuSampler.mipmapFilter = v; }
+    get mipmapFilter() {
+        return this._gpuSampler.mipmapFilter;
+    }
+    set mipmapFilter(v) {
+        this._gpuSampler.mipmapFilter = v;
+    }
     /** Anisotropic filtering level. */
-    get anisotropy() { return this._gpuSampler.maxAnisotropy; }
-    set anisotropy(v) { this._gpuSampler.maxAnisotropy = v; }
+    get anisotropy() {
+        return this._gpuSampler.maxAnisotropy;
+    }
+    set anisotropy(v) {
+        this._gpuSampler.maxAnisotropy = v;
+    }
     /** WebGPU texture format. */
-    get format() { return this._gpuTexture.format; }
-    set format(v) { this._gpuTexture.format = v; }
+    get format() {
+        return this._gpuTexture.format;
+    }
+    set format(v) {
+        this._gpuTexture.format = v;
+    }
     /** Whether to auto-generate mipmaps. */
-    get generateMipmaps() { return this._gpuTexture.generateMipmaps; }
-    set generateMipmaps(v) { this._gpuTexture.generateMipmaps = v; }
+    get generateMipmaps() {
+        return this._gpuTexture.generateMipmaps;
+    }
+    set generateMipmaps(v) {
+        this._gpuTexture.generateMipmaps = v;
+    }
+    /**
+     * User-provided mip levels (index 0 = level 1; level 0 lives in the layer data).
+     * Each entry is a packed all-layers buffer for that level. When non-empty the
+     * renderer uploads these and skips auto-generation.
+     */
+    get mipmaps() {
+        return this._gpuTexture.mipmaps;
+    }
+    set mipmaps(v) {
+        this._gpuTexture.mipmaps = v;
+    }
     /** Whether to flip the image vertically when uploading. */
-    get flipY() { return this._gpuTexture.flipY; }
-    set flipY(v) { this._gpuTexture.flipY = v; }
+    get flipY() {
+        return this._gpuTexture.flipY;
+    }
+    set flipY(v) {
+        this._gpuTexture.flipY = v;
+    }
     /** Whether to premultiply alpha. */
-    get premultiplyAlpha() { return this._gpuTexture.premultiplyAlpha; }
-    set premultiplyAlpha(v) { this._gpuTexture.premultiplyAlpha = v; }
+    get premultiplyAlpha() {
+        return this._gpuTexture.premultiplyAlpha;
+    }
+    set premultiplyAlpha(v) {
+        this._gpuTexture.premultiplyAlpha = v;
+    }
     /** Version for dirty tracking. */
-    get version() { return this._gpuTexture.version; }
+    get version() {
+        return this._gpuTexture.version;
+    }
     /** Set to `true` to trigger a GPU upload on the next render. */
     set needsUpdate(value) {
         if (value) {
@@ -28150,7 +28316,9 @@ class ArrayTexture {
         }
     }
     /** Track which layers have been modified (forwards to GpuTexture). */
-    get layerUpdates() { return this._gpuTexture.layerUpdates; }
+    get layerUpdates() {
+        return this._gpuTexture.layerUpdates;
+    }
     /** Mark a specific layer as needing update. On next upload, only this layer will be transferred. */
     addLayerUpdate(layerIndex) {
         this._gpuTexture.layerUpdates.add(layerIndex);
@@ -28175,6 +28343,7 @@ class ArrayTexture {
             premultiplyAlpha: this.premultiplyAlpha,
         });
         tex.name = this.name;
+        tex.mipmaps = [...this.mipmaps];
         return tex;
     }
     /** Disposes of the texture and its GPU resources. */

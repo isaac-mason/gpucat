@@ -1,8 +1,8 @@
-import { GpuTexture } from '../core/gpu-texture';
 import { GpuSampler } from '../core/gpu-sampler';
-import { Source, type DataTextureImage } from './source';
+import { GpuTexture } from '../core/gpu-texture';
 import * as d from '../schema/schema';
-import type { WrapMode, FilterMode, MipmapFilterMode, TextureOptions } from './texture';
+import { type DataTextureImage, Source } from './source';
+import type { FilterMode, MipmapFilterMode, TextureOptions, WrapMode } from './texture';
 /** Data format for array textures - typed array with width, height, and layer count */
 export type ArrayTextureImage = DataTextureImage & {
     depth: number;
@@ -68,6 +68,13 @@ export declare class ArrayTexture {
     /** Whether to auto-generate mipmaps. */
     get generateMipmaps(): boolean;
     set generateMipmaps(v: boolean);
+    /**
+     * User-provided mip levels (index 0 = level 1; level 0 lives in the layer data).
+     * Each entry is a packed all-layers buffer for that level. When non-empty the
+     * renderer uploads these and skips auto-generation.
+     */
+    get mipmaps(): Source[];
+    set mipmaps(v: Source[]);
     /** Whether to flip the image vertically when uploading. */
     get flipY(): boolean;
     set flipY(v: boolean);

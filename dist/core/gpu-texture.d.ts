@@ -12,6 +12,13 @@ type BaseOptions = {
     sampleCount?: number;
     source?: Source | SourceData;
     generateMipmaps?: boolean;
+    /**
+     * User-supplied mip levels (index 0 = level 1, since level 0 is `source`/`sources`).
+     * When non-empty the renderer uploads these verbatim and skips GPU mip generation.
+     * Each entry holds the packed data for *all* layers at that level (array/cube),
+     * or the single image (2D).
+     */
+    mipmaps?: (Source | SourceData)[];
     flipY?: boolean;
     premultiplyAlpha?: boolean;
     /** Storage textures only: regenerate mips after a compute write (default true). */
@@ -29,7 +36,14 @@ type Options2DArray = BaseOptions & {
 };
 type OptionsCube = BaseOptions & {
     size: number;
-    faces?: [Source | SourceData, Source | SourceData, Source | SourceData, Source | SourceData, Source | SourceData, Source | SourceData] | (Source | SourceData)[];
+    faces?: [
+        Source | SourceData,
+        Source | SourceData,
+        Source | SourceData,
+        Source | SourceData,
+        Source | SourceData,
+        Source | SourceData
+    ] | (Source | SourceData)[];
 };
 type OptionsCubeArray = BaseOptions & {
     size: number;
@@ -67,6 +81,11 @@ export declare class GpuTexture<D extends d.Texture = d.Texture> {
     source: Source | null;
     /** Per-layer/face sources (for array/cube textures) */
     sources: Source[];
+    /**
+     * User-supplied mip levels (index 0 = level 1; level 0 lives in `source`/`sources`).
+     * When non-empty the renderer uploads these and skips render-pass mip generation.
+     */
+    mipmaps: Source[];
     /** Generate mipmaps on upload */
     generateMipmaps: boolean;
     /** Storage textures: regenerate mips after a compute pass writes this texture (if it has mips). */
