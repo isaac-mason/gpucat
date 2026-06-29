@@ -48,7 +48,7 @@ A few things to notice:
 
 ### Nodes and the graph
 
-Everything in a shader is a node. `attribute`, `uniform`, `add`, `mul`, `texture`, `vec3`, and the rest each create a node, and nodes compose into a graph:
+Shaders are composed of nodes - `attribute`, `uniform`, `add`, `mul`, `texture`, `vec3`, and the rest each create a node, and nodes compose into a graph:
 
 ```ts
 const position = attribute('position', d.vec3f);             // a vertex input
@@ -56,7 +56,7 @@ const world = mul(modelWorldMatrix, vec4(position, f32(1)));  // node math
 const clip = mul(cameraProjectionMatrix, mul(cameraViewMatrix, world));
 ```
 
-Nothing has run on the GPU yet. You have built an expression graph. When you hand a node to a `Material` (or call `compile()` directly), gpucat walks the graph, eliminates common subexpressions, and emits WGSL.
+When you hand a nodes to a `Material` (or call `compile()`), gpucat walks the graph and emits WGSL.
 
 ### Types: the `d` namespace
 
@@ -92,8 +92,6 @@ function frame() {
 requestAnimationFrame(frame);
 ```
 
-There is no `beginFrame`/`endFrame`; each `render()` and `compute()` call is self-contained, so you decide when and how often frames happen. See [`WebGPURenderer`](./api.md#webgpurenderer).
-
 ## Scene and Objects
 
 A `Scene` holds a tree of `Object3D`s. Each object has a `position`, `quaternion`, and `scale`; you call `updateWorldMatrix()` to fold them into its world matrix. A `Mesh` is geometry plus material.
@@ -116,7 +114,7 @@ Cameras carry the projection: `PerspectiveCamera(fov, aspect, near, far)` or `Or
 
 ### Updating matrices is your job
 
-Meshes are not game entities. gpucat does not tick them every frame or track changes for you. Setting `position`, `quaternion`, or `scale` does nothing on its own; nothing recomputes until you ask. You decide when, and you should be deliberate about it: update the objects that actually moved, not the whole scene on every frame.
+Meshes are not game entities. gpucat does not tick them every frame or track changes for you. Setting `position`, `quaternion`, or `scale` does nothing on its own; no matrices recompute until you tell them to. You decide when, and you should be deliberate about it: update the objects that actually moved, not the whole scene on every frame.
 
 - `object.updateWorldMatrix()` recomputes that object's `matrixWorld` and `normalMatrix` (which feed `modelWorldMatrix` and `modelNormalMatrix` in shaders) and recurses into its children. Move a mesh, update that mesh.
 - `camera.updateViewMatrix()` inverts the camera's world matrix into the view matrix that `cameraViewMatrix` reads. Call it after the camera's world matrix is current, and only when the camera moved.

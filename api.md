@@ -788,6 +788,11 @@ export class GpuTexture<D extends d.Texture = d.Texture> {
     source: Source | null;
     /** Per-layer/face sources (for array/cube textures) */
     sources: Source[];
+    /**
+     * User-supplied mip levels (index 0 = level 1; level 0 lives in `source`/`sources`).
+     * When non-empty the renderer uploads these and skips render-pass mip generation.
+     */
+    mipmaps: Source[];
     /** Generate mipmaps on upload */
     generateMipmaps: boolean;
     /** Storage textures: regenerate mips after a compute pass writes this texture (if it has mips). */
@@ -4815,11 +4820,6 @@ export class Texture<out T extends SourceData = SourceData> {
     /** Optional name for debugging */
     name: string;
     /**
-     * User-provided mipmaps as Sources. If empty, mipmaps are auto-generated
-     * when `generateMipmaps` is true.
-     */
-    mipmaps: Source[];
-    /**
      * Callback fired when the texture is updated.
      */
     onUpdate: ((texture: Texture<SourceData>) => void) | null;
@@ -4873,6 +4873,12 @@ export class Texture<out T extends SourceData = SourceData> {
     /** Whether to auto-generate mipmaps. */
     get generateMipmaps(): boolean;
     set generateMipmaps(v: boolean);
+    /**
+     * User-provided mip levels (index 0 = level 1). When non-empty the renderer
+     * uploads these and skips auto-generation. Empty by default.
+     */
+    get mipmaps(): Source[];
+    set mipmaps(v: Source[]);
     /** Whether to flip the image vertically when uploading. */
     get flipY(): boolean;
     set flipY(v: boolean);
@@ -5179,6 +5185,13 @@ export class ArrayTexture {
     /** Whether to auto-generate mipmaps. */
     get generateMipmaps(): boolean;
     set generateMipmaps(v: boolean);
+    /**
+     * User-provided mip levels (index 0 = level 1; level 0 lives in the layer data).
+     * Each entry is a packed all-layers buffer for that level. When non-empty the
+     * renderer uploads these and skips auto-generation.
+     */
+    get mipmaps(): Source[];
+    set mipmaps(v: Source[]);
     /** Whether to flip the image vertically when uploading. */
     get flipY(): boolean;
     set flipY(v: boolean);
