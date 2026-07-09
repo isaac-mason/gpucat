@@ -6,6 +6,7 @@ import {
     i32,
     Fn,
     Loop,
+    While,
     If,
     Break,
     Continue,
@@ -124,6 +125,25 @@ describe('control flow', () => {
         const loopVars = result.code.match(/i_\d+_\d+/g) ?? [];
         const uniqueVars = new Set(loopVars);
         expect(uniqueVars.size).toBe(2);
+    });
+
+    test('While generates a condition-driven while loop with a mutating body', () => {
+        const fn = Fn(() => {
+            const i = i32(0).toVar('i');
+            const sum = f32(0).toVar('sum');
+            While(i.lessThan(i32(10)), () => {
+                sum.assign(sum.add(i.toF32()));
+                i.assign(i.add(i32(1)));
+            });
+        });
+
+        const result = compileCompute(fn.compute({ workgroupSize: [64, 1, 1] }));
+
+        // condition-driven header, not a broken `for (… < 0i; …)`
+        expect(result.code).toMatch(/while \(.*_i < 10i.*\)/);
+        expect(result.code).not.toContain('< 0i');
+        // body is emitted and mutates the condition variable
+        expect(result.code).toMatch(/var_\d+_i = \(var_\d+_i \+ 1i\)/);
     });
 });
 

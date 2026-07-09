@@ -1874,11 +1874,14 @@ function generateLoopStmt(ctx: BuildContext, node: LoopNode): void {
     } else if (isNode(config) && (config.kind === NodeKind.Literal || config.kind === NodeKind.Uniform)) {
         const endExpr = generateExpr(ctx, config as Node<d.Any>);
         loopHeader = `for (var ${wgslVarName}: i32 = 0i; ${wgslVarName} < ${endExpr}; ${wgslVarName}++)`;
+    } else if (isNode(config)) {
+        // Bare expression node (from `While(cond, …)`): a condition-driven
+        // loop. WGSL re-evaluates the header condition every iteration, so a
+        // body that mutates variables used in `cond` terminates correctly.
+        loopHeader = `while (${generateExpr(ctx, config as Node<d.Any>)})`;
     } else if (
         typeof config === 'object' &&
-        config !== null &&
-        !(isNode(config) && config.kind === NodeKind.Literal) &&
-        !(isNode(config) && config.kind === NodeKind.Uniform)
+        config !== null
     ) {
         const cfg = config as {
             start?: Node<d.Any> | number;

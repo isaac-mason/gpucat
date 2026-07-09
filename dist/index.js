@@ -8677,10 +8677,14 @@ function generateLoopStmt(ctx, node) {
         const endExpr = generateExpr(ctx, config);
         loopHeader = `for (var ${wgslVarName}: i32 = 0i; ${wgslVarName} < ${endExpr}; ${wgslVarName}++)`;
     }
+    else if (isNode(config)) {
+        // Bare expression node (from `While(cond, …)`): a condition-driven
+        // loop. WGSL re-evaluates the header condition every iteration, so a
+        // body that mutates variables used in `cond` terminates correctly.
+        loopHeader = `while (${generateExpr(ctx, config)})`;
+    }
     else if (typeof config === 'object' &&
-        config !== null &&
-        !(isNode(config) && config.kind === NodeKind.Literal) &&
-        !(isNode(config) && config.kind === NodeKind.Uniform)) {
+        config !== null) {
         const cfg = config;
         const typeDesc = cfg.type ?? i32$1;
         const typeStr = typeDesc.wgslType;
