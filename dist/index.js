@@ -13380,16 +13380,29 @@ function getRenderObjectsStats(state) {
  *   - finish(frameId) seals the frame record and optionally resolves GPU timestamps.
  *   - beginRender/finishRender track CPU wall-time per render pass.
  *   - beginCompute/finishCompute track CPU wall-time per compute dispatch.
- *   - resolveFrame() returns the most recent fully-resolved FrameRecord.
+ *   - resolveFrame() returns the just-completed frame (fresh CPU/stats).
+ *   - latestResolvedFrame() returns the newest frame whose async GPU
+ *     timestamps have landed — what the live GPU-time display reads.
  *
  * GPU timestamp queries (optional):
  *   If the 'timestamp-query' feature is available, the renderer passes
  *   hasTimestamps=true to init(). We allocate a GPUQuerySet and a resolve
  *   buffer and read them back asynchronously after each submit.
  *   Each pass gets two slots: [begin, end]. Max 64 passes per frame.
+ *   Readback is a frame or two behind (mapAsync latency), so a frame's gpuMs
+ *   back-patches its record after finish(). Readback buffers rotate (a small
+ *   pool) so every frame resolves even while prior reads are in flight — the Perf
+ *   Timeline recording reads per-frame gpuMs live off the entry refs. The live
+ *   panel instead reads the newest *resolved* frame (latestResolvedFrame) rather
+ *   than the just-finished one, whose gpuMs is always still pending.
  */
 const FRAME_HISTORY = 512;
 const MAX_PASSES_PER_FRAME = 64;
+// Readback buffers rotate so a frame's timestamps can resolve while prior frames'
+// mapAsync reads are still in flight. Sized to cover typical map latency (1-3
+// frames) so *every* frame resolves — the Perf Timeline recording needs per-frame
+// GPU times, not just a recent one. Buffers are tiny (1 KiB), so err generous.
+const READBACK_POOL_SIZE = 6;
 // ---------------------------------------------------------------------------
 // RendererInspector
 // ---------------------------------------------------------------------------
@@ -13405,7 +13418,12 @@ class RendererInspector extends InspectorBase {
     _gpuInitialized = false;
     _querySet = null;
     _resolveBuffer = null;
-    _readbackBuffer = null;
+    /** Pool of MAP_READ readback buffers (see READBACK_POOL_SIZE). Each frame
+     *  resolves into a free (unmapped) one, so a pending mapAsync from a prior
+     *  frame never blocks the next — every frame's gpuMs resolves and back-patches
+     *  its record. The resolve buffer isn't pooled: resolveQuerySet + copy run
+     *  synchronously at submit, so it's free again before the next frame. */
+    _readbackPool = [];
     // FPS tracking
     _lastFinishTime = 0;
     _deltaTimes = [];
@@ -13464,10 +13482,13 @@ class RendererInspector extends InspectorBase {
                 size: resolveSize,
                 usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
             });
-            this._readbackBuffer = device.createBuffer({
-                size: resolveSize,
-                usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-            });
+            this._readbackPool = [];
+            for (let i = 0; i < READBACK_POOL_SIZE; i++) {
+                this._readbackPool.push(device.createBuffer({
+                    size: resolveSize,
+                    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+                }));
+            }
         }
         this._gpuInitialized = true;
     }
@@ -13478,9 +13499,9 @@ class RendererInspector extends InspectorBase {
         if (this._resolveBuffer?.destroy)
             this._resolveBuffer.destroy();
         this._resolveBuffer = null;
-        if (this._readbackBuffer?.destroy)
-            this._readbackBuffer.destroy();
-        this._readbackBuffer = null;
+        for (const b of this._readbackPool)
+            b.destroy?.();
+        this._readbackPool = [];
         this.hasTimestamps = false;
         this._gpuInitialized = false;
     }
@@ -13532,7 +13553,7 @@ class RendererInspector extends InspectorBase {
         this.frameHead = (this.frameHead + 1) % FRAME_HISTORY;
         this.frames[this.frameHead] = record;
         // Async GPU timestamp resolution
-        if (this.hasTimestamps && this._querySet && this._resolveBuffer && this._readbackBuffer && this.renderer._device) {
+        if (this.hasTimestamps && this._querySet && this._resolveBuffer && this._readbackPool.length > 0 && this.renderer._device) {
             this._resolveTimestamps(frameId, record);
         }
     }
@@ -13576,7 +13597,9 @@ class RendererInspector extends InspectorBase {
         const slot = this._currentQuerySlot++;
         const entry = {
             kind: 'compute',
-            name: nodeId,
+            // friendly `ComputeNode.name` (from `.compute({ name })`) if set, else the
+            // auto id — so labelled dispatches read as e.g. "voxel-cull" in the timeline.
+            name: node.name ?? nodeId,
             startTime: now - this._frameStart,
             cpuMs: 0,
             gpuMs: null,
@@ -13685,11 +13708,28 @@ class RendererInspector extends InspectorBase {
     // -----------------------------------------------------------------------
     // Public query API
     // -----------------------------------------------------------------------
-    /** Returns the most recent completed FrameRecord, or null. */
+    /** Returns the most recent completed FrameRecord, or null. Fresh CPU + stats,
+     *  but its `gpuMs` is still null (async readback lands a frame or two later). */
     resolveFrame() {
         if (this.frameHead < 0)
             return null;
         return this.frames[this.frameHead];
+    }
+    /** Returns the newest frame whose GPU timestamps have resolved (`gpuMs !==
+     *  null`), or null if none have yet. The live GPU-time display reads this so
+     *  it shows a real value consistently despite readback latency, instead of
+     *  the just-finished frame whose gpuMs is always still pending. */
+    latestResolvedFrame() {
+        if (this.frameHead < 0)
+            return null;
+        for (let i = 0; i < FRAME_HISTORY; i++) {
+            const f = this.frames[(this.frameHead - i + FRAME_HISTORY) % FRAME_HISTORY];
+            if (f === null)
+                break; // reached the unpopulated tail of the ring
+            if (f.gpuMs !== null)
+                return f;
+        }
+        return null;
     }
     /** Returns a slice of the last `count` frame records, oldest first. */
     getRecentFrames(count) {
@@ -13728,9 +13768,11 @@ class RendererInspector extends InspectorBase {
         const slotCount = Math.min(gpuEntries.size, MAX_PASSES_PER_FRAME);
         if (slotCount === 0)
             return;
-        const rb = this._readbackBuffer;
-        // Check mapState before using buffer
-        if (rb.mapState !== 'unmapped')
+        // Grab a free readback buffer from the pool. Only skip if the whole pool is
+        // still in flight (map latency spiked past READBACK_POOL_SIZE frames) —
+        // rare, and recording resumes the very next frame.
+        const rb = this._readbackPool.find((b) => b.mapState === 'unmapped');
+        if (!rb)
             return;
         // Find the max slot used to know how many to resolve
         let maxSlot = 0;
@@ -13755,6 +13797,8 @@ class RendererInspector extends InspectorBase {
                 entry.gpuMs = Number(durationNs) / 1_000_000;
                 totalGpuNs += durationNs;
             }
+            // back-patches this frame's record (held by reference in the ring);
+            // latestResolvedFrame() picks it up for the display next frame.
             record.gpuMs = Number(totalGpuNs) / 1_000_000;
             rb.unmap();
         }).catch(() => {
@@ -24347,19 +24391,26 @@ class PerformanceTimeline extends Tab {
         }
         const viewportEndMs = this._viewportStartMs + this._viewportDurationMs;
         for (const entry of this._entries) {
-            const entryEndMs = entry.startMs + entry.durationMs;
-            if (entryEndMs < this._viewportStartMs || entry.startMs > viewportEndMs)
-                continue;
-            const barW = entry.durationMs * pxPerMs;
-            if (barW < MIN_BAR_PX)
-                continue;
-            // CPU bar
-            const x = TRACK_LABEL_WIDTH + (entry.startMs - this._viewportStartMs) * pxPerMs + drawOffsetPx;
-            const barY = y + TRACK_PADDING + entry.depth * (ROW_HEIGHT + ROW_GAP);
-            this._drawBar(ctx, x, barY, Math.max(barW, 2), ROW_HEIGHT, entry.kind, entry.name);
-            // GPU bar (read from source entry for live async updates)
             const gpuMs = getGpuMs(entry);
             const gpuStartMs = getGpuStartMs(entry);
+            // Visibility spans CPU bar AND (async) GPU bar — the GPU bar sits after
+            // the CPU end, so cull on the later edge or a GPU-heavy pass whose CPU
+            // record time is µs-thin would be dropped just off the left edge.
+            const cpuEndMs = entry.startMs + entry.durationMs;
+            const rightEdgeMs = gpuMs !== null && gpuMs > 0 && gpuStartMs !== null ? Math.max(cpuEndMs, gpuStartMs + gpuMs) : cpuEndMs;
+            if (rightEdgeMs < this._viewportStartMs || entry.startMs > viewportEndMs)
+                continue;
+            const barY = y + TRACK_PADDING + entry.depth * (ROW_HEIGHT + ROW_GAP);
+            // CPU bar: skip only the *bar* when it's sub-pixel (µs command-record
+            // time) — NOT the whole entry, so the GPU bar below still draws. This is
+            // the fix for compute dispatches / indirect draws: tiny CPU, real GPU.
+            const cpuBarW = entry.durationMs * pxPerMs;
+            if (cpuBarW >= MIN_BAR_PX) {
+                const x = TRACK_LABEL_WIDTH + (entry.startMs - this._viewportStartMs) * pxPerMs + drawOffsetPx;
+                this._drawBar(ctx, x, barY, Math.max(cpuBarW, 2), ROW_HEIGHT, entry.kind, entry.name);
+            }
+            // GPU bar (read from source entry for live async updates) — independent
+            // of the CPU bar's width.
             if (gpuMs !== null && gpuMs > 0 && gpuStartMs !== null) {
                 const gpuBarW = gpuMs * pxPerMs;
                 if (gpuBarW >= MIN_BAR_PX) {
@@ -25050,6 +25101,12 @@ class Inspector extends RendererInspector {
         const now = performance.now();
         const deltaMs = now - (this._lastUpdateTime || now);
         this._lastUpdateTime = now;
+        // `record` is the just-finished frame — used for recording, the viewer,
+        // scene hierarchy and draw/compute calls (all want the current frame).
+        // The perf panel's CPU+GPU stats instead read the newest *resolved* frame
+        // so GPU times show consistently despite async timestamp readback latency
+        // (the current frame's gpuMs is always still pending at this point).
+        const displayFrame = this.latestResolvedFrame() ?? record;
         this._tickCycle(this._displayCycle.text, deltaMs);
         this._tickCycle(this._displayCycle.graph, deltaMs);
         // Check if main panel is visible (expanded)
@@ -25063,7 +25120,7 @@ class Inspector extends RendererInspector {
             setText('fps-counter', this.fps.toFixed());
             // Only update detailed stats when panel is visible
             if (panelVisible) {
-                this.performance.updateText(this, record);
+                this.performance.updateText(this, displayFrame);
                 this.memory.updateText(this);
                 if (this.performanceTimeline.isActive && !this.performanceTimeline.isRecording) {
                     this.performanceTimeline.scheduleRender();
@@ -30210,7 +30267,9 @@ class WebGPURenderer {
             let timestampWrites;
             if (inspector) {
                 inspector.beginCompute(node, frame.frameId);
-                timestampWrites = inspector.getTimestampWrites(node.id);
+                // key must match beginCompute's entry name (node.name ?? id) so the
+                // timestamp writes land on the right slot for labelled compute nodes.
+                timestampWrites = inspector.getTimestampWrites(node.name ?? node.id);
             }
             const computePass = encoder.beginComputePass({ timestampWrites });
             computePass.setPipeline(pipelineEntry.pipeline);
@@ -30227,7 +30286,7 @@ class WebGPURenderer {
             }
             computePass.end();
             if (inspector) {
-                inspector.finishCompute(node.id, frame.frameId);
+                inspector.finishCompute(node.name ?? node.id, frame.frameId);
                 inspector.perf.end(`compute: ${node.id}`);
             }
         }

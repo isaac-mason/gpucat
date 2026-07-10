@@ -9,13 +9,21 @@
  *   - finish(frameId) seals the frame record and optionally resolves GPU timestamps.
  *   - beginRender/finishRender track CPU wall-time per render pass.
  *   - beginCompute/finishCompute track CPU wall-time per compute dispatch.
- *   - resolveFrame() returns the most recent fully-resolved FrameRecord.
+ *   - resolveFrame() returns the just-completed frame (fresh CPU/stats).
+ *   - latestResolvedFrame() returns the newest frame whose async GPU
+ *     timestamps have landed — what the live GPU-time display reads.
  *
  * GPU timestamp queries (optional):
  *   If the 'timestamp-query' feature is available, the renderer passes
  *   hasTimestamps=true to init(). We allocate a GPUQuerySet and a resolve
  *   buffer and read them back asynchronously after each submit.
  *   Each pass gets two slots: [begin, end]. Max 64 passes per frame.
+ *   Readback is a frame or two behind (mapAsync latency), so a frame's gpuMs
+ *   back-patches its record after finish(). Readback buffers rotate (a small
+ *   pool) so every frame resolves even while prior reads are in flight — the Perf
+ *   Timeline recording reads per-frame gpuMs live off the entry refs. The live
+ *   panel instead reads the newest *resolved* frame (latestResolvedFrame) rather
+ *   than the just-finished one, whose gpuMs is always still pending.
  */
 
 import { InspectorBase } from './inspector-base';
@@ -114,6 +122,11 @@ export type FrameRecord = {
 
 const FRAME_HISTORY = 512;
 const MAX_PASSES_PER_FRAME = 64;
+// Readback buffers rotate so a frame's timestamps can resolve while prior frames'
+// mapAsync reads are still in flight. Sized to cover typical map latency (1-3
+// frames) so *every* frame resolves — the Perf Timeline recording needs per-frame
+// GPU times, not just a recent one. Buffers are tiny (1 KiB), so err generous.
+const READBACK_POOL_SIZE = 6;
 
 // ---------------------------------------------------------------------------
 // RendererInspector
@@ -134,7 +147,12 @@ export class RendererInspector extends InspectorBase {
     private _gpuInitialized = false;
     private _querySet: GPUQuerySet | null = null;
     private _resolveBuffer: GPUBuffer | null = null;
-    private _readbackBuffer: GPUBuffer | null = null;
+    /** Pool of MAP_READ readback buffers (see READBACK_POOL_SIZE). Each frame
+     *  resolves into a free (unmapped) one, so a pending mapAsync from a prior
+     *  frame never blocks the next — every frame's gpuMs resolves and back-patches
+     *  its record. The resolve buffer isn't pooled: resolveQuerySet + copy run
+     *  synchronously at submit, so it's free again before the next frame. */
+    private _readbackPool: GPUBuffer[] = [];
 
     // FPS tracking
     private _lastFinishTime = 0;
@@ -199,10 +217,15 @@ export class RendererInspector extends InspectorBase {
                 size: resolveSize,
                 usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
             });
-            this._readbackBuffer = device.createBuffer({
-                size: resolveSize,
-                usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-            });
+            this._readbackPool = [];
+            for (let i = 0; i < READBACK_POOL_SIZE; i++) {
+                this._readbackPool.push(
+                    device.createBuffer({
+                        size: resolveSize,
+                        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+                    }),
+                );
+            }
         }
 
         this._gpuInitialized = true;
@@ -214,8 +237,8 @@ export class RendererInspector extends InspectorBase {
         // GPUBuffers don't always expose destroy on all browsers; guard.
         if (this._resolveBuffer?.destroy) this._resolveBuffer.destroy();
         this._resolveBuffer = null;
-        if (this._readbackBuffer?.destroy) this._readbackBuffer.destroy();
-        this._readbackBuffer = null;
+        for (const b of this._readbackPool) b.destroy?.();
+        this._readbackPool = [];
         this.hasTimestamps = false;
         this._gpuInitialized = false;
     }
@@ -274,7 +297,7 @@ export class RendererInspector extends InspectorBase {
         this.frames[this.frameHead] = record;
 
         // Async GPU timestamp resolution
-        if (this.hasTimestamps && this._querySet && this._resolveBuffer && this._readbackBuffer && this.renderer._device) {
+        if (this.hasTimestamps && this._querySet && this._resolveBuffer && this._readbackPool.length > 0 && this.renderer._device) {
             this._resolveTimestamps(frameId, record);
         }
     }
@@ -322,7 +345,9 @@ export class RendererInspector extends InspectorBase {
         const slot = this._currentQuerySlot++;
         const entry: ComputeEntry = {
             kind: 'compute',
-            name: nodeId,
+            // friendly `ComputeNode.name` (from `.compute({ name })`) if set, else the
+            // auto id — so labelled dispatches read as e.g. "voxel-cull" in the timeline.
+            name: node.name ?? nodeId,
             startTime: now - this._frameStart,
             cpuMs: 0,
             gpuMs: null,
@@ -443,10 +468,25 @@ export class RendererInspector extends InspectorBase {
     // Public query API
     // -----------------------------------------------------------------------
 
-    /** Returns the most recent completed FrameRecord, or null. */
+    /** Returns the most recent completed FrameRecord, or null. Fresh CPU + stats,
+     *  but its `gpuMs` is still null (async readback lands a frame or two later). */
     resolveFrame(): FrameRecord | null {
         if (this.frameHead < 0) return null;
         return this.frames[this.frameHead];
+    }
+
+    /** Returns the newest frame whose GPU timestamps have resolved (`gpuMs !==
+     *  null`), or null if none have yet. The live GPU-time display reads this so
+     *  it shows a real value consistently despite readback latency, instead of
+     *  the just-finished frame whose gpuMs is always still pending. */
+    latestResolvedFrame(): FrameRecord | null {
+        if (this.frameHead < 0) return null;
+        for (let i = 0; i < FRAME_HISTORY; i++) {
+            const f = this.frames[(this.frameHead - i + FRAME_HISTORY) % FRAME_HISTORY];
+            if (f === null) break; // reached the unpopulated tail of the ring
+            if (f.gpuMs !== null) return f;
+        }
+        return null;
     }
 
     /** Returns a slice of the last `count` frame records, oldest first. */
@@ -490,10 +530,11 @@ export class RendererInspector extends InspectorBase {
         const slotCount = Math.min(gpuEntries.size, MAX_PASSES_PER_FRAME);
         if (slotCount === 0) return;
 
-        const rb = this._readbackBuffer!;
-
-        // Check mapState before using buffer
-        if (rb.mapState !== 'unmapped') return;
+        // Grab a free readback buffer from the pool. Only skip if the whole pool is
+        // still in flight (map latency spiked past READBACK_POOL_SIZE frames) —
+        // rare, and recording resumes the very next frame.
+        const rb = this._readbackPool.find((b) => b.mapState === 'unmapped');
+        if (!rb) return;
 
         // Find the max slot used to know how many to resolve
         let maxSlot = 0;
@@ -524,6 +565,8 @@ export class RendererInspector extends InspectorBase {
                 entry.gpuMs = Number(durationNs) / 1_000_000;
                 totalGpuNs += durationNs;
             }
+            // back-patches this frame's record (held by reference in the ring);
+            // latestResolvedFrame() picks it up for the display next frame.
             record.gpuMs = Number(totalGpuNs) / 1_000_000;
             rb.unmap();
         }).catch(() => {

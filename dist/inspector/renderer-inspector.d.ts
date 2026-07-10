@@ -9,13 +9,21 @@
  *   - finish(frameId) seals the frame record and optionally resolves GPU timestamps.
  *   - beginRender/finishRender track CPU wall-time per render pass.
  *   - beginCompute/finishCompute track CPU wall-time per compute dispatch.
- *   - resolveFrame() returns the most recent fully-resolved FrameRecord.
+ *   - resolveFrame() returns the just-completed frame (fresh CPU/stats).
+ *   - latestResolvedFrame() returns the newest frame whose async GPU
+ *     timestamps have landed — what the live GPU-time display reads.
  *
  * GPU timestamp queries (optional):
  *   If the 'timestamp-query' feature is available, the renderer passes
  *   hasTimestamps=true to init(). We allocate a GPUQuerySet and a resolve
  *   buffer and read them back asynchronously after each submit.
  *   Each pass gets two slots: [begin, end]. Max 64 passes per frame.
+ *   Readback is a frame or two behind (mapAsync latency), so a frame's gpuMs
+ *   back-patches its record after finish(). Readback buffers rotate (a small
+ *   pool) so every frame resolves even while prior reads are in flight — the Perf
+ *   Timeline recording reads per-frame gpuMs live off the entry refs. The live
+ *   panel instead reads the newest *resolved* frame (latestResolvedFrame) rather
+ *   than the just-finished one, whose gpuMs is always still pending.
  */
 import { InspectorBase } from './inspector-base';
 import type { WebGPURenderer } from '../renderer/renderer';
@@ -109,7 +117,12 @@ export declare class RendererInspector extends InspectorBase {
     private _gpuInitialized;
     private _querySet;
     private _resolveBuffer;
-    private _readbackBuffer;
+    /** Pool of MAP_READ readback buffers (see READBACK_POOL_SIZE). Each frame
+     *  resolves into a free (unmapped) one, so a pending mapAsync from a prior
+     *  frame never blocks the next — every frame's gpuMs resolves and back-patches
+     *  its record. The resolve buffer isn't pooled: resolveQuerySet + copy run
+     *  synchronously at submit, so it's free again before the next frame. */
+    private _readbackPool;
     private _lastFinishTime;
     private _deltaTimes;
     private _frameHadRender;
@@ -152,8 +165,14 @@ export declare class RendererInspector extends InspectorBase {
     private _finishEntry;
     /** Close the current top entry (used for unclosed entries at frame end) */
     private _closeCurrentEntry;
-    /** Returns the most recent completed FrameRecord, or null. */
+    /** Returns the most recent completed FrameRecord, or null. Fresh CPU + stats,
+     *  but its `gpuMs` is still null (async readback lands a frame or two later). */
     resolveFrame(): FrameRecord | null;
+    /** Returns the newest frame whose GPU timestamps have resolved (`gpuMs !==
+     *  null`), or null if none have yet. The live GPU-time display reads this so
+     *  it shows a real value consistently despite readback latency, instead of
+     *  the just-finished frame whose gpuMs is always still pending. */
+    latestResolvedFrame(): FrameRecord | null;
     /** Returns a slice of the last `count` frame records, oldest first. */
     getRecentFrames(count: number): FrameRecord[];
     /** Collect all GPU entries (render/compute) from timeline tree, mapped by querySlot */

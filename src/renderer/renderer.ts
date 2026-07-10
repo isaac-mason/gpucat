@@ -713,7 +713,9 @@ export class WebGPURenderer {
             let timestampWrites: GPUComputePassTimestampWrites | undefined;
             if (inspector) {
                 inspector.beginCompute(node, frame.frameId);
-                timestampWrites = inspector.getTimestampWrites(node.id);
+                // key must match beginCompute's entry name (node.name ?? id) so the
+                // timestamp writes land on the right slot for labelled compute nodes.
+                timestampWrites = inspector.getTimestampWrites(node.name ?? node.id);
             }
 
             const computePass = encoder.beginComputePass({ timestampWrites });
@@ -733,7 +735,7 @@ export class WebGPURenderer {
 
             computePass.end();
             if (inspector) {
-                inspector.finishCompute(node.id, frame.frameId);
+                inspector.finishCompute(node.name ?? node.id, frame.frameId);
                 inspector.perf.end(`compute: ${node.id}`);
             }
         }

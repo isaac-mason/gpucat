@@ -546,21 +546,28 @@ export class PerformanceTimeline extends Tab {
         const viewportEndMs = this._viewportStartMs + this._viewportDurationMs;
 
         for (const entry of this._entries) {
-            const entryEndMs = entry.startMs + entry.durationMs;
-            if (entryEndMs < this._viewportStartMs || entry.startMs > viewportEndMs) continue;
-
-            const barW = entry.durationMs * pxPerMs;
-            if (barW < MIN_BAR_PX) continue;
-
-            // CPU bar
-            const x = TRACK_LABEL_WIDTH + (entry.startMs - this._viewportStartMs) * pxPerMs + drawOffsetPx;
-            const barY = y + TRACK_PADDING + entry.depth * (ROW_HEIGHT + ROW_GAP);
-
-            this._drawBar(ctx, x, barY, Math.max(barW, 2), ROW_HEIGHT, entry.kind, entry.name);
-
-            // GPU bar (read from source entry for live async updates)
             const gpuMs = getGpuMs(entry);
             const gpuStartMs = getGpuStartMs(entry);
+            // Visibility spans CPU bar AND (async) GPU bar — the GPU bar sits after
+            // the CPU end, so cull on the later edge or a GPU-heavy pass whose CPU
+            // record time is µs-thin would be dropped just off the left edge.
+            const cpuEndMs = entry.startMs + entry.durationMs;
+            const rightEdgeMs = gpuMs !== null && gpuMs > 0 && gpuStartMs !== null ? Math.max(cpuEndMs, gpuStartMs + gpuMs) : cpuEndMs;
+            if (rightEdgeMs < this._viewportStartMs || entry.startMs > viewportEndMs) continue;
+
+            const barY = y + TRACK_PADDING + entry.depth * (ROW_HEIGHT + ROW_GAP);
+
+            // CPU bar: skip only the *bar* when it's sub-pixel (µs command-record
+            // time) — NOT the whole entry, so the GPU bar below still draws. This is
+            // the fix for compute dispatches / indirect draws: tiny CPU, real GPU.
+            const cpuBarW = entry.durationMs * pxPerMs;
+            if (cpuBarW >= MIN_BAR_PX) {
+                const x = TRACK_LABEL_WIDTH + (entry.startMs - this._viewportStartMs) * pxPerMs + drawOffsetPx;
+                this._drawBar(ctx, x, barY, Math.max(cpuBarW, 2), ROW_HEIGHT, entry.kind, entry.name);
+            }
+
+            // GPU bar (read from source entry for live async updates) — independent
+            // of the CPU bar's width.
             if (gpuMs !== null && gpuMs > 0 && gpuStartMs !== null) {
                 const gpuBarW = gpuMs * pxPerMs;
                 if (gpuBarW >= MIN_BAR_PX) {

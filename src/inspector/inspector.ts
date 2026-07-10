@@ -484,6 +484,13 @@ export class Inspector extends RendererInspector {
         const deltaMs = now - (this._lastUpdateTime || now);
         this._lastUpdateTime = now;
 
+        // `record` is the just-finished frame — used for recording, the viewer,
+        // scene hierarchy and draw/compute calls (all want the current frame).
+        // The perf panel's CPU+GPU stats instead read the newest *resolved* frame
+        // so GPU times show consistently despite async timestamp readback latency
+        // (the current frame's gpuMs is always still pending at this point).
+        const displayFrame = this.latestResolvedFrame() ?? record;
+
         this._tickCycle(this._displayCycle.text, deltaMs);
         this._tickCycle(this._displayCycle.graph, deltaMs);
 
@@ -500,7 +507,7 @@ export class Inspector extends RendererInspector {
             setText('fps-counter', this.fps.toFixed());
             // Only update detailed stats when panel is visible
             if (panelVisible) {
-                this.performance.updateText(this, record);
+                this.performance.updateText(this, displayFrame);
                 this.memory.updateText(this);
                 if (this.performanceTimeline.isActive && !this.performanceTimeline.isRecording) {
                     this.performanceTimeline.scheduleRender();
