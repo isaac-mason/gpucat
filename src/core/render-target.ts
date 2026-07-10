@@ -105,11 +105,22 @@ export class RenderTarget {
         }
     }
 
-    /** Sets the size of the render target, disposes existing GPU resources; renderer will reallocate on next use */
+    /**
+     * Resize the render target. Old GPU resources are NOT destroyed here: the
+     * renderer reallocates lazily on next use in `ensureRenderTargetTexturesAllocated`,
+     * where `setRenderTargetTexture` destroys the old texture and creates the new
+     * one atomically. Marking `needsUpdate` (+ the size mismatch) is enough to
+     * trigger that. This mirrors three.js, whose `RenderTarget.setSize` defers to
+     * a version-driven `updateTexture` rather than eager-destroying.
+     *
+     * Eagerly disposing here would destroy a GPU texture synchronously, opening a
+     * window where another pass that already recorded a draw against it (e.g. a
+     * shared depth attachment) submits with a destroyed texture. The lazy path has
+     * no such window.
+     */
     setSize(width: number, height: number): void {
         if (this.width === width && this.height === height) return;
 
-        this.dispose();
         this.width = width;
         this.height = height;
 

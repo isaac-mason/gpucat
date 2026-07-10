@@ -113,6 +113,13 @@ export type PassNodeOptions = {
     colorFormat?: GPUTextureFormat;
     /** Number of MSAA samples. Defaults to 1 (no MSAA). */
     samples?: number;
+    /**
+     * Friendly identifier for this pass. Used verbatim as the `passId` (so it
+     * must be unique among passes) — it names the pass in the inspector's perf
+     * panel and labels the GPU render pass for tooling (RenderDoc, browser GPU
+     * errors). When omitted, an auto id like `_pass0` is generated.
+     */
+    label?: string;
 };
 
 /**
@@ -176,7 +183,10 @@ export class PassNode extends Node<d.vec4f> {
     private readonly _linearDepthNodes: Record<string, Node<d.f32>> = {};
 
     constructor(scope: 'fragment' | 'depth', scene: Scene, camera: Camera, options: PassNodeOptions = {}) {
-        const pid = `_pass${_passCount++}`;
+        // `label` (when given) names the pass in the inspector + GPU tooling.
+        // still burn a counter slot so auto ids never collide with a label.
+        const autoId = `_pass${_passCount++}`;
+        const pid = options.label ?? autoId;
         super(d.vec4f);
 
         this.scope = scope;

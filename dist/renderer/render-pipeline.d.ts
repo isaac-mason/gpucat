@@ -25,6 +25,8 @@ export declare class RenderPipeline {
     readonly renderer: WebGPURenderer;
     /** the output node to render */
     outputNode: Node<Any>;
+    /** pass label for the fullscreen composite (inspector + GPU tooling). */
+    label: string;
     /** set to `true` to rebuild the material, e.g. when the outputNode changes */
     needsUpdate: boolean;
     /** material used for rendering the fullscreen quad */

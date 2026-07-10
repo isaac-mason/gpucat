@@ -4823,11 +4823,22 @@ class RenderTarget {
             this.textures[0] = value;
         }
     }
-    /** Sets the size of the render target, disposes existing GPU resources; renderer will reallocate on next use */
+    /**
+     * Resize the render target. Old GPU resources are NOT destroyed here: the
+     * renderer reallocates lazily on next use in `ensureRenderTargetTexturesAllocated`,
+     * where `setRenderTargetTexture` destroys the old texture and creates the new
+     * one atomically. Marking `needsUpdate` (+ the size mismatch) is enough to
+     * trigger that. This mirrors three.js, whose `RenderTarget.setSize` defers to
+     * a version-driven `updateTexture` rather than eager-destroying.
+     *
+     * Eagerly disposing here would destroy a GPU texture synchronously, opening a
+     * window where another pass that already recorded a draw against it (e.g. a
+     * shared depth attachment) submits with a destroyed texture. The lazy path has
+     * no such window.
+     */
     setSize(width, height) {
         if (this.width === width && this.height === height)
             return;
-        this.dispose();
         this.width = width;
         this.height = height;
         // update texture dimensions on the GpuTexture
@@ -5971,7 +5982,10 @@ class PassNode extends Node {
     _viewZNodes = {};
     _linearDepthNodes = {};
     constructor(scope, scene, camera, options = {}) {
-        const pid = `_pass${_passCount++}`;
+        // `label` (when given) names the pass in the inspector + GPU tooling.
+        // still burn a counter slot so auto ids never collide with a label.
+        const autoId = `_pass${_passCount++}`;
+        const pid = options.label ?? autoId;
         super(vec4f$1);
         this.scope = scope;
         this.scene = scene;
@@ -21796,9 +21810,10 @@ class QuadMesh extends Mesh {
      *
      * @param renderer - The WebGPU renderer.
      * @param encoder - Optional command encoder. If not provided, creates and submits one.
+     * @param passId - Optional pass label (inspector + GPU tooling). Defaults to the renderer's `'render'`.
      */
-    render(renderer, encoder) {
-        renderer.render(this, this.camera, encoder);
+    render(renderer, encoder, passId) {
+        renderer.render(this, this.camera, encoder, passId);
     }
 }
 
@@ -30466,6 +30481,7 @@ class WebGPURenderer {
         const inspector = this.inspector;
         const timestampWrites = inspector ? inspector.getTimestampWrites(passId) : undefined;
         const gpuPass = encoder.beginRenderPass({
+            label: passId,
             colorAttachments,
             depthStencilAttachment: depthAttachment,
             timestampWrites,
@@ -30748,6 +30764,8 @@ class RenderPipeline {
     renderer;
     /** the output node to render */
     outputNode;
+    /** pass label for the fullscreen composite (inspector + GPU tooling). */
+    label = 'composite';
     /** set to `true` to rebuild the material, e.g. when the outputNode changes */
     needsUpdate = true;
     /** material used for rendering the fullscreen quad */
@@ -30778,7 +30796,7 @@ class RenderPipeline {
      */
     render() {
         this._update();
-        this._quadMesh.render(this.renderer);
+        this._quadMesh.render(this.renderer, undefined, this.label);
     }
     /**
      * Dispose of resources owned by this pipeline.

@@ -1072,6 +1072,7 @@ export class WebGPURenderer {
         const inspector = this.inspector;
         const timestampWrites = inspector ? inspector.getTimestampWrites(passId) : undefined;
         const gpuPass = encoder.beginRenderPass({
+            label: passId,
             colorAttachments,
             depthStencilAttachment: depthAttachment,
             timestampWrites,

@@ -32,6 +32,9 @@ export class RenderPipeline {
     /** the output node to render */
     outputNode: Node<Any>;
 
+    /** pass label for the fullscreen composite (inspector + GPU tooling). */
+    label = 'composite';
+
     /** set to `true` to rebuild the material, e.g. when the outputNode changes */
     needsUpdate = true;
 
@@ -68,7 +71,7 @@ export class RenderPipeline {
      */
     render(): void {
         this._update();
-        this._quadMesh.render(this.renderer);
+        this._quadMesh.render(this.renderer, undefined, this.label);
     }
 
     /**

@@ -62,6 +62,13 @@ export type PassNodeOptions = {
     colorFormat?: GPUTextureFormat;
     /** Number of MSAA samples. Defaults to 1 (no MSAA). */
     samples?: number;
+    /**
+     * Friendly identifier for this pass. Used verbatim as the `passId` (so it
+     * must be unique among passes) — it names the pass in the inspector's perf
+     * panel and labels the GPU render pass for tooling (RenderDoc, browser GPU
+     * errors). When omitted, an auto id like `_pass0` is generated.
+     */
+    label?: string;
 };
 /**
  * Represents a render pass (sometimes called beauty pass) in context of post processing.

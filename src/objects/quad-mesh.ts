@@ -62,8 +62,9 @@ export class QuadMesh extends Mesh {
      *
      * @param renderer - The WebGPU renderer.
      * @param encoder - Optional command encoder. If not provided, creates and submits one.
+     * @param passId - Optional pass label (inspector + GPU tooling). Defaults to the renderer's `'render'`.
      */
-    render(renderer: WebGPURenderer, encoder?: GPUCommandEncoder): void {
-        renderer.render(this, this.camera, encoder);
+    render(renderer: WebGPURenderer, encoder?: GPUCommandEncoder, passId?: string): void {
+        renderer.render(this, this.camera, encoder, passId);
     }
 }
