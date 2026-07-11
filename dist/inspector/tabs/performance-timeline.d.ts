@@ -45,6 +45,13 @@ export declare class PerformanceTimeline extends Tab {
     private _formatTimeLabel;
     private _formatMs;
     private _calculateGridInterval;
+    /**
+     * Assign each entry's GPU span to a lane via greedy interval partitioning.
+     * GPU passes pipeline — their [start, start+gpuMs] intervals overlap — so we
+     * stack overlapping spans onto separate rows instead of drawing them on top
+     * of one another. Shared by the draw and hit-test paths so both agree.
+     */
+    private _computeGpuLanes;
     private _drawDetail;
     private _drawGridLines;
     private _drawBar;

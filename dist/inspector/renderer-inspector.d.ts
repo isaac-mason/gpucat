@@ -50,6 +50,10 @@ export type RenderEntry = TimelineEntryBase & {
     kind: 'render';
     /** GPU duration in ms (null until async timestamp resolves) */
     gpuMs: number | null;
+    /** GPU-begin offset within the frame (ms, relative to the frame's earliest
+     *  GPU timestamp). Null until async timestamps resolve. The timeline positions
+     *  the GPU bar by this real offset, not by the CPU record-end. */
+    gpuStartMs: number | null;
     /** Monotonic query slot index (pair: begin=slot*2, end=slot*2+1) */
     querySlot: number;
 };
@@ -58,6 +62,10 @@ export type ComputeEntry = TimelineEntryBase & {
     kind: 'compute';
     /** GPU duration in ms (null until async timestamp resolves) */
     gpuMs: number | null;
+    /** GPU-begin offset within the frame (ms, relative to the frame's earliest
+     *  GPU timestamp). Null until async timestamps resolve. The timeline positions
+     *  the GPU bar by this real offset, not by the CPU record-end. */
+    gpuStartMs: number | null;
     /** Monotonic query slot index (pair: begin=slot*2, end=slot*2+1) */
     querySlot: number;
 };

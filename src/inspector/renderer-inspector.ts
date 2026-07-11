@@ -61,6 +61,10 @@ export type RenderEntry = TimelineEntryBase & {
     kind: 'render';
     /** GPU duration in ms (null until async timestamp resolves) */
     gpuMs: number | null;
+    /** GPU-begin offset within the frame (ms, relative to the frame's earliest
+     *  GPU timestamp). Null until async timestamps resolve. The timeline positions
+     *  the GPU bar by this real offset, not by the CPU record-end. */
+    gpuStartMs: number | null;
     /** Monotonic query slot index (pair: begin=slot*2, end=slot*2+1) */
     querySlot: number;
 };
@@ -70,6 +74,10 @@ export type ComputeEntry = TimelineEntryBase & {
     kind: 'compute';
     /** GPU duration in ms (null until async timestamp resolves) */
     gpuMs: number | null;
+    /** GPU-begin offset within the frame (ms, relative to the frame's earliest
+     *  GPU timestamp). Null until async timestamps resolve. The timeline positions
+     *  the GPU bar by this real offset, not by the CPU record-end. */
+    gpuStartMs: number | null;
     /** Monotonic query slot index (pair: begin=slot*2, end=slot*2+1) */
     querySlot: number;
 };
@@ -312,6 +320,7 @@ export class RendererInspector extends InspectorBase {
             startTime: now - this._frameStart,
             cpuMs: 0,
             gpuMs: null,
+            gpuStartMs: null,
             querySlot: slot,
             children: [],
         };
@@ -351,6 +360,7 @@ export class RendererInspector extends InspectorBase {
             startTime: now - this._frameStart,
             cpuMs: 0,
             gpuMs: null,
+            gpuStartMs: null,
             querySlot: slot,
             children: [],
         };
@@ -556,18 +566,34 @@ export class RendererInspector extends InspectorBase {
 
         rb.mapAsync(GPUMapMode.READ, 0, slotsToResolve * 2 * 8).then(() => {
             const data = new BigUint64Array(rb.getMappedRange(0, slotsToResolve * 2 * 8));
-            let totalGpuNs = 0n;
+
+            // Frame GPU epoch + end: earliest begin and latest end across the
+            // frame's passes. GPU timestamps are on their own clock (unrelated to
+            // performance.now), so each pass's begin is stored *relative* to this
+            // epoch. Passes pipeline — their [begin,end] intervals overlap — so the
+            // frame's real GPU time is the SPAN (maxEnd − epoch), NOT the sum of
+            // per-pass durations, which double-counts the overlap.
+            let epochNs: bigint | null = null;
+            let maxEndNs = 0n;
+            for (const [slot] of gpuEntries) {
+                const beginNs = data[slot * 2];
+                const endNs = data[slot * 2 + 1];
+                if (endNs <= beginNs) continue; // unwritten or bogus timestamp
+                if (epochNs === null || beginNs < epochNs) epochNs = beginNs;
+                if (endNs > maxEndNs) maxEndNs = endNs;
+            }
+
             for (const [slot, entry] of gpuEntries) {
                 const beginNs = data[slot * 2];
                 const endNs = data[slot * 2 + 1];
                 if (endNs <= beginNs) continue; // unwritten or bogus timestamp
-                const durationNs = endNs - beginNs;
-                entry.gpuMs = Number(durationNs) / 1_000_000;
-                totalGpuNs += durationNs;
+                entry.gpuMs = Number(endNs - beginNs) / 1_000_000;
+                entry.gpuStartMs = epochNs === null ? 0 : Number(beginNs - epochNs) / 1_000_000;
             }
+
             // back-patches this frame's record (held by reference in the ring);
             // latestResolvedFrame() picks it up for the display next frame.
-            record.gpuMs = Number(totalGpuNs) / 1_000_000;
+            if (epochNs !== null) record.gpuMs = Number(maxEndNs - epochNs) / 1_000_000;
             rb.unmap();
         }).catch(() => {
             if (rb.mapState === 'mapped') rb.unmap();

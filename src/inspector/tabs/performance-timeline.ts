@@ -57,11 +57,17 @@ function getGpuMs(entry: FlatEntry): number | null {
     return (entry.sourceEntry as RenderEntry | ComputeEntry).gpuMs;
 }
 
-/** Get gpuStartMs for a FlatEntry (CPU end time = GPU start time) */
+/** Recording-relative GPU-bar start for a FlatEntry, from the pass's real GPU
+ *  begin timestamp (not the CPU record-end, which piled bars into one clump).
+ *  The source entry stores `gpuStartMs` as an offset within the frame's GPU
+ *  epoch; we rebase it onto the frame's origin: `startMs − startTime` is that
+ *  origin in recording coords. Reads live from the source (async-resolved). */
 function getGpuStartMs(entry: FlatEntry): number | null {
     const gpuMs = getGpuMs(entry);
     if (gpuMs === null || gpuMs <= 0) return null;
-    return entry.startMs + entry.durationMs;
+    const src = entry.sourceEntry as RenderEntry | ComputeEntry | null;
+    if (!src || src.gpuStartMs === null) return null;
+    return entry.startMs - src.startTime + src.gpuStartMs;
 }
 
 export class PerformanceTimeline extends Tab {
@@ -503,11 +509,43 @@ export class PerformanceTimeline extends Tab {
         return 10000;
     }
 
+    /**
+     * Assign each entry's GPU span to a lane via greedy interval partitioning.
+     * GPU passes pipeline — their [start, start+gpuMs] intervals overlap — so we
+     * stack overlapping spans onto separate rows instead of drawing them on top
+     * of one another. Shared by the draw and hit-test paths so both agree.
+     */
+    private _computeGpuLanes(): { lanes: Map<FlatEntry, number>; maxLane: number } {
+        const lanes = new Map<FlatEntry, number>();
+        const laneEnds: number[] = []; // last-used end (ms) per lane
+        let maxLane = 0;
+
+        const spans = this._entries
+            .map((e) => ({ e, start: getGpuStartMs(e), ms: getGpuMs(e) }))
+            .filter((s): s is { e: FlatEntry; start: number; ms: number } => s.start !== null && s.ms !== null && s.ms > 0)
+            .sort((a, b) => a.start - b.start);
+
+        for (const s of spans) {
+            let lane = laneEnds.findIndex((end) => end <= s.start);
+            if (lane === -1) {
+                lane = laneEnds.length;
+                laneEnds.push(0);
+            }
+            laneEnds[lane] = s.start + s.ms;
+            lanes.set(s.e, lane);
+            if (lane > maxLane) maxLane = lane;
+        }
+        return { lanes, maxLane };
+    }
+
     private _drawDetail(ctx: CanvasRenderingContext2D, w: number, y: number, h: number, chartWidth: number): void {
         // Track backgrounds
         const cpuTrackH = Math.max((this._maxCpuDepth + 1) * (ROW_HEIGHT + ROW_GAP) + TRACK_PADDING * 2, MIN_CPU_TRACK_HEIGHT);
         const gpuTrackY = y + cpuTrackH;
-        const gpuTrackH = ROW_HEIGHT + TRACK_PADDING * 2;
+        // GPU passes overlap (pipelining), so lane-stack them; the track grows to
+        // fit the deepest lane.
+        const { lanes: gpuLanes, maxLane: maxGpuLane } = this._computeGpuLanes();
+        const gpuTrackH = (maxGpuLane + 1) * (ROW_HEIGHT + ROW_GAP) + TRACK_PADDING * 2;
 
         ctx.fillStyle = COLORS.trackBg;
         ctx.fillRect(0, y, w, cpuTrackH);
@@ -572,7 +610,7 @@ export class PerformanceTimeline extends Tab {
                 const gpuBarW = gpuMs * pxPerMs;
                 if (gpuBarW >= MIN_BAR_PX) {
                     const gpuX = TRACK_LABEL_WIDTH + (gpuStartMs - this._viewportStartMs) * pxPerMs + drawOffsetPx;
-                    const gpuY = gpuTrackY + TRACK_PADDING;
+                    const gpuY = gpuTrackY + TRACK_PADDING + (gpuLanes.get(entry) ?? 0) * (ROW_HEIGHT + ROW_GAP);
                     this._drawBar(ctx, gpuX, gpuY, Math.max(gpuBarW, 2), ROW_HEIGHT, 'gpu', entry.name);
                 }
             }
@@ -750,6 +788,7 @@ export class PerformanceTimeline extends Tab {
         const detailY = OVERVIEW_HEIGHT + RULER_HEIGHT;
         const cpuTrackH = Math.max((this._maxCpuDepth + 1) * (ROW_HEIGHT + ROW_GAP) + TRACK_PADDING * 2, MIN_CPU_TRACK_HEIGHT);
         const gpuTrackY = detailY + cpuTrackH;
+        const { lanes: gpuLanes } = this._computeGpuLanes();
 
         for (let i = this._entries.length - 1; i >= 0; i--) {
             const entry = this._entries[i];
@@ -770,7 +809,7 @@ export class PerformanceTimeline extends Tab {
             if (gpuMs !== null && gpuMs > 0 && gpuStartMs !== null) {
                 const gx = TRACK_LABEL_WIDTH + (gpuStartMs - this._viewportStartMs) * pxPerMs;
                 const gw = Math.max(gpuMs * pxPerMs, 2);
-                const gy = gpuTrackY + TRACK_PADDING;
+                const gy = gpuTrackY + TRACK_PADDING + (gpuLanes.get(entry) ?? 0) * (ROW_HEIGHT + ROW_GAP);
                 if (x >= gx && x <= gx + gw && y >= gy && y <= gy + ROW_HEIGHT) {
                     this._showTooltip(e, entry, true);
                     return;
