@@ -78,10 +78,16 @@ export type TextureCacheStats = {
     samplerCount: number;
 };
 
-export function createSwapchainDepthTexture(device: GPUDevice, width: number, height: number, sampleCount: number): GPUTexture {
+export function createSwapchainDepthTexture(
+    device: GPUDevice,
+    width: number,
+    height: number,
+    sampleCount: number,
+    format: GPUTextureFormat = 'depth24plus',
+): GPUTexture {
     return device.createTexture({
         size: [width, height],
-        format: 'depth24plus',
+        format,
         usage: GPUTextureUsage.RENDER_ATTACHMENT,
         sampleCount,
     });

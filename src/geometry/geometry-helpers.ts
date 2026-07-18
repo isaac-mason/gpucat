@@ -109,8 +109,7 @@ export function createBoxGeometry(width = 1, height = 1, depth = 1): Geometry {
 }
 
 export function createSphereGeometry(radius = 0.5, widthSegments = 16, heightSegments = 8): Geometry {
-    // Faithful port of three.js SphereGeometry (full sphere). Note the negated
-    // X and `1 - v` UV, which match three exactly, and the pole-triangle skipping.
+    // Full sphere. Note the negated X and `1 - v` UV, and the pole-triangle skipping.
     widthSegments = Math.max(3, Math.floor(widthSegments));
     heightSegments = Math.max(2, Math.floor(heightSegments));
 

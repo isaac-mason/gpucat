@@ -43,6 +43,10 @@ export type PipelinesState = {
     canvasDepthFormat: GPUTextureFormat;
 };
 export declare const DEPTH_FORMAT: GPUTextureFormat;
+/** Depth format carrying a stencil aspect. Used when a target requests a stencil buffer. */
+export declare const DEPTH_STENCIL_FORMAT: GPUTextureFormat;
+/** Whether a depth format includes a stencil aspect (depth24plus-stencil8, depth32float-stencil8, stencil8). */
+export declare function formatHasStencil(format: GPUTextureFormat): boolean;
 /**
  * Create a pipelines state.
  */

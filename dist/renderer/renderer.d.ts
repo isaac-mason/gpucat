@@ -1,3 +1,4 @@
+import type { Vec4 } from 'mathcat';
 import { Camera } from '../camera/camera';
 import { type GpuBuffer } from '../core/gpu-buffer';
 import { Object3D } from '../core/object3d';
@@ -22,6 +23,8 @@ export type WebGPURendererOptions = {
     antialias?: boolean;
     /** Explicit MSAA sample count. 0 or 1 = no MSAA. Takes precedence over antialias. */
     samples?: number;
+    /** Allocate a stencil buffer for the swapchain (depth24plus-stencil8). Default false. */
+    stencil?: boolean;
     /** GPURequestAdapterOptions forwarded to navigator.gpu.requestAdapter(). */
     adapterOptions?: GPURequestAdapterOptions;
     /** GPUDeviceDescriptor forwarded to adapter.requestDevice(). */
@@ -110,6 +113,10 @@ export declare class WebGPURenderer {
     _format: GPUTextureFormat;
     /** MSAA sample count (0 or 1 = no MSAA). */
     samples: number;
+    /** Whether the swapchain has a stencil buffer (depth24plus-stencil8). Set from the `stencil` option. */
+    readonly stencil: boolean;
+    /** Depth(-stencil) format for the swapchain depth texture: depth24plus, or depth24plus-stencil8 when stencil. */
+    private _swapchainDepthFormat;
     /** GPURequestAdapterOptions forwarded to navigator.gpu.requestAdapter(). */
     _adapterOptions: GPURequestAdapterOptions | undefined;
     /** GPUDeviceDescriptor forwarded to adapter.requestDevice(). */
@@ -159,9 +166,15 @@ export declare class WebGPURenderer {
      *  clearing to clearColor. Set false (after an initial clear()) to composite several
      *  viewport/scissor views into ONE canvas — a grid of independent 3D views. */
     autoClear: boolean;
+    /** When true (and autoClear is true), the stencil buffer is cleared to clearStencilValue each render. */
+    autoClearStencil: boolean;
+    /** Value the stencil buffer is cleared to (0-255). Default 0. */
+    clearStencilValue: number;
     private _viewport;
     private _scissor;
     private _scissorTest;
+    private _viewportMinDepth;
+    private _viewportMaxDepth;
     /** current MRT configuration. when set, materials using mrt() nodes write to multiple color attachments. */
     mrt: MRTNode | null;
     /** current render target. when set, render() renders to this target instead of the swapchain. */
@@ -201,40 +214,32 @@ export declare class WebGPURenderer {
     setSize(width: number, height: number, updateStyle?: boolean): void;
     /**
      * Restrict rendering to a sub-rectangle of the framebuffer, in LOGICAL (CSS) pixels — top-left
-     * origin, multiplied by the canvas pixelRatio internally (matches three.js). Persists until
-     * changed. Combine with setScissor + setScissorTest(true) and autoClear=false to render many
-     * independent 3D views into one canvas (a grid of previews). Reset via setViewport(0,0,w,h).
+     * origin, multiplied by the canvas pixelRatio internally. Accepts a `Vec4` tuple [x, y, width, height]
+     * or the individual components. Persists until changed. Combine with setScissor + setScissorTest(true)
+     * and autoClear=false to render many independent 3D views into one canvas (a grid of previews). Reset
+     * via setViewport(0, 0, w, h).
      */
+    setViewport(rect: Vec4): void;
     setViewport(x: number, y: number, width: number, height: number, minDepth?: number, maxDepth?: number): void;
-    /** The current viewport in logical px (full frame if none set). Mirrors three.js getViewport. */
-    getViewport(): {
-        x: number;
-        y: number;
-        width: number;
-        height: number;
-        minDepth: number;
-        maxDepth: number;
-    };
-    /** Set the scissor rectangle in LOGICAL (CSS) pixels (top-left origin). Clips draws only while the
-     *  scissor test is enabled — see setScissorTest. Does NOT affect loadOp clears. */
+    /** The current viewport as a `Vec4` [x, y, width, height] in logical px (full frame if none set). */
+    getViewport(): Vec4;
+    /** Set the scissor rectangle in LOGICAL (CSS) pixels (top-left origin), as a `Vec4` tuple
+     *  [x, y, width, height] or individual components. Clips draws only while the scissor test is
+     *  enabled — see setScissorTest. Does NOT affect loadOp clears. */
+    setScissor(rect: Vec4): void;
     setScissor(x: number, y: number, width: number, height: number): void;
-    /** The current scissor rect in logical px (full frame if none set). */
-    getScissor(): {
-        x: number;
-        y: number;
-        width: number;
-        height: number;
-    };
+    /** The current scissor rect as a `Vec4` [x, y, width, height] in logical px (full frame if none set). */
+    getScissor(): Vec4;
     /** Enable or disable the scissor test. When on, draw calls are clipped to the setScissor rect. */
     setScissorTest(enable: boolean): void;
     getScissorTest(): boolean;
     /**
      * Manually clear the current framebuffer (color and/or depth) to clearColor, ignoring
      * autoClear and viewport/scissor. Pair with autoClear=false to clear once, then render() a
-     * series of viewport/scissor views on top. Matches three.js `clear(color, depth)` (gpucat has
-     * no stencil buffer).
+     * series of viewport/scissor views on top. `stencil` only takes effect on a stencil-capable
+     * attachment (see the renderer `stencil` option / a target's `stencilBuffer`).
      */
-    clear(color?: boolean, depth?: boolean): void;
+    clear(color?: boolean, depth?: boolean, stencil?: boolean): void;
     /**
      * Check if a GPU feature is available on the current device.
      *
@@ -305,10 +310,25 @@ export declare class WebGPURenderer {
     private _render_resolve;
     /** Attachments for a 2D render target (one color per attachment, MRT supported). */
     private _resolveRenderTargetAttachments;
+    /**
+     * Stencil load/store/clear ops for a depth attachment, or undefined when the format has no stencil
+     * aspect. WebGPU requires stencil ops on any combined depth-stencil attachment, so this is driven by
+     * the texture format, not by whether a material uses stencil. Spread into the depth attachment.
+     */
+    private _stencilAttachmentOps;
     /** Attachments for the swapchain (canvas), resolving MSAA when enabled. */
     private _resolveSwapchainAttachments;
     /** Collect visible meshes, init render objects, and run updateBefore (may trigger nested renders). */
     private _render_prepare;
+    /**
+     * Resolve the active viewport/scissor into the pass context as physical-pixel rects. The source is
+     * the target being rendered: a render target carries its own viewport/scissor, otherwise the
+     * renderer's swapchain state applies. Values are scaled by the canvas pixelRatio (1 for render
+     * targets), floored to integers, and the scissor is clamped to the framebuffer so an over-sized or
+     * negative rect can't trip a GPU validation error. The scissor flag is left off when the rect
+     * already covers the whole framebuffer (nothing to clip).
+     */
+    private _resolveViewportScissor;
     /** Begin the GPU render pass, issue all draw calls, and end the pass. */
     private _render_draw;
     /** Build the color/depth attachments for a cube render target's active face. */

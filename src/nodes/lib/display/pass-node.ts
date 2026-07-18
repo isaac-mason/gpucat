@@ -458,7 +458,8 @@ export class PassNode extends Node<d.vec4f> {
         this._pixelRatio = 1;
         this.setSize(frame.width, frame.height);
 
-        // State save
+        // State save. The render target carries its own viewport/scissor (full by default), so an outer
+        // swapchain compositing viewport/scissor can't clip this pass — no viewport/scissor save needed.
         const currentRenderTarget = renderer.renderTarget;
         const currentMRT = renderer.mrt;
         const currentClearColor = renderer.clearColor;

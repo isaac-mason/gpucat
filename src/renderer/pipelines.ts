@@ -60,6 +60,28 @@ export type PipelinesState = {
 
 export const DEPTH_FORMAT: GPUTextureFormat = 'depth24plus';
 
+/** Depth format carrying a stencil aspect. Used when a target requests a stencil buffer. */
+export const DEPTH_STENCIL_FORMAT: GPUTextureFormat = 'depth24plus-stencil8';
+
+/** Whether a depth format includes a stencil aspect (depth24plus-stencil8, depth32float-stencil8, stencil8). */
+export function formatHasStencil(format: GPUTextureFormat): boolean {
+    return format.includes('stencil');
+}
+
+/**
+ * Build a per-face stencil state from a material. Back faces default to the front-face ops unless the
+ * material sets `stencilBack`, in which case its provided fields override (missing ones fall back to front).
+ */
+function stencilFaceState(material: Material, back = false): GPUStencilFaceState {
+    const b = back ? material.stencilBack : null;
+    return {
+        compare: b?.func ?? material.stencilFunc,
+        failOp: b?.fail ?? material.stencilFail,
+        depthFailOp: b?.zFail ?? material.stencilZFail,
+        passOp: b?.zPass ?? material.stencilZPass,
+    };
+}
+
 /**
  * Create a pipelines state.
  */
@@ -252,7 +274,7 @@ function buildRenderPipelineDescriptor(
         colorTargets.push({
             format: colorFormats[i] ?? colorFormats[0],
             blend,
-            writeMask: GPUColorWrite.ALL,
+            writeMask: material.colorWrite ? GPUColorWrite.ALL : 0,
         });
     }
 
@@ -289,6 +311,16 @@ function buildRenderPipelineDescriptor(
                   depthBias: material.depthBias,
                   depthBiasSlopeScale: material.depthBiasSlopeScale,
                   depthBiasClamp: material.depthBiasClamp,
+                  // Stencil state is only valid on a stencil-capable format; when the material doesn't
+                  // opt in, the fields are omitted and WebGPU applies its no-op defaults (always/keep).
+                  ...(formatHasStencil(depthFormat) && material.stencilTest
+                      ? {
+                            stencilFront: stencilFaceState(material),
+                            stencilBack: stencilFaceState(material, true),
+                            stencilReadMask: material.stencilReadMask,
+                            stencilWriteMask: material.stencilWriteMask,
+                        }
+                      : {}),
               }
             : undefined,
         multisample: {
@@ -463,6 +495,7 @@ export function makeRenderPipelineKey(
 
     const rs = [
         material.transparent ? 1 : 0,
+        material.colorWrite ? 1 : 0,
         material.depthWrite ? 1 : 0,
         material.depthTest ? 1 : 0,
         material.depthCompare,
@@ -471,6 +504,15 @@ export function makeRenderPipelineKey(
         material.depthBias,
         material.depthBiasSlopeScale,
         material.depthBiasClamp,
+        // Stencil state baked into the pipeline (stencilRef is dynamic, set via setStencilReference).
+        material.stencilTest ? 1 : 0,
+        material.stencilFunc,
+        material.stencilReadMask,
+        material.stencilWriteMask,
+        material.stencilFail,
+        material.stencilZFail,
+        material.stencilZPass,
+        material.stencilBack ? JSON.stringify(material.stencilBack) : 'none',
         getTargetCount(material.fragment),
         samples,
         formats.join(','),
@@ -650,12 +692,11 @@ const _add = (
 });
 
 /**
- * Translate a BlendMode into a GPUBlendState for pipeline creation.
- * Mirrors three.js's WebGPUPipelineUtils._getBlending. Only runs on pipeline
+ * Translate a BlendMode into a GPUBlendState for pipeline creation. Only runs on pipeline
  * cache miss, so the state is built on demand rather than precomputed.
  *
- * subtractive/multiply are only defined for premultiplied alpha, matching
- * three.js, which errors on the non-premultiplied combinations.
+ * subtractive/multiply are only defined for premultiplied alpha; the non-premultiplied
+ * combinations are unsupported and rejected.
  */
 function _getBlending(blendMode: BlendMode): GPUBlendState {
     const { blending, premultiplyAlpha: pm } = blendMode;

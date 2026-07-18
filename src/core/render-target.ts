@@ -1,3 +1,4 @@
+import type { Vec4 } from 'mathcat';
 import { type ImageSize } from '../texture/source';
 import { Texture } from '../texture/texture';
 import { DepthTexture, type DepthTextureFormat } from '../texture/depth-texture';
@@ -14,8 +15,11 @@ export type RenderTargetOptions = {
     /** Whether to allocate a depth attachment. Default: true. */
     depthBuffer?: boolean;
 
-    /** Format of the auto-allocated DepthTexture. Default: 'depth24plus'. Ignored if `depthTexture` is provided or `depthBuffer` is false. */
+    /** Format of the auto-allocated DepthTexture. Default: 'depth24plus' ('depth24plus-stencil8' when `stencilBuffer`). Ignored if `depthTexture` is provided or `depthBuffer` is false. */
     depthFormat?: DepthTextureFormat;
+
+    /** Allocate a stencil aspect on the auto-created depth texture (depth24plus-stencil8). Default false. Ignored if `depthFormat` or `depthTexture` is given. */
+    stencilBuffer?: boolean;
 
     /** Caller-provided depth texture. Overrides `depthBuffer`/`depthFormat`. */
     depthTexture?: DepthTexture;
@@ -58,6 +62,20 @@ export class RenderTarget {
     /** Depth texture, or null if no depth */
     depthTexture: DepthTexture | null = null;
 
+    /**
+     * Viewport for renders into this target as a `Vec4` [x, y, width, height] in the target's pixels
+     * (top-left origin); null = full target. A render into a target uses the target's own viewport/scissor,
+     * never the renderer's swapchain one — so a swapchain compositing viewport can't leak into a
+     * render-to-texture (or cube) pass.
+     */
+    viewport: Vec4 | null = null;
+
+    /** Scissor rect as a `Vec4` [x, y, width, height] in the target's pixels; null = full target. Clips only while scissorTest is on. */
+    scissor: Vec4 | null = null;
+
+    /** Whether the scissor test is enabled for renders into this target. */
+    scissorTest = false;
+
     /** Constructs a new render target */
     constructor(width: number, height: number, opts: RenderTargetOptions = {}) {
         this.width = width;
@@ -78,7 +96,8 @@ export class RenderTarget {
             this.depthTexture = opts.depthTexture;
             this.depthTexture._gpuTexture.isRenderTargetTexture = true;
         } else if (opts.depthBuffer !== false) {
-            const depthTexture = new DepthTexture(width, height, opts.depthFormat ?? 'depth24plus');
+            const depthFormat = opts.depthFormat ?? (opts.stencilBuffer ? 'depth24plus-stencil8' : 'depth24plus');
+            const depthTexture = new DepthTexture(width, height, depthFormat);
             depthTexture.name = 'depth';
             depthTexture._gpuTexture.isRenderTargetTexture = true;
             this.depthTexture = depthTexture;
@@ -110,8 +129,7 @@ export class RenderTarget {
      * renderer reallocates lazily on next use in `ensureRenderTargetTexturesAllocated`,
      * where `setRenderTargetTexture` destroys the old texture and creates the new
      * one atomically. Marking `needsUpdate` (+ the size mismatch) is enough to
-     * trigger that. This mirrors three.js, whose `RenderTarget.setSize` defers to
-     * a version-driven `updateTexture` rather than eager-destroying.
+     * trigger that — a version-driven reallocation rather than eager destruction.
      *
      * Eagerly disposing here would destroy a GPU texture synchronously, opening a
      * window where another pass that already recorded a draw against it (e.g. a

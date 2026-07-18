@@ -410,6 +410,24 @@ describe('struct storage buffer with index', () => {
     });
 });
 
+describe('fragment-less (depth/stencil-only) material', () => {
+    // Regression: an omitted fragment slot is `undefined`, not `null`. compile() must treat both as
+    // "no fragment" — otherwise it dereferences the missing fragment root and throws while collecting varyings.
+    test('compiles with an omitted (undefined) fragment', () => {
+        const pos = attribute('position', d.vec3f);
+        const clip = vec4f(pos, f32(1));
+        const result = compile({ vertex: clip, fragment: undefined, depth: undefined });
+        expect(result.code).toContain('vs_main');
+        expect(result.code).not.toContain('fs_main');
+    });
+
+    test('compiles with an explicit null fragment', () => {
+        const pos = attribute('position', d.vec3f);
+        const clip = vec4f(pos, f32(1));
+        expect(() => compile({ vertex: clip, fragment: null as never, depth: undefined })).not.toThrow();
+    });
+});
+
 describe('Fn explicit return', () => {
     test('a matching return type is accepted', () => {
         const splat = Fn((a) => vec3(a, a, a), {

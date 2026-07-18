@@ -67,7 +67,7 @@ export type TextureCacheStats = {
     textureCount: number;
     samplerCount: number;
 };
-export declare function createSwapchainDepthTexture(device: GPUDevice, width: number, height: number, sampleCount: number): GPUTexture;
+export declare function createSwapchainDepthTexture(device: GPUDevice, width: number, height: number, sampleCount: number, format?: GPUTextureFormat): GPUTexture;
 export declare function createSwapchainMsaaTexture(device: GPUDevice, width: number, height: number, format: GPUTextureFormat, sampleCount: number): GPUTexture;
 export declare function createTextureCache(): TextureCache;
 /**

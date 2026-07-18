@@ -144,6 +144,11 @@
         "description": "A grid of independent 3D views composited into one canvas via setViewport / setScissor / autoClear.",
         "tags": ["viewport", "scissor", "multi-view"]
     },
+    "example-stencil": {
+        "title": "Stencil Masking",
+        "description": "A moving invisible mask writes stencil=1; the scene renders only where stencil==1, so spinning cubes show through the window.",
+        "tags": ["stencil", "masking", "depth-stencil"]
+    },
     "example-transform-controls": {
         "title": "Transform Controls",
         "description": "A translate/rotate/scale gizmo. T/R/S to switch modes.",

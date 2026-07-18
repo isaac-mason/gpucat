@@ -1,6 +1,17 @@
 import type { Node } from '../nodes/nodes';
 import type { Any } from '../schema/schema';
 import type { Uniform } from '../core/uniform';
+/**
+ * Back-face stencil op overrides. WebGPU applies stencil ops per face; by default gpucat uses the
+ * material's stencil ops for both faces. Set `stencilBack` to give back faces different ops (e.g.
+ * two-sided stencil shadow volumes). Omitted fields fall back to the corresponding front-face op.
+ */
+export type StencilFaceOverride = {
+    func?: GPUCompareFunction;
+    fail?: GPUStencilOperation;
+    zFail?: GPUStencilOperation;
+    zPass?: GPUStencilOperation;
+};
 export interface MaterialOptions {
     /** Material name, for debugging. */
     name?: string;
@@ -26,6 +37,8 @@ export interface MaterialOptions {
     transparent?: boolean;
     /** Optional blend state. Only meaningful when transparent=true or custom blending. */
     blend?: GPUBlendState;
+    /** Whether the fragment shader writes color. When false, the color target's write mask is 0 (e.g. a stencil-only mask pass that still needs a matching color target). Default true. */
+    colorWrite?: boolean;
     /** Whether depth testing is active. When false, depthCompare is forced to 'always'. */
     depthTest?: boolean;
     /** Whether to write to the depth buffer. Default: true for opaque, false for transparent. */
@@ -42,6 +55,24 @@ export interface MaterialOptions {
     depthBiasSlopeScale?: number;
     /** Maximum absolute depth bias value. Default 0 (no clamp). */
     depthBiasClamp?: number;
+    /** Whether the stencil test is active. When false, the pipeline uses a no-op stencil state. Default false. */
+    stencilTest?: boolean;
+    /** Stencil comparison function (stored ref/value → pass/fail). Default 'always'. Only used when stencilTest=true. */
+    stencilFunc?: GPUCompareFunction;
+    /** Reference value the stencil test compares against; applied via setStencilReference. Default 0. */
+    stencilRef?: number;
+    /** Bitmask AND-ed with the reference and stored value before comparing. Default 0xff. */
+    stencilReadMask?: number;
+    /** Bitmask selecting which stencil bits may be written. Default 0xff. */
+    stencilWriteMask?: number;
+    /** Op applied when the stencil test fails. Default 'keep'. */
+    stencilFail?: GPUStencilOperation;
+    /** Op applied when the stencil test passes but the depth test fails. Default 'keep'. */
+    stencilZFail?: GPUStencilOperation;
+    /** Op applied when both the stencil and depth tests pass. Default 'keep'. */
+    stencilZPass?: GPUStencilOperation;
+    /** Per-face override for back-face stencil ops. When unset, back faces use the front-face ops. */
+    stencilBack?: StencilFaceOverride;
 }
 export declare class Material {
     /** Material name, for debugging. */
@@ -56,6 +87,8 @@ export declare class Material {
     transparent: boolean;
     /** Optional blend state. Only meaningful when transparent=true or custom blending. */
     blend?: GPUBlendState;
+    /** Whether the fragment shader writes color. When false, the color target's write mask is 0. */
+    colorWrite: boolean;
     /** Whether depth testing is active. When false, depthCompare is forced to 'always'. */
     depthTest: boolean;
     /** Whether to write to the depth buffer. Default: true for opaque, false for transparent. */
@@ -72,6 +105,24 @@ export declare class Material {
     depthBiasSlopeScale: number;
     /** Maximum absolute depth bias value. Default 0 (no clamp). */
     depthBiasClamp: number;
+    /** Whether the stencil test is active. When false, the pipeline uses a no-op stencil state. */
+    stencilTest: boolean;
+    /** Stencil comparison function. Only used when stencilTest=true. */
+    stencilFunc: GPUCompareFunction;
+    /** Reference value the stencil test compares against; applied via setStencilReference. */
+    stencilRef: number;
+    /** Bitmask AND-ed with the reference and stored value before comparing. */
+    stencilReadMask: number;
+    /** Bitmask selecting which stencil bits may be written. */
+    stencilWriteMask: number;
+    /** Op applied when the stencil test fails. */
+    stencilFail: GPUStencilOperation;
+    /** Op applied when the stencil test passes but the depth test fails. */
+    stencilZFail: GPUStencilOperation;
+    /** Op applied when both the stencil and depth tests pass. */
+    stencilZPass: GPUStencilOperation;
+    /** Per-face override for back-face stencil ops, or null to use the front-face ops on both faces. */
+    stencilBack: StencilFaceOverride | null;
     /**
      * Named uniforms for this material.
      * Used for name-based uniform resolution: uniform('roughness', d.f32) resolves

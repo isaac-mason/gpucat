@@ -6,8 +6,8 @@ import type { WebGPURenderer } from '../renderer/renderer';
 import { finalizeCubeRenderTargetCapture } from '../renderer/textures';
 
 /*
- * Per-face look directions and up vectors, copied verbatim from three.js
- * CubeCamera (WebGPU coordinate system). Cube layer order 0..5 = +X, -X, +Y, -Y, +Z, -Z.
+ * Per-face look directions and up vectors (WebGPU coordinate system).
+ * Cube layer order 0..5 = +X, -X, +Y, -Y, +Z, -Z.
  */
 const DIRS: Vec3[] = [
     [-1, 0, 0],
@@ -56,8 +56,8 @@ export class CubeCamera extends Object3D {
         this.name = 'CubeCamera';
         this.renderTarget = renderTarget;
         for (let i = 0; i < 6; i++) {
-            // three.js renders cube faces with a negative fov (-90 degrees), which
-            // makes perspectiveZO negate the X and Y scale of the projection.
+            // A negative fov (-90°) makes the zero-to-one-depth perspective projection negate
+            // the X and Y scale — the orientation the six faces are stored with.
             this.cameras.push(new PerspectiveCamera(-Math.PI / 2, 1, near, far));
         }
     }

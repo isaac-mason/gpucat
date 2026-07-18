@@ -4779,6 +4779,17 @@ class RenderTarget {
     textures;
     /** Depth texture, or null if no depth */
     depthTexture = null;
+    /**
+     * Viewport for renders into this target as a `Vec4` [x, y, width, height] in the target's pixels
+     * (top-left origin); null = full target. A render into a target uses the target's own viewport/scissor,
+     * never the renderer's swapchain one — so a swapchain compositing viewport can't leak into a
+     * render-to-texture (or cube) pass.
+     */
+    viewport = null;
+    /** Scissor rect as a `Vec4` [x, y, width, height] in the target's pixels; null = full target. Clips only while scissorTest is on. */
+    scissor = null;
+    /** Whether the scissor test is enabled for renders into this target. */
+    scissorTest = false;
     /** Constructs a new render target */
     constructor(width, height, opts = {}) {
         this.width = width;
@@ -4798,7 +4809,8 @@ class RenderTarget {
             this.depthTexture._gpuTexture.isRenderTargetTexture = true;
         }
         else if (opts.depthBuffer !== false) {
-            const depthTexture = new DepthTexture(width, height, opts.depthFormat ?? 'depth24plus');
+            const depthFormat = opts.depthFormat ?? (opts.stencilBuffer ? 'depth24plus-stencil8' : 'depth24plus');
+            const depthTexture = new DepthTexture(width, height, depthFormat);
             depthTexture.name = 'depth';
             depthTexture._gpuTexture.isRenderTargetTexture = true;
             this.depthTexture = depthTexture;
@@ -4828,8 +4840,7 @@ class RenderTarget {
      * renderer reallocates lazily on next use in `ensureRenderTargetTexturesAllocated`,
      * where `setRenderTargetTexture` destroys the old texture and creates the new
      * one atomically. Marking `needsUpdate` (+ the size mismatch) is enough to
-     * trigger that. This mirrors three.js, whose `RenderTarget.setSize` defers to
-     * a version-driven `updateTexture` rather than eager-destroying.
+     * trigger that — a version-driven reallocation rather than eager destruction.
      *
      * Eagerly disposing here would destroy a GPU texture synchronously, opening a
      * window where another pass that already recorded a draw against it (e.g. a
@@ -6211,7 +6222,8 @@ class PassNode extends Node {
         const { scene, camera } = this;
         this._pixelRatio = 1;
         this.setSize(frame.width, frame.height);
-        // State save
+        // State save. The render target carries its own viewport/scissor (full by default), so an outer
+        // swapchain compositing viewport/scissor can't clip this pass — no viewport/scissor save needed.
         const currentRenderTarget = renderer.renderTarget;
         const currentMRT = renderer.mrt;
         const currentClearColor = renderer.clearColor;
@@ -7263,7 +7275,8 @@ function compile(slots) {
     // create contexts for both stages
     const vertexCtx = createContext('vertex', true);
     const fragmentCtx = createContext('fragment', true);
-    const hasFragment = slots.fragment !== null;
+    // A fragment-less material (depth/stencil-only) may leave the slot null or undefined.
+    const hasFragment = slots.fragment != null;
     // collect all roots
     const roots = [slots.vertex];
     if (slots.fragment)
@@ -8362,12 +8375,9 @@ function generateCubeTexture(ctx, node) {
     if (!node.directionNode) {
         throw new Error(`[builder] CubeTextureNode '${name}' has no directionNode. Use cubeTexture.sample(direction).`);
     }
-    // three.js CubeTextureNode.setupUV() always negates X for WebGPU:
-    //   if (coordinateSystem === WebGPUCoordinateSystem || !isRenderTargetTexture)
-    //     uvNode = vec3(uvNode.x.negate(), uvNode.yz)
-    // Since gpucat is WebGPU-only, always negate X. The CubeCamera stores
-    // faces with swapped X (by design), and negating the sample direction
-    // un-does the swap so the correct face is selected by the hardware.
+    // Always negate the sample direction's X for WebGPU cube sampling. The CubeCamera stores
+    // faces with swapped X (by design), and negating the sample direction un-does the swap so
+    // the correct face is selected by the hardware.
     const rawDir = generateExpr(ctx, node.directionNode);
     const sampleDir = `((${rawDir}) * vec3f(-1.0, 1.0, 1.0))`;
     // Cube textures do NOT support offset
@@ -9917,6 +9927,25 @@ function buildComputeBindGroupLayouts(device, bindings, layoutCache) {
 }
 
 const DEPTH_FORMAT = 'depth24plus';
+/** Depth format carrying a stencil aspect. Used when a target requests a stencil buffer. */
+const DEPTH_STENCIL_FORMAT = 'depth24plus-stencil8';
+/** Whether a depth format includes a stencil aspect (depth24plus-stencil8, depth32float-stencil8, stencil8). */
+function formatHasStencil(format) {
+    return format.includes('stencil');
+}
+/**
+ * Build a per-face stencil state from a material. Back faces default to the front-face ops unless the
+ * material sets `stencilBack`, in which case its provided fields override (missing ones fall back to front).
+ */
+function stencilFaceState(material, back = false) {
+    const b = back ? material.stencilBack : null;
+    return {
+        compare: b?.func ?? material.stencilFunc,
+        failOp: b?.fail ?? material.stencilFail,
+        depthFailOp: b?.zFail ?? material.stencilZFail,
+        passOp: b?.zPass ?? material.stencilZPass,
+    };
+}
 /**
  * Create a pipelines state.
  */
@@ -10055,7 +10084,7 @@ function buildRenderPipelineDescriptor(device, renderObject, nodeState, bindGrou
         colorTargets.push({
             format: colorFormats[i] ?? colorFormats[0],
             blend,
-            writeMask: GPUColorWrite.ALL,
+            writeMask: material.colorWrite ? GPUColorWrite.ALL : 0,
         });
     }
     // Build pipeline descriptor
@@ -10090,6 +10119,16 @@ function buildRenderPipelineDescriptor(device, renderObject, nodeState, bindGrou
                 depthBias: material.depthBias,
                 depthBiasSlopeScale: material.depthBiasSlopeScale,
                 depthBiasClamp: material.depthBiasClamp,
+                // Stencil state is only valid on a stencil-capable format; when the material doesn't
+                // opt in, the fields are omitted and WebGPU applies its no-op defaults (always/keep).
+                ...(formatHasStencil(depthFormat) && material.stencilTest
+                    ? {
+                        stencilFront: stencilFaceState(material),
+                        stencilBack: stencilFaceState(material, true),
+                        stencilReadMask: material.stencilReadMask,
+                        stencilWriteMask: material.stencilWriteMask,
+                    }
+                    : {}),
             }
             : undefined,
         multisample: {
@@ -10212,6 +10251,7 @@ function makeRenderPipelineKey(material, samples, formats, depthFormat, mrt) {
     const depId = material.depth ? material.depth.id : '__none__';
     const rs = [
         material.transparent ? 1 : 0,
+        material.colorWrite ? 1 : 0,
         material.depthWrite ? 1 : 0,
         material.depthTest ? 1 : 0,
         material.depthCompare,
@@ -10220,6 +10260,15 @@ function makeRenderPipelineKey(material, samples, formats, depthFormat, mrt) {
         material.depthBias,
         material.depthBiasSlopeScale,
         material.depthBiasClamp,
+        // Stencil state baked into the pipeline (stencilRef is dynamic, set via setStencilReference).
+        material.stencilTest ? 1 : 0,
+        material.stencilFunc,
+        material.stencilReadMask,
+        material.stencilWriteMask,
+        material.stencilFail,
+        material.stencilZFail,
+        material.stencilZPass,
+        material.stencilBack ? JSON.stringify(material.stencilBack) : 'none',
         getTargetCount(material.fragment),
         samples,
         formats.join(','),
@@ -10380,12 +10429,11 @@ const _add = (srcRGB, dstRGB, srcA, dstA) => ({
     alpha: { srcFactor: srcA, dstFactor: dstA, operation: 'add' },
 });
 /**
- * Translate a BlendMode into a GPUBlendState for pipeline creation.
- * Mirrors three.js's WebGPUPipelineUtils._getBlending. Only runs on pipeline
+ * Translate a BlendMode into a GPUBlendState for pipeline creation. Only runs on pipeline
  * cache miss, so the state is built on demand rather than precomputed.
  *
- * subtractive/multiply are only defined for premultiplied alpha, matching
- * three.js, which errors on the non-premultiplied combinations.
+ * subtractive/multiply are only defined for premultiplied alpha; the non-premultiplied
+ * combinations are unsupported and rejected.
  */
 function _getBlending(blendMode) {
     const { blending, premultiplyAlpha: pm } = blendMode;
@@ -10947,10 +10995,10 @@ function disposeMipmapState(state) {
  * 4. Uploads image data if source.dataReady
  * 5. Updates version tracking (textureData.version = texture.version)
  */
-function createSwapchainDepthTexture(device, width, height, sampleCount) {
+function createSwapchainDepthTexture(device, width, height, sampleCount, format = 'depth24plus') {
     return device.createTexture({
         size: [width, height],
-        format: 'depth24plus',
+        format,
         usage: GPUTextureUsage.RENDER_ATTACHMENT,
         sampleCount,
     });
@@ -18668,6 +18716,8 @@ class Material {
     transparent;
     /** Optional blend state. Only meaningful when transparent=true or custom blending. */
     blend;
+    /** Whether the fragment shader writes color. When false, the color target's write mask is 0. */
+    colorWrite;
     /** Whether depth testing is active. When false, depthCompare is forced to 'always'. */
     depthTest;
     /** Whether to write to the depth buffer. Default: true for opaque, false for transparent. */
@@ -18684,6 +18734,24 @@ class Material {
     depthBiasSlopeScale;
     /** Maximum absolute depth bias value. Default 0 (no clamp). */
     depthBiasClamp;
+    /** Whether the stencil test is active. When false, the pipeline uses a no-op stencil state. */
+    stencilTest;
+    /** Stencil comparison function. Only used when stencilTest=true. */
+    stencilFunc;
+    /** Reference value the stencil test compares against; applied via setStencilReference. */
+    stencilRef;
+    /** Bitmask AND-ed with the reference and stored value before comparing. */
+    stencilReadMask;
+    /** Bitmask selecting which stencil bits may be written. */
+    stencilWriteMask;
+    /** Op applied when the stencil test fails. */
+    stencilFail;
+    /** Op applied when the stencil test passes but the depth test fails. */
+    stencilZFail;
+    /** Op applied when both the stencil and depth tests pass. */
+    stencilZPass;
+    /** Per-face override for back-face stencil ops, or null to use the front-face ops on both faces. */
+    stencilBack;
     /**
      * Named uniforms for this material.
      * Used for name-based uniform resolution: uniform('roughness', d.f32) resolves
@@ -18697,6 +18765,7 @@ class Material {
         this.depth = opts.depth;
         this.transparent = opts.transparent ?? false;
         this.blend = opts.blend;
+        this.colorWrite = opts.colorWrite ?? true;
         this.depthTest = opts.depthTest ?? true;
         this.depthWrite = opts.depthWrite ?? !this.transparent;
         this.depthCompare = opts.depthCompare ?? 'less';
@@ -18705,6 +18774,15 @@ class Material {
         this.depthBias = opts.depthBias ?? 0;
         this.depthBiasSlopeScale = opts.depthBiasSlopeScale ?? 0;
         this.depthBiasClamp = opts.depthBiasClamp ?? 0;
+        this.stencilTest = opts.stencilTest ?? false;
+        this.stencilFunc = opts.stencilFunc ?? 'always';
+        this.stencilRef = opts.stencilRef ?? 0;
+        this.stencilReadMask = opts.stencilReadMask ?? 0xff;
+        this.stencilWriteMask = opts.stencilWriteMask ?? 0xff;
+        this.stencilFail = opts.stencilFail ?? 'keep';
+        this.stencilZFail = opts.stencilZFail ?? 'keep';
+        this.stencilZPass = opts.stencilZPass ?? 'keep';
+        this.stencilBack = opts.stencilBack ?? null;
     }
     /**
      * Incremented whenever the material's node graph configuration changes in a
@@ -21310,8 +21388,7 @@ function createBoxGeometry(width = 1, height = 1, depth = 1) {
     return geom;
 }
 function createSphereGeometry(radius = 0.5, widthSegments = 16, heightSegments = 8) {
-    // Faithful port of three.js SphereGeometry (full sphere). Note the negated
-    // X and `1 - v` UV, which match three exactly, and the pole-triangle skipping.
+    // Full sphere. Note the negated X and `1 - v` UV, and the pole-triangle skipping.
     widthSegments = Math.max(3, Math.floor(widthSegments));
     heightSegments = Math.max(2, Math.floor(heightSegments));
     const thetaEnd = Math.PI;
@@ -28050,8 +28127,8 @@ class OrthographicCamera extends Camera {
 }
 
 /*
- * Per-face look directions and up vectors, copied verbatim from three.js
- * CubeCamera (WebGPU coordinate system). Cube layer order 0..5 = +X, -X, +Y, -Y, +Z, -Z.
+ * Per-face look directions and up vectors (WebGPU coordinate system).
+ * Cube layer order 0..5 = +X, -X, +Y, -Y, +Z, -Z.
  */
 const DIRS = [
     [-1, 0, 0],
@@ -28095,8 +28172,8 @@ class CubeCamera extends Object3D {
         this.name = 'CubeCamera';
         this.renderTarget = renderTarget;
         for (let i = 0; i < 6; i++) {
-            // three.js renders cube faces with a negative fov (-90 degrees), which
-            // makes perspectiveZO negate the X and Y scale of the projection.
+            // A negative fov (-90°) makes the zero-to-one-depth perspective projection negate
+            // the X and Y scale — the orientation the six faces are stored with.
             this.cameras.push(new PerspectiveCamera(-Math.PI / 2, 1, near, far));
         }
     }
@@ -29484,7 +29561,7 @@ function buildAttachmentState(renderTarget) {
     const count = renderTarget.textures.length;
     const samples = renderTarget.samples;
     const depth = renderTarget.depthTexture !== null;
-    const stencil = false; // TODO: Add stencil support to RenderTarget
+    const stencil = renderTarget.depthTexture !== null && renderTarget.depthTexture.format.includes('stencil');
     return `${count}:${formats}:${samples}:${depth}:${stencil}`;
 }
 /**
@@ -29530,6 +29607,7 @@ function getRenderContext(state, renderTarget, mrt, callDepth) {
     if (renderTarget !== null) {
         context.sampleCount = renderTarget.samples === 0 ? 1 : renderTarget.samples;
         context.depth = renderTarget.depthTexture !== null;
+        context.stencil = renderTarget.depthTexture !== null && renderTarget.depthTexture.format.includes('stencil');
     }
     context.clearDepthValue = state.defaultClearDepth;
     context.clearStencilValue = state.defaultClearStencil;
@@ -29904,6 +29982,10 @@ class WebGPURenderer {
     _format = null;
     /** MSAA sample count (0 or 1 = no MSAA). */
     samples;
+    /** Whether the swapchain has a stencil buffer (depth24plus-stencil8). Set from the `stencil` option. */
+    stencil;
+    /** Depth(-stencil) format for the swapchain depth texture: depth24plus, or depth24plus-stencil8 when stencil. */
+    _swapchainDepthFormat;
     /** GPURequestAdapterOptions forwarded to navigator.gpu.requestAdapter(). */
     _adapterOptions;
     /** GPUDeviceDescriptor forwarded to adapter.requestDevice(). */
@@ -29953,11 +30035,18 @@ class WebGPURenderer {
      *  clearing to clearColor. Set false (after an initial clear()) to composite several
      *  viewport/scissor views into ONE canvas — a grid of independent 3D views. */
     autoClear = true;
-    // Viewport/scissor are in LOGICAL (CSS) pixels like three.js — multiplied by the canvas
-    // pixelRatio at draw time. null viewport = full frame. Persist across renders until changed.
+    /** When true (and autoClear is true), the stencil buffer is cleared to clearStencilValue each render. */
+    autoClearStencil = true;
+    /** Value the stencil buffer is cleared to (0-255). Default 0. */
+    clearStencilValue = 0;
+    // Swapchain viewport/scissor as Vec4 [x, y, width, height] in LOGICAL (CSS) pixels;
+    // _resolveViewportScissor converts them to physical pixels (× canvas pixelRatio) per render.
+    // null = full frame. Persist until changed. The viewport depth range is kept separately.
     _viewport = null;
     _scissor = null;
     _scissorTest = false;
+    _viewportMinDepth = 0;
+    _viewportMaxDepth = 1;
     /** current MRT configuration. when set, materials using mrt() nodes write to multiple color attachments. */
     mrt = null;
     /** current render target. when set, render() renders to this target instead of the swapchain. */
@@ -29989,6 +30078,8 @@ class WebGPURenderer {
             samples = 4;
         }
         this.samples = samples;
+        this.stencil = opts.stencil ?? false;
+        this._swapchainDepthFormat = this.stencil ? DEPTH_STENCIL_FORMAT : DEPTH_FORMAT;
         this._adapterOptions = opts.adapterOptions;
         this._deviceDescriptor = opts.deviceDescriptor;
         this._preDevice = opts.device;
@@ -30081,7 +30172,7 @@ class WebGPURenderer {
         // Publish the swapchain formats to the pipelines layer so the fallback path
         // (renderTarget === null) builds pipelines with the right attachment formats.
         this._pipelines.canvasFormat = this._format;
-        this._pipelines.canvasDepthFormat = DEPTH_FORMAT;
+        this._pipelines.canvasDepthFormat = this._swapchainDepthFormat;
         // Swapchain depth/msaa textures are only needed when rendering to a canvas.
         // In headless mode the RenderTarget owns its own depth/msaa.
         if (this._canvasTarget) {
@@ -30104,7 +30195,7 @@ class WebGPURenderer {
     _recreateSwapchainTextures(width, height) {
         const sampleCount = this.samples > 1 ? this.samples : 1;
         this._depthTexture?.destroy();
-        this._depthTexture = createSwapchainDepthTexture(this._device, width, height, sampleCount);
+        this._depthTexture = createSwapchainDepthTexture(this._device, width, height, sampleCount, this._swapchainDepthFormat);
         this._depthTextureView = this._depthTexture.createView();
         if (this.samples > 1) {
             this._msaaTexture?.destroy();
@@ -30130,35 +30221,38 @@ class WebGPURenderer {
         const { width: pw, height: ph } = this._canvasTarget.getDrawingBufferSize();
         this._onResize(pw, ph);
     }
-    /**
-     * Restrict rendering to a sub-rectangle of the framebuffer, in LOGICAL (CSS) pixels — top-left
-     * origin, multiplied by the canvas pixelRatio internally (matches three.js). Persists until
-     * changed. Combine with setScissor + setScissorTest(true) and autoClear=false to render many
-     * independent 3D views into one canvas (a grid of previews). Reset via setViewport(0,0,w,h).
-     */
-    setViewport(x, y, width, height, minDepth = 0, maxDepth = 1) {
-        this._viewport = { x, y, width, height, minDepth, maxDepth };
+    setViewport(x, y = 0, width = 0, height = 0, minDepth = 0, maxDepth = 1) {
+        // Vec4 form [x, y, width, height] keeps the full-depth range; use the numeric form to set minDepth/maxDepth.
+        if (Array.isArray(x)) {
+            this._viewport = [x[0], x[1], x[2], x[3]];
+            this._viewportMinDepth = 0;
+            this._viewportMaxDepth = 1;
+        }
+        else {
+            this._viewport = [x, y, width, height];
+            this._viewportMinDepth = minDepth;
+            this._viewportMaxDepth = maxDepth;
+        }
     }
-    /** The current viewport in logical px (full frame if none set). Mirrors three.js getViewport. */
+    /** The current viewport as a `Vec4` [x, y, width, height] in logical px (full frame if none set). */
     getViewport() {
         if (this._viewport)
-            return { ...this._viewport };
+            return [...this._viewport];
         const w = this._canvasTarget?.getSize().width ?? 0;
         const h = this._canvasTarget?.getSize().height ?? 0;
-        return { x: 0, y: 0, width: w, height: h, minDepth: 0, maxDepth: 1 };
+        return [0, 0, w, h];
     }
-    /** Set the scissor rectangle in LOGICAL (CSS) pixels (top-left origin). Clips draws only while the
-     *  scissor test is enabled — see setScissorTest. Does NOT affect loadOp clears. */
-    setScissor(x, y, width, height) {
-        this._scissor = { x, y, width, height };
+    setScissor(x, y = 0, width = 0, height = 0) {
+        // Vec4 form is [x, y, width, height].
+        this._scissor = Array.isArray(x) ? [x[0], x[1], x[2], x[3]] : [x, y, width, height];
     }
-    /** The current scissor rect in logical px (full frame if none set). */
+    /** The current scissor rect as a `Vec4` [x, y, width, height] in logical px (full frame if none set). */
     getScissor() {
         if (this._scissor)
-            return { ...this._scissor };
+            return [...this._scissor];
         const w = this._canvasTarget?.getSize().width ?? 0;
         const h = this._canvasTarget?.getSize().height ?? 0;
-        return { x: 0, y: 0, width: w, height: h };
+        return [0, 0, w, h];
     }
     /** Enable or disable the scissor test. When on, draw calls are clipped to the setScissor rect. */
     setScissorTest(enable) {
@@ -30170,10 +30264,10 @@ class WebGPURenderer {
     /**
      * Manually clear the current framebuffer (color and/or depth) to clearColor, ignoring
      * autoClear and viewport/scissor. Pair with autoClear=false to clear once, then render() a
-     * series of viewport/scissor views on top. Matches three.js `clear(color, depth)` (gpucat has
-     * no stencil buffer).
+     * series of viewport/scissor views on top. `stencil` only takes effect on a stencil-capable
+     * attachment (see the renderer `stencil` option / a target's `stencilBuffer`).
      */
-    clear(color = true, depth = true) {
+    clear(color = true, depth = true, stencil = false) {
         if (this._isDeviceLost || !this._initialized)
             return;
         if (!this.renderTarget) {
@@ -30187,11 +30281,15 @@ class WebGPURenderer {
         this.autoClear = true;
         const { colorAttachments, depthAttachment } = this._render_resolve(this.renderTarget, { r: cr, g: cg, b: cb, a: ca });
         this.autoClear = prev;
-        // honor the color/depth flags (three.js parity).
+        // honor the color/depth/stencil flags independently.
         for (const a of colorAttachments)
             a.loadOp = color ? 'clear' : 'load';
-        if (depthAttachment)
+        if (depthAttachment) {
             depthAttachment.depthLoadOp = depth ? 'clear' : 'load';
+            // stencilLoadOp is only present when the attachment format carries a stencil aspect.
+            if (depthAttachment.stencilLoadOp !== undefined)
+                depthAttachment.stencilLoadOp = stencil ? 'clear' : 'load';
+        }
         const encoder = this._device.createCommandEncoder();
         encoder.beginRenderPass({ label: 'clear', colorAttachments, depthStencilAttachment: depthAttachment }).end();
         this._device.queue.submit([encoder.finish()]);
@@ -30520,6 +30618,10 @@ class WebGPURenderer {
         passCtx.height = height;
         passCtx.camera = camera;
         passCtx.clearColorValue = { r: cr, g: cg, b: cb, a: ca };
+        // Render targets set stencil from their depth format in getRenderContext; the swapchain's is the renderer flag.
+        if (!renderTarget)
+            passCtx.stencil = this.stencil;
+        this._resolveViewportScissor(passCtx);
         // Recreate depth/MSAA textures if the canvas was resized externally (bypassing setSize).
         if (!renderTarget && (this._depthTexture.width !== width || this._depthTexture.height !== height)) {
             this._onResize(width, height);
@@ -30528,7 +30630,7 @@ class WebGPURenderer {
         const { colorAttachments, depthAttachment } = this._render_resolve(renderTarget, clearColor);
         this._device.pushErrorScope('validation');
         const preparedObjects = this._render_prepare(scene, camera, passCtx, passId, this.overrideMaterial);
-        this._render_draw(encoder, preparedObjects, colorAttachments, depthAttachment, passId);
+        this._render_draw(encoder, passCtx, preparedObjects, colorAttachments, depthAttachment, passId);
         if (ownEncoder) {
             this._device.queue.submit([encoder.finish()]);
         }
@@ -30559,6 +30661,10 @@ class WebGPURenderer {
     /** Attachments for a 2D render target (one color per attachment, MRT supported). */
     _resolveRenderTargetAttachments(renderTarget, clearColor) {
         ensureRenderTargetTexturesAllocated(this._textures, this._device, renderTarget);
+        // autoClear=false preserves prior contents so several viewport/scissor views can composite
+        // into one render target (e.g. a grid of previews + one FXAA pass). MSAA can't 'load' a
+        // resolve-only target, so it always clears.
+        const loadOp = this.autoClear ? 'clear' : 'load';
         const colorAttachments = [];
         for (const tex of renderTarget.textures) {
             const textureData = getTextureData(this._textures, tex._gpuTexture);
@@ -30579,7 +30685,7 @@ class WebGPURenderer {
                 : {
                     view: getRenderTargetView(textureData),
                     clearValue: clearColor,
-                    loadOp: 'clear',
+                    loadOp,
                     storeOp: 'store',
                 });
         }
@@ -30590,12 +30696,27 @@ class WebGPURenderer {
                 depthAttachment = {
                     view: getRenderTargetView(depthTextureData),
                     depthClearValue: 1.0,
-                    depthLoadOp: 'clear',
+                    depthLoadOp: loadOp,
                     depthStoreOp: 'store',
+                    ...this._stencilAttachmentOps(renderTarget.depthTexture.format, this.autoClear),
                 };
             }
         }
         return { colorAttachments, depthAttachment };
+    }
+    /**
+     * Stencil load/store/clear ops for a depth attachment, or undefined when the format has no stencil
+     * aspect. WebGPU requires stencil ops on any combined depth-stencil attachment, so this is driven by
+     * the texture format, not by whether a material uses stencil. Spread into the depth attachment.
+     */
+    _stencilAttachmentOps(format, autoClearing) {
+        if (!formatHasStencil(format))
+            return undefined;
+        return {
+            stencilLoadOp: autoClearing && this.autoClearStencil ? 'clear' : 'load',
+            stencilStoreOp: 'store',
+            stencilClearValue: this.clearStencilValue,
+        };
     }
     /** Attachments for the swapchain (canvas), resolving MSAA when enabled. */
     _resolveSwapchainAttachments(clearColor) {
@@ -30629,6 +30750,7 @@ class WebGPURenderer {
                 depthClearValue: 1.0,
                 depthLoadOp: loadOp,
                 depthStoreOp: 'store',
+                ...this._stencilAttachmentOps(this._swapchainDepthFormat, this.autoClear),
             },
         };
     }
@@ -30668,8 +30790,68 @@ class WebGPURenderer {
         }
         return preparedObjects;
     }
+    /**
+     * Resolve the active viewport/scissor into the pass context as physical-pixel rects. The source is
+     * the target being rendered: a render target carries its own viewport/scissor, otherwise the
+     * renderer's swapchain state applies. Values are scaled by the canvas pixelRatio (1 for render
+     * targets), floored to integers, and the scissor is clamped to the framebuffer so an over-sized or
+     * negative rect can't trip a GPU validation error. The scissor flag is left off when the rect
+     * already covers the whole framebuffer (nothing to clip).
+     */
+    _resolveViewportScissor(passCtx) {
+        const rt = this.renderTarget;
+        // Vec4 [x, y, width, height] rects; a render target's depth range is the full 0..1.
+        const viewport = rt ? rt.viewport : this._viewport;
+        const scissor = rt ? rt.scissor : this._scissor;
+        const scissorTest = rt ? rt.scissorTest : this._scissorTest;
+        const minDepth = rt ? 0 : this._viewportMinDepth;
+        const maxDepth = rt ? 1 : this._viewportMaxDepth;
+        const pr = rt ? 1 : (this._canvasTarget?.getPixelRatio() ?? 1);
+        const fbW = passCtx.width;
+        const fbH = passCtx.height;
+        if (viewport) {
+            const vv = passCtx.viewportValue;
+            vv.x = Math.floor(viewport[0] * pr);
+            vv.y = Math.floor(viewport[1] * pr);
+            vv.width = Math.floor(viewport[2] * pr);
+            vv.height = Math.floor(viewport[3] * pr);
+            vv.minDepth = minDepth;
+            vv.maxDepth = maxDepth;
+            passCtx.viewport = true;
+        }
+        else {
+            passCtx.viewport = false;
+        }
+        if (scissorTest && scissor) {
+            const sv = passCtx.scissorValue;
+            let x = Math.floor(scissor[0] * pr);
+            let y = Math.floor(scissor[1] * pr);
+            let w = Math.floor(scissor[2] * pr);
+            let h = Math.floor(scissor[3] * pr);
+            // Clamp into [0, framebuffer]: pull the origin to 0 and shrink the extent to fit.
+            if (x < 0) {
+                w += x;
+                x = 0;
+            }
+            if (y < 0) {
+                h += y;
+                y = 0;
+            }
+            w = Math.max(0, Math.min(w, fbW - x));
+            h = Math.max(0, Math.min(h, fbH - y));
+            sv.x = x;
+            sv.y = y;
+            sv.width = w;
+            sv.height = h;
+            // A rect covering the whole framebuffer clips nothing — skip the call.
+            passCtx.scissor = !(x === 0 && y === 0 && w === fbW && h === fbH);
+        }
+        else {
+            passCtx.scissor = false;
+        }
+    }
     /** Begin the GPU render pass, issue all draw calls, and end the pass. */
-    _render_draw(encoder, preparedObjects, colorAttachments, depthAttachment, passId) {
+    _render_draw(encoder, passCtx, preparedObjects, colorAttachments, depthAttachment, passId) {
         const inspector = this.inspector;
         const timestampWrites = inspector ? inspector.getTimestampWrites(passId) : undefined;
         const gpuPass = encoder.beginRenderPass({
@@ -30678,25 +30860,22 @@ class WebGPURenderer {
             depthStencilAttachment: depthAttachment,
             timestampWrites,
         });
-        // Optional viewport / scissor for compositing multiple views into one canvas. Values are
-        // logical px (three.js parity); scale to physical by the canvas pixelRatio (1 for render targets).
-        if (this._viewport || (this._scissorTest && this._scissor)) {
-            const pr = this.renderTarget ? 1 : (this._canvasTarget?.getPixelRatio() ?? 1);
-            if (this._viewport) {
-                const v = this._viewport;
-                gpuPass.setViewport(v.x * pr, v.y * pr, v.width * pr, v.height * pr, v.minDepth, v.maxDepth);
-            }
-            if (this._scissorTest && this._scissor) {
-                // setScissorRect requires integer coords.
-                const s = this._scissor;
-                gpuPass.setScissorRect(Math.round(s.x * pr), Math.round(s.y * pr), Math.round(s.width * pr), Math.round(s.height * pr));
-            }
+        // Optional viewport / scissor for compositing multiple views into one canvas. Resolved into
+        // physical-pixel, framebuffer-clamped rects on the pass context by _resolveViewportScissor.
+        if (passCtx.viewport) {
+            const v = passCtx.viewportValue;
+            gpuPass.setViewport(v.x, v.y, v.width, v.height, v.minDepth, v.maxDepth);
+        }
+        if (passCtx.scissor) {
+            const s = passCtx.scissorValue;
+            gpuPass.setScissorRect(s.x, s.y, s.width, s.height);
         }
         const currentSets = {
             bindingGroups: [],
             attributes: [],
             index: null,
             pipeline: null,
+            stencilRef: null,
         };
         if (inspector)
             inspector.perf.start('drawCalls');
@@ -30721,6 +30900,12 @@ class WebGPURenderer {
             if (renderObject.pipeline !== currentSets.pipeline) {
                 passSetPipeline(gpuPass, inspector, renderObject.pipeline, mesh.name || material.constructor.name);
                 currentSets.pipeline = renderObject.pipeline;
+            }
+            // The stencil reference is dynamic pass state (not baked into the pipeline); set it when a
+            // stencil-testing material's ref changes. Only meaningful on a stencil-capable attachment.
+            if (passCtx.stencil && material.stencilTest && currentSets.stencilRef !== material.stencilRef) {
+                gpuPass.setStencilReference(material.stencilRef);
+                currentSets.stencilRef = material.stencilRef;
             }
             const bindGroups = renderObject.bindGroups;
             const logicalBindGroups = renderObject._bindings;
@@ -30842,6 +31027,7 @@ class WebGPURenderer {
                     depthClearValue: 1.0,
                     depthLoadOp: 'clear',
                     depthStoreOp: 'store',
+                    ...this._stencilAttachmentOps(renderTarget.depthTexture.format, true),
                 };
             }
         }

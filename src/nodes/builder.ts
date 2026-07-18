@@ -101,7 +101,8 @@ export function compile(slots: CompileSlots): CompileResult {
     const vertexCtx = createContext('vertex', true);
     const fragmentCtx = createContext('fragment', true);
 
-    const hasFragment = slots.fragment !== null;
+    // A fragment-less material (depth/stencil-only) may leave the slot null or undefined.
+    const hasFragment = slots.fragment != null;
 
     // collect all roots
     const roots: Node<d.Any>[] = [slots.vertex];
@@ -1505,12 +1506,9 @@ function generateCubeTexture(ctx: BuildContext, node: CubeTextureNode): string {
     if (!node.directionNode) {
         throw new Error(`[builder] CubeTextureNode '${name}' has no directionNode. Use cubeTexture.sample(direction).`);
     }
-    // three.js CubeTextureNode.setupUV() always negates X for WebGPU:
-    //   if (coordinateSystem === WebGPUCoordinateSystem || !isRenderTargetTexture)
-    //     uvNode = vec3(uvNode.x.negate(), uvNode.yz)
-    // Since gpucat is WebGPU-only, always negate X. The CubeCamera stores
-    // faces with swapped X (by design), and negating the sample direction
-    // un-does the swap so the correct face is selected by the hardware.
+    // Always negate the sample direction's X for WebGPU cube sampling. The CubeCamera stores
+    // faces with swapped X (by design), and negating the sample direction un-does the swap so
+    // the correct face is selected by the hardware.
     const rawDir = generateExpr(ctx, node.directionNode);
     const sampleDir = `((${rawDir}) * vec3f(-1.0, 1.0, 1.0))`;
 
