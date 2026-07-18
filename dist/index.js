@@ -29839,9 +29839,7 @@ function computeViewZ(mesh, camera) {
  * the prior level through a filtering sampler, so only filterable renderable formats qualify
  * (8-bit unorm + 16-bit float). Integer and 32-bit-float storage formats are excluded.
  */
-const FILTERABLE_STORAGE_FORMATS = new Set([
-    'rgba8unorm', 'rgba8snorm', 'bgra8unorm', 'rgba16float',
-]);
+const FILTERABLE_STORAGE_FORMATS = new Set(['rgba8unorm', 'rgba8snorm', 'bgra8unorm', 'rgba16float']);
 function isFilterableStorageFormat(format) {
     return FILTERABLE_STORAGE_FORMATS.has(format);
 }
@@ -29951,6 +29949,15 @@ class WebGPURenderer {
     _renderCallDepth = 0;
     /** clear color for the final swapchain composite pass. defaults to opaque black. */
     clearColor = [0, 0, 0, 1];
+    /** when false, render() preserves the attachment's existing contents (loadOp:'load') instead of
+     *  clearing to clearColor. Set false (after an initial clear()) to composite several
+     *  viewport/scissor views into ONE canvas — a grid of independent 3D views. */
+    autoClear = true;
+    // Viewport/scissor are in LOGICAL (CSS) pixels like three.js — multiplied by the canvas
+    // pixelRatio at draw time. null viewport = full frame. Persist across renders until changed.
+    _viewport = null;
+    _scissor = null;
+    _scissorTest = false;
     /** current MRT configuration. when set, materials using mrt() nodes write to multiple color attachments. */
     mrt = null;
     /** current render target. when set, render() renders to this target instead of the swapchain. */
@@ -30122,6 +30129,72 @@ class WebGPURenderer {
             return;
         const { width: pw, height: ph } = this._canvasTarget.getDrawingBufferSize();
         this._onResize(pw, ph);
+    }
+    /**
+     * Restrict rendering to a sub-rectangle of the framebuffer, in LOGICAL (CSS) pixels — top-left
+     * origin, multiplied by the canvas pixelRatio internally (matches three.js). Persists until
+     * changed. Combine with setScissor + setScissorTest(true) and autoClear=false to render many
+     * independent 3D views into one canvas (a grid of previews). Reset via setViewport(0,0,w,h).
+     */
+    setViewport(x, y, width, height, minDepth = 0, maxDepth = 1) {
+        this._viewport = { x, y, width, height, minDepth, maxDepth };
+    }
+    /** The current viewport in logical px (full frame if none set). Mirrors three.js getViewport. */
+    getViewport() {
+        if (this._viewport)
+            return { ...this._viewport };
+        const w = this._canvasTarget?.getSize().width ?? 0;
+        const h = this._canvasTarget?.getSize().height ?? 0;
+        return { x: 0, y: 0, width: w, height: h, minDepth: 0, maxDepth: 1 };
+    }
+    /** Set the scissor rectangle in LOGICAL (CSS) pixels (top-left origin). Clips draws only while the
+     *  scissor test is enabled — see setScissorTest. Does NOT affect loadOp clears. */
+    setScissor(x, y, width, height) {
+        this._scissor = { x, y, width, height };
+    }
+    /** The current scissor rect in logical px (full frame if none set). */
+    getScissor() {
+        if (this._scissor)
+            return { ...this._scissor };
+        const w = this._canvasTarget?.getSize().width ?? 0;
+        const h = this._canvasTarget?.getSize().height ?? 0;
+        return { x: 0, y: 0, width: w, height: h };
+    }
+    /** Enable or disable the scissor test. When on, draw calls are clipped to the setScissor rect. */
+    setScissorTest(enable) {
+        this._scissorTest = enable;
+    }
+    getScissorTest() {
+        return this._scissorTest;
+    }
+    /**
+     * Manually clear the current framebuffer (color and/or depth) to clearColor, ignoring
+     * autoClear and viewport/scissor. Pair with autoClear=false to clear once, then render() a
+     * series of viewport/scissor views on top. Matches three.js `clear(color, depth)` (gpucat has
+     * no stencil buffer).
+     */
+    clear(color = true, depth = true) {
+        if (this._isDeviceLost || !this._initialized)
+            return;
+        if (!this.renderTarget) {
+            if (!this._canvasTarget)
+                return;
+            if (this.domElement.width === 0 || this.domElement.height === 0)
+                return;
+        }
+        const [cr, cg, cb, ca] = this.clearColor;
+        const prev = this.autoClear;
+        this.autoClear = true;
+        const { colorAttachments, depthAttachment } = this._render_resolve(this.renderTarget, { r: cr, g: cg, b: cb, a: ca });
+        this.autoClear = prev;
+        // honor the color/depth flags (three.js parity).
+        for (const a of colorAttachments)
+            a.loadOp = color ? 'clear' : 'load';
+        if (depthAttachment)
+            depthAttachment.depthLoadOp = depth ? 'clear' : 'load';
+        const encoder = this._device.createCommandEncoder();
+        encoder.beginRenderPass({ label: 'clear', colorAttachments, depthStencilAttachment: depthAttachment }).end();
+        this._device.queue.submit([encoder.finish()]);
     }
     /**
      * Check if a GPU feature is available on the current device.
@@ -30528,6 +30601,9 @@ class WebGPURenderer {
     _resolveSwapchainAttachments(clearColor) {
         const ctx = this._canvasTarget.getContext(this._device, this._format);
         const swapchainView = ctx.getCurrentTexture().createView();
+        // autoClear=false preserves prior contents so several viewport/scissor views can composite
+        // into one canvas. (MSAA can't 'load' a resolve-only target, so it always clears.)
+        const loadOp = this.autoClear ? 'clear' : 'load';
         const colorAttachments = [];
         if (this.samples > 1 && this._msaaTextureView) {
             colorAttachments.push({
@@ -30542,7 +30618,7 @@ class WebGPURenderer {
             colorAttachments.push({
                 view: swapchainView,
                 clearValue: clearColor,
-                loadOp: 'clear',
+                loadOp,
                 storeOp: 'store',
             });
         }
@@ -30551,7 +30627,7 @@ class WebGPURenderer {
             depthAttachment: {
                 view: this._depthTextureView,
                 depthClearValue: 1.0,
-                depthLoadOp: 'clear',
+                depthLoadOp: loadOp,
                 depthStoreOp: 'store',
             },
         };
@@ -30602,6 +30678,20 @@ class WebGPURenderer {
             depthStencilAttachment: depthAttachment,
             timestampWrites,
         });
+        // Optional viewport / scissor for compositing multiple views into one canvas. Values are
+        // logical px (three.js parity); scale to physical by the canvas pixelRatio (1 for render targets).
+        if (this._viewport || (this._scissorTest && this._scissor)) {
+            const pr = this.renderTarget ? 1 : (this._canvasTarget?.getPixelRatio() ?? 1);
+            if (this._viewport) {
+                const v = this._viewport;
+                gpuPass.setViewport(v.x * pr, v.y * pr, v.width * pr, v.height * pr, v.minDepth, v.maxDepth);
+            }
+            if (this._scissorTest && this._scissor) {
+                // setScissorRect requires integer coords.
+                const s = this._scissor;
+                gpuPass.setScissorRect(Math.round(s.x * pr), Math.round(s.y * pr), Math.round(s.width * pr), Math.round(s.height * pr));
+            }
+        }
         const currentSets = {
             bindingGroups: [],
             attributes: [],
@@ -30729,7 +30819,8 @@ class WebGPURenderer {
             throw new Error('[WebGPURenderer] Cube render target texture not found in cache');
         }
         // A 2D view of the single selected face (layer) of the cube texture.
-        const colorAttachments = [{
+        const colorAttachments = [
+            {
                 view: cubeData.texture.createView({
                     dimension: '2d',
                     baseArrayLayer: renderTarget.activeFace,
@@ -30740,7 +30831,8 @@ class WebGPURenderer {
                 clearValue: clearColor,
                 loadOp: 'clear',
                 storeOp: 'store',
-            }];
+            },
+        ];
         let depthAttachment;
         if (renderTarget.depthTexture) {
             const depthData = getTextureData(this._textures, renderTarget.depthTexture._gpuTexture);

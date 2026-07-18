@@ -139,6 +139,11 @@
         "description": "FXAA anti-aliasing on a high-contrast cube.",
         "tags": ["post-processing", "anti-aliasing", "fxaa"]
     },
+    "example-viewports": {
+        "title": "Viewports + Scissor",
+        "description": "A grid of independent 3D views composited into one canvas via setViewport / setScissor / autoClear.",
+        "tags": ["viewport", "scissor", "multi-view"]
+    },
     "example-transform-controls": {
         "title": "Transform Controls",
         "description": "A translate/rotate/scale gizmo. T/R/S to switch modes.",

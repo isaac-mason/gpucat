@@ -31,9 +31,7 @@ import { disposeMipmapState } from './mipmap-utils';
  * the prior level through a filtering sampler, so only filterable renderable formats qualify
  * (8-bit unorm + 16-bit float). Integer and 32-bit-float storage formats are excluded.
  */
-const FILTERABLE_STORAGE_FORMATS = new Set<string>([
-    'rgba8unorm', 'rgba8snorm', 'bgra8unorm', 'rgba16float',
-]);
+const FILTERABLE_STORAGE_FORMATS = new Set<string>(['rgba8unorm', 'rgba8snorm', 'bgra8unorm', 'rgba16float']);
 function isFilterableStorageFormat(format: string): boolean {
     return FILTERABLE_STORAGE_FORMATS.has(format);
 }
@@ -82,33 +80,33 @@ export type WebGPURendererOptions = {
  */
 export type ComputeDispatch =
     | {
-        /** The ComputeNode to dispatch. */
-        node: ComputeNode;
-        /** Workgroup counts [x, y, z] dispatched from the CPU. */
-        dispatch: [number, number, number];
-        indirect?: never;
-        indirectOffset?: never;
-        /**
-         * Override map for named storage buffers (those declared via `storage('name', schema, ...)`).
-         * Takes precedence over the node's value/geometry, lets one ComputeNode be reused
-         * across different buffers without recompiling the pipeline.
-         */
-        buffers?: Record<string, GpuBuffer<d.Any>>;
-    }
+          /** The ComputeNode to dispatch. */
+          node: ComputeNode;
+          /** Workgroup counts [x, y, z] dispatched from the CPU. */
+          dispatch: [number, number, number];
+          indirect?: never;
+          indirectOffset?: never;
+          /**
+           * Override map for named storage buffers (those declared via `storage('name', schema, ...)`).
+           * Takes precedence over the node's value/geometry, lets one ComputeNode be reused
+           * across different buffers without recompiling the pipeline.
+           */
+          buffers?: Record<string, GpuBuffer<d.Any>>;
+      }
     | {
-        /** The ComputeNode to dispatch. */
-        node: ComputeNode;
-        /**
-         * GPU buffer holding `[countX, countY, countZ]` as u32 (matches `dispatchWorkgroupsIndirect` layout).
-         * Buffer must have 'indirect' usage. Typically written by an earlier compute pass.
-         */
-        indirect: GpuBuffer<d.Any>;
-        /** Byte offset into `indirect`. Defaults to 0. */
-        indirectOffset?: number;
-        dispatch?: never;
-        /** See `dispatch` form for details. */
-        buffers?: Record<string, GpuBuffer<d.Any>>;
-    };
+          /** The ComputeNode to dispatch. */
+          node: ComputeNode;
+          /**
+           * GPU buffer holding `[countX, countY, countZ]` as u32 (matches `dispatchWorkgroupsIndirect` layout).
+           * Buffer must have 'indirect' usage. Typically written by an earlier compute pass.
+           */
+          indirect: GpuBuffer<d.Any>;
+          /** Byte offset into `indirect`. Defaults to 0. */
+          indirectOffset?: number;
+          dispatch?: never;
+          /** See `dispatch` form for details. */
+          buffers?: Record<string, GpuBuffer<d.Any>>;
+      };
 
 export class WebGPURenderer {
     /** Whether the renderer has been initialized (adapter/device/context created) or not. @internal */
@@ -141,15 +139,17 @@ export class WebGPURenderer {
      */
     setInspector(next: InspectorBase | null): void {
         if (this._inspector === next) return;
-        this._inspector?.setRenderer(null);   // detach signal, old disposes
+        this._inspector?.setRenderer(null); // detach signal, old disposes
         this._inspector = next;
-        next?.setRenderer(this);              // attach signal, new sets up
+        next?.setRenderer(this); // attach signal, new sets up
     }
 
     /** The canvas dom element for the current canvas target. Throws in headless mode. */
     get domElement(): HTMLCanvasElement {
         if (!this._canvasTarget) {
-            throw new Error('[WebGPURenderer] no canvas: renderer was created in headless mode. Render to a RenderTarget instead.');
+            throw new Error(
+                '[WebGPURenderer] no canvas: renderer was created in headless mode. Render to a RenderTarget instead.',
+            );
         }
         return this._canvasTarget.domElement;
     }
@@ -239,6 +239,17 @@ export class WebGPURenderer {
 
     /** clear color for the final swapchain composite pass. defaults to opaque black. */
     clearColor: [number, number, number, number] = [0, 0, 0, 1];
+
+    /** when false, render() preserves the attachment's existing contents (loadOp:'load') instead of
+     *  clearing to clearColor. Set false (after an initial clear()) to composite several
+     *  viewport/scissor views into ONE canvas — a grid of independent 3D views. */
+    autoClear: boolean = true;
+
+    // Viewport/scissor are in LOGICAL (CSS) pixels like three.js — multiplied by the canvas
+    // pixelRatio at draw time. null viewport = full frame. Persist across renders until changed.
+    private _viewport: { x: number; y: number; width: number; height: number; minDepth: number; maxDepth: number } | null = null;
+    private _scissor: { x: number; y: number; width: number; height: number } | null = null;
+    private _scissorTest = false;
 
     /** current MRT configuration. when set, materials using mrt() nodes write to multiple color attachments. */
     mrt: MRTNode | null = null;
@@ -440,6 +451,72 @@ export class WebGPURenderer {
 
         const { width: pw, height: ph } = this._canvasTarget.getDrawingBufferSize();
         this._onResize(pw, ph);
+    }
+
+    /**
+     * Restrict rendering to a sub-rectangle of the framebuffer, in LOGICAL (CSS) pixels — top-left
+     * origin, multiplied by the canvas pixelRatio internally (matches three.js). Persists until
+     * changed. Combine with setScissor + setScissorTest(true) and autoClear=false to render many
+     * independent 3D views into one canvas (a grid of previews). Reset via setViewport(0,0,w,h).
+     */
+    setViewport(x: number, y: number, width: number, height: number, minDepth = 0, maxDepth = 1): void {
+        this._viewport = { x, y, width, height, minDepth, maxDepth };
+    }
+
+    /** The current viewport in logical px (full frame if none set). Mirrors three.js getViewport. */
+    getViewport(): { x: number; y: number; width: number; height: number; minDepth: number; maxDepth: number } {
+        if (this._viewport) return { ...this._viewport };
+        const w = this._canvasTarget?.getSize().width ?? 0;
+        const h = this._canvasTarget?.getSize().height ?? 0;
+        return { x: 0, y: 0, width: w, height: h, minDepth: 0, maxDepth: 1 };
+    }
+
+    /** Set the scissor rectangle in LOGICAL (CSS) pixels (top-left origin). Clips draws only while the
+     *  scissor test is enabled — see setScissorTest. Does NOT affect loadOp clears. */
+    setScissor(x: number, y: number, width: number, height: number): void {
+        this._scissor = { x, y, width, height };
+    }
+
+    /** The current scissor rect in logical px (full frame if none set). */
+    getScissor(): { x: number; y: number; width: number; height: number } {
+        if (this._scissor) return { ...this._scissor };
+        const w = this._canvasTarget?.getSize().width ?? 0;
+        const h = this._canvasTarget?.getSize().height ?? 0;
+        return { x: 0, y: 0, width: w, height: h };
+    }
+
+    /** Enable or disable the scissor test. When on, draw calls are clipped to the setScissor rect. */
+    setScissorTest(enable: boolean): void {
+        this._scissorTest = enable;
+    }
+
+    getScissorTest(): boolean {
+        return this._scissorTest;
+    }
+
+    /**
+     * Manually clear the current framebuffer (color and/or depth) to clearColor, ignoring
+     * autoClear and viewport/scissor. Pair with autoClear=false to clear once, then render() a
+     * series of viewport/scissor views on top. Matches three.js `clear(color, depth)` (gpucat has
+     * no stencil buffer).
+     */
+    clear(color = true, depth = true): void {
+        if (this._isDeviceLost || !this._initialized) return;
+        if (!this.renderTarget) {
+            if (!this._canvasTarget) return;
+            if (this.domElement.width === 0 || this.domElement.height === 0) return;
+        }
+        const [cr, cg, cb, ca] = this.clearColor;
+        const prev = this.autoClear;
+        this.autoClear = true;
+        const { colorAttachments, depthAttachment } = this._render_resolve(this.renderTarget, { r: cr, g: cg, b: cb, a: ca });
+        this.autoClear = prev;
+        // honor the color/depth flags (three.js parity).
+        for (const a of colorAttachments) a.loadOp = color ? 'clear' : 'load';
+        if (depthAttachment) depthAttachment.depthLoadOp = depth ? 'clear' : 'load';
+        const encoder = this._device.createCommandEncoder();
+        encoder.beginRenderPass({ label: 'clear', colorAttachments, depthStencilAttachment: depthAttachment }).end();
+        this._device.queue.submit([encoder.finish()]);
     }
 
     /**
@@ -751,8 +828,8 @@ export class WebGPURenderer {
             } else {
                 console.warn(
                     `[WebGPURenderer] mipmapsAutoUpdate skipped: storage format '${tex.format}' is not ` +
-                    `filterable, so render-pass mip generation can't sample it. Set mipmapsAutoUpdate=false ` +
-                    `and generate mips manually, or use a filterable format (rgba8unorm/rgba16float).`,
+                        `filterable, so render-pass mip generation can't sample it. Set mipmapsAutoUpdate=false ` +
+                        `and generate mips manually, or use a filterable format (rgba8unorm/rgba16float).`,
                 );
             }
         }
@@ -868,13 +945,7 @@ export class WebGPURenderer {
 
         this._device.pushErrorScope('validation');
 
-        const preparedObjects = this._render_prepare(
-            scene,
-            camera,
-            passCtx,
-            passId,
-            this.overrideMaterial,
-        );
+        const preparedObjects = this._render_prepare(scene, camera, passCtx, passId, this.overrideMaterial);
 
         this._render_draw(encoder, preparedObjects, colorAttachments, depthAttachment, passId);
 
@@ -930,20 +1001,22 @@ export class WebGPURenderer {
             // MSAA: render into the multisampled texture and resolve into the sampled
             // single-sample texture. Otherwise render directly into the single texture.
             const msaaView = Textures.getRenderTargetMsaaView(textureData);
-            colorAttachments.push(msaaView
-                ? {
-                    view: msaaView,
-                    resolveTarget: Textures.getRenderTargetView(textureData),
-                    clearValue: clearColor,
-                    loadOp: 'clear',
-                    storeOp: 'store',
-                }
-                : {
-                    view: Textures.getRenderTargetView(textureData),
-                    clearValue: clearColor,
-                    loadOp: 'clear',
-                    storeOp: 'store',
-                });
+            colorAttachments.push(
+                msaaView
+                    ? {
+                          view: msaaView,
+                          resolveTarget: Textures.getRenderTargetView(textureData),
+                          clearValue: clearColor,
+                          loadOp: 'clear',
+                          storeOp: 'store',
+                      }
+                    : {
+                          view: Textures.getRenderTargetView(textureData),
+                          clearValue: clearColor,
+                          loadOp: 'clear',
+                          storeOp: 'store',
+                      },
+            );
         }
 
         let depthAttachment: GPURenderPassDepthStencilAttachment | undefined;
@@ -963,15 +1036,16 @@ export class WebGPURenderer {
     }
 
     /** Attachments for the swapchain (canvas), resolving MSAA when enabled. */
-    private _resolveSwapchainAttachments(
-        clearColor: GPUColorDict,
-    ): {
+    private _resolveSwapchainAttachments(clearColor: GPUColorDict): {
         colorAttachments: GPURenderPassColorAttachment[];
         depthAttachment: GPURenderPassDepthStencilAttachment | undefined;
     } {
         const ctx = this._canvasTarget!.getContext(this._device, this._format);
         const swapchainView = ctx.getCurrentTexture().createView();
 
+        // autoClear=false preserves prior contents so several viewport/scissor views can composite
+        // into one canvas. (MSAA can't 'load' a resolve-only target, so it always clears.)
+        const loadOp: GPULoadOp = this.autoClear ? 'clear' : 'load';
         const colorAttachments: GPURenderPassColorAttachment[] = [];
         if (this.samples > 1 && this._msaaTextureView) {
             colorAttachments.push({
@@ -985,7 +1059,7 @@ export class WebGPURenderer {
             colorAttachments.push({
                 view: swapchainView,
                 clearValue: clearColor,
-                loadOp: 'clear',
+                loadOp,
                 storeOp: 'store',
             });
         }
@@ -995,7 +1069,7 @@ export class WebGPURenderer {
             depthAttachment: {
                 view: this._depthTextureView,
                 depthClearValue: 1.0,
-                depthLoadOp: 'clear',
+                depthLoadOp: loadOp,
                 depthStoreOp: 'store',
             },
         };
@@ -1079,6 +1153,26 @@ export class WebGPURenderer {
             depthStencilAttachment: depthAttachment,
             timestampWrites,
         });
+
+        // Optional viewport / scissor for compositing multiple views into one canvas. Values are
+        // logical px (three.js parity); scale to physical by the canvas pixelRatio (1 for render targets).
+        if (this._viewport || (this._scissorTest && this._scissor)) {
+            const pr = this.renderTarget ? 1 : (this._canvasTarget?.getPixelRatio() ?? 1);
+            if (this._viewport) {
+                const v = this._viewport;
+                gpuPass.setViewport(v.x * pr, v.y * pr, v.width * pr, v.height * pr, v.minDepth, v.maxDepth);
+            }
+            if (this._scissorTest && this._scissor) {
+                // setScissorRect requires integer coords.
+                const s = this._scissor;
+                gpuPass.setScissorRect(
+                    Math.round(s.x * pr),
+                    Math.round(s.y * pr),
+                    Math.round(s.width * pr),
+                    Math.round(s.height * pr),
+                );
+            }
+        }
 
         const currentSets: CurrentSets = {
             bindingGroups: [],
@@ -1231,18 +1325,20 @@ export class WebGPURenderer {
         }
 
         // A 2D view of the single selected face (layer) of the cube texture.
-        const colorAttachments: GPURenderPassColorAttachment[] = [{
-            view: cubeData.texture.createView({
-                dimension: '2d',
-                baseArrayLayer: renderTarget.activeFace,
-                arrayLayerCount: 1,
-                baseMipLevel: renderTarget.activeMipmapLevel,
-                mipLevelCount: 1,
-            }),
-            clearValue: clearColor,
-            loadOp: 'clear',
-            storeOp: 'store',
-        }];
+        const colorAttachments: GPURenderPassColorAttachment[] = [
+            {
+                view: cubeData.texture.createView({
+                    dimension: '2d',
+                    baseArrayLayer: renderTarget.activeFace,
+                    arrayLayerCount: 1,
+                    baseMipLevel: renderTarget.activeMipmapLevel,
+                    mipLevelCount: 1,
+                }),
+                clearValue: clearColor,
+                loadOp: 'clear',
+                storeOp: 'store',
+            },
+        ];
 
         let depthAttachment: GPURenderPassDepthStencilAttachment | undefined;
         if (renderTarget.depthTexture) {
@@ -1346,7 +1442,12 @@ export type DeviceLostInfo = {
 // accumulate per-command boilerplate.
 // ---------------------------------------------------------------------------
 
-function passSetPipeline(pass: GPURenderPassEncoder, inspector: InspectorBase | null, pipeline: GPURenderPipeline, label: string): void {
+function passSetPipeline(
+    pass: GPURenderPassEncoder,
+    inspector: InspectorBase | null,
+    pipeline: GPURenderPipeline,
+    label: string,
+): void {
     pass.setPipeline(pipeline);
     if (inspector) inspector.setPipeline(label);
 }
@@ -1419,7 +1520,13 @@ function passDrawIndexedIndirect(
     if (inspector) inspector.drawIndexedIndirect();
 }
 
-function computeDispatchWorkgroups(pass: GPUComputePassEncoder, inspector: InspectorBase | null, x: number, y: number, z: number): void {
+function computeDispatchWorkgroups(
+    pass: GPUComputePassEncoder,
+    inspector: InspectorBase | null,
+    x: number,
+    y: number,
+    z: number,
+): void {
     pass.dispatchWorkgroups(x, y, z);
     if (inspector) inspector.dispatchWorkgroups(x, y, z);
 }

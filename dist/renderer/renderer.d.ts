@@ -155,6 +155,13 @@ export declare class WebGPURenderer {
     _renderCallDepth: number;
     /** clear color for the final swapchain composite pass. defaults to opaque black. */
     clearColor: [number, number, number, number];
+    /** when false, render() preserves the attachment's existing contents (loadOp:'load') instead of
+     *  clearing to clearColor. Set false (after an initial clear()) to composite several
+     *  viewport/scissor views into ONE canvas — a grid of independent 3D views. */
+    autoClear: boolean;
+    private _viewport;
+    private _scissor;
+    private _scissorTest;
     /** current MRT configuration. when set, materials using mrt() nodes write to multiple color attachments. */
     mrt: MRTNode | null;
     /** current render target. when set, render() renders to this target instead of the swapchain. */
@@ -192,6 +199,42 @@ export declare class WebGPURenderer {
     setPixelRatio(value: number): void;
     /** resize the canvas to logical pixel dimensions (physical = logical * pixelRatio). Throws in headless mode. */
     setSize(width: number, height: number, updateStyle?: boolean): void;
+    /**
+     * Restrict rendering to a sub-rectangle of the framebuffer, in LOGICAL (CSS) pixels — top-left
+     * origin, multiplied by the canvas pixelRatio internally (matches three.js). Persists until
+     * changed. Combine with setScissor + setScissorTest(true) and autoClear=false to render many
+     * independent 3D views into one canvas (a grid of previews). Reset via setViewport(0,0,w,h).
+     */
+    setViewport(x: number, y: number, width: number, height: number, minDepth?: number, maxDepth?: number): void;
+    /** The current viewport in logical px (full frame if none set). Mirrors three.js getViewport. */
+    getViewport(): {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+        minDepth: number;
+        maxDepth: number;
+    };
+    /** Set the scissor rectangle in LOGICAL (CSS) pixels (top-left origin). Clips draws only while the
+     *  scissor test is enabled — see setScissorTest. Does NOT affect loadOp clears. */
+    setScissor(x: number, y: number, width: number, height: number): void;
+    /** The current scissor rect in logical px (full frame if none set). */
+    getScissor(): {
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+    };
+    /** Enable or disable the scissor test. When on, draw calls are clipped to the setScissor rect. */
+    setScissorTest(enable: boolean): void;
+    getScissorTest(): boolean;
+    /**
+     * Manually clear the current framebuffer (color and/or depth) to clearColor, ignoring
+     * autoClear and viewport/scissor. Pair with autoClear=false to clear once, then render() a
+     * series of viewport/scissor views on top. Matches three.js `clear(color, depth)` (gpucat has
+     * no stencil buffer).
+     */
+    clear(color?: boolean, depth?: boolean): void;
     /**
      * Check if a GPU feature is available on the current device.
      *
