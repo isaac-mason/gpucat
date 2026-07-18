@@ -29982,7 +29982,7 @@ class WebGPURenderer {
     _format = null;
     /** MSAA sample count (0 or 1 = no MSAA). */
     samples;
-    /** Whether the swapchain has a stencil buffer (depth24plus-stencil8). Set from the `stencil` option. */
+    /** Whether the swapchain depth buffer has a stencil aspect. Derived from the resolved `depthFormat`/`stencil`. */
     stencil;
     /** Depth(-stencil) format for the swapchain depth texture: depth24plus, or depth24plus-stencil8 when stencil. */
     _swapchainDepthFormat;
@@ -30078,8 +30078,8 @@ class WebGPURenderer {
             samples = 4;
         }
         this.samples = samples;
-        this.stencil = opts.stencil ?? false;
-        this._swapchainDepthFormat = this.stencil ? DEPTH_STENCIL_FORMAT : DEPTH_FORMAT;
+        this._swapchainDepthFormat = opts.depthFormat ?? (opts.stencil ? DEPTH_STENCIL_FORMAT : DEPTH_FORMAT);
+        this.stencil = formatHasStencil(this._swapchainDepthFormat);
         this._adapterOptions = opts.adapterOptions;
         this._deviceDescriptor = opts.deviceDescriptor;
         this._preDevice = opts.device;

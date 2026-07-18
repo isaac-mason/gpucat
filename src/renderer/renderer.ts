@@ -4,6 +4,7 @@ import { getIndexFormat, type GpuBuffer } from '../core/gpu-buffer';
 import { GpuTexture } from '../core/gpu-texture';
 import { Object3D } from '../core/object3d';
 import type { RenderTarget } from '../core/render-target';
+import type { DepthTextureFormat } from '../texture/depth-texture';
 import { CubeRenderTarget } from '../core/cube-render-target';
 import { InspectorBase } from '../inspector/inspector-base';
 import type { Material } from '../material/material';
@@ -44,8 +45,15 @@ export type WebGPURendererOptions = {
     /** Explicit MSAA sample count. 0 or 1 = no MSAA. Takes precedence over antialias. */
     samples?: number;
 
-    /** Allocate a stencil buffer for the swapchain (depth24plus-stencil8). Default false. */
+    /** Allocate a stencil buffer for the swapchain (depth24plus-stencil8). Default false. Ignored if `depthFormat` is set. */
     stencil?: boolean;
+
+    /**
+     * Explicit swapchain depth(-stencil) format, e.g. 'depth32float' for higher depth precision or
+     * 'depth32float-stencil8' for float depth + stencil. Overrides `stencil`. Default: derived from `stencil`
+     * ('depth24plus' or 'depth24plus-stencil8').
+     */
+    depthFormat?: DepthTextureFormat;
 
     /** GPURequestAdapterOptions forwarded to navigator.gpu.requestAdapter(). */
     adapterOptions?: GPURequestAdapterOptions;
@@ -182,7 +190,7 @@ export class WebGPURenderer {
     /** MSAA sample count (0 or 1 = no MSAA). */
     samples: number;
 
-    /** Whether the swapchain has a stencil buffer (depth24plus-stencil8). Set from the `stencil` option. */
+    /** Whether the swapchain depth buffer has a stencil aspect. Derived from the resolved `depthFormat`/`stencil`. */
     readonly stencil: boolean;
     /** Depth(-stencil) format for the swapchain depth texture: depth24plus, or depth24plus-stencil8 when stencil. */
     private _swapchainDepthFormat: GPUTextureFormat;
@@ -306,8 +314,8 @@ export class WebGPURenderer {
             samples = 4;
         }
         this.samples = samples;
-        this.stencil = opts.stencil ?? false;
-        this._swapchainDepthFormat = this.stencil ? DEPTH_STENCIL_FORMAT : DEPTH_FORMAT;
+        this._swapchainDepthFormat = opts.depthFormat ?? (opts.stencil ? DEPTH_STENCIL_FORMAT : DEPTH_FORMAT);
+        this.stencil = formatHasStencil(this._swapchainDepthFormat);
         this._adapterOptions = opts.adapterOptions;
         this._deviceDescriptor = opts.deviceDescriptor;
         this._preDevice = opts.device;

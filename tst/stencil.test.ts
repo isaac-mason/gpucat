@@ -1,6 +1,6 @@
 import { test, expect } from 'vitest';
 import { installWebGPUPolyfills } from './stub-gpu';
-import { Material, RenderTarget } from '../src/index';
+import { Material, RenderTarget, WebGPURenderer } from '../src/index';
 import { formatHasStencil, makeRenderPipelineKey } from '../src/renderer/pipelines';
 
 installWebGPUPolyfills();
@@ -82,6 +82,15 @@ test('pipeline cache key ignores the dynamic stencil reference', () => {
     const a = makeRenderPipelineKey(mat({ stencilTest: true, stencilRef: 1 }), ...KEY_ARGS);
     const b = makeRenderPipelineKey(mat({ stencilTest: true, stencilRef: 42 }), ...KEY_ARGS);
     expect(a).toBe(b);
+});
+
+test('renderer depthFormat/stencil options resolve the swapchain stencil aspect', () => {
+    const mk = (opts: object) => new WebGPURenderer({ headless: true, device: {} as never, ...opts });
+    expect(mk({}).stencil).toBe(false); // default depth24plus
+    expect(mk({ stencil: true }).stencil).toBe(true); // depth24plus-stencil8
+    expect(mk({ depthFormat: 'depth32float-stencil8' }).stencil).toBe(true); // explicit float+stencil
+    expect(mk({ depthFormat: 'depth32float' }).stencil).toBe(false); // float depth, no stencil — overrides stencil:true
+    expect(mk({ stencil: true, depthFormat: 'depth32float' }).stencil).toBe(false);
 });
 
 test('RenderTarget stencilBuffer allocates a stencil-capable depth texture', () => {
