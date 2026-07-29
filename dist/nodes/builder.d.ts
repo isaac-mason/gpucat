@@ -1,12 +1,15 @@
+import type { GpuBuffer } from '../core/gpu-buffer';
 import type { NodeFrame } from '../renderer/node-frame';
-import { type Node, type ComputeNode } from './lib/core';
-import { type InterpolationType, type InterpolationSampling } from './lib/varying';
-import { AttributeNode } from './lib/attribute';
-import { GpuBuffer } from '../core/gpu-buffer';
-import { TextureBindingNode, StorageTextureBindingNode, SamplerNode } from './lib/texture';
-import { StorageNode } from './lib/storage';
-import { UniformNode, UniformGroup } from './lib/uniform';
+import type { StructSchema } from '../schema/schema';
 import * as d from '../schema/schema';
+import { type TracedFn } from './backend/wgsl/emit';
+import type { AttributeNode } from './lib/attribute';
+import { type ComputeNode, type FnNode, type Node, type PrivateVarNode, type StructDef, type WorkgroupVarNode } from './lib/core';
+import type { StorageNode } from './lib/storage';
+import { SamplerNode, type StorageTextureBindingNode, type TextureBindingNode } from './lib/texture';
+import type { UniformGroup, UniformNode } from './lib/uniform';
+import type { InterpolationSampling, InterpolationType } from './lib/varying';
+import type { WgslFunctionNode } from './lib/wgsl-fn';
 export declare function compile(slots: CompileSlots): CompileResult;
 export declare function compileCompute(node: ComputeNode): ComputeCompileResult;
 export type NodeUpdateType = 'none' | 'frame' | 'render' | 'object';
@@ -166,4 +169,30 @@ export type ComputeCompileResult = {
     workgroupSize: [number, number, number];
     builtinsUsed: Set<string>;
     uniformGroups: UniformGroupBlock[];
+};
+/** result of a single DFS pass that discovers all metadata needed before code generation */
+export type Discovery = {
+    nodeIdToUsages: Map<number, number>;
+    mutatedNodes: Set<number>;
+    fnDefs: Map<string, {
+        fn: FnNode<d.Any>;
+        traced: TracedFn;
+    }>;
+    wgslFnDefs: Map<string, WgslFunctionNode>;
+    structDefs: Map<string, StructDef<StructSchema>>;
+    storageNames: Map<number, string>;
+    textures: Map<string, TextureBindingNode>;
+    storageTextures: Map<string, StorageTextureBindingNode>;
+    samplers: Map<string, SamplerNode>;
+    uniforms: Map<string, {
+        node: UniformNode<d.Any>;
+        group: UniformGroup;
+    }>;
+    storages: Map<string, StorageNode<d.Any>>;
+    privateVars: Map<number, PrivateVarNode<d.Any>>;
+    workgroupVars: Map<number, WorkgroupVarNode<d.Any>>;
+    nodeIdToNode: Map<number, Node<d.Any>>;
+    updateBeforeNodes: UpdateBeforeNode[];
+    updateAfterNodes: UpdateAfterNode[];
+    updateNodes: UpdateNode[];
 };

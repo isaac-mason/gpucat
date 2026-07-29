@@ -7218,284 +7218,12 @@ function createNodeFrame() {
 }
 
 /**
- * wgsl-utils.ts, WGSL code generation utilities shared across node compilation.
+ * graph.ts — backend-neutral node-graph utilities shared by discovery and every emitter.
  *
- * These are pure functions that convert JavaScript values to WGSL syntax strings.
+ * Pure structural analysis of the DSL node graph: the AnyNode discriminated union, child
+ * traversal, and struct-type walking. No WGSL/WebGPU concepts live here — the only value
+ * import is NodeKind (for discriminant narrowing); all node classes are type-only.
  */
-/**
- * Generate a WGSL literal string for a constant value.
- *
- * @param type - The WGSL type (e.g., 'f32', 'vec3f', 'mat4x4f')
- * @param value - The value as a number, array of numbers, or string
- * @returns The WGSL literal string
- */
-function constLiteral(type, value) {
-    if (typeof value === 'string')
-        return value;
-    if (typeof value === 'number') {
-        switch (type) {
-            case 'f32':
-                return Number.isInteger(value) ? `${value}.0` : `${value}`;
-            case 'f16':
-                return Number.isInteger(value) ? `${value}.0h` : `${value}h`;
-            case 'i32':
-                return `${Math.trunc(value)}i`;
-            case 'u32':
-                return `${Math.trunc(value)}u`;
-            case 'bool':
-                return value !== 0 ? 'true' : 'false';
-            default:
-                return `${value}`;
-        }
-    }
-    const components = value.map((v) => {
-        if (type.startsWith('vec') && type.endsWith('f'))
-            return Number.isInteger(v) ? `${v}.0` : `${v}`;
-        if (type.startsWith('vec') && type.endsWith('h'))
-            return Number.isInteger(v) ? `${v}.0h` : `${v}h`;
-        if (type.startsWith('vec') && type.endsWith('i'))
-            return `${Math.trunc(v)}i`;
-        if (type.startsWith('vec') && type.endsWith('u'))
-            return `${Math.trunc(v)}u`;
-        if (type === 'vec2<bool>' || type === 'vec3<bool>' || type === 'vec4<bool>')
-            return v !== 0 ? 'true' : 'false';
-        if (type.startsWith('mat') && type.endsWith('h'))
-            return Number.isInteger(v) ? `${v}.0h` : `${v}h`;
-        if (type.startsWith('mat'))
-            return Number.isInteger(v) ? `${v}.0` : `${v}`;
-        return `${v}`;
-    });
-    if (components.length === 0)
-        return `${type}()`;
-    return `${type}(${components.join(', ')})`;
-}
-
-/* public apis */
-function compile(slots) {
-    // create contexts for both stages
-    const vertexCtx = createContext('vertex', true);
-    const fragmentCtx = createContext('fragment', true);
-    // A fragment-less material (depth/stencil-only) may leave the slot null or undefined.
-    const hasFragment = slots.fragment != null;
-    // collect all roots
-    const roots = [slots.vertex];
-    if (slots.fragment)
-        roots.push(slots.fragment);
-    if (slots.depth)
-        roots.push(slots.depth);
-    // single discovery pass across all roots
-    const discovered = discover(roots);
-    vertexCtx.usageCount = discovered.nodeIdToUsages;
-    vertexCtx.mutatedNodes = discovered.mutatedNodes;
-    vertexCtx.fnDefs = discovered.fnDefs;
-    vertexCtx.wgslFnDefs = discovered.wgslFnDefs;
-    vertexCtx.structDefs = discovered.structDefs;
-    vertexCtx.storageNames = discovered.storageNames;
-    vertexCtx.textures = discovered.textures;
-    vertexCtx.storageTextures = discovered.storageTextures;
-    vertexCtx.samplers = discovered.samplers;
-    vertexCtx.uniforms = discovered.uniforms;
-    vertexCtx.storages = discovered.storages;
-    vertexCtx.privateVars = discovered.privateVars;
-    vertexCtx.workgroupVars = discovered.workgroupVars;
-    fragmentCtx.usageCount = discovered.nodeIdToUsages;
-    fragmentCtx.mutatedNodes = discovered.mutatedNodes;
-    fragmentCtx.fnDefs = discovered.fnDefs;
-    fragmentCtx.wgslFnDefs = discovered.wgslFnDefs;
-    fragmentCtx.structDefs = discovered.structDefs;
-    fragmentCtx.storageNames = discovered.storageNames;
-    fragmentCtx.textures = discovered.textures;
-    fragmentCtx.storageTextures = discovered.storageTextures;
-    fragmentCtx.samplers = discovered.samplers;
-    fragmentCtx.uniforms = discovered.uniforms;
-    fragmentCtx.storages = discovered.storages;
-    fragmentCtx.privateVars = discovered.privateVars;
-    fragmentCtx.workgroupVars = discovered.workgroupVars;
-    // pre-collect varyings from fragment roots (so vertex shader knows what to output)
-    if (hasFragment) {
-        const fragmentRoots = [slots.fragment];
-        collectVaryings(fragmentRoots, vertexCtx);
-    }
-    // generate vertex shader
-    const vertexBody = generateVertexShader(slots, vertexCtx);
-    // generate fragment shader (skip for depth-only pipelines)
-    let fragmentBody = '';
-    if (hasFragment) {
-        fragmentBody = generateFragmentShader(slots.fragment, fragmentCtx, vertexCtx.varyings);
-        // No need to merge bindings anymore - they're shared via discovered.*
-    }
-    // emit all bindings (each group gets its own @group index)
-    const { wgsl: bindingsWgsl, uniformBlocks, storageEntries, textureEntries: textures, storageTextureEntries: storageTextures, samplerEntries: samplers, } = emitAllBindings(vertexCtx);
-    // emit module-scope variables (var<private>)
-    const moduleScopeVarsWgsl = emitModuleScopeVars(vertexCtx);
-    // emit functions
-    const wgslFnsCode = emitWgslFunctions(vertexCtx);
-    const dslFnsCode = emitDslFunctions(vertexCtx);
-    // assemble full shader
-    const codeParts = [
-        '// Bindings (uniforms, storage, textures, samplers)',
-        bindingsWgsl,
-        '// Module-scope variables',
-        moduleScopeVarsWgsl,
-        '// WGSL Functions',
-        wgslFnsCode,
-        '// DSL Functions',
-        dslFnsCode,
-        '// Vertex Shader',
-        vertexBody,
-    ];
-    if (hasFragment) {
-        codeParts.push('', '// Fragment Shader', fragmentBody);
-    }
-    const code = codeParts.filter(Boolean).join('\n');
-    // collect graph info
-    const graphNodes = new Map();
-    const graphEdges = new Map();
-    const graphInfo = new Map();
-    for (const [id, node] of discovered.nodeIdToNode) {
-        graphNodes.set(id, node);
-        graphEdges.set(id, getChildren(node).map((c) => c.id));
-        graphInfo.set(id, {
-            stages: [],
-            cseVar: vertexCtx.nodeVars.get(id) ?? fragmentCtx.nodeVars.get(id),
-            usageCount: discovered.nodeIdToUsages.get(id) ?? 0,
-            expression: undefined,
-        });
-    }
-    // build varying entries
-    const varyingEntries = [];
-    let loc = 0;
-    for (const [name, { node }] of vertexCtx.varyings) {
-        varyingEntries.push({
-            name,
-            type: node.type.wgslType,
-            location: loc++,
-            interpolationType: node.interpolationType ?? null,
-            interpolationSampling: node.interpolationSampling ?? null,
-        });
-    }
-    // Build attributes array, unified, all entries already in ctx.attributes
-    const allAttributes = Array.from(vertexCtx.attributes.values());
-    // Group attributes by underlying buffer for efficient vertex buffer binding
-    const vertexBufferGroups = groupAttributesByBuffer(allAttributes);
-    return {
-        code,
-        vertexEntryPoint: 'vs_main',
-        fragmentEntryPoint: hasFragment ? 'fs_main' : null,
-        attributes: allAttributes,
-        vertexBufferGroups,
-        varyings: varyingEntries,
-        uniformGroups: uniformBlocks,
-        storage: storageEntries,
-        textures,
-        storageTextures,
-        samplers,
-        builtinsUsed: new Set([...vertexCtx.builtins, ...fragmentCtx.builtins]),
-        updateBeforeNodes: discovered.updateBeforeNodes,
-        updateAfterNodes: discovered.updateAfterNodes,
-        updateNodes: discovered.updateNodes,
-        graphNodes,
-        graphEdges,
-        graphInfo,
-    };
-}
-function compileCompute(node) {
-    const ctx = createContext('compute', false);
-    // trace the FnNode to get roots
-    const fn = node.fn;
-    const traced = fn.trace();
-    // filter out undefined (void functions have no output)
-    const roots = [traced.body, traced.output].filter((n) => n != null);
-    // single discovery pass
-    const discovered = discover(roots);
-    ctx.usageCount = discovered.nodeIdToUsages;
-    ctx.mutatedNodes = discovered.mutatedNodes;
-    ctx.fnDefs = discovered.fnDefs;
-    ctx.wgslFnDefs = discovered.wgslFnDefs;
-    ctx.structDefs = discovered.structDefs;
-    ctx.storageNames = discovered.storageNames;
-    ctx.textures = discovered.textures;
-    ctx.storageTextures = discovered.storageTextures;
-    ctx.samplers = discovered.samplers;
-    ctx.uniforms = discovered.uniforms;
-    ctx.storages = discovered.storages;
-    ctx.privateVars = discovered.privateVars;
-    ctx.workgroupVars = discovered.workgroupVars;
-    // generate compute shader body (reuse the trace above, re-tracing would
-    // produce fresh StorageNode/etc. ids that aren't in discovered.storageNames,
-    // causing emits like `undefined[...]`).
-    const computeBody = generateComputeShader(node, traced, ctx);
-    // emit all bindings (each group gets its own @group index)
-    const { wgsl: bindingsWgsl, uniformBlocks, storageEntries, storageTextureEntries: storageTextures } = emitAllBindings(ctx);
-    // emit module-scope variables (var<private>, var<workgroup>)
-    const moduleScopeVarsWgsl = emitModuleScopeVars(ctx);
-    // emit functions
-    const wgslFnsCode = emitWgslFunctions(ctx);
-    const dslFnsCode = emitDslFunctions(ctx);
-    // assemble full shader
-    const code = [
-        '// Bindings (uniforms, storage, textures, samplers)',
-        bindingsWgsl,
-        '// Module-scope variables',
-        moduleScopeVarsWgsl,
-        '// WGSL Functions',
-        wgslFnsCode,
-        '// DSL Functions',
-        dslFnsCode,
-        '// Compute Shader',
-        computeBody,
-    ]
-        .filter(Boolean)
-        .join('\n');
-    // convert storage entries to compute format
-    const computeStorage = storageEntries.map((e) => ({
-        node: e.node,
-        name: e.name,
-        type: e.type,
-        access: e.access,
-        group: e.group,
-        binding: e.binding,
-    }));
-    return {
-        code,
-        storage: computeStorage,
-        storageTextures,
-        workgroupSize: node.workgroupSize ?? [64, 1, 1],
-        builtinsUsed: ctx.builtins,
-        uniformGroups: uniformBlocks,
-    };
-}
-function createContext(stage, isRender) {
-    return {
-        stage,
-        isRender,
-        uniforms: new Map(),
-        storages: new Map(),
-        storageNames: new Map(),
-        textures: new Map(),
-        storageTextures: new Map(),
-        samplers: new Map(),
-        attributes: new Map(),
-        attrCounter: 0,
-        varyings: new Map(),
-        builtins: new Set(),
-        privateVars: new Map(),
-        workgroupVars: new Map(),
-        structs: new Map(),
-        structDefs: new Map(),
-        usageCount: new Map(),
-        mutatedNodes: new Set(),
-        nodeVars: new Map(),
-        varCounter: 0,
-        indentLevel: 1,
-        code: [],
-        fnDefs: new Map(),
-        wgslFnDefs: new Map(),
-        graphNodes: new Map(),
-        graphEdges: new Map(),
-        graphInfo: new Map(),
-    };
-}
 /** Get all child nodes for traversal */
 function getChildren(rawNode) {
     const node = rawNode;
@@ -7680,70 +7408,6 @@ function getChildren(rawNode) {
     return children;
 }
 /**
- * Group attributes by their underlying buffer for efficient vertex buffer binding.
- *
- * Attributes sharing the same buffer (either by name for geometry-based, or by
- * buffer reference for direct) are grouped together. This enables:
- * - One GPUVertexBufferLayout with multiple attributes
- * - One setVertexBuffer() call per unique buffer
- *
- * @param entries - Flat array of AttributeEntry from compilation
- * @returns Array of VertexBufferGroup, one per unique buffer
- */
-function groupAttributesByBuffer(entries) {
-    // Use separate maps for name-based and buffer-based grouping
-    const nameGroups = new Map();
-    const bufferGroups = new Map();
-    for (const entry of entries) {
-        let group;
-        if (entry.kind === 'geometry') {
-            // Name-based grouping
-            const geomName = entry.name;
-            group = nameGroups.get(geomName);
-            if (!group) {
-                group = {
-                    name: geomName,
-                    buffer: null,
-                    stride: entry.stride,
-                    instanced: entry.instanced,
-                    attributes: [],
-                };
-                nameGroups.set(geomName, group);
-            }
-        }
-        else {
-            // Buffer-based grouping
-            const buffer = entry.node.buffer;
-            group = bufferGroups.get(buffer);
-            if (!group) {
-                group = {
-                    name: null,
-                    buffer,
-                    stride: entry.stride,
-                    instanced: entry.instanced,
-                    attributes: [],
-                };
-                bufferGroups.set(buffer, group);
-            }
-        }
-        // Validate stride/instanced match within group
-        if (group.stride !== entry.stride) {
-            throw new Error(`[gpucat] Interleaved attributes sharing buffer must have matching stride. ` +
-                `Got ${entry.stride} but group has ${group.stride}.`);
-        }
-        if (group.instanced !== entry.instanced) {
-            throw new Error(`[gpucat] Interleaved attributes sharing buffer must have matching instanced flag.`);
-        }
-        group.attributes.push({
-            type: entry.type,
-            offset: entry.offset,
-            shaderLocation: entry.location,
-        });
-    }
-    // Combine both maps into a single array, preserving order (name-based first, then buffer-based)
-    return [...nameGroups.values(), ...bufferGroups.values()];
-}
-/**
  * Recursively walk a type to find and register any struct definitions.
  * Handles: struct, array, sized-array, vec, mat types.
  */
@@ -7759,197 +7423,132 @@ function walkTypeForStructs(type, register) {
     }
     // For vectors and matrices, no structs to find
 }
-function discover(roots) {
-    const nodeIdToNode = new Map();
-    const nodeIdToUsages = new Map();
-    const visited = new Set();
-    const mutatedNodes = new Set();
-    const fnDefs = new Map();
-    const wgslFnDefs = new Map();
-    const structDefs = new Map();
-    const storageNames = new Map();
-    const textures = new Map();
-    const storageTextures = new Map();
-    const samplers = new Map(); // keyed by settingsKey
-    const uniforms = new Map();
-    const storages = new Map();
-    const privateVars = new Map();
-    const workgroupVars = new Map();
-    const updateBeforeNodes = [];
-    const updateAfterNodes = [];
-    const updateNodes = [];
-    function registerStructDef(def) {
-        if (structDefs.has(def.wgslType))
-            return;
-        for (const nested of def.nestedDefs.values()) {
-            registerStructDef(nested);
-        }
-        structDefs.set(def.wgslType, def);
-    }
-    function markTargetChain(rawNode) {
-        const node = rawNode;
-        mutatedNodes.add(node.id);
-        if (node.kind === NodeKind.Field) {
-            markTargetChain(node.object);
-        }
-        else if (node.kind === NodeKind.Index) {
-            markTargetChain(node.array);
+
+/**
+ * wgsl-utils.ts, WGSL code generation utilities shared across node compilation.
+ *
+ * These are pure functions that convert JavaScript values to WGSL syntax strings.
+ */
+/**
+ * Generate a WGSL literal string for a constant value.
+ *
+ * @param type - The WGSL type (e.g., 'f32', 'vec3f', 'mat4x4f')
+ * @param value - The value as a number, array of numbers, or string
+ * @returns The WGSL literal string
+ */
+function constLiteral(type, value) {
+    if (typeof value === 'string')
+        return value;
+    if (typeof value === 'number') {
+        switch (type) {
+            case 'f32':
+                return Number.isInteger(value) ? `${value}.0` : `${value}`;
+            case 'f16':
+                return Number.isInteger(value) ? `${value}.0h` : `${value}h`;
+            case 'i32':
+                return `${Math.trunc(value)}i`;
+            case 'u32':
+                return `${Math.trunc(value)}u`;
+            case 'bool':
+                return value !== 0 ? 'true' : 'false';
+            default:
+                return `${value}`;
         }
     }
-    function registerSampler(samplerNode) {
-        const key = samplerNode.settingsKey;
-        if (!samplers.has(key)) {
-            samplers.set(key, samplerNode);
-        }
-    }
-    function registerTextureWithSampler(textureNode) {
-        // Register the texture binding
-        const binding = textureNode.bindingNode;
-        const name = binding.textureId;
-        if (!textures.has(name)) {
-            textures.set(name, binding);
-        }
-        // For sampling modes (not 'load'), ensure a sampler exists and register it
-        if (textureNode.samplingMode !== 'load') {
-            let samplerNode = textureNode.samplerNode;
-            if (!samplerNode) {
-                // Create default sampler (same logic as generateTexture had)
-                samplerNode = new SamplerNode(sampler$1, name, binding.group);
-                textureNode.samplerNode = samplerNode;
-            }
-            registerSampler(samplerNode);
-        }
-    }
-    function visit(rawNode) {
-        const node = rawNode;
-        // usage counting
-        nodeIdToUsages.set(node.id, (nodeIdToUsages.get(node.id) ?? 0) + 1);
-        // exit if visited
-        if (visited.has(node.id))
-            return;
-        visited.add(node.id);
-        // collect all nodes
-        nodeIdToNode.set(node.id, node);
-        // collect update lifecycle nodes
-        if (node.updateBeforeType !== 'none' && node.updateBefore) {
-            updateBeforeNodes.push(node);
-        }
-        if (node.updateAfterType !== 'none' && node.updateAfter) {
-            updateAfterNodes.push(node);
-        }
-        if (node.updateType !== 'none' && node.update) {
-            updateNodes.push(node);
-        }
-        // mutated nodes: walk assignment target chains
-        if (node.kind === NodeKind.Assign) {
-            markTargetChain(node.target);
-        }
-        // function discovery
-        if (node.kind === NodeKind.Call && node.fnNode) {
-            const fn = node.fnNode;
-            if (!fnDefs.has(fn.fnName)) {
-                const traced = fn.trace();
-                fnDefs.set(fn.fnName, { fn, traced });
-                visit(traced.body);
-                visit(traced.output);
-            }
-        }
-        if (node.kind === NodeKind.Call && node.wgslFnNode) {
-            const fn = node.wgslFnNode;
-            if (!wgslFnDefs.has(fn.code)) {
-                wgslFnDefs.set(fn.code, fn);
-                for (const inc of fn.includes) {
-                    if (inc.kind === NodeKind.WgslFunction && !wgslFnDefs.has(inc.code)) {
-                        wgslFnDefs.set(inc.code, inc);
-                    }
-                }
-            }
-        }
-        // storage + struct definition discovery
-        if (node.kind === NodeKind.Storage) {
-            if (!storageNames.has(node.id)) {
-                storageNames.set(node.id, `_storage${storageNames.size}`);
-            }
-            // Also register storage for binding emission
-            const storageName = storageNames.get(node.id);
-            if (!storages.has(storageName)) {
-                storages.set(storageName, node);
-            }
-            // Walk the type to find and register any struct definitions
-            walkTypeForStructs(node.type, registerStructDef);
-        }
-        // binding discovery: textures, samplers, uniforms
-        if (node.kind === NodeKind.TextureBinding) {
-            const name = node.textureId;
-            if (!textures.has(name)) {
-                textures.set(name, node);
-            }
-        }
-        if (node.kind === NodeKind.StorageTextureBinding) {
-            const name = node.textureId;
-            if (!storageTextures.has(name)) {
-                storageTextures.set(name, node);
-            }
-        }
-        if (node.kind === NodeKind.Texture) {
-            registerTextureWithSampler(node);
-        }
-        if (node.kind === NodeKind.CubeTexture) {
-            registerTextureWithSampler(node);
-        }
-        if (node.kind === NodeKind.DepthTexture) {
-            registerTextureWithSampler(node);
-        }
-        if (node.kind === NodeKind.ArrayTexture) {
-            registerTextureWithSampler(node);
-        }
-        if (node.kind === NodeKind.Sampler) {
-            registerSampler(node);
-        }
-        if (node.kind === NodeKind.Uniform) {
-            const name = node.name;
-            const group = node.group;
-            if (!uniforms.has(name)) {
-                uniforms.set(name, { node, group });
-            }
-        }
-        // module scope variable discovery
-        if (node.kind === NodeKind.PrivateVar) {
-            if (!privateVars.has(node.id)) {
-                privateVars.set(node.id, node);
-            }
-        }
-        if (node.kind === NodeKind.WorkgroupVar) {
-            if (!workgroupVars.has(node.id)) {
-                workgroupVars.set(node.id, node);
-            }
-        }
-        // visit children
-        for (const child of getChildren(node)) {
-            visit(child);
-        }
-    }
-    for (const root of roots) {
-        visit(root);
-    }
+    const components = value.map((v) => {
+        if (type.startsWith('vec') && type.endsWith('f'))
+            return Number.isInteger(v) ? `${v}.0` : `${v}`;
+        if (type.startsWith('vec') && type.endsWith('h'))
+            return Number.isInteger(v) ? `${v}.0h` : `${v}h`;
+        if (type.startsWith('vec') && type.endsWith('i'))
+            return `${Math.trunc(v)}i`;
+        if (type.startsWith('vec') && type.endsWith('u'))
+            return `${Math.trunc(v)}u`;
+        if (type === 'vec2<bool>' || type === 'vec3<bool>' || type === 'vec4<bool>')
+            return v !== 0 ? 'true' : 'false';
+        if (type.startsWith('mat') && type.endsWith('h'))
+            return Number.isInteger(v) ? `${v}.0h` : `${v}h`;
+        if (type.startsWith('mat'))
+            return Number.isInteger(v) ? `${v}.0` : `${v}`;
+        return `${v}`;
+    });
+    if (components.length === 0)
+        return `${type}()`;
+    return `${type}(${components.join(', ')})`;
+}
+
+/**
+ * backend/wgsl/emit.ts — the WGSL emitter.
+ *
+ * Consumes the backend-neutral node graph + discovered facts (carried on BuildContext) and produces
+ * WGSL source strings. This is the first concrete shader backend; a future GLSL emitter is a sibling
+ * module here. Nothing in this file touches GPUDevice or any runtime object — it is purely
+ * node-graph → text. compile()/compileCompute() (in ../../builder) orchestrate discover → emit.
+ */
+/**
+ * A Discovery with every collection empty. Used only for the per-function-body sub-context in
+ * emitDslFunctions, which feeds it to {@link createContext} after splicing in the subset of the
+ * parent's maps that the body shares.
+ */
+function emptyDiscovery() {
     return {
-        nodeIdToNode,
-        nodeIdToUsages,
-        mutatedNodes,
-        fnDefs,
-        wgslFnDefs,
-        structDefs,
-        storageNames,
-        updateBeforeNodes,
-        updateAfterNodes,
-        updateNodes,
-        textures,
-        storageTextures,
-        samplers,
-        uniforms,
-        storages,
-        privateVars,
-        workgroupVars,
+        nodeIdToUsages: new Map(),
+        mutatedNodes: new Set(),
+        fnDefs: new Map(),
+        wgslFnDefs: new Map(),
+        structDefs: new Map(),
+        storageNames: new Map(),
+        textures: new Map(),
+        storageTextures: new Map(),
+        samplers: new Map(),
+        uniforms: new Map(),
+        storages: new Map(),
+        privateVars: new Map(),
+        workgroupVars: new Map(),
+        nodeIdToNode: new Map(),
+        updateBeforeNodes: [],
+        updateAfterNodes: [],
+        updateNodes: [],
+    };
+}
+/**
+ * Context for a top-level shader stage. Emission scratch is fresh, but the discovered facts (bindings,
+ * struct/fn tables, CSE usage counts) are referenced — not copied — directly from the single discovery
+ * pass, so every context for one compile (vertex + fragment) shares one binding set. This matches the
+ * prior behaviour where compile() aliased the discovered maps into both contexts. Emission still appends
+ * to some of them (e.g. uniforms/textures registered on first encounter), so they are shared-mutable.
+ */
+function createContext(stage, isRender, discovery) {
+    return {
+        stage,
+        isRender,
+        // Discovered facts — referenced directly (no throwaway empty maps).
+        uniforms: discovery.uniforms,
+        storages: discovery.storages,
+        storageNames: discovery.storageNames,
+        textures: discovery.textures,
+        storageTextures: discovery.storageTextures,
+        samplers: discovery.samplers,
+        privateVars: discovery.privateVars,
+        workgroupVars: discovery.workgroupVars,
+        structDefs: discovery.structDefs,
+        usageCount: discovery.nodeIdToUsages,
+        mutatedNodes: discovery.mutatedNodes,
+        fnDefs: discovery.fnDefs,
+        wgslFnDefs: discovery.wgslFnDefs,
+        // Per-stage emission scratch — fresh each call.
+        attributes: new Map(),
+        attrCounter: 0,
+        varyings: new Map(),
+        builtins: new Set(),
+        structs: new Map(),
+        nodeVars: new Map(),
+        varCounter: 0,
+        indentLevel: 1,
+        code: [],
+        graphNodes: new Map(),
+        graphEdges: new Map(),
+        graphInfo: new Map(),
     };
 }
 /** Pre-collect VaryingNodes from roots and generate their vertex expressions. */
@@ -8263,21 +7862,19 @@ function generateAttribute(ctx, node) {
         });
         return `input.${shaderName}`;
     }
-    else {
-        const shaderName = `_buf_${index}`;
-        ctx.attributes.set(node.id, {
-            kind: 'buffer',
-            name: null,
-            shaderName,
-            type: node.type.wgslType,
-            location,
-            node,
-            stride: node.stride,
-            offset: node.offset,
-            instanced: node.instanced,
-        });
-        return `input.${shaderName}`;
-    }
+    const shaderName = `_buf_${index}`;
+    ctx.attributes.set(node.id, {
+        kind: 'buffer',
+        name: null,
+        shaderName,
+        type: node.type.wgslType,
+        location,
+        node,
+        stride: node.stride,
+        offset: node.offset,
+        instanced: node.instanced,
+    });
+    return `input.${shaderName}`;
 }
 function generateStorage(ctx, node) {
     // name was assigned globally during discover()
@@ -8707,8 +8304,7 @@ function generateLoopStmt(ctx, node) {
         // body that mutates variables used in `cond` terminates correctly.
         loopHeader = `while (${generateExpr(ctx, config)})`;
     }
-    else if (typeof config === 'object' &&
-        config !== null) {
+    else if (typeof config === 'object' && config !== null) {
         const cfg = config;
         const typeDesc = cfg.type ?? i32$1;
         const typeStr = typeDesc.wgslType;
@@ -9014,16 +8610,19 @@ function emitDslFunctions(ctx) {
             return `${pName}: ${p.type.wgslType}`;
         })
             .join(', ');
-        // generate function body
-        const fnCtx = createContext(ctx.stage, ctx.isRender);
-        fnCtx.usageCount = ctx.usageCount;
-        fnCtx.fnDefs = ctx.fnDefs;
-        fnCtx.wgslFnDefs = ctx.wgslFnDefs;
-        fnCtx.textures = ctx.textures;
-        fnCtx.samplers = ctx.samplers;
-        fnCtx.uniforms = ctx.uniforms;
-        fnCtx.storages = ctx.storages;
-        fnCtx.storageNames = ctx.storageNames;
+        // Fresh emission scope for this function body: its own CSE vars / code / indentation, but it
+        // shares the parent's bindings + function tables so references resolve to the same WGSL names.
+        // Deliberately does NOT share mutatedNodes or module-scope vars — the body has its own CSE scope.
+        const fnDiscovery = emptyDiscovery();
+        fnDiscovery.nodeIdToUsages = ctx.usageCount;
+        fnDiscovery.fnDefs = ctx.fnDefs;
+        fnDiscovery.wgslFnDefs = ctx.wgslFnDefs;
+        fnDiscovery.textures = ctx.textures;
+        fnDiscovery.samplers = ctx.samplers;
+        fnDiscovery.uniforms = ctx.uniforms;
+        fnDiscovery.storages = ctx.storages;
+        fnDiscovery.storageNames = ctx.storageNames;
+        const fnCtx = createContext(ctx.stage, ctx.isRender, fnDiscovery);
         // register param names in context
         for (const p of traced.params) {
             fnCtx.nodeVars.set(p.id, p.paramName ?? `p${p.paramIndex}`);
@@ -9281,6 +8880,420 @@ function generateComputeShader(node, traced, ctx) {
     lines.push(...ctx.code);
     lines.push('}');
     return lines.join('\n');
+}
+
+/* public apis */
+function compile(slots) {
+    // A fragment-less material (depth/stencil-only) may leave the slot null or undefined.
+    const hasFragment = slots.fragment != null;
+    // collect all roots
+    const roots = [slots.vertex];
+    if (slots.fragment)
+        roots.push(slots.fragment);
+    if (slots.depth)
+        roots.push(slots.depth);
+    // single discovery pass across all roots, then a context per stage that references the
+    // discovered facts (both stages share one binding set — see createContext).
+    const discovered = discover(roots);
+    const vertexCtx = createContext('vertex', true, discovered);
+    const fragmentCtx = createContext('fragment', true, discovered);
+    // pre-collect varyings from fragment roots (so vertex shader knows what to output)
+    if (hasFragment) {
+        const fragmentRoots = [slots.fragment];
+        collectVaryings(fragmentRoots, vertexCtx);
+    }
+    // generate vertex shader
+    const vertexBody = generateVertexShader(slots, vertexCtx);
+    // generate fragment shader (skip for depth-only pipelines)
+    let fragmentBody = '';
+    if (hasFragment) {
+        fragmentBody = generateFragmentShader(slots.fragment, fragmentCtx, vertexCtx.varyings);
+        // No need to merge bindings anymore - they're shared via discovered.*
+    }
+    // emit all bindings (each group gets its own @group index)
+    const { wgsl: bindingsWgsl, uniformBlocks, storageEntries, textureEntries: textures, storageTextureEntries: storageTextures, samplerEntries: samplers, } = emitAllBindings(vertexCtx);
+    // emit module-scope variables (var<private>)
+    const moduleScopeVarsWgsl = emitModuleScopeVars(vertexCtx);
+    // emit functions
+    const wgslFnsCode = emitWgslFunctions(vertexCtx);
+    const dslFnsCode = emitDslFunctions(vertexCtx);
+    // assemble full shader
+    const codeParts = [
+        '// Bindings (uniforms, storage, textures, samplers)',
+        bindingsWgsl,
+        '// Module-scope variables',
+        moduleScopeVarsWgsl,
+        '// WGSL Functions',
+        wgslFnsCode,
+        '// DSL Functions',
+        dslFnsCode,
+        '// Vertex Shader',
+        vertexBody,
+    ];
+    if (hasFragment) {
+        codeParts.push('', '// Fragment Shader', fragmentBody);
+    }
+    const code = codeParts.filter(Boolean).join('\n');
+    // collect graph info
+    const graphNodes = new Map();
+    const graphEdges = new Map();
+    const graphInfo = new Map();
+    for (const [id, node] of discovered.nodeIdToNode) {
+        graphNodes.set(id, node);
+        graphEdges.set(id, getChildren(node).map((c) => c.id));
+        graphInfo.set(id, {
+            stages: [],
+            cseVar: vertexCtx.nodeVars.get(id) ?? fragmentCtx.nodeVars.get(id),
+            usageCount: discovered.nodeIdToUsages.get(id) ?? 0,
+            expression: undefined,
+        });
+    }
+    // build varying entries
+    const varyingEntries = [];
+    let loc = 0;
+    for (const [name, { node }] of vertexCtx.varyings) {
+        varyingEntries.push({
+            name,
+            type: node.type.wgslType,
+            location: loc++,
+            interpolationType: node.interpolationType ?? null,
+            interpolationSampling: node.interpolationSampling ?? null,
+        });
+    }
+    // Build attributes array, unified, all entries already in ctx.attributes
+    const allAttributes = Array.from(vertexCtx.attributes.values());
+    // Group attributes by underlying buffer for efficient vertex buffer binding
+    const vertexBufferGroups = groupAttributesByBuffer(allAttributes);
+    return {
+        code,
+        vertexEntryPoint: 'vs_main',
+        fragmentEntryPoint: hasFragment ? 'fs_main' : null,
+        attributes: allAttributes,
+        vertexBufferGroups,
+        varyings: varyingEntries,
+        uniformGroups: uniformBlocks,
+        storage: storageEntries,
+        textures,
+        storageTextures,
+        samplers,
+        builtinsUsed: new Set([...vertexCtx.builtins, ...fragmentCtx.builtins]),
+        updateBeforeNodes: discovered.updateBeforeNodes,
+        updateAfterNodes: discovered.updateAfterNodes,
+        updateNodes: discovered.updateNodes,
+        graphNodes,
+        graphEdges,
+        graphInfo,
+    };
+}
+function compileCompute(node) {
+    // trace the FnNode to get roots
+    const fn = node.fn;
+    const traced = fn.trace();
+    // filter out undefined (void functions have no output)
+    const roots = [traced.body, traced.output].filter((n) => n != null);
+    // single discovery pass, then a context referencing the discovered facts (see createContext).
+    const discovered = discover(roots);
+    const ctx = createContext('compute', false, discovered);
+    // generate compute shader body (reuse the trace above, re-tracing would
+    // produce fresh StorageNode/etc. ids that aren't in discovered.storageNames,
+    // causing emits like `undefined[...]`).
+    const computeBody = generateComputeShader(node, traced, ctx);
+    // emit all bindings (each group gets its own @group index)
+    const { wgsl: bindingsWgsl, uniformBlocks, storageEntries, storageTextureEntries: storageTextures } = emitAllBindings(ctx);
+    // emit module-scope variables (var<private>, var<workgroup>)
+    const moduleScopeVarsWgsl = emitModuleScopeVars(ctx);
+    // emit functions
+    const wgslFnsCode = emitWgslFunctions(ctx);
+    const dslFnsCode = emitDslFunctions(ctx);
+    // assemble full shader
+    const code = [
+        '// Bindings (uniforms, storage, textures, samplers)',
+        bindingsWgsl,
+        '// Module-scope variables',
+        moduleScopeVarsWgsl,
+        '// WGSL Functions',
+        wgslFnsCode,
+        '// DSL Functions',
+        dslFnsCode,
+        '// Compute Shader',
+        computeBody,
+    ]
+        .filter(Boolean)
+        .join('\n');
+    // convert storage entries to compute format
+    const computeStorage = storageEntries.map((e) => ({
+        node: e.node,
+        name: e.name,
+        type: e.type,
+        access: e.access,
+        group: e.group,
+        binding: e.binding,
+    }));
+    return {
+        code,
+        storage: computeStorage,
+        storageTextures,
+        workgroupSize: node.workgroupSize ?? [64, 1, 1],
+        builtinsUsed: ctx.builtins,
+        uniformGroups: uniformBlocks,
+    };
+}
+/**
+ * Group attributes by their underlying buffer for efficient vertex buffer binding.
+ *
+ * Attributes sharing the same buffer (either by name for geometry-based, or by
+ * buffer reference for direct) are grouped together. This enables:
+ * - One GPUVertexBufferLayout with multiple attributes
+ * - One setVertexBuffer() call per unique buffer
+ *
+ * @param entries - Flat array of AttributeEntry from compilation
+ * @returns Array of VertexBufferGroup, one per unique buffer
+ */
+function groupAttributesByBuffer(entries) {
+    // Use separate maps for name-based and buffer-based grouping
+    const nameGroups = new Map();
+    const bufferGroups = new Map();
+    for (const entry of entries) {
+        let group;
+        if (entry.kind === 'geometry') {
+            // Name-based grouping
+            const geomName = entry.name;
+            group = nameGroups.get(geomName);
+            if (!group) {
+                group = {
+                    name: geomName,
+                    buffer: null,
+                    stride: entry.stride,
+                    instanced: entry.instanced,
+                    attributes: [],
+                };
+                nameGroups.set(geomName, group);
+            }
+        }
+        else {
+            // Buffer-based grouping
+            const buffer = entry.node.buffer;
+            group = bufferGroups.get(buffer);
+            if (!group) {
+                group = {
+                    name: null,
+                    buffer,
+                    stride: entry.stride,
+                    instanced: entry.instanced,
+                    attributes: [],
+                };
+                bufferGroups.set(buffer, group);
+            }
+        }
+        // Validate stride/instanced match within group
+        if (group.stride !== entry.stride) {
+            throw new Error(`[gpucat] Interleaved attributes sharing buffer must have matching stride. ` +
+                `Got ${entry.stride} but group has ${group.stride}.`);
+        }
+        if (group.instanced !== entry.instanced) {
+            throw new Error(`[gpucat] Interleaved attributes sharing buffer must have matching instanced flag.`);
+        }
+        group.attributes.push({
+            type: entry.type,
+            offset: entry.offset,
+            shaderLocation: entry.location,
+        });
+    }
+    // Combine both maps into a single array, preserving order (name-based first, then buffer-based)
+    return [...nameGroups.values(), ...bufferGroups.values()];
+}
+function discover(roots) {
+    const nodeIdToNode = new Map();
+    const nodeIdToUsages = new Map();
+    const visited = new Set();
+    const mutatedNodes = new Set();
+    const fnDefs = new Map();
+    const wgslFnDefs = new Map();
+    const structDefs = new Map();
+    const storageNames = new Map();
+    const textures = new Map();
+    const storageTextures = new Map();
+    const samplers = new Map(); // keyed by settingsKey
+    const uniforms = new Map();
+    const storages = new Map();
+    const privateVars = new Map();
+    const workgroupVars = new Map();
+    const updateBeforeNodes = [];
+    const updateAfterNodes = [];
+    const updateNodes = [];
+    function registerStructDef(def) {
+        if (structDefs.has(def.wgslType))
+            return;
+        for (const nested of def.nestedDefs.values()) {
+            registerStructDef(nested);
+        }
+        structDefs.set(def.wgslType, def);
+    }
+    function markTargetChain(rawNode) {
+        const node = rawNode;
+        mutatedNodes.add(node.id);
+        if (node.kind === NodeKind.Field) {
+            markTargetChain(node.object);
+        }
+        else if (node.kind === NodeKind.Index) {
+            markTargetChain(node.array);
+        }
+    }
+    function registerSampler(samplerNode) {
+        const key = samplerNode.settingsKey;
+        if (!samplers.has(key)) {
+            samplers.set(key, samplerNode);
+        }
+    }
+    function registerTextureWithSampler(textureNode) {
+        // Register the texture binding
+        const binding = textureNode.bindingNode;
+        const name = binding.textureId;
+        if (!textures.has(name)) {
+            textures.set(name, binding);
+        }
+        // For sampling modes (not 'load'), ensure a sampler exists and register it
+        if (textureNode.samplingMode !== 'load') {
+            let samplerNode = textureNode.samplerNode;
+            if (!samplerNode) {
+                // Create default sampler (same logic as generateTexture had)
+                samplerNode = new SamplerNode(sampler$1, name, binding.group);
+                textureNode.samplerNode = samplerNode;
+            }
+            registerSampler(samplerNode);
+        }
+    }
+    function visit(rawNode) {
+        const node = rawNode;
+        // usage counting
+        nodeIdToUsages.set(node.id, (nodeIdToUsages.get(node.id) ?? 0) + 1);
+        // exit if visited
+        if (visited.has(node.id))
+            return;
+        visited.add(node.id);
+        // collect all nodes
+        nodeIdToNode.set(node.id, node);
+        // collect update lifecycle nodes
+        if (node.updateBeforeType !== 'none' && node.updateBefore) {
+            updateBeforeNodes.push(node);
+        }
+        if (node.updateAfterType !== 'none' && node.updateAfter) {
+            updateAfterNodes.push(node);
+        }
+        if (node.updateType !== 'none' && node.update) {
+            updateNodes.push(node);
+        }
+        // mutated nodes: walk assignment target chains
+        if (node.kind === NodeKind.Assign) {
+            markTargetChain(node.target);
+        }
+        // function discovery
+        if (node.kind === NodeKind.Call && node.fnNode) {
+            const fn = node.fnNode;
+            if (!fnDefs.has(fn.fnName)) {
+                const traced = fn.trace();
+                fnDefs.set(fn.fnName, { fn, traced });
+                visit(traced.body);
+                visit(traced.output);
+            }
+        }
+        if (node.kind === NodeKind.Call && node.wgslFnNode) {
+            const fn = node.wgslFnNode;
+            if (!wgslFnDefs.has(fn.code)) {
+                wgslFnDefs.set(fn.code, fn);
+                for (const inc of fn.includes) {
+                    if (inc.kind === NodeKind.WgslFunction && !wgslFnDefs.has(inc.code)) {
+                        wgslFnDefs.set(inc.code, inc);
+                    }
+                }
+            }
+        }
+        // storage + struct definition discovery
+        if (node.kind === NodeKind.Storage) {
+            if (!storageNames.has(node.id)) {
+                storageNames.set(node.id, `_storage${storageNames.size}`);
+            }
+            // Also register storage for binding emission
+            const storageName = storageNames.get(node.id);
+            if (!storages.has(storageName)) {
+                storages.set(storageName, node);
+            }
+            // Walk the type to find and register any struct definitions
+            walkTypeForStructs(node.type, registerStructDef);
+        }
+        // binding discovery: textures, samplers, uniforms
+        if (node.kind === NodeKind.TextureBinding) {
+            const name = node.textureId;
+            if (!textures.has(name)) {
+                textures.set(name, node);
+            }
+        }
+        if (node.kind === NodeKind.StorageTextureBinding) {
+            const name = node.textureId;
+            if (!storageTextures.has(name)) {
+                storageTextures.set(name, node);
+            }
+        }
+        if (node.kind === NodeKind.Texture) {
+            registerTextureWithSampler(node);
+        }
+        if (node.kind === NodeKind.CubeTexture) {
+            registerTextureWithSampler(node);
+        }
+        if (node.kind === NodeKind.DepthTexture) {
+            registerTextureWithSampler(node);
+        }
+        if (node.kind === NodeKind.ArrayTexture) {
+            registerTextureWithSampler(node);
+        }
+        if (node.kind === NodeKind.Sampler) {
+            registerSampler(node);
+        }
+        if (node.kind === NodeKind.Uniform) {
+            const name = node.name;
+            const group = node.group;
+            if (!uniforms.has(name)) {
+                uniforms.set(name, { node, group });
+            }
+        }
+        // module scope variable discovery
+        if (node.kind === NodeKind.PrivateVar) {
+            if (!privateVars.has(node.id)) {
+                privateVars.set(node.id, node);
+            }
+        }
+        if (node.kind === NodeKind.WorkgroupVar) {
+            if (!workgroupVars.has(node.id)) {
+                workgroupVars.set(node.id, node);
+            }
+        }
+        // visit children
+        for (const child of getChildren(node)) {
+            visit(child);
+        }
+    }
+    for (const root of roots) {
+        visit(root);
+    }
+    return {
+        nodeIdToNode,
+        nodeIdToUsages,
+        mutatedNodes,
+        fnDefs,
+        wgslFnDefs,
+        structDefs,
+        storageNames,
+        updateBeforeNodes,
+        updateAfterNodes,
+        updateNodes,
+        textures,
+        storageTextures,
+        samplers,
+        uniforms,
+        storages,
+        privateVars,
+        workgroupVars,
+    };
 }
 
 let bindGroupIdCounter = 0;
