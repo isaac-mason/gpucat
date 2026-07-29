@@ -1,5 +1,22 @@
-import { test, expect } from 'vitest';
-import { d, createStorageBuffer, storage, Fn, globalId, index, atomicAdd, atomicLoad, atomicStore, u32, Var, If, localId, workgroupBarrier, WorkgroupVar, compileCompute } from '../src/index';
+import { expect, test } from 'vitest';
+import {
+    atomicAdd,
+    atomicLoad,
+    atomicStore,
+    compileCompute,
+    createStorageBuffer,
+    d,
+    Fn,
+    globalId,
+    If,
+    index,
+    localId,
+    storage,
+    u32,
+    Var,
+    WorkgroupVar,
+    workgroupBarrier,
+} from '../src/index';
 
 // Regression: a storage buffer of `array<atomic<u32>>` must size and compile
 // (itemSizeOf previously threw on 'atomic<u32>').

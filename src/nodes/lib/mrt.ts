@@ -1,6 +1,6 @@
-import { LiteralNode, vec4f, Node, NodeKind } from './core';
-import * as d from '../../schema/schema';
 import { BlendMode } from '../../material/blend-mode';
+import * as d from '../../schema/schema';
+import { LiteralNode, Node, NodeKind, vec4f } from './core';
 
 const _noBlending = /*#__PURE__*/ new BlendMode('no');
 const _materialBlending = /*#__PURE__*/ new BlendMode('material');

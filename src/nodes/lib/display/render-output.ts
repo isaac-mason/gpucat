@@ -1,10 +1,6 @@
-import * as d from '../../../schema/schema';
-import { f32, vec4f, type Node } from '../core';
-import {
-    acesToneMapping,
-    reinhardToneMapping,
-    sRGBTransferOETF,
-} from './color';
+import type * as d from '../../../schema/schema';
+import { f32, type Node, vec4f } from '../core';
+import { acesToneMapping, reinhardToneMapping, sRGBTransferOETF } from './color';
 
 export type ToneMappingMode = 'aces' | 'reinhard' | 'linear' | 'none';
 export type OutputColorSpace = 'srgb' | 'linear';
@@ -37,16 +33,13 @@ export type RenderOutputOptions = {
  * Returns a `Node<d.vec4f>` suitable for final output:
  * `renderer.render(renderOutput(scenePass.getTextureNode()))`.
  */
-export function renderOutput(
-    inputNode: Node<d.vec4f>,
-    options: RenderOutputOptions = {},
-): Node<d.vec4f> {
+export function renderOutput(inputNode: Node<d.vec4f>, options: RenderOutputOptions = {}): Node<d.vec4f> {
     const toneMapping = options.toneMapping ?? 'aces';
-    const colorSpace  = options.colorSpace  ?? 'srgb';
-    const exposure    = options.exposure    ?? f32(1.0);
+    const colorSpace = options.colorSpace ?? 'srgb';
+    const exposure = options.exposure ?? f32(1.0);
 
     const input = inputNode.toConst('input');
-    const rgb   = (input.xyz as Node<d.vec3f>).mul(exposure);
+    const rgb = (input.xyz as Node<d.vec3f>).mul(exposure);
     const alpha = input.w;
 
     const tonemapped = applyToneMapping(rgb, toneMapping);
@@ -58,9 +51,13 @@ export function renderOutput(
 
 function applyToneMapping(rgb: Node<d.vec3f>, mode: ToneMappingMode): Node<d.vec3f> {
     switch (mode) {
-        case 'aces':     return acesToneMapping(rgb);
-        case 'reinhard': return reinhardToneMapping(rgb);
-        case 'linear':   return rgb;
-        case 'none':     return rgb;
+        case 'aces':
+            return acesToneMapping(rgb);
+        case 'reinhard':
+            return reinhardToneMapping(rgb);
+        case 'linear':
+            return rgb;
+        case 'none':
+            return rgb;
     }
 }

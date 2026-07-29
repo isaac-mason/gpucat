@@ -34,13 +34,16 @@
  * Per-dispatch hooks (inside a compute pass):
  *   _dispatchComputeNode    → inspector.dispatchWorkgroups(x, y, z)
  */
-import type { WebGPURenderer } from '../renderer/renderer';
-import type { InspectorNode, ComputeNode } from '../nodes/nodes';
 import type { Object3D } from '../core/object3d';
-import { Any } from '../schema/schema';
+import type { ComputeNode, InspectorNode } from '../nodes/nodes';
+import type { WebGLRenderer } from '../renderer/webgl/renderer';
+import type { WebGPURenderer } from '../renderer/webgpu/renderer';
+import type { Any } from '../schema/schema';
+/** Any renderer the inspector can attach to. Branch on `renderer.backend` for backend-specific bits. */
+export type InspectableRenderer = WebGPURenderer | WebGLRenderer;
 export declare class InspectorBase {
     /** Back-reference to the renderer. Set by renderer after init(). */
-    renderer: WebGPURenderer | null;
+    renderer: InspectableRenderer | null;
     /** Performance marker API - no-op in base class, implemented in RendererInspector */
     perf: {
         start: (_name: string) => void;
@@ -68,7 +71,7 @@ export declare class InspectorBase {
      * Setup may be deferred (e.g. until renderer._initialized is true), see
      * subclasses for the specific lazy strategy.
      */
-    setRenderer(renderer: WebGPURenderer | null): void;
+    setRenderer(renderer: InspectableRenderer | null): void;
     /**
      * Subclasses run one-time GPU resource setup here. Called by subclasses
      * themselves from setRenderer() once the renderer is initialized, the
@@ -97,7 +100,7 @@ export declare class InspectorBase {
      * Gives the inspector a reference to the scene being rendered, along with
      * the pipeline key parameters needed to retrieve compiled WGSL later.
      */
-    beginRenderScene(_passId: string, _scene: Object3D, _samples: number, _colorFormat: GPUTextureFormat, _frameId: number): void;
+    beginRenderScene(_passId: string, _scene: Object3D, _samples: number, _colorFormat: string, _frameId: number): void;
     /**
      * Called when a node marked with .inspect() is encountered during rendering.
      * Subclasses override this to register the node for Viewer tab preview.
@@ -147,5 +150,5 @@ export declare class InspectorBase {
      */
     dispatchWorkgroupsIndirect(_buffer: GPUBuffer, _offset: number): void;
     /** Returns the renderer reference (null until setRenderer() is called). */
-    getRenderer(): WebGPURenderer | null;
+    getRenderer(): InspectableRenderer | null;
 }

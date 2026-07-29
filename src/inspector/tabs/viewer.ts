@@ -17,15 +17,15 @@
  * by recursively rendering the scene inside the inspector viewer.
  */
 
-import { Tab } from '../ui/tab';
-import { List } from '../ui/list';
-import { Item } from '../ui/item';
-import { type Node, wgsl, attribute, vec4f, f32 } from '../../nodes/nodes';
+import { Material } from '../../material/material';
+import { attribute, f32, type Node, vec4f, wgsl } from '../../nodes/nodes';
+import type { QuadMesh } from '../../objects/quad-mesh';
+import type { CanvasTarget } from '../../renderer/core/canvas-target';
 import * as d from '../../schema/schema';
 import type { Inspector } from '../inspector';
-import { CanvasTarget } from '../../renderer/canvas-target';
-import { Material } from '../../material/material';
-import { QuadMesh } from '../../objects/quad-mesh';
+import { Item } from '../ui/item';
+import { List } from '../ui/list';
+import { Tab } from '../ui/tab';
 
 // ---------------------------------------------------------------------------
 // CanvasData, one entry per inspectable node (cached, never recreated)
@@ -54,7 +54,6 @@ export type CanvasData = {
 // ---------------------------------------------------------------------------
 
 export class Viewer extends Tab {
-
     nodeList: List;
     nodes: Item;
 
@@ -233,7 +232,7 @@ export function splitCamelCase(str: string): string {
     return str
         .replace(/([a-z])([A-Z])/g, '$1 $2')
         .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
-        .replace(/^./, s => s.toUpperCase());
+        .replace(/^./, (s) => s.toUpperCase());
 }
 
 /**
@@ -260,43 +259,43 @@ function nodeToVec4f(node: Node<d.Any>): Node<d.vec4f> {
 
     // ---- scalars ----
     if (t === 'f32') {
-        return wgsl(d.vec4f)`vec4f(${ node }, ${ node }, ${ node }, 1.0)`;
+        return wgsl(d.vec4f)`vec4f(${node}, ${node}, ${node}, 1.0)`;
     }
     if (t === 'i32' || t === 'u32' || t === 'bool') {
-        return wgsl(d.vec4f)`vec4f(f32(${ node }), f32(${ node }), f32(${ node }), 1.0)`;
+        return wgsl(d.vec4f)`vec4f(f32(${node}), f32(${node}), f32(${node}), 1.0)`;
     }
 
     // ---- vec2 ----
     if (t === 'vec2f') {
-        return wgsl(d.vec4f)`vec4f((${ node }).x, (${ node }).y, 0.0, 1.0)`;
+        return wgsl(d.vec4f)`vec4f((${node}).x, (${node}).y, 0.0, 1.0)`;
     }
     if (t === 'vec2i' || t === 'vec2u') {
-        return wgsl(d.vec4f)`vec4f(f32((${ node }).x), f32((${ node }).y), 0.0, 1.0)`;
+        return wgsl(d.vec4f)`vec4f(f32((${node}).x), f32((${node}).y), 0.0, 1.0)`;
     }
 
     // ---- vec3 ----
     if (t === 'vec3f') {
-        return wgsl(d.vec4f)`vec4f((${ node }).xyz, 1.0)`;
+        return wgsl(d.vec4f)`vec4f((${node}).xyz, 1.0)`;
     }
     if (t === 'vec3i' || t === 'vec3u') {
-        return wgsl(d.vec4f)`vec4f(f32((${ node }).x), f32((${ node }).y), f32((${ node }).z), 1.0)`;
+        return wgsl(d.vec4f)`vec4f(f32((${node}).x), f32((${node}).y), f32((${node}).z), 1.0)`;
     }
 
     // ---- vec4 ----
     if (t === 'vec4f') {
-        return wgsl(d.vec4f)`vec4f((${ node }).xyz, 1.0)`;
+        return wgsl(d.vec4f)`vec4f((${node}).xyz, 1.0)`;
     }
     if (t === 'vec4i' || t === 'vec4u') {
-        return wgsl(d.vec4f)`vec4f(f32((${ node }).x), f32((${ node }).y), f32((${ node }).z), 1.0)`;
+        return wgsl(d.vec4f)`vec4f(f32((${node}).x), f32((${node}).y), f32((${node}).z), 1.0)`;
     }
 
     // ---- matrices, show first column as RGB ----
     if (t.startsWith('mat')) {
-        return wgsl(d.vec4f)`vec4f(f32((${ node })[0][0]), f32((${ node })[0][1]), f32((${ node })[0][2]), 1.0)`;
+        return wgsl(d.vec4f)`vec4f(f32((${node})[0][0]), f32((${node})[0][1]), f32((${node})[0][2]), 1.0)`;
     }
 
     // ---- texture / sampler / unknown, assume textureSample gives vec4f ----
-    return wgsl(d.vec4f)`vec4f((${ node }).xyz, 1.0)`;
+    return wgsl(d.vec4f)`vec4f((${node}).xyz, 1.0)`;
 }
 
 /**

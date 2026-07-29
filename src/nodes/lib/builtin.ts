@@ -1,21 +1,26 @@
-import { Node, NodeKind } from './core';
 import type { Any } from '../../schema/schema';
 import * as d from '../../schema/schema';
+import { Node, NodeKind } from './core';
 
-export type BuiltinKind = 'instance_index' | 'instance_data' |
-    'vertex_index' | 'global_invocation_id' | 'local_invocation_id' |
-    'local_invocation_index' | 'workgroup_id' | 'num_workgroups' |
-    'position';
+export type BuiltinKind =
+    | 'instance_index'
+    | 'instance_data'
+    | 'vertex_index'
+    | 'global_invocation_id'
+    | 'local_invocation_id'
+    | 'local_invocation_index'
+    | 'workgroup_id'
+    | 'num_workgroups'
+    | 'position';
 
 export class BuiltinNode<D extends Any> extends Node<D> {
     readonly kind = NodeKind.Builtin;
     constructor(
         readonly builtinKind: BuiltinKind,
-        desc: D
+        desc: D,
     ) {
         super(desc);
     }
-
 }
 
 export const builtin = <D extends Any>(builtinKind: BuiltinKind, desc: D) => new BuiltinNode(builtinKind, desc);
@@ -52,13 +57,13 @@ export const fragCoord: BuiltinNode<d.vec4f> = /*@__PURE__*/ builtin('position',
 
 /**
  * Linearized compute invocation index across the entire dispatch grid.
- * 
+ *
  * For a dispatch of size (Dx, Dy, Dz) workgroups with workgroup size (Wx, Wy, Wz),
  * this computes:
  *   globalId.x + globalId.y * (Wx * Dx) + globalId.z * (Wx * Dx) * (Wy * Dy)
- * 
+ *
  * This gives each thread a unique u32 index from 0 to (Dx*Wx * Dy*Wy * Dz*Wz - 1).
- * 
+ *
  * Use this in compute shaders where you need a linear index into a buffer,
  * similar to how instanceIndex works in vertex shaders.
  */
@@ -67,7 +72,6 @@ export class ComputeIndexNode extends Node<d.u32> {
     constructor() {
         super(d.u32);
     }
-
 }
 
 export const computeIndex: ComputeIndexNode = /*@__PURE__*/ new ComputeIndexNode();

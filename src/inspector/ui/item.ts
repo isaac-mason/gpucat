@@ -20,9 +20,9 @@ export class Item {
         this.itemRow = document.createElement('div');
         this.itemRow.className = 'list-item-row';
         this.userData = {};
-        this.data = data.map(d => (d instanceof HTMLElement ? d : String(d)));
+        this.data = data.map((d) => (d instanceof HTMLElement ? d : String(d)));
 
-        this.data.forEach(cellData => {
+        this.data.forEach((cellData) => {
             const cell = document.createElement('div');
             cell.className = 'list-item-cell';
             if (cellData instanceof HTMLElement) {
@@ -54,10 +54,7 @@ export class Item {
             this.domElement.appendChild(this.childrenContainer);
             this.itemRow.addEventListener('click', this.onItemClick);
         }
-        this.childrenContainer.insertBefore(
-            item.domElement,
-            this.childrenContainer.children[index] || null,
-        );
+        this.childrenContainer.insertBefore(item.domElement, this.childrenContainer.children[index] || null);
         this.updateToggler();
         return this;
     }

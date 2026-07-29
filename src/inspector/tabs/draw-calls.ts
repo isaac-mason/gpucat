@@ -14,15 +14,15 @@
  *   The static detail panel is only rebuilt when _selectedRO changes.
  */
 
-import { Tab } from '../ui/tab';
-import { List } from '../ui/list';
-import { Item } from '../ui/item';
-import { ShaderPanel } from './shader-panel';
-import type { Inspector } from '../inspector';
-import type { RenderObject } from '../../renderer/render-object';
-import type { WebGPURenderer } from '../../renderer/renderer';
 import { getIndexFormat } from '../../core/gpu-buffer';
-import type { NodeBuilderState } from '../../renderer/node-builder-state';
+import type { NodeBuilderState } from '../../renderer/core/node-builder-state';
+import type { RenderObject } from '../../renderer/core/render-object';
+import type { InspectableRenderer } from '../inspector-base';
+import type { Inspector } from '../inspector';
+import { Item } from '../ui/item';
+import { List } from '../ui/list';
+import { Tab } from '../ui/tab';
+import { ShaderPanel } from './shader-panel';
 
 // ---------------------------------------------------------------------------
 // Internal record, one per live RenderObject
@@ -47,7 +47,6 @@ type DetailSubTab = 'shader' | 'pipeline' | 'bindings';
 // ---------------------------------------------------------------------------
 
 export class DrawCalls extends Tab {
-
     readonly list: List;
 
     /** ro.id → RONode for every currently-displayed RenderObject */
@@ -154,7 +153,7 @@ export class DrawCalls extends Tab {
      * children of their respective pass header (Item.add).  This gives proper
      * indent and uses the existing header-wrapper styling automatically.
      */
-    update(inspector: Inspector, renderer: WebGPURenderer): void {
+    update(inspector: Inspector, renderer: InspectableRenderer): void {
         const liveROs = renderer._renderObjects.renderObjects;
 
         // ------------------------------------------------------------------
@@ -165,7 +164,10 @@ export class DrawCalls extends Tab {
             if (_isInternalMesh(ro)) continue;
             const passId = ro.passId || 'default';
             let bucket = passBuckets.get(passId);
-            if (!bucket) { bucket = []; passBuckets.set(passId, bucket); }
+            if (!bucket) {
+                bucket = [];
+                passBuckets.set(passId, bucket);
+            }
             bucket.push(ro);
         }
 
@@ -297,9 +299,7 @@ export class DrawCalls extends Tab {
         // Bindings pane
         this._bindingsPane.innerHTML = '';
         if (ro.nodeBuilderState) {
-            this._bindingsPane.appendChild(
-                buildBindingsTable(ro.nodeBuilderState),
-            );
+            this._bindingsPane.appendChild(buildBindingsTable(ro.nodeBuilderState));
         } else {
             const hint = document.createElement('div');
             hint.className = 'dc-section-header';
@@ -393,15 +393,7 @@ function _buildPipelineTable(ro: RenderObject): HTMLDivElement {
 export function buildBindingsTable(state: NodeBuilderState): HTMLDivElement {
     const container = document.createElement('div');
 
-    const {
-        uniformGroups,
-        textures,
-        samplers,
-        storage,
-        vertexBufferGroups,
-        varyings,
-        builtinsUsed,
-    } = state;
+    const { uniformGroups, textures, samplers, storage, vertexBufferGroups, varyings, builtinsUsed } = state;
 
     // --- Vertex Buffer Groups ---
     if (vertexBufferGroups.length > 0) {
@@ -412,10 +404,12 @@ export function buildBindingsTable(state: NodeBuilderState): HTMLDivElement {
             const group = vertexBufferGroups[i];
             const source = group.name !== null ? group.name : 'buffer';
             const stepMode = group.instanced ? 'instance' : 'vertex';
-            table.appendChild(kvRow(
-                `slot ${i} (${source})`,
-                `stride=${group.stride}, ${stepMode}, ${group.attributes.length} attr${group.attributes.length > 1 ? 's' : ''}`,
-            ));
+            table.appendChild(
+                kvRow(
+                    `slot ${i} (${source})`,
+                    `stride=${group.stride}, ${stepMode}, ${group.attributes.length} attr${group.attributes.length > 1 ? 's' : ''}`,
+                ),
+            );
             for (const attr of group.attributes) {
                 const memberEl = document.createElement('div');
                 memberEl.className = 'dc-kv-row';
@@ -446,10 +440,7 @@ export function buildBindingsTable(state: NodeBuilderState): HTMLDivElement {
                 if (v.interpolationSampling) interp += `, ${v.interpolationSampling}`;
                 interp += ')';
             }
-            table.appendChild(kvRow(
-                `@location(${v.location}) ${v.name}`,
-                `${v.type}${interp}`,
-            ));
+            table.appendChild(kvRow(`@location(${v.location}) ${v.name}`, `${v.type}${interp}`));
         }
         container.appendChild(table);
     }
@@ -471,10 +462,9 @@ export function buildBindingsTable(state: NodeBuilderState): HTMLDivElement {
         const table = document.createElement('div');
         table.className = 'dc-kv-table';
         for (const ug of uniformGroups) {
-            table.appendChild(kvRow(
-                `@group(${ug.groupIndex}) ${ug.groupName}`,
-                `${ug.totalBytes} bytes, ${ug.members.length} members`,
-            ));
+            table.appendChild(
+                kvRow(`@group(${ug.groupIndex}) ${ug.groupName}`, `${ug.totalBytes} bytes, ${ug.members.length} members`),
+            );
             for (const m of ug.members) {
                 const memberEl = document.createElement('div');
                 memberEl.className = 'dc-kv-row';
@@ -499,10 +489,7 @@ export function buildBindingsTable(state: NodeBuilderState): HTMLDivElement {
         const table = document.createElement('div');
         table.className = 'dc-kv-table';
         for (const t of textures) {
-            table.appendChild(kvRow(
-                `@group(${t.group}) @binding(${t.binding})`,
-                `${t.type} (${t.textureId})`,
-            ));
+            table.appendChild(kvRow(`@group(${t.group}) @binding(${t.binding})`, `${t.type} (${t.textureId})`));
         }
         container.appendChild(table);
     }
@@ -513,10 +500,7 @@ export function buildBindingsTable(state: NodeBuilderState): HTMLDivElement {
         const table = document.createElement('div');
         table.className = 'dc-kv-table';
         for (const s of samplers) {
-            table.appendChild(kvRow(
-                `@group(${s.group}) @binding(${s.binding})`,
-                s.type,
-            ));
+            table.appendChild(kvRow(`@group(${s.group}) @binding(${s.binding})`, s.type));
         }
         container.appendChild(table);
     }
@@ -527,10 +511,7 @@ export function buildBindingsTable(state: NodeBuilderState): HTMLDivElement {
         const table = document.createElement('div');
         table.className = 'dc-kv-table';
         for (const st of storage) {
-            table.appendChild(kvRow(
-                `@group(${st.group}) @binding(${st.binding}) ${st.name}`,
-                `${st.type} [${st.access}]`,
-            ));
+            table.appendChild(kvRow(`@group(${st.group}) @binding(${st.binding}) ${st.name}`, `${st.type} [${st.access}]`));
         }
         container.appendChild(table);
     }

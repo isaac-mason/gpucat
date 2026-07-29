@@ -1,5 +1,5 @@
-import { describe, expect, test, beforeEach } from 'vitest';
-import { GpuBuffer, BufferLifecycle } from '../src/core/gpu-buffer';
+import { beforeEach, describe, expect, test } from 'vitest';
+import { BufferLifecycle, GpuBuffer } from '../src/core/gpu-buffer';
 import { Geometry } from '../src/geometry/geometry';
 import * as d from '../src/schema/schema';
 import { trackDisposal } from './mock-gpu';
@@ -180,10 +180,13 @@ describe('GpuBuffer lifecycle', () => {
         });
 
         test('throws when both data and count provided', () => {
-            expect(() => new GpuBuffer(d.vec3f, {
-                data: new Float32Array(9),
-                count: 10,
-            })).toThrow('provide either `data` or `count`, not both');
+            expect(
+                () =>
+                    new GpuBuffer(d.vec3f, {
+                        data: new Float32Array(9),
+                        count: 10,
+                    }),
+            ).toThrow('provide either `data` or `count`, not both');
         });
     });
 });

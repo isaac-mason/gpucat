@@ -1,13 +1,13 @@
-import { vec3, type Vec3 } from 'mathcat';
+import { type Vec3, vec3 } from 'mathcat';
 import { Object3D } from '../core/object3d';
 import type { Geometry } from '../geometry/geometry';
 import type { Material } from '../material/material';
 import {
-    type Raycaster,
-    type Intersection,
-    transformRayToLocalSpace,
     checkTriangleIntersection,
+    type Intersection,
+    type Raycaster,
     rayIntersectsBox3,
+    transformRayToLocalSpace,
 } from '../math/raycaster';
 
 const _worldSphereCenter: Vec3 = [0, 0, 0];
@@ -37,7 +37,7 @@ export class Mesh extends Object3D {
         // early-out: bounding sphere test in world space
         if (geometry.boundingSphere) {
             const sphere = geometry.boundingSphere;
-            
+
             // transform sphere center to world space
             vec3.transformMat4(_worldSphereCenter, sphere.center, matrixWorld);
 
@@ -63,20 +63,20 @@ export class Mesh extends Object3D {
         if (geometry.boundingBox) {
             if (!rayIntersectsBox3(localRay.origin, localRay.direction, geometry.boundingBox, raycaster.far)) return;
         }
-        
+
         // get optional index buffer and UV buffer
         const indexBuffer = geometry.index;
-        const indices = indexBuffer?.array as Uint16Array | Uint32Array | null ?? null;
+        const indices = (indexBuffer?.array as Uint16Array | Uint32Array | null) ?? null;
 
         const uvBuffer = geometry.getBuffer('uv');
-        const uvs = uvBuffer?.array as Float32Array | null ?? null;
+        const uvs = (uvBuffer?.array as Float32Array | null) ?? null;
 
         // triangle intersection tests
         if (indices) {
             // indexed geometry
             const count = Math.min(
                 indices.length,
-                geometry.drawRange.start + (geometry.drawRange.count === Infinity ? indices.length : geometry.drawRange.count)
+                geometry.drawRange.start + (geometry.drawRange.count === Infinity ? indices.length : geometry.drawRange.count),
             );
             for (let i = geometry.drawRange.start; i < count; i += 3) {
                 checkTriangleIntersection(
@@ -84,7 +84,9 @@ export class Mesh extends Object3D {
                     raycaster,
                     localRay,
                     matrixWorld,
-                    i, i + 1, i + 2,
+                    i,
+                    i + 1,
+                    i + 2,
                     positions,
                     indices,
                     uvs,
@@ -97,7 +99,7 @@ export class Mesh extends Object3D {
             const vertexCount = positions.length / 3;
             const count = Math.min(
                 vertexCount,
-                geometry.drawRange.start + (geometry.drawRange.count === Infinity ? vertexCount : geometry.drawRange.count)
+                geometry.drawRange.start + (geometry.drawRange.count === Infinity ? vertexCount : geometry.drawRange.count),
             );
             for (let i = geometry.drawRange.start; i < count; i += 3) {
                 checkTriangleIntersection(
@@ -105,7 +107,9 @@ export class Mesh extends Object3D {
                     raycaster,
                     localRay,
                     matrixWorld,
-                    i, i + 1, i + 2,
+                    i,
+                    i + 1,
+                    i + 2,
                     positions,
                     null,
                     uvs,

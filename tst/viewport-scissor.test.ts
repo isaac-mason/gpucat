@@ -1,7 +1,8 @@
-import { test, expect } from 'vitest';
+import { expect, test } from 'vitest';
+import { RenderTarget, WebGPURenderer } from '../src/index';
+import { createRenderContext, type RenderContext } from '../src/renderer/core/pass-context';
+import { resolveViewportScissor } from '../src/renderer/core/renderer-ops';
 import { installWebGPUPolyfills } from './stub-gpu';
-import { WebGPURenderer, RenderTarget } from '../src/index';
-import { createRenderContext, type RenderContext } from '../src/renderer/pass-context';
 
 installWebGPUPolyfills();
 
@@ -15,8 +16,8 @@ function resolve(renderer: WebGPURenderer, width: number, height: number): Rende
     const ctx = createRenderContext();
     ctx.width = width;
     ctx.height = height;
-    // _resolveViewportScissor is private; exercise it directly on a hand-built context.
-    (renderer as unknown as { _resolveViewportScissor(c: RenderContext): void })._resolveViewportScissor(ctx);
+    // resolveViewportScissor is the neutral render-loop helper; exercise it directly on a hand-built context.
+    resolveViewportScissor(renderer, ctx);
     return ctx;
 }
 

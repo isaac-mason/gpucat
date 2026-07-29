@@ -1,12 +1,11 @@
-import { Tab } from '../ui/tab';
 import { Graph } from '../ui/graph';
+import { Tab } from '../ui/tab';
 
 const LIMIT = 500;
 
 type TimelineFrame = { id: string; calls: Array<{ method: string }>; fps: number };
 
 export class Timeline extends Tab {
-
     isRecording = false;
     frames: TimelineFrame[] = [];
     currentFrame: TimelineFrame | null = null;
@@ -52,7 +51,8 @@ export class Timeline extends Tab {
         this.recordButton = document.createElement('button');
         this.recordButton.className = 'console-copy-button';
         this.recordButton.title = 'Record';
-        this.recordButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="4" fill="currentColor"></circle></svg>';
+        this.recordButton.innerHTML =
+            '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="4" fill="currentColor"></circle></svg>';
         this.recordButton.style.padding = '0 10px';
         this.recordButton.style.lineHeight = '24px';
         this.recordButton.style.display = 'flex';
@@ -62,7 +62,8 @@ export class Timeline extends Tab {
         const clearButton = document.createElement('button');
         clearButton.className = 'console-copy-button';
         clearButton.title = 'Clear';
-        clearButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>';
+        clearButton.innerHTML =
+            '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>';
         clearButton.style.padding = '0 10px';
         clearButton.style.lineHeight = '24px';
         clearButton.style.display = 'flex';
@@ -72,7 +73,8 @@ export class Timeline extends Tab {
         const exportButton = document.createElement('button');
         exportButton.className = 'console-copy-button';
         exportButton.title = 'Export Timeline Data';
-        exportButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>';
+        exportButton.innerHTML =
+            '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>';
         exportButton.style.padding = '0 10px';
         exportButton.style.lineHeight = '24px';
         exportButton.style.display = 'flex';
@@ -96,7 +98,8 @@ export class Timeline extends Tab {
         this.recordRefreshButton = document.createElement('button');
         this.recordRefreshButton.className = 'console-copy-button';
         this.recordRefreshButton.title = 'Refresh & Record';
-        this.recordRefreshButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path><circle cx="12" cy="12" r="3" fill="currentColor"></circle></svg>';
+        this.recordRefreshButton.innerHTML =
+            '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path><path d="M21 3v5h-5"></path><circle cx="12" cy="12" r="3" fill="currentColor"></circle></svg>';
         this.recordRefreshButton.style.padding = '0 10px';
         this.recordRefreshButton.style.lineHeight = '24px';
         this.recordRefreshButton.style.display = 'flex';
@@ -191,7 +194,7 @@ export class Timeline extends Tab {
             if (pointCount === 0) return;
 
             const pointStep = rect.width / (this.graph.maxPoints - 1);
-            const offset = rect.width - ((pointCount - 1) * pointStep);
+            const offset = rect.width - (pointCount - 1) * pointStep;
             let localFrameIndex = Math.round((x - offset) / pointStep);
             localFrameIndex = Math.max(0, Math.min(localFrameIndex, pointCount - 1));
 
@@ -230,7 +233,7 @@ export class Timeline extends Tab {
             const pointCount = this.graph.lines['calls'].points.length;
             if (pointCount > 0) {
                 const pointStep = rect.width / (this.graph.maxPoints - 1);
-                const offset = rect.width - ((pointCount - 1) * pointStep);
+                const offset = rect.width - (pointCount - 1) * pointStep;
                 let localFrameIndex = Math.round((x - offset) / pointStep);
                 localFrameIndex = Math.max(0, Math.min(localFrameIndex, pointCount - 1));
                 let snappedX = offset + localFrameIndex * pointStep;
@@ -244,8 +247,13 @@ export class Timeline extends Tab {
         this.graphSlider.addEventListener('keydown', (e) => {
             if (this.frames.length === 0 || this.isRecording) return;
             let newIndex = this.selectedFrameIndex;
-            if (e.key === 'ArrowLeft') { newIndex = Math.max(0, this.selectedFrameIndex - 1); e.preventDefault(); }
-            else if (e.key === 'ArrowRight') { newIndex = Math.min(this.frames.length - 1, this.selectedFrameIndex + 1); e.preventDefault(); }
+            if (e.key === 'ArrowLeft') {
+                newIndex = Math.max(0, this.selectedFrameIndex - 1);
+                e.preventDefault();
+            } else if (e.key === 'ArrowRight') {
+                newIndex = Math.min(this.frames.length - 1, this.selectedFrameIndex + 1);
+                e.preventDefault();
+            }
 
             if (newIndex !== this.selectedFrameIndex) {
                 this.selectFrame(newIndex);
@@ -256,7 +264,7 @@ export class Timeline extends Tab {
                     this.isTrackingLatest = localIndex >= pointCount - 2;
                     const rect = this.graphSlider.getBoundingClientRect();
                     const pointStep = rect.width / (this.graph.maxPoints - 1);
-                    const offset = rect.width - ((pointCount - 1) * pointStep);
+                    const offset = rect.width - (pointCount - 1) * pointStep;
                     this.fixedScreenX = offset + localIndex * pointStep;
                 }
             }
@@ -271,7 +279,7 @@ export class Timeline extends Tab {
             const pointCount = this.graph.lines['calls'].points.length;
             if (pointCount > 0) {
                 const pointStep = rect.width / (this.graph.maxPoints - 1);
-                const offset = rect.width - ((pointCount - 1) * pointStep);
+                const offset = rect.width - (pointCount - 1) * pointStep;
                 let localFrameIndex = Math.round((x - offset) / pointStep);
                 localFrameIndex = Math.max(0, Math.min(localFrameIndex, pointCount - 1));
                 let snappedX = offset + localFrameIndex * pointStep;
@@ -324,12 +332,14 @@ export class Timeline extends Tab {
 
         if (this.isRecording) {
             this.recordButton.title = 'Stop';
-            this.recordButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>';
+            this.recordButton.innerHTML =
+                '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>';
             this.recordButton.style.color = 'var(--color-red)';
             this.startRecording();
         } else {
             this.recordButton.title = 'Record';
-            this.recordButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="4" fill="currentColor"></circle></svg>';
+            this.recordButton.innerHTML =
+                '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="4" fill="currentColor"></circle></svg>';
             this.recordButton.style.color = '';
             this.stopRecording();
             this.renderSlider();
@@ -469,8 +479,8 @@ export class Timeline extends Tab {
             const pointStep = rect.width / (this.graph.maxPoints - 1);
             let localIndex = index;
             if (this.frames.length > pointCount) localIndex = index - (this.frames.length - pointCount);
-            const offset = rect.width - ((pointCount - 1) * pointStep);
-            let xPos = offset + (localIndex * pointStep);
+            const offset = rect.width - (pointCount - 1) * pointStep;
+            let xPos = offset + localIndex * pointStep;
             xPos = Math.max(1, Math.min(xPos, rect.width - 1));
             this.playhead.style.left = xPos + 'px';
             this.playhead.style.display = 'block';
@@ -503,7 +513,7 @@ export class Timeline extends Tab {
             let currentIndent = 0;
             const indentSize = 24;
             const elementStack: Array<{ element: DocumentFragment | HTMLElement; isCollapsed: boolean; id: string }> = [
-                { element: frag, isCollapsed: false, id: '' }
+                { element: frag, isCollapsed: false, id: '' },
             ];
 
             for (let i = 0; i < groupedCalls.length; i++) {
@@ -520,7 +530,8 @@ export class Timeline extends Tab {
 
                     const arrow = document.createElement('span');
                     arrow.textContent = isCollapsed ? '[ + ]' : '[ - ]';
-                    arrow.style.cssText = 'font-size:10px;margin-right:10px;cursor:pointer;width:26px;display:inline-block;text-align:center';
+                    arrow.style.cssText =
+                        'font-size:10px;margin-right:10px;cursor:pointer;width:26px;display:inline-block;text-align:center';
                     block.appendChild(arrow);
                     block.style.cursor = 'pointer';
 
@@ -552,7 +563,7 @@ export class Timeline extends Tab {
                 callCounts[call.method] = (callCounts[call.method] || 0) + 1;
             }
             const sorted = Object.keys(callCounts)
-                .map(method => ({ method, count: callCounts[method] }))
+                .map((method) => ({ method, count: callCounts[method] }))
                 .sort((a, b) => b.count - a.count);
 
             for (const call of sorted) {
@@ -567,11 +578,18 @@ export class Timeline extends Tab {
     }
 
     private _getColorForMethod(method: string): string {
-        if (method.startsWith('begin'))   return 'var(--color-green)';
+        if (method.startsWith('begin')) return 'var(--color-green)';
         if (method.startsWith('finish') || method.startsWith('destroy')) return 'var(--color-red)';
-        if (method.startsWith('draw') || method.startsWith('drawIndexed') || method.startsWith('drawIndirect') || method.startsWith('drawIndexedIndirect')) return 'var(--color-yellow)';
+        if (
+            method.startsWith('draw') ||
+            method.startsWith('drawIndexed') ||
+            method.startsWith('drawIndirect') ||
+            method.startsWith('drawIndexedIndirect')
+        )
+            return 'var(--color-yellow)';
         if (method.startsWith('dispatch')) return 'var(--color-yellow)';
-        if (method.startsWith('compute') || method.startsWith('create') || method.startsWith('generate')) return 'var(--color-yellow)';
+        if (method.startsWith('compute') || method.startsWith('create') || method.startsWith('generate'))
+            return 'var(--color-yellow)';
         if (method.startsWith('set')) return 'var(--color-fps)';
         return 'var(--text-secondary)';
     }

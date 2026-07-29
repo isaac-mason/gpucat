@@ -1,7 +1,7 @@
-import { Node, NodeKind, type StructDef, type StructInstance, ConstructNode, LiteralNode } from './core';
-import type { StructSchema, Any } from '../../schema/schema';
-import type { NodeFrame } from '../../renderer/node-frame';
-import { Uniform, UniformGroup, UniformUpdateType, objectGroup, renderGroup, frameGroup, type UniformValue } from '../../core/uniform';
+import { frameGroup, objectGroup, renderGroup, Uniform, UniformGroup, UniformUpdateType, type UniformValue } from '../../core/uniform';
+import type { NodeFrame } from '../../renderer/core/node-frame';
+import type { Any, StructSchema } from '../../schema/schema';
+import { type ConstructNode, type LiteralNode, Node, NodeKind, type StructDef, type StructInstance } from './core';
 export declare class UniformNode<D extends Any> extends Node<D> {
     readonly kind = NodeKind.Uniform;
     /** uniform name */

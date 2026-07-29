@@ -1,6 +1,5 @@
-
 import * as d from '../../schema/schema';
-import { CallNode, Node, NodeKind, ParamDesc, ParamDescsToNodes } from './core';
+import { CallNode, Node, NodeKind, type ParamDesc, type ParamDescsToNodes } from './core';
 
 /**
  * Parsed WGSL function info returned by parseWgslFunction().
@@ -28,7 +27,7 @@ function parseWgslFunction(source: string): WgslNodeFunction {
     source = source.trim();
 
     const declarationRegexp = /^[fn]*\s*([a-z_0-9]+)?\s*\(([\s\S]*?)\)\s*[-]*[>]*\s*([a-z_0-9]+(?:<[\s\S]+?>)?)?/i;
-    const propertiesRegexp = /([a-z_0-9]+)\s*:\s*([a-z_0-9]+(?:<[\s\S]+?>)?)/ig;
+    const propertiesRegexp = /([a-z_0-9]+)\s*:\s*([a-z_0-9]+(?:<[\s\S]+?>)?)/gi;
 
     const declaration = source.match(declarationRegexp);
 
@@ -37,7 +36,7 @@ function parseWgslFunction(source: string): WgslNodeFunction {
     }
 
     const inputsCode = declaration[2] || '';
-    const propsMatches: { name: string; type: string; }[] = [];
+    const propsMatches: { name: string; type: string }[] = [];
     let match: RegExpExecArray | null = null;
 
     while ((match = propertiesRegexp.exec(inputsCode)) !== null) {
@@ -84,16 +83,24 @@ export class WgslFunctionNode extends Node<d.WgslFn> {
     /** Global nodes use globalCache for deduplication */
     override global = true;
 
-    /** The native shader code */
+    /** The native WGSL shader code. Empty for GLSL-only functions. */
     code: string;
+
+    /**
+     * The GLSL companion source (a complete GLSL function definition with the same name + signature
+     * as the WGSL one). Undefined for WGSL-only functions. When present the GLSL emitter emits this
+     * instead of throwing.
+     */
+    glslCode?: string;
 
     /** Array of included CodeNodes/FunctionNodes */
     includes: WgslFunctionNode[];
 
-    constructor(code = '', includes: WgslFunctionNode[] = []) {
+    constructor(code = '', includes: WgslFunctionNode[] = [], glslCode?: string) {
         super(d.WgslFn);
         this.code = code;
         this.includes = includes;
+        this.glslCode = glslCode;
     }
 
     setIncludes(includes: WgslFunctionNode[]): this {
@@ -135,6 +142,12 @@ export class WgslFunctionNode extends Node<d.WgslFn> {
 export type WgslFnLayout<D extends d.Any, P extends readonly ParamDesc[] = readonly ParamDesc[]> = {
     readonly output: D;
     readonly params?: [...P];
+    /**
+     * Optional GLSL companion source: a complete GLSL function definition with the SAME name +
+     * parameter order as the WGSL one. When provided, the same node compiles on both backends —
+     * the WGSL emitter uses `source`, the GLSL emitter uses `glsl`.
+     */
+    readonly glsl?: string;
 };
 
 /** Type for the callable returned by wgslFn with typed params */
@@ -195,28 +208,25 @@ export type WgslFnCallable = WgslFnCallableUntyped<d.Any>;
 // Overload 1: with layout including typed params
 export function wgslFn<D extends d.Any, P extends readonly ParamDesc[]>(
     source: string,
-    layout: { readonly output: D; readonly params: [...P] },
-    includes?: (WgslFnCallable | WgslFunctionNode)[]
+    layout: { readonly output: D; readonly params: [...P]; readonly glsl?: string },
+    includes?: (WgslFnCallable | WgslFunctionNode)[],
 ): WgslFnCallableTyped<D, P>;
 
 // Overload 2: with layout, output only (no params)
 export function wgslFn<D extends d.Any>(
     source: string,
-    layout: { readonly output: D; readonly params?: undefined },
-    includes?: (WgslFnCallable | WgslFunctionNode)[]
+    layout: { readonly output: D; readonly params?: undefined; readonly glsl?: string },
+    includes?: (WgslFnCallable | WgslFunctionNode)[],
 ): WgslFnCallableUntyped<D>;
 
 // Overload 3: no layout (legacy untyped)
-export function wgslFn(
-    source: string,
-    includes?: (WgslFnCallable | WgslFunctionNode)[]
-): WgslFnCallable;
+export function wgslFn(source: string, includes?: (WgslFnCallable | WgslFunctionNode)[]): WgslFnCallable;
 
 // Implementation
 export function wgslFn<D extends d.Any, P extends readonly ParamDesc[]>(
     source: string,
     layoutOrIncludes?: WgslFnLayout<D, P> | (WgslFnCallable | WgslFunctionNode)[],
-    includesArg?: (WgslFnCallable | WgslFunctionNode)[]
+    includesArg?: (WgslFnCallable | WgslFunctionNode)[],
 ): WgslFnCallableTyped<D, P> | WgslFnCallableUntyped<D> | WgslFnCallable {
     // Determine layout and includes from arguments
     let layout: WgslFnLayout<D, P> | undefined;
@@ -248,10 +258,10 @@ export function wgslFn<D extends d.Any, P extends readonly ParamDesc[]>(
         }
     }
 
-    const functionNode = new WgslFunctionNode(source.trim(), includeNodes);
+    const functionNode = new WgslFunctionNode(source.trim(), includeNodes, layout?.glsl?.trim());
     const nodeFunc = functionNode.getNodeFunction();
     const fnName = nodeFunc.name;
-    
+
     // Use layout output type if provided, otherwise parse from WGSL
     const returnType = layout?.output ?? d.descFromWgslType(nodeFunc.outputType);
 
@@ -266,4 +276,71 @@ export function wgslFn<D extends d.Any, P extends readonly ParamDesc[]>(
     return fn as WgslFnCallableTyped<D, P>;
 }
 
+/** Layout descriptor for glslFn - like WgslFnLayout but the name can't be parsed from GLSL. */
+export type GlslFnLayout<D extends d.Any, P extends readonly ParamDesc[] = readonly ParamDesc[]> = {
+    /** The GLSL function name (used to build the call). Must match the name in `source`. */
+    readonly name: string;
+    readonly output: D;
+    readonly params?: [...P];
+};
 
+/**
+ * Create a GLSL-only function from raw GLSL source code.
+ *
+ * Mirrors `wgslFn` but targets the WebGL backend only — the returned callable emits the GLSL
+ * function on the WebGL backend and throws on the WebGPU (WGSL) backend. For a function that runs
+ * on BOTH backends, use `wgslFn(wgslSrc, { output, params, glsl: glslSrc })` instead.
+ *
+ * The layout must carry the function `name` (GLSL can't be parsed for it) and `output` type; `params`
+ * are optional but recommended for type-checked call sites.
+ *
+ * @example
+ * const tint = glslFn(
+ *     `vec3 tint(vec3 c, float k) { return c * k; }`,
+ *     { name: 'tint', output: d.vec3f, params: [{ name: 'c', type: d.vec3f }, { name: 'k', type: d.f32 }] },
+ * );
+ */
+// Overload 1: with typed params
+export function glslFn<D extends d.Any, P extends readonly ParamDesc[]>(
+    source: string,
+    layout: { readonly name: string; readonly output: D; readonly params: [...P] },
+    includes?: (WgslFnCallable | WgslFunctionNode)[],
+): WgslFnCallableTyped<D, P>;
+
+// Overload 2: output only (no params)
+export function glslFn<D extends d.Any>(
+    source: string,
+    layout: { readonly name: string; readonly output: D; readonly params?: undefined },
+    includes?: (WgslFnCallable | WgslFunctionNode)[],
+): WgslFnCallableUntyped<D>;
+
+// Implementation
+export function glslFn<D extends d.Any, P extends readonly ParamDesc[]>(
+    source: string,
+    layout: GlslFnLayout<D, P>,
+    includes: (WgslFnCallable | WgslFunctionNode)[] = [],
+): WgslFnCallableTyped<D, P> | WgslFnCallableUntyped<D> {
+    // Extract FunctionNode from callable includes (same handling as wgslFn).
+    const includeNodes: WgslFunctionNode[] = [];
+    for (let i = 0; i < includes.length; i++) {
+        const include = includes[i];
+        if (typeof include === 'function') {
+            const inc = (include as WgslFnCallable).functionNode;
+            if (inc) includeNodes.push(inc);
+        } else if (include.kind === NodeKind.WgslFunction) {
+            includeNodes.push(include);
+        }
+    }
+
+    // GLSL-only: no WGSL source (code = ''), glslCode carries the GLSL definition.
+    const functionNode = new WgslFunctionNode('', includeNodes, source.trim());
+    const fnName = layout.name;
+    const returnType = layout.output;
+
+    const fn = (...args: Node<d.Any>[]): CallNode<D> => {
+        return new CallNode(returnType as D, fnName, args, undefined, functionNode);
+    };
+    fn.functionNode = functionNode;
+
+    return fn as WgslFnCallableTyped<D, P>;
+}

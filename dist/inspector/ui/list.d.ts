@@ -1,4 +1,4 @@
-import { Item } from './item';
+import type { Item } from './item';
 export declare class List {
     headers: string[];
     children: Item[];

@@ -1,7 +1,7 @@
-import { GpuBuffer } from '../../core/gpu-buffer';
+import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { Any } from '../../schema/schema';
 import { Node, NodeKind } from './core';
-import { UniformGroup, objectGroup } from './uniform';
+import { objectGroup, type UniformGroup } from './uniform';
 
 /**
  * StorageNode, declares a storage buffer binding in a shader.
@@ -46,7 +46,7 @@ export class StorageNode<D extends Any> extends Node<D> {
         schema: D,
         nameOrBuffer: string | GpuBuffer<D>,
         access: 'read' | 'read_write' = 'read',
-        group: UniformGroup = objectGroup
+        group: UniformGroup = objectGroup,
     ) {
         super(schema);
 
@@ -107,10 +107,7 @@ export class StorageNode<D extends Any> extends Node<D> {
  * const particles = storage(particleBuffer, 'read_write');
  * particles.value = otherBuffer;  // swap buffers for double-buffering
  */
-export function storage<D extends Any>(
-    buffer: GpuBuffer<D>,
-    access?: 'read' | 'read_write'
-): StorageNode<D>;
+export function storage<D extends Any>(buffer: GpuBuffer<D>, access?: 'read' | 'read_write'): StorageNode<D>;
 
 /**
  * Create a storage buffer node by name (name-based).
@@ -124,16 +121,12 @@ export function storage<D extends Any>(
  * const particles = storage('particles', d.array(Particle), 'read_write');
  * // Different meshes can have different 'particles' buffers with the same material
  */
-export function storage<D extends Any>(
-    name: string,
-    schema: D,
-    access?: 'read' | 'read_write'
-): StorageNode<D>;
+export function storage<D extends Any>(name: string, schema: D, access?: 'read' | 'read_write'): StorageNode<D>;
 
 export function storage<D extends Any>(
     nameOrBuffer: string | GpuBuffer<D>,
     schemaOrAccess?: D | 'read' | 'read_write',
-    accessArg?: 'read' | 'read_write'
+    accessArg?: 'read' | 'read_write',
 ): StorageNode<D> {
     if (typeof nameOrBuffer === 'string') {
         // Name-based: storage(name, schema, access?)

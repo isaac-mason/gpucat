@@ -1,5 +1,5 @@
 import type { GpuBuffer } from '../core/gpu-buffer';
-import type { NodeFrame } from '../renderer/node-frame';
+import type { NodeFrame } from '../renderer/core/node-frame';
 import type { StructSchema } from '../schema/schema';
 import * as d from '../schema/schema';
 import { type TracedFn } from './backend/wgsl/emit';
@@ -11,6 +11,27 @@ import type { UniformGroup, UniformNode } from './lib/uniform';
 import type { InterpolationSampling, InterpolationType } from './lib/varying';
 import type { WgslFunctionNode } from './lib/wgsl-fn';
 export declare function compile(slots: CompileSlots): CompileResult;
+/**
+ * GLSL ES 3.00 sibling of {@link compile}. Reuses the shared, backend-neutral {@link discover} pass
+ * and node graph, then drives the GLSL emitter instead of the WGSL one. First vertical slice: a "lit
+ * mesh" material (attributes, camera/model uniform matrices as std140 UBOs, a varying, vec math,
+ * clip position + fragment color). Textures, control flow, user functions, and compute/storage are
+ * not yet supported and throw a clear "[glsl] … not yet supported" error via the emitter.
+ *
+ * The WGSL {@link compile} path is untouched: this only shares discover() and the node graph.
+ */
+/**
+ * Options for the GLSL emitter. WGSL has no precision qualifier, so these are GLSL-only (grammar-
+ * native): a WebGL-backend concern that never touches the WGSL path.
+ */
+export type CompileGlslOptions = {
+    /**
+     * Fragment-stage default precision qualifier (`precision <p> float;` / `precision <p> int;`).
+     * Default: 'highp' — keeping the emitted GLSL byte-identical to the golden snapshots.
+     */
+    precision?: 'highp' | 'mediump' | 'lowp';
+};
+export declare function compileGlsl(slots: CompileSlots, opts?: CompileGlslOptions): CompileResult;
 export declare function compileCompute(node: ComputeNode): ComputeCompileResult;
 export type NodeUpdateType = 'none' | 'frame' | 'render' | 'object';
 export type UpdateBeforeNode = {

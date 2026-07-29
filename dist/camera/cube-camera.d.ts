@@ -1,7 +1,7 @@
-import { Object3D } from '../core/object3d';
-import { PerspectiveCamera } from './perspective-camera';
 import type { CubeRenderTarget } from '../core/cube-render-target';
-import type { WebGPURenderer } from '../renderer/renderer';
+import { Object3D } from '../core/object3d';
+import type { Renderer } from '../renderer/core/renderer-interface';
+import { PerspectiveCamera } from './perspective-camera';
 /**
  * A camera that renders its surroundings into the six faces of a
  * {@link CubeRenderTarget}, for realtime environment maps and reflections.
@@ -26,5 +26,5 @@ export declare class CubeCamera extends Object3D {
      * Render the scene into all six faces of the cube render target from this
      * camera's world position. Restores the renderer's previous render target.
      */
-    update(renderer: WebGPURenderer, scene: Object3D): void;
+    update(renderer: Renderer, scene: Object3D): void;
 }

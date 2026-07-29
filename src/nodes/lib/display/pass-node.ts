@@ -1,15 +1,15 @@
 import type { Camera } from '../../../camera/camera';
 import { RenderTarget } from '../../../core/render-target';
-import type { NodeFrame } from '../../../renderer/node-frame';
+import type { NodeFrame } from '../../../renderer/core/node-frame';
 import type { Scene } from '../../../scene/scene';
-import { type ImageSize } from '../../../texture/source';
+import * as d from '../../../schema/schema';
+import type { DepthTexture } from '../../../texture/depth-texture';
+import type { ImageSize } from '../../../texture/source';
 import { Texture } from '../../../texture/texture';
-import { DepthTexture } from '../../../texture/depth-texture';
+import { cameraFar, cameraNear } from '../camera';
+import { Node, NodeKind, vec2i } from '../core';
 import type { MRTNode } from '../mrt';
 import { DepthTextureNode, TextureBindingNode, TextureNode } from '../texture';
-import { Node, NodeKind, vec2i } from '../core';
-import { cameraFar, cameraNear } from '../camera';
-import * as d from '../../../schema/schema';
 import { objectGroup } from '../uniform';
 import { screenCoordinate } from './screen';
 
@@ -34,8 +34,14 @@ export class PassTextureNode extends TextureNode {
      * @param textureId - Optional custom texture ID. If not provided, uses default pass output ID.
      * @param existingBinding - If provided, reuse this binding instead of creating a new one (used by clone).
      */
-    constructor(passNode: PassNode, texture: Texture | null = null, textureId?: string, existingBinding?: TextureBindingNode<d.texture2d>) {
-        const binding = existingBinding ?? new TextureBindingNode(d.texture2d(), textureId ?? `_pass${passNode.passId}_output`, objectGroup);
+    constructor(
+        passNode: PassNode,
+        texture: Texture | null = null,
+        textureId?: string,
+        existingBinding?: TextureBindingNode<d.texture2d>,
+    ) {
+        const binding =
+            existingBinding ?? new TextureBindingNode(d.texture2d(), textureId ?? `_pass${passNode.passId}_output`, objectGroup);
         super(binding);
         this.passNode = passNode;
         this.before(passNode);
@@ -71,10 +77,15 @@ export class PassMultipleTextureNode extends PassTextureNode {
      * @param textureName - The output texture name.
      * @param previousTexture - Whether previous frame data should be used.
      */
-    constructor(passNode: PassNode, textureName: string, previousTexture = false, existingBinding?: TextureBindingNode<d.texture2d>) {
+    constructor(
+        passNode: PassNode,
+        textureName: string,
+        previousTexture = false,
+        existingBinding?: TextureBindingNode<d.texture2d>,
+    ) {
         // Compute the unique textureId BEFORE calling super so it's used in the node ID
         const uniqueTextureId = `${passNode.passId}_${textureName}${previousTexture ? '_prev' : ''}`;
-        
+
         // Pass the unique textureId to super so the node gets a unique ID
         super(passNode, null, uniqueTextureId, existingBinding);
         this.textureName = textureName;
@@ -104,7 +115,6 @@ export class PassMultipleTextureNode extends PassTextureNode {
         return cloned;
     }
 }
-
 
 export type PassNodeOptions = {
     /** RGBA clear color for this pass's color attachment. Defaults to [0, 0, 0, 1]. */
@@ -415,9 +425,7 @@ export class PassNode extends Node<d.vec4f> {
 
             // perspectiveDepthToViewZ formula (non-reversed depth buffer):
             // viewZ = near.mul(far).div(far.sub(near).mul(depth).sub(far))
-            viewZNode = cameraNear
-                .mul(cameraFar)
-                .div(cameraFar.sub(cameraNear).mul(depth).sub(cameraFar)) as Node<d.f32>;
+            viewZNode = cameraNear.mul(cameraFar).div(cameraFar.sub(cameraNear).mul(depth).sub(cameraFar)) as Node<d.f32>;
 
             this._viewZNodes[name] = viewZNode;
         }
@@ -437,9 +445,7 @@ export class PassNode extends Node<d.vec4f> {
 
             // viewZToOrthographicDepth formula:
             // linearDepth = viewZ.add(near).div(near.sub(far))
-            linearDepthNode = viewZNode
-                .add(cameraNear)
-                .div(cameraNear.sub(cameraFar)) as Node<d.f32>;
+            linearDepthNode = viewZNode.add(cameraNear).div(cameraNear.sub(cameraFar)) as Node<d.f32>;
 
             this._linearDepthNodes[name] = linearDepthNode;
         }
@@ -452,7 +458,6 @@ export class PassNode extends Node<d.vec4f> {
      */
     updateBefore(frame: NodeFrame): void {
         const renderer = frame.renderer!;
-        const encoder = frame.encoder!;
         const { scene, camera } = this;
 
         this._pixelRatio = 1;
@@ -478,7 +483,7 @@ export class PassNode extends Node<d.vec4f> {
         renderer.mrt = this._mrt;
         renderer.clearColor = this.clearColor;
 
-        renderer.render(scene, camera, encoder, this.passId);
+        renderer.render(scene, camera, this.passId);
 
         // State restore
         renderer.renderTarget = currentRenderTarget;
@@ -508,14 +513,14 @@ export class PassNode extends Node<d.vec4f> {
 /** creates a pass node */
 export const pass = (scene: Scene, camera: Camera, options?: PassNodeOptions): PassNode => {
     return new PassNode(PassNode.FRAGMENT, scene, camera, options);
-}
+};
 
 /** creates a depth pass node */
 export const depthPass = (scene: Scene, camera: Camera, options?: PassNodeOptions): PassNode => {
     return new PassNode(PassNode.DEPTH, scene, camera, options);
-}
+};
 
 /** creates a pass texture node */
 export const passTexture = (passNode: PassNode, texture?: Texture | null): PassTextureNode => {
     return new PassTextureNode(passNode, texture ?? null);
-}
+};

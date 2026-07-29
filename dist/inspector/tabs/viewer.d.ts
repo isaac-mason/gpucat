@@ -16,15 +16,15 @@
  * triggering updateBefore() on PassNodes, which would cause a stack overflow
  * by recursively rendering the scene inside the inspector viewer.
  */
-import { Tab } from '../ui/tab';
-import { List } from '../ui/list';
-import { Item } from '../ui/item';
+import { Material } from '../../material/material';
 import { type Node } from '../../nodes/nodes';
+import type { QuadMesh } from '../../objects/quad-mesh';
+import type { CanvasTarget } from '../../renderer/core/canvas-target';
 import * as d from '../../schema/schema';
 import type { Inspector } from '../inspector';
-import { CanvasTarget } from '../../renderer/canvas-target';
-import { Material } from '../../material/material';
-import { QuadMesh } from '../../objects/quad-mesh';
+import { Item } from '../ui/item';
+import { List } from '../ui/list';
+import { Tab } from '../ui/tab';
 export type CanvasData = {
     /** Stable ID (= node.id) */
     id: number;

@@ -2,9 +2,11 @@
     "name": "gpucat",
     "version": "0.0.0-alpha.1",
     "author": "Isaac Mason <isaac@isaacmason.com>",
-    "description": "typescript-friendly WebGPU renderer",
+    "description": "typescript-friendly WebGPU and WebGL2 renderer",
     "keywords": [
         "webgpu",
+        "webgl",
+        "webgl2",
         "renderer",
         "typescript"
     ],
@@ -26,6 +28,8 @@
         "format": "biome format --write src/. tst/.",
         "lint": "biome lint --write src/. tst/.",
         "test": "vitest tst",
+        "test:glsl": "node tst/glsl-compile/run.mjs",
+        "test:webgl": "node tst/webgl-render/run.mjs",
         "docs": "(cd docs && node ./build.js)"
     },
     "packageManager": "pnpm@8.15.2+sha1.798034f615aa211c6c2ae00010cc20be5fc102ee",
@@ -37,7 +41,9 @@
         "@rollup/plugin-node-resolve": "^16.0.1",
         "@rollup/plugin-typescript": "^12.1.4",
         "@webgpu/types": "^0.1.69",
+        "esbuild": "^0.28.1",
         "jsdom": "^28.1.0",
+        "playwright": "^1.62.0",
         "rollup": "^4.46.2",
         "rollup-plugin-copy": "^3.5.0",
         "rollup-plugin-filesize": "^10.0.0",

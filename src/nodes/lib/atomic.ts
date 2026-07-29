@@ -1,6 +1,6 @@
-import { addToStack, CallNode, Node } from './core';
 import type { Any } from '../../schema/schema';
 import * as d from '../../schema/schema';
+import { addToStack, CallNode, type Node } from './core';
 
 /* atomic operations for i32 and u32 types */
 // Pointers can be bare `i32`/`u32` nodes (e.g. from a plain storageArray) or
@@ -152,7 +152,7 @@ export function atomicExchange<D extends AtomicPtrDesc>(ptr: Node<D>, value: Nod
 export function atomicCompareExchangeWeak<D extends AtomicPtrDesc>(
     ptr: Node<D>,
     comparator: Node<d.i32 | d.u32>,
-    value: Node<d.i32 | d.u32>
+    value: Node<d.i32 | d.u32>,
 ): Node<Any> {
     const node = new CallNode(d.Void, 'atomicCompareExchangeWeak', [ptr, comparator, value]);
     addToStack(node);

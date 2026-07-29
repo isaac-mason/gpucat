@@ -333,252 +333,144 @@ The full node DSL, grouped by category. Learn it with examples in the [guide](./
 **general**
 
 <table><tr>
-<td><a href="#orbitcontrolsevent"><code>OrbitControlsEvent</code></a></td><td><a href="#orbitcontrolseventlistener"><code>OrbitControlsEventListener</code></a></td><td><a href="#orbitcontrolseventtype"><code>OrbitControlsEventType</code></a></td><td><a href="#mouseaction"><code>MouseAction</code></a></td>
+<td><a href="#mouseaction"><code>MouseAction</code></a></td><td><a href="#orbitcontrolsevent"><code>OrbitControlsEvent</code></a></td><td><a href="#orbitcontrolseventlistener"><code>OrbitControlsEventListener</code></a></td><td><a href="#orbitcontrolseventtype"><code>OrbitControlsEventType</code></a></td>
 </tr><tr>
-<td><a href="#touchaction"><code>TouchAction</code></a></td><td><a href="#gputexture"><code>GpuTexture</code></a></td><td><a href="#createstoragetexture"><code>createStorageTexture</code></a></td><td><a href="#createstoragetexture3d"><code>createStorageTexture3d</code></a></td>
+<td><a href="#touchaction"><code>TouchAction</code></a></td><td><a href="#createstoragetexture"><code>createStorageTexture</code></a></td><td><a href="#createstoragetexture1d"><code>createStorageTexture1d</code></a></td><td><a href="#createstoragetexture3d"><code>createStorageTexture3d</code></a></td>
 </tr><tr>
-<td><a href="#createstoragetexturearray"><code>createStorageTextureArray</code></a></td><td><a href="#createstoragetexture1d"><code>createStorageTexture1d</code></a></td><td><a href="#gputextureoptions"><code>GpuTextureOptions</code></a></td><td><a href="#dimensionof"><code>DimensionOf</code></a></td>
+<td><a href="#createstoragetexturearray"><code>createStorageTextureArray</code></a></td><td><a href="#dimensionof"><code>DimensionOf</code></a></td><td><a href="#gputexture"><code>GpuTexture</code></a></td><td><a href="#gputextureoptions"><code>GpuTextureOptions</code></a></td>
 </tr><tr>
-<td><a href="#viewdimensionof"><code>ViewDimensionOf</code></a></td><td></td><td></td><td></td>
-</tr></table>
-
-**constructors**
-
-<table><tr>
-<td><a href="#f16"><code>f16</code></a></td><td><a href="#f32"><code>f32</code></a></td><td><a href="#i32"><code>i32</code></a></td><td><a href="#u32"><code>u32</code></a></td>
+<td><a href="#viewdimensionof"><code>ViewDimensionOf</code></a></td><td><a href="#attributeoptions"><code>AttributeOptions</code></a></td><td><a href="#abs"><code>abs</code></a></td><td><a href="#acestonemapping"><code>acesToneMapping</code></a></td>
 </tr><tr>
-<td><a href="#bool"><code>bool</code></a></td><td><a href="#rgb"><code>rgb</code></a></td><td><a href="#vec2"><code>vec2</code></a></td><td><a href="#vec2f"><code>vec2f</code></a></td>
+<td><a href="#acos"><code>acos</code></a></td><td><a href="#add"><code>add</code></a></td><td><a href="#and"><code>and</code></a></td><td><a href="#array"><code>array</code></a></td>
 </tr><tr>
-<td><a href="#vec2h"><code>vec2h</code></a></td><td><a href="#vec2i"><code>vec2i</code></a></td><td><a href="#vec2u"><code>vec2u</code></a></td><td><a href="#vec2b"><code>vec2b</code></a></td>
+<td><a href="#arraytexture"><code>arrayTexture</code></a></td><td><a href="#asin"><code>asin</code></a></td><td><a href="#atan"><code>atan</code></a></td><td><a href="#atan2"><code>atan2</code></a></td>
 </tr><tr>
-<td><a href="#vec3"><code>vec3</code></a></td><td><a href="#vec3f"><code>vec3f</code></a></td><td><a href="#vec3h"><code>vec3h</code></a></td><td><a href="#vec3i"><code>vec3i</code></a></td>
+<td><a href="#atomicadd"><code>atomicAdd</code></a></td><td><a href="#atomicand"><code>atomicAnd</code></a></td><td><a href="#atomiccompareexchangeweak"><code>atomicCompareExchangeWeak</code></a></td><td><a href="#atomicexchange"><code>atomicExchange</code></a></td>
 </tr><tr>
-<td><a href="#vec3u"><code>vec3u</code></a></td><td><a href="#vec3b"><code>vec3b</code></a></td><td><a href="#vec4"><code>vec4</code></a></td><td><a href="#vec4f"><code>vec4f</code></a></td>
+<td><a href="#atomicload"><code>atomicLoad</code></a></td><td><a href="#atomicmax"><code>atomicMax</code></a></td><td><a href="#atomicmin"><code>atomicMin</code></a></td><td><a href="#atomicor"><code>atomicOr</code></a></td>
 </tr><tr>
-<td><a href="#vec4h"><code>vec4h</code></a></td><td><a href="#vec4i"><code>vec4i</code></a></td><td><a href="#vec4u"><code>vec4u</code></a></td><td><a href="#vec4b"><code>vec4b</code></a></td>
+<td><a href="#atomicstore"><code>atomicStore</code></a></td><td><a href="#atomicsub"><code>atomicSub</code></a></td><td><a href="#atomicxor"><code>atomicXor</code></a></td><td><a href="#attribute"><code>attribute</code></a></td>
 </tr><tr>
-<td><a href="#mat3"><code>mat3</code></a></td><td><a href="#mat4"><code>mat4</code></a></td><td><a href="#mat2x2f"><code>mat2x2f</code></a></td><td><a href="#mat2x3f"><code>mat2x3f</code></a></td>
+<td><a href="#binaryop"><code>BinaryOp</code></a></td><td><a href="#break"><code>Break</code></a></td><td><a href="#builtinkind"><code>BuiltinKind</code></a></td><td><a href="#bitcastf32"><code>bitcastF32</code></a></td>
 </tr><tr>
-<td><a href="#mat2x4f"><code>mat2x4f</code></a></td><td><a href="#mat3x2f"><code>mat3x2f</code></a></td><td><a href="#mat3x3f"><code>mat3x3f</code></a></td><td><a href="#mat3x4f"><code>mat3x4f</code></a></td>
+<td><a href="#bitcasti32"><code>bitcastI32</code></a></td><td><a href="#bitcastu32"><code>bitcastU32</code></a></td><td><a href="#bitwiseand"><code>bitwiseAnd</code></a></td><td><a href="#bitwiseor"><code>bitwiseOr</code></a></td>
 </tr><tr>
-<td><a href="#mat4x2f"><code>mat4x2f</code></a></td><td><a href="#mat4x3f"><code>mat4x3f</code></a></td><td><a href="#mat4x4f"><code>mat4x4f</code></a></td><td><a href="#mat2x2h"><code>mat2x2h</code></a></td>
+<td><a href="#bitwisexor"><code>bitwiseXor</code></a></td><td><a href="#bool"><code>bool</code></a></td><td><a href="#builtin"><code>builtin</code></a></td><td><a href="#computenodeoptions"><code>ComputeNodeOptions</code></a></td>
 </tr><tr>
-<td><a href="#mat2x3h"><code>mat2x3h</code></a></td><td><a href="#mat2x4h"><code>mat2x4h</code></a></td><td><a href="#mat3x2h"><code>mat3x2h</code></a></td><td><a href="#mat3x3h"><code>mat3x3h</code></a></td>
+<td><a href="#computeoptions"><code>ComputeOptions</code></a></td><td><a href="#const"><code>Const</code></a></td><td><a href="#continue"><code>Continue</code></a></td><td><a href="#camerafar"><code>cameraFar</code></a></td>
 </tr><tr>
-<td><a href="#mat3x4h"><code>mat3x4h</code></a></td><td><a href="#mat4x2h"><code>mat4x2h</code></a></td><td><a href="#mat4x3h"><code>mat4x3h</code></a></td><td><a href="#mat4x4h"><code>mat4x4h</code></a></td>
-</tr></table>
-
-**math/operators**
-
-<table><tr>
-<td><a href="#abs"><code>abs</code></a></td><td><a href="#add"><code>add</code></a></td><td><a href="#sub"><code>sub</code></a></td><td><a href="#mul"><code>mul</code></a></td>
+<td><a href="#cameranear"><code>cameraNear</code></a></td><td><a href="#cameraposition"><code>cameraPosition</code></a></td><td><a href="#cameraprojectionmatrix"><code>cameraProjectionMatrix</code></a></td><td><a href="#cameraviewmatrix"><code>cameraViewMatrix</code></a></td>
 </tr><tr>
-<td><a href="#div"><code>div</code></a></td><td><a href="#mod"><code>mod</code></a></td><td><a href="#min"><code>min</code></a></td><td><a href="#max"><code>max</code></a></td>
+<td><a href="#ceil"><code>ceil</code></a></td><td><a href="#clamp"><code>clamp</code></a></td><td><a href="#comparisonsampler"><code>comparisonSampler</code></a></td><td><a href="#compute"><code>compute</code></a></td>
 </tr><tr>
-<td><a href="#clamp"><code>clamp</code></a></td><td><a href="#mix"><code>mix</code></a></td><td><a href="#step"><code>step</code></a></td><td><a href="#smoothstep"><code>smoothstep</code></a></td>
+<td><a href="#computeindex"><code>computeIndex</code></a></td><td><a href="#cond"><code>cond</code></a></td><td><a href="#cos"><code>cos</code></a></td><td><a href="#countleadingzeros"><code>countLeadingZeros</code></a></td>
 </tr><tr>
-<td><a href="#ceil"><code>ceil</code></a></td><td><a href="#floor"><code>floor</code></a></td><td><a href="#fract"><code>fract</code></a></td><td><a href="#sqrt"><code>sqrt</code></a></td>
+<td><a href="#countonebits"><code>countOneBits</code></a></td><td><a href="#counttrailingzeros"><code>countTrailingZeros</code></a></td><td><a href="#cross"><code>cross</code></a></td><td><a href="#cubetexture"><code>cubeTexture</code></a></td>
 </tr><tr>
-<td><a href="#inversesqrt"><code>inverseSqrt</code></a></td><td><a href="#pow"><code>pow</code></a></td><td><a href="#exp"><code>exp</code></a></td><td><a href="#exp2"><code>exp2</code></a></td>
+<td><a href="#discard"><code>Discard</code></a></td><td><a href="#drawindexedindirect"><code>DrawIndexedIndirect</code></a></td><td><a href="#drawindirect"><code>DrawIndirect</code></a></td><td><a href="#depthtexture"><code>depthTexture</code></a></td>
 </tr><tr>
-<td><a href="#log"><code>log</code></a></td><td><a href="#log2"><code>log2</code></a></td><td><a href="#tan"><code>tan</code></a></td><td><a href="#atan"><code>atan</code></a></td>
+<td><a href="#div"><code>div</code></a></td><td><a href="#dot"><code>dot</code></a></td><td><a href="#dpdx"><code>dpdx</code></a></td><td><a href="#dpdxcoarse"><code>dpdxCoarse</code></a></td>
 </tr><tr>
-<td><a href="#atan2"><code>atan2</code></a></td><td><a href="#asin"><code>asin</code></a></td><td><a href="#acos"><code>acos</code></a></td><td><a href="#length"><code>length</code></a></td>
+<td><a href="#dpdxfine"><code>dpdxFine</code></a></td><td><a href="#dpdy"><code>dpdy</code></a></td><td><a href="#dpdycoarse"><code>dpdyCoarse</code></a></td><td><a href="#dpdyfine"><code>dpdyFine</code></a></td>
 </tr><tr>
-<td><a href="#normalize"><code>normalize</code></a></td><td><a href="#dot"><code>dot</code></a></td><td><a href="#cross"><code>cross</code></a></td><td><a href="#pack2x16float"><code>pack2x16float</code></a></td>
+<td><a href="#equal"><code>equal</code></a></td><td><a href="#exp"><code>exp</code></a></td><td><a href="#exp2"><code>exp2</code></a></td><td><a href="#fn"><code>Fn</code></a></td>
 </tr><tr>
-<td><a href="#unpack2x16float"><code>unpack2x16float</code></a></td><td><a href="#pack2x16snorm"><code>pack2x16snorm</code></a></td><td><a href="#unpack2x16snorm"><code>unpack2x16snorm</code></a></td><td><a href="#pack2x16unorm"><code>pack2x16unorm</code></a></td>
+<td><a href="#fnlayout"><code>FnLayout</code></a></td><td><a href="#for"><code>For</code></a></td><td><a href="#f16"><code>f16</code></a></td><td><a href="#f32"><code>f32</code></a></td>
 </tr><tr>
-<td><a href="#unpack2x16unorm"><code>unpack2x16unorm</code></a></td><td><a href="#pack4x8snorm"><code>pack4x8snorm</code></a></td><td><a href="#unpack4x8snorm"><code>unpack4x8snorm</code></a></td><td><a href="#pack4x8unorm"><code>pack4x8unorm</code></a></td>
+<td><a href="#field"><code>field</code></a></td><td><a href="#fields"><code>fields</code></a></td><td><a href="#firstleadingbit"><code>firstLeadingBit</code></a></td><td><a href="#firsttrailingbit"><code>firstTrailingBit</code></a></td>
 </tr><tr>
-<td><a href="#unpack4x8unorm"><code>unpack4x8unorm</code></a></td><td><a href="#bitcastf32"><code>bitcastF32</code></a></td><td><a href="#bitcastu32"><code>bitcastU32</code></a></td><td><a href="#bitcasti32"><code>bitcastI32</code></a></td>
+<td><a href="#floor"><code>floor</code></a></td><td><a href="#fract"><code>fract</code></a></td><td><a href="#fragcoord"><code>fragCoord</code></a></td><td><a href="#fwidth"><code>fwidth</code></a></td>
 </tr><tr>
-<td><a href="#sign"><code>sign</code></a></td><td><a href="#sin"><code>sin</code></a></td><td><a href="#cos"><code>cos</code></a></td><td><a href="#transpose"><code>transpose</code></a></td>
+<td><a href="#fwidthcoarse"><code>fwidthCoarse</code></a></td><td><a href="#fwidthfine"><code>fwidthFine</code></a></td><td><a href="#fxaa"><code>fxaa</code></a></td><td><a href="#gputypedarray"><code>GpuTypedArray</code></a></td>
 </tr><tr>
-<td><a href="#countonebits"><code>countOneBits</code></a></td><td><a href="#counttrailingzeros"><code>countTrailingZeros</code></a></td><td><a href="#countleadingzeros"><code>countLeadingZeros</code></a></td><td><a href="#reversebits"><code>reverseBits</code></a></td>
+<td><a href="#globalid"><code>globalId</code></a></td><td><a href="#greaterthan"><code>greaterThan</code></a></td><td><a href="#greaterthanequal"><code>greaterThanEqual</code></a></td><td><a href="#if"><code>If</code></a></td>
 </tr><tr>
-<td><a href="#firstleadingbit"><code>firstLeadingBit</code></a></td><td><a href="#firsttrailingbit"><code>firstTrailingBit</code></a></td><td><a href="#dpdx"><code>dpdx</code></a></td><td><a href="#dpdy"><code>dpdy</code></a></td>
+<td><a href="#interpolationsampling"><code>InterpolationSampling</code></a></td><td><a href="#interpolationtype"><code>InterpolationType</code></a></td><td><a href="#i32"><code>i32</code></a></td><td><a href="#index"><code>index</code></a></td>
 </tr><tr>
-<td><a href="#fwidth"><code>fwidth</code></a></td><td><a href="#dpdxcoarse"><code>dpdxCoarse</code></a></td><td><a href="#dpdycoarse"><code>dpdyCoarse</code></a></td><td><a href="#fwidthcoarse"><code>fwidthCoarse</code></a></td>
+<td><a href="#instanceindex"><code>instanceIndex</code></a></td><td><a href="#inversesqrt"><code>inverseSqrt</code></a></td><td><a href="#let"><code>Let</code></a></td><td><a href="#loop"><code>Loop</code></a></td>
 </tr><tr>
-<td><a href="#dpdxfine"><code>dpdxFine</code></a></td><td><a href="#dpdyfine"><code>dpdyFine</code></a></td><td><a href="#fwidthfine"><code>fwidthFine</code></a></td><td></td>
-</tr></table>
-
-**comparison**
-
-<table><tr>
-<td><a href="#greaterthan"><code>greaterThan</code></a></td><td><a href="#lessthan"><code>lessThan</code></a></td><td><a href="#greaterthanequal"><code>greaterThanEqual</code></a></td><td><a href="#lessthanequal"><code>lessThanEqual</code></a></td>
+<td><a href="#length"><code>length</code></a></td><td><a href="#lessthan"><code>lessThan</code></a></td><td><a href="#lessthanequal"><code>lessThanEqual</code></a></td><td><a href="#localid"><code>localId</code></a></td>
 </tr><tr>
-<td><a href="#equal"><code>equal</code></a></td><td><a href="#notequal"><code>notEqual</code></a></td><td><a href="#or"><code>or</code></a></td><td><a href="#and"><code>and</code></a></td>
-</tr></table>
-
-**bitwise**
-
-<table><tr>
-<td><a href="#bitwiseand"><code>bitwiseAnd</code></a></td><td><a href="#bitwiseor"><code>bitwiseOr</code></a></td><td><a href="#bitwisexor"><code>bitwiseXor</code></a></td><td><a href="#shiftleft"><code>shiftLeft</code></a></td>
+<td><a href="#localindex"><code>localIndex</code></a></td><td><a href="#log"><code>log</code></a></td><td><a href="#log2"><code>log2</code></a></td><td><a href="#mattype"><code>MatType</code></a></td>
 </tr><tr>
-<td><a href="#shiftright"><code>shiftRight</code></a></td><td></td><td></td><td></td>
-</tr></table>
-
-**node factories**
-
-<table><tr>
-<td><a href="#attribute"><code>attribute</code></a></td><td><a href="#attributeoptions"><code>AttributeOptions</code></a></td><td><a href="#builtin"><code>builtin</code></a></td><td><a href="#index"><code>index</code></a></td>
+<td><a href="#mat2x2f"><code>mat2x2f</code></a></td><td><a href="#mat2x2h"><code>mat2x2h</code></a></td><td><a href="#mat2x3f"><code>mat2x3f</code></a></td><td><a href="#mat2x3h"><code>mat2x3h</code></a></td>
 </tr><tr>
-<td><a href="#field"><code>field</code></a></td><td><a href="#fields"><code>fields</code></a></td><td><a href="#uniform"><code>uniform</code></a></td><td><a href="#storage"><code>storage</code></a></td>
+<td><a href="#mat2x4f"><code>mat2x4f</code></a></td><td><a href="#mat2x4h"><code>mat2x4h</code></a></td><td><a href="#mat3"><code>mat3</code></a></td><td><a href="#mat3x2f"><code>mat3x2f</code></a></td>
 </tr><tr>
-<td><a href="#array"><code>array</code></a></td><td><a href="#texture"><code>texture</code></a></td><td><a href="#varying"><code>varying</code></a></td><td><a href="#struct"><code>struct</code></a></td>
+<td><a href="#mat3x2h"><code>mat3x2h</code></a></td><td><a href="#mat3x3f"><code>mat3x3f</code></a></td><td><a href="#mat3x3h"><code>mat3x3h</code></a></td><td><a href="#mat3x4f"><code>mat3x4f</code></a></td>
 </tr><tr>
-<td><a href="#wgsl"><code>wgsl</code></a></td><td><a href="#wgslfn"><code>wgslFn</code></a></td><td><a href="#fn"><code>Fn</code></a></td><td><a href="#mrt"><code>mrt</code></a></td>
+<td><a href="#mat3x4h"><code>mat3x4h</code></a></td><td><a href="#mat4"><code>mat4</code></a></td><td><a href="#mat4x2f"><code>mat4x2f</code></a></td><td><a href="#mat4x2h"><code>mat4x2h</code></a></td>
 </tr><tr>
-<td><a href="#compute"><code>compute</code></a></td><td></td><td></td><td></td>
-</tr></table>
-
-**texture/sampler factories and functions**
-
-<table><tr>
-<td><a href="#sampler"><code>sampler</code></a></td><td><a href="#comparisonsampler"><code>comparisonSampler</code></a></td><td><a href="#cubetexture"><code>cubeTexture</code></a></td><td><a href="#depthtexture"><code>depthTexture</code></a></td>
+<td><a href="#mat4x3f"><code>mat4x3f</code></a></td><td><a href="#mat4x3h"><code>mat4x3h</code></a></td><td><a href="#mat4x4f"><code>mat4x4f</code></a></td><td><a href="#mat4x4h"><code>mat4x4h</code></a></td>
 </tr><tr>
-<td><a href="#arraytexture"><code>arrayTexture</code></a></td><td><a href="#texturebinding"><code>textureBinding</code></a></td><td><a href="#storagetexture"><code>storageTexture</code></a></td><td><a href="#texturesample"><code>textureSample</code></a></td>
+<td><a href="#max"><code>max</code></a></td><td><a href="#min"><code>min</code></a></td><td><a href="#mix"><code>mix</code></a></td><td><a href="#mod"><code>mod</code></a></td>
 </tr><tr>
-<td><a href="#texturesamplelevel"><code>textureSampleLevel</code></a></td><td><a href="#texturesamplebias"><code>textureSampleBias</code></a></td><td><a href="#texturesamplegrad"><code>textureSampleGrad</code></a></td><td><a href="#texturesamplecompare"><code>textureSampleCompare</code></a></td>
+<td><a href="#modelnormalmatrix"><code>modelNormalMatrix</code></a></td><td><a href="#modelworldmatrix"><code>modelWorldMatrix</code></a></td><td><a href="#mrt"><code>mrt</code></a></td><td><a href="#mul"><code>mul</code></a></td>
 </tr><tr>
-<td><a href="#texturesamplecomparelevel"><code>textureSampleCompareLevel</code></a></td><td><a href="#textureload"><code>textureLoad</code></a></td><td><a href="#texturestore"><code>textureStore</code></a></td><td><a href="#texturedimensions"><code>textureDimensions</code></a></td>
+<td><a href="#numerictype"><code>NumericType</code></a></td><td><a href="#normalize"><code>normalize</code></a></td><td><a href="#notequal"><code>notEqual</code></a></td><td><a href="#numworkgroups"><code>numWorkgroups</code></a></td>
 </tr><tr>
-<td><a href="#texturenumlevels"><code>textureNumLevels</code></a></td><td><a href="#texturenumlayers"><code>textureNumLayers</code></a></td><td><a href="#texturegather"><code>textureGather</code></a></td><td><a href="#texturegathercompare"><code>textureGatherCompare</code></a></td>
-</tr></table>
-
-**atomic operations**
-
-<table><tr>
-<td><a href="#atomicadd"><code>atomicAdd</code></a></td><td><a href="#atomicstore"><code>atomicStore</code></a></td><td><a href="#atomicload"><code>atomicLoad</code></a></td><td><a href="#atomicsub"><code>atomicSub</code></a></td>
+<td><a href="#outputcolorspace"><code>OutputColorSpace</code></a></td><td><a href="#or"><code>or</code></a></td><td><a href="#paramdesc"><code>ParamDesc</code></a></td><td><a href="#passnodeoptions"><code>PassNodeOptions</code></a></td>
 </tr><tr>
-<td><a href="#atomicmax"><code>atomicMax</code></a></td><td><a href="#atomicmin"><code>atomicMin</code></a></td><td><a href="#atomicand"><code>atomicAnd</code></a></td><td><a href="#atomicor"><code>atomicOr</code></a></td>
+<td><a href="#privatevar"><code>PrivateVar</code></a></td><td><a href="#pack2x16float"><code>pack2x16float</code></a></td><td><a href="#pack2x16snorm"><code>pack2x16snorm</code></a></td><td><a href="#pack2x16unorm"><code>pack2x16unorm</code></a></td>
 </tr><tr>
-<td><a href="#atomicxor"><code>atomicXor</code></a></td><td><a href="#atomicexchange"><code>atomicExchange</code></a></td><td><a href="#atomiccompareexchangeweak"><code>atomicCompareExchangeWeak</code></a></td><td></td>
-</tr></table>
-
-**variables**
-
-<table><tr>
-<td><a href="#var"><code>Var</code></a></td><td><a href="#const"><code>Const</code></a></td><td><a href="#let"><code>Let</code></a></td><td><a href="#privatevar"><code>PrivateVar</code></a></td>
+<td><a href="#pack4x8snorm"><code>pack4x8snorm</code></a></td><td><a href="#pack4x8unorm"><code>pack4x8unorm</code></a></td><td><a href="#pass"><code>pass</code></a></td><td><a href="#positionclip"><code>positionClip</code></a></td>
 </tr><tr>
-<td><a href="#workgroupvar"><code>WorkgroupVar</code></a></td><td></td><td></td><td></td>
-</tr></table>
-
-**control flow**
-
-<table><tr>
-<td><a href="#if"><code>If</code></a></td><td><a href="#loop"><code>Loop</code></a></td><td><a href="#for"><code>For</code></a></td><td><a href="#while"><code>While</code></a></td>
+<td><a href="#pow"><code>pow</code></a></td><td><a href="#renderoutputoptions"><code>RenderOutputOptions</code></a></td><td><a href="#return"><code>Return</code></a></td><td><a href="#reinhardtonemapping"><code>reinhardToneMapping</code></a></td>
 </tr><tr>
-<td><a href="#break"><code>Break</code></a></td><td><a href="#continue"><code>Continue</code></a></td><td><a href="#return"><code>Return</code></a></td><td><a href="#discard"><code>Discard</code></a></td>
-</tr><tr>
-<td><a href="#workgroupbarrier"><code>workgroupBarrier</code></a></td><td><a href="#storagebarrier"><code>storageBarrier</code></a></td><td><a href="#texturebarrier"><code>textureBarrier</code></a></td><td><a href="#cond"><code>cond</code></a></td>
-</tr><tr>
-<td><a href="#select"><code>select</code></a></td><td></td><td></td><td></td>
-</tr></table>
-
-**camera uniforms**
-
-<table><tr>
-<td><a href="#cameraprojectionmatrix"><code>cameraProjectionMatrix</code></a></td><td><a href="#cameraviewmatrix"><code>cameraViewMatrix</code></a></td><td><a href="#cameraposition"><code>cameraPosition</code></a></td><td><a href="#cameranear"><code>cameraNear</code></a></td>
-</tr><tr>
-<td><a href="#camerafar"><code>cameraFar</code></a></td><td></td><td></td><td></td>
-</tr></table>
-
-**model uniforms**
-
-<table><tr>
-<td><a href="#modelworldmatrix"><code>modelWorldMatrix</code></a></td><td><a href="#modelnormalmatrix"><code>modelNormalMatrix</code></a></td>
-</tr></table>
-
-**builtins**
-
-<table><tr>
-<td><a href="#instanceindex"><code>instanceIndex</code></a></td><td><a href="#vertexindex"><code>vertexIndex</code></a></td><td><a href="#globalid"><code>globalId</code></a></td><td><a href="#localid"><code>localId</code></a></td>
-</tr><tr>
-<td><a href="#localindex"><code>localIndex</code></a></td><td><a href="#workgroupid"><code>workgroupId</code></a></td><td><a href="#numworkgroups"><code>numWorkgroups</code></a></td><td></td>
-</tr></table>
-
-**screen/viewport**
-
-<table><tr>
-<td><a href="#fragcoord"><code>fragCoord</code></a></td><td><a href="#screencoordinate"><code>screenCoordinate</code></a></td><td><a href="#screensize"><code>screenSize</code></a></td><td><a href="#screenuv"><code>screenUV</code></a></td>
-</tr></table>
-
-**compute**
-
-<table><tr>
-<td><a href="#computeindex"><code>computeIndex</code></a></td>
-</tr></table>
-
-**helpers**
-
-<table><tr>
-<td><a href="#positionclip"><code>positionClip</code></a></td>
-</tr></table>
-
-**indirect**
-
-<table><tr>
-<td><a href="#drawindirect"><code>DrawIndirect</code></a></td><td><a href="#drawindexedindirect"><code>DrawIndexedIndirect</code></a></td>
-</tr></table>
-
-**types**
-
-<table><tr>
-<td><a href="#binaryop"><code>BinaryOp</code></a></td><td><a href="#builtinkind"><code>BuiltinKind</code></a></td><td><a href="#computenodeoptions"><code>ComputeNodeOptions</code></a></td><td><a href="#computeoptions"><code>ComputeOptions</code></a></td>
-</tr><tr>
-<td><a href="#gputypedarray"><code>GpuTypedArray</code></a></td><td><a href="#mattype"><code>MatType</code></a></td><td><a href="#numerictype"><code>NumericType</code></a></td><td><a href="#samplertype"><code>SamplerType</code></a></td>
+<td><a href="#renderoutput"><code>renderOutput</code></a></td><td><a href="#reversebits"><code>reverseBits</code></a></td><td><a href="#rgb"><code>rgb</code></a></td><td><a href="#samplertype"><code>SamplerType</code></a></td>
 </tr><tr>
 <td><a href="#scalartype"><code>ScalarType</code></a></td><td><a href="#structdef"><code>StructDef</code></a></td><td><a href="#structinstance"><code>StructInstance</code></a></td><td><a href="#structmember"><code>StructMember</code></a></td>
 </tr><tr>
-<td><a href="#texturetype"><code>TextureType</code></a></td><td><a href="#vec2type"><code>Vec2Type</code></a></td><td><a href="#vec3type"><code>Vec3Type</code></a></td><td><a href="#vec4type"><code>Vec4Type</code></a></td>
+<td><a href="#sampler"><code>sampler</code></a></td><td><a href="#screencoordinate"><code>screenCoordinate</code></a></td><td><a href="#screensize"><code>screenSize</code></a></td><td><a href="#screenuv"><code>screenUV</code></a></td>
 </tr><tr>
-<td><a href="#vectype"><code>VecType</code></a></td><td><a href="#wgsltype"><code>WgslType</code></a></td><td><a href="#interpolationtype"><code>InterpolationType</code></a></td><td><a href="#interpolationsampling"><code>InterpolationSampling</code></a></td>
+<td><a href="#select"><code>select</code></a></td><td><a href="#shiftleft"><code>shiftLeft</code></a></td><td><a href="#shiftright"><code>shiftRight</code></a></td><td><a href="#sign"><code>sign</code></a></td>
 </tr><tr>
-<td><a href="#wgslnodefunction"><code>WgslNodeFunction</code></a></td><td><a href="#wgslnodefunctioninput"><code>WgslNodeFunctionInput</code></a></td><td><a href="#paramdesc"><code>ParamDesc</code></a></td><td><a href="#fnlayout"><code>FnLayout</code></a></td>
-</tr></table>
-
-**render pass**
-
-<table><tr>
-<td><a href="#pass"><code>pass</code></a></td><td><a href="#passnodeoptions"><code>PassNodeOptions</code></a></td>
-</tr></table>
-
-**render output**
-
-<table><tr>
-<td><a href="#renderoutput"><code>renderOutput</code></a></td><td><a href="#outputcolorspace"><code>OutputColorSpace</code></a></td><td><a href="#renderoutputoptions"><code>RenderOutputOptions</code></a></td><td><a href="#tonemappingmode"><code>ToneMappingMode</code></a></td>
-</tr></table>
-
-**tonemapping and color space conversions**
-
-<table><tr>
-<td><a href="#acestonemapping"><code>acesToneMapping</code></a></td><td><a href="#reinhardtonemapping"><code>reinhardToneMapping</code></a></td><td><a href="#srgbtransfereotf"><code>sRGBTransferEOTF</code></a></td><td><a href="#srgbtransferoetf"><code>sRGBTransferOETF</code></a></td>
-</tr></table>
-
-**post-processing effects**
-
-<table><tr>
-<td><a href="#fxaa"><code>fxaa</code></a></td>
+<td><a href="#sin"><code>sin</code></a></td><td><a href="#smoothstep"><code>smoothstep</code></a></td><td><a href="#sqrt"><code>sqrt</code></a></td><td><a href="#srgbtransfereotf"><code>sRGBTransferEOTF</code></a></td>
+</tr><tr>
+<td><a href="#srgbtransferoetf"><code>sRGBTransferOETF</code></a></td><td><a href="#step"><code>step</code></a></td><td><a href="#storage"><code>storage</code></a></td><td><a href="#storagebarrier"><code>storageBarrier</code></a></td>
+</tr><tr>
+<td><a href="#storagetexture"><code>storageTexture</code></a></td><td><a href="#struct"><code>struct</code></a></td><td><a href="#sub"><code>sub</code></a></td><td><a href="#texturetype"><code>TextureType</code></a></td>
+</tr><tr>
+<td><a href="#tonemappingmode"><code>ToneMappingMode</code></a></td><td><a href="#tan"><code>tan</code></a></td><td><a href="#texture"><code>texture</code></a></td><td><a href="#texturebarrier"><code>textureBarrier</code></a></td>
+</tr><tr>
+<td><a href="#texturebinding"><code>textureBinding</code></a></td><td><a href="#texturedimensions"><code>textureDimensions</code></a></td><td><a href="#texturegather"><code>textureGather</code></a></td><td><a href="#texturegathercompare"><code>textureGatherCompare</code></a></td>
+</tr><tr>
+<td><a href="#textureload"><code>textureLoad</code></a></td><td><a href="#texturenumlayers"><code>textureNumLayers</code></a></td><td><a href="#texturenumlevels"><code>textureNumLevels</code></a></td><td><a href="#texturesample"><code>textureSample</code></a></td>
+</tr><tr>
+<td><a href="#texturesamplebias"><code>textureSampleBias</code></a></td><td><a href="#texturesamplecompare"><code>textureSampleCompare</code></a></td><td><a href="#texturesamplecomparelevel"><code>textureSampleCompareLevel</code></a></td><td><a href="#texturesamplegrad"><code>textureSampleGrad</code></a></td>
+</tr><tr>
+<td><a href="#texturesamplelevel"><code>textureSampleLevel</code></a></td><td><a href="#texturestore"><code>textureStore</code></a></td><td><a href="#transpose"><code>transpose</code></a></td><td><a href="#u32"><code>u32</code></a></td>
+</tr><tr>
+<td><a href="#uniform"><code>uniform</code></a></td><td><a href="#unpack2x16float"><code>unpack2x16float</code></a></td><td><a href="#unpack2x16snorm"><code>unpack2x16snorm</code></a></td><td><a href="#unpack2x16unorm"><code>unpack2x16unorm</code></a></td>
+</tr><tr>
+<td><a href="#unpack4x8snorm"><code>unpack4x8snorm</code></a></td><td><a href="#unpack4x8unorm"><code>unpack4x8unorm</code></a></td><td><a href="#var"><code>Var</code></a></td><td><a href="#vec2type"><code>Vec2Type</code></a></td>
+</tr><tr>
+<td><a href="#vec3type"><code>Vec3Type</code></a></td><td><a href="#vec4type"><code>Vec4Type</code></a></td><td><a href="#vectype"><code>VecType</code></a></td><td><a href="#varying"><code>varying</code></a></td>
+</tr><tr>
+<td><a href="#vec2"><code>vec2</code></a></td><td><a href="#vec2b"><code>vec2b</code></a></td><td><a href="#vec2f"><code>vec2f</code></a></td><td><a href="#vec2h"><code>vec2h</code></a></td>
+</tr><tr>
+<td><a href="#vec2i"><code>vec2i</code></a></td><td><a href="#vec2u"><code>vec2u</code></a></td><td><a href="#vec3"><code>vec3</code></a></td><td><a href="#vec3b"><code>vec3b</code></a></td>
+</tr><tr>
+<td><a href="#vec3f"><code>vec3f</code></a></td><td><a href="#vec3h"><code>vec3h</code></a></td><td><a href="#vec3i"><code>vec3i</code></a></td><td><a href="#vec3u"><code>vec3u</code></a></td>
+</tr><tr>
+<td><a href="#vec4"><code>vec4</code></a></td><td><a href="#vec4b"><code>vec4b</code></a></td><td><a href="#vec4f"><code>vec4f</code></a></td><td><a href="#vec4h"><code>vec4h</code></a></td>
+</tr><tr>
+<td><a href="#vec4i"><code>vec4i</code></a></td><td><a href="#vec4u"><code>vec4u</code></a></td><td><a href="#vertexindex"><code>vertexIndex</code></a></td><td><a href="#wgslnodefunction"><code>WgslNodeFunction</code></a></td>
+</tr><tr>
+<td><a href="#wgslnodefunctioninput"><code>WgslNodeFunctionInput</code></a></td><td><a href="#wgsltype"><code>WgslType</code></a></td><td><a href="#while"><code>While</code></a></td><td><a href="#workgroupvar"><code>WorkgroupVar</code></a></td>
+</tr><tr>
+<td><a href="#glsl"><code>glsl</code></a></td><td><a href="#glslfn"><code>glslFn</code></a></td><td><a href="#wgsl"><code>wgsl</code></a></td><td><a href="#wgslfn"><code>wgslFn</code></a></td>
+</tr><tr>
+<td><a href="#workgroupbarrier"><code>workgroupBarrier</code></a></td><td><a href="#workgroupid"><code>workgroupId</code></a></td><td></td><td></td>
 </tr></table>
 
 ### Renderer
 
 Drive the GPU: create a renderer, build pipelines, render to the canvas or a target.
 
-**Renderer**
-
-<table><tr>
-<td><a href="#webgpurendereroptions"><code>WebGPURendererOptions</code></a></td><td><a href="#computedispatch"><code>ComputeDispatch</code></a></td><td><a href="#webgpurenderer"><code>WebGPURenderer</code></a></td><td><a href="#devicelostinfo"><code>DeviceLostInfo</code></a></td>
-</tr></table>
-
 **Pipelines & targets**
 
 <table><tr>
-<td><a href="#renderpipeline"><code>RenderPipeline</code></a></td><td><a href="#canvastargetoptions"><code>CanvasTargetOptions</code></a></td><td><a href="#canvastarget"><code>CanvasTarget</code></a></td><td><a href="#readpixels"><code>readPixels</code></a></td>
-</tr><tr>
 <td><a href="#rendertargetoptions"><code>RenderTargetOptions</code></a></td><td><a href="#rendertargettexture"><code>RenderTargetTexture</code></a></td><td><a href="#rendertarget"><code>RenderTarget</code></a></td><td><a href="#cuberendertargetoptions"><code>CubeRenderTargetOptions</code></a></td>
 </tr><tr>
 <td><a href="#cuberendertarget"><code>CubeRenderTarget</code></a></td><td></td><td></td><td></td>
@@ -643,7 +535,7 @@ Declarative, data-oriented resources: buffers, uniforms, materials, and textures
 **Materials**
 
 <table><tr>
-<td><a href="#materialoptions"><code>MaterialOptions</code></a></td><td><a href="#material"><code>Material</code></a></td>
+<td><a href="#stencilfaceoverride"><code>StencilFaceOverride</code></a></td><td><a href="#materialoptions"><code>MaterialOptions</code></a></td><td><a href="#material"><code>Material</code></a></td>
 </tr></table>
 
 **Textures**
@@ -667,15 +559,17 @@ Turn a node graph into WGSL.
 **Compile**
 
 <table><tr>
-<td><a href="#compile"><code>compile</code></a></td><td><a href="#compilecompute"><code>compileCompute</code></a></td><td><a href="#nodeupdatetype"><code>NodeUpdateType</code></a></td><td><a href="#updatebeforenode"><code>UpdateBeforeNode</code></a></td>
+<td><a href="#compile"><code>compile</code></a></td><td><a href="#compileglsloptions"><code>CompileGlslOptions</code></a></td><td><a href="#compileglsl"><code>compileGlsl</code></a></td><td><a href="#compilecompute"><code>compileCompute</code></a></td>
 </tr><tr>
-<td><a href="#updateafternode"><code>UpdateAfterNode</code></a></td><td><a href="#updatenode"><code>UpdateNode</code></a></td><td><a href="#attributeentry"><code>AttributeEntry</code></a></td><td><a href="#vertexbuffergroup"><code>VertexBufferGroup</code></a></td>
+<td><a href="#nodeupdatetype"><code>NodeUpdateType</code></a></td><td><a href="#updatebeforenode"><code>UpdateBeforeNode</code></a></td><td><a href="#updateafternode"><code>UpdateAfterNode</code></a></td><td><a href="#updatenode"><code>UpdateNode</code></a></td>
 </tr><tr>
-<td><a href="#varyingentry"><code>VaryingEntry</code></a></td><td><a href="#uniformmember"><code>UniformMember</code></a></td><td><a href="#uniformgroupblock"><code>UniformGroupBlock</code></a></td><td><a href="#storageentry"><code>StorageEntry</code></a></td>
+<td><a href="#attributeentry"><code>AttributeEntry</code></a></td><td><a href="#vertexbuffergroup"><code>VertexBufferGroup</code></a></td><td><a href="#varyingentry"><code>VaryingEntry</code></a></td><td><a href="#uniformmember"><code>UniformMember</code></a></td>
 </tr><tr>
-<td><a href="#textureentry"><code>TextureEntry</code></a></td><td><a href="#storagetextureentry"><code>StorageTextureEntry</code></a></td><td><a href="#samplerentry"><code>SamplerEntry</code></a></td><td><a href="#computestorageentry"><code>ComputeStorageEntry</code></a></td>
+<td><a href="#uniformgroupblock"><code>UniformGroupBlock</code></a></td><td><a href="#storageentry"><code>StorageEntry</code></a></td><td><a href="#textureentry"><code>TextureEntry</code></a></td><td><a href="#storagetextureentry"><code>StorageTextureEntry</code></a></td>
 </tr><tr>
-<td><a href="#nodegraphinfo"><code>NodeGraphInfo</code></a></td><td><a href="#compileslots"><code>CompileSlots</code></a></td><td><a href="#compileresult"><code>CompileResult</code></a></td><td><a href="#computecompileresult"><code>ComputeCompileResult</code></a></td>
+<td><a href="#samplerentry"><code>SamplerEntry</code></a></td><td><a href="#computestorageentry"><code>ComputeStorageEntry</code></a></td><td><a href="#nodegraphinfo"><code>NodeGraphInfo</code></a></td><td><a href="#compileslots"><code>CompileSlots</code></a></td>
+</tr><tr>
+<td><a href="#compileresult"><code>CompileResult</code></a></td><td><a href="#computecompileresult"><code>ComputeCompileResult</code></a></td><td><a href="#discovery"><code>Discovery</code></a></td><td></td>
 </tr></table>
 
 ### Schema (`d`)
@@ -689,7 +583,9 @@ WGSL type descriptors (imported as `d`) and std430 buffer packing.
 </tr><tr>
 <td><a href="#packto"><code>packTo</code></a></td><td><a href="#unpack"><code>unpack</code></a></td><td><a href="#unpackarray"><code>unpackArray</code></a></td><td><a href="#layoutsizeof"><code>layoutSizeOf</code></a></td>
 </tr><tr>
-<td><a href="#layoutstrideof"><code>layoutStrideOf</code></a></td><td><a href="#getcompiledlayout"><code>getCompiledLayout</code></a></td><td><a href="#packtoview"><code>packToView</code></a></td><td><a href="#unpackfromview"><code>unpackFromView</code></a></td>
+<td><a href="#layoutstrideof"><code>layoutStrideOf</code></a></td><td><a href="#layoutalignof"><code>layoutAlignOf</code></a></td><td><a href="#getcompiledlayout"><code>getCompiledLayout</code></a></td><td><a href="#packtoview"><code>packToView</code></a></td>
+</tr><tr>
+<td><a href="#unpackfromview"><code>unpackFromView</code></a></td><td></td><td></td><td></td>
 </tr></table>
 
 ### Controls & debugging
@@ -731,6 +627,12 @@ WGSL type descriptors (imported as `d`) and std430 buffer packing.
 
 The full node DSL, grouped by category. Learn it with examples in the [guide](./README.md).
 
+#### `MouseAction`
+
+```ts
+export type MouseAction = (typeof MOUSE)[keyof typeof MOUSE];
+```
+
 #### `OrbitControlsEvent`
 
 ```ts
@@ -752,16 +654,45 @@ export type OrbitControlsEventListener = (event: OrbitControlsEvent) => void;
 export type OrbitControlsEventType = 'change' | 'start' | 'end';
 ```
 
-#### `MouseAction`
-
-```ts
-export type MouseAction = (typeof MOUSE)[keyof typeof MOUSE];
-```
-
 #### `TouchAction`
 
 ```ts
 export type TouchAction = (typeof TOUCH)[keyof typeof TOUCH];
+```
+
+#### `createStorageTexture`
+
+```ts
+/** Create a 2D storage texture (`texture_storage_2d<format, _>`). */
+export function createStorageTexture<F extends d.StorageTextureFormat = 'rgba8unorm'>(width: number, height: number, format?: F): GpuTexture<d.textureStorage2d<F, 'write'>>;
+```
+
+#### `createStorageTexture1d`
+
+```ts
+/** Create a 1D storage texture (`texture_storage_1d<format, _>`). */
+export function createStorageTexture1d<F extends d.StorageTextureFormat = 'rgba8unorm'>(width: number, format?: F): GpuTexture<d.textureStorage1d<F, 'write'>>;
+```
+
+#### `createStorageTexture3d`
+
+```ts
+/** Create a 3D storage texture (`texture_storage_3d<format, _>`). */
+export function createStorageTexture3d<F extends d.StorageTextureFormat = 'rgba8unorm'>(width: number, height: number, depth: number, format?: F): GpuTexture<d.textureStorage3d<F, 'write'>>;
+```
+
+#### `createStorageTextureArray`
+
+```ts
+/** Create a 2D-array storage texture (`texture_storage_2d_array<format, _>`). */
+export function createStorageTextureArray<F extends d.StorageTextureFormat = 'rgba8unorm'>(width: number, height: number, layers: number, format?: F): GpuTexture<d.textureStorage2dArray<F, 'write'>>;
+```
+
+#### `DimensionOf`
+
+```ts
+/** GPU texture dimension from schema type */
+export type DimensionOf<D extends d.Texture> = D extends d.texture1d | d.textureStorage1d ? '1d' : D extends d.texture3d | d.textureStorage3d ? '3d' : '2d';
 ```
 
 #### `GpuTexture`
@@ -838,46 +769,11 @@ export class GpuTexture<D extends d.Texture = d.Texture> {
 }
 ```
 
-#### `createStorageTexture`
-
-```ts
-/** Create a 2D storage texture (`texture_storage_2d<format, _>`). */
-export function createStorageTexture<F extends d.StorageTextureFormat = 'rgba8unorm'>(width: number, height: number, format?: F): GpuTexture<d.textureStorage2d<F, 'write'>>;
-```
-
-#### `createStorageTexture3d`
-
-```ts
-/** Create a 3D storage texture (`texture_storage_3d<format, _>`). */
-export function createStorageTexture3d<F extends d.StorageTextureFormat = 'rgba8unorm'>(width: number, height: number, depth: number, format?: F): GpuTexture<d.textureStorage3d<F, 'write'>>;
-```
-
-#### `createStorageTextureArray`
-
-```ts
-/** Create a 2D-array storage texture (`texture_storage_2d_array<format, _>`). */
-export function createStorageTextureArray<F extends d.StorageTextureFormat = 'rgba8unorm'>(width: number, height: number, layers: number, format?: F): GpuTexture<d.textureStorage2dArray<F, 'write'>>;
-```
-
-#### `createStorageTexture1d`
-
-```ts
-/** Create a 1D storage texture (`texture_storage_1d<format, _>`). */
-export function createStorageTexture1d<F extends d.StorageTextureFormat = 'rgba8unorm'>(width: number, format?: F): GpuTexture<d.textureStorage1d<F, 'write'>>;
-```
-
 #### `GpuTextureOptions`
 
 ```ts
 /** Map schema type → options type */
 export type GpuTextureOptions<D extends d.Texture> = D extends d.texture1d | d.textureStorage1d ? Options1D : D extends d.texture2d | d.textureDepth2d | d.textureMultisampled2d | d.textureDepthMultisampled2d | d.textureStorage2d ? Options2D : D extends d.texture2dArray | d.textureDepth2dArray | d.textureStorage2dArray ? Options2DArray : D extends d.textureCube | d.textureDepthCube ? OptionsCube : D extends d.textureCubeArray | d.textureDepthCubeArray ? OptionsCubeArray : D extends d.texture3d | d.textureStorage3d ? Options3D : Options2D;
-```
-
-#### `DimensionOf`
-
-```ts
-/** GPU texture dimension from schema type */
-export type DimensionOf<D extends d.Texture> = D extends d.texture1d | d.textureStorage1d ? '1d' : D extends d.texture3d | d.textureStorage3d ? '3d' : '2d';
 ```
 
 #### `ViewDimensionOf`
@@ -887,21 +783,710 @@ export type DimensionOf<D extends d.Texture> = D extends d.texture1d | d.texture
 export type ViewDimensionOf<D extends d.Texture> = D extends d.texture1d | d.textureStorage1d ? '1d' : D extends d.texture2d | d.textureDepth2d | d.textureMultisampled2d | d.textureDepthMultisampled2d | d.textureStorage2d ? '2d' : D extends d.texture2dArray | d.textureDepth2dArray | d.textureStorage2dArray ? '2d-array' : D extends d.textureCube | d.textureDepthCube ? 'cube' : D extends d.textureCubeArray | d.textureDepthCubeArray ? 'cube-array' : D extends d.texture3d | d.textureStorage3d ? '3d' : '2d';
 ```
 
+#### `AttributeOptions`
+
+```ts
+/**
+ * Options for creating an AttributeNode with view semantics.
+ */
+export type AttributeOptions = {
+    /** Byte stride between elements (0 = tightly packed). */
+    stride?: number;
+    /** Byte offset within each stride. */
+    offset?: number;
+    /** Whether this is per-instance data (stepMode: 'instance'). */
+    instanced?: boolean;
+};
+```
+
+#### `abs`
+
+```ts
+export const abs: <D extends Any>(a: Node<D>) => Node<D>;
+```
+
+#### `acesToneMapping`
+
+```ts
+/**
+ * ACES filmic tone mapping (Narkowicz 2015).
+ * f(x) = clamp((x * (2.51x + 0.03)) / (x * (2.43x + 0.59) + 0.14), 0, 1)
+ */
+export const acesToneMapping: (args_0: import("../core").Node<d.vec3f>) => import("../core").CallNode<d.vec3f>;
+```
+
+#### `acos`
+
+```ts
+export const acos: <D extends Any>(a: Node<D>) => Node<D>;
+```
+
+#### `add`
+
+```ts
+export const add: <NA extends Node<Any>, NB extends Node<Any>>(a: NA, b: NB) => Node<ArithResultDesc<NA["type"], NB["type"]>>;
+```
+
+#### `and`
+
+```ts
+export const and: (a: Node<d.bool>, b: Node<d.bool>) => Node<d.bool>;
+```
+
+#### `array`
+
+```ts
+export type array<E extends Any = Any> = {
+    type: 'array';
+    wgslType: `array<${E['wgslType']}>`;
+    element: E;
+    length?: undefined;
+};
+export function array<E extends Any>(element: E): {
+    type: 'array';
+    wgslType: `array<${E['wgslType']}>`;
+    element: E;
+    length?: undefined;
+};
+```
+
+#### `arrayTexture`
+
+```ts
+/**
+ * Create an array texture node.
+ *
+ * Accepts either:
+ * - A high-level ArrayTexture object (auto-creates sampler from texture settings)
+ * - A GpuTexture + GpuSampler pair (low-level)
+ *
+ * @param layerNode - The initial array layer index (i32 node)
+ *
+ * @example
+ * // From high-level ArrayTexture
+ * const frames = arrayTexture(myArrayTex, i32(0));
+ *
+ * // From GpuTexture + GpuSampler (low-level)
+ * const frames = arrayTexture(gpuArrayTex, gpuSampler, i32(0));
+ *
+ * // Sampling methods
+ * frames.layer(frameIndex)                   // change layer
+ * frames.sample(customUv)                    // change UVs
+ * frames.level(float(2))                     // textureSampleLevel
+ * frames.bias(float(1))                      // textureSampleBias
+ * frames.grad(ddx, ddy)                      // textureSampleGrad
+ * frames.offset(vec2i(1, 0))                 // with offset
+ * frames.load(vec2i(10, 20))                 // textureLoad
+ */
+export function arrayTexture(tex: ArrayTexture, layerNode: Node<d.i32>): ArrayTextureNode;
+export function arrayTexture(gpuTex: GpuTexture<d.texture2dArray>, gpuSampler: GpuSampler, layerNode: Node<d.i32>): ArrayTextureNode;
+```
+
+#### `asin`
+
+```ts
+export const asin: <D extends Any>(a: Node<D>) => Node<D>;
+```
+
+#### `atan`
+
+```ts
+export const atan: <D extends Any>(a: Node<D>) => Node<D>;
+```
+
+#### `atan2`
+
+```ts
+export const atan2: <D extends Any>(y: Node<D>, x: Node<D>) => Node<D>;
+```
+
+#### `atomicAdd`
+
+```ts
+/**
+ * Atomically adds `value` to the atomic value at `ptr` and returns the old value.
+ * The call is always added to the stack so side effects are captured even if the
+ * return value is discarded.
+ *
+ * In WGSL: `atomicAdd(&ptr, value) -> i32/u32`
+ */
+export function atomicAdd<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): Node<ScalarResultDesc>;
+```
+
+#### `atomicAnd`
+
+```ts
+/**
+ * Atomically computes the bitwise AND of the atomic value and `value`, stores it, and returns the old value.
+ * The call is always added to the stack so side effects are captured even if the
+ * return value is discarded.
+ *
+ * In WGSL: `atomicAnd(&ptr, value) -> i32/u32`
+ */
+export function atomicAnd<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): Node<ScalarResultDesc>;
+```
+
+#### `atomicCompareExchangeWeak`
+
+```ts
+/**
+ * Atomically compares the value at `ptr` with `comparator` and if equal, stores `value`.
+ * Returns the old value (regardless of whether the exchange happened).
+ * The call is always added to the stack so side effects are captured even if the
+ * return value is discarded.
+ *
+ * In WGSL: `atomicCompareExchangeWeak(&ptr, comparator, value) -> __atomic_compare_exchange_result<T>`
+ *
+ * Note: WGSL returns a struct { old_value: T, exchanged: bool }. This function returns the struct type
+ * which you need to access via .old_value and .exchanged fields.
+ */
+export function atomicCompareExchangeWeak<D extends AtomicPtrDesc>(ptr: Node<D>, comparator: Node<d.i32 | d.u32>, value: Node<d.i32 | d.u32>): Node<Any>;
+```
+
+#### `atomicExchange`
+
+```ts
+/**
+ * Atomically exchanges the value at `ptr` with `value` and returns the old value.
+ * The call is always added to the stack so side effects are captured even if the
+ * return value is discarded.
+ *
+ * In WGSL: `atomicExchange(&ptr, value) -> i32/u32`
+ */
+export function atomicExchange<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): Node<ScalarResultDesc>;
+```
+
+#### `atomicLoad`
+
+```ts
+/**
+ * Atomically loads the value from the atomic location at `ptr`.
+ *
+ * In WGSL: `atomicLoad(&ptr) -> i32/u32`
+ */
+export function atomicLoad<D extends AtomicPtrDesc>(ptr: Node<D>): Node<ScalarResultDesc>;
+```
+
+#### `atomicMax`
+
+```ts
+/**
+ * Atomically computes the maximum of the atomic value and `value`, stores it, and returns the old value.
+ * The call is always added to the stack so side effects are captured even if the
+ * return value is discarded.
+ *
+ * In WGSL: `atomicMax(&ptr, value) -> i32/u32`
+ */
+export function atomicMax<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): Node<ScalarResultDesc>;
+```
+
+#### `atomicMin`
+
+```ts
+/**
+ * Atomically computes the minimum of the atomic value and `value`, stores it, and returns the old value.
+ * The call is always added to the stack so side effects are captured even if the
+ * return value is discarded.
+ *
+ * In WGSL: `atomicMin(&ptr, value) -> i32/u32`
+ */
+export function atomicMin<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): Node<ScalarResultDesc>;
+```
+
+#### `atomicOr`
+
+```ts
+/**
+ * Atomically computes the bitwise OR of the atomic value and `value`, stores it, and returns the old value.
+ * The call is always added to the stack so side effects are captured even if the
+ * return value is discarded.
+ *
+ * In WGSL: `atomicOr(&ptr, value) -> i32/u32`
+ */
+export function atomicOr<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): Node<ScalarResultDesc>;
+```
+
+#### `atomicStore`
+
+```ts
+/**
+ * Atomically stores `value` to the atomic location at `ptr`.
+ *
+ * In WGSL: `atomicStore(&ptr, value)`
+ */
+export function atomicStore<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): void;
+```
+
+#### `atomicSub`
+
+```ts
+/**
+ * Atomically subtracts `value` from the atomic value at `ptr` and returns the old value.
+ * The call is always added to the stack so side effects are captured even if the
+ * return value is discarded.
+ *
+ * In WGSL: `atomicSub(&ptr, value) -> i32/u32`
+ */
+export function atomicSub<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): Node<ScalarResultDesc>;
+```
+
+#### `atomicXor`
+
+```ts
+/**
+ * Atomically computes the bitwise XOR of the atomic value and `value`, stores it, and returns the old value.
+ * The call is always added to the stack so side effects are captured even if the
+ * return value is discarded.
+ *
+ * In WGSL: `atomicXor(&ptr, value) -> i32/u32`
+ */
+export function atomicXor<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): Node<ScalarResultDesc>;
+```
+
+#### `attribute`
+
+```ts
+export function attribute<D extends Any>(name: string, schema: D, options?: AttributeOptions): AttributeNode<D>;
+export function attribute<D extends Any>(buffer: GpuBuffer<D>, options?: AttributeOptions): AttributeNode<D>;
+export function attribute<D extends Any>(data: TypedArrayFor<D>, schema: D, options?: AttributeOptions): AttributeNode<D>;
+```
+
+#### `BinaryOp`
+
+```ts
+export type BinaryOp = '+' | '-' | '*' | '/' | '%' | '==' | '!=' | '<' | '>' | '<=' | '>=' | '||' | '&&' | '&' | '|' | '^' | '<<' | '>>';
+```
+
+#### `Break`
+
+```ts
+export function Break(): void;
+```
+
+#### `BuiltinKind`
+
+```ts
+export type BuiltinKind = 'instance_index' | 'instance_data' | 'vertex_index' | 'global_invocation_id' | 'local_invocation_id' | 'local_invocation_index' | 'workgroup_id' | 'num_workgroups' | 'position';
+```
+
+#### `bitcastF32`
+
+```ts
+/** Reinterpret a u32 or i32 bit pattern as f32. WGSL: `bitcast<f32>(x)`. */
+export const bitcastF32: (node: Node<d.u32 | d.i32>) => Node<d.f32>;
+```
+
+#### `bitcastI32`
+
+```ts
+/** Reinterpret an f32 or u32 bit pattern as i32. WGSL: `bitcast<i32>(x)`. */
+export const bitcastI32: (node: Node<d.f32 | d.u32>) => Node<d.i32>;
+```
+
+#### `bitcastU32`
+
+```ts
+/** Reinterpret an f32 or i32 bit pattern as u32. WGSL: `bitcast<u32>(x)`. */
+export const bitcastU32: (node: Node<d.f32 | d.i32>) => Node<d.u32>;
+```
+
+#### `bitwiseAnd`
+
+```ts
+export const bitwiseAnd: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
+```
+
+#### `bitwiseOr`
+
+```ts
+export const bitwiseOr: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
+```
+
+#### `bitwiseXor`
+
+```ts
+export const bitwiseXor: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
+```
+
+#### `bool`
+
+```ts
+export type bool = {
+    type: 'bool';
+    wgslType: 'bool';
+    glslType: 'bool';
+};
+export const bool: bool;
+```
+
+#### `builtin`
+
+```ts
+export const builtin: <D extends Any>(builtinKind: BuiltinKind, desc: D) => BuiltinNode<D>;
+```
+
+#### `ComputeNodeOptions`
+
+```ts
+export type ComputeNodeOptions = ComputeOptions & {
+    fn: FnNode<any>;
+};
+```
+
+#### `ComputeOptions`
+
+```ts
+export type ComputeOptions = {
+    workgroupSize: [x: number, y: number, z: number];
+    name?: string;
+};
+```
+
+#### `Const`
+
+```ts
+/** @deprecated Use Let() instead */
+export function Const<D extends Any>(name: string, init: Node<D>): LetNode<D>;
+```
+
+#### `Continue`
+
+```ts
+export function Continue(): void;
+```
+
+#### `cameraFar`
+
+```ts
+/** Camera far plane distance. In renderGroup. */
+export const cameraFar: UniformNode<d.f32>;
+```
+
+#### `cameraNear`
+
+```ts
+/** Camera near plane distance. In renderGroup. */
+export const cameraNear: UniformNode<d.f32>;
+```
+
+#### `cameraPosition`
+
+```ts
+/** Camera world-space position. In renderGroup. */
+export const cameraPosition: UniformNode<d.vec3f>;
+```
+
+#### `cameraProjectionMatrix`
+
+```ts
+/** Projection matrix of the scene camera. In renderGroup. */
+export const cameraProjectionMatrix: UniformNode<d.mat4x4f>;
+```
+
+#### `cameraViewMatrix`
+
+```ts
+/** View (world-to-camera) matrix. In renderGroup. */
+export const cameraViewMatrix: UniformNode<d.mat4x4f>;
+```
+
+#### `ceil`
+
+```ts
+export const ceil: <D extends Any>(a: Node<D>) => Node<D>;
+```
+
+#### `clamp`
+
+```ts
+export const clamp: <D extends Any>(a: Node<D>, lo: Node<D>, hi: Node<D>) => Node<D>;
+```
+
+#### `comparisonSampler`
+
+```ts
+/**
+ * Create a comparison sampler node for shadow mapping.
+ *
+ * Accepts either:
+ * - A GpuSampler directly (low-level) - will create a new GpuSampler with compare function added
+ * - A high-level texture to extract _gpuSampler settings from
+ *
+ * @example
+ * // From high-level depth texture
+ * const cmpSampler = comparisonSampler(myDepthTex, 'less');
+ *
+ * // From GpuSampler directly
+ * const gpuSampler = new GpuSampler({ minFilter: 'linear' });
+ * const cmpSampler = comparisonSampler(gpuSampler, 'less');
+ */
+export function comparisonSampler(source: GpuSampler, compare?: GPUCompareFunction, group?: UniformGroup): SamplerNode<d.samplerComparison>;
+export function comparisonSampler(source: HighLevelTexture, compare?: GPUCompareFunction, group?: UniformGroup): SamplerNode<d.samplerComparison>;
+```
+
+#### `compute`
+
+```ts
+export function compute(fn: FnNode<Any>, opts: ComputeOptions): ComputeNode;
+```
+
+#### `computeIndex`
+
+```ts
+export const computeIndex: ComputeIndexNode;
+```
+
+#### `cond`
+
+```ts
+export const cond: <D extends Any>(condition: Node<Any>, ifTrue: Node<D>, ifFalse?: Node<D>) => ConditionalNode<D>;
+```
+
+#### `cos`
+
+```ts
+export const cos: <D extends Any>(a: Node<D>) => Node<D>;
+```
+
+#### `countLeadingZeros`
+
+```ts
+export const countLeadingZeros: <D extends Any>(a: Node<D>) => Node<D>;
+```
+
+#### `countOneBits`
+
+```ts
+export const countOneBits: <D extends Any>(a: Node<D>) => Node<D>;
+```
+
+#### `countTrailingZeros`
+
+```ts
+export const countTrailingZeros: <D extends Any>(a: Node<D>) => Node<D>;
+```
+
+#### `cross`
+
+```ts
+export const cross: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
+```
+
+#### `cubeTexture`
+
+```ts
+/**
+ * Create a cube texture node from a CubeTexture object.
+ * Auto-creates a SamplerNode from the texture's settings.
+ *
+ * @param tex - The CubeTexture object containing 6 face images
+ *
+ * @example
+ * // From high-level CubeTexture
+ * const env = cubeTexture(myCubeTex);
+ *
+ * // From GpuTexture + GpuSampler (low-level)
+ * const env = cubeTexture(gpuCubeTex, gpuSampler);
+ *
+ * // Sampling methods
+ * env.sample(reflectDir)                    // textureSample with direction
+ * env.sample(reflectDir).level(float(0))    // textureSampleLevel
+ * env.sample(reflectDir).bias(float(1))     // textureSampleBias
+ * env.sample(reflectDir).grad(ddx, ddy)     // textureSampleGrad
+ * // NO .offset() - not supported for cube textures
+ * // NO .load() - not supported for cube textures
+ */
+export function cubeTexture(tex: CubeTexture): CubeTextureNode;
+export function cubeTexture(gpuTex: GpuTexture<CubeSampledTexture>, gpuSampler: GpuSampler): CubeTextureNode;
+```
+
+#### `Discard`
+
+```ts
+export function Discard(): void;
+```
+
+#### `DrawIndexedIndirect`
+
+```ts
+/**
+ * Basic struct descriptor for an indexed indirect draw call (`drawIndexedIndirect`) with no additional fields.
+ * Memory layout (5 × u32, 20 bytes):
+ *   indexCount, instanceCount, firstIndex, baseVertex, firstInstance
+ */
+export const DrawIndexedIndirect: import("./core").StructDef<{
+    indexCount: d.u32;
+    instanceCount: d.u32;
+    firstIndex: d.u32;
+    baseVertex: d.u32;
+    firstInstance: d.u32;
+}>;
+```
+
+#### `DrawIndirect`
+
+```ts
+/**
+ * Basic struct descriptor for a non-indexed indirect draw call (`drawIndirect`) with no additional fields.
+ * Memory layout (4 × u32, 16 bytes):
+ *   vertexCount, instanceCount, firstVertex, firstInstance
+ */
+export const DrawIndirect: import("./core").StructDef<{
+    vertexCount: d.u32;
+    instanceCount: d.u32;
+    firstVertex: d.u32;
+    firstInstance: d.u32;
+}>;
+```
+
+#### `depthTexture`
+
+```ts
+/**
+ * Create a depth texture node.
+ *
+ * Accepts either:
+ * - A high-level DepthTexture object (auto-creates sampler from texture settings)
+ * - A GpuTexture + GpuSampler pair (low-level)
+ *
+ * For comparison sampling (shadow mapping), create a comparison sampler separately:
+ * ```
+ * const shadow = depthTexture(myDepthTex);
+ * const cmpSampler = comparisonSampler(myDepthTex, 'less');
+ * // Regular depth read:
+ * shadow.sample(uv)
+ * // Comparison sampling (shadow test):
+ * textureSampleCompare(shadow, cmpSampler, uv, depthRef)
+ * ```
+ *
+ * @example
+ * // From high-level DepthTexture
+ * const shadow = depthTexture(myDepthTex);
+ *
+ * // From GpuTexture + GpuSampler (low-level)
+ * const shadow = depthTexture(gpuDepthTex, gpuSampler);
+ */
+export function depthTexture(tex: DepthTexture): DepthTextureNode;
+export function depthTexture(gpuTex: GpuTexture<FlatDepthTexture>, gpuSampler: GpuSampler): DepthTextureNode;
+```
+
+#### `div`
+
+```ts
+export const div: <NA extends Node<Any>, NB extends Node<Any>>(a: NA, b: NB) => Node<ArithResultDesc<NA["type"], NB["type"]>>;
+```
+
+#### `dot`
+
+```ts
+export const dot: (a: Node<Any>, b: Node<Any>) => Node<d.f32>;
+```
+
+#### `dpdx`
+
+```ts
+export const dpdx: <D extends Any>(a: Node<D>) => Node<D>;
+```
+
+#### `dpdxCoarse`
+
+```ts
+export const dpdxCoarse: <D extends Any>(a: Node<D>) => Node<D>;
+```
+
+#### `dpdxFine`
+
+```ts
+export const dpdxFine: <D extends Any>(a: Node<D>) => Node<D>;
+```
+
+#### `dpdy`
+
+```ts
+export const dpdy: <D extends Any>(a: Node<D>) => Node<D>;
+```
+
+#### `dpdyCoarse`
+
+```ts
+export const dpdyCoarse: <D extends Any>(a: Node<D>) => Node<D>;
+```
+
+#### `dpdyFine`
+
+```ts
+export const dpdyFine: <D extends Any>(a: Node<D>) => Node<D>;
+```
+
+#### `equal`
+
+```ts
+export const equal: <D extends Any>(a: Node<D>, b: Node<D>) => Node<CompareResultDesc<D>>;
+```
+
+#### `exp`
+
+```ts
+export const exp: <D extends Any>(a: Node<D>) => Node<D>;
+```
+
+#### `exp2`
+
+```ts
+export const exp2: <D extends Any>(a: Node<D>) => Node<D>;
+```
+
+#### `Fn`
+
+```ts
+export function Fn<R extends Any, P extends readonly ParamDesc[]>(jsFunc: (...args: ParamDescsToNodes<P>) => Node<R>, layout: {
+    readonly name: string;
+    readonly params: [...P];
+    readonly return: R;
+}): (...args: ParamDescsToNodes<P>) => CallNode<R>;
+export function Fn<D extends Any, P extends readonly ParamDesc[]>(jsFunc: (...args: ParamDescsToNodes<P>) => Node<D>, layout: {
+    readonly name: string;
+    readonly params: [...P];
+    readonly return?: undefined;
+}): (...args: ParamDescsToNodes<P>) => CallNode<D>;
+export function Fn(jsFunc: () => void): FnNode<d.Void>;
+export function Fn<D extends Any>(jsFunc: (...args: Node<Any>[]) => Node<D>): (...args: Node<Any>[]) => CallNode<D>;
+```
+
+#### `FnLayout`
+
+```ts
+export type FnLayout<P extends readonly ParamDesc[]> = {
+    /** Function name in the generated WGSL. */
+    readonly name: string;
+    /** Named, typed parameters, in order. */
+    readonly params: [...P];
+    /** Explicit return type (WGSL `-> return`), checked against the body. Omit to infer from the body. */
+    readonly return?: Any;
+};
+```
+
+#### `For`
+
+```ts
+export const For: typeof Loop;
+```
+
 #### `f16`
 
 ```ts
-export const f16: f16;
 export type f16 = {
     type: 'f16';
     wgslType: 'f16';
 };
+export const f16: f16;
 ```
 
 #### `f32`
 
 ```ts
 /**
- * schema.ts, WGSL type descriptors following packcat's discriminated union pattern.
+ * schema.ts, type descriptors using WGSL grammar, with GLSL types where possible.
  *
  * Every descriptor has:
  *   - `type`, discriminant string for type-level narrowing and runtime switching
@@ -909,42 +1494,756 @@ export type f16 = {
  *
  * For primitives, type === wgslType (e.g. { type: 'f32'; wgslType: 'f32' }).
  * For composites, type is the discriminant ('array', 'struct') and wgslType is computed.
+ *
+ * `wgslType` stays WebGPU-native. A companion `glslType` carries the GLSL ES 3.00 type-name for the
+ * subset of descriptors the GLSL backend can translate directly (scalars, float/int/uint vectors,
+ * square float matrices, and structs — whose GLSL name equals their WGSL name). It is left OFF the
+ * descriptors the GLSL emitter can't express (f16 variants, bool vectors, non-square/half matrices,
+ * textures, samplers, …) so the emitter's `glslType()` helper still throws loudly for them, exactly
+ * as the old WGSL_TO_GLSL map did. Never neutralize `wgslType` for GLSL — add `glslType` alongside.
  */
-export const f32: f32;
 export type f32 = {
     type: 'f32';
     wgslType: 'f32';
+    glslType: 'float';
 };
+export const f32: f32;
+```
+
+#### `field`
+
+```ts
+/** Type-safe field access for structs - infers the field type from the struct descriptor */
+export const field: <D extends Any, K extends StructKeys<D>>(node: Node<D>, name: K) => Node<StructField<D, K>>;
+```
+
+#### `fields`
+
+```ts
+/**
+ * Create field accessor object for a struct node.
+ * Returns an object with typed Node properties for each field plus the $node reference.
+ *
+ * @example
+ * const particle = index(particleBuffer, computeIndex);
+ * const { position, velocity } = fields(particle);
+ * position.assign(newPos);
+ */
+export function fields<S extends d.StructSchema>(node: Node<StructDef<S>>): Fields<S>;
+export function fields<S extends d.StructSchema>(node: Node<d.StructDesc<S>>): Fields<S>;
+```
+
+#### `firstLeadingBit`
+
+```ts
+export const firstLeadingBit: <D extends Any>(a: Node<D>) => Node<D>;
+```
+
+#### `firstTrailingBit`
+
+```ts
+export const firstTrailingBit: <D extends Any>(a: Node<D>) => Node<D>;
+```
+
+#### `floor`
+
+```ts
+export const floor: <D extends Any>(a: Node<D>) => Node<D>;
+```
+
+#### `fract`
+
+```ts
+export const fract: <D extends Any>(a: Node<D>) => Node<D>;
+```
+
+#### `fragCoord`
+
+```ts
+/**
+ * Fragment position in window/pixel coordinates.
+ * @builtin(position) in the fragment shader, vec4f where xy are pixel coordinates.
+ *
+ * This is the raw fragment coordinate from the rasterizer.
+ * Use screenCoordinate.xy for 2D pixel position.
+ */
+export const fragCoord: BuiltinNode<d.vec4f>;
+```
+
+#### `fwidth`
+
+```ts
+export const fwidth: <D extends Any>(a: Node<D>) => Node<D>;
+```
+
+#### `fwidthCoarse`
+
+```ts
+export const fwidthCoarse: <D extends Any>(a: Node<D>) => Node<D>;
+```
+
+#### `fwidthFine`
+
+```ts
+export const fwidthFine: <D extends Any>(a: Node<D>) => Node<D>;
+```
+
+#### `fxaa`
+
+```ts
+/**
+ * FXAA (Fast Approximate Anti-Aliasing) post-processing effect.
+ *
+ * Uses the standard FXAA 3.11 algorithm:
+ * 1. Samples luminance of neighboring pixels
+ * 2. Detects edges based on contrast
+ * 3. Blends pixels along detected edges to smooth jaggies
+ *
+ * The inverse texture size uniform is automatically updated each frame.
+ *
+ * @param textureNode - The texture to apply FXAA to (typically from pass.getTextureNode())
+ * @returns A vec4f node containing the anti-aliased color
+ *
+ * @example
+ * const scenePass = pass(scene, camera);
+ * const fxaaOutput = fxaa(scenePass.getTextureNode());
+ *
+ * const postMaterial = new Material({
+ *     vertex: fullscreenQuadVertex,
+ *     fragment: fxaaOutput,
+ * });
+ */
+export function fxaa(textureNode: TextureNode): Node<d.vec4f>;
+```
+
+#### `GpuTypedArray`
+
+```ts
+export type GpuTypedArray = Float32Array | Int32Array | Uint32Array | Int16Array | Uint16Array | Int8Array | Uint8Array;
+```
+
+#### `globalId`
+
+```ts
+/** @builtin(global_invocation_id), unique thread ID across the entire dispatch. */
+export const globalId: BuiltinNode<d.vec3u>;
+```
+
+#### `greaterThan`
+
+```ts
+export const greaterThan: <D extends Any>(a: Node<D>, b: Node<D>) => Node<CompareResultDesc<D>>;
+```
+
+#### `greaterThanEqual`
+
+```ts
+export const greaterThanEqual: <D extends Any>(a: Node<D>, b: Node<D>) => Node<CompareResultDesc<D>>;
+```
+
+#### `If`
+
+```ts
+export function If(condition: Node<Any>, thenBody: () => void): IfChain;
+```
+
+#### `InterpolationSampling`
+
+```ts
+/**
+ * WGSL @interpolate sampling mode (only valid when interpolation type is 'perspective' or 'linear').
+ *   - center    : interpolation is performed at the center of the pixel (default)
+ *   - centroid  : interpolation is performed at a point inside the primitive that is also
+ *                 inside all samples covered by the fragment (avoids aliasing at primitive edges)
+ *   - sample    : interpolation is performed per-sample; the fragment shader runs once per sample
+ *   - either    : implementation may choose center or centroid (valid only with 'flat' in WGSL)
+ */
+export type InterpolationSampling = 'center' | 'centroid' | 'sample' | 'either';
+```
+
+#### `InterpolationType`
+
+```ts
+/**
+ * WGSL @interpolate interpolation type.
+ *   - perspective  : values are interpolated in a perspective-correct manner (default for float types)
+ *   - linear       : values are interpolated in a linear, non-perspective-correct manner
+ *   - flat         : values are not interpolated; the value from the provoking vertex is used
+ *                    (required for integer/unsigned-integer types)
+ */
+export type InterpolationType = 'perspective' | 'linear' | 'flat';
 ```
 
 #### `i32`
 
 ```ts
-export const i32: i32;
 export type i32 = {
     type: 'i32';
     wgslType: 'i32';
+    glslType: 'int';
+};
+export const i32: i32;
+```
+
+#### `index`
+
+```ts
+export const index: <N extends Node<Any>>(array: N, idx: Node<Any>) => Node<d.ElementOf<N["type"]>>;
+```
+
+#### `instanceIndex`
+
+```ts
+/** @builtin(instance_index), the instance index for instanced draw calls. */
+export const instanceIndex: BuiltinNode<d.u32>;
+```
+
+#### `inverseSqrt`
+
+```ts
+export const inverseSqrt: <D extends Any>(a: Node<D>) => Node<D>;
+```
+
+#### `Let`
+
+```ts
+/**
+ * Function-scope immutable binding: `let name = init;`
+ *
+ * @example
+ * const half = Let('half', value.mul(0.5));
+ * // → let half = (value * 0.5);
+ */
+export function Let<D extends Any>(name: string, init: Node<D>): LetNode<D>;
+```
+
+#### `Loop`
+
+```ts
+export function Loop(range: number, callback: (vars: LoopVars) => void): LoopNode;
+export function Loop(o: LoopParam, callback: (vars: LoopVars) => void): LoopNode;
+```
+
+#### `length`
+
+```ts
+export const length: (a: Node<Any>) => Node<d.f32>;
+```
+
+#### `lessThan`
+
+```ts
+export const lessThan: <D extends Any>(a: Node<D>, b: Node<D>) => Node<CompareResultDesc<D>>;
+```
+
+#### `lessThanEqual`
+
+```ts
+export const lessThanEqual: <D extends Any>(a: Node<D>, b: Node<D>) => Node<CompareResultDesc<D>>;
+```
+
+#### `localId`
+
+```ts
+/** @builtin(local_invocation_id), thread ID within its workgroup. */
+export const localId: BuiltinNode<d.vec3u>;
+```
+
+#### `localIndex`
+
+```ts
+/** @builtin(local_invocation_index), flat 1-D index within the workgroup. */
+export const localIndex: BuiltinNode<d.u32>;
+```
+
+#### `log`
+
+```ts
+export const log: <D extends Any>(a: Node<D>) => Node<D>;
+```
+
+#### `log2`
+
+```ts
+export const log2: <D extends Any>(a: Node<D>) => Node<D>;
+```
+
+#### `MatType`
+
+```ts
+export type MatType = 'mat2x2f' | 'mat2x3f' | 'mat2x4f' | 'mat3x2f' | 'mat3x3f' | 'mat3x4f' | 'mat4x2f' | 'mat4x3f' | 'mat4x4f' | 'mat2x2h' | 'mat2x3h' | 'mat2x4h' | 'mat3x2h' | 'mat3x3h' | 'mat3x4h' | 'mat4x2h' | 'mat4x3h' | 'mat4x4h';
+```
+
+#### `mat2x2f`
+
+```ts
+export type mat2x2f = {
+    type: 'mat2x2f';
+    wgslType: 'mat2x2f';
+    glslType: 'mat2';
+};
+export const mat2x2f: mat2x2f;
+```
+
+#### `mat2x2h`
+
+```ts
+export type mat2x2h = {
+    type: 'mat2x2h';
+    wgslType: 'mat2x2h';
+};
+export const mat2x2h: mat2x2h;
+```
+
+#### `mat2x3f`
+
+```ts
+export type mat2x3f = {
+    type: 'mat2x3f';
+    wgslType: 'mat2x3f';
+    glslType: 'mat2x3';
+};
+export const mat2x3f: mat2x3f;
+```
+
+#### `mat2x3h`
+
+```ts
+export type mat2x3h = {
+    type: 'mat2x3h';
+    wgslType: 'mat2x3h';
+};
+export const mat2x3h: mat2x3h;
+```
+
+#### `mat2x4f`
+
+```ts
+export type mat2x4f = {
+    type: 'mat2x4f';
+    wgslType: 'mat2x4f';
+    glslType: 'mat2x4';
+};
+export const mat2x4f: mat2x4f;
+```
+
+#### `mat2x4h`
+
+```ts
+export type mat2x4h = {
+    type: 'mat2x4h';
+    wgslType: 'mat2x4h';
+};
+export const mat2x4h: mat2x4h;
+```
+
+#### `mat3`
+
+```ts
+export function mat3(c0: Node<d.Vec3>, c1: Node<d.Vec3>, c2: Node<d.Vec3>): Node<d.mat3x3f>;
+export function mat3(diag: Node<d.f32>): Node<d.mat3x3f>;
+export function mat3(s00: Node<d.f32>, s01: Node<d.f32>, s02: Node<d.f32>, s10: Node<d.f32>, s11: Node<d.f32>, s12: Node<d.f32>, s20: Node<d.f32>, s21: Node<d.f32>, s22: Node<d.f32>): Node<d.mat3x3f>;
+```
+
+#### `mat3x2f`
+
+```ts
+export type mat3x2f = {
+    type: 'mat3x2f';
+    wgslType: 'mat3x2f';
+    glslType: 'mat3x2';
+};
+export const mat3x2f: mat3x2f;
+```
+
+#### `mat3x2h`
+
+```ts
+export type mat3x2h = {
+    type: 'mat3x2h';
+    wgslType: 'mat3x2h';
+};
+export const mat3x2h: mat3x2h;
+```
+
+#### `mat3x3f`
+
+```ts
+export type mat3x3f = {
+    type: 'mat3x3f';
+    wgslType: 'mat3x3f';
+    glslType: 'mat3';
+};
+export const mat3x3f: mat3x3f;
+```
+
+#### `mat3x3h`
+
+```ts
+export type mat3x3h = {
+    type: 'mat3x3h';
+    wgslType: 'mat3x3h';
+};
+export const mat3x3h: mat3x3h;
+```
+
+#### `mat3x4f`
+
+```ts
+export type mat3x4f = {
+    type: 'mat3x4f';
+    wgslType: 'mat3x4f';
+    glslType: 'mat3x4';
+};
+export const mat3x4f: mat3x4f;
+```
+
+#### `mat3x4h`
+
+```ts
+export type mat3x4h = {
+    type: 'mat3x4h';
+    wgslType: 'mat3x4h';
+};
+export const mat3x4h: mat3x4h;
+```
+
+#### `mat4`
+
+```ts
+export const mat4: (c0: Node<d.Vec4>, c1: Node<d.Vec4>, c2: Node<d.Vec4>, c3: Node<d.Vec4>) => ConstructNode<d.mat4x4f>;
+```
+
+#### `mat4x2f`
+
+```ts
+export type mat4x2f = {
+    type: 'mat4x2f';
+    wgslType: 'mat4x2f';
+    glslType: 'mat4x2';
+};
+export const mat4x2f: mat4x2f;
+```
+
+#### `mat4x2h`
+
+```ts
+export type mat4x2h = {
+    type: 'mat4x2h';
+    wgslType: 'mat4x2h';
+};
+export const mat4x2h: mat4x2h;
+```
+
+#### `mat4x3f`
+
+```ts
+export type mat4x3f = {
+    type: 'mat4x3f';
+    wgslType: 'mat4x3f';
+    glslType: 'mat4x3';
+};
+export const mat4x3f: mat4x3f;
+```
+
+#### `mat4x3h`
+
+```ts
+export type mat4x3h = {
+    type: 'mat4x3h';
+    wgslType: 'mat4x3h';
+};
+export const mat4x3h: mat4x3h;
+```
+
+#### `mat4x4f`
+
+```ts
+export type mat4x4f = {
+    type: 'mat4x4f';
+    wgslType: 'mat4x4f';
+    glslType: 'mat4';
+};
+export const mat4x4f: mat4x4f;
+```
+
+#### `mat4x4h`
+
+```ts
+export type mat4x4h = {
+    type: 'mat4x4h';
+    wgslType: 'mat4x4h';
+};
+export const mat4x4h: mat4x4h;
+```
+
+#### `max`
+
+```ts
+export function max<D extends Any>(a: Node<D>, b: Node<D>, ...rest: Node<D>[]): Node<D>;
+```
+
+#### `min`
+
+```ts
+export function min<D extends Any>(a: Node<D>, b: Node<D>, ...rest: Node<D>[]): Node<D>;
+```
+
+#### `mix`
+
+```ts
+export const mix: <D extends Any>(a: Node<D>, b: Node<D>, t: Node<Any>) => Node<D>;
+```
+
+#### `mod`
+
+```ts
+export const mod: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
+```
+
+#### `modelNormalMatrix`
+
+```ts
+/** Normal matrix (inverse-transpose of upper-left 3x3 of model matrix). In objectGroup. */
+export const modelNormalMatrix: UniformNode<d.mat3x3f>;
+```
+
+#### `modelWorldMatrix`
+
+```ts
+/** Model-to-world transform matrix. */
+export const modelWorldMatrix: UniformNode<d.mat4x4f>;
+```
+
+#### `mrt`
+
+```ts
+/**
+ * Create an MRT (Multiple Render Targets) node from a dictionary of outputs.
+ *
+ * Output names must match the `.name` property of textures in the render target.
+ * The compiler maps each output to the corresponding @location(N) based on
+ * texture array indices.
+ *
+ * @example
+ * const mrtOutput = mrt({
+ *     color: finalColor,
+ *     normal: viewSpaceNormal,
+ *     velocity: motionVector,
+ * });
+ *
+ * const material = new Material({
+ *     vertex: clipPosition,
+ *     fragment: mrtOutput,
+ * });
+ */
+export function mrt(outputNodes: Record<string, Node<d.Any>>): MRTNode;
+```
+
+#### `mul`
+
+```ts
+export const mul: <NA extends Node<Any>, NB extends Node<Any>>(a: NA, b: NB) => Node<MulResultDesc<NA["type"], NB["type"]>>;
+```
+
+#### `NumericType`
+
+```ts
+export type NumericType = ScalarType | VecType | MatType;
+```
+
+#### `normalize`
+
+```ts
+export const normalize: <D extends Any>(a: Node<D>) => Node<D>;
+```
+
+#### `notEqual`
+
+```ts
+export const notEqual: <D extends Any>(a: Node<D>, b: Node<D>) => Node<CompareResultDesc<D>>;
+```
+
+#### `numWorkgroups`
+
+```ts
+/** @builtin(num_workgroups), total number of workgroups dispatched. */
+export const numWorkgroups: BuiltinNode<d.vec3u>;
+```
+
+#### `OutputColorSpace`
+
+```ts
+export type OutputColorSpace = 'srgb' | 'linear';
+```
+
+#### `or`
+
+```ts
+export const or: (a: Node<d.bool>, b: Node<d.bool>) => Node<d.bool>;
+```
+
+#### `ParamDesc`
+
+```ts
+export type ParamDesc = {
+    readonly name: string;
+    readonly type: Any;
 };
 ```
 
-#### `u32`
+#### `PassNodeOptions`
 
 ```ts
-export const u32: u32;
-export type u32 = {
-    type: 'u32';
-    wgslType: 'u32';
+export type PassNodeOptions = {
+    /** RGBA clear color for this pass's color attachment. Defaults to [0, 0, 0, 1]. */
+    clearColor?: [number, number, number, number];
+    /** GPUTextureFormat for the color render target. Defaults to 'rgba16float'. */
+    colorFormat?: GPUTextureFormat;
+    /** Number of MSAA samples. Defaults to 1 (no MSAA). */
+    samples?: number;
+    /**
+     * Friendly identifier for this pass. Used verbatim as the `passId` (so it
+     * must be unique among passes) — it names the pass in the inspector's perf
+     * panel and labels the GPU render pass for tooling (RenderDoc, browser GPU
+     * errors). When omitted, an auto id like `_pass0` is generated.
+     */
+    label?: string;
 };
 ```
 
-#### `bool`
+#### `PrivateVar`
 
 ```ts
-export const bool: bool;
-export type bool = {
-    type: 'bool';
-    wgslType: 'bool';
+/**
+ * Create a module-scope private variable: `var<private> name: T [= init];`
+ *
+ * Private variables are per-invocation storage at module scope.
+ *
+ * @example Type-only (no initializer)
+ * const counter = PrivateVar('counter', d.u32);
+ * // → var<private> counter: u32;
+ *
+ * @example With initializer (type inferred from node)
+ * const gravity = PrivateVar('gravity', vec3f(0, -9.8, 0));
+ * // → var<private> gravity: vec3f = vec3f(0.0, -9.8, 0.0);
+ */
+export function PrivateVar<D extends Any>(name: string, type: D): PrivateVarNode<D>;
+export function PrivateVar<D extends Any>(name: string, init: Node<D>): PrivateVarNode<D>;
+```
+
+#### `pack2x16float`
+
+```ts
+/** Pack two f32s as halves into a u32. Lower 16 bits = v.x, upper = v.y. WGSL: `pack2x16float`. */
+export const pack2x16float: (v: Node<d.vec2f>) => Node<d.u32>;
+```
+
+#### `pack2x16snorm`
+
+```ts
+/** Pack two f32s in [-1, 1] into a u32 as 16-bit snorm. WGSL: `pack2x16snorm`. */
+export const pack2x16snorm: (v: Node<d.vec2f>) => Node<d.u32>;
+```
+
+#### `pack2x16unorm`
+
+```ts
+/** Pack two f32s in [0, 1] into a u32 as 16-bit unorm. WGSL: `pack2x16unorm`. */
+export const pack2x16unorm: (v: Node<d.vec2f>) => Node<d.u32>;
+```
+
+#### `pack4x8snorm`
+
+```ts
+/** Pack four f32s in [-1, 1] into a u32 as 8-bit snorm. WGSL: `pack4x8snorm`. */
+export const pack4x8snorm: (v: Node<d.vec4f>) => Node<d.u32>;
+```
+
+#### `pack4x8unorm`
+
+```ts
+/** Pack four f32s in [0, 1] into a u32 as 8-bit unorm. WGSL: `pack4x8unorm`. */
+export const pack4x8unorm: (v: Node<d.vec4f>) => Node<d.u32>;
+```
+
+#### `pass`
+
+```ts
+/** creates a pass node */
+export const pass: (scene: Scene, camera: Camera, options?: PassNodeOptions) => PassNode;
+```
+
+#### `positionClip`
+
+```ts
+/** helper for vertex shader: compute clip-space position from vertex position attribute and camera matrices. */
+export const positionClip: Node<d.vec4f>;
+```
+
+#### `pow`
+
+```ts
+export const pow: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
+```
+
+#### `RenderOutputOptions`
+
+```ts
+export type RenderOutputOptions = {
+    /**
+     * Tone mapping operator to apply.
+     * @default 'aces'
+     */
+    toneMapping?: ToneMappingMode;
+    /**
+     * Output color space.  'srgb' applies the standard linear→sRGB
+     * transfer function (IEC 61966-2-1).  'linear' skips it.
+     * @default 'srgb'
+     */
+    colorSpace?: OutputColorSpace;
+    /**
+     * Scene exposure multiplier, applied before tone mapping.
+     * Pass a UniformNode<d.f32> to animate it.
+     * @default f32(1.0)
+     */
+    exposure?: Node<d.f32>;
 };
+```
+
+#### `Return`
+
+```ts
+export function Return(): void;
+export function Return<D extends Any>(value: Node<D>): void;
+```
+
+#### `reinhardToneMapping`
+
+```ts
+/**
+ * Reinhard tone mapping.
+ * f(x) = x / (1 + x)
+ */
+export const reinhardToneMapping: (args_0: import("../core").Node<d.vec3f>) => import("../core").CallNode<d.vec3f>;
+```
+
+#### `renderOutput`
+
+```ts
+/**
+ * Wrap `inputNode` in tone-mapping and color-space conversion.
+ *
+ * Returns a `Node<d.vec4f>` suitable for final output:
+ * `renderer.render(renderOutput(scenePass.getTextureNode()))`.
+ */
+export function renderOutput(inputNode: Node<d.vec4f>, options?: RenderOutputOptions): Node<d.vec4f>;
+```
+
+#### `reverseBits`
+
+```ts
+export const reverseBits: <D extends Any>(a: Node<D>) => Node<D>;
 ```
 
 #### `rgb`
@@ -971,837 +2270,120 @@ export type bool = {
 export function rgb(input: ColorInput): import("./core").ConstructNode<import("../../schema/schema").vec3f>;
 ```
 
-#### `vec2`
+#### `SamplerType`
 
 ```ts
-export const vec2: {
-    (v: Scalar): ConstructNode<d.vec2f>;
-    (x: Scalar, y: Scalar): ConstructNode<d.vec2f>;
+export type SamplerType = 'sampler' | 'sampler_comparison';
+```
+
+#### `ScalarType`
+
+```ts
+export type ScalarType = 'f32' | 'i32' | 'u32' | 'bool' | 'f16';
+```
+
+#### `StructDef`
+
+```ts
+export type StructDef<S extends d.StructSchema> = {
+    readonly type: 'struct';
+    readonly wgslType: string;
+    readonly glslType: string;
+    readonly name: string;
+    readonly fields: S;
+    readonly members: StructMember[];
+    readonly node: StructNode<S>;
+    readonly nestedDefs: ReadonlyMap<string, StructDef<d.StructSchema>>;
+    construct(fields: {
+        readonly [K in keyof S]: Node<S[K]>;
+    }): ConstructNode<StructDef<S>>;
 };
 ```
 
-#### `vec2f`
+#### `StructInstance`
 
 ```ts
-export type vec2f = {
-    type: 'vec2f';
-    wgslType: 'vec2f';
-};
-export const vec2f: vec2f;
-```
-
-#### `vec2h`
-
-```ts
-export type vec2h = {
-    type: 'vec2h';
-    wgslType: 'vec2h';
-};
-export const vec2h: vec2h;
-```
-
-#### `vec2i`
-
-```ts
-export type vec2i = {
-    type: 'vec2i';
-    wgslType: 'vec2i';
-};
-export const vec2i: vec2i;
-```
-
-#### `vec2u`
-
-```ts
-export type vec2u = {
-    type: 'vec2u';
-    wgslType: 'vec2u';
-};
-export const vec2u: vec2u;
-```
-
-#### `vec2b`
-
-```ts
-export const vec2b: {
-    (v: Scalar): ConstructNode<d.vec2bool>;
-    (x: Scalar, y: Scalar): ConstructNode<d.vec2bool>;
+export type StructInstance<S extends d.StructSchema> = {
+    readonly $node: Node<d.StructDesc>;
+} & {
+    readonly [K in keyof S]: Node<S[K]>;
 };
 ```
 
-#### `vec3`
+#### `StructMember`
 
 ```ts
-export const vec3: {
-    (v: Scalar): ConstructNode<d.vec3f>;
-    (xy: Node<Any>, z: Scalar): ConstructNode<d.vec3f>;
-    (x: Scalar, y: Scalar, z: Scalar): ConstructNode<d.vec3f>;
+export type StructMember = {
+    readonly name: string;
+    readonly type: Any;
 };
 ```
 
-#### `vec3f`
+#### `sampler`
 
 ```ts
-export type vec3f = {
-    type: 'vec3f';
-    wgslType: 'vec3f';
+export type sampler = {
+    type: 'sampler';
+    wgslType: 'sampler';
 };
-export const vec3f: vec3f;
+export const sampler: sampler;
 ```
 
-#### `vec3h`
+#### `screenCoordinate`
 
 ```ts
-export type vec3h = {
-    type: 'vec3h';
-    wgslType: 'vec3h';
-};
-export const vec3h: vec3h;
+/**
+ * Screen coordinate, the current fragment's xy position in pixels.
+ * Equivalent to @builtin(position).xy in WGSL.
+ *
+ * @example
+ * // Get pixel position
+ * const pixelPos = screenCoordinate;
+ */
+export const screenCoordinate: Node<d.vec2f>;
 ```
 
-#### `vec3i`
+#### `screenSize`
 
 ```ts
-export type vec3i = {
-    type: 'vec3i';
-    wgslType: 'vec3i';
-};
-export const vec3i: vec3i;
+/**
+ * Screen/viewport size in pixels. Updated per render by the renderer.
+ * In renderGroup so it's shared across all objects in a frame.
+ *
+ * @example
+ * // Get screen dimensions
+ * const size = screenSize; // vec2f(width, height)
+ */
+export const screenSize: UniformNode<d.vec2f>;
 ```
 
-#### `vec3u`
+#### `screenUV`
 
 ```ts
-export type vec3u = {
-    type: 'vec3u';
-    wgslType: 'vec3u';
-};
-export const vec3u: vec3u;
+/**
+ * Normalized screen UV coordinates in [0, 1] range.
+ * Computed as screenCoordinate / screenSize.
+ *
+ * (0, 0) is top-left, (1, 1) is bottom-right (following WebGPU conventions).
+ *
+ * @example
+ * // Sample a texture using screen UV
+ * const color = texture.sample(screenUV);
+ *
+ * // Use x component for horizontal effects
+ * const x = screenUV.x;
+ */
+export const screenUV: Node<d.vec2f>;
 ```
 
-#### `vec3b`
+#### `select`
 
 ```ts
-export const vec3b: {
-    (v: Scalar): ConstructNode<d.vec3bool>;
-    (xy: Node<Any>, z: Scalar): ConstructNode<d.vec3bool>;
-    (x: Scalar, y: Scalar, z: Scalar): ConstructNode<d.vec3bool>;
-};
-```
-
-#### `vec4`
-
-```ts
-export const vec4: {
-    (v: Scalar): ConstructNode<d.vec4f>;
-    (xy: Node<Any>, zw: Node<Any>): ConstructNode<d.vec4f>;
-    (xy: Node<Any>, z: Scalar, w: Scalar): ConstructNode<d.vec4f>;
-    (xyz: Node<Any>, w: Scalar): ConstructNode<d.vec4f>;
-    (x: Scalar, y: Scalar, z: Scalar, w: Scalar): ConstructNode<d.vec4f>;
-};
-```
-
-#### `vec4f`
-
-```ts
-export type vec4f = {
-    type: 'vec4f';
-    wgslType: 'vec4f';
-};
-export const vec4f: vec4f;
-```
-
-#### `vec4h`
-
-```ts
-export type vec4h = {
-    type: 'vec4h';
-    wgslType: 'vec4h';
-};
-export const vec4h: vec4h;
-```
-
-#### `vec4i`
-
-```ts
-export type vec4i = {
-    type: 'vec4i';
-    wgslType: 'vec4i';
-};
-export const vec4i: vec4i;
-```
-
-#### `vec4u`
-
-```ts
-export type vec4u = {
-    type: 'vec4u';
-    wgslType: 'vec4u';
-};
-export const vec4u: vec4u;
-```
-
-#### `vec4b`
-
-```ts
-export const vec4b: {
-    (v: Scalar): ConstructNode<d.vec4bool>;
-    (xy: Node<Any>, zw: Node<Any>): ConstructNode<d.vec4bool>;
-    (xy: Node<Any>, z: Scalar, w: Scalar): ConstructNode<d.vec4bool>;
-    (xyz: Node<Any>, w: Scalar): ConstructNode<d.vec4bool>;
-    (x: Scalar, y: Scalar, z: Scalar, w: Scalar): ConstructNode<d.vec4bool>;
-};
-```
-
-#### `mat3`
-
-```ts
-export function mat3(c0: Node<d.Vec3>, c1: Node<d.Vec3>, c2: Node<d.Vec3>): Node<d.mat3x3f>;
-export function mat3(diag: Node<d.f32>): Node<d.mat3x3f>;
-export function mat3(s00: Node<d.f32>, s01: Node<d.f32>, s02: Node<d.f32>, s10: Node<d.f32>, s11: Node<d.f32>, s12: Node<d.f32>, s20: Node<d.f32>, s21: Node<d.f32>, s22: Node<d.f32>): Node<d.mat3x3f>;
-```
-
-#### `mat4`
-
-```ts
-export const mat4: (c0: Node<d.Vec4>, c1: Node<d.Vec4>, c2: Node<d.Vec4>, c3: Node<d.Vec4>) => ConstructNode<d.mat4x4f>;
-```
-
-#### `mat2x2f`
-
-```ts
-export type mat2x2f = {
-    type: 'mat2x2f';
-    wgslType: 'mat2x2f';
-};
-export const mat2x2f: mat2x2f;
-```
-
-#### `mat2x3f`
-
-```ts
-export type mat2x3f = {
-    type: 'mat2x3f';
-    wgslType: 'mat2x3f';
-};
-export const mat2x3f: mat2x3f;
-```
-
-#### `mat2x4f`
-
-```ts
-export type mat2x4f = {
-    type: 'mat2x4f';
-    wgslType: 'mat2x4f';
-};
-export const mat2x4f: mat2x4f;
-```
-
-#### `mat3x2f`
-
-```ts
-export type mat3x2f = {
-    type: 'mat3x2f';
-    wgslType: 'mat3x2f';
-};
-export const mat3x2f: mat3x2f;
-```
-
-#### `mat3x3f`
-
-```ts
-export type mat3x3f = {
-    type: 'mat3x3f';
-    wgslType: 'mat3x3f';
-};
-export const mat3x3f: mat3x3f;
-```
-
-#### `mat3x4f`
-
-```ts
-export type mat3x4f = {
-    type: 'mat3x4f';
-    wgslType: 'mat3x4f';
-};
-export const mat3x4f: mat3x4f;
-```
-
-#### `mat4x2f`
-
-```ts
-export type mat4x2f = {
-    type: 'mat4x2f';
-    wgslType: 'mat4x2f';
-};
-export const mat4x2f: mat4x2f;
-```
-
-#### `mat4x3f`
-
-```ts
-export type mat4x3f = {
-    type: 'mat4x3f';
-    wgslType: 'mat4x3f';
-};
-export const mat4x3f: mat4x3f;
-```
-
-#### `mat4x4f`
-
-```ts
-export type mat4x4f = {
-    type: 'mat4x4f';
-    wgslType: 'mat4x4f';
-};
-export const mat4x4f: mat4x4f;
-```
-
-#### `mat2x2h`
-
-```ts
-export type mat2x2h = {
-    type: 'mat2x2h';
-    wgslType: 'mat2x2h';
-};
-export const mat2x2h: mat2x2h;
-```
-
-#### `mat2x3h`
-
-```ts
-export type mat2x3h = {
-    type: 'mat2x3h';
-    wgslType: 'mat2x3h';
-};
-export const mat2x3h: mat2x3h;
-```
-
-#### `mat2x4h`
-
-```ts
-export type mat2x4h = {
-    type: 'mat2x4h';
-    wgslType: 'mat2x4h';
-};
-export const mat2x4h: mat2x4h;
-```
-
-#### `mat3x2h`
-
-```ts
-export type mat3x2h = {
-    type: 'mat3x2h';
-    wgslType: 'mat3x2h';
-};
-export const mat3x2h: mat3x2h;
-```
-
-#### `mat3x3h`
-
-```ts
-export type mat3x3h = {
-    type: 'mat3x3h';
-    wgslType: 'mat3x3h';
-};
-export const mat3x3h: mat3x3h;
-```
-
-#### `mat3x4h`
-
-```ts
-export type mat3x4h = {
-    type: 'mat3x4h';
-    wgslType: 'mat3x4h';
-};
-export const mat3x4h: mat3x4h;
-```
-
-#### `mat4x2h`
-
-```ts
-export type mat4x2h = {
-    type: 'mat4x2h';
-    wgslType: 'mat4x2h';
-};
-export const mat4x2h: mat4x2h;
-```
-
-#### `mat4x3h`
-
-```ts
-export type mat4x3h = {
-    type: 'mat4x3h';
-    wgslType: 'mat4x3h';
-};
-export const mat4x3h: mat4x3h;
-```
-
-#### `mat4x4h`
-
-```ts
-export type mat4x4h = {
-    type: 'mat4x4h';
-    wgslType: 'mat4x4h';
-};
-export const mat4x4h: mat4x4h;
-```
-
-#### `abs`
-
-```ts
-export const abs: <D extends Any>(a: Node<D>) => Node<D>;
-```
-
-#### `add`
-
-```ts
-export const add: <NA extends Node<Any>, NB extends Node<Any>>(a: NA, b: NB) => Node<ArithResultDesc<NA["type"], NB["type"]>>;
-```
-
-#### `sub`
-
-```ts
-export const sub: <NA extends Node<Any>, NB extends Node<Any>>(a: NA, b: NB) => Node<ArithResultDesc<NA["type"], NB["type"]>>;
-```
-
-#### `mul`
-
-```ts
-export const mul: <NA extends Node<Any>, NB extends Node<Any>>(a: NA, b: NB) => Node<MulResultDesc<NA["type"], NB["type"]>>;
-```
-
-#### `div`
-
-```ts
-export const div: <NA extends Node<Any>, NB extends Node<Any>>(a: NA, b: NB) => Node<ArithResultDesc<NA["type"], NB["type"]>>;
-```
-
-#### `mod`
-
-```ts
-export const mod: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
-```
-
-#### `min`
-
-```ts
-export function min<D extends Any>(a: Node<D>, b: Node<D>, ...rest: Node<D>[]): Node<D>;
-```
-
-#### `max`
-
-```ts
-export function max<D extends Any>(a: Node<D>, b: Node<D>, ...rest: Node<D>[]): Node<D>;
-```
-
-#### `clamp`
-
-```ts
-export const clamp: <D extends Any>(a: Node<D>, lo: Node<D>, hi: Node<D>) => Node<D>;
-```
-
-#### `mix`
-
-```ts
-export const mix: <D extends Any>(a: Node<D>, b: Node<D>, t: Node<Any>) => Node<D>;
-```
-
-#### `step`
-
-```ts
-export const step: <D extends Any>(edge: Node<D>, x: Node<D>) => Node<D>;
-```
-
-#### `smoothstep`
-
-```ts
-export const smoothstep: <D extends Any>(lo: Node<D>, hi: Node<D>, x: Node<D>) => Node<D>;
-```
-
-#### `ceil`
-
-```ts
-export const ceil: <D extends Any>(a: Node<D>) => Node<D>;
-```
-
-#### `floor`
-
-```ts
-export const floor: <D extends Any>(a: Node<D>) => Node<D>;
-```
-
-#### `fract`
-
-```ts
-export const fract: <D extends Any>(a: Node<D>) => Node<D>;
-```
-
-#### `sqrt`
-
-```ts
-export const sqrt: <D extends Any>(a: Node<D>) => Node<D>;
-```
-
-#### `inverseSqrt`
-
-```ts
-export const inverseSqrt: <D extends Any>(a: Node<D>) => Node<D>;
-```
-
-#### `pow`
-
-```ts
-export const pow: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
-```
-
-#### `exp`
-
-```ts
-export const exp: <D extends Any>(a: Node<D>) => Node<D>;
-```
-
-#### `exp2`
-
-```ts
-export const exp2: <D extends Any>(a: Node<D>) => Node<D>;
-```
-
-#### `log`
-
-```ts
-export const log: <D extends Any>(a: Node<D>) => Node<D>;
-```
-
-#### `log2`
-
-```ts
-export const log2: <D extends Any>(a: Node<D>) => Node<D>;
-```
-
-#### `tan`
-
-```ts
-export const tan: <D extends Any>(a: Node<D>) => Node<D>;
-```
-
-#### `atan`
-
-```ts
-export const atan: <D extends Any>(a: Node<D>) => Node<D>;
-```
-
-#### `atan2`
-
-```ts
-export const atan2: <D extends Any>(y: Node<D>, x: Node<D>) => Node<D>;
-```
-
-#### `asin`
-
-```ts
-export const asin: <D extends Any>(a: Node<D>) => Node<D>;
-```
-
-#### `acos`
-
-```ts
-export const acos: <D extends Any>(a: Node<D>) => Node<D>;
-```
-
-#### `length`
-
-```ts
-export const length: (a: Node<Any>) => Node<d.f32>;
-```
-
-#### `normalize`
-
-```ts
-export const normalize: <D extends Any>(a: Node<D>) => Node<D>;
-```
-
-#### `dot`
-
-```ts
-export const dot: (a: Node<Any>, b: Node<Any>) => Node<d.f32>;
-```
-
-#### `cross`
-
-```ts
-export const cross: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
-```
-
-#### `pack2x16float`
-
-```ts
-/** Pack two f32s as halves into a u32. Lower 16 bits = v.x, upper = v.y. WGSL: `pack2x16float`. */
-export const pack2x16float: (v: Node<d.vec2f>) => Node<d.u32>;
-```
-
-#### `unpack2x16float`
-
-```ts
-/** Unpack a u32 into two f32s from half-precision. WGSL: `unpack2x16float`. */
-export const unpack2x16float: (v: Node<d.u32>) => Node<d.vec2f>;
-```
-
-#### `pack2x16snorm`
-
-```ts
-/** Pack two f32s in [-1, 1] into a u32 as 16-bit snorm. WGSL: `pack2x16snorm`. */
-export const pack2x16snorm: (v: Node<d.vec2f>) => Node<d.u32>;
-```
-
-#### `unpack2x16snorm`
-
-```ts
-/** Unpack a u32 into two f32s as 16-bit snorm. WGSL: `unpack2x16snorm`. */
-export const unpack2x16snorm: (v: Node<d.u32>) => Node<d.vec2f>;
-```
-
-#### `pack2x16unorm`
-
-```ts
-/** Pack two f32s in [0, 1] into a u32 as 16-bit unorm. WGSL: `pack2x16unorm`. */
-export const pack2x16unorm: (v: Node<d.vec2f>) => Node<d.u32>;
-```
-
-#### `unpack2x16unorm`
-
-```ts
-/** Unpack a u32 into two f32s as 16-bit unorm. WGSL: `unpack2x16unorm`. */
-export const unpack2x16unorm: (v: Node<d.u32>) => Node<d.vec2f>;
-```
-
-#### `pack4x8snorm`
-
-```ts
-/** Pack four f32s in [-1, 1] into a u32 as 8-bit snorm. WGSL: `pack4x8snorm`. */
-export const pack4x8snorm: (v: Node<d.vec4f>) => Node<d.u32>;
-```
-
-#### `unpack4x8snorm`
-
-```ts
-/** Unpack a u32 into four f32s as 8-bit snorm. WGSL: `unpack4x8snorm`. */
-export const unpack4x8snorm: (v: Node<d.u32>) => Node<d.vec4f>;
-```
-
-#### `pack4x8unorm`
-
-```ts
-/** Pack four f32s in [0, 1] into a u32 as 8-bit unorm. WGSL: `pack4x8unorm`. */
-export const pack4x8unorm: (v: Node<d.vec4f>) => Node<d.u32>;
-```
-
-#### `unpack4x8unorm`
-
-```ts
-/** Unpack a u32 into four f32s as 8-bit unorm. WGSL: `unpack4x8unorm`. */
-export const unpack4x8unorm: (v: Node<d.u32>) => Node<d.vec4f>;
-```
-
-#### `bitcastF32`
-
-```ts
-/** Reinterpret a u32 or i32 bit pattern as f32. WGSL: `bitcast<f32>(x)`. */
-export const bitcastF32: (node: Node<d.u32 | d.i32>) => Node<d.f32>;
-```
-
-#### `bitcastU32`
-
-```ts
-/** Reinterpret an f32 or i32 bit pattern as u32. WGSL: `bitcast<u32>(x)`. */
-export const bitcastU32: (node: Node<d.f32 | d.i32>) => Node<d.u32>;
-```
-
-#### `bitcastI32`
-
-```ts
-/** Reinterpret an f32 or u32 bit pattern as i32. WGSL: `bitcast<i32>(x)`. */
-export const bitcastI32: (node: Node<d.f32 | d.u32>) => Node<d.i32>;
-```
-
-#### `sign`
-
-```ts
-export const sign: <D extends Any>(a: Node<D>) => Node<D>;
-```
-
-#### `sin`
-
-```ts
-export const sin: <D extends Any>(a: Node<D>) => Node<D>;
-```
-
-#### `cos`
-
-```ts
-export const cos: <D extends Any>(a: Node<D>) => Node<D>;
-```
-
-#### `transpose`
-
-```ts
-export const transpose: <D extends d.Mat>(m: Node<D>) => Node<D>;
-```
-
-#### `countOneBits`
-
-```ts
-export const countOneBits: <D extends Any>(a: Node<D>) => Node<D>;
-```
-
-#### `countTrailingZeros`
-
-```ts
-export const countTrailingZeros: <D extends Any>(a: Node<D>) => Node<D>;
-```
-
-#### `countLeadingZeros`
-
-```ts
-export const countLeadingZeros: <D extends Any>(a: Node<D>) => Node<D>;
-```
-
-#### `reverseBits`
-
-```ts
-export const reverseBits: <D extends Any>(a: Node<D>) => Node<D>;
-```
-
-#### `firstLeadingBit`
-
-```ts
-export const firstLeadingBit: <D extends Any>(a: Node<D>) => Node<D>;
-```
-
-#### `firstTrailingBit`
-
-```ts
-export const firstTrailingBit: <D extends Any>(a: Node<D>) => Node<D>;
-```
-
-#### `dpdx`
-
-```ts
-export const dpdx: <D extends Any>(a: Node<D>) => Node<D>;
-```
-
-#### `dpdy`
-
-```ts
-export const dpdy: <D extends Any>(a: Node<D>) => Node<D>;
-```
-
-#### `fwidth`
-
-```ts
-export const fwidth: <D extends Any>(a: Node<D>) => Node<D>;
-```
-
-#### `dpdxCoarse`
-
-```ts
-export const dpdxCoarse: <D extends Any>(a: Node<D>) => Node<D>;
-```
-
-#### `dpdyCoarse`
-
-```ts
-export const dpdyCoarse: <D extends Any>(a: Node<D>) => Node<D>;
-```
-
-#### `fwidthCoarse`
-
-```ts
-export const fwidthCoarse: <D extends Any>(a: Node<D>) => Node<D>;
-```
-
-#### `dpdxFine`
-
-```ts
-export const dpdxFine: <D extends Any>(a: Node<D>) => Node<D>;
-```
-
-#### `dpdyFine`
-
-```ts
-export const dpdyFine: <D extends Any>(a: Node<D>) => Node<D>;
-```
-
-#### `fwidthFine`
-
-```ts
-export const fwidthFine: <D extends Any>(a: Node<D>) => Node<D>;
-```
-
-#### `greaterThan`
-
-```ts
-export const greaterThan: <D extends Any>(a: Node<D>, b: Node<D>) => Node<CompareResultDesc<D>>;
-```
-
-#### `lessThan`
-
-```ts
-export const lessThan: <D extends Any>(a: Node<D>, b: Node<D>) => Node<CompareResultDesc<D>>;
-```
-
-#### `greaterThanEqual`
-
-```ts
-export const greaterThanEqual: <D extends Any>(a: Node<D>, b: Node<D>) => Node<CompareResultDesc<D>>;
-```
-
-#### `lessThanEqual`
-
-```ts
-export const lessThanEqual: <D extends Any>(a: Node<D>, b: Node<D>) => Node<CompareResultDesc<D>>;
-```
-
-#### `equal`
-
-```ts
-export const equal: <D extends Any>(a: Node<D>, b: Node<D>) => Node<CompareResultDesc<D>>;
-```
-
-#### `notEqual`
-
-```ts
-export const notEqual: <D extends Any>(a: Node<D>, b: Node<D>) => Node<CompareResultDesc<D>>;
-```
-
-#### `or`
-
-```ts
-export const or: (a: Node<d.bool>, b: Node<d.bool>) => Node<d.bool>;
-```
-
-#### `and`
-
-```ts
-export const and: (a: Node<d.bool>, b: Node<d.bool>) => Node<d.bool>;
-```
-
-#### `bitwiseAnd`
-
-```ts
-export const bitwiseAnd: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
-```
-
-#### `bitwiseOr`
-
-```ts
-export const bitwiseOr: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
-```
-
-#### `bitwiseXor`
-
-```ts
-export const bitwiseXor: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
+/**
+ * WGSL `select(falseVal, trueVal, condition)`.
+ * Returns `trueVal` when `condition` is true, `falseVal` otherwise.
+ */
+export const select: <D extends Any>(falseVal: Node<D>, trueVal: Node<D>, condition: Node<Any>) => Node<D>;
 ```
 
 #### `shiftLeft`
@@ -1816,90 +2398,54 @@ export const shiftLeft: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
 export const shiftRight: <D extends Any>(a: Node<D>, b: Node<D>) => Node<D>;
 ```
 
-#### `attribute`
+#### `sign`
 
 ```ts
-export function attribute<D extends Any>(name: string, schema: D, options?: AttributeOptions): AttributeNode<D>;
-export function attribute<D extends Any>(buffer: GpuBuffer<D>, options?: AttributeOptions): AttributeNode<D>;
-export function attribute<D extends Any>(data: TypedArrayFor<D>, schema: D, options?: AttributeOptions): AttributeNode<D>;
+export const sign: <D extends Any>(a: Node<D>) => Node<D>;
 ```
 
-#### `AttributeOptions`
+#### `sin`
+
+```ts
+export const sin: <D extends Any>(a: Node<D>) => Node<D>;
+```
+
+#### `smoothstep`
+
+```ts
+export const smoothstep: <D extends Any>(lo: Node<D>, hi: Node<D>, x: Node<D>) => Node<D>;
+```
+
+#### `sqrt`
+
+```ts
+export const sqrt: <D extends Any>(a: Node<D>) => Node<D>;
+```
+
+#### `sRGBTransferEOTF`
 
 ```ts
 /**
- * Options for creating an AttributeNode with view semantics.
+ * sRGB EOTF (electro-optical transfer function).
+ * Converts sRGB gamma-encoded values to linear-sRGB.
  */
-export type AttributeOptions = {
-    /** Byte stride between elements (0 = tightly packed). */
-    stride?: number;
-    /** Byte offset within each stride. */
-    offset?: number;
-    /** Whether this is per-instance data (stepMode: 'instance'). */
-    instanced?: boolean;
-};
+export const sRGBTransferEOTF: (args_0: import("../core").Node<d.vec3f>) => import("../core").CallNode<d.vec3f>;
 ```
 
-#### `builtin`
-
-```ts
-export const builtin: <D extends Any>(builtinKind: BuiltinKind, desc: D) => BuiltinNode<D>;
-```
-
-#### `index`
-
-```ts
-export const index: <N extends Node<Any>>(array: N, idx: Node<Any>) => Node<d.ElementOf<N["type"]>>;
-```
-
-#### `field`
-
-```ts
-/** Type-safe field access for structs - infers the field type from the struct descriptor */
-export const field: <D extends Any, K extends StructKeys<D>>(node: Node<D>, name: K) => Node<StructField<D, K>>;
-```
-
-#### `fields`
+#### `sRGBTransferOETF`
 
 ```ts
 /**
- * Create field accessor object for a struct node.
- * Returns an object with typed Node properties for each field plus the $node reference.
- *
- * @example
- * const particle = index(particleBuffer, computeIndex);
- * const { position, velocity } = fields(particle);
- * position.assign(newPos);
+ * sRGB OETF (opto-electronic transfer function).
+ * Converts linear-sRGB values to sRGB gamma-encoded.
  */
-export function fields<S extends d.StructSchema>(node: Node<StructDef<S>>): Fields<S>;
-export function fields<S extends d.StructSchema>(node: Node<d.StructDesc<S>>): Fields<S>;
+export const sRGBTransferOETF: (args_0: import("../core").Node<d.vec3f>) => import("../core").CallNode<d.vec3f>;
 ```
 
-#### `uniform`
+#### `step`
 
 ```ts
-/**
- * Declare a material uniform.
- *
- * **Value-based form**, pass a Uniform object; the node references it:
- *   const roughnessU = new Uniform(d.f32, 0.5);
- *   const roughness = uniform(roughnessU);
- *   roughnessU.set(0.8);  // update via Uniform
- *
- * **Name-based form**, resolved from material.uniforms at render time:
- *   const roughness = uniform('roughness', d.f32);
- *   const myVal = uniform('myVal', MyStruct);  // struct variant
- *
- * **Inline form**, pass a typed LiteralNode as the initialiser:
- *   uniform(f32(0.5))               // anonymous, uniformId derived from type
- *   uniform(f32(0.5), 'roughness')  // explicit name used as the WGSL field name
- *   uniform(vec4f(1, 0, 0, 1), 'baseColor')
- */
-export function uniform<D extends Any>(u: Uniform<D>): UniformNode<D>;
-export function uniform<D extends Any>(name: string, schema: D): UniformNode<D>;
-export function uniform<S extends StructSchema>(name: string, def: StructDef<S>): StructInstance<S>;
-export function uniform<D extends Any>(init: ConstructNode<D>, name?: string): UniformNode<D>;
-export function uniform<D extends Any>(init: LiteralNode<D>, name?: string): UniformNode<D>;
+export const step: <D extends Any>(edge: Node<D>, x: Node<D>) => Node<D>;
 ```
 
 #### `storage`
@@ -1933,21 +2479,53 @@ export function storage<D extends Any>(buffer: GpuBuffer<D>, access?: 'read' | '
 export function storage<D extends Any>(name: string, schema: D, access?: 'read' | 'read_write'): StorageNode<D>;
 ```
 
-#### `array`
+#### `storageBarrier`
 
 ```ts
-export type array<E extends Any = Any> = {
-    type: 'array';
-    wgslType: `array<${E['wgslType']}>`;
-    element: E;
-    length?: undefined;
-};
-export function array<E extends Any>(element: E): {
-    type: 'array';
-    wgslType: `array<${E['wgslType']}>`;
-    element: E;
-    length?: undefined;
-};
+/** Storage-buffer write/read sync within a workgroup. WGSL: `storageBarrier()`. */
+export function storageBarrier(): void;
+```
+
+#### `storageTexture`
+
+```ts
+/**
+ * storageTexture - bind a GpuTexture as a storage texture for compute writes/reads.
+ *
+ * @param gpuTex - a storage GpuTexture (e.g. from `createStorageTexture(...)`)
+ * @param access - 'write' (default), 'read', or 'read_write'
+ */
+export function storageTexture<D extends d.StorageTexture>(gpuTex: GpuTexture<D>, access?: d.StorageTextureAccess): StorageTextureBindingNode<D>;
+```
+
+#### `struct`
+
+```ts
+export function struct<S extends d.StructSchema>(name: string, fields: S): StructDef<S>;
+```
+
+#### `sub`
+
+```ts
+export const sub: <NA extends Node<Any>, NB extends Node<Any>>(a: NA, b: NB) => Node<ArithResultDesc<NA["type"], NB["type"]>>;
+```
+
+#### `TextureType`
+
+```ts
+export type TextureType = string;
+```
+
+#### `ToneMappingMode`
+
+```ts
+export type ToneMappingMode = 'aces' | 'reinhard' | 'linear' | 'none';
+```
+
+#### `tan`
+
+```ts
+export const tan: <D extends Any>(a: Node<D>) => Node<D>;
 ```
 
 #### `texture`
@@ -1980,16 +2558,581 @@ export function texture<D extends FlatSampledTexture>(gpuTex: GpuTexture<D>, gpu
 export function texture<S extends d.StorageTexture>(storageTex: GpuTexture<S>, gpuSampler: GpuSampler): TextureNode<StorageSampledOf<S>>;
 ```
 
+#### `textureBarrier`
+
+```ts
+/** Texture write/read sync within a workgroup. WGSL: `textureBarrier()`. */
+export function textureBarrier(): void;
+```
+
+#### `textureBinding`
+
+```ts
+/**
+ * Create a standalone texture binding node.
+ *
+ * Use this when you want to work with WGSL-level free functions directly
+ * (textureSample, textureLoad, etc.) instead of the high-level TextureNode
+ * sampling API.
+ */
+export const textureBinding: <D extends d.Texture>(tex: {
+    _gpuTexture: GpuTexture<D>;
+    id: number;
+}, textureDesc: D) => TextureBindingNode<D>;
+```
+
+#### `textureDimensions`
+
+```ts
+/**
+ * textureDimensions - Get texture dimensions.
+ */
+export function textureDimensions(t: TextureBindingNode, level?: Node<d.u32>): CallNode<d.vec2u>;
+```
+
+#### `textureGather`
+
+```ts
+/**
+ * textureGather - Gather a single component from 4 texels.
+ */
+export function textureGather<D extends FlatSampledTexture>(component: Node<d.i32>, t: TextureBindingNode<D>, s: AnySamplerNode, coords: Node<d.vec2f>, offset?: Node<d.vec2i>): CallNode<d.TextureSampleResultOf<D>>;
+```
+
+#### `textureGatherCompare`
+
+```ts
+/**
+ * textureGatherCompare - Gather compare results from 4 texels.
+ * Requires sampler_comparison.
+ */
+export function textureGatherCompare(t: TextureBindingNode<FlatDepthTexture>, s: AnyComparisonSamplerNode, coords: Node<d.vec2f>, depthRef: Node<d.f32>, offset?: Node<d.vec2i>): CallNode<d.vec4f>;
+```
+
+#### `textureLoad`
+
+```ts
+/**
+ * textureLoad - Load a texel directly without filtering.
+ * - Sampled textures: needs a mip `level`. Works in any stage. No sampler.
+ * - Storage textures (read / read_write): no level; returns `vec4<channel>` for the format.
+ */
+export function textureLoad<D extends d.Texture>(t: TextureBindingNode<D>, coords: Node<d.vec2i>, level: Node<d.i32>): CallNode<d.TextureSampleResultOf<D>>;
+export function textureLoad<D extends d.StorageTexture>(t: StorageTextureBindingNode<D>, coords: StorageCoord, layer?: Node<d.i32> | Node<d.u32>): CallNode<d.vec4f | d.vec4i | d.vec4u>;
+```
+
+#### `textureNumLayers`
+
+```ts
+/**
+ * textureNumLayers - Get number of array layers.
+ */
+export function textureNumLayers(t: Node<Any>): CallNode<d.u32>;
+```
+
+#### `textureNumLevels`
+
+```ts
+/**
+ * textureNumLevels - Get number of mip levels.
+ */
+export function textureNumLevels(t: TextureBindingNode): CallNode<d.u32>;
+```
+
+#### `textureSample`
+
+```ts
+/**
+ * textureSample - Sample a texture at UV coordinates.
+ * Fragment shader only.
+ */
+export function textureSample<D extends FlatSampledTexture>(t: TextureBindingNode<D>, s: AnySamplerNode, coords: Node<d.vec2f>, offset?: Node<d.vec2i>): CallNode<d.TextureSampleResultOf<D>>;
+```
+
+#### `textureSampleBias`
+
+```ts
+/**
+ * textureSampleBias - Sample a texture with mip level bias.
+ * Fragment shader only. Not supported for depth textures.
+ */
+export function textureSampleBias<D extends FlatSampledTexture>(t: TextureBindingNode<D>, s: AnySamplerNode, coords: Node<d.vec2f>, bias: Node<d.f32>, offset?: Node<d.vec2i>): CallNode<d.TextureSampleResultOf<D>>;
+```
+
+#### `textureSampleCompare`
+
+```ts
+/**
+ * textureSampleCompare - Compare-sample a depth texture.
+ * Fragment shader only. Requires sampler_comparison.
+ */
+export function textureSampleCompare(t: TextureBindingNode<FlatDepthTexture>, s: AnyComparisonSamplerNode, coords: Node<d.vec2f>, depthRef: Node<d.f32>, offset?: Node<d.vec2i>): CallNode<d.f32>;
+```
+
+#### `textureSampleCompareLevel`
+
+```ts
+/**
+ * textureSampleCompareLevel - Compare-sample a depth texture at a specific level.
+ * Works in any shader stage. Requires sampler_comparison.
+ */
+export function textureSampleCompareLevel(t: TextureBindingNode<FlatDepthTexture>, s: AnyComparisonSamplerNode, coords: Node<d.vec2f>, depthRef: Node<d.f32>, level: Node<d.i32>, offset?: Node<d.vec2i>): CallNode<d.f32>;
+```
+
+#### `textureSampleGrad`
+
+```ts
+/**
+ * textureSampleGrad - Sample a texture with explicit gradients.
+ * Works in any shader stage. Not supported for depth textures.
+ */
+export function textureSampleGrad<D extends FlatSampledTexture>(t: TextureBindingNode<D>, s: AnySamplerNode, coords: Node<d.vec2f>, ddx: Node<d.vec2f>, ddy: Node<d.vec2f>, offset?: Node<d.vec2i>): CallNode<d.TextureSampleResultOf<D>>;
+```
+
+#### `textureSampleLevel`
+
+```ts
+/**
+ * textureSampleLevel - Sample a texture at a specific mip level.
+ * Works in any shader stage.
+ */
+export function textureSampleLevel<D extends FlatSampledTexture>(t: TextureBindingNode<D>, s: AnySamplerNode, coords: Node<d.vec2f>, level: Node<d.f32>, offset?: Node<d.vec2i>): CallNode<d.TextureSampleResultOf<D>>;
+```
+
+#### `textureStore`
+
+```ts
+/**
+ * textureStore - Store a value into a storage texture (a statement / side effect).
+ *
+ * 2D/3D: `textureStore(tex, coords, value)`. 2D-array: pass the array `layer` between
+ * coords and value. The binding must have access 'write' or 'read_write'.
+ */
+export function textureStore<D extends d.StorageTexture>(t: StorageTextureBindingNode<D>, coords: StorageCoord, value: StorageValue, layer?: Node<d.i32> | Node<d.u32>): void;
+```
+
+#### `transpose`
+
+```ts
+export const transpose: <D extends d.Mat>(m: Node<D>) => Node<D>;
+```
+
+#### `u32`
+
+```ts
+export type u32 = {
+    type: 'u32';
+    wgslType: 'u32';
+    glslType: 'uint';
+};
+export const u32: u32;
+```
+
+#### `uniform`
+
+```ts
+/**
+ * Declare a material uniform.
+ *
+ * **Value-based form**, pass a Uniform object; the node references it:
+ *   const roughnessU = new Uniform(d.f32, 0.5);
+ *   const roughness = uniform(roughnessU);
+ *   roughnessU.set(0.8);  // update via Uniform
+ *
+ * **Name-based form**, resolved from material.uniforms at render time:
+ *   const roughness = uniform('roughness', d.f32);
+ *   const myVal = uniform('myVal', MyStruct);  // struct variant
+ *
+ * **Inline form**, pass a typed LiteralNode as the initialiser:
+ *   uniform(f32(0.5))               // anonymous, uniformId derived from type
+ *   uniform(f32(0.5), 'roughness')  // explicit name used as the WGSL field name
+ *   uniform(vec4f(1, 0, 0, 1), 'baseColor')
+ */
+export function uniform<D extends Any>(u: Uniform<D>): UniformNode<D>;
+export function uniform<D extends Any>(name: string, schema: D): UniformNode<D>;
+export function uniform<S extends StructSchema>(name: string, def: StructDef<S>): StructInstance<S>;
+export function uniform<D extends Any>(init: ConstructNode<D>, name?: string): UniformNode<D>;
+export function uniform<D extends Any>(init: LiteralNode<D>, name?: string): UniformNode<D>;
+```
+
+#### `unpack2x16float`
+
+```ts
+/** Unpack a u32 into two f32s from half-precision. WGSL: `unpack2x16float`. */
+export const unpack2x16float: (v: Node<d.u32>) => Node<d.vec2f>;
+```
+
+#### `unpack2x16snorm`
+
+```ts
+/** Unpack a u32 into two f32s as 16-bit snorm. WGSL: `unpack2x16snorm`. */
+export const unpack2x16snorm: (v: Node<d.u32>) => Node<d.vec2f>;
+```
+
+#### `unpack2x16unorm`
+
+```ts
+/** Unpack a u32 into two f32s as 16-bit unorm. WGSL: `unpack2x16unorm`. */
+export const unpack2x16unorm: (v: Node<d.u32>) => Node<d.vec2f>;
+```
+
+#### `unpack4x8snorm`
+
+```ts
+/** Unpack a u32 into four f32s as 8-bit snorm. WGSL: `unpack4x8snorm`. */
+export const unpack4x8snorm: (v: Node<d.u32>) => Node<d.vec4f>;
+```
+
+#### `unpack4x8unorm`
+
+```ts
+/** Unpack a u32 into four f32s as 8-bit unorm. WGSL: `unpack4x8unorm`. */
+export const unpack4x8unorm: (v: Node<d.u32>) => Node<d.vec4f>;
+```
+
+#### `Var`
+
+```ts
+/**
+ * Function-scope mutable variable: `var name = init;`
+ *
+ * @example
+ * const velocity = Var('velocity', vec3f(0));
+ * // → var velocity = vec3f(0.0);
+ */
+export function Var<D extends Any>(name: string, init: Node<D>): VarNode<D>;
+```
+
+#### `Vec2Type`
+
+```ts
+export type Vec2Type = 'vec2f' | 'vec2i' | 'vec2u' | 'vec2<bool>' | 'vec2h';
+```
+
+#### `Vec3Type`
+
+```ts
+export type Vec3Type = 'vec3f' | 'vec3i' | 'vec3u' | 'vec3<bool>' | 'vec3h';
+```
+
+#### `Vec4Type`
+
+```ts
+export type Vec4Type = 'vec4f' | 'vec4i' | 'vec4u' | 'vec4<bool>' | 'vec4h';
+```
+
+#### `VecType`
+
+```ts
+export type VecType = Vec2Type | Vec3Type | Vec4Type;
+```
+
 #### `varying`
 
 ```ts
 export const varying: <D extends Any>(source: Node<D>, name?: string) => VaryingNode<D>;
 ```
 
-#### `struct`
+#### `vec2`
 
 ```ts
-export function struct<S extends d.StructSchema>(name: string, fields: S): StructDef<S>;
+export const vec2: {
+    (v: Scalar): ConstructNode<d.vec2f>;
+    (x: Scalar, y: Scalar): ConstructNode<d.vec2f>;
+};
+```
+
+#### `vec2b`
+
+```ts
+export const vec2b: {
+    (v: Scalar): ConstructNode<d.vec2bool>;
+    (x: Scalar, y: Scalar): ConstructNode<d.vec2bool>;
+};
+```
+
+#### `vec2f`
+
+```ts
+export type vec2f = {
+    type: 'vec2f';
+    wgslType: 'vec2f';
+    glslType: 'vec2';
+};
+export const vec2f: vec2f;
+```
+
+#### `vec2h`
+
+```ts
+export type vec2h = {
+    type: 'vec2h';
+    wgslType: 'vec2h';
+};
+export const vec2h: vec2h;
+```
+
+#### `vec2i`
+
+```ts
+export type vec2i = {
+    type: 'vec2i';
+    wgslType: 'vec2i';
+    glslType: 'ivec2';
+};
+export const vec2i: vec2i;
+```
+
+#### `vec2u`
+
+```ts
+export type vec2u = {
+    type: 'vec2u';
+    wgslType: 'vec2u';
+    glslType: 'uvec2';
+};
+export const vec2u: vec2u;
+```
+
+#### `vec3`
+
+```ts
+export const vec3: {
+    (v: Scalar): ConstructNode<d.vec3f>;
+    (xy: Node<Any>, z: Scalar): ConstructNode<d.vec3f>;
+    (x: Scalar, y: Scalar, z: Scalar): ConstructNode<d.vec3f>;
+};
+```
+
+#### `vec3b`
+
+```ts
+export const vec3b: {
+    (v: Scalar): ConstructNode<d.vec3bool>;
+    (xy: Node<Any>, z: Scalar): ConstructNode<d.vec3bool>;
+    (x: Scalar, y: Scalar, z: Scalar): ConstructNode<d.vec3bool>;
+};
+```
+
+#### `vec3f`
+
+```ts
+export type vec3f = {
+    type: 'vec3f';
+    wgslType: 'vec3f';
+    glslType: 'vec3';
+};
+export const vec3f: vec3f;
+```
+
+#### `vec3h`
+
+```ts
+export type vec3h = {
+    type: 'vec3h';
+    wgslType: 'vec3h';
+};
+export const vec3h: vec3h;
+```
+
+#### `vec3i`
+
+```ts
+export type vec3i = {
+    type: 'vec3i';
+    wgslType: 'vec3i';
+    glslType: 'ivec3';
+};
+export const vec3i: vec3i;
+```
+
+#### `vec3u`
+
+```ts
+export type vec3u = {
+    type: 'vec3u';
+    wgslType: 'vec3u';
+    glslType: 'uvec3';
+};
+export const vec3u: vec3u;
+```
+
+#### `vec4`
+
+```ts
+export const vec4: {
+    (v: Scalar): ConstructNode<d.vec4f>;
+    (xy: Node<Any>, zw: Node<Any>): ConstructNode<d.vec4f>;
+    (xy: Node<Any>, z: Scalar, w: Scalar): ConstructNode<d.vec4f>;
+    (xyz: Node<Any>, w: Scalar): ConstructNode<d.vec4f>;
+    (x: Scalar, y: Scalar, z: Scalar, w: Scalar): ConstructNode<d.vec4f>;
+};
+```
+
+#### `vec4b`
+
+```ts
+export const vec4b: {
+    (v: Scalar): ConstructNode<d.vec4bool>;
+    (xy: Node<Any>, zw: Node<Any>): ConstructNode<d.vec4bool>;
+    (xy: Node<Any>, z: Scalar, w: Scalar): ConstructNode<d.vec4bool>;
+    (xyz: Node<Any>, w: Scalar): ConstructNode<d.vec4bool>;
+    (x: Scalar, y: Scalar, z: Scalar, w: Scalar): ConstructNode<d.vec4bool>;
+};
+```
+
+#### `vec4f`
+
+```ts
+export type vec4f = {
+    type: 'vec4f';
+    wgslType: 'vec4f';
+    glslType: 'vec4';
+};
+export const vec4f: vec4f;
+```
+
+#### `vec4h`
+
+```ts
+export type vec4h = {
+    type: 'vec4h';
+    wgslType: 'vec4h';
+};
+export const vec4h: vec4h;
+```
+
+#### `vec4i`
+
+```ts
+export type vec4i = {
+    type: 'vec4i';
+    wgslType: 'vec4i';
+    glslType: 'ivec4';
+};
+export const vec4i: vec4i;
+```
+
+#### `vec4u`
+
+```ts
+export type vec4u = {
+    type: 'vec4u';
+    wgslType: 'vec4u';
+    glslType: 'uvec4';
+};
+export const vec4u: vec4u;
+```
+
+#### `vertexIndex`
+
+```ts
+/** @builtin(vertex_index), the vertex index in the current draw call. */
+export const vertexIndex: BuiltinNode<d.u32>;
+```
+
+#### `WgslNodeFunction`
+
+```ts
+export type WgslNodeFunction = {
+    type: string;
+    inputs: WgslNodeFunctionInput[];
+    name: string;
+    inputsCode: string;
+    blockCode: string;
+    outputType: string;
+    getCode(name?: string): string;
+};
+```
+
+#### `WgslNodeFunctionInput`
+
+```ts
+/**
+ * Parsed WGSL function info returned by parseWgslFunction().
+ */
+export type WgslNodeFunctionInput = {
+    name: string;
+    type: string;
+    pointer?: boolean;
+};
+```
+
+#### `WgslType`
+
+```ts
+export type WgslType = PrimType | AtomicType | `array<${string}>` | `array<${string}, ${number}>` | string;
+```
+
+#### `While`
+
+```ts
+export function While(condition: Node<Any>, body: () => void): void;
+```
+
+#### `WorkgroupVar`
+
+```ts
+/**
+ * Create a module-scope workgroup variable: `var<workgroup> name: T;`
+ *
+ * Workgroup variables are shared across all invocations in a workgroup.
+ * Only valid in compute shaders. Cannot have an initializer.
+ *
+ * @example
+ * const shared = WorkgroupVar('sharedData', d.array(d.f32, 256));
+ * // → var<workgroup> sharedData: array<f32, 256>;
+ */
+export function WorkgroupVar<D extends Any>(name: string, type: D): WorkgroupVarNode<D>;
+```
+
+#### `glsl`
+
+```ts
+/**
+ * Create an inline GLSL expression node using a tagged template literal.
+ *
+ * Mirrors `wgsl` but produces a GLSL-only node — it emits on the WebGL backend
+ * and throws on the WebGPU (WGSL) backend. For a node that runs on BOTH backends,
+ * use `wgsl(desc)\`...\`.glslSource\`...\`` instead.
+ *
+ * @param desc - A descriptor specifying the result type
+ *
+ * @example
+ * const luma = glsl(d.f32)`dot(${c}, vec3(0.299, 0.587, 0.114))`;
+ */
+export function glsl<D extends d.Any>(desc: D): (strings: TemplateStringsArray, ...deps: Node<d.Any>[]) => WgslNode<D>;
+```
+
+#### `glslFn`
+
+```ts
+/**
+ * Create a GLSL-only function from raw GLSL source code.
+ *
+ * Mirrors `wgslFn` but targets the WebGL backend only — the returned callable emits the GLSL
+ * function on the WebGL backend and throws on the WebGPU (WGSL) backend. For a function that runs
+ * on BOTH backends, use `wgslFn(wgslSrc, { output, params, glsl: glslSrc })` instead.
+ *
+ * The layout must carry the function `name` (GLSL can't be parsed for it) and `output` type; `params`
+ * are optional but recommended for type-checked call sites.
+ *
+ * @example
+ * const tint = glslFn(
+ *     `vec3 tint(vec3 c, float k) { return c * k; }`,
+ *     { name: 'tint', output: d.vec3f, params: [{ name: 'c', type: d.vec3f }, { name: 'k', type: d.f32 }] },
+ * );
+ */
+export function glslFn<D extends d.Any, P extends readonly ParamDesc[]>(source: string, layout: {
+    readonly name: string;
+    readonly output: D;
+    readonly params: [...P];
+}, includes?: (WgslFnCallable | WgslFunctionNode)[]): WgslFnCallableTyped<D, P>;
+export function glslFn<D extends d.Any>(source: string, layout: {
+    readonly name: string;
+    readonly output: D;
+    readonly params?: undefined;
+}, includes?: (WgslFnCallable | WgslFunctionNode)[]): WgslFnCallableUntyped<D>;
 ```
 
 #### `wgsl`
@@ -1998,15 +3141,19 @@ export function struct<S extends d.StructSchema>(name: string, fields: S): Struc
 /**
  * Create an inline WGSL expression node using a tagged template literal.
  *
- * @param desc - A WgslDesc descriptor specifying the result type
+ * @param desc - A descriptor specifying the result type
  *
  * @example
- * // With WgslDesc:
+ * // With desc:
  * const expr = wgsl(d.f32)`dot(${a}, ${b})`;
  * const rgbaNode = wgsl(d.vec4f)`vec4f(${rgb}, 1.0)`;
  *
  * // Preserving input type:
  * const sinNode = <D extends d.WgslDesc>(a: Node<D>) => wgsl(a.type)`sin(${a})`;
+ *
+ * // Cross-backend (WGSL + GLSL companion) so one node runs on both backends:
+ * const luma = wgsl(d.f32)`dot(${c}, vec3f(0.299, 0.587, 0.114))`
+ *     .glslSource`dot(${c}, vec3(0.299, 0.587, 0.114))`;
  */
 export function wgsl<D extends d.Any>(desc: D): (strings: TemplateStringsArray, ...deps: Node<d.Any>[]) => WgslNode<D>;
 ```
@@ -2057,603 +3204,14 @@ export function wgsl<D extends d.Any>(desc: D): (strings: TemplateStringsArray, 
 export function wgslFn<D extends d.Any, P extends readonly ParamDesc[]>(source: string, layout: {
     readonly output: D;
     readonly params: [...P];
+    readonly glsl?: string;
 }, includes?: (WgslFnCallable | WgslFunctionNode)[]): WgslFnCallableTyped<D, P>;
 export function wgslFn<D extends d.Any>(source: string, layout: {
     readonly output: D;
     readonly params?: undefined;
+    readonly glsl?: string;
 }, includes?: (WgslFnCallable | WgslFunctionNode)[]): WgslFnCallableUntyped<D>;
 export function wgslFn(source: string, includes?: (WgslFnCallable | WgslFunctionNode)[]): WgslFnCallable;
-```
-
-#### `Fn`
-
-```ts
-export function Fn<R extends Any, P extends readonly ParamDesc[]>(jsFunc: (...args: ParamDescsToNodes<P>) => Node<R>, layout: {
-    readonly name: string;
-    readonly params: [...P];
-    readonly return: R;
-}): (...args: ParamDescsToNodes<P>) => CallNode<R>;
-export function Fn<D extends Any, P extends readonly ParamDesc[]>(jsFunc: (...args: ParamDescsToNodes<P>) => Node<D>, layout: {
-    readonly name: string;
-    readonly params: [...P];
-    readonly return?: undefined;
-}): (...args: ParamDescsToNodes<P>) => CallNode<D>;
-export function Fn(jsFunc: () => void): FnNode<d.Void>;
-export function Fn<D extends Any>(jsFunc: (...args: Node<Any>[]) => Node<D>): (...args: Node<Any>[]) => CallNode<D>;
-```
-
-#### `mrt`
-
-```ts
-/**
- * Create an MRT (Multiple Render Targets) node from a dictionary of outputs.
- *
- * Output names must match the `.name` property of textures in the render target.
- * The compiler maps each output to the corresponding @location(N) based on
- * texture array indices.
- *
- * @example
- * const mrtOutput = mrt({
- *     color: finalColor,
- *     normal: viewSpaceNormal,
- *     velocity: motionVector,
- * });
- *
- * const material = new Material({
- *     vertex: clipPosition,
- *     fragment: mrtOutput,
- * });
- */
-export function mrt(outputNodes: Record<string, Node<d.Any>>): MRTNode;
-```
-
-#### `compute`
-
-```ts
-export function compute(fn: FnNode<Any>, opts: ComputeOptions): ComputeNode;
-```
-
-#### `sampler`
-
-```ts
-export type sampler = {
-    type: 'sampler';
-    wgslType: 'sampler';
-};
-export const sampler: sampler;
-```
-
-#### `comparisonSampler`
-
-```ts
-/**
- * Create a comparison sampler node for shadow mapping.
- *
- * Accepts either:
- * - A GpuSampler directly (low-level) - will create a new GpuSampler with compare function added
- * - A high-level texture to extract _gpuSampler settings from
- *
- * @example
- * // From high-level depth texture
- * const cmpSampler = comparisonSampler(myDepthTex, 'less');
- *
- * // From GpuSampler directly
- * const gpuSampler = new GpuSampler({ minFilter: 'linear' });
- * const cmpSampler = comparisonSampler(gpuSampler, 'less');
- */
-export function comparisonSampler(source: GpuSampler, compare?: GPUCompareFunction, group?: UniformGroup): SamplerNode<d.samplerComparison>;
-export function comparisonSampler(source: HighLevelTexture, compare?: GPUCompareFunction, group?: UniformGroup): SamplerNode<d.samplerComparison>;
-```
-
-#### `cubeTexture`
-
-```ts
-/**
- * Create a cube texture node from a CubeTexture object.
- * Auto-creates a SamplerNode from the texture's settings.
- *
- * @param tex - The CubeTexture object containing 6 face images
- *
- * @example
- * // From high-level CubeTexture
- * const env = cubeTexture(myCubeTex);
- *
- * // From GpuTexture + GpuSampler (low-level)
- * const env = cubeTexture(gpuCubeTex, gpuSampler);
- *
- * // Sampling methods
- * env.sample(reflectDir)                    // textureSample with direction
- * env.sample(reflectDir).level(float(0))    // textureSampleLevel
- * env.sample(reflectDir).bias(float(1))     // textureSampleBias
- * env.sample(reflectDir).grad(ddx, ddy)     // textureSampleGrad
- * // NO .offset() - not supported for cube textures
- * // NO .load() - not supported for cube textures
- */
-export function cubeTexture(tex: CubeTexture): CubeTextureNode;
-export function cubeTexture(gpuTex: GpuTexture<CubeSampledTexture>, gpuSampler: GpuSampler): CubeTextureNode;
-```
-
-#### `depthTexture`
-
-```ts
-/**
- * Create a depth texture node.
- *
- * Accepts either:
- * - A high-level DepthTexture object (auto-creates sampler from texture settings)
- * - A GpuTexture + GpuSampler pair (low-level)
- *
- * For comparison sampling (shadow mapping), create a comparison sampler separately:
- * ```
- * const shadow = depthTexture(myDepthTex);
- * const cmpSampler = comparisonSampler(myDepthTex, 'less');
- * // Regular depth read:
- * shadow.sample(uv)
- * // Comparison sampling (shadow test):
- * textureSampleCompare(shadow, cmpSampler, uv, depthRef)
- * ```
- *
- * @example
- * // From high-level DepthTexture
- * const shadow = depthTexture(myDepthTex);
- *
- * // From GpuTexture + GpuSampler (low-level)
- * const shadow = depthTexture(gpuDepthTex, gpuSampler);
- */
-export function depthTexture(tex: DepthTexture): DepthTextureNode;
-export function depthTexture(gpuTex: GpuTexture<FlatDepthTexture>, gpuSampler: GpuSampler): DepthTextureNode;
-```
-
-#### `arrayTexture`
-
-```ts
-/**
- * Create an array texture node.
- *
- * Accepts either:
- * - A high-level ArrayTexture object (auto-creates sampler from texture settings)
- * - A GpuTexture + GpuSampler pair (low-level)
- *
- * @param layerNode - The initial array layer index (i32 node)
- *
- * @example
- * // From high-level ArrayTexture
- * const frames = arrayTexture(myArrayTex, i32(0));
- *
- * // From GpuTexture + GpuSampler (low-level)
- * const frames = arrayTexture(gpuArrayTex, gpuSampler, i32(0));
- *
- * // Sampling methods
- * frames.layer(frameIndex)                   // change layer
- * frames.sample(customUv)                    // change UVs
- * frames.level(float(2))                     // textureSampleLevel
- * frames.bias(float(1))                      // textureSampleBias
- * frames.grad(ddx, ddy)                      // textureSampleGrad
- * frames.offset(vec2i(1, 0))                 // with offset
- * frames.load(vec2i(10, 20))                 // textureLoad
- */
-export function arrayTexture(tex: ArrayTexture, layerNode: Node<d.i32>): ArrayTextureNode;
-export function arrayTexture(gpuTex: GpuTexture<d.texture2dArray>, gpuSampler: GpuSampler, layerNode: Node<d.i32>): ArrayTextureNode;
-```
-
-#### `textureBinding`
-
-```ts
-/**
- * Create a standalone texture binding node.
- *
- * Use this when you want to work with WGSL-level free functions directly
- * (textureSample, textureLoad, etc.) instead of the high-level TextureNode
- * sampling API.
- */
-export const textureBinding: <D extends d.Texture>(tex: {
-    _gpuTexture: GpuTexture<D>;
-    id: number;
-}, textureDesc: D) => TextureBindingNode<D>;
-```
-
-#### `storageTexture`
-
-```ts
-/**
- * storageTexture - bind a GpuTexture as a storage texture for compute writes/reads.
- *
- * @param gpuTex - a storage GpuTexture (e.g. from `createStorageTexture(...)`)
- * @param access - 'write' (default), 'read', or 'read_write'
- */
-export function storageTexture<D extends d.StorageTexture>(gpuTex: GpuTexture<D>, access?: d.StorageTextureAccess): StorageTextureBindingNode<D>;
-```
-
-#### `textureSample`
-
-```ts
-/**
- * textureSample - Sample a texture at UV coordinates.
- * Fragment shader only.
- */
-export function textureSample<D extends FlatSampledTexture>(t: TextureBindingNode<D>, s: AnySamplerNode, coords: Node<d.vec2f>, offset?: Node<d.vec2i>): CallNode<d.TextureSampleResultOf<D>>;
-```
-
-#### `textureSampleLevel`
-
-```ts
-/**
- * textureSampleLevel - Sample a texture at a specific mip level.
- * Works in any shader stage.
- */
-export function textureSampleLevel<D extends FlatSampledTexture>(t: TextureBindingNode<D>, s: AnySamplerNode, coords: Node<d.vec2f>, level: Node<d.f32>, offset?: Node<d.vec2i>): CallNode<d.TextureSampleResultOf<D>>;
-```
-
-#### `textureSampleBias`
-
-```ts
-/**
- * textureSampleBias - Sample a texture with mip level bias.
- * Fragment shader only. Not supported for depth textures.
- */
-export function textureSampleBias<D extends FlatSampledTexture>(t: TextureBindingNode<D>, s: AnySamplerNode, coords: Node<d.vec2f>, bias: Node<d.f32>, offset?: Node<d.vec2i>): CallNode<d.TextureSampleResultOf<D>>;
-```
-
-#### `textureSampleGrad`
-
-```ts
-/**
- * textureSampleGrad - Sample a texture with explicit gradients.
- * Works in any shader stage. Not supported for depth textures.
- */
-export function textureSampleGrad<D extends FlatSampledTexture>(t: TextureBindingNode<D>, s: AnySamplerNode, coords: Node<d.vec2f>, ddx: Node<d.vec2f>, ddy: Node<d.vec2f>, offset?: Node<d.vec2i>): CallNode<d.TextureSampleResultOf<D>>;
-```
-
-#### `textureSampleCompare`
-
-```ts
-/**
- * textureSampleCompare - Compare-sample a depth texture.
- * Fragment shader only. Requires sampler_comparison.
- */
-export function textureSampleCompare(t: TextureBindingNode<FlatDepthTexture>, s: AnyComparisonSamplerNode, coords: Node<d.vec2f>, depthRef: Node<d.f32>, offset?: Node<d.vec2i>): CallNode<d.f32>;
-```
-
-#### `textureSampleCompareLevel`
-
-```ts
-/**
- * textureSampleCompareLevel - Compare-sample a depth texture at a specific level.
- * Works in any shader stage. Requires sampler_comparison.
- */
-export function textureSampleCompareLevel(t: TextureBindingNode<FlatDepthTexture>, s: AnyComparisonSamplerNode, coords: Node<d.vec2f>, depthRef: Node<d.f32>, level: Node<d.i32>, offset?: Node<d.vec2i>): CallNode<d.f32>;
-```
-
-#### `textureLoad`
-
-```ts
-/**
- * textureLoad - Load a texel directly without filtering.
- * - Sampled textures: needs a mip `level`. Works in any stage. No sampler.
- * - Storage textures (read / read_write): no level; returns `vec4<channel>` for the format.
- */
-export function textureLoad<D extends d.Texture>(t: TextureBindingNode<D>, coords: Node<d.vec2i>, level: Node<d.i32>): CallNode<d.TextureSampleResultOf<D>>;
-export function textureLoad<D extends d.StorageTexture>(t: StorageTextureBindingNode<D>, coords: StorageCoord, layer?: Node<d.i32> | Node<d.u32>): CallNode<d.vec4f | d.vec4i | d.vec4u>;
-```
-
-#### `textureStore`
-
-```ts
-/**
- * textureStore - Store a value into a storage texture (a statement / side effect).
- *
- * 2D/3D: `textureStore(tex, coords, value)`. 2D-array: pass the array `layer` between
- * coords and value. The binding must have access 'write' or 'read_write'.
- */
-export function textureStore<D extends d.StorageTexture>(t: StorageTextureBindingNode<D>, coords: StorageCoord, value: StorageValue, layer?: Node<d.i32> | Node<d.u32>): void;
-```
-
-#### `textureDimensions`
-
-```ts
-/**
- * textureDimensions - Get texture dimensions.
- */
-export function textureDimensions(t: TextureBindingNode, level?: Node<d.u32>): CallNode<d.vec2u>;
-```
-
-#### `textureNumLevels`
-
-```ts
-/**
- * textureNumLevels - Get number of mip levels.
- */
-export function textureNumLevels(t: TextureBindingNode): CallNode<d.u32>;
-```
-
-#### `textureNumLayers`
-
-```ts
-/**
- * textureNumLayers - Get number of array layers.
- */
-export function textureNumLayers(t: Node<Any>): CallNode<d.u32>;
-```
-
-#### `textureGather`
-
-```ts
-/**
- * textureGather - Gather a single component from 4 texels.
- */
-export function textureGather<D extends FlatSampledTexture>(component: Node<d.i32>, t: TextureBindingNode<D>, s: AnySamplerNode, coords: Node<d.vec2f>, offset?: Node<d.vec2i>): CallNode<d.TextureSampleResultOf<D>>;
-```
-
-#### `textureGatherCompare`
-
-```ts
-/**
- * textureGatherCompare - Gather compare results from 4 texels.
- * Requires sampler_comparison.
- */
-export function textureGatherCompare(t: TextureBindingNode<FlatDepthTexture>, s: AnyComparisonSamplerNode, coords: Node<d.vec2f>, depthRef: Node<d.f32>, offset?: Node<d.vec2i>): CallNode<d.vec4f>;
-```
-
-#### `atomicAdd`
-
-```ts
-/**
- * Atomically adds `value` to the atomic value at `ptr` and returns the old value.
- * The call is always added to the stack so side effects are captured even if the
- * return value is discarded.
- *
- * In WGSL: `atomicAdd(&ptr, value) -> i32/u32`
- */
-export function atomicAdd<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): Node<ScalarResultDesc>;
-```
-
-#### `atomicStore`
-
-```ts
-/**
- * Atomically stores `value` to the atomic location at `ptr`.
- *
- * In WGSL: `atomicStore(&ptr, value)`
- */
-export function atomicStore<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): void;
-```
-
-#### `atomicLoad`
-
-```ts
-/**
- * Atomically loads the value from the atomic location at `ptr`.
- *
- * In WGSL: `atomicLoad(&ptr) -> i32/u32`
- */
-export function atomicLoad<D extends AtomicPtrDesc>(ptr: Node<D>): Node<ScalarResultDesc>;
-```
-
-#### `atomicSub`
-
-```ts
-/**
- * Atomically subtracts `value` from the atomic value at `ptr` and returns the old value.
- * The call is always added to the stack so side effects are captured even if the
- * return value is discarded.
- *
- * In WGSL: `atomicSub(&ptr, value) -> i32/u32`
- */
-export function atomicSub<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): Node<ScalarResultDesc>;
-```
-
-#### `atomicMax`
-
-```ts
-/**
- * Atomically computes the maximum of the atomic value and `value`, stores it, and returns the old value.
- * The call is always added to the stack so side effects are captured even if the
- * return value is discarded.
- *
- * In WGSL: `atomicMax(&ptr, value) -> i32/u32`
- */
-export function atomicMax<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): Node<ScalarResultDesc>;
-```
-
-#### `atomicMin`
-
-```ts
-/**
- * Atomically computes the minimum of the atomic value and `value`, stores it, and returns the old value.
- * The call is always added to the stack so side effects are captured even if the
- * return value is discarded.
- *
- * In WGSL: `atomicMin(&ptr, value) -> i32/u32`
- */
-export function atomicMin<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): Node<ScalarResultDesc>;
-```
-
-#### `atomicAnd`
-
-```ts
-/**
- * Atomically computes the bitwise AND of the atomic value and `value`, stores it, and returns the old value.
- * The call is always added to the stack so side effects are captured even if the
- * return value is discarded.
- *
- * In WGSL: `atomicAnd(&ptr, value) -> i32/u32`
- */
-export function atomicAnd<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): Node<ScalarResultDesc>;
-```
-
-#### `atomicOr`
-
-```ts
-/**
- * Atomically computes the bitwise OR of the atomic value and `value`, stores it, and returns the old value.
- * The call is always added to the stack so side effects are captured even if the
- * return value is discarded.
- *
- * In WGSL: `atomicOr(&ptr, value) -> i32/u32`
- */
-export function atomicOr<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): Node<ScalarResultDesc>;
-```
-
-#### `atomicXor`
-
-```ts
-/**
- * Atomically computes the bitwise XOR of the atomic value and `value`, stores it, and returns the old value.
- * The call is always added to the stack so side effects are captured even if the
- * return value is discarded.
- *
- * In WGSL: `atomicXor(&ptr, value) -> i32/u32`
- */
-export function atomicXor<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): Node<ScalarResultDesc>;
-```
-
-#### `atomicExchange`
-
-```ts
-/**
- * Atomically exchanges the value at `ptr` with `value` and returns the old value.
- * The call is always added to the stack so side effects are captured even if the
- * return value is discarded.
- *
- * In WGSL: `atomicExchange(&ptr, value) -> i32/u32`
- */
-export function atomicExchange<D extends AtomicPtrDesc>(ptr: Node<D>, value: Node<d.i32 | d.u32>): Node<ScalarResultDesc>;
-```
-
-#### `atomicCompareExchangeWeak`
-
-```ts
-/**
- * Atomically compares the value at `ptr` with `comparator` and if equal, stores `value`.
- * Returns the old value (regardless of whether the exchange happened).
- * The call is always added to the stack so side effects are captured even if the
- * return value is discarded.
- *
- * In WGSL: `atomicCompareExchangeWeak(&ptr, comparator, value) -> __atomic_compare_exchange_result<T>`
- *
- * Note: WGSL returns a struct { old_value: T, exchanged: bool }. This function returns the struct type
- * which you need to access via .old_value and .exchanged fields.
- */
-export function atomicCompareExchangeWeak<D extends AtomicPtrDesc>(ptr: Node<D>, comparator: Node<d.i32 | d.u32>, value: Node<d.i32 | d.u32>): Node<Any>;
-```
-
-#### `Var`
-
-```ts
-/**
- * Function-scope mutable variable: `var name = init;`
- *
- * @example
- * const velocity = Var('velocity', vec3f(0));
- * // → var velocity = vec3f(0.0);
- */
-export function Var<D extends Any>(name: string, init: Node<D>): VarNode<D>;
-```
-
-#### `Const`
-
-```ts
-/** @deprecated Use Let() instead */
-export function Const<D extends Any>(name: string, init: Node<D>): LetNode<D>;
-```
-
-#### `Let`
-
-```ts
-/**
- * Function-scope immutable binding: `let name = init;`
- *
- * @example
- * const half = Let('half', value.mul(0.5));
- * // → let half = (value * 0.5);
- */
-export function Let<D extends Any>(name: string, init: Node<D>): LetNode<D>;
-```
-
-#### `PrivateVar`
-
-```ts
-/**
- * Create a module-scope private variable: `var<private> name: T [= init];`
- *
- * Private variables are per-invocation storage at module scope.
- *
- * @example Type-only (no initializer)
- * const counter = PrivateVar('counter', d.u32);
- * // → var<private> counter: u32;
- *
- * @example With initializer (type inferred from node)
- * const gravity = PrivateVar('gravity', vec3f(0, -9.8, 0));
- * // → var<private> gravity: vec3f = vec3f(0.0, -9.8, 0.0);
- */
-export function PrivateVar<D extends Any>(name: string, type: D): PrivateVarNode<D>;
-export function PrivateVar<D extends Any>(name: string, init: Node<D>): PrivateVarNode<D>;
-```
-
-#### `WorkgroupVar`
-
-```ts
-/**
- * Create a module-scope workgroup variable: `var<workgroup> name: T;`
- *
- * Workgroup variables are shared across all invocations in a workgroup.
- * Only valid in compute shaders. Cannot have an initializer.
- *
- * @example
- * const shared = WorkgroupVar('sharedData', d.array(d.f32, 256));
- * // → var<workgroup> sharedData: array<f32, 256>;
- */
-export function WorkgroupVar<D extends Any>(name: string, type: D): WorkgroupVarNode<D>;
-```
-
-#### `If`
-
-```ts
-export function If(condition: Node<Any>, thenBody: () => void): IfChain;
-```
-
-#### `Loop`
-
-```ts
-export function Loop(range: number, callback: (vars: LoopVars) => void): LoopNode;
-export function Loop(o: LoopParam, callback: (vars: LoopVars) => void): LoopNode;
-```
-
-#### `For`
-
-```ts
-export const For: typeof Loop;
-```
-
-#### `While`
-
-```ts
-export function While(condition: Node<Any>, body: () => void): void;
-```
-
-#### `Break`
-
-```ts
-export function Break(): void;
-```
-
-#### `Continue`
-
-```ts
-export function Continue(): void;
-```
-
-#### `Return`
-
-```ts
-export function Return(): void;
-export function Return<D extends Any>(value: Node<D>): void;
-```
-
-#### `Discard`
-
-```ts
-export function Discard(): void;
 ```
 
 #### `workgroupBarrier`
@@ -2663,120 +3221,6 @@ export function Discard(): void;
 export function workgroupBarrier(): void;
 ```
 
-#### `storageBarrier`
-
-```ts
-/** Storage-buffer write/read sync within a workgroup. WGSL: `storageBarrier()`. */
-export function storageBarrier(): void;
-```
-
-#### `textureBarrier`
-
-```ts
-/** Texture write/read sync within a workgroup. WGSL: `textureBarrier()`. */
-export function textureBarrier(): void;
-```
-
-#### `cond`
-
-```ts
-export const cond: <D extends Any>(condition: Node<Any>, ifTrue: Node<D>, ifFalse?: Node<D>) => ConditionalNode<D>;
-```
-
-#### `select`
-
-```ts
-/**
- * WGSL `select(falseVal, trueVal, condition)`.
- * Returns `trueVal` when `condition` is true, `falseVal` otherwise.
- */
-export const select: <D extends Any>(falseVal: Node<D>, trueVal: Node<D>, condition: Node<Any>) => Node<D>;
-```
-
-#### `cameraProjectionMatrix`
-
-```ts
-/** Projection matrix of the scene camera. In renderGroup. */
-export const cameraProjectionMatrix: UniformNode<d.mat4x4f>;
-```
-
-#### `cameraViewMatrix`
-
-```ts
-/** View (world-to-camera) matrix. In renderGroup. */
-export const cameraViewMatrix: UniformNode<d.mat4x4f>;
-```
-
-#### `cameraPosition`
-
-```ts
-/** Camera world-space position. In renderGroup. */
-export const cameraPosition: UniformNode<d.vec3f>;
-```
-
-#### `cameraNear`
-
-```ts
-/** Camera near plane distance. In renderGroup. */
-export const cameraNear: UniformNode<d.f32>;
-```
-
-#### `cameraFar`
-
-```ts
-/** Camera far plane distance. In renderGroup. */
-export const cameraFar: UniformNode<d.f32>;
-```
-
-#### `modelWorldMatrix`
-
-```ts
-/** Model-to-world transform matrix. */
-export const modelWorldMatrix: UniformNode<d.mat4x4f>;
-```
-
-#### `modelNormalMatrix`
-
-```ts
-/** Normal matrix (inverse-transpose of upper-left 3x3 of model matrix). In objectGroup. */
-export const modelNormalMatrix: UniformNode<d.mat3x3f>;
-```
-
-#### `instanceIndex`
-
-```ts
-/** @builtin(instance_index), the instance index for instanced draw calls. */
-export const instanceIndex: BuiltinNode<d.u32>;
-```
-
-#### `vertexIndex`
-
-```ts
-/** @builtin(vertex_index), the vertex index in the current draw call. */
-export const vertexIndex: BuiltinNode<d.u32>;
-```
-
-#### `globalId`
-
-```ts
-/** @builtin(global_invocation_id), unique thread ID across the entire dispatch. */
-export const globalId: BuiltinNode<d.vec3u>;
-```
-
-#### `localId`
-
-```ts
-/** @builtin(local_invocation_id), thread ID within its workgroup. */
-export const localId: BuiltinNode<d.vec3u>;
-```
-
-#### `localIndex`
-
-```ts
-/** @builtin(local_invocation_index), flat 1-D index within the workgroup. */
-export const localIndex: BuiltinNode<d.u32>;
-```
-
 #### `workgroupId`
 
 ```ts
@@ -2784,831 +3228,9 @@ export const localIndex: BuiltinNode<d.u32>;
 export const workgroupId: BuiltinNode<d.vec3u>;
 ```
 
-#### `numWorkgroups`
-
-```ts
-/** @builtin(num_workgroups), total number of workgroups dispatched. */
-export const numWorkgroups: BuiltinNode<d.vec3u>;
-```
-
-#### `fragCoord`
-
-```ts
-/**
- * Fragment position in window/pixel coordinates.
- * @builtin(position) in the fragment shader, vec4f where xy are pixel coordinates.
- *
- * This is the raw fragment coordinate from the rasterizer.
- * Use screenCoordinate.xy for 2D pixel position.
- */
-export const fragCoord: BuiltinNode<d.vec4f>;
-```
-
-#### `screenCoordinate`
-
-```ts
-/**
- * Screen coordinate, the current fragment's xy position in pixels.
- * Equivalent to @builtin(position).xy in WGSL.
- *
- * @example
- * // Get pixel position
- * const pixelPos = screenCoordinate;
- */
-export const screenCoordinate: Node<d.vec2f>;
-```
-
-#### `screenSize`
-
-```ts
-/**
- * Screen/viewport size in pixels. Updated per render by the renderer.
- * In renderGroup so it's shared across all objects in a frame.
- *
- * @example
- * // Get screen dimensions
- * const size = screenSize; // vec2f(width, height)
- */
-export const screenSize: UniformNode<d.vec2f>;
-```
-
-#### `screenUV`
-
-```ts
-/**
- * Normalized screen UV coordinates in [0, 1] range.
- * Computed as screenCoordinate / screenSize.
- *
- * (0, 0) is top-left, (1, 1) is bottom-right (following WebGPU conventions).
- *
- * @example
- * // Sample a texture using screen UV
- * const color = texture.sample(screenUV);
- *
- * // Use x component for horizontal effects
- * const x = screenUV.x;
- */
-export const screenUV: Node<d.vec2f>;
-```
-
-#### `computeIndex`
-
-```ts
-export const computeIndex: ComputeIndexNode;
-```
-
-#### `positionClip`
-
-```ts
-/** helper for vertex shader: compute clip-space position from vertex position attribute and camera matrices. */
-export const positionClip: Node<d.vec4f>;
-```
-
-#### `DrawIndirect`
-
-```ts
-/**
- * Basic struct descriptor for a non-indexed indirect draw call (`drawIndirect`) with no additional fields.
- * Memory layout (4 × u32, 16 bytes):
- *   vertexCount, instanceCount, firstVertex, firstInstance
- */
-export const DrawIndirect: import("./core").StructDef<{
-    vertexCount: d.u32;
-    instanceCount: d.u32;
-    firstVertex: d.u32;
-    firstInstance: d.u32;
-}>;
-```
-
-#### `DrawIndexedIndirect`
-
-```ts
-/**
- * Basic struct descriptor for an indexed indirect draw call (`drawIndexedIndirect`) with no additional fields.
- * Memory layout (5 × u32, 20 bytes):
- *   indexCount, instanceCount, firstIndex, baseVertex, firstInstance
- */
-export const DrawIndexedIndirect: import("./core").StructDef<{
-    indexCount: d.u32;
-    instanceCount: d.u32;
-    firstIndex: d.u32;
-    baseVertex: d.u32;
-    firstInstance: d.u32;
-}>;
-```
-
-#### `BinaryOp`
-
-```ts
-export type BinaryOp = '+' | '-' | '*' | '/' | '%' | '==' | '!=' | '<' | '>' | '<=' | '>=' | '||' | '&&' | '&' | '|' | '^' | '<<' | '>>';
-```
-
-#### `BuiltinKind`
-
-```ts
-export type BuiltinKind = 'instance_index' | 'instance_data' | 'vertex_index' | 'global_invocation_id' | 'local_invocation_id' | 'local_invocation_index' | 'workgroup_id' | 'num_workgroups' | 'position';
-```
-
-#### `ComputeNodeOptions`
-
-```ts
-export type ComputeNodeOptions = ComputeOptions & {
-    fn: FnNode<any>;
-};
-```
-
-#### `ComputeOptions`
-
-```ts
-export type ComputeOptions = {
-    workgroupSize: [x: number, y: number, z: number];
-    name?: string;
-};
-```
-
-#### `GpuTypedArray`
-
-```ts
-export type GpuTypedArray = Float32Array | Int32Array | Uint32Array | Int16Array | Uint16Array | Int8Array | Uint8Array;
-```
-
-#### `MatType`
-
-```ts
-export type MatType = 'mat2x2f' | 'mat2x3f' | 'mat2x4f' | 'mat3x2f' | 'mat3x3f' | 'mat3x4f' | 'mat4x2f' | 'mat4x3f' | 'mat4x4f' | 'mat2x2h' | 'mat2x3h' | 'mat2x4h' | 'mat3x2h' | 'mat3x3h' | 'mat3x4h' | 'mat4x2h' | 'mat4x3h' | 'mat4x4h';
-```
-
-#### `NumericType`
-
-```ts
-export type NumericType = ScalarType | VecType | MatType;
-```
-
-#### `SamplerType`
-
-```ts
-export type SamplerType = 'sampler' | 'sampler_comparison';
-```
-
-#### `ScalarType`
-
-```ts
-export type ScalarType = 'f32' | 'i32' | 'u32' | 'bool' | 'f16';
-```
-
-#### `StructDef`
-
-```ts
-export type StructDef<S extends d.StructSchema> = {
-    readonly type: 'struct';
-    readonly wgslType: string;
-    readonly name: string;
-    readonly fields: S;
-    readonly members: StructMember[];
-    readonly node: StructNode<S>;
-    readonly nestedDefs: ReadonlyMap<string, StructDef<d.StructSchema>>;
-    construct(fields: {
-        readonly [K in keyof S]: Node<S[K]>;
-    }): ConstructNode<StructDef<S>>;
-};
-```
-
-#### `StructInstance`
-
-```ts
-export type StructInstance<S extends d.StructSchema> = {
-    readonly $node: Node<d.StructDesc>;
-} & {
-    readonly [K in keyof S]: Node<S[K]>;
-};
-```
-
-#### `StructMember`
-
-```ts
-export type StructMember = {
-    readonly name: string;
-    readonly type: Any;
-};
-```
-
-#### `TextureType`
-
-```ts
-export type TextureType = string;
-```
-
-#### `Vec2Type`
-
-```ts
-export type Vec2Type = 'vec2f' | 'vec2i' | 'vec2u' | 'vec2<bool>' | 'vec2h';
-```
-
-#### `Vec3Type`
-
-```ts
-export type Vec3Type = 'vec3f' | 'vec3i' | 'vec3u' | 'vec3<bool>' | 'vec3h';
-```
-
-#### `Vec4Type`
-
-```ts
-export type Vec4Type = 'vec4f' | 'vec4i' | 'vec4u' | 'vec4<bool>' | 'vec4h';
-```
-
-#### `VecType`
-
-```ts
-export type VecType = Vec2Type | Vec3Type | Vec4Type;
-```
-
-#### `WgslType`
-
-```ts
-export type WgslType = PrimType | AtomicType | `array<${string}>` | `array<${string}, ${number}>` | string;
-```
-
-#### `InterpolationType`
-
-```ts
-/**
- * WGSL @interpolate interpolation type.
- *   - perspective  : values are interpolated in a perspective-correct manner (default for float types)
- *   - linear       : values are interpolated in a linear, non-perspective-correct manner
- *   - flat         : values are not interpolated; the value from the provoking vertex is used
- *                    (required for integer/unsigned-integer types)
- */
-export type InterpolationType = 'perspective' | 'linear' | 'flat';
-```
-
-#### `InterpolationSampling`
-
-```ts
-/**
- * WGSL @interpolate sampling mode (only valid when interpolation type is 'perspective' or 'linear').
- *   - center    : interpolation is performed at the center of the pixel (default)
- *   - centroid  : interpolation is performed at a point inside the primitive that is also
- *                 inside all samples covered by the fragment (avoids aliasing at primitive edges)
- *   - sample    : interpolation is performed per-sample; the fragment shader runs once per sample
- *   - either    : implementation may choose center or centroid (valid only with 'flat' in WGSL)
- */
-export type InterpolationSampling = 'center' | 'centroid' | 'sample' | 'either';
-```
-
-#### `WgslNodeFunction`
-
-```ts
-export type WgslNodeFunction = {
-    type: string;
-    inputs: WgslNodeFunctionInput[];
-    name: string;
-    inputsCode: string;
-    blockCode: string;
-    outputType: string;
-    getCode(name?: string): string;
-};
-```
-
-#### `WgslNodeFunctionInput`
-
-```ts
-/**
- * Parsed WGSL function info returned by parseWgslFunction().
- */
-export type WgslNodeFunctionInput = {
-    name: string;
-    type: string;
-    pointer?: boolean;
-};
-```
-
-#### `ParamDesc`
-
-```ts
-export type ParamDesc = {
-    readonly name: string;
-    readonly type: Any;
-};
-```
-
-#### `FnLayout`
-
-```ts
-export type FnLayout<P extends readonly ParamDesc[]> = {
-    /** Function name in the generated WGSL. */
-    readonly name: string;
-    /** Named, typed parameters, in order. */
-    readonly params: [...P];
-    /** Explicit return type (WGSL `-> return`), checked against the body. Omit to infer from the body. */
-    readonly return?: Any;
-};
-```
-
-#### `pass`
-
-```ts
-/** creates a pass node */
-export const pass: (scene: Scene, camera: Camera, options?: PassNodeOptions) => PassNode;
-```
-
-#### `PassNodeOptions`
-
-```ts
-export type PassNodeOptions = {
-    /** RGBA clear color for this pass's color attachment. Defaults to [0, 0, 0, 1]. */
-    clearColor?: [number, number, number, number];
-    /** GPUTextureFormat for the color render target. Defaults to 'rgba16float'. */
-    colorFormat?: GPUTextureFormat;
-    /** Number of MSAA samples. Defaults to 1 (no MSAA). */
-    samples?: number;
-};
-```
-
-#### `renderOutput`
-
-```ts
-/**
- * Wrap `inputNode` in tone-mapping and color-space conversion.
- *
- * Returns a `Node<d.vec4f>` suitable for final output:
- * `renderer.render(renderOutput(scenePass.getTextureNode()))`.
- */
-export function renderOutput(inputNode: Node<d.vec4f>, options?: RenderOutputOptions): Node<d.vec4f>;
-```
-
-#### `OutputColorSpace`
-
-```ts
-export type OutputColorSpace = 'srgb' | 'linear';
-```
-
-#### `RenderOutputOptions`
-
-```ts
-export type RenderOutputOptions = {
-    /**
-     * Tone mapping operator to apply.
-     * @default 'aces'
-     */
-    toneMapping?: ToneMappingMode;
-    /**
-     * Output color space.  'srgb' applies the standard linear→sRGB
-     * transfer function (IEC 61966-2-1).  'linear' skips it.
-     * @default 'srgb'
-     */
-    colorSpace?: OutputColorSpace;
-    /**
-     * Scene exposure multiplier, applied before tone mapping.
-     * Pass a UniformNode<d.f32> to animate it.
-     * @default f32(1.0)
-     */
-    exposure?: Node<d.f32>;
-};
-```
-
-#### `ToneMappingMode`
-
-```ts
-export type ToneMappingMode = 'aces' | 'reinhard' | 'linear' | 'none';
-```
-
-#### `acesToneMapping`
-
-```ts
-/**
- * ACES filmic tone mapping (Narkowicz 2015).
- * f(x) = clamp((x * (2.51x + 0.03)) / (x * (2.43x + 0.59) + 0.14), 0, 1)
- */
-export const acesToneMapping: (args_0: import("../core").Node<d.vec3f>) => import("../core").CallNode<d.vec3f>;
-```
-
-#### `reinhardToneMapping`
-
-```ts
-/**
- * Reinhard tone mapping.
- * f(x) = x / (1 + x)
- */
-export const reinhardToneMapping: (args_0: import("../core").Node<d.vec3f>) => import("../core").CallNode<d.vec3f>;
-```
-
-#### `sRGBTransferEOTF`
-
-```ts
-/**
- * sRGB EOTF (electro-optical transfer function).
- * Converts sRGB gamma-encoded values to linear-sRGB.
- */
-export const sRGBTransferEOTF: (args_0: import("../core").Node<d.vec3f>) => import("../core").CallNode<d.vec3f>;
-```
-
-#### `sRGBTransferOETF`
-
-```ts
-/**
- * sRGB OETF (opto-electronic transfer function).
- * Converts linear-sRGB values to sRGB gamma-encoded.
- */
-export const sRGBTransferOETF: (args_0: import("../core").Node<d.vec3f>) => import("../core").CallNode<d.vec3f>;
-```
-
-#### `fxaa`
-
-```ts
-/**
- * FXAA (Fast Approximate Anti-Aliasing) post-processing effect.
- *
- * Uses the standard FXAA 3.11 algorithm:
- * 1. Samples luminance of neighboring pixels
- * 2. Detects edges based on contrast
- * 3. Blends pixels along detected edges to smooth jaggies
- *
- * The inverse texture size uniform is automatically updated each frame.
- *
- * @param textureNode - The texture to apply FXAA to (typically from pass.getTextureNode())
- * @returns A vec4f node containing the anti-aliased color
- *
- * @example
- * const scenePass = pass(scene, camera);
- * const fxaaOutput = fxaa(scenePass.getTextureNode());
- *
- * const postMaterial = new Material({
- *     vertex: fullscreenQuadVertex,
- *     fragment: fxaaOutput,
- * });
- */
-export function fxaa(textureNode: TextureNode): Node<d.vec4f>;
-```
-
 ## Renderer
 
 Drive the GPU: create a renderer, build pipelines, render to the canvas or a target.
-
-#### `WebGPURendererOptions`
-
-```ts
-export type WebGPURendererOptions = {
-    /** Enable 4x MSAA antialiasing. Overridden by `samples` if both set. */
-    antialias?: boolean;
-    /** Explicit MSAA sample count. 0 or 1 = no MSAA. Takes precedence over antialias. */
-    samples?: number;
-    /** GPURequestAdapterOptions forwarded to navigator.gpu.requestAdapter(). */
-    adapterOptions?: GPURequestAdapterOptions;
-    /** GPUDeviceDescriptor forwarded to adapter.requestDevice(). */
-    deviceDescriptor?: GPUDeviceDescriptor;
-    /** Pre-created GPUDevice. When provided, skips navigator.gpu initialization. */
-    device?: GPUDevice;
-    /** Pre-created GPUAdapter. Required when `device` is provided. */
-    adapter?: GPUAdapter;
-    /** Canvas texture format. Defaults to navigator.gpu.getPreferredCanvasFormat() or 'bgra8unorm' when using a pre-created device. */
-    format?: GPUTextureFormat;
-    /** Canvas element to render into. If not provided, one will be created. Ignored when `headless` is true. */
-    canvas?: HTMLCanvasElement;
-    /** When true, the canvas context uses premultiplied alpha compositing. Defaults to false (opaque). */
-    alpha?: boolean;
-    /**
-     * Headless mode, no canvas, no swapchain. Requires a pre-created `device`.
-     * Renders must target a `RenderTarget` (set via `renderer.renderTarget`).
-     * Useful for Node.js with a native WebGPU library, or for off-screen rendering pipelines.
-     */
-    headless?: boolean;
-};
-```
-
-#### `ComputeDispatch`
-
-```ts
-/**
- * A single compute dispatch in a `WebGPURenderer.compute()` batch.
- *
- * Either `dispatch` (CPU-side workgroup counts) or `indirect` (GPU buffer holding counts)
- * must be provided. `buffers` (optional, on either form) overrides named storage refs.
- */
-export type ComputeDispatch = {
-    /** The ComputeNode to dispatch. */
-    node: ComputeNode;
-    /** Workgroup counts [x, y, z] dispatched from the CPU. */
-    dispatch: [number, number, number];
-    indirect?: never;
-    indirectOffset?: never;
-    /**
-     * Override map for named storage buffers (those declared via `storage('name', schema, ...)`).
-     * Takes precedence over the node's value/geometry, lets one ComputeNode be reused
-     * across different buffers without recompiling the pipeline.
-     */
-    buffers?: Record<string, GpuBuffer<d.Any>>;
-} | {
-    /** The ComputeNode to dispatch. */
-    node: ComputeNode;
-    /**
-     * GPU buffer holding `[countX, countY, countZ]` as u32 (matches `dispatchWorkgroupsIndirect` layout).
-     * Buffer must have 'indirect' usage. Typically written by an earlier compute pass.
-     */
-    indirect: GpuBuffer<d.Any>;
-    /** Byte offset into `indirect`. Defaults to 0. */
-    indirectOffset?: number;
-    dispatch?: never;
-    /** See `dispatch` form for details. */
-    buffers?: Record<string, GpuBuffer<d.Any>>;
-};
-```
-
-#### `WebGPURenderer`
-
-```ts
-export class WebGPURenderer {
-    /**
-     * Inspector. `null` means no inspector is attached, hot path pays zero cost.
-     * Assigning (`renderer.inspector = new Inspector()`) attaches it, and so does
-     * `setInspector(...)`; both are equivalent. Assigning `null` detaches and
-     * disposes the old one. Ordering relative to `renderer.init()` does not matter.
-     */
-    get inspector(): InspectorBase | null;
-    set inspector(next: InspectorBase | null);
-    /**
-     * Install or remove the inspector. Equivalent to assigning `renderer.inspector`.
-     * Safe to call at any time, including before `renderer.init()`. Passing `null`
-     * triggers the old inspector's detach path (releases GPU resources, removes DOM,
-     * drops listeners).
-     */
-    setInspector(next: InspectorBase | null): void;
-    /** The canvas dom element for the current canvas target. Throws in headless mode. */
-    get domElement(): HTMLCanvasElement;
-    /** MSAA sample count (0 or 1 = no MSAA). */
-    samples: number;
-    /**
-     * A callback function that is executed when a device loss occurs.
-     * @example
-     * renderer.onDeviceLost = (info) => {
-     *     console.error('GPU device lost:', info.message);
-     *     // Optionally: show error UI, attempt recovery, etc.
-     * };
-     */
-    onDeviceLost: ((info: DeviceLostInfo) => void) | null;
-    /** clear color for the final swapchain composite pass. defaults to opaque black. */
-    clearColor: [number, number, number, number];
-    /** current MRT configuration. when set, materials using mrt() nodes write to multiple color attachments. */
-    mrt: MRTNode | null;
-    /** current render target. when set, render() renders to this target instead of the swapchain. */
-    renderTarget: RenderTarget | null;
-    /** when set, all meshes in the scene render with this material instead of their own. */
-    overrideMaterial: Material | null;
-    /** swap the active canvas target (used by inspector viewer for preview renders). */
-    setCanvasTarget(canvasTarget: CanvasTarget | null): this;
-    getCanvasTarget(): CanvasTarget | null;
-    constructor(opts?: WebGPURendererOptions);
-    /**
-     * Initialise the WebGPU adapter, device, and canvas context.
-     * Must be called (and awaited) before the first call to pipeline.render().
-     *
-     * @throws if WebGPU is not available or no suitable adapter is found.
-     */
-    init(): Promise<this>;
-    /** set the device pixel ratio. call before setSize(). Throws in headless mode. */
-    setPixelRatio(value: number): void;
-    /** resize the canvas to logical pixel dimensions (physical = logical * pixelRatio). Throws in headless mode. */
-    setSize(width: number, height: number, updateStyle?: boolean): void;
-    /**
-     * Check if a GPU feature is available on the current device.
-     *
-     * @example
-     * ```ts
-     * if (renderer.hasFeature('shader-f16')) {
-     *     // Can use f16, vec2h, vec3h, vec4h, mat*h types
-     * }
-     * ```
-     */
-    hasFeature(feature: GPUFeatureName): boolean;
-    /**
-     * Pre-compile render pipelines and pre-upload GPU resources for a scene.
-     * Optional, resources are created on-demand during the first render if not pre-warmed.
-     */
-    compile(scene: Scene, camera: Camera, samples?: number): Promise<void>;
-    /**
-     * Pre-compile a compute pipeline before the render loop starts.
-     * This is optional, pipelines are compiled on-demand during the first
-     * dispatch if not pre-warmed.
-     *
-     * @param computeNode The ComputeNode to pre-compile.
-     * @throws if the renderer has not been initialised yet.
-     */
-    compileCompute(computeNode: ComputeNode): Promise<void>;
-    /**
-     * Encode and submit a batch of compute dispatches. Must be called **inside** a
-     * `requestAnimationFrame` callback, before `renderPipeline.render()`, so the
-     * compute work is submitted alongside the render pass.
-     *
-     * All entries share a single command encoder and a single `queue.submit()`,
-     * minimizing CPU round-trip overhead. Each entry gets its own compute pass
-     * so per-node inspector hooks (timestamps, perf) still work.
-     *
-     * Each entry supplies `dispatch: [x, y, z]` (CPU-side counts) or
-     * `indirect: gpuBuffer` (GPU-side counts). Optional `buffers` overrides named
-     * storage refs without recompiling the pipeline.
-     *
-     * ```ts
-     * renderer.compute([
-     *     { node: updateParticles, dispatch: [Math.ceil(N / 64), 1, 1] },
-     * ]);
-     *
-     * renderer.compute([
-     *     { node: cull,  dispatch: [n, 1, 1], buffers: { visible: bufA } },
-     *     { node: build, indirect: indirectBuf },
-     * ]);
-     * ```
-     *
-     * @throws if the renderer has not been initialised.
-     */
-    compute(entries: ComputeDispatch[]): void;
-    /** save the current renderer state into a plain object and return it */
-    saveRendererState(): {
-        renderTarget: RenderTarget | null;
-        mrt: MRTNode | null;
-        clearColor: [number, number, number, number];
-        overrideMaterial: Material | null;
-    };
-    /** restore renderer state previously saved with `saveRendererState()` */
-    restoreRendererState(state: ReturnType<WebGPURenderer['saveRendererState']>): void;
-    /**
-     * Render a scene from a camera's perspective.
-     * Renders to `this.renderTarget` if set, otherwise to the swapchain.
-     */
-    render(scene: Object3D, camera: Camera, commandEncoder?: GPUCommandEncoder, passId?: string): void;
-    /**
-     * Dispose the renderer and release all GPU resources.
-     *
-     * Destroys all cached GPU buffers, textures, pipelines, and the device
-     * itself (unless a pre-created device was provided). After calling dispose(),
-     * the renderer cannot be used again.
-     */
-    dispose(): void;
-}
-```
-
-#### `DeviceLostInfo`
-
-```ts
-/** Information about a device lost event. */
-export type DeviceLostInfo = {
-    /** The API that lost the device ('WebGPU'). */
-    api: 'WebGPU';
-    /** Human-readable message about the loss. */
-    message: string;
-    /** The reason for the loss, if available. */
-    reason: GPUDeviceLostReason | null;
-    /** The original GPUDeviceLostInfo event. */
-    originalEvent: GPUDeviceLostInfo;
-};
-```
-
-#### `RenderPipeline`
-
-```ts
-/**
- * RenderPipeline - manages the rendering pipeline for fullscreen effects.
- *
- * Usage:
- * ```ts
- * const renderPipeline = new RenderPipeline(renderer);
- *
- * const scenePass = pass(scene, camera);
- * renderPipeline.outputNode = scenePass;
- *
- * function frame() {
- *     renderPipeline.render();
- *     requestAnimationFrame(frame);
- * }
- *
- * // cleanup
- * renderPipeline.dispose();
- * ```
- */
-export class RenderPipeline {
-    /** reference to the renderer */
-    readonly renderer: WebGPURenderer;
-    /** the output node to render */
-    outputNode: Node<Any>;
-    /** set to `true` to rebuild the material, e.g. when the outputNode changes */
-    needsUpdate: boolean;
-    /**
-     * @param renderer the renderer.
-     * @param outputNode output node. Defaults to solid blue.
-     */
-    constructor(renderer: WebGPURenderer, outputNode?: Node<Any>);
-    /**
-     * Renders the output node to the renderer's current target.
-     *
-     * Each top-level `render()`/`compute()` call is a self-contained frame: it advances
-     * the frame id and brackets inspector capture on its own. Example:
-     * ```ts
-     * renderer.compute([{ node: myCompute, dispatch: [n, 1, 1] }]);
-     * renderPipeline.render();
-     * ```
-     */
-    render(): void;
-    /**
-     * Dispose of resources owned by this pipeline.
-     */
-    dispose(): void;
-}
-```
-
-#### `CanvasTargetOptions`
-
-```ts
-export type CanvasTargetOptions = {
-    /** alpha compositing mode for the WebGPU canvas context. defaults to 'opaque'. */
-    alphaMode?: GPUCanvasAlphaMode;
-};
-```
-
-#### `CanvasTarget`
-
-```ts
-/** The HTMLCanvasElement target for the renderer to draw into. Wraps a canvas and its WebGPU context. */
-export class CanvasTarget {
-    /** The canvas element this target wraps. */
-    readonly domElement: HTMLCanvasElement;
-    /**
-     * True when this is the renderer's default (main) canvas target.
-     * Set by the renderer after construction; the inspector preview targets are not default.
-     * The renderer sets isDefaultCanvasTarget = true on the initial target.
-     */
-    isDefaultCanvasTarget: boolean;
-    /** Alpha compositing mode for the WebGPU canvas context. */
-    readonly alphaMode: GPUCanvasAlphaMode;
-    constructor(canvas: HTMLCanvasElement, opts?: CanvasTargetOptions);
-    /**
-     * Get (or lazily create) the WebGPU canvas context and configure it.
-     * Safe to call multiple times, returns the cached context after first call.
-     * WebGPURenderer lazily reads the context from the current canvasTarget.
-     *
-     * @param device the GPUDevice to configure the context with.
-     * @param format the preferred canvas format (e.g. 'bgra8unorm').
-     * @param alphaMode override for the alpha mode. defaults to the value set in the constructor.
-     */
-    getContext(device: GPUDevice, format: GPUTextureFormat, alphaMode?: GPUCanvasAlphaMode): GPUCanvasContext;
-    /**
-     * Unconfigure and release the WebGPU context. Called when the target is disposed
-     * or replaced. After this, getContext() will create a fresh context.
-     */
-    unconfigure(): void;
-    /**
-     * Get the pixel ratio.
-     */
-    getPixelRatio(): number;
-    /**
-     * Set the pixel ratio and resize the canvas to match.
-     */
-    setPixelRatio(value: number): void;
-    /**
-     * Returns the drawing buffer size in physical pixels (honors pixel ratio).
-     */
-    getDrawingBufferSize(): {
-        width: number;
-        height: number;
-    };
-    /**
-     * Returns the size in logical pixels (does not honor pixel ratio).
-     */
-    getSize(): {
-        width: number;
-        height: number;
-    };
-    /**
-     * Set the size of the canvas in logical pixels.
-     * Updates domElement.width/height (physical) and fires 'resize'.
-     */
-    setSize(width: number, height: number, updateStyle?: boolean): void;
-    /**
-     * Set the drawing buffer size directly (width, height, pixelRatio all at once).
-     */
-    setDrawingBufferSize(width: number, height: number, pixelRatio: number): void;
-    /**
-     * Dispose this target: unconfigure the GPU context and fire 'dispose'.
-     */
-    dispose(): void;
-}
-```
-
-#### `readPixels`
-
-```ts
-/**
- * Read pixels from a RenderTarget color attachment back to a tightly-packed Uint8Array.
- *
- * The target's color format must be a 4-byte format (`rgba8unorm`, `bgra8unorm`,
- * `rgba8unorm-srgb`, `bgra8unorm-srgb`). For HDR formats like `rgba16float`,
- * render through `renderOutput()` into an `rgba8unorm` RenderTarget first.
- *
- * Returns rows top-to-bottom, RGBA (or BGRA) order, length = width * height * 4.
- * Must be called after `render()` has populated the target.
- *
- * For a layered attachment (e.g. a CubeRenderTarget's cube texture), pass `layer`
- * to read a specific array layer / cube face (0..5 = +X,-X,+Y,-Y,+Z,-Z).
- */
-export function readPixels(renderer: WebGPURenderer, renderTarget: RenderTarget, attachmentIndex?: number, layer?: number): Promise<Uint8Array>;
-```
 
 #### `RenderTargetOptions`
 
@@ -3622,8 +3244,10 @@ export type RenderTargetOptions = {
     colorFormat?: GPUTextureFormat;
     /** Whether to allocate a depth attachment. Default: true. */
     depthBuffer?: boolean;
-    /** Format of the auto-allocated DepthTexture. Default: 'depth24plus'. Ignored if `depthTexture` is provided or `depthBuffer` is false. */
+    /** Format of the auto-allocated DepthTexture. Default: 'depth24plus' ('depth24plus-stencil8' when `stencilBuffer`). Ignored if `depthTexture` is provided or `depthBuffer` is false. */
     depthFormat?: DepthTextureFormat;
+    /** Allocate a stencil aspect on the auto-created depth texture (depth24plus-stencil8). Default false. Ignored if `depthFormat` or `depthTexture` is given. */
+    stencilBuffer?: boolean;
     /** Caller-provided depth texture. Overrides `depthBuffer`/`depthFormat`. */
     depthTexture?: DepthTexture;
     /** MSAA sample count. Default: 1. */
@@ -3666,12 +3290,34 @@ export class RenderTarget {
     textures: RenderTargetTexture[];
     /** Depth texture, or null if no depth */
     depthTexture: DepthTexture | null;
+    /**
+     * Viewport for renders into this target as a `Vec4` [x, y, width, height] in the target's pixels
+     * (top-left origin); null = full target. A render into a target uses the target's own viewport/scissor,
+     * never the renderer's swapchain one — so a swapchain compositing viewport can't leak into a
+     * render-to-texture (or cube) pass.
+     */
+    viewport: Vec4 | null;
+    /** Scissor rect as a `Vec4` [x, y, width, height] in the target's pixels; null = full target. Clips only while scissorTest is on. */
+    scissor: Vec4 | null;
+    /** Whether the scissor test is enabled for renders into this target. */
+    scissorTest: boolean;
     /** Constructs a new render target */
     constructor(width: number, height: number, opts?: RenderTargetOptions);
     /** The first color attachment texture, or undefined when count=0 (depth-only target). */
     get texture(): RenderTargetTexture | undefined;
     set texture(value: RenderTargetTexture | undefined);
-    /** Sets the size of the render target, disposes existing GPU resources; renderer will reallocate on next use */
+    /**
+     * Resize the render target. Old GPU resources are NOT destroyed here: the
+     * renderer reallocates lazily on next use in `ensureRenderTargetTexturesAllocated`,
+     * where `setRenderTargetTexture` destroys the old texture and creates the new
+     * one atomically. Marking `needsUpdate` (+ the size mismatch) is enough to
+     * trigger that — a version-driven reallocation rather than eager destruction.
+     *
+     * Eagerly disposing here would destroy a GPU texture synchronously, opening a
+     * window where another pass that already recorded a draw against it (e.g. a
+     * shared depth attachment) submits with a destroyed texture. The lazy path has
+     * no such window.
+     */
     setSize(width: number, height: number): void;
     /**
      * Dispose of the render target's GPU resources.
@@ -3797,13 +3443,20 @@ export class Object3D {
 ```ts
 export class Camera extends Object3D {
     readonly isCamera = true;
-    /** Brand set true on OrthographicCamera; declared here so `camera.isOrthographicCamera` types on a Camera ref. */
     readonly isOrthographicCamera?: true;
+    readonly isPerspectiveCamera?: true;
     near: number;
     far: number;
+    /**
+     * Clip-space convention the projection matrix + frustum are built for. Defaults to WebGPU (z in
+     * [0,1]); the renderer stamps its own convention on before rendering and rebuilds the projection.
+     */
+    coordinateSystem: CoordinateSystem;
     projectionMatrix: import("mathcat").Mat4;
     matrixWorldInverse: import("mathcat").Mat4;
     constructor();
+    /** Recompute the projection matrix for the current `coordinateSystem`. Overridden by subclasses. */
+    updateProjectionMatrix(): void;
     /** recompute the matrixWorldInverse from the current matrixWorld. */
     updateViewMatrix(): void;
 }
@@ -3827,7 +3480,7 @@ export class PerspectiveCamera extends Camera {
     fov: number;
     aspect: number;
     constructor(fov?: number, aspect?: number, near?: number, far?: number);
-    /** Recompute the projection matrix from current fov / aspect / near / far. */
+    /** Recompute the projection matrix from current fov / aspect / near / far, for the camera's coordinate system. */
     updateProjectionMatrix(): void;
 }
 ```
@@ -3910,7 +3563,7 @@ export class CubeCamera extends Object3D {
      * Render the scene into all six faces of the cube render target from this
      * camera's world position. Restores the renderer's previous render target.
      */
-    update(renderer: WebGPURenderer, scene: Object3D): void;
+    update(renderer: Renderer, scene: Object3D): void;
 }
 ```
 
@@ -4657,6 +4310,22 @@ export class Uniform<T extends Any = Any> {
 }
 ```
 
+#### `StencilFaceOverride`
+
+```ts
+/**
+ * Back-face stencil op overrides. WebGPU applies stencil ops per face; by default gpucat uses the
+ * material's stencil ops for both faces. Set `stencilBack` to give back faces different ops (e.g.
+ * two-sided stencil shadow volumes). Omitted fields fall back to the corresponding front-face op.
+ */
+export type StencilFaceOverride = {
+    func?: GPUCompareFunction;
+    fail?: GPUStencilOperation;
+    zFail?: GPUStencilOperation;
+    zPass?: GPUStencilOperation;
+};
+```
+
 #### `MaterialOptions`
 
 ```ts
@@ -4685,6 +4354,8 @@ export interface MaterialOptions {
     transparent?: boolean;
     /** Optional blend state. Only meaningful when transparent=true or custom blending. */
     blend?: GPUBlendState;
+    /** Whether the fragment shader writes color. When false, the color target's write mask is 0 (e.g. a stencil-only mask pass that still needs a matching color target). Default true. */
+    colorWrite?: boolean;
     /** Whether depth testing is active. When false, depthCompare is forced to 'always'. */
     depthTest?: boolean;
     /** Whether to write to the depth buffer. Default: true for opaque, false for transparent. */
@@ -4701,6 +4372,24 @@ export interface MaterialOptions {
     depthBiasSlopeScale?: number;
     /** Maximum absolute depth bias value. Default 0 (no clamp). */
     depthBiasClamp?: number;
+    /** Whether the stencil test is active. When false, the pipeline uses a no-op stencil state. Default false. */
+    stencilTest?: boolean;
+    /** Stencil comparison function (stored ref/value → pass/fail). Default 'always'. Only used when stencilTest=true. */
+    stencilFunc?: GPUCompareFunction;
+    /** Reference value the stencil test compares against; applied via setStencilReference. Default 0. */
+    stencilRef?: number;
+    /** Bitmask AND-ed with the reference and stored value before comparing. Default 0xff. */
+    stencilReadMask?: number;
+    /** Bitmask selecting which stencil bits may be written. Default 0xff. */
+    stencilWriteMask?: number;
+    /** Op applied when the stencil test fails. Default 'keep'. */
+    stencilFail?: GPUStencilOperation;
+    /** Op applied when the stencil test passes but the depth test fails. Default 'keep'. */
+    stencilZFail?: GPUStencilOperation;
+    /** Op applied when both the stencil and depth tests pass. Default 'keep'. */
+    stencilZPass?: GPUStencilOperation;
+    /** Per-face override for back-face stencil ops. When unset, back faces use the front-face ops. */
+    stencilBack?: StencilFaceOverride;
 }
 ```
 
@@ -4720,6 +4409,8 @@ export class Material {
     transparent: boolean;
     /** Optional blend state. Only meaningful when transparent=true or custom blending. */
     blend?: GPUBlendState;
+    /** Whether the fragment shader writes color. When false, the color target's write mask is 0. */
+    colorWrite: boolean;
     /** Whether depth testing is active. When false, depthCompare is forced to 'always'. */
     depthTest: boolean;
     /** Whether to write to the depth buffer. Default: true for opaque, false for transparent. */
@@ -4736,6 +4427,24 @@ export class Material {
     depthBiasSlopeScale: number;
     /** Maximum absolute depth bias value. Default 0 (no clamp). */
     depthBiasClamp: number;
+    /** Whether the stencil test is active. When false, the pipeline uses a no-op stencil state. */
+    stencilTest: boolean;
+    /** Stencil comparison function. Only used when stencilTest=true. */
+    stencilFunc: GPUCompareFunction;
+    /** Reference value the stencil test compares against; applied via setStencilReference. */
+    stencilRef: number;
+    /** Bitmask AND-ed with the reference and stored value before comparing. */
+    stencilReadMask: number;
+    /** Bitmask selecting which stencil bits may be written. */
+    stencilWriteMask: number;
+    /** Op applied when the stencil test fails. */
+    stencilFail: GPUStencilOperation;
+    /** Op applied when the stencil test passes but the depth test fails. */
+    stencilZFail: GPUStencilOperation;
+    /** Op applied when both the stencil and depth tests pass. */
+    stencilZPass: GPUStencilOperation;
+    /** Per-face override for back-face stencil ops, or null to use the front-face ops on both faces. */
+    stencilBack: StencilFaceOverride | null;
     /**
      * Named uniforms for this material.
      * Used for name-based uniform resolution: uniform('roughness', d.f32) resolves
@@ -5225,6 +4934,28 @@ Turn a node graph into WGSL.
 export function compile(slots: CompileSlots): CompileResult;
 ```
 
+#### `CompileGlslOptions`
+
+```ts
+/**
+ * Options for the GLSL emitter. WGSL has no precision qualifier, so these are GLSL-only (grammar-
+ * native): a WebGL-backend concern that never touches the WGSL path.
+ */
+export type CompileGlslOptions = {
+    /**
+     * Fragment-stage default precision qualifier (`precision <p> float;` / `precision <p> int;`).
+     * Default: 'highp' — keeping the emitted GLSL byte-identical to the golden snapshots.
+     */
+    precision?: 'highp' | 'mediump' | 'lowp';
+};
+```
+
+#### `compileGlsl`
+
+```ts
+export function compileGlsl(slots: CompileSlots, opts?: CompileGlslOptions): CompileResult;
+```
+
 #### `compileCompute`
 
 ```ts
@@ -5479,6 +5210,37 @@ export type ComputeCompileResult = {
 };
 ```
 
+#### `Discovery`
+
+```ts
+/** result of a single DFS pass that discovers all metadata needed before code generation */
+export type Discovery = {
+    nodeIdToUsages: Map<number, number>;
+    mutatedNodes: Set<number>;
+    fnDefs: Map<string, {
+        fn: FnNode<d.Any>;
+        traced: TracedFn;
+    }>;
+    wgslFnDefs: Map<string, WgslFunctionNode>;
+    structDefs: Map<string, StructDef<StructSchema>>;
+    storageNames: Map<number, string>;
+    textures: Map<string, TextureBindingNode>;
+    storageTextures: Map<string, StorageTextureBindingNode>;
+    samplers: Map<string, SamplerNode>;
+    uniforms: Map<string, {
+        node: UniformNode<d.Any>;
+        group: UniformGroup;
+    }>;
+    storages: Map<string, StorageNode<d.Any>>;
+    privateVars: Map<number, PrivateVarNode<d.Any>>;
+    workgroupVars: Map<number, WorkgroupVarNode<d.Any>>;
+    nodeIdToNode: Map<number, Node<d.Any>>;
+    updateBeforeNodes: UpdateBeforeNode[];
+    updateAfterNodes: UpdateAfterNode[];
+    updateNodes: UpdateNode[];
+};
+```
+
 ## Schema (`d`)
 
 WGSL type descriptors (imported as `d`) and std430 buffer packing.
@@ -5486,7 +5248,7 @@ WGSL type descriptors (imported as `d`) and std430 buffer packing.
 #### `AddressSpace`
 
 ```ts
-export type AddressSpace = 'storage' | 'uniform';
+export type AddressSpace = 'storage' | 'uniform' | 'std140';
 ```
 
 #### `CompiledLayout`
@@ -5591,6 +5353,18 @@ export function layoutSizeOf(schema: Any, addressSpace?: AddressSpace): number;
  * const stride = layoutStrideOf(Particle); // 32
  */
 export function layoutStrideOf(schema: Any, addressSpace?: AddressSpace): number;
+```
+
+#### `layoutAlignOf`
+
+```ts
+/**
+ * Get the byte alignment of a schema in the given address space.
+ *
+ * @example
+ * const align = layoutAlignOf(vec3f, 'std140'); // 16
+ */
+export function layoutAlignOf(schema: Any, addressSpace?: AddressSpace): number;
 ```
 
 #### `getCompiledLayout`
@@ -5930,7 +5704,7 @@ export class Inspector extends RendererInspector {
         warn: (msg: string) => void;
         error: (msg: string) => void;
     };
-    setRenderer(renderer: WebGPURenderer | null): void;
+    setRenderer(renderer: InspectableRenderer | null): void;
     /**
      * Release everything this Inspector owns: GPU resources (probe + timestamp
      * query state), DOM (panel + any detached tab windows), and window
@@ -5967,8 +5741,8 @@ export class Inspector extends RendererInspector {
      * Returns the probe canvas element so the caller can display it, or null
      * if patching / pipeline creation fails.
      */
-    setProbe(target: ProbeTarget, sourceRO: RenderObject): HTMLCanvasElement | null;
-    /** Remove the active probe. */
+    setProbe(target: ProbeTarget, sourceRO: RenderObject): HTMLElement | null;
+    /** Remove the active probe (WebGPU and WebGL). */
     clearProbe(): void;
     navigateToRO(ro: RenderObject): void;
     /**
@@ -6013,7 +5787,7 @@ export function copy(out: Frustum, f: Frustum): Frustum;
 #### `setFromViewProjectionMatrix`
 
 ```ts
-export function setFromViewProjectionMatrix(out: Frustum, proj: Mat4, view: Mat4): Frustum;
+export function setFromViewProjectionMatrix(out: Frustum, proj: Mat4, view: Mat4, coordinateSystem?: CoordinateSystem): Frustum;
 ```
 
 #### `intersectsSphere`

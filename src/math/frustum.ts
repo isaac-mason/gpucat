@@ -1,4 +1,5 @@
 import { mat4, plane3, type Mat4, type Box3, type Sphere, type Plane3 } from 'mathcat';
+import { CoordinateSystem } from '../core/coordinate-system';
 
 export type Frustum = [Plane3, Plane3, Plane3, Plane3, Plane3, Plane3];
 
@@ -34,7 +35,12 @@ export function copy(out: Frustum, f: Frustum): Frustum {
     return out;
 }
 
-export function setFromViewProjectionMatrix(out: Frustum, proj: Mat4, view: Mat4): Frustum {
+export function setFromViewProjectionMatrix(
+    out: Frustum,
+    proj: Mat4,
+    view: Mat4,
+    coordinateSystem: CoordinateSystem = CoordinateSystem.WEBGPU,
+): Frustum {
     const vp = mat4.create();
     mat4.multiply(vp, proj, view);
     const m = vp;
@@ -43,7 +49,13 @@ export function setFromViewProjectionMatrix(out: Frustum, proj: Mat4, view: Mat4
     setPlane(out[1], -m[0] + m[3], -m[4] + m[7], -m[8] + m[11], -m[12] + m[15]);
     setPlane(out[2], m[1] + m[3], m[5] + m[7], m[9] + m[11], m[13] + m[15]);
     setPlane(out[3], -m[1] + m[3], -m[5] + m[7], -m[9] + m[11], -m[13] + m[15]);
-    setPlane(out[4], m[2], m[6], m[10], m[14]);
+    // Near plane depends on the clip-space depth convention: WebGPU (z=0 at near) uses row2 alone;
+    // WebGL (z=-1 at near) uses row2 + row3. Far plane (row3 - row2) is identical for both.
+    if (coordinateSystem === CoordinateSystem.WEBGL) {
+        setPlane(out[4], m[2] + m[3], m[6] + m[7], m[10] + m[11], m[14] + m[15]);
+    } else {
+        setPlane(out[4], m[2], m[6], m[10], m[14]);
+    }
     setPlane(out[5], -m[2] + m[3], -m[6] + m[7], -m[10] + m[11], -m[14] + m[15]);
 
     for (let i = 0; i < 6; i++) {

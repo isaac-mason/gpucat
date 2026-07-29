@@ -1,7 +1,7 @@
 import { GpuBuffer } from '../../core/gpu-buffer';
-import { Node, NodeKind } from './core';
 import type { Any, TypedArrayFor } from '../../schema/schema';
 import * as d from '../../schema/schema';
+import { Node, NodeKind } from './core';
 
 /**
  * Options for creating an AttributeNode with view semantics.
@@ -59,11 +59,7 @@ export class AttributeNode<D extends Any> extends Node<D> {
     /** Whether this is per-instance data (stepMode: 'instance'). */
     readonly instanced: boolean;
 
-    constructor(
-        desc: D,
-        source: string | GpuBuffer<D>,
-        options: AttributeOptions = {}
-    ) {
+    constructor(desc: D, source: string | GpuBuffer<D>, options: AttributeOptions = {}) {
         super(desc);
         this.source = source;
         this.stride = options.stride ?? 0;
@@ -88,30 +84,19 @@ export class AttributeNode<D extends Any> extends Node<D> {
 }
 
 // Overload 1: By name (geometry lookup)
-export function attribute<D extends Any>(
-    name: string,
-    schema: D,
-    options?: AttributeOptions
-): AttributeNode<D>;
+export function attribute<D extends Any>(name: string, schema: D, options?: AttributeOptions): AttributeNode<D>;
 
 // Overload 2: Direct GpuBuffer (schema inferred from buffer)
-export function attribute<D extends Any>(
-    buffer: GpuBuffer<D>,
-    options?: AttributeOptions
-): AttributeNode<D>;
+export function attribute<D extends Any>(buffer: GpuBuffer<D>, options?: AttributeOptions): AttributeNode<D>;
 
 // Overload 3: Raw TypedArray (requires schema, creates GpuBuffer internally)
-export function attribute<D extends Any>(
-    data: TypedArrayFor<D>,
-    schema: D,
-    options?: AttributeOptions
-): AttributeNode<D>;
+export function attribute<D extends Any>(data: TypedArrayFor<D>, schema: D, options?: AttributeOptions): AttributeNode<D>;
 
 // Implementation
 export function attribute<D extends Any>(
     nameOrBufferOrData: string | GpuBuffer<D> | TypedArrayFor<D>,
     schemaOrOptions?: D | AttributeOptions,
-    maybeOptions?: AttributeOptions
+    maybeOptions?: AttributeOptions,
 ): AttributeNode<D> {
     // Overload 1: attribute(name, schema, options?)
     if (typeof nameOrBufferOrData === 'string') {
@@ -160,5 +145,4 @@ export function attribute<D extends Any>(
  * // Sample a texture with UVs
  * const color = myTexture.sample(uv());
  */
-export const uv = (index = 0): AttributeNode<d.vec2f> =>
-    new AttributeNode<d.vec2f>(d.vec2f, 'uv' + (index > 0 ? index : ''));
+export const uv = (index = 0): AttributeNode<d.vec2f> => new AttributeNode<d.vec2f>(d.vec2f, 'uv' + (index > 0 ? index : ''));

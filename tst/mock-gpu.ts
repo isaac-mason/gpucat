@@ -44,9 +44,7 @@ export function createMockOnDispose(tracker: DisposalTracker): () => void {
  * Attach a disposal tracker to a GpuBuffer.
  * Returns the tracker for assertions.
  */
-export function trackDisposal<T extends { _onDispose: (() => void) | null }>(
-    buffer: T
-): DisposalTracker {
+export function trackDisposal<T extends { _onDispose: (() => void) | null }>(buffer: T): DisposalTracker {
     const tracker = createDisposalTracker();
     buffer._onDispose = createMockOnDispose(tracker);
     return tracker;

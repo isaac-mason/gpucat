@@ -26,14 +26,13 @@
  *   than the just-finished one, whose gpuMs is always still pending.
  */
 
-import { InspectorBase } from './inspector-base';
-import type { WebGPURenderer } from '../renderer/renderer';
-import type { InspectorNode, ComputeNode } from '../nodes/nodes';
 import type { Object3D } from '../core/object3d';
-import { getBufferCacheStats } from '../renderer/buffers';
-import * as pipelines from '../renderer/pipelines';
-import { getRenderObjectsStats } from '../renderer/render-objects';
-import { Any } from '../schema/schema';
+import type { ComputeNode, InspectorNode } from '../nodes/nodes';
+import { getRenderObjectsStats } from '../renderer/core/render-objects';
+import { getBufferCacheStats } from '../renderer/webgpu/buffers';
+import * as pipelines from '../renderer/webgpu/pipelines';
+import type { Any } from '../schema/schema';
+import { type InspectableRenderer, InspectorBase } from './inspector-base';
 
 // ---------------------------------------------------------------------------
 // Frame data types
@@ -101,7 +100,7 @@ export type SceneRecord = {
     /** MSAA sample count used for pipeline key lookup. */
     samples: number;
     /** Color attachment format used for pipeline key lookup. */
-    colorFormat: GPUTextureFormat;
+    colorFormat: string;
 };
 
 export type FrameRecord = {
@@ -127,6 +126,16 @@ export type FrameRecord = {
     /** Scene render calls encountered this frame, one entry per renderScene() call. */
     scenes: SceneRecord[];
 };
+
+/**
+ * Minimal shape of the `EXT_disjoint_timer_query_webgl2` extension. lib.dom doesn't type it, but the
+ * only members we need are the two enums — the query lifecycle (begin/end/getQuery) is WebGL2 core
+ * (`gl.beginQuery`/`gl.endQuery`/`gl.getQueryParameter`).
+ */
+interface EXT_disjoint_timer_query_webgl2 {
+    readonly TIME_ELAPSED_EXT: GLenum;
+    readonly GPU_DISJOINT_EXT: GLenum;
+}
 
 const FRAME_HISTORY = 512;
 const MAX_PASSES_PER_FRAME = 64;
@@ -155,6 +164,21 @@ export class RendererInspector extends InspectorBase {
     private _gpuInitialized = false;
     private _querySet: GPUQuerySet | null = null;
     private _resolveBuffer: GPUBuffer | null = null;
+
+    // -----------------------------------------------------------------------
+    // WebGL GPU-timing state (EXT_disjoint_timer_query_webgl2)
+    // -----------------------------------------------------------------------
+    /** The WebGL disjoint-timer extension, or null if unavailable. */
+    private _glTimerExt: EXT_disjoint_timer_query_webgl2 | null = null;
+    /** Free pool of GL timer-query objects to reuse. */
+    private _glQueryPool: WebGLQuery[] = [];
+    /** Timer queries submitted but not yet read back: {query, entry, frame record}. */
+    private _glPendingQueries: { query: WebGLQuery; entry: RenderEntry | ComputeEntry; record: FrameRecord }[] = [];
+    /** The GL timer query currently open (between beginRender and finishRender). Only one may be
+     *  active at a time — TIME_ELAPSED queries can't nest, so nested passes are left untimed. */
+    private _glActiveQuery: { query: WebGLQuery; entry: RenderEntry | ComputeEntry } | null = null;
+    /** Per-frame list of entries whose GL query landed in this frame, to compute the frame span. */
+    private _glFrameQueries: { query: WebGLQuery; entry: RenderEntry | ComputeEntry }[] = [];
     /** Pool of MAP_READ readback buffers (see READBACK_POOL_SIZE). Each frame
      *  resolves into a free (unmapped) one, so a pending mapAsync from a prior
      *  frame never blocks the next — every frame's gpuMs resolves and back-patches
@@ -180,7 +204,7 @@ export class RendererInspector extends InspectorBase {
             frameSum++;
             if (timeSum >= 1000) break;
         }
-        return frameSum * 1000 / timeSum;
+        return (frameSum * 1000) / timeSum;
     }
 
     // Per-frame working state
@@ -188,7 +212,7 @@ export class RendererInspector extends InspectorBase {
     private _currentQuerySlot = 0;
     private _pendingInspectables: InspectorNode<Any>[] = [];
     private _pendingScenes: SceneRecord[] = [];
-    
+
     // Timeline entry stack - entries nest inside the current stack top
     // The stack holds "in-progress" entries that haven't been closed yet
     private _entryStack: TimelineEntry[] = [];
@@ -197,7 +221,7 @@ export class RendererInspector extends InspectorBase {
     // Map of name → stack of open entries with that name (handles same-name passes)
     private _entryRefs: Map<string, TimelineEntry[]> = new Map();
 
-    override setRenderer(renderer: WebGPURenderer | null): void {
+    override setRenderer(renderer: InspectableRenderer | null): void {
         if (renderer === null) {
             this._destroyTimestampGpu();
             super.setRenderer(null);
@@ -210,7 +234,14 @@ export class RendererInspector extends InspectorBase {
 
     override init(): void {
         if (this._gpuInitialized || !this.renderer) return;
-        const device = this.renderer._device;
+
+        if (this.renderer.backend === 'webgl') {
+            this._initWebGLTimestamps();
+            this._gpuInitialized = true;
+            return;
+        }
+
+        const device = this.renderer.device;
 
         this.hasTimestamps = device?.features?.has('timestamp-query') ?? false;
 
@@ -240,6 +271,7 @@ export class RendererInspector extends InspectorBase {
     }
 
     private _destroyTimestampGpu(): void {
+        // WebGPU query resources.
         this._querySet?.destroy();
         this._querySet = null;
         // GPUBuffers don't always expose destroy on all browsers; guard.
@@ -247,8 +279,121 @@ export class RendererInspector extends InspectorBase {
         this._resolveBuffer = null;
         for (const b of this._readbackPool) b.destroy?.();
         this._readbackPool = [];
+
+        // WebGL timer-query resources.
+        const gl = this.renderer && this.renderer.backend === 'webgl' ? this.renderer.gl : null;
+        if (gl) {
+            for (const q of this._glQueryPool) gl.deleteQuery(q);
+            for (const p of this._glPendingQueries) gl.deleteQuery(p.query);
+            if (this._glActiveQuery) gl.deleteQuery(this._glActiveQuery.query);
+        }
+        this._glQueryPool = [];
+        this._glPendingQueries = [];
+        this._glActiveQuery = null;
+        this._glFrameQueries = [];
+        this._glTimerExt = null;
+
         this.hasTimestamps = false;
         this._gpuInitialized = false;
+    }
+
+    // -----------------------------------------------------------------------
+    // WebGL GPU-timing (EXT_disjoint_timer_query_webgl2)
+    // -----------------------------------------------------------------------
+
+    /** Acquire the disjoint-timer extension if available; enables per-pass GPU timing on WebGL. */
+    private _initWebGLTimestamps(): void {
+        const r = this.renderer;
+        if (!r || r.backend !== 'webgl' || !r.gl) return;
+        // The extension exposes TIME_ELAPSED_EXT + GPU_DISJOINT_EXT; the query objects and
+        // begin/end/getQueryParameter are WebGL2 core (gl.beginQuery/endQuery/getQuery).
+        this._glTimerExt = r.gl.getExtension(
+            'EXT_disjoint_timer_query_webgl2',
+        ) as EXT_disjoint_timer_query_webgl2 | null;
+        this.hasTimestamps = this._glTimerExt !== null;
+    }
+
+    /** Grab a free GL timer query, creating one if the pool is empty. */
+    private _glAcquireQuery(gl: WebGL2RenderingContext): WebGLQuery | null {
+        const q = this._glQueryPool.pop() ?? gl.createQuery();
+        return q;
+    }
+
+    /** Begin a GL timer query around a render/compute entry (top-level only — can't nest). */
+    private _glBeginQuery(entry: RenderEntry | ComputeEntry): void {
+        if (!this.hasTimestamps || !this._glTimerExt) return;
+        const r = this.renderer;
+        if (!r || r.backend !== 'webgl' || !r.gl) return;
+        // TIME_ELAPSED can't nest — if one is already open, this (nested) pass goes untimed.
+        if (this._glActiveQuery) return;
+        const query = this._glAcquireQuery(r.gl);
+        if (!query) return;
+        r.gl.beginQuery(this._glTimerExt.TIME_ELAPSED_EXT, query);
+        this._glActiveQuery = { query, entry };
+    }
+
+    /** End the GL timer query for an entry, stashing it until finish() attaches the frame record. */
+    private _glEndQuery(entry: RenderEntry | ComputeEntry): void {
+        if (!this._glActiveQuery || this._glActiveQuery.entry !== entry) return;
+        const r = this.renderer;
+        if (!r || r.backend !== 'webgl' || !r.gl || !this._glTimerExt) return;
+        r.gl.endQuery(this._glTimerExt.TIME_ELAPSED_EXT);
+        this._glFrameQueries.push({ query: this._glActiveQuery.query, entry });
+        this._glActiveQuery = null;
+    }
+
+    /**
+     * Poll pending GL timer queries: any whose result is available is read (ns → ms) and back-patched
+     * onto its entry + frame record, then the query returns to the pool. Disjoint results (GPU state
+     * change invalidated the timing) are discarded. Called each frame from finish().
+     */
+    private _glPollQueries(): void {
+        const r = this.renderer;
+        if (!r || r.backend !== 'webgl' || !r.gl || !this._glTimerExt) return;
+        const gl = r.gl;
+
+        // GPU_DISJOINT_EXT: if the GPU changed state during timing, ALL in-flight results are bogus.
+        const disjoint = gl.getParameter(this._glTimerExt.GPU_DISJOINT_EXT) as boolean;
+
+        const stillPending: typeof this._glPendingQueries = [];
+        const touchedRecords = new Set<FrameRecord>();
+
+        for (const pending of this._glPendingQueries) {
+            const available = gl.getQueryParameter(pending.query, gl.QUERY_RESULT_AVAILABLE) as boolean;
+            if (!available) {
+                stillPending.push(pending);
+                continue;
+            }
+            if (disjoint) {
+                // Discard: timing invalid. Recycle the query.
+                this._glQueryPool.push(pending.query);
+                continue;
+            }
+            const ns = gl.getQueryParameter(pending.query, gl.QUERY_RESULT) as number;
+            this._glQueryPool.push(pending.query);
+            pending.entry.gpuMs = ns / 1_000_000;
+            touchedRecords.add(pending.record);
+        }
+        this._glPendingQueries = stillPending;
+
+        // For each record whose queries have all landed, set the frame GPU time as the sum of its
+        // entries' per-pass durations. WebGL timer queries are per-pass elapsed times (not a shared
+        // clock), and gpucat's GL passes run sequentially with no overlap, so the frame GPU time is the
+        // sum. gpuStartMs stays null (no shared GPU epoch on WebGL) — the timeline falls back to CPU
+        // ordering for bar placement. Recomputed from the timeline so partial landings across frames
+        // don't double-count.
+        for (const record of touchedRecords) {
+            if (this._glPendingQueries.some((p) => p.record === record)) continue;
+            let sumMs = 0;
+            const walk = (entries: TimelineEntry[]): void => {
+                for (const e of entries) {
+                    if ((e.kind === 'render' || e.kind === 'compute') && e.gpuMs !== null) sumMs += e.gpuMs;
+                    if (e.children.length > 0) walk(e.children);
+                }
+            };
+            walk(record.timeline);
+            record.gpuMs = sumMs;
+        }
     }
 
     override begin(frameId: number): void {
@@ -264,6 +409,7 @@ export class RendererInspector extends InspectorBase {
         this._rootTimeline = [];
         this._entryRefs.clear();
         this._frameHadRender = false;
+        this._glFrameQueries = [];
         void frameId;
     }
 
@@ -289,14 +435,21 @@ export class RendererInspector extends InspectorBase {
             this._closeCurrentEntry(now);
         }
 
+        const renderer = this.renderer;
+        // Buffer/pipeline caches are WebGPU-specific; the Memory tab reads GL caches directly on WebGL,
+        // so these frame-record stats are zeroed there (nothing else consumes them).
         const record: FrameRecord = {
             frameId,
             cpuMs,
             gpuMs: null,
             timeline: [...this._rootTimeline],
-            bufferStats: getBufferCacheStats(this.renderer._buffers),
-            pipelineStats: pipelines.getStats(this.renderer._pipelines),
-            renderObjectStats: getRenderObjectsStats(this.renderer._renderObjects),
+            bufferStats:
+                renderer.backend === 'webgpu' ? getBufferCacheStats(renderer.buffers) : { bufferCount: 0, rawCount: 0 },
+            pipelineStats:
+                renderer.backend === 'webgpu'
+                    ? pipelines.getStats(renderer.pipelines)
+                    : { renderCount: 0, computeCount: 0, bindGroupLayoutCount: 0 },
+            renderObjectStats: getRenderObjectsStats(renderer._renderObjects),
             inspectableNodes: [...this._pendingInspectables],
             scenes: [...this._pendingScenes],
         };
@@ -304,9 +457,25 @@ export class RendererInspector extends InspectorBase {
         this.frameHead = (this.frameHead + 1) % FRAME_HISTORY;
         this.frames[this.frameHead] = record;
 
-        // Async GPU timestamp resolution
-        if (this.hasTimestamps && this._querySet && this._resolveBuffer && this._readbackPool.length > 0 && this.renderer._device) {
-            this._resolveTimestamps(frameId, record);
+        if (renderer.backend === 'webgpu') {
+            // Async GPU timestamp resolution (WebGPU query set).
+            if (
+                this.hasTimestamps &&
+                this._querySet &&
+                this._resolveBuffer &&
+                this._readbackPool.length > 0 &&
+                renderer.device
+            ) {
+                this._resolveTimestamps(frameId, record);
+            }
+        } else if (this.hasTimestamps) {
+            // WebGL: attach this frame's ended timer queries to the record, then poll all pending
+            // queries (this + prior frames) — results land a frame or two later, back-patching gpuMs.
+            for (const q of this._glFrameQueries) {
+                this._glPendingQueries.push({ query: q.query, entry: q.entry, record });
+            }
+            this._glFrameQueries = [];
+            this._glPollQueries();
         }
     }
 
@@ -325,20 +494,26 @@ export class RendererInspector extends InspectorBase {
             children: [],
         };
         this._pushEntry(entry);
+        if (this.renderer?.backend === 'webgl') this._glBeginQuery(entry);
     }
 
     override finishRender(passId: string, _frameId: number): void {
+        if (this.renderer?.backend === 'webgl') {
+            const stack = this._entryRefs.get(passId);
+            const entry = stack?.[stack.length - 1];
+            if (entry && entry.kind !== 'marker') this._glEndQuery(entry);
+        }
         this._finishEntry(passId);
     }
 
     override getTimestampWrites(passId: string): GPURenderPassTimestampWrites | undefined {
         if (!this.hasTimestamps || !this._querySet) return undefined;
-        
+
         // Find the most recently opened entry with this name
         const stack = this._entryRefs.get(passId);
         const entry = stack?.[stack.length - 1];
         if (!entry || entry.kind === 'marker') return undefined;
-        
+
         const slot = (entry as RenderEntry | ComputeEntry).querySlot;
         return {
             querySet: this._querySet,
@@ -379,12 +554,12 @@ export class RendererInspector extends InspectorBase {
         passId: string,
         scene: Object3D,
         samples: number,
-        colorFormat: GPUTextureFormat,
+        colorFormat: string,
         _frameId: number,
     ): void {
         // Deduplicate: if the same passId fires more than once this frame (shouldn't
         // happen, but be safe) just overwrite so we always have the latest.
-        const existing = this._pendingScenes.findIndex(s => s.passId === passId);
+        const existing = this._pendingScenes.findIndex((s) => s.passId === passId);
         const record: SceneRecord = { passId, scene, samples, colorFormat };
         if (existing >= 0) {
             this._pendingScenes[existing] = record;
@@ -451,10 +626,10 @@ export class RendererInspector extends InspectorBase {
         if (!stack || stack.length === 0) return;
         const entry = stack.pop()!;
         if (stack.length === 0) this._entryRefs.delete(name);
-        
+
         const now = performance.now();
         entry.cpuMs = now - this._frameStart - entry.startTime;
-        
+
         const idx = this._entryStack.lastIndexOf(entry);
         if (idx >= 0) {
             this._entryStack.splice(idx, 1);
@@ -531,12 +706,15 @@ export class RendererInspector extends InspectorBase {
      * Checks buffer.mapState before using, skips if not 'unmapped'.
      */
     private _resolveTimestamps(frameId: number, record: FrameRecord): void {
-        const device = this.renderer!._device;
-        
+        // Only reached on the WebGPU path (finish() guards on backend); narrow for device access.
+        const renderer = this.renderer;
+        if (!renderer || renderer.backend !== 'webgpu') return;
+        const device = renderer.device;
+
         // Collect GPU entries from timeline
         const gpuEntries = new Map<number, RenderEntry | ComputeEntry>();
         this._collectGpuEntries(record.timeline, gpuEntries);
-        
+
         const slotCount = Math.min(gpuEntries.size, MAX_PASSES_PER_FRAME);
         if (slotCount === 0) return;
 
@@ -555,50 +733,45 @@ export class RendererInspector extends InspectorBase {
 
         const encoder = device.createCommandEncoder();
         encoder.resolveQuerySet(this._querySet!, 0, slotsToResolve * 2, this._resolveBuffer!, 0);
-        encoder.copyBufferToBuffer(
-            this._resolveBuffer!,
-            0,
-            rb,
-            0,
-            slotsToResolve * 2 * 8,
-        );
+        encoder.copyBufferToBuffer(this._resolveBuffer!, 0, rb, 0, slotsToResolve * 2 * 8);
         device.queue.submit([encoder.finish()]);
 
-        rb.mapAsync(GPUMapMode.READ, 0, slotsToResolve * 2 * 8).then(() => {
-            const data = new BigUint64Array(rb.getMappedRange(0, slotsToResolve * 2 * 8));
+        rb.mapAsync(GPUMapMode.READ, 0, slotsToResolve * 2 * 8)
+            .then(() => {
+                const data = new BigUint64Array(rb.getMappedRange(0, slotsToResolve * 2 * 8));
 
-            // Frame GPU epoch + end: earliest begin and latest end across the
-            // frame's passes. GPU timestamps are on their own clock (unrelated to
-            // performance.now), so each pass's begin is stored *relative* to this
-            // epoch. Passes pipeline — their [begin,end] intervals overlap — so the
-            // frame's real GPU time is the SPAN (maxEnd − epoch), NOT the sum of
-            // per-pass durations, which double-counts the overlap.
-            let epochNs: bigint | null = null;
-            let maxEndNs = 0n;
-            for (const [slot] of gpuEntries) {
-                const beginNs = data[slot * 2];
-                const endNs = data[slot * 2 + 1];
-                if (endNs <= beginNs) continue; // unwritten or bogus timestamp
-                if (epochNs === null || beginNs < epochNs) epochNs = beginNs;
-                if (endNs > maxEndNs) maxEndNs = endNs;
-            }
+                // Frame GPU epoch + end: earliest begin and latest end across the
+                // frame's passes. GPU timestamps are on their own clock (unrelated to
+                // performance.now), so each pass's begin is stored *relative* to this
+                // epoch. Passes pipeline — their [begin,end] intervals overlap — so the
+                // frame's real GPU time is the SPAN (maxEnd − epoch), NOT the sum of
+                // per-pass durations, which double-counts the overlap.
+                let epochNs: bigint | null = null;
+                let maxEndNs = 0n;
+                for (const [slot] of gpuEntries) {
+                    const beginNs = data[slot * 2];
+                    const endNs = data[slot * 2 + 1];
+                    if (endNs <= beginNs) continue; // unwritten or bogus timestamp
+                    if (epochNs === null || beginNs < epochNs) epochNs = beginNs;
+                    if (endNs > maxEndNs) maxEndNs = endNs;
+                }
 
-            for (const [slot, entry] of gpuEntries) {
-                const beginNs = data[slot * 2];
-                const endNs = data[slot * 2 + 1];
-                if (endNs <= beginNs) continue; // unwritten or bogus timestamp
-                entry.gpuMs = Number(endNs - beginNs) / 1_000_000;
-                entry.gpuStartMs = epochNs === null ? 0 : Number(beginNs - epochNs) / 1_000_000;
-            }
+                for (const [slot, entry] of gpuEntries) {
+                    const beginNs = data[slot * 2];
+                    const endNs = data[slot * 2 + 1];
+                    if (endNs <= beginNs) continue; // unwritten or bogus timestamp
+                    entry.gpuMs = Number(endNs - beginNs) / 1_000_000;
+                    entry.gpuStartMs = epochNs === null ? 0 : Number(beginNs - epochNs) / 1_000_000;
+                }
 
-            // back-patches this frame's record (held by reference in the ring);
-            // latestResolvedFrame() picks it up for the display next frame.
-            if (epochNs !== null) record.gpuMs = Number(maxEndNs - epochNs) / 1_000_000;
-            rb.unmap();
-        }).catch(() => {
-            if (rb.mapState === 'mapped') rb.unmap();
-            void frameId;
-        });
+                // back-patches this frame's record (held by reference in the ring);
+                // latestResolvedFrame() picks it up for the display next frame.
+                if (epochNs !== null) record.gpuMs = Number(maxEndNs - epochNs) / 1_000_000;
+                rb.unmap();
+            })
+            .catch(() => {
+                if (rb.mapState === 'mapped') rb.unmap();
+                void frameId;
+            });
     }
-
 }

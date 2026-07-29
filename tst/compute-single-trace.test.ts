@@ -11,7 +11,7 @@
 // generateComputeShader.
 
 import { describe, expect, test } from 'vitest';
-import { Fn, compileCompute, globalId, index, storage, struct } from '../src/index';
+import { compileCompute, Fn, globalId, index, storage, struct } from '../src/index';
 import * as d from '../src/schema/schema';
 
 describe('compileCompute — single-trace invariant', () => {
@@ -58,12 +58,8 @@ describe('compileCompute — single-trace invariant', () => {
         const result = compileCompute(fn.compute({ workgroupSize: [64, 1, 1] }));
         const [bindings, body] = result.code.split('// Compute Shader');
 
-        const declared = new Set(
-            [...bindings.matchAll(/var<storage,[^>]+>\s+(\w+):/g)].map((m) => m[1]),
-        );
-        const referenced = new Set(
-            [...body.matchAll(/\b(_storage\d+)\b/g)].map((m) => m[1]),
-        );
+        const declared = new Set([...bindings.matchAll(/var<storage,[^>]+>\s+(\w+):/g)].map((m) => m[1]));
+        const referenced = new Set([...body.matchAll(/\b(_storage\d+)\b/g)].map((m) => m[1]));
 
         for (const ref of referenced) {
             expect(declared.has(ref), `body refs ${ref} but bindings only has [${[...declared].join(', ')}]`).toBe(true);

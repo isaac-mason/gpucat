@@ -302,6 +302,11 @@ function generateExpr(ctx: BuildContext, rawNode: Node<d.Any>): string {
         expr = `select(${f}, ${t}, ${cond})`;
     } else if (node.kind === NodeKind.Wgsl) {
         // inline WGSL with $0, $1, ... placeholders
+        if (node.wgsl === undefined) {
+            throw new Error(
+                `[wgsl] this inline node has only a GLSL variant (glsl\`\`); add a WGSL source to run on the WebGPU backend`,
+            );
+        }
         let wgsl = node.wgsl;
         for (let i = 0; i < node.deps.length; i++) {
             const depExpr = generateExpr(ctx, node.deps[i]);
@@ -819,6 +824,11 @@ function generateCall(ctx: BuildContext, node: CallNode<d.Any>): string {
     // if this calls a WgslFunctionNode, make sure it's registered
     if (node.wgslFnNode) {
         const fn = node.wgslFnNode as WgslFunctionNode;
+        if (!fn.code) {
+            throw new Error(
+                `[wgsl] this function has only a GLSL variant (glslFn); add a WGSL source to run on the WebGPU backend`,
+            );
+        }
         if (!ctx.wgslFnDefs.has(fn.code)) {
             ctx.wgslFnDefs.set(fn.code, fn);
             // also register includes

@@ -1,14 +1,22 @@
 import { type Vec3 } from 'mathcat';
 import { Object3D } from '../core/object3d';
+import { CoordinateSystem } from '../core/coordinate-system';
 export declare class Camera extends Object3D {
     readonly isCamera = true;
-    /** Brand set true on OrthographicCamera; declared here so `camera.isOrthographicCamera` types on a Camera ref. */
     readonly isOrthographicCamera?: true;
+    readonly isPerspectiveCamera?: true;
     near: number;
     far: number;
+    /**
+     * Clip-space convention the projection matrix + frustum are built for. Defaults to WebGPU (z in
+     * [0,1]); the renderer stamps its own convention on before rendering and rebuilds the projection.
+     */
+    coordinateSystem: CoordinateSystem;
     projectionMatrix: import("mathcat").Mat4;
     matrixWorldInverse: import("mathcat").Mat4;
     constructor();
+    /** Recompute the projection matrix for the current `coordinateSystem`. Overridden by subclasses. */
+    updateProjectionMatrix(): void;
     /** recompute the matrixWorldInverse from the current matrixWorld. */
     updateViewMatrix(): void;
 }

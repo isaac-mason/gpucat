@@ -29,7 +29,6 @@ function saveState(state: { showFPS: boolean }): void {
 // ---------------------------------------------------------------------------
 
 export class Settings extends Parameters {
-
     constructor() {
         super({ name: 'Settings' });
 

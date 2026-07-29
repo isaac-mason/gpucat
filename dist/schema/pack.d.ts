@@ -1,5 +1,5 @@
 import { type Any, type Infer } from './schema';
-export type AddressSpace = 'storage' | 'uniform';
+export type AddressSpace = 'storage' | 'uniform' | 'std140';
 export type CompiledLayout<T = unknown> = {
     /** Size of one element in bytes */
     totalSize: number;
@@ -65,6 +65,13 @@ export declare function layoutSizeOf(schema: Any, addressSpace?: AddressSpace): 
  * const stride = layoutStrideOf(Particle); // 32
  */
 export declare function layoutStrideOf(schema: Any, addressSpace?: AddressSpace): number;
+/**
+ * Get the byte alignment of a schema in the given address space.
+ *
+ * @example
+ * const align = layoutAlignOf(vec3f, 'std140'); // 16
+ */
+export declare function layoutAlignOf(schema: Any, addressSpace?: AddressSpace): number;
 /**
  * Get the compiled layout for a schema (for advanced use cases).
  */

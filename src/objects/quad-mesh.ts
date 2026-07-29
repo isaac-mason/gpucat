@@ -1,8 +1,8 @@
-import { Mesh } from './mesh';
-import { createFullscreenTriangleGeometry } from '../geometry/geometry-helpers';
 import { Camera } from '../camera/camera';
+import { createFullscreenTriangleGeometry } from '../geometry/geometry-helpers';
 import type { Material } from '../material/material';
-import type { WebGPURenderer } from '../renderer/renderer';
+import type { Renderer } from '../renderer/core/renderer-interface';
+import { Mesh } from './mesh';
 
 /**
  * Shared fullscreen triangle geometry with position and uv vertex buffers.
@@ -60,11 +60,10 @@ export class QuadMesh extends Mesh {
      * - Clear color
      * - MSAA samples (only for default canvas target)
      *
-     * @param renderer - The WebGPU renderer.
-     * @param encoder - Optional command encoder. If not provided, creates and submits one.
+     * @param renderer - The renderer.
      * @param passId - Optional pass label (inspector + GPU tooling). Defaults to the renderer's `'render'`.
      */
-    render(renderer: WebGPURenderer, encoder?: GPUCommandEncoder, passId?: string): void {
-        renderer.render(this, this.camera, encoder, passId);
+    render(renderer: Renderer, passId?: string): void {
+        renderer.render(this, this.camera, passId);
     }
 }

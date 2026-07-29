@@ -10,15 +10,15 @@
  * Mirrors the structure of draw-calls.ts.
  */
 
-import { Tab } from '../ui/tab';
-import { List } from '../ui/list';
-import { Item } from '../ui/item';
-import { ShaderPanel } from './shader-panel';
-import { buildBindingsTable, kvRow } from './draw-calls';
-import type { Inspector } from '../inspector';
 import type { ComputeNode } from '../../nodes/nodes';
-import type { WebGPURenderer } from '../../renderer/renderer';
-import * as pipelines from '../../renderer/pipelines';
+import * as pipelines from '../../renderer/webgpu/pipelines';
+import type { WebGPURenderer } from '../../renderer/webgpu/renderer';
+import type { Inspector } from '../inspector';
+import { Item } from '../ui/item';
+import { List } from '../ui/list';
+import { Tab } from '../ui/tab';
+import { buildBindingsTable, kvRow } from './draw-calls';
+import { ShaderPanel } from './shader-panel';
 
 // ---------------------------------------------------------------------------
 // Internal record, one per live ComputeNode
@@ -41,7 +41,6 @@ type DetailSubTab = 'shader' | 'bindings';
 // ---------------------------------------------------------------------------
 
 export class ComputeCalls extends Tab {
-
     readonly list: List;
 
     /** node.id → ComputeNodeRecord for every currently-displayed ComputeNode */
@@ -231,12 +230,10 @@ export class ComputeCalls extends Tab {
 
         // Bindings pane
         this._bindingsPane.innerHTML = '';
-        const entry = pipelines.lookupCompute(renderer._pipelines, node);
+        const entry = pipelines.lookupCompute(renderer.pipelines, node);
         if (entry) {
             const nbs = entry.nodeBuilderState;
-            this._bindingsPane.appendChild(
-                buildBindingsTable(nbs),
-            );
+            this._bindingsPane.appendChild(buildBindingsTable(nbs));
         } else {
             const hint = document.createElement('div');
             hint.className = 'dc-section-header';
@@ -251,7 +248,7 @@ export class ComputeCalls extends Tab {
     private _refreshShaderPanel(renderer: WebGPURenderer): void {
         if (!this._selectedNode) return;
 
-        const entry = pipelines.lookupCompute(renderer._pipelines, this._selectedNode);
+        const entry = pipelines.lookupCompute(renderer.pipelines, this._selectedNode);
         if (entry) {
             this._shaderPanel.updateFromCompute(entry.nodeBuilderState.computeCode!);
         }

@@ -1,6 +1,6 @@
-import { Node } from '../core';
-import { UniformNode } from '../uniform';
 import * as d from '../../../schema/schema';
+import { type Node } from '../core';
+import { UniformNode } from '../uniform';
 /**
  * Screen coordinate, the current fragment's xy position in pixels.
  * Equivalent to @builtin(position).xy in WGSL.

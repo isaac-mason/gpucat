@@ -1,18 +1,18 @@
 import { describe, expect, test } from 'vitest';
-import * as d from '../src/schema/schema';
 import { struct } from '../src/nodes/nodes';
 import {
-    pack,
-    packTo,
-    packArray,
-    unpack,
-    unpackArray,
+    getCompiledLayout,
     layoutSizeOf,
     layoutStrideOf,
-    getCompiledLayout,
+    pack,
+    packArray,
+    packTo,
     packToView,
+    unpack,
+    unpackArray,
     unpackFromView,
 } from '../src/schema/pack';
+import * as d from '../src/schema/schema';
 
 // ---------------------------------------------------------------------------
 // layoutSizeOf / layoutStrideOf
@@ -33,7 +33,7 @@ describe('layoutSizeOf', () => {
         test('vec3f: 12', () => expect(layoutSizeOf(d.vec3f, 'uniform')).toBe(12));
         test('mat3x3f: 48', () => expect(layoutSizeOf(d.mat3x3f, 'uniform')).toBe(48));
     });
-    
+
     describe('defaults to storage', () => {
         test('f32: 4', () => expect(layoutSizeOf(d.f32)).toBe(4));
     });
@@ -49,7 +49,7 @@ describe('layoutStrideOf', () => {
         test('f32 stride: 4', () => expect(layoutStrideOf(d.f32, 'uniform')).toBe(4));
         test('vec3f stride: 16', () => expect(layoutStrideOf(d.vec3f, 'uniform')).toBe(16));
     });
-    
+
     describe('defaults to storage', () => {
         test('f32 stride: 4', () => expect(layoutStrideOf(d.f32)).toBe(4));
     });
@@ -136,8 +136,24 @@ describe('pack/unpack matrices', () => {
     });
 
     test('mat4x4f', () => {
-        const value: [number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number] = 
-            [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+        const value: [
+            number,
+            number,
+            number,
+            number,
+            number,
+            number,
+            number,
+            number,
+            number,
+            number,
+            number,
+            number,
+            number,
+            number,
+            number,
+            number,
+        ] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
         const buf = pack(d.mat4x4f, value);
         const result = unpack(d.mat4x4f, buf);
         expect(result).toEqual(value);
@@ -168,10 +184,10 @@ describe('pack/unpack structs', () => {
     test('flat struct with f32 fields', () => {
         const S = struct('S', { a: d.f32, b: d.f32, c: d.f32 });
         const value = { a: 1, b: 2, c: 3 };
-        
+
         const buf = pack(S, value);
         const result = unpack(S, buf);
-        
+
         expect(result.a).toBeCloseTo(1);
         expect(result.b).toBeCloseTo(2);
         expect(result.c).toBeCloseTo(3);
@@ -182,14 +198,14 @@ describe('pack/unpack structs', () => {
             position: d.vec3f,
             health: d.f32,
         });
-        
+
         const size = layoutSizeOf(Particle);
         expect(size).toBe(16); // vec3f(12) + f32(4), aligned to 16
-        
+
         const value = { position: [10, 20, 30] as [number, number, number], health: 100 };
         const buf = pack(Particle, value);
         const result = unpack(Particle, buf);
-        
+
         expect(result.position[0]).toBeCloseTo(10);
         expect(result.position[1]).toBeCloseTo(20);
         expect(result.position[2]).toBeCloseTo(30);
@@ -198,21 +214,21 @@ describe('pack/unpack structs', () => {
 
     test('struct with two vec3f fields: padding between them', () => {
         const S = struct('Vec3Pair', { a: d.vec3f, b: d.vec3f });
-        
+
         const size = layoutSizeOf(S);
         expect(size).toBe(32); // vec3f(12) + padding(4) + vec3f(12) + padding(4)
-        
-        const value = { 
-            a: [1, 2, 3] as [number, number, number], 
-            b: [4, 5, 6] as [number, number, number] 
+
+        const value = {
+            a: [1, 2, 3] as [number, number, number],
+            b: [4, 5, 6] as [number, number, number],
         };
-        
+
         const buf = pack(S, value);
         const result = unpack(S, buf);
-        
+
         expect(result.a).toEqual([1, 2, 3]);
         expect(result.b).toEqual([4, 5, 6]);
-        
+
         // Verify raw layout: b starts at offset 16
         const f32 = new Float32Array(buf);
         expect(f32[4]).toBeCloseTo(4); // b.x at byte 16
@@ -224,11 +240,11 @@ describe('pack/unpack structs', () => {
             id: d.u32,
             scale: d.f32,
         });
-        
+
         const value = { uv: [0.5, 0.25] as [number, number], id: 42, scale: 2.0 };
         const buf = pack(S, value);
         const result = unpack(S, buf);
-        
+
         expect(result.uv[0]).toBeCloseTo(0.5);
         expect(result.uv[1]).toBeCloseTo(0.25);
         expect(result.id).toBe(42);
@@ -246,21 +262,21 @@ describe('packTo with offsets', () => {
             position: d.vec3f,
             health: d.f32,
         });
-        
+
         const stride = layoutStrideOf(Particle);
         const count = 3;
         const buf = new ArrayBuffer(stride * count);
-        
+
         const particles = [
             { position: [0, 0, 0] as [number, number, number], health: 100 },
             { position: [1, 1, 1] as [number, number, number], health: 80 },
             { position: [2, 2, 2] as [number, number, number], health: 60 },
         ];
-        
+
         for (let i = 0; i < count; i++) {
             packTo(Particle, buf, i * stride, particles[i]);
         }
-        
+
         for (let i = 0; i < count; i++) {
             const result = unpack(Particle, buf, i * stride);
             expect(result.position).toEqual(particles[i].position);
@@ -273,15 +289,15 @@ describe('packTo with offsets', () => {
         const stride = layoutStrideOf(S);
         const count = 5;
         const buf = new ArrayBuffer(stride * count);
-        
+
         // Write initial values
         for (let i = 0; i < count; i++) {
             packTo(S, buf, i * stride, { value: i * 10 });
         }
-        
+
         // Update element at index 2
         packTo(S, buf, 2 * stride, { value: 999 });
-        
+
         // Verify all values
         expect(unpack(S, buf, 0 * stride).value).toBeCloseTo(0);
         expect(unpack(S, buf, 1 * stride).value).toBeCloseTo(10);
@@ -289,13 +305,13 @@ describe('packTo with offsets', () => {
         expect(unpack(S, buf, 3 * stride).value).toBeCloseTo(30);
         expect(unpack(S, buf, 4 * stride).value).toBeCloseTo(40);
     });
-    
+
     test('packTo works with TypedArray', () => {
         const S = struct('Item', { x: d.f32, y: d.f32 });
         const f32 = new Float32Array(4);
-        
+
         packTo(S, f32, 0, { x: 1.5, y: 2.5 });
-        
+
         expect(f32[0]).toBeCloseTo(1.5);
         expect(f32[1]).toBeCloseTo(2.5);
     });
@@ -309,35 +325,39 @@ describe('packArray / unpackArray', () => {
     test('packArray creates buffer with correct size', () => {
         const S = struct('Item', { x: d.f32 });
         const items = [{ x: 1 }, { x: 2 }, { x: 3 }];
-        
+
         const buf = packArray(S, items);
         expect(buf.byteLength).toBe(layoutStrideOf(S) * items.length);
     });
-    
+
     test('unpackArray reads all items', () => {
         const S = struct('Item', { x: d.f32, y: d.f32 });
-        const items = [{ x: 1, y: 2 }, { x: 3, y: 4 }, { x: 5, y: 6 }];
-        
+        const items = [
+            { x: 1, y: 2 },
+            { x: 3, y: 4 },
+            { x: 5, y: 6 },
+        ];
+
         const buf = packArray(S, items);
         const result = unpackArray(S, buf, items.length);
-        
+
         expect(result).toEqual(items);
     });
-    
+
     test('packArray with structs', () => {
         const Particle = struct('Particle', {
             position: d.vec3f,
             health: d.f32,
         });
-        
+
         const particles = [
             { position: [0, 0, 0] as [number, number, number], health: 100 },
             { position: [1, 1, 1] as [number, number, number], health: 80 },
         ];
-        
+
         const buf = packArray(Particle, particles);
         const result = unpackArray(Particle, buf, 2);
-        
+
         expect(result[0].position).toEqual([0, 0, 0]);
         expect(result[0].health).toBeCloseTo(100);
         expect(result[1].position).toEqual([1, 1, 1]);
@@ -353,11 +373,11 @@ describe('nested structs', () => {
     test('struct containing struct', () => {
         const Inner = struct('Inner', { x: d.f32, y: d.f32 });
         const Outer = struct('Outer', { inner: Inner, z: d.f32 });
-        
+
         const value = { inner: { x: 1, y: 2 }, z: 3 };
         const buf = pack(Outer, value);
         const result = unpack(Outer, buf);
-        
+
         expect(result.inner.x).toBeCloseTo(1);
         expect(result.inner.y).toBeCloseTo(2);
         expect(result.z).toBeCloseTo(3);
@@ -367,11 +387,11 @@ describe('nested structs', () => {
         const A = struct('A', { val: d.f32 });
         const B = struct('B', { a: A, extra: d.i32 });
         const C = struct('C', { b: B, flag: d.u32 });
-        
+
         const value = { b: { a: { val: 3.14 }, extra: -42 }, flag: 1 };
         const buf = pack(C, value);
         const result = unpack(C, buf);
-        
+
         expect(result.b.a.val).toBeCloseTo(3.14);
         expect(result.b.extra).toBe(-42);
         expect(result.flag).toBe(1);
@@ -386,10 +406,10 @@ describe('sized arrays in schemas', () => {
     test('array of f32', () => {
         const arr = d.sizedArray(d.f32, 4);
         const value = [1, 2, 3, 4] as [number, number, number, number];
-        
+
         const buf = pack(arr, value);
         const result = unpack(arr, buf);
-        
+
         expect(result).toEqual([1, 2, 3, 4]);
     });
 
@@ -397,16 +417,16 @@ describe('sized arrays in schemas', () => {
         const arr = d.sizedArray(d.vec3f, 3);
         const size = layoutSizeOf(arr);
         expect(size).toBe(3 * 16); // vec3f stride = 16
-        
+
         const value: [number, number, number][] = [
             [1, 2, 3],
             [4, 5, 6],
             [7, 8, 9],
         ];
-        
+
         const buf = pack(arr, value);
         const result = unpack(arr, buf);
-        
+
         expect(result[0]).toEqual([1, 2, 3]);
         expect(result[1]).toEqual([4, 5, 6]);
         expect(result[2]).toEqual([7, 8, 9]);
@@ -415,15 +435,15 @@ describe('sized arrays in schemas', () => {
     test('array of structs', () => {
         const Item = struct('Item', { pos: d.vec2f, id: d.u32 });
         const arr = d.sizedArray(Item, 2);
-        
+
         const value = [
             { pos: [1, 2] as [number, number], id: 100 },
             { pos: [3, 4] as [number, number], id: 200 },
         ];
-        
+
         const buf = pack(arr, value);
         const result = unpack(arr, buf);
-        
+
         expect(result[0].pos).toEqual([1, 2]);
         expect(result[0].id).toBe(100);
         expect(result[1].pos).toEqual([3, 4]);
@@ -438,34 +458,34 @@ describe('sized arrays in schemas', () => {
 describe('uniform vs storage layout', () => {
     test('struct alignment: uniform rounds up to 16', () => {
         const Inner = struct('Inner', { a: d.f32, b: d.f32 }); // align=4 in storage
-        
+
         // In storage: Inner has align=4
         // In uniform: Inner has align=roundUp(4, 16)=16
         const storageAlign = layoutStrideOf(Inner, 'storage');
         const uniformAlign = layoutStrideOf(Inner, 'uniform');
-        
+
         expect(storageAlign).toBe(8); // 2 * f32
         expect(uniformAlign).toBe(16); // rounded up to 16
     });
 
     test('array element alignment: uniform rounds up to 16', () => {
         const arr = d.sizedArray(d.f32, 4);
-        
+
         // Storage: f32 has align=4, stride=4
         // Uniform: array elements have align=roundUp(4, 16)=16
         const storageSize = layoutSizeOf(arr, 'storage');
         const uniformSize = layoutSizeOf(arr, 'uniform');
-        
+
         expect(storageSize).toBe(16); // 4 * 4
         expect(uniformSize).toBe(64); // 4 * 16
     });
 
     test('array of vec3f: same in both (already 16-aligned)', () => {
         const arr = d.sizedArray(d.vec3f, 2);
-        
+
         const storageSize = layoutSizeOf(arr, 'storage');
         const uniformSize = layoutSizeOf(arr, 'uniform');
-        
+
         // vec3f already has align=16, so no difference
         expect(storageSize).toBe(32);
         expect(uniformSize).toBe(32);
@@ -479,19 +499,19 @@ describe('uniform vs storage layout', () => {
 describe('caching', () => {
     test('same schema returns same compiled layout', () => {
         const S = struct('CacheTest', { x: d.f32 });
-        
+
         const layout1 = getCompiledLayout(S);
         const layout2 = getCompiledLayout(S);
-        
+
         expect(layout1).toBe(layout2);
     });
 
     test('different address space returns different layout', () => {
         const S = struct('CacheTest2', { x: d.f32 });
-        
+
         const storageLayout = getCompiledLayout(S, 'storage');
         const uniformLayout = getCompiledLayout(S, 'uniform');
-        
+
         expect(storageLayout).not.toBe(uniformLayout);
     });
 });
@@ -505,22 +525,22 @@ describe('packToView / unpackFromView', () => {
         const S = struct('Item', { x: d.f32, y: d.f32 });
         const buf = new ArrayBuffer(8);
         const view = new DataView(buf);
-        
+
         packToView(S, view, 0, { x: 1.5, y: 2.5 });
-        
+
         expect(view.getFloat32(0, true)).toBeCloseTo(1.5);
         expect(view.getFloat32(4, true)).toBeCloseTo(2.5);
     });
-    
+
     test('unpackFromView reads from DataView', () => {
         const S = struct('Item', { x: d.f32, y: d.f32 });
         const buf = new ArrayBuffer(8);
         const view = new DataView(buf);
         view.setFloat32(0, 3.14, true);
         view.setFloat32(4, 2.71, true);
-        
+
         const result = unpackFromView(S, view, 0);
-        
+
         expect(result.x).toBeCloseTo(3.14);
         expect(result.y).toBeCloseTo(2.71);
     });
@@ -534,17 +554,17 @@ describe('uniform address space packing', () => {
     test('array of f32: elements at 16-byte stride', () => {
         const arr = d.sizedArray(d.f32, 4);
         const data = [1.0, 2.0, 3.0, 4.0];
-        
+
         const buf = pack(arr, data, 'uniform');
         const view = new DataView(buf);
-        
+
         // Each f32 should be at 16-byte intervals in uniform layout
         expect(buf.byteLength).toBe(64); // 4 * 16
         expect(view.getFloat32(0, true)).toBe(1.0);
         expect(view.getFloat32(16, true)).toBe(2.0);
         expect(view.getFloat32(32, true)).toBe(3.0);
         expect(view.getFloat32(48, true)).toBe(4.0);
-        
+
         // Roundtrip
         const unpacked = unpack(arr, buf, 0, 'uniform');
         expect(unpacked).toEqual(data);
@@ -552,11 +572,15 @@ describe('uniform address space packing', () => {
 
     test('array of vec2f: elements at 16-byte stride', () => {
         const arr = d.sizedArray(d.vec2f, 3);
-        const data = [[1, 2], [3, 4], [5, 6]] as [number, number][];
-        
+        const data = [
+            [1, 2],
+            [3, 4],
+            [5, 6],
+        ] as [number, number][];
+
         const buf = pack(arr, data, 'uniform');
         const view = new DataView(buf);
-        
+
         // vec2f has size=8, but uniform arrays round element stride to 16
         expect(buf.byteLength).toBe(48); // 3 * 16
         expect(view.getFloat32(0, true)).toBe(1);
@@ -565,18 +589,21 @@ describe('uniform address space packing', () => {
         expect(view.getFloat32(20, true)).toBe(4);
         expect(view.getFloat32(32, true)).toBe(5);
         expect(view.getFloat32(36, true)).toBe(6);
-        
+
         const unpacked = unpack(arr, buf, 0, 'uniform');
         expect(unpacked).toEqual(data);
     });
 
     test('array of vec3f: elements at 16-byte stride (already aligned)', () => {
         const arr = d.sizedArray(d.vec3f, 2);
-        const data = [[1, 2, 3], [4, 5, 6]] as [number, number, number][];
-        
+        const data = [
+            [1, 2, 3],
+            [4, 5, 6],
+        ] as [number, number, number][];
+
         const buf = pack(arr, data, 'uniform');
         const view = new DataView(buf);
-        
+
         // vec3f has align=16, stride=16 in both storage and uniform
         expect(buf.byteLength).toBe(32); // 2 * 16
         expect(view.getFloat32(0, true)).toBe(1);
@@ -585,7 +612,7 @@ describe('uniform address space packing', () => {
         expect(view.getFloat32(16, true)).toBe(4);
         expect(view.getFloat32(20, true)).toBe(5);
         expect(view.getFloat32(24, true)).toBe(6);
-        
+
         const unpacked = unpack(arr, buf, 0, 'uniform');
         expect(unpacked).toEqual(data);
     });
@@ -593,43 +620,46 @@ describe('uniform address space packing', () => {
     test('struct with small fields: padded to 16-byte alignment', () => {
         const S = struct('SmallStruct', { a: d.f32, b: d.f32 });
         const arr = d.sizedArray(S, 2);
-        const data = [{ a: 1, b: 2 }, { a: 3, b: 4 }];
-        
+        const data = [
+            { a: 1, b: 2 },
+            { a: 3, b: 4 },
+        ];
+
         const buf = pack(arr, data, 'uniform');
         const view = new DataView(buf);
-        
+
         // Struct has size=8, but uniform rounds struct align to 16
         expect(buf.byteLength).toBe(32); // 2 * 16
         expect(view.getFloat32(0, true)).toBe(1);
         expect(view.getFloat32(4, true)).toBe(2);
         expect(view.getFloat32(16, true)).toBe(3);
         expect(view.getFloat32(20, true)).toBe(4);
-        
+
         const unpacked = unpack(arr, buf, 0, 'uniform');
         expect(unpacked).toEqual(data);
     });
 
     test('nested struct array in uniform', () => {
         const Inner = struct('Inner', { x: d.f32 });
-        const Outer = struct('Outer', { 
+        const Outer = struct('Outer', {
             items: d.sizedArray(Inner, 2),
             count: d.u32,
         });
-        
+
         const data = { items: [{ x: 1.5 }, { x: 2.5 }], count: 42 };
-        
+
         const buf = pack(Outer, data, 'uniform');
         const view = new DataView(buf);
-        
+
         // Inner struct: size=4, but uniform rounds to align=16
         // items array: 2 * 16 = 32 bytes
         // count: at offset 32, size 4
         // Outer struct align = 16, so total size rounds to 48
         expect(buf.byteLength).toBe(48);
-        expect(view.getFloat32(0, true)).toBe(1.5);  // items[0].x
+        expect(view.getFloat32(0, true)).toBe(1.5); // items[0].x
         expect(view.getFloat32(16, true)).toBe(2.5); // items[1].x
-        expect(view.getUint32(32, true)).toBe(42);   // count
-        
+        expect(view.getUint32(32, true)).toBe(42); // count
+
         const unpacked = unpack(Outer, buf, 0, 'uniform');
         expect(unpacked.items[0].x).toBeCloseTo(1.5);
         expect(unpacked.items[1].x).toBeCloseTo(2.5);
@@ -639,16 +669,22 @@ describe('uniform address space packing', () => {
     test('mat3x3f in uniform: columns padded to vec4', () => {
         // mat3x3f: 3 columns of vec3, each padded to 16 bytes
         const data: [number, number, number, number, number, number, number, number, number] = [
-            1, 2, 3,    // col 0
-            4, 5, 6,    // col 1  
-            7, 8, 9,    // col 2
+            1,
+            2,
+            3, // col 0
+            4,
+            5,
+            6, // col 1
+            7,
+            8,
+            9, // col 2
         ];
-        
+
         const buf = pack(d.mat3x3f, data, 'uniform');
         const view = new DataView(buf);
-        
+
         expect(buf.byteLength).toBe(48); // 3 cols * 16 bytes
-        
+
         // Column 0 at offset 0
         expect(view.getFloat32(0, true)).toBe(1);
         expect(view.getFloat32(4, true)).toBe(2);
@@ -661,7 +697,7 @@ describe('uniform address space packing', () => {
         expect(view.getFloat32(32, true)).toBe(7);
         expect(view.getFloat32(36, true)).toBe(8);
         expect(view.getFloat32(40, true)).toBe(9);
-        
+
         const unpacked = unpack(d.mat3x3f, buf, 0, 'uniform');
         expect(unpacked).toEqual(data);
     });
@@ -669,16 +705,16 @@ describe('uniform address space packing', () => {
     test('packArray with uniform address space', () => {
         const S = struct('Item', { value: d.f32 });
         const items = [{ value: 10 }, { value: 20 }, { value: 30 }];
-        
+
         const buf = packArray(S, items, 'uniform');
         const view = new DataView(buf);
-        
+
         // Each struct element at 16-byte stride
         expect(buf.byteLength).toBe(48); // 3 * 16
         expect(view.getFloat32(0, true)).toBe(10);
         expect(view.getFloat32(16, true)).toBe(20);
         expect(view.getFloat32(32, true)).toBe(30);
-        
+
         const unpacked = unpackArray(S, buf, 3, 0, 'uniform');
         expect(unpacked).toEqual(items);
     });
@@ -686,15 +722,15 @@ describe('uniform address space packing', () => {
     test('storage vs uniform: same data, different layout', () => {
         const arr = d.sizedArray(d.f32, 3);
         const data = [1.0, 2.0, 3.0];
-        
+
         const storageBuf = pack(arr, data, 'storage');
         const uniformBuf = pack(arr, data, 'uniform');
-        
+
         // Storage: tightly packed
         expect(storageBuf.byteLength).toBe(12); // 3 * 4
         // Uniform: 16-byte element stride
         expect(uniformBuf.byteLength).toBe(48); // 3 * 16
-        
+
         // Both should roundtrip correctly
         expect(unpack(arr, storageBuf, 0, 'storage')).toEqual(data);
         expect(unpack(arr, uniformBuf, 0, 'uniform')).toEqual(data);

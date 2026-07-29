@@ -101,6 +101,36 @@
             margin-bottom: 16px;
         }
 
+        .backend-section {
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: #eceff1;
+            margin: 4px 0 14px 0;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--color-border);
+        }
+
+        .backend-section:not(:first-child) {
+            margin-top: 12px;
+        }
+
+        .category-header {
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: #78909c;
+            margin: 0 0 12px 0;
+            list-style: none;
+        }
+
+        .category-group.hidden,
+        .backend-group.hidden {
+            display: none;
+        }
+
         .example-item {
             display: block;
             padding: 0;
@@ -304,20 +334,40 @@
     <script type="module">
         import examples from "./src/examples.json" assert { type: "json" };
 
-        function addExamplesToSidebar() {
-            const examplesList = document.getElementById("examples-list");
+        // display order for backends and categories
+        const BACKEND_ORDER = ["webgpu", "webgl"];
+        const BACKEND_LABELS = { webgpu: "WebGPU", webgl: "WebGL" };
+        const CATEGORY_ORDER = [
+            "basics",
+            "geometry",
+            "materials",
+            "lighting",
+            "textures",
+            "controls",
+            "compute",
+            "physics",
+            "postprocessing",
+            "splatting",
+            "stress",
+            "diagnostics",
+        ];
 
-            const examplesHTML = Object.entries(examples)
-                .map(([key, example]) => {
-                    const tagsHTML = example.tags
-                        .map((tag) => `<span class="example-tag">${tag}</span>`)
-                        .join("");
+        function orderIndex(order, value) {
+            const i = order.indexOf(value);
+            return i === -1 ? order.length : i;
+        }
 
-                    return `
-                <li>
+        function prettyCategory(category) {
+            if (!category) return "Other";
+            return category.charAt(0).toUpperCase() + category.slice(1);
+        }
+
+        function cardHTML(key, example) {
+            return `
+                <li class="example-card" data-example="${key}">
                     <div class="example-item" data-example="${key}">
                     <div class="example-preview">
-                        <img src="./screenshots/${key}.png" alt="${example.title}" class="example-screenshot">
+                        <img src="./screenshots/${key}.png" alt="${example.title}" class="example-screenshot" onerror="this.style.display='none'">
                         <div class="example-info">
                         <h3 class="example-title">${example.title}</h3>
                         <p class="example-description">${example.description}</p>
@@ -330,10 +380,51 @@
                     </div>
                 </li>
             `;
-                })
-                .join("");
+        }
 
-            examplesList.innerHTML = examplesHTML;
+        function addExamplesToSidebar() {
+            const examplesList = document.getElementById("examples-list");
+
+            // group entries: backend -> category -> [ [key, example], ... ]
+            const byBackend = new Map();
+            for (const [key, example] of Object.entries(examples)) {
+                const backend = example.backend || "other";
+                const category = example.category || "other";
+                if (!byBackend.has(backend)) byBackend.set(backend, new Map());
+                const byCategory = byBackend.get(backend);
+                if (!byCategory.has(category)) byCategory.set(category, []);
+                byCategory.get(category).push([key, example]);
+            }
+
+            const backends = [...byBackend.keys()].sort(
+                (a, b) => orderIndex(BACKEND_ORDER, a) - orderIndex(BACKEND_ORDER, b),
+            );
+
+            let html = "";
+            for (const backend of backends) {
+                const byCategory = byBackend.get(backend);
+                const categories = [...byCategory.keys()].sort(
+                    (a, b) => orderIndex(CATEGORY_ORDER, a) - orderIndex(CATEGORY_ORDER, b),
+                );
+
+                html += `<li class="backend-group" data-backend="${backend}">`;
+                html += `<div class="backend-section">${BACKEND_LABELS[backend] || backend}</div>`;
+                html += `<ul class="examples-list" style="padding:0;">`;
+
+                for (const category of categories) {
+                    html += `<li class="category-group" data-category="${category}">`;
+                    html += `<div class="category-header">${prettyCategory(category)}</div>`;
+                    html += `<ul class="examples-list" style="padding:0;">`;
+                    for (const [key, example] of byCategory.get(category)) {
+                        html += cardHTML(key, example);
+                    }
+                    html += `</ul></li>`;
+                }
+
+                html += `</ul></li>`;
+            }
+
+            examplesList.innerHTML = html;
         }
 
         // initialize examples list
@@ -349,12 +440,10 @@
         // search functionality
         function filterExamples() {
             const searchTerm = searchInput.value.toLowerCase();
-            const exampleItems = document.querySelectorAll(".examples-list li");
+            const cards = document.querySelectorAll(".example-card");
 
-            exampleItems.forEach((item) => {
-                const exampleKey = item
-                    .querySelector(".example-item")
-                    .getAttribute("data-example");
+            cards.forEach((card) => {
+                const exampleKey = card.getAttribute("data-example");
                 const example = examples[exampleKey];
 
                 // search in title, description, and tags
@@ -366,11 +455,23 @@
                     .join(" ")
                     .toLowerCase();
 
-                if (searchableText.includes(searchTerm)) {
-                    item.style.display = "";
-                } else {
-                    item.style.display = "none";
-                }
+                card.style.display = searchableText.includes(searchTerm) ? "" : "none";
+            });
+
+            // hide category groups with no visible cards
+            document.querySelectorAll(".category-group").forEach((group) => {
+                const anyVisible = [...group.querySelectorAll(".example-card")].some(
+                    (c) => c.style.display !== "none",
+                );
+                group.classList.toggle("hidden", !anyVisible);
+            });
+
+            // hide backend groups with no visible categories
+            document.querySelectorAll(".backend-group").forEach((group) => {
+                const anyVisible = [...group.querySelectorAll(".category-group")].some(
+                    (c) => !c.classList.contains("hidden"),
+                );
+                group.classList.toggle("hidden", !anyVisible);
             });
         }
 

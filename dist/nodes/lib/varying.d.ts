@@ -1,6 +1,6 @@
-import { Node, NodeKind } from './core';
 import type { Any } from '../../schema/schema';
-import { SubBuildNode } from './sub-build';
+import { Node, NodeKind } from './core';
+import { type SubBuildNode } from './sub-build';
 /**
  * WGSL @interpolate interpolation type.
  *   - perspective  : values are interpolated in a perspective-correct manner (default for float types)

@@ -9,37 +9,48 @@
  *  - Viewer tab: inspectable node canvases
  */
 
-import { RendererInspector } from './renderer-inspector';
 import type { FrameRecord } from './renderer-inspector';
-export type { TimelineEntry, MarkerEntry, RenderEntry, ComputeEntry, FrameRecord, PassRecord, SceneRecord } from './renderer-inspector';
+import { RendererInspector } from './renderer-inspector';
+
+export type {
+    ComputeEntry,
+    FrameRecord,
+    MarkerEntry,
+    PassRecord,
+    RenderEntry,
+    SceneRecord,
+    TimelineEntry,
+} from './renderer-inspector';
+
+import { getIndexFormat } from '../core/gpu-buffer';
+import type { ComputeNode, InspectorNode } from '../nodes/nodes';
+import { QuadMesh } from '../objects/quad-mesh';
+import { CanvasTarget } from '../renderer/core/canvas-target';
+import type { RenderObject } from '../renderer/core/render-object';
+import * as Bindings from '../renderer/webgpu/bindings';
+import * as Buffers from '../renderer/webgpu/buffers';
+import { buildVertexBufferLayouts } from '../renderer/webgpu/pipelines';
+import * as RenderObjectGpu from '../renderer/webgpu/render-object-gpu';
+import type { Any } from '../schema/schema';
+import type { InspectableRenderer } from './inspector-base';
+import type { GUI } from './gui/GUI';
+import { buildProbeGLSL, componentCount, type GlslKind } from './probe-glsl';
+import type { ProbeTarget } from './probe-wgsl';
+import { buildProbeWGSL } from './probe-wgsl';
+import { ComputeCalls } from './tabs/compute-calls';
+import { Console } from './tabs/console';
+import { DrawCalls } from './tabs/draw-calls';
+import { Memory } from './tabs/memory';
+import { Parameters } from './tabs/parameters';
+import { Performance } from './tabs/performance';
+import { PerformanceTimeline } from './tabs/performance-timeline';
+import { SceneHierarchy } from './tabs/scene-hierarchy';
+import { Settings } from './tabs/settings';
+import { Timeline } from './tabs/timeline';
+import { type CanvasData, createPreviewMaterial, splitCamelCase, splitPath, Viewer } from './tabs/viewer';
 import { Profiler } from './ui/profiler';
 import { injectStyle } from './ui/style';
 import { setText } from './ui/utils';
-import { Parameters } from './tabs/parameters';
-import { GUI } from './gui/GUI';
-import { Performance } from './tabs/performance';
-import { Memory } from './tabs/memory';
-import { Timeline } from './tabs/timeline';
-import { Console } from './tabs/console';
-import { Settings } from './tabs/settings';
-import { Viewer, createPreviewMaterial, splitCamelCase, splitPath, type CanvasData } from './tabs/viewer';
-import { QuadMesh } from '../objects/quad-mesh';
-import { SceneHierarchy } from './tabs/scene-hierarchy';
-import { DrawCalls } from './tabs/draw-calls';
-import { ComputeCalls } from './tabs/compute-calls';
-import { PerformanceTimeline } from './tabs/performance-timeline';
-import type { InspectorNode, ComputeNode } from '../nodes/nodes';
-import type { WebGPURenderer } from '../renderer/renderer';
-import { CanvasTarget } from '../renderer/canvas-target';
-import { buildProbeWGSL } from './probe-wgsl';
-import type { ProbeTarget } from './probe-wgsl';
-import type { RenderObject } from '../renderer/render-object';
-import { buildVertexBufferLayouts } from '../renderer/pipelines';
-import * as Buffers from '../renderer/buffers';
-import * as Bindings from '../renderer/bindings';
-import { getIndexFormat } from '../core/gpu-buffer';
-import { Any } from '../schema/schema';
-
 
 type DisplayCycleEntry = { needsUpdate: boolean; duration: number; time: number };
 
@@ -66,8 +77,30 @@ type ProbeEntry = {
     cacheKey: string;
 };
 
-export class Inspector extends RendererInspector {
+// ---------------------------------------------------------------------------
+// GlProbeEntry, WebGL live shader-value readback (GLSL parallel to ProbeEntry)
+// ---------------------------------------------------------------------------
 
+type GlProbeEntry = {
+    /** The probed expression. */
+    expr: string;
+    /** The patched fragment GLSL source (fed to renderer.renderProbe each frame). */
+    patchedFragment: string;
+    /** The inferred GLSL kind of the probed value (drives readback decode). */
+    kind: GlslKind;
+    /** The source RenderObject whose geometry/UBOs/textures are reused. */
+    sourceRO: RenderObject;
+    /** The popover element (a color swatch + numeric text) returned to the caller. */
+    element: HTMLDivElement;
+    /** The swatch subelement (background color = the read-back value). */
+    swatch: HTMLDivElement;
+    /** The numeric-text subelement. */
+    label: HTMLDivElement;
+    /** Stable cache key: `${expr}::${anchorKind}::${roId}`. */
+    cacheKey: string;
+};
+
+export class Inspector extends RendererInspector {
     readonly profiler: Profiler;
     readonly performance: Performance;
     readonly performanceTimeline: PerformanceTimeline;
@@ -90,6 +123,9 @@ export class Inspector extends RendererInspector {
     /** Active probe entry, if any. */
     private _activeProbe: ProbeEntry | null = null;
 
+    /** Active WebGL probe entry, if any (mutually exclusive with `_activeProbe`). */
+    private _activeGlProbe: GlProbeEntry | null = null;
+
     constructor() {
         super();
 
@@ -99,7 +135,7 @@ export class Inspector extends RendererInspector {
 
         const parameters = new Parameters({
             builtin: true,
-            icon: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M14 6m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" /><path d="M4 6l8 0" /><path d="M16 6l4 0" /><path d="M8 12m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" /><path d="M4 12l2 0" /><path d="M10 12l10 0" /><path d="M17 18m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" /><path d="M4 18l11 0" /><path d="M19 18l1 0" /></svg>'
+            icon: '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M14 6m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" /><path d="M4 6l8 0" /><path d="M16 6l4 0" /><path d="M8 12m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" /><path d="M4 12l2 0" /><path d="M10 12l10 0" /><path d="M17 18m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" /><path d="M4 18l11 0" /><path d="M19 18l1 0" /></svg>',
         });
         parameters.hide();
         profiler.addTab(parameters);
@@ -158,8 +194,8 @@ export class Inspector extends RendererInspector {
         this.computeCalls = computeCalls;
 
         this._displayCycle = {
-            text:  { needsUpdate: false, duration: 250, time: 0 },
-            graph: { needsUpdate: false, duration: 20,  time: 0 },
+            text: { needsUpdate: false, duration: 250, time: 0 },
+            graph: { needsUpdate: false, duration: 20, time: 0 },
         };
     }
 
@@ -176,12 +212,20 @@ export class Inspector extends RendererInspector {
      * no-op base. Callers route via `renderer.inspector?.log.warn('...')`.
      */
     override readonly log = {
-        info:  (msg: string): void => { this.console.addMessage('info',  msg); },
-        warn:  (msg: string): void => { this.console.addMessage('warn',  msg); console.warn(msg); },
-        error: (msg: string): void => { this.console.addMessage('error', msg); console.error(msg); },
+        info: (msg: string): void => {
+            this.console.addMessage('info', msg);
+        },
+        warn: (msg: string): void => {
+            this.console.addMessage('warn', msg);
+            console.warn(msg);
+        },
+        error: (msg: string): void => {
+            this.console.addMessage('error', msg);
+            console.error(msg);
+        },
     };
 
-    override setRenderer(renderer: WebGPURenderer | null): void {
+    override setRenderer(renderer: InspectableRenderer | null): void {
         if (renderer === null) {
             this.dispose();
             super.setRenderer(null);
@@ -190,7 +234,16 @@ export class Inspector extends RendererInspector {
 
         super.setRenderer(renderer);
         this.timeline.setRenderer(renderer);
-        this.log.info('gpucat WebGPU Renderer [ "WebGPU" ]');
+        this.log.info(
+            renderer.backend === 'webgpu'
+                ? 'gpucat WebGPU Renderer [ "WebGPU" ]'
+                : 'gpucat WebGL Renderer [ "WebGL2" ]',
+        );
+
+        // Compute is WebGPU-only; hide the Compute Calls tab on WebGL so it never appears.
+        if (renderer.backend === 'webgl') {
+            this.computeCalls.hide();
+        }
 
         // Self-attach the panel to the canvas parent, if there is one. Callers
         // that don't mount the WebGPURenderer's implicit canvas (e.g. engines
@@ -352,9 +405,18 @@ export class Inspector extends RendererInspector {
      * Returns the probe canvas element so the caller can display it, or null
      * if patching / pipeline creation fails.
      */
-    setProbe(target: ProbeTarget, sourceRO: RenderObject): HTMLCanvasElement | null {
+    setProbe(target: ProbeTarget, sourceRO: RenderObject): HTMLElement | null {
         const renderer = this.getRenderer();
         if (!renderer) return null;
+
+        // WebGL backend: patch the fragment GLSL and read back the value via renderer.renderProbe
+        // (never touches `device`). Returns a swatch/text element instead of a live canvas.
+        if (renderer.backend === 'webgl') {
+            return this._setGlProbe(target, sourceRO);
+        }
+
+        // The probe patches WGSL and builds a WebGPU render pipeline — WebGPU-only.
+        if (renderer.backend !== 'webgpu') return null;
 
         const code = sourceRO.nodeBuilderState?.vertexCode;
         if (!code) return null;
@@ -378,14 +440,16 @@ export class Inspector extends RendererInspector {
         console.groupEnd();
 
         // Build probe pipeline: same bind group layouts, patched shader
-        const bindGroupLayouts = Bindings.getRenderBindGroupLayouts(renderer._bindings, sourceRO);
+        const bindGroupLayouts = Bindings.getRenderBindGroupLayouts(renderer.bindings, sourceRO);
         if (bindGroupLayouts.length === 0) {
-            this.log.warn('[gpucat probe] bind group layouts not yet initialised, try clicking again after the first frame renders');
+            this.log.warn(
+                '[gpucat probe] bind group layouts not yet initialised, try clicking again after the first frame renders',
+            );
             return null;
         }
 
-        const pipelineLayout = renderer._device.createPipelineLayout({ bindGroupLayouts });
-        const shaderModule = renderer._device.createShaderModule({ code: patchedCode });
+        const pipelineLayout = renderer.device.createPipelineLayout({ bindGroupLayouts });
+        const shaderModule = renderer.device.createShaderModule({ code: patchedCode });
 
         // Log WGSL compilation errors asynchronously (same pattern as render-objects.ts)
         shaderModule.getCompilationInfo().then((info) => {
@@ -399,14 +463,11 @@ export class Inspector extends RendererInspector {
         const depthFormat: GPUTextureFormat = 'depth24plus';
 
         // Real vertex buffer layouts so the pipeline accepts the actual mesh geometry.
-        const vertexBufferLayouts = buildVertexBufferLayouts(
-            sourceRO.geometry,
-            sourceRO.nodeBuilderState!,
-        );
+        const vertexBufferLayouts = buildVertexBufferLayouts(sourceRO.geometry, sourceRO.nodeBuilderState!);
 
         let pipeline: GPURenderPipeline;
         try {
-            pipeline = renderer._device.createRenderPipeline({
+            pipeline = renderer.device.createRenderPipeline({
                 layout: pipelineLayout,
                 vertex: {
                     module: shaderModule,
@@ -436,7 +497,7 @@ export class Inspector extends RendererInspector {
         const canvasTarget = new CanvasTarget(canvas);
         canvasTarget.setSize(140, 140);
 
-        const depthTexture = renderer._device.createTexture({
+        const depthTexture = renderer.device.createTexture({
             size: [140, 140, 1],
             format: depthFormat,
             usage: GPUTextureUsage.RENDER_ATTACHMENT,
@@ -456,12 +517,86 @@ export class Inspector extends RendererInspector {
         return canvas;
     }
 
-    /** Remove the active probe. */
+    /**
+     * WebGL probe: patch the fragment GLSL to output the probed value, build a small popover element
+     * (color swatch + numeric readback), and wire it to read back each frame via renderer.renderProbe.
+     * Returns the element, or null if patching fails. Never touches `device`.
+     */
+    private _setGlProbe(target: ProbeTarget, sourceRO: RenderObject): HTMLElement | null {
+        const code = sourceRO.nodeBuilderState?.vertexCode;
+        if (!code) return null;
+
+        // The combined GLSL separates stages with this marker; the probe patcher wants fragment-only.
+        const marker = '// ---- fragment stage ----';
+        const idx = code.indexOf(marker);
+        if (idx === -1) return null;
+        const fragmentSrc = code.slice(idx + marker.length).trimStart();
+
+        const cacheKey = `${target.expr}::${target.anchorKind}::${sourceRO.id}::gl`;
+        if (this._activeGlProbe?.cacheKey === cacheKey) {
+            return this._activeGlProbe.element;
+        }
+
+        this.clearProbe();
+
+        const patched = buildProbeGLSL(fragmentSrc, target);
+        if (!patched) return null;
+
+        console.groupCollapsed(`[gpucat probe] patched GLSL for "${target.expr}"`);
+        console.log(patched.fragment);
+        console.groupEnd();
+
+        // Build the popover content: a color swatch + a numeric-text line.
+        const element = document.createElement('div');
+        element.style.display = 'flex';
+        element.style.flexDirection = 'column';
+        element.style.gap = '6px';
+        element.style.padding = '4px';
+
+        const swatch = document.createElement('div');
+        swatch.style.width = '120px';
+        swatch.style.height = '80px';
+        swatch.style.borderRadius = '4px';
+        swatch.style.border = '1px solid rgba(255,255,255,0.2)';
+        swatch.style.background = '#000';
+
+        const label = document.createElement('div');
+        label.style.fontFamily = 'monospace';
+        label.style.fontSize = '11px';
+        label.style.whiteSpace = 'pre';
+        label.textContent = '…';
+
+        element.appendChild(swatch);
+        element.appendChild(label);
+
+        this._activeGlProbe = {
+            expr: target.expr,
+            patchedFragment: patched.fragment,
+            kind: patched.kind,
+            sourceRO,
+            element,
+            swatch,
+            label,
+            cacheKey,
+        };
+
+        // Read back immediately so the popover isn't blank until the next frame.
+        this._renderGlProbe();
+
+        return element;
+    }
+
+    /** Remove the active probe (WebGPU and WebGL). */
     clearProbe(): void {
         if (this._activeProbe) {
             this._activeProbe.canvasTarget.dispose();
             this._activeProbe.depthTexture.destroy();
             this._activeProbe = null;
+        }
+        if (this._activeGlProbe) {
+            this._activeGlProbe = null;
+            const renderer = this.getRenderer();
+            if (renderer && renderer.backend === 'webgl') renderer.clearProbe();
         }
     }
 
@@ -546,8 +681,10 @@ export class Inspector extends RendererInspector {
             this.drawCalls.update(this, renderer);
         }
 
-        // Update compute calls tab if compute passes were dispatched this frame
-        if (renderer && this.computeNodes.size > 0) {
+        // Update compute calls tab if compute passes were dispatched this frame. Compute is
+        // WebGPU-only, so this never fires on WebGL (computeNodes stays empty); the backend check also
+        // narrows `renderer` to WebGPURenderer for the WebGPU-typed update().
+        if (renderer && renderer.backend === 'webgpu' && this.computeNodes.size > 0) {
             this.computeCalls.show();
             this.computeCalls.update(this, renderer);
         }
@@ -555,6 +692,8 @@ export class Inspector extends RendererInspector {
         // Render probe canvas (if active) using a fresh command encoder so we
         // don't re-enter the main render pipeline.
         this._renderProbe();
+        // WebGL probe: read back the probed value into the swatch/text popover.
+        this._renderGlProbe();
     }
 
     /**
@@ -564,7 +703,7 @@ export class Inspector extends RendererInspector {
         const renderer = this.getRenderer();
         if (!renderer) return;
 
-        const canvasDataList = nodes.map(node => this.getCanvasDataByNode(node));
+        const canvasDataList = nodes.map((node) => this.getCanvasDataByNode(node));
         this.viewer.update(this, canvasDataList);
     }
 
@@ -627,12 +766,16 @@ export class Inspector extends RendererInspector {
 
         const renderer = this.getRenderer();
         if (!renderer) return;
+        // Probe pipelines are WebGPU-only; _activeProbe is never set on WebGL (setProbe returns null),
+        // so this is belt-and-braces — and it narrows `renderer` to WebGPURenderer for the device access.
+        if (renderer.backend !== 'webgpu') return;
 
         const ro = probe.sourceRO;
         if (ro.mesh.count === 0) return;
 
-        // Bind groups updated this frame by the main render loop (camera at [0])
-        const bindGroups = ro.bindGroups;
+        // Bind groups updated this frame by the main render loop (camera at [0]).
+        // These live in the WebGPU device side table keyed by RenderObject.
+        const bindGroups = RenderObjectGpu.peekRenderObjectGpu(renderer.renderObjectGpu, ro)?.bindGroups;
         if (!bindGroups || bindGroups.length === 0) return;
 
         // Vertex buffers must be uploaded already (main render loop does this)
@@ -640,17 +783,19 @@ export class Inspector extends RendererInspector {
         if (!nodeState) return;
 
         const format = navigator.gpu.getPreferredCanvasFormat();
-        const ctx = probe.canvasTarget.getContext(renderer._device, format, 'opaque');
+        const ctx = renderer.getContext(probe.canvasTarget, format, 'opaque');
         const targetTexture = ctx.getCurrentTexture();
 
-        const encoder = renderer._device.createCommandEncoder();
+        const encoder = renderer.device.createCommandEncoder();
         const pass = encoder.beginRenderPass({
-            colorAttachments: [{
-                view: targetTexture.createView(),
-                clearValue: { r: 0.1, g: 0.1, b: 0.1, a: 1 },
-                loadOp: 'clear',
-                storeOp: 'store',
-            }],
+            colorAttachments: [
+                {
+                    view: targetTexture.createView(),
+                    clearValue: { r: 0.1, g: 0.1, b: 0.1, a: 1 },
+                    loadOp: 'clear',
+                    storeOp: 'store',
+                },
+            ],
             depthStencilAttachment: {
                 view: probe.depthTexture.createView(),
                 depthClearValue: 1.0,
@@ -669,13 +814,13 @@ export class Inspector extends RendererInspector {
         // Vertex buffers, look up uploaded GPU buffers from the geometry
         let slot = 0;
         const geometry = ro.geometry;
-        const bufferCache = renderer._buffers;
+        const bufferCache = renderer.buffers;
         for (const group of nodeState.vertexBufferGroups) {
             if (group.name !== null) {
                 // Geometry-based group - resolve buffer by name
                 const bufAttr = geometry.buffers.get(group.name);
                 if (bufAttr) {
-                    const gpuBuf = Buffers.ensureUploaded(bufferCache, renderer._device, bufAttr);
+                    const gpuBuf = Buffers.ensureUploaded(bufferCache, renderer.device, bufAttr);
                     pass.setVertexBuffer(slot, gpuBuf);
                 }
             } else {
@@ -688,7 +833,7 @@ export class Inspector extends RendererInspector {
                 if (arr) {
                     const gpuBuf = Buffers.uploadRaw(
                         bufferCache,
-                        renderer._device,
+                        renderer.device,
                         gpuBuffer,
                         arr,
                         GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
@@ -703,7 +848,7 @@ export class Inspector extends RendererInspector {
         // indirect draw support.  The indirect GPU buffer was already written by
         // the compute pass this frame; getUploaded() does a non-uploading lookup.
         if (geometry.index) {
-            const idxBuf = Buffers.ensureUploaded(bufferCache, renderer._device, geometry.index);
+            const idxBuf = Buffers.ensureUploaded(bufferCache, renderer.device, geometry.index);
             pass.setIndexBuffer(idxBuf, getIndexFormat(geometry.index.array)!);
             if (geometry.indirect) {
                 const indBuf = Buffers.getUploaded(bufferCache, geometry.indirect);
@@ -714,7 +859,11 @@ export class Inspector extends RendererInspector {
                     }
                 }
             } else {
-                pass.drawIndexed(Math.min(geometry.drawRange.count, geometry.index.array!.length), ro.mesh.count, geometry.drawRange.start);
+                pass.drawIndexed(
+                    Math.min(geometry.drawRange.count, geometry.index.array!.length),
+                    ro.mesh.count,
+                    geometry.drawRange.start,
+                );
             }
         } else {
             if (geometry.indirect) {
@@ -731,6 +880,39 @@ export class Inspector extends RendererInspector {
         }
 
         pass.end();
-        renderer._device.queue.submit([encoder.finish()]);
+        renderer.device.queue.submit([encoder.finish()]);
+    }
+
+    /**
+     * WebGL probe readback: re-render the probed mesh with the patched fragment into a 1×1 FBO via
+     * renderer.renderProbe, then decode the pixel per the coerced type and update the swatch + text.
+     * Runs each frame while a WebGL probe is active. Never touches `device`.
+     */
+    private _renderGlProbe(): void {
+        const probe = this._activeGlProbe;
+        if (!probe) return;
+
+        const renderer = this.getRenderer();
+        if (!renderer || renderer.backend !== 'webgl') return;
+
+        let pixel: Uint8Array | null;
+        try {
+            pixel = renderer.renderProbe(probe.sourceRO, probe.patchedFragment);
+        } catch (e) {
+            this.log.error(`[gpucat probe] WebGL probe failed: ${e}`);
+            this.clearProbe();
+            return;
+        }
+        if (!pixel) return;
+
+        // Decode the RGBA8 pixel. The probe coerced the value to a vec4 written to the location-0
+        // color output, so the bytes are the value's components (0..255 → 0..1). Show a color swatch
+        // (always the raw RGBA) plus the numeric components that the coerced type carries.
+        const [r, g, b, a] = pixel;
+        probe.swatch.style.background = `rgba(${r}, ${g}, ${b}, ${(a / 255).toFixed(3)})`;
+
+        const n = componentCount(probe.kind);
+        const comps = [r, g, b, a].slice(0, n).map((v) => (v / 255).toFixed(3));
+        probe.label.textContent = `${probe.kind}\n(${comps.join(', ')})`;
     }
 }

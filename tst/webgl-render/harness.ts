@@ -1,0 +1,755 @@
+import {
+    attribute,
+    cameraProjectionMatrix,
+    cameraViewMatrix,
+    createBoxGeometry,
+    createFullscreenTriangleGeometry,
+    createIndirectBuffer,
+    CubeRenderTarget,
+    CubeTexture,
+    cubeTexture,
+    d,
+    DataTexture,
+    DrawIndirect,
+    f32,
+    Geometry,
+    Material,
+    Mesh,
+    modelNormalMatrix,
+    modelWorldMatrix,
+    mrt,
+    mul,
+    normalize,
+    packArray,
+    PerspectiveCamera,
+    RenderTarget,
+    Scene,
+    screenUV,
+    Texture,
+    texture,
+    Uniform,
+    uniform,
+    varying,
+    vec3,
+    vec4,
+    WebGLRenderer,
+} from '../../src/index';
+
+/**
+ * Browser-side harness for the WebGL2 draw path. Bundled to a single IIFE by esbuild and injected
+ * into a real headless Chromium page (see run.mjs). It runs several render cases against a real
+ * WebGL2 context (SwiftShader) and reads back a known pixel for each:
+ *
+ *  - clear        : empty scene → clearColor (the original clear-only proof, kept).
+ *  - solid        : a fullscreen triangle with a constant fragment color.
+ *  - uniform      : a fullscreen triangle whose fragment reads a vec4 uniform (tests the std140 UBO).
+ *  - lit          : a camera-transformed box with a lambert term (tests mat4/mat3 std140 + attributes
+ *                   + depth).
+ *
+ * Exposed as `window.__webglRender.run` so the Playwright runner can call each case via
+ * page.evaluate — no HTTP server, no file:// ESM.
+ */
+
+export interface CaseResult {
+    name: string;
+    pixel: [number, number, number, number];
+    expected: [number, number, number, number];
+    error?: string;
+    /** Free-form note a case may attach (e.g. the observed error message for a throw-assertion case). */
+    note?: string;
+}
+
+export interface RunResult {
+    contextError?: string;
+    cases?: CaseResult[];
+}
+
+const SIZE = 64;
+const CENTER = SIZE / 2;
+
+/** Read the center pixel of the default framebuffer (readPixels origin is bottom-left). */
+function readCenter(gl: WebGL2RenderingContext): [number, number, number, number] {
+    const buf = new Uint8Array(4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.readPixels(CENTER, CENTER, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+    return [buf[0], buf[1], buf[2], buf[3]];
+}
+
+const u8 = (v: number): number => Math.round(v * 255);
+
+async function newRenderer(): Promise<WebGLRenderer> {
+    const canvas = document.createElement('canvas');
+    const renderer = new WebGLRenderer({ canvas });
+    await renderer.init();
+    renderer.setSize(SIZE, SIZE);
+    return renderer;
+}
+
+/** clear: empty scene renders to clearColor. */
+async function caseClear(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0.2, 0.4, 0.6, 1];
+    const scene = new Scene();
+    const camera = new PerspectiveCamera();
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'clear', pixel, expected: [u8(0.2), u8(0.4), u8(0.6), 255] };
+}
+
+/** solid: fullscreen triangle with a constant fragment color. */
+async function caseSolid(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+
+    const geometry = createFullscreenTriangleGeometry();
+    const position = attribute('position', d.vec3f);
+    const material = new Material({
+        vertex: vec4(position, f32(1)),
+        fragment: vec4(0.9, 0.3, 0.6, 1),
+        depthTest: false,
+    });
+    const mesh = new Mesh(geometry, material);
+
+    const scene = new Scene();
+    scene.add(mesh);
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'solid', pixel, expected: [u8(0.9), u8(0.3), u8(0.6), 255] };
+}
+
+/** uniform: fullscreen triangle whose fragment reads a vec4 uniform → tests std140 UBO. */
+async function caseUniform(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+
+    const geometry = createFullscreenTriangleGeometry();
+    const position = attribute('position', d.vec3f);
+    const uColor = uniform('color', d.vec4f);
+    const material = new Material({
+        vertex: vec4(position, f32(1)),
+        fragment: uColor,
+        depthTest: false,
+    });
+    material.uniforms.set('color', new Uniform(d.vec4f, [0.1, 0.7, 0.5, 1]));
+
+    const mesh = new Mesh(geometry, material);
+    const scene = new Scene();
+    scene.add(mesh);
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'uniform', pixel, expected: [u8(0.1), u8(0.7), u8(0.5), 255] };
+}
+
+/**
+ * lit: a camera-transformed box with a lambert term → tests mat4/mat3 in std140 + attributes + depth.
+ *
+ * The box faces the camera along -Z; its front face normal is (0,0,1). The light direction is
+ * normalize(0,0,1), so the front face is fully lit: lighting = ambient + max(dot(n, l), 0) = 0.15 + 1.
+ * With baseColor (0.4, 0.4, 0.4) the lit color clamps to ~ (0.4*1.15) per channel ≈ 0.46 → 117.
+ */
+async function caseLit(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+
+    const geometry = createBoxGeometry(1, 1, 1);
+
+    const position = attribute('position', d.vec3f);
+    const normal = attribute('normal', d.vec3f);
+    const worldPosition = mul(modelWorldMatrix, vec4(position, f32(1)));
+    const clipPosition = mul(cameraProjectionMatrix, mul(cameraViewMatrix, worldPosition));
+    const vNormal = varying(normalize(mul(modelNormalMatrix, normal)), 'vNormal');
+
+    const lightDir = vec3(0, 0, 1).normalize();
+    const ambient = f32(0.15);
+    const diffuse = vNormal.dot(lightDir).max(f32(0));
+    const lighting = ambient.add(diffuse);
+    const baseColor = vec3(0.4, 0.4, 0.4);
+    const litColor = baseColor.mul(lighting);
+
+    const material = new Material({
+        vertex: clipPosition,
+        fragment: vec4(litColor, f32(1)),
+    });
+    const mesh = new Mesh(geometry, material);
+
+    const scene = new Scene();
+    scene.add(mesh);
+
+    const camera = new PerspectiveCamera(Math.PI / 4, 1, 0.1, 100);
+    camera.position[2] = 3;
+    scene.add(camera);
+
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+
+    // Front face fully lit: 0.4 * (0.15 + 1.0) = 0.46 → 117 per channel.
+    const shaded = u8(0.4 * 1.15);
+    return { name: 'lit', pixel, expected: [shaded, shaded, shaded, 255] };
+}
+
+/**
+ * textured: sample a known-color DataTexture on a fullscreen quad → tests texture upload + the
+ * combined-sampler unit binding. The texture is a solid magenta (2×2) so any texel we hit is the
+ * same known value; the center pixel must match the texel.
+ */
+async function caseTextured(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+
+    // A 2×2 solid magenta texture (0.6, 0.2, 0.8, 1) in rgba8unorm.
+    const R = u8(0.6);
+    const G = u8(0.2);
+    const B = u8(0.8);
+    const data = new Uint8Array(2 * 2 * 4);
+    for (let i = 0; i < 4; i++) {
+        data[i * 4 + 0] = R;
+        data[i * 4 + 1] = G;
+        data[i * 4 + 2] = B;
+        data[i * 4 + 3] = 255;
+    }
+    const tex = new DataTexture(data, 2, 2, { format: 'rgba8unorm', magFilter: 'nearest', minFilter: 'nearest' });
+
+    const geometry = createFullscreenTriangleGeometry();
+    const position = attribute('position', d.vec3f);
+    const material = new Material({
+        vertex: vec4(position, f32(1)),
+        fragment: texture(tex).sample(screenUV),
+        depthTest: false,
+    });
+    const mesh = new Mesh(geometry, material);
+
+    const scene = new Scene();
+    scene.add(mesh);
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'textured', pixel, expected: [R, G, B, 255] };
+}
+
+/**
+ * render-to-texture: render a solid known color INTO a RenderTarget (the render-to-texture flow —
+ * `renderer.renderTarget = rt; render(); restore`), then sample that target's color texture
+ * fullscreen to the canvas and read back. Proves the FBO path + texture-as-input round-trip.
+ */
+async function caseRenderToTexture(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+
+    // rgba8unorm target so the round-tripped color reads back exactly (no float precision loss).
+    // depthBuffer:true exercises the FBO depth attachment + DepthTexture construction under WebGL2
+    // (DepthTexture now uses spec-fixed numeric usage flags, not the WebGPU-only `GPUTextureUsage`).
+    const rt = new RenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+
+    // Pass 1: clear the target to a known color (an empty scene → the target's clearColor).
+    const rtColor: [number, number, number, number] = [0.3, 0.8, 0.5, 1];
+    const scene1 = new Scene();
+    const camera1 = new PerspectiveCamera();
+    scene1.updateWorldMatrix();
+    camera1.updateViewMatrix();
+
+    const savedTarget = renderer.renderTarget;
+    const savedClear = renderer.clearColor;
+    renderer.renderTarget = rt;
+    renderer.clearColor = rtColor;
+    renderer.render(scene1, camera1);
+    renderer.renderTarget = savedTarget;
+    renderer.clearColor = savedClear;
+
+    // Pass 2: sample the target's color texture fullscreen onto the default framebuffer.
+    renderer.clearColor = [0, 0, 0, 1];
+    const geometry = createFullscreenTriangleGeometry();
+    const position = attribute('position', d.vec3f);
+    const material = new Material({
+        vertex: vec4(position, f32(1)),
+        fragment: texture(rt.texture! as Texture).sample(screenUV),
+        depthTest: false,
+    });
+    const mesh = new Mesh(geometry, material);
+    const scene2 = new Scene();
+    scene2.add(mesh);
+    const camera2 = new PerspectiveCamera();
+    scene2.updateWorldMatrix();
+    camera2.updateViewMatrix();
+
+    renderer.render(scene2, camera2);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'rtt', pixel, expected: [u8(rtColor[0]), u8(rtColor[1]), u8(rtColor[2]), 255] };
+}
+
+/**
+ * msaa: render a solid known color into a samples>1 RenderTarget (the multisample render FBO), which
+ * is resolved (blitFramebuffer) into the target's sampleable texture on pass end; then sample that
+ * texture fullscreen to the canvas and read back. Proves the MSAA render → resolve → sample path.
+ *
+ * The whole target is a single flat color, so antialiasing changes nothing at the center — the read
+ * value equals the drawn color, which is what confirms the resolve landed the pixels in the texture.
+ */
+async function caseMsaa(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+
+    // rgba8unorm + samples:4 so the resolved color reads back exactly. SwiftShader supports 4x MSAA
+    // renderbuffers; if a sample count degrades, the fallback still produces the same flat color.
+    const rt = new RenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true, samples: 4 });
+
+    // Pass 1: draw a solid fullscreen color into the MSAA target.
+    const drawn: [number, number, number, number] = [0.2, 0.6, 0.9, 1];
+    const geometry1 = createFullscreenTriangleGeometry();
+    const material1 = new Material({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        fragment: vec4(drawn[0], drawn[1], drawn[2], 1),
+        depthTest: false,
+    });
+    const scene1 = new Scene();
+    scene1.add(new Mesh(geometry1, material1));
+    const camera1 = new PerspectiveCamera();
+    scene1.updateWorldMatrix();
+    camera1.updateViewMatrix();
+
+    const savedTarget = renderer.renderTarget;
+    const savedClear = renderer.clearColor;
+    renderer.renderTarget = rt;
+    renderer.clearColor = [0, 0, 0, 1];
+    renderer.render(scene1, camera1);
+    renderer.renderTarget = savedTarget;
+    renderer.clearColor = savedClear;
+
+    // Pass 2: sample the resolved texture fullscreen onto the default framebuffer.
+    renderer.clearColor = [0, 0, 0, 1];
+    const material2 = new Material({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        fragment: texture(rt.texture! as Texture).sample(screenUV),
+        depthTest: false,
+    });
+    const scene2 = new Scene();
+    scene2.add(new Mesh(createFullscreenTriangleGeometry(), material2));
+    const camera2 = new PerspectiveCamera();
+    scene2.updateWorldMatrix();
+    camera2.updateViewMatrix();
+
+    renderer.render(scene2, camera2);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'msaa', pixel, expected: [u8(drawn[0]), u8(drawn[1]), u8(drawn[2]), 255] };
+}
+
+/**
+ * cube-rtt: render a solid known color into every face of a CubeRenderTarget (set activeFace 0..5 and
+ * render each), then sample the cube fullscreen and read back. Proves the cube-face FBO attachment
+ * path (framebufferTexture2D(TEXTURE_CUBE_MAP_POSITIVE_X + activeFace)) + cube sampling round-trip.
+ *
+ * All six faces get the same color, so the sample direction is immaterial — the read value equals the
+ * drawn color, confirming a face render actually wrote into the cube texture.
+ */
+async function caseCubeRtt(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+
+    const rt = new CubeRenderTarget(SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+
+    const drawn: [number, number, number, number] = [0.7, 0.3, 0.5, 1];
+    const savedTarget = renderer.renderTarget;
+    const savedClear = renderer.clearColor;
+    renderer.renderTarget = rt;
+    renderer.clearColor = [drawn[0], drawn[1], drawn[2], 1];
+
+    // Render each of the six faces (an empty scene → the face clears to the target's clearColor).
+    for (let face = 0; face < 6; face++) {
+        rt.activeFace = face;
+        const scene = new Scene();
+        const camera = new PerspectiveCamera();
+        scene.updateWorldMatrix();
+        camera.updateViewMatrix();
+        renderer.render(scene, camera);
+    }
+    renderer.renderTarget = savedTarget;
+    renderer.clearColor = savedClear;
+
+    // Sample the cube fullscreen onto the default framebuffer. Direction is a constant per-fragment
+    // vector; since every face carries the same color, any direction reads the drawn color.
+    renderer.clearColor = [0, 0, 0, 1];
+    const material = new Material({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        fragment: cubeTexture(rt.texture).sample(vec3(0, 0, 1)),
+        depthTest: false,
+    });
+    const scene2 = new Scene();
+    scene2.add(new Mesh(createFullscreenTriangleGeometry(), material));
+    const camera2 = new PerspectiveCamera();
+    scene2.updateWorldMatrix();
+    camera2.updateViewMatrix();
+
+    renderer.render(scene2, camera2);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'cube-rtt', pixel, expected: [u8(drawn[0]), u8(drawn[1]), u8(drawn[2]), 255] };
+}
+
+/**
+ * indirect-unsupported: indirect draw (`geometry.indirect`) is a WebGPU-only feature; on the WebGL2
+ * backend even a plain CPU-authored indirect command must be rejected with a clear error. We set a
+ * normal DrawIndirect command on the geometry and assert `renderer.render(...)` throws with a message
+ * naming the WebGL2 limitation (pixel/expected are unused for pass/fail; the runner surfaces the note).
+ */
+async function caseIndirectUnsupported(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+
+    const geometry = createFullscreenTriangleGeometry();
+    const material = new Material({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        fragment: vec4(1, 1, 1, 1),
+        depthTest: false,
+    });
+    // A normal CPU-authored indirect command (array kept): draw all 3 vertices, 1 instance, no base.
+    const data = new Uint32Array(
+        packArray(DrawIndirect, [{ vertexCount: 3, instanceCount: 1, firstVertex: 0, firstInstance: 0 }]),
+    );
+    geometry.indirect = createIndirectBuffer(DrawIndirect, data);
+
+    const mesh = new Mesh(geometry, material);
+    const scene = new Scene();
+    scene.add(mesh);
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    let threw = false;
+    let msg = '';
+    try {
+        renderer.render(scene, camera);
+    } catch (err) {
+        threw = true;
+        msg = err instanceof Error ? err.message : String(err);
+    }
+    renderer.dispose();
+    // Encode pass/fail as a pixel: green when it threw the expected error, red otherwise.
+    const ok = threw && msg.includes('not supported on the WebGL2 backend');
+    return {
+        name: 'ind-unsupported',
+        pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: threw ? msg.slice(0, 60) : 'did not throw',
+    };
+}
+
+/**
+ * depth-bias: two coplanar fullscreen quads at the same clip-space Z. The first (red) is drawn
+ * normally; the second (green) has a positive polygon offset (depthBias) pushing it *toward* the
+ * camera so it wins the depth test (depthCompare 'less-equal') and the center pixel reads green.
+ *
+ * Without polygon offset the two quads Z-fight and the second would NOT reliably beat the first with a
+ * strict 'less' compare; the bias is what makes green consistently win. This asserts gl.polygonOffset
+ * is actually applied on the WebGL path (C1).
+ */
+async function caseDepthBias(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+
+    const position = attribute('position', d.vec3f);
+
+    // First quad: red, plain depth write, no bias. Occupies z = 0.
+    const redMat = new Material({
+        vertex: vec4(position, f32(1)),
+        fragment: vec4(1, 0, 0, 1),
+        depthWrite: true,
+        depthCompare: 'less-equal',
+    });
+    // Second quad: green, coplanar (same z), negative depthBias pulls it toward the camera so it passes
+    // the 'less-equal' test against the red quad's stored depth and overwrites it.
+    const greenMat = new Material({
+        vertex: vec4(position, f32(1)),
+        fragment: vec4(0, 1, 0, 1),
+        depthWrite: true,
+        depthCompare: 'less-equal',
+        depthBias: -2,
+        depthBiasSlopeScale: 0,
+    });
+
+    const scene = new Scene();
+    scene.add(new Mesh(createFullscreenTriangleGeometry(), redMat));
+    scene.add(new Mesh(createFullscreenTriangleGeometry(), greenMat));
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    // Green wins because its polygon offset pulled it in front of the coplanar red quad.
+    return { name: 'depth-bias', pixel, expected: [0, 255, 0, 255] };
+}
+
+/**
+ * alpha-to-coverage: draw a fullscreen triangle with alpha = 0.5 into a 4x MSAA target, with
+ * alphaToCoverage enabled and blending OFF. A2C converts fragment alpha into a coverage mask, so ~half
+ * the samples of each pixel are written with the (opaque) color and half keep the clear color; the
+ * MSAA resolve averages them, yielding roughly the halfway color. We assert the resolved center pixel
+ * is a blend of clear (black) and the drawn color — i.e. A2C actually took effect (C2).
+ *
+ * Read against clear black [0,0,0]; with color (1,1,1) at alpha 0.5, the resolve lands near 128 per
+ * channel. We assert it's meaningfully between black and white (a wide band; SwiftShader's sample
+ * pattern isn't exactly 50%), which is only possible if A2C is enabled — with A2C off and blending off
+ * the pixel would be fully white (255).
+ */
+async function caseAlphaToCoverage(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+
+    const rt = new RenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true, samples: 4 });
+
+    const material1 = new Material({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        fragment: vec4(1, 1, 1, 0.5),
+        depthTest: false,
+        alphaToCoverage: true,
+    });
+    const scene1 = new Scene();
+    scene1.add(new Mesh(createFullscreenTriangleGeometry(), material1));
+    const camera1 = new PerspectiveCamera();
+    scene1.updateWorldMatrix();
+    camera1.updateViewMatrix();
+
+    const savedTarget = renderer.renderTarget;
+    const savedClear = renderer.clearColor;
+    renderer.renderTarget = rt;
+    renderer.clearColor = [0, 0, 0, 1];
+    renderer.render(scene1, camera1);
+    renderer.renderTarget = savedTarget;
+    renderer.clearColor = savedClear;
+
+    // Sample the resolved texture fullscreen to the default framebuffer.
+    renderer.clearColor = [0, 0, 0, 1];
+    const material2 = new Material({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        fragment: texture(rt.texture! as Texture).sample(screenUV),
+        depthTest: false,
+    });
+    const scene2 = new Scene();
+    scene2.add(new Mesh(createFullscreenTriangleGeometry(), material2));
+    const camera2 = new PerspectiveCamera();
+    scene2.updateWorldMatrix();
+    camera2.updateViewMatrix();
+
+    renderer.render(scene2, camera2);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+
+    // With A2C on, the resolved value is a partial-coverage blend (roughly half). Encode pass/fail as a
+    // green/red pixel: pass iff the red channel is meaningfully below fully-opaque white (i.e. coverage
+    // actually dropped some samples). A generous band tolerates SwiftShader's sample geometry.
+    const ok = pixel[0] > 20 && pixel[0] < 235;
+    return {
+        name: 'a2c',
+        pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `resolved center = [${pixel.join(', ')}]`,
+    };
+}
+
+/**
+ * mrt: render a fullscreen triangle into a 2-attachment RenderTarget via drawBuffers, writing a
+ * distinct constant color to each attachment (attachment 0 = red-ish, attachment 1 = a known blue),
+ * then sample attachment 1's texture fullscreen and read back. Proves the WebGL2 MRT path routes the
+ * mrt() named output to the correct COLOR_ATTACHMENT (if drawBuffers were wrong, attachment 1 would
+ * carry attachment 0's color or the clear color).
+ */
+async function caseMrt(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+
+    // 2-attachment target; rename attachments to the mrt() keys.
+    const rt = new RenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true, count: 2 });
+    rt.textures[0].name = 'colA';
+    rt.textures[1].name = 'colB';
+
+    const colB: [number, number, number, number] = [0.2, 0.5, 0.9, 1];
+    const mrtNode = mrt({
+        colA: vec4(0.9, 0.1, 0.1, 1),
+        colB: vec4(colB[0], colB[1], colB[2], 1),
+    });
+
+    const material1 = new Material({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        fragment: mrtNode,
+        depthTest: false,
+    });
+    const scene1 = new Scene();
+    scene1.add(new Mesh(createFullscreenTriangleGeometry(), material1));
+    const camera1 = new PerspectiveCamera();
+    scene1.updateWorldMatrix();
+    camera1.updateViewMatrix();
+
+    const savedTarget = renderer.renderTarget;
+    const savedClear = renderer.clearColor;
+    renderer.renderTarget = rt;
+    renderer.mrt = mrtNode;
+    renderer.clearColor = [0, 0, 0, 1];
+    renderer.render(scene1, camera1);
+    renderer.mrt = null;
+    renderer.renderTarget = savedTarget;
+    renderer.clearColor = savedClear;
+
+    // Sample attachment 1 (colB) fullscreen to the default framebuffer.
+    renderer.clearColor = [0, 0, 0, 1];
+    const material2 = new Material({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        fragment: texture(rt.textures[1] as Texture).sample(screenUV),
+        depthTest: false,
+    });
+    const scene2 = new Scene();
+    scene2.add(new Mesh(createFullscreenTriangleGeometry(), material2));
+    const camera2 = new PerspectiveCamera();
+    scene2.updateWorldMatrix();
+    camera2.updateViewMatrix();
+
+    renderer.render(scene2, camera2);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'mrt', pixel, expected: [u8(colB[0]), u8(colB[1]), u8(colB[2]), 255] };
+}
+
+/**
+ * cubemap: build a CubeTexture with a distinct constant color per face, then sample a fixed direction
+ * (+Z → face index 4) on a fullscreen triangle and read back. Proves cube sampling picks the right
+ * face on WebGL2. Face order: +X,-X,+Y,-Y,+Z,-Z.
+ */
+async function caseCubemap(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+
+    // Six 1x1 solid-color faces. +Z (index 4) is the one we sample toward.
+    const faceColors: [number, number, number][] = [
+        [0.9, 0.1, 0.1], // +X red
+        [0.1, 0.6, 0.6], // -X teal
+        [0.1, 0.8, 0.2], // +Y green
+        [0.6, 0.2, 0.7], // -Y purple
+        [0.2, 0.5, 0.9], // +Z blue  ← sampled
+        [0.9, 0.8, 0.1], // -Z yellow
+    ];
+    const faces = faceColors.map(([r, g, b]) => ({
+        data: new Uint8Array([u8(r), u8(g), u8(b), 255]),
+        width: 1,
+        height: 1,
+    }));
+    const cubeTex = new CubeTexture(faces, {
+        format: 'rgba8unorm',
+        magFilter: 'nearest',
+        minFilter: 'nearest',
+        generateMipmaps: false,
+    });
+    cubeTex.needsUpdate = true;
+
+    const material = new Material({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        // Sample toward +Z: picks the +Z face (index 4) = blue.
+        fragment: cubeTexture(cubeTex).sample(vec3(0, 0, 1)),
+        depthTest: false,
+    });
+    const scene = new Scene();
+    scene.add(new Mesh(createFullscreenTriangleGeometry(), material));
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    const [r, g, b] = faceColors[4];
+    return { name: 'cubemap', pixel, expected: [u8(r), u8(g), u8(b), 255] };
+}
+
+/**
+ * instanced: draw 2 instances of a fullscreen triangle where each instance's color comes from an
+ * instanced vertex attribute; the second instance (drawn last, depth off) overwrites the first, so the
+ * center pixel reads instance 1's color. Proves per-instance vertex attributes + instanced draw on
+ * WebGL2 (instance divisor).
+ */
+async function caseInstanced(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+
+    // Per-instance colors: instance 0 red, instance 1 the known green we assert.
+    const inst1: [number, number, number] = [0.2, 0.8, 0.4];
+    const instanceColors = new Float32Array([0.9, 0.1, 0.1, inst1[0], inst1[1], inst1[2]]);
+    const instColor = attribute(instanceColors, d.vec3f, { stride: 12, offset: 0, instanced: true });
+    const vColor = varying(instColor, 'v_instColor');
+
+    const material = new Material({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        fragment: vec4(vColor, f32(1)),
+        depthTest: false, // last instance wins at every pixel
+    });
+    const mesh = new Mesh(createFullscreenTriangleGeometry(), material);
+    mesh.count = 2;
+
+    const scene = new Scene();
+    scene.add(mesh);
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'instanced', pixel, expected: [u8(inst1[0]), u8(inst1[1]), u8(inst1[2]), 255] };
+}
+
+export async function run(): Promise<RunResult> {
+    try {
+        const cases: CaseResult[] = [];
+        const runners: Array<() => Promise<CaseResult>> = [
+            caseClear,
+            caseSolid,
+            caseUniform,
+            caseLit,
+            caseTextured,
+            caseRenderToTexture,
+            caseMsaa,
+            caseCubeRtt,
+            caseIndirectUnsupported,
+            caseDepthBias,
+            caseAlphaToCoverage,
+            caseMrt,
+            caseCubemap,
+            caseInstanced,
+            // NOTE: shadow-map (comparison sampler) is NOT asserted here — SwiftShader (the headless
+            // WebGL2 backend this harness runs on) does not honor sampler2DShadow depth comparison
+            // (a hand-rolled pure-GL shadow program returns "lit" for every ref against a
+            // gpucat-rendered depth-texture target). See the WebGL shadow-map example; it exercises
+            // the depth render-target + comparison-sampler path for real hardware.
+        ];
+        for (const runner of runners) {
+            try {
+                cases.push(await runner());
+            } catch (err) {
+                cases.push({
+                    name: runner.name.replace(/^case/, '').toLowerCase(),
+                    pixel: [0, 0, 0, 0],
+                    expected: [0, 0, 0, 0],
+                    error: err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err),
+                });
+            }
+        }
+        return { cases };
+    } catch (err) {
+        return { contextError: err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err) };
+    }
+}
+
+(globalThis as unknown as { __webglRender: { run: typeof run } }).__webglRender = { run };

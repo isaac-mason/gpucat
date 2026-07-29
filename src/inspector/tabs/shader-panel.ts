@@ -10,11 +10,12 @@
  *     a live 140×140 preview canvas next to the cursor.
  */
 
-import type { Inspector } from '../inspector';
-import type { SceneRecord } from '../renderer-inspector';
 import type { Mesh } from '../../objects/mesh';
-import type { RenderObject } from '../../renderer/render-object';
-import { extractProbeTarget } from '../probe-wgsl';
+import type { RenderObject } from '../../renderer/core/render-object';
+import type { Inspector } from '../inspector';
+import { extractGlslProbeTarget } from '../probe-glsl';
+import { extractProbeTarget, type ProbeTarget } from '../probe-wgsl';
+import type { SceneRecord } from '../renderer-inspector';
 
 // ---------------------------------------------------------------------------
 // WGSL Syntax Highlighting
@@ -23,37 +24,37 @@ import { extractProbeTarget } from '../probe-wgsl';
 /** Lightweight regex-based WGSL highlighter. Returns an HTML string. */
 function highlightWGSL(code: string): string {
     // Escape HTML first so we can safely inject spans
-    const escaped = code
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
+    const escaped = code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-    return escaped
-        // Line comments
-        .replace(/(\/\/[^\n]*)/g, '<span class="wgsl-comment">$1</span>')
-        // Block comments (non-greedy)
-        .replace(/(\/\*[\s\S]*?\*\/)/g, '<span class="wgsl-comment">$1</span>')
-        // Attributes  @builtin @location @group @binding @vertex @fragment @compute
-        .replace(/(@\w+)/g, '<span class="wgsl-attribute">$1</span>')
-        // Keywords
-        .replace(
-            /\b(fn|let|var|const|struct|return|if|else|for|while|loop|break|continue|switch|case|default|discard|override|enable|alias|import|true|false|null)\b/g,
-            '<span class="wgsl-keyword">$1</span>',
-        )
-        // Built-in types
-        .replace(
-            /\b(bool|i32|u32|f32|f16|vec2|vec3|vec4|vec2f|vec3f|vec4f|vec2i|vec3i|vec4i|vec2u|vec3u|vec4u|mat2x2|mat3x3|mat4x4|mat2x2f|mat3x3f|mat4x4f|array|atomic|texture_2d|texture_depth_2d|texture_storage_2d|sampler|sampler_comparison|ptr|ref)\b/g,
-            '<span class="wgsl-type">$1</span>',
-        )
-        // Built-in functions
-        .replace(
-            /\b(abs|acos|asin|atan|atan2|ceil|clamp|cos|cross|degrees|distance|dot|exp|exp2|floor|fma|fract|inverseSqrt|length|log|log2|max|min|mix|modf|normalize|pow|radians|reflect|refract|round|sign|sin|smoothstep|sqrt|step|tan|trunc|bitcast|select|arrayLength|textureLoad|textureSample|textureSampleBias|textureSampleCompare|textureSampleGrad|textureSampleLevel|textureStore|textureDimensions|dpdx|dpdy|fwidth|pack4x8snorm|pack4x8unorm|unpack4x8snorm|unpack4x8unorm)\b/g,
-            '<span class="wgsl-builtin">$1</span>',
-        )
-        // Numeric literals (hex, float, int)
-        .replace(/\b(0x[0-9a-fA-F]+|[0-9]*\.[0-9]+(?:[eE][+-]?[0-9]+)?[fh]?|[0-9]+[uif]?)\b/g,
-            '<span class="wgsl-number">$1</span>',
-        );
+    return (
+        escaped
+            // Line comments
+            .replace(/(\/\/[^\n]*)/g, '<span class="wgsl-comment">$1</span>')
+            // Block comments (non-greedy)
+            .replace(/(\/\*[\s\S]*?\*\/)/g, '<span class="wgsl-comment">$1</span>')
+            // Attributes  @builtin @location @group @binding @vertex @fragment @compute
+            .replace(/(@\w+)/g, '<span class="wgsl-attribute">$1</span>')
+            // Keywords
+            .replace(
+                /\b(fn|let|var|const|struct|return|if|else|for|while|loop|break|continue|switch|case|default|discard|override|enable|alias|import|true|false|null)\b/g,
+                '<span class="wgsl-keyword">$1</span>',
+            )
+            // Built-in types
+            .replace(
+                /\b(bool|i32|u32|f32|f16|vec2|vec3|vec4|vec2f|vec3f|vec4f|vec2i|vec3i|vec4i|vec2u|vec3u|vec4u|mat2x2|mat3x3|mat4x4|mat2x2f|mat3x3f|mat4x4f|array|atomic|texture_2d|texture_depth_2d|texture_storage_2d|sampler|sampler_comparison|ptr|ref)\b/g,
+                '<span class="wgsl-type">$1</span>',
+            )
+            // Built-in functions
+            .replace(
+                /\b(abs|acos|asin|atan|atan2|ceil|clamp|cos|cross|degrees|distance|dot|exp|exp2|floor|fma|fract|inverseSqrt|length|log|log2|max|min|mix|modf|normalize|pow|radians|reflect|refract|round|sign|sin|smoothstep|sqrt|step|tan|trunc|bitcast|select|arrayLength|textureLoad|textureSample|textureSampleBias|textureSampleCompare|textureSampleGrad|textureSampleLevel|textureStore|textureDimensions|dpdx|dpdy|fwidth|pack4x8snorm|pack4x8unorm|unpack4x8snorm|unpack4x8unorm)\b/g,
+                '<span class="wgsl-builtin">$1</span>',
+            )
+            // Numeric literals (hex, float, int)
+            .replace(
+                /\b(0x[0-9a-fA-F]+|[0-9]*\.[0-9]+(?:[eE][+-]?[0-9]+)?[fh]?|[0-9]+[uif]?)\b/g,
+                '<span class="wgsl-number">$1</span>',
+            )
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -67,12 +68,27 @@ type ShaderStages = {
     compute: string;
 };
 
+/** The stage separator the GLSL emitter writes between the vertex and fragment source. */
+const GLSL_FRAGMENT_MARKER = '// ---- fragment stage ----';
+
 /**
- * Split combined WGSL (as emitted by compile.ts) into vertex / fragment
- * sections. The combined code has `@vertex\nfn vs_main` and
- * `@fragment\nfn fs_main` entry-point markers.
+ * Split combined shader source into vertex / fragment sections.
+ *
+ * WGSL (WebGPU): the combined code has `@vertex\nfn vs_main` and `@fragment\nfn fs_main` markers.
+ * GLSL (WebGL): the combined code separates the two stages with `// ---- fragment stage ----`.
+ * Both split so the fragment section is exactly the fragment stage — the probe patcher operates on
+ * the fragment-only source and hover probing runs against fragment lines.
  */
 function splitStages(code: string): ShaderStages {
+    // GLSL path: split on the emitter's stage marker.
+    const glslIdx = code.indexOf(GLSL_FRAGMENT_MARKER);
+    if (glslIdx !== -1) {
+        const vertexSection = code.slice(0, glslIdx).trimEnd();
+        // Fragment section starts past the marker line.
+        const fragmentSection = code.slice(glslIdx + GLSL_FRAGMENT_MARKER.length).trimStart();
+        return { vertex: vertexSection, fragment: fragmentSection, full: code, compute: '' };
+    }
+
     const vertexMatch = code.match(/@vertex\s*\nfn\s+vs_main/);
     const fragmentMatch = code.match(/@fragment\s*\nfn\s+fs_main/);
 
@@ -103,7 +119,6 @@ type Stage = 'vertex' | 'fragment' | 'full' | 'compute';
 export type ShaderPanelMode = 'render' | 'compute';
 
 export class ShaderPanel {
-
     readonly domElement: HTMLDivElement;
 
     private _codeBlock: HTMLPreElement;
@@ -180,7 +195,8 @@ export class ShaderPanel {
         const copyBtn = document.createElement('button');
         copyBtn.className = 'console-copy-button shader-copy-btn';
         copyBtn.title = 'Copy shader';
-        copyBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+        copyBtn.innerHTML =
+            '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
         copyBtn.addEventListener('click', () => this._copyCode(copyBtn));
 
         toolbar.appendChild(stageGroup);
@@ -371,6 +387,16 @@ export class ShaderPanel {
         }
     }
 
+    /** True when the attached renderer is WebGL (drives GLSL vs WGSL probe target extraction). */
+    private _isWebGL(): boolean {
+        return this._inspector?.getRenderer()?.backend === 'webgl';
+    }
+
+    /** Parse a hovered fragment line into a probe target, using the backend-appropriate extractor. */
+    private _extractTarget(lineText: string): ProbeTarget | null {
+        return this._isWebGL() ? extractGlslProbeTarget(lineText) : extractProbeTarget(lineText);
+    }
+
     private _onLineHover(e: MouseEvent): void {
         // If a selection is locked, just reposition the popover as cursor moves
         if (this._selectionLocked) {
@@ -411,7 +437,7 @@ export class ShaderPanel {
 
         const lines = this._stages[this._currentStage].split('\n');
         const lineText = lines[lineIndex] ?? '';
-        const probeTarget = extractProbeTarget(lineText);
+        const probeTarget = this._extractTarget(lineText);
 
         if (!probeTarget) {
             this._hidePopover();
@@ -542,16 +568,28 @@ export class ShaderPanel {
         const anchorLineText = lines[lineIndex] ?? '';
 
         const trimmedAnchor = anchorLineText.trim();
-        let probeTarget: import('../probe-wgsl').ProbeTarget;
+        let probeTarget: ProbeTarget;
 
+        // GLSL declarations are `<type> <name> = …;` (no `let`/`var` keyword); WGSL uses `let name …`.
+        const glslDeclMatch = this._isWebGL()
+            ? trimmedAnchor.match(
+                  /^(?:float|int|uint|bool|vec[234]|ivec[234]|uvec[234]|bvec[234]|mat[234](?:x[234])?|[A-Z]\w*)\s+(\w+)\s*(?:\[[^\]]*\])?\s*=/,
+              )
+            : null;
         const letAnchorMatch = trimmedAnchor.match(/^let\s+(\w+)\s*(?::\s*[\w<>, ]+\s*)?=/);
-        if (letAnchorMatch) {
+        if (glslDeclMatch) {
+            probeTarget = {
+                expr: selectedText,
+                anchor: glslDeclMatch[1],
+                anchorKind: 'let_var',
+            };
+        } else if (letAnchorMatch) {
             probeTarget = {
                 expr: selectedText,
                 anchor: letAnchorMatch[1],
                 anchorKind: 'let_var',
             };
-        } else if (trimmedAnchor.startsWith('return')) {
+        } else if (!this._isWebGL() && trimmedAnchor.startsWith('return')) {
             probeTarget = {
                 expr: selectedText,
                 anchor: '__return__',

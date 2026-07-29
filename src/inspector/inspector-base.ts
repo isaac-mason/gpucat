@@ -35,14 +35,18 @@
  *   _dispatchComputeNode    → inspector.dispatchWorkgroups(x, y, z)
  */
 
-import type { WebGPURenderer } from '../renderer/renderer';
-import type { InspectorNode, ComputeNode } from '../nodes/nodes';
 import type { Object3D } from '../core/object3d';
-import { Any } from '../schema/schema';
+import type { ComputeNode, InspectorNode } from '../nodes/nodes';
+import type { WebGLRenderer } from '../renderer/webgl/renderer';
+import type { WebGPURenderer } from '../renderer/webgpu/renderer';
+import type { Any } from '../schema/schema';
+
+/** Any renderer the inspector can attach to. Branch on `renderer.backend` for backend-specific bits. */
+export type InspectableRenderer = WebGPURenderer | WebGLRenderer;
 
 export class InspectorBase {
     /** Back-reference to the renderer. Set by renderer after init(). */
-    renderer: WebGPURenderer | null = null;
+    renderer: InspectableRenderer | null = null;
 
     // -----------------------------------------------------------------------
     // Performance markers (no-op in base class)
@@ -66,9 +70,15 @@ export class InspectorBase {
      * the global `console` directly.
      */
     log = {
-        info:  (msg: string): void => { void msg; },
-        warn:  (msg: string): void => { console.warn(msg); },
-        error: (msg: string): void => { console.error(msg); },
+        info: (msg: string): void => {
+            void msg;
+        },
+        warn: (msg: string): void => {
+            console.warn(msg);
+        },
+        error: (msg: string): void => {
+            console.error(msg);
+        },
     };
 
     // -----------------------------------------------------------------------
@@ -81,7 +91,7 @@ export class InspectorBase {
      * Setup may be deferred (e.g. until renderer._initialized is true), see
      * subclasses for the specific lazy strategy.
      */
-    setRenderer(renderer: WebGPURenderer | null): void {
+    setRenderer(renderer: InspectableRenderer | null): void {
         this.renderer = renderer;
     }
 
@@ -143,7 +153,7 @@ export class InspectorBase {
         _passId: string,
         _scene: Object3D,
         _samples: number,
-        _colorFormat: GPUTextureFormat,
+        _colorFormat: string,
         _frameId: number,
     ): void {}
 
@@ -219,7 +229,7 @@ export class InspectorBase {
     dispatchWorkgroupsIndirect(_buffer: GPUBuffer, _offset: number): void {}
 
     /** Returns the renderer reference (null until setRenderer() is called). */
-    getRenderer(): WebGPURenderer | null {
+    getRenderer(): InspectableRenderer | null {
         return this.renderer;
     }
 }

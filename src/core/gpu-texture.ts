@@ -111,7 +111,7 @@ export type GpuTextureOptions<D extends d.Texture> = D extends d.texture1d | d.t
  * GPUTextureUsage flag bits, spec-fixed numeric values. Used instead of the global
  * `GPUTextureUsage` so texture construction works in headless/Node (no WebGPU global).
  */
-const TEXTURE_USAGE = {
+export const TEXTURE_USAGE = {
     COPY_SRC: 0x01,
     COPY_DST: 0x02,
     TEXTURE_BINDING: 0x04,
@@ -123,6 +123,7 @@ let _textureId = 0;
 
 export class GpuTexture<D extends d.Texture = d.Texture> {
     readonly isGpuTexture = true;
+
     /** Unique ID */
     readonly id = _textureId++;
 

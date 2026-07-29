@@ -108,11 +108,13 @@ export class Tab {
         }
         if (this.builtinButton) this.builtinButton.classList.remove('active');
         if (this.profiler) {
-            const hasVisible = Array.from(this.profiler.miniPanel.querySelectorAll('.mini-panel-content'))
-                .some(c => (c as HTMLElement).style.display !== 'none');
+            const hasVisible = Array.from(this.profiler.miniPanel.querySelectorAll('.mini-panel-content')).some(
+                (c) => (c as HTMLElement).style.display !== 'none',
+            );
             if (!hasVisible) this.profiler.miniPanel.classList.remove('visible');
-            const hasVisibleBtns = Array.from(this.profiler.builtinTabsContainer.querySelectorAll('.builtin-tab-btn'))
-                .some(btn => (btn as HTMLElement).style.display !== 'none');
+            const hasVisibleBtns = Array.from(this.profiler.builtinTabsContainer.querySelectorAll('.builtin-tab-btn')).some(
+                (btn) => (btn as HTMLElement).style.display !== 'none',
+            );
             if (!hasVisibleBtns) this.profiler.builtinTabsContainer.style.display = 'none';
         }
     }

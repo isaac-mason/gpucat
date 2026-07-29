@@ -1,17 +1,17 @@
-import { Controller, type ChangeEvent } from './Controller';
-import { NumberController } from './NumberController';
 import { BooleanController } from './BooleanController';
-import { StringController } from './StringController';
 import { ColorController } from './ColorController';
-import { OptionController } from './OptionController';
+import { type ChangeEvent, Controller } from './Controller';
 import { FunctionController } from './FunctionController';
+import { NumberController } from './NumberController';
+import { OptionController } from './OptionController';
+import { StringController } from './StringController';
 export interface GUIOptions {
     parent?: GUI;
     title?: string;
     closeFolders?: boolean;
     container?: HTMLElement;
 }
-type ControllerForType<V> = V extends number ? NumberController : V extends boolean ? BooleanController : V extends string ? StringController : V extends (() => void) ? FunctionController : Controller<V>;
+type ControllerForType<V> = V extends number ? NumberController : V extends boolean ? BooleanController : V extends string ? StringController : V extends () => void ? FunctionController : Controller<V>;
 export declare class GUI {
     parent: GUI | undefined;
     root: GUI;

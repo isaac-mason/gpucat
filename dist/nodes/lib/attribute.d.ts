@@ -1,7 +1,7 @@
 import { GpuBuffer } from '../../core/gpu-buffer';
-import { Node, NodeKind } from './core';
 import type { Any, TypedArrayFor } from '../../schema/schema';
 import * as d from '../../schema/schema';
+import { Node, NodeKind } from './core';
 /**
  * Options for creating an AttributeNode with view semantics.
  */

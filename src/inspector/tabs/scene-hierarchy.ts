@@ -14,14 +14,14 @@
  *  - The tab auto-shows itself when scenes are present (mirrors Viewer pattern).
  */
 
-import { Tab } from '../ui/tab';
-import { List } from '../ui/list';
-import { Item } from '../ui/item';
+import { getIndexFormat } from '../../core/gpu-buffer';
+import type { Object3D } from '../../core/object3d';
+import type { Mesh } from '../../objects/mesh';
 import type { Inspector } from '../inspector';
 import type { SceneRecord } from '../renderer-inspector';
-import { Mesh } from '../../objects/mesh';
-import type { Object3D } from '../../core/object3d';
-import { getIndexFormat } from '../../core/gpu-buffer';
+import { Item } from '../ui/item';
+import { List } from '../ui/list';
+import { Tab } from '../ui/tab';
 
 // ---------------------------------------------------------------------------
 // Internal node record, one per live Object3D in the tree
@@ -92,7 +92,6 @@ function makeKVRow(key: string, value: string): HTMLDivElement {
 // ---------------------------------------------------------------------------
 
 export class SceneHierarchy extends Tab {
-
     readonly list: List;
 
     /** objectId → HierarchyNode for every currently-displayed object */
@@ -146,7 +145,7 @@ export class SceneHierarchy extends Tab {
     update(inspector: Inspector, scenes: SceneRecord[]): void {
         this._inspector = inspector;
         // Build the set of passIds we expect to show
-        const activePassIds = new Set(scenes.map(s => s.passId));
+        const activePassIds = new Set(scenes.map((s) => s.passId));
 
         // Remove scene roots that are no longer present
         for (const [passId, rootItem] of this._sceneRoots) {
@@ -206,16 +205,11 @@ export class SceneHierarchy extends Tab {
     }
 
     /** Recursively diff children of `parent` against `parentItem`. */
-    private _syncChildren(
-        _inspector: Inspector,
-        parent: Object3D,
-        parentItem: Item,
-        sr: SceneRecord,
-    ): void {
+    private _syncChildren(_inspector: Inspector, parent: Object3D, parentItem: Item, sr: SceneRecord): void {
         const parentNode = this._nodes.get(parent.objectId);
         if (!parentNode) return;
 
-        const liveChildIds = new Set(parent.children.map(c => c.objectId));
+        const liveChildIds = new Set(parent.children.map((c) => c.objectId));
 
         // Remove items whose objects are no longer children
         for (const [id, hn] of parentNode.children) {
@@ -366,8 +360,12 @@ export class SceneHierarchy extends Tab {
 
         if (mat.blend) {
             const b = mat.blend;
-            const colorOp = b.color ? `${b.color.operation ?? 'add'} (src:${b.color.srcFactor ?? 'one'} dst:${b.color.dstFactor ?? 'zero'})` : 'default';
-            const alphaOp = b.alpha ? `${b.alpha.operation ?? 'add'} (src:${b.alpha.srcFactor ?? 'one'} dst:${b.alpha.dstFactor ?? 'zero'})` : 'default';
+            const colorOp = b.color
+                ? `${b.color.operation ?? 'add'} (src:${b.color.srcFactor ?? 'one'} dst:${b.color.dstFactor ?? 'zero'})`
+                : 'default';
+            const alphaOp = b.alpha
+                ? `${b.alpha.operation ?? 'add'} (src:${b.alpha.srcFactor ?? 'one'} dst:${b.alpha.dstFactor ?? 'zero'})`
+                : 'default';
             matTable.appendChild(makeKVRow('blend.color', colorOp));
             matTable.appendChild(makeKVRow('blend.alpha', alphaOp));
         } else {

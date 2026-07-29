@@ -1,6 +1,6 @@
-import { Node, NodeKind } from './core';
-import * as d from '../../schema/schema';
 import { BlendMode } from '../../material/blend-mode';
+import * as d from '../../schema/schema';
+import { Node, NodeKind } from './core';
 /**
  * Represents a fragment shader output struct with multiple @location outputs.
  * Used for MRT (Multiple Render Targets).

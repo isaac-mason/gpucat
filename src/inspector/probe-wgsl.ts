@@ -60,7 +60,8 @@ export function extractProbeTarget(line: string): ProbeTarget | null {
         trimmed.startsWith('fn ') ||
         trimmed === '{' ||
         trimmed === '}'
-    ) return null;
+    )
+        return null;
 
     // Skip lines that produce nothing useful to probe
     if (trimmed === 'discard;' || trimmed.startsWith('if (!(')) return null;
@@ -198,12 +199,7 @@ type WgslVecKind = 'vec4f' | 'vec3f' | 'vec2f' | 'f32' | 'i32' | 'u32' | 'bool' 
  *
  * This is intentionally best-effort, unknown falls back to vec4f coercion.
  */
-function inferType(
-    expr: string,
-    fullBody: string,
-    varDecls: Map<string, string>,
-    structFields: StructFieldMap,
-): WgslVecKind {
+function inferType(expr: string, fullBody: string, varDecls: Map<string, string>, structFields: StructFieldMap): WgslVecKind {
     const e = expr.trim();
 
     // Direct lookup from `var name : type;` declarations in the body,
@@ -283,7 +279,8 @@ function inferType(
     // When the argument resolves to 'unknown' we fall back to 'f32' rather than
     // propagating 'unknown', because these functions are never called on non-float
     // types in generated WGSL and a bare `(expr)` would produce a type mismatch.
-    const scalarFloatBuiltins = /^(sin|cos|tan|asin|acos|atan|exp|exp2|log|log2|sqrt|inverseSqrt|degrees|radians|ceil|floor|round|trunc|fract|sign|abs)\s*\(/;
+    const scalarFloatBuiltins =
+        /^(sin|cos|tan|asin|acos|atan|exp|exp2|log|log2|sqrt|inverseSqrt|degrees|radians|ceil|floor|round|trunc|fract|sign|abs)\s*\(/;
     const scalarFloatMatch = e.match(scalarFloatBuiltins);
     if (scalarFloatMatch) {
         const afterOpen = e.slice(scalarFloatMatch[0].length);
@@ -301,7 +298,9 @@ function inferType(
     // We recurse into ALL arguments until we find a non-unknown type, because
     // the first arg may itself be unresolvable (e.g. a raw literal like 0.0
     // is abstract-float, but the second arg might be a typed variable).
-    const polyMatch = e.match(/^(atan2|ceil|clamp|cross|fma|max|min|mix|modf|normalize|pow|reflect|refract|round|select|smoothstep|step)\s*\(/);
+    const polyMatch = e.match(
+        /^(atan2|ceil|clamp|cross|fma|max|min|mix|modf|normalize|pow|reflect|refract|round|select|smoothstep|step)\s*\(/,
+    );
     if (polyMatch) {
         const afterOpen = e.slice(polyMatch[0].length);
         // Walk comma-separated args (depth-aware) and return first resolved type.
@@ -309,7 +308,10 @@ function inferType(
         let argStart = 0;
         for (let i = 0; i <= afterOpen.length; i++) {
             const ch = afterOpen[i];
-            if (ch === '(' || ch === '[' || ch === '<') { depth++; continue; }
+            if (ch === '(' || ch === '[' || ch === '<') {
+                depth++;
+                continue;
+            }
             if (ch === ')' || ch === ']' || ch === '>') {
                 if (depth === 0 || i === afterOpen.length) {
                     const arg = afterOpen.slice(argStart, i).trim();
@@ -391,19 +393,27 @@ function normaliseType(t: string): WgslVecKind {
  */
 function coerceToVec4f(expr: string, kind: WgslVecKind): string {
     switch (kind) {
-        case 'vec4f': return `(${expr})`;
-        case 'vec3f': return `vec4f((${expr}), 1.0f)`;
-        case 'vec2f': return `vec4f((${expr}), 0.0f, 1.0f)`;
-        case 'f32':   return `vec4f(vec3f(${expr}), 1.0f)`;
-        case 'i32':   return `vec4f(vec3f(f32(${expr})), 1.0f)`;
-        case 'u32':   return `vec4f(vec3f(f32(${expr})), 1.0f)`;
-        case 'bool':  return `vec4f(vec3f(f32(${expr})), 1.0f)`;
+        case 'vec4f':
+            return `(${expr})`;
+        case 'vec3f':
+            return `vec4f((${expr}), 1.0f)`;
+        case 'vec2f':
+            return `vec4f((${expr}), 0.0f, 1.0f)`;
+        case 'f32':
+            return `vec4f(vec3f(${expr}), 1.0f)`;
+        case 'i32':
+            return `vec4f(vec3f(f32(${expr})), 1.0f)`;
+        case 'u32':
+            return `vec4f(vec3f(f32(${expr})), 1.0f)`;
+        case 'bool':
+            return `vec4f(vec3f(f32(${expr})), 1.0f)`;
         // unknown, pass through bare, same as fragcoord's fallback.
         // If the expression is already vec4f this is correct.  If it's
         // something else the shader compiler will surface a clear error
         // rather than silently emitting a wrong value (or failing with a
         // cryptic "wrong number of components" message from the extra 1.0f).
-        default:      return `(${expr})`;
+        default:
+            return `(${expr})`;
     }
 }
 
@@ -462,7 +472,10 @@ export function buildProbeWGSL(code: string, target: ProbeTarget): string | null
         const trimmed = bl.trim();
         // `var name : type;`, explicit type, no initializer
         const vmNoInit = trimmed.match(/^var\s+(\w+)\s*:\s*([\w<>, ]+?)\s*;/);
-        if (vmNoInit) { varDecls.set(vmNoInit[1], vmNoInit[2]); continue; }
+        if (vmNoInit) {
+            varDecls.set(vmNoInit[1], vmNoInit[2]);
+            continue;
+        }
         // `var name [: type] = <rhs>;`, explicit type annotation OR infer from RHS constructor
         const vmInit = trimmed.match(/^var\s+(\w+)\s*(?::\s*([\w<>, ]+?)\s*)?=\s*([\s\S]+?)\s*;?\s*$/);
         if (vmInit) {
@@ -593,12 +606,7 @@ export function buildProbeWGSL(code: string, target: ProbeTarget): string | null
     // 7. Assemble patched fs_main.
     // -----------------------------------------------------------------------
     const probeFsBody = keptLines.join('\n');
-    const probeFsMain = [
-        `@fragment`,
-        `fn fs_main(${fsParam}) -> @location(0) vec4f {`,
-        probeFsBody,
-        `}`,
-    ].join('\n');
+    const probeFsMain = [`@fragment`, `fn fs_main(${fsParam}) -> @location(0) vec4f {`, probeFsBody, `}`].join('\n');
 
     // -----------------------------------------------------------------------
     // 8. Final assembly: original preamble + vs_main, then patched fs_main.

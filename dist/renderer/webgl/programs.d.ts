@@ -1,0 +1,55 @@
+/**
+ * programs.ts (webgl) - GLSL program compile/link + cache.
+ *
+ * Ports the reference renderer's `compile()` program half: create+compile a vertex and fragment
+ * shader, attach + link, and check COMPILE_STATUS/LINK_STATUS (throwing with the info log on
+ * failure). The GLSL emitter returns a single combined `code` string with the two stages separated
+ * by a `// ---- fragment stage ----` marker (see builder.ts `compileGlsl`); we split on it.
+ *
+ * gpucat's GLSL emitter declares uniforms as `layout(std140) uniform <Block> { … } <inst>;` and
+ * attributes as `layout(location=N) in …`, so attribute locations are known at emit time (no
+ * `getAttribLocation`). For each UBO block we still resolve its block index via
+ * `getUniformBlockIndex` and bind it to a chosen binding point via `uniformBlockBinding`.
+ *
+ * The program is keyed by the combined shader source: the source is a pure function of the material
+ * node graph, so identical materials share one program (analogous to how the WebGPU path shares a
+ * pipeline by its cache key).
+ */
+import type { UniformGroupBlock } from '../../nodes/builder';
+/** A linked GL program plus the resolved per-group UBO binding points. */
+export type ProgramInfo = {
+    program: WebGLProgram;
+    /**
+     * Map from uniform group name (the `groupName` on `UniformGroupBlock`, e.g. 'render') to the GL
+     * uniform-buffer binding point it was bound to. The draw path binds each group's UBO to this
+     * point via `bindBufferBase`.
+     */
+    uboBindingPoints: Map<string, number>;
+    /**
+     * Cached combined-sampler uniform locations, keyed by the sampler-uniform name (`u_<textureId>`).
+     * Resolved lazily on first draw (needs the location, which is a linked-program property). A
+     * cached `null` means the sampler was optimized out / not found — the draw path skips it.
+     */
+    samplerLocations: Map<string, WebGLUniformLocation | null>;
+};
+/** Program cache, keyed by the combined GLSL source string. */
+export type ProgramCache = {
+    programs: Map<string, ProgramInfo>;
+};
+/** Create an empty program cache. */
+export declare function createProgramCache(): ProgramCache;
+/**
+ * Get (or compile + link + cache) the GL program for a compiled material.
+ *
+ * @param gl the WebGL2 context
+ * @param cache the program cache
+ * @param code the combined GLSL source from `compileGlsl` (`nodeBuilderState.vertexCode`)
+ * @param uniformGroups the compiled uniform groups, used to resolve + bind each UBO block index
+ */
+export declare function getProgram(gl: WebGL2RenderingContext, cache: ProgramCache, code: string, uniformGroups: UniformGroupBlock[]): ProgramInfo;
+/** Delete all cached programs (called on renderer dispose). */
+export declare function disposePrograms(gl: WebGL2RenderingContext, cache: ProgramCache): void;
+/** Number of linked GL programs currently cached. */
+export declare function getProgramCacheStats(cache: ProgramCache): {
+    programCount: number;
+};

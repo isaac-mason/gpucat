@@ -7,7 +7,7 @@
  * for verifying renderer behavior without actual WebGPU.
  */
 
-import type { WebGPURendererOptions } from '../src/renderer/renderer';
+import type { WebGPURendererOptions } from '../src/renderer/webgpu/renderer';
 
 /**
  * Install WebGPU global polyfills for Node.js testing environment.
@@ -21,15 +21,25 @@ export function installWebGPUPolyfills(): void {
     }
     if (typeof g.GPUBufferUsage === 'undefined') {
         g.GPUBufferUsage = {
-            MAP_READ: 1, MAP_WRITE: 2, COPY_SRC: 4, COPY_DST: 8,
-            INDEX: 16, VERTEX: 32, UNIFORM: 64, STORAGE: 128,
-            INDIRECT: 256, QUERY_RESOLVE: 512,
+            MAP_READ: 1,
+            MAP_WRITE: 2,
+            COPY_SRC: 4,
+            COPY_DST: 8,
+            INDEX: 16,
+            VERTEX: 32,
+            UNIFORM: 64,
+            STORAGE: 128,
+            INDIRECT: 256,
+            QUERY_RESOLVE: 512,
         };
     }
     if (typeof g.GPUTextureUsage === 'undefined') {
         g.GPUTextureUsage = {
-            COPY_SRC: 1, COPY_DST: 2, TEXTURE_BINDING: 4,
-            STORAGE_BINDING: 8, RENDER_ATTACHMENT: 16,
+            COPY_SRC: 1,
+            COPY_DST: 2,
+            TEXTURE_BINDING: 4,
+            STORAGE_BINDING: 8,
+            RENDER_ATTACHMENT: 16,
         };
     }
     if (typeof g.GPUColorWrite === 'undefined') {
@@ -62,6 +72,10 @@ export type StubGPUStats = {
     bufferCreations: number;
     /** Number of draw/drawIndexed calls */
     drawCalls: number;
+    /** Number of device.createCommandEncoder calls */
+    encoderCreations: number;
+    /** Number of queue.submit calls */
+    submits: number;
     /** Reset all counters */
     reset(): void;
 };
@@ -101,11 +115,15 @@ export function createStubGPU(): StubGPUResult {
         bindGroupCreations: 0,
         bufferCreations: 0,
         drawCalls: 0,
+        encoderCreations: 0,
+        submits: 0,
         reset() {
             this.bufferWrites = 0;
             this.bindGroupCreations = 0;
             this.bufferCreations = 0;
             this.drawCalls = 0;
+            this.encoderCreations = 0;
+            this.submits = 0;
         },
     };
 
@@ -209,10 +227,18 @@ export function createStubGPU(): StubGPUResult {
             setBindGroup: () => {},
             setVertexBuffer: () => {},
             setIndexBuffer: () => {},
-            draw: () => { stats.drawCalls++; },
-            drawIndexed: () => { stats.drawCalls++; },
-            drawIndirect: () => { stats.drawCalls++; },
-            drawIndexedIndirect: () => { stats.drawCalls++; },
+            draw: () => {
+                stats.drawCalls++;
+            },
+            drawIndexed: () => {
+                stats.drawCalls++;
+            },
+            drawIndirect: () => {
+                stats.drawCalls++;
+            },
+            drawIndexedIndirect: () => {
+                stats.drawCalls++;
+            },
             setViewport: () => {},
             setScissorRect: () => {},
             setBlendConstant: () => {},
@@ -243,7 +269,9 @@ export function createStubGPU(): StubGPUResult {
     // Stub queue
     const queue: GPUQueue = {
         label: '',
-        submit: () => {},
+        submit: () => {
+            stats.submits++;
+        },
         writeBuffer: () => {
             stats.bufferWrites++;
         },
@@ -298,7 +326,10 @@ export function createStubGPU(): StubGPUResult {
         createComputePipeline: () => createStubComputePipeline(),
         createRenderPipelineAsync: async () => createStubRenderPipeline(),
         createComputePipelineAsync: async () => createStubComputePipeline(),
-        createCommandEncoder: () => createStubCommandEncoder(),
+        createCommandEncoder: () => {
+            stats.encoderCreations++;
+            return createStubCommandEncoder();
+        },
         createRenderBundleEncoder: () => ({}) as unknown as GPURenderBundleEncoder,
         createQuerySet: () => ({}) as unknown as GPUQuerySet,
         importExternalTexture: () => ({}) as unknown as GPUExternalTexture,

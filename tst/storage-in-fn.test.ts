@@ -1,7 +1,20 @@
-import { test, expect } from 'vitest';
+import { expect, test } from 'vitest';
 import {
-    d, createStorageBuffer, storage, struct, Fn, globalId, Var, Loop, index,
-    normalize, dot, max, f32, vec3, compileCompute,
+    compileCompute,
+    createStorageBuffer,
+    d,
+    dot,
+    Fn,
+    f32,
+    globalId,
+    index,
+    Loop,
+    max,
+    normalize,
+    storage,
+    struct,
+    Var,
+    vec3,
 } from '../src/index';
 
 // Regression: a storage buffer read only inside a helper Fn (not the main body)

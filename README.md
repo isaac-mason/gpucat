@@ -8,13 +8,13 @@
 
 # gpucat
 
-gpucat is a minimal typescript-first WebGPU renderer.
+gpucat is a minimal typescript-first WebGPU and WebGL2 renderer.
 
 It is a marriage of ideas in three.js and typegpu. It has a node-based shading language similar to [three.js TSL](https://github.com/mrdoob/three.js/wiki/Three.js-Shading-Language), and has the typescript-first, WebGPU-native feel of [typegpu](https://typegpu.com).
 
-You get a declarative API for GPU resources (buffers, uniforms, textures, materials), a type-safe node-based shading language that mirrors WGSL grammar and compiles to WGSL, and gpucat handles the generation of pipelines, layouts, bind groups, and resource lifecycles for you.
+You get a declarative API for GPU resources (buffers, uniforms, textures, materials), a type-safe node-based shading language that mirrors WGSL grammar and compiles to WGSL (or GLSL ES 3.00 for the WebGL2 backend), and gpucat handles the generation of pipelines, layouts, bind groups, and resource lifecycles for you.
 
-Most WebGPU libraries either hide the GPU behind a scene abstraction or hand you raw WGSL strings. gpucat sits in between. You compose shaders as typed typescript expressions, so refactors and autocomplete work, but nothing stops you dropping down to the renderer, pipeline, and buffer level when you need to.
+Most GPU libraries either hide the GPU behind a scene abstraction or hand you raw shader strings. gpucat sits in between. You compose shaders as typed typescript expressions, so refactors and autocomplete work, but nothing stops you dropping down to the renderer, pipeline, and buffer level when you need to.
 
 ## Examples
 
@@ -23,215 +23,289 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
 <table>
   <tr>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-compute-birds">
-        <img src="./examples/public/screenshots/example-compute-birds.png" width="180" height="120" style="object-fit:cover;"/><br/>
-        Compute Birds
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-raging-sea">
-        <img src="./examples/public/screenshots/example-raging-sea.png" width="180" height="120" style="object-fit:cover;"/><br/>
-        Raging Sea
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-ball-cluster">
-        <img src="./examples/public/screenshots/example-ball-cluster.png" width="180" height="120" style="object-fit:cover;"/><br/>
-        Ball Cluster
-      </a>
-    </td>
-  </tr>
-  <tr>
-    <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-voxels">
-        <img src="./examples/public/screenshots/example-voxels.png" width="180" height="120" style="object-fit:cover;"/><br/>
-        Voxels
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-volume">
-        <img src="./examples/public/screenshots/example-volume.png" width="180" height="120" style="object-fit:cover;"/><br/>
-        Volume
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-compute-particles">
-        <img src="./examples/public/screenshots/example-compute-particles.png" width="180" height="120" style="object-fit:cover;"/><br/>
-        Compute Particles
-      </a>
-    </td>
-  </tr>
-  <tr>
-    <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-cube-camera">
-        <img src="./examples/public/screenshots/example-cube-camera.png" width="180" height="120" style="object-fit:cover;"/><br/>
-        Cube Camera
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-point-lights">
-        <img src="./examples/public/screenshots/example-point-lights.png" width="180" height="120" style="object-fit:cover;"/><br/>
-        Point Lights
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-indirect-batched">
-        <img src="./examples/public/screenshots/example-indirect-batched.png" width="180" height="120" style="object-fit:cover;"/><br/>
-        Indirect Batched
-      </a>
-    </td>
-  </tr>
-  <tr>
-    <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-compute-texture">
-        <img src="./examples/public/screenshots/example-compute-texture.png" width="180" height="120" style="object-fit:cover;"/><br/>
-        Compute Texture
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-indirect-compute">
-        <img src="./examples/public/screenshots/example-indirect-compute.png" width="180" height="120" style="object-fit:cover;"/><br/>
-        Indirect Compute
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-hello-world">
-        <img src="./examples/public/screenshots/example-hello-world.png" width="180" height="120" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-hello-world">
+        <img src="./examples/public/screenshots/example-webgpu-hello-world.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Hello World
       </a>
     </td>
-  </tr>
-  <tr>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-uniforms">
-        <img src="./examples/public/screenshots/example-uniforms.png" width="180" height="120" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-uniforms">
+        <img src="./examples/public/screenshots/example-webgpu-uniforms.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Uniforms
       </a>
     </td>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-texture">
-        <img src="./examples/public/screenshots/example-texture.png" width="180" height="120" style="object-fit:cover;"/><br/>
-        Texture
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-instanced-mesh">
-        <img src="./examples/public/screenshots/example-instanced-mesh.png" width="180" height="120" style="object-fit:cover;"/><br/>
-        Instanced Mesh
-      </a>
-    </td>
-  </tr>
-  <tr>
-    <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-instancing-storage-buffer">
-        <img src="./examples/public/screenshots/example-instancing-storage-buffer.png" width="180" height="120" style="object-fit:cover;"/><br/>
-        Instancing with Storage Buffer
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-storage">
-        <img src="./examples/public/screenshots/example-storage.png" width="180" height="120" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-storage">
+        <img src="./examples/public/screenshots/example-webgpu-storage.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Storage Buffers
       </a>
     </td>
-    <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-interleaved">
-        <img src="./examples/public/screenshots/example-interleaved.png" width="180" height="120" style="object-fit:cover;"/><br/>
-        Interleaved Vertex Buffers
-      </a>
-    </td>
   </tr>
   <tr>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-line">
-        <img src="./examples/public/screenshots/example-line.png" width="180" height="120" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-interleaved">
+        <img src="./examples/public/screenshots/example-webgpu-interleaved.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Interleaved Vertex Buffers
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-line">
+        <img src="./examples/public/screenshots/example-webgpu-line.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Line
       </a>
     </td>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-video-texture">
-        <img src="./examples/public/screenshots/example-video-texture.png" width="180" height="120" style="object-fit:cover;"/><br/>
-        Video Texture
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-array-texture">
-        <img src="./examples/public/screenshots/example-array-texture.png" width="180" height="120" style="object-fit:cover;"/><br/>
-        Array Texture Flipbook
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-raging-sea">
+        <img src="./examples/public/screenshots/example-webgpu-raging-sea.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Raging Sea
       </a>
     </td>
   </tr>
   <tr>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-mipmaps">
-        <img src="./examples/public/screenshots/example-mipmaps.png" width="180" height="120" style="object-fit:cover;"/><br/>
-        Mipmaps
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-point-lights">
+        <img src="./examples/public/screenshots/example-webgpu-point-lights.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Point Lights
       </a>
     </td>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-render-to-texture">
-        <img src="./examples/public/screenshots/example-render-to-texture.png" width="180" height="120" style="object-fit:cover;"/><br/>
-        Render to Texture
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-mrt">
-        <img src="./examples/public/screenshots/example-mrt.png" width="180" height="120" style="object-fit:cover;"/><br/>
-        MRT (Multiple Render Targets)
-      </a>
-    </td>
-  </tr>
-  <tr>
-    <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-shadow-map">
-        <img src="./examples/public/screenshots/example-shadow-map.png" width="180" height="120" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-shadow-map">
+        <img src="./examples/public/screenshots/example-webgpu-shadow-map.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Shadow Map
       </a>
     </td>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-cubemap">
-        <img src="./examples/public/screenshots/example-cubemap.png" width="180" height="120" style="object-fit:cover;"/><br/>
-        Cube Texture Skybox
-      </a>
-    </td>
-    <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-discard">
-        <img src="./examples/public/screenshots/example-discard.png" width="180" height="120" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-discard">
+        <img src="./examples/public/screenshots/example-webgpu-discard.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Discard
       </a>
     </td>
   </tr>
   <tr>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-fxaa">
-        <img src="./examples/public/screenshots/example-fxaa.png" width="180" height="120" style="object-fit:cover;"/><br/>
-        FXAA
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-instanced-mesh">
+        <img src="./examples/public/screenshots/example-webgpu-instanced-mesh.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Instanced Mesh
       </a>
     </td>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-transform-controls">
-        <img src="./examples/public/screenshots/example-transform-controls.png" width="180" height="120" style="object-fit:cover;"/><br/>
-        Transform Controls
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-instancing-storage-buffer">
+        <img src="./examples/public/screenshots/example-webgpu-instancing-storage-buffer.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Instancing with Storage Buffer
       </a>
     </td>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-fly-controls">
-        <img src="./examples/public/screenshots/example-fly-controls.png" width="180" height="120" style="object-fit:cover;"/><br/>
-        Fly Controls
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-texture">
+        <img src="./examples/public/screenshots/example-webgpu-texture.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Texture
       </a>
     </td>
   </tr>
   <tr>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-moving-mesh-stress">
-        <img src="./examples/public/screenshots/example-moving-mesh-stress.png" width="180" height="120" style="object-fit:cover;"/><br/>
-        Moving Mesh Stress
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-mipmaps">
+        <img src="./examples/public/screenshots/example-webgpu-mipmaps.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Mipmaps
       </a>
     </td>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-static-mesh-stress">
-        <img src="./examples/public/screenshots/example-static-mesh-stress.png" width="180" height="120" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-cubemap">
+        <img src="./examples/public/screenshots/example-webgpu-cubemap.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Cube Texture Skybox
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-array-texture">
+        <img src="./examples/public/screenshots/example-webgpu-array-texture.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Array Texture Flipbook
+      </a>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-video-texture">
+        <img src="./examples/public/screenshots/example-webgpu-video-texture.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Video Texture
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-render-to-texture">
+        <img src="./examples/public/screenshots/example-webgpu-render-to-texture.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Render to Texture
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-mrt">
+        <img src="./examples/public/screenshots/example-webgpu-mrt.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        MRT (Multiple Render Targets)
+      </a>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-fxaa">
+        <img src="./examples/public/screenshots/example-webgpu-fxaa.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        FXAA
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-cube-camera">
+        <img src="./examples/public/screenshots/example-webgpu-cube-camera.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Cube Camera
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-viewports">
+        <img src="./examples/public/screenshots/example-webgpu-viewports.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Viewports + Scissor
+      </a>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-stencil">
+        <img src="./examples/public/screenshots/example-webgpu-stencil.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Stencil Masking
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-compute-particles">
+        <img src="./examples/public/screenshots/example-webgpu-compute-particles.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Compute Particles
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-compute-birds">
+        <img src="./examples/public/screenshots/example-webgpu-compute-birds.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Compute Birds
+      </a>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-compute-texture">
+        <img src="./examples/public/screenshots/example-webgpu-compute-texture.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Compute Texture
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-ball-cluster">
+        <img src="./examples/public/screenshots/example-webgpu-ball-cluster.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Ball Cluster
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-volume">
+        <img src="./examples/public/screenshots/example-webgpu-volume.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Volume
+      </a>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-voxels">
+        <img src="./examples/public/screenshots/example-webgpu-voxels.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Voxels
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-indirect-batched">
+        <img src="./examples/public/screenshots/example-webgpu-indirect-batched.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Indirect Batched
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-indirect-compute">
+        <img src="./examples/public/screenshots/example-webgpu-indirect-compute.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Indirect Compute
+      </a>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-transform-controls">
+        <img src="./examples/public/screenshots/example-webgpu-transform-controls.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Transform Controls
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-fly-controls">
+        <img src="./examples/public/screenshots/example-webgpu-fly-controls.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Fly Controls
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-moving-mesh-stress">
+        <img src="./examples/public/screenshots/example-webgpu-moving-mesh-stress.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Moving Mesh Stress
+      </a>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-static-mesh-stress">
+        <img src="./examples/public/screenshots/example-webgpu-static-mesh-stress.png" width="180" height="120" style="object-fit:cover;"/><br/>
         Static Mesh Stress
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgl-hello">
+        <img src="./examples/public/screenshots/example-webgl-hello.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Hello World
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgl-textured">
+        <img src="./examples/public/screenshots/example-webgl-textured.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Textured Mesh
+      </a>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgl-render-target">
+        <img src="./examples/public/screenshots/example-webgl-render-target.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Render Target
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgl-shadow-map">
+        <img src="./examples/public/screenshots/example-webgl-shadow-map.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Shadow Map (WebGL)
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgl-instanced-mesh">
+        <img src="./examples/public/screenshots/example-webgl-instanced-mesh.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Instanced Mesh (WebGL)
+      </a>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgl-cubemap">
+        <img src="./examples/public/screenshots/example-webgl-cubemap.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Cube Texture Skybox (WebGL)
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgl-mrt">
+        <img src="./examples/public/screenshots/example-webgl-mrt.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        MRT (WebGL)
+      </a>
+    </td>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgl-cube-camera">
+        <img src="./examples/public/screenshots/example-webgl-cube-camera.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Cube Camera (WebGL)
+      </a>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgl-stencil">
+        <img src="./examples/public/screenshots/example-webgl-stencil.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Stencil Masking (WebGL)
       </a>
     </td>
   </tr>
@@ -239,7 +313,7 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
 
 ## Contents
 
-- [Examples](#examples) · [Getting Started](#getting-started) · [Core Concepts](#core-concepts)
+- [Examples](#examples) · [Getting Started](#getting-started) · [Core Concepts](#core-concepts) · [Backends: WebGPU & WebGL2](#backends-webgpu--webgl2)
 - Build an app: [The Renderer](#the-renderer) · [Scene and Objects](#scene-and-objects) · [Geometry](#geometry) · [Materials](#materials) · [Uniforms](#uniforms) · [Storage Buffers](#storage-buffers) · [Structs](#structs) · [Packing](#packing) · [Render Pipeline](#render-pipeline)
 - Shading language: [Constants](#constants-and-constructors) · [Operators](#operators) · [Variables](#variables) · [Control Flow](#control-flow) · [Method Chaining](#method-chaining) · [Functions](#functions) · [Building Blocks](#building-blocks) · [Varyings](#varyings) · [Textures](#textures-and-samplers) · [Atomics](#atomics) · [Builtins](#builtins) · [Included Uniforms](#included-uniforms)
 - [Compute](#compute) · [Drawing Many Things](#drawing-many-things) · [Controls and the Inspector](#controls-and-the-inspector)
@@ -341,8 +415,8 @@ A few things to notice:
 <table>
   <tr>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-hello-world">
-        <img src="./examples/public/screenshots/example-hello-world.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-hello-world">
+        <img src="./examples/public/screenshots/example-webgpu-hello-world.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Hello World
       </a>
     </td>
@@ -368,6 +442,116 @@ When you hand a nodes to a `Material` (or call `compile()`), gpucat walks the gr
 Types come from the `d` namespace: `d.vec3f`, `d.f32`, `d.mat4x4f`, `d.array(d.u32)`, `d.struct(...)`. These are WGSL type descriptors. They describe the data on the GPU and give the typescript compiler enough to type-check your shader.
 
 There is a split worth internalising early: `d.f32` is the *type*, `f32(1)` is a *node* of that type. The same split you see between a value and its type. You annotate with `d.f32`, you build a node with `f32(1)`.
+
+## Backends: WebGPU & WebGL2
+
+gpucat runs on two graphics backends: WebGPU (`WebGPURenderer`) and WebGL2 (`WebGLRenderer`). They implement the same neutral `Renderer` interface and share the entire node-graph, DSL, scene, and resource layer above them. You author a scene once; only the renderer constructor differs.
+
+### Backend selection is explicit
+
+You choose the backend by choosing the constructor. There is **no automatic fallback**: a `WebGPURenderer` never quietly downgrades to WebGL2 if WebGPU is missing. This is deliberate. The two backends do not support the exact same feature set, so a silent fallback would swap in a renderer that cannot run your code and fail somewhere confusing. You decide, up front, which one you are targeting, and can branch yourself if you want to. `renderer.backend` reports the choice as `'webgpu'` or `'webgl'`.
+
+```ts
+const renderer = new WebGPURenderer({ antialias: true });   // WebGPU
+// const renderer = new WebGLRenderer({ antialias: true });  // WebGL2
+await renderer.init();
+renderer.backend;   // 'webgpu' | 'webgl'
+```
+
+### Same code, two backends
+
+The node-graph material and DSL are authored once. `WebGPURenderer` compiles the graph to WGSL; `WebGLRenderer` compiles the same graph to GLSL ES 3.00. The DSL grammar is WGSL-native, and GLSL is a translation target reached through each schema's `glslType` companion, so the WGSL surface is never watered down to fit WebGL. Everything above the renderer, scene, geometry, materials, uniforms, textures, render targets, the shading language, is identical across both. Swapping backends is a one-line change:
+
+```ts
+// build the scene and material once — nothing here is backend-specific
+const material = new Material({ vertex: clipPos, fragment: litColor });
+const mesh = new Mesh(geom, material);
+scene.add(mesh);
+
+// pick a backend at the top; the rest of the app is unchanged
+const renderer = webgpuSupported
+    ? new WebGPURenderer({ antialias: true })
+    : new WebGLRenderer({ antialias: true });
+await renderer.init();
+
+const pipeline = new RenderPipeline(renderer, renderOutput(pass(scene, camera).getTextureNode()));
+// each frame: pipeline.render();
+```
+
+### What WebGL2 supports
+
+The WebGL2 backend covers the standard rendering surface:
+
+- Node-graph **materials** compiled to GLSL ES 3.00.
+- **Opaque meshes** and **instancing** (instanced vertex attributes).
+- **Textures**: 2D, cube, 2D-array, and depth, with combined samplers.
+- **Render targets**: MRT, depth attachments, cube targets, and MSAA-resolve.
+- **HDR / float render targets** via `EXT_color_buffer_float`.
+- Correct clip-space **depth** and **frustum culling**.
+- **Render-to-texture, passes, and post-processing** through `RenderPipeline`.
+- The **inspector**: real GPU timing (`EXT_disjoint_timer_query_webgl2`), memory, draw-call counts, the scene tree, and a GLSL shader panel.
+
+### What WebGL2 does not support
+
+These are WebGPU-only. On `WebGLRenderer` they throw a clear error, at shader-compile time where possible, otherwise at prepare — never silently. Use `WebGPURenderer` for any of them:
+
+- **Compute**: `renderer.compute()`, compute nodes, and `Fn(...).compute(...)` kernels.
+- **Storage buffers** (`storage(...)`, `createStorageBuffer`) and **atomics**.
+- **Storage textures** and **workgroup vars** (`WorkgroupVar`).
+- **Inline WGSL**: `` wgsl`…` `` and `wgslFn(...)` (raw WGSL has no GLSL translation).
+- **Indirect draw** (`geometry.indirect`) — WebGPU-only, both the CPU-authored and the GPU-computed (compute-driven culling) variants.
+- **Texture constant-offset sampling** and **`f16` / half** types.
+- The inspector's live-value **probe** (WebGPU-only; the rest of the inspector works).
+
+### Renderer options
+
+Both renderers share a common set of options; each backend adds a few of its own.
+
+| Option | Backends | What it does |
+| --- | --- | --- |
+| `canvas` | both | Render into an existing canvas instead of a created one. |
+| `pixelRatio` | both | Device pixel ratio (also `setPixelRatio`). |
+| `antialias` | both | Multisampled anti-aliasing. |
+| `alpha` | both | Alpha in the canvas backbuffer. |
+| `depth` | both | Allocate a depth buffer. |
+| `stencil` | both | Allocate a stencil buffer. |
+| `samples` | both | MSAA sample count. |
+| `powerPreference` | both | `'high-performance'` / `'low-power'` adapter hint. |
+| `precision` | WebGL | Shader precision: `'highp'` (default) / `'mediump'` / `'lowp'`. |
+| `preserveDrawingBuffer` | WebGL | Keep the backbuffer readable after present. |
+| `failIfMajorPerformanceCaveat` | WebGL | Fail context creation on a slow (software) implementation. |
+| `adapter` / `adapterOptions` | WebGPU | Supply or configure the `GPUAdapter`. |
+| `device` / `deviceDescriptor` | WebGPU | Supply or configure the `GPUDevice`. |
+| `format` | WebGPU | Override the canvas texture format. |
+
+### Feature × backend support matrix
+
+| Feature | WebGPU | WebGL2 |
+| --- | :---: | :---: |
+| Node-graph materials (compiled shaders) | ✓ | ✓ |
+| Opaque meshes + instancing | ✓ | ✓ |
+| Textures (2D / cube / 2d-array / depth) | ✓ | ✓ |
+| Render targets (MRT / depth / cube / MSAA-resolve) | ✓ | ✓ |
+| HDR / float render targets | ✓ | ✓ |
+| Depth + frustum culling | ✓ | ✓ |
+| Render-to-texture / passes / post-processing | ✓ | ✓ |
+| Inspector (GPU timing, memory, draws, scene, shaders) | ✓ | ✓ |
+| Compute (`renderer.compute()`, compute nodes) | ✓ | ✗ |
+| Storage buffers · atomics | ✓ | ✗ |
+| Storage textures · workgroup vars | ✓ | ✗ |
+| Inline WGSL (`` wgsl`` `` / `wgslFn`) | ✓ | ✗ |
+| Indirect draw (`geometry.indirect`) | ✓ | ✗ |
+| Texture constant-offset sampling · `f16` types | ✓ | ✗ |
+| Inspector live-value probe | ✓ | ✗ |
+
+### Which features run on which backend
+
+Backend compatibility is a property of the *features* you use, not of any single example (each example file constructs one specific renderer). Read it off the matrix above, or by category:
+
+- **Runs on both backends** — the shared rendering features: meshes and node-graph materials, textures, render targets and MRT, render-to-texture and post-processing, and camera controls. Anything built only from these works on either `WebGPURenderer` or `WebGLRenderer`.
+- **WebGPU-only** — compute (compute nodes and `renderer.compute()`), storage buffers, atomics, storage textures, workgroup vars, inline WGSL (`` wgsl`` `` / `wgslFn`), and indirect draw (`geometry.indirect`, both CPU-authored and compute-driven). Anything using these needs `WebGPURenderer`.
+
+The [examples browser](https://isaac-mason.github.io/gpucat/) groups examples by the backend each one targets, so the compute and storage-driven examples sit under WebGPU and the WebGL2 examples under WebGL.
 
 ## The Renderer
 
@@ -430,14 +614,14 @@ Meshes are not game entities. gpucat does not tick them every frame or track cha
 <table>
   <tr>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-moving-mesh-stress">
-        <img src="./examples/public/screenshots/example-moving-mesh-stress.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-moving-mesh-stress">
+        <img src="./examples/public/screenshots/example-webgpu-moving-mesh-stress.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Moving Mesh Stress
       </a>
     </td>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-static-mesh-stress">
-        <img src="./examples/public/screenshots/example-static-mesh-stress.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-static-mesh-stress">
+        <img src="./examples/public/screenshots/example-webgpu-static-mesh-stress.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Static Mesh Stress
       </a>
     </td>
@@ -460,26 +644,26 @@ For common shapes, the `create*Geometry` helpers build the position, normal, and
 <table>
   <tr>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-line">
-        <img src="./examples/public/screenshots/example-line.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-line">
+        <img src="./examples/public/screenshots/example-webgpu-line.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Line
       </a>
     </td>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-raging-sea">
-        <img src="./examples/public/screenshots/example-raging-sea.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-raging-sea">
+        <img src="./examples/public/screenshots/example-webgpu-raging-sea.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Raging Sea
       </a>
     </td>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-voxels">
-        <img src="./examples/public/screenshots/example-voxels.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-voxels">
+        <img src="./examples/public/screenshots/example-webgpu-voxels.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Voxels
       </a>
     </td>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-interleaved">
-        <img src="./examples/public/screenshots/example-interleaved.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-interleaved">
+        <img src="./examples/public/screenshots/example-webgpu-interleaved.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Interleaved Vertex Buffers
       </a>
     </td>
@@ -561,8 +745,8 @@ More advanced setups follow the same shape: keep lighting data in a [`storage` b
 <table>
   <tr>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-point-lights">
-        <img src="./examples/public/screenshots/example-point-lights.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-point-lights">
+        <img src="./examples/public/screenshots/example-webgpu-point-lights.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Point Lights
       </a>
     </td>
@@ -595,8 +779,8 @@ See [`Uniform`](./api.md#uniform-2).
 <table>
   <tr>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-uniforms">
-        <img src="./examples/public/screenshots/example-uniforms.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-uniforms">
+        <img src="./examples/public/screenshots/example-webgpu-uniforms.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Uniforms
       </a>
     </td>
@@ -668,20 +852,20 @@ See [`storage`](./api.md#storage), [`createStorageBuffer`](./api.md#createstorag
 <table>
   <tr>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-storage">
-        <img src="./examples/public/screenshots/example-storage.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-storage">
+        <img src="./examples/public/screenshots/example-webgpu-storage.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Storage Buffers
       </a>
     </td>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-instancing-storage-buffer">
-        <img src="./examples/public/screenshots/example-instancing-storage-buffer.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-instancing-storage-buffer">
+        <img src="./examples/public/screenshots/example-webgpu-instancing-storage-buffer.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Instancing with Storage Buffer
       </a>
     </td>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-compute-particles">
-        <img src="./examples/public/screenshots/example-compute-particles.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-compute-particles">
+        <img src="./examples/public/screenshots/example-webgpu-compute-particles.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Compute Particles
       </a>
     </td>
@@ -742,26 +926,20 @@ const renderPipeline = new RenderPipeline(renderer, output);
 
 Because a pass is just a texture node, you add post-processing by sampling it and feeding the result through more nodes before `renderOutput`. `mrt` writes several targets at once, and a `RenderTarget` lets you render off-screen. See [`RenderPipeline`](./api.md#renderpipeline) and [`RenderTarget`](./api.md#rendertarget).
 
-<table><tr>
-<td><a href="./api.md#pass"><code>pass</code></a></td><td><a href="./api.md#passnodeoptions"><code>PassNodeOptions</code></a></td>
-</tr></table>
 
-<table><tr>
-<td><a href="./api.md#renderoutput"><code>renderOutput</code></a></td><td><a href="./api.md#outputcolorspace"><code>OutputColorSpace</code></a></td><td><a href="./api.md#renderoutputoptions"><code>RenderOutputOptions</code></a></td><td><a href="./api.md#tonemappingmode"><code>ToneMappingMode</code></a></td>
-</tr></table>
 
 
 <table>
   <tr>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-render-to-texture">
-        <img src="./examples/public/screenshots/example-render-to-texture.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-render-to-texture">
+        <img src="./examples/public/screenshots/example-webgpu-render-to-texture.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Render to Texture
       </a>
     </td>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-shadow-map">
-        <img src="./examples/public/screenshots/example-shadow-map.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-shadow-map">
+        <img src="./examples/public/screenshots/example-webgpu-shadow-map.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Shadow Map
       </a>
     </td>
@@ -790,8 +968,8 @@ Like everything else, this does no automatic per-frame work: you call `update()`
 <table>
   <tr>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-cube-camera">
-        <img src="./examples/public/screenshots/example-cube-camera.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-cube-camera">
+        <img src="./examples/public/screenshots/example-webgpu-cube-camera.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Cube Camera
       </a>
     </td>
@@ -800,26 +978,20 @@ Like everything else, this does no automatic per-frame work: you call `update()`
 
 ### Tonemapping and post-processing
 
-<table><tr>
-<td><a href="./api.md#acestonemapping"><code>acesToneMapping</code></a></td><td><a href="./api.md#reinhardtonemapping"><code>reinhardToneMapping</code></a></td><td><a href="./api.md#srgbtransfereotf"><code>sRGBTransferEOTF</code></a></td><td><a href="./api.md#srgbtransferoetf"><code>sRGBTransferOETF</code></a></td>
-</tr></table>
 
-<table><tr>
-<td><a href="./api.md#fxaa"><code>fxaa</code></a></td>
-</tr></table>
 
 
 <table>
   <tr>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-mrt">
-        <img src="./examples/public/screenshots/example-mrt.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-mrt">
+        <img src="./examples/public/screenshots/example-webgpu-mrt.png" width="200" height="133" style="object-fit:cover;"/><br/>
         MRT (Multiple Render Targets)
       </a>
     </td>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-fxaa">
-        <img src="./examples/public/screenshots/example-fxaa.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-fxaa">
+        <img src="./examples/public/screenshots/example-webgpu-fxaa.png" width="200" height="133" style="object-fit:cover;"/><br/>
         FXAA
       </a>
     </td>
@@ -830,23 +1002,6 @@ Like everything else, this does no automatic per-frame work: you call `update()`
 
 Scalar and vector constructors turn javascript numbers into typed constant nodes. `f32(0.5)`, `vec3(1, 0, 0)`, `mat4(...)`. The `vec*` constructors accept a mix of scalars and smaller vectors, so `vec4(rgb, 1)` works.
 
-<table><tr>
-<td><a href="./api.md#f16"><code>f16</code></a></td><td><a href="./api.md#f32"><code>f32</code></a></td><td><a href="./api.md#i32"><code>i32</code></a></td><td><a href="./api.md#u32"><code>u32</code></a></td><td><a href="./api.md#bool"><code>bool</code></a></td><td><a href="./api.md#rgb"><code>rgb</code></a></td>
-</tr><tr>
-<td><a href="./api.md#vec2"><code>vec2</code></a></td><td><a href="./api.md#vec2f"><code>vec2f</code></a></td><td><a href="./api.md#vec2h"><code>vec2h</code></a></td><td><a href="./api.md#vec2i"><code>vec2i</code></a></td><td><a href="./api.md#vec2u"><code>vec2u</code></a></td><td><a href="./api.md#vec2b"><code>vec2b</code></a></td>
-</tr><tr>
-<td><a href="./api.md#vec3"><code>vec3</code></a></td><td><a href="./api.md#vec3f"><code>vec3f</code></a></td><td><a href="./api.md#vec3h"><code>vec3h</code></a></td><td><a href="./api.md#vec3i"><code>vec3i</code></a></td><td><a href="./api.md#vec3u"><code>vec3u</code></a></td><td><a href="./api.md#vec3b"><code>vec3b</code></a></td>
-</tr><tr>
-<td><a href="./api.md#vec4"><code>vec4</code></a></td><td><a href="./api.md#vec4f"><code>vec4f</code></a></td><td><a href="./api.md#vec4h"><code>vec4h</code></a></td><td><a href="./api.md#vec4i"><code>vec4i</code></a></td><td><a href="./api.md#vec4u"><code>vec4u</code></a></td><td><a href="./api.md#vec4b"><code>vec4b</code></a></td>
-</tr><tr>
-<td><a href="./api.md#mat3"><code>mat3</code></a></td><td><a href="./api.md#mat4"><code>mat4</code></a></td><td><a href="./api.md#mat2x2f"><code>mat2x2f</code></a></td><td><a href="./api.md#mat2x3f"><code>mat2x3f</code></a></td><td><a href="./api.md#mat2x4f"><code>mat2x4f</code></a></td><td><a href="./api.md#mat3x2f"><code>mat3x2f</code></a></td>
-</tr><tr>
-<td><a href="./api.md#mat3x3f"><code>mat3x3f</code></a></td><td><a href="./api.md#mat3x4f"><code>mat3x4f</code></a></td><td><a href="./api.md#mat4x2f"><code>mat4x2f</code></a></td><td><a href="./api.md#mat4x3f"><code>mat4x3f</code></a></td><td><a href="./api.md#mat4x4f"><code>mat4x4f</code></a></td><td><a href="./api.md#mat2x2h"><code>mat2x2h</code></a></td>
-</tr><tr>
-<td><a href="./api.md#mat2x3h"><code>mat2x3h</code></a></td><td><a href="./api.md#mat2x4h"><code>mat2x4h</code></a></td><td><a href="./api.md#mat3x2h"><code>mat3x2h</code></a></td><td><a href="./api.md#mat3x3h"><code>mat3x3h</code></a></td><td><a href="./api.md#mat3x4h"><code>mat3x4h</code></a></td><td><a href="./api.md#mat4x2h"><code>mat4x2h</code></a></td>
-</tr><tr>
-<td><a href="./api.md#mat4x3h"><code>mat4x3h</code></a></td><td><a href="./api.md#mat4x4h"><code>mat4x4h</code></a></td><td></td><td></td><td></td><td></td>
-</tr></table>
 
 
 ## Operators
@@ -857,45 +1012,14 @@ Math and operators exist as free functions, and (see [method chaining](#method-c
 const lit = vec3(0.4, 0.7, 1.0).mul(f32(0.15).add(diffuse));
 ```
 
-<table><tr>
-<td><a href="./api.md#abs"><code>abs</code></a></td><td><a href="./api.md#add"><code>add</code></a></td><td><a href="./api.md#sub"><code>sub</code></a></td><td><a href="./api.md#mul"><code>mul</code></a></td><td><a href="./api.md#div"><code>div</code></a></td><td><a href="./api.md#mod"><code>mod</code></a></td>
-</tr><tr>
-<td><a href="./api.md#min"><code>min</code></a></td><td><a href="./api.md#max"><code>max</code></a></td><td><a href="./api.md#clamp"><code>clamp</code></a></td><td><a href="./api.md#mix"><code>mix</code></a></td><td><a href="./api.md#step"><code>step</code></a></td><td><a href="./api.md#smoothstep"><code>smoothstep</code></a></td>
-</tr><tr>
-<td><a href="./api.md#ceil"><code>ceil</code></a></td><td><a href="./api.md#floor"><code>floor</code></a></td><td><a href="./api.md#fract"><code>fract</code></a></td><td><a href="./api.md#sqrt"><code>sqrt</code></a></td><td><a href="./api.md#inversesqrt"><code>inverseSqrt</code></a></td><td><a href="./api.md#pow"><code>pow</code></a></td>
-</tr><tr>
-<td><a href="./api.md#exp"><code>exp</code></a></td><td><a href="./api.md#exp2"><code>exp2</code></a></td><td><a href="./api.md#log"><code>log</code></a></td><td><a href="./api.md#log2"><code>log2</code></a></td><td><a href="./api.md#tan"><code>tan</code></a></td><td><a href="./api.md#atan"><code>atan</code></a></td>
-</tr><tr>
-<td><a href="./api.md#atan2"><code>atan2</code></a></td><td><a href="./api.md#asin"><code>asin</code></a></td><td><a href="./api.md#acos"><code>acos</code></a></td><td><a href="./api.md#length"><code>length</code></a></td><td><a href="./api.md#normalize"><code>normalize</code></a></td><td><a href="./api.md#dot"><code>dot</code></a></td>
-</tr><tr>
-<td><a href="./api.md#cross"><code>cross</code></a></td><td><a href="./api.md#pack2x16float"><code>pack2x16float</code></a></td><td><a href="./api.md#unpack2x16float"><code>unpack2x16float</code></a></td><td><a href="./api.md#pack2x16snorm"><code>pack2x16snorm</code></a></td><td><a href="./api.md#unpack2x16snorm"><code>unpack2x16snorm</code></a></td><td><a href="./api.md#pack2x16unorm"><code>pack2x16unorm</code></a></td>
-</tr><tr>
-<td><a href="./api.md#unpack2x16unorm"><code>unpack2x16unorm</code></a></td><td><a href="./api.md#pack4x8snorm"><code>pack4x8snorm</code></a></td><td><a href="./api.md#unpack4x8snorm"><code>unpack4x8snorm</code></a></td><td><a href="./api.md#pack4x8unorm"><code>pack4x8unorm</code></a></td><td><a href="./api.md#unpack4x8unorm"><code>unpack4x8unorm</code></a></td><td><a href="./api.md#bitcastf32"><code>bitcastF32</code></a></td>
-</tr><tr>
-<td><a href="./api.md#bitcastu32"><code>bitcastU32</code></a></td><td><a href="./api.md#bitcasti32"><code>bitcastI32</code></a></td><td><a href="./api.md#sign"><code>sign</code></a></td><td><a href="./api.md#sin"><code>sin</code></a></td><td><a href="./api.md#cos"><code>cos</code></a></td><td><a href="./api.md#transpose"><code>transpose</code></a></td>
-</tr><tr>
-<td><a href="./api.md#countonebits"><code>countOneBits</code></a></td><td><a href="./api.md#counttrailingzeros"><code>countTrailingZeros</code></a></td><td><a href="./api.md#countleadingzeros"><code>countLeadingZeros</code></a></td><td><a href="./api.md#reversebits"><code>reverseBits</code></a></td><td><a href="./api.md#firstleadingbit"><code>firstLeadingBit</code></a></td><td><a href="./api.md#firsttrailingbit"><code>firstTrailingBit</code></a></td>
-</tr><tr>
-<td><a href="./api.md#dpdx"><code>dpdx</code></a></td><td><a href="./api.md#dpdy"><code>dpdy</code></a></td><td><a href="./api.md#fwidth"><code>fwidth</code></a></td><td><a href="./api.md#dpdxcoarse"><code>dpdxCoarse</code></a></td><td><a href="./api.md#dpdycoarse"><code>dpdyCoarse</code></a></td><td><a href="./api.md#fwidthcoarse"><code>fwidthCoarse</code></a></td>
-</tr><tr>
-<td><a href="./api.md#dpdxfine"><code>dpdxFine</code></a></td><td><a href="./api.md#dpdyfine"><code>dpdyFine</code></a></td><td><a href="./api.md#fwidthfine"><code>fwidthFine</code></a></td><td></td><td></td><td></td>
-</tr></table>
 
 
 ### Comparison
 
-<table><tr>
-<td><a href="./api.md#greaterthan"><code>greaterThan</code></a></td><td><a href="./api.md#lessthan"><code>lessThan</code></a></td><td><a href="./api.md#greaterthanequal"><code>greaterThanEqual</code></a></td><td><a href="./api.md#lessthanequal"><code>lessThanEqual</code></a></td><td><a href="./api.md#equal"><code>equal</code></a></td><td><a href="./api.md#notequal"><code>notEqual</code></a></td>
-</tr><tr>
-<td><a href="./api.md#or"><code>or</code></a></td><td><a href="./api.md#and"><code>and</code></a></td><td></td><td></td><td></td><td></td>
-</tr></table>
 
 
 ### Bitwise
 
-<table><tr>
-<td><a href="./api.md#bitwiseand"><code>bitwiseAnd</code></a></td><td><a href="./api.md#bitwiseor"><code>bitwiseOr</code></a></td><td><a href="./api.md#bitwisexor"><code>bitwiseXor</code></a></td><td><a href="./api.md#shiftleft"><code>shiftLeft</code></a></td><td><a href="./api.md#shiftright"><code>shiftRight</code></a></td>
-</tr></table>
 
 
 ## Variables
@@ -909,9 +1033,6 @@ Loop(8, ({ i }) => sum.assign(sum.add(i.toF32())));
 
 `Let` is the immutable form. `PrivateVar` and `WorkgroupVar` declare module-scope storage for compute.
 
-<table><tr>
-<td><a href="./api.md#var"><code>Var</code></a></td><td><a href="./api.md#const"><code>Const</code></a></td><td><a href="./api.md#let"><code>Let</code></a></td><td><a href="./api.md#privatevar"><code>PrivateVar</code></a></td><td><a href="./api.md#workgroupvar"><code>WorkgroupVar</code></a></td>
-</tr></table>
 
 
 ## Control Flow
@@ -926,20 +1047,13 @@ If(x.greaterThan(f32(0)), () => {
 });
 ```
 
-<table><tr>
-<td><a href="./api.md#if"><code>If</code></a></td><td><a href="./api.md#loop"><code>Loop</code></a></td><td><a href="./api.md#for"><code>For</code></a></td><td><a href="./api.md#while"><code>While</code></a></td><td><a href="./api.md#break"><code>Break</code></a></td><td><a href="./api.md#continue"><code>Continue</code></a></td>
-</tr><tr>
-<td><a href="./api.md#return"><code>Return</code></a></td><td><a href="./api.md#discard"><code>Discard</code></a></td><td><a href="./api.md#workgroupbarrier"><code>workgroupBarrier</code></a></td><td><a href="./api.md#storagebarrier"><code>storageBarrier</code></a></td><td><a href="./api.md#texturebarrier"><code>textureBarrier</code></a></td><td><a href="./api.md#cond"><code>cond</code></a></td>
-</tr><tr>
-<td><a href="./api.md#select"><code>select</code></a></td><td></td><td></td><td></td><td></td><td></td>
-</tr></table>
 
 
 <table>
   <tr>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-discard">
-        <img src="./examples/public/screenshots/example-discard.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-discard">
+        <img src="./examples/public/screenshots/example-webgpu-discard.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Discard
       </a>
     </td>
@@ -995,13 +1109,6 @@ const time = uniform('time', d.f32);
 const positions = storage('positions', d.array(d.vec3f), 'read');
 ```
 
-<table><tr>
-<td><a href="./api.md#attribute"><code>attribute</code></a></td><td><a href="./api.md#attributeoptions"><code>AttributeOptions</code></a></td><td><a href="./api.md#builtin"><code>builtin</code></a></td><td><a href="./api.md#index"><code>index</code></a></td><td><a href="./api.md#field"><code>field</code></a></td><td><a href="./api.md#fields"><code>fields</code></a></td>
-</tr><tr>
-<td><a href="./api.md#uniform"><code>uniform</code></a></td><td><a href="./api.md#storage"><code>storage</code></a></td><td><a href="./api.md#array"><code>array</code></a></td><td><a href="./api.md#texture"><code>texture</code></a></td><td><a href="./api.md#varying"><code>varying</code></a></td><td><a href="./api.md#struct"><code>struct</code></a></td>
-</tr><tr>
-<td><a href="./api.md#wgsl"><code>wgsl</code></a></td><td><a href="./api.md#wgslfn"><code>wgslFn</code></a></td><td><a href="./api.md#fn"><code>Fn</code></a></td><td><a href="./api.md#mrt"><code>mrt</code></a></td><td><a href="./api.md#compute"><code>compute</code></a></td><td></td>
-</tr></table>
 
 
 ## Varyings
@@ -1039,15 +1146,6 @@ const albedo = texture(myTexture);            // samples at uv()
 const exact = textureLoad(myTexture, coords); // no sampler
 ```
 
-<table><tr>
-<td><a href="./api.md#sampler"><code>sampler</code></a></td><td><a href="./api.md#comparisonsampler"><code>comparisonSampler</code></a></td><td><a href="./api.md#cubetexture"><code>cubeTexture</code></a></td><td><a href="./api.md#depthtexture"><code>depthTexture</code></a></td><td><a href="./api.md#arraytexture"><code>arrayTexture</code></a></td><td><a href="./api.md#texturebinding"><code>textureBinding</code></a></td>
-</tr><tr>
-<td><a href="./api.md#storagetexture"><code>storageTexture</code></a></td><td><a href="./api.md#texturesample"><code>textureSample</code></a></td><td><a href="./api.md#texturesamplelevel"><code>textureSampleLevel</code></a></td><td><a href="./api.md#texturesamplebias"><code>textureSampleBias</code></a></td><td><a href="./api.md#texturesamplegrad"><code>textureSampleGrad</code></a></td><td><a href="./api.md#texturesamplecompare"><code>textureSampleCompare</code></a></td>
-</tr><tr>
-<td><a href="./api.md#texturesamplecomparelevel"><code>textureSampleCompareLevel</code></a></td><td><a href="./api.md#textureload"><code>textureLoad</code></a></td><td><a href="./api.md#texturestore"><code>textureStore</code></a></td><td><a href="./api.md#texturedimensions"><code>textureDimensions</code></a></td><td><a href="./api.md#texturenumlevels"><code>textureNumLevels</code></a></td><td><a href="./api.md#texturenumlayers"><code>textureNumLayers</code></a></td>
-</tr><tr>
-<td><a href="./api.md#texturegather"><code>textureGather</code></a></td><td><a href="./api.md#texturegathercompare"><code>textureGatherCompare</code></a></td><td></td><td></td><td></td><td></td>
-</tr></table>
 
 
 ### Creating texture resources
@@ -1072,32 +1170,32 @@ videoTexture.needsUpdate = true;                    // re-copy the current frame
 <table>
   <tr>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-texture">
-        <img src="./examples/public/screenshots/example-texture.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-texture">
+        <img src="./examples/public/screenshots/example-webgpu-texture.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Texture
       </a>
     </td>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-mipmaps">
-        <img src="./examples/public/screenshots/example-mipmaps.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-mipmaps">
+        <img src="./examples/public/screenshots/example-webgpu-mipmaps.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Mipmaps
       </a>
     </td>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-cubemap">
-        <img src="./examples/public/screenshots/example-cubemap.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-cubemap">
+        <img src="./examples/public/screenshots/example-webgpu-cubemap.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Cube Texture Skybox
       </a>
     </td>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-array-texture">
-        <img src="./examples/public/screenshots/example-array-texture.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-array-texture">
+        <img src="./examples/public/screenshots/example-webgpu-array-texture.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Array Texture Flipbook
       </a>
     </td>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-video-texture">
-        <img src="./examples/public/screenshots/example-video-texture.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-video-texture">
+        <img src="./examples/public/screenshots/example-webgpu-video-texture.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Video Texture
       </a>
     </td>
@@ -1133,14 +1231,14 @@ renderer.compute([{ node: paint, dispatch: [Math.ceil(256 / 8), Math.ceil(256 / 
 <table>
   <tr>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-compute-texture">
-        <img src="./examples/public/screenshots/example-compute-texture.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-compute-texture">
+        <img src="./examples/public/screenshots/example-webgpu-compute-texture.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Compute Texture
       </a>
     </td>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-volume">
-        <img src="./examples/public/screenshots/example-volume.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-volume">
+        <img src="./examples/public/screenshots/example-webgpu-volume.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Volume
       </a>
     </td>
@@ -1151,18 +1249,13 @@ renderer.compute([{ node: paint, dispatch: [Math.ceil(256 / 8), Math.ceil(256 / 
 
 Atomic operations on `atomic<i32>` / `atomic<u32>` storage, for compute.
 
-<table><tr>
-<td><a href="./api.md#atomicadd"><code>atomicAdd</code></a></td><td><a href="./api.md#atomicstore"><code>atomicStore</code></a></td><td><a href="./api.md#atomicload"><code>atomicLoad</code></a></td><td><a href="./api.md#atomicsub"><code>atomicSub</code></a></td><td><a href="./api.md#atomicmax"><code>atomicMax</code></a></td><td><a href="./api.md#atomicmin"><code>atomicMin</code></a></td>
-</tr><tr>
-<td><a href="./api.md#atomicand"><code>atomicAnd</code></a></td><td><a href="./api.md#atomicor"><code>atomicOr</code></a></td><td><a href="./api.md#atomicxor"><code>atomicXor</code></a></td><td><a href="./api.md#atomicexchange"><code>atomicExchange</code></a></td><td><a href="./api.md#atomiccompareexchangeweak"><code>atomicCompareExchangeWeak</code></a></td><td></td>
-</tr></table>
 
 
 <table>
   <tr>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-ball-cluster">
-        <img src="./examples/public/screenshots/example-ball-cluster.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-ball-cluster">
+        <img src="./examples/public/screenshots/example-webgpu-ball-cluster.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Ball Cluster
       </a>
     </td>
@@ -1221,24 +1314,21 @@ renderer.compute([{ node: sim, dispatch: [Math.ceil(N / 64), 1, 1] }]);
 
 The same buffer can feed a material, which is how the particle example draws what the compute pass just updated. A compute kernel can also write to a texture instead of a buffer — see [Storage textures](#storage-textures).
 
-For a full worked example, `examples/src/example-ball-cluster.ts` simulates balls that pull toward a point and collide into a packed cluster, all on the GPU. It runs three compute passes per frame (clear grid, bin into a spatial-hash grid while snapshotting the previous state, then forces + collision against the 27 neighbouring cells), so each ball only checks nearby balls instead of every other one. `examples/src/example-compute-particles.ts` is a simpler starting point.
+For a full worked example, `examples/src/example-webgpu-ball-cluster.ts` simulates balls that pull toward a point and collide into a packed cluster, all on the GPU. It runs three compute passes per frame (clear grid, bin into a spatial-hash grid while snapshotting the previous state, then forces + collision against the 27 neighbouring cells), so each ball only checks nearby balls instead of every other one. `examples/src/example-webgpu-compute-particles.ts` is a simpler starting point.
 
-<table><tr>
-<td><a href="./api.md#computeindex"><code>computeIndex</code></a></td>
-</tr></table>
 
 
 <table>
   <tr>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-compute-particles">
-        <img src="./examples/public/screenshots/example-compute-particles.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-compute-particles">
+        <img src="./examples/public/screenshots/example-webgpu-compute-particles.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Compute Particles
       </a>
     </td>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-ball-cluster">
-        <img src="./examples/public/screenshots/example-ball-cluster.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-ball-cluster">
+        <img src="./examples/public/screenshots/example-webgpu-ball-cluster.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Ball Cluster
       </a>
     </td>
@@ -1270,14 +1360,14 @@ A compute pass can fill or update that buffer, so the instances are driven entir
 <table>
   <tr>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-instanced-mesh">
-        <img src="./examples/public/screenshots/example-instanced-mesh.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-instanced-mesh">
+        <img src="./examples/public/screenshots/example-webgpu-instanced-mesh.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Instanced Mesh
       </a>
     </td>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-instancing-storage-buffer">
-        <img src="./examples/public/screenshots/example-instancing-storage-buffer.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-instancing-storage-buffer">
+        <img src="./examples/public/screenshots/example-webgpu-instancing-storage-buffer.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Instancing with Storage Buffer
       </a>
     </td>
@@ -1297,30 +1387,27 @@ geometry.indirect = createIndirectBuffer(DrawIndexedIndirect, args);
 
 One buffer can hold several draws (`geometry.indirectDrawCount`), and `geometry.indirectOffset` skips a header. The real payoff is GPU-driven rendering: the buffer has `storage` + `indirect` usage, so a compute pass can write the `instanceCount` (culling, LOD, spawning) and the draw reads it the same frame, with no CPU readback. `renderer.compute([{ node, indirect: buf }])` dispatches a compute pass the same way, with its workgroup counts read from a buffer.
 
-<table><tr>
-<td><a href="./api.md#drawindirect"><code>DrawIndirect</code></a></td><td><a href="./api.md#drawindexedindirect"><code>DrawIndexedIndirect</code></a></td>
-</tr></table>
 
 
-See `examples/src/example-indirect-batched.ts` (CPU-driven multi-draw) and `example-indirect-compute.ts` (a compute pass writes the draw args each frame).
+See `examples/src/example-webgpu-indirect-batched.ts` (CPU-driven multi-draw) and `example-webgpu-indirect-compute.ts` (a compute pass writes the draw args each frame).
 
 <table>
   <tr>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-indirect-batched">
-        <img src="./examples/public/screenshots/example-indirect-batched.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-indirect-batched">
+        <img src="./examples/public/screenshots/example-webgpu-indirect-batched.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Indirect Batched
       </a>
     </td>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-indirect-compute">
-        <img src="./examples/public/screenshots/example-indirect-compute.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-indirect-compute">
+        <img src="./examples/public/screenshots/example-webgpu-indirect-compute.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Indirect Compute
       </a>
     </td>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-voxels">
-        <img src="./examples/public/screenshots/example-voxels.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-voxels">
+        <img src="./examples/public/screenshots/example-webgpu-voxels.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Voxels
       </a>
     </td>
@@ -1351,14 +1438,14 @@ See [`OrbitControls`](./api.md#orbitcontrols) and [`Inspector`](./api.md#inspect
 <table>
   <tr>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-transform-controls">
-        <img src="./examples/public/screenshots/example-transform-controls.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-transform-controls">
+        <img src="./examples/public/screenshots/example-webgpu-transform-controls.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Transform Controls
       </a>
     </td>
     <td align="center">
-      <a href="https://isaac-mason.github.io/gpucat/#example-fly-controls">
-        <img src="./examples/public/screenshots/example-fly-controls.png" width="200" height="133" style="object-fit:cover;"/><br/>
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-fly-controls">
+        <img src="./examples/public/screenshots/example-webgpu-fly-controls.png" width="200" height="133" style="object-fit:cover;"/><br/>
         Fly Controls
       </a>
     </td>

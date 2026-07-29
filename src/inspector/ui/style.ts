@@ -7,12 +7,12 @@
 let injected = false;
 
 export function injectStyle(): void {
-	if (injected || typeof document === 'undefined') return;
-	injected = true;
+    if (injected || typeof document === 'undefined') return;
+    injected = true;
 
-	const style = document.createElement('style');
-	style.textContent = CSS;
-	document.head.appendChild(style);
+    const style = document.createElement('style');
+    style.textContent = CSS;
+    document.head.appendChild(style);
 }
 
 const CSS = `
@@ -1659,5 +1659,3 @@ label.gui-controller {
 	font-size: var(--font-size-sm);
 }
 `;
-
-

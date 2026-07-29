@@ -1,5 +1,5 @@
-import type { NodeFrame } from '../../renderer/node-frame';
-import type { Any, WgslType, MulResultDesc, ArithResultDesc, CompareResultDesc, StructField, StructKeys, VecElementDesc, Vec2DescOf, Vec3DescOf, Vec4DescOf } from '../../schema/schema';
+import type { NodeFrame } from '../../renderer/core/node-frame';
+import type { Any, ArithResultDesc, CompareResultDesc, MulResultDesc, StructField, StructKeys, Vec2DescOf, Vec3DescOf, Vec4DescOf, VecElementDesc, WgslType } from '../../schema/schema';
 import * as d from '../../schema/schema';
 export type { WgslType } from '../../schema/schema';
 export type ScalarType = 'f32' | 'i32' | 'u32' | 'bool' | 'f16';
@@ -529,6 +529,8 @@ export declare class BinaryOpNode<D extends Any> extends Node<D> {
 /** Opaque reference to WgslFunctionNode to avoid circular import */
 export interface WgslFunctionNodeRef {
     readonly code: string;
+    /** GLSL companion source (complete function definition). Undefined for WGSL-only functions. */
+    readonly glslCode?: string;
     readonly includes: WgslFunctionNodeRef[];
     getNodeFunction(): {
         outputType: string;
@@ -1065,6 +1067,7 @@ export type StructMember = {
 export type StructDef<S extends d.StructSchema> = {
     readonly type: 'struct';
     readonly wgslType: string;
+    readonly glslType: string;
     readonly name: string;
     readonly fields: S;
     readonly members: StructMember[];

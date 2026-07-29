@@ -1,26 +1,26 @@
 import { describe, expect, test } from 'vitest';
 import {
-    Fn,
+    attribute,
     compile,
     compileCompute,
     createStorageTexture,
     createStorageTexture3d,
     createStorageTextureArray,
-    globalId,
-    GpuSampler,
-    Material,
-    storageTexture,
-    textureStore,
-    textureLoad,
-    texture,
-    screenUV,
-    attribute,
-    vec4,
+    Fn,
     f32,
-    u32,
+    GpuSampler,
+    globalId,
     i32,
+    Material,
+    screenUV,
+    storageTexture,
+    texture,
+    textureLoad,
+    textureStore,
+    u32,
     vec2u,
     vec3u,
+    vec4,
 } from '../src/index';
 import * as d from '../src/schema/schema';
 
@@ -126,7 +126,9 @@ describe('storage textures — validation', () => {
     test('textureStore on a read-access binding throws', () => {
         const tex = createStorageTexture(8, 8, 'r32float');
         const st = storageTexture(tex, 'read');
-        expect(() => textureStore(st, vec2u(u32(0), u32(0)), vec4(f32(0), f32(0), f32(0), f32(0)))).toThrow(/'read' storage texture/);
+        expect(() => textureStore(st, vec2u(u32(0), u32(0)), vec4(f32(0), f32(0), f32(0), f32(0)))).toThrow(
+            /'read' storage texture/,
+        );
     });
 
     test('textureLoad on a write-access binding throws', () => {

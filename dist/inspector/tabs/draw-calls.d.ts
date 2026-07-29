@@ -13,12 +13,12 @@
  *   update() diffs by ro.id, only adds/removes items on structural changes.
  *   The static detail panel is only rebuilt when _selectedRO changes.
  */
-import { Tab } from '../ui/tab';
-import { List } from '../ui/list';
+import type { NodeBuilderState } from '../../renderer/core/node-builder-state';
+import type { RenderObject } from '../../renderer/core/render-object';
+import type { InspectableRenderer } from '../inspector-base';
 import type { Inspector } from '../inspector';
-import type { RenderObject } from '../../renderer/render-object';
-import type { WebGPURenderer } from '../../renderer/renderer';
-import type { NodeBuilderState } from '../../renderer/node-builder-state';
+import { List } from '../ui/list';
+import { Tab } from '../ui/tab';
 export declare class DrawCalls extends Tab {
     readonly list: List;
     /** ro.id → RONode for every currently-displayed RenderObject */
@@ -44,7 +44,7 @@ export declare class DrawCalls extends Tab {
      * children of their respective pass header (Item.add).  This gives proper
      * indent and uses the existing header-wrapper styling automatically.
      */
-    update(inspector: Inspector, renderer: WebGPURenderer): void;
+    update(inspector: Inspector, renderer: InspectableRenderer): void;
     /**
      * Select a RO programmatically (also called on click).
      * Highlights the item and populates the detail panel.

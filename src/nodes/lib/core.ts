@@ -1,19 +1,19 @@
-import type { NodeFrame } from '../../renderer/node-frame';
+import type { NodeFrame } from '../../renderer/core/node-frame';
 import type {
     Any,
-    WgslType,
-    MulResultDesc,
     ArithResultDesc,
     CompareResultDesc,
+    MulResultDesc,
     StructField,
     StructKeys,
-    VecElementDesc,
     Vec2DescOf,
     Vec3DescOf,
     Vec4DescOf,
+    VecElementDesc,
+    WgslType,
 } from '../../schema/schema';
-import { isStructDef } from '../../schema/schema';
 import * as d from '../../schema/schema';
+import { isStructDef } from '../../schema/schema';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1446,6 +1446,8 @@ export class BinaryOpNode<D extends Any> extends Node<D> {
 /** Opaque reference to WgslFunctionNode to avoid circular import */
 export interface WgslFunctionNodeRef {
     readonly code: string;
+    /** GLSL companion source (complete function definition). Undefined for WGSL-only functions. */
+    readonly glslCode?: string;
     readonly includes: WgslFunctionNodeRef[];
     getNodeFunction(): { outputType: string; name: string };
 }
@@ -1582,14 +1584,11 @@ export const toU32 = <D extends Any>(node: Node<D>): Node<d.u32> => new CallNode
 export const toI32 = <D extends Any>(node: Node<D>): Node<d.i32> => new CallNode(d.i32, 'i32', [node]);
 
 /** Reinterpret a u32 or i32 bit pattern as f32. WGSL: `bitcast<f32>(x)`. */
-export const bitcastF32 = (node: Node<d.u32 | d.i32>): Node<d.f32> =>
-    new CallNode(d.f32, 'bitcast<f32>', [node]);
+export const bitcastF32 = (node: Node<d.u32 | d.i32>): Node<d.f32> => new CallNode(d.f32, 'bitcast<f32>', [node]);
 /** Reinterpret an f32 or i32 bit pattern as u32. WGSL: `bitcast<u32>(x)`. */
-export const bitcastU32 = (node: Node<d.f32 | d.i32>): Node<d.u32> =>
-    new CallNode(d.u32, 'bitcast<u32>', [node]);
+export const bitcastU32 = (node: Node<d.f32 | d.i32>): Node<d.u32> => new CallNode(d.u32, 'bitcast<u32>', [node]);
 /** Reinterpret an f32 or u32 bit pattern as i32. WGSL: `bitcast<i32>(x)`. */
-export const bitcastI32 = (node: Node<d.f32 | d.u32>): Node<d.i32> =>
-    new CallNode(d.i32, 'bitcast<i32>', [node]);
+export const bitcastI32 = (node: Node<d.f32 | d.u32>): Node<d.i32> => new CallNode(d.i32, 'bitcast<i32>', [node]);
 
 export const greaterThan = <D extends Any>(a: Node<D>, b: Node<D>): Node<CompareResultDesc<D>> =>
     new BinaryOpNode('>', d.compareResultDesc(a.type), a, b) as unknown as Node<CompareResultDesc<D>>;
@@ -1814,35 +1813,25 @@ export const normalize = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.
 export const length = (a: Node<Any>): Node<d.f32> => new CallNode(d.f32, 'length', [a]);
 
 /** Pack two f32s as halves into a u32. Lower 16 bits = v.x, upper = v.y. WGSL: `pack2x16float`. */
-export const pack2x16float = (v: Node<d.vec2f>): Node<d.u32> =>
-    new CallNode(d.u32, 'pack2x16float', [v]);
+export const pack2x16float = (v: Node<d.vec2f>): Node<d.u32> => new CallNode(d.u32, 'pack2x16float', [v]);
 /** Unpack a u32 into two f32s from half-precision. WGSL: `unpack2x16float`. */
-export const unpack2x16float = (v: Node<d.u32>): Node<d.vec2f> =>
-    new CallNode(d.vec2f, 'unpack2x16float', [v]);
+export const unpack2x16float = (v: Node<d.u32>): Node<d.vec2f> => new CallNode(d.vec2f, 'unpack2x16float', [v]);
 /** Pack two f32s in [-1, 1] into a u32 as 16-bit snorm. WGSL: `pack2x16snorm`. */
-export const pack2x16snorm = (v: Node<d.vec2f>): Node<d.u32> =>
-    new CallNode(d.u32, 'pack2x16snorm', [v]);
+export const pack2x16snorm = (v: Node<d.vec2f>): Node<d.u32> => new CallNode(d.u32, 'pack2x16snorm', [v]);
 /** Unpack a u32 into two f32s as 16-bit snorm. WGSL: `unpack2x16snorm`. */
-export const unpack2x16snorm = (v: Node<d.u32>): Node<d.vec2f> =>
-    new CallNode(d.vec2f, 'unpack2x16snorm', [v]);
+export const unpack2x16snorm = (v: Node<d.u32>): Node<d.vec2f> => new CallNode(d.vec2f, 'unpack2x16snorm', [v]);
 /** Pack two f32s in [0, 1] into a u32 as 16-bit unorm. WGSL: `pack2x16unorm`. */
-export const pack2x16unorm = (v: Node<d.vec2f>): Node<d.u32> =>
-    new CallNode(d.u32, 'pack2x16unorm', [v]);
+export const pack2x16unorm = (v: Node<d.vec2f>): Node<d.u32> => new CallNode(d.u32, 'pack2x16unorm', [v]);
 /** Unpack a u32 into two f32s as 16-bit unorm. WGSL: `unpack2x16unorm`. */
-export const unpack2x16unorm = (v: Node<d.u32>): Node<d.vec2f> =>
-    new CallNode(d.vec2f, 'unpack2x16unorm', [v]);
+export const unpack2x16unorm = (v: Node<d.u32>): Node<d.vec2f> => new CallNode(d.vec2f, 'unpack2x16unorm', [v]);
 /** Pack four f32s in [-1, 1] into a u32 as 8-bit snorm. WGSL: `pack4x8snorm`. */
-export const pack4x8snorm = (v: Node<d.vec4f>): Node<d.u32> =>
-    new CallNode(d.u32, 'pack4x8snorm', [v]);
+export const pack4x8snorm = (v: Node<d.vec4f>): Node<d.u32> => new CallNode(d.u32, 'pack4x8snorm', [v]);
 /** Unpack a u32 into four f32s as 8-bit snorm. WGSL: `unpack4x8snorm`. */
-export const unpack4x8snorm = (v: Node<d.u32>): Node<d.vec4f> =>
-    new CallNode(d.vec4f, 'unpack4x8snorm', [v]);
+export const unpack4x8snorm = (v: Node<d.u32>): Node<d.vec4f> => new CallNode(d.vec4f, 'unpack4x8snorm', [v]);
 /** Pack four f32s in [0, 1] into a u32 as 8-bit unorm. WGSL: `pack4x8unorm`. */
-export const pack4x8unorm = (v: Node<d.vec4f>): Node<d.u32> =>
-    new CallNode(d.u32, 'pack4x8unorm', [v]);
+export const pack4x8unorm = (v: Node<d.vec4f>): Node<d.u32> => new CallNode(d.u32, 'pack4x8unorm', [v]);
 /** Unpack a u32 into four f32s as 8-bit unorm. WGSL: `unpack4x8unorm`. */
-export const unpack4x8unorm = (v: Node<d.u32>): Node<d.vec4f> =>
-    new CallNode(d.vec4f, 'unpack4x8unorm', [v]);
+export const unpack4x8unorm = (v: Node<d.u32>): Node<d.vec4f> => new CallNode(d.vec4f, 'unpack4x8unorm', [v]);
 export const abs = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'abs', [a]);
 export const floor = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'floor', [a]);
 export const ceil = <D extends Any>(a: Node<D>): Node<D> => new CallNode(a.type, 'ceil', [a]);
@@ -2386,6 +2375,8 @@ export type StructMember = { readonly name: string; readonly type: Any };
 export type StructDef<S extends d.StructSchema> = {
     readonly type: 'struct';
     readonly wgslType: string;
+    // GLSL struct name == WGSL struct name (see StructDesc); glslType === wgslType === name.
+    readonly glslType: string;
     readonly name: string;
     readonly fields: S;
     readonly members: StructMember[];
@@ -2396,7 +2387,7 @@ export type StructDef<S extends d.StructSchema> = {
 
 export function struct<S extends d.StructSchema>(name: string, fields: S): StructDef<S> {
     const members: StructMember[] = Object.entries(fields).map(([n, desc]) => ({ name: n, type: desc }));
-    const structDesc: d.StructDesc<S> = { type: 'struct', wgslType: name, name, fields };
+    const structDesc: d.StructDesc<S> = { type: 'struct', wgslType: name, glslType: name, name, fields };
     const node = new StructNode<S>(structDesc, members);
     const nestedDefs: Map<string, StructDef<d.StructSchema>> = new Map();
     for (const desc of Object.values(fields)) {
@@ -2406,7 +2397,7 @@ export function struct<S extends d.StructSchema>(name: string, fields: S): Struc
         const args = members.map((m) => fieldNodes[m.name as keyof S] as Node<Any>);
         return new ConstructNode(def as unknown as StructDef<S>, args);
     }
-    const def: StructDef<S> = { type: 'struct', wgslType: name, name, fields, members, node, nestedDefs, construct };
+    const def: StructDef<S> = { type: 'struct', wgslType: name, glslType: name, name, fields, members, node, nestedDefs, construct };
     return def;
 }
 

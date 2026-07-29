@@ -1,5 +1,5 @@
-import type { GUI } from './GUI';
 import { Controller } from './Controller';
+import type { GUI } from './GUI';
 type ColorValue = string | number | {
     r: number;
     g: number;

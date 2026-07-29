@@ -1,10 +1,10 @@
-export { GUI } from './GUI';
-export { Controller } from './Controller';
-export { NumberController } from './NumberController';
 export { BooleanController } from './BooleanController';
-export { StringController } from './StringController';
 export { ColorController } from './ColorController';
-export { OptionController } from './OptionController';
+export type { ChangeEvent } from './Controller';
+export { Controller } from './Controller';
 export { FunctionController } from './FunctionController';
 export type { GUIOptions } from './GUI';
-export type { ChangeEvent } from './Controller';
+export { GUI } from './GUI';
+export { NumberController } from './NumberController';
+export { OptionController } from './OptionController';
+export { StringController } from './StringController';

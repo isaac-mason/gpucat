@@ -1,6 +1,6 @@
-import { test, expect } from 'vitest';
+import { expect, test } from 'vitest';
+import { CubeCamera, CubeRenderTarget } from '../src/index';
 import { installWebGPUPolyfills } from './stub-gpu';
-import { CubeRenderTarget, CubeCamera } from '../src/index';
 
 // RenderTarget construction references GPUTextureUsage (a browser global).
 installWebGPUPolyfills();

@@ -1,7 +1,7 @@
-import { div, Node } from '../core';
-import { renderGroup, UniformNode, Uniform } from '../uniform';
-import { fragCoord } from '../builtin';
 import * as d from '../../../schema/schema';
+import { fragCoord } from '../builtin';
+import { div, type Node } from '../core';
+import { renderGroup, Uniform, UniformNode } from '../uniform';
 
 /**
  * Screen coordinate, the current fragment's xy position in pixels.
@@ -23,7 +23,7 @@ export const screenCoordinate = fragCoord.xy;
  */
 export const screenSize: UniformNode<d.vec2f> = /*@__PURE__*/ new UniformNode(
     new Uniform(d.vec2f, undefined, renderGroup),
-    'screenSize'
+    'screenSize',
 ).onRenderUpdate(({ width, height }) => [width, height]);
 
 /**

@@ -1,8 +1,7 @@
-import { Tab } from '../ui/tab';
+import type { FrameRecord, RendererInspector } from '../renderer-inspector';
 import { Graph } from '../ui/graph';
 import { Item } from '../ui/item';
-import type { FrameRecord } from '../renderer-inspector';
-import type { RendererInspector } from '../renderer-inspector';
+import { Tab } from '../ui/tab';
 export declare class Performance extends Tab {
     graph: Graph;
     graphStats: Item;

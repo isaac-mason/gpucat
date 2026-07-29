@@ -1,4 +1,4 @@
-import { Item } from './item';
+import type { Item } from './item';
 
 export class List {
     headers: string[];
@@ -21,7 +21,7 @@ export class List {
 
         const headerRow = document.createElement('div');
         headerRow.className = 'list-header';
-        this.headers.forEach(headerText => {
+        this.headers.forEach((headerText) => {
             const headerCell = document.createElement('div');
             headerCell.className = 'list-header-cell';
             headerCell.textContent = headerText;

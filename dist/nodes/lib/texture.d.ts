@@ -1,13 +1,13 @@
-import { Texture } from '../../texture/texture';
-import { CubeTexture } from '../../texture/cube-texture';
-import { DepthTexture } from '../../texture/depth-texture';
-import { ArrayTexture } from '../../texture/array-texture';
-import { GpuTexture } from '../../core/gpu-texture';
 import { GpuSampler } from '../../core/gpu-sampler';
-import { CallNode, Node, NodeKind } from './core';
-import { type FlatDepthTexture, type FlatSampledTexture, type CubeSampledTexture, type Any } from '../../schema/schema';
+import type { GpuTexture } from '../../core/gpu-texture';
+import type { Any, CubeSampledTexture, FlatDepthTexture, FlatSampledTexture } from '../../schema/schema';
 import * as d from '../../schema/schema';
-import { UniformGroup } from './uniform';
+import type { ArrayTexture } from '../../texture/array-texture';
+import type { CubeTexture } from '../../texture/cube-texture';
+import type { DepthTexture } from '../../texture/depth-texture';
+import type { Texture } from '../../texture/texture';
+import { CallNode, Node, NodeKind } from './core';
+import { type UniformGroup } from './uniform';
 /**
  * SamplerNode - represents a sampler binding.
  *

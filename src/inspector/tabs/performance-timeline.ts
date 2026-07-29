@@ -1,6 +1,5 @@
+import type { ComputeEntry, FrameRecord, RenderEntry, RendererInspector, TimelineEntry } from '../renderer-inspector';
 import { Tab } from '../ui/tab';
-import type { FrameRecord, TimelineEntry, RenderEntry, ComputeEntry } from '../renderer-inspector';
-import type { RendererInspector } from '../renderer-inspector';
 
 // Max number of flat entries retained during recording (~3 min at 60fps with ~20 entries/frame)
 const MAX_ENTRIES = 200_000;
@@ -367,7 +366,13 @@ export class PerformanceTimeline extends Tab {
         }
     }
 
-    private _drawOverview(ctx: CanvasRenderingContext2D, w: number, h: number, recordingDuration: number, chartWidth: number): void {
+    private _drawOverview(
+        ctx: CanvasRenderingContext2D,
+        w: number,
+        h: number,
+        recordingDuration: number,
+        chartWidth: number,
+    ): void {
         // Background
         ctx.fillStyle = COLORS.ruler;
         ctx.fillRect(0, 0, w, h);
@@ -380,7 +385,7 @@ export class PerformanceTimeline extends Tab {
             if (entry.kind === 'marker') continue; // Skip markers in overview for clarity
             const x = TRACK_LABEL_WIDTH + entry.startMs * pxPerMs;
             const barW = Math.max(entry.durationMs * pxPerMs, 1);
-            const y = h / 2 - barHeight / 2 + (entry.depth * 2);
+            const y = h / 2 - barHeight / 2 + entry.depth * 2;
 
             ctx.fillStyle = COLORS[entry.kind];
             ctx.fillRect(x, y, barW, barHeight);
@@ -461,7 +466,7 @@ export class PerformanceTimeline extends Tab {
     private _formatMs(ms: number, gridInterval: number): string {
         const absMs = Math.abs(ms);
         const sign = ms < 0 ? '-' : '';
-        
+
         // Show decimal precision based on grid interval
         if (gridInterval < 0.1) {
             // Sub-0.1ms (microsecond range): show 3 decimal places
@@ -573,7 +578,7 @@ export class PerformanceTimeline extends Tab {
         // viewportStartMs may be 0 when recording is short, but we still want entries near the right
         const recordingDuration = this._recordingEndMs - this._recordingStartMs;
         const pxPerMs = chartWidth / this._viewportDurationMs;
-        
+
         // Offset to apply: when following and recording < viewport, shift entries right
         let drawOffsetPx = 0;
         if (this._isRecording && this._followNow && recordingDuration < this._viewportDurationMs) {
@@ -590,7 +595,8 @@ export class PerformanceTimeline extends Tab {
             // the CPU end, so cull on the later edge or a GPU-heavy pass whose CPU
             // record time is µs-thin would be dropped just off the left edge.
             const cpuEndMs = entry.startMs + entry.durationMs;
-            const rightEdgeMs = gpuMs !== null && gpuMs > 0 && gpuStartMs !== null ? Math.max(cpuEndMs, gpuStartMs + gpuMs) : cpuEndMs;
+            const rightEdgeMs =
+                gpuMs !== null && gpuMs > 0 && gpuStartMs !== null ? Math.max(cpuEndMs, gpuStartMs + gpuMs) : cpuEndMs;
             if (rightEdgeMs < this._viewportStartMs || entry.startMs > viewportEndMs) continue;
 
             const barY = y + TRACK_PADDING + entry.depth * (ROW_HEIGHT + ROW_GAP);
@@ -646,7 +652,15 @@ export class PerformanceTimeline extends Tab {
         ctx.setLineDash([]);
     }
 
-    private _drawBar(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, kind: string, label: string): void {
+    private _drawBar(
+        ctx: CanvasRenderingContext2D,
+        x: number,
+        y: number,
+        w: number,
+        h: number,
+        kind: string,
+        label: string,
+    ): void {
         const color = COLORS[kind as keyof typeof COLORS] || COLORS.marker;
 
         const r = 2;
@@ -762,11 +776,11 @@ export class PerformanceTimeline extends Tab {
 
             // Allow zooming down to 0.1ms viewport (absurdly detailed) and up to 2x recording length
             const newDuration = Math.max(0.1, Math.min(recordingDuration * 2, this._viewportDurationMs * zoomFactor));
-            
+
             // Keep mouse position fixed during zoom
             const newStart = mouseMs - mouseRelX * newDuration;
             const newMaxStart = Math.max(0, recordingDuration - newDuration);
-            
+
             this._viewportDurationMs = newDuration;
             this._viewportStartMs = Math.max(0, Math.min(newStart, newMaxStart));
             this._followNow = false;

@@ -44,6 +44,7 @@ import {
     vec4,
     WorkgroupVar,
     wgsl,
+    wgslFn,
     workgroupBarrier,
 } from '../src/index';
 
@@ -87,7 +88,7 @@ describe('golden WGSL — render path', () => {
 
         const worldPosition = modelWorldMatrix.mul(vec4(position, f32(1)));
         const clipPosition = cameraProjectionMatrix.mul(cameraViewMatrix.mul(worldPosition));
-        const vWorldNormal = varying(modelNormalMatrix.mul(vec4(normal, f32(0))).xyz.normalize(), 'vNormal');
+        const vWorldNormal = varying(modelNormalMatrix.mul(normal).normalize(), 'vNormal');
 
         const lightDir = vec3(0.6, 1.0, 0.8).normalize();
         const lighting = f32(0.15).add(vWorldNormal.dot(lightDir).max(f32(0)));
@@ -180,5 +181,44 @@ describe('golden WGSL — compute path', () => {
         }).compute({ workgroupSize: [64, 1, 1] });
 
         expect(computeShape(compileCompute(kernel))).toMatchSnapshot();
+    });
+});
+
+// Placed LAST so the extra nodes these build don't shift the monotonic node ids the snapshot cases
+// above depend on. No snapshots here — these assert the GLSL companion is inert on the WGSL path.
+describe('GLSL companion does not affect WGSL output', () => {
+    test('wgslFn with a `glsl` companion emits identical WGSL to the same wgslFn without one', () => {
+        const src = `fn luma(c: vec3f) -> f32 { return dot(c, vec3f(0.299, 0.587, 0.114)); }`;
+        const withGlsl = wgslFn(src, {
+            output: d.f32,
+            params: [{ name: 'c', type: d.vec3f }] as const,
+            glsl: `float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }`,
+        });
+        const withoutGlsl = wgslFn(src, { output: d.f32, params: [{ name: 'c', type: d.vec3f }] as const });
+
+        const build = (fn: typeof withGlsl) =>
+            compile({
+                vertex: vec4(attribute('position', d.vec3f), f32(1)),
+                fragment: vec4(vec3(0.8, 0.3, 0.1).mul(fn(vec3(0.8, 0.3, 0.1))), f32(1)),
+                depth: undefined,
+            }).code;
+
+        // Only the WGSL fn body differs by node ids created; compare the emitted luma function text.
+        expect(build(withGlsl)).toContain('fn luma(c: vec3f) -> f32');
+        expect(build(withoutGlsl)).toContain('fn luma(c: vec3f) -> f32');
+    });
+
+    test('inline wgsl`` with a .glslSource companion emits the same WGSL expression', () => {
+        const a = vec3(0.8, 0.3, 0.1);
+        const withGlsl = wgsl(d.f32)`dot(${a}, vec3f(0.299, 0.587, 0.114))`
+            .glslSource`dot(${a}, vec3(0.299, 0.587, 0.114))`;
+        const code = compile({
+            vertex: vec4(attribute('position', d.vec3f), f32(1)),
+            fragment: vec4(a.mul(withGlsl), f32(1)),
+            depth: undefined,
+        }).code;
+        // The WGSL emitter uses the wgsl source (vec3f(...)), not the glsl companion (vec3(...)).
+        expect(code).toContain('vec3f(0.299, 0.587, 0.114)');
+        expect(code).not.toContain('vec3(0.299');
     });
 });

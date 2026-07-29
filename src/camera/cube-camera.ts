@@ -1,9 +1,8 @@
-import { vec3, type Vec3 } from 'mathcat';
-import { Object3D } from '../core/object3d';
-import { PerspectiveCamera } from './perspective-camera';
+import { type Vec3, vec3 } from 'mathcat';
 import type { CubeRenderTarget } from '../core/cube-render-target';
-import type { WebGPURenderer } from '../renderer/renderer';
-import { finalizeCubeRenderTargetCapture } from '../renderer/textures';
+import { Object3D } from '../core/object3d';
+import type { Renderer } from '../renderer/core/renderer-interface';
+import { PerspectiveCamera } from './perspective-camera';
 
 /*
  * Per-face look directions and up vectors (WebGPU coordinate system).
@@ -66,7 +65,7 @@ export class CubeCamera extends Object3D {
      * Render the scene into all six faces of the cube render target from this
      * camera's world position. Restores the renderer's previous render target.
      */
-    update(renderer: WebGPURenderer, scene: Object3D): void {
+    update(renderer: Renderer, scene: Object3D): void {
         if (this.parent === null) this.updateWorldMatrix();
         this.getWorldPosition(_worldPos);
 
@@ -92,7 +91,8 @@ export class CubeCamera extends Object3D {
         }
 
         this.renderTarget.texture.generateMipmaps = generateMipmaps;
-        finalizeCubeRenderTargetCapture(renderer._textures, renderer._device, this.renderTarget, this.activeMipmapLevel);
+        // Backend-specific post-capture work (e.g. cube mipmap generation); no-op if unimplemented.
+        renderer.finalizeCubeCapture?.(this.renderTarget, this.activeMipmapLevel);
 
         renderer.renderTarget = previous;
         this.renderTarget.activeFace = previousFace;

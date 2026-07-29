@@ -1,6 +1,6 @@
 /// <reference types="@webgpu/types" />
 
-import { describe, expect, test, beforeEach, beforeAll } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, test } from 'vitest';
 import { createStubGPU, installWebGPUPolyfills, type StubGPUResult } from './stub-gpu';
 
 // Install WebGPU polyfills for Node environment
@@ -8,25 +8,25 @@ beforeAll(() => {
     installWebGPUPolyfills();
 });
 
-import { WebGPURenderer } from '../src/renderer/renderer';
-import { Scene } from '../src/scene/scene';
 import { PerspectiveCamera } from '../src/camera/perspective-camera';
-import { Mesh } from '../src/objects/mesh';
-import { Material } from '../src/material/material';
 import { createBoxGeometry } from '../src/geometry/geometry-helpers';
+import { Material } from '../src/material/material';
 import {
     attribute,
-    vec4,
-    f32,
-    mul,
     cameraProjectionMatrix,
     cameraViewMatrix,
+    f32,
     modelWorldMatrix,
-    renderGroup,
+    mul,
     objectGroup,
-    UniformNode,
+    renderGroup,
     Uniform,
+    UniformNode,
+    vec4,
 } from '../src/nodes/nodes';
+import { Mesh } from '../src/objects/mesh';
+import { WebGPURenderer } from '../src/renderer/webgpu/renderer';
+import { Scene } from '../src/scene/scene';
 import * as d from '../src/schema/schema';
 
 /**
@@ -195,7 +195,7 @@ describe('uniform group deduplication', () => {
             stub.stats.reset();
 
             // Move the mesh (changes modelWorldMatrix) - stay within frustum
-            mesh.position[0] = 1;  // Was 5, which is outside frustum
+            mesh.position[0] = 1; // Was 5, which is outside frustum
             mesh.updateWorldMatrix();
 
             // Second frame - object group should re-upload due to matrix change

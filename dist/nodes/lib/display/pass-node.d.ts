@@ -1,13 +1,13 @@
 import type { Camera } from '../../../camera/camera';
 import { RenderTarget } from '../../../core/render-target';
-import type { NodeFrame } from '../../../renderer/node-frame';
+import type { NodeFrame } from '../../../renderer/core/node-frame';
 import type { Scene } from '../../../scene/scene';
+import * as d from '../../../schema/schema';
+import type { DepthTexture } from '../../../texture/depth-texture';
 import { Texture } from '../../../texture/texture';
-import { DepthTexture } from '../../../texture/depth-texture';
+import { Node, NodeKind } from '../core';
 import type { MRTNode } from '../mrt';
 import { DepthTextureNode, TextureBindingNode, TextureNode } from '../texture';
-import { Node, NodeKind } from '../core';
-import * as d from '../../../schema/schema';
 /**
  * Represents the texture of a pass node.
  * Extends TextureNode to ensure proper registration during setup for sampler generation.

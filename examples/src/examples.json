@@ -1,172 +1,463 @@
 {
-    "example-compute-birds": {
-        "title": "Compute Birds",
-        "description": "Thousands of GPU-flocked birds, wings flapping, fleeing your cursor.",
-        "tags": ["compute", "spatial-hash", "flocking", "instancing"]
-    },
-    "example-raging-sea": {
-        "title": "Raging Sea",
-        "description": "A choppy neon ocean of GPU-displaced waves, after Bruno Simon's Three.js Journey lesson.",
-        "tags": ["geometry", "animation", "noise"]
-    },
-    "example-ball-cluster": {
-        "title": "Ball Cluster",
-        "description": "1000 balls collide into a cluster on the GPU; the cursor shoves them around.",
-        "tags": ["compute", "physics", "spatial-hash"]
-    },
-    "example-voxels": {
-        "title": "Voxels",
-        "description": "A GPU-culled voxel world drawn from packed quads in one indirect pass. Click to dig.",
-        "tags": ["voxels", "compute", "indirect", "culling", "noise"]
-    },
-    "example-volume": {
-        "title": "Volume",
-        "description": "A lit volumetric cloud, raymarched from a 3D texture. Drag to orbit.",
-        "tags": ["compute", "storage-texture", "3d-texture", "volume", "raymarch"]
-    },
-    "example-compute-particles": {
-        "title": "Compute Particles",
-        "description": "8192 GPU-simulated particles, no CPU readback.",
-        "tags": ["compute", "particles"]
-    },
-    "example-cube-camera": {
-        "title": "Cube Camera",
-        "description": "A chrome sphere reflecting its surroundings in realtime.",
-        "tags": ["camera", "cubemap", "render-target", "reflection", "multi-pass"]
-    },
-    "example-point-lights": {
-        "title": "Point Lights",
-        "description": "Colored point lights orbiting spheres; lighting you write yourself.",
-        "tags": ["lighting", "storage-buffer"]
-    },
-    "example-indirect-batched": {
-        "title": "Indirect Batched",
-        "description": "CPU-driven indirect draws from one merged geometry.",
-        "tags": ["indirect", "batched-mesh"]
-    },
-    "example-compute-texture": {
-        "title": "Compute Texture",
-        "description": "A compute shader writes a texture; a render pass samples it.",
-        "tags": ["compute", "storage-texture", "texture"]
-    },
-    "example-indirect-compute": {
-        "title": "Indirect Compute",
-        "description": "A compute shader drives the draw count, culling on the GPU.",
-        "tags": ["indirect", "compute", "culling"]
-    },
-    "example-hello-world": {
+    "example-webgpu-hello-world": {
         "title": "Hello World",
         "description": "A single spinning, lit cube: the simplest scene.",
-        "tags": ["hello-world", "lighting"]
+        "tags": [
+            "hello-world",
+            "lighting"
+        ],
+        "backend": "webgpu",
+        "category": "basics"
     },
-    "example-uniforms": {
+    "example-webgpu-uniforms": {
         "title": "Uniforms",
         "description": "Inline vs. name-based uniform patterns.",
-        "tags": ["uniforms", "material"]
+        "tags": [
+            "uniforms",
+            "material"
+        ],
+        "backend": "webgpu",
+        "category": "basics"
     },
-    "example-texture": {
-        "title": "Texture",
-        "description": "A textured spinning box.",
-        "tags": ["texture"]
-    },
-    "example-instanced-mesh": {
-        "title": "Instanced Mesh",
-        "description": "30 instanced boxes with per-instance transforms and colors.",
-        "tags": ["instancing"]
-    },
-    "example-instancing-storage-buffer": {
-        "title": "Instancing with Storage Buffer",
-        "description": "Instanced boxes driven by a storage buffer.",
-        "tags": ["instancing", "storage-buffer"]
-    },
-    "example-storage": {
+    "example-webgpu-storage": {
         "title": "Storage Buffers",
         "description": "Inline vs. name-based storage buffer patterns.",
-        "tags": ["storage-buffer", "instancing"]
+        "tags": [
+            "storage-buffer",
+            "instancing"
+        ],
+        "backend": "webgpu",
+        "category": "basics"
     },
-    "example-interleaved": {
+    "example-webgpu-interleaved": {
         "title": "Interleaved Vertex Buffers",
         "description": "Interleaved vertex attributes packed into one buffer.",
-        "tags": ["geometry", "interleaved", "vertex-buffers"]
+        "tags": [
+            "geometry",
+            "interleaved",
+            "vertex-buffers"
+        ],
+        "backend": "webgpu",
+        "category": "geometry"
     },
-    "example-line": {
+    "example-webgpu-line": {
         "title": "Line",
         "description": "Fixed-width screen-space lines, static and animated.",
-        "tags": ["geometry", "line", "animation"]
+        "tags": [
+            "geometry",
+            "line",
+            "animation"
+        ],
+        "backend": "webgpu",
+        "category": "geometry"
     },
-    "example-video-texture": {
-        "title": "Video Texture",
-        "description": "A video played live onto a spinning cube.",
-        "tags": ["texture", "video"]
+    "example-webgpu-raging-sea": {
+        "title": "Raging Sea",
+        "description": "A choppy neon ocean of GPU-displaced waves, after Bruno Simon's Three.js Journey lesson.",
+        "tags": [
+            "geometry",
+            "animation",
+            "noise"
+        ],
+        "backend": "webgpu",
+        "category": "geometry"
     },
-    "example-array-texture": {
-        "title": "Array Texture Flipbook",
-        "description": "A flipbook animation from a 2D array texture.",
-        "tags": ["texture", "array-texture", "animation"]
+    "example-webgpu-point-lights": {
+        "title": "Point Lights",
+        "description": "Colored point lights orbiting spheres; lighting you write yourself.",
+        "tags": [
+            "lighting",
+            "storage-buffer"
+        ],
+        "backend": "webgpu",
+        "category": "lighting"
     },
-    "example-mipmaps": {
-        "title": "Mipmaps",
-        "description": "Mipmaps + anisotropy vs. none, side by side.",
-        "tags": ["texture", "mipmaps"]
-    },
-    "example-render-to-texture": {
-        "title": "Render to Texture",
-        "description": "Render one scene into a texture, sample it in another.",
-        "tags": ["render-target", "texture", "multi-pass"]
-    },
-    "example-mrt": {
-        "title": "MRT (Multiple Render Targets)",
-        "description": "Render to 4 targets at once, composited side by side.",
-        "tags": ["mrt", "post-processing"]
-    },
-    "example-shadow-map": {
+    "example-webgpu-shadow-map": {
         "title": "Shadow Map",
         "description": "Two-pass shadow mapping with a depth texture.",
-        "tags": ["shadows", "depth-texture", "render-target", "multi-pass"]
+        "tags": [
+            "shadows",
+            "depth-texture",
+            "render-target",
+            "multi-pass"
+        ],
+        "backend": "webgpu",
+        "category": "lighting"
     },
-    "example-cubemap": {
-        "title": "Cube Texture Skybox",
-        "description": "A cube-texture skybox viewed from inside.",
-        "tags": ["texture", "cubemap", "skybox"]
-    },
-    "example-discard": {
+    "example-webgpu-discard": {
         "title": "Discard",
         "description": "An animated dither dissolve via Discard().",
-        "tags": ["discard", "dithering", "control-flow"]
+        "tags": [
+            "discard",
+            "dithering",
+            "control-flow"
+        ],
+        "backend": "webgpu",
+        "category": "materials"
     },
-    "example-fxaa": {
+    "example-webgpu-instanced-mesh": {
+        "title": "Instanced Mesh",
+        "description": "30 instanced boxes with per-instance transforms and colors.",
+        "tags": [
+            "instancing"
+        ],
+        "backend": "webgpu",
+        "category": "materials"
+    },
+    "example-webgpu-instancing-storage-buffer": {
+        "title": "Instancing with Storage Buffer",
+        "description": "Instanced boxes driven by a storage buffer.",
+        "tags": [
+            "instancing",
+            "storage-buffer"
+        ],
+        "backend": "webgpu",
+        "category": "materials"
+    },
+    "example-webgpu-texture": {
+        "title": "Texture",
+        "description": "A textured spinning box.",
+        "tags": [
+            "texture"
+        ],
+        "backend": "webgpu",
+        "category": "textures"
+    },
+    "example-webgpu-mipmaps": {
+        "title": "Mipmaps",
+        "description": "Mipmaps + anisotropy vs. none, side by side.",
+        "tags": [
+            "texture",
+            "mipmaps"
+        ],
+        "backend": "webgpu",
+        "category": "textures"
+    },
+    "example-webgpu-cubemap": {
+        "title": "Cube Texture Skybox",
+        "description": "A cube-texture skybox viewed from inside.",
+        "tags": [
+            "texture",
+            "cubemap",
+            "skybox"
+        ],
+        "backend": "webgpu",
+        "category": "textures"
+    },
+    "example-webgpu-array-texture": {
+        "title": "Array Texture Flipbook",
+        "description": "A flipbook animation from a 2D array texture.",
+        "tags": [
+            "texture",
+            "array-texture",
+            "animation"
+        ],
+        "backend": "webgpu",
+        "category": "textures"
+    },
+    "example-webgpu-video-texture": {
+        "title": "Video Texture",
+        "description": "A video played live onto a spinning cube.",
+        "tags": [
+            "texture",
+            "video"
+        ],
+        "backend": "webgpu",
+        "category": "textures"
+    },
+    "example-webgpu-render-to-texture": {
+        "title": "Render to Texture",
+        "description": "Render one scene into a texture, sample it in another.",
+        "tags": [
+            "render-target",
+            "texture",
+            "multi-pass"
+        ],
+        "backend": "webgpu",
+        "category": "postprocessing"
+    },
+    "example-webgpu-mrt": {
+        "title": "MRT (Multiple Render Targets)",
+        "description": "Render to 4 targets at once, composited side by side.",
+        "tags": [
+            "mrt",
+            "post-processing"
+        ],
+        "backend": "webgpu",
+        "category": "postprocessing"
+    },
+    "example-webgpu-fxaa": {
         "title": "FXAA",
         "description": "FXAA anti-aliasing on a high-contrast cube.",
-        "tags": ["post-processing", "anti-aliasing", "fxaa"]
+        "tags": [
+            "post-processing",
+            "anti-aliasing",
+            "fxaa"
+        ],
+        "backend": "webgpu",
+        "category": "postprocessing"
     },
-    "example-viewports": {
+    "example-webgpu-cube-camera": {
+        "title": "Cube Camera",
+        "description": "A chrome sphere reflecting its surroundings in realtime.",
+        "tags": [
+            "camera",
+            "cubemap",
+            "render-target",
+            "reflection",
+            "multi-pass"
+        ],
+        "backend": "webgpu",
+        "category": "postprocessing"
+    },
+    "example-webgpu-viewports": {
         "title": "Viewports + Scissor",
         "description": "A grid of independent 3D views composited into one canvas via setViewport / setScissor / autoClear.",
-        "tags": ["viewport", "scissor", "multi-view"]
+        "tags": [
+            "viewport",
+            "scissor",
+            "multi-view"
+        ],
+        "backend": "webgpu",
+        "category": "postprocessing"
     },
-    "example-stencil": {
+    "example-webgpu-stencil": {
         "title": "Stencil Masking",
         "description": "A moving invisible mask writes stencil=1; the scene renders only where stencil==1, so spinning cubes show through the window.",
-        "tags": ["stencil", "masking", "depth-stencil"]
+        "tags": [
+            "stencil",
+            "masking",
+            "depth-stencil"
+        ],
+        "backend": "webgpu",
+        "category": "postprocessing"
     },
-    "example-transform-controls": {
+    "example-webgpu-compute-particles": {
+        "title": "Compute Particles",
+        "description": "8192 GPU-simulated particles, no CPU readback.",
+        "tags": [
+            "compute",
+            "particles"
+        ],
+        "backend": "webgpu",
+        "category": "compute"
+    },
+    "example-webgpu-compute-birds": {
+        "title": "Compute Birds",
+        "description": "Thousands of GPU-flocked birds, wings flapping, fleeing your cursor.",
+        "tags": [
+            "compute",
+            "spatial-hash",
+            "flocking",
+            "instancing"
+        ],
+        "backend": "webgpu",
+        "category": "compute"
+    },
+    "example-webgpu-compute-texture": {
+        "title": "Compute Texture",
+        "description": "A compute shader writes a texture; a render pass samples it.",
+        "tags": [
+            "compute",
+            "storage-texture",
+            "texture"
+        ],
+        "backend": "webgpu",
+        "category": "compute"
+    },
+    "example-webgpu-ball-cluster": {
+        "title": "Ball Cluster",
+        "description": "1000 balls collide into a cluster on the GPU; the cursor shoves them around.",
+        "tags": [
+            "compute",
+            "physics",
+            "spatial-hash"
+        ],
+        "backend": "webgpu",
+        "category": "compute"
+    },
+    "example-webgpu-volume": {
+        "title": "Volume",
+        "description": "A lit volumetric cloud, raymarched from a 3D texture. Drag to orbit.",
+        "tags": [
+            "compute",
+            "storage-texture",
+            "3d-texture",
+            "volume",
+            "raymarch"
+        ],
+        "backend": "webgpu",
+        "category": "compute"
+    },
+    "example-webgpu-voxels": {
+        "title": "Voxels",
+        "description": "A GPU-culled voxel world drawn from packed quads in one indirect pass. Click to dig.",
+        "tags": [
+            "voxels",
+            "compute",
+            "indirect",
+            "culling",
+            "noise"
+        ],
+        "backend": "webgpu",
+        "category": "compute"
+    },
+    "example-webgpu-indirect-batched": {
+        "title": "Indirect Batched",
+        "description": "CPU-driven indirect draws from one merged geometry.",
+        "tags": [
+            "indirect",
+            "batched-mesh"
+        ],
+        "backend": "webgpu",
+        "category": "compute"
+    },
+    "example-webgpu-indirect-compute": {
+        "title": "Indirect Compute",
+        "description": "A compute shader drives the draw count, culling on the GPU.",
+        "tags": [
+            "indirect",
+            "compute",
+            "culling"
+        ],
+        "backend": "webgpu",
+        "category": "compute"
+    },
+    "example-webgpu-transform-controls": {
         "title": "Transform Controls",
         "description": "A translate/rotate/scale gizmo. T/R/S to switch modes.",
-        "tags": ["controls", "gizmo", "interaction"]
+        "tags": [
+            "controls",
+            "gizmo",
+            "interaction"
+        ],
+        "backend": "webgpu",
+        "category": "controls"
     },
-    "example-fly-controls": {
+    "example-webgpu-fly-controls": {
         "title": "Fly Controls",
         "description": "A first-person WASD fly camera.",
-        "tags": ["controls", "camera", "interaction"]
+        "tags": [
+            "controls",
+            "camera",
+            "interaction"
+        ],
+        "backend": "webgpu",
+        "category": "controls"
     },
-    "example-moving-mesh-stress": {
+    "example-webgpu-moving-mesh-stress": {
         "title": "Moving Mesh Stress",
         "description": "900 individually animated meshes.",
-        "tags": ["stress-test", "animation"]
+        "tags": [
+            "stress-test",
+            "animation"
+        ],
+        "backend": "webgpu",
+        "category": "stress"
     },
-    "example-static-mesh-stress": {
+    "example-webgpu-static-mesh-stress": {
         "title": "Static Mesh Stress",
         "description": "900 static meshes; pure render overhead.",
-        "tags": ["stress-test"]
+        "tags": [
+            "stress-test"
+        ],
+        "backend": "webgpu",
+        "category": "stress"
+    },
+    "example-webgl-hello": {
+        "title": "Hello World",
+        "description": "A lit, auto-rotating sphere rendered through the WebGL2 backend: the 'does it draw' showcase.",
+        "tags": [
+            "hello-world",
+            "lighting"
+        ],
+        "backend": "webgl",
+        "category": "basics"
+    },
+    "example-webgl-textured": {
+        "title": "Textured Mesh",
+        "description": "A checkerboard-textured spinning box, proving sampler binding on WebGL2.",
+        "tags": [
+            "texture"
+        ],
+        "backend": "webgl",
+        "category": "textures"
+    },
+    "example-webgl-render-target": {
+        "title": "Render Target",
+        "description": "A scene rendered to an offscreen framebuffer and sampled fullscreen with a color tweak, proving the FBO path on WebGL2.",
+        "tags": [
+            "render-target",
+            "multi-pass",
+            "post-processing"
+        ],
+        "backend": "webgl",
+        "category": "postprocessing"
+    },
+    "example-webgl-shadow-map": {
+        "title": "Shadow Map (WebGL)",
+        "description": "Two-pass shadow mapping with a depth texture + comparison sampler on WebGL2.",
+        "tags": [
+            "shadows",
+            "depth-texture",
+            "render-target",
+            "multi-pass"
+        ],
+        "backend": "webgl",
+        "category": "lighting"
+    },
+    "example-webgl-instanced-mesh": {
+        "title": "Instanced Mesh (WebGL)",
+        "description": "30 instanced boxes with per-instance transforms and colors via instanced vertex attributes.",
+        "tags": [
+            "instancing"
+        ],
+        "backend": "webgl",
+        "category": "materials"
+    },
+    "example-webgl-cubemap": {
+        "title": "Cube Texture Skybox (WebGL)",
+        "description": "A cube-texture skybox viewed from inside, proving cube sampling on WebGL2.",
+        "tags": [
+            "texture",
+            "cubemap",
+            "skybox"
+        ],
+        "backend": "webgl",
+        "category": "textures"
+    },
+    "example-webgl-mrt": {
+        "title": "MRT (WebGL)",
+        "description": "Render to 4 targets at once via WebGL2 drawBuffers, composited side by side.",
+        "tags": [
+            "mrt",
+            "post-processing"
+        ],
+        "backend": "webgl",
+        "category": "postprocessing"
+    },
+    "example-webgl-cube-camera": {
+        "title": "Cube Camera (WebGL)",
+        "description": "A chrome sphere reflecting its surroundings in realtime via a per-face cube render target on WebGL2.",
+        "tags": [
+            "camera",
+            "cubemap",
+            "render-target",
+            "reflection",
+            "multi-pass"
+        ],
+        "backend": "webgl",
+        "category": "postprocessing"
+    },
+    "example-webgl-stencil": {
+        "title": "Stencil Masking (WebGL)",
+        "description": "A moving invisible mask writes stencil=1; spinning cubes render only where stencil==1.",
+        "tags": [
+            "stencil",
+            "masking",
+            "depth-stencil"
+        ],
+        "backend": "webgl",
+        "category": "postprocessing"
     }
 }

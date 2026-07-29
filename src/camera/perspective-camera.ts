@@ -1,8 +1,10 @@
 import { mat4 } from 'mathcat';
 import { Camera } from './camera';
+import { CoordinateSystem } from '../core/coordinate-system';
 
 export class PerspectiveCamera extends Camera {
     readonly isPerspectiveCamera = true;
+
     fov: number;
     aspect: number;
 
@@ -16,8 +18,13 @@ export class PerspectiveCamera extends Camera {
         this.updateProjectionMatrix();
     }
 
-    /** Recompute the projection matrix from current fov / aspect / near / far. */
+    /** Recompute the projection matrix from current fov / aspect / near / far, for the camera's coordinate system. */
     updateProjectionMatrix(): void {
-        mat4.perspectiveZO(this.projectionMatrix, this.fov, this.aspect, this.near, this.far);
+        // WebGPU clip space is z in [0,1] (ZO); WebGL is z in [-1,1] (NO). Only the depth mapping differs.
+        if (this.coordinateSystem === CoordinateSystem.WEBGL) {
+            mat4.perspectiveNO(this.projectionMatrix, this.fov, this.aspect, this.near, this.far);
+        } else {
+            mat4.perspectiveZO(this.projectionMatrix, this.fov, this.aspect, this.near, this.far);
+        }
     }
 }

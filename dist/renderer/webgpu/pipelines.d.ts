@@ -1,0 +1,132 @@
+import type { Geometry } from '../../geometry/geometry';
+import type { Material } from '../../material/material';
+import type { MRTNode } from '../../nodes/lib/mrt';
+import { type ComputeNode } from '../../nodes/nodes';
+import type { NodeBuilderState } from '../core/node-builder-state';
+import type { NodeManagerState } from '../core/node-manager';
+import type { ComputeContext } from '../core/pass-context';
+import type { RenderObject } from '../core/render-object';
+import { type BindGroupLayoutCache } from './bind-group-layout';
+export type ComputePipelineEntry = {
+    pipeline: GPUComputePipeline | null;
+    nodeBuilderState: NodeBuilderState;
+};
+export type RenderPipelineEntry = {
+    pipeline: GPURenderPipeline | null;
+    cacheKey: string;
+};
+export type PipelinesStats = {
+    renderCount: number;
+    computeCount: number;
+    bindGroupLayoutCount: number;
+};
+/**
+ * Pipelines state object.
+ * Holds all caches for render and compute pipelines.
+ */
+export type PipelinesState = {
+    /**
+     * Shared bind group layout cache. Owned by the backend and injected at creation so the same
+     * value-keyed layouts are shared with the bindings layer (bindings + pipelines never create a
+     * duplicate layout for the same entry shape).
+     */
+    bindGroupLayoutCache: BindGroupLayoutCache;
+    /** Render pipelines - keyed by cache key. */
+    renderPipelines: Map<string, RenderPipelineEntry>;
+    /** Compute pipelines - keyed by node id. */
+    computePipelines: Map<string, ComputePipelineEntry>;
+    /**
+     * Fallback color format used when rendering to the swapchain (renderTarget === null).
+     * Set by the renderer once the canvas format is known.
+     */
+    canvasFormat: GPUTextureFormat;
+    /**
+     * Fallback depth format used when rendering to the swapchain (renderTarget === null).
+     * Set by the renderer to match the swapchain depth texture format.
+     */
+    canvasDepthFormat: GPUTextureFormat;
+};
+export declare const DEPTH_FORMAT: GPUTextureFormat;
+/** Depth format carrying a stencil aspect. Used when a target requests a stencil buffer. */
+export declare const DEPTH_STENCIL_FORMAT: GPUTextureFormat;
+/** Whether a depth format includes a stencil aspect (depth24plus-stencil8, depth32float-stencil8, stencil8). */
+export declare function formatHasStencil(format: GPUTextureFormat): boolean;
+/**
+ * Create a pipelines state. The shared bind group layout cache is owned by the backend and passed
+ * in so the pipelines and bindings layers hit a single value-keyed layout cache.
+ */
+export declare function createPipelinesState(bindGroupLayoutCache: BindGroupLayoutCache): PipelinesState;
+/**
+ * Per-attachment color formats for a render context.
+ * Reads each `renderTarget.textures[i].format`; falls back to the canvas format for the swapchain.
+ */
+export declare function getRenderContextColorFormats(renderContext: {
+    renderTarget: {
+        textures: {
+            format: GPUTextureFormat;
+        }[];
+    } | null;
+}, canvasFormat: GPUTextureFormat): GPUTextureFormat[];
+/**
+ * Depth-stencil format for a render context, or null if the target has no depth attachment.
+ * Reads `renderTarget.depthTexture?.format`; falls back to the swapchain depth format.
+ */
+export declare function getRenderContextDepthFormat(renderContext: {
+    renderTarget: {
+        depthTexture: {
+            format: GPUTextureFormat;
+        } | null;
+    } | null;
+}, canvasDepthFormat: GPUTextureFormat): GPUTextureFormat | null;
+/**
+ * Get cache statistics.
+ */
+export declare function getStats(state: PipelinesState): PipelinesStats;
+/**
+ * Get or create a render pipeline for a RenderObject.
+ *
+ * @param state - The pipelines state
+ * @param renderObject - The RenderObject (must have nodeBuilderState set)
+ * @param bindGroupLayouts - The bind group layouts for the pipeline
+ * @param colorFormat - The color texture format
+ * @param depthFormat - The depth texture format (null for no depth)
+ * @param promises - Optional array to collect async compilation promises (for compileAsync)
+ * @returns The render pipeline entry
+ */
+export declare function getForRender(state: PipelinesState, device: GPUDevice, renderObject: RenderObject, bindGroupLayouts: GPUBindGroupLayout[], promises?: Promise<void>[] | null): RenderPipelineEntry;
+/**
+ * Check if a render pipeline is ready for rendering.
+ */
+export declare function isReady(state: PipelinesState, renderObject: RenderObject): boolean;
+/**
+ * Get or create a compute pipeline for a ComputeNode.
+ *
+ * @param state - The pipelines state
+ * @param node - The ComputeNode
+ * @param computeContext - The ComputeContext for bind group caching
+ * @param promises - Optional array to collect async compilation promises (for compileAsync)
+ * @returns The compute pipeline entry
+ */
+export declare function getForCompute(state: PipelinesState, device: GPUDevice, nodes: NodeManagerState, node: ComputeNode, computeContext: ComputeContext, promises?: Promise<void>[] | null): ComputePipelineEntry;
+/**
+ * Check if a compute pipeline is ready.
+ */
+export declare function isComputeReady(state: PipelinesState, node: ComputeNode): boolean;
+/**
+ * Look up an existing compute pipeline entry without compiling.
+ * Returns null if the pipeline hasn't been created yet.
+ *
+ * @param state - The pipelines state
+ * @param node - The ComputeNode
+ * @returns The compute pipeline entry, or null if not compiled yet
+ */
+export declare function lookupCompute(state: PipelinesState, node: ComputeNode): ComputePipelineEntry | null;
+/**
+ * Stable cache key for a material + MSAA sample count + color format + optional depth format.
+ */
+export declare function makeRenderPipelineKey(material: Material, samples: number, formats: GPUTextureFormat[], depthFormat: GPUTextureFormat | null, mrt: MRTNode | null): string;
+/**
+ * Build vertex buffer layouts from geometry and NodeBuilderState.
+ * Uses vertexBufferGroups to produce one GPUVertexBufferLayout per unique buffer.
+ */
+export declare function buildVertexBufferLayouts(geometry: Geometry, nodeState: NodeBuilderState): GPUVertexBufferLayout[];

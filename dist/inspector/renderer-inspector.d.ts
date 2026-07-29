@@ -25,11 +25,10 @@
  *   panel instead reads the newest *resolved* frame (latestResolvedFrame) rather
  *   than the just-finished one, whose gpuMs is always still pending.
  */
-import { InspectorBase } from './inspector-base';
-import type { WebGPURenderer } from '../renderer/renderer';
-import type { InspectorNode, ComputeNode } from '../nodes/nodes';
 import type { Object3D } from '../core/object3d';
-import { Any } from '../schema/schema';
+import type { ComputeNode, InspectorNode } from '../nodes/nodes';
+import type { Any } from '../schema/schema';
+import { type InspectableRenderer, InspectorBase } from './inspector-base';
 /** Base fields shared by all timeline entries */
 type TimelineEntryBase = {
     /** Entry name (pass ID or marker name) */
@@ -86,7 +85,7 @@ export type SceneRecord = {
     /** MSAA sample count used for pipeline key lookup. */
     samples: number;
     /** Color attachment format used for pipeline key lookup. */
-    colorFormat: GPUTextureFormat;
+    colorFormat: string;
 };
 export type FrameRecord = {
     frameId: number;
@@ -125,6 +124,17 @@ export declare class RendererInspector extends InspectorBase {
     private _gpuInitialized;
     private _querySet;
     private _resolveBuffer;
+    /** The WebGL disjoint-timer extension, or null if unavailable. */
+    private _glTimerExt;
+    /** Free pool of GL timer-query objects to reuse. */
+    private _glQueryPool;
+    /** Timer queries submitted but not yet read back: {query, entry, frame record}. */
+    private _glPendingQueries;
+    /** The GL timer query currently open (between beginRender and finishRender). Only one may be
+     *  active at a time — TIME_ELAPSED queries can't nest, so nested passes are left untimed. */
+    private _glActiveQuery;
+    /** Per-frame list of entries whose GL query landed in this frame, to compute the frame span. */
+    private _glFrameQueries;
     /** Pool of MAP_READ readback buffers (see READBACK_POOL_SIZE). Each frame
      *  resolves into a free (unmapped) one, so a pending mapAsync from a prior
      *  frame never blocks the next — every frame's gpuMs resolves and back-patches
@@ -142,9 +152,23 @@ export declare class RendererInspector extends InspectorBase {
     private _entryStack;
     private _rootTimeline;
     private _entryRefs;
-    setRenderer(renderer: WebGPURenderer | null): void;
+    setRenderer(renderer: InspectableRenderer | null): void;
     init(): void;
     private _destroyTimestampGpu;
+    /** Acquire the disjoint-timer extension if available; enables per-pass GPU timing on WebGL. */
+    private _initWebGLTimestamps;
+    /** Grab a free GL timer query, creating one if the pool is empty. */
+    private _glAcquireQuery;
+    /** Begin a GL timer query around a render/compute entry (top-level only — can't nest). */
+    private _glBeginQuery;
+    /** End the GL timer query for an entry, stashing it until finish() attaches the frame record. */
+    private _glEndQuery;
+    /**
+     * Poll pending GL timer queries: any whose result is available is read (ns → ms) and back-patched
+     * onto its entry + frame record, then the query returns to the pool. Disjoint results (GPU state
+     * change invalidated the timing) are discarded. Called each frame from finish().
+     */
+    private _glPollQueries;
     begin(frameId: number): void;
     finish(frameId: number): void;
     beginRender(passId: string, _frameId: number): void;
@@ -153,7 +177,7 @@ export declare class RendererInspector extends InspectorBase {
     beginCompute(node: ComputeNode, _frameId: number): void;
     finishCompute(nodeId: string, _frameId: number): void;
     inspect(node: InspectorNode<Any>): void;
-    beginRenderScene(passId: string, scene: Object3D, samples: number, colorFormat: GPUTextureFormat, _frameId: number): void;
+    beginRenderScene(passId: string, scene: Object3D, samples: number, colorFormat: string, _frameId: number): void;
     /** Public API for adding performance markers from user code */
     readonly perf: {
         /**

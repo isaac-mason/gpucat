@@ -1,5 +1,5 @@
 /**
- * schema.ts, WGSL type descriptors following packcat's discriminated union pattern.
+ * schema.ts, type descriptors using WGSL grammar, with GLSL types where possible.
  *
  * Every descriptor has:
  *   - `type`, discriminant string for type-level narrowing and runtime switching
@@ -7,51 +7,66 @@
  *
  * For primitives, type === wgslType (e.g. { type: 'f32'; wgslType: 'f32' }).
  * For composites, type is the discriminant ('array', 'struct') and wgslType is computed.
+ *
+ * `wgslType` stays WebGPU-native. A companion `glslType` carries the GLSL ES 3.00 type-name for the
+ * subset of descriptors the GLSL backend can translate directly (scalars, float/int/uint vectors,
+ * square float matrices, and structs — whose GLSL name equals their WGSL name). It is left OFF the
+ * descriptors the GLSL emitter can't express (f16 variants, bool vectors, non-square/half matrices,
+ * textures, samplers, …) so the emitter's `glslType()` helper still throws loudly for them, exactly
+ * as the old WGSL_TO_GLSL map did. Never neutralize `wgslType` for GLSL — add `glslType` alongside.
  */
-export declare const f32: f32;
 export type f32 = {
     type: 'f32';
     wgslType: 'f32';
+    glslType: 'float';
 };
-export declare const i32: i32;
+export declare const f32: f32;
 export type i32 = {
     type: 'i32';
     wgslType: 'i32';
+    glslType: 'int';
 };
-export declare const u32: u32;
+export declare const i32: i32;
 export type u32 = {
     type: 'u32';
     wgslType: 'u32';
+    glslType: 'uint';
 };
-export declare const bool: bool;
+export declare const u32: u32;
 export type bool = {
     type: 'bool';
     wgslType: 'bool';
+    glslType: 'bool';
 };
-export declare const f16: f16;
+export declare const bool: bool;
 export type f16 = {
     type: 'f16';
     wgslType: 'f16';
 };
+export declare const f16: f16;
 export type Scalar = f32 | i32 | u32 | bool | f16;
 export type vec2f = {
     type: 'vec2f';
     wgslType: 'vec2f';
+    glslType: 'vec2';
 };
 export declare const vec2f: vec2f;
 export type vec2i = {
     type: 'vec2i';
     wgslType: 'vec2i';
+    glslType: 'ivec2';
 };
 export declare const vec2i: vec2i;
 export type vec2u = {
     type: 'vec2u';
     wgslType: 'vec2u';
+    glslType: 'uvec2';
 };
 export declare const vec2u: vec2u;
 export type vec2bool = {
     type: 'vec2<bool>';
     wgslType: 'vec2<bool>';
+    glslType: 'bvec2';
 };
 export declare const vec2bool: vec2bool;
 export type vec2h = {
@@ -63,21 +78,25 @@ export type Vec2 = vec2f | vec2i | vec2u | vec2bool | vec2h;
 export type vec3f = {
     type: 'vec3f';
     wgslType: 'vec3f';
+    glslType: 'vec3';
 };
 export declare const vec3f: vec3f;
 export type vec3i = {
     type: 'vec3i';
     wgslType: 'vec3i';
+    glslType: 'ivec3';
 };
 export declare const vec3i: vec3i;
 export type vec3u = {
     type: 'vec3u';
     wgslType: 'vec3u';
+    glslType: 'uvec3';
 };
 export declare const vec3u: vec3u;
 export type vec3bool = {
     type: 'vec3<bool>';
     wgslType: 'vec3<bool>';
+    glslType: 'bvec3';
 };
 export declare const vec3bool: vec3bool;
 export type vec3h = {
@@ -89,21 +108,25 @@ export type Vec3 = vec3f | vec3i | vec3u | vec3bool | vec3h;
 export type vec4f = {
     type: 'vec4f';
     wgslType: 'vec4f';
+    glslType: 'vec4';
 };
 export declare const vec4f: vec4f;
 export type vec4i = {
     type: 'vec4i';
     wgslType: 'vec4i';
+    glslType: 'ivec4';
 };
 export declare const vec4i: vec4i;
 export type vec4u = {
     type: 'vec4u';
     wgslType: 'vec4u';
+    glslType: 'uvec4';
 };
 export declare const vec4u: vec4u;
 export type vec4bool = {
     type: 'vec4<bool>';
     wgslType: 'vec4<bool>';
+    glslType: 'bvec4';
 };
 export declare const vec4bool: vec4bool;
 export type vec4h = {
@@ -116,46 +139,55 @@ export type Vec = Vec2 | Vec3 | Vec4;
 export type mat2x2f = {
     type: 'mat2x2f';
     wgslType: 'mat2x2f';
+    glslType: 'mat2';
 };
 export declare const mat2x2f: mat2x2f;
 export type mat2x3f = {
     type: 'mat2x3f';
     wgslType: 'mat2x3f';
+    glslType: 'mat2x3';
 };
 export declare const mat2x3f: mat2x3f;
 export type mat2x4f = {
     type: 'mat2x4f';
     wgslType: 'mat2x4f';
+    glslType: 'mat2x4';
 };
 export declare const mat2x4f: mat2x4f;
 export type mat3x2f = {
     type: 'mat3x2f';
     wgslType: 'mat3x2f';
+    glslType: 'mat3x2';
 };
 export declare const mat3x2f: mat3x2f;
 export type mat3x3f = {
     type: 'mat3x3f';
     wgslType: 'mat3x3f';
+    glslType: 'mat3';
 };
 export declare const mat3x3f: mat3x3f;
 export type mat3x4f = {
     type: 'mat3x4f';
     wgslType: 'mat3x4f';
+    glslType: 'mat3x4';
 };
 export declare const mat3x4f: mat3x4f;
 export type mat4x2f = {
     type: 'mat4x2f';
     wgslType: 'mat4x2f';
+    glslType: 'mat4x2';
 };
 export declare const mat4x2f: mat4x2f;
 export type mat4x3f = {
     type: 'mat4x3f';
     wgslType: 'mat4x3f';
+    glslType: 'mat4x3';
 };
 export declare const mat4x3f: mat4x3f;
 export type mat4x4f = {
     type: 'mat4x4f';
     wgslType: 'mat4x4f';
+    glslType: 'mat4';
 };
 export declare const mat4x4f: mat4x4f;
 export type MatF = mat2x2f | mat2x3f | mat2x4f | mat3x2f | mat3x3f | mat3x4f | mat4x2f | mat4x3f | mat4x4f;
@@ -224,6 +256,7 @@ export type StructSchema = {
 export type StructDesc<S extends StructSchema = StructSchema> = {
     type: 'struct';
     wgslType: string;
+    glslType: string;
     name: string;
     fields: S;
 };
@@ -584,7 +617,24 @@ export type Infer<D extends Any> = D extends {
     fields: infer S extends Record<string, Any>;
 } ? {
     [K in keyof S]: Infer<S[K]>;
-} : D extends Atomic ? number : D extends f32 | i32 | u32 | bool | f16 ? number : D extends Vec2 ? [number, number] : D extends Vec3 ? [number, number, number] : D extends Vec4 ? [number, number, number, number] : D extends mat2x2f | mat2x2h ? [number, number, number, number] : D extends mat3x3f | mat3x3h ? [number, number, number, number, number, number, number, number, number] : D extends mat4x4f | mat4x4h ? [number, number, number, number, number, number, number, number, number, number, number, number, number, number, number, number] : D extends mat2x3f | mat2x3h | mat3x2f | mat3x2h ? [number, number, number, number, number, number] : D extends mat2x4f | mat2x4h | mat4x2f | mat4x2h ? [number, number, number, number, number, number, number, number] : D extends mat3x4f | mat3x4h | mat4x3f | mat4x3h ? [number, number, number, number, number, number, number, number, number, number, number, number] : D extends {
+} : D extends Atomic ? number : D extends f32 | i32 | u32 | bool | f16 ? number : D extends Vec2 ? [number, number] : D extends Vec3 ? [number, number, number] : D extends Vec4 ? [number, number, number, number] : D extends mat2x2f | mat2x2h ? [number, number, number, number] : D extends mat3x3f | mat3x3h ? [number, number, number, number, number, number, number, number, number] : D extends mat4x4f | mat4x4h ? [
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number
+] : D extends mat2x3f | mat2x3h | mat3x2f | mat3x2h ? [number, number, number, number, number, number] : D extends mat2x4f | mat2x4h | mat4x2f | mat4x2h ? [number, number, number, number, number, number, number, number] : D extends mat3x4f | mat3x4h | mat4x3f | mat4x3h ? [number, number, number, number, number, number, number, number, number, number, number, number] : D extends {
     type: 'sized-array';
     element: infer E extends Any;
 } ? Infer<E>[] : D extends {
@@ -610,6 +660,7 @@ export declare function wgslStrideOf(desc: Any): number;
 export declare function itemSizeOf(desc: Any): number;
 export declare function typedArrayCtorOf(desc: Any): new (length: number) => Float32Array | Int32Array | Uint32Array;
 export declare function descFromWgslType(wgslType: string): Any;
+export declare function descFromGlslType(glslType: string): Any;
 export declare function vecElementDescOrSelf(desc: Any): Any;
 export declare function vec2DescOf(desc: Any): Vec2;
 export declare function vec3DescOf(desc: Any): Vec3;

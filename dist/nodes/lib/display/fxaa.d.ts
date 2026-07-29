@@ -1,6 +1,6 @@
-import { Node } from '../core';
-import { TextureNode } from '../texture';
 import * as d from '../../../schema/schema';
+import { type Node } from '../core';
+import type { TextureNode } from '../texture';
 /**
  * FXAA (Fast Approximate Anti-Aliasing) post-processing effect.
  *

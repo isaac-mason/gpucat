@@ -9,25 +9,25 @@
  *  - Viewer tab: inspectable node canvases
  */
 import { RendererInspector } from './renderer-inspector';
-export type { TimelineEntry, MarkerEntry, RenderEntry, ComputeEntry, FrameRecord, PassRecord, SceneRecord } from './renderer-inspector';
-import { Profiler } from './ui/profiler';
-import { Parameters } from './tabs/parameters';
-import { GUI } from './gui/GUI';
-import { Performance } from './tabs/performance';
-import { Memory } from './tabs/memory';
-import { Timeline } from './tabs/timeline';
-import { Console } from './tabs/console';
-import { Settings } from './tabs/settings';
-import { Viewer, type CanvasData } from './tabs/viewer';
-import { SceneHierarchy } from './tabs/scene-hierarchy';
-import { DrawCalls } from './tabs/draw-calls';
-import { ComputeCalls } from './tabs/compute-calls';
-import { PerformanceTimeline } from './tabs/performance-timeline';
-import type { InspectorNode, ComputeNode } from '../nodes/nodes';
-import type { WebGPURenderer } from '../renderer/renderer';
+export type { ComputeEntry, FrameRecord, MarkerEntry, PassRecord, RenderEntry, SceneRecord, TimelineEntry, } from './renderer-inspector';
+import type { ComputeNode, InspectorNode } from '../nodes/nodes';
+import type { RenderObject } from '../renderer/core/render-object';
+import type { Any } from '../schema/schema';
+import type { InspectableRenderer } from './inspector-base';
+import type { GUI } from './gui/GUI';
 import type { ProbeTarget } from './probe-wgsl';
-import type { RenderObject } from '../renderer/render-object';
-import { Any } from '../schema/schema';
+import { ComputeCalls } from './tabs/compute-calls';
+import { Console } from './tabs/console';
+import { DrawCalls } from './tabs/draw-calls';
+import { Memory } from './tabs/memory';
+import { Parameters } from './tabs/parameters';
+import { Performance } from './tabs/performance';
+import { PerformanceTimeline } from './tabs/performance-timeline';
+import { SceneHierarchy } from './tabs/scene-hierarchy';
+import { Settings } from './tabs/settings';
+import { Timeline } from './tabs/timeline';
+import { type CanvasData, Viewer } from './tabs/viewer';
+import { Profiler } from './ui/profiler';
 export declare class Inspector extends RendererInspector {
     readonly profiler: Profiler;
     readonly performance: Performance;
@@ -47,6 +47,8 @@ export declare class Inspector extends RendererInspector {
     private _canvasNodes;
     /** Active probe entry, if any. */
     private _activeProbe;
+    /** Active WebGL probe entry, if any (mutually exclusive with `_activeProbe`). */
+    private _activeGlProbe;
     constructor();
     get domElement(): HTMLElement;
     /**
@@ -58,7 +60,7 @@ export declare class Inspector extends RendererInspector {
         warn: (msg: string) => void;
         error: (msg: string) => void;
     };
-    setRenderer(renderer: WebGPURenderer | null): void;
+    setRenderer(renderer: InspectableRenderer | null): void;
     /**
      * Release everything this Inspector owns: GPU resources (probe + timestamp
      * query state), DOM (panel + any detached tab windows), and window
@@ -95,8 +97,14 @@ export declare class Inspector extends RendererInspector {
      * Returns the probe canvas element so the caller can display it, or null
      * if patching / pipeline creation fails.
      */
-    setProbe(target: ProbeTarget, sourceRO: RenderObject): HTMLCanvasElement | null;
-    /** Remove the active probe. */
+    setProbe(target: ProbeTarget, sourceRO: RenderObject): HTMLElement | null;
+    /**
+     * WebGL probe: patch the fragment GLSL to output the probed value, build a small popover element
+     * (color swatch + numeric readback), and wire it to read back each frame via renderer.renderProbe.
+     * Returns the element, or null if patching fails. Never touches `device`.
+     */
+    private _setGlProbe;
+    /** Remove the active probe (WebGPU and WebGL). */
     clearProbe(): void;
     navigateToRO(ro: RenderObject): void;
     private _processFrame;
@@ -118,4 +126,10 @@ export declare class Inspector extends RendererInspector {
      * the camera's point of view with the chosen expression as the color output.
      */
     private _renderProbe;
+    /**
+     * WebGL probe readback: re-render the probed mesh with the patched fragment into a 1×1 FBO via
+     * renderer.renderProbe, then decode the pixel per the coerced type and update the swatch + text.
+     * Runs each frame while a WebGL probe is active. Never touches `device`.
+     */
+    private _renderGlProbe;
 }

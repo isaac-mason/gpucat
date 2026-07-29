@@ -1,6 +1,6 @@
-import { Node, NodeKind } from './core';
 import type { Any } from '../../schema/schema';
-import { SubBuildNode, subBuild } from './sub-build';
+import { Node, NodeKind } from './core';
+import { type SubBuildNode, subBuild } from './sub-build';
 
 /**
  * WGSL @interpolate interpolation type.
@@ -39,10 +39,7 @@ export class VaryingNode<D extends Any> extends Node<D> {
     /** Interpolation sampling */
     interpolationSampling: InterpolationSampling | null = null;
 
-    constructor(
-        source: Node<D>,
-        name: string | null = null
-    ) {
+    constructor(source: Node<D>, name: string | null = null) {
         super(source.type);
         // wrap source in SubBuildNode for VERTEX stage
         this.node = subBuild(source, 'VERTEX');
@@ -62,4 +59,3 @@ export class VaryingNode<D extends Any> extends Node<D> {
 }
 
 export const varying = <D extends Any>(source: Node<D>, name?: string) => new VaryingNode<D>(source, name ?? null);
-

@@ -1,9 +1,9 @@
 import { Geometry } from '../geometry/geometry';
 import { Material } from '../material/material';
-import { Mesh } from './mesh';
-import { type Raycaster, type Intersection } from '../math/raycaster';
-import * as d from '../schema/schema';
+import { type Intersection, type Raycaster } from '../math/raycaster';
 import { type Node } from '../nodes/nodes';
+import * as d from '../schema/schema';
+import { Mesh } from './mesh';
 /**
  * Screen-space expanded line geometry.
  *

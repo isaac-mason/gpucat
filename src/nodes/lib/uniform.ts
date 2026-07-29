@@ -1,15 +1,24 @@
-import { Node, NodeKind, type StructDef, type StructInstance, ConstructNode, LiteralNode, fields, _nodeId } from './core';
-import type { StructSchema, Any } from '../../schema/schema';
-import type { NodeFrame } from '../../renderer/node-frame';
 import {
+    frameGroup,
+    objectGroup,
+    renderGroup,
     Uniform,
     UniformGroup,
     UniformUpdateType,
-    objectGroup,
-    renderGroup,
-    frameGroup,
     type UniformValue,
 } from '../../core/uniform';
+import type { NodeFrame } from '../../renderer/core/node-frame';
+import type { Any, StructSchema } from '../../schema/schema';
+import {
+    _nodeId,
+    type ConstructNode,
+    fields,
+    type LiteralNode,
+    Node,
+    NodeKind,
+    type StructDef,
+    type StructInstance,
+} from './core';
 
 export class UniformNode<D extends Any> extends Node<D> {
     readonly kind = NodeKind.Uniform;
@@ -24,14 +33,22 @@ export class UniformNode<D extends Any> extends Node<D> {
      * struct packing. Defaults to `objectGroup`; reassign (e.g. `u.group = renderGroup`)
      * before the node is first rendered to move it to a shared group.
      */
-    get group(): UniformGroup { return this.uniform.group; }
-    set group(g: UniformGroup) { this.uniform.group = g; }
+    get group(): UniformGroup {
+        return this.uniform.group;
+    }
+    set group(g: UniformGroup) {
+        this.uniform.group = g;
+    }
 
     /** Get the current value */
-    get value(): UniformValue<D> | null { return this.uniform.value; }
+    get value(): UniformValue<D> | null {
+        return this.uniform.value;
+    }
 
     /** Set value directly */
-    set value(v: UniformValue<D> | null) { this.uniform.value = v; }
+    set value(v: UniformValue<D> | null) {
+        this.uniform.value = v;
+    }
 
     constructor(uniform: Uniform<D>, name: string) {
         super(uniform.schema);
@@ -102,7 +119,7 @@ export function uniform<D extends Any>(init: LiteralNode<D>, name?: string): Uni
 // Implementation
 export function uniform<D extends Any, S extends StructSchema>(
     init: Uniform<D> | string | LiteralNode<D> | ConstructNode<D>,
-    nameOrSchema?: string | D | StructDef<S>
+    nameOrSchema?: string | D | StructDef<S>,
 ): UniformNode<D> | StructInstance<S> {
     // Value-based: uniform(Uniform)
     if (typeof init === 'object' && init !== null && 'isUniform' in init) {
@@ -150,7 +167,7 @@ function extractValue(node: LiteralNode<Any> | ConstructNode<Any>): UniformValue
     if (node.kind === NodeKind.Literal) {
         return node.value as UniformValue;
     }
-    
+
     // ConstructNode: extract values from args (must all be LiteralNodes)
     if (node.kind === NodeKind.Construct) {
         const values: number[] = [];
@@ -165,6 +182,6 @@ function extractValue(node: LiteralNode<Any> | ConstructNode<Any>): UniformValue
         }
         return values;
     }
-    
+
     return undefined;
 }

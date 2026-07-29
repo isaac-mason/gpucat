@@ -1,7 +1,7 @@
 import { Object3D } from '../core/object3d';
 import type { Geometry } from '../geometry/geometry';
 import type { Material } from '../material/material';
-import { type Raycaster, type Intersection } from '../math/raycaster';
+import { type Intersection, type Raycaster } from '../math/raycaster';
 export declare class Mesh extends Object3D {
     readonly isMesh = true;
     geometry: Geometry;

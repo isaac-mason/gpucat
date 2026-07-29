@@ -13,10 +13,10 @@
  *    "→ Draw Call" navigation button.
  *  - The tab auto-shows itself when scenes are present (mirrors Viewer pattern).
  */
-import { Tab } from '../ui/tab';
-import { List } from '../ui/list';
 import type { Inspector } from '../inspector';
 import type { SceneRecord } from '../renderer-inspector';
+import { List } from '../ui/list';
+import { Tab } from '../ui/tab';
 export declare class SceneHierarchy extends Tab {
     readonly list: List;
     /** objectId → HierarchyNode for every currently-displayed object */

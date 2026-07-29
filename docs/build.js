@@ -425,7 +425,7 @@ function renderExamples() {
 }
 
 /* A one-row table of one or more examples, for interleaving inside a section.
- * <ExamplesTable ids="example-texture,example-mipmaps" /> */
+ * <ExamplesTable ids="example-webgpu-texture,example-webgpu-mipmaps" /> */
 function renderExamplesTable(idsStr) {
     const jsonPath = path.join(here, '../examples/src/examples.json');
     if (!fs.existsSync(jsonPath)) return console.warn(`examples.json not found: ${jsonPath}`), '';

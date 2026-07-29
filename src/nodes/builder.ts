@@ -1,7 +1,19 @@
 import type { GpuBuffer } from '../core/gpu-buffer';
-import type { NodeFrame } from '../renderer/node-frame';
+import type { NodeFrame } from '../renderer/core/node-frame';
 import type { StructSchema } from '../schema/schema';
 import * as d from '../schema/schema';
+import {
+    collectGlslVaryings,
+    createGlslContext,
+    emitGlslDslFunctions,
+    emitGlslModuleScopeVars,
+    emitGlslRawFunctions,
+    emitGlslStructs,
+    emitGlslTextures,
+    emitGlslUniformBlocks,
+    generateGlslFragmentShader,
+    generateGlslVertexShader,
+} from './backend/glsl/emit';
 import {
     collectVaryings,
     createContext,
@@ -158,6 +170,229 @@ export function compile(slots: CompileSlots): CompileResult {
         textures,
         storageTextures,
         samplers,
+        builtinsUsed: new Set([...vertexCtx.builtins, ...fragmentCtx.builtins]),
+        updateBeforeNodes: discovered.updateBeforeNodes,
+        updateAfterNodes: discovered.updateAfterNodes,
+        updateNodes: discovered.updateNodes,
+        graphNodes,
+        graphEdges,
+        graphInfo,
+    };
+}
+
+/**
+ * GLSL ES 3.00 sibling of {@link compile}. Reuses the shared, backend-neutral {@link discover} pass
+ * and node graph, then drives the GLSL emitter instead of the WGSL one. First vertical slice: a "lit
+ * mesh" material (attributes, camera/model uniform matrices as std140 UBOs, a varying, vec math,
+ * clip position + fragment color). Textures, control flow, user functions, and compute/storage are
+ * not yet supported and throw a clear "[glsl] … not yet supported" error via the emitter.
+ *
+ * The WGSL {@link compile} path is untouched: this only shares discover() and the node graph.
+ */
+/**
+ * Options for the GLSL emitter. WGSL has no precision qualifier, so these are GLSL-only (grammar-
+ * native): a WebGL-backend concern that never touches the WGSL path.
+ */
+export type CompileGlslOptions = {
+    /**
+     * Fragment-stage default precision qualifier (`precision <p> float;` / `precision <p> int;`).
+     * Default: 'highp' — keeping the emitted GLSL byte-identical to the golden snapshots.
+     */
+    precision?: 'highp' | 'mediump' | 'lowp';
+};
+
+export function compileGlsl(slots: CompileSlots, opts: CompileGlslOptions = {}): CompileResult {
+    const hasFragment = slots.fragment != null;
+
+    const roots: Node<d.Any>[] = [slots.vertex];
+    if (slots.fragment) roots.push(slots.fragment);
+    if (slots.depth) roots.push(slots.depth);
+
+    // Shared, neutral analysis — identical to the WGSL path.
+    const discovered = discover(roots);
+
+    // discover() only registers struct defs reached through storage bindings (the WGSL path's needs).
+    // GLSL declares a `struct` for ANY struct-typed value — e.g. a local struct construct in a
+    // fragment — so augment discovered.structDefs by walking every discovered node's type. This
+    // touches only the GLSL-local copy: registerGlslStructDef preserves topological (nested-first)
+    // order, and the map is de-duplicated by name, so re-registering storage structs is a no-op.
+    const registerGlslStructDef = (def: StructDef<StructSchema>): void => {
+        if (discovered.structDefs.has(def.wgslType)) return;
+        for (const nested of def.nestedDefs.values()) registerGlslStructDef(nested);
+        discovered.structDefs.set(def.wgslType, def);
+    };
+    for (const node of discovered.nodeIdToNode.values()) {
+        walkTypeForStructs(node.type, registerGlslStructDef);
+    }
+
+    // Reject compute-only / not-yet-supported resources at compile time with a clear error.
+    if (discovered.storages.size > 0 || discovered.storageNames.size > 0) {
+        throw new Error(`[glsl] storage buffers are not yet supported in the GLSL emitter`);
+    }
+    if (discovered.storageTextures.size > 0) {
+        // WebGL2 has no storage textures.
+        throw new Error(`[glsl] storage textures are not yet supported in the GLSL emitter`);
+    }
+    if (discovered.workgroupVars.size > 0) {
+        // WorkgroupVar is compute-only; there is no GLSL analogue in the render path.
+        throw new Error(`[glsl] workgroup variables are not yet supported in the GLSL emitter`);
+    }
+    // Raw shader functions (wgslFn / glslFn) are emitted from their GLSL companion below; the missing-
+    // variant check happens at emit time (a wgslFn with no `glsl` companion throws there).
+
+    const vertexCtx = createGlslContext('vertex', discovered);
+    const fragmentCtx = createGlslContext('fragment', discovered);
+
+    // Pre-collect varyings from the fragment roots so the vertex shader knows what to output.
+    if (hasFragment) {
+        collectGlslVaryings([slots.fragment!], vertexCtx);
+    }
+
+    const vertexBody = generateGlslVertexShader(slots, vertexCtx);
+
+    let fragmentBody = '';
+    if (hasFragment) {
+        fragmentBody = generateGlslFragmentShader(slots.fragment!, fragmentCtx, vertexCtx.varyings);
+    }
+
+    // Merge any textures/samplers the fragment stage registered into the vertex context so a single
+    // emit sees the full set. Textures are typically fragment-only, but a texture sampled in the
+    // vertex stage (e.g. displacement) would live on vertexCtx — merge both directions.
+    for (const [id, binding] of fragmentCtx.textures) {
+        if (!vertexCtx.textures.has(id)) vertexCtx.textures.set(id, binding);
+    }
+    for (const [id, samplerNode] of fragmentCtx.textureSamplers) {
+        if (!vertexCtx.textureSamplers.has(id)) vertexCtx.textureSamplers.set(id, samplerNode);
+    }
+
+    // Merge any Fn definitions the fragment stage registered (during generateGlslFragmentShader)
+    // into the vertex context so a single emit covers both stages' functions.
+    for (const [name, def] of fragmentCtx.fnDefs) {
+        if (!vertexCtx.fnDefs.has(name)) vertexCtx.fnDefs.set(name, def);
+    }
+
+    // Struct declarations must precede everything that uses them (UBO members, locals, main()).
+    const structsGlsl = emitGlslStructs(vertexCtx);
+
+    const { glsl: uniformBlocksGlsl, uniformBlocks } = emitGlslUniformBlocks(vertexCtx);
+    const { glsl: samplersGlsl, textures: textureEntries, samplers: samplerEntries } = emitGlslTextures(vertexCtx);
+
+    // Module-scope PrivateVar globals + raw (wgslFn/glslFn) + user Fn definitions (all precede main()).
+    const moduleScopeVarsGlsl = emitGlslModuleScopeVars(vertexCtx);
+    const rawFnsGlsl = emitGlslRawFunctions(vertexCtx);
+    const dslFnsGlsl = emitGlslDslFunctions(vertexCtx);
+
+    const version = '#version 300 es';
+
+    // Only prefix the header when there are combined-sampler declarations, so texture-free shaders
+    // stay byte-clean. Both stages get the same declarations; unused ones are harmless in GLSL.
+    const structsSection = structsGlsl ? `// Structs\n${structsGlsl}` : '';
+    const samplersSection = samplersGlsl ? `// Combined samplers\n${samplersGlsl}` : '';
+    const moduleScopeSection = moduleScopeVarsGlsl ? `// Module-scope variables\n${moduleScopeVarsGlsl}` : '';
+    const rawFnsSection = rawFnsGlsl ? `// Raw functions (wgslFn/glslFn)\n${rawFnsGlsl}` : '';
+    const dslFnsSection = dslFnsGlsl ? `// Functions\n${dslFnsGlsl}` : '';
+
+    const vertexParts = [
+        version,
+        '',
+        structsSection,
+        '// Uniform blocks (std140)',
+        uniformBlocksGlsl,
+        samplersSection,
+        moduleScopeSection,
+        rawFnsSection,
+        dslFnsSection,
+        '// Vertex shader',
+        vertexBody,
+    ];
+    const fragmentParts = hasFragment
+        ? [
+              version,
+              '',
+              // GLSL ES 3.00 fragment shaders have no default float precision — one must be declared
+              // before any float-typed declaration (struct fields, UBO members, varyings). It sits at
+              // the very top so every downstream section is covered. (Vertex defaults to highp, so it
+              // needs none.) The qualifier is 'highp' by default (byte-identical to the golden
+              // snapshots); the WebGL backend can request 'mediump'/'lowp' via CompileGlslOptions.
+              `precision ${opts.precision ?? 'highp'} float;`,
+              `precision ${opts.precision ?? 'highp'} int;`,
+              '',
+              structsSection,
+              '// Uniform blocks (std140)',
+              uniformBlocksGlsl,
+              samplersSection,
+              moduleScopeSection,
+              rawFnsSection,
+              dslFnsSection,
+              '// Fragment shader',
+              fragmentBody,
+          ]
+        : [];
+
+    // Emit vertex + fragment as a single string, separated by a stage marker. WebGL compiles the
+    // two stages from distinct sources; this combined `.code` is the snapshot/regression surface,
+    // mirroring how the WGSL path returns one combined module string.
+    const codeParts = [vertexParts.filter(Boolean).join('\n')];
+    if (hasFragment) {
+        codeParts.push('', '// ---- fragment stage ----', '', fragmentParts.filter(Boolean).join('\n'));
+    }
+    const code = codeParts.join('\n');
+
+    // Graph info (same shape as compile(), for inspector parity).
+    const graphNodes = new Map<number, Node<d.Any>>();
+    const graphEdges = new Map<number, readonly number[]>();
+    const graphInfo = new Map<number, NodeGraphInfo>();
+    for (const [id, node] of discovered.nodeIdToNode) {
+        graphNodes.set(id, node);
+        graphEdges.set(
+            id,
+            getChildren(node).map((c) => c.id),
+        );
+        graphInfo.set(id, {
+            stages: [],
+            cseVar: vertexCtx.nodeVars.get(id) ?? fragmentCtx.nodeVars.get(id),
+            usageCount: discovered.nodeIdToUsages.get(id) ?? 0,
+            expression: undefined,
+        });
+    }
+
+    const varyingEntries: VaryingEntry[] = [];
+    let loc = 0;
+    for (const [name, { node }] of vertexCtx.varyings) {
+        varyingEntries.push({
+            name,
+            type: node.type.wgslType,
+            location: loc++,
+            interpolationType: node.interpolationType ?? null,
+            interpolationSampling: node.interpolationSampling ?? null,
+        });
+    }
+
+    const allAttributes: AttributeEntry[] = Array.from(vertexCtx.attributes.values()).map((a) => ({
+        kind: a.node.isNamedReference ? 'geometry' : 'buffer',
+        name: a.node.isNamedReference ? (a.node.name ?? null) : null,
+        shaderName: a.shaderName,
+        type: a.type.wgslType,
+        location: a.location,
+        node: a.node,
+        stride: a.node.stride,
+        offset: a.node.offset,
+        instanced: a.node.instanced,
+    }));
+    const vertexBufferGroups = groupAttributesByBuffer(allAttributes);
+
+    return {
+        code,
+        vertexEntryPoint: 'main',
+        fragmentEntryPoint: hasFragment ? 'main' : null,
+        attributes: allAttributes,
+        vertexBufferGroups,
+        varyings: varyingEntries,
+        uniformGroups: uniformBlocks,
+        storage: [],
+        textures: textureEntries,
+        storageTextures: [],
+        samplers: samplerEntries,
         builtinsUsed: new Set([...vertexCtx.builtins, ...fragmentCtx.builtins]),
         updateBeforeNodes: discovered.updateBeforeNodes,
         updateAfterNodes: discovered.updateAfterNodes,
@@ -608,11 +843,16 @@ function discover(roots: Node<d.Any>[]): Discovery {
         }
         if (node.kind === NodeKind.Call && node.wgslFnNode) {
             const fn = node.wgslFnNode as WgslFunctionNode;
-            if (!wgslFnDefs.has(fn.code)) {
-                wgslFnDefs.set(fn.code, fn);
+            // Key by WGSL code; GLSL-only functions (empty code) key by their GLSL source so they
+            // don't collide at the '' key. The WGSL emitter throws for these; the GLSL emitter uses
+            // glslCode.
+            const key = fn.code || `glsl:${fn.glslCode ?? ''}`;
+            if (!wgslFnDefs.has(key)) {
+                wgslFnDefs.set(key, fn);
                 for (const inc of fn.includes) {
-                    if (inc.kind === NodeKind.WgslFunction && !wgslFnDefs.has(inc.code)) {
-                        wgslFnDefs.set(inc.code, inc);
+                    if (inc.kind === NodeKind.WgslFunction) {
+                        const incKey = inc.code || `glsl:${inc.glslCode ?? ''}`;
+                        if (!wgslFnDefs.has(incKey)) wgslFnDefs.set(incKey, inc);
                     }
                 }
             }

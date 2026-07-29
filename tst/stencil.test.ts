@@ -1,7 +1,7 @@
-import { test, expect } from 'vitest';
-import { installWebGPUPolyfills } from './stub-gpu';
+import { expect, test } from 'vitest';
 import { Material, RenderTarget, WebGPURenderer } from '../src/index';
-import { formatHasStencil, makeRenderPipelineKey } from '../src/renderer/pipelines';
+import { formatHasStencil, makeRenderPipelineKey } from '../src/renderer/webgpu/pipelines';
+import { installWebGPUPolyfills } from './stub-gpu';
 
 installWebGPUPolyfills();
 
@@ -97,5 +97,7 @@ test('RenderTarget stencilBuffer allocates a stencil-capable depth texture', () 
     expect(new RenderTarget(64, 64).depthTexture?.format).toBe('depth24plus');
     expect(new RenderTarget(64, 64, { stencilBuffer: true }).depthTexture?.format).toBe('depth24plus-stencil8');
     // An explicit depthFormat wins over stencilBuffer.
-    expect(new RenderTarget(64, 64, { stencilBuffer: true, depthFormat: 'depth32float' }).depthTexture?.format).toBe('depth32float');
+    expect(new RenderTarget(64, 64, { stencilBuffer: true, depthFormat: 'depth32float' }).depthTexture?.format).toBe(
+        'depth32float',
+    );
 });

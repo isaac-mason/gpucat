@@ -1,7 +1,6 @@
 import { Tab } from '../ui/tab';
 
 export class Console extends Tab {
-
     filters: { info: boolean; warn: boolean; error: boolean };
     filterText: string;
     logContainer: HTMLDivElement;
@@ -35,13 +34,14 @@ export class Console extends Tab {
         const copyButton = document.createElement('button');
         copyButton.className = 'console-copy-button';
         copyButton.title = 'Copy all';
-        copyButton.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
+        copyButton.innerHTML =
+            '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
         copyButton.addEventListener('click', () => this.copyAll(copyButton));
 
         const buttonsGroup = document.createElement('div');
         buttonsGroup.className = 'console-buttons-group';
 
-        (Object.keys(this.filters) as Array<keyof typeof this.filters>).forEach(type => {
+        (Object.keys(this.filters) as Array<keyof typeof this.filters>).forEach((type) => {
             const label = document.createElement('label');
             label.className = 'custom-checkbox';
             label.style.color = `var(--${type === 'info' ? 'text-primary' : 'color-' + (type === 'warn' ? 'yellow' : 'red')})`;
@@ -78,7 +78,7 @@ export class Console extends Tab {
 
     applyFilters(): void {
         const messages = this.logContainer.querySelectorAll<HTMLElement>('.log-message');
-        messages.forEach(msg => {
+        messages.forEach((msg) => {
             const type = msg.dataset.type as keyof typeof this.filters;
             const text = (msg.dataset.rawText ?? '').toLowerCase();
             const showByType = this.filters[type];
@@ -98,7 +98,9 @@ export class Console extends Tab {
             text = selectedText;
         } else {
             const messages = this.logContainer.querySelectorAll<HTMLElement>('.log-message:not(.hidden)');
-            text = Array.from(messages).map(msg => msg.dataset.rawText ?? '').join('\n');
+            text = Array.from(messages)
+                .map((msg) => msg.dataset.rawText ?? '')
+                .join('\n');
         }
 
         navigator.clipboard.writeText(text);
@@ -108,17 +110,17 @@ export class Console extends Tab {
     }
 
     private _getIcon(type: string, subType: string): string {
-        if (subType === 'tip')              return '\u{1F4AD}';
-        if (subType === 'tsl')              return '\u2728';
-        if (subType === 'webgpurenderer')   return '\u{1F3A8}';
-        if (type === 'warn')                return '\u26A0\uFE0F';
-        if (type === 'error')               return '\u{1F534}';
+        if (subType === 'tip') return '\u{1F4AD}';
+        if (subType === 'tsl') return '\u2728';
+        if (subType === 'webgpurenderer') return '\u{1F3A8}';
+        if (type === 'warn') return '\u26A0\uFE0F';
+        if (type === 'error') return '\u{1F534}';
         return '\u2139\uFE0F';
     }
 
     private _formatMessage(type: string, text: string): DocumentFragment {
         const fragment = document.createDocumentFragment();
-        const prefixMatch = text.match(/^([\w\.]+:\s)/);
+        const prefixMatch = text.match(/^([\w.]+:\s)/);
         let content = text;
 
         if (prefixMatch) {
@@ -134,7 +136,10 @@ export class Console extends Tab {
             content = text.substring(fullPrefix.length);
         }
 
-        const parts = content.split(/(".*?"|'.*?'|`.*?`)/g).map(p => p.trim()).filter(Boolean);
+        const parts = content
+            .split(/(".*?"|'.*?'|`.*?`)/g)
+            .map((p) => p.trim())
+            .filter(Boolean);
         parts.forEach((part, index) => {
             if (/^("|'|`)/.test(part)) {
                 const codeSpan = document.createElement('span');

@@ -1,4 +1,4 @@
-import { GpuTexture } from '../core/gpu-texture';
+import { GpuTexture, TEXTURE_USAGE } from '../core/gpu-texture';
 import { GpuSampler } from '../core/gpu-sampler';
 import * as d from '../schema/schema';
 
@@ -33,7 +33,9 @@ export class DepthTexture {
             width,
             height,
             format,
-            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+            // Spec-fixed numeric flags (not the WebGPU `GPUTextureUsage` global), so a DepthTexture can be
+            // constructed under a WebGL2 context / headless where that global is undefined.
+            usage: TEXTURE_USAGE.RENDER_ATTACHMENT | TEXTURE_USAGE.TEXTURE_BINDING,
         });
         
         // Default to comparison sampler for shadow mapping

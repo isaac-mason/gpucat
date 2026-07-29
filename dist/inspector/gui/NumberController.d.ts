@@ -1,5 +1,5 @@
-import type { GUI } from './GUI';
 import { Controller } from './Controller';
+import type { GUI } from './GUI';
 export declare class NumberController extends Controller<number> {
     $input: HTMLInputElement;
     $slider: HTMLDivElement | undefined;

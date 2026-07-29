@@ -6,12 +6,12 @@ export function createValueSpan(id: string | null = null): HTMLSpanElement {
 }
 
 export function setText(element: HTMLElement | string | null, text: string): void {
-    const el = element instanceof HTMLElement ? element : (element ? document.getElementById(element) : null);
+    const el = element instanceof HTMLElement ? element : element ? document.getElementById(element) : null;
     if (el && el.textContent !== text) el.textContent = text;
 }
 
 export function getText(element: HTMLElement | string | null): string | null {
-    const el = element instanceof HTMLElement ? element : (element ? document.getElementById(element) : null);
+    const el = element instanceof HTMLElement ? element : element ? document.getElementById(element) : null;
     return el ? el.textContent : null;
 }
 
@@ -34,5 +34,5 @@ export function formatBytes(bytes: number, decimals = 2): string {
     const dm = decimals < 0 ? 0 : decimals;
     const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    return parseFloat((bytes / k ** i).toFixed(dm)) + ' ' + sizes[i];
 }

@@ -60,6 +60,17 @@ type Options1D = BaseOptions & {
 };
 /** Map schema type → options type */
 export type GpuTextureOptions<D extends d.Texture> = D extends d.texture1d | d.textureStorage1d ? Options1D : D extends d.texture2d | d.textureDepth2d | d.textureMultisampled2d | d.textureDepthMultisampled2d | d.textureStorage2d ? Options2D : D extends d.texture2dArray | d.textureDepth2dArray | d.textureStorage2dArray ? Options2DArray : D extends d.textureCube | d.textureDepthCube ? OptionsCube : D extends d.textureCubeArray | d.textureDepthCubeArray ? OptionsCubeArray : D extends d.texture3d | d.textureStorage3d ? Options3D : Options2D;
+/**
+ * GPUTextureUsage flag bits, spec-fixed numeric values. Used instead of the global
+ * `GPUTextureUsage` so texture construction works in headless/Node (no WebGPU global).
+ */
+export declare const TEXTURE_USAGE: {
+    readonly COPY_SRC: 1;
+    readonly COPY_DST: 2;
+    readonly TEXTURE_BINDING: 4;
+    readonly STORAGE_BINDING: 8;
+    readonly RENDER_ATTACHMENT: 16;
+};
 export declare class GpuTexture<D extends d.Texture = d.Texture> {
     readonly isGpuTexture = true;
     /** Unique ID */

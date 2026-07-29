@@ -9,10 +9,10 @@
  *  5. Hovering a probeable fragment-stage line shows a floating popover with
  *     a live 140×140 preview canvas next to the cursor.
  */
+import type { Mesh } from '../../objects/mesh';
+import type { RenderObject } from '../../renderer/core/render-object';
 import type { Inspector } from '../inspector';
 import type { SceneRecord } from '../renderer-inspector';
-import type { Mesh } from '../../objects/mesh';
-import type { RenderObject } from '../../renderer/render-object';
 type Stage = 'vertex' | 'fragment' | 'full' | 'compute';
 export type ShaderPanelMode = 'render' | 'compute';
 export declare class ShaderPanel {
@@ -66,6 +66,10 @@ export declare class ShaderPanel {
     private _selectStage;
     private _renderCurrentStage;
     private _onMouseLeave;
+    /** True when the attached renderer is WebGL (drives GLSL vs WGSL probe target extraction). */
+    private _isWebGL;
+    /** Parse a hovered fragment line into a probe target, using the backend-appropriate extractor. */
+    private _extractTarget;
     private _onLineHover;
     private _positionPopover;
     private _showPopover;

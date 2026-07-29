@@ -1,13 +1,11 @@
-import { Tab } from '../ui/tab';
-import { List } from '../ui/list';
+import type { FrameRecord, RendererInspector, TimelineEntry } from '../renderer-inspector';
 import { Graph } from '../ui/graph';
 import { Item } from '../ui/item';
+import { List } from '../ui/list';
+import { Tab } from '../ui/tab';
 import { createValueSpan, setText } from '../ui/utils';
-import type { FrameRecord, TimelineEntry } from '../renderer-inspector';
-import type { RendererInspector } from '../renderer-inspector';
 
 export class Performance extends Tab {
-
     graph: Graph;
     graphStats: Item;
     frameStats: Item;
@@ -83,12 +81,7 @@ export class Performance extends Tab {
     }
 
     /** Recursively update/create items for timeline entries */
-    private _updateEntries(
-        entries: TimelineEntry[],
-        parentItem: Item,
-        seenNames: Set<string>,
-        pathPrefix: string,
-    ): void {
+    private _updateEntries(entries: TimelineEntry[], parentItem: Item, seenNames: Set<string>, pathPrefix: string): void {
         for (const entry of entries) {
             // Create unique path for nested entries
             const entryPath = pathPrefix ? `${pathPrefix}/${entry.name}` : entry.name;
@@ -109,7 +102,7 @@ export class Performance extends Tab {
 
             // Update values
             setText(item.data[1] as HTMLElement, entry.cpuMs.toFixed(2));
-            
+
             // GPU time only for render/compute entries
             if (entry.kind === 'render' || entry.kind === 'compute') {
                 setText(item.data[2] as HTMLElement, entry.gpuMs !== null ? entry.gpuMs.toFixed(2) : '-');

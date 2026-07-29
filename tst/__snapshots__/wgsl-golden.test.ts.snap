@@ -18,8 +18,8 @@ fn cs_main(
 ) {
     let _v0 = (global_id.x % 64u);
     let _v1 = atomicAdd(&_storage0[_v0], 1u);
-    var var_186_slot = _v1;
-    _storage1[((_v0 * 16u) + var_186_slot)] = global_id.x;
+    var var_183_slot = _v1;
+    _storage1[((_v0 * 16u) + var_183_slot)] = global_id.x;
 }",
   "storage": [
     {
@@ -65,7 +65,7 @@ struct Particle {
 fn cs_main(
     @builtin(global_invocation_id) global_id: vec3u
 ) {
-    var var_263_acc = 0.0;
+    var var_260_acc = 0.0;
     for (var i_0_0: i32 = 0i; i_0_0 < 4i; i_0_0++) {
         if ((_storage0[global_id.x].life < 0.0)) {
             continue;
@@ -73,10 +73,10 @@ fn cs_main(
         if ((i_0_0 > 2i)) {
             break;
         }
-        var_263_acc = (var_263_acc + _storage0[global_id.x].life);
+        var_260_acc = (var_260_acc + _storage0[global_id.x].life);
     }
-    let let_284_scaled = (var_263_acc * 0.5);
-    _storage0[global_id.x].life = let_284_scaled;
+    let let_281_scaled = (var_260_acc * 0.5);
+    _storage0[global_id.x].life = let_281_scaled;
 }",
   "storage": [
     {
@@ -117,10 +117,10 @@ fn cs_main(
     }
     workgroupBarrier();
     let _v0 = atomicAdd(&wgCount, 1u);
-    var var_223_slot = _v0;
+    var var_220_slot = _v0;
     workgroupBarrier();
-    var var_226_total = atomicLoad(&wgCount, );
-    _storage0[var_223_slot] = var_226_total;
+    var var_223_total = atomicLoad(&wgCount, );
+    _storage0[var_220_slot] = var_223_total;
 }",
   "storage": [
     {
@@ -219,7 +219,7 @@ struct VertexOutput {
 fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
     output.position = (uniforms_render.cameraProjectionMatrix * (uniforms_render.cameraViewMatrix * (uniforms_object.modelWorldMatrix * vec4f(input._position_1, 1.0))));
-    output.vNormal = normalize((uniforms_object.modelNormalMatrix * vec4f(input._normal_0, 0.0)).xyz);
+    output.vNormal = normalize((uniforms_object.modelNormalMatrix * input._normal_0));
     return output;
 }
 // Fragment Shader

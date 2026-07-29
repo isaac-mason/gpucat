@@ -1,5 +1,6 @@
 import { mat4 } from 'mathcat';
 import { Camera } from './camera';
+import { CoordinateSystem } from '../core/coordinate-system';
 
 type ViewOffset = {
     enabled: boolean;
@@ -26,6 +27,7 @@ type ViewOffset = {
  */
 export class OrthographicCamera extends Camera {
     readonly isOrthographicCamera = true;
+
     left: number;
     right: number;
     top: number;
@@ -72,14 +74,7 @@ export class OrthographicCamera extends Camera {
      * @param width      - Width of the subcamera.
      * @param height     - Height of the subcamera.
      */
-    setViewOffset(
-        fullWidth: number,
-        fullHeight: number,
-        x: number,
-        y: number,
-        width: number,
-        height: number,
-    ): void {
+    setViewOffset(fullWidth: number, fullHeight: number, x: number, y: number, width: number, height: number): void {
         if (this.view === null) {
             this.view = {
                 enabled: true,
@@ -133,7 +128,11 @@ export class OrthographicCamera extends Camera {
             bottom = top - scaleH * this.view.height;
         }
 
-        // WebGPU depth range is 0→1, so use orthoZO (zero-to-one) to match perspectiveZO.
-        mat4.orthoZO(this.projectionMatrix, left, right, bottom, top, this.near, this.far);
+        // WebGPU clip space is z in [0,1] (orthoZO); WebGL is z in [-1,1] (orthoNO). Only depth differs.
+        if (this.coordinateSystem === CoordinateSystem.WEBGL) {
+            mat4.orthoNO(this.projectionMatrix, left, right, bottom, top, this.near, this.far);
+        } else {
+            mat4.orthoZO(this.projectionMatrix, left, right, bottom, top, this.near, this.far);
+        }
     }
 }

@@ -8,13 +8,13 @@
 
 # gpucat
 
-gpucat is a minimal typescript-first WebGPU renderer.
+gpucat is a minimal typescript-first WebGPU and WebGL2 renderer.
 
 It is a marriage of ideas in three.js and typegpu. It has a node-based shading language similar to [three.js TSL](https://github.com/mrdoob/three.js/wiki/Three.js-Shading-Language), and has the typescript-first, WebGPU-native feel of [typegpu](https://typegpu.com).
 
-You get a declarative API for GPU resources (buffers, uniforms, textures, materials), a type-safe node-based shading language that mirrors WGSL grammar and compiles to WGSL, and gpucat handles the generation of pipelines, layouts, bind groups, and resource lifecycles for you.
+You get a declarative API for GPU resources (buffers, uniforms, textures, materials), a type-safe node-based shading language that mirrors WGSL grammar and compiles to WGSL (or GLSL ES 3.00 for the WebGL2 backend), and gpucat handles the generation of pipelines, layouts, bind groups, and resource lifecycles for you.
 
-Most WebGPU libraries either hide the GPU behind a scene abstraction or hand you raw WGSL strings. gpucat sits in between. You compose shaders as typed typescript expressions, so refactors and autocomplete work, but nothing stops you dropping down to the renderer, pipeline, and buffer level when you need to.
+Most GPU libraries either hide the GPU behind a scene abstraction or hand you raw shader strings. gpucat sits in between. You compose shaders as typed typescript expressions, so refactors and autocomplete work, but nothing stops you dropping down to the renderer, pipeline, and buffer level when you need to.
 
 ## Examples
 
@@ -24,7 +24,7 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
 
 ## Contents
 
-- [Examples](#examples) · [Getting Started](#getting-started) · [Core Concepts](#core-concepts)
+- [Examples](#examples) · [Getting Started](#getting-started) · [Core Concepts](#core-concepts) · [Backends: WebGPU & WebGL2](#backends-webgpu--webgl2)
 - Build an app: [The Renderer](#the-renderer) · [Scene and Objects](#scene-and-objects) · [Geometry](#geometry) · [Materials](#materials) · [Uniforms](#uniforms) · [Storage Buffers](#storage-buffers) · [Structs](#structs) · [Packing](#packing) · [Render Pipeline](#render-pipeline)
 - Shading language: [Constants](#constants-and-constructors) · [Operators](#operators) · [Variables](#variables) · [Control Flow](#control-flow) · [Method Chaining](#method-chaining) · [Functions](#functions) · [Building Blocks](#building-blocks) · [Varyings](#varyings) · [Textures](#textures-and-samplers) · [Atomics](#atomics) · [Builtins](#builtins) · [Included Uniforms](#included-uniforms)
 - [Compute](#compute) · [Drawing Many Things](#drawing-many-things) · [Controls and the Inspector](#controls-and-the-inspector)
@@ -42,7 +42,7 @@ A few things to notice:
 - You own the frame loop. gpucat never starts its own `requestAnimationFrame` and never reads a wall clock. You call `render()` (and `compute()`) when you want a frame, and you drive time yourself via plain uniforms, so it stays composable with your own update loop.
 
 
-<ExamplesTable ids="example-hello-world" />
+<ExamplesTable ids="example-webgpu-hello-world" />
 
 ## Core Concepts
 
@@ -63,6 +63,116 @@ When you hand a nodes to a `Material` (or call `compile()`), gpucat walks the gr
 Types come from the `d` namespace: `d.vec3f`, `d.f32`, `d.mat4x4f`, `d.array(d.u32)`, `d.struct(...)`. These are WGSL type descriptors. They describe the data on the GPU and give the typescript compiler enough to type-check your shader.
 
 There is a split worth internalising early: `d.f32` is the *type*, `f32(1)` is a *node* of that type. The same split you see between a value and its type. You annotate with `d.f32`, you build a node with `f32(1)`.
+
+## Backends: WebGPU & WebGL2
+
+gpucat runs on two graphics backends: WebGPU (`WebGPURenderer`) and WebGL2 (`WebGLRenderer`). They implement the same neutral `Renderer` interface and share the entire node-graph, DSL, scene, and resource layer above them. You author a scene once; only the renderer constructor differs.
+
+### Backend selection is explicit
+
+You choose the backend by choosing the constructor. There is **no automatic fallback**: a `WebGPURenderer` never quietly downgrades to WebGL2 if WebGPU is missing. This is deliberate. The two backends do not support the exact same feature set, so a silent fallback would swap in a renderer that cannot run your code and fail somewhere confusing. You decide, up front, which one you are targeting, and can branch yourself if you want to. `renderer.backend` reports the choice as `'webgpu'` or `'webgl'`.
+
+```ts
+const renderer = new WebGPURenderer({ antialias: true });   // WebGPU
+// const renderer = new WebGLRenderer({ antialias: true });  // WebGL2
+await renderer.init();
+renderer.backend;   // 'webgpu' | 'webgl'
+```
+
+### Same code, two backends
+
+The node-graph material and DSL are authored once. `WebGPURenderer` compiles the graph to WGSL; `WebGLRenderer` compiles the same graph to GLSL ES 3.00. The DSL grammar is WGSL-native, and GLSL is a translation target reached through each schema's `glslType` companion, so the WGSL surface is never watered down to fit WebGL. Everything above the renderer, scene, geometry, materials, uniforms, textures, render targets, the shading language, is identical across both. Swapping backends is a one-line change:
+
+```ts
+// build the scene and material once — nothing here is backend-specific
+const material = new Material({ vertex: clipPos, fragment: litColor });
+const mesh = new Mesh(geom, material);
+scene.add(mesh);
+
+// pick a backend at the top; the rest of the app is unchanged
+const renderer = webgpuSupported
+    ? new WebGPURenderer({ antialias: true })
+    : new WebGLRenderer({ antialias: true });
+await renderer.init();
+
+const pipeline = new RenderPipeline(renderer, renderOutput(pass(scene, camera).getTextureNode()));
+// each frame: pipeline.render();
+```
+
+### What WebGL2 supports
+
+The WebGL2 backend covers the standard rendering surface:
+
+- Node-graph **materials** compiled to GLSL ES 3.00.
+- **Opaque meshes** and **instancing** (instanced vertex attributes).
+- **Textures**: 2D, cube, 2D-array, and depth, with combined samplers.
+- **Render targets**: MRT, depth attachments, cube targets, and MSAA-resolve.
+- **HDR / float render targets** via `EXT_color_buffer_float`.
+- Correct clip-space **depth** and **frustum culling**.
+- **Render-to-texture, passes, and post-processing** through `RenderPipeline`.
+- The **inspector**: real GPU timing (`EXT_disjoint_timer_query_webgl2`), memory, draw-call counts, the scene tree, and a GLSL shader panel.
+
+### What WebGL2 does not support
+
+These are WebGPU-only. On `WebGLRenderer` they throw a clear error, at shader-compile time where possible, otherwise at prepare — never silently. Use `WebGPURenderer` for any of them:
+
+- **Compute**: `renderer.compute()`, compute nodes, and `Fn(...).compute(...)` kernels.
+- **Storage buffers** (`storage(...)`, `createStorageBuffer`) and **atomics**.
+- **Storage textures** and **workgroup vars** (`WorkgroupVar`).
+- **Inline WGSL**: `` wgsl`…` `` and `wgslFn(...)` (raw WGSL has no GLSL translation).
+- **Indirect draw** (`geometry.indirect`) — WebGPU-only, both the CPU-authored and the GPU-computed (compute-driven culling) variants.
+- **Texture constant-offset sampling** and **`f16` / half** types.
+- The inspector's live-value **probe** (WebGPU-only; the rest of the inspector works).
+
+### Renderer options
+
+Both renderers share a common set of options; each backend adds a few of its own.
+
+| Option | Backends | What it does |
+| --- | --- | --- |
+| `canvas` | both | Render into an existing canvas instead of a created one. |
+| `pixelRatio` | both | Device pixel ratio (also `setPixelRatio`). |
+| `antialias` | both | Multisampled anti-aliasing. |
+| `alpha` | both | Alpha in the canvas backbuffer. |
+| `depth` | both | Allocate a depth buffer. |
+| `stencil` | both | Allocate a stencil buffer. |
+| `samples` | both | MSAA sample count. |
+| `powerPreference` | both | `'high-performance'` / `'low-power'` adapter hint. |
+| `precision` | WebGL | Shader precision: `'highp'` (default) / `'mediump'` / `'lowp'`. |
+| `preserveDrawingBuffer` | WebGL | Keep the backbuffer readable after present. |
+| `failIfMajorPerformanceCaveat` | WebGL | Fail context creation on a slow (software) implementation. |
+| `adapter` / `adapterOptions` | WebGPU | Supply or configure the `GPUAdapter`. |
+| `device` / `deviceDescriptor` | WebGPU | Supply or configure the `GPUDevice`. |
+| `format` | WebGPU | Override the canvas texture format. |
+
+### Feature × backend support matrix
+
+| Feature | WebGPU | WebGL2 |
+| --- | :---: | :---: |
+| Node-graph materials (compiled shaders) | ✓ | ✓ |
+| Opaque meshes + instancing | ✓ | ✓ |
+| Textures (2D / cube / 2d-array / depth) | ✓ | ✓ |
+| Render targets (MRT / depth / cube / MSAA-resolve) | ✓ | ✓ |
+| HDR / float render targets | ✓ | ✓ |
+| Depth + frustum culling | ✓ | ✓ |
+| Render-to-texture / passes / post-processing | ✓ | ✓ |
+| Inspector (GPU timing, memory, draws, scene, shaders) | ✓ | ✓ |
+| Compute (`renderer.compute()`, compute nodes) | ✓ | ✗ |
+| Storage buffers · atomics | ✓ | ✗ |
+| Storage textures · workgroup vars | ✓ | ✗ |
+| Inline WGSL (`` wgsl`` `` / `wgslFn`) | ✓ | ✗ |
+| Indirect draw (`geometry.indirect`) | ✓ | ✗ |
+| Texture constant-offset sampling · `f16` types | ✓ | ✗ |
+| Inspector live-value probe | ✓ | ✗ |
+
+### Which features run on which backend
+
+Backend compatibility is a property of the *features* you use, not of any single example (each example file constructs one specific renderer). Read it off the matrix above, or by category:
+
+- **Runs on both backends** — the shared rendering features: meshes and node-graph materials, textures, render targets and MRT, render-to-texture and post-processing, and camera controls. Anything built only from these works on either `WebGPURenderer` or `WebGLRenderer`.
+- **WebGPU-only** — compute (compute nodes and `renderer.compute()`), storage buffers, atomics, storage textures, workgroup vars, inline WGSL (`` wgsl`` `` / `wgslFn`), and indirect draw (`geometry.indirect`, both CPU-authored and compute-driven). Anything using these needs `WebGPURenderer`.
+
+The [examples browser](https://isaac-mason.github.io/gpucat/) groups examples by the backend each one targets, so the compute and storage-driven examples sit under WebGPU and the WebGL2 examples under WebGL.
 
 ## The Renderer
 
@@ -122,7 +232,7 @@ Meshes are not game entities. gpucat does not tick them every frame or track cha
 
 `scene.updateWorldMatrix()` is the same call on the root: it walks the whole tree, parents before children. It is a convenience for initial setup or a one-off bulk update, not something to run every frame for a mostly-static scene. Be intelligent about it.
 
-<ExamplesTable ids="example-moving-mesh-stress,example-static-mesh-stress" />
+<ExamplesTable ids="example-webgpu-moving-mesh-stress,example-webgpu-static-mesh-stress" />
 
 ## Geometry
 
@@ -137,7 +247,7 @@ geom.index = createIndexBuffer(indices);   // a Uint16Array or Uint32Array
 
 For common shapes, the `create*Geometry` helpers build the position, normal, and uv buffers and an index for you. See [`Geometry`](./api.md#geometry) and the helpers in [api.md](./api.md#geometry).
 
-<ExamplesTable ids="example-line,example-raging-sea,example-voxels,example-interleaved" />
+<ExamplesTable ids="example-webgpu-line,example-webgpu-raging-sea,example-webgpu-voxels,example-webgpu-interleaved" />
 
 ## Materials
 
@@ -211,7 +321,7 @@ const fragment = vec4(baseColor.mul(lighting), f32(1));
 
 More advanced setups follow the same shape: keep lighting data in a [`storage` buffer](#storage-buffers) and consume it in the shader. Heavier techniques, like deferred or clustered shading, shadow mapping, image-based lighting, or a full PBR model, are all implementable in userland from the same primitives. The point lights example is a starting point.
 
-<ExamplesTable ids="example-point-lights" />
+<ExamplesTable ids="example-webgpu-point-lights" />
 
 ## Uniforms
 
@@ -236,7 +346,7 @@ A uniform's **group** sets both its WGSL `@group` and how often it uploads: `obj
 
 See [`Uniform`](./api.md#uniform-2).
 
-<ExamplesTable ids="example-uniforms" />
+<ExamplesTable ids="example-webgpu-uniforms" />
 
 ## Storage Buffers
 
@@ -300,7 +410,7 @@ buf.addUpdateRange(0, 4);   // or upload just 4 components from offset 0
 
 See [`storage`](./api.md#storage), [`createStorageBuffer`](./api.md#createstoragebuffer), and [`GpuBuffer`](./api.md#gpubuffer).
 
-<ExamplesTable ids="example-storage,example-instancing-storage-buffer,example-compute-particles" />
+<ExamplesTable ids="example-webgpu-storage,example-webgpu-instancing-storage-buffer,example-webgpu-compute-particles" />
 
 ## Structs
 
@@ -359,7 +469,7 @@ Because a pass is just a texture node, you add post-processing by sampling it an
 <RenderCategory name="render pass" compact />
 <RenderCategory name="render output" compact />
 
-<ExamplesTable ids="example-render-to-texture,example-shadow-map" />
+<ExamplesTable ids="example-webgpu-render-to-texture,example-webgpu-shadow-map" />
 
 ### Environment maps with a cube camera
 
@@ -380,14 +490,14 @@ const env = cubeTexture(cubeRT.texture).sample(reflectDir);
 
 Like everything else, this does no automatic per-frame work: you call `update()` when you want to refresh the map. See [`CubeRenderTarget`](./api.md#cuberendertarget) and [`CubeCamera`](./api.md#cubecamera).
 
-<ExamplesTable ids="example-cube-camera" />
+<ExamplesTable ids="example-webgpu-cube-camera" />
 
 ### Tonemapping and post-processing
 
 <RenderCategory name="tonemapping and color space conversions" compact />
 <RenderCategory name="post-processing effects" compact />
 
-<ExamplesTable ids="example-mrt,example-fxaa" />
+<ExamplesTable ids="example-webgpu-mrt,example-webgpu-fxaa" />
 
 ## Constants and constructors
 
@@ -440,7 +550,7 @@ If(x.greaterThan(f32(0)), () => {
 
 <RenderCategory name="control flow" compact />
 
-<ExamplesTable ids="example-discard" />
+<ExamplesTable ids="example-webgpu-discard" />
 
 ## Method Chaining
 
@@ -549,7 +659,7 @@ const videoTexture = new Texture(videoElement);     // a playing HTMLVideoElemen
 videoTexture.needsUpdate = true;                    // re-copy the current frame
 ```
 
-<ExamplesTable ids="example-texture,example-mipmaps,example-cubemap,example-array-texture,example-video-texture" />
+<ExamplesTable ids="example-webgpu-texture,example-webgpu-mipmaps,example-webgpu-cubemap,example-webgpu-array-texture,example-webgpu-video-texture" />
 
 ### Storage textures
 
@@ -577,7 +687,7 @@ renderer.compute([{ node: paint, dispatch: [Math.ceil(256 / 8), Math.ceil(256 / 
 
 3D storage textures (`createStorageTexture3d`) work the same way and pair naturally with `texture_3d` sampling — write a volume in compute, then raymarch it in a render pass (`texture(volume, sampler).sample(vec3)`). The sample coordinate type is derived from the texture: a 3D texture's `.sample()` requires a `vec3`, a 2D one a `vec2`.
 
-<ExamplesTable ids="example-compute-texture,example-volume" />
+<ExamplesTable ids="example-webgpu-compute-texture,example-webgpu-volume" />
 
 ## Atomics
 
@@ -585,7 +695,7 @@ Atomic operations on `atomic<i32>` / `atomic<u32>` storage, for compute.
 
 <RenderCategory name="atomic operations" compact />
 
-<ExamplesTable ids="example-ball-cluster" />
+<ExamplesTable ids="example-webgpu-ball-cluster" />
 
 ## Builtins
 
@@ -639,11 +749,11 @@ renderer.compute([{ node: sim, dispatch: [Math.ceil(N / 64), 1, 1] }]);
 
 The same buffer can feed a material, which is how the particle example draws what the compute pass just updated. A compute kernel can also write to a texture instead of a buffer — see [Storage textures](#storage-textures).
 
-For a full worked example, `examples/src/example-ball-cluster.ts` simulates balls that pull toward a point and collide into a packed cluster, all on the GPU. It runs three compute passes per frame (clear grid, bin into a spatial-hash grid while snapshotting the previous state, then forces + collision against the 27 neighbouring cells), so each ball only checks nearby balls instead of every other one. `examples/src/example-compute-particles.ts` is a simpler starting point.
+For a full worked example, `examples/src/example-webgpu-ball-cluster.ts` simulates balls that pull toward a point and collide into a packed cluster, all on the GPU. It runs three compute passes per frame (clear grid, bin into a spatial-hash grid while snapshotting the previous state, then forces + collision against the 27 neighbouring cells), so each ball only checks nearby balls instead of every other one. `examples/src/example-webgpu-compute-particles.ts` is a simpler starting point.
 
 <RenderCategory name="compute" compact />
 
-<ExamplesTable ids="example-compute-particles,example-ball-cluster" />
+<ExamplesTable ids="example-webgpu-compute-particles,example-webgpu-ball-cluster" />
 
 ## Drawing Many Things
 
@@ -667,7 +777,7 @@ mesh.count = N;
 
 A compute pass can fill or update that buffer, so the instances are driven entirely on the GPU. This is how the particle and ball-cluster examples work.
 
-<ExamplesTable ids="example-instanced-mesh,example-instancing-storage-buffer" />
+<ExamplesTable ids="example-webgpu-instanced-mesh,example-webgpu-instancing-storage-buffer" />
 
 ### Indirect drawing
 
@@ -684,9 +794,9 @@ One buffer can hold several draws (`geometry.indirectDrawCount`), and `geometry.
 
 <RenderCategory name="indirect" compact />
 
-See `examples/src/example-indirect-batched.ts` (CPU-driven multi-draw) and `example-indirect-compute.ts` (a compute pass writes the draw args each frame).
+See `examples/src/example-webgpu-indirect-batched.ts` (CPU-driven multi-draw) and `example-webgpu-indirect-compute.ts` (a compute pass writes the draw args each frame).
 
-<ExamplesTable ids="example-indirect-batched,example-indirect-compute,example-voxels" />
+<ExamplesTable ids="example-webgpu-indirect-batched,example-webgpu-indirect-compute,example-webgpu-voxels" />
 
 ## Controls and the Inspector
 
@@ -709,7 +819,7 @@ document.body.appendChild(renderer.inspector.domElement);
 
 See [`OrbitControls`](./api.md#orbitcontrols) and [`Inspector`](./api.md#inspector).
 
-<ExamplesTable ids="example-transform-controls,example-fly-controls" />
+<ExamplesTable ids="example-webgpu-transform-controls,example-webgpu-fly-controls" />
 
 ## Compiling to WGSL
 

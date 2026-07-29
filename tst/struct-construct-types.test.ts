@@ -1,10 +1,8 @@
 import { expectTypeOf, test } from 'vitest';
-import {
-    struct, vec3, f32,
-} from '../src/index';
-import { vec3f } from '../src/schema/schema';
+import { f32, struct, vec3 } from '../src/index';
 import type { Node } from '../src/nodes/lib/core';
 import * as d from '../src/schema/schema';
+import { vec3f } from '../src/schema/schema';
 
 const Particle = struct('Particle', {
     pos: vec3f,

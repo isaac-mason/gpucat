@@ -1,29 +1,29 @@
-import { createVertexBuffer, createIndexBuffer } from '../core/gpu-buffer';
+import { type Mat4, mat4, type Vec3, vec3 } from 'mathcat';
+import { createIndexBuffer, createVertexBuffer } from '../core/gpu-buffer';
 import { Geometry } from '../geometry/geometry';
 import { Material } from '../material/material';
-import { Mesh } from './mesh';
-import { type Raycaster, type Intersection, rayIntersectsBox3 } from '../math/raycaster';
-import { vec3, mat4, type Vec3, type Mat4 } from 'mathcat';
-import * as d from '../schema/schema';
+import { type Intersection, type Raycaster, rayIntersectsBox3 } from '../math/raycaster';
 import {
+    add,
     attribute,
     cameraProjectionMatrix,
     cameraViewMatrix,
+    cross,
+    div,
+    f32,
     modelWorldMatrix,
+    mul,
+    type Node,
+    normalize,
     screenSize,
+    sub,
+    type UniformNode,
     uniform,
     vec2f,
     vec4f,
-    f32,
-    normalize,
-    cross,
-    div,
-    mul,
-    add,
-    sub,
-    type Node,
-    type UniformNode,
 } from '../nodes/nodes';
+import * as d from '../schema/schema';
+import { Mesh } from './mesh';
 
 // ─── Geometry ────────────────────────────────────────────────────────────────
 

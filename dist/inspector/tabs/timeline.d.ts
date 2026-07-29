@@ -1,5 +1,5 @@
-import { Tab } from '../ui/tab';
 import { Graph } from '../ui/graph';
+import { Tab } from '../ui/tab';
 type TimelineFrame = {
     id: string;
     calls: Array<{

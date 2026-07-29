@@ -9,11 +9,11 @@
  *
  * Mirrors the structure of draw-calls.ts.
  */
-import { Tab } from '../ui/tab';
-import { List } from '../ui/list';
-import type { Inspector } from '../inspector';
 import type { ComputeNode } from '../../nodes/nodes';
-import type { WebGPURenderer } from '../../renderer/renderer';
+import type { WebGPURenderer } from '../../renderer/webgpu/renderer';
+import type { Inspector } from '../inspector';
+import { List } from '../ui/list';
+import { Tab } from '../ui/tab';
 export declare class ComputeCalls extends Tab {
     readonly list: List;
     /** node.id → ComputeNodeRecord for every currently-displayed ComputeNode */

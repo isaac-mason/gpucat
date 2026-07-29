@@ -1,6 +1,6 @@
-import { Node } from './core';
-import { UniformNode } from './uniform';
 import * as d from '../../schema/schema';
+import { type Node } from './core';
+import { UniformNode } from './uniform';
 /** Model-to-world transform matrix. */
 export declare const modelWorldMatrix: UniformNode<d.mat4x4f>;
 /** Normal matrix (inverse-transpose of upper-left 3x3 of model matrix). In objectGroup. */

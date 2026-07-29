@@ -9,7 +9,20 @@ import {
     isAtomicDesc,
 } from './schema';
 
-export type AddressSpace = 'storage' | 'uniform';
+export type AddressSpace = 'storage' | 'uniform' | 'std140';
+
+/**
+ * Column stride (bytes) for a matrix with the given row count in the given address space.
+ *
+ * std140 (GLSL uniform layout) pads EVERY matrix column to a vec4 (16-byte stride), including
+ * 2-row matrices. std430/WGSL-uniform ('storage'/'uniform') use vec2 stride (8) for 2-row
+ * matrices and vec4 stride (16) for 3/4-row matrices. This is the ONLY layout difference between
+ * std140 and 'uniform'.
+ */
+function matColumnStrideF32(rows: number, addressSpace: AddressSpace): number {
+    if (addressSpace === 'std140') return 16;
+    return rows === 2 ? 8 : 16;
+}
 
 export type CompiledLayout<T = unknown> = {
     /** Size of one element in bytes */
@@ -175,6 +188,16 @@ export function layoutStrideOf(schema: Any, addressSpace: AddressSpace = 'storag
 }
 
 /**
+ * Get the byte alignment of a schema in the given address space.
+ *
+ * @example
+ * const align = layoutAlignOf(vec3f, 'std140'); // 16
+ */
+export function layoutAlignOf(schema: Any, addressSpace: AddressSpace = 'storage'): number {
+    return alignOf(schema, addressSpace);
+}
+
+/**
  * Get the compiled layout for a schema (for advanced use cases).
  */
 export function getCompiledLayout<D extends Any>(
@@ -220,14 +243,20 @@ function roundUp(n: number, align: number): number {
  * Uniform has stricter rules: structs and arrays round up to 16.
  */
 function alignOf(schema: Any, addressSpace: AddressSpace): number {
-    // For uniform address space, structs and array elements need roundUp(16, align)
-    if (addressSpace === 'uniform') {
+    // For uniform / std140, structs and array elements need roundUp(16, align).
+    if (addressSpace === 'uniform' || addressSpace === 'std140') {
         if (isStructDesc(schema)) {
             return roundUp(storageAlignOf(schema), 16);
         }
         if (isSizedArrayDesc(schema) || isArrayDesc(schema)) {
             return roundUp(alignOf(schema.element, addressSpace), 16);
         }
+    }
+    // std140: all f32 matrices align to 16 (columns padded to vec4), including 2-row matrices.
+    // (f16 matrices aren't part of GLSL std140; they keep their storage alignment.)
+    if (addressSpace === 'std140' && !isAtomicDesc(schema)) {
+        const t = schema.wgslType as string | undefined;
+        if (typeof t === 'string' && /^mat\dx\df$/.test(t)) return 16;
     }
     return storageAlignOf(schema);
 }
@@ -322,16 +351,16 @@ function sizeOf(schema: Any, addressSpace: AddressSpace): number {
     if (t === 'vec4h') return 8;
     if (t === 'vec4f' || t === 'vec4i' || t === 'vec4u' || t === 'vec4<bool>') return 16;
 
-    // Matrices f32 - column stride based on row count
-    if (t === 'mat2x2f') return 2 * 8;   // 2 cols * vec2 stride
-    if (t === 'mat3x2f') return 3 * 8;
-    if (t === 'mat4x2f') return 4 * 8;
-    if (t === 'mat2x3f') return 2 * 16;  // 2 cols * vec3 padded to vec4
-    if (t === 'mat3x3f') return 3 * 16;
-    if (t === 'mat4x3f') return 4 * 16;
-    if (t === 'mat2x4f') return 2 * 16;  // 2 cols * vec4
-    if (t === 'mat3x4f') return 3 * 16;
-    if (t === 'mat4x4f') return 4 * 16;
+    // Matrices f32 - size = numColumns * column stride. Column stride is address-space
+    // dependent: std140 pads every column to 16; storage/uniform use 8 for 2-row matrices.
+    {
+        const m = t.match(/^mat(\d)x(\d)f$/);
+        if (m) {
+            const cols = parseInt(m[1]!, 10);
+            const rows = parseInt(m[2]!, 10);
+            return cols * matColumnStrideF32(rows, addressSpace);
+        }
+    }
 
     // Matrices f16
     if (t === 'mat2x2h') return 2 * 4;   // 2 cols * vec2h stride
@@ -360,7 +389,7 @@ function strideOf(schema: Any, addressSpace: AddressSpace): number {
  */
 function arrayElementStrideOf(elementSchema: Any, addressSpace: AddressSpace): number {
     const baseStride = strideOf(elementSchema, addressSpace);
-    if (addressSpace === 'uniform') {
+    if (addressSpace === 'uniform' || addressSpace === 'std140') {
         return roundUp(baseStride, 16);
     }
     return baseStride;
@@ -555,8 +584,8 @@ function emitMatrixWriteF32(ctx: LayoutContext, t: string, accessor: string): vo
     const cols = parseInt(match[1]!, 10);
     const rows = parseInt(match[2]!, 10);
 
-    // Column stride: vec2=8, vec3/4=16
-    const colStride = rows === 2 ? 8 : 16;
+    // Column stride: std140 pads every column to 16; storage/uniform use vec2=8, vec3/4=16.
+    const colStride = matColumnStrideF32(rows, ctx.addressSpace);
 
     let off = ctx.offset;
     for (let c = 0; c < cols; c++) {
@@ -739,7 +768,7 @@ function emitMatrixReadF32(ctx: LayoutContext, t: string): string {
     const cols = parseInt(match[1]!, 10);
     const rows = parseInt(match[2]!, 10);
 
-    const colStride = rows === 2 ? 8 : 16;
+    const colStride = matColumnStrideF32(rows, ctx.addressSpace);
     const elements: string[] = [];
 
     let off = ctx.offset;

@@ -1,5 +1,5 @@
-import type { GUI } from './GUI';
 import { Controller } from './Controller';
+import type { GUI } from './GUI';
 export declare class OptionController<T = unknown> extends Controller<T> {
     $select: HTMLSelectElement;
     $display: HTMLDivElement;

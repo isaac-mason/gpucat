@@ -53,7 +53,7 @@ export class Graph {
                 pathString += ` L ${x},${y}`;
             }
             pathString += ` L ${(line.points.length - 1) * pointStep},${svgHeight} Z`;
-            const offset = svgWidth - ((line.points.length - 1) * pointStep);
+            const offset = svgWidth - (line.points.length - 1) * pointStep;
             line.path.setAttribute('transform', `translate(${offset}, 0)`);
             line.path.setAttribute('d', pathString);
         }
