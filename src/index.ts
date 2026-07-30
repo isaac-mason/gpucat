@@ -41,7 +41,14 @@ export * from './material/material';
 export type { Frustum } from './math/frustum';
 export * as frustum from './math/frustum';
 export { type Intersection, Raycaster } from './math/raycaster';
-export { compile, compileCompute, compileGlsl } from './nodes/builder';
+export {
+    compile,
+    compileCompute,
+    compileGlsl,
+    compileTransformFeedback,
+    type TransformFeedbackGlslResult,
+    type TransformFeedbackInputAttribute,
+} from './nodes/builder';
 export {
     type ArrayTextureNode,
     type AttributeOptions,
@@ -236,6 +243,9 @@ export {
     type TextureNode,
     type TextureType,
     type ToneMappingMode,
+    type TransformFeedbackCallback,
+    type TransformFeedbackLayout,
+    TransformFeedbackNode,
     tan,
     texture,
     textureBarrier,
@@ -253,6 +263,7 @@ export {
     textureSampleGrad,
     textureSampleLevel,
     textureStore,
+    transformFeedback,
     transpose,
     type UniformNode,
     u32,

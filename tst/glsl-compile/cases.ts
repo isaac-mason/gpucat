@@ -5,6 +5,7 @@ import {
     cameraProjectionMatrix,
     cameraViewMatrix,
     compileGlsl,
+    compileTransformFeedback,
     createStorageTexture,
     d,
     f32,
@@ -22,10 +23,12 @@ import {
     mrt,
     type Node,
     screenUV,
+    vec2i,
     vertexIndex,
     select,
     struct,
     texture,
+    transformFeedback,
     Var,
     varying,
     vec3,
@@ -44,6 +47,51 @@ export interface Case {
     /** Optional GLSL emitter options (e.g. `{ precision: 'mediump' }`) passed to compileGlsl. */
     opts?: GlslOpts;
 }
+
+/**
+ * A transform-feedback compile+link case (Phase 1 gate #2). `build()` produces a
+ * TransformFeedbackGlslResult; the harness compiles the vertex+fragment shaders AND links them as a
+ * transform-feedback program (transformFeedbackVaryings set before linkProgram), mirroring
+ * tst/tf-probe/run.mjs.
+ */
+export interface TfCase {
+    name: string;
+    build: () => ReturnType<typeof compileTransformFeedback>;
+}
+
+export const tfCases: TfCase[] = [
+    {
+        // Particles: pos += vel per element. Two vec4 attributes in, one captured varying out.
+        name: 'tf particles (pos += vel)',
+        build: () =>
+            compileTransformFeedback(
+                transformFeedback((io) => ({ pos: io.pos.add(io.vel) }), {
+                    inputs: { pos: d.vec4f, vel: d.vec4f },
+                    outputs: { pos: d.vec4f },
+                    name: 'particles',
+                }),
+            ),
+    },
+    {
+        // Neighbour gather via textureLoad in the vertex stage: read a data texel by element index and
+        // fold it into the output. Exercises texelFetch inside a TF kernel + a combined sampler binding.
+        name: 'tf neighbour (textureLoad gather)',
+        build: () => {
+            const data = createStorageTexture(1024, 1, 'rgba32float');
+            const sampler = new GpuSampler({});
+            return compileTransformFeedback(
+                transformFeedback(
+                    (io) => {
+                        const i = vertexIndex.toI32();
+                        const neighbour = texture(data, sampler).load(vec2i(i.add(i32(1)), i32(0)), i32(0));
+                        return { pos: io.pos.add(neighbour.mul(f32(0.5))) };
+                    },
+                    { inputs: { pos: d.vec4f }, outputs: { pos: d.vec4f }, name: 'neighbour' },
+                ),
+            );
+        },
+    },
+];
 
 /**
  * The 8 golden GLSL cases, copied verbatim from tst/glsl-golden.test.ts.

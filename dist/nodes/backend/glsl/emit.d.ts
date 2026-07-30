@@ -19,7 +19,7 @@ import * as d from '../../../schema/schema';
 import type { CompileSlots, Discovery, SamplerEntry, TextureEntry, UniformGroupBlock } from '../../builder';
 import type { TracedFn } from '../wgsl/emit';
 import type { AttributeNode } from '../../lib/attribute';
-import { type FnNode, type Node, type PrivateVarNode, type StructDef, type WgslFunctionNodeRef } from '../../lib/core';
+import { type FnNode, type Node, type PrivateVarNode, type StackNode, type StructDef, type WgslFunctionNodeRef } from '../../lib/core';
 import { SamplerNode, type TextureBindingNode } from '../../lib/texture';
 import type { UniformGroup, UniformNode } from '../../lib/uniform';
 import type { VaryingNode } from '../../lib/varying';
@@ -125,6 +125,35 @@ export declare function emitGlslRawFunctions(ctx: GlslBuildContext): string;
 export declare function emitGlslDslFunctions(ctx: GlslBuildContext): string;
 export declare function collectGlslVaryings(roots: Node<d.Any>[], ctx: GlslBuildContext): void;
 export declare function generateGlslVertexShader(slots: CompileSlots, ctx: GlslBuildContext): string;
+/**
+ * A single captured-varying output of a transform-feedback kernel.
+ */
+export type TransformFeedbackOutput = {
+    name: string;
+    varyingName: string;
+    type: d.Any;
+    expr: string;
+};
+/**
+ * Emit the transform-feedback vertex shader body (main() + attribute/varying declarations) into a
+ * fresh GLSL sub-context that shares the parent's discovered facts. Returns the generated `void main`
+ * body plus the ordered output metadata (for the caller to assemble the module + feedbackVaryings).
+ *
+ * The kernel body IS the vertex main(): the traced statements run, each output varying is assigned
+ * `v_<name> = <expr>;`, and a dummy `gl_Position = vec4(0.0);` is written so the program links.
+ */
+export declare function generateGlslTransformFeedbackShader(ctx: GlslBuildContext, body: StackNode, outputs: {
+    name: string;
+    expr: Node<d.Any>;
+}[]): {
+    main: string;
+    attributes: {
+        shaderName: string;
+        type: d.Any;
+        location: number;
+    }[];
+    outputs: TransformFeedbackOutput[];
+};
 export declare function generateGlslFragmentShader(fragmentNode: Node<d.Any> | null, ctx: GlslBuildContext, varyings: Map<string, {
     node: VaryingNode<d.Any>;
     vertexExpr: string;

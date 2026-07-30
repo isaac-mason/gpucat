@@ -5,6 +5,7 @@ import * as d from '../schema/schema';
 import { type TracedFn } from './backend/wgsl/emit';
 import type { AttributeNode } from './lib/attribute';
 import { type ComputeNode, type FnNode, type Node, type PrivateVarNode, type StructDef, type WorkgroupVarNode } from './lib/core';
+import type { TransformFeedbackNode } from './lib/transform-feedback';
 import type { StorageNode } from './lib/storage';
 import { SamplerNode, type StorageTextureBindingNode, type TextureBindingNode } from './lib/texture';
 import type { UniformGroup, UniformNode } from './lib/uniform';
@@ -33,6 +34,16 @@ export type CompileGlslOptions = {
 };
 export declare function compileGlsl(slots: CompileSlots, opts?: CompileGlslOptions): CompileResult;
 export declare function compileCompute(node: ComputeNode): ComputeCompileResult;
+/**
+ * GLSL compile path for a transform-feedback kernel (Phase 1 of the WebGL transform-feedback plan).
+ * Sibling to {@link compileCompute}: reuses the shared, backend-neutral {@link discover} pass and the
+ * GLSL emitter to produce a real, linkable transform-feedback VERTEX program (attribute-in / captured-
+ * varying-out) plus a no-op fragment shader so the program links.
+ *
+ * There is intentionally NO WGSL sibling — transform feedback is a WebGL2 primitive. Portability is via
+ * a shared body `Fn` wrapped in a WebGPU compute(), not by this node spanning backends.
+ */
+export declare function compileTransformFeedback(node: TransformFeedbackNode, opts?: CompileGlslOptions): TransformFeedbackGlslResult;
 export type NodeUpdateType = 'none' | 'frame' | 'render' | 'object';
 export type UpdateBeforeNode = {
     readonly id: number;
@@ -190,6 +201,28 @@ export type ComputeCompileResult = {
     workgroupSize: [number, number, number];
     builtinsUsed: Set<string>;
     uniformGroups: UniformGroupBlock[];
+};
+/** One transform-feedback input attribute (bound from a GpuBuffer at the run site in Phase 2). */
+export type TransformFeedbackInputAttribute = {
+    /** Shader attribute name, `a_<name>`. */
+    name: string;
+    /** WGSL type name (e.g. 'vec4f'); the GLSL type is derivable via the schema's glslType companion. */
+    type: string;
+    location: number;
+};
+export type TransformFeedbackGlslResult = {
+    /** The transform-feedback vertex shader (attribute-in / captured-varying-out, dummy gl_Position). */
+    vertexCode: string;
+    /** A no-op fragment shader so the program links (rasterization is discarded at run time). */
+    fragmentCode: string;
+    /** Ordered captured-varying names (`v_<name>`) for gl.transformFeedbackVaryings(..., SEPARATE_ATTRIBS). */
+    feedbackVaryings: string[];
+    /** Input attribute layout (name → type → location). */
+    inputAttributes: TransformFeedbackInputAttribute[];
+    uniformGroups: UniformGroupBlock[];
+    textures: TextureEntry[];
+    samplers: SamplerEntry[];
+    builtinsUsed: Set<string>;
 };
 /** result of a single DFS pass that discovers all metadata needed before code generation */
 export type Discovery = {

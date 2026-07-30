@@ -1,0 +1,71 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`transform-feedback GLSL compile > neighbour: textureLoad gather in a TF kernel 1`] = `
+{
+  "builtins": [
+    "vertex_index",
+  ],
+  "feedbackVaryings": [
+    "v_pos",
+  ],
+  "fragmentCode": "#version 300 es
+precision highp float;
+void main() {}",
+  "inputAttributes": [
+    {
+      "location": 0,
+      "name": "a_pos",
+      "type": "vec4f",
+    },
+  ],
+  "vertexCode": "#version 300 es
+// Uniform blocks (std140)
+// Combined samplers
+uniform sampler2D u_t0;
+// Transform-feedback vertex shader
+layout(location = 0) in vec4 a_pos;
+
+out vec4 v_pos;
+
+void main() {
+    v_pos = (a_pos + (texelFetch(u_t0, ivec2(ivec2((int(uint(gl_VertexID)) + 1), 0)), 0) * 0.5));
+    gl_Position = vec4(0.0);
+}",
+}
+`;
+
+exports[`transform-feedback GLSL compile > particles: pos.add(vel) → captured v_pos 1`] = `
+{
+  "builtins": [],
+  "feedbackVaryings": [
+    "v_pos",
+  ],
+  "fragmentCode": "#version 300 es
+precision highp float;
+void main() {}",
+  "inputAttributes": [
+    {
+      "location": 0,
+      "name": "a_pos",
+      "type": "vec4f",
+    },
+    {
+      "location": 1,
+      "name": "a_vel",
+      "type": "vec4f",
+    },
+  ],
+  "vertexCode": "#version 300 es
+// Uniform blocks (std140)
+// Transform-feedback vertex shader
+layout(location = 0) in vec4 a_pos;
+layout(location = 1) in vec4 a_vel;
+
+out vec4 v_pos;
+
+void main() {
+    v_pos = (a_pos + a_vel);
+    gl_Position = vec4(0.0);
+}",
+}
+`;

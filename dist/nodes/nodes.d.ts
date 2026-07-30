@@ -14,6 +14,7 @@ export * from "./lib/model";
 export * from "./lib/mrt";
 export * from "./lib/storage";
 export * from "./lib/texture";
+export * from "./lib/transform-feedback";
 export * from "./lib/uniform";
 export * from "./lib/varying";
 export * from "./lib/wgsl";

@@ -7397,7 +7397,8 @@ class FnNode extends Node {
         this.jsFunc = jsFunc;
     }
     compute(opts) {
-        return new ComputeNode({ fn: this, ...opts });
+        // Delegate to the free `compute()` factory so there is one construction path.
+        return compute(this, opts);
     }
     trace() {
         const params = this.paramDescs.map((pd, i) => {
@@ -11280,6 +11281,96 @@ function storage(nameOrBuffer, schemaOrAccess, accessArg) {
         const access = schemaOrAccess ?? 'read';
         return new StorageNode(buffer.schema, buffer, access, objectGroup);
     }
+}
+
+/**
+ * A transform-feedback kernel: named per-element attribute inputs → named captured-varying outputs,
+ * authored with the ordinary gpucat DSL body. This is the honest WebGL2 transform-feedback primitive
+ * (attribute-in / return-out), NOT a faked `storage()` compute — see
+ * llm/webgl-transform-feedback-plan.md. It has no WebGPU analogue; portability is via a shared body
+ * `Fn` wrapped in a WebGPU `compute()`, not by this node pretending to span backends.
+ *
+ * The body runs as the vertex `main()`. The element index is `vertexIndex` (= gl_VertexID); the
+ * instanced variant uses `instanceIndex` (= gl_InstanceID).
+ */
+class TransformFeedbackNode {
+    id;
+    /** Per-element input attribute schemas, keyed by name (declared `in a_<name>`). */
+    inputs;
+    /** Captured-varying output schemas, keyed by name (declared `out v_<name>`). */
+    outputs;
+    /** Input attribute nodes handed to the callback, keyed by input name (emitted as `a_<name>`). */
+    inputNodes;
+    /** The traced kernel body (statements pushed during the callback). */
+    body;
+    /** The per-output value expressions returned by the callback, keyed by output name. */
+    outputExprs;
+    name;
+    /** Set to true after dispose(). */
+    disposed = false;
+    /** @internal renderer cleanup hook (Phase 2). */
+    _onDispose = null;
+    constructor(opts) {
+        this.id = `_transformFeedback_${_tfCounter++}`;
+        this.inputs = opts.inputs;
+        this.outputs = opts.outputs;
+        this.inputNodes = opts.inputNodes;
+        this.body = opts.body;
+        this.outputExprs = opts.outputExprs;
+        this.name = opts.name;
+    }
+    dispose() {
+        if (this.disposed)
+            return;
+        this.disposed = true;
+        this._onDispose?.();
+    }
+}
+let _tfCounter = 0;
+/**
+ * Free factory for a transform-feedback kernel (the canonical authoring form).
+ *
+ * @example
+ * const kernel = transformFeedback(
+ *   (io) => ({ pos: io.pos.add(io.vel) }),
+ *   { inputs: { pos: d.vec4f, vel: d.vec4f }, outputs: { pos: d.vec4f } },
+ * );
+ */
+function transformFeedback(callback, layout) {
+    // Build one attribute node per input, sourced by name `a_<name>` (buffers bind at the run site in
+    // Phase 2, not baked into the node — see the plan's Runtime API section).
+    // Source each attribute by its bare input name; the GLSL emitter adds the `a_` prefix (→ `a_<name>`).
+    const inputNodes = {};
+    for (const name of Object.keys(layout.inputs)) {
+        inputNodes[name] = new AttributeNode(layout.inputs[name], String(name));
+    }
+    // Trace the callback exactly like FnNode.trace(): push a stack, run the body (which appends its
+    // statements to the stack), then capture the returned per-output expressions.
+    const body = new StackNode();
+    const prev = pushStack(body);
+    let outputs;
+    try {
+        outputs = callback(inputNodes);
+    }
+    finally {
+        popStack(prev);
+    }
+    const outputExprs = {};
+    for (const name of Object.keys(layout.outputs)) {
+        const expr = outputs[name];
+        if (expr == null) {
+            throw new Error(`[transformFeedback] kernel did not return an output for '${name}' declared in outputs.`);
+        }
+        outputExprs[name] = expr;
+    }
+    return new TransformFeedbackNode({
+        inputs: layout.inputs,
+        outputs: layout.outputs,
+        inputNodes: inputNodes,
+        body,
+        outputExprs,
+        name: layout.name,
+    });
 }
 
 /**
@@ -15832,6 +15923,139 @@ function generateGlslVertexShader(slots, ctx) {
     lines.push('}');
     return lines.join('\n');
 }
+/* transform-feedback vertex shader generation */
+/** Derivative call names that are only valid in a fragment shader (undefined in the vertex stage). */
+const FRAGMENT_ONLY_DERIVATIVES = new Set([
+    'dpdx',
+    'dpdy',
+    'fwidth',
+    'dpdxCoarse',
+    'dpdyCoarse',
+    'fwidthCoarse',
+    'dpdxFine',
+    'dpdyFine',
+    'fwidthFine',
+]);
+/**
+ * Texture free functions that pick their mip level from screen-space derivatives (implicit LOD). Those
+ * derivatives don't exist in a transform-feedback vertex kernel, so require the explicit-LOD form
+ * (`textureLod` / `textureLoad`) instead.
+ */
+const IMPLICIT_LOD_TEXTURE_FNS = new Set(['textureSample', 'textureSampleBias', 'textureSampleCompare', 'textureGather', 'textureGatherCompare']);
+/**
+ * Reject body constructs that can't run in a transform-feedback vertex kernel. Walks the traced body
+ * + output expressions, throwing a clear `[transformFeedback]` / `[glsl]` error naming the fix.
+ */
+function validateTransformFeedbackBody(roots) {
+    const seen = new Set();
+    const walk = (rawNode) => {
+        const node = rawNode;
+        if (seen.has(node.id))
+            return;
+        seen.add(node.id);
+        switch (node.kind) {
+            case NodeKind.Discard:
+                throw new Error(`[transformFeedback] 'discard' is a fragment-only op and can't be used in a transform-feedback kernel.`);
+            case NodeKind.Storage:
+                throw new Error(`[transformFeedback] storage() buffers are not part of the transform-feedback DSL; ` +
+                    `use named attribute inputs / captured-varying outputs (or a WebGPU compute() for scatter/atomics).`);
+            case NodeKind.StorageTextureBinding:
+                throw new Error(`[transformFeedback] storage textures are not supported in a transform-feedback kernel.`);
+            case NodeKind.WorkgroupVar:
+                throw new Error(`[transformFeedback] workgroup variables are compute-only and can't be used in a transform-feedback kernel.`);
+            case NodeKind.Call: {
+                const call = node;
+                if (FRAGMENT_ONLY_DERIVATIVES.has(call.fn)) {
+                    throw new Error(`[transformFeedback] '${call.fn}' is a fragment-only derivative and can't be used in a transform-feedback kernel.`);
+                }
+                if (IMPLICIT_LOD_TEXTURE_FNS.has(call.fn)) {
+                    throw new Error(`[transformFeedback] '${call.fn}' uses implicit-LOD sampling (screen-space derivatives), which is undefined in a ` +
+                        `transform-feedback vertex kernel; use textureLoad() or textureSampleLevel() with an explicit lod.`);
+                }
+                if (call.fn === 'workgroupBarrier' || call.fn === 'storageBarrier' || call.fn === 'textureBarrier') {
+                    throw new Error(`[transformFeedback] '${call.fn}()' is compute-only and can't be used in a transform-feedback kernel.`);
+                }
+                if (call.fn.startsWith('atomic')) {
+                    throw new Error(`[transformFeedback] atomics ('${call.fn}') are not part of the transform-feedback DSL; use a WebGPU compute().`);
+                }
+                break;
+            }
+        }
+        for (const child of getChildren(node))
+            walk(child);
+    };
+    for (const root of roots)
+        walk(root);
+}
+/**
+ * Emit the transform-feedback vertex shader body (main() + attribute/varying declarations) into a
+ * fresh GLSL sub-context that shares the parent's discovered facts. Returns the generated `void main`
+ * body plus the ordered output metadata (for the caller to assemble the module + feedbackVaryings).
+ *
+ * The kernel body IS the vertex main(): the traced statements run, each output varying is assigned
+ * `v_<name> = <expr>;`, and a dummy `gl_Position = vec4(0.0);` is written so the program links.
+ */
+function generateGlslTransformFeedbackShader(ctx, body, outputs) {
+    if (ctx.stage !== 'vertex') {
+        throw new Error(`[transformFeedback] the kernel body must be emitted in the vertex stage (got '${ctx.stage}').`);
+    }
+    // Validation over the full traced graph (body + every output expression).
+    validateTransformFeedbackBody([body, ...outputs.map((o) => o.expr)]);
+    // Emit body statements first (they may hoist CSE locals into ctx.code / register attributes).
+    for (const stmt of body.body)
+        generateStmt$1(ctx, stmt);
+    // Then the output expressions — evaluating them registers any remaining attributes and appends any
+    // CSE locals they hoist, exactly like the varying pre-eval in the render path.
+    const outputMeta = outputs.map((o) => {
+        const type = validateTransformFeedbackOutputType(o.name, o.expr.type);
+        return { name: o.name, varyingName: `v_${o.name}`, type, expr: generateExpr$1(ctx, o.expr) };
+    });
+    const lines = [];
+    // Attribute inputs (registered while emitting the body / outputs above), ordered by location.
+    const attributeList = Array.from(ctx.attributes.values()).sort((a, b) => a.location - b.location);
+    for (const attr of attributeList) {
+        lines.push(`layout(location = ${attr.location}) in ${glslType(attr.type)} ${attr.shaderName};`);
+    }
+    if (attributeList.length > 0)
+        lines.push('');
+    // Captured-varying outputs. Integer-typed varyings must be `flat` (GLSL ES 3.00 won't link them
+    // otherwise) — the same rule as render varyings.
+    for (const out of outputMeta) {
+        const flat = GLSL_INTEGER_WGSL_TYPES.has(out.type.wgslType) ? 'flat ' : '';
+        lines.push(`${flat}out ${glslType(out.type)} ${out.varyingName};`);
+    }
+    if (outputMeta.length > 0)
+        lines.push('');
+    lines.push('void main() {');
+    lines.push(...ctx.code);
+    for (const out of outputMeta) {
+        lines.push(`    ${out.varyingName} = ${out.expr};`);
+    }
+    // Dummy clip position so the program links (rasterization is discarded at run time).
+    lines.push('    gl_Position = vec4(0.0);');
+    lines.push('}');
+    return {
+        main: lines.join('\n'),
+        attributes: attributeList.map((a) => ({ shaderName: a.shaderName, type: a.type, location: a.location })),
+        outputs: outputMeta,
+    };
+}
+/**
+ * Validate a transform-feedback output schema for v1 scope: scalar / vec2 / vec4 / (u)int-vectors only.
+ * vec3 and struct outputs are rejected (throws naming the fix), > 4 outputs is checked by the caller.
+ */
+function validateTransformFeedbackOutputType(name, type) {
+    if (isStructDesc(type)) {
+        throw new Error(`[transformFeedback] output '${name}' is a struct, which is not supported (v1); return the fields as separate scalar/vec2/vec4 outputs.`);
+    }
+    const wgsl = type.wgslType;
+    if (wgsl === 'vec3f' || wgsl === 'vec3i' || wgsl === 'vec3u') {
+        throw new Error(`[transformFeedback] output '${name}' is a vec3 (${wgsl}), which does not round-trip cleanly through transform feedback (v1); use vec4f.`);
+    }
+    // glslType() throws for anything without a GLSL companion (bool vectors, f16, matrices, …).
+    glslType(type);
+    return type;
+}
 /* fragment shader generation */
 function generateGlslFragmentShader(fragmentNode, ctx, varyings, depthNode = null) {
     const lines = [];
@@ -17739,6 +17963,95 @@ function compileCompute(node) {
     };
 }
 /**
+ * GLSL compile path for a transform-feedback kernel (Phase 1 of the WebGL transform-feedback plan).
+ * Sibling to {@link compileCompute}: reuses the shared, backend-neutral {@link discover} pass and the
+ * GLSL emitter to produce a real, linkable transform-feedback VERTEX program (attribute-in / captured-
+ * varying-out) plus a no-op fragment shader so the program links.
+ *
+ * There is intentionally NO WGSL sibling — transform feedback is a WebGL2 primitive. Portability is via
+ * a shared body `Fn` wrapped in a WebGPU compute(), not by this node spanning backends.
+ */
+function compileTransformFeedback(node, opts = {}) {
+    if (Object.keys(node.outputs).length > 4) {
+        // MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS is 4 on the test platform (see the plan's Phase 0.5).
+        throw new Error(`[transformFeedback] a kernel may capture at most 4 outputs (MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS); ` +
+            `'${node.name ?? node.id}' declares ${Object.keys(node.outputs).length}.`);
+    }
+    // Declaration-ordered outputs (this is the transformFeedbackVaryings order at run time).
+    const outputEntries = Object.keys(node.outputs).map((name) => ({ name, expr: node.outputExprs[name] }));
+    // Roots: the body plus every output expression, so discover() sees everything the emitter touches.
+    const roots = [node.body, ...outputEntries.map((o) => o.expr)];
+    const discovered = discover(roots);
+    // Same struct-augmentation as compileGlsl: GLSL declares a `struct` for any struct-typed value, not
+    // just those reached through storage bindings.
+    const registerGlslStructDef = (def) => {
+        if (discovered.structDefs.has(def.wgslType))
+            return;
+        for (const nested of def.nestedDefs.values())
+            registerGlslStructDef(nested);
+        discovered.structDefs.set(def.wgslType, def);
+    };
+    for (const n of discovered.nodeIdToNode.values()) {
+        walkTypeForStructs(n.type, registerGlslStructDef);
+    }
+    // Reject compute-only resources up front with a clear error (the emitter also guards the body).
+    if (discovered.storages.size > 0 || discovered.storageNames.size > 0) {
+        throw new Error(`[transformFeedback] storage buffers are not part of the transform-feedback DSL`);
+    }
+    if (discovered.storageTextures.size > 0) {
+        throw new Error(`[transformFeedback] storage textures are not supported in a transform-feedback kernel`);
+    }
+    if (discovered.workgroupVars.size > 0) {
+        throw new Error(`[transformFeedback] workgroup variables are compute-only and can't be used in a transform-feedback kernel`);
+    }
+    const ctx = createGlslContext('vertex', discovered);
+    const { main, attributes, outputs } = generateGlslTransformFeedbackShader(ctx, node.body, outputEntries);
+    // Bindings + functions (same emit set as the render vertex stage).
+    const structsGlsl = emitGlslStructs(ctx);
+    const { glsl: uniformBlocksGlsl, uniformBlocks } = emitGlslUniformBlocks(ctx);
+    const { glsl: samplersGlsl, textures: textureEntries, samplers: samplerEntries } = emitGlslTextures(ctx);
+    const moduleScopeVarsGlsl = emitGlslModuleScopeVars(ctx);
+    const rawFnsGlsl = emitGlslRawFunctions(ctx);
+    const dslFnsGlsl = emitGlslDslFunctions(ctx);
+    const version = '#version 300 es';
+    const structsSection = structsGlsl ? `// Structs\n${structsGlsl}` : '';
+    const samplersSection = samplersGlsl ? `// Combined samplers\n${samplersGlsl}` : '';
+    const moduleScopeSection = moduleScopeVarsGlsl ? `// Module-scope variables\n${moduleScopeVarsGlsl}` : '';
+    const rawFnsSection = rawFnsGlsl ? `// Raw functions (wgslFn/glslFn)\n${rawFnsGlsl}` : '';
+    const dslFnsSection = dslFnsGlsl ? `// Functions\n${dslFnsGlsl}` : '';
+    const vertexCode = [
+        version,
+        // The vertex stage defaults to highp; a precision qualifier is emitted only when a non-default
+        // was requested, keeping texture-free kernels byte-clean.
+        opts.precision && opts.precision !== 'highp' ? `precision ${opts.precision} float;\nprecision ${opts.precision} int;\n` : '',
+        structsSection,
+        '// Uniform blocks (std140)',
+        uniformBlocksGlsl,
+        samplersSection,
+        moduleScopeSection,
+        rawFnsSection,
+        dslFnsSection,
+        '// Transform-feedback vertex shader',
+        main,
+    ]
+        .filter(Boolean)
+        .join('\n');
+    // No-op fragment shader — rasterization is discarded, but the program must still link.
+    const fragmentCode = ['#version 300 es', 'precision highp float;', 'void main() {}'].join('\n');
+    const feedbackVaryings = outputs.map((o) => o.varyingName);
+    const inputAttributes = attributes.map((a) => ({ name: a.shaderName, type: a.type.wgslType, location: a.location }));
+    return {
+        vertexCode,
+        fragmentCode,
+        feedbackVaryings,
+        inputAttributes,
+        uniformGroups: uniformBlocks,
+        textures: textureEntries,
+        samplers: samplerEntries,
+        builtinsUsed: ctx.builtins,
+    };
+}
+/**
  * Group attributes by their underlying buffer for efficient vertex buffer binding.
  *
  * Attributes sharing the same buffer (either by name for geometry-based, or by
@@ -17961,6 +18274,11 @@ function discover(roots) {
             if (!uniforms.has(name)) {
                 uniforms.set(name, { node, group });
             }
+            // A struct-typed UBO member needs its `struct` declared just like a storage buffer's does.
+            // discover() previously walked types for structs only through storage bindings, so a struct
+            // reached solely via a uniform was never registered — the WGSL emitter then referenced an
+            // undeclared type. Walk the uniform's type here so every backend sees the struct def.
+            walkTypeForStructs(node.type, registerStructDef);
         }
         // module scope variable discovery
         if (node.kind === NodeKind.PrivateVar) {
@@ -35876,7 +36194,19 @@ function resolveRenderTargetAttachments(device, textures, renderTarget, clearCol
 /** Attachments for the swapchain (canvas), resolving MSAA when enabled. */
 function resolveSwapchainAttachments(contexts, device, sc, format, clearColor, params) {
     const ctx = getContext(contexts, device, sc.canvasTarget, format);
-    const swapchainView = ctx.getCurrentTexture().createView();
+    const currentTexture = ctx.getCurrentTexture();
+    // The current swapchain texture is the size authority for this pass: it's what the MSAA resolve
+    // target (and the non-MSAA color view) is created from. The cached depth/MSAA textures are a single
+    // shared pair, but the renderer can drive multiple canvas targets of differing size/pixelRatio, so a
+    // target swap or resize race can leave them a frame stale. Reconcile against the live texture here so
+    // the color/depth attachments always match — WebGPU rejects a render pass whose attachments differ in
+    // size (the failure this guards against: "resolve target size … does not match the other attachments").
+    if (!sc.depthTexture ||
+        sc.depthTexture.width !== currentTexture.width ||
+        sc.depthTexture.height !== currentTexture.height) {
+        recreateSwapchainTextures(device, sc, format, currentTexture.width, currentTexture.height);
+    }
+    const swapchainView = currentTexture.createView();
     // autoClear=false preserves prior contents so several viewport/scissor views can composite
     // into one canvas. (MSAA can't 'load' a resolve-only target, so it always clears.)
     const loadOp = params.autoClear ? 'clear' : 'load';
@@ -37253,5 +37583,5 @@ class DataTexture {
     }
 }
 
-export { ArrayTexture, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, FlyControls, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, Raycaster, RenderPipeline, RenderTarget, Return, Scene, Source, TOUCH, Texture, TransformControls, Uniform, UniformGroup, UniformUpdateType, Var, WebGLRenderer, WebGPURenderer, While, WorkgroupVar, abs, acesToneMapping, acos, add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, ceil, clamp, color, comparisonSampler, compile, compileCompute, compileGlsl, compute, computeIndex, cond, cos, countLeadingZeros, countOneBits, countTrailingZeros, createBoxGeometry, createCylinderGeometry, createFullscreenTriangleGeometry, createIndexBuffer, createIndirectBuffer, createOctahedronGeometry, createPlaneGeometry, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createTorusGeometry, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frameGroup, frustum, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, globalId, glsl, glslFn, greaterThan, greaterThanEqual, i32, index, instanceIndex, inverseSqrt, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, pass, positionClip, pow, readPixels, reinhardToneMapping, renderGroup, renderOutput, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub, tan, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgsl, wgslFn, workgroupBarrier, workgroupId };
+export { ArrayTexture, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, FlyControls, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, Raycaster, RenderPipeline, RenderTarget, Return, Scene, Source, TOUCH, Texture, TransformControls, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WebGLRenderer, WebGPURenderer, While, WorkgroupVar, abs, acesToneMapping, acos, add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, ceil, clamp, color, comparisonSampler, compile, compileCompute, compileGlsl, compileTransformFeedback, compute, computeIndex, cond, cos, countLeadingZeros, countOneBits, countTrailingZeros, createBoxGeometry, createCylinderGeometry, createFullscreenTriangleGeometry, createIndexBuffer, createIndirectBuffer, createOctahedronGeometry, createPlaneGeometry, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createTorusGeometry, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frameGroup, frustum, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, globalId, glsl, glslFn, greaterThan, greaterThanEqual, i32, index, instanceIndex, inverseSqrt, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, pass, positionClip, pow, readPixels, reinhardToneMapping, renderGroup, renderOutput, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub, tan, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgsl, wgslFn, workgroupBarrier, workgroupId };
 //# sourceMappingURL=index.js.map

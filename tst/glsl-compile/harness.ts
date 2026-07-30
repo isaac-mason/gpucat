@@ -1,5 +1,5 @@
 import { compileGlsl } from '../../src/index';
-import { type Case, cases, type Slots } from './cases';
+import { type Case, cases, type Slots, type TfCase, tfCases } from './cases';
 import { buildProbeCase, type ProbeCase, probeCases } from './probe-cases';
 
 /**
@@ -155,6 +155,60 @@ function runProbeCase(gl: WebGL2RenderingContext, c: ProbeCase): CaseResult {
     };
 }
 
+/**
+ * Run one transform-feedback case (Phase 1 gate #2): compile the emitted vertex + no-op fragment, then
+ * link them AS A TRANSFORM-FEEDBACK PROGRAM — i.e. gl.transformFeedbackVaryings(program,
+ * feedbackVaryings, SEPARATE_ATTRIBS) BEFORE gl.linkProgram — and assert LINK_STATUS. Mirrors
+ * tst/tf-probe/run.mjs. Reported like a normal case (vertex/fragment/link).
+ */
+function runTfCase(gl: WebGL2RenderingContext, c: TfCase): CaseResult {
+    let vertexSrc: string;
+    let fragmentSrc: string;
+    let feedbackVaryings: string[];
+    try {
+        const result = c.build();
+        vertexSrc = result.vertexCode;
+        fragmentSrc = result.fragmentCode;
+        feedbackVaryings = result.feedbackVaryings;
+        if (feedbackVaryings.length === 0) {
+            return { name: c.name, emitError: 'transform-feedback kernel produced zero feedbackVaryings' };
+        }
+    } catch (err) {
+        return { name: c.name, emitError: err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err) };
+    }
+
+    const vs = compileShader(gl, gl.VERTEX_SHADER, vertexSrc);
+    const fs = compileShader(gl, gl.FRAGMENT_SHADER, fragmentSrc);
+
+    let link: { ok: boolean; log: string } | undefined;
+    if (vs.ok && fs.ok && vs.shader && fs.shader) {
+        const prog = gl.createProgram();
+        if (prog) {
+            gl.attachShader(prog, vs.shader);
+            gl.attachShader(prog, fs.shader);
+            // THE GATE: transform-feedback varyings must be declared before linking.
+            gl.transformFeedbackVaryings(prog, feedbackVaryings, gl.SEPARATE_ATTRIBS);
+            gl.linkProgram(prog);
+            const ok = gl.getProgramParameter(prog, gl.LINK_STATUS) as boolean;
+            const log = gl.getProgramInfoLog(prog) ?? '';
+            link = { ok, log };
+            gl.deleteProgram(prog);
+        } else {
+            link = { ok: false, log: 'gl.createProgram returned null' };
+        }
+    }
+
+    if (vs.shader) gl.deleteShader(vs.shader);
+    if (fs.shader) gl.deleteShader(fs.shader);
+
+    return {
+        name: c.name,
+        vertex: { ok: vs.ok, log: vs.log, src: vertexSrc },
+        fragment: { ok: fs.ok, log: fs.log, src: fragmentSrc },
+        link,
+    };
+}
+
 export function run(): RunResult {
     const canvas = document.createElement('canvas');
     canvas.width = 16;
@@ -163,7 +217,11 @@ export function run(): RunResult {
     if (!gl) {
         return { contextError: 'canvas.getContext("webgl2") returned null — WebGL2 unavailable in this browser context.', results: [] };
     }
-    const results = [...cases.map((c) => runCase(gl, c)), ...probeCases.map((c) => runProbeCase(gl, c))];
+    const results = [
+        ...cases.map((c) => runCase(gl, c)),
+        ...probeCases.map((c) => runProbeCase(gl, c)),
+        ...tfCases.map((c) => runTfCase(gl, c)),
+    ];
     return { results };
 }
 

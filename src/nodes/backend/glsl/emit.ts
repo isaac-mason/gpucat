@@ -33,6 +33,7 @@ import {
     NodeKind,
     type ParameterNode,
     type PrivateVarNode,
+    type StackNode,
     type StructDef,
     type WgslFunctionNodeRef,
 } from '../../lib/core';
@@ -1375,6 +1376,168 @@ export function generateGlslVertexShader(slots: CompileSlots, ctx: GlslBuildCont
     lines.push('}');
 
     return lines.join('\n');
+}
+
+/* transform-feedback vertex shader generation */
+
+/** Derivative call names that are only valid in a fragment shader (undefined in the vertex stage). */
+const FRAGMENT_ONLY_DERIVATIVES = new Set([
+    'dpdx',
+    'dpdy',
+    'fwidth',
+    'dpdxCoarse',
+    'dpdyCoarse',
+    'fwidthCoarse',
+    'dpdxFine',
+    'dpdyFine',
+    'fwidthFine',
+]);
+
+/**
+ * Texture free functions that pick their mip level from screen-space derivatives (implicit LOD). Those
+ * derivatives don't exist in a transform-feedback vertex kernel, so require the explicit-LOD form
+ * (`textureLod` / `textureLoad`) instead.
+ */
+const IMPLICIT_LOD_TEXTURE_FNS = new Set(['textureSample', 'textureSampleBias', 'textureSampleCompare', 'textureGather', 'textureGatherCompare']);
+
+/**
+ * Reject body constructs that can't run in a transform-feedback vertex kernel. Walks the traced body
+ * + output expressions, throwing a clear `[transformFeedback]` / `[glsl]` error naming the fix.
+ */
+function validateTransformFeedbackBody(roots: Node<d.Any>[]): void {
+    const seen = new Set<number>();
+    const walk = (rawNode: Node<d.Any>): void => {
+        const node = rawNode as AnyNode;
+        if (seen.has(node.id)) return;
+        seen.add(node.id);
+
+        switch (node.kind) {
+            case NodeKind.Discard:
+                throw new Error(`[transformFeedback] 'discard' is a fragment-only op and can't be used in a transform-feedback kernel.`);
+            case NodeKind.Storage:
+                throw new Error(
+                    `[transformFeedback] storage() buffers are not part of the transform-feedback DSL; ` +
+                        `use named attribute inputs / captured-varying outputs (or a WebGPU compute() for scatter/atomics).`,
+                );
+            case NodeKind.StorageTextureBinding:
+                throw new Error(`[transformFeedback] storage textures are not supported in a transform-feedback kernel.`);
+            case NodeKind.WorkgroupVar:
+                throw new Error(`[transformFeedback] workgroup variables are compute-only and can't be used in a transform-feedback kernel.`);
+            case NodeKind.Call: {
+                const call = node as CallNode<d.Any>;
+                if (FRAGMENT_ONLY_DERIVATIVES.has(call.fn)) {
+                    throw new Error(
+                        `[transformFeedback] '${call.fn}' is a fragment-only derivative and can't be used in a transform-feedback kernel.`,
+                    );
+                }
+                if (IMPLICIT_LOD_TEXTURE_FNS.has(call.fn)) {
+                    throw new Error(
+                        `[transformFeedback] '${call.fn}' uses implicit-LOD sampling (screen-space derivatives), which is undefined in a ` +
+                            `transform-feedback vertex kernel; use textureLoad() or textureSampleLevel() with an explicit lod.`,
+                    );
+                }
+                if (call.fn === 'workgroupBarrier' || call.fn === 'storageBarrier' || call.fn === 'textureBarrier') {
+                    throw new Error(`[transformFeedback] '${call.fn}()' is compute-only and can't be used in a transform-feedback kernel.`);
+                }
+                if (call.fn.startsWith('atomic')) {
+                    throw new Error(`[transformFeedback] atomics ('${call.fn}') are not part of the transform-feedback DSL; use a WebGPU compute().`);
+                }
+                break;
+            }
+        }
+
+        for (const child of getChildren(node)) walk(child);
+    };
+    for (const root of roots) walk(root);
+}
+
+/**
+ * A single captured-varying output of a transform-feedback kernel.
+ */
+export type TransformFeedbackOutput = { name: string; varyingName: string; type: d.Any; expr: string };
+
+/**
+ * Emit the transform-feedback vertex shader body (main() + attribute/varying declarations) into a
+ * fresh GLSL sub-context that shares the parent's discovered facts. Returns the generated `void main`
+ * body plus the ordered output metadata (for the caller to assemble the module + feedbackVaryings).
+ *
+ * The kernel body IS the vertex main(): the traced statements run, each output varying is assigned
+ * `v_<name> = <expr>;`, and a dummy `gl_Position = vec4(0.0);` is written so the program links.
+ */
+export function generateGlslTransformFeedbackShader(
+    ctx: GlslBuildContext,
+    body: StackNode,
+    outputs: { name: string; expr: Node<d.Any> }[],
+): { main: string; attributes: { shaderName: string; type: d.Any; location: number }[]; outputs: TransformFeedbackOutput[] } {
+    if (ctx.stage !== 'vertex') {
+        throw new Error(`[transformFeedback] the kernel body must be emitted in the vertex stage (got '${ctx.stage}').`);
+    }
+
+    // Validation over the full traced graph (body + every output expression).
+    validateTransformFeedbackBody([body, ...outputs.map((o) => o.expr)]);
+
+    // Emit body statements first (they may hoist CSE locals into ctx.code / register attributes).
+    for (const stmt of body.body) generateStmt(ctx, stmt);
+
+    // Then the output expressions — evaluating them registers any remaining attributes and appends any
+    // CSE locals they hoist, exactly like the varying pre-eval in the render path.
+    const outputMeta: TransformFeedbackOutput[] = outputs.map((o) => {
+        const type = validateTransformFeedbackOutputType(o.name, o.expr.type);
+        return { name: o.name, varyingName: `v_${o.name}`, type, expr: generateExpr(ctx, o.expr) };
+    });
+
+    const lines: string[] = [];
+
+    // Attribute inputs (registered while emitting the body / outputs above), ordered by location.
+    const attributeList = Array.from(ctx.attributes.values()).sort((a, b) => a.location - b.location);
+    for (const attr of attributeList) {
+        lines.push(`layout(location = ${attr.location}) in ${glslType(attr.type)} ${attr.shaderName};`);
+    }
+    if (attributeList.length > 0) lines.push('');
+
+    // Captured-varying outputs. Integer-typed varyings must be `flat` (GLSL ES 3.00 won't link them
+    // otherwise) — the same rule as render varyings.
+    for (const out of outputMeta) {
+        const flat = GLSL_INTEGER_WGSL_TYPES.has(out.type.wgslType) ? 'flat ' : '';
+        lines.push(`${flat}out ${glslType(out.type)} ${out.varyingName};`);
+    }
+    if (outputMeta.length > 0) lines.push('');
+
+    lines.push('void main() {');
+    lines.push(...ctx.code);
+    for (const out of outputMeta) {
+        lines.push(`    ${out.varyingName} = ${out.expr};`);
+    }
+    // Dummy clip position so the program links (rasterization is discarded at run time).
+    lines.push('    gl_Position = vec4(0.0);');
+    lines.push('}');
+
+    return {
+        main: lines.join('\n'),
+        attributes: attributeList.map((a) => ({ shaderName: a.shaderName, type: a.type, location: a.location })),
+        outputs: outputMeta,
+    };
+}
+
+/**
+ * Validate a transform-feedback output schema for v1 scope: scalar / vec2 / vec4 / (u)int-vectors only.
+ * vec3 and struct outputs are rejected (throws naming the fix), > 4 outputs is checked by the caller.
+ */
+function validateTransformFeedbackOutputType(name: string, type: d.Any): d.Any {
+    if (d.isStructDesc(type)) {
+        throw new Error(
+            `[transformFeedback] output '${name}' is a struct, which is not supported (v1); return the fields as separate scalar/vec2/vec4 outputs.`,
+        );
+    }
+    const wgsl = type.wgslType;
+    if (wgsl === 'vec3f' || wgsl === 'vec3i' || wgsl === 'vec3u') {
+        throw new Error(
+            `[transformFeedback] output '${name}' is a vec3 (${wgsl}), which does not round-trip cleanly through transform feedback (v1); use vec4f.`,
+        );
+    }
+    // glslType() throws for anything without a GLSL companion (bool vectors, f16, matrices, …).
+    glslType(type);
+    return type;
 }
 
 /* fragment shader generation */

@@ -12,6 +12,7 @@ import {
     emitGlslTextures,
     emitGlslUniformBlocks,
     generateGlslFragmentShader,
+    generateGlslTransformFeedbackShader,
     generateGlslVertexShader,
 } from './backend/glsl/emit';
 import {
@@ -37,6 +38,7 @@ import {
     type StructDef,
     type WorkgroupVarNode,
 } from './lib/core';
+import type { TransformFeedbackNode } from './lib/transform-feedback';
 import type { StorageNode } from './lib/storage';
 import {
     type ArrayTextureNode,
@@ -483,6 +485,109 @@ export function compileCompute(node: ComputeNode): ComputeCompileResult {
     };
 }
 
+/**
+ * GLSL compile path for a transform-feedback kernel (Phase 1 of the WebGL transform-feedback plan).
+ * Sibling to {@link compileCompute}: reuses the shared, backend-neutral {@link discover} pass and the
+ * GLSL emitter to produce a real, linkable transform-feedback VERTEX program (attribute-in / captured-
+ * varying-out) plus a no-op fragment shader so the program links.
+ *
+ * There is intentionally NO WGSL sibling — transform feedback is a WebGL2 primitive. Portability is via
+ * a shared body `Fn` wrapped in a WebGPU compute(), not by this node spanning backends.
+ */
+export function compileTransformFeedback(node: TransformFeedbackNode, opts: CompileGlslOptions = {}): TransformFeedbackGlslResult {
+    if (Object.keys(node.outputs).length > 4) {
+        // MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS is 4 on the test platform (see the plan's Phase 0.5).
+        throw new Error(
+            `[transformFeedback] a kernel may capture at most 4 outputs (MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS); ` +
+                `'${node.name ?? node.id}' declares ${Object.keys(node.outputs).length}.`,
+        );
+    }
+
+    // Declaration-ordered outputs (this is the transformFeedbackVaryings order at run time).
+    const outputEntries = Object.keys(node.outputs).map((name) => ({ name, expr: node.outputExprs[name]! }));
+
+    // Roots: the body plus every output expression, so discover() sees everything the emitter touches.
+    const roots: Node<d.Any>[] = [node.body, ...outputEntries.map((o) => o.expr)];
+
+    const discovered = discover(roots);
+
+    // Same struct-augmentation as compileGlsl: GLSL declares a `struct` for any struct-typed value, not
+    // just those reached through storage bindings.
+    const registerGlslStructDef = (def: StructDef<StructSchema>): void => {
+        if (discovered.structDefs.has(def.wgslType)) return;
+        for (const nested of def.nestedDefs.values()) registerGlslStructDef(nested);
+        discovered.structDefs.set(def.wgslType, def);
+    };
+    for (const n of discovered.nodeIdToNode.values()) {
+        walkTypeForStructs(n.type, registerGlslStructDef);
+    }
+
+    // Reject compute-only resources up front with a clear error (the emitter also guards the body).
+    if (discovered.storages.size > 0 || discovered.storageNames.size > 0) {
+        throw new Error(`[transformFeedback] storage buffers are not part of the transform-feedback DSL`);
+    }
+    if (discovered.storageTextures.size > 0) {
+        throw new Error(`[transformFeedback] storage textures are not supported in a transform-feedback kernel`);
+    }
+    if (discovered.workgroupVars.size > 0) {
+        throw new Error(`[transformFeedback] workgroup variables are compute-only and can't be used in a transform-feedback kernel`);
+    }
+
+    const ctx = createGlslContext('vertex', discovered);
+
+    const { main, attributes, outputs } = generateGlslTransformFeedbackShader(ctx, node.body, outputEntries);
+
+    // Bindings + functions (same emit set as the render vertex stage).
+    const structsGlsl = emitGlslStructs(ctx);
+    const { glsl: uniformBlocksGlsl, uniformBlocks } = emitGlslUniformBlocks(ctx);
+    const { glsl: samplersGlsl, textures: textureEntries, samplers: samplerEntries } = emitGlslTextures(ctx);
+    const moduleScopeVarsGlsl = emitGlslModuleScopeVars(ctx);
+    const rawFnsGlsl = emitGlslRawFunctions(ctx);
+    const dslFnsGlsl = emitGlslDslFunctions(ctx);
+
+    const version = '#version 300 es';
+    const structsSection = structsGlsl ? `// Structs\n${structsGlsl}` : '';
+    const samplersSection = samplersGlsl ? `// Combined samplers\n${samplersGlsl}` : '';
+    const moduleScopeSection = moduleScopeVarsGlsl ? `// Module-scope variables\n${moduleScopeVarsGlsl}` : '';
+    const rawFnsSection = rawFnsGlsl ? `// Raw functions (wgslFn/glslFn)\n${rawFnsGlsl}` : '';
+    const dslFnsSection = dslFnsGlsl ? `// Functions\n${dslFnsGlsl}` : '';
+
+    const vertexCode = [
+        version,
+        // The vertex stage defaults to highp; a precision qualifier is emitted only when a non-default
+        // was requested, keeping texture-free kernels byte-clean.
+        opts.precision && opts.precision !== 'highp' ? `precision ${opts.precision} float;\nprecision ${opts.precision} int;\n` : '',
+        structsSection,
+        '// Uniform blocks (std140)',
+        uniformBlocksGlsl,
+        samplersSection,
+        moduleScopeSection,
+        rawFnsSection,
+        dslFnsSection,
+        '// Transform-feedback vertex shader',
+        main,
+    ]
+        .filter(Boolean)
+        .join('\n');
+
+    // No-op fragment shader — rasterization is discarded, but the program must still link.
+    const fragmentCode = ['#version 300 es', 'precision highp float;', 'void main() {}'].join('\n');
+
+    const feedbackVaryings = outputs.map((o) => o.varyingName);
+    const inputAttributes = attributes.map((a) => ({ name: a.shaderName, type: a.type.wgslType, location: a.location }));
+
+    return {
+        vertexCode,
+        fragmentCode,
+        feedbackVaryings,
+        inputAttributes,
+        uniformGroups: uniformBlocks,
+        textures: textureEntries,
+        samplers: samplerEntries,
+        builtinsUsed: ctx.builtins,
+    };
+}
+
 /* types */
 
 export type NodeUpdateType = 'none' | 'frame' | 'render' | 'object';
@@ -659,6 +764,30 @@ export type ComputeCompileResult = {
     workgroupSize: [number, number, number];
     builtinsUsed: Set<string>;
     uniformGroups: UniformGroupBlock[];
+};
+
+/** One transform-feedback input attribute (bound from a GpuBuffer at the run site in Phase 2). */
+export type TransformFeedbackInputAttribute = {
+    /** Shader attribute name, `a_<name>`. */
+    name: string;
+    /** WGSL type name (e.g. 'vec4f'); the GLSL type is derivable via the schema's glslType companion. */
+    type: string;
+    location: number;
+};
+
+export type TransformFeedbackGlslResult = {
+    /** The transform-feedback vertex shader (attribute-in / captured-varying-out, dummy gl_Position). */
+    vertexCode: string;
+    /** A no-op fragment shader so the program links (rasterization is discarded at run time). */
+    fragmentCode: string;
+    /** Ordered captured-varying names (`v_<name>`) for gl.transformFeedbackVaryings(..., SEPARATE_ATTRIBS). */
+    feedbackVaryings: string[];
+    /** Input attribute layout (name → type → location). */
+    inputAttributes: TransformFeedbackInputAttribute[];
+    uniformGroups: UniformGroupBlock[];
+    textures: TextureEntry[];
+    samplers: SamplerEntry[];
+    builtinsUsed: Set<string>;
 };
 
 /**
