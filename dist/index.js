@@ -33727,6 +33727,57 @@ function bindTextures(gl, textures, samplers, renderObject, programInfo) {
         }
     }
 }
+/**
+ * Bind a STANDALONE kernel's textures + samplers (transform feedback) into their assigned GL texture
+ * units for `programInfo`. The kernel has no RenderObject/BindGroup, so the compiled `TextureEntry[]` /
+ * `SamplerEntry[]` (from `compileTransformFeedback`) are consumed directly: each texture's `GpuTexture`
+ * (from `entry.node.value`, exactly as the render path sources it) is uploaded (version-gated), bound to
+ * the emitter-assigned unit (`entry.binding`), its paired sampler (matched by unit) is bound, and the
+ * combined-sampler uniform `u_<textureId>` is set to that unit. The user binds neighbour data as an
+ * explicit `DataTexture` referenced by the kernel's `textureLoad` — there is no hidden mirror.
+ */
+function bindStandaloneTextures(gl, textures, samplers, textureEntries, samplerEntries, programInfo) {
+    for (const entry of textureEntries) {
+        const unit = entry.binding;
+        const gpuTexture = entry.node.value;
+        if (!gpuTexture) {
+            throw new Error(`[WebGLRenderer] transform-feedback kernel samples texture '${entry.textureId}' but no ` +
+                `GpuTexture is bound to it (set the DataTexture on the texture node before dispatch).`);
+        }
+        let texData = getGlTextureData(textures, gpuTexture);
+        if (!gpuTexture.isRenderTargetTexture) {
+            texData = updateTexture(gl, textures, gpuTexture);
+        }
+        else if (!texData) {
+            texData = updateTexture(gl, textures, gpuTexture);
+        }
+        if (!texData)
+            continue;
+        gl.activeTexture(gl.TEXTURE0 + unit);
+        gl.bindTexture(texData.target, texData.texture);
+        const gpuSampler = findStandaloneSamplerForUnit(samplerEntries, unit);
+        assertFloatLinearFilterable(gl, gpuTexture.format, gpuSampler);
+        if (gpuSampler) {
+            const hasMips = gpuTexture.generateMipmaps;
+            const glSampler = getGlSampler(gl, samplers, gpuSampler, hasMips);
+            gl.bindSampler(unit, glSampler);
+        }
+        else {
+            gl.bindSampler(unit, null);
+        }
+        const loc = getSamplerLocation(gl, programInfo, samplerUniformName(entry.textureId));
+        if (loc)
+            gl.uniform1i(loc, unit);
+    }
+}
+/** Find the GpuSampler whose SamplerEntry was assigned `unit`, among a standalone kernel's samplers. */
+function findStandaloneSamplerForUnit(samplerEntries, unit) {
+    for (const entry of samplerEntries) {
+        if (entry.binding === unit)
+            return entry.samplerNode.value;
+    }
+    return null;
+}
 /** Find the GpuSampler whose SamplerEntry was assigned `unit`, across all of the object's groups. */
 function findSamplerForUnit(bindGroups, unit) {
     for (const bindGroup of bindGroups) {
@@ -33763,7 +33814,7 @@ function findSamplerForUnit(bindGroups, unit) {
  */
 /** Create an empty uniforms state. */
 function createUniformsState() {
-    return { data: new WeakMap(), all: new Set() };
+    return { data: new WeakMap(), standalone: new WeakMap(), all: new Set() };
 }
 function getUboData(gl, state, binding, byteLength) {
     let data = state.data.get(binding);
@@ -33864,6 +33915,51 @@ function updateAndBindUniformGroup(gl, state, binding, frame, bindingPoint, mate
         data.uploaded = true;
     }
     // Bind the group's UBO to its program binding point.
+    gl.bindBufferBase(gl.UNIFORM_BUFFER, bindingPoint, data.ubo);
+}
+function getStandaloneUboData(gl, state, block, byteLength) {
+    let data = state.standalone.get(block);
+    if (!data || data.staging.byteLength !== byteLength) {
+        const ubo = data?.ubo ?? gl.createBuffer();
+        if (!ubo)
+            throw new Error('[WebGLRenderer] gl.createBuffer returned null (standalone UBO).');
+        if (!data)
+            state.all.add(ubo);
+        data = { ubo, staging: new ArrayBuffer(byteLength), uploaded: false };
+        state.standalone.set(block, data);
+    }
+    return data;
+}
+/**
+ * Update + bind a STANDALONE kernel's uniform group (transform-feedback) to `bindingPoint`.
+ *
+ * Unlike {@link updateAndBindUniformGroup}, there is no RenderObject/BindGroup and no per-frame update
+ * gating: the group is keyed by its `UniformGroupBlock` and re-packed on every dispatch, because a
+ * standalone kernel's uniforms (e.g. a `dt` timestep) commonly change per invocation and the caller
+ * assigns them directly on each `uniform()` node's `.uniform.value`. Member update callbacks (if any)
+ * are still invoked through the frame so `onFrame`/`onRender` uniforms resolve. Values are sourced from
+ * `m.node.uniform.value` (no material fallback — standalone kernels have no material) and packed std140.
+ *
+ * @param bindingPoint the GL uniform-buffer binding point this group's block was bound to (from the program)
+ */
+function updateAndBindStandaloneUniformGroup(gl, state, block, frame, bindingPoint) {
+    // Let any update callbacks (onFrame/onRender) assign node values; direct `.value` sets need nothing.
+    invokeUniformGroupCallbacks(block, frame);
+    const data = getStandaloneUboData(gl, state, block, block.totalBytes);
+    // Re-pack every dispatch: standalone-kernel uniforms change per frame and there is no dedup key.
+    const scratch = new ArrayBuffer(block.totalBytes);
+    packGroup(block, new DataView(scratch), null);
+    if (!data.uploaded || bytesDiffer(scratch, data.staging)) {
+        data.staging = scratch;
+        gl.bindBuffer(gl.UNIFORM_BUFFER, data.ubo);
+        if (!data.uploaded) {
+            gl.bufferData(gl.UNIFORM_BUFFER, scratch, gl.DYNAMIC_DRAW);
+            data.uploaded = true;
+        }
+        else {
+            gl.bufferSubData(gl.UNIFORM_BUFFER, 0, scratch);
+        }
+    }
     gl.bindBufferBase(gl.UNIFORM_BUFFER, bindingPoint, data.ubo);
 }
 /** Delete all GL UBOs (called on renderer dispose). */
@@ -34984,9 +35080,13 @@ function executeRenderPass$1(gl, caches, nodes, passCtx, prepared, params, inspe
  * are cached per renderer state. I/O `GpuBuffer`s get a plain `GpuBuffer → WebGLBuffer` cache (also
  * WeakMap), re-uploaded when the buffer's `version` changes.
  *
- * Uniforms/textures: the kernel's UBOs and any `textureLoad` data textures are bound so kernels using
- * `uniform()` / `textureLoad()` work — but only the parts of that path that don't depend on a
- * RenderObject/bind-group are wired here; see the Phase-2 note below.
+ * Uniforms/textures (Phase 4): the kernel's std140 UBOs and any `textureLoad` data textures are bound
+ * before dispatch so kernels using `uniform()` / `textureLoad()` work. Because a standalone kernel has
+ * no RenderObject/BindGroup, the binding is driven directly from the compiled result: each uniform
+ * group is packed from its `uniform()` nodes' live values and re-packed every dispatch
+ * (`updateAndBindStandaloneUniformGroup`), and each texture's `GpuTexture` is bound to its emitter-
+ * assigned unit with the combined-sampler uniform set (`bindStandaloneTextures`). The user binds
+ * neighbour data as an explicit `DataTexture` referenced by the kernel's `textureLoad` — no hidden mirror.
  */
 function createTransformFeedbackState() {
     return {
@@ -35076,7 +35176,7 @@ function getNodeCache(gl, state, node, precision) {
  * Execute one transform-feedback dispatch: bind the kernel's input `GpuBuffer`s as attributes, its
  * output `GpuBuffer`s as the captured-varying targets, and run the kernel under `RASTERIZER_DISCARD`.
  */
-function runTransformFeedback(gl, state, node, opts, precision) {
+function runTransformFeedback(gl, state, node, opts, precision, frame, uniforms, textures, samplers) {
     const { inputs, outputs, count, instanceCount } = opts;
     // Alias guard: a buffer used as an output can't also be an input (a TF-bound buffer must not be
     // read as an attribute in the same dispatch). Ping-pong with distinct buffers instead.
@@ -35089,17 +35189,6 @@ function runTransformFeedback(gl, state, node, opts, precision) {
     }
     const cache = getNodeCache(gl, state, node, precision);
     const { compiled, programInfo, vao } = cache;
-    // Uniform-block / texture binding for standalone TF kernels needs bind-group construction (the
-    // std140 UBO path and combined-sampler path are RenderObject/BindGroup-driven). That wiring is
-    // deferred (Phase 4); reject rather than run a kernel with unbound uniforms/textures (→ garbage).
-    if (compiled.uniformGroups.some((g) => g.members.length > 0)) {
-        throw new Error('[WebGLRenderer] transform-feedback kernels using uniform() are not supported yet ' +
-            '(uniform-block binding for standalone kernels is a later phase).');
-    }
-    if (compiled.textures.length > 0) {
-        throw new Error('[WebGLRenderer] transform-feedback kernels using textureLoad() are not supported yet ' +
-            '(data-texture binding for standalone kernels is a later phase).');
-    }
     // Validate every declared input/output has a buffer.
     for (const attr of compiled.inputAttributes) {
         // Attribute shader name is `a_<name>`; the run-site key is the bare `<name>`.
@@ -35109,6 +35198,23 @@ function runTransformFeedback(gl, state, node, opts, precision) {
         }
     }
     gl.useProgram(programInfo.program);
+    // Bind the kernel's uniform groups (std140 UBOs) to their resolved binding points. Values come
+    // from each uniform() node's `.uniform.value` (sourced exactly like the render path), re-packed
+    // every dispatch so per-frame uniforms (e.g. a `dt` timestep) take effect. Groups whose members
+    // were all optimized out have no binding point → skipped.
+    for (const group of compiled.uniformGroups) {
+        if (group.members.length === 0)
+            continue;
+        const bindingPoint = programInfo.uboBindingPoints.get(group.groupName);
+        if (bindingPoint === undefined)
+            continue;
+        updateAndBindStandaloneUniformGroup(gl, uniforms, group, frame, bindingPoint);
+    }
+    // Bind any DataTextures the kernel samples via textureLoad() (explicit neighbour gather — the user
+    // binds the DataTexture on the texture node; no hidden mirror). Runs in the vertex stage under TF.
+    if (compiled.textures.length > 0) {
+        bindStandaloneTextures(gl, textures, samplers, compiled.textures, compiled.samplers, programInfo);
+    }
     // Bind inputs as vertex attributes into the node's VAO (rebuilt each dispatch: the caller may
     // ping-pong a different GpuBuffer per element name each frame, so the attribute→buffer binding
     // is not stable across dispatches).
@@ -35772,7 +35878,7 @@ class WebGLRenderer {
         if (!this._initialized || !this.gl) {
             throw new Error('[WebGLRenderer] transformFeedback() called before init(). Await renderer.init() first.');
         }
-        runTransformFeedback(this.gl, this._transformFeedback, node, opts, this._opts.precision);
+        runTransformFeedback(this.gl, this._transformFeedback, node, opts, this._opts.precision, this._nodes.nodeFrame, this._uniforms, this._textures, this._samplers);
     }
     /**
      * The plain GL buffer backing a GpuBuffer within the transform-feedback state, or null if the

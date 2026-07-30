@@ -14,9 +14,13 @@
  * are cached per renderer state. I/O `GpuBuffer`s get a plain `GpuBuffer → WebGLBuffer` cache (also
  * WeakMap), re-uploaded when the buffer's `version` changes.
  *
- * Uniforms/textures: the kernel's UBOs and any `textureLoad` data textures are bound so kernels using
- * `uniform()` / `textureLoad()` work — but only the parts of that path that don't depend on a
- * RenderObject/bind-group are wired here; see the Phase-2 note below.
+ * Uniforms/textures (Phase 4): the kernel's std140 UBOs and any `textureLoad` data textures are bound
+ * before dispatch so kernels using `uniform()` / `textureLoad()` work. Because a standalone kernel has
+ * no RenderObject/BindGroup, the binding is driven directly from the compiled result: each uniform
+ * group is packed from its `uniform()` nodes' live values and re-packed every dispatch
+ * (`updateAndBindStandaloneUniformGroup`), and each texture's `GpuTexture` is bound to its emitter-
+ * assigned unit with the combined-sampler uniform set (`bindStandaloneTextures`). The user binds
+ * neighbour data as an explicit `DataTexture` referenced by the kernel's `textureLoad` — no hidden mirror.
  */
 
 import type { GpuBuffer } from '../../core/gpu-buffer';
@@ -26,9 +30,14 @@ import {
     type TransformFeedbackGlslResult,
 } from '../../nodes/builder';
 import type { TransformFeedbackNode } from '../../nodes/lib/transform-feedback';
+import type { NodeFrame } from '../core/node-frame';
 import { attribFormat, glComponentType } from './geometries';
 import { createTransformFeedbackProgram } from './programs';
 import type { ProgramInfo } from './programs';
+import type { GlSamplersState } from './samplers';
+import type { GlTexturesState } from './textures';
+import { bindStandaloneTextures } from './texture-bindings';
+import { updateAndBindStandaloneUniformGroup, type UniformsState } from './uniforms';
 
 /** Per-node cached compile + link. */
 type TfNodeCache = {
@@ -182,6 +191,10 @@ export function runTransformFeedback(
     node: TransformFeedbackNode,
     opts: TransformFeedbackRunOptions,
     precision: 'highp' | 'mediump' | 'lowp' | undefined,
+    frame: NodeFrame,
+    uniforms: UniformsState,
+    textures: GlTexturesState,
+    samplers: GlSamplersState,
 ): void {
     const { inputs, outputs, count, instanceCount } = opts;
 
@@ -200,22 +213,6 @@ export function runTransformFeedback(
     const cache = getNodeCache(gl, state, node, precision);
     const { compiled, programInfo, vao } = cache;
 
-    // Uniform-block / texture binding for standalone TF kernels needs bind-group construction (the
-    // std140 UBO path and combined-sampler path are RenderObject/BindGroup-driven). That wiring is
-    // deferred (Phase 4); reject rather than run a kernel with unbound uniforms/textures (→ garbage).
-    if (compiled.uniformGroups.some((g) => g.members.length > 0)) {
-        throw new Error(
-            '[WebGLRenderer] transform-feedback kernels using uniform() are not supported yet ' +
-                '(uniform-block binding for standalone kernels is a later phase).',
-        );
-    }
-    if (compiled.textures.length > 0) {
-        throw new Error(
-            '[WebGLRenderer] transform-feedback kernels using textureLoad() are not supported yet ' +
-                '(data-texture binding for standalone kernels is a later phase).',
-        );
-    }
-
     // Validate every declared input/output has a buffer.
     for (const attr of compiled.inputAttributes) {
         // Attribute shader name is `a_<name>`; the run-site key is the bare `<name>`.
@@ -226,6 +223,23 @@ export function runTransformFeedback(
     }
 
     gl.useProgram(programInfo.program);
+
+    // Bind the kernel's uniform groups (std140 UBOs) to their resolved binding points. Values come
+    // from each uniform() node's `.uniform.value` (sourced exactly like the render path), re-packed
+    // every dispatch so per-frame uniforms (e.g. a `dt` timestep) take effect. Groups whose members
+    // were all optimized out have no binding point → skipped.
+    for (const group of compiled.uniformGroups) {
+        if (group.members.length === 0) continue;
+        const bindingPoint = programInfo.uboBindingPoints.get(group.groupName);
+        if (bindingPoint === undefined) continue;
+        updateAndBindStandaloneUniformGroup(gl, uniforms, group, frame, bindingPoint);
+    }
+
+    // Bind any DataTextures the kernel samples via textureLoad() (explicit neighbour gather — the user
+    // binds the DataTexture on the texture node; no hidden mirror). Runs in the vertex stage under TF.
+    if (compiled.textures.length > 0) {
+        bindStandaloneTextures(gl, textures, samplers, compiled.textures, compiled.samplers, programInfo);
+    }
 
     // Bind inputs as vertex attributes into the node's VAO (rebuilt each dispatch: the caller may
     // ping-pong a different GpuBuffer per element name each frame, so the attribute→buffer binding

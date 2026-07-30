@@ -14,6 +14,7 @@ import {
     f32,
     Geometry,
     GpuBuffer,
+    i32,
     Material,
     Mesh,
     modelNormalMatrix,
@@ -32,8 +33,10 @@ import {
     Uniform,
     uniform,
     varying,
+    vec2i,
     vec3,
     vec4,
+    vertexIndex,
     WebGLRenderer,
 } from '../../src/index';
 import { BlendMode } from '../../src/material/blend-mode';
@@ -1084,6 +1087,150 @@ async function caseTransformFeedbackReadbackAsync(): Promise<CaseResult> {
     };
 }
 
+/**
+ * tf-uniform (Phase 4): a kernel `pos' = pos + vel * dt` where `dt = uniform('dt', d.f32)`. Sets
+ * dt=0.5, runs, asserts pos' == pos + 0.5*vel exactly; then sets dt=2.0, runs again, and asserts
+ * pos' == pos + 2.0*vel — proving the UBO is RE-PACKED per dispatch (a changed uniform takes effect).
+ * This exercises the standalone std140 UBO path (updateAndBindStandaloneUniformGroup).
+ */
+async function caseTransformFeedbackUniform(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const N = 4;
+
+    const posData = new Float32Array(N * 4);
+    const velData = new Float32Array(N * 4);
+    for (let i = 0; i < N; i++) {
+        for (let c = 0; c < 4; c++) {
+            posData[i * 4 + c] = i * 4 + c;
+            velData[i * 4 + c] = c + 1; // (1,2,3,4)
+        }
+    }
+    const posBuf = new GpuBuffer(d.vec4f, { data: posData });
+    const velBuf = new GpuBuffer(d.vec4f, { data: velData });
+    const outBuf = new GpuBuffer(d.vec4f, { count: N });
+
+    const dt = uniform('dt', d.f32);
+    const kernel = transformFeedback((io) => ({ pos: io.pos.add(io.vel.mul(dt)) }), {
+        inputs: { pos: d.vec4f, vel: d.vec4f },
+        outputs: { pos: d.vec4f },
+    });
+
+    // First dispatch with dt = 0.5.
+    dt.value = 0.5;
+    renderer.transformFeedback(kernel, { inputs: { pos: posBuf, vel: velBuf }, outputs: { pos: outBuf }, count: N });
+    const got1 = readTfFloat32(renderer, outBuf, N * 4);
+
+    let ok = true;
+    let note = '';
+    for (let i = 0; i < N * 4 && ok; i++) {
+        const expected = posData[i] + 0.5 * velData[i];
+        if (Math.abs(got1[i] - expected) > 1e-4) {
+            ok = false;
+            note = `dt=0.5 idx ${i}: got ${got1[i]}, want ${expected}`;
+        }
+    }
+
+    // Second dispatch with dt = 2.0 — must take effect (per-dispatch re-pack).
+    if (ok) {
+        dt.value = 2.0;
+        renderer.transformFeedback(kernel, {
+            inputs: { pos: posBuf, vel: velBuf },
+            outputs: { pos: outBuf },
+            count: N,
+        });
+        const got2 = readTfFloat32(renderer, outBuf, N * 4);
+        for (let i = 0; i < N * 4 && ok; i++) {
+            const expected = posData[i] + 2.0 * velData[i];
+            if (Math.abs(got2[i] - expected) > 1e-4) {
+                ok = false;
+                note = `dt=2.0 idx ${i}: got ${got2[i]}, want ${expected}`;
+            }
+        }
+        if (ok) note = `dt 0.5→2.0 re-packed: [${Array.from(got2.slice(0, 4)).join(', ')}] …`;
+    }
+
+    renderer.dispose();
+    return {
+        name: 'tf-uniform',
+        pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note,
+    };
+}
+
+/**
+ * tf-neighbour (Phase 4, boids-lite): each element reads texel (i+1) from an explicit rgba32float
+ * DataTexture via textureLoad (`texture(dataTex).load(vec2i(i+1, 0), 0)`) and returns
+ * `pos + neighbour`. Proves explicit random reads work with no hidden mirror — the standalone
+ * texture-binding path (bindStandaloneTextures). Asserts exact per-component values against the
+ * texels the test uploaded.
+ */
+async function caseTransformFeedbackNeighbour(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const N = 4;
+
+    // pos = (i, i, i, i). A data texture of width N+1 whose texel j = (j*10, j*10+1, j*10+2, j*10+3).
+    const posData = new Float32Array(N * 4);
+    for (let i = 0; i < N; i++) {
+        for (let c = 0; c < 4; c++) posData[i * 4 + c] = i;
+    }
+    const posBuf = new GpuBuffer(d.vec4f, { data: posData });
+    const outBuf = new GpuBuffer(d.vec4f, { count: N });
+
+    const TW = N + 1;
+    const texData = new Float32Array(TW * 4);
+    for (let j = 0; j < TW; j++) {
+        texData[j * 4 + 0] = j * 10;
+        texData[j * 4 + 1] = j * 10 + 1;
+        texData[j * 4 + 2] = j * 10 + 2;
+        texData[j * 4 + 3] = j * 10 + 3;
+    }
+    // rgba32float + nearest so `.load` (texelFetch, no filtering) reads the exact bytes back.
+    const dataTex = new DataTexture(texData, TW, 1, {
+        format: 'rgba32float',
+        magFilter: 'nearest',
+        minFilter: 'nearest',
+    });
+
+    const kernel = transformFeedback(
+        (io) => {
+            const i = vertexIndex.toI32();
+            const neighbour = texture(dataTex).load(vec2i(i.add(i32(1)), i32(0)), i32(0));
+            return { pos: io.pos.add(neighbour) };
+        },
+        {
+            inputs: { pos: d.vec4f },
+            outputs: { pos: d.vec4f },
+        },
+    );
+
+    renderer.transformFeedback(kernel, { inputs: { pos: posBuf }, outputs: { pos: outBuf }, count: N });
+    const got = readTfFloat32(renderer, outBuf, N * 4);
+
+    let ok = true;
+    let note = '';
+    for (let i = 0; i < N && ok; i++) {
+        const j = i + 1; // element i reads texel i+1
+        for (let c = 0; c < 4; c++) {
+            const expected = posData[i * 4 + c] + (j * 10 + c);
+            if (Math.abs(got[i * 4 + c] - expected) > 1e-4) {
+                ok = false;
+                note = `elem ${i} c${c}: got ${got[i * 4 + c]}, want ${expected}`;
+                break;
+            }
+        }
+    }
+    if (ok) note = `neighbour gather: [${Array.from(got.slice(0, 4)).join(', ')}] …`;
+
+    renderer.dispose();
+    return {
+        name: 'tf-neighbour',
+        pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note,
+    };
+}
+
 /** tf-alias-guard: same buffer as input and output must throw. */
 async function caseTransformFeedbackAliasGuard(): Promise<CaseResult> {
     const renderer = await newRenderer();
@@ -1143,6 +1290,8 @@ export async function run(): Promise<RunResult> {
             caseTransformFeedback,
             caseTransformFeedbackPingPong,
             caseTransformFeedbackReadbackAsync,
+            caseTransformFeedbackUniform,
+            caseTransformFeedbackNeighbour,
             caseTransformFeedbackAliasGuard,
             // NOTE: shadow-map (comparison sampler) is NOT asserted here — SwiftShader (the headless
             // WebGL2 backend this harness runs on) does not honor sampler2DShadow depth comparison

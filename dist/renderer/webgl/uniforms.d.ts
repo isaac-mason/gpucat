@@ -21,6 +21,7 @@
  * shared groups (camera) share one entry and per-object groups get their own, exactly as WebGPU.
  */
 import type { Material } from '../../material/material';
+import type { UniformGroupBlock } from '../../nodes/builder';
 import type { UniformBinding } from '../core/bind-group';
 import type { NodeFrame } from '../core/node-frame';
 /** Per-uniform-BindGroup GL resources + change-tracking state. */
@@ -35,6 +36,12 @@ type UboData = {
 /** Uniforms state: per-UniformBinding GL UBO data. */
 export type UniformsState = {
     data: WeakMap<UniformBinding, UboData>;
+    /**
+     * Per-standalone-UniformGroupBlock GL UBO data. Standalone kernels (transform feedback) have no
+     * RenderObject/BindGroup, so their uniform groups are keyed by the compiled `UniformGroupBlock`
+     * itself rather than a `UniformBinding`.
+     */
+    standalone: WeakMap<UniformGroupBlock, UboData>;
     /** All created UBOs, for disposal. */
     all: Set<WebGLBuffer>;
 };
@@ -50,6 +57,19 @@ export declare function createUniformsState(): UniformsState;
  * @param bindingPoint the GL uniform-buffer binding point this group's block was bound to (from the program)
  */
 export declare function updateAndBindUniformGroup(gl: WebGL2RenderingContext, state: UniformsState, binding: UniformBinding, frame: NodeFrame, bindingPoint: number, material: Material | null): void;
+/**
+ * Update + bind a STANDALONE kernel's uniform group (transform-feedback) to `bindingPoint`.
+ *
+ * Unlike {@link updateAndBindUniformGroup}, there is no RenderObject/BindGroup and no per-frame update
+ * gating: the group is keyed by its `UniformGroupBlock` and re-packed on every dispatch, because a
+ * standalone kernel's uniforms (e.g. a `dt` timestep) commonly change per invocation and the caller
+ * assigns them directly on each `uniform()` node's `.uniform.value`. Member update callbacks (if any)
+ * are still invoked through the frame so `onFrame`/`onRender` uniforms resolve. Values are sourced from
+ * `m.node.uniform.value` (no material fallback — standalone kernels have no material) and packed std140.
+ *
+ * @param bindingPoint the GL uniform-buffer binding point this group's block was bound to (from the program)
+ */
+export declare function updateAndBindStandaloneUniformGroup(gl: WebGL2RenderingContext, state: UniformsState, block: UniformGroupBlock, frame: NodeFrame, bindingPoint: number): void;
 /** Delete all GL UBOs (called on renderer dispose). */
 export declare function disposeUniforms(gl: WebGL2RenderingContext, state: UniformsState): void;
 /** Number of GL UBOs currently allocated. */

@@ -12,6 +12,7 @@
  * for the texture and `entry.samplerNode.value` for the sampler — so the value resolution is shared,
  * only the GL binding is new here.
  */
+import type { SamplerEntry, TextureEntry } from '../../nodes/builder';
 import { type RenderObject } from '../core/render-object';
 import type { ProgramInfo } from './programs';
 import { type GlSamplersState } from './samplers';
@@ -26,3 +27,13 @@ import { type GlTexturesState } from './textures';
  *   at graph-build time — but kept for symmetry with the uniform path and future update hooks)
  */
 export declare function bindTextures(gl: WebGL2RenderingContext, textures: GlTexturesState, samplers: GlSamplersState, renderObject: RenderObject, programInfo: ProgramInfo): void;
+/**
+ * Bind a STANDALONE kernel's textures + samplers (transform feedback) into their assigned GL texture
+ * units for `programInfo`. The kernel has no RenderObject/BindGroup, so the compiled `TextureEntry[]` /
+ * `SamplerEntry[]` (from `compileTransformFeedback`) are consumed directly: each texture's `GpuTexture`
+ * (from `entry.node.value`, exactly as the render path sources it) is uploaded (version-gated), bound to
+ * the emitter-assigned unit (`entry.binding`), its paired sampler (matched by unit) is bound, and the
+ * combined-sampler uniform `u_<textureId>` is set to that unit. The user binds neighbour data as an
+ * explicit `DataTexture` referenced by the kernel's `textureLoad` — there is no hidden mirror.
+ */
+export declare function bindStandaloneTextures(gl: WebGL2RenderingContext, textures: GlTexturesState, samplers: GlSamplersState, textureEntries: readonly TextureEntry[], samplerEntries: readonly SamplerEntry[], programInfo: ProgramInfo): void;

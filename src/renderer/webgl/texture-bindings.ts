@@ -13,6 +13,7 @@
  * only the GL binding is new here.
  */
 
+import type { SamplerEntry, TextureEntry } from '../../nodes/builder';
 import { getBindings, type RenderObject } from '../core/render-object';
 import type { ProgramInfo } from './programs';
 import { getGlSampler, type GlSamplersState } from './samplers';
@@ -124,6 +125,67 @@ export function bindTextures(
             if (loc) gl.uniform1i(loc, unit);
         }
     }
+}
+
+/**
+ * Bind a STANDALONE kernel's textures + samplers (transform feedback) into their assigned GL texture
+ * units for `programInfo`. The kernel has no RenderObject/BindGroup, so the compiled `TextureEntry[]` /
+ * `SamplerEntry[]` (from `compileTransformFeedback`) are consumed directly: each texture's `GpuTexture`
+ * (from `entry.node.value`, exactly as the render path sources it) is uploaded (version-gated), bound to
+ * the emitter-assigned unit (`entry.binding`), its paired sampler (matched by unit) is bound, and the
+ * combined-sampler uniform `u_<textureId>` is set to that unit. The user binds neighbour data as an
+ * explicit `DataTexture` referenced by the kernel's `textureLoad` — there is no hidden mirror.
+ */
+export function bindStandaloneTextures(
+    gl: WebGL2RenderingContext,
+    textures: GlTexturesState,
+    samplers: GlSamplersState,
+    textureEntries: readonly TextureEntry[],
+    samplerEntries: readonly SamplerEntry[],
+    programInfo: ProgramInfo,
+): void {
+    for (const entry of textureEntries) {
+        const unit = entry.binding;
+        const gpuTexture = entry.node.value;
+        if (!gpuTexture) {
+            throw new Error(
+                `[WebGLRenderer] transform-feedback kernel samples texture '${entry.textureId}' but no ` +
+                    `GpuTexture is bound to it (set the DataTexture on the texture node before dispatch).`,
+            );
+        }
+
+        let texData = getGlTextureData(textures, gpuTexture);
+        if (!gpuTexture.isRenderTargetTexture) {
+            texData = updateTexture(gl, textures, gpuTexture);
+        } else if (!texData) {
+            texData = updateTexture(gl, textures, gpuTexture);
+        }
+        if (!texData) continue;
+
+        gl.activeTexture(gl.TEXTURE0 + unit);
+        gl.bindTexture(texData.target, texData.texture);
+
+        const gpuSampler = findStandaloneSamplerForUnit(samplerEntries, unit);
+        assertFloatLinearFilterable(gl, gpuTexture.format, gpuSampler);
+        if (gpuSampler) {
+            const hasMips = gpuTexture.generateMipmaps;
+            const glSampler = getGlSampler(gl, samplers, gpuSampler, hasMips);
+            gl.bindSampler(unit, glSampler);
+        } else {
+            gl.bindSampler(unit, null);
+        }
+
+        const loc = getSamplerLocation(gl, programInfo, samplerUniformName(entry.textureId));
+        if (loc) gl.uniform1i(loc, unit);
+    }
+}
+
+/** Find the GpuSampler whose SamplerEntry was assigned `unit`, among a standalone kernel's samplers. */
+function findStandaloneSamplerForUnit(samplerEntries: readonly SamplerEntry[], unit: number) {
+    for (const entry of samplerEntries) {
+        if (entry.binding === unit) return entry.samplerNode.value;
+    }
+    return null;
 }
 
 /** Find the GpuSampler whose SamplerEntry was assigned `unit`, across all of the object's groups. */

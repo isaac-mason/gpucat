@@ -41,13 +41,19 @@ type UboData = {
 /** Uniforms state: per-UniformBinding GL UBO data. */
 export type UniformsState = {
     data: WeakMap<UniformBinding, UboData>;
+    /**
+     * Per-standalone-UniformGroupBlock GL UBO data. Standalone kernels (transform feedback) have no
+     * RenderObject/BindGroup, so their uniform groups are keyed by the compiled `UniformGroupBlock`
+     * itself rather than a `UniformBinding`.
+     */
+    standalone: WeakMap<UniformGroupBlock, UboData>;
     /** All created UBOs, for disposal. */
     all: Set<WebGLBuffer>;
 };
 
 /** Create an empty uniforms state. */
 export function createUniformsState(): UniformsState {
-    return { data: new WeakMap(), all: new Set() };
+    return { data: new WeakMap(), standalone: new WeakMap(), all: new Set() };
 }
 
 function getUboData(gl: WebGL2RenderingContext, state: UniformsState, binding: UniformBinding, byteLength: number): UboData {
@@ -153,6 +159,65 @@ export function updateAndBindUniformGroup(
     }
 
     // Bind the group's UBO to its program binding point.
+    gl.bindBufferBase(gl.UNIFORM_BUFFER, bindingPoint, data.ubo);
+}
+
+function getStandaloneUboData(
+    gl: WebGL2RenderingContext,
+    state: UniformsState,
+    block: UniformGroupBlock,
+    byteLength: number,
+): UboData {
+    let data = state.standalone.get(block);
+    if (!data || data.staging.byteLength !== byteLength) {
+        const ubo = data?.ubo ?? gl.createBuffer();
+        if (!ubo) throw new Error('[WebGLRenderer] gl.createBuffer returned null (standalone UBO).');
+        if (!data) state.all.add(ubo);
+        data = { ubo, staging: new ArrayBuffer(byteLength), uploaded: false };
+        state.standalone.set(block, data);
+    }
+    return data;
+}
+
+/**
+ * Update + bind a STANDALONE kernel's uniform group (transform-feedback) to `bindingPoint`.
+ *
+ * Unlike {@link updateAndBindUniformGroup}, there is no RenderObject/BindGroup and no per-frame update
+ * gating: the group is keyed by its `UniformGroupBlock` and re-packed on every dispatch, because a
+ * standalone kernel's uniforms (e.g. a `dt` timestep) commonly change per invocation and the caller
+ * assigns them directly on each `uniform()` node's `.uniform.value`. Member update callbacks (if any)
+ * are still invoked through the frame so `onFrame`/`onRender` uniforms resolve. Values are sourced from
+ * `m.node.uniform.value` (no material fallback — standalone kernels have no material) and packed std140.
+ *
+ * @param bindingPoint the GL uniform-buffer binding point this group's block was bound to (from the program)
+ */
+export function updateAndBindStandaloneUniformGroup(
+    gl: WebGL2RenderingContext,
+    state: UniformsState,
+    block: UniformGroupBlock,
+    frame: NodeFrame,
+    bindingPoint: number,
+): void {
+    // Let any update callbacks (onFrame/onRender) assign node values; direct `.value` sets need nothing.
+    invokeUniformGroupCallbacks(block, frame);
+
+    const data = getStandaloneUboData(gl, state, block, block.totalBytes);
+
+    // Re-pack every dispatch: standalone-kernel uniforms change per frame and there is no dedup key.
+    const scratch = new ArrayBuffer(block.totalBytes);
+    packGroup(block, new DataView(scratch), null);
+
+    if (!data.uploaded || bytesDiffer(scratch, data.staging)) {
+        data.staging = scratch;
+        gl.bindBuffer(gl.UNIFORM_BUFFER, data.ubo);
+        if (!data.uploaded) {
+            gl.bufferData(gl.UNIFORM_BUFFER, scratch, gl.DYNAMIC_DRAW);
+            data.uploaded = true;
+        } else {
+            gl.bufferSubData(gl.UNIFORM_BUFFER, 0, scratch);
+        }
+    }
+
     gl.bindBufferBase(gl.UNIFORM_BUFFER, bindingPoint, data.ubo);
 }
 

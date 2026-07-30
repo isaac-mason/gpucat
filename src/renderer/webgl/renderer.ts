@@ -688,7 +688,17 @@ export class WebGLRenderer implements Renderer, RendererState {
         if (!this._initialized || !this.gl) {
             throw new Error('[WebGLRenderer] transformFeedback() called before init(). Await renderer.init() first.');
         }
-        TransformFeedback.runTransformFeedback(this.gl, this._transformFeedback, node, opts, this._opts.precision);
+        TransformFeedback.runTransformFeedback(
+            this.gl,
+            this._transformFeedback,
+            node,
+            opts,
+            this._opts.precision,
+            this._nodes.nodeFrame,
+            this._uniforms,
+            this._textures,
+            this._samplers,
+        );
     }
 
     /**
