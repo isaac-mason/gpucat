@@ -339,99 +339,103 @@ The full node DSL, grouped by category. Learn it with examples in the [guide](./
 </tr><tr>
 <td><a href="#createstoragetexturearray"><code>createStorageTextureArray</code></a></td><td><a href="#dimensionof"><code>DimensionOf</code></a></td><td><a href="#gputexture"><code>GpuTexture</code></a></td><td><a href="#gputextureoptions"><code>GpuTextureOptions</code></a></td>
 </tr><tr>
-<td><a href="#viewdimensionof"><code>ViewDimensionOf</code></a></td><td><a href="#attributeoptions"><code>AttributeOptions</code></a></td><td><a href="#abs"><code>abs</code></a></td><td><a href="#acestonemapping"><code>acesToneMapping</code></a></td>
+<td><a href="#viewdimensionof"><code>ViewDimensionOf</code></a></td><td><a href="#compile"><code>compile</code></a></td><td><a href="#compilecompute"><code>compileCompute</code></a></td><td><a href="#compileglsl"><code>compileGlsl</code></a></td>
 </tr><tr>
-<td><a href="#acos"><code>acos</code></a></td><td><a href="#add"><code>add</code></a></td><td><a href="#and"><code>and</code></a></td><td><a href="#array"><code>array</code></a></td>
+<td><a href="#compiletransformfeedback"><code>compileTransformFeedback</code></a></td><td><a href="#transformfeedbackglslresult"><code>TransformFeedbackGlslResult</code></a></td><td><a href="#transformfeedbackinputattribute"><code>TransformFeedbackInputAttribute</code></a></td><td><a href="#attributeoptions"><code>AttributeOptions</code></a></td>
 </tr><tr>
-<td><a href="#arraytexture"><code>arrayTexture</code></a></td><td><a href="#asin"><code>asin</code></a></td><td><a href="#atan"><code>atan</code></a></td><td><a href="#atan2"><code>atan2</code></a></td>
+<td><a href="#abs"><code>abs</code></a></td><td><a href="#acestonemapping"><code>acesToneMapping</code></a></td><td><a href="#acos"><code>acos</code></a></td><td><a href="#add"><code>add</code></a></td>
 </tr><tr>
-<td><a href="#atomicadd"><code>atomicAdd</code></a></td><td><a href="#atomicand"><code>atomicAnd</code></a></td><td><a href="#atomiccompareexchangeweak"><code>atomicCompareExchangeWeak</code></a></td><td><a href="#atomicexchange"><code>atomicExchange</code></a></td>
+<td><a href="#and"><code>and</code></a></td><td><a href="#array"><code>array</code></a></td><td><a href="#arraytexture"><code>arrayTexture</code></a></td><td><a href="#asin"><code>asin</code></a></td>
 </tr><tr>
-<td><a href="#atomicload"><code>atomicLoad</code></a></td><td><a href="#atomicmax"><code>atomicMax</code></a></td><td><a href="#atomicmin"><code>atomicMin</code></a></td><td><a href="#atomicor"><code>atomicOr</code></a></td>
+<td><a href="#atan"><code>atan</code></a></td><td><a href="#atan2"><code>atan2</code></a></td><td><a href="#atomicadd"><code>atomicAdd</code></a></td><td><a href="#atomicand"><code>atomicAnd</code></a></td>
 </tr><tr>
-<td><a href="#atomicstore"><code>atomicStore</code></a></td><td><a href="#atomicsub"><code>atomicSub</code></a></td><td><a href="#atomicxor"><code>atomicXor</code></a></td><td><a href="#attribute"><code>attribute</code></a></td>
+<td><a href="#atomiccompareexchangeweak"><code>atomicCompareExchangeWeak</code></a></td><td><a href="#atomicexchange"><code>atomicExchange</code></a></td><td><a href="#atomicload"><code>atomicLoad</code></a></td><td><a href="#atomicmax"><code>atomicMax</code></a></td>
 </tr><tr>
-<td><a href="#binaryop"><code>BinaryOp</code></a></td><td><a href="#break"><code>Break</code></a></td><td><a href="#builtinkind"><code>BuiltinKind</code></a></td><td><a href="#bitcastf32"><code>bitcastF32</code></a></td>
+<td><a href="#atomicmin"><code>atomicMin</code></a></td><td><a href="#atomicor"><code>atomicOr</code></a></td><td><a href="#atomicstore"><code>atomicStore</code></a></td><td><a href="#atomicsub"><code>atomicSub</code></a></td>
 </tr><tr>
-<td><a href="#bitcasti32"><code>bitcastI32</code></a></td><td><a href="#bitcastu32"><code>bitcastU32</code></a></td><td><a href="#bitwiseand"><code>bitwiseAnd</code></a></td><td><a href="#bitwiseor"><code>bitwiseOr</code></a></td>
+<td><a href="#atomicxor"><code>atomicXor</code></a></td><td><a href="#attribute"><code>attribute</code></a></td><td><a href="#binaryop"><code>BinaryOp</code></a></td><td><a href="#break"><code>Break</code></a></td>
 </tr><tr>
-<td><a href="#bitwisexor"><code>bitwiseXor</code></a></td><td><a href="#bool"><code>bool</code></a></td><td><a href="#builtin"><code>builtin</code></a></td><td><a href="#computenodeoptions"><code>ComputeNodeOptions</code></a></td>
+<td><a href="#builtinkind"><code>BuiltinKind</code></a></td><td><a href="#bitcastf32"><code>bitcastF32</code></a></td><td><a href="#bitcasti32"><code>bitcastI32</code></a></td><td><a href="#bitcastu32"><code>bitcastU32</code></a></td>
 </tr><tr>
-<td><a href="#computeoptions"><code>ComputeOptions</code></a></td><td><a href="#const"><code>Const</code></a></td><td><a href="#continue"><code>Continue</code></a></td><td><a href="#camerafar"><code>cameraFar</code></a></td>
+<td><a href="#bitwiseand"><code>bitwiseAnd</code></a></td><td><a href="#bitwiseor"><code>bitwiseOr</code></a></td><td><a href="#bitwisexor"><code>bitwiseXor</code></a></td><td><a href="#bool"><code>bool</code></a></td>
 </tr><tr>
-<td><a href="#cameranear"><code>cameraNear</code></a></td><td><a href="#cameraposition"><code>cameraPosition</code></a></td><td><a href="#cameraprojectionmatrix"><code>cameraProjectionMatrix</code></a></td><td><a href="#cameraviewmatrix"><code>cameraViewMatrix</code></a></td>
+<td><a href="#builtin"><code>builtin</code></a></td><td><a href="#computenodeoptions"><code>ComputeNodeOptions</code></a></td><td><a href="#computeoptions"><code>ComputeOptions</code></a></td><td><a href="#const"><code>Const</code></a></td>
 </tr><tr>
-<td><a href="#ceil"><code>ceil</code></a></td><td><a href="#clamp"><code>clamp</code></a></td><td><a href="#comparisonsampler"><code>comparisonSampler</code></a></td><td><a href="#compute"><code>compute</code></a></td>
+<td><a href="#continue"><code>Continue</code></a></td><td><a href="#camerafar"><code>cameraFar</code></a></td><td><a href="#cameranear"><code>cameraNear</code></a></td><td><a href="#cameraposition"><code>cameraPosition</code></a></td>
 </tr><tr>
-<td><a href="#computeindex"><code>computeIndex</code></a></td><td><a href="#cond"><code>cond</code></a></td><td><a href="#cos"><code>cos</code></a></td><td><a href="#countleadingzeros"><code>countLeadingZeros</code></a></td>
+<td><a href="#cameraprojectionmatrix"><code>cameraProjectionMatrix</code></a></td><td><a href="#cameraviewmatrix"><code>cameraViewMatrix</code></a></td><td><a href="#ceil"><code>ceil</code></a></td><td><a href="#clamp"><code>clamp</code></a></td>
 </tr><tr>
-<td><a href="#countonebits"><code>countOneBits</code></a></td><td><a href="#counttrailingzeros"><code>countTrailingZeros</code></a></td><td><a href="#cross"><code>cross</code></a></td><td><a href="#cubetexture"><code>cubeTexture</code></a></td>
+<td><a href="#comparisonsampler"><code>comparisonSampler</code></a></td><td><a href="#compute"><code>compute</code></a></td><td><a href="#computeindex"><code>computeIndex</code></a></td><td><a href="#cond"><code>cond</code></a></td>
 </tr><tr>
-<td><a href="#discard"><code>Discard</code></a></td><td><a href="#drawindexedindirect"><code>DrawIndexedIndirect</code></a></td><td><a href="#drawindirect"><code>DrawIndirect</code></a></td><td><a href="#depthtexture"><code>depthTexture</code></a></td>
+<td><a href="#cos"><code>cos</code></a></td><td><a href="#countleadingzeros"><code>countLeadingZeros</code></a></td><td><a href="#countonebits"><code>countOneBits</code></a></td><td><a href="#counttrailingzeros"><code>countTrailingZeros</code></a></td>
 </tr><tr>
-<td><a href="#div"><code>div</code></a></td><td><a href="#dot"><code>dot</code></a></td><td><a href="#dpdx"><code>dpdx</code></a></td><td><a href="#dpdxcoarse"><code>dpdxCoarse</code></a></td>
+<td><a href="#cross"><code>cross</code></a></td><td><a href="#cubetexture"><code>cubeTexture</code></a></td><td><a href="#discard"><code>Discard</code></a></td><td><a href="#drawindexedindirect"><code>DrawIndexedIndirect</code></a></td>
 </tr><tr>
-<td><a href="#dpdxfine"><code>dpdxFine</code></a></td><td><a href="#dpdy"><code>dpdy</code></a></td><td><a href="#dpdycoarse"><code>dpdyCoarse</code></a></td><td><a href="#dpdyfine"><code>dpdyFine</code></a></td>
+<td><a href="#drawindirect"><code>DrawIndirect</code></a></td><td><a href="#depthtexture"><code>depthTexture</code></a></td><td><a href="#div"><code>div</code></a></td><td><a href="#dot"><code>dot</code></a></td>
 </tr><tr>
-<td><a href="#equal"><code>equal</code></a></td><td><a href="#exp"><code>exp</code></a></td><td><a href="#exp2"><code>exp2</code></a></td><td><a href="#fn"><code>Fn</code></a></td>
+<td><a href="#dpdx"><code>dpdx</code></a></td><td><a href="#dpdxcoarse"><code>dpdxCoarse</code></a></td><td><a href="#dpdxfine"><code>dpdxFine</code></a></td><td><a href="#dpdy"><code>dpdy</code></a></td>
 </tr><tr>
-<td><a href="#fnlayout"><code>FnLayout</code></a></td><td><a href="#for"><code>For</code></a></td><td><a href="#f16"><code>f16</code></a></td><td><a href="#f32"><code>f32</code></a></td>
+<td><a href="#dpdycoarse"><code>dpdyCoarse</code></a></td><td><a href="#dpdyfine"><code>dpdyFine</code></a></td><td><a href="#equal"><code>equal</code></a></td><td><a href="#exp"><code>exp</code></a></td>
 </tr><tr>
-<td><a href="#field"><code>field</code></a></td><td><a href="#fields"><code>fields</code></a></td><td><a href="#firstleadingbit"><code>firstLeadingBit</code></a></td><td><a href="#firsttrailingbit"><code>firstTrailingBit</code></a></td>
+<td><a href="#exp2"><code>exp2</code></a></td><td><a href="#fn"><code>Fn</code></a></td><td><a href="#fnlayout"><code>FnLayout</code></a></td><td><a href="#for"><code>For</code></a></td>
 </tr><tr>
-<td><a href="#floor"><code>floor</code></a></td><td><a href="#fract"><code>fract</code></a></td><td><a href="#fragcoord"><code>fragCoord</code></a></td><td><a href="#fwidth"><code>fwidth</code></a></td>
+<td><a href="#f16"><code>f16</code></a></td><td><a href="#f32"><code>f32</code></a></td><td><a href="#field"><code>field</code></a></td><td><a href="#fields"><code>fields</code></a></td>
 </tr><tr>
-<td><a href="#fwidthcoarse"><code>fwidthCoarse</code></a></td><td><a href="#fwidthfine"><code>fwidthFine</code></a></td><td><a href="#fxaa"><code>fxaa</code></a></td><td><a href="#gputypedarray"><code>GpuTypedArray</code></a></td>
+<td><a href="#firstleadingbit"><code>firstLeadingBit</code></a></td><td><a href="#firsttrailingbit"><code>firstTrailingBit</code></a></td><td><a href="#floor"><code>floor</code></a></td><td><a href="#fract"><code>fract</code></a></td>
 </tr><tr>
-<td><a href="#globalid"><code>globalId</code></a></td><td><a href="#greaterthan"><code>greaterThan</code></a></td><td><a href="#greaterthanequal"><code>greaterThanEqual</code></a></td><td><a href="#if"><code>If</code></a></td>
+<td><a href="#fragcoord"><code>fragCoord</code></a></td><td><a href="#fwidth"><code>fwidth</code></a></td><td><a href="#fwidthcoarse"><code>fwidthCoarse</code></a></td><td><a href="#fwidthfine"><code>fwidthFine</code></a></td>
 </tr><tr>
-<td><a href="#interpolationsampling"><code>InterpolationSampling</code></a></td><td><a href="#interpolationtype"><code>InterpolationType</code></a></td><td><a href="#i32"><code>i32</code></a></td><td><a href="#index"><code>index</code></a></td>
+<td><a href="#fxaa"><code>fxaa</code></a></td><td><a href="#gputypedarray"><code>GpuTypedArray</code></a></td><td><a href="#globalid"><code>globalId</code></a></td><td><a href="#greaterthan"><code>greaterThan</code></a></td>
 </tr><tr>
-<td><a href="#instanceindex"><code>instanceIndex</code></a></td><td><a href="#inversesqrt"><code>inverseSqrt</code></a></td><td><a href="#let"><code>Let</code></a></td><td><a href="#loop"><code>Loop</code></a></td>
+<td><a href="#greaterthanequal"><code>greaterThanEqual</code></a></td><td><a href="#if"><code>If</code></a></td><td><a href="#interpolationsampling"><code>InterpolationSampling</code></a></td><td><a href="#interpolationtype"><code>InterpolationType</code></a></td>
 </tr><tr>
-<td><a href="#length"><code>length</code></a></td><td><a href="#lessthan"><code>lessThan</code></a></td><td><a href="#lessthanequal"><code>lessThanEqual</code></a></td><td><a href="#localid"><code>localId</code></a></td>
+<td><a href="#i32"><code>i32</code></a></td><td><a href="#index"><code>index</code></a></td><td><a href="#instanceindex"><code>instanceIndex</code></a></td><td><a href="#inversesqrt"><code>inverseSqrt</code></a></td>
 </tr><tr>
-<td><a href="#localindex"><code>localIndex</code></a></td><td><a href="#log"><code>log</code></a></td><td><a href="#log2"><code>log2</code></a></td><td><a href="#mattype"><code>MatType</code></a></td>
+<td><a href="#let"><code>Let</code></a></td><td><a href="#loop"><code>Loop</code></a></td><td><a href="#length"><code>length</code></a></td><td><a href="#lessthan"><code>lessThan</code></a></td>
 </tr><tr>
-<td><a href="#mat2x2f"><code>mat2x2f</code></a></td><td><a href="#mat2x2h"><code>mat2x2h</code></a></td><td><a href="#mat2x3f"><code>mat2x3f</code></a></td><td><a href="#mat2x3h"><code>mat2x3h</code></a></td>
+<td><a href="#lessthanequal"><code>lessThanEqual</code></a></td><td><a href="#localid"><code>localId</code></a></td><td><a href="#localindex"><code>localIndex</code></a></td><td><a href="#log"><code>log</code></a></td>
 </tr><tr>
-<td><a href="#mat2x4f"><code>mat2x4f</code></a></td><td><a href="#mat2x4h"><code>mat2x4h</code></a></td><td><a href="#mat3"><code>mat3</code></a></td><td><a href="#mat3x2f"><code>mat3x2f</code></a></td>
+<td><a href="#log2"><code>log2</code></a></td><td><a href="#mattype"><code>MatType</code></a></td><td><a href="#mat2x2f"><code>mat2x2f</code></a></td><td><a href="#mat2x2h"><code>mat2x2h</code></a></td>
 </tr><tr>
-<td><a href="#mat3x2h"><code>mat3x2h</code></a></td><td><a href="#mat3x3f"><code>mat3x3f</code></a></td><td><a href="#mat3x3h"><code>mat3x3h</code></a></td><td><a href="#mat3x4f"><code>mat3x4f</code></a></td>
+<td><a href="#mat2x3f"><code>mat2x3f</code></a></td><td><a href="#mat2x3h"><code>mat2x3h</code></a></td><td><a href="#mat2x4f"><code>mat2x4f</code></a></td><td><a href="#mat2x4h"><code>mat2x4h</code></a></td>
 </tr><tr>
-<td><a href="#mat3x4h"><code>mat3x4h</code></a></td><td><a href="#mat4"><code>mat4</code></a></td><td><a href="#mat4x2f"><code>mat4x2f</code></a></td><td><a href="#mat4x2h"><code>mat4x2h</code></a></td>
+<td><a href="#mat3"><code>mat3</code></a></td><td><a href="#mat3x2f"><code>mat3x2f</code></a></td><td><a href="#mat3x2h"><code>mat3x2h</code></a></td><td><a href="#mat3x3f"><code>mat3x3f</code></a></td>
 </tr><tr>
-<td><a href="#mat4x3f"><code>mat4x3f</code></a></td><td><a href="#mat4x3h"><code>mat4x3h</code></a></td><td><a href="#mat4x4f"><code>mat4x4f</code></a></td><td><a href="#mat4x4h"><code>mat4x4h</code></a></td>
+<td><a href="#mat3x3h"><code>mat3x3h</code></a></td><td><a href="#mat3x4f"><code>mat3x4f</code></a></td><td><a href="#mat3x4h"><code>mat3x4h</code></a></td><td><a href="#mat4"><code>mat4</code></a></td>
 </tr><tr>
-<td><a href="#max"><code>max</code></a></td><td><a href="#min"><code>min</code></a></td><td><a href="#mix"><code>mix</code></a></td><td><a href="#mod"><code>mod</code></a></td>
+<td><a href="#mat4x2f"><code>mat4x2f</code></a></td><td><a href="#mat4x2h"><code>mat4x2h</code></a></td><td><a href="#mat4x3f"><code>mat4x3f</code></a></td><td><a href="#mat4x3h"><code>mat4x3h</code></a></td>
 </tr><tr>
-<td><a href="#modelnormalmatrix"><code>modelNormalMatrix</code></a></td><td><a href="#modelworldmatrix"><code>modelWorldMatrix</code></a></td><td><a href="#mrt"><code>mrt</code></a></td><td><a href="#mul"><code>mul</code></a></td>
+<td><a href="#mat4x4f"><code>mat4x4f</code></a></td><td><a href="#mat4x4h"><code>mat4x4h</code></a></td><td><a href="#max"><code>max</code></a></td><td><a href="#min"><code>min</code></a></td>
 </tr><tr>
-<td><a href="#numerictype"><code>NumericType</code></a></td><td><a href="#normalize"><code>normalize</code></a></td><td><a href="#notequal"><code>notEqual</code></a></td><td><a href="#numworkgroups"><code>numWorkgroups</code></a></td>
+<td><a href="#mix"><code>mix</code></a></td><td><a href="#mod"><code>mod</code></a></td><td><a href="#modelnormalmatrix"><code>modelNormalMatrix</code></a></td><td><a href="#modelworldmatrix"><code>modelWorldMatrix</code></a></td>
 </tr><tr>
-<td><a href="#outputcolorspace"><code>OutputColorSpace</code></a></td><td><a href="#or"><code>or</code></a></td><td><a href="#paramdesc"><code>ParamDesc</code></a></td><td><a href="#passnodeoptions"><code>PassNodeOptions</code></a></td>
+<td><a href="#mrt"><code>mrt</code></a></td><td><a href="#mul"><code>mul</code></a></td><td><a href="#numerictype"><code>NumericType</code></a></td><td><a href="#normalize"><code>normalize</code></a></td>
 </tr><tr>
-<td><a href="#privatevar"><code>PrivateVar</code></a></td><td><a href="#pack2x16float"><code>pack2x16float</code></a></td><td><a href="#pack2x16snorm"><code>pack2x16snorm</code></a></td><td><a href="#pack2x16unorm"><code>pack2x16unorm</code></a></td>
+<td><a href="#notequal"><code>notEqual</code></a></td><td><a href="#numworkgroups"><code>numWorkgroups</code></a></td><td><a href="#outputcolorspace"><code>OutputColorSpace</code></a></td><td><a href="#or"><code>or</code></a></td>
 </tr><tr>
-<td><a href="#pack4x8snorm"><code>pack4x8snorm</code></a></td><td><a href="#pack4x8unorm"><code>pack4x8unorm</code></a></td><td><a href="#pass"><code>pass</code></a></td><td><a href="#positionclip"><code>positionClip</code></a></td>
+<td><a href="#paramdesc"><code>ParamDesc</code></a></td><td><a href="#passnodeoptions"><code>PassNodeOptions</code></a></td><td><a href="#privatevar"><code>PrivateVar</code></a></td><td><a href="#pack2x16float"><code>pack2x16float</code></a></td>
 </tr><tr>
-<td><a href="#pow"><code>pow</code></a></td><td><a href="#renderoutputoptions"><code>RenderOutputOptions</code></a></td><td><a href="#return"><code>Return</code></a></td><td><a href="#reinhardtonemapping"><code>reinhardToneMapping</code></a></td>
+<td><a href="#pack2x16snorm"><code>pack2x16snorm</code></a></td><td><a href="#pack2x16unorm"><code>pack2x16unorm</code></a></td><td><a href="#pack4x8snorm"><code>pack4x8snorm</code></a></td><td><a href="#pack4x8unorm"><code>pack4x8unorm</code></a></td>
 </tr><tr>
-<td><a href="#renderoutput"><code>renderOutput</code></a></td><td><a href="#reversebits"><code>reverseBits</code></a></td><td><a href="#rgb"><code>rgb</code></a></td><td><a href="#samplertype"><code>SamplerType</code></a></td>
+<td><a href="#pass"><code>pass</code></a></td><td><a href="#positionclip"><code>positionClip</code></a></td><td><a href="#pow"><code>pow</code></a></td><td><a href="#renderoutputoptions"><code>RenderOutputOptions</code></a></td>
 </tr><tr>
-<td><a href="#scalartype"><code>ScalarType</code></a></td><td><a href="#structdef"><code>StructDef</code></a></td><td><a href="#structinstance"><code>StructInstance</code></a></td><td><a href="#structmember"><code>StructMember</code></a></td>
+<td><a href="#return"><code>Return</code></a></td><td><a href="#reinhardtonemapping"><code>reinhardToneMapping</code></a></td><td><a href="#renderoutput"><code>renderOutput</code></a></td><td><a href="#reversebits"><code>reverseBits</code></a></td>
 </tr><tr>
-<td><a href="#sampler"><code>sampler</code></a></td><td><a href="#screencoordinate"><code>screenCoordinate</code></a></td><td><a href="#screensize"><code>screenSize</code></a></td><td><a href="#screenuv"><code>screenUV</code></a></td>
+<td><a href="#rgb"><code>rgb</code></a></td><td><a href="#samplertype"><code>SamplerType</code></a></td><td><a href="#scalartype"><code>ScalarType</code></a></td><td><a href="#structdef"><code>StructDef</code></a></td>
 </tr><tr>
-<td><a href="#select"><code>select</code></a></td><td><a href="#shiftleft"><code>shiftLeft</code></a></td><td><a href="#shiftright"><code>shiftRight</code></a></td><td><a href="#sign"><code>sign</code></a></td>
+<td><a href="#structinstance"><code>StructInstance</code></a></td><td><a href="#structmember"><code>StructMember</code></a></td><td><a href="#sampler"><code>sampler</code></a></td><td><a href="#screencoordinate"><code>screenCoordinate</code></a></td>
 </tr><tr>
-<td><a href="#sin"><code>sin</code></a></td><td><a href="#smoothstep"><code>smoothstep</code></a></td><td><a href="#sqrt"><code>sqrt</code></a></td><td><a href="#srgbtransfereotf"><code>sRGBTransferEOTF</code></a></td>
+<td><a href="#screensize"><code>screenSize</code></a></td><td><a href="#screenuv"><code>screenUV</code></a></td><td><a href="#select"><code>select</code></a></td><td><a href="#shiftleft"><code>shiftLeft</code></a></td>
 </tr><tr>
-<td><a href="#srgbtransferoetf"><code>sRGBTransferOETF</code></a></td><td><a href="#step"><code>step</code></a></td><td><a href="#storage"><code>storage</code></a></td><td><a href="#storagebarrier"><code>storageBarrier</code></a></td>
+<td><a href="#shiftright"><code>shiftRight</code></a></td><td><a href="#sign"><code>sign</code></a></td><td><a href="#sin"><code>sin</code></a></td><td><a href="#smoothstep"><code>smoothstep</code></a></td>
 </tr><tr>
-<td><a href="#storagetexture"><code>storageTexture</code></a></td><td><a href="#struct"><code>struct</code></a></td><td><a href="#sub"><code>sub</code></a></td><td><a href="#texturetype"><code>TextureType</code></a></td>
+<td><a href="#sqrt"><code>sqrt</code></a></td><td><a href="#srgbtransfereotf"><code>sRGBTransferEOTF</code></a></td><td><a href="#srgbtransferoetf"><code>sRGBTransferOETF</code></a></td><td><a href="#step"><code>step</code></a></td>
 </tr><tr>
-<td><a href="#tonemappingmode"><code>ToneMappingMode</code></a></td><td><a href="#tan"><code>tan</code></a></td><td><a href="#texture"><code>texture</code></a></td><td><a href="#texturebarrier"><code>textureBarrier</code></a></td>
+<td><a href="#storage"><code>storage</code></a></td><td><a href="#storagebarrier"><code>storageBarrier</code></a></td><td><a href="#storagetexture"><code>storageTexture</code></a></td><td><a href="#struct"><code>struct</code></a></td>
+</tr><tr>
+<td><a href="#sub"><code>sub</code></a></td><td><a href="#texturetype"><code>TextureType</code></a></td><td><a href="#tonemappingmode"><code>ToneMappingMode</code></a></td><td><a href="#transformfeedbackcallback"><code>TransformFeedbackCallback</code></a></td>
+</tr><tr>
+<td><a href="#transformfeedbacklayout"><code>TransformFeedbackLayout</code></a></td><td><a href="#tan"><code>tan</code></a></td><td><a href="#texture"><code>texture</code></a></td><td><a href="#texturebarrier"><code>textureBarrier</code></a></td>
 </tr><tr>
 <td><a href="#texturebinding"><code>textureBinding</code></a></td><td><a href="#texturedimensions"><code>textureDimensions</code></a></td><td><a href="#texturegather"><code>textureGather</code></a></td><td><a href="#texturegathercompare"><code>textureGatherCompare</code></a></td>
 </tr><tr>
@@ -439,29 +443,29 @@ The full node DSL, grouped by category. Learn it with examples in the [guide](./
 </tr><tr>
 <td><a href="#texturesamplebias"><code>textureSampleBias</code></a></td><td><a href="#texturesamplecompare"><code>textureSampleCompare</code></a></td><td><a href="#texturesamplecomparelevel"><code>textureSampleCompareLevel</code></a></td><td><a href="#texturesamplegrad"><code>textureSampleGrad</code></a></td>
 </tr><tr>
-<td><a href="#texturesamplelevel"><code>textureSampleLevel</code></a></td><td><a href="#texturestore"><code>textureStore</code></a></td><td><a href="#transpose"><code>transpose</code></a></td><td><a href="#u32"><code>u32</code></a></td>
+<td><a href="#texturesamplelevel"><code>textureSampleLevel</code></a></td><td><a href="#texturestore"><code>textureStore</code></a></td><td><a href="#transformfeedback"><code>transformFeedback</code></a></td><td><a href="#transpose"><code>transpose</code></a></td>
 </tr><tr>
-<td><a href="#uniform"><code>uniform</code></a></td><td><a href="#unpack2x16float"><code>unpack2x16float</code></a></td><td><a href="#unpack2x16snorm"><code>unpack2x16snorm</code></a></td><td><a href="#unpack2x16unorm"><code>unpack2x16unorm</code></a></td>
+<td><a href="#u32"><code>u32</code></a></td><td><a href="#uniform"><code>uniform</code></a></td><td><a href="#unpack2x16float"><code>unpack2x16float</code></a></td><td><a href="#unpack2x16snorm"><code>unpack2x16snorm</code></a></td>
 </tr><tr>
-<td><a href="#unpack4x8snorm"><code>unpack4x8snorm</code></a></td><td><a href="#unpack4x8unorm"><code>unpack4x8unorm</code></a></td><td><a href="#var"><code>Var</code></a></td><td><a href="#vec2type"><code>Vec2Type</code></a></td>
+<td><a href="#unpack2x16unorm"><code>unpack2x16unorm</code></a></td><td><a href="#unpack4x8snorm"><code>unpack4x8snorm</code></a></td><td><a href="#unpack4x8unorm"><code>unpack4x8unorm</code></a></td><td><a href="#var"><code>Var</code></a></td>
 </tr><tr>
-<td><a href="#vec3type"><code>Vec3Type</code></a></td><td><a href="#vec4type"><code>Vec4Type</code></a></td><td><a href="#vectype"><code>VecType</code></a></td><td><a href="#varying"><code>varying</code></a></td>
+<td><a href="#vec2type"><code>Vec2Type</code></a></td><td><a href="#vec3type"><code>Vec3Type</code></a></td><td><a href="#vec4type"><code>Vec4Type</code></a></td><td><a href="#vectype"><code>VecType</code></a></td>
 </tr><tr>
-<td><a href="#vec2"><code>vec2</code></a></td><td><a href="#vec2b"><code>vec2b</code></a></td><td><a href="#vec2f"><code>vec2f</code></a></td><td><a href="#vec2h"><code>vec2h</code></a></td>
+<td><a href="#varying"><code>varying</code></a></td><td><a href="#vec2"><code>vec2</code></a></td><td><a href="#vec2b"><code>vec2b</code></a></td><td><a href="#vec2f"><code>vec2f</code></a></td>
 </tr><tr>
-<td><a href="#vec2i"><code>vec2i</code></a></td><td><a href="#vec2u"><code>vec2u</code></a></td><td><a href="#vec3"><code>vec3</code></a></td><td><a href="#vec3b"><code>vec3b</code></a></td>
+<td><a href="#vec2h"><code>vec2h</code></a></td><td><a href="#vec2i"><code>vec2i</code></a></td><td><a href="#vec2u"><code>vec2u</code></a></td><td><a href="#vec3"><code>vec3</code></a></td>
 </tr><tr>
-<td><a href="#vec3f"><code>vec3f</code></a></td><td><a href="#vec3h"><code>vec3h</code></a></td><td><a href="#vec3i"><code>vec3i</code></a></td><td><a href="#vec3u"><code>vec3u</code></a></td>
+<td><a href="#vec3b"><code>vec3b</code></a></td><td><a href="#vec3f"><code>vec3f</code></a></td><td><a href="#vec3h"><code>vec3h</code></a></td><td><a href="#vec3i"><code>vec3i</code></a></td>
 </tr><tr>
-<td><a href="#vec4"><code>vec4</code></a></td><td><a href="#vec4b"><code>vec4b</code></a></td><td><a href="#vec4f"><code>vec4f</code></a></td><td><a href="#vec4h"><code>vec4h</code></a></td>
+<td><a href="#vec3u"><code>vec3u</code></a></td><td><a href="#vec4"><code>vec4</code></a></td><td><a href="#vec4b"><code>vec4b</code></a></td><td><a href="#vec4f"><code>vec4f</code></a></td>
 </tr><tr>
-<td><a href="#vec4i"><code>vec4i</code></a></td><td><a href="#vec4u"><code>vec4u</code></a></td><td><a href="#vertexindex"><code>vertexIndex</code></a></td><td><a href="#wgslnodefunction"><code>WgslNodeFunction</code></a></td>
+<td><a href="#vec4h"><code>vec4h</code></a></td><td><a href="#vec4i"><code>vec4i</code></a></td><td><a href="#vec4u"><code>vec4u</code></a></td><td><a href="#vertexindex"><code>vertexIndex</code></a></td>
 </tr><tr>
-<td><a href="#wgslnodefunctioninput"><code>WgslNodeFunctionInput</code></a></td><td><a href="#wgsltype"><code>WgslType</code></a></td><td><a href="#while"><code>While</code></a></td><td><a href="#workgroupvar"><code>WorkgroupVar</code></a></td>
+<td><a href="#wgslnodefunction"><code>WgslNodeFunction</code></a></td><td><a href="#wgslnodefunctioninput"><code>WgslNodeFunctionInput</code></a></td><td><a href="#wgsltype"><code>WgslType</code></a></td><td><a href="#while"><code>While</code></a></td>
 </tr><tr>
-<td><a href="#glsl"><code>glsl</code></a></td><td><a href="#glslfn"><code>glslFn</code></a></td><td><a href="#wgsl"><code>wgsl</code></a></td><td><a href="#wgslfn"><code>wgslFn</code></a></td>
+<td><a href="#workgroupvar"><code>WorkgroupVar</code></a></td><td><a href="#glsl"><code>glsl</code></a></td><td><a href="#glslfn"><code>glslFn</code></a></td><td><a href="#wgsl"><code>wgsl</code></a></td>
 </tr><tr>
-<td><a href="#workgroupbarrier"><code>workgroupBarrier</code></a></td><td><a href="#workgroupid"><code>workgroupId</code></a></td><td></td><td></td>
+<td><a href="#wgslfn"><code>wgslFn</code></a></td><td><a href="#workgroupbarrier"><code>workgroupBarrier</code></a></td><td><a href="#workgroupid"><code>workgroupId</code></a></td><td></td>
 </tr></table>
 
 ### Renderer
@@ -559,17 +563,19 @@ Turn a node graph into WGSL.
 **Compile**
 
 <table><tr>
-<td><a href="#compile"><code>compile</code></a></td><td><a href="#compileglsloptions"><code>CompileGlslOptions</code></a></td><td><a href="#compileglsl"><code>compileGlsl</code></a></td><td><a href="#compilecompute"><code>compileCompute</code></a></td>
+<td><a href="#compile-2"><code>compile</code></a></td><td><a href="#compileglsloptions"><code>CompileGlslOptions</code></a></td><td><a href="#compileglsl-2"><code>compileGlsl</code></a></td><td><a href="#compilecompute-2"><code>compileCompute</code></a></td>
 </tr><tr>
-<td><a href="#nodeupdatetype"><code>NodeUpdateType</code></a></td><td><a href="#updatebeforenode"><code>UpdateBeforeNode</code></a></td><td><a href="#updateafternode"><code>UpdateAfterNode</code></a></td><td><a href="#updatenode"><code>UpdateNode</code></a></td>
+<td><a href="#compiletransformfeedback-2"><code>compileTransformFeedback</code></a></td><td><a href="#nodeupdatetype"><code>NodeUpdateType</code></a></td><td><a href="#updatebeforenode"><code>UpdateBeforeNode</code></a></td><td><a href="#updateafternode"><code>UpdateAfterNode</code></a></td>
 </tr><tr>
-<td><a href="#attributeentry"><code>AttributeEntry</code></a></td><td><a href="#vertexbuffergroup"><code>VertexBufferGroup</code></a></td><td><a href="#varyingentry"><code>VaryingEntry</code></a></td><td><a href="#uniformmember"><code>UniformMember</code></a></td>
+<td><a href="#updatenode"><code>UpdateNode</code></a></td><td><a href="#attributeentry"><code>AttributeEntry</code></a></td><td><a href="#vertexbuffergroup"><code>VertexBufferGroup</code></a></td><td><a href="#varyingentry"><code>VaryingEntry</code></a></td>
 </tr><tr>
-<td><a href="#uniformgroupblock"><code>UniformGroupBlock</code></a></td><td><a href="#storageentry"><code>StorageEntry</code></a></td><td><a href="#textureentry"><code>TextureEntry</code></a></td><td><a href="#storagetextureentry"><code>StorageTextureEntry</code></a></td>
+<td><a href="#uniformmember"><code>UniformMember</code></a></td><td><a href="#uniformgroupblock"><code>UniformGroupBlock</code></a></td><td><a href="#storageentry"><code>StorageEntry</code></a></td><td><a href="#textureentry"><code>TextureEntry</code></a></td>
 </tr><tr>
-<td><a href="#samplerentry"><code>SamplerEntry</code></a></td><td><a href="#computestorageentry"><code>ComputeStorageEntry</code></a></td><td><a href="#nodegraphinfo"><code>NodeGraphInfo</code></a></td><td><a href="#compileslots"><code>CompileSlots</code></a></td>
+<td><a href="#storagetextureentry"><code>StorageTextureEntry</code></a></td><td><a href="#samplerentry"><code>SamplerEntry</code></a></td><td><a href="#computestorageentry"><code>ComputeStorageEntry</code></a></td><td><a href="#nodegraphinfo"><code>NodeGraphInfo</code></a></td>
 </tr><tr>
-<td><a href="#compileresult"><code>CompileResult</code></a></td><td><a href="#computecompileresult"><code>ComputeCompileResult</code></a></td><td><a href="#discovery"><code>Discovery</code></a></td><td></td>
+<td><a href="#compileslots"><code>CompileSlots</code></a></td><td><a href="#compileresult"><code>CompileResult</code></a></td><td><a href="#computecompileresult"><code>ComputeCompileResult</code></a></td><td><a href="#transformfeedbackinputattribute-2"><code>TransformFeedbackInputAttribute</code></a></td>
+</tr><tr>
+<td><a href="#transformfeedbackglslresult-2"><code>TransformFeedbackGlslResult</code></a></td><td><a href="#discovery"><code>Discovery</code></a></td><td></td><td></td>
 </tr></table>
 
 ### Schema (`d`)
@@ -781,6 +787,71 @@ export type GpuTextureOptions<D extends d.Texture> = D extends d.texture1d | d.t
 ```ts
 /** View dimension from schema type (for GPUTextureView) */
 export type ViewDimensionOf<D extends d.Texture> = D extends d.texture1d | d.textureStorage1d ? '1d' : D extends d.texture2d | d.textureDepth2d | d.textureMultisampled2d | d.textureDepthMultisampled2d | d.textureStorage2d ? '2d' : D extends d.texture2dArray | d.textureDepth2dArray | d.textureStorage2dArray ? '2d-array' : D extends d.textureCube | d.textureDepthCube ? 'cube' : D extends d.textureCubeArray | d.textureDepthCubeArray ? 'cube-array' : D extends d.texture3d | d.textureStorage3d ? '3d' : '2d';
+```
+
+#### `compile`
+
+```ts
+export function compile(slots: CompileSlots): CompileResult;
+```
+
+#### `compileCompute`
+
+```ts
+export function compileCompute(node: ComputeNode): ComputeCompileResult;
+```
+
+#### `compileGlsl`
+
+```ts
+export function compileGlsl(slots: CompileSlots, opts?: CompileGlslOptions): CompileResult;
+```
+
+#### `compileTransformFeedback`
+
+```ts
+/**
+ * GLSL compile path for a transform-feedback kernel (Phase 1 of the WebGL transform-feedback plan).
+ * Sibling to {@link compileCompute}: reuses the shared, backend-neutral {@link discover} pass and the
+ * GLSL emitter to produce a real, linkable transform-feedback VERTEX program (attribute-in / captured-
+ * varying-out) plus a no-op fragment shader so the program links.
+ *
+ * There is intentionally NO WGSL sibling — transform feedback is a WebGL2 primitive. Portability is via
+ * a shared body `Fn` wrapped in a WebGPU compute(), not by this node spanning backends.
+ */
+export function compileTransformFeedback(node: TransformFeedbackNode, opts?: CompileGlslOptions): TransformFeedbackGlslResult;
+```
+
+#### `TransformFeedbackGlslResult`
+
+```ts
+export type TransformFeedbackGlslResult = {
+    /** The transform-feedback vertex shader (attribute-in / captured-varying-out, dummy gl_Position). */
+    vertexCode: string;
+    /** A no-op fragment shader so the program links (rasterization is discarded at run time). */
+    fragmentCode: string;
+    /** Ordered captured-varying names (`v_<name>`) for gl.transformFeedbackVaryings(..., SEPARATE_ATTRIBS). */
+    feedbackVaryings: string[];
+    /** Input attribute layout (name → type → location). */
+    inputAttributes: TransformFeedbackInputAttribute[];
+    uniformGroups: UniformGroupBlock[];
+    textures: TextureEntry[];
+    samplers: SamplerEntry[];
+    builtinsUsed: Set<string>;
+};
+```
+
+#### `TransformFeedbackInputAttribute`
+
+```ts
+/** One transform-feedback input attribute (bound from a GpuBuffer at the run site in Phase 2). */
+export type TransformFeedbackInputAttribute = {
+    /** Shader attribute name, `a_<name>`. */
+    name: string;
+    /** WGSL type name (e.g. 'vec4f'); the GLSL type is derivable via the schema's glslType companion. */
+    type: string;
+    location: number;
+};
 ```
 
 #### `AttributeOptions`
@@ -2522,6 +2593,32 @@ export type TextureType = string;
 export type ToneMappingMode = 'aces' | 'reinhard' | 'linear' | 'none';
 ```
 
+#### `TransformFeedbackCallback`
+
+```ts
+/**
+ * The kernel callback: receives an object of input attribute nodes keyed by the `inputs` names, and
+ * returns an object of output value nodes keyed by the `outputs` names.
+ */
+export type TransformFeedbackCallback<In extends Record<string, Any>, Out extends Record<string, Any>> = (io: {
+    [K in keyof In]: AttributeNode<In[K]>;
+}) => {
+    [K in keyof Out]: Node<Out[K]>;
+};
+```
+
+#### `TransformFeedbackLayout`
+
+```ts
+export type TransformFeedbackLayout<In extends Record<string, Any>, Out extends Record<string, Any>> = {
+    /** Per-element attribute schemas, keyed by name. */
+    inputs: In;
+    /** Captured-varying schemas, keyed by name. */
+    outputs: Out;
+    name?: string;
+};
+```
+
 #### `tan`
 
 ```ts
@@ -2709,6 +2806,21 @@ export function textureSampleLevel<D extends FlatSampledTexture>(t: TextureBindi
  * coords and value. The binding must have access 'write' or 'read_write'.
  */
 export function textureStore<D extends d.StorageTexture>(t: StorageTextureBindingNode<D>, coords: StorageCoord, value: StorageValue, layer?: Node<d.i32> | Node<d.u32>): void;
+```
+
+#### `transformFeedback`
+
+```ts
+/**
+ * Free factory for a transform-feedback kernel (the canonical authoring form).
+ *
+ * @example
+ * const kernel = transformFeedback(
+ *   (io) => ({ pos: io.pos.add(io.vel) }),
+ *   { inputs: { pos: d.vec4f, vel: d.vec4f }, outputs: { pos: d.vec4f } },
+ * );
+ */
+export function transformFeedback<In extends Record<string, Any>, Out extends Record<string, Any>>(callback: TransformFeedbackCallback<In, Out>, layout: TransformFeedbackLayout<In, Out>): TransformFeedbackNode;
 ```
 
 #### `transpose`
@@ -4962,6 +5074,21 @@ export function compileGlsl(slots: CompileSlots, opts?: CompileGlslOptions): Com
 export function compileCompute(node: ComputeNode): ComputeCompileResult;
 ```
 
+#### `compileTransformFeedback`
+
+```ts
+/**
+ * GLSL compile path for a transform-feedback kernel (Phase 1 of the WebGL transform-feedback plan).
+ * Sibling to {@link compileCompute}: reuses the shared, backend-neutral {@link discover} pass and the
+ * GLSL emitter to produce a real, linkable transform-feedback VERTEX program (attribute-in / captured-
+ * varying-out) plus a no-op fragment shader so the program links.
+ *
+ * There is intentionally NO WGSL sibling — transform feedback is a WebGL2 primitive. Portability is via
+ * a shared body `Fn` wrapped in a WebGPU compute(), not by this node spanning backends.
+ */
+export function compileTransformFeedback(node: TransformFeedbackNode, opts?: CompileGlslOptions): TransformFeedbackGlslResult;
+```
+
 #### `NodeUpdateType`
 
 ```ts
@@ -5207,6 +5334,38 @@ export type ComputeCompileResult = {
     workgroupSize: [number, number, number];
     builtinsUsed: Set<string>;
     uniformGroups: UniformGroupBlock[];
+};
+```
+
+#### `TransformFeedbackInputAttribute`
+
+```ts
+/** One transform-feedback input attribute (bound from a GpuBuffer at the run site in Phase 2). */
+export type TransformFeedbackInputAttribute = {
+    /** Shader attribute name, `a_<name>`. */
+    name: string;
+    /** WGSL type name (e.g. 'vec4f'); the GLSL type is derivable via the schema's glslType companion. */
+    type: string;
+    location: number;
+};
+```
+
+#### `TransformFeedbackGlslResult`
+
+```ts
+export type TransformFeedbackGlslResult = {
+    /** The transform-feedback vertex shader (attribute-in / captured-varying-out, dummy gl_Position). */
+    vertexCode: string;
+    /** A no-op fragment shader so the program links (rasterization is discarded at run time). */
+    fragmentCode: string;
+    /** Ordered captured-varying names (`v_<name>`) for gl.transformFeedbackVaryings(..., SEPARATE_ATTRIBS). */
+    feedbackVaryings: string[];
+    /** Input attribute layout (name → type → location). */
+    inputAttributes: TransformFeedbackInputAttribute[];
+    uniformGroups: UniformGroupBlock[];
+    textures: TextureEntry[];
+    samplers: SamplerEntry[];
+    builtinsUsed: Set<string>;
 };
 ```
 

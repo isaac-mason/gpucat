@@ -27,7 +27,7 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
 - [Examples](#examples) · [Getting Started](#getting-started) · [Core Concepts](#core-concepts) · [Backends: WebGPU & WebGL2](#backends-webgpu--webgl2)
 - Build an app: [The Renderer](#the-renderer) · [Scene and Objects](#scene-and-objects) · [Geometry](#geometry) · [Materials](#materials) · [Uniforms](#uniforms) · [Storage Buffers](#storage-buffers) · [Structs](#structs) · [Packing](#packing) · [Render Pipeline](#render-pipeline)
 - Shading language: [Constants](#constants-and-constructors) · [Operators](#operators) · [Variables](#variables) · [Control Flow](#control-flow) · [Method Chaining](#method-chaining) · [Functions](#functions) · [Building Blocks](#building-blocks) · [Varyings](#varyings) · [Textures](#textures-and-samplers) · [Atomics](#atomics) · [Builtins](#builtins) · [Included Uniforms](#included-uniforms)
-- [Compute](#compute) · [Drawing Many Things](#drawing-many-things) · [Controls and the Inspector](#controls-and-the-inspector)
+- [Compute](#compute) · [Transform feedback (WebGL2)](#transform-feedback-webgl2) · [Drawing Many Things](#drawing-many-things) · [Controls and the Inspector](#controls-and-the-inspector)
 - [Compiling to WGSL](#compiling-to-wgsl) · [WGSL to gpucat](#wgsl-to-gpucat) · [API Reference](#api-reference)
 
 ## Getting Started
@@ -110,13 +110,14 @@ The WebGL2 backend covers the standard rendering surface:
 - **HDR / float render targets** via `EXT_color_buffer_float`.
 - Correct clip-space **depth** and **frustum culling**.
 - **Render-to-texture, passes, and post-processing** through `RenderPipeline`.
+- **Transform feedback** (`renderer.transformFeedback(...)`) for GPU particle/simulation kernels, with native buffer readback (`renderer.readBufferAsync(...)`). See [Transform feedback](#transform-feedback-webgl2).
 - The **inspector**: real GPU timing (`EXT_disjoint_timer_query_webgl2`), memory, draw-call counts, the scene tree, and a GLSL shader panel.
 
 ### What WebGL2 does not support
 
 These are WebGPU-only. On `WebGLRenderer` they throw a clear error, at shader-compile time where possible, otherwise at prepare — never silently. Use `WebGPURenderer` for any of them:
 
-- **Compute**: `renderer.compute()`, compute nodes, and `Fn(...).compute(...)` kernels.
+- **Compute**: `renderer.compute()`, compute nodes, and `Fn(...).compute(...)` kernels. For own-index GPU simulation (particles), WebGL2 offers [transform feedback](#transform-feedback-webgl2) instead; scatter/atomics/arbitrary-index writes stay WebGPU-only.
 - **Storage buffers** (`storage(...)`, `createStorageBuffer`) and **atomics**.
 - **Storage textures** and **workgroup vars** (`WorkgroupVar`).
 - **Inline WGSL**: `` wgsl`…` `` and `wgslFn(...)` (raw WGSL has no GLSL translation).
@@ -157,7 +158,8 @@ Both renderers share a common set of options; each backend adds a few of its own
 | Depth + frustum culling | ✓ | ✓ |
 | Render-to-texture / passes / post-processing | ✓ | ✓ |
 | Inspector (GPU timing, memory, draws, scene, shaders) | ✓ | ✓ |
-| Compute (`renderer.compute()`, compute nodes) | ✓ | ✗ |
+| Transform feedback (`renderer.transformFeedback()`, own-index GPU sim) | ✗ (use `compute()`) | ✓ |
+| Compute (`renderer.compute()`, compute nodes, scatter/atomics) | ✓ | ✗ (use `transformFeedback()`) |
 | Storage buffers · atomics | ✓ | ✗ |
 | Storage textures · workgroup vars | ✓ | ✗ |
 | Inline WGSL (`` wgsl`` `` / `wgslFn`) | ✓ | ✗ |
@@ -171,6 +173,7 @@ Backend compatibility is a property of the *features* you use, not of any single
 
 - **Runs on both backends** — the shared rendering features: meshes and node-graph materials, textures, render targets and MRT, render-to-texture and post-processing, and camera controls. Anything built only from these works on either `WebGPURenderer` or `WebGLRenderer`.
 - **WebGPU-only** — compute (compute nodes and `renderer.compute()`), storage buffers, atomics, storage textures, workgroup vars, inline WGSL (`` wgsl`` `` / `wgslFn`), and indirect draw (`geometry.indirect`, both CPU-authored and compute-driven). Anything using these needs `WebGPURenderer`.
+- **WebGL2-only** — [transform feedback](#transform-feedback-webgl2) (`renderer.transformFeedback()`), the honest own-index GPU-simulation primitive, with native readback via `renderer.readBufferAsync()`. WebGPU has no transform feedback; you express the same simulation as a `compute()` kernel there, reusing the per-element body `Fn` verbatim.
 
 The [examples browser](https://isaac-mason.github.io/gpucat/) groups examples by the backend each one targets, so the compute and storage-driven examples sit under WebGPU and the WebGL2 examples under WebGL.
 
@@ -754,6 +757,75 @@ For a full worked example, `examples/src/example-webgpu-ball-cluster.ts` simulat
 <RenderCategory name="compute" compact />
 
 <ExamplesTable ids="example-webgpu-compute-particles,example-webgpu-ball-cluster" />
+
+## Transform feedback (WebGL2)
+
+`compute()` is WebGPU-only. On WebGL2, gpucat exposes the platform's honest own-index GPU-simulation primitive directly: **transform feedback**. A kernel takes named per-element **attribute inputs** and returns named **captured-varying outputs**, written with the same node DSL as everything else. It runs as a vertex program under `RASTERIZER_DISCARD`, so each invocation `i` reads element `i` of its inputs and writes element `i` of its outputs.
+
+```ts
+const dt = uniform('dt', d.f32);
+
+// attribute-in (pos, vel) → captured-varying-out (pos). The body is ordinary DSL.
+const kernel = transformFeedback(
+    (io) => ({ pos: io.pos.add(io.vel.mul(dt)) }),
+    { inputs: { pos: d.vec4f, vel: d.vec4f }, outputs: { pos: d.vec4f } },
+);
+```
+
+You bind the input/output buffers at the **run site** (not on the node), because ping-pong means a different buffer each frame. There is no auto-swap and no hidden double buffer, you hold the buffers and swap them yourself:
+
+```ts
+let [cur, next] = [bufA, bufB];   // two GpuBuffers of the same schema
+
+function frame() {
+    renderer.transformFeedback(kernel, {
+        inputs: { pos: cur, vel: velBuf },   // name → GpuBuffer, bound as a vertex attribute
+        outputs: { pos: next },              // name → GpuBuffer, the captured-varying target
+        count: N,                            // → drawArrays(POINTS, 0, N) under RASTERIZER_DISCARD
+    });
+    [cur, next] = [next, cur];               // explicit ping-pong; nothing swaps behind your back
+    // ...read `cur` back, or run another pass...
+}
+```
+
+`transformFeedback()` and `readBufferAsync()` are **`WebGLRenderer`-only** methods. Calling them on a `WebGPURenderer` is a compile-time type error, the same as `compute()` on `WebGLRenderer`. Inside the kernel body you can use `uniform()` and `textureLoad()` (an explicit `DataTexture` you bind, for neighbour gather); the element index is `vertexIndex` (or `instanceIndex` when you pass `instanceCount`). Outputs are scalar / vector types; `vec3` wants `vec4f` and struct outputs are not supported (both throw a clear message).
+
+### No lies
+
+Transform feedback is the literal WebGL2 primitive, with nothing under the rug:
+
+- **One `GpuBuffer` = one GL buffer, always.** No dual buffer hidden behind a handle.
+- **No auto-swap.** You ping-pong input/output buffers explicitly in your own frame loop.
+- **No PBO texture mirror** and no post-dispatch buffer↔texture copy for coherence.
+- **Random-access reads are explicit:** a neighbour gather is a `textureLoad(dataTexture, ...)` on a `DataTexture` you bind (visible), or it is simply not expressible. No secret texture.
+- **Readback is explicit and native:** `renderer.readBufferAsync(buf)` is a real `copyBufferSubData` → fence → `getBufferSubData`, returning a typed array whose element type matches the buffer's schema.
+
+Scatter, arbitrary-index writes, and atomics are not part of this model — those stay on WebGPU's `compute()`.
+
+### Sharing the body with `compute()`
+
+Both `transformFeedback()` and `compute()` are thin I/O wrappers over the same DSL, so the per-element math is a shared `Fn` you write once. Portability comes from reusing the body, not from one primitive pretending to span backends:
+
+```ts
+// written once, no I/O model baked in
+const step = Fn((pos, vel, dt) => pos.add(vel.mul(dt)), {
+    params: [{ name: 'pos', type: d.vec4f }, { name: 'vel', type: d.vec4f }, { name: 'dt', type: d.f32 }],
+    return: d.vec4f,
+});
+
+// WebGL2: attribute-in / return-out (own index)
+transformFeedback((io) => ({ pos: step(io.pos, io.vel, dt) }), { inputs, outputs });
+
+// WebGPU: storage, arbitrary index, scatter/atomics available
+Fn(() => { const i = globalId.x; index(out, i).assign(step(index(posS, i), index(velS, i), dt)); })
+    .compute({ workgroupSize: [64, 1, 1] });
+```
+
+The wrappers differ because the I/O models genuinely differ (own-index attributes/varyings vs arbitrary-index storage), and that difference is stated, not disguised.
+
+See [`transformFeedback`](./api.md#transformfeedback).
+
+<ExamplesTable ids="example-webgl-transform-feedback-particles" />
 
 ## Drawing Many Things
 
