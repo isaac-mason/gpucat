@@ -633,6 +633,146 @@ async function caseMrt(): Promise<CaseResult> {
 }
 
 /**
+ * Shared MRT probe: render a fullscreen triangle into an N-attachment RenderTarget writing a distinct
+ * constant color per attachment, then sample the LAST attachment's texture fullscreen and read back.
+ *
+ * `lazy` mirrors the PassNode flow that breaks the example: create the target with a single color
+ * attachment (`count: 1`) at a small size, then lazily `push` the extra attachments (as the pass's
+ * `getTexture()` does), then `setSize()` to the render size AFTER the extras are attached. This is the
+ * exact ordering the pass produces: extra attachments minted at the initial size, then everyone
+ * resized. `lazy:false` creates all N up front at the render size (the working `caseMrt` shape).
+ */
+async function mrtProbe(
+    name: string,
+    format: GPUTextureFormat,
+    count: number,
+    lazy: boolean,
+    /**
+     * When true, render once at 1x1 (allocating GL storage), THEN setSize to SIZE and render again —
+     * the exact resize sequence the pass produces over frames. This exercises the re-allocation path
+     * (a size change on an already-allocated render-target texture), which is where the example breaks.
+     */
+    resize = false,
+): Promise<CaseResult> {
+    const renderer = await newRenderer();
+
+    // Distinct constant color per attachment; the last one is what we read back.
+    const colors: Array<[number, number, number, number]> = [];
+    for (let i = 0; i < count; i++) {
+        colors.push([0.1 + i * 0.05, 0.3 + i * 0.1, 0.9 - i * 0.07, 1]);
+    }
+    const last = colors[count - 1];
+    const names = Array.from({ length: count }, (_, i) => (i === 0 ? 'output' : `out${i}`));
+
+    let rt: RenderTarget;
+    // Initial size: `resize` starts at 1x1 (like the pass, whose _width/_height default to 1) so the
+    // later setSize(SIZE) is a genuine re-allocation of already-allocated GL storage.
+    const initial = resize ? 1 : SIZE;
+    if (lazy) {
+        // Mirror PassNode: single attachment created small, extras pushed, then resized.
+        rt = new RenderTarget(initial, initial, { colorFormat: format, depthBuffer: true, count: 1 });
+        rt.textures[0].name = names[0];
+        for (let i = 1; i < count; i++) {
+            const tex = new Texture({ width: rt.width, height: rt.height });
+            tex.format = format;
+            tex.isRenderTargetTexture = true;
+            tex.generateMipmaps = false;
+            tex.flipY = false;
+            tex.name = names[i];
+            tex._gpuTexture.isRenderTargetTexture = true;
+            rt.textures.push(tex);
+        }
+        if (!resize) rt.setSize(SIZE, SIZE);
+    } else {
+        rt = new RenderTarget(initial, initial, { colorFormat: format, depthBuffer: true, count });
+        rt.textures.forEach((t, i) => (t.name = names[i]));
+    }
+
+    const mrtFields: Record<string, ReturnType<typeof vec4>> = {};
+    names.forEach((n, i) => {
+        mrtFields[n] = vec4(colors[i][0], colors[i][1], colors[i][2], 1);
+    });
+    const mrtNode = mrt(mrtFields);
+
+    const material1 = new Material({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        fragment: mrtNode,
+        depthTest: false,
+    });
+    const scene1 = new Scene();
+    scene1.add(new Mesh(createFullscreenTriangleGeometry(), material1));
+    const camera1 = new PerspectiveCamera();
+    scene1.updateWorldMatrix();
+    camera1.updateViewMatrix();
+
+    const savedTarget = renderer.renderTarget;
+    renderer.renderTarget = rt;
+    renderer.mrt = mrtNode;
+    renderer.clearColor = [0, 0, 0, 1];
+    if (resize) {
+        // Render once at the initial 1x1 size (allocates GL storage for every attachment), then resize
+        // to SIZE and render again — the exact frame-over-frame sequence PassNode.updateBefore produces.
+        renderer.render(scene1, camera1);
+        rt.setSize(SIZE, SIZE);
+    }
+    renderer.render(scene1, camera1);
+    renderer.mrt = null;
+    renderer.renderTarget = savedTarget;
+
+    // Sample the last attachment's texture fullscreen to the default (rgba8) framebuffer.
+    renderer.clearColor = [0, 0, 0, 1];
+    const material2 = new Material({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        fragment: texture(rt.textures[count - 1] as Texture).sample(screenUV),
+        depthTest: false,
+    });
+    const scene2 = new Scene();
+    scene2.add(new Mesh(createFullscreenTriangleGeometry(), material2));
+    const camera2 = new PerspectiveCamera();
+    scene2.updateWorldMatrix();
+    camera2.updateViewMatrix();
+
+    renderer.render(scene2, camera2);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name, pixel, expected: [u8(last[0]), u8(last[1]), u8(last[2]), 255] };
+}
+
+/** Probe (a): 4 rgba8unorm MRT attachments created up front — isolates attachment count from format/lazy. */
+async function caseMrt4Rgba8(): Promise<CaseResult> {
+    return mrtProbe('mrt4rgba8', 'rgba8unorm', 4, false);
+}
+
+/** Probe (b): 2 rgba16float MRT attachments created up front — isolates format from lazy-push. */
+async function caseMrt2Rgba16f(): Promise<CaseResult> {
+    return mrtProbe('mrt2rgba16f', 'rgba16float', 2, false);
+}
+
+/** Probe (c): 4 rgba16float MRT attachments created up front — format + count, no lazy push. */
+async function caseMrt4Rgba16fUpfront(): Promise<CaseResult> {
+    return mrtProbe('mrt4rgba16fupfront', 'rgba16float', 4, false);
+}
+
+/**
+ * Regression: 4 rgba16float MRT attachments created LAZILY (push after construction), rendered once at
+ * 1x1, then resized to SIZE and rendered again — the exact PassNode.setMRT + updateBefore(setSize) flow
+ * the example uses. Fails before the fix (incomplete framebuffer / size mismatch from a re-allocation
+ * that texStorage2D refuses on immutable storage), reads back the correct sampled pixel after.
+ */
+async function caseMrt4Rgba16fLazy(): Promise<CaseResult> {
+    return mrtProbe('mrt4rgba16flazy', 'rgba16float', 4, true, true);
+}
+
+/**
+ * Probe: a single-attachment rgba16float target, rendered once then resized and re-rendered. Isolates
+ * "re-allocate on resize" from MRT/lazy — if THIS also fails, the bug is the immutable-storage resize
+ * path, not anything MRT-specific.
+ */
+async function caseRtResizeRealloc(): Promise<CaseResult> {
+    return mrtProbe('rt-resize-realloc', 'rgba16float', 1, false, true);
+}
+
+/**
  * cubemap: build a CubeTexture with a distinct constant color per face, then sample a fixed direction
  * (+Z → face index 4) on a fullscreen triangle and read back. Proves cube sampling picks the right
  * face on WebGL2. Face order: +X,-X,+Y,-Y,+Z,-Z.
@@ -1283,6 +1423,11 @@ export async function run(): Promise<RunResult> {
             caseDepthBias,
             caseAlphaToCoverage,
             caseMrt,
+            caseMrt4Rgba8,
+            caseMrt2Rgba16f,
+            caseMrt4Rgba16fUpfront,
+            caseMrt4Rgba16fLazy,
+            caseRtResizeRealloc,
             caseCubemap,
             caseInstanced,
             caseUnknownFormatUnsupported,

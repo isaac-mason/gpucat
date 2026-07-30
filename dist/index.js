@@ -33682,6 +33682,22 @@ function updateTexture(gl, state, texture) {
     const data = ensureGlTexture(gl, state, texture);
     if (data.allocated && data.version === texture.version)
         return data;
+    // Re-allocation (a resize or format change bumped `texture.version` on an already-allocated
+    // texture): render-target storage is immutable (`texStorage2D`), so it can't be re-specified on the
+    // same GL object — a second `texStorage2D` errors with INVALID_OPERATION and leaves the OLD size in
+    // place, giving a size-mismatched FBO attachment (FRAMEBUFFER_INCOMPLETE_ATTACHMENT on strict
+    // drivers). Delete the stale GL texture and mint a fresh one so the new storage is specified cleanly.
+    // (This is the path a resized PassNode render target — e.g. a 4× rgba16float MRT pass — takes.)
+    if (data.allocated) {
+        gl.deleteTexture(data.texture);
+        state.all.delete(data.texture);
+        const fresh = gl.createTexture();
+        if (!fresh)
+            throw new Error('[WebGLRenderer] gl.createTexture returned null.');
+        state.all.add(fresh);
+        data.texture = fresh;
+        data.allocated = false;
+    }
     // A format change (rare) would need a new GL format triple; refresh it defensively.
     data.fmt = glFormat(gl, texture.format);
     data.target = glTarget(gl, texture);
