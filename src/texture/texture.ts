@@ -52,11 +52,18 @@ export class Texture<out T extends SourceData = SourceData> {
     onUpdate: ((texture: Texture<SourceData>) => void) | null = null;
 
     /**
-     * Whether this texture belongs to a render target.
-     * Set to true by RenderTarget when creating its textures.
+     * Whether this texture belongs to a render target. Forwards to the underlying `GpuTexture` (the
+     * single source of truth the backends read), so setting it on the wrapper always takes effect —
+     * a plain field here would silently not reach the `GpuTexture`, making the backend treat the
+     * texture as a source upload (0-sized storage) instead of a render-target allocation.
      * @default false
      */
-    isRenderTargetTexture = false;
+    get isRenderTargetTexture(): boolean {
+        return this._gpuTexture.isRenderTargetTexture;
+    }
+    set isRenderTargetTexture(value: boolean) {
+        this._gpuTexture.isRenderTargetTexture = value;
+    }
 
     /**
      * Constructs a new Texture.
