@@ -269,9 +269,27 @@ function rebuildFbo(
     // Validate.
     const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
     if (status !== gl.FRAMEBUFFER_COMPLETE) {
+        // Enumerate each attachment's logical (RenderTarget) size vs actual GL-allocated size + format,
+        // so the culprit is visible (WebGL2 allows mixed-size color attachments, so 0x8CD6 usually means
+        // an attachment has no/stale storage — an allocW×allocH that lags the logical size, or 0×0).
+        const describe = (
+            label: string,
+            tex: { _gpuTexture: Parameters<typeof getGlTextureData>[1]; format: string } | null | undefined,
+        ) => {
+            if (!tex) return `${label}: (none)`;
+            const d = getGlTextureData(textures, tex._gpuTexture);
+            const gl_ = d ? `${d.allocW}x${d.allocH} allocated=${d.allocated}` : 'no GL texture';
+            return `${label}: format=${tex.format} logical=${tex._gpuTexture.width}x${tex._gpuTexture.height} gl=${gl_}`;
+        };
+        const parts = [
+            `target=${renderTarget.width}x${renderTarget.height}`,
+            ...renderTarget.textures.map((t, i) => describe(`color[${i}]`, t)),
+            describe('depth', renderTarget.depthTexture),
+        ];
         throw new Error(
             `[WebGLRenderer] framebuffer is incomplete (status 0x${status.toString(16)}); ` +
-                `rendering into an incomplete framebuffer is not supported on the WebGL2 backend.`,
+                `rendering into an incomplete framebuffer is not supported on the WebGL2 backend. ` +
+                `Attachments — ${parts.join(' | ')}`,
         );
     }
 

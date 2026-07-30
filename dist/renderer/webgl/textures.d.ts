@@ -46,6 +46,10 @@ export type GlTextureData = {
     generation: number;
     /** Whether storage/allocation has been established. */
     allocated: boolean;
+    /** Actual GL-allocated dimensions. May lag `texture.width/height` if a re-allocation was skipped
+     *  or failed — surfaced in the incomplete-framebuffer diagnostic. 0 until first allocation. */
+    allocW: number;
+    allocH: number;
 };
 /** Textures state: per-GpuTexture GL data, keyed by GpuTexture identity, plus a disposal set. */
 export type GlTexturesState = {

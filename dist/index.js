@@ -33479,6 +33479,8 @@ function ensureGlTexture(gl, state, texture) {
             version: -1,
             generation: 0,
             allocated: false,
+            allocW: 0,
+            allocH: 0,
         };
         state.data.set(texture, data);
     }
@@ -33749,6 +33751,8 @@ function allocateRenderTargetStorage(gl, texture, data) {
     // via framebufferTexture2D(TEXTURE_CUBE_MAP_POSITIVE_X + face, …) (see render-target.ts).
     const target = data.target === gl.TEXTURE_CUBE_MAP ? gl.TEXTURE_CUBE_MAP : gl.TEXTURE_2D;
     gl.texStorage2D(target, levels, data.fmt.internalFormat, w, h);
+    data.allocW = w;
+    data.allocH = h;
 }
 /**
  * Generate mipmaps for an already-allocated cube render-target texture (mirrors the WebGPU path's
@@ -34537,8 +34541,24 @@ function rebuildFbo(gl, state, textures, renderTarget, existing, colorGeneration
     // Validate.
     const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
     if (status !== gl.FRAMEBUFFER_COMPLETE) {
+        // Enumerate each attachment's logical (RenderTarget) size vs actual GL-allocated size + format,
+        // so the culprit is visible (WebGL2 allows mixed-size color attachments, so 0x8CD6 usually means
+        // an attachment has no/stale storage — an allocW×allocH that lags the logical size, or 0×0).
+        const describe = (label, tex) => {
+            if (!tex)
+                return `${label}: (none)`;
+            const d = getGlTextureData(textures, tex._gpuTexture);
+            const gl_ = d ? `${d.allocW}x${d.allocH} allocated=${d.allocated}` : 'no GL texture';
+            return `${label}: format=${tex.format} logical=${tex._gpuTexture.width}x${tex._gpuTexture.height} gl=${gl_}`;
+        };
+        const parts = [
+            `target=${renderTarget.width}x${renderTarget.height}`,
+            ...renderTarget.textures.map((t, i) => describe(`color[${i}]`, t)),
+            describe('depth', renderTarget.depthTexture),
+        ];
         throw new Error(`[WebGLRenderer] framebuffer is incomplete (status 0x${status.toString(16)}); ` +
-            `rendering into an incomplete framebuffer is not supported on the WebGL2 backend.`);
+            `rendering into an incomplete framebuffer is not supported on the WebGL2 backend. ` +
+            `Attachments — ${parts.join(' | ')}`);
     }
     // MSAA render FBO (multisample renderbuffers). Rebuilt whenever the texture FBO is; a cube target
     // never carries one (CubeRenderTarget forces samples:1).

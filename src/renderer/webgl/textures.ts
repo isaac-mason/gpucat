@@ -174,6 +174,10 @@ export type GlTextureData = {
     generation: number;
     /** Whether storage/allocation has been established. */
     allocated: boolean;
+    /** Actual GL-allocated dimensions. May lag `texture.width/height` if a re-allocation was skipped
+     *  or failed — surfaced in the incomplete-framebuffer diagnostic. 0 until first allocation. */
+    allocW: number;
+    allocH: number;
 };
 
 /** Textures state: per-GpuTexture GL data, keyed by GpuTexture identity, plus a disposal set. */
@@ -216,6 +220,8 @@ function ensureGlTexture(gl: WebGL2RenderingContext, state: GlTexturesState, tex
             version: -1,
             generation: 0,
             allocated: false,
+            allocW: 0,
+            allocH: 0,
         };
         state.data.set(texture, data);
     }
@@ -497,6 +503,8 @@ function allocateRenderTargetStorage(gl: WebGL2RenderingContext, texture: GpuTex
     // via framebufferTexture2D(TEXTURE_CUBE_MAP_POSITIVE_X + face, …) (see render-target.ts).
     const target = data.target === gl.TEXTURE_CUBE_MAP ? gl.TEXTURE_CUBE_MAP : gl.TEXTURE_2D;
     gl.texStorage2D(target, levels, data.fmt.internalFormat, w, h);
+    data.allocW = w;
+    data.allocH = h;
 }
 
 /**
