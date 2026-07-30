@@ -12,7 +12,7 @@
  *   - invoking each member node's `update` callback through the `NodeFrame` (which assigns
  *     `node.value` and respects updateType),
  *   - reading each member's value from `m.node.uniform.value`, falling back to the material's named
- *     uniforms, then packing it with `packToView(schema, view, offset, value, 'uniform')`.
+ *     uniforms, then packing it with `packToView(schema, view, offset, value, 'std140')`.
  * We deliberately reuse that value logic rather than the reference renderer's per-name loose-uniform
  * path.
  *

@@ -13,6 +13,7 @@ import {
     // compile entry points
     compile,
     compileCompute,
+    compileGlsl,
     // storage / atomics / compute
     createStorageBuffer,
     createStorageTexture,
@@ -38,8 +39,10 @@ import {
     // textures
     texture,
     u32,
+    uniform,
     Var,
     varying,
+    vec2,
     vec3,
     vec4,
     WorkgroupVar,
@@ -255,5 +258,34 @@ describe('frag_depth override (Material.depth)', () => {
         expect(result.code).toContain('output.frag_depth = ');
         expect(result.fragmentEntryPoint).toBe('fs_main');
         expect(renderShape(result)).toMatchSnapshot();
+    });
+
+    // Uniform member offsets come from pack.ts (the single memory-layout authority) on BOTH backends.
+    // A `{ a: f32, m: mat2x2f }` group is the one case where the two layouts diverge: WGSL uniform
+    // aligns mat2x2 to 8 (its columns are vec2), so `m` lands at offset 8 — the offset the WGSL
+    // driver lays `var<uniform>` out with. GLSL std140 pads every matrix column to vec4 → align 16,
+    // so `m` lands at 16. (The retired private wgslAlign/wgslSize over-aligned mat2 to 16 and had no
+    // size entry for non-square matrices; pack.ts handles both correctly.)
+    test('mat2x2f uniform: member offset comes from pack.ts — 8 (WGSL uniform) vs 16 (GLSL std140)', () => {
+        const a = uniform('a', d.f32);
+        const m = uniform('m', d.mat2x2f);
+        // Use both uniforms so they are discovered as members of the same group. `a` is referenced
+        // first so it takes offset 0 and `m` (mat2x2f) must then align — exercising the divergence.
+        const position = attribute('position', d.vec3f);
+        const clipPosition = vec4(position, f32(1));
+        const fragment = vec4(a, a, m.mul(vec2(a, a)));
+
+        const findM = (r: ReturnType<typeof compile>) => {
+            const group = r.uniformGroups.find((g) => g.members.some((mem) => mem.uniformId === 'm'));
+            return group?.members.find((mem) => mem.uniformId === 'm');
+        };
+
+        const wgsl = findM(compile({ vertex: clipPosition, fragment }));
+        expect(wgsl?.offset).toBe(8); // WGSL uniform: mat2x2 aligns to 8
+        expect(wgsl?.size).toBe(16);
+
+        const glsl = findM(compileGlsl({ vertex: clipPosition, fragment }));
+        expect(glsl?.offset).toBe(16); // GLSL std140: mat2x2 columns padded to vec4 → align 16
+        expect(glsl?.size).toBe(32);
     });
 });

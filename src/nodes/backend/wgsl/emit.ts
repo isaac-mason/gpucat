@@ -9,6 +9,7 @@
 
 import type { StructSchema } from '../../../schema/schema';
 import * as d from '../../../schema/schema';
+import { layoutAlignOf, layoutSizeOf } from '../../../schema/pack';
 import type {
     AttributeEntry,
     CompileSlots,
@@ -207,27 +208,6 @@ export function collectVaryings(roots: Node<d.Any>[], ctx: BuildContext): void {
     for (const root of roots) {
         visit(root);
     }
-}
-
-function wgslAlign(type: string): number {
-    if (type === 'f32' || type === 'i32' || type === 'u32') return 4;
-    if (type === 'f16') return 2;
-    if (type.startsWith('vec2')) return 8;
-    if (type.startsWith('vec3') || type.startsWith('vec4')) return 16;
-    if (type.startsWith('mat')) return 16;
-    return 4;
-}
-
-function wgslSize(type: string): number {
-    if (type === 'f32' || type === 'i32' || type === 'u32') return 4;
-    if (type === 'f16') return 2;
-    if (type.startsWith('vec2')) return 8;
-    if (type.startsWith('vec3')) return 12;
-    if (type.startsWith('vec4')) return 16;
-    if (type === 'mat2x2f' || type === 'mat2x2h') return 16;
-    if (type === 'mat3x3f' || type === 'mat3x3h') return 48;
-    if (type === 'mat4x4f' || type === 'mat4x4h') return 64;
-    return 4;
 }
 
 /* expression generation */
@@ -1200,8 +1180,11 @@ export function emitAllBindings(ctx: BuildContext): {
             let offset = 0;
 
             for (const u of bindGroup.uniforms) {
-                const align = wgslAlign(u.type.wgslType);
-                const size = wgslSize(u.type.wgslType);
+                // Uniform member offsets/sizes come from pack.ts — the single memory-layout
+                // authority — using the WGSL uniform address-space rules the driver lays the
+                // `var<uniform>` struct out with. (Mirrors the GLSL emitter's std140 use.)
+                const align = layoutAlignOf(u.type, 'wgsl-uniform');
+                const size = layoutSizeOf(u.type, 'wgsl-uniform');
 
                 // align offset
                 offset = Math.ceil(offset / align) * align;
@@ -1227,7 +1210,7 @@ export function emitAllBindings(ctx: BuildContext): {
             // Compute struct alignment (max alignment of all members)
             let structAlign = 4;
             for (const u of bindGroup.uniforms) {
-                structAlign = Math.max(structAlign, wgslAlign(u.type.wgslType));
+                structAlign = Math.max(structAlign, layoutAlignOf(u.type, 'wgsl-uniform'));
             }
             // Round up totalBytes to struct alignment
             const totalBytes = Math.ceil(offset / structAlign) * structAlign;

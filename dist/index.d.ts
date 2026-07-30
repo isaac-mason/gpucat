@@ -34,7 +34,7 @@ export { readPixels } from './renderer/webgpu/read-pixels';
 export { RenderPipeline } from './renderer/core/render-pipeline';
 export { type ComputeDispatch, type DeviceLostInfo, WebGPURenderer, type WebGPURendererOptions, } from './renderer/webgpu/renderer';
 export * from './scene/scene';
-export { type AddressSpace, layoutSizeOf, layoutStrideOf, pack, packArray, packTo, unpack, unpackArray, } from './schema/pack';
+export { type MemoryLayout, layoutSizeOf, layoutStrideOf, pack, packArray, packTo, unpack, unpackArray, } from './schema/pack';
 export * as d from './schema/schema';
 export * from './texture/array-texture';
 export * from './texture/canvas-texture';

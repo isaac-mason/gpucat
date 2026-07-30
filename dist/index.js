@@ -13648,30 +13648,40 @@ function alignTo4(n) {
 }
 
 /**
- * Column stride (bytes) for a matrix with the given row count in the given address space.
- *
- * std140 (GLSL uniform layout) pads EVERY matrix column to a vec4 (16-byte stride), including
- * 2-row matrices. std430/WGSL-uniform ('storage'/'uniform') use vec2 stride (8) for 2-row
- * matrices and vec4 stride (16) for 3/4-row matrices. This is the ONLY layout difference between
- * std140 and 'uniform'.
+ * Whether structs and array elements round their stride up to 16 bytes. True for both uniform
+ * layouts (`wgsl-uniform`, `std140`); false for `std430`, which packs tightest.
  */
-function matColumnStrideF32(rows, addressSpace) {
-    if (addressSpace === 'std140')
+function roundsElementsTo16(memLayout) {
+    return memLayout !== 'std430';
+}
+/**
+ * Whether every matrix column is padded to a vec4 (16-byte stride), even for 2-row matrices. True
+ * only for GLSL `std140`; WGSL layouts keep a 2-row matrix's columns at vec2 (8-byte) stride. This
+ * is the sole layout difference between `wgsl-uniform` and `std140`.
+ */
+function matColumnsAlwaysVec4(memLayout) {
+    return memLayout === 'std140';
+}
+/**
+ * Column stride (bytes) for an f32 matrix with the given row count in the given memory layout.
+ */
+function matColumnStrideF32(rows, memLayout) {
+    if (matColumnsAlwaysVec4(memLayout))
         return 16;
     return rows === 2 ? 8 : 16;
 }
 // Layout Cache
 const layoutCache = new WeakMap();
-function getLayout(schema, addressSpace) {
-    let byAddressSpace = layoutCache.get(schema);
-    if (!byAddressSpace) {
-        byAddressSpace = new Map();
-        layoutCache.set(schema, byAddressSpace);
+function getLayout(schema, memLayout) {
+    let byMemoryLayout = layoutCache.get(schema);
+    if (!byMemoryLayout) {
+        byMemoryLayout = new Map();
+        layoutCache.set(schema, byMemoryLayout);
     }
-    let layout = byAddressSpace.get(addressSpace);
+    let layout = byMemoryLayout.get(memLayout);
     if (!layout) {
-        layout = compileLayout(schema, addressSpace);
-        byAddressSpace.set(addressSpace, layout);
+        layout = compileLayout(schema, memLayout);
+        byMemoryLayout.set(memLayout, layout);
     }
     return layout;
 }
@@ -13688,8 +13698,8 @@ function toDataView(src) {
  * const buf = pack(Particle, { position: [1, 2, 3], health: 100 });
  * const f32 = new Float32Array(buf);
  */
-function pack(schema, value, addressSpace = 'storage') {
-    const layout = getLayout(schema, addressSpace);
+function pack(schema, value, memLayout = 'std430') {
+    const layout = getLayout(schema, memLayout);
     const buf = new ArrayBuffer(layout.totalSize);
     layout.write(new DataView(buf), 0, value);
     return buf;
@@ -13701,8 +13711,8 @@ function pack(schema, value, addressSpace = 'storage') {
  * const buf = packArray(Particle, particles);
  * const f32 = new Float32Array(buf);
  */
-function packArray(schema, items, addressSpace = 'storage') {
-    const layout = getLayout(schema, addressSpace);
+function packArray(schema, items, memLayout = 'std430') {
+    const layout = getLayout(schema, memLayout);
     const buf = new ArrayBuffer(layout.stride * items.length);
     const view = new DataView(buf);
     for (let i = 0; i < items.length; i++) {
@@ -13718,8 +13728,8 @@ function packArray(schema, items, addressSpace = 'storage') {
  * packTo(Particle, buf, 0, particle1);
  * packTo(Particle, buf, stride, particle2);
  */
-function packTo(schema, dest, offset, value, addressSpace = 'storage') {
-    const layout = getLayout(schema, addressSpace);
+function packTo(schema, dest, offset, value, memLayout = 'std430') {
+    const layout = getLayout(schema, memLayout);
     layout.write(toDataView(dest), offset, value);
 }
 /**
@@ -13729,8 +13739,8 @@ function packTo(schema, dest, offset, value, addressSpace = 'storage') {
  * const particle = unpack(Particle, buf);
  * const secondParticle = unpack(Particle, buf, stride);
  */
-function unpack(schema, src, offset = 0, addressSpace = 'storage') {
-    const layout = getLayout(schema, addressSpace);
+function unpack(schema, src, offset = 0, memLayout = 'std430') {
+    const layout = getLayout(schema, memLayout);
     return layout.read(toDataView(src), offset);
 }
 /**
@@ -13739,8 +13749,8 @@ function unpack(schema, src, offset = 0, addressSpace = 'storage') {
  * @example
  * const particles = unpackArray(Particle, buf, 100);
  */
-function unpackArray(schema, src, count, offset = 0, addressSpace = 'storage') {
-    const layout = getLayout(schema, addressSpace);
+function unpackArray(schema, src, count, offset = 0, memLayout = 'std430') {
+    const layout = getLayout(schema, memLayout);
     const view = toDataView(src);
     const items = new Array(count);
     for (let i = 0; i < count; i++) {
@@ -13754,8 +13764,8 @@ function unpackArray(schema, src, count, offset = 0, addressSpace = 'storage') {
  * @example
  * const size = layoutSizeOf(Particle); // 32
  */
-function layoutSizeOf(schema, addressSpace = 'storage') {
-    return getLayout(schema, addressSpace).totalSize;
+function layoutSizeOf(schema, memLayout = 'std430') {
+    return getLayout(schema, memLayout).totalSize;
 }
 /**
  * Get the stride (size with tail padding) for array elements.
@@ -13763,22 +13773,22 @@ function layoutSizeOf(schema, addressSpace = 'storage') {
  * @example
  * const stride = layoutStrideOf(Particle); // 32
  */
-function layoutStrideOf(schema, addressSpace = 'storage') {
-    return getLayout(schema, addressSpace).stride;
+function layoutStrideOf(schema, memLayout = 'std430') {
+    return getLayout(schema, memLayout).stride;
 }
 /**
- * Get the byte alignment of a schema in the given address space.
+ * Get the byte alignment of a schema in the given memory layout.
  *
  * @example
  * const align = layoutAlignOf(vec3f, 'std140'); // 16
  */
-function layoutAlignOf(schema, addressSpace = 'storage') {
-    return alignOf(schema, addressSpace);
+function layoutAlignOf(schema, memLayout = 'std430') {
+    return alignOf(schema, memLayout);
 }
 // Internal: DataView-based pack/unpack (used by bindings.ts)
 /** Pack a value into a DataView. */
-function packToView(schema, view, offset, value, addressSpace = 'storage') {
-    const layout = getLayout(schema, addressSpace);
+function packToView(schema, view, offset, value, memLayout = 'std430') {
+    const layout = getLayout(schema, memLayout);
     layout.write(view, offset, value);
 }
 // Alignment and Size (address-space aware)
@@ -13786,22 +13796,22 @@ function roundUp(n, align) {
     return Math.ceil(n / align) * align;
 }
 /**
- * Get alignment for a schema in the given address space.
- * Uniform has stricter rules: structs and arrays round up to 16.
+ * Get alignment for a schema in the given memory layout.
+ * Uniform layouts have stricter rules: structs and arrays round up to 16.
  */
-function alignOf(schema, addressSpace) {
-    // For uniform / std140, structs and array elements need roundUp(16, align).
-    if (addressSpace === 'uniform' || addressSpace === 'std140') {
+function alignOf(schema, memLayout) {
+    // For uniform layouts (wgsl-uniform / std140), structs and array elements need roundUp(16, align).
+    if (roundsElementsTo16(memLayout)) {
         if (isStructDesc(schema)) {
             return roundUp(storageAlignOf(schema), 16);
         }
         if (isSizedArrayDesc(schema) || isArrayDesc(schema)) {
-            return roundUp(alignOf(schema.element, addressSpace), 16);
+            return roundUp(alignOf(schema.element, memLayout), 16);
         }
     }
     // std140: all f32 matrices align to 16 (columns padded to vec4), including 2-row matrices.
-    // (f16 matrices aren't part of GLSL std140; they keep their storage alignment.)
-    if (addressSpace === 'std140' && !isAtomicDesc(schema)) {
+    // (f16 matrices aren't part of GLSL std140; they keep their std430 alignment.)
+    if (matColumnsAlwaysVec4(memLayout) && !isAtomicDesc(schema)) {
         const t = schema.wgslType;
         if (typeof t === 'string' && /^mat\dx\df$/.test(t))
             return 16;
@@ -13861,20 +13871,20 @@ function storageAlignOf(schema) {
     throw new Error(`[gpucat] alignOf: unsupported type '${t}'`);
 }
 /**
- * Get size for a schema in the given address space.
+ * Get size for a schema in the given memory layout.
  */
-function sizeOf(schema, addressSpace) {
+function sizeOf(schema, memLayout) {
     if (isStructDesc(schema)) {
-        const structAlign = alignOf(schema, addressSpace);
+        const structAlign = alignOf(schema, memLayout);
         let offset = 0;
         for (const field of Object.values(schema.fields)) {
-            offset = roundUp(offset, alignOf(field, addressSpace));
-            offset += sizeOf(field, addressSpace);
+            offset = roundUp(offset, alignOf(field, memLayout));
+            offset += sizeOf(field, memLayout);
         }
         return roundUp(offset, structAlign);
     }
     if (isSizedArrayDesc(schema)) {
-        const elementStride = arrayElementStrideOf(schema.element, addressSpace);
+        const elementStride = arrayElementStrideOf(schema.element, memLayout);
         return schema.length * elementStride;
     }
     if (isArrayDesc(schema)) {
@@ -13904,13 +13914,13 @@ function sizeOf(schema, addressSpace) {
     if (t === 'vec4f' || t === 'vec4i' || t === 'vec4u' || t === 'vec4<bool>')
         return 16;
     // Matrices f32 - size = numColumns * column stride. Column stride is address-space
-    // dependent: std140 pads every column to 16; storage/uniform use 8 for 2-row matrices.
+    // dependent: std140 pads every column to 16; std430/wgsl-uniform use 8 for 2-row matrices.
     {
         const m = t.match(/^mat(\d)x(\d)f$/);
         if (m) {
             const cols = parseInt(m[1], 10);
             const rows = parseInt(m[2], 10);
-            return cols * matColumnStrideF32(rows, addressSpace);
+            return cols * matColumnStrideF32(rows, memLayout);
         }
     }
     // Matrices f16
@@ -13937,16 +13947,16 @@ function sizeOf(schema, addressSpace) {
 /**
  * Get stride (size with alignment padding) for array elements.
  */
-function strideOf(schema, addressSpace) {
-    return roundUp(sizeOf(schema, addressSpace), alignOf(schema, addressSpace));
+function strideOf(schema, memLayout) {
+    return roundUp(sizeOf(schema, memLayout), alignOf(schema, memLayout));
 }
 /**
  * Get stride for elements within an array (different from strideOf for uniform arrays).
- * Uniform arrays require 16-byte minimum element stride.
+ * Uniform-layout arrays require 16-byte minimum element stride.
  */
-function arrayElementStrideOf(elementSchema, addressSpace) {
-    const baseStride = strideOf(elementSchema, addressSpace);
-    if (addressSpace === 'uniform' || addressSpace === 'std140') {
+function arrayElementStrideOf(elementSchema, memLayout) {
+    const baseStride = strideOf(elementSchema, memLayout);
+    if (roundsElementsTo16(memLayout)) {
         return roundUp(baseStride, 16);
     }
     return baseStride;
@@ -13970,15 +13980,15 @@ function emitWrites(ctx, schema, accessor) {
 }
 function emitStructWrites(ctx, schema, accessor) {
     for (const [key, fieldSchema] of Object.entries(schema.fields)) {
-        ctx.offset = roundUp(ctx.offset, alignOf(fieldSchema, ctx.addressSpace));
+        ctx.offset = roundUp(ctx.offset, alignOf(fieldSchema, ctx.memLayout));
         emitWrites(ctx, fieldSchema, `${accessor}.${key}`);
     }
     // Struct tail padding
-    const structAlign = alignOf(schema, ctx.addressSpace);
+    const structAlign = alignOf(schema, ctx.memLayout);
     ctx.offset = roundUp(ctx.offset, structAlign);
 }
 function emitArrayWrites(ctx, schema, accessor) {
-    const stride = arrayElementStrideOf(schema.element, ctx.addressSpace);
+    const stride = arrayElementStrideOf(schema.element, ctx.memLayout);
     const startOffset = ctx.offset;
     for (let i = 0; i < schema.length; i++) {
         ctx.offset = startOffset + i * stride;
@@ -14129,8 +14139,8 @@ function emitMatrixWriteF32(ctx, t, accessor) {
         throw new Error(`Invalid matrix type: ${t}`);
     const cols = parseInt(match[1], 10);
     const rows = parseInt(match[2], 10);
-    // Column stride: std140 pads every column to 16; storage/uniform use vec2=8, vec3/4=16.
-    const colStride = matColumnStrideF32(rows, ctx.addressSpace);
+    // Column stride: std140 pads every column to 16; std430/wgsl-uniform use vec2=8, vec3/4=16.
+    const colStride = matColumnStrideF32(rows, ctx.memLayout);
     let off = ctx.offset;
     for (let c = 0; c < cols; c++) {
         for (let r = 0; r < rows; r++) {
@@ -14179,18 +14189,18 @@ function emitReads(ctx, schema) {
 function emitStructRead(ctx, schema) {
     const fields = [];
     for (const [key, fieldSchema] of Object.entries(schema.fields)) {
-        ctx.offset = roundUp(ctx.offset, alignOf(fieldSchema, ctx.addressSpace));
+        ctx.offset = roundUp(ctx.offset, alignOf(fieldSchema, ctx.memLayout));
         const valueExpr = emitReads(ctx, fieldSchema);
         fields.push(`${key}:${valueExpr}`);
     }
     // Struct tail padding
-    const structAlign = alignOf(schema, ctx.addressSpace);
+    const structAlign = alignOf(schema, ctx.memLayout);
     ctx.offset = roundUp(ctx.offset, structAlign);
     return `{${fields.join(',')}}`;
 }
 function emitArrayRead(ctx, schema) {
     const elements = [];
-    const stride = arrayElementStrideOf(schema.element, ctx.addressSpace);
+    const stride = arrayElementStrideOf(schema.element, ctx.memLayout);
     const startOffset = ctx.offset;
     for (let i = 0; i < schema.length; i++) {
         ctx.offset = startOffset + i * stride;
@@ -14298,7 +14308,7 @@ function emitMatrixReadF32(ctx, t) {
         throw new Error(`Invalid matrix type: ${t}`);
     const cols = parseInt(match[1], 10);
     const rows = parseInt(match[2], 10);
-    const colStride = matColumnStrideF32(rows, ctx.addressSpace);
+    const colStride = matColumnStrideF32(rows, ctx.memLayout);
     const elements = [];
     let off = ctx.offset;
     for (let c = 0; c < cols; c++) {
@@ -14411,15 +14421,15 @@ function f16BitsToF32(bits) {
 // ---------------------------------------------------------------------------
 // Layout Compilation
 // ---------------------------------------------------------------------------
-function compileLayout(schema, addressSpace) {
+function compileLayout(schema, memLayout) {
     // Generate writer
-    const writeCtx = { addressSpace, offset: 0, lines: [] };
+    const writeCtx = { memLayout, offset: 0, lines: [] };
     emitWrites(writeCtx, schema, 'd');
-    const totalSize = sizeOf(schema, addressSpace);
-    const stride = strideOf(schema, addressSpace);
+    const totalSize = sizeOf(schema, memLayout);
+    const stride = strideOf(schema, memLayout);
     const writeCode = `return function(v,o,d){${writeCtx.lines.join('')}}`;
     // Generate reader
-    const readCtx = { addressSpace, offset: 0};
+    const readCtx = { memLayout, offset: 0};
     const readExpr = emitReads(readCtx, schema);
     const readCode = `return function(v,o){return ${readExpr}}`;
     // Compile functions with f16 helpers in scope
@@ -16058,38 +16068,6 @@ function collectVaryings(roots, ctx) {
         visit(root);
     }
 }
-function wgslAlign(type) {
-    if (type === 'f32' || type === 'i32' || type === 'u32')
-        return 4;
-    if (type === 'f16')
-        return 2;
-    if (type.startsWith('vec2'))
-        return 8;
-    if (type.startsWith('vec3') || type.startsWith('vec4'))
-        return 16;
-    if (type.startsWith('mat'))
-        return 16;
-    return 4;
-}
-function wgslSize(type) {
-    if (type === 'f32' || type === 'i32' || type === 'u32')
-        return 4;
-    if (type === 'f16')
-        return 2;
-    if (type.startsWith('vec2'))
-        return 8;
-    if (type.startsWith('vec3'))
-        return 12;
-    if (type.startsWith('vec4'))
-        return 16;
-    if (type === 'mat2x2f' || type === 'mat2x2h')
-        return 16;
-    if (type === 'mat3x3f' || type === 'mat3x3h')
-        return 48;
-    if (type === 'mat4x4f' || type === 'mat4x4h')
-        return 64;
-    return 4;
-}
 /* expression generation */
 function generateExpr(ctx, rawNode) {
     const node = rawNode;
@@ -16959,8 +16937,11 @@ function emitAllBindings(ctx) {
             const members = [];
             let offset = 0;
             for (const u of bindGroup.uniforms) {
-                const align = wgslAlign(u.type.wgslType);
-                const size = wgslSize(u.type.wgslType);
+                // Uniform member offsets/sizes come from pack.ts — the single memory-layout
+                // authority — using the WGSL uniform address-space rules the driver lays the
+                // `var<uniform>` struct out with. (Mirrors the GLSL emitter's std140 use.)
+                const align = layoutAlignOf(u.type, 'wgsl-uniform');
+                const size = layoutSizeOf(u.type, 'wgsl-uniform');
                 // align offset
                 offset = Math.ceil(offset / align) * align;
                 lines.push(`    ${u.name}: ${u.type.wgslType},`);
@@ -16979,7 +16960,7 @@ function emitAllBindings(ctx) {
             // Compute struct alignment (max alignment of all members)
             let structAlign = 4;
             for (const u of bindGroup.uniforms) {
-                structAlign = Math.max(structAlign, wgslAlign(u.type.wgslType));
+                structAlign = Math.max(structAlign, layoutAlignOf(u.type, 'wgsl-uniform'));
             }
             // Round up totalBytes to struct alignment
             const totalBytes = Math.ceil(offset / structAlign) * structAlign;
@@ -21524,7 +21505,7 @@ function packAndCompare(block, currentBuffer, scratchBuffer, material) {
         if (value === null || value === undefined)
             continue;
         // Cast needed: UniformValue is broader than Infer<schema> but matches at runtime
-        packToView(m.schema, view, m.offset, value, 'uniform');
+        packToView(m.schema, view, m.offset, value, 'wgsl-uniform');
     }
     // Compare buffers byte-by-byte using typed arrays
     const current = new Uint32Array(currentBuffer);
@@ -33401,7 +33382,7 @@ function findSamplerForUnit(bindGroups, unit) {
  *   - invoking each member node's `update` callback through the `NodeFrame` (which assigns
  *     `node.value` and respects updateType),
  *   - reading each member's value from `m.node.uniform.value`, falling back to the material's named
- *     uniforms, then packing it with `packToView(schema, view, offset, value, 'uniform')`.
+ *     uniforms, then packing it with `packToView(schema, view, offset, value, 'std140')`.
  * We deliberately reuse that value logic rather than the reference renderer's per-name loose-uniform
  * path.
  *
@@ -33429,7 +33410,7 @@ function getUboData(gl, state, binding, byteLength) {
 /**
  * Pack a uniform group's current member values into `view` at their std140 offsets. Mirrors
  * `webgpu/bindings.ts` `packAndCompare`'s value sourcing: `m.node.uniform.value`, else the material's
- * named uniform, then `packToView(..., 'uniform')`.
+ * named uniform, then `packToView(..., 'std140')`.
  */
 function packGroup(block, view, material) {
     for (const m of block.members) {
