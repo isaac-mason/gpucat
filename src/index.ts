@@ -320,7 +320,7 @@ export {
 } from './renderer/webgpu/renderer';
 export * from './scene/scene';
 export {
-    type AddressSpace,
+    type MemoryLayout,
     layoutSizeOf,
     layoutStrideOf,
     pack,

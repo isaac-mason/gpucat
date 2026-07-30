@@ -19,19 +19,19 @@ import * as d from '../src/schema/schema';
 // ---------------------------------------------------------------------------
 
 describe('layoutSizeOf', () => {
-    describe('storage', () => {
-        test('f32: 4', () => expect(layoutSizeOf(d.f32, 'storage')).toBe(4));
-        test('vec2f: 8', () => expect(layoutSizeOf(d.vec2f, 'storage')).toBe(8));
-        test('vec3f: 12', () => expect(layoutSizeOf(d.vec3f, 'storage')).toBe(12));
-        test('vec4f: 16', () => expect(layoutSizeOf(d.vec4f, 'storage')).toBe(16));
-        test('mat3x3f: 48', () => expect(layoutSizeOf(d.mat3x3f, 'storage')).toBe(48));
-        test('mat4x4f: 64', () => expect(layoutSizeOf(d.mat4x4f, 'storage')).toBe(64));
+    describe('std430', () => {
+        test('f32: 4', () => expect(layoutSizeOf(d.f32, 'std430')).toBe(4));
+        test('vec2f: 8', () => expect(layoutSizeOf(d.vec2f, 'std430')).toBe(8));
+        test('vec3f: 12', () => expect(layoutSizeOf(d.vec3f, 'std430')).toBe(12));
+        test('vec4f: 16', () => expect(layoutSizeOf(d.vec4f, 'std430')).toBe(16));
+        test('mat3x3f: 48', () => expect(layoutSizeOf(d.mat3x3f, 'std430')).toBe(48));
+        test('mat4x4f: 64', () => expect(layoutSizeOf(d.mat4x4f, 'std430')).toBe(64));
     });
 
-    describe('uniform', () => {
-        test('f32: 4', () => expect(layoutSizeOf(d.f32, 'uniform')).toBe(4));
-        test('vec3f: 12', () => expect(layoutSizeOf(d.vec3f, 'uniform')).toBe(12));
-        test('mat3x3f: 48', () => expect(layoutSizeOf(d.mat3x3f, 'uniform')).toBe(48));
+    describe('wgsl-uniform', () => {
+        test('f32: 4', () => expect(layoutSizeOf(d.f32, 'wgsl-uniform')).toBe(4));
+        test('vec3f: 12', () => expect(layoutSizeOf(d.vec3f, 'wgsl-uniform')).toBe(12));
+        test('mat3x3f: 48', () => expect(layoutSizeOf(d.mat3x3f, 'wgsl-uniform')).toBe(48));
     });
 
     describe('defaults to storage', () => {
@@ -40,14 +40,14 @@ describe('layoutSizeOf', () => {
 });
 
 describe('layoutStrideOf', () => {
-    describe('storage', () => {
-        test('f32 stride: 4', () => expect(layoutStrideOf(d.f32, 'storage')).toBe(4));
-        test('vec3f stride: 16', () => expect(layoutStrideOf(d.vec3f, 'storage')).toBe(16));
+    describe('std430', () => {
+        test('f32 stride: 4', () => expect(layoutStrideOf(d.f32, 'std430')).toBe(4));
+        test('vec3f stride: 16', () => expect(layoutStrideOf(d.vec3f, 'std430')).toBe(16));
     });
 
-    describe('uniform', () => {
-        test('f32 stride: 4', () => expect(layoutStrideOf(d.f32, 'uniform')).toBe(4));
-        test('vec3f stride: 16', () => expect(layoutStrideOf(d.vec3f, 'uniform')).toBe(16));
+    describe('wgsl-uniform', () => {
+        test('f32 stride: 4', () => expect(layoutStrideOf(d.f32, 'wgsl-uniform')).toBe(4));
+        test('vec3f stride: 16', () => expect(layoutStrideOf(d.vec3f, 'wgsl-uniform')).toBe(16));
     });
 
     describe('defaults to storage', () => {
@@ -461,8 +461,8 @@ describe('uniform vs storage layout', () => {
 
         // In storage: Inner has align=4
         // In uniform: Inner has align=roundUp(4, 16)=16
-        const storageAlign = layoutStrideOf(Inner, 'storage');
-        const uniformAlign = layoutStrideOf(Inner, 'uniform');
+        const storageAlign = layoutStrideOf(Inner, 'std430');
+        const uniformAlign = layoutStrideOf(Inner, 'wgsl-uniform');
 
         expect(storageAlign).toBe(8); // 2 * f32
         expect(uniformAlign).toBe(16); // rounded up to 16
@@ -473,8 +473,8 @@ describe('uniform vs storage layout', () => {
 
         // Storage: f32 has align=4, stride=4
         // Uniform: array elements have align=roundUp(4, 16)=16
-        const storageSize = layoutSizeOf(arr, 'storage');
-        const uniformSize = layoutSizeOf(arr, 'uniform');
+        const storageSize = layoutSizeOf(arr, 'std430');
+        const uniformSize = layoutSizeOf(arr, 'wgsl-uniform');
 
         expect(storageSize).toBe(16); // 4 * 4
         expect(uniformSize).toBe(64); // 4 * 16
@@ -483,8 +483,8 @@ describe('uniform vs storage layout', () => {
     test('array of vec3f: same in both (already 16-aligned)', () => {
         const arr = d.sizedArray(d.vec3f, 2);
 
-        const storageSize = layoutSizeOf(arr, 'storage');
-        const uniformSize = layoutSizeOf(arr, 'uniform');
+        const storageSize = layoutSizeOf(arr, 'std430');
+        const uniformSize = layoutSizeOf(arr, 'wgsl-uniform');
 
         // vec3f already has align=16, so no difference
         expect(storageSize).toBe(32);
@@ -509,8 +509,8 @@ describe('caching', () => {
     test('different address space returns different layout', () => {
         const S = struct('CacheTest2', { x: d.f32 });
 
-        const storageLayout = getCompiledLayout(S, 'storage');
-        const uniformLayout = getCompiledLayout(S, 'uniform');
+        const storageLayout = getCompiledLayout(S, 'std430');
+        const uniformLayout = getCompiledLayout(S, 'wgsl-uniform');
 
         expect(storageLayout).not.toBe(uniformLayout);
     });
@@ -555,7 +555,7 @@ describe('uniform address space packing', () => {
         const arr = d.sizedArray(d.f32, 4);
         const data = [1.0, 2.0, 3.0, 4.0];
 
-        const buf = pack(arr, data, 'uniform');
+        const buf = pack(arr, data, 'wgsl-uniform');
         const view = new DataView(buf);
 
         // Each f32 should be at 16-byte intervals in uniform layout
@@ -566,7 +566,7 @@ describe('uniform address space packing', () => {
         expect(view.getFloat32(48, true)).toBe(4.0);
 
         // Roundtrip
-        const unpacked = unpack(arr, buf, 0, 'uniform');
+        const unpacked = unpack(arr, buf, 0, 'wgsl-uniform');
         expect(unpacked).toEqual(data);
     });
 
@@ -578,7 +578,7 @@ describe('uniform address space packing', () => {
             [5, 6],
         ] as [number, number][];
 
-        const buf = pack(arr, data, 'uniform');
+        const buf = pack(arr, data, 'wgsl-uniform');
         const view = new DataView(buf);
 
         // vec2f has size=8, but uniform arrays round element stride to 16
@@ -590,7 +590,7 @@ describe('uniform address space packing', () => {
         expect(view.getFloat32(32, true)).toBe(5);
         expect(view.getFloat32(36, true)).toBe(6);
 
-        const unpacked = unpack(arr, buf, 0, 'uniform');
+        const unpacked = unpack(arr, buf, 0, 'wgsl-uniform');
         expect(unpacked).toEqual(data);
     });
 
@@ -601,7 +601,7 @@ describe('uniform address space packing', () => {
             [4, 5, 6],
         ] as [number, number, number][];
 
-        const buf = pack(arr, data, 'uniform');
+        const buf = pack(arr, data, 'wgsl-uniform');
         const view = new DataView(buf);
 
         // vec3f has align=16, stride=16 in both storage and uniform
@@ -613,7 +613,7 @@ describe('uniform address space packing', () => {
         expect(view.getFloat32(20, true)).toBe(5);
         expect(view.getFloat32(24, true)).toBe(6);
 
-        const unpacked = unpack(arr, buf, 0, 'uniform');
+        const unpacked = unpack(arr, buf, 0, 'wgsl-uniform');
         expect(unpacked).toEqual(data);
     });
 
@@ -625,7 +625,7 @@ describe('uniform address space packing', () => {
             { a: 3, b: 4 },
         ];
 
-        const buf = pack(arr, data, 'uniform');
+        const buf = pack(arr, data, 'wgsl-uniform');
         const view = new DataView(buf);
 
         // Struct has size=8, but uniform rounds struct align to 16
@@ -635,7 +635,7 @@ describe('uniform address space packing', () => {
         expect(view.getFloat32(16, true)).toBe(3);
         expect(view.getFloat32(20, true)).toBe(4);
 
-        const unpacked = unpack(arr, buf, 0, 'uniform');
+        const unpacked = unpack(arr, buf, 0, 'wgsl-uniform');
         expect(unpacked).toEqual(data);
     });
 
@@ -648,7 +648,7 @@ describe('uniform address space packing', () => {
 
         const data = { items: [{ x: 1.5 }, { x: 2.5 }], count: 42 };
 
-        const buf = pack(Outer, data, 'uniform');
+        const buf = pack(Outer, data, 'wgsl-uniform');
         const view = new DataView(buf);
 
         // Inner struct: size=4, but uniform rounds to align=16
@@ -660,7 +660,7 @@ describe('uniform address space packing', () => {
         expect(view.getFloat32(16, true)).toBe(2.5); // items[1].x
         expect(view.getUint32(32, true)).toBe(42); // count
 
-        const unpacked = unpack(Outer, buf, 0, 'uniform');
+        const unpacked = unpack(Outer, buf, 0, 'wgsl-uniform');
         expect(unpacked.items[0].x).toBeCloseTo(1.5);
         expect(unpacked.items[1].x).toBeCloseTo(2.5);
         expect(unpacked.count).toBe(42);
@@ -680,7 +680,7 @@ describe('uniform address space packing', () => {
             9, // col 2
         ];
 
-        const buf = pack(d.mat3x3f, data, 'uniform');
+        const buf = pack(d.mat3x3f, data, 'wgsl-uniform');
         const view = new DataView(buf);
 
         expect(buf.byteLength).toBe(48); // 3 cols * 16 bytes
@@ -698,7 +698,7 @@ describe('uniform address space packing', () => {
         expect(view.getFloat32(36, true)).toBe(8);
         expect(view.getFloat32(40, true)).toBe(9);
 
-        const unpacked = unpack(d.mat3x3f, buf, 0, 'uniform');
+        const unpacked = unpack(d.mat3x3f, buf, 0, 'wgsl-uniform');
         expect(unpacked).toEqual(data);
     });
 
@@ -706,7 +706,7 @@ describe('uniform address space packing', () => {
         const S = struct('Item', { value: d.f32 });
         const items = [{ value: 10 }, { value: 20 }, { value: 30 }];
 
-        const buf = packArray(S, items, 'uniform');
+        const buf = packArray(S, items, 'wgsl-uniform');
         const view = new DataView(buf);
 
         // Each struct element at 16-byte stride
@@ -715,7 +715,7 @@ describe('uniform address space packing', () => {
         expect(view.getFloat32(16, true)).toBe(20);
         expect(view.getFloat32(32, true)).toBe(30);
 
-        const unpacked = unpackArray(S, buf, 3, 0, 'uniform');
+        const unpacked = unpackArray(S, buf, 3, 0, 'wgsl-uniform');
         expect(unpacked).toEqual(items);
     });
 
@@ -723,8 +723,8 @@ describe('uniform address space packing', () => {
         const arr = d.sizedArray(d.f32, 3);
         const data = [1.0, 2.0, 3.0];
 
-        const storageBuf = pack(arr, data, 'storage');
-        const uniformBuf = pack(arr, data, 'uniform');
+        const storageBuf = pack(arr, data, 'std430');
+        const uniformBuf = pack(arr, data, 'wgsl-uniform');
 
         // Storage: tightly packed
         expect(storageBuf.byteLength).toBe(12); // 3 * 4
@@ -732,7 +732,7 @@ describe('uniform address space packing', () => {
         expect(uniformBuf.byteLength).toBe(48); // 3 * 16
 
         // Both should roundtrip correctly
-        expect(unpack(arr, storageBuf, 0, 'storage')).toEqual(data);
-        expect(unpack(arr, uniformBuf, 0, 'uniform')).toEqual(data);
+        expect(unpack(arr, storageBuf, 0, 'std430')).toEqual(data);
+        expect(unpack(arr, uniformBuf, 0, 'wgsl-uniform')).toEqual(data);
     });
 });

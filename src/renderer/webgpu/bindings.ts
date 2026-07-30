@@ -513,7 +513,7 @@ function packAndCompare(
         if (value === null || value === undefined) continue;
 
         // Cast needed: UniformValue is broader than Infer<schema> but matches at runtime
-        packToView(m.schema, view, m.offset, value as never, 'uniform');
+        packToView(m.schema, view, m.offset, value as never, 'wgsl-uniform');
     }
 
     // Compare buffers byte-by-byte using typed arrays

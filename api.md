@@ -579,7 +579,7 @@ WGSL type descriptors (imported as `d`) and std430 buffer packing.
 **Descriptors & packing**
 
 <table><tr>
-<td><a href="#addressspace"><code>AddressSpace</code></a></td><td><a href="#compiledlayout"><code>CompiledLayout</code></a></td><td><a href="#pack"><code>pack</code></a></td><td><a href="#packarray"><code>packArray</code></a></td>
+<td><a href="#memorylayout"><code>MemoryLayout</code></a></td><td><a href="#compiledlayout"><code>CompiledLayout</code></a></td><td><a href="#pack"><code>pack</code></a></td><td><a href="#packarray"><code>packArray</code></a></td>
 </tr><tr>
 <td><a href="#packto"><code>packTo</code></a></td><td><a href="#unpack"><code>unpack</code></a></td><td><a href="#unpackarray"><code>unpackArray</code></a></td><td><a href="#layoutsizeof"><code>layoutSizeOf</code></a></td>
 </tr><tr>
@@ -5245,10 +5245,25 @@ export type Discovery = {
 
 WGSL type descriptors (imported as `d`) and std430 buffer packing.
 
-#### `AddressSpace`
+#### `MemoryLayout`
 
 ```ts
-export type AddressSpace = 'storage' | 'uniform' | 'std140';
+/**
+ * A GPU buffer memory-layout standard. gpucat targets exactly three, one per (address space ×
+ * shading language) combination it actually uses:
+ *
+ * - `std430`       — WGSL storage-buffer layout (packs tightest).
+ * - `wgsl-uniform` — WGSL uniform-buffer layout (like std430 but struct/array elements round to 16).
+ * - `std140`       — GLSL uniform-buffer layout (like wgsl-uniform, but also pads EVERY matrix
+ *                    column to a vec4 — including 2-row matrices).
+ *
+ * (WGSL uniform ≠ std140: they differ only in that mat2 column stride. There is no GLSL storage
+ * layout because WebGL2 has no storage buffers, so the fourth combination doesn't exist.)
+ *
+ * The three collapse to two orthogonal rules — see {@link roundsElementsTo16} and
+ * {@link matColumnsAlwaysVec4}.
+ */
+export type MemoryLayout = 'std430' | 'wgsl-uniform' | 'std140';
 ```
 
 #### `CompiledLayout`
@@ -5276,7 +5291,7 @@ export type CompiledLayout<T = unknown> = {
  * const buf = pack(Particle, { position: [1, 2, 3], health: 100 });
  * const f32 = new Float32Array(buf);
  */
-export function pack<D extends Any>(schema: D, value: Infer<D>, addressSpace?: AddressSpace): ArrayBuffer;
+export function pack<D extends Any>(schema: D, value: Infer<D>, memLayout?: MemoryLayout): ArrayBuffer;
 ```
 
 #### `packArray`
@@ -5289,7 +5304,7 @@ export function pack<D extends Any>(schema: D, value: Infer<D>, addressSpace?: A
  * const buf = packArray(Particle, particles);
  * const f32 = new Float32Array(buf);
  */
-export function packArray<D extends Any>(schema: D, items: Infer<D>[], addressSpace?: AddressSpace): ArrayBuffer;
+export function packArray<D extends Any>(schema: D, items: Infer<D>[], memLayout?: MemoryLayout): ArrayBuffer;
 ```
 
 #### `packTo`
@@ -5303,7 +5318,7 @@ export function packArray<D extends Any>(schema: D, items: Infer<D>[], addressSp
  * packTo(Particle, buf, 0, particle1);
  * packTo(Particle, buf, stride, particle2);
  */
-export function packTo<D extends Any>(schema: D, dest: BufferSource, offset: number, value: Infer<D>, addressSpace?: AddressSpace): void;
+export function packTo<D extends Any>(schema: D, dest: BufferSource, offset: number, value: Infer<D>, memLayout?: MemoryLayout): void;
 ```
 
 #### `unpack`
@@ -5316,7 +5331,7 @@ export function packTo<D extends Any>(schema: D, dest: BufferSource, offset: num
  * const particle = unpack(Particle, buf);
  * const secondParticle = unpack(Particle, buf, stride);
  */
-export function unpack<D extends Any>(schema: D, src: BufferSource, offset?: number, addressSpace?: AddressSpace): Infer<D>;
+export function unpack<D extends Any>(schema: D, src: BufferSource, offset?: number, memLayout?: MemoryLayout): Infer<D>;
 ```
 
 #### `unpackArray`
@@ -5328,7 +5343,7 @@ export function unpack<D extends Any>(schema: D, src: BufferSource, offset?: num
  * @example
  * const particles = unpackArray(Particle, buf, 100);
  */
-export function unpackArray<D extends Any>(schema: D, src: BufferSource, count: number, offset?: number, addressSpace?: AddressSpace): Infer<D>[];
+export function unpackArray<D extends Any>(schema: D, src: BufferSource, count: number, offset?: number, memLayout?: MemoryLayout): Infer<D>[];
 ```
 
 #### `layoutSizeOf`
@@ -5340,7 +5355,7 @@ export function unpackArray<D extends Any>(schema: D, src: BufferSource, count: 
  * @example
  * const size = layoutSizeOf(Particle); // 32
  */
-export function layoutSizeOf(schema: Any, addressSpace?: AddressSpace): number;
+export function layoutSizeOf(schema: Any, memLayout?: MemoryLayout): number;
 ```
 
 #### `layoutStrideOf`
@@ -5352,19 +5367,19 @@ export function layoutSizeOf(schema: Any, addressSpace?: AddressSpace): number;
  * @example
  * const stride = layoutStrideOf(Particle); // 32
  */
-export function layoutStrideOf(schema: Any, addressSpace?: AddressSpace): number;
+export function layoutStrideOf(schema: Any, memLayout?: MemoryLayout): number;
 ```
 
 #### `layoutAlignOf`
 
 ```ts
 /**
- * Get the byte alignment of a schema in the given address space.
+ * Get the byte alignment of a schema in the given memory layout.
  *
  * @example
  * const align = layoutAlignOf(vec3f, 'std140'); // 16
  */
-export function layoutAlignOf(schema: Any, addressSpace?: AddressSpace): number;
+export function layoutAlignOf(schema: Any, memLayout?: MemoryLayout): number;
 ```
 
 #### `getCompiledLayout`
@@ -5373,21 +5388,21 @@ export function layoutAlignOf(schema: Any, addressSpace?: AddressSpace): number;
 /**
  * Get the compiled layout for a schema (for advanced use cases).
  */
-export function getCompiledLayout<D extends Any>(schema: D, addressSpace?: AddressSpace): CompiledLayout<Infer<D>>;
+export function getCompiledLayout<D extends Any>(schema: D, memLayout?: MemoryLayout): CompiledLayout<Infer<D>>;
 ```
 
 #### `packToView`
 
 ```ts
 /** Pack a value into a DataView. */
-export function packToView<D extends Any>(schema: D, view: DataView, offset: number, value: Infer<D>, addressSpace?: AddressSpace): void;
+export function packToView<D extends Any>(schema: D, view: DataView, offset: number, value: Infer<D>, memLayout?: MemoryLayout): void;
 ```
 
 #### `unpackFromView`
 
 ```ts
 /** Unpack a value from a DataView. */
-export function unpackFromView<D extends Any>(schema: D, view: DataView, offset: number, addressSpace?: AddressSpace): Infer<D>;
+export function unpackFromView<D extends Any>(schema: D, view: DataView, offset: number, memLayout?: MemoryLayout): Infer<D>;
 ```
 
 ## Controls & debugging

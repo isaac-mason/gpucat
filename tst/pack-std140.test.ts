@@ -9,9 +9,9 @@ import {
 } from '../src/schema/pack';
 import * as d from '../src/schema/schema';
 
-// std140 == WGSL 'uniform' layout EXCEPT every matrix column is padded to a vec4 (16-byte column
+// std140 == WGSL 'wgsl-uniform' layout EXCEPT every matrix column is padded to a vec4 (16-byte column
 // stride), for ALL matrices including 2-row ones. These tests assert std140 against spec-known
-// values, and confirm WGSL 'uniform'/'storage' matrix layout is unchanged.
+// values, and confirm WGSL 'wgsl-uniform'/'std430' matrix layout is unchanged.
 
 describe('std140 scalar / vector layout (same as uniform)', () => {
     test('f32 size 4 align 4', () => {
@@ -65,17 +65,17 @@ describe('std140 matrix layout (columns padded to vec4)', () => {
 
 describe('WGSL uniform/storage matrix layout unchanged', () => {
     test("mat2x2f uniform size 16 (2-row column stride stays 8)", () => {
-        expect(layoutSizeOf(d.mat2x2f, 'uniform')).toBe(16);
-        expect(layoutAlignOf(d.mat2x2f, 'uniform')).toBe(8);
+        expect(layoutSizeOf(d.mat2x2f, 'wgsl-uniform')).toBe(16);
+        expect(layoutAlignOf(d.mat2x2f, 'wgsl-uniform')).toBe(8);
     });
 
     test('mat2x2f storage size 16', () => {
-        expect(layoutSizeOf(d.mat2x2f, 'storage')).toBe(16);
-        expect(layoutAlignOf(d.mat2x2f, 'storage')).toBe(8);
+        expect(layoutSizeOf(d.mat2x2f, 'std430')).toBe(16);
+        expect(layoutAlignOf(d.mat2x2f, 'std430')).toBe(8);
     });
 
     test('mat3x2f uniform size 24', () => {
-        expect(layoutSizeOf(d.mat3x2f, 'uniform')).toBe(24);
+        expect(layoutSizeOf(d.mat3x2f, 'wgsl-uniform')).toBe(24);
     });
 });
 
