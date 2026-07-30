@@ -47,6 +47,13 @@ function applyViewportScissor(gl: WebGL2RenderingContext, passCtx: RenderContext
     if (passCtx.viewport) {
         const v = passCtx.viewportValue;
         gl.viewport(v.x, v.y, v.width, v.height);
+        // Honor the viewport's depth range (defaults 0,1). Threaded through per pass so a prior pass's
+        // custom range never leaks into this one.
+        gl.depthRange(v.minDepth, v.maxDepth);
+    } else {
+        // No explicit viewport for this pass → restore the default full depth range so a preceding
+        // pass's custom depthRange doesn't persist as stale state.
+        gl.depthRange(0, 1);
     }
     if (passCtx.scissor) {
         const s = passCtx.scissorValue;
@@ -123,6 +130,33 @@ export type DrawCaches = {
 };
 
 /**
+ * Detect an MRT that requests *differing* blend modes across its color targets. WebGL2 applies one
+ * global blend state to all draw buffers (no per-attachment blend), so a single uniform blend across
+ * all targets is fine, but distinct per-target blends can't be honored — throw rather than silently
+ * blending every attachment the same. Mirrors the WebGPU pipeline's per-target `mrt.getBlendMode`.
+ */
+function assertUniformMrtBlend(passCtx: RenderContext): void {
+    const mrt = passCtx.mrt;
+    const textures = passCtx.renderTarget?.textures;
+    if (!mrt || !textures || textures.length < 2) return;
+
+    // Reduce each target's blend to a comparable key. 'material' and 'no' compare by their tag;
+    // explicit blend specs compare by their factor/equation fields (a custom per-target spec).
+    const keyOf = (name: string): string => {
+        const b = mrt.getBlendMode(name);
+        if (b.blending === 'material' || b.blending === 'no') return b.blending;
+        return `${b.blending}:${b.blendSrc},${b.blendDst},${b.blendEquation},${b.blendSrcAlpha},${b.blendDstAlpha},${b.blendEquationAlpha}`;
+    };
+
+    const first = keyOf(textures[0]?.name ?? '');
+    for (let i = 1; i < textures.length; i++) {
+        if (keyOf(textures[i]?.name ?? '') !== first) {
+            throw new Error('[WebGLRenderer] per-attachment blend modes are not supported on the WebGL2 backend.');
+        }
+    }
+}
+
+/**
  * Run the whole render pass immediately: bind the framebuffer, apply viewport/scissor, clear on
  * autoClear, then draw the prepared objects.
  */
@@ -135,6 +169,9 @@ export function executeRenderPass(
     params: RenderPassParams,
     inspector: InspectorBase | null,
 ): void {
+    // Reject an MRT that asks for differing per-attachment blends (WebGL2 has one global blend state).
+    assertUniformMrtBlend(passCtx);
+
     const { hasStencil: targetStencil } = bindFramebuffer(gl, caches, params);
     applyViewportScissor(gl, passCtx);
 
@@ -224,8 +261,9 @@ export function executeRenderPass(
         if (geometry.index && drawInfo.indexType !== null) {
             const indexArray = geometry.index.array!;
             const count = Math.min(geometry.drawRange.count, indexArray.length);
-            // firstIndex is a byte offset for drawElements; each index is 2 (uint16) or 4 (uint32) bytes.
-            const bytesPerIndex = drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
+            // firstIndex is a byte offset for drawElements; each index is 1 (uint8), 2 (uint16) or
+            // 4 (uint32) bytes.
+            const bytesPerIndex = drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
             gl.drawElementsInstanced(gl.TRIANGLES, count, drawInfo.indexType, start * bytesPerIndex, instances);
             if (inspector) inspector.drawIndexed(count, instances);
         } else {

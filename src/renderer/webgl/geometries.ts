@@ -60,6 +60,22 @@ function getGeometryBuffers(state: GeometriesState, geometry: Geometry): Geometr
     return gb;
 }
 
+/**
+ * GL index element type for an index typed array. WebGL2 accepts UNSIGNED_BYTE / UNSIGNED_SHORT /
+ * UNSIGNED_INT indices; the type must match the array's element width or the draw reads garbage (a
+ * Uint8Array read as UNSIGNED_INT walks 4 bytes per index). Any other array type throws.
+ */
+function glIndexType(gl: WebGL2RenderingContext, array: ArrayBufferView | null | undefined): number {
+    if (array instanceof Uint8Array) return gl.UNSIGNED_BYTE;
+    if (array instanceof Uint16Array) return gl.UNSIGNED_SHORT;
+    if (array instanceof Uint32Array) return gl.UNSIGNED_INT;
+    const ctorName = (array as { constructor?: { name?: string } } | null)?.constructor?.name ?? typeof array;
+    throw new Error(
+        `[WebGLRenderer] index buffer array type '${ctorName}' is not supported on the WebGL2 backend ` +
+            `(expected Uint8Array, Uint16Array, or Uint32Array).`,
+    );
+}
+
 // -------------------------------------------------------------------------------------------------
 // WGSL attribute type → GL vertex-attrib descriptor.
 // -------------------------------------------------------------------------------------------------
@@ -110,8 +126,7 @@ function attribFormat(type: string): AttribFormat {
         case 'mat4x4f':
             return { glType: 'float', size: 4, slots: 4, byteSize: 64 };
         default:
-            // Fall back to a 4-float vector; unknown types surface as a link/draw error anyway.
-            return { glType: 'float', size: 4, slots: 1, byteSize: 16 };
+            throw new Error(`[WebGLRenderer] vertex attribute format '${type}' is not supported on the WebGL2 backend.`);
     }
 }
 
@@ -218,7 +233,7 @@ export function prepareGeometry(
     let indexType: number | null = null;
     if (geometry.index) {
         ensureIndexBuffer(gl, gb, geometry.index);
-        indexType = geometry.index.array instanceof Uint16Array ? gl.UNSIGNED_SHORT : gl.UNSIGNED_INT;
+        indexType = glIndexType(gl, geometry.index.array);
     }
 
     // Build (or reuse) the VAO for this program.

@@ -65,11 +65,28 @@ function glCompareFunc(gl: WebGL2RenderingContext, compare: GPUCompareFunction):
 export type GlSamplersState = {
     cache: Map<string, WebGLSampler>;
     all: Set<WebGLSampler>;
+    /**
+     * Cached anisotropy support, resolved once on first use: null = not yet probed, then either the
+     * driver's max anisotropy level (ext present) or 0 (ext absent → anisotropy unavailable).
+     */
+    maxAnisotropy: number | null;
 };
 
 /** Create an empty samplers state. */
 export function createGlSamplersState(): GlSamplersState {
-    return { cache: new Map(), all: new Set() };
+    return { cache: new Map(), all: new Set(), maxAnisotropy: null };
+}
+
+/**
+ * The driver's max anisotropy level (queried once). Returns 0 when EXT_texture_filter_anisotropic is
+ * absent — anisotropy is then unavailable and skipped (a quality-only hint, so the result stays correct).
+ */
+function getMaxAnisotropy(gl: WebGL2RenderingContext, state: GlSamplersState): number {
+    if (state.maxAnisotropy === null) {
+        const ext = gl.getExtension('EXT_texture_filter_anisotropic');
+        state.maxAnisotropy = ext ? (gl.getParameter(ext.MAX_TEXTURE_MAX_ANISOTROPY_EXT) as number) : 0;
+    }
+    return state.maxAnisotropy;
 }
 
 /**
@@ -105,10 +122,18 @@ export function getGlSampler(
         gl.samplerParameteri(sampler, gl.TEXTURE_COMPARE_FUNC, glCompareFunc(gl, gpuSampler.compare));
     }
 
-    // Anisotropy via the standard extension, when available and requested.
+    // Anisotropy via the standard extension, when available and requested. Anisotropy is a quality
+    // hint, not a correctness requirement: when EXT_texture_filter_anisotropic is ABSENT we skip it
+    // (the sampler still filters correctly, just without anisotropic sharpening). When present, clamp
+    // the requested level to the driver's MAX_TEXTURE_MAX_ANISOTROPY_EXT (queried once) so we never
+    // set an out-of-range value.
     if (gpuSampler.maxAnisotropy > 1) {
-        const ext = gl.getExtension('EXT_texture_filter_anisotropic');
-        if (ext) gl.samplerParameterf(sampler, ext.TEXTURE_MAX_ANISOTROPY_EXT, gpuSampler.maxAnisotropy);
+        const max = getMaxAnisotropy(gl, state);
+        if (max > 0) {
+            const ext = gl.getExtension('EXT_texture_filter_anisotropic')!;
+            gl.samplerParameterf(sampler, ext.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(gpuSampler.maxAnisotropy, max));
+        }
+        // else: extension unavailable → anisotropy skipped (quality-only, result stays correct).
     }
 
     state.cache.set(key, sampler);

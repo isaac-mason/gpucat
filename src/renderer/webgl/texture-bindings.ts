@@ -23,6 +23,29 @@ function samplerUniformName(textureId: string): string {
     return `u_${textureId}`;
 }
 
+/** Cached OES_texture_float_linear support (probed once): null = unprobed, then true/false. */
+let floatLinearSupported: boolean | null = null;
+
+/**
+ * Guard: sampling a 32-bit float texture with a LINEAR filter needs OES_texture_float_linear. Without
+ * it the sample reads as incomplete (black) — a WRONG result, not merely lower quality — so throw a
+ * clear error rather than silently render black. Half-float (16float) linear is core in WebGL2, and
+ * nearest filtering of float32 is always fine; both are left alone.
+ */
+function assertFloatLinearFilterable(gl: WebGL2RenderingContext, textureFormat: string, gpuSampler: { minFilter: string; magFilter: string; mipmapFilter: string } | null): void {
+    if (!textureFormat.includes('32float')) return;
+    if (!gpuSampler) return;
+    const usesLinear = gpuSampler.minFilter === 'linear' || gpuSampler.magFilter === 'linear' || gpuSampler.mipmapFilter === 'linear';
+    if (!usesLinear) return;
+    if (floatLinearSupported === null) floatLinearSupported = !!gl.getExtension('OES_texture_float_linear');
+    if (!floatLinearSupported) {
+        throw new Error(
+            `[WebGLRenderer] linear filtering of 32-bit float textures requires OES_texture_float_linear, ` +
+                `which is not available; use a 'nearest' filter for '${textureFormat}' textures on the WebGL2 backend.`,
+        );
+    }
+}
+
 /** Resolve (and cache) a combined-sampler uniform's location on a program. */
 function getSamplerLocation(gl: WebGL2RenderingContext, programInfo: ProgramInfo, name: string): WebGLUniformLocation | null {
     if (programInfo.samplerLocations.has(name)) {
@@ -56,6 +79,11 @@ export function bindTextures(
     // We look them up per-unit as we bind textures below.
     for (const bindGroup of bindGroups) {
         for (const binding of bindGroup.bindings) {
+            if (binding.kind === 'storageTexture') {
+                // Storage textures (texture_storage_*, written via textureStore in a compute pass) are
+                // a WebGPU-only capability; WebGL2 core has no image load/store.
+                throw new Error('[WebGLRenderer] storage textures are not supported on the WebGL2 backend.');
+            }
             if (binding.kind !== 'texture') continue;
 
             const entry = binding.entry;
@@ -78,6 +106,9 @@ export function bindTextures(
 
             // Find the sampler assigned to this same unit and bind its GL sampler object.
             const gpuSampler = findSamplerForUnit(bindGroups, unit);
+            // Reject a linear filter on a float32 texture when float-linear isn't available (would
+            // sample as incomplete/black = wrong output, not just lower quality).
+            assertFloatLinearFilterable(gl, gpuTexture.format, gpuSampler);
             if (gpuSampler) {
                 const hasMips = gpuTexture.generateMipmaps;
                 const glSampler = getGlSampler(gl, samplers, gpuSampler, hasMips);

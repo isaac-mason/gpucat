@@ -95,9 +95,9 @@ export declare function emitAllBindings(ctx: BuildContext): {
 export declare function emitWgslFunctions(ctx: BuildContext): string;
 export declare function emitDslFunctions(ctx: BuildContext): string;
 export declare function generateVertexShader(slots: CompileSlots, ctx: BuildContext): string;
-export declare function generateFragmentShader(fragmentNode: Node<d.Any>, ctx: BuildContext, varyings: Map<string, {
+export declare function generateFragmentShader(fragmentNode: Node<d.Any> | null, ctx: BuildContext, varyings: Map<string, {
     node: VaryingNode<d.Any>;
     vertexExpr: string;
-}>): string;
+}>, depthNode?: Node<d.Any> | null): string;
 export declare function generateComputeShader(node: ComputeNode, traced: ReturnType<FnNode<d.Any>['trace']>, ctx: BuildContext): string;
 export {};

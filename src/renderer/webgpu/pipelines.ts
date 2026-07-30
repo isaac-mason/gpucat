@@ -269,12 +269,15 @@ function buildRenderPipelineDescriptor(
         });
     }
 
-    // Build pipeline descriptor
-    // For depth-only pipelines (no fragment node), omit the fragment stage entirely.
-    // WebGPU spec section 23.2.8 explicitly supports "No Color Output" mode:
-    // the pipeline still rasterizes and produces depth values from vertex positions.
+    // Build pipeline descriptor.
+    // For depth-only pipelines (no fragment node AND no frag_depth override), omit the fragment stage
+    // entirely. WebGPU spec section 23.2.8 explicitly supports "No Color Output" mode: the pipeline
+    // still rasterizes and produces depth values from vertex positions.
+    // When the material sets a frag_depth override (material.depth) but has no color output, a fragment
+    // stage MUST still run (to write @builtin(frag_depth)), with an empty `targets` array.
+    const hasFragDepth = material.depth != null;
     const fragment: GPURenderPipelineDescriptor['fragment'] =
-        targetCount > 0
+        targetCount > 0 || hasFragDepth
             ? {
                   module: shaderModule,
                   entryPoint: 'fs_main',

@@ -125,8 +125,8 @@ export declare function emitGlslRawFunctions(ctx: GlslBuildContext): string;
 export declare function emitGlslDslFunctions(ctx: GlslBuildContext): string;
 export declare function collectGlslVaryings(roots: Node<d.Any>[], ctx: GlslBuildContext): void;
 export declare function generateGlslVertexShader(slots: CompileSlots, ctx: GlslBuildContext): string;
-export declare function generateGlslFragmentShader(fragmentNode: Node<d.Any>, ctx: GlslBuildContext, varyings: Map<string, {
+export declare function generateGlslFragmentShader(fragmentNode: Node<d.Any> | null, ctx: GlslBuildContext, varyings: Map<string, {
     node: VaryingNode<d.Any>;
     vertexExpr: string;
-}>): string;
+}>, depthNode?: Node<d.Any> | null): string;
 export {};

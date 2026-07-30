@@ -1,5 +1,97 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`frag_depth override (Material.depth) > color + depth: FragmentOutput struct carries @location(0) color AND @builtin(frag_depth) 1`] = `
+{
+  "builtins": [],
+  "code": "// Bindings (uniforms, storage, textures, samplers)
+// Module-scope variables
+// WGSL Functions
+// DSL Functions
+// Vertex Shader
+struct VertexInput {
+    @location(0) _position_0: vec3f,
+}
+
+struct VertexOutput {
+    @builtin(position) position: vec4f,
+    @location(0) vZ: f32,
+}
+
+@vertex
+fn vs_main(input: VertexInput) -> VertexOutput {
+    var output: VertexOutput;
+    output.position = vec4f(input._position_0, 1.0);
+    output.vZ = input._position_0.z;
+    return output;
+}
+// Fragment Shader
+struct FragmentInput {
+    @location(0) vZ: f32,
+}
+
+struct FragmentOutput {
+    @location(0) color: vec4f,
+    @builtin(frag_depth) frag_depth: f32,
+}
+
+@fragment
+fn fs_main(input: FragmentInput) -> FragmentOutput {
+    var output: FragmentOutput;
+    output.color = vec4f(vec3f(0.4, 0.7, 1.0), 1.0);
+    output.frag_depth = (0.25 + (input.vZ * 0.5));
+    return output;
+}",
+  "fragmentEntryPoint": "fs_main",
+  "varyings": [
+    {
+      "location": 0,
+      "name": "vZ",
+      "type": "f32",
+    },
+  ],
+  "vertexEntryPoint": "vs_main",
+}
+`;
+
+exports[`frag_depth override (Material.depth) > depth-only: fragment stage still runs and writes frag_depth, no color output 1`] = `
+{
+  "builtins": [],
+  "code": "// Bindings (uniforms, storage, textures, samplers)
+// Module-scope variables
+// WGSL Functions
+// DSL Functions
+// Vertex Shader
+struct VertexInput {
+    @location(0) _position_0: vec3f,
+}
+
+struct VertexOutput {
+    @builtin(position) position: vec4f,
+}
+
+@vertex
+fn vs_main(input: VertexInput) -> VertexOutput {
+    var output: VertexOutput;
+    output.position = vec4f(input._position_0, 1.0);
+    return output;
+}
+// Fragment Shader
+struct FragmentOutput {
+    @builtin(frag_depth) frag_depth: f32,
+}
+
+@fragment
+fn fs_main() -> FragmentOutput {
+    var output: FragmentOutput;
+    output.frag_depth = 0.75;
+    return output;
+}",
+  "fragmentEntryPoint": "fs_main",
+  "varyings": [],
+  "vertexEntryPoint": "vs_main",
+}
+`;
+
 exports[`golden WGSL — compute path > atomic histogram: storage atomics + index + Var + If 1`] = `
 {
   "builtins": [

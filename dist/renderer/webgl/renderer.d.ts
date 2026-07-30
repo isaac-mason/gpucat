@@ -176,6 +176,13 @@ export declare class WebGLRenderer implements Renderer, RendererState {
      * ignoring autoClear and viewport/scissor.
      */
     clear(color?: boolean, depth?: boolean, stencil?: boolean): void;
+    /**
+     * Finalize a cube render target after all six faces are captured: generate the cube texture's
+     * mipmaps so a mipped environment map has its lower levels filled. Mirrors the WebGPU renderer's
+     * `finalizeCubeCapture` guards — only when the texture wants mips and the base mip level (0) is
+     * active. Called by `CubeCamera.update()`.
+     */
+    finalizeCubeCapture(renderTarget: RenderTarget, mipLevel: number): void;
     /** Minimal feature query. No optional WebGL2 features are surfaced yet. */
     hasFeature(_feature: string): boolean;
     /**

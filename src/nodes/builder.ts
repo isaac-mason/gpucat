@@ -56,6 +56,10 @@ import type { WgslFunctionNode } from './lib/wgsl-fn';
 export function compile(slots: CompileSlots): CompileResult {
     // A fragment-less material (depth/stencil-only) may leave the slot null or undefined.
     const hasFragment = slots.fragment != null;
+    // A frag_depth override is a fragment-stage value; a fragment shader must run to write it, even in
+    // the depth-only (no color output) case.
+    const hasDepth = slots.depth != null;
+    const emitFragment = hasFragment || hasDepth;
 
     // collect all roots
     const roots: Node<d.Any>[] = [slots.vertex];
@@ -68,19 +72,23 @@ export function compile(slots: CompileSlots): CompileResult {
     const vertexCtx = createContext('vertex', true, discovered);
     const fragmentCtx = createContext('fragment', true, discovered);
 
-    // pre-collect varyings from fragment roots (so vertex shader knows what to output)
-    if (hasFragment) {
-        const fragmentRoots: Node<d.Any>[] = [slots.fragment!];
+    // pre-collect varyings from fragment roots (so vertex shader knows what to output). The depth
+    // expression is also a fragment-stage graph, so include it — a varying used only by depth must
+    // still be produced by the vertex stage.
+    if (emitFragment) {
+        const fragmentRoots: Node<d.Any>[] = [];
+        if (hasFragment) fragmentRoots.push(slots.fragment!);
+        if (hasDepth) fragmentRoots.push(slots.depth!);
         collectVaryings(fragmentRoots, vertexCtx);
     }
 
     // generate vertex shader
     const vertexBody = generateVertexShader(slots, vertexCtx);
 
-    // generate fragment shader (skip for depth-only pipelines)
+    // generate fragment shader (needed whenever there is a color output OR a frag_depth override)
     let fragmentBody = '';
-    if (hasFragment) {
-        fragmentBody = generateFragmentShader(slots.fragment!, fragmentCtx, vertexCtx.varyings);
+    if (emitFragment) {
+        fragmentBody = generateFragmentShader(slots.fragment ?? null, fragmentCtx, vertexCtx.varyings, slots.depth ?? null);
 
         // No need to merge bindings anymore - they're shared via discovered.*
     }
@@ -115,7 +123,7 @@ export function compile(slots: CompileSlots): CompileResult {
         '// Vertex Shader',
         vertexBody,
     ];
-    if (hasFragment) {
+    if (emitFragment) {
         codeParts.push('', '// Fragment Shader', fragmentBody);
     }
     const code = codeParts.filter(Boolean).join('\n');
@@ -161,7 +169,7 @@ export function compile(slots: CompileSlots): CompileResult {
     return {
         code,
         vertexEntryPoint: 'vs_main',
-        fragmentEntryPoint: hasFragment ? 'fs_main' : null,
+        fragmentEntryPoint: emitFragment ? 'fs_main' : null,
         attributes: allAttributes,
         vertexBufferGroups,
         varyings: varyingEntries,
@@ -203,6 +211,10 @@ export type CompileGlslOptions = {
 
 export function compileGlsl(slots: CompileSlots, opts: CompileGlslOptions = {}): CompileResult {
     const hasFragment = slots.fragment != null;
+    // A frag_depth override (material.depth) is a fragment-stage value; a fragment shader must run to
+    // write gl_FragDepth, even in the depth-only (no color output) case.
+    const hasDepth = slots.depth != null;
+    const emitFragment = hasFragment || hasDepth;
 
     const roots: Node<d.Any>[] = [slots.vertex];
     if (slots.fragment) roots.push(slots.fragment);
@@ -243,16 +255,21 @@ export function compileGlsl(slots: CompileSlots, opts: CompileGlslOptions = {}):
     const vertexCtx = createGlslContext('vertex', discovered);
     const fragmentCtx = createGlslContext('fragment', discovered);
 
-    // Pre-collect varyings from the fragment roots so the vertex shader knows what to output.
-    if (hasFragment) {
-        collectGlslVaryings([slots.fragment!], vertexCtx);
+    // Pre-collect varyings from the fragment roots (color + depth override) so the vertex shader knows
+    // what to output. A varying used only by the depth expression must still be produced by the vertex
+    // stage.
+    if (emitFragment) {
+        const fragmentRoots: Node<d.Any>[] = [];
+        if (hasFragment) fragmentRoots.push(slots.fragment!);
+        if (hasDepth) fragmentRoots.push(slots.depth!);
+        collectGlslVaryings(fragmentRoots, vertexCtx);
     }
 
     const vertexBody = generateGlslVertexShader(slots, vertexCtx);
 
     let fragmentBody = '';
-    if (hasFragment) {
-        fragmentBody = generateGlslFragmentShader(slots.fragment!, fragmentCtx, vertexCtx.varyings);
+    if (emitFragment) {
+        fragmentBody = generateGlslFragmentShader(slots.fragment ?? null, fragmentCtx, vertexCtx.varyings, slots.depth ?? null);
     }
 
     // Merge any textures/samplers the fragment stage registered into the vertex context so a single
@@ -305,7 +322,7 @@ export function compileGlsl(slots: CompileSlots, opts: CompileGlslOptions = {}):
         '// Vertex shader',
         vertexBody,
     ];
-    const fragmentParts = hasFragment
+    const fragmentParts = emitFragment
         ? [
               version,
               '',
@@ -333,7 +350,7 @@ export function compileGlsl(slots: CompileSlots, opts: CompileGlslOptions = {}):
     // two stages from distinct sources; this combined `.code` is the snapshot/regression surface,
     // mirroring how the WGSL path returns one combined module string.
     const codeParts = [vertexParts.filter(Boolean).join('\n')];
-    if (hasFragment) {
+    if (emitFragment) {
         codeParts.push('', '// ---- fragment stage ----', '', fragmentParts.filter(Boolean).join('\n'));
     }
     const code = codeParts.join('\n');
@@ -384,7 +401,7 @@ export function compileGlsl(slots: CompileSlots, opts: CompileGlslOptions = {}):
     return {
         code,
         vertexEntryPoint: 'main',
-        fragmentEntryPoint: hasFragment ? 'main' : null,
+        fragmentEntryPoint: emitFragment ? 'main' : null,
         attributes: allAttributes,
         vertexBufferGroups,
         varyings: varyingEntries,

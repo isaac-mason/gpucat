@@ -14,6 +14,7 @@ import {
     GpuSampler,
     i32,
     If,
+    instanceIndex,
     Let,
     Loop,
     modelNormalMatrix,
@@ -21,6 +22,7 @@ import {
     mrt,
     type Node,
     screenUV,
+    vertexIndex,
     select,
     struct,
     texture,
@@ -279,6 +281,63 @@ export const cases: Case[] = [
                 vertex: vec4(attribute('position', d.vec3f), f32(1)),
                 fragment,
                 depth: undefined,
+            };
+        },
+    },
+    {
+        // Bug 1 regression: dpdx/dpdy/fwidth must emit valid GLSL ES 3.00 (dFdx/dFdy/fwidth), not the
+        // literal WGSL names. Fragment-only; must compile + link under real WebGL2.
+        name: 'derivatives (dpdx/dpdy/fwidth)',
+        build: () => {
+            const position = attribute('position', d.vec3f);
+            const uv = varying(position.xy, 'vUV');
+            const edge = uv.x.dpdx().add(uv.y.dpdy()).add(uv.x.fwidth());
+            return {
+                vertex: vec4(position, f32(1)),
+                fragment: vec4(vec3(edge, edge, edge), f32(1)),
+                depth: undefined,
+            };
+        },
+    },
+    {
+        // Bug 2 + Bug 4 regression: a u32 varying (from @builtin(vertex_index)/instance_index) MUST be
+        // declared `flat` (integer varyings are un-linkable otherwise), and the builtin index must be
+        // uint(gl_VertexID)/uint(gl_InstanceID) to match its u32 type. Compile + link under WebGL2.
+        name: 'flat integer varying (u32 vertex/instance index)',
+        build: () => {
+            const id = varying(vertexIndex.add(instanceIndex), 'vId');
+            const f = id.toF32().mul(f32(0.01));
+            return {
+                vertex: vec4(attribute('position', d.vec3f), f32(1)),
+                fragment: vec4(vec3(f, f, f), f32(1)),
+                depth: undefined,
+            };
+        },
+    },
+    {
+        // Bug 3 regression: a frag_depth override (Material.depth) alongside a color output must write
+        // gl_FragDepth in the fragment main() and still compile + link under real WebGL2.
+        name: 'frag_depth override (color + depth)',
+        build: () => {
+            const position = attribute('position', d.vec3f);
+            const depth = f32(0.25).add(varying(position.z, 'vZ').mul(f32(0.5)));
+            return {
+                vertex: vec4(position, f32(1)),
+                fragment: vec4(vec3(0.4, 0.7, 1.0), f32(1)),
+                depth,
+            };
+        },
+    },
+    {
+        // Bug 3 regression: depth-only material (no color output). A fragment stage must still exist and
+        // write gl_FragDepth. Compile + link under real WebGL2.
+        name: 'frag_depth override (depth-only)',
+        build: () => {
+            const position = attribute('position', d.vec3f);
+            return {
+                vertex: vec4(position, f32(1)),
+                fragment: undefined,
+                depth: f32(0.75),
             };
         },
     },

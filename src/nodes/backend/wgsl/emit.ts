@@ -1479,9 +1479,10 @@ export function generateVertexShader(slots: CompileSlots, ctx: BuildContext): st
 /* fragment shader generation */
 
 export function generateFragmentShader(
-    fragmentNode: Node<d.Any>,
+    fragmentNode: Node<d.Any> | null,
     ctx: BuildContext,
     varyings: Map<string, { node: VaryingNode<d.Any>; vertexExpr: string }>,
+    depthNode: Node<d.Any> | null = null,
 ): string {
     const lines: string[] = [];
 
@@ -1492,8 +1493,11 @@ export function generateFragmentShader(
         }
     }
 
-    // generate color expression
-    const fragmentExpr = generateExpr(ctx, fragmentNode);
+    const hasColor = fragmentNode != null;
+    const hasDepth = depthNode != null;
+
+    // generate color expression (skip for a depth-only fragment stage)
+    const fragmentExpr = hasColor ? generateExpr(ctx, fragmentNode) : '';
 
     // check if we have any fragment inputs (varyings or builtins)
     const hasFragCoord = ctx.builtins.has('position');
@@ -1523,7 +1527,7 @@ export function generateFragmentShader(
     }
 
     // check for MRT
-    const isMRT = fragmentNode.kind === NodeKind.MRT;
+    const isMRT = hasColor && fragmentNode.kind === NodeKind.MRT;
     const mrtNode = isMRT ? (fragmentNode as MRTNode) : null;
 
     // Pre-generate all MRT output expressions NOW so that CSE let-declarations
@@ -1548,30 +1552,45 @@ export function generateFragmentShader(
         }
     }
 
-    if (isMRT && mrtNode) {
-        // generate MRT output struct with all outputs
+    // Pre-generate the depth expression (frag_depth override) before the body, same reason as above.
+    const depthExpr = hasDepth ? generateExpr(ctx, depthNode) : '';
+
+    // When a frag_depth override is present, the fragment output can no longer be a bare
+    // `-> @location(0) vec4f`: a @builtin(frag_depth) must ride alongside the color output(s) in a
+    // FragmentOutput struct. Also used for the depth-only case (struct with just the frag_depth
+    // member). Without a depth override the emitted shape is unchanged (byte-identical goldens).
+    const useStruct = isMRT || hasDepth;
+    const frag_depth_name = 'frag_depth';
+
+    if (useStruct) {
         lines.push('struct FragmentOutput {');
-
-        // use members array (populated by resolveOutputs) for @location order
-        // fall back to outputNodes keys if members not resolved yet
-        if (mrtNode.members.length > 0) {
-            // members are resolved - use them in order
-            for (let i = 0; i < mrtNode.members.length; i++) {
-                const member = mrtNode.members[i];
-                if (!member) continue; // sparse array possible
-                const name = mrtNode._resolvedNames[i] || `output_${i}`;
-                const wgslType = member.type.wgslType === 'vec4f' ? 'vec4f' : 'vec4f'; // MRT always outputs vec4f
-                lines.push(`    @location(${i}) ${name}: ${wgslType},`);
+        if (isMRT && mrtNode) {
+            // use members array (populated by resolveOutputs) for @location order
+            // fall back to outputNodes keys if members not resolved yet
+            if (mrtNode.members.length > 0) {
+                // members are resolved - use them in order
+                for (let i = 0; i < mrtNode.members.length; i++) {
+                    const member = mrtNode.members[i];
+                    if (!member) continue; // sparse array possible
+                    const name = mrtNode._resolvedNames[i] || `output_${i}`;
+                    const wgslType = member.type.wgslType === 'vec4f' ? 'vec4f' : 'vec4f'; // MRT always outputs vec4f
+                    lines.push(`    @location(${i}) ${name}: ${wgslType},`);
+                }
+            } else {
+                // fallback: use outputNodes directly (unresolved order)
+                let loc = 0;
+                for (const name in mrtNode.outputNodes) {
+                    lines.push(`    @location(${loc}) ${name}: vec4f,`);
+                    loc++;
+                }
             }
-        } else {
-            // fallback: use outputNodes directly (unresolved order)
-            let loc = 0;
-            for (const name in mrtNode.outputNodes) {
-                lines.push(`    @location(${loc}) ${name}: vec4f,`);
-                loc++;
-            }
+        } else if (hasColor) {
+            // Single color output alongside the frag_depth override.
+            lines.push(`    @location(0) color: vec4f,`);
         }
-
+        if (hasDepth) {
+            lines.push(`    @builtin(frag_depth) ${frag_depth_name}: f32,`);
+        }
         lines.push('}');
     }
 
@@ -1579,7 +1598,7 @@ export function generateFragmentShader(
 
     // emit main function - omit input parameter if no inputs
     lines.push('@fragment');
-    if (isMRT && mrtNode) {
+    if (useStruct) {
         if (hasInputs) {
             lines.push('fn fs_main(input: FragmentInput) -> FragmentOutput {');
         } else {
@@ -1596,10 +1615,17 @@ export function generateFragmentShader(
 
     lines.push(...ctx.code);
 
-    if (isMRT && mrtExprs) {
-        // Use pre-generated expressions (generated before ctx.code was emitted)
-        for (const { name, expr } of mrtExprs) {
-            lines.push(`    output.${name} = ${expr};`);
+    if (useStruct) {
+        if (isMRT && mrtExprs) {
+            // Use pre-generated expressions (generated before ctx.code was emitted)
+            for (const { name, expr } of mrtExprs) {
+                lines.push(`    output.${name} = ${expr};`);
+            }
+        } else if (hasColor) {
+            lines.push(`    output.color = ${fragmentExpr};`);
+        }
+        if (hasDepth) {
+            lines.push(`    output.${frag_depth_name} = ${depthExpr};`);
         }
         lines.push('    return output;');
     } else {

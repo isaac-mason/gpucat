@@ -129,6 +129,82 @@ void main() {
 }
 `;
 
+exports[`golden GLSL — render path > frag_depth override (color + depth): writes gl_FragDepth alongside fragColor 1`] = `
+{
+  "builtins": [],
+  "code": "#version 300 es
+// Uniform blocks (std140)
+// Vertex shader
+layout(location = 0) in vec3 a_position;
+
+out float vZ;
+
+void main() {
+    vZ = a_position.z;
+    gl_Position = vec4(a_position, 1.0);
+}
+
+// ---- fragment stage ----
+
+#version 300 es
+precision highp float;
+precision highp int;
+// Uniform blocks (std140)
+// Fragment shader
+in float vZ;
+
+layout(location = 0) out vec4 fragColor;
+
+void main() {
+    fragColor = vec4(vec3(0.4, 0.7, 1.0), 1.0);
+    gl_FragDepth = (0.25 + (vZ * 0.5));
+}",
+  "fragmentEntryPoint": "main",
+  "samplers": [],
+  "textures": [],
+  "uniformGroups": [],
+  "varyings": [
+    {
+      "location": 0,
+      "name": "vZ",
+      "type": "f32",
+    },
+  ],
+  "vertexEntryPoint": "main",
+}
+`;
+
+exports[`golden GLSL — render path > frag_depth override (depth-only): fragment stage writes only gl_FragDepth, no color out 1`] = `
+{
+  "builtins": [],
+  "code": "#version 300 es
+// Uniform blocks (std140)
+// Vertex shader
+layout(location = 0) in vec3 a_position;
+
+void main() {
+    gl_Position = vec4(a_position, 1.0);
+}
+
+// ---- fragment stage ----
+
+#version 300 es
+precision highp float;
+precision highp int;
+// Uniform blocks (std140)
+// Fragment shader
+void main() {
+    gl_FragDepth = 0.75;
+}",
+  "fragmentEntryPoint": "main",
+  "samplers": [],
+  "textures": [],
+  "uniformGroups": [],
+  "varyings": [],
+  "vertexEntryPoint": "main",
+}
+`;
+
 exports[`golden GLSL — render path > lit mesh: attributes, camera/model uniforms, varying, vec math 1`] = `
 {
   "builtins": [],

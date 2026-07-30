@@ -66,6 +66,13 @@ export declare function getGlTextureData(state: GlTexturesState, texture: GpuTex
  * allocates them (via `texImage2D`/`texStorage` with a null/absent source), never uploads.
  */
 export declare function updateTexture(gl: WebGL2RenderingContext, state: GlTexturesState, texture: GpuTexture): GlTextureData;
+/**
+ * Generate mipmaps for an already-allocated cube render-target texture (mirrors the WebGPU path's
+ * `finalizeCubeRenderTargetCapture`): after all six faces are rendered, bind the cube texture and
+ * `generateMipmap(TEXTURE_CUBE_MAP)` so a mipped environment map has its lower levels filled. Guards:
+ * only when the texture wants mips, its format is mip-generatable, and it has an allocated GL texture.
+ */
+export declare function generateCubeMipmaps(gl: WebGL2RenderingContext, state: GlTexturesState, texture: GpuTexture): void;
 /** Delete all GL textures (called on renderer dispose). */
 export declare function disposeGlTextures(gl: WebGL2RenderingContext, state: GlTexturesState): void;
 /** Number of GL textures currently allocated. */

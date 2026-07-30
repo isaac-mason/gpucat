@@ -38,8 +38,6 @@ type ProbeGl = {
     /** The patched fragment source this program was built from (cache key). */
     fragmentSrc: string;
 };
-/** Free all GL resources of a probe program. */
-export declare function disposeProbeGl(gl: WebGL2RenderingContext, p: ProbeGl): void;
 /** The opaque state the renderer holds between probe frames (one active probe program). */
 export type ProbeState = {
     gl: ProbeGl | null;

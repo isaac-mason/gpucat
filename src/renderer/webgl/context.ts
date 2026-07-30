@@ -34,7 +34,9 @@ export function createContext(canvas: HTMLCanvasElement, attrs: WebGL2ContextAtt
     // default but NOT color-renderable as framebuffer attachments without EXT_color_buffer_float —
     // and gpucat's RenderTarget/pass() default to `rgba16float`, so render-to-texture (any HDR /
     // post-processing pass) needs this or the FBO is incomplete. Requesting an extension activates it
-    // for the context; a missing one returns null (harmless — that format simply won't be renderable).
+    // for the context. Availability is re-checked when a float render target is actually built
+    // (render-target.ts `ensureColorRenderable`), which throws a clear error if neither ext is present
+    // instead of letting the FBO silently become incomplete.
     gl.getExtension('EXT_color_buffer_float'); // 16F/32F render targets (the FBO-completeness fix)
     gl.getExtension('EXT_color_buffer_half_float'); // half-float render targets (older path / fallback)
     gl.getExtension('OES_texture_float_linear'); // linear filtering of 32-bit-float textures

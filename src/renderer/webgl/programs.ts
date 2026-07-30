@@ -17,9 +17,7 @@
  */
 
 import type { UniformGroupBlock } from '../../nodes/builder';
-
-/** The stage separator the GLSL emitter writes between the vertex and fragment source. */
-const FRAGMENT_STAGE_MARKER = '// ---- fragment stage ----';
+import { FRAGMENT_STAGE_MARKER } from './constants';
 
 /** A linked GL program plus the resolved per-group UBO binding points. */
 export type ProgramInfo = {

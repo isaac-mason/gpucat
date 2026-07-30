@@ -16,6 +16,7 @@ import type { Vec4 } from 'mathcat';
 import type { Camera } from '../../camera/camera';
 import { CoordinateSystem } from '../../core/coordinate-system';
 import type { Object3D } from '../../core/object3d';
+import type { CubeRenderTarget } from '../../core/cube-render-target';
 import type { RenderTarget } from '../../core/render-target';
 import type { InspectorBase } from '../../inspector/inspector-base';
 import type { Material } from '../../material/material';
@@ -420,6 +421,21 @@ export class WebGLRenderer implements Renderer, RendererState {
         );
     }
 
+    /**
+     * Finalize a cube render target after all six faces are captured: generate the cube texture's
+     * mipmaps so a mipped environment map has its lower levels filled. Mirrors the WebGPU renderer's
+     * `finalizeCubeCapture` guards — only when the texture wants mips and the base mip level (0) is
+     * active. Called by `CubeCamera.update()`.
+     */
+    finalizeCubeCapture(renderTarget: RenderTarget, mipLevel: number): void {
+        if (this._isDeviceLost || !this._initialized || !this.gl) return;
+        if (!renderTarget.isCubeRenderTarget) return;
+        if (mipLevel !== 0) return;
+        const cube = renderTarget as CubeRenderTarget;
+        if (!cube.texture.generateMipmaps) return;
+        Textures.generateCubeMipmaps(this.gl, this._textures, cube.texture._gpuTexture);
+    }
+
     /** Minimal feature query. No optional WebGL2 features are surfaced yet. */
     hasFeature(_feature: string): boolean {
         return false;
@@ -587,7 +603,7 @@ export class WebGLRenderer implements Renderer, RendererState {
 
         // Optional: drain the GL error queue so a mistake surfaces (WebGL has no error scopes).
         const err = this.gl.getError();
-        if (err !== this.gl.NO_ERROR) console.error('[WebGL render error]', err);
+        if (err !== this.gl.NO_ERROR) console.error('[WebGLRenderer] render error', err);
 
         // Close the inspector's render pass. WebGPU emits finishRender inside its render-pass module;
         // WebGL's render() owns the pass lifecycle (immediate mode, no encoder), so it pairs

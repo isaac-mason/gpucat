@@ -17,6 +17,11 @@ import type { GpuSampler } from '../../core/gpu-sampler';
 export type GlSamplersState = {
     cache: Map<string, WebGLSampler>;
     all: Set<WebGLSampler>;
+    /**
+     * Cached anisotropy support, resolved once on first use: null = not yet probed, then either the
+     * driver's max anisotropy level (ext present) or 0 (ext absent → anisotropy unavailable).
+     */
+    maxAnisotropy: number | null;
 };
 /** Create an empty samplers state. */
 export declare function createGlSamplersState(): GlSamplersState;

@@ -38,7 +38,7 @@ type GlFormat = {
 /**
  * Map a gpucat `GPUTextureFormat` string to a WebGL2 `{ internalFormat, format, type }` triple.
  * Covers the color formats the examples/tests use plus the depth formats render targets request.
- * Unknown formats fall back to rgba8unorm (surfacing later as a wrong-looking texture, not a crash).
+ * An unrecognized format throws — WebGL2 must never silently coerce to a wrong internal format.
  */
 function glFormat(gl: WebGL2RenderingContext, format: string): GlFormat {
     switch (format) {
@@ -47,8 +47,12 @@ function glFormat(gl: WebGL2RenderingContext, format: string): GlFormat {
         case 'rgba8unorm-srgb':
             return { internalFormat: format.endsWith('srgb') ? gl.SRGB8_ALPHA8 : gl.RGBA8, format: gl.RGBA, type: gl.UNSIGNED_BYTE, isDepth: false };
         case 'bgra8unorm':
-            // WebGL has no BGRA internal format; upload as RGBA8 (channel order handled at the source).
-            return { internalFormat: gl.RGBA8, format: gl.RGBA, type: gl.UNSIGNED_BYTE, isDepth: false };
+            // WebGL2 core has no BGRA internal format. Uploading as RGBA8 would silently reorder the
+            // B and R channels (wrong colors), so reject rather than corrupt the result.
+            throw new Error(
+                '[WebGLRenderer] bgra8unorm is not supported on the WebGL2 backend (no BGRA internal format); ' +
+                    "use 'rgba8unorm' instead.",
+            );
         case 'rg8unorm':
             return { internalFormat: gl.RG8, format: gl.RG, type: gl.UNSIGNED_BYTE, isDepth: false };
         case 'r8unorm':
@@ -88,7 +92,9 @@ function glFormat(gl: WebGL2RenderingContext, format: string): GlFormat {
             };
 
         default:
-            return { internalFormat: gl.RGBA8, format: gl.RGBA, type: gl.UNSIGNED_BYTE, isDepth: false };
+            throw new Error(
+                `[WebGLRenderer] texture format '${format}' is not supported on the WebGL2 backend.`,
+            );
     }
 }
 
@@ -141,8 +147,10 @@ function canGenerateMipmap(gl: WebGL2RenderingContext, format: string): boolean 
 function glTarget(gl: WebGL2RenderingContext, texture: GpuTexture): number {
     switch (texture.viewDimension) {
         case 'cube':
-        case 'cube-array':
             return gl.TEXTURE_CUBE_MAP;
+        case 'cube-array':
+            // WebGL2 core has no cube-array texture target (no GL_TEXTURE_CUBE_MAP_ARRAY).
+            throw new Error('[WebGLRenderer] cube-array textures are not supported on the WebGL2 backend.');
         case '2d-array':
             return gl.TEXTURE_2D_ARRAY;
         case '3d':
@@ -214,12 +222,19 @@ function ensureGlTexture(gl: WebGL2RenderingContext, state: GlTexturesState, tex
     return data;
 }
 
-/** Number of mip levels to allocate for a texture. */
+/**
+ * Number of mip levels to allocate for a texture. Explicit user mip images win (level 0 + supplied
+ * levels); else the full chain when auto-generating; else the descriptor's explicit `mipLevelCount`
+ * (mirrors the WebGPU path's `createGPUTexture` mip-count logic).
+ */
 function mipLevelCount(texture: GpuTexture): number {
+    if (texture.mipmaps.length > 0) {
+        return texture.mipmaps.length + 1;
+    }
     if (texture.generateMipmaps) {
         return Math.floor(Math.log2(Math.max(texture.width, texture.height))) + 1;
     }
-    return 1;
+    return Math.max(1, texture.mipLevelCount);
 }
 
 /** Extract a raw typed-array view from a DataTexture-style source, or null. */
@@ -323,6 +338,81 @@ function uploadArray(gl: WebGL2RenderingContext, texture: GpuTexture, data: GlTe
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
 }
 
+/** Upload a 3D texture — allocate immutable storage, then fill the volume at level 0. */
+function upload3D(gl: WebGL2RenderingContext, texture: GpuTexture, data: GlTextureData): void {
+    const { internalFormat, format, type } = data.fmt;
+    const w = texture.width;
+    const h = texture.height;
+    const depth = texture.depthOrArrayLayers;
+    const levels = mipLevelCount(texture);
+
+    if (texture.mipmaps.length > 0) {
+        // Per-level 3D mip upload isn't wired here; texStorage3D + a single level-0 fill is the
+        // supported path. (No current caller supplies explicit 3D mips.)
+        throw new Error('[WebGLRenderer] explicit mipmaps for 3D textures are not supported on the WebGL2 backend.');
+    }
+
+    // 3D storage is immutable; allocate then fill with texSubImage3D. Filterable formats only for
+    // auto-mip generation (handled by the caller via canGenerateMipmap).
+    gl.texStorage3D(gl.TEXTURE_3D, levels, internalFormat, w, h, depth);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, texture.flipY);
+
+    const typed = typedArrayOf(texture.source?.data);
+    if (typed) {
+        gl.texSubImage3D(gl.TEXTURE_3D, 0, 0, 0, 0, w, h, depth, format, type, typed as ArrayBufferView);
+    } else if (isExternalImage(texture.source?.data)) {
+        // A single external image only covers one depth slice; upload it at slice 0.
+        gl.texSubImage3D(gl.TEXTURE_3D, 0, 0, 0, 0, w, h, 1, format, type, texture.source!.data as TexImageSource);
+    }
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+}
+
+/**
+ * Upload user-supplied explicit mip levels (`texture.mipmaps`), one per level starting at level 1
+ * (level 0 is the primary source, already uploaded). Mirrors the WebGPU `uploadExplicitMips`. Each mip
+ * Source carries its own dimensions. For 2D-array/cube the data is packed across layers; for 2D it's a
+ * single image. Sources with no/not-ready data are skipped (their level keeps whatever was there).
+ */
+function uploadExplicitMips(gl: WebGL2RenderingContext, texture: GpuTexture, data: GlTextureData): void {
+    const { format, type } = data.fmt;
+    const dim = texture.viewDimension;
+
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, texture.flipY);
+
+    for (let i = 0; i < texture.mipmaps.length; i++) {
+        const source = texture.mipmaps[i];
+        if (!source?.data) continue;
+        const level = i + 1;
+        const w = source.width;
+        const h = source.height;
+        const typed = typedArrayOf(source.data);
+        const external = isExternalImage(source.data);
+        if (!typed && !external) continue;
+
+        if (dim === '2d-array') {
+            const layers = Math.max(source.depth, 1);
+            if (typed) {
+                gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, level, 0, 0, 0, w, h, layers, format, type, typed as ArrayBufferView);
+            }
+            // texStorage3D (immutable) allocated the levels; external-image per-level array upload is
+            // not expressible in a single call and has no current caller.
+        } else if (dim === 'cube') {
+            // One face image per Source is ambiguous for cube mips; not supported.
+            throw new Error('[WebGLRenderer] explicit mipmaps for cube textures are not supported on the WebGL2 backend.');
+        } else {
+            const { internalFormat } = data.fmt;
+            if (typed) {
+                gl.texImage2D(gl.TEXTURE_2D, level, internalFormat, w, h, 0, format, type, typed as ArrayBufferView);
+            } else if (external) {
+                gl.texImage2D(gl.TEXTURE_2D, level, internalFormat, format, type, source.data as TexImageSource);
+            }
+        }
+    }
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+}
+
 /**
  * Ensure a GpuTexture's GL texture exists, is allocated at its current size/format, and (for
  * source-backed textures) has its data uploaded. Version-gated: a no-op once `data.version` matches
@@ -353,11 +443,16 @@ export function updateTexture(gl: WebGL2RenderingContext, state: GlTexturesState
         uploadCube(gl, texture, data);
     } else if (dim === '2d-array') {
         uploadArray(gl, texture, data);
+    } else if (dim === '3d') {
+        upload3D(gl, texture, data);
     } else {
         upload2D(gl, texture, data);
     }
 
-    if (
+    // Mip levels: user-supplied explicit mips take precedence over auto-generation (mirrors WebGPU).
+    if (!texture.isRenderTargetTexture && !data.fmt.isDepth && texture.mipmaps.length > 0) {
+        uploadExplicitMips(gl, texture, data);
+    } else if (
         texture.generateMipmaps &&
         !texture.isRenderTargetTexture &&
         !data.fmt.isDepth &&
@@ -386,6 +481,22 @@ function allocateRenderTargetStorage(gl: WebGL2RenderingContext, texture: GpuTex
     // via framebufferTexture2D(TEXTURE_CUBE_MAP_POSITIVE_X + face, …) (see render-target.ts).
     const target = data.target === gl.TEXTURE_CUBE_MAP ? gl.TEXTURE_CUBE_MAP : gl.TEXTURE_2D;
     gl.texStorage2D(target, levels, data.fmt.internalFormat, w, h);
+}
+
+/**
+ * Generate mipmaps for an already-allocated cube render-target texture (mirrors the WebGPU path's
+ * `finalizeCubeRenderTargetCapture`): after all six faces are rendered, bind the cube texture and
+ * `generateMipmap(TEXTURE_CUBE_MAP)` so a mipped environment map has its lower levels filled. Guards:
+ * only when the texture wants mips, its format is mip-generatable, and it has an allocated GL texture.
+ */
+export function generateCubeMipmaps(gl: WebGL2RenderingContext, state: GlTexturesState, texture: GpuTexture): void {
+    if (!texture.generateMipmaps) return;
+    if (!canGenerateMipmap(gl, texture.format)) return;
+    const data = state.data.get(texture);
+    if (!data || !data.allocated) return;
+    if (data.target !== gl.TEXTURE_CUBE_MAP) return;
+    gl.bindTexture(gl.TEXTURE_CUBE_MAP, data.texture);
+    gl.generateMipmap(gl.TEXTURE_CUBE_MAP);
 }
 
 /** Delete all GL textures (called on renderer dispose). */

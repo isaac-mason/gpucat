@@ -222,3 +222,38 @@ describe('GLSL companion does not affect WGSL output', () => {
         expect(code).not.toContain('vec3(0.299');
     });
 });
+
+// Placed LAST (after the no-snapshot block above) so the extra nodes these build don't shift the
+// monotonic node ids the snapshot cases earlier in the file depend on.
+describe('frag_depth override (Material.depth)', () => {
+    test('color + depth: FragmentOutput struct carries @location(0) color AND @builtin(frag_depth)', () => {
+        const position = attribute('position', d.vec3f);
+        const clipPosition = vec4(position, f32(1));
+        const fragment = vec4(vec3(0.4, 0.7, 1.0), f32(1));
+        const depth = f32(0.25).add(varying(position.z, 'vZ').mul(f32(0.5)));
+
+        const result = compile({ vertex: clipPosition, fragment, depth });
+        // The frag_depth member + assignment are wired.
+        expect(result.code).toContain('@builtin(frag_depth) frag_depth: f32,');
+        expect(result.code).toContain('@location(0) color: vec4f,');
+        expect(result.code).toContain('output.color = ');
+        expect(result.code).toContain('output.frag_depth = ');
+        expect(result.fragmentEntryPoint).toBe('fs_main');
+        expect(renderShape(result)).toMatchSnapshot();
+    });
+
+    test('depth-only: fragment stage still runs and writes frag_depth, no color output', () => {
+        const position = attribute('position', d.vec3f);
+        const clipPosition = vec4(position, f32(1));
+        const depth = f32(0.75);
+
+        const result = compile({ vertex: clipPosition, fragment: undefined, depth });
+        // A fragment stage exists (to write frag_depth), with only the frag_depth member — no color
+        // @location member in the FragmentOutput struct.
+        expect(result.code).toContain('@builtin(frag_depth) frag_depth: f32,');
+        expect(result.code).not.toContain('@location(0) color');
+        expect(result.code).toContain('output.frag_depth = ');
+        expect(result.fragmentEntryPoint).toBe('fs_main');
+        expect(renderShape(result)).toMatchSnapshot();
+    });
+});

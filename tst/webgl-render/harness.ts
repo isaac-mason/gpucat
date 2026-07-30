@@ -34,6 +34,7 @@ import {
     vec4,
     WebGLRenderer,
 } from '../../src/index';
+import { BlendMode } from '../../src/material/blend-mode';
 
 /**
  * Browser-side harness for the WebGL2 draw path. Bundled to a single IIFE by esbuild and injected
@@ -710,6 +711,199 @@ async function caseInstanced(): Promise<CaseResult> {
     return { name: 'instanced', pixel, expected: [u8(inst1[0]), u8(inst1[1]), u8(inst1[2]), 255] };
 }
 
+/**
+ * unknown-format-unsupported: a DataTexture whose format the WebGL2 backend can't map must be
+ * rejected with a clear error (not silently coerced to rgba8). Sample it and assert render() throws
+ * naming the unsupported format. Green pixel iff it threw the expected message.
+ */
+async function caseUnknownFormatUnsupported(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+
+    const data = new Uint8Array(2 * 2 * 4);
+    // A real GPUTextureFormat WebGL2 has no mapping for (compressed BC format).
+    const tex = new DataTexture(data, 2, 2, { format: 'bc7-rgba-unorm' as never, magFilter: 'nearest', minFilter: 'nearest' });
+
+    const geometry = createFullscreenTriangleGeometry();
+    const material = new Material({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        fragment: texture(tex).sample(screenUV),
+        depthTest: false,
+    });
+    const scene = new Scene();
+    scene.add(new Mesh(geometry, material));
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    let threw = false;
+    let msg = '';
+    try {
+        renderer.render(scene, camera);
+    } catch (err) {
+        threw = true;
+        msg = err instanceof Error ? err.message : String(err);
+    }
+    renderer.dispose();
+    const ok = threw && msg.includes('not supported on the WebGL2 backend') && msg.includes('bc7-rgba-unorm');
+    return {
+        name: 'fmt-unsupported',
+        pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: threw ? msg.slice(0, 60) : 'did not throw',
+    };
+}
+
+/**
+ * mrt-blend-unsupported: an MRT that asks for *differing* per-attachment blend modes can't be honored
+ * on WebGL2 (one global blend state). Assert render() throws the per-attachment-blend error. Green
+ * pixel iff it threw the expected message. (A uniform blend across targets is exercised by caseMrt.)
+ */
+async function caseMrtBlendUnsupported(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+
+    const rt = new RenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true, count: 2 });
+    rt.textures[0].name = 'colA';
+    rt.textures[1].name = 'colB';
+
+    const mrtNode = mrt({
+        colA: vec4(0.9, 0.1, 0.1, 1),
+        colB: vec4(0.2, 0.5, 0.9, 1),
+    });
+    // Distinct per-target blends: colA additive, colB left at default (no blend) → differing.
+    mrtNode.setBlendMode('colA', new BlendMode('additive'));
+
+    const material = new Material({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        fragment: mrtNode,
+        depthTest: false,
+    });
+    const scene = new Scene();
+    scene.add(new Mesh(createFullscreenTriangleGeometry(), material));
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    const savedTarget = renderer.renderTarget;
+    renderer.renderTarget = rt;
+    renderer.mrt = mrtNode;
+    renderer.clearColor = [0, 0, 0, 1];
+
+    let threw = false;
+    let msg = '';
+    try {
+        renderer.render(scene, camera);
+    } catch (err) {
+        threw = true;
+        msg = err instanceof Error ? err.message : String(err);
+    }
+    renderer.mrt = null;
+    renderer.renderTarget = savedTarget;
+    renderer.dispose();
+    const ok = threw && msg.includes('per-attachment blend modes are not supported on the WebGL2 backend');
+    return {
+        name: 'mrt-blend',
+        pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: threw ? msg.slice(0, 60) : 'did not throw',
+    };
+}
+
+/**
+ * cube-mips: render into every face of a CubeRenderTarget with generateMipmaps, then finalize the
+ * capture (generates cube mipmaps) and sample the cube. All faces share one color, so the sampled
+ * value equals the drawn color; this exercises the finalizeCubeCapture → generateMipmap(CUBE) path
+ * (it must not throw and must leave a sampleable, correctly-colored cube).
+ */
+async function caseCubeMips(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+
+    const rt = new CubeRenderTarget(SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true, generateMipmaps: true });
+
+    const drawn: [number, number, number, number] = [0.4, 0.7, 0.6, 1];
+    const savedTarget = renderer.renderTarget;
+    const savedClear = renderer.clearColor;
+    renderer.renderTarget = rt;
+    renderer.clearColor = [drawn[0], drawn[1], drawn[2], 1];
+    for (let face = 0; face < 6; face++) {
+        rt.activeFace = face;
+        const scene = new Scene();
+        const camera = new PerspectiveCamera();
+        scene.updateWorldMatrix();
+        camera.updateViewMatrix();
+        renderer.render(scene, camera);
+    }
+    // Generate the cube mipmaps from the captured faces (the fix under test).
+    renderer.finalizeCubeCapture?.(rt, 0);
+    renderer.renderTarget = savedTarget;
+    renderer.clearColor = savedClear;
+
+    renderer.clearColor = [0, 0, 0, 1];
+    const material = new Material({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        fragment: cubeTexture(rt.texture).sample(vec3(0, 0, 1)),
+        depthTest: false,
+    });
+    const scene2 = new Scene();
+    scene2.add(new Mesh(createFullscreenTriangleGeometry(), material));
+    const camera2 = new PerspectiveCamera();
+    scene2.updateWorldMatrix();
+    camera2.updateViewMatrix();
+
+    renderer.render(scene2, camera2);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'cube-mips', pixel, expected: [u8(drawn[0]), u8(drawn[1]), u8(drawn[2]), 255] };
+}
+
+// NOTE: a uint8 index-buffer render case is intentionally omitted. The WebGL backend now maps
+// Uint8Array indices to UNSIGNED_BYTE correctly (geometries.ts glIndexType), but that path is not
+// reachable through the public API: core `GpuBuffer` rejects any index buffer whose array isn't a
+// Uint16Array/Uint32Array (gpu-buffer.ts validation). So a uint8 index buffer can't be constructed to
+// drive this case end-to-end; the fix is covered defensively + by tsc/build.
+
+/**
+ * bgra8unorm-unsupported: bgra8unorm has no WebGL2 core internal format; uploading as RGBA8 would
+ * silently swap the B/R channels (wrong colors). Assert the backend throws rather than corrupting the
+ * result. Green pixel iff it threw the expected message.
+ */
+async function caseBgra8Unsupported(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+
+    const data = new Uint8Array(2 * 2 * 4);
+    const tex = new DataTexture(data, 2, 2, { format: 'bgra8unorm', magFilter: 'nearest', minFilter: 'nearest' });
+
+    const geometry = createFullscreenTriangleGeometry();
+    const material = new Material({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        fragment: texture(tex).sample(screenUV),
+        depthTest: false,
+    });
+    const scene = new Scene();
+    scene.add(new Mesh(geometry, material));
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    let threw = false;
+    let msg = '';
+    try {
+        renderer.render(scene, camera);
+    } catch (err) {
+        threw = true;
+        msg = err instanceof Error ? err.message : String(err);
+    }
+    renderer.dispose();
+    const ok = threw && msg.includes('bgra8unorm is not supported on the WebGL2 backend');
+    return {
+        name: 'bgra8-unsupported',
+        pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: threw ? msg.slice(0, 60) : 'did not throw',
+    };
+}
+
 export async function run(): Promise<RunResult> {
     try {
         const cases: CaseResult[] = [];
@@ -728,6 +922,10 @@ export async function run(): Promise<RunResult> {
             caseMrt,
             caseCubemap,
             caseInstanced,
+            caseUnknownFormatUnsupported,
+            caseMrtBlendUnsupported,
+            caseCubeMips,
+            caseBgra8Unsupported,
             // NOTE: shadow-map (comparison sampler) is NOT asserted here — SwiftShader (the headless
             // WebGL2 backend this harness runs on) does not honor sampler2DShadow depth comparison
             // (a hand-rolled pure-GL shadow program returns "lit" for every ref against a

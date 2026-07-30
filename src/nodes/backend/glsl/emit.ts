@@ -65,6 +65,42 @@ function glslType(desc: d.Any): string {
     return glsl;
 }
 
+/** GLSL ES 3.00 integer scalar/vector types that MUST carry a `flat` interpolation qualifier. */
+const GLSL_INTEGER_WGSL_TYPES = new Set([
+    'i32',
+    'u32',
+    'vec2i',
+    'vec3i',
+    'vec4i',
+    'vec2u',
+    'vec3u',
+    'vec4u',
+]);
+
+/**
+ * Interpolation qualifier for a GLSL varying declaration, derived from the same `interpolationType`
+ * the WGSL emitter reads. Returns a leading-space qualifier ('flat ' / 'smooth ') or '' for the
+ * perspective-correct default. Integer-typed varyings are FORCED to `flat` even when unset — GLSL ES
+ * 3.00 rejects a non-flat integer varying (the program will not link), and the WGSL side likewise
+ * requires @interpolate(flat) for integers.
+ */
+function glslVaryingQualifier(node: VaryingNode<d.Any>): string {
+    const isInteger = GLSL_INTEGER_WGSL_TYPES.has(node.type.wgslType);
+    const interp = node.interpolationType;
+    // 'linear' maps to `noperspective`, which is NOT part of GLSL ES 3.00 (desktop GLSL only) — reject
+    // rather than silently perspective-interpolate.
+    if (interp === 'linear') {
+        throw new Error(
+            `[glsl] varying '${node.name ?? ''}' uses linear (noperspective) interpolation, which is not supported on the WebGL2 backend`,
+        );
+    }
+    // Integer varyings are illegal in GLSL ES 3.00 without `flat` (the program won't link), so force
+    // it regardless of interpolationType. 'perspective' (or unset, for floats) is GLSL's default —
+    // no qualifier.
+    if (interp === 'flat' || isInteger) return 'flat ';
+    return '';
+}
+
 /**
  * WGSL built-in function name → GLSL name, for the handful that differ. Most (dot, normalize, max,
  * cross, length, …) are spelled identically in GLSL. Only listed exceptions are rewritten.
@@ -99,8 +135,28 @@ const CALL_RENAMES: Record<string, string> = {
     vec2u: 'uvec2',
     vec3u: 'uvec3',
     vec4u: 'uvec4',
+    // Derivative builtins: WGSL spells them dpdx/dpdy; GLSL ES 3.00 uses dFdx/dFdy. fwidth is spelled
+    // the same in both, listed for clarity. (The coarse/fine variants have no GLSL ES 3.00 form and
+    // are rejected in generateCall below.)
+    dpdx: 'dFdx',
+    dpdy: 'dFdy',
+    fwidth: 'fwidth',
     // WGSL and GLSL agree on the common math builtins used by the lit-mesh case; overrides go here.
 };
+
+/**
+ * WGSL coarse/fine derivative variants have no GLSL ES 3.00 equivalent (that language exposes only the
+ * plain dFdx/dFdy/fwidth). Emitting the bare name would produce an un-compilable shader, so the GLSL
+ * emitter rejects them with a clear error rather than degrade silently.
+ */
+const UNSUPPORTED_DERIVATIVES = new Set([
+    'dpdxCoarse',
+    'dpdyCoarse',
+    'fwidthCoarse',
+    'dpdxFine',
+    'dpdyFine',
+    'fwidthFine',
+]);
 
 /** Emit a GLSL literal for a constant value of the given WGSL type. */
 function glslLiteral(wgslType: string, value: number | number[] | string): string {
@@ -456,10 +512,13 @@ function generateVarying(ctx: GlslBuildContext, node: VaryingNode<d.Any>): strin
 function generateBuiltin(ctx: GlslBuildContext, node: BuiltinNode<d.Any>): string {
     ctx.builtins.add(node.builtinKind);
     switch (node.builtinKind) {
+        // gl_VertexID / gl_InstanceID are signed `int` in GLSL, but the node's declared type is u32
+        // (matching WGSL's @builtin(vertex_index)/instance_index). Wrap in uint(...) so the emitted
+        // expression's type matches the node's u32 type and doesn't mismatch in a u32 context.
         case 'vertex_index':
-            return 'gl_VertexID';
+            return 'uint(gl_VertexID)';
         case 'instance_index':
-            return 'gl_InstanceID';
+            return 'uint(gl_InstanceID)';
         case 'position':
             // Fragment position; the vertex clip position is written to gl_Position by main().
             if (ctx.stage === 'fragment') return 'gl_FragCoord';
@@ -524,6 +583,12 @@ function generateCall(ctx: GlslBuildContext, node: CallNode<d.Any>): string {
 
     if (node.fn === 'negate' && args.length === 1) return `(-${args[0]})`;
     if (node.fn === 'not' && args.length === 1) return `(!${args[0]})`;
+
+    if (UNSUPPORTED_DERIVATIVES.has(node.fn)) {
+        throw new Error(
+            `[glsl] ${node.fn} (coarse/fine derivative) is not supported on the WebGL2 backend; use dpdx/dpdy/fwidth`,
+        );
+    }
 
     const fn = CALL_RENAMES[node.fn] ?? node.fn;
     return `${fn}(${args.join(', ')})`;
@@ -1297,7 +1362,7 @@ export function generateGlslVertexShader(slots: CompileSlots, ctx: GlslBuildCont
     // stages by NAME, not location — `layout(location=N)` is illegal on a varying here (it is only
     // valid on vertex `in` attributes and fragment `out` targets), so emit a bare `out`.
     for (const [name, { node }] of ctx.varyings) {
-        lines.push(`out ${glslType(node.type)} ${name};`);
+        lines.push(`${glslVaryingQualifier(node)}out ${glslType(node.type)} ${name};`);
     }
     if (ctx.varyings.size > 0) lines.push('');
 
@@ -1315,11 +1380,15 @@ export function generateGlslVertexShader(slots: CompileSlots, ctx: GlslBuildCont
 /* fragment shader generation */
 
 export function generateGlslFragmentShader(
-    fragmentNode: Node<d.Any>,
+    fragmentNode: Node<d.Any> | null,
     ctx: GlslBuildContext,
     varyings: Map<string, { node: VaryingNode<d.Any>; vertexExpr: string }>,
+    depthNode: Node<d.Any> | null = null,
 ): string {
     const lines: string[] = [];
+
+    const hasColor = fragmentNode != null;
+    const hasDepth = depthNode != null;
 
     // Inherit varyings discovered by the vertex stage so `in` locations match.
     for (const [name, data] of varyings) {
@@ -1330,7 +1399,7 @@ export function generateGlslFragmentShader(
     // WGSL emits one fragment-output struct with several @location(N) fields; GLSL ES 3.00 has no
     // fragment-output struct, so each output becomes its own `layout(location = N) out vec4 <name>;`
     // global, assigned in main() at the matching location. A single output stays `fragColor` at 0.
-    const mrtNode = fragmentNode.kind === NodeKind.MRT ? (fragmentNode as MRTNode) : null;
+    const mrtNode = hasColor && fragmentNode.kind === NodeKind.MRT ? (fragmentNode as MRTNode) : null;
 
     // Pre-generate the output expressions BEFORE emitting main()'s body so any CSE locals they hoist
     // are already appended to ctx.code (mirrors the WGSL emitter's ordering).
@@ -1354,16 +1423,20 @@ export function generateGlslFragmentShader(
                 loc++;
             }
         }
-    } else {
+    } else if (hasColor) {
         colorExpr = generateExpr(ctx, fragmentNode);
     }
+
+    // Pre-generate the frag_depth override expression (assigned to gl_FragDepth in main). Built into
+    // GLSL ES 3.00 fragment shaders — no `out` declaration, no extension.
+    const depthExpr = hasDepth ? generateExpr(ctx, depthNode) : '';
 
     // Varying inputs — matched to the vertex stage by NAME (see the vertex emitter). No
     // `layout(location)`: illegal on a fragment varying `in` in GLSL ES 3.00. The mandatory default
     // `precision` declarations are emitted at the top of the fragment module (see builder assembly),
     // ahead of the struct/UBO sections so their float members are covered.
     for (const [name, { node }] of ctx.varyings) {
-        lines.push(`in ${glslType(node.type)} ${name};`);
+        lines.push(`${glslVaryingQualifier(node)}in ${glslType(node.type)} ${name};`);
     }
     if (ctx.varyings.size > 0) lines.push('');
 
@@ -1372,18 +1445,23 @@ export function generateGlslFragmentShader(
         for (const { name, location } of mrtOutputs) {
             lines.push(`layout(location = ${location}) out vec4 ${name};`);
         }
-    } else {
+        lines.push('');
+    } else if (hasColor) {
         lines.push('layout(location = 0) out vec4 fragColor;');
+        lines.push('');
     }
-    lines.push('');
+    // A depth-only fragment stage (no color output) declares no `out` — it only writes gl_FragDepth.
     lines.push('void main() {');
     lines.push(...ctx.code);
     if (mrtOutputs) {
         for (const { name, expr } of mrtOutputs) {
             lines.push(`    ${name} = ${expr};`);
         }
-    } else {
+    } else if (hasColor) {
         lines.push(`    fragColor = ${colorExpr};`);
+    }
+    if (hasDepth) {
+        lines.push(`    gl_FragDepth = ${depthExpr};`);
     }
     lines.push('}');
 

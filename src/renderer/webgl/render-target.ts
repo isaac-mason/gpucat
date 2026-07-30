@@ -6,9 +6,12 @@
  * the target's color texture(s) + depth instead of the default framebuffer. This module ports the
  * reference renderer's `setRenderTarget`: get/create one FBO per `RenderTarget`, allocate each color
  * `GpuTexture` at the target size/format (via `textures.ts`), attach it as
- * `COLOR_ATTACHMENT0 + i`, call `drawBuffers([...])` for MRT, and attach depth (a depth texture when
- * the target has one, else a depth renderbuffer). The rendered color textures then become
- * sampleable GL textures in a later pass — proving the FBO round-trip.
+ * `COLOR_ATTACHMENT0 + i`, call `drawBuffers([...])` for MRT, and attach depth. Depth is always a
+ * sampleable depth *texture*: `RenderTarget` auto-creates a `depthTexture` unless `depthBuffer:false`,
+ * so a non-MSAA target either has a depth-texture attachment or (depthBuffer:false) intentionally no
+ * depth at all — there is no depth-renderbuffer path for the single-sampled FBO. (MSAA targets carry
+ * their own separate multisample depth renderbuffer on the render-side FBO; see `buildMsaaFbo`.) The
+ * rendered color textures then become sampleable GL textures in a later pass — proving the round-trip.
  *
  * The FBO is cached per RenderTarget and rebuilt when the target's color/depth GL texture generation
  * changes (size/format change → `textures.ts` recreates the GL texture and bumps `generation`).
@@ -33,7 +36,11 @@ import { getGlTextureData, updateTexture, type GlTexturesState } from './texture
 type FboData = {
     /** The GL framebuffer object (the resolve/texture FBO — its color attachments are the target's textures). */
     fbo: WebGLFramebuffer;
-    /** Depth renderbuffer, when the target has no depth texture (renderbuffer-backed depth). */
+    /**
+     * Depth renderbuffer slot for the single-sampled FBO. In practice always null: depth is a
+     * sampleable depth texture when the target has one, else (depthBuffer:false) there is no depth.
+     * Kept so a carried-over renderbuffer from an earlier build is freed on rebuild.
+     */
     depthRenderbuffer: WebGLRenderbuffer | null;
     /** Color-attachment texture generations at last (re)build — a change forces a rebuild. */
     colorGenerations: number[];
@@ -78,6 +85,30 @@ export function createGlRenderTargetsState(): GlRenderTargetsState {
 /** Whether the target's depth format carries a stencil aspect. */
 function depthFormatHasStencil(format: string | undefined): boolean {
     return format === 'depth24plus-stencil8' || format === 'depth32float-stencil8';
+}
+
+/**
+ * A float/half-float color attachment is only framebuffer-renderable in WebGL2 with the matching
+ * extension (`EXT_color_buffer_float` for 32-bit and 16-bit float; `EXT_color_buffer_half_float` for
+ * the half-float-only fallback). context.ts requests these on init; when neither is present for a
+ * float color target the FBO would be incomplete, so throw a clear error naming the requirement.
+ */
+function ensureColorRenderable(gl: WebGL2RenderingContext, format: string): void {
+    const is16f = format.includes('16float');
+    const is32f = format.includes('32float');
+    if (!is16f && !is32f) return;
+
+    // EXT_color_buffer_float makes both 16F and 32F renderable; the half-float ext covers 16F only.
+    const hasFloat = !!gl.getExtension('EXT_color_buffer_float');
+    const hasHalfFloat = !!gl.getExtension('EXT_color_buffer_half_float');
+    if (hasFloat) return;
+    if (is16f && hasHalfFloat) return;
+
+    const ext = is32f ? 'EXT_color_buffer_float' : 'EXT_color_buffer_float / EXT_color_buffer_half_float';
+    throw new Error(
+        `[WebGLRenderer] float render target format '${format}' requires ${ext}, which is not available; ` +
+            `float-renderable render targets are not supported on the WebGL2 backend without it.`,
+    );
 }
 
 /** Whether a render target is a cube render target. */
@@ -155,7 +186,10 @@ function attachCubeFace(gl: WebGL2RenderingContext, textures: GlTexturesState, r
     fboData.attachedFace = renderTarget.activeFace;
     const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
     if (status !== gl.FRAMEBUFFER_COMPLETE) {
-        console.error(`[WebGLRenderer] cube framebuffer incomplete (face ${renderTarget.activeFace}): 0x${status.toString(16)}`);
+        throw new Error(
+            `[WebGLRenderer] cube framebuffer is incomplete (face ${renderTarget.activeFace}, status 0x${status.toString(16)}); ` +
+                `rendering into an incomplete framebuffer is not supported on the WebGL2 backend.`,
+        );
     }
 }
 
@@ -187,6 +221,7 @@ function rebuildFbo(
     renderTarget.textures.forEach((tex, i) => {
         const data = getGlTextureData(textures, tex._gpuTexture);
         if (!data) return;
+        ensureColorRenderable(gl, tex.format);
         const attachment = gl.COLOR_ATTACHMENT0 + i;
         if (cube) {
             // Attach the currently-selected cube face (attachment 0 only — a cube target has one color).
@@ -221,10 +256,9 @@ function rebuildFbo(
             gl.framebufferTexture2D(gl.FRAMEBUFFER, attachment, gl.TEXTURE_2D, data.texture, 0);
         }
     } else {
-        // Renderbuffer-backed depth (target requested a depth buffer without a sampleable texture).
-        // Only allocate one if the target has no explicit depthTexture AND wants depth — RenderTarget
-        // always creates a depthTexture unless depthBuffer:false, so this path handles the
-        // no-depth-texture case by leaving depth unattached.
+        // No depth texture → no depth at all. RenderTarget always auto-creates a depthTexture unless
+        // depthBuffer:false, so reaching here means the caller explicitly opted out of depth; leave
+        // depth unattached (correct). Free any renderbuffer carried over from a previous build.
         if (depthRenderbuffer) {
             gl.deleteRenderbuffer(depthRenderbuffer);
             state.renderbuffers.delete(depthRenderbuffer);
@@ -235,7 +269,10 @@ function rebuildFbo(
     // Validate.
     const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
     if (status !== gl.FRAMEBUFFER_COMPLETE) {
-        console.error(`[WebGLRenderer] framebuffer incomplete: 0x${status.toString(16)}`);
+        throw new Error(
+            `[WebGLRenderer] framebuffer is incomplete (status 0x${status.toString(16)}); ` +
+                `rendering into an incomplete framebuffer is not supported on the WebGL2 backend.`,
+        );
     }
 
     // MSAA render FBO (multisample renderbuffers). Rebuilt whenever the texture FBO is; a cube target

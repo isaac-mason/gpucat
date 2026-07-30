@@ -6,9 +6,12 @@
  * the target's color texture(s) + depth instead of the default framebuffer. This module ports the
  * reference renderer's `setRenderTarget`: get/create one FBO per `RenderTarget`, allocate each color
  * `GpuTexture` at the target size/format (via `textures.ts`), attach it as
- * `COLOR_ATTACHMENT0 + i`, call `drawBuffers([...])` for MRT, and attach depth (a depth texture when
- * the target has one, else a depth renderbuffer). The rendered color textures then become
- * sampleable GL textures in a later pass — proving the FBO round-trip.
+ * `COLOR_ATTACHMENT0 + i`, call `drawBuffers([...])` for MRT, and attach depth. Depth is always a
+ * sampleable depth *texture*: `RenderTarget` auto-creates a `depthTexture` unless `depthBuffer:false`,
+ * so a non-MSAA target either has a depth-texture attachment or (depthBuffer:false) intentionally no
+ * depth at all — there is no depth-renderbuffer path for the single-sampled FBO. (MSAA targets carry
+ * their own separate multisample depth renderbuffer on the render-side FBO; see `buildMsaaFbo`.) The
+ * rendered color textures then become sampleable GL textures in a later pass — proving the round-trip.
  *
  * The FBO is cached per RenderTarget and rebuilt when the target's color/depth GL texture generation
  * changes (size/format change → `textures.ts` recreates the GL texture and bumps `generation`).
@@ -30,7 +33,11 @@ import { type GlTexturesState } from './textures';
 type FboData = {
     /** The GL framebuffer object (the resolve/texture FBO — its color attachments are the target's textures). */
     fbo: WebGLFramebuffer;
-    /** Depth renderbuffer, when the target has no depth texture (renderbuffer-backed depth). */
+    /**
+     * Depth renderbuffer slot for the single-sampled FBO. In practice always null: depth is a
+     * sampleable depth texture when the target has one, else (depthBuffer:false) there is no depth.
+     * Kept so a carried-over renderbuffer from an earlier build is freed on rebuild.
+     */
     depthRenderbuffer: WebGLRenderbuffer | null;
     /** Color-attachment texture generations at last (re)build — a change forces a rebuild. */
     colorGenerations: number[];

@@ -14665,6 +14665,39 @@ function glslType(desc) {
     }
     return glsl;
 }
+/** GLSL ES 3.00 integer scalar/vector types that MUST carry a `flat` interpolation qualifier. */
+const GLSL_INTEGER_WGSL_TYPES = new Set([
+    'i32',
+    'u32',
+    'vec2i',
+    'vec3i',
+    'vec4i',
+    'vec2u',
+    'vec3u',
+    'vec4u',
+]);
+/**
+ * Interpolation qualifier for a GLSL varying declaration, derived from the same `interpolationType`
+ * the WGSL emitter reads. Returns a leading-space qualifier ('flat ' / 'smooth ') or '' for the
+ * perspective-correct default. Integer-typed varyings are FORCED to `flat` even when unset — GLSL ES
+ * 3.00 rejects a non-flat integer varying (the program will not link), and the WGSL side likewise
+ * requires @interpolate(flat) for integers.
+ */
+function glslVaryingQualifier(node) {
+    const isInteger = GLSL_INTEGER_WGSL_TYPES.has(node.type.wgslType);
+    const interp = node.interpolationType;
+    // 'linear' maps to `noperspective`, which is NOT part of GLSL ES 3.00 (desktop GLSL only) — reject
+    // rather than silently perspective-interpolate.
+    if (interp === 'linear') {
+        throw new Error(`[glsl] varying '${node.name ?? ''}' uses linear (noperspective) interpolation, which is not supported on the WebGL2 backend`);
+    }
+    // Integer varyings are illegal in GLSL ES 3.00 without `flat` (the program won't link), so force
+    // it regardless of interpolationType. 'perspective' (or unset, for floats) is GLSL's default —
+    // no qualifier.
+    if (interp === 'flat' || isInteger)
+        return 'flat ';
+    return '';
+}
 /**
  * WGSL built-in function name → GLSL name, for the handful that differ. Most (dot, normalize, max,
  * cross, length, …) are spelled identically in GLSL. Only listed exceptions are rewritten.
@@ -14698,8 +14731,27 @@ const CALL_RENAMES = {
     vec2u: 'uvec2',
     vec3u: 'uvec3',
     vec4u: 'uvec4',
+    // Derivative builtins: WGSL spells them dpdx/dpdy; GLSL ES 3.00 uses dFdx/dFdy. fwidth is spelled
+    // the same in both, listed for clarity. (The coarse/fine variants have no GLSL ES 3.00 form and
+    // are rejected in generateCall below.)
+    dpdx: 'dFdx',
+    dpdy: 'dFdy',
+    fwidth: 'fwidth',
     // WGSL and GLSL agree on the common math builtins used by the lit-mesh case; overrides go here.
 };
+/**
+ * WGSL coarse/fine derivative variants have no GLSL ES 3.00 equivalent (that language exposes only the
+ * plain dFdx/dFdy/fwidth). Emitting the bare name would produce an un-compilable shader, so the GLSL
+ * emitter rejects them with a clear error rather than degrade silently.
+ */
+const UNSUPPORTED_DERIVATIVES = new Set([
+    'dpdxCoarse',
+    'dpdyCoarse',
+    'fwidthCoarse',
+    'dpdxFine',
+    'dpdyFine',
+    'fwidthFine',
+]);
 /** Emit a GLSL literal for a constant value of the given WGSL type. */
 function glslLiteral(wgslType, value) {
     if (typeof value === 'string')
@@ -14988,10 +15040,13 @@ function generateVarying$1(ctx, node) {
 function generateBuiltin$1(ctx, node) {
     ctx.builtins.add(node.builtinKind);
     switch (node.builtinKind) {
+        // gl_VertexID / gl_InstanceID are signed `int` in GLSL, but the node's declared type is u32
+        // (matching WGSL's @builtin(vertex_index)/instance_index). Wrap in uint(...) so the emitted
+        // expression's type matches the node's u32 type and doesn't mismatch in a u32 context.
         case 'vertex_index':
-            return 'gl_VertexID';
+            return 'uint(gl_VertexID)';
         case 'instance_index':
-            return 'gl_InstanceID';
+            return 'uint(gl_InstanceID)';
         case 'position':
             // Fragment position; the vertex clip position is written to gl_Position by main().
             if (ctx.stage === 'fragment')
@@ -15051,6 +15106,9 @@ function generateCall$1(ctx, node) {
         return `(-${args[0]})`;
     if (node.fn === 'not' && args.length === 1)
         return `(!${args[0]})`;
+    if (UNSUPPORTED_DERIVATIVES.has(node.fn)) {
+        throw new Error(`[glsl] ${node.fn} (coarse/fine derivative) is not supported on the WebGL2 backend; use dpdx/dpdy/fwidth`);
+    }
     const fn = CALL_RENAMES[node.fn] ?? node.fn;
     return `${fn}(${args.join(', ')})`;
 }
@@ -15751,7 +15809,7 @@ function generateGlslVertexShader(slots, ctx) {
     // stages by NAME, not location — `layout(location=N)` is illegal on a varying here (it is only
     // valid on vertex `in` attributes and fragment `out` targets), so emit a bare `out`.
     for (const [name, { node }] of ctx.varyings) {
-        lines.push(`out ${glslType(node.type)} ${name};`);
+        lines.push(`${glslVaryingQualifier(node)}out ${glslType(node.type)} ${name};`);
     }
     if (ctx.varyings.size > 0)
         lines.push('');
@@ -15765,8 +15823,10 @@ function generateGlslVertexShader(slots, ctx) {
     return lines.join('\n');
 }
 /* fragment shader generation */
-function generateGlslFragmentShader(fragmentNode, ctx, varyings) {
+function generateGlslFragmentShader(fragmentNode, ctx, varyings, depthNode = null) {
     const lines = [];
+    const hasColor = fragmentNode != null;
+    const hasDepth = depthNode != null;
     // Inherit varyings discovered by the vertex stage so `in` locations match.
     for (const [name, data] of varyings) {
         if (!ctx.varyings.has(name))
@@ -15776,7 +15836,7 @@ function generateGlslFragmentShader(fragmentNode, ctx, varyings) {
     // WGSL emits one fragment-output struct with several @location(N) fields; GLSL ES 3.00 has no
     // fragment-output struct, so each output becomes its own `layout(location = N) out vec4 <name>;`
     // global, assigned in main() at the matching location. A single output stays `fragColor` at 0.
-    const mrtNode = fragmentNode.kind === NodeKind.MRT ? fragmentNode : null;
+    const mrtNode = hasColor && fragmentNode.kind === NodeKind.MRT ? fragmentNode : null;
     // Pre-generate the output expressions BEFORE emitting main()'s body so any CSE locals they hoist
     // are already appended to ctx.code (mirrors the WGSL emitter's ordering).
     let mrtOutputs = null;
@@ -15802,15 +15862,18 @@ function generateGlslFragmentShader(fragmentNode, ctx, varyings) {
             }
         }
     }
-    else {
+    else if (hasColor) {
         colorExpr = generateExpr$1(ctx, fragmentNode);
     }
+    // Pre-generate the frag_depth override expression (assigned to gl_FragDepth in main). Built into
+    // GLSL ES 3.00 fragment shaders — no `out` declaration, no extension.
+    const depthExpr = hasDepth ? generateExpr$1(ctx, depthNode) : '';
     // Varying inputs — matched to the vertex stage by NAME (see the vertex emitter). No
     // `layout(location)`: illegal on a fragment varying `in` in GLSL ES 3.00. The mandatory default
     // `precision` declarations are emitted at the top of the fragment module (see builder assembly),
     // ahead of the struct/UBO sections so their float members are covered.
     for (const [name, { node }] of ctx.varyings) {
-        lines.push(`in ${glslType(node.type)} ${name};`);
+        lines.push(`${glslVaryingQualifier(node)}in ${glslType(node.type)} ${name};`);
     }
     if (ctx.varyings.size > 0)
         lines.push('');
@@ -15819,11 +15882,13 @@ function generateGlslFragmentShader(fragmentNode, ctx, varyings) {
         for (const { name, location } of mrtOutputs) {
             lines.push(`layout(location = ${location}) out vec4 ${name};`);
         }
+        lines.push('');
     }
-    else {
+    else if (hasColor) {
         lines.push('layout(location = 0) out vec4 fragColor;');
+        lines.push('');
     }
-    lines.push('');
+    // A depth-only fragment stage (no color output) declares no `out` — it only writes gl_FragDepth.
     lines.push('void main() {');
     lines.push(...ctx.code);
     if (mrtOutputs) {
@@ -15831,8 +15896,11 @@ function generateGlslFragmentShader(fragmentNode, ctx, varyings) {
             lines.push(`    ${name} = ${expr};`);
         }
     }
-    else {
+    else if (hasColor) {
         lines.push(`    fragColor = ${colorExpr};`);
+    }
+    if (hasDepth) {
+        lines.push(`    gl_FragDepth = ${depthExpr};`);
     }
     lines.push('}');
     return lines.join('\n');
@@ -17125,7 +17193,7 @@ function generateVertexShader(slots, ctx) {
     return lines.join('\n');
 }
 /* fragment shader generation */
-function generateFragmentShader(fragmentNode, ctx, varyings) {
+function generateFragmentShader(fragmentNode, ctx, varyings, depthNode = null) {
     const lines = [];
     // copy varyings from vertex stage
     for (const [name, data] of varyings) {
@@ -17133,8 +17201,10 @@ function generateFragmentShader(fragmentNode, ctx, varyings) {
             ctx.varyings.set(name, data);
         }
     }
-    // generate color expression
-    const fragmentExpr = generateExpr(ctx, fragmentNode);
+    const hasColor = fragmentNode != null;
+    const hasDepth = depthNode != null;
+    // generate color expression (skip for a depth-only fragment stage)
+    const fragmentExpr = hasColor ? generateExpr(ctx, fragmentNode) : '';
     // check if we have any fragment inputs (varyings or builtins)
     const hasFragCoord = ctx.builtins.has('position');
     const hasInputs = ctx.varyings.size > 0 || hasFragCoord;
@@ -17161,7 +17231,7 @@ function generateFragmentShader(fragmentNode, ctx, varyings) {
         lines.push('');
     }
     // check for MRT
-    const isMRT = fragmentNode.kind === NodeKind.MRT;
+    const isMRT = hasColor && fragmentNode.kind === NodeKind.MRT;
     const mrtNode = isMRT ? fragmentNode : null;
     // Pre-generate all MRT output expressions NOW so that CSE let-declarations
     // are pushed into ctx.code before we emit the function body.
@@ -17186,36 +17256,52 @@ function generateFragmentShader(fragmentNode, ctx, varyings) {
             }
         }
     }
-    if (isMRT && mrtNode) {
-        // generate MRT output struct with all outputs
+    // Pre-generate the depth expression (frag_depth override) before the body, same reason as above.
+    const depthExpr = hasDepth ? generateExpr(ctx, depthNode) : '';
+    // When a frag_depth override is present, the fragment output can no longer be a bare
+    // `-> @location(0) vec4f`: a @builtin(frag_depth) must ride alongside the color output(s) in a
+    // FragmentOutput struct. Also used for the depth-only case (struct with just the frag_depth
+    // member). Without a depth override the emitted shape is unchanged (byte-identical goldens).
+    const useStruct = isMRT || hasDepth;
+    const frag_depth_name = 'frag_depth';
+    if (useStruct) {
         lines.push('struct FragmentOutput {');
-        // use members array (populated by resolveOutputs) for @location order
-        // fall back to outputNodes keys if members not resolved yet
-        if (mrtNode.members.length > 0) {
-            // members are resolved - use them in order
-            for (let i = 0; i < mrtNode.members.length; i++) {
-                const member = mrtNode.members[i];
-                if (!member)
-                    continue; // sparse array possible
-                const name = mrtNode._resolvedNames[i] || `output_${i}`;
-                const wgslType = member.type.wgslType === 'vec4f' ? 'vec4f' : 'vec4f'; // MRT always outputs vec4f
-                lines.push(`    @location(${i}) ${name}: ${wgslType},`);
+        if (isMRT && mrtNode) {
+            // use members array (populated by resolveOutputs) for @location order
+            // fall back to outputNodes keys if members not resolved yet
+            if (mrtNode.members.length > 0) {
+                // members are resolved - use them in order
+                for (let i = 0; i < mrtNode.members.length; i++) {
+                    const member = mrtNode.members[i];
+                    if (!member)
+                        continue; // sparse array possible
+                    const name = mrtNode._resolvedNames[i] || `output_${i}`;
+                    const wgslType = member.type.wgslType === 'vec4f' ? 'vec4f' : 'vec4f'; // MRT always outputs vec4f
+                    lines.push(`    @location(${i}) ${name}: ${wgslType},`);
+                }
+            }
+            else {
+                // fallback: use outputNodes directly (unresolved order)
+                let loc = 0;
+                for (const name in mrtNode.outputNodes) {
+                    lines.push(`    @location(${loc}) ${name}: vec4f,`);
+                    loc++;
+                }
             }
         }
-        else {
-            // fallback: use outputNodes directly (unresolved order)
-            let loc = 0;
-            for (const name in mrtNode.outputNodes) {
-                lines.push(`    @location(${loc}) ${name}: vec4f,`);
-                loc++;
-            }
+        else if (hasColor) {
+            // Single color output alongside the frag_depth override.
+            lines.push(`    @location(0) color: vec4f,`);
+        }
+        if (hasDepth) {
+            lines.push(`    @builtin(frag_depth) ${frag_depth_name}: f32,`);
         }
         lines.push('}');
     }
     lines.push('');
     // emit main function - omit input parameter if no inputs
     lines.push('@fragment');
-    if (isMRT && mrtNode) {
+    if (useStruct) {
         if (hasInputs) {
             lines.push('fn fs_main(input: FragmentInput) -> FragmentOutput {');
         }
@@ -17233,10 +17319,18 @@ function generateFragmentShader(fragmentNode, ctx, varyings) {
         }
     }
     lines.push(...ctx.code);
-    if (isMRT && mrtExprs) {
-        // Use pre-generated expressions (generated before ctx.code was emitted)
-        for (const { name, expr } of mrtExprs) {
-            lines.push(`    output.${name} = ${expr};`);
+    if (useStruct) {
+        if (isMRT && mrtExprs) {
+            // Use pre-generated expressions (generated before ctx.code was emitted)
+            for (const { name, expr } of mrtExprs) {
+                lines.push(`    output.${name} = ${expr};`);
+            }
+        }
+        else if (hasColor) {
+            lines.push(`    output.color = ${fragmentExpr};`);
+        }
+        if (hasDepth) {
+            lines.push(`    output.${frag_depth_name} = ${depthExpr};`);
         }
         lines.push('    return output;');
     }
@@ -17306,6 +17400,10 @@ function generateComputeShader(node, traced, ctx) {
 function compile(slots) {
     // A fragment-less material (depth/stencil-only) may leave the slot null or undefined.
     const hasFragment = slots.fragment != null;
+    // A frag_depth override is a fragment-stage value; a fragment shader must run to write it, even in
+    // the depth-only (no color output) case.
+    const hasDepth = slots.depth != null;
+    const emitFragment = hasFragment || hasDepth;
     // collect all roots
     const roots = [slots.vertex];
     if (slots.fragment)
@@ -17317,17 +17415,23 @@ function compile(slots) {
     const discovered = discover(roots);
     const vertexCtx = createContext$1('vertex', true, discovered);
     const fragmentCtx = createContext$1('fragment', true, discovered);
-    // pre-collect varyings from fragment roots (so vertex shader knows what to output)
-    if (hasFragment) {
-        const fragmentRoots = [slots.fragment];
+    // pre-collect varyings from fragment roots (so vertex shader knows what to output). The depth
+    // expression is also a fragment-stage graph, so include it — a varying used only by depth must
+    // still be produced by the vertex stage.
+    if (emitFragment) {
+        const fragmentRoots = [];
+        if (hasFragment)
+            fragmentRoots.push(slots.fragment);
+        if (hasDepth)
+            fragmentRoots.push(slots.depth);
         collectVaryings(fragmentRoots, vertexCtx);
     }
     // generate vertex shader
     const vertexBody = generateVertexShader(slots, vertexCtx);
-    // generate fragment shader (skip for depth-only pipelines)
+    // generate fragment shader (needed whenever there is a color output OR a frag_depth override)
     let fragmentBody = '';
-    if (hasFragment) {
-        fragmentBody = generateFragmentShader(slots.fragment, fragmentCtx, vertexCtx.varyings);
+    if (emitFragment) {
+        fragmentBody = generateFragmentShader(slots.fragment ?? null, fragmentCtx, vertexCtx.varyings, slots.depth ?? null);
         // No need to merge bindings anymore - they're shared via discovered.*
     }
     // emit all bindings (each group gets its own @group index)
@@ -17350,7 +17454,7 @@ function compile(slots) {
         '// Vertex Shader',
         vertexBody,
     ];
-    if (hasFragment) {
+    if (emitFragment) {
         codeParts.push('', '// Fragment Shader', fragmentBody);
     }
     const code = codeParts.filter(Boolean).join('\n');
@@ -17387,7 +17491,7 @@ function compile(slots) {
     return {
         code,
         vertexEntryPoint: 'vs_main',
-        fragmentEntryPoint: hasFragment ? 'fs_main' : null,
+        fragmentEntryPoint: emitFragment ? 'fs_main' : null,
         attributes: allAttributes,
         vertexBufferGroups,
         varyings: varyingEntries,
@@ -17407,6 +17511,10 @@ function compile(slots) {
 }
 function compileGlsl(slots, opts = {}) {
     const hasFragment = slots.fragment != null;
+    // A frag_depth override (material.depth) is a fragment-stage value; a fragment shader must run to
+    // write gl_FragDepth, even in the depth-only (no color output) case.
+    const hasDepth = slots.depth != null;
+    const emitFragment = hasFragment || hasDepth;
     const roots = [slots.vertex];
     if (slots.fragment)
         roots.push(slots.fragment);
@@ -17445,14 +17553,21 @@ function compileGlsl(slots, opts = {}) {
     // variant check happens at emit time (a wgslFn with no `glsl` companion throws there).
     const vertexCtx = createGlslContext('vertex', discovered);
     const fragmentCtx = createGlslContext('fragment', discovered);
-    // Pre-collect varyings from the fragment roots so the vertex shader knows what to output.
-    if (hasFragment) {
-        collectGlslVaryings([slots.fragment], vertexCtx);
+    // Pre-collect varyings from the fragment roots (color + depth override) so the vertex shader knows
+    // what to output. A varying used only by the depth expression must still be produced by the vertex
+    // stage.
+    if (emitFragment) {
+        const fragmentRoots = [];
+        if (hasFragment)
+            fragmentRoots.push(slots.fragment);
+        if (hasDepth)
+            fragmentRoots.push(slots.depth);
+        collectGlslVaryings(fragmentRoots, vertexCtx);
     }
     const vertexBody = generateGlslVertexShader(slots, vertexCtx);
     let fragmentBody = '';
-    if (hasFragment) {
-        fragmentBody = generateGlslFragmentShader(slots.fragment, fragmentCtx, vertexCtx.varyings);
+    if (emitFragment) {
+        fragmentBody = generateGlslFragmentShader(slots.fragment ?? null, fragmentCtx, vertexCtx.varyings, slots.depth ?? null);
     }
     // Merge any textures/samplers the fragment stage registered into the vertex context so a single
     // emit sees the full set. Textures are typically fragment-only, but a texture sampled in the
@@ -17500,7 +17615,7 @@ function compileGlsl(slots, opts = {}) {
         '// Vertex shader',
         vertexBody,
     ];
-    const fragmentParts = hasFragment
+    const fragmentParts = emitFragment
         ? [
             version,
             '',
@@ -17527,7 +17642,7 @@ function compileGlsl(slots, opts = {}) {
     // two stages from distinct sources; this combined `.code` is the snapshot/regression surface,
     // mirroring how the WGSL path returns one combined module string.
     const codeParts = [vertexParts.filter(Boolean).join('\n')];
-    if (hasFragment) {
+    if (emitFragment) {
         codeParts.push('', '// ---- fragment stage ----', '', fragmentParts.filter(Boolean).join('\n'));
     }
     const code = codeParts.join('\n');
@@ -17571,7 +17686,7 @@ function compileGlsl(slots, opts = {}) {
     return {
         code,
         vertexEntryPoint: 'main',
-        fragmentEntryPoint: hasFragment ? 'main' : null,
+        fragmentEntryPoint: emitFragment ? 'main' : null,
         attributes: allAttributes,
         vertexBufferGroups,
         varyings: varyingEntries,
@@ -18606,11 +18721,14 @@ function buildRenderPipelineDescriptor(device, renderObject, nodeState, bindGrou
             writeMask: material.colorWrite ? GPUColorWrite.ALL : 0,
         });
     }
-    // Build pipeline descriptor
-    // For depth-only pipelines (no fragment node), omit the fragment stage entirely.
-    // WebGPU spec section 23.2.8 explicitly supports "No Color Output" mode:
-    // the pipeline still rasterizes and produces depth values from vertex positions.
-    const fragment = targetCount > 0
+    // Build pipeline descriptor.
+    // For depth-only pipelines (no fragment node AND no frag_depth override), omit the fragment stage
+    // entirely. WebGPU spec section 23.2.8 explicitly supports "No Color Output" mode: the pipeline
+    // still rasterizes and produces depth values from vertex positions.
+    // When the material sets a frag_depth override (material.depth) but has no color output, a fragment
+    // stage MUST still run (to write @builtin(frag_depth)), with an empty `targets` array.
+    const hasFragDepth = material.depth != null;
+    const fragment = targetCount > 0 || hasFragDepth
         ? {
             module: shaderModule,
             entryPoint: 'fs_main',
@@ -20556,7 +20674,7 @@ function updateTexture$1(cache, device, texture) {
     uploadTextureData(device, texture, data);
     // Mip levels: user-supplied explicit mips take precedence over render-pass generation.
     if (texture.mipmaps.length > 0) {
-        uploadExplicitMips(device, texture, data);
+        uploadExplicitMips$1(device, texture, data);
     }
     else if (texture.generateMipmaps && data.texture.mipLevelCount > 1) {
         const mipmapState = getMipmapState(cache, device);
@@ -20776,7 +20894,7 @@ function uploadArrayTextureData(device, texture, data) {
  * writeTexture per level; for 2D it's a single image. Sources with no data or
  * not yet ready are skipped (their level keeps whatever was there).
  */
-function uploadExplicitMips(device, texture, data) {
+function uploadExplicitMips$1(device, texture, data) {
     const bytesPerPixel = getBytesPerPixel(texture.format);
     for (let i = 0; i < texture.mipmaps.length; i++) {
         const source = texture.mipmaps[i];
@@ -32134,7 +32252,9 @@ function createContext(canvas, attrs) {
     // default but NOT color-renderable as framebuffer attachments without EXT_color_buffer_float —
     // and gpucat's RenderTarget/pass() default to `rgba16float`, so render-to-texture (any HDR /
     // post-processing pass) needs this or the FBO is incomplete. Requesting an extension activates it
-    // for the context; a missing one returns null (harmless — that format simply won't be renderable).
+    // for the context. Availability is re-checked when a float render target is actually built
+    // (render-target.ts `ensureColorRenderable`), which throws a clear error if neither ext is present
+    // instead of letting the FBO silently become incomplete.
     gl.getExtension('EXT_color_buffer_float'); // 16F/32F render targets (the FBO-completeness fix)
     gl.getExtension('EXT_color_buffer_half_float'); // half-float render targets (older path / fallback)
     gl.getExtension('OES_texture_float_linear'); // linear filtering of 32-bit-float textures
@@ -32181,6 +32301,22 @@ function getGeometryBuffers(state, geometry) {
     }
     return gb;
 }
+/**
+ * GL index element type for an index typed array. WebGL2 accepts UNSIGNED_BYTE / UNSIGNED_SHORT /
+ * UNSIGNED_INT indices; the type must match the array's element width or the draw reads garbage (a
+ * Uint8Array read as UNSIGNED_INT walks 4 bytes per index). Any other array type throws.
+ */
+function glIndexType(gl, array) {
+    if (array instanceof Uint8Array)
+        return gl.UNSIGNED_BYTE;
+    if (array instanceof Uint16Array)
+        return gl.UNSIGNED_SHORT;
+    if (array instanceof Uint32Array)
+        return gl.UNSIGNED_INT;
+    const ctorName = array?.constructor?.name ?? typeof array;
+    throw new Error(`[WebGLRenderer] index buffer array type '${ctorName}' is not supported on the WebGL2 backend ` +
+        `(expected Uint8Array, Uint16Array, or Uint32Array).`);
+}
 /** Derive the GL attribute format from the compiled WGSL type string (e.g. 'vec3f', 'mat4x4f'). */
 function attribFormat(type) {
     switch (type) {
@@ -32215,8 +32351,7 @@ function attribFormat(type) {
         case 'mat4x4f':
             return { glType: 'float', size: 4, slots: 4, byteSize: 64 };
         default:
-            // Fall back to a 4-float vector; unknown types surface as a link/draw error anyway.
-            return { glType: 'float', size: 4, slots: 1, byteSize: 16 };
+            throw new Error(`[WebGLRenderer] vertex attribute format '${type}' is not supported on the WebGL2 backend.`);
     }
 }
 function glComponentType(gl, glType) {
@@ -32294,7 +32429,7 @@ function prepareGeometry(gl, state, geometry, nodeState, program) {
     let indexType = null;
     if (geometry.index) {
         ensureIndexBuffer(gl, gb, geometry.index);
-        indexType = geometry.index.array instanceof Uint16Array ? gl.UNSIGNED_SHORT : gl.UNSIGNED_INT;
+        indexType = glIndexType(gl, geometry.index.array);
     }
     // Build (or reuse) the VAO for this program.
     let vao = gb.vaos.get(program);
@@ -32352,6 +32487,15 @@ function prepareGeometry(gl, state, geometry, nodeState, program) {
 }
 
 /**
+ * constants.ts (webgl) - small shared constants for the WebGL2 backend.
+ */
+/**
+ * The stage separator the GLSL emitter writes between the vertex and fragment source (see builder.ts
+ * `compileGlsl`). `programs.ts` and `probe.ts` split the combined `code` on it.
+ */
+const FRAGMENT_STAGE_MARKER = '// ---- fragment stage ----';
+
+/**
  * programs.ts (webgl) - GLSL program compile/link + cache.
  *
  * Ports the reference renderer's `compile()` program half: create+compile a vertex and fragment
@@ -32368,15 +32512,13 @@ function prepareGeometry(gl, state, geometry, nodeState, program) {
  * node graph, so identical materials share one program (analogous to how the WebGPU path shares a
  * pipeline by its cache key).
  */
-/** The stage separator the GLSL emitter writes between the vertex and fragment source. */
-const FRAGMENT_STAGE_MARKER$1 = '// ---- fragment stage ----';
 /** Create an empty program cache. */
 function createProgramCache() {
     return { programs: new Map() };
 }
 /** Split the emitter's combined `code` into its vertex and fragment sources. */
 function splitStages(code) {
-    const idx = code.indexOf(FRAGMENT_STAGE_MARKER$1);
+    const idx = code.indexOf(FRAGMENT_STAGE_MARKER);
     if (idx === -1) {
         // Depth-only / fragment-less material: the emitter emits no fragment stage. Provide a trivial
         // fragment shader so the program still links (WebGL2 has no fragment-less rasterization).
@@ -32388,7 +32530,7 @@ function splitStages(code) {
     return {
         vertex: code.slice(0, idx).trimEnd(),
         // Skip past the marker line to the start of the fragment source.
-        fragment: code.slice(idx + FRAGMENT_STAGE_MARKER$1.length).trimStart(),
+        fragment: code.slice(idx + FRAGMENT_STAGE_MARKER.length).trimStart(),
     };
 }
 /** Compile one shader stage, throwing with the info log (and source) on failure. */
@@ -32606,7 +32748,18 @@ function glCompareFunc(gl, compare) {
 }
 /** Create an empty samplers state. */
 function createGlSamplersState() {
-    return { cache: new Map(), all: new Set() };
+    return { cache: new Map(), all: new Set(), maxAnisotropy: null };
+}
+/**
+ * The driver's max anisotropy level (queried once). Returns 0 when EXT_texture_filter_anisotropic is
+ * absent — anisotropy is then unavailable and skipped (a quality-only hint, so the result stays correct).
+ */
+function getMaxAnisotropy(gl, state) {
+    if (state.maxAnisotropy === null) {
+        const ext = gl.getExtension('EXT_texture_filter_anisotropic');
+        state.maxAnisotropy = ext ? gl.getParameter(ext.MAX_TEXTURE_MAX_ANISOTROPY_EXT) : 0;
+    }
+    return state.maxAnisotropy;
 }
 /**
  * Get (or create + cache) the GL sampler object for a GpuSampler, keyed by its settingsKey.
@@ -32634,11 +32787,18 @@ function getGlSampler(gl, state, gpuSampler, hasMips) {
         gl.samplerParameteri(sampler, gl.TEXTURE_COMPARE_MODE, gl.COMPARE_REF_TO_TEXTURE);
         gl.samplerParameteri(sampler, gl.TEXTURE_COMPARE_FUNC, glCompareFunc(gl, gpuSampler.compare));
     }
-    // Anisotropy via the standard extension, when available and requested.
+    // Anisotropy via the standard extension, when available and requested. Anisotropy is a quality
+    // hint, not a correctness requirement: when EXT_texture_filter_anisotropic is ABSENT we skip it
+    // (the sampler still filters correctly, just without anisotropic sharpening). When present, clamp
+    // the requested level to the driver's MAX_TEXTURE_MAX_ANISOTROPY_EXT (queried once) so we never
+    // set an out-of-range value.
     if (gpuSampler.maxAnisotropy > 1) {
-        const ext = gl.getExtension('EXT_texture_filter_anisotropic');
-        if (ext)
-            gl.samplerParameterf(sampler, ext.TEXTURE_MAX_ANISOTROPY_EXT, gpuSampler.maxAnisotropy);
+        const max = getMaxAnisotropy(gl, state);
+        if (max > 0) {
+            const ext = gl.getExtension('EXT_texture_filter_anisotropic');
+            gl.samplerParameterf(sampler, ext.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(gpuSampler.maxAnisotropy, max));
+        }
+        // else: extension unavailable → anisotropy skipped (quality-only, result stays correct).
     }
     state.cache.set(key, sampler);
     state.all.add(sampler);
@@ -32681,7 +32841,7 @@ function getGlSamplersStats(state) {
 /**
  * Map a gpucat `GPUTextureFormat` string to a WebGL2 `{ internalFormat, format, type }` triple.
  * Covers the color formats the examples/tests use plus the depth formats render targets request.
- * Unknown formats fall back to rgba8unorm (surfacing later as a wrong-looking texture, not a crash).
+ * An unrecognized format throws — WebGL2 must never silently coerce to a wrong internal format.
  */
 function glFormat(gl, format) {
     switch (format) {
@@ -32690,8 +32850,10 @@ function glFormat(gl, format) {
         case 'rgba8unorm-srgb':
             return { internalFormat: format.endsWith('srgb') ? gl.SRGB8_ALPHA8 : gl.RGBA8, format: gl.RGBA, type: gl.UNSIGNED_BYTE, isDepth: false };
         case 'bgra8unorm':
-            // WebGL has no BGRA internal format; upload as RGBA8 (channel order handled at the source).
-            return { internalFormat: gl.RGBA8, format: gl.RGBA, type: gl.UNSIGNED_BYTE, isDepth: false };
+            // WebGL2 core has no BGRA internal format. Uploading as RGBA8 would silently reorder the
+            // B and R channels (wrong colors), so reject rather than corrupt the result.
+            throw new Error('[WebGLRenderer] bgra8unorm is not supported on the WebGL2 backend (no BGRA internal format); ' +
+                "use 'rgba8unorm' instead.");
         case 'rg8unorm':
             return { internalFormat: gl.RG8, format: gl.RG, type: gl.UNSIGNED_BYTE, isDepth: false };
         case 'r8unorm':
@@ -32727,7 +32889,7 @@ function glFormat(gl, format) {
                 isDepth: true,
             };
         default:
-            return { internalFormat: gl.RGBA8, format: gl.RGBA, type: gl.UNSIGNED_BYTE, isDepth: false };
+            throw new Error(`[WebGLRenderer] texture format '${format}' is not supported on the WebGL2 backend.`);
     }
 }
 function mipmapClassOf(format) {
@@ -32771,8 +32933,10 @@ function canGenerateMipmap(gl, format) {
 function glTarget(gl, texture) {
     switch (texture.viewDimension) {
         case 'cube':
-        case 'cube-array':
             return gl.TEXTURE_CUBE_MAP;
+        case 'cube-array':
+            // WebGL2 core has no cube-array texture target (no GL_TEXTURE_CUBE_MAP_ARRAY).
+            throw new Error('[WebGLRenderer] cube-array textures are not supported on the WebGL2 backend.');
         case '2d-array':
             return gl.TEXTURE_2D_ARRAY;
         case '3d':
@@ -32818,12 +32982,19 @@ function ensureGlTexture(gl, state, texture) {
     }
     return data;
 }
-/** Number of mip levels to allocate for a texture. */
+/**
+ * Number of mip levels to allocate for a texture. Explicit user mip images win (level 0 + supplied
+ * levels); else the full chain when auto-generating; else the descriptor's explicit `mipLevelCount`
+ * (mirrors the WebGPU path's `createGPUTexture` mip-count logic).
+ */
 function mipLevelCount(texture) {
+    if (texture.mipmaps.length > 0) {
+        return texture.mipmaps.length + 1;
+    }
     if (texture.generateMipmaps) {
         return Math.floor(Math.log2(Math.max(texture.width, texture.height))) + 1;
     }
-    return 1;
+    return Math.max(1, texture.mipLevelCount);
 }
 /** Extract a raw typed-array view from a DataTexture-style source, or null. */
 function typedArrayOf(sourceData) {
@@ -32923,6 +33094,79 @@ function uploadArray(gl, texture, data) {
     }
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
 }
+/** Upload a 3D texture — allocate immutable storage, then fill the volume at level 0. */
+function upload3D(gl, texture, data) {
+    const { internalFormat, format, type } = data.fmt;
+    const w = texture.width;
+    const h = texture.height;
+    const depth = texture.depthOrArrayLayers;
+    const levels = mipLevelCount(texture);
+    if (texture.mipmaps.length > 0) {
+        // Per-level 3D mip upload isn't wired here; texStorage3D + a single level-0 fill is the
+        // supported path. (No current caller supplies explicit 3D mips.)
+        throw new Error('[WebGLRenderer] explicit mipmaps for 3D textures are not supported on the WebGL2 backend.');
+    }
+    // 3D storage is immutable; allocate then fill with texSubImage3D. Filterable formats only for
+    // auto-mip generation (handled by the caller via canGenerateMipmap).
+    gl.texStorage3D(gl.TEXTURE_3D, levels, internalFormat, w, h, depth);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, texture.flipY);
+    const typed = typedArrayOf(texture.source?.data);
+    if (typed) {
+        gl.texSubImage3D(gl.TEXTURE_3D, 0, 0, 0, 0, w, h, depth, format, type, typed);
+    }
+    else if (isExternalImage(texture.source?.data)) {
+        // A single external image only covers one depth slice; upload it at slice 0.
+        gl.texSubImage3D(gl.TEXTURE_3D, 0, 0, 0, 0, w, h, 1, format, type, texture.source.data);
+    }
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+}
+/**
+ * Upload user-supplied explicit mip levels (`texture.mipmaps`), one per level starting at level 1
+ * (level 0 is the primary source, already uploaded). Mirrors the WebGPU `uploadExplicitMips`. Each mip
+ * Source carries its own dimensions. For 2D-array/cube the data is packed across layers; for 2D it's a
+ * single image. Sources with no/not-ready data are skipped (their level keeps whatever was there).
+ */
+function uploadExplicitMips(gl, texture, data) {
+    const { format, type } = data.fmt;
+    const dim = texture.viewDimension;
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, texture.flipY);
+    for (let i = 0; i < texture.mipmaps.length; i++) {
+        const source = texture.mipmaps[i];
+        if (!source?.data)
+            continue;
+        const level = i + 1;
+        const w = source.width;
+        const h = source.height;
+        const typed = typedArrayOf(source.data);
+        const external = isExternalImage(source.data);
+        if (!typed && !external)
+            continue;
+        if (dim === '2d-array') {
+            const layers = Math.max(source.depth, 1);
+            if (typed) {
+                gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, level, 0, 0, 0, w, h, layers, format, type, typed);
+            }
+            // texStorage3D (immutable) allocated the levels; external-image per-level array upload is
+            // not expressible in a single call and has no current caller.
+        }
+        else if (dim === 'cube') {
+            // One face image per Source is ambiguous for cube mips; not supported.
+            throw new Error('[WebGLRenderer] explicit mipmaps for cube textures are not supported on the WebGL2 backend.');
+        }
+        else {
+            const { internalFormat } = data.fmt;
+            if (typed) {
+                gl.texImage2D(gl.TEXTURE_2D, level, internalFormat, w, h, 0, format, type, typed);
+            }
+            else if (external) {
+                gl.texImage2D(gl.TEXTURE_2D, level, internalFormat, format, type, source.data);
+            }
+        }
+    }
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+}
 /**
  * Ensure a GpuTexture's GL texture exists, is allocated at its current size/format, and (for
  * source-backed textures) has its data uploaded. Version-gated: a no-op once `data.version` matches
@@ -32952,10 +33196,17 @@ function updateTexture(gl, state, texture) {
     else if (dim === '2d-array') {
         uploadArray(gl, texture, data);
     }
+    else if (dim === '3d') {
+        upload3D(gl, texture, data);
+    }
     else {
         upload2D(gl, texture, data);
     }
-    if (texture.generateMipmaps &&
+    // Mip levels: user-supplied explicit mips take precedence over auto-generation (mirrors WebGPU).
+    if (!texture.isRenderTargetTexture && !data.fmt.isDepth && texture.mipmaps.length > 0) {
+        uploadExplicitMips(gl, texture, data);
+    }
+    else if (texture.generateMipmaps &&
         !texture.isRenderTargetTexture &&
         !data.fmt.isDepth &&
         canGenerateMipmap(gl, texture.format)) {
@@ -32980,6 +33231,25 @@ function allocateRenderTargetStorage(gl, texture, data) {
     // via framebufferTexture2D(TEXTURE_CUBE_MAP_POSITIVE_X + face, …) (see render-target.ts).
     const target = data.target === gl.TEXTURE_CUBE_MAP ? gl.TEXTURE_CUBE_MAP : gl.TEXTURE_2D;
     gl.texStorage2D(target, levels, data.fmt.internalFormat, w, h);
+}
+/**
+ * Generate mipmaps for an already-allocated cube render-target texture (mirrors the WebGPU path's
+ * `finalizeCubeRenderTargetCapture`): after all six faces are rendered, bind the cube texture and
+ * `generateMipmap(TEXTURE_CUBE_MAP)` so a mipped environment map has its lower levels filled. Guards:
+ * only when the texture wants mips, its format is mip-generatable, and it has an allocated GL texture.
+ */
+function generateCubeMipmaps(gl, state, texture) {
+    if (!texture.generateMipmaps)
+        return;
+    if (!canGenerateMipmap(gl, texture.format))
+        return;
+    const data = state.data.get(texture);
+    if (!data || !data.allocated)
+        return;
+    if (data.target !== gl.TEXTURE_CUBE_MAP)
+        return;
+    gl.bindTexture(gl.TEXTURE_CUBE_MAP, data.texture);
+    gl.generateMipmap(gl.TEXTURE_CUBE_MAP);
 }
 /** Delete all GL textures (called on renderer dispose). */
 function disposeGlTextures(gl, state) {
@@ -33010,6 +33280,29 @@ function getGlTexturesStats(state) {
 function samplerUniformName(textureId) {
     return `u_${textureId}`;
 }
+/** Cached OES_texture_float_linear support (probed once): null = unprobed, then true/false. */
+let floatLinearSupported = null;
+/**
+ * Guard: sampling a 32-bit float texture with a LINEAR filter needs OES_texture_float_linear. Without
+ * it the sample reads as incomplete (black) — a WRONG result, not merely lower quality — so throw a
+ * clear error rather than silently render black. Half-float (16float) linear is core in WebGL2, and
+ * nearest filtering of float32 is always fine; both are left alone.
+ */
+function assertFloatLinearFilterable(gl, textureFormat, gpuSampler) {
+    if (!textureFormat.includes('32float'))
+        return;
+    if (!gpuSampler)
+        return;
+    const usesLinear = gpuSampler.minFilter === 'linear' || gpuSampler.magFilter === 'linear' || gpuSampler.mipmapFilter === 'linear';
+    if (!usesLinear)
+        return;
+    if (floatLinearSupported === null)
+        floatLinearSupported = !!gl.getExtension('OES_texture_float_linear');
+    if (!floatLinearSupported) {
+        throw new Error(`[WebGLRenderer] linear filtering of 32-bit float textures requires OES_texture_float_linear, ` +
+            `which is not available; use a 'nearest' filter for '${textureFormat}' textures on the WebGL2 backend.`);
+    }
+}
 /** Resolve (and cache) a combined-sampler uniform's location on a program. */
 function getSamplerLocation(gl, programInfo, name) {
     if (programInfo.samplerLocations.has(name)) {
@@ -33035,6 +33328,11 @@ function bindTextures(gl, textures, samplers, renderObject, programInfo) {
     // We look them up per-unit as we bind textures below.
     for (const bindGroup of bindGroups) {
         for (const binding of bindGroup.bindings) {
+            if (binding.kind === 'storageTexture') {
+                // Storage textures (texture_storage_*, written via textureStore in a compute pass) are
+                // a WebGPU-only capability; WebGL2 core has no image load/store.
+                throw new Error('[WebGLRenderer] storage textures are not supported on the WebGL2 backend.');
+            }
             if (binding.kind !== 'texture')
                 continue;
             const entry = binding.entry;
@@ -33057,6 +33355,9 @@ function bindTextures(gl, textures, samplers, renderObject, programInfo) {
             gl.bindTexture(texData.target, texData.texture);
             // Find the sampler assigned to this same unit and bind its GL sampler object.
             const gpuSampler = findSamplerForUnit(bindGroups, unit);
+            // Reject a linear filter on a float32 texture when float-linear isn't available (would
+            // sample as incomplete/black = wrong output, not just lower quality).
+            assertFloatLinearFilterable(gl, gpuTexture.format, gpuSampler);
             if (gpuSampler) {
                 const hasMips = gpuTexture.generateMipmaps;
                 const glSampler = getGlSampler(gl, samplers, gpuSampler, hasMips);
@@ -33239,8 +33540,6 @@ function getUniformsStats(state) {
  * Nothing here touches WebGPU. The patched-program cache is keyed by the patched fragment source so
  * hovering the same expression across frames reuses one program.
  */
-/** The stage separator the GLSL emitter writes between the vertex and fragment source. */
-const FRAGMENT_STAGE_MARKER = '// ---- fragment stage ----';
 /** Split the emitter's combined `code` into vertex + fragment; returns the VERTEX source only. */
 function extractVertexSrc(code) {
     const idx = code.indexOf(FRAGMENT_STAGE_MARKER);
@@ -33249,14 +33548,14 @@ function extractVertexSrc(code) {
 function compileShader(gl, type, source) {
     const shader = gl.createShader(type);
     if (!shader)
-        throw new Error('[WebGLRenderer probe] createShader returned null.');
+        throw new Error('[WebGLRenderer] createShader returned null.');
     gl.shaderSource(shader, source);
     gl.compileShader(shader);
     if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
         const log = gl.getShaderInfoLog(shader);
         gl.deleteShader(shader);
         const stage = type === gl.VERTEX_SHADER ? 'vertex' : 'fragment';
-        throw new Error(`[WebGLRenderer probe] ${stage} shader compile failed:\n${log}\n---- source ----\n${source}`);
+        throw new Error(`[WebGLRenderer] ${stage} shader compile failed:\n${log}\n---- source ----\n${source}`);
     }
     return shader;
 }
@@ -33272,14 +33571,14 @@ function buildProbeGl(gl, ro, patchedFragment, previous) {
         disposeProbeGl(gl, previous);
     const nodeState = ro.nodeBuilderState;
     if (!nodeState || !nodeState.vertexCode) {
-        throw new Error('[WebGLRenderer probe] RenderObject has no compiled GLSL.');
+        throw new Error('[WebGLRenderer] RenderObject has no compiled GLSL.');
     }
     const vertexSrc = extractVertexSrc(nodeState.vertexCode);
     const vs = compileShader(gl, gl.VERTEX_SHADER, vertexSrc);
     const fs = compileShader(gl, gl.FRAGMENT_SHADER, patchedFragment);
     const program = gl.createProgram();
     if (!program)
-        throw new Error('[WebGLRenderer probe] createProgram returned null.');
+        throw new Error('[WebGLRenderer] createProgram returned null.');
     gl.attachShader(program, vs);
     gl.attachShader(program, fs);
     gl.linkProgram(program);
@@ -33288,7 +33587,7 @@ function buildProbeGl(gl, ro, patchedFragment, previous) {
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
         const log = gl.getProgramInfoLog(program);
         gl.deleteProgram(program);
-        throw new Error(`[WebGLRenderer probe] program link failed:\n${log}`);
+        throw new Error(`[WebGLRenderer] program link failed:\n${log}`);
     }
     // Resolve + bind each std140 UBO block to a fresh binding point (same scheme as programs.ts).
     const uboBindingPoints = new Map();
@@ -33410,7 +33709,7 @@ function renderProbe(gl, state, caches, ro, patchedFragment) {
     if (geometry.index && drawInfo.indexType !== null) {
         const indexArray = geometry.index.array;
         const count = Math.min(geometry.drawRange.count, indexArray.length);
-        const bytesPerIndex = drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
+        const bytesPerIndex = drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
         gl.drawElementsInstanced(gl.TRIANGLES, count, drawInfo.indexType, start * bytesPerIndex, instances);
     }
     else {
@@ -33438,9 +33737,12 @@ function renderProbe(gl, state, caches, ro, patchedFragment) {
  * the target's color texture(s) + depth instead of the default framebuffer. This module ports the
  * reference renderer's `setRenderTarget`: get/create one FBO per `RenderTarget`, allocate each color
  * `GpuTexture` at the target size/format (via `textures.ts`), attach it as
- * `COLOR_ATTACHMENT0 + i`, call `drawBuffers([...])` for MRT, and attach depth (a depth texture when
- * the target has one, else a depth renderbuffer). The rendered color textures then become
- * sampleable GL textures in a later pass — proving the FBO round-trip.
+ * `COLOR_ATTACHMENT0 + i`, call `drawBuffers([...])` for MRT, and attach depth. Depth is always a
+ * sampleable depth *texture*: `RenderTarget` auto-creates a `depthTexture` unless `depthBuffer:false`,
+ * so a non-MSAA target either has a depth-texture attachment or (depthBuffer:false) intentionally no
+ * depth at all — there is no depth-renderbuffer path for the single-sampled FBO. (MSAA targets carry
+ * their own separate multisample depth renderbuffer on the render-side FBO; see `buildMsaaFbo`.) The
+ * rendered color textures then become sampleable GL textures in a later pass — proving the round-trip.
  *
  * The FBO is cached per RenderTarget and rebuilt when the target's color/depth GL texture generation
  * changes (size/format change → `textures.ts` recreates the GL texture and bumps `generation`).
@@ -33463,6 +33765,28 @@ function createGlRenderTargetsState() {
 /** Whether the target's depth format carries a stencil aspect. */
 function depthFormatHasStencil(format) {
     return format === 'depth24plus-stencil8' || format === 'depth32float-stencil8';
+}
+/**
+ * A float/half-float color attachment is only framebuffer-renderable in WebGL2 with the matching
+ * extension (`EXT_color_buffer_float` for 32-bit and 16-bit float; `EXT_color_buffer_half_float` for
+ * the half-float-only fallback). context.ts requests these on init; when neither is present for a
+ * float color target the FBO would be incomplete, so throw a clear error naming the requirement.
+ */
+function ensureColorRenderable(gl, format) {
+    const is16f = format.includes('16float');
+    const is32f = format.includes('32float');
+    if (!is16f && !is32f)
+        return;
+    // EXT_color_buffer_float makes both 16F and 32F renderable; the half-float ext covers 16F only.
+    const hasFloat = !!gl.getExtension('EXT_color_buffer_float');
+    const hasHalfFloat = !!gl.getExtension('EXT_color_buffer_half_float');
+    if (hasFloat)
+        return;
+    if (is16f && hasHalfFloat)
+        return;
+    const ext = is32f ? 'EXT_color_buffer_float' : 'EXT_color_buffer_float / EXT_color_buffer_half_float';
+    throw new Error(`[WebGLRenderer] float render target format '${format}' requires ${ext}, which is not available; ` +
+        `float-renderable render targets are not supported on the WebGL2 backend without it.`);
 }
 /** Whether a render target is a cube render target. */
 function isCube(rt) {
@@ -33526,7 +33850,8 @@ function attachCubeFace(gl, textures, renderTarget, fboData) {
     fboData.attachedFace = renderTarget.activeFace;
     const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
     if (status !== gl.FRAMEBUFFER_COMPLETE) {
-        console.error(`[WebGLRenderer] cube framebuffer incomplete (face ${renderTarget.activeFace}): 0x${status.toString(16)}`);
+        throw new Error(`[WebGLRenderer] cube framebuffer is incomplete (face ${renderTarget.activeFace}, status 0x${status.toString(16)}); ` +
+            `rendering into an incomplete framebuffer is not supported on the WebGL2 backend.`);
     }
 }
 /** (Re)build the FBO for a render target: attach color textures, drawBuffers, and depth. */
@@ -33549,6 +33874,7 @@ function rebuildFbo(gl, state, textures, renderTarget, existing, colorGeneration
         const data = getGlTextureData(textures, tex._gpuTexture);
         if (!data)
             return;
+        ensureColorRenderable(gl, tex.format);
         const attachment = gl.COLOR_ATTACHMENT0 + i;
         if (cube) {
             // Attach the currently-selected cube face (attachment 0 only — a cube target has one color).
@@ -33585,10 +33911,9 @@ function rebuildFbo(gl, state, textures, renderTarget, existing, colorGeneration
         }
     }
     else {
-        // Renderbuffer-backed depth (target requested a depth buffer without a sampleable texture).
-        // Only allocate one if the target has no explicit depthTexture AND wants depth — RenderTarget
-        // always creates a depthTexture unless depthBuffer:false, so this path handles the
-        // no-depth-texture case by leaving depth unattached.
+        // No depth texture → no depth at all. RenderTarget always auto-creates a depthTexture unless
+        // depthBuffer:false, so reaching here means the caller explicitly opted out of depth; leave
+        // depth unattached (correct). Free any renderbuffer carried over from a previous build.
         if (depthRenderbuffer) {
             gl.deleteRenderbuffer(depthRenderbuffer);
             state.renderbuffers.delete(depthRenderbuffer);
@@ -33598,7 +33923,8 @@ function rebuildFbo(gl, state, textures, renderTarget, existing, colorGeneration
     // Validate.
     const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
     if (status !== gl.FRAMEBUFFER_COMPLETE) {
-        console.error(`[WebGLRenderer] framebuffer incomplete: 0x${status.toString(16)}`);
+        throw new Error(`[WebGLRenderer] framebuffer is incomplete (status 0x${status.toString(16)}); ` +
+            `rendering into an incomplete framebuffer is not supported on the WebGL2 backend.`);
     }
     // MSAA render FBO (multisample renderbuffers). Rebuilt whenever the texture FBO is; a cube target
     // never carries one (CubeRenderTarget forces samples:1).
@@ -34093,6 +34419,14 @@ function applyViewportScissor(gl, passCtx) {
     if (passCtx.viewport) {
         const v = passCtx.viewportValue;
         gl.viewport(v.x, v.y, v.width, v.height);
+        // Honor the viewport's depth range (defaults 0,1). Threaded through per pass so a prior pass's
+        // custom range never leaks into this one.
+        gl.depthRange(v.minDepth, v.maxDepth);
+    }
+    else {
+        // No explicit viewport for this pass → restore the default full depth range so a preceding
+        // pass's custom depthRange doesn't persist as stale state.
+        gl.depthRange(0, 1);
     }
     if (passCtx.scissor) {
         const s = passCtx.scissorValue;
@@ -34144,10 +34478,38 @@ function clear$1(gl, caches, params, color, depth, stencil) {
     resolveActiveRenderTarget(gl, caches.renderTargets);
 }
 /**
+ * Detect an MRT that requests *differing* blend modes across its color targets. WebGL2 applies one
+ * global blend state to all draw buffers (no per-attachment blend), so a single uniform blend across
+ * all targets is fine, but distinct per-target blends can't be honored — throw rather than silently
+ * blending every attachment the same. Mirrors the WebGPU pipeline's per-target `mrt.getBlendMode`.
+ */
+function assertUniformMrtBlend(passCtx) {
+    const mrt = passCtx.mrt;
+    const textures = passCtx.renderTarget?.textures;
+    if (!mrt || !textures || textures.length < 2)
+        return;
+    // Reduce each target's blend to a comparable key. 'material' and 'no' compare by their tag;
+    // explicit blend specs compare by their factor/equation fields (a custom per-target spec).
+    const keyOf = (name) => {
+        const b = mrt.getBlendMode(name);
+        if (b.blending === 'material' || b.blending === 'no')
+            return b.blending;
+        return `${b.blending}:${b.blendSrc},${b.blendDst},${b.blendEquation},${b.blendSrcAlpha},${b.blendDstAlpha},${b.blendEquationAlpha}`;
+    };
+    const first = keyOf(textures[0]?.name ?? '');
+    for (let i = 1; i < textures.length; i++) {
+        if (keyOf(textures[i]?.name ?? '') !== first) {
+            throw new Error('[WebGLRenderer] per-attachment blend modes are not supported on the WebGL2 backend.');
+        }
+    }
+}
+/**
  * Run the whole render pass immediately: bind the framebuffer, apply viewport/scissor, clear on
  * autoClear, then draw the prepared objects.
  */
 function executeRenderPass$1(gl, caches, nodes, passCtx, prepared, params, inspector) {
+    // Reject an MRT that asks for differing per-attachment blends (WebGL2 has one global blend state).
+    assertUniformMrtBlend(passCtx);
     const { hasStencil: targetStencil } = bindFramebuffer(gl, caches, params);
     applyViewportScissor(gl, passCtx);
     if (params.autoClear) {
@@ -34229,8 +34591,9 @@ function executeRenderPass$1(gl, caches, nodes, passCtx, prepared, params, inspe
         if (geometry.index && drawInfo.indexType !== null) {
             const indexArray = geometry.index.array;
             const count = Math.min(geometry.drawRange.count, indexArray.length);
-            // firstIndex is a byte offset for drawElements; each index is 2 (uint16) or 4 (uint32) bytes.
-            const bytesPerIndex = drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
+            // firstIndex is a byte offset for drawElements; each index is 1 (uint8), 2 (uint16) or
+            // 4 (uint32) bytes.
+            const bytesPerIndex = drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
             gl.drawElementsInstanced(gl.TRIANGLES, count, drawInfo.indexType, start * bytesPerIndex, instances);
             if (inspector)
                 inspector.drawIndexed(count, instances);
@@ -34537,6 +34900,24 @@ class WebGLRenderer {
             clearStencilValue: this.clearStencilValue,
             swapchainStencil: this.stencil}, color, depth, stencil);
     }
+    /**
+     * Finalize a cube render target after all six faces are captured: generate the cube texture's
+     * mipmaps so a mipped environment map has its lower levels filled. Mirrors the WebGPU renderer's
+     * `finalizeCubeCapture` guards — only when the texture wants mips and the base mip level (0) is
+     * active. Called by `CubeCamera.update()`.
+     */
+    finalizeCubeCapture(renderTarget, mipLevel) {
+        if (this._isDeviceLost || !this._initialized || !this.gl)
+            return;
+        if (!renderTarget.isCubeRenderTarget)
+            return;
+        if (mipLevel !== 0)
+            return;
+        const cube = renderTarget;
+        if (!cube.texture.generateMipmaps)
+            return;
+        generateCubeMipmaps(this.gl, this._textures, cube.texture._gpuTexture);
+    }
     /** Minimal feature query. No optional WebGL2 features are surfaced yet. */
     hasFeature(_feature) {
         return false;
@@ -34654,7 +35035,7 @@ class WebGLRenderer {
         // Optional: drain the GL error queue so a mistake surfaces (WebGL has no error scopes).
         const err = this.gl.getError();
         if (err !== this.gl.NO_ERROR)
-            console.error('[WebGL render error]', err);
+            console.error('[WebGLRenderer] render error', err);
         // Close the inspector's render pass. WebGPU emits finishRender inside its render-pass module;
         // WebGL's render() owns the pass lifecycle (immediate mode, no encoder), so it pairs
         // beginRender/finishRender here — guaranteeing balance regardless of executeRenderPass's early

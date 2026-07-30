@@ -208,4 +208,30 @@ describe('golden GLSL — render path', () => {
         expect(result.code).not.toContain('out vec4 fragColor');
         expect(renderShape(result)).toMatchSnapshot();
     });
+
+    test('frag_depth override (color + depth): writes gl_FragDepth alongside fragColor', () => {
+        const position = attribute('position', d.vec3f);
+        const fragment = vec4(vec3(0.4, 0.7, 1.0), f32(1));
+        const depth = f32(0.25).add(varying(position.z, 'vZ').mul(f32(0.5)));
+
+        const result = compileGlsl({ vertex: vec4(position, f32(1)), fragment, depth });
+        expect(result.code).toContain('layout(location = 0) out vec4 fragColor;');
+        expect(result.code).toContain('fragColor = ');
+        expect(result.code).toContain('gl_FragDepth = ');
+        expect(result.fragmentEntryPoint).toBe('main');
+        expect(renderShape(result)).toMatchSnapshot();
+    });
+
+    test('frag_depth override (depth-only): fragment stage writes only gl_FragDepth, no color out', () => {
+        const position = attribute('position', d.vec3f);
+        const depth = f32(0.75);
+
+        const result = compileGlsl({ vertex: vec4(position, f32(1)), fragment: undefined, depth });
+        // Depth-only: a fragment stage exists (marker present) and writes gl_FragDepth, no `out vec4`.
+        expect(result.code).toContain('// ---- fragment stage ----');
+        expect(result.code).toContain('gl_FragDepth = ');
+        expect(result.code).not.toContain('out vec4 fragColor');
+        expect(result.fragmentEntryPoint).toBe('main');
+        expect(renderShape(result)).toMatchSnapshot();
+    });
 });
