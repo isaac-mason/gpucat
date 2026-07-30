@@ -528,6 +528,13 @@ const GLSL_RESERVED_NAMES = new Set([
     'ivec2', 'ivec3', 'ivec4', 'bvec2', 'bvec3', 'bvec4', 'uint', 'uvec2', 'uvec3', 'uvec4',
     'lowp', 'mediump', 'highp', 'precision', 'sampler2D', 'sampler3D', 'samplerCube', 'struct',
     'main',
+    // GLSL ES 3.00 reserved-for-future-use words — illegal as identifiers even though unused.
+    'input', 'output', 'filter', 'sizeof', 'cast', 'namespace', 'using', 'common', 'partition',
+    'active', 'asm', 'class', 'union', 'enum', 'typedef', 'template', 'this', 'resource', 'goto',
+    'inline', 'noinline', 'public', 'static', 'extern', 'external', 'interface', 'long', 'short',
+    'double', 'half', 'fixed', 'unsigned', 'superp', 'hvec2', 'hvec3', 'hvec4', 'dvec2', 'dvec3',
+    'dvec4', 'fvec2', 'fvec3', 'fvec4', 'sampler1D', 'sampler1DShadow', 'sampler2DRectShadow',
+    'row_major', 'packed',
 ]);
 
 /**
@@ -536,6 +543,15 @@ const GLSL_RESERVED_NAMES = new Set([
  */
 function glslFnName(name: string): string {
     return GLSL_RESERVED_NAMES.has(name) ? `fn_${name}` : name;
+}
+
+/**
+ * Map an MRT fragment-output name to a GLSL-safe identifier: reserved names (e.g. `output`) are
+ * prefixed `out_`, all others pass through. The name is shader-local — the runtime binds render
+ * targets by `layout(location)`, not by this identifier — so mangling is safe.
+ */
+function glslOutputName(name: string): string {
+    return GLSL_RESERVED_NAMES.has(name) ? `out_${name}` : name;
 }
 
 function generateAttribute(ctx: GlslBuildContext, node: AttributeNode<d.Any>): string {
@@ -1708,13 +1724,13 @@ export function generateGlslFragmentShader(
                 const member = mrtNode.members[i];
                 if (!member) continue; // sparse array possible
                 const name = mrtNode._resolvedNames[i] || `output_${i}`;
-                mrtOutputs.push({ name, location: i, expr: generateExpr(ctx, member) });
+                mrtOutputs.push({ name: glslOutputName(name), location: i, expr: generateExpr(ctx, member) });
             }
         } else {
             // Unresolved: fall back to declaration order of the named outputs.
             let loc = 0;
             for (const name in mrtNode.outputNodes) {
-                mrtOutputs.push({ name, location: loc, expr: generateExpr(ctx, mrtNode.outputNodes[name]) });
+                mrtOutputs.push({ name: glslOutputName(name), location: loc, expr: generateExpr(ctx, mrtNode.outputNodes[name]) });
                 loc++;
             }
         }

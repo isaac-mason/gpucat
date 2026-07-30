@@ -166,6 +166,23 @@ export const cases: Case[] = [
         },
     },
     {
+        // Regression: an MRT target named `output` is a GLSL ES 3.00 reserved word — the emitter must
+        // mangle it (out_output) or the fragment shader fails to compile ("Illegal use of reserved word").
+        name: 'mrt reserved output name',
+        build: () => {
+            const position = attribute('position', d.vec3f);
+            const normal = attribute('normal', d.vec3f);
+            const vNormal = varying(modelNormalMatrix.mul(normal).normalize(), 'vNormal');
+            const lit = vec4(vec3(0.4, 0.7, 1.0).mul(vNormal.dot(vec3(0, 0, 1).normalize()).max(f32(0))), f32(1));
+            const fragment = mrt({
+                output: lit, // reserved word → must be mangled
+                normal: vec4(vNormal, f32(1)),
+                diffuse: vec4(0.5, 0.5, 0.5, 1),
+            });
+            return { vertex: vec4(position, f32(1)), fragment, depth: undefined };
+        },
+    },
+    {
         name: 'select ternary',
         build: () => {
             const position = attribute('position', d.vec3f);
