@@ -3710,11 +3710,39 @@ function computeBarycentricUV(point, vA, vB, vC, ia, ib, ic, uvs) {
 }
 
 const _worldSphereCenter = [0, 0, 0];
+/** `u32`s per packed sub-draw (the `DrawIndexedIndirect` layout: indexCount, instanceCount, firstIndex, baseVertex, firstInstance). */
+const MESH_DRAW_STRIDE = 5;
+/**
+ * Pack a `MeshDraw[]` into the WebGPU `DrawIndexedIndirect` byte layout — 5 × `u32` per draw:
+ * `[indexCount, instanceCount, firstIndex, baseVertex, firstInstance]`. The result is directly
+ * uploadable as a GPU indirect buffer (WebGPU `drawIndexedIndirect`) or consumable by a WebGL
+ * multi-draw path, with zero reshaping — same shape as `DrawIndexedIndirect` (`draw-indirect.ts`).
+ */
+function packDraws(draws) {
+    const out = new Uint32Array(draws.length * MESH_DRAW_STRIDE);
+    for (let i = 0; i < draws.length; i++) {
+        const d = draws[i];
+        const o = i * MESH_DRAW_STRIDE;
+        out[o + 0] = d.indexCount;
+        out[o + 1] = d.instanceCount;
+        out[o + 2] = d.firstIndex;
+        out[o + 3] = d.baseVertex ?? 0;
+        out[o + 4] = d.firstInstance;
+    }
+    return out;
+}
 class Mesh extends Object3D {
     isMesh = true;
     geometry;
     material;
     count = 1;
+    /**
+     * Optional batched draw list. When set, the renderer issues one instanced draw per entry
+     * (a CPU loop) instead of the single `drawRange` + `count` draw, and `count`/`drawRange`
+     * are ignored. All entries share this mesh's `geometry` + `material` (one pipeline). An
+     * empty array draws nothing. Phase 1: requires indexed geometry.
+     */
+    draws;
     frustumCulled = true;
     constructor(geometry, material) {
         super();
@@ -15247,7 +15275,12 @@ function generateBuiltin$1(ctx, node) {
         case 'vertex_index':
             return 'uint(gl_VertexID)';
         case 'instance_index':
-            return 'uint(gl_InstanceID)';
+            // Base-inclusive, matching WebGPU's @builtin(instance_index) (which folds in firstInstance).
+            // WebGL2's gl_InstanceID is 0-based per draw, so we add u_drawBase — a draw-scoped uniform
+            // set to the sub-draw's firstInstance by the batched draw loop, and left 0 (its GL default)
+            // for single draws. The declaration is emitted by generateGlslVertexShader /
+            // generateGlslTransformFeedbackShader whenever this builtin is used.
+            return '(u_drawBase + uint(gl_InstanceID))';
         case 'position':
             // Fragment position; the vertex clip position is written to gl_Position by main().
             if (ctx.stage === 'fragment')
@@ -16070,6 +16103,13 @@ function generateGlslVertexShader(slots, ctx) {
     }
     if (ctx.varyings.size > 0)
         lines.push('');
+    // Batched-draw base: when instanceIndex is used, it lowers to `u_drawBase + gl_InstanceID`
+    // (base-inclusive, matching WebGPU). The batched draw loop sets this per sub-draw; it is 0 by
+    // default (GL uniform default) for single draws.
+    if (ctx.builtins.has('instance_index')) {
+        lines.push('uniform highp uint u_drawBase;');
+        lines.push('');
+    }
     lines.push('void main() {');
     lines.push(...ctx.code);
     for (const [name, { vertexExpr }] of ctx.varyings) {
@@ -16183,6 +16223,12 @@ function generateGlslTransformFeedbackShader(ctx, body, outputs) {
     }
     if (outputMeta.length > 0)
         lines.push('');
+    // instanceIndex lowers to `u_drawBase + gl_InstanceID`; declare u_drawBase when it is used.
+    // A transform-feedback kernel never sets it, so it stays 0 (correct: base 0 + gl_InstanceID).
+    if (ctx.builtins.has('instance_index')) {
+        lines.push('uniform highp uint u_drawBase;');
+        lines.push('');
+    }
     lines.push('void main() {');
     lines.push(...ctx.code);
     for (const out of outputMeta) {
@@ -33052,7 +33098,10 @@ function getProgram(gl, cache, code, uniformGroups) {
         gl.uniformBlockBinding(program, blockIndex, bindingPoint);
         uboBindingPoints.set(group.groupName, bindingPoint);
     }
-    const info = { program, uboBindingPoints, samplerLocations: new Map() };
+    // Batched-draw base uniform. `getUniformLocation` returns null when u_drawBase isn't declared
+    // (program doesn't use instanceIndex) — that null is the draw path's "no batched base" sentinel.
+    const drawBaseLocation = gl.getUniformLocation(program, 'u_drawBase');
+    const info = { program, uboBindingPoints, samplerLocations: new Map(), drawBaseLocation };
     cache.programs.set(code, info);
     return info;
 }
@@ -35175,7 +35224,7 @@ function executeRenderPass$1(gl, caches, nodes, passCtx, prepared, params, inspe
         const material = item.material;
         const geometry = item.geometry;
         const nodeState = renderObject.nodeBuilderState;
-        if (mesh.count === 0)
+        if (mesh.count === 0 && mesh.draws === undefined)
             continue;
         // Per-object node frame context + neutral updates (matches the WebGPU draw loop).
         frame.object = mesh;
@@ -35228,28 +35277,56 @@ function executeRenderPass$1(gl, caches, nodes, passCtx, prepared, params, inspe
         }
         // Fixed-function GL state from the material (depth/cull/blend/colorMask/stencil).
         applyMaterialState(gl, stateCache, material, hasStencil);
-        // Draw. Topology is a triangle list (the GLSL render path targets triangles); instance count
-        // is `mesh.count` (defaults to 1). drawRange gives first + count.
-        const instances = mesh.count;
-        const start = geometry.drawRange.start;
-        if (geometry.index && drawInfo.indexType !== null) {
-            const indexArray = geometry.index.array;
-            const count = Math.min(geometry.drawRange.count, indexArray.length);
+        // Draw. Topology is a triangle list (the GLSL render path targets triangles).
+        // `u_drawBase` feeds instanceIndex's base-inclusive lowering (`u_drawBase + gl_InstanceID`).
+        const drawBaseLoc = programInfo.drawBaseLocation ?? null;
+        if (mesh.draws !== undefined) {
+            // Batched: one instanced draw per entry, each with its own firstInstance base. The VAO is
+            // already bound once above, so the loop only sets u_drawBase + issues the draw.
+            // Phase 1: indexed geometry only.
+            if (!(geometry.index && drawInfo.indexType !== null)) {
+                throw new Error('[WebGLRenderer] mesh.draws requires indexed geometry (Phase 1).');
+            }
             // firstIndex is a byte offset for drawElements; each index is 1 (uint8), 2 (uint16) or
             // 4 (uint32) bytes.
             const bytesPerIndex = drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
-            gl.drawElementsInstanced(gl.TRIANGLES, count, drawInfo.indexType, start * bytesPerIndex, instances);
-            if (inspector)
-                inspector.drawIndexed(count, instances);
+            for (const d of mesh.draws) {
+                if (d.instanceCount <= 0)
+                    continue;
+                if (drawBaseLoc !== null)
+                    gl.uniform1ui(drawBaseLoc, d.firstInstance);
+                gl.drawElementsInstanced(gl.TRIANGLES, d.indexCount, drawInfo.indexType, d.firstIndex * bytesPerIndex, d.instanceCount);
+                if (inspector)
+                    inspector.drawIndexed(d.indexCount, d.instanceCount);
+            }
         }
         else {
-            const position = geometry.buffers.get('position');
-            const vertexCount = geometry.drawRange.count === Infinity
-                ? (position?.count ?? 3)
-                : Math.min(geometry.drawRange.count, position?.count ?? geometry.drawRange.count);
-            gl.drawArraysInstanced(gl.TRIANGLES, start, vertexCount, instances);
-            if (inspector)
-                inspector.draw(vertexCount, instances);
+            // Single draw. instance count is `mesh.count` (defaults to 1); drawRange gives first + count.
+            // Reset u_drawBase to 0 so a prior batched draw sharing this program can't leak its
+            // firstInstance into instanceIndex here.
+            if (drawBaseLoc !== null)
+                gl.uniform1ui(drawBaseLoc, 0);
+            const instances = mesh.count;
+            const start = geometry.drawRange.start;
+            if (geometry.index && drawInfo.indexType !== null) {
+                const indexArray = geometry.index.array;
+                const count = Math.min(geometry.drawRange.count, indexArray.length);
+                // firstIndex is a byte offset for drawElements; each index is 1 (uint8), 2 (uint16) or
+                // 4 (uint32) bytes.
+                const bytesPerIndex = drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
+                gl.drawElementsInstanced(gl.TRIANGLES, count, drawInfo.indexType, start * bytesPerIndex, instances);
+                if (inspector)
+                    inspector.drawIndexed(count, instances);
+            }
+            else {
+                const position = geometry.buffers.get('position');
+                const vertexCount = geometry.drawRange.count === Infinity
+                    ? (position?.count ?? 3)
+                    : Math.min(geometry.drawRange.count, position?.count ?? geometry.drawRange.count);
+                gl.drawArraysInstanced(gl.TRIANGLES, start, vertexCount, instances);
+                if (inspector)
+                    inspector.draw(vertexCount, instances);
+            }
         }
         updateAfter(nodes, renderObject);
     }
@@ -37084,7 +37161,7 @@ function draw(device, bindings, geometries, buffers, textures, renderObjectGpu, 
         const material = item.material;
         const geometry = item.geometry;
         const nodeState = renderObject.nodeBuilderState;
-        if (mesh.count === 0)
+        if (mesh.count === 0 && mesh.draws === undefined)
             continue;
         const frame = nodes.nodeFrame;
         frame.object = mesh;
@@ -37155,7 +37232,16 @@ function draw(device, bindings, geometries, buffers, textures, renderObjectGpu, 
                 passSetIndexBuffer(gpuPass, inspector, idxBuf, getIndexFormat(geometry.index.array));
                 currentSets.index = idxBuf;
             }
-            if (geometry.indirect) {
+            if (mesh.draws !== undefined) {
+                // Batched: one instanced drawIndexed per entry, each carrying its own firstInstance
+                // (native — instance_index is base-inclusive on WebGPU). Phase 1: indexed only.
+                for (const d of mesh.draws) {
+                    if (d.instanceCount <= 0)
+                        continue;
+                    passDrawIndexed(gpuPass, inspector, d.indexCount, d.instanceCount, d.firstIndex, d.firstInstance, d.baseVertex ?? 0);
+                }
+            }
+            else if (geometry.indirect) {
                 const indirect = geometry.indirect;
                 const indBuf = ensureUploaded(buffers, device, indirect);
                 const byteStride = indirect.itemSize * 4;
@@ -37171,6 +37257,9 @@ function draw(device, bindings, geometries, buffers, textures, renderObjectGpu, 
             }
         }
         else {
+            if (mesh.draws !== undefined) {
+                throw new Error('[WebGPURenderer] mesh.draws requires indexed geometry (Phase 1).');
+            }
             if (geometry.indirect) {
                 const indirect = geometry.indirect;
                 const indBuf = ensureUploaded(buffers, device, indirect);
@@ -37266,8 +37355,8 @@ function passDraw(pass, inspector, vertexCount, instanceCount, firstVertex) {
     if (inspector)
         inspector.draw(vertexCount, instanceCount);
 }
-function passDrawIndexed(pass, inspector, indexCount, instanceCount, firstIndex) {
-    pass.drawIndexed(indexCount, instanceCount, firstIndex);
+function passDrawIndexed(pass, inspector, indexCount, instanceCount, firstIndex, firstInstance = 0, baseVertex = 0) {
+    pass.drawIndexed(indexCount, instanceCount, firstIndex, baseVertex, firstInstance);
     if (inspector)
         inspector.drawIndexed(indexCount, instanceCount);
 }
@@ -38308,5 +38397,5 @@ class DataTexture {
     }
 }
 
-export { ArrayTexture, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, FlyControls, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, Raycaster, RenderPipeline, RenderTarget, Return, Scene, Source, TOUCH, Texture, TransformControls, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WebGLRenderer, WebGPURenderer, While, WorkgroupVar, abs, acesToneMapping, acos, add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, ceil, clamp, color, comparisonSampler, compile, compileCompute, compileGlsl, compileTransformFeedback, compute, computeIndex, cond, cos, countLeadingZeros, countOneBits, countTrailingZeros, createBoxGeometry, createCylinderGeometry, createFullscreenTriangleGeometry, createIndexBuffer, createIndirectBuffer, createOctahedronGeometry, createPlaneGeometry, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createTorusGeometry, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frameGroup, frustum, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, globalId, glsl, glslFn, greaterThan, greaterThanEqual, i32, index, instanceIndex, inverseSqrt, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, pass, positionClip, pow, readPixels, reinhardToneMapping, renderGroup, renderOutput, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub, tan, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgsl, wgslFn, workgroupBarrier, workgroupId };
+export { ArrayTexture, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, FlyControls, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MESH_DRAW_STRIDE, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, Raycaster, RenderPipeline, RenderTarget, Return, Scene, Source, TOUCH, Texture, TransformControls, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WebGLRenderer, WebGPURenderer, While, WorkgroupVar, abs, acesToneMapping, acos, add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, ceil, clamp, color, comparisonSampler, compile, compileCompute, compileGlsl, compileTransformFeedback, compute, computeIndex, cond, cos, countLeadingZeros, countOneBits, countTrailingZeros, createBoxGeometry, createCylinderGeometry, createFullscreenTriangleGeometry, createIndexBuffer, createIndirectBuffer, createOctahedronGeometry, createPlaneGeometry, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createTorusGeometry, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frameGroup, frustum, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, globalId, glsl, glslFn, greaterThan, greaterThanEqual, i32, index, instanceIndex, inverseSqrt, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packDraws, packTo, pass, positionClip, pow, readPixels, reinhardToneMapping, renderGroup, renderOutput, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub, tan, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgsl, wgslFn, workgroupBarrier, workgroupId };
 //# sourceMappingURL=index.js.map

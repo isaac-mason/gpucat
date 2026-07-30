@@ -2,6 +2,7 @@ import type { CubeRenderTarget } from '../../core/cube-render-target';
 import { getIndexFormat } from '../../core/gpu-buffer';
 import type { RenderTarget } from '../../core/render-target';
 import type { InspectorBase } from '../../inspector/inspector-base';
+import type { IndexedMeshDraw, NonIndexedMeshDraw } from '../../objects/mesh';
 import type { CanvasTarget } from '../core/canvas-target';
 import type { NodeManagerState } from '../core/node-manager';
 import * as NodeManager from '../core/node-manager';
@@ -464,7 +465,7 @@ function draw(
         const geometry = item.geometry!;
         const nodeState = renderObject.nodeBuilderState!;
 
-        if (mesh.count === 0) continue;
+        if (mesh.count === 0 && mesh.draws === undefined) continue;
 
         const frame = nodes.nodeFrame;
         frame.object = mesh;
@@ -555,7 +556,14 @@ function draw(
                 passSetIndexBuffer(gpuPass, inspector, idxBuf, getIndexFormat(geometry.index.array)!);
                 currentSets.index = idxBuf;
             }
-            if (geometry.indirect) {
+            if (mesh.draws !== undefined) {
+                // Batched: one instanced drawIndexed per entry, each carrying its own firstInstance
+                // (native — instance_index is base-inclusive on WebGPU).
+                for (const d of mesh.draws as IndexedMeshDraw[]) {
+                    if (d.instanceCount <= 0) continue;
+                    passDrawIndexed(gpuPass, inspector, d.indexCount, d.instanceCount, d.firstIndex, d.firstInstance, d.baseVertex ?? 0);
+                }
+            } else if (geometry.indirect) {
                 const indirect = geometry.indirect;
                 const indBuf = Buffers.ensureUploaded(buffers, device, indirect);
                 const byteStride = indirect.itemSize * 4;
@@ -569,7 +577,13 @@ function draw(
                 passDrawIndexed(gpuPass, inspector, indexCount, mesh.count, geometry.drawRange.start);
             }
         } else {
-            if (geometry.indirect) {
+            if (mesh.draws !== undefined) {
+                // Batched non-indexed: one instanced draw per entry, each carrying its own firstInstance.
+                for (const d of mesh.draws as NonIndexedMeshDraw[]) {
+                    if (d.instanceCount <= 0) continue;
+                    passDraw(gpuPass, inspector, d.vertexCount, d.instanceCount, d.firstVertex, d.firstInstance);
+                }
+            } else if (geometry.indirect) {
                 const indirect = geometry.indirect;
                 const indBuf = Buffers.ensureUploaded(buffers, device, indirect);
                 const byteStride = indirect.itemSize * 4;
@@ -704,8 +718,9 @@ function passDraw(
     vertexCount: number,
     instanceCount: number,
     firstVertex: number,
+    firstInstance = 0,
 ): void {
-    pass.draw(vertexCount, instanceCount, firstVertex);
+    pass.draw(vertexCount, instanceCount, firstVertex, firstInstance);
     if (inspector) inspector.draw(vertexCount, instanceCount);
 }
 
@@ -715,8 +730,10 @@ function passDrawIndexed(
     indexCount: number,
     instanceCount: number,
     firstIndex: number,
+    firstInstance = 0,
+    baseVertex = 0,
 ): void {
-    pass.drawIndexed(indexCount, instanceCount, firstIndex);
+    pass.drawIndexed(indexCount, instanceCount, firstIndex, baseVertex, firstInstance);
     if (inspector) inspector.drawIndexed(indexCount, instanceCount);
 }
 

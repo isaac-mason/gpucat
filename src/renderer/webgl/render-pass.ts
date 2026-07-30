@@ -15,6 +15,7 @@
  */
 
 import type { InspectorBase } from '../../inspector/inspector-base';
+import type { IndexedMeshDraw, NonIndexedMeshDraw } from '../../objects/mesh';
 import type { NodeManagerState } from '../core/node-manager';
 import * as NodeManager from '../core/node-manager';
 import type { RenderContext } from '../core/pass-context';
@@ -202,7 +203,7 @@ export function executeRenderPass(
         const geometry = item.geometry!;
         const nodeState = renderObject.nodeBuilderState!;
 
-        if (mesh.count === 0) continue;
+        if (mesh.count === 0 && mesh.draws === undefined) continue;
 
         // Per-object node frame context + neutral updates (matches the WebGPU draw loop).
         frame.object = mesh;
@@ -256,27 +257,57 @@ export function executeRenderPass(
         // Fixed-function GL state from the material (depth/cull/blend/colorMask/stencil).
         applyMaterialState(gl, stateCache, material, hasStencil);
 
-        // Draw. Topology is a triangle list (the GLSL render path targets triangles); instance count
-        // is `mesh.count` (defaults to 1). drawRange gives first + count.
-        const instances = mesh.count;
-        const start = geometry.drawRange.start;
+        // Draw. Topology is a triangle list (the GLSL render path targets triangles).
+        // `u_drawBase` feeds instanceIndex's base-inclusive lowering (`u_drawBase + gl_InstanceID`).
+        const drawBaseLoc = programInfo.drawBaseLocation ?? null;
 
-        if (geometry.index && drawInfo.indexType !== null) {
-            const indexArray = geometry.index.array!;
-            const count = Math.min(geometry.drawRange.count, indexArray.length);
-            // firstIndex is a byte offset for drawElements; each index is 1 (uint8), 2 (uint16) or
-            // 4 (uint32) bytes.
-            const bytesPerIndex = drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
-            gl.drawElementsInstanced(gl.TRIANGLES, count, drawInfo.indexType, start * bytesPerIndex, instances);
-            if (inspector) inspector.drawIndexed(count, instances);
+        if (mesh.draws !== undefined) {
+            // Batched: one instanced draw per entry, each with its own firstInstance base. The VAO is
+            // already bound once above, so the loop only sets u_drawBase + issues the draw. The mesh's
+            // geometry selects indexed (drawElements) vs non-indexed (drawArrays) draws.
+            if (geometry.index && drawInfo.indexType !== null) {
+                // firstIndex is a byte offset for drawElements; each index is 1 (uint8), 2 (uint16) or
+                // 4 (uint32) bytes.
+                const bytesPerIndex = drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
+                for (const d of mesh.draws as IndexedMeshDraw[]) {
+                    if (d.instanceCount <= 0) continue;
+                    if (drawBaseLoc !== null) gl.uniform1ui(drawBaseLoc, d.firstInstance);
+                    gl.drawElementsInstanced(gl.TRIANGLES, d.indexCount, drawInfo.indexType, d.firstIndex * bytesPerIndex, d.instanceCount);
+                    if (inspector) inspector.drawIndexed(d.indexCount, d.instanceCount);
+                }
+            } else {
+                for (const d of mesh.draws as NonIndexedMeshDraw[]) {
+                    if (d.instanceCount <= 0) continue;
+                    if (drawBaseLoc !== null) gl.uniform1ui(drawBaseLoc, d.firstInstance);
+                    gl.drawArraysInstanced(gl.TRIANGLES, d.firstVertex, d.vertexCount, d.instanceCount);
+                    if (inspector) inspector.draw(d.vertexCount, d.instanceCount);
+                }
+            }
         } else {
-            const position = geometry.buffers.get('position');
-            const vertexCount =
-                geometry.drawRange.count === Infinity
-                    ? (position?.count ?? 3)
-                    : Math.min(geometry.drawRange.count, position?.count ?? geometry.drawRange.count);
-            gl.drawArraysInstanced(gl.TRIANGLES, start, vertexCount, instances);
-            if (inspector) inspector.draw(vertexCount, instances);
+            // Single draw. instance count is `mesh.count` (defaults to 1); drawRange gives first + count.
+            // Reset u_drawBase to 0 so a prior batched draw sharing this program can't leak its
+            // firstInstance into instanceIndex here.
+            if (drawBaseLoc !== null) gl.uniform1ui(drawBaseLoc, 0);
+            const instances = mesh.count;
+            const start = geometry.drawRange.start;
+
+            if (geometry.index && drawInfo.indexType !== null) {
+                const indexArray = geometry.index.array!;
+                const count = Math.min(geometry.drawRange.count, indexArray.length);
+                // firstIndex is a byte offset for drawElements; each index is 1 (uint8), 2 (uint16) or
+                // 4 (uint32) bytes.
+                const bytesPerIndex = drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
+                gl.drawElementsInstanced(gl.TRIANGLES, count, drawInfo.indexType, start * bytesPerIndex, instances);
+                if (inspector) inspector.drawIndexed(count, instances);
+            } else {
+                const position = geometry.buffers.get('position');
+                const vertexCount =
+                    geometry.drawRange.count === Infinity
+                        ? (position?.count ?? 3)
+                        : Math.min(geometry.drawRange.count, position?.count ?? geometry.drawRange.count);
+                gl.drawArraysInstanced(gl.TRIANGLES, start, vertexCount, instances);
+                if (inspector) inspector.draw(vertexCount, instances);
+            }
         }
 
         NodeManager.updateAfter(nodes, renderObject);

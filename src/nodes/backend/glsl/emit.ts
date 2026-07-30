@@ -616,7 +616,12 @@ function generateBuiltin(ctx: GlslBuildContext, node: BuiltinNode<d.Any>): strin
         case 'vertex_index':
             return 'uint(gl_VertexID)';
         case 'instance_index':
-            return 'uint(gl_InstanceID)';
+            // Base-inclusive, matching WebGPU's @builtin(instance_index) (which folds in firstInstance).
+            // WebGL2's gl_InstanceID is 0-based per draw, so we add u_drawBase — a draw-scoped uniform
+            // set to the sub-draw's firstInstance by the batched draw loop, and left 0 (its GL default)
+            // for single draws. The declaration is emitted by generateGlslVertexShader /
+            // generateGlslTransformFeedbackShader whenever this builtin is used.
+            return '(u_drawBase + uint(gl_InstanceID))';
         case 'position':
             // Fragment position; the vertex clip position is written to gl_Position by main().
             if (ctx.stage === 'fragment') return 'gl_FragCoord';
@@ -1514,6 +1519,14 @@ export function generateGlslVertexShader(slots: CompileSlots, ctx: GlslBuildCont
     }
     if (ctx.varyings.size > 0) lines.push('');
 
+    // Batched-draw base: when instanceIndex is used, it lowers to `u_drawBase + gl_InstanceID`
+    // (base-inclusive, matching WebGPU). The batched draw loop sets this per sub-draw; it is 0 by
+    // default (GL uniform default) for single draws.
+    if (ctx.builtins.has('instance_index')) {
+        lines.push('uniform highp uint u_drawBase;');
+        lines.push('');
+    }
+
     lines.push('void main() {');
     lines.push(...ctx.code);
     for (const [name, { vertexExpr }] of ctx.varyings) {
@@ -1650,6 +1663,13 @@ export function generateGlslTransformFeedbackShader(
         lines.push(`${flat}out ${glslType(out.type)} ${out.varyingName};`);
     }
     if (outputMeta.length > 0) lines.push('');
+
+    // instanceIndex lowers to `u_drawBase + gl_InstanceID`; declare u_drawBase when it is used.
+    // A transform-feedback kernel never sets it, so it stays 0 (correct: base 0 + gl_InstanceID).
+    if (ctx.builtins.has('instance_index')) {
+        lines.push('uniform highp uint u_drawBase;');
+        lines.push('');
+    }
 
     lines.push('void main() {');
     lines.push(...ctx.code);

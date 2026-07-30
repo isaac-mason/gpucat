@@ -15,6 +15,7 @@ import {
     Geometry,
     GpuBuffer,
     i32,
+    instanceIndex,
     Material,
     Mesh,
     modelNormalMatrix,
@@ -1407,6 +1408,99 @@ async function caseTransformFeedbackAliasGuard(): Promise<CaseResult> {
     };
 }
 
+/**
+ * batched-draws: `mesh.draws` issues two instanced sub-draws over one indexed box, each with its own
+ * `firstInstance`. A 2×1 data texture holds instance 0 = red, instance 1 = green; the color is read in
+ * the VERTEX stage (gl_InstanceID is vertex-only in GLSL) by `instanceIndex` — base-inclusive
+ * (`u_drawBase + gl_InstanceID`) — and passed to the fragment via a varying. Both sub-draws fill the
+ * view with depthTest off, so the CENTER pixel is the LAST sub-draw's color. `order` picks which
+ * firstInstance is drawn last: [0,1] ⇒ last is instance 1 ⇒ green; [1,0] ⇒ last is instance 0 ⇒ red.
+ * A broken firstInstance (u_drawBase not applied) makes every sub-draw read instance 0 ⇒ always red,
+ * so the [0,1]⇒green case is the one that fails if the base isn't wired.
+ */
+async function batchedDrawsCase(name: string, order: [number, number], expected: [number, number, number, number]): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+
+    // 2×1 rgba8unorm: instance 0 = red, instance 1 = green.
+    const data = new Uint8Array([255, 0, 0, 255, 0, 255, 0, 255]);
+    const tex = new DataTexture(data, 2, 1, { format: 'rgba8unorm', magFilter: 'nearest', minFilter: 'nearest' });
+
+    const geometry = createBoxGeometry(1, 1, 1);
+    const position = attribute('position', d.vec3f);
+    const clip = mul(cameraProjectionMatrix, mul(cameraViewMatrix, mul(modelWorldMatrix, vec4(position, f32(1)))));
+    // Load per-instance color in the vertex stage (instanceIndex → gl_InstanceID is vertex-only),
+    // carry it to the fragment as a (constant-per-primitive) varying.
+    const instColor = texture(tex).load(vec2i(instanceIndex.toI32(), i32(0)), i32(0));
+    const vColor = varying(instColor, 'vColor');
+    const material = new Material({ vertex: clip, fragment: vColor, depthTest: false });
+
+    const mesh = new Mesh(geometry, material);
+    const indexCount = geometry.index!.array!.length;
+    mesh.draws = order.map((firstInstance) => ({ indexCount, instanceCount: 1, firstIndex: 0, firstInstance }));
+
+    const scene = new Scene();
+    scene.add(mesh);
+    const camera = new PerspectiveCamera(Math.PI / 4, 1, 0.1, 100);
+    camera.position[2] = 3;
+    scene.add(camera);
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name, pixel, expected };
+}
+
+/** batched-draws order [0,1] ⇒ last sub-draw is instance 1 ⇒ green. Fails if firstInstance is ignored. */
+async function caseBatchedDrawsGreen(): Promise<CaseResult> {
+    return batchedDrawsCase('batched-draws-g', [0, 1], [0, 255, 0, 255]);
+}
+
+/** batched-draws order [1,0] ⇒ last sub-draw is instance 0 ⇒ red (proves the other base too). */
+async function caseBatchedDrawsRed(): Promise<CaseResult> {
+    return batchedDrawsCase('batched-draws-r', [1, 0], [255, 0, 0, 255]);
+}
+
+/**
+ * batched-draws-nonindexed: the same proof for the NON-indexed path. The fullscreen triangle has no
+ * index buffer, so `mesh.draws` uses the `{ vertexCount, firstVertex, ... }` variant → the
+ * drawArraysInstanced / draw path. Two sub-draws (firstInstance 0 then 1), center = last = instance 1
+ * = green; a broken firstInstance would read instance 0 for both ⇒ red.
+ */
+async function caseBatchedDrawsNonIndexed(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+
+    const data = new Uint8Array([255, 0, 0, 255, 0, 255, 0, 255]); // instance 0 = red, instance 1 = green
+    const tex = new DataTexture(data, 2, 1, { format: 'rgba8unorm', magFilter: 'nearest', minFilter: 'nearest' });
+
+    const geometry = createFullscreenTriangleGeometry(); // non-indexed (3 vertices)
+    const position = attribute('position', d.vec3f);
+    const instColor = texture(tex).load(vec2i(instanceIndex.toI32(), i32(0)), i32(0));
+    const vColor = varying(instColor, 'vColor');
+    const material = new Material({ vertex: vec4(position, f32(1)), fragment: vColor, depthTest: false });
+
+    const mesh = new Mesh(geometry, material);
+    const vertexCount = geometry.buffers.get('position')!.count;
+    mesh.draws = [
+        { vertexCount, instanceCount: 1, firstVertex: 0, firstInstance: 0 },
+        { vertexCount, instanceCount: 1, firstVertex: 0, firstInstance: 1 },
+    ];
+
+    const scene = new Scene();
+    scene.add(mesh);
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'batched-draws-nonindexed', pixel, expected: [0, 255, 0, 255] };
+}
+
 export async function run(): Promise<RunResult> {
     try {
         const cases: CaseResult[] = [];
@@ -1430,6 +1524,9 @@ export async function run(): Promise<RunResult> {
             caseRtResizeRealloc,
             caseCubemap,
             caseInstanced,
+            caseBatchedDrawsGreen,
+            caseBatchedDrawsRed,
+            caseBatchedDrawsNonIndexed,
             caseUnknownFormatUnsupported,
             caseMrtBlendUnsupported,
             caseCubeMips,

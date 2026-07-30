@@ -318,7 +318,7 @@ export {
     LineSegments,
     LineSegmentsGeometry,
 } from './objects/line';
-export { Mesh } from './objects/mesh';
+export { type IndexedMeshDraw, Mesh, type MeshDraw, type NonIndexedMeshDraw } from './objects/mesh';
 export { type CanvasAlphaMode, CanvasTarget, type CanvasTargetOptions } from './renderer/core/canvas-target';
 export { WebGLRenderer, type WebGLRendererOptions } from './renderer/webgl/renderer';
 export { readPixels } from './renderer/webgpu/read-pixels';

@@ -34,6 +34,12 @@ export type ProgramInfo = {
      * cached `null` means the sampler was optimized out / not found — the draw path skips it.
      */
     samplerLocations: Map<string, WebGLUniformLocation | null>;
+    /**
+     * Location of the batched-draw base uniform (`u_drawBase`), or `null` when the program doesn't
+     * use `instanceIndex` (so the uniform isn't declared). Resolved at link time. The batched draw
+     * loop sets it per sub-draw (`firstInstance`); the single-draw path resets it to 0.
+     */
+    drawBaseLocation?: WebGLUniformLocation | null;
 };
 
 /** Program cache, keyed by the combined GLSL source string. */
@@ -136,7 +142,11 @@ export function getProgram(
         uboBindingPoints.set(group.groupName, bindingPoint);
     }
 
-    const info: ProgramInfo = { program, uboBindingPoints, samplerLocations: new Map() };
+    // Batched-draw base uniform. `getUniformLocation` returns null when u_drawBase isn't declared
+    // (program doesn't use instanceIndex) — that null is the draw path's "no batched base" sentinel.
+    const drawBaseLocation = gl.getUniformLocation(program, 'u_drawBase');
+
+    const info: ProgramInfo = { program, uboBindingPoints, samplerLocations: new Map(), drawBaseLocation };
     cache.programs.set(code, info);
     return info;
 }

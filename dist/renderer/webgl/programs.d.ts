@@ -31,6 +31,12 @@ export type ProgramInfo = {
      * cached `null` means the sampler was optimized out / not found — the draw path skips it.
      */
     samplerLocations: Map<string, WebGLUniformLocation | null>;
+    /**
+     * Location of the batched-draw base uniform (`u_drawBase`), or `null` when the program doesn't
+     * use `instanceIndex` (so the uniform isn't declared). Resolved at link time. The batched draw
+     * loop sets it per sub-draw (`firstInstance`); the single-draw path resets it to 0.
+     */
+    drawBaseLocation?: WebGLUniformLocation | null;
 };
 /** Program cache, keyed by the combined GLSL source string. */
 export type ProgramCache = {
