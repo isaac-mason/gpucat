@@ -257,6 +257,19 @@ export declare class WebGLRenderer implements Renderer, RendererState {
      */
     getTransformFeedbackGlBuffer(buffer: GpuBuffer): WebGLBuffer | null;
     /**
+     * Honest native CPU readback of a GpuBuffer (e.g. a transform-feedback output) into a typed array.
+     *
+     * Copies the buffer's current GL buffer into a `STREAM_READ` staging buffer, fences GPU-command
+     * completion, polls the fence NON-BLOCKINGLY across event-loop ticks (a synchronous busy-loop
+     * never signals on a single-threaded GL backend), then `getBufferSubData`s into a typed array whose
+     * element type matches the buffer's schema (Float32Array for f32, Uint32Array for u32, Int32Array
+     * for i32). One GpuBuffer = one GL buffer, so there is no dual-buffer coherence to reason about.
+     *
+     * This method is WebGLRenderer-only. The buffer must have been used by a prior `transformFeedback()`
+     * call (that's what allocates its GL buffer); otherwise this throws.
+     */
+    readBufferAsync(buffer: GpuBuffer): Promise<Float32Array | Int32Array | Uint32Array>;
+    /**
      * Dispose the renderer and force the WebGL2 context loss. After calling dispose(), the renderer
      * cannot be used again.
      */

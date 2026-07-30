@@ -1023,6 +1023,67 @@ async function caseTransformFeedbackPingPong(): Promise<CaseResult> {
     };
 }
 
+/**
+ * tf-readback: run a particles-style kernel (pos' = pos + vel), then read the output buffer back via
+ * the PUBLIC async API `renderer.readBufferAsync(outBuf)` (the real Phase-3 copyBufferSubData + fence
+ * path — NOT raw getBufferSubData). Asserts exact per-component values. Because the fence is polled
+ * across event-loop ticks, this also regression-guards the yield: a synchronous busy-loop would time
+ * out on SwiftShader and this case would throw/fail rather than pass.
+ */
+async function caseTransformFeedbackReadbackAsync(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const N = 4;
+
+    // N vec4s: pos = (i, i+0.5, i+1, i+1.5); vel = (1, 2, 3, 4).
+    const posData = new Float32Array(N * 4);
+    const velData = new Float32Array(N * 4);
+    for (let i = 0; i < N; i++) {
+        posData[i * 4 + 0] = i;
+        posData[i * 4 + 1] = i + 0.5;
+        posData[i * 4 + 2] = i + 1;
+        posData[i * 4 + 3] = i + 1.5;
+        velData[i * 4 + 0] = 1;
+        velData[i * 4 + 1] = 2;
+        velData[i * 4 + 2] = 3;
+        velData[i * 4 + 3] = 4;
+    }
+    const bufA = new GpuBuffer(d.vec4f, { data: posData });
+    const velBuf = new GpuBuffer(d.vec4f, { data: velData });
+    const bufB = new GpuBuffer(d.vec4f, { count: N });
+
+    const kernel = transformFeedback((io) => ({ pos: io.pos.add(io.vel) }), {
+        inputs: { pos: d.vec4f, vel: d.vec4f },
+        outputs: { pos: d.vec4f },
+    });
+
+    renderer.transformFeedback(kernel, { inputs: { pos: bufA, vel: velBuf }, outputs: { pos: bufB }, count: N });
+
+    // The real async fence path — this is what Phase 3 delivers.
+    const got = await renderer.readBufferAsync(bufB);
+    let ok = got instanceof Float32Array && got.length === N * 4;
+    let note = '';
+    if (!ok) {
+        note = `bad result: len ${got.length}, ctor ${got.constructor.name}`;
+    } else {
+        for (let i = 0; i < N * 4; i++) {
+            const expected = posData[i] + velData[i];
+            if (Math.abs(got[i] - expected) > 1e-4) {
+                ok = false;
+                note = `idx ${i}: got ${got[i]}, want ${expected}`;
+                break;
+            }
+        }
+    }
+    if (ok) note = `readBufferAsync → [${Array.from(got.slice(0, 4)).join(', ')}] …`;
+    renderer.dispose();
+    return {
+        name: 'tf-readback',
+        pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note,
+    };
+}
+
 /** tf-alias-guard: same buffer as input and output must throw. */
 async function caseTransformFeedbackAliasGuard(): Promise<CaseResult> {
     const renderer = await newRenderer();
@@ -1081,6 +1142,7 @@ export async function run(): Promise<RunResult> {
             caseBgra8Unsupported,
             caseTransformFeedback,
             caseTransformFeedbackPingPong,
+            caseTransformFeedbackReadbackAsync,
             caseTransformFeedbackAliasGuard,
             // NOTE: shadow-map (comparison sampler) is NOT asserted here — SwiftShader (the headless
             // WebGL2 backend this harness runs on) does not honor sampler2DShadow depth comparison

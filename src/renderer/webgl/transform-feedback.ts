@@ -20,6 +20,7 @@
  */
 
 import type { GpuBuffer } from '../../core/gpu-buffer';
+import { typedArrayCtorOf } from '../../schema/schema';
 import {
     compileTransformFeedback,
     type TransformFeedbackGlslResult,
@@ -298,6 +299,110 @@ export function runTransformFeedback(
  */
 export function getGlBufferFor(state: TransformFeedbackState, buffer: GpuBuffer): WebGLBuffer | null {
     return state.buffers.get(buffer)?.glBuffer ?? null;
+}
+
+/**
+ * Poll a fence to completion WITHOUT blocking the thread. Returns a promise that resolves once the GPU
+ * has signalled `sync`, rejecting if the wait fails or exceeds `maxPolls` event-loop ticks.
+ *
+ * The fence MUST be polled across event-loop ticks (`setTimeout(0)`), not in a synchronous busy-loop:
+ * on a single-threaded GL backend (SwiftShader/ANGLE, the test platform) the GPU commands only make
+ * progress when the loop turns, so a tight `clientWaitSync(sync, 0, 0)` spin on one tick hits
+ * `TIMEOUT_EXPIRED` forever and never signals. The first poll passes `SYNC_FLUSH_COMMANDS_BIT` to
+ * guarantee the flush; subsequent polls yield a tick, then re-poll. This mirrors the Phase-0.5 probe
+ * (`tst/tf-probe/run.mjs`), whose whole point was proving this async shape is the one that works.
+ */
+function clientWaitAsync(gl: WebGL2RenderingContext, sync: WebGLSync, maxPolls = 4000): Promise<void> {
+    return new Promise((resolve, reject) => {
+        let polls = 0;
+        const poll = (flags: number): void => {
+            const status = gl.clientWaitSync(sync, flags, 0);
+            if (status === gl.WAIT_FAILED) {
+                reject(new Error('[WebGLRenderer] readBufferAsync: clientWaitSync returned WAIT_FAILED.'));
+                return;
+            }
+            if (status === gl.TIMEOUT_EXPIRED) {
+                if (polls >= maxPolls) {
+                    reject(
+                        new Error(
+                            `[WebGLRenderer] readBufferAsync: fence not signalled after ${polls} polls ` +
+                                `(TIMEOUT_EXPIRED). The GPU never completed the copy — this is the single-threaded ` +
+                                `busy-loop failure mode; readback must yield across event-loop ticks.`,
+                        ),
+                    );
+                    return;
+                }
+                polls++;
+                // Yield a tick so the GL backend can make progress, then re-poll (no flush bit needed now).
+                setTimeout(() => poll(0), 0);
+                return;
+            }
+            // CONDITION_SATISFIED or ALREADY_SIGNALED → done.
+            resolve();
+        };
+        poll(gl.SYNC_FLUSH_COMMANDS_BIT);
+    });
+}
+
+/**
+ * Honest native CPU readback of a GpuBuffer's current GL buffer (e.g. a transform-feedback output).
+ *
+ * Copies the source buffer into a `STREAM_READ` staging buffer, fences GPU-command completion, polls
+ * the fence across event-loop ticks (never a synchronous busy-loop — see `clientWaitAsync`), then
+ * `getBufferSubData`s into a typed array whose element type matches the buffer's schema (Float32Array
+ * for f32 schemas, Uint32Array for u32, Int32Array for i32). The staging buffer + fence are deleted;
+ * bindings are unwound. One GpuBuffer = one GL buffer, so there is no dual-buffer coherence to reason
+ * about. See llm/webgl-transform-feedback-plan.md, Phase 3.
+ */
+export async function readBufferAsync(
+    gl: WebGL2RenderingContext,
+    state: TransformFeedbackState,
+    buffer: GpuBuffer,
+): Promise<Float32Array | Int32Array | Uint32Array> {
+    const src = state.buffers.get(buffer)?.glBuffer ?? null;
+    if (!src) {
+        throw new Error(
+            '[WebGLRenderer] readBufferAsync: no GL buffer backs this GpuBuffer — it was never used by a ' +
+                'transformFeedback() call (nothing to read back).',
+        );
+    }
+
+    // Result typed array sized to the buffer's element count × components, typed by the schema.
+    const ArrayCtor = typedArrayCtorOf(buffer.schema);
+    const length = buffer.count * buffer.itemSize;
+    const dst = new ArrayCtor(length);
+    const byteLength = dst.byteLength;
+
+    // Copy source → a fresh STREAM_READ staging buffer (reading back from a buffer bound to a TF
+    // binding point is illegal, and staging keeps the source untouched for continued ping-pong).
+    const staging = gl.createBuffer();
+    if (!staging) throw new Error('[WebGLRenderer] readBufferAsync: gl.createBuffer returned null (staging).');
+
+    gl.bindBuffer(gl.COPY_READ_BUFFER, src);
+    gl.bindBuffer(gl.COPY_WRITE_BUFFER, staging);
+    gl.bufferData(gl.COPY_WRITE_BUFFER, byteLength, gl.STREAM_READ);
+    gl.copyBufferSubData(gl.COPY_READ_BUFFER, gl.COPY_WRITE_BUFFER, 0, 0, byteLength);
+
+    // Fence the copy, flush, then poll to completion across ticks (the load-bearing detail).
+    const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+    if (!sync) throw new Error('[WebGLRenderer] readBufferAsync: gl.fenceSync returned null.');
+    gl.flush();
+    try {
+        await clientWaitAsync(gl, sync);
+    } finally {
+        gl.deleteSync(sync);
+    }
+
+    // Pull the staged bytes back into the typed array.
+    gl.bindBuffer(gl.COPY_WRITE_BUFFER, staging);
+    gl.getBufferSubData(gl.COPY_WRITE_BUFFER, 0, dst);
+
+    // Tear down: staging buffer + all copy bindings.
+    gl.deleteBuffer(staging);
+    gl.bindBuffer(gl.COPY_READ_BUFFER, null);
+    gl.bindBuffer(gl.COPY_WRITE_BUFFER, null);
+
+    return dst;
 }
 
 /** Release all GL resources owned by the transform-feedback state (called on renderer dispose). */

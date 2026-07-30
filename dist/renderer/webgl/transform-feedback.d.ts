@@ -68,6 +68,17 @@ export declare function runTransformFeedback(gl: WebGL2RenderingContext, state: 
  * null if the buffer was never bound. @internal
  */
 export declare function getGlBufferFor(state: TransformFeedbackState, buffer: GpuBuffer): WebGLBuffer | null;
+/**
+ * Honest native CPU readback of a GpuBuffer's current GL buffer (e.g. a transform-feedback output).
+ *
+ * Copies the source buffer into a `STREAM_READ` staging buffer, fences GPU-command completion, polls
+ * the fence across event-loop ticks (never a synchronous busy-loop — see `clientWaitAsync`), then
+ * `getBufferSubData`s into a typed array whose element type matches the buffer's schema (Float32Array
+ * for f32 schemas, Uint32Array for u32, Int32Array for i32). The staging buffer + fence are deleted;
+ * bindings are unwound. One GpuBuffer = one GL buffer, so there is no dual-buffer coherence to reason
+ * about. See llm/webgl-transform-feedback-plan.md, Phase 3.
+ */
+export declare function readBufferAsync(gl: WebGL2RenderingContext, state: TransformFeedbackState, buffer: GpuBuffer): Promise<Float32Array | Int32Array | Uint32Array>;
 /** Release all GL resources owned by the transform-feedback state (called on renderer dispose). */
 export declare function disposeTransformFeedback(gl: WebGL2RenderingContext, state: TransformFeedbackState): void;
 export {};
