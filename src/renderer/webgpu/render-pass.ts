@@ -214,7 +214,23 @@ function resolveSwapchainAttachments(
     params: RenderPassParams,
 ): ResolvedAttachments {
     const ctx = getContext(contexts, device, sc.canvasTarget!, format);
-    const swapchainView = ctx.getCurrentTexture().createView();
+    const currentTexture = ctx.getCurrentTexture();
+
+    // The current swapchain texture is the size authority for this pass: it's what the MSAA resolve
+    // target (and the non-MSAA color view) is created from. The cached depth/MSAA textures are a single
+    // shared pair, but the renderer can drive multiple canvas targets of differing size/pixelRatio, so a
+    // target swap or resize race can leave them a frame stale. Reconcile against the live texture here so
+    // the color/depth attachments always match — WebGPU rejects a render pass whose attachments differ in
+    // size (the failure this guards against: "resolve target size … does not match the other attachments").
+    if (
+        !sc.depthTexture ||
+        sc.depthTexture.width !== currentTexture.width ||
+        sc.depthTexture.height !== currentTexture.height
+    ) {
+        recreateSwapchainTextures(device, sc, format, currentTexture.width, currentTexture.height);
+    }
+
+    const swapchainView = currentTexture.createView();
 
     // autoClear=false preserves prior contents so several viewport/scissor views can composite
     // into one canvas. (MSAA can't 'load' a resolve-only target, so it always clears.)
