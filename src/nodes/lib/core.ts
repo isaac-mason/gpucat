@@ -1933,7 +1933,8 @@ export class FnNode<D extends Any> extends Node<D> {
     }
 
     compute(opts: ComputeOptions): ComputeNode {
-        return new ComputeNode({ fn: this, ...opts });
+        // Delegate to the free `compute()` factory so there is one construction path.
+        return compute(this, opts);
     }
 
     trace(): { params: ParameterNode<Any>[]; body: StackNode; output: Node<D> } {
