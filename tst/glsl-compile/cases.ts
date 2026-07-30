@@ -91,6 +91,42 @@ export const tfCases: TfCase[] = [
             );
         },
     },
+    {
+        // Regression for the exact particles-example shape that surfaced bugs 2a + 2b together, through
+        // the transform-feedback path: a shared Fn named after a GLSL builtin (`step`) whose return
+        // expression hoists CSE locals (an intermediate `next` used 3×) and calls a second Fn (`wrap`)
+        // per-component. Pre-fix this failed to compile (undeclared `_vN` + builtin redeclaration).
+        name: 'tf step/wrap (builtin-named Fn + return CSE)',
+        build: () => {
+            const wrap = Fn(
+                (x: Node<d.f32>) => x.sub(x.mul(f32(0.5)).add(x)),
+                { name: 'wrap', params: [{ name: 'x', type: d.f32 }] as const, return: d.f32 },
+            );
+            const step = Fn(
+                (pos: Node<d.vec4f>, vel: Node<d.vec4f>, dt: Node<d.f32>) => {
+                    const next = pos.add(vel.mul(dt));
+                    return vec4(wrap(next.x), wrap(next.y), wrap(next.z), pos.w);
+                },
+                {
+                    name: 'step',
+                    params: [
+                        { name: 'pos', type: d.vec4f },
+                        { name: 'vel', type: d.vec4f },
+                        { name: 'dt', type: d.f32 },
+                    ] as const,
+                    return: d.vec4f,
+                },
+            );
+            const dt = f32(0.016);
+            return compileTransformFeedback(
+                transformFeedback((io) => ({ pos: step(io.pos, io.vel, dt) }), {
+                    inputs: { pos: d.vec4f, vel: d.vec4f },
+                    outputs: { pos: d.vec4f },
+                    name: 'particles-step',
+                }),
+            );
+        },
+    },
 ];
 
 /**
@@ -387,6 +423,78 @@ export const cases: Case[] = [
                 fragment: undefined,
                 depth: f32(0.75),
             };
+        },
+    },
+    {
+        // Bug (duplicate attribute decl) regression: ONE named attribute (`uv`) read via FOUR SEPARATE
+        // `attribute('uv')` nodes (same name, distinct node ids) — mirrors the MRT example where several
+        // varyings each pull `uv`. The GLSL emitter must dedup named attributes BY NAME so `a_uv` is
+        // declared exactly ONCE (`layout(location=N) in vec2 a_uv;`); otherwise the vertex shader emits
+        // `in a_uv` four times and fails to compile (redefinition).
+        name: 'shared named attribute → multiple varyings',
+        build: () => {
+            const position = attribute('position', d.vec3f);
+            // Four distinct attribute('uv') nodes, each feeding its own varying.
+            const vA = varying(attribute('uv', d.vec2f).x, 'vA');
+            const vB = varying(attribute('uv', d.vec2f).y, 'vB');
+            const vC = varying(attribute('uv', d.vec2f).x.add(attribute('uv', d.vec2f).y), 'vC');
+            const vD = varying(attribute('uv', d.vec2f).x.mul(f32(2)), 'vD');
+            const fragment = vec4(vec3(vA.add(vB), vC, vD), f32(1));
+            return { vertex: vec4(position, f32(1)), fragment, depth: undefined };
+        },
+    },
+    {
+        // Bug 2a regression (CSE decls lost in Fn return expr): a shared multi-param Fn whose RETURN
+        // expression contains (a) an intermediate value used 3× (→ CSE hoists a `_vN` local that must be
+        // DECLARED inside the body, not just referenced) and (b) a param used 2×. Mirrors the particles
+        // `step`/`wrap` shape. If the return-expr string is generated AFTER flushing the body's code, the
+        // `_vN = ...;` decls are dropped and `_vN` is undeclared → won't compile.
+        name: 'Fn return-expr CSE decls (intermediate used 3x)',
+        build: () => {
+            // wrap(x): x - 2*round(x/2) — the sub-expression `round(x/2)` is a plain param use.
+            const wrap = Fn(
+                (x: Node<d.f32>) => x.sub(x.mul(f32(0.5)).add(x)),
+                { name: 'wrap', params: [{ name: 'x', type: d.f32 }] as const, return: d.f32 },
+            );
+            // next = pos + vel*dt; the return uses `next` 3× (CSE) and the `pos` param twice.
+            const advance = Fn(
+                (pos: Node<d.vec3f>, vel: Node<d.vec3f>, dt: Node<d.f32>) => {
+                    const next = pos.add(vel.mul(dt));
+                    return vec3(wrap(next.x).add(pos.x), wrap(next.y).add(pos.y), wrap(next.z));
+                },
+                {
+                    name: 'advance',
+                    params: [
+                        { name: 'pos', type: d.vec3f },
+                        { name: 'vel', type: d.vec3f },
+                        { name: 'dt', type: d.f32 },
+                    ] as const,
+                    return: d.vec3f,
+                },
+            );
+            const position = attribute('position', d.vec3f);
+            // Call the Fn in the VERTEX stage (it reads the `position` attribute), then pass the result
+            // to the fragment via a varying.
+            const moved = advance(position, vec3(0.1, 0.2, 0.3), f32(0.5));
+            const vMoved = varying(moved, 'vMoved');
+            return { vertex: vec4(position, f32(1)), fragment: vec4(vMoved, f32(1)), depth: undefined };
+        },
+    },
+    {
+        // Bug 2b regression: a user Fn named after a GLSL builtin (`step`). GLSL rejects redeclaring a
+        // builtin (`vec4 step(...)` → "Name of a built-in function cannot be redeclared"), so the emitter
+        // must mangle the name (→ `fn_step`) consistently at the definition AND the call site. Must
+        // compile + link under real WebGL2.
+        name: 'Fn named after GLSL builtin (step)',
+        build: () => {
+            const step = Fn(
+                (x: Node<d.f32>) => x.mul(f32(2)).add(f32(1)),
+                { name: 'step', params: [{ name: 'x', type: d.f32 }] as const, return: d.f32 },
+            );
+            const position = attribute('position', d.vec3f);
+            // Call the builtin-named Fn in the VERTEX stage (reads the attribute), pass via a varying.
+            const s = varying(step(position.x), 'vStep');
+            return { vertex: vec4(position, f32(1)), fragment: vec4(vec3(s, s, s), f32(1)), depth: undefined };
         },
     },
 ];

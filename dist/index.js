@@ -15108,6 +15108,69 @@ function generateUniform$1(ctx, node) {
     // std140 UBO instance name mirrors the WGSL `uniforms_<group>` binding instance.
     return `uniforms_${node.group.name}.${node.name}`;
 }
+/**
+ * The number of DISTINCT attributes registered (distinct `location`s). Because named attributes are
+ * deduped by name (multiple node ids alias one entry), `ctx.attributes.size` overcounts — the next
+ * location is the count of distinct locations, not the map size.
+ */
+function distinctAttributeCount(ctx) {
+    const locations = new Set();
+    for (const entry of ctx.attributes.values())
+        locations.add(entry.location);
+    return locations.size;
+}
+/**
+ * The distinct attribute entries (one per location), ordered by location. Named attributes are deduped
+ * by name so multiple node ids can alias the same entry — this collapses those aliases so each
+ * `layout(location=N) in ...` declaration is emitted exactly once.
+ */
+function distinctAttributes(ctx) {
+    const byLocation = new Map();
+    for (const entry of ctx.attributes.values()) {
+        if (!byLocation.has(entry.location))
+            byLocation.set(entry.location, entry);
+    }
+    return Array.from(byLocation.values()).sort((a, b) => a.location - b.location);
+}
+/**
+ * GLSL ES 3.00 reserved keywords + built-in function names. A user `Fn` named one of these can't be
+ * declared (`vec4 step(...)` → "Name of a built-in function cannot be redeclared"), so such names are
+ * mangled to `fn_<name>` at both the definition and every call site. Non-colliding names are left as-is
+ * (so existing goldens don't move).
+ */
+const GLSL_RESERVED_NAMES = new Set([
+    // Common built-in functions.
+    'radians', 'degrees', 'sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'sinh', 'cosh', 'tanh',
+    'asinh', 'acosh', 'atanh', 'pow', 'exp', 'log', 'exp2', 'log2', 'sqrt', 'inversesqrt',
+    'abs', 'sign', 'floor', 'trunc', 'round', 'roundEven', 'ceil', 'fract', 'mod', 'modf',
+    'min', 'max', 'clamp', 'mix', 'step', 'smoothstep', 'isnan', 'isinf',
+    'floatBitsToInt', 'floatBitsToUint', 'intBitsToFloat', 'uintBitsToFloat',
+    'fma', 'frexp', 'ldexp', 'packSnorm2x16', 'unpackSnorm2x16', 'packUnorm2x16', 'unpackUnorm2x16',
+    'packHalf2x16', 'unpackHalf2x16', 'length', 'distance', 'dot', 'cross', 'normalize',
+    'faceforward', 'reflect', 'refract', 'matrixCompMult', 'outerProduct', 'transpose',
+    'determinant', 'inverse', 'lessThan', 'lessThanEqual', 'greaterThan', 'greaterThanEqual',
+    'equal', 'notEqual', 'any', 'all', 'not', 'texture', 'textureProj', 'textureLod',
+    'textureOffset', 'texelFetch', 'texelFetchOffset', 'textureProjOffset', 'textureLodOffset',
+    'textureProjLod', 'textureProjLodOffset', 'textureGrad', 'textureGradOffset',
+    'textureProjGrad', 'textureProjGradOffset', 'textureSize', 'textureGather',
+    'dFdx', 'dFdy', 'fwidth', 'emitVertex', 'endPrimitive',
+    // Keywords / reserved words.
+    'const', 'uniform', 'buffer', 'shared', 'attribute', 'varying', 'coherent', 'volatile',
+    'restrict', 'readonly', 'writeonly', 'layout', 'centroid', 'flat', 'smooth', 'noperspective',
+    'patch', 'sample', 'break', 'continue', 'do', 'for', 'while', 'switch', 'case', 'default',
+    'if', 'else', 'in', 'out', 'inout', 'float', 'int', 'void', 'bool', 'true', 'false',
+    'invariant', 'precise', 'discard', 'return', 'mat2', 'mat3', 'mat4', 'vec2', 'vec3', 'vec4',
+    'ivec2', 'ivec3', 'ivec4', 'bvec2', 'bvec3', 'bvec4', 'uint', 'uvec2', 'uvec3', 'uvec4',
+    'lowp', 'mediump', 'highp', 'precision', 'sampler2D', 'sampler3D', 'samplerCube', 'struct',
+    'main',
+]);
+/**
+ * Map a user `Fn` name to a GLSL-safe identifier: reserved / builtin names are prefixed `fn_`, all
+ * others pass through unchanged. Must be applied consistently at the definition and every call site.
+ */
+function glslFnName(name) {
+    return GLSL_RESERVED_NAMES.has(name) ? `fn_${name}` : name;
+}
 function generateAttribute$1(ctx, node) {
     if (ctx.stage !== 'vertex') {
         const attrName = node.name ?? `(unnamed attribute id=${node.id})`;
@@ -15117,7 +15180,22 @@ function generateAttribute$1(ctx, node) {
     const existing = ctx.attributes.get(node.id);
     if (existing)
         return existing.shaderName;
-    const location = ctx.attributes.size;
+    // Named attributes (geometry inputs like `uv`) are declared ONCE by name: several distinct
+    // `attribute('uv')` nodes (same name, different node ids) must share one `layout(location=N) in`
+    // decl. If a named attribute with this name is already registered, alias this node's id to the
+    // existing entry (reusing its location + shaderName) instead of allocating a new location — else
+    // GLSL redefines `in a_uv` and fails to compile. Unnamed/buffer attributes stay deduped by id.
+    if (node.isNamedReference && node.name) {
+        for (const entry of ctx.attributes.values()) {
+            if (entry.node.isNamedReference && entry.node.name === node.name) {
+                ctx.attributes.set(node.id, entry);
+                return entry.shaderName;
+            }
+        }
+    }
+    // Next location counts DISTINCT attributes (distinct locations), not aliased map entries — aliasing
+    // multiple node ids to one entry would make `ctx.attributes.size` overcount.
+    const location = distinctAttributeCount(ctx);
     // Prefix with `a_` so attribute names never collide with GLSL keywords or varyings.
     const shaderName = node.isNamedReference && node.name ? `a_${node.name}` : `a_buf_${location}`;
     ctx.attributes.set(node.id, { shaderName, type: node.type, location, node });
@@ -15197,7 +15275,7 @@ function generateCall$1(ctx, node) {
             ctx.fnDefs.set(fn.fnName, { fn, traced: fn.trace() });
         }
         const args = node.args.map((a) => generateExpr$1(ctx, a));
-        return `${fn.fnName}(${args.join(', ')})`;
+        return `${glslFnName(fn.fnName)}(${args.join(', ')})`;
     }
     if (TEXTURE_FNS.has(node.fn)) {
         return generateTextureCall(ctx, node);
@@ -15837,9 +15915,61 @@ function emitGlslRawFunctions(ctx) {
     }
     return lines.join('\n');
 }
+/**
+ * The fn names DIRECTLY called by a traced fn (via a Call node with an `fnNode`). Used to order
+ * definitions so callees precede callers — GLSL ES 3.00 requires definition-before-use, unlike WGSL
+ * (which allows out-of-order module functions). Discovery registers callers before callees, so without
+ * this reorder a `step` that calls `wrap` would emit `step` first and fail ("no matching function").
+ */
+function tracedFnCallees(traced) {
+    const callees = [];
+    const seen = new Set();
+    const walk = (rawNode) => {
+        const node = rawNode;
+        if (seen.has(node.id))
+            return;
+        seen.add(node.id);
+        if (node.kind === NodeKind.Call) {
+            const fnNode = node.fnNode;
+            if (fnNode)
+                callees.push(fnNode.fnName);
+        }
+        for (const child of getChildren(node))
+            walk(child);
+    };
+    walk(traced.body);
+    walk(traced.output);
+    return callees;
+}
 function emitGlslDslFunctions(ctx) {
     const lines = [];
-    for (const [name, { fn, traced }] of ctx.fnDefs) {
+    // Emit definitions in dependency order (callees before callers) so GLSL's definition-before-use
+    // rule is satisfied. Post-order DFS over the call graph; a `visiting` guard tolerates self/mutual
+    // recursion (emits each fn once, best-effort order — GLSL would need a prototype for true mutual
+    // recursion, which the DSL doesn't produce).
+    const orderedNames = [];
+    const done = new Set();
+    const visiting = new Set();
+    const visit = (name) => {
+        if (done.has(name) || visiting.has(name))
+            return;
+        visiting.add(name);
+        const entry = ctx.fnDefs.get(name);
+        if (entry) {
+            for (const callee of tracedFnCallees(entry.traced))
+                visit(callee);
+        }
+        visiting.delete(name);
+        done.add(name);
+        orderedNames.push(name);
+    };
+    for (const name of ctx.fnDefs.keys())
+        visit(name);
+    for (const name of orderedNames) {
+        const entry = ctx.fnDefs.get(name);
+        if (!entry)
+            continue;
+        const { fn, traced } = entry;
         const params = traced.params
             .map((p, i) => {
             const pName = p.paramName ?? `p${i}`;
@@ -15865,11 +15995,14 @@ function emitGlslDslFunctions(ctx) {
         for (const stmt of traced.body.body)
             generateStmt$1(fnCtx, stmt);
         const retType = fn.type.wgslType === 'void' ? 'void' : glslType(fn.type);
-        lines.push(`${retType} ${name}(${params}) {`);
+        // Generate the return-expr STRING BEFORE flushing fnCtx.code: evaluating the return expr can
+        // append CSE decls (`_vN = ...;`) to fnCtx.code, and those must land inside the function body
+        // (before the return). Flushing first would drop them, leaving `_vN` undeclared.
+        const retExpr = fn.type.wgslType !== 'void' ? generateExpr$1(fnCtx, traced.output) : null;
+        lines.push(`${retType} ${glslFnName(name)}(${params}) {`);
         lines.push(...fnCtx.code);
-        if (fn.type.wgslType !== 'void') {
-            lines.push(`    return ${generateExpr$1(fnCtx, traced.output)};`);
-        }
+        if (retExpr !== null)
+            lines.push(`    return ${retExpr};`);
         lines.push(`}`);
         lines.push('');
     }
@@ -15900,11 +16033,12 @@ function collectGlslVaryings(roots, ctx) {
 function generateGlslVertexShader(slots, ctx) {
     const lines = [];
     const clipExpr = generateExpr$1(ctx, slots.vertex);
-    // Attribute inputs.
-    for (const [, attr] of ctx.attributes) {
+    // Attribute inputs (deduped by location — named attributes may alias several node ids to one entry).
+    const renderAttributes = distinctAttributes(ctx);
+    for (const attr of renderAttributes) {
         lines.push(`layout(location = ${attr.location}) in ${glslType(attr.type)} ${attr.shaderName};`);
     }
-    if (ctx.attributes.size > 0)
+    if (renderAttributes.length > 0)
         lines.push('');
     // Varying outputs (interpolated to the fragment stage). GLSL ES 3.00 matches varyings between
     // stages by NAME, not location — `layout(location=N)` is illegal on a varying here (it is only
@@ -16011,8 +16145,9 @@ function generateGlslTransformFeedbackShader(ctx, body, outputs) {
         return { name: o.name, varyingName: `v_${o.name}`, type, expr: generateExpr$1(ctx, o.expr) };
     });
     const lines = [];
-    // Attribute inputs (registered while emitting the body / outputs above), ordered by location.
-    const attributeList = Array.from(ctx.attributes.values()).sort((a, b) => a.location - b.location);
+    // Attribute inputs (registered while emitting the body / outputs above), ordered by location and
+    // deduped (named attributes may alias several node ids to one entry).
+    const attributeList = distinctAttributes(ctx);
     for (const attr of attributeList) {
         lines.push(`layout(location = ${attr.location}) in ${glslType(attr.type)} ${attr.shaderName};`);
     }

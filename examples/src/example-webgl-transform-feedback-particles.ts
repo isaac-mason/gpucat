@@ -10,8 +10,8 @@ const d = g.d;
 // storage()/compute() — there is no hidden dual buffer, no auto-swap, no PBO mirror. You hold the
 // buffers, you ping-pong them yourself, and you read results back with the native `readBufferAsync`.
 //
-// The per-element physics lives in a shared `step` Fn (below). The SAME Fn would feed a WebGPU
-// `compute()` kernel — `Fn(() => { index(out, i).assign(step(index(pos, i), index(vel, i), dt)); })`
+// The per-element physics lives in a shared `particleStep` Fn (below). The SAME Fn would feed a WebGPU
+// `compute()` kernel — `Fn(() => { index(out, i).assign(particleStep(index(pos, i), index(vel, i), dt)); })`
 // — so the body is reused verbatim across backends; only the thin I/O wrapper differs (own-index
 // attributes/varyings here vs arbitrary-index storage there). That difference is stated, not disguised.
 // ---------------------------------------------------------------------------------------------------
@@ -23,7 +23,7 @@ const N = 4096;
 const BOUND = 8;
 
 // ---------------------------------------------------------------------------------------------------
-// Shared per-element physics. `step(pos, vel, dt)` advances one particle by `vel * dt` and wraps each
+// Shared per-element physics. `particleStep(pos, vel, dt)` advances one particle by `vel * dt` and wraps each
 // axis back into [-BOUND, BOUND]. It is a plain DSL `Fn` with no I/O model baked in, so it is reusable:
 // the transform-feedback kernel calls it here; a WebGPU compute() kernel would call the exact same Fn.
 // ---------------------------------------------------------------------------------------------------
@@ -39,12 +39,12 @@ const wrap = g.Fn((x: g.Node<typeof d.f32>) => {
     return: d.f32,
 });
 
-const step = g.Fn((pos: g.Node<typeof d.vec4f>, vel: g.Node<typeof d.vec4f>, dt: g.Node<typeof d.f32>) => {
+const particleStep = g.Fn((pos: g.Node<typeof d.vec4f>, vel: g.Node<typeof d.vec4f>, dt: g.Node<typeof d.f32>) => {
     const next = pos.add(vel.mul(dt));
     // xyz = wrapped position, w = passthrough (carries a per-particle hue seed for the fragment).
     return g.vec4(wrap(next.x), wrap(next.y), wrap(next.z), pos.w);
 }, {
-    name: 'step',
+    name: 'particleStep',
     params: [
         { name: 'pos', type: d.vec4f },
         { name: 'vel', type: d.vec4f },
@@ -87,7 +87,7 @@ const dt = g.uniform('dt', d.f32);
 
 // The transform-feedback kernel: attribute-in (pos, vel) → captured-varying-out (pos), body = shared Fn.
 const kernel = g.transformFeedback(
-    (io) => ({ pos: step(io.pos, io.vel, dt) }),
+    (io) => ({ pos: particleStep(io.pos, io.vel, dt) }),
     {
         inputs: { pos: d.vec4f, vel: d.vec4f },
         outputs: { pos: d.vec4f },
