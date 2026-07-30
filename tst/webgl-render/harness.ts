@@ -579,14 +579,16 @@ async function caseAlphaToCoverage(): Promise<CaseResult> {
 async function caseMrt(): Promise<CaseResult> {
     const renderer = await newRenderer();
 
-    // 2-attachment target; rename attachments to the mrt() keys.
+    // 2-attachment target; rename attachments to the mrt() keys. Attachment 0 is named `output` so
+    // this also covers (a) the default MRT blend split (output→'material', aux→'no') NOT tripping the
+    // per-attachment-blend guard, and (b) `output` being a GLSL reserved word (mangled to out_output).
     const rt = new RenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true, count: 2 });
-    rt.textures[0].name = 'colA';
+    rt.textures[0].name = 'output';
     rt.textures[1].name = 'colB';
 
     const colB: [number, number, number, number] = [0.2, 0.5, 0.9, 1];
     const mrtNode = mrt({
-        colA: vec4(0.9, 0.1, 0.1, 1),
+        output: vec4(0.9, 0.1, 0.1, 1),
         colB: vec4(colB[0], colB[1], colB[2], 1),
     });
 

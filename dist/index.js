@@ -35086,12 +35086,15 @@ function assertUniformMrtBlend(passCtx) {
     const textures = passCtx.renderTarget?.textures;
     if (!mrt || !textures || textures.length < 2)
         return;
-    // Reduce each target's blend to a comparable key. 'material' and 'no' compare by their tag;
-    // explicit blend specs compare by their factor/equation fields (a custom per-target spec).
+    // Reduce each target's blend to a comparable key. 'material' (inherit the material's global blend)
+    // and 'no' (the default for aux targets) are framework defaults, NOT an explicit per-attachment
+    // request — an MRT declares `output: material` + aux targets `no` by default, which is the normal
+    // opaque case and must not trip this guard. Collapse both to one key; only genuinely-differing
+    // CUSTOM per-target blend specs (which WebGL2's single global blend state can't honor) throw.
     const keyOf = (name) => {
         const b = mrt.getBlendMode(name);
         if (b.blending === 'material' || b.blending === 'no')
-            return b.blending;
+            return 'default';
         return `${b.blending}:${b.blendSrc},${b.blendDst},${b.blendEquation},${b.blendSrcAlpha},${b.blendDstAlpha},${b.blendEquationAlpha}`;
     };
     const first = keyOf(textures[0]?.name ?? '');
