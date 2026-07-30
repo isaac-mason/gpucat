@@ -141,6 +141,70 @@ export function getProgram(
     return info;
 }
 
+/**
+ * Compile + link a transform-feedback program: a vertex shader whose captured varyings are declared
+ * to the linker via `gl.transformFeedbackVaryings(program, varyings, SEPARATE_ATTRIBS)` BEFORE
+ * `gl.linkProgram` (this ordering is mandatory — the varyings must be registered pre-link), plus a
+ * no-op fragment shader (rasterization is discarded at run time but the program must still link).
+ *
+ * Unlike {@link getProgram}, this does NOT use the source-keyed program cache: the transform-feedback
+ * runtime caches the linked program per {@link TransformFeedbackNode} itself (see
+ * `webgl/transform-feedback.ts`), so this is a plain compile+link. Throws with the info log on
+ * COMPILE/LINK failure.
+ *
+ * @param vertex the transform-feedback vertex GLSL (from `compileTransformFeedback().vertexCode`)
+ * @param fragment the no-op fragment GLSL (from `compileTransformFeedback().fragmentCode`)
+ * @param feedbackVaryings ordered captured-varying names (`v_<name>`) — the `SEPARATE_ATTRIBS` order
+ *   that the run-site `bindBufferBase` order must match
+ * @param uniformGroups the compiled uniform groups, used to resolve + bind each UBO block index
+ */
+export function createTransformFeedbackProgram(
+    gl: WebGL2RenderingContext,
+    vertex: string,
+    fragment: string,
+    feedbackVaryings: string[],
+    uniformGroups: UniformGroupBlock[],
+): ProgramInfo {
+    const vs = compileShader(gl, gl.VERTEX_SHADER, vertex);
+    const fs = compileShader(gl, gl.FRAGMENT_SHADER, fragment);
+
+    const program = gl.createProgram();
+    if (!program) throw new Error('[WebGLRenderer] gl.createProgram returned null.');
+    gl.attachShader(program, vs);
+    gl.attachShader(program, fs);
+
+    // The captured varyings MUST be declared before linkProgram, or the link ignores them.
+    gl.transformFeedbackVaryings(program, feedbackVaryings, gl.SEPARATE_ATTRIBS);
+    gl.linkProgram(program);
+
+    gl.deleteShader(vs);
+    gl.deleteShader(fs);
+
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        const log = gl.getProgramInfoLog(program);
+        gl.deleteProgram(program);
+        throw new Error(`[WebGLRenderer] transform-feedback program link failed:\n${log}`);
+    }
+
+    // Same std140 UBO binding-point resolution as getProgram, so kernels using uniform() work.
+    const uboBindingPoints = new Map<string, number>();
+    let nextBindingPoint = 0;
+    for (const group of uniformGroups) {
+        if (group.members.length === 0) continue;
+        if (uboBindingPoints.has(group.groupName)) continue;
+
+        const blockName = `Uniforms_${group.groupName}`;
+        const blockIndex = gl.getUniformBlockIndex(program, blockName);
+        if (blockIndex === gl.INVALID_INDEX) continue;
+
+        const bindingPoint = nextBindingPoint++;
+        gl.uniformBlockBinding(program, blockIndex, bindingPoint);
+        uboBindingPoints.set(group.groupName, bindingPoint);
+    }
+
+    return { program, uboBindingPoints, samplerLocations: new Map() };
+}
+
 /** Delete all cached programs (called on renderer dispose). */
 export function disposePrograms(gl: WebGL2RenderingContext, cache: ProgramCache): void {
     for (const { program } of cache.programs.values()) {

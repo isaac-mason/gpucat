@@ -26,6 +26,8 @@ import * as RenderLists from '../core/render-list';
 import * as RenderObjects from '../core/render-objects';
 import type { Renderer } from '../core/renderer-interface';
 import type { DeviceLostInfo, RendererState } from '../core/renderer-ops';
+import type { GpuBuffer } from '../../core/gpu-buffer';
+import type { TransformFeedbackNode } from '../../nodes/lib/transform-feedback';
 /**
  * Neutral construction options for the WebGL2 renderer — the backend-agnostic subset only (no
  * WebGPU device/adapter/format inputs). Mirrors the shared options `WebGPURendererOptions` also
@@ -98,6 +100,8 @@ export declare class WebGLRenderer implements Renderer, RendererState {
     private readonly _samplers;
     /** Per-RenderTarget GL framebuffer (FBO) cache. @internal */
     private readonly _renderTargets;
+    /** Transform-feedback runtime state (per-node program/VAO + I/O buffer cache). @internal */
+    private readonly _transformFeedback;
     /** Inspector shader-probe state (one active patched program + 1×1 readback FBO). @internal */
     private readonly _probe;
     /** The primary color/attachment format. Fixed at 'rgba8unorm' for the default framebuffer. @internal */
@@ -227,6 +231,31 @@ export declare class WebGLRenderer implements Renderer, RendererState {
     renderProbe(ro: RenderObject, patchedFragment: string): Uint8Array | null;
     /** Release the shader-probe GL resources. @internal */
     clearProbe(): void;
+    /**
+     * Run a transform-feedback kernel (the honest WebGL2 primitive — attribute-in / captured-varying-
+     * out). Binds each `inputs[name]` GpuBuffer as vertex attribute `a_<name>`, each `outputs[name]`
+     * GpuBuffer as the captured-varying target (`bindBufferBase(TRANSFORM_FEEDBACK_BUFFER, i, …)` in
+     * the kernel's declaration order), then runs the kernel under `RASTERIZER_DISCARD` via
+     * `drawArrays(POINTS, 0, count)` (or `drawArraysInstanced` when `instanceCount` is set).
+     *
+     * The caller ping-pongs input/output buffers explicitly across frames; there is one GL buffer per
+     * GpuBuffer (no hidden dual-buffering). This method is WebGLRenderer-only — there is no transform
+     * feedback on WebGPU (use a `compute()` kernel wrapping the shared body `Fn` there instead).
+     *
+     * @throws if an output buffer is also used as an input (ping-pong requires distinct buffers).
+     */
+    transformFeedback(node: TransformFeedbackNode, opts: {
+        inputs: Record<string, GpuBuffer>;
+        outputs: Record<string, GpuBuffer>;
+        count: number;
+        instanceCount?: number;
+    }): void;
+    /**
+     * The plain GL buffer backing a GpuBuffer within the transform-feedback state, or null if the
+     * buffer was never bound by a `transformFeedback()` call. Used by tests (and Phase 3
+     * `readBufferAsync`) to read a TF output buffer back. @internal
+     */
+    getTransformFeedbackGlBuffer(buffer: GpuBuffer): WebGLBuffer | null;
     /**
      * Dispose the renderer and force the WebGL2 context loss. After calling dispose(), the renderer
      * cannot be used again.

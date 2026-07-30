@@ -81,7 +81,7 @@ function glIndexType(gl: WebGL2RenderingContext, array: ArrayBufferView | null |
 // -------------------------------------------------------------------------------------------------
 
 /** GL type + component count + slot count + int-ness derived from a WGSL attribute type string. */
-type AttribFormat = {
+export type AttribFormat = {
     /** GL component type (gl.FLOAT, gl.INT, gl.UNSIGNED_INT). */
     glType: 'float' | 'int' | 'uint';
     /** Components per slot (1..4). */
@@ -93,7 +93,7 @@ type AttribFormat = {
 };
 
 /** Derive the GL attribute format from the compiled WGSL type string (e.g. 'vec3f', 'mat4x4f'). */
-function attribFormat(type: string): AttribFormat {
+export function attribFormat(type: string): AttribFormat {
     switch (type) {
         case 'f32':
             return { glType: 'float', size: 1, slots: 1, byteSize: 4 };
@@ -130,7 +130,7 @@ function attribFormat(type: string): AttribFormat {
     }
 }
 
-function glComponentType(gl: WebGL2RenderingContext, glType: AttribFormat['glType']): number {
+export function glComponentType(gl: WebGL2RenderingContext, glType: AttribFormat['glType']): number {
     switch (glType) {
         case 'int':
             return gl.INT;

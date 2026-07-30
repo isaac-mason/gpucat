@@ -41,7 +41,10 @@ import * as RenderPass from './render-pass';
 import * as RenderTargets from './render-target';
 import * as Samplers from './samplers';
 import * as Textures from './textures';
+import * as TransformFeedback from './transform-feedback';
 import * as Uniforms from './uniforms';
+import type { GpuBuffer } from '../../core/gpu-buffer';
+import type { TransformFeedbackNode } from '../../nodes/lib/transform-feedback';
 
 /**
  * Neutral construction options for the WebGL2 renderer — the backend-agnostic subset only (no
@@ -161,6 +164,9 @@ export class WebGLRenderer implements Renderer, RendererState {
     /** Per-RenderTarget GL framebuffer (FBO) cache. @internal */
     private readonly _renderTargets: RenderTargets.GlRenderTargetsState;
 
+    /** Transform-feedback runtime state (per-node program/VAO + I/O buffer cache). @internal */
+    private readonly _transformFeedback: TransformFeedback.TransformFeedbackState;
+
     /** Inspector shader-probe state (one active patched program + 1×1 readback FBO). @internal */
     private readonly _probe: Probe.ProbeState = Probe.createProbeState();
 
@@ -279,6 +285,7 @@ export class WebGLRenderer implements Renderer, RendererState {
         this._textures = Textures.createGlTexturesState();
         this._samplers = Samplers.createGlSamplersState();
         this._renderTargets = RenderTargets.createGlRenderTargetsState();
+        this._transformFeedback = TransformFeedback.createTransformFeedbackState();
     }
 
     /**
@@ -656,6 +663,44 @@ export class WebGLRenderer implements Renderer, RendererState {
     }
 
     /**
+     * Run a transform-feedback kernel (the honest WebGL2 primitive — attribute-in / captured-varying-
+     * out). Binds each `inputs[name]` GpuBuffer as vertex attribute `a_<name>`, each `outputs[name]`
+     * GpuBuffer as the captured-varying target (`bindBufferBase(TRANSFORM_FEEDBACK_BUFFER, i, …)` in
+     * the kernel's declaration order), then runs the kernel under `RASTERIZER_DISCARD` via
+     * `drawArrays(POINTS, 0, count)` (or `drawArraysInstanced` when `instanceCount` is set).
+     *
+     * The caller ping-pongs input/output buffers explicitly across frames; there is one GL buffer per
+     * GpuBuffer (no hidden dual-buffering). This method is WebGLRenderer-only — there is no transform
+     * feedback on WebGPU (use a `compute()` kernel wrapping the shared body `Fn` there instead).
+     *
+     * @throws if an output buffer is also used as an input (ping-pong requires distinct buffers).
+     */
+    transformFeedback(
+        node: TransformFeedbackNode,
+        opts: {
+            inputs: Record<string, GpuBuffer>;
+            outputs: Record<string, GpuBuffer>;
+            count: number;
+            instanceCount?: number;
+        },
+    ): void {
+        if (this._isDeviceLost) return;
+        if (!this._initialized || !this.gl) {
+            throw new Error('[WebGLRenderer] transformFeedback() called before init(). Await renderer.init() first.');
+        }
+        TransformFeedback.runTransformFeedback(this.gl, this._transformFeedback, node, opts, this._opts.precision);
+    }
+
+    /**
+     * The plain GL buffer backing a GpuBuffer within the transform-feedback state, or null if the
+     * buffer was never bound by a `transformFeedback()` call. Used by tests (and Phase 3
+     * `readBufferAsync`) to read a TF output buffer back. @internal
+     */
+    getTransformFeedbackGlBuffer(buffer: GpuBuffer): WebGLBuffer | null {
+        return TransformFeedback.getGlBufferFor(this._transformFeedback, buffer);
+    }
+
+    /**
      * Dispose the renderer and force the WebGL2 context loss. After calling dispose(), the renderer
      * cannot be used again.
      */
@@ -682,6 +727,7 @@ export class WebGLRenderer implements Renderer, RendererState {
             Textures.disposeGlTextures(this.gl, this._textures);
             Samplers.disposeGlSamplers(this.gl, this._samplers);
             RenderTargets.disposeGlRenderTargets(this.gl, this._renderTargets);
+            TransformFeedback.disposeTransformFeedback(this.gl, this._transformFeedback);
             // Per-geometry GL resources are freed via the geometries WeakMap on GC, or per-geometry
             // disposeGeometry; the context loss below drops the rest.
         }

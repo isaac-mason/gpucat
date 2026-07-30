@@ -37,6 +37,20 @@ export type GeometriesState = {
 };
 /** Create an empty geometries state. */
 export declare function createGeometriesState(): GeometriesState;
+/** GL type + component count + slot count + int-ness derived from a WGSL attribute type string. */
+export type AttribFormat = {
+    /** GL component type (gl.FLOAT, gl.INT, gl.UNSIGNED_INT). */
+    glType: 'float' | 'int' | 'uint';
+    /** Components per slot (1..4). */
+    size: number;
+    /** Number of attribute slots (1 for scalars/vectors, N for matNxN). */
+    slots: number;
+    /** Bytes per full element (all slots), used to derive stride when not interleaved. */
+    byteSize: number;
+};
+/** Derive the GL attribute format from the compiled WGSL type string (e.g. 'vec3f', 'mat4x4f'). */
+export declare function attribFormat(type: string): AttribFormat;
+export declare function glComponentType(gl: WebGL2RenderingContext, glType: AttribFormat['glType']): number;
 /**
  * Prepared draw resources for a geometry under a given program: the VAO to bind plus the index-buffer
  * presence (so the draw path picks drawElements vs drawArrays and the index component type).

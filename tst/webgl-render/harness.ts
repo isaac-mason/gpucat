@@ -13,6 +13,7 @@ import {
     DrawIndirect,
     f32,
     Geometry,
+    GpuBuffer,
     Material,
     Mesh,
     modelNormalMatrix,
@@ -27,6 +28,7 @@ import {
     screenUV,
     Texture,
     texture,
+    transformFeedback,
     Uniform,
     uniform,
     varying,
@@ -904,6 +906,157 @@ async function caseBgra8Unsupported(): Promise<CaseResult> {
     };
 }
 
+// -------------------------------------------------------------------------------------------------
+// Transform feedback (Phase 2). These read the TF OUTPUT buffer back directly via raw
+// gl.getBufferSubData (test-side; readBufferAsync is Phase 3) and assert exact values — the strongest
+// proof the kernel actually ran. Pass/fail is encoded as a green/red pixel like the other cases.
+// -------------------------------------------------------------------------------------------------
+
+/** Read a GpuBuffer's TF output GL buffer back into a Float32Array (raw, test-side). */
+function readTfFloat32(renderer: WebGLRenderer, buffer: GpuBuffer, length: number): Float32Array {
+    const gl = renderer.gl!;
+    const glBuf = renderer.getTransformFeedbackGlBuffer(buffer);
+    if (!glBuf) throw new Error('no GL buffer for TF output (was transformFeedback() run?)');
+    const out = new Float32Array(length);
+    gl.bindBuffer(gl.ARRAY_BUFFER, glBuf);
+    gl.getBufferSubData(gl.ARRAY_BUFFER, 0, out);
+    gl.bindBuffer(gl.ARRAY_BUFFER, null);
+    return out;
+}
+
+/** tf-add: pos' = pos + vel over N vec4 elements; read output back and assert exact per-component. */
+async function caseTransformFeedback(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const N = 4;
+
+    // N vec4s: pos = (i, i+0.5, i+1, i+1.5); vel = (1, 2, 3, 4).
+    const posData = new Float32Array(N * 4);
+    const velData = new Float32Array(N * 4);
+    for (let i = 0; i < N; i++) {
+        posData[i * 4 + 0] = i;
+        posData[i * 4 + 1] = i + 0.5;
+        posData[i * 4 + 2] = i + 1;
+        posData[i * 4 + 3] = i + 1.5;
+        velData[i * 4 + 0] = 1;
+        velData[i * 4 + 1] = 2;
+        velData[i * 4 + 2] = 3;
+        velData[i * 4 + 3] = 4;
+    }
+    const bufA = new GpuBuffer(d.vec4f, { data: posData });
+    const velBuf = new GpuBuffer(d.vec4f, { data: velData });
+    const bufB = new GpuBuffer(d.vec4f, { count: N });
+
+    const kernel = transformFeedback((io) => ({ pos: io.pos.add(io.vel) }), {
+        inputs: { pos: d.vec4f, vel: d.vec4f },
+        outputs: { pos: d.vec4f },
+    });
+
+    renderer.transformFeedback(kernel, { inputs: { pos: bufA, vel: velBuf }, outputs: { pos: bufB }, count: N });
+
+    const got = readTfFloat32(renderer, bufB, N * 4);
+    let ok = true;
+    let note = '';
+    for (let i = 0; i < N * 4; i++) {
+        const expected = posData[i] + velData[i];
+        if (Math.abs(got[i] - expected) > 1e-4) {
+            ok = false;
+            note = `idx ${i}: got ${got[i]}, want ${expected}`;
+            break;
+        }
+    }
+    if (ok) note = `[${Array.from(got.slice(0, 4)).join(', ')}] …`;
+    renderer.dispose();
+    return {
+        name: 'tf-add',
+        pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note,
+    };
+}
+
+/** tf-pingpong: run twice swapping in/out; assert value advanced by 2*vel. */
+async function caseTransformFeedbackPingPong(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const N = 4;
+    const posData = new Float32Array(N * 4);
+    const velData = new Float32Array(N * 4);
+    for (let i = 0; i < N; i++) {
+        for (let c = 0; c < 4; c++) {
+            posData[i * 4 + c] = i * 4 + c;
+            velData[i * 4 + c] = c + 1; // (1,2,3,4)
+        }
+    }
+    let front = new GpuBuffer(d.vec4f, { data: posData });
+    let back = new GpuBuffer(d.vec4f, { count: N });
+    const velBuf = new GpuBuffer(d.vec4f, { data: velData });
+
+    const kernel = transformFeedback((io) => ({ pos: io.pos.add(io.vel) }), {
+        inputs: { pos: d.vec4f, vel: d.vec4f },
+        outputs: { pos: d.vec4f },
+    });
+
+    // Step 1: front → back.
+    renderer.transformFeedback(kernel, { inputs: { pos: front, vel: velBuf }, outputs: { pos: back }, count: N });
+    [front, back] = [back, front];
+    // Step 2: front(=old back) → back(=old front). back must hold pos + 2*vel.
+    renderer.transformFeedback(kernel, { inputs: { pos: front, vel: velBuf }, outputs: { pos: back }, count: N });
+
+    // `back` now (after the second swap target) holds the twice-advanced values.
+    const got = readTfFloat32(renderer, back, N * 4);
+    let ok = true;
+    let note = '';
+    for (let i = 0; i < N * 4; i++) {
+        const expected = posData[i] + 2 * velData[i];
+        if (Math.abs(got[i] - expected) > 1e-4) {
+            ok = false;
+            note = `idx ${i}: got ${got[i]}, want ${expected}`;
+            break;
+        }
+    }
+    if (ok) note = `advanced by 2*vel: [${Array.from(got.slice(0, 4)).join(', ')}] …`;
+    renderer.dispose();
+    return {
+        name: 'tf-pingpong',
+        pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note,
+    };
+}
+
+/** tf-alias-guard: same buffer as input and output must throw. */
+async function caseTransformFeedbackAliasGuard(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const N = 4;
+    const shared = new GpuBuffer(d.vec4f, { data: new Float32Array(N * 4) });
+    const velBuf = new GpuBuffer(d.vec4f, { data: new Float32Array(N * 4) });
+
+    const kernel = transformFeedback((io) => ({ pos: io.pos.add(io.vel) }), {
+        inputs: { pos: d.vec4f, vel: d.vec4f },
+        outputs: { pos: d.vec4f },
+    });
+
+    let threw = false;
+    let msg = '';
+    try {
+        renderer.transformFeedback(kernel, {
+            inputs: { pos: shared, vel: velBuf },
+            outputs: { pos: shared },
+            count: N,
+        });
+    } catch (err) {
+        threw = true;
+        msg = err instanceof Error ? err.message : String(err);
+    }
+    renderer.dispose();
+    const ok = threw && msg.includes("output buffer can't also be an input");
+    return {
+        name: 'tf-alias',
+        pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: threw ? msg.slice(0, 60) : 'did not throw',
+    };
+}
+
 export async function run(): Promise<RunResult> {
     try {
         const cases: CaseResult[] = [];
@@ -926,6 +1079,9 @@ export async function run(): Promise<RunResult> {
             caseMrtBlendUnsupported,
             caseCubeMips,
             caseBgra8Unsupported,
+            caseTransformFeedback,
+            caseTransformFeedbackPingPong,
+            caseTransformFeedbackAliasGuard,
             // NOTE: shadow-map (comparison sampler) is NOT asserted here — SwiftShader (the headless
             // WebGL2 backend this harness runs on) does not honor sampler2DShadow depth comparison
             // (a hand-rolled pure-GL shadow program returns "lit" for every ref against a
