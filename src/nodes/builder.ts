@@ -924,6 +924,11 @@ function discover(roots: Node<d.Any>[]): Discovery {
             if (!uniforms.has(name)) {
                 uniforms.set(name, { node, group });
             }
+            // A struct-typed UBO member needs its `struct` declared just like a storage buffer's does.
+            // discover() previously walked types for structs only through storage bindings, so a struct
+            // reached solely via a uniform was never registered — the WGSL emitter then referenced an
+            // undeclared type. Walk the uniform's type here so every backend sees the struct def.
+            walkTypeForStructs(node.type, registerStructDef);
         }
 
         // module scope variable discovery
