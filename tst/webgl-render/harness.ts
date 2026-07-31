@@ -1713,8 +1713,8 @@ async function caseStructTextureBits(): Promise<CaseResult> {
     const tex = createStructTexture(Rec, 1);
     tex.store(Rec, 0, { bf: { a: 64, b: 128, c: 192 } } as never);
     const rec = texture(tex).load(Rec, u32(0));
-    // bits sub-accessor: `.a`/`.b`/`.c` → u32 nodes (typing for nested bits access is a follow-up).
-    const bf = rec.bf as unknown as { a: Node<d.u32>; b: Node<d.u32>; c: Node<d.u32> };
+    // bits sub-accessor: `.a`/`.b`/`.c` → `Node<u32>` (statically typed — no cast needed).
+    const bf = rec.bf;
     const material = new Material({
         vertex: vec4(attribute('position', d.vec3f), f32(1)),
         fragment: vec4(f32(bf.a).div(f32(255)), f32(bf.b).div(f32(255)), f32(bf.c).div(f32(255)), f32(1)),

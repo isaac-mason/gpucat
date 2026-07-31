@@ -565,7 +565,17 @@ export function isPackedDesc(desc: Any): desc is Packed {
 /* bitfields — a u32 split into named bit ranges (structured-texture field type) */
 
 export type BitsField = { name: string; width: number; shift: number };
-export type bits = { type: 'bits'; wgslType: 'u32'; glslType: 'uint'; fields: BitsField[] };
+export type bits<F extends Record<string, number> = Record<string, number>> = {
+    type: 'bits';
+    wgslType: 'u32';
+    glslType: 'uint';
+    fields: BitsField[];
+    /**
+     * Phantom carrying the declared bit-field names for static typing of the load accessor (so
+     * `load(rec, i).<bitsField>.<name>` types as `Node<u32>` without a cast). Never set at runtime.
+     */
+    readonly __fields?: F;
+};
 
 /**
  * A bitfield packed into one `u32`: `d.bits({ flags: 8, materialId: 24 })`. Fields are declared
@@ -573,7 +583,7 @@ export type bits = { type: 'bits'; wgslType: 'u32'; glslType: 'uint'; fields: Bi
  * structured-texture struct field: it stores as 4 B and the accessor decodes each named field to a
  * `u32` via shift/mask (no builtins — works on both backends). Not a valid emitted WGSL/GLSL member.
  */
-export function bits(fields: Record<string, number>): bits {
+export function bits<F extends Record<string, number>>(fields: F): bits<F> {
     const list: BitsField[] = [];
     let shift = 0;
     for (const [name, width] of Object.entries(fields)) {

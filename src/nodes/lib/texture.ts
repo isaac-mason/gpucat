@@ -434,7 +434,14 @@ export class TextureNode<D extends FlatSampledTexture = d.texture2d> extends Nod
  * ─────────────────────────────────────────────────────────────────────────── */
 
 /** Per-field accessor object returned by {@link TextureNode.load}/{@link TextureNode.loadAt}. */
-export type RecordAccessor<S extends d.StructSchema> = { readonly [K in keyof S]: Node<S[K]> };
+export type RecordAccessor<S extends d.StructSchema> = { readonly [K in keyof S]: FieldAccessor<S[K]> };
+
+/**
+ * Decoded accessor type for one struct field. A `d.bits({...})` field becomes a sub-accessor with a
+ * `Node<u32>` per declared bit-field name (matching the runtime `decodeField` bits branch); every
+ * other field type stays a `Node` of its (decoded) type.
+ */
+type FieldAccessor<T extends d.Any> = T extends d.bits<infer F> ? { readonly [N in keyof F]: Node<d.u32> } : Node<T>;
 
 /** Texture width (texels per row) — needed to map a linear texel index to (x, y). */
 function accessorWidth(node: TextureNode<FlatSampledTexture>): number {
