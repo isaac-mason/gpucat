@@ -1,7 +1,7 @@
 import type { StructDef } from '../nodes/lib/core';
 import { GpuTexture } from '../core/gpu-texture';
 import { GpuSampler } from '../core/gpu-sampler';
-import { packToView, structFieldLayout } from '../schema/pack';
+import { packTo, packToView, structFieldLayout } from '../schema/pack';
 import { Source, type DataTextureImage } from './source';
 import * as d from '../schema/schema';
 import type { WrapMode, FilterMode, MipmapFilterMode, TextureOptions } from './texture';
@@ -158,26 +158,28 @@ export class DataTexture {
     }
 
     /**
-     * Write a struct record at record `index` (byte offset `index · texelStride · 16`), packing
-     * `value` into the backing `rgba32uint` data (std430 layout) and flagging a GPU re-upload.
-     * Pair with `texture(this).load(schema, i)` on the shader side. Allocate via
+     * Pack a struct record into record `index` (byte offset `index · texelStride · 16`), encoding
+     * `value` into the backing `rgba32uint` data (std430 layout) and flagging a GPU re-upload. The
+     * common CPU-side write; pair with `texture(this).load(schema, i)` on the shader side. Allocate via
      * {@link createStructTexture}.
      */
-    store<S extends d.StructSchema>(schema: StructDef<S>, index: number, value: StructValue<S>): this {
+    packAtIndex<S extends d.StructSchema>(schema: StructDef<S>, index: number, value: StructValue<S>): this {
         const { texelStride } = structFieldLayout(schema as unknown as d.StructDesc);
-        return this.storeAt(schema, index * texelStride, value);
+        return this.packAtTexel(schema, index * texelStride, value);
     }
 
-    /** Write a struct record starting at an explicit TEXEL offset (the primitive under {@link store}). */
-    storeAt<S extends d.StructSchema>(schema: StructDef<S>, texel: number, value: StructValue<S>): this {
+    /**
+     * Pack a struct record starting at an explicit TEXEL offset — the low-level primitive under
+     * {@link packAtIndex} (a texel is this texture's native addressing unit).
+     */
+    packAtTexel<S extends d.StructSchema>(schema: StructDef<S>, texel: number, value: StructValue<S>): this {
         const { texelStride } = structFieldLayout(schema as unknown as d.StructDesc);
         // Auto-grow (height only — width is fixed, so a shader compiled against `load(schema, i)` keeps
         // addressing correctly after the texture grows) before writing past the current allocation.
         this._ensureTexels(texel + texelStride);
         const data = this.data;
-        if (!data) throw new Error('[DataTexture] store(): texture has no backing data array.');
-        const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-        packToView(schema as unknown as d.Any, view, texel * 16, value as never, 'std430');
+        if (!data) throw new Error('[DataTexture] packAtTexel(): texture has no backing data array.');
+        packTo(schema as unknown as d.Any, data, texel * 16, value as never, 'std430');
         // Partial upload of just this record's texels. If `_ensureTexels` grew the texture it already
         // set `needsUpdate` (full), which takes priority over this range — a grow is one full re-upload.
         this.addUpdateRange(texel, texelStride);
@@ -185,10 +187,30 @@ export class DataTexture {
     }
 
     /**
+     * Bulk write: pack an entire array of struct `values` from record 0, encoding each per `schema`
+     * (std430) at its `texelStride`, growing the texture (height only) to hold them all, then flag ONE
+     * full re-upload (`needsUpdate` supersedes any queued partial ranges). Parallel to
+     * {@link GpuBuffer.pack}.
+     */
+    pack<S extends d.StructSchema>(schema: StructDef<S>, values: StructValue<S>[]): this {
+        const { texelStride } = structFieldLayout(schema as unknown as d.StructDesc);
+        this._ensureTexels(values.length * texelStride);
+        const data = this.data;
+        if (!data) throw new Error('[DataTexture] pack(): texture has no backing data array.');
+        const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+        for (let i = 0; i < values.length; i++) {
+            packToView(schema as unknown as d.Any, view, i * texelStride * 16, values[i] as never, 'std430');
+        }
+        // A whole-array write is one full re-upload — supersedes any queued partial ranges.
+        this.needsUpdate = true;
+        return this;
+    }
+
+    /**
      * Queue a partial upload of a texel range so the renderer re-uploads only the covering rows
-     * (`texSubImage2D` / `writeTexture`) instead of the whole texture. Auto-called by {@link store} /
-     * {@link storeAt}; call directly if you mutate `.data` by hand. A subsequent `needsUpdate = true`
-     * (full re-upload) supersedes any queued ranges.
+     * (`texSubImage2D` / `writeTexture`) instead of the whole texture. Auto-called by
+     * {@link packAtIndex} / {@link packAtTexel}; call directly if you mutate `.data` by hand. A
+     * subsequent `needsUpdate = true` (full re-upload) supersedes any queued ranges.
      */
     addUpdateRange(startTexel: number, countTexels: number): this {
         this._gpuTexture.addUpdateRange(startTexel, countTexels);
@@ -263,9 +285,9 @@ export class DataTexture {
 
 /**
  * Allocate a `DataTexture` sized to hold `capacity` records of `schema`, backed by `rgba32uint`
- * (NEAREST). Write records with `tex.store(schema, i, value)`; read them on the shader side with
- * `texture(tex).load(schema, i)`. The struct is laid out std430, one record every `texelStride`
- * texels (16 B each).
+ * (NEAREST). Write records with `tex.packAtIndex(schema, i, value)` (or `tex.pack(schema, values)` in
+ * bulk); read them on the shader side with `texture(tex).load(schema, i)`. The struct is laid out
+ * std430, one record every `texelStride` texels (16 B each).
  */
 export function createStructTexture<S extends d.StructSchema>(
     schema: StructDef<S>,

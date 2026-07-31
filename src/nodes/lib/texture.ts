@@ -1,9 +1,11 @@
+import type { GpuBuffer } from '../../core/gpu-buffer';
 import { GpuSampler } from '../../core/gpu-sampler';
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { Any, CubeSampledTexture, FlatDepthTexture, FlatSampledTexture } from '../../schema/schema';
 import * as d from '../../schema/schema';
 import type { ArrayTexture } from '../../texture/array-texture';
 import type { CubeTexture } from '../../texture/cube-texture';
+import type { DataTexture } from '../../texture/data-texture';
 import type { DepthTexture } from '../../texture/depth-texture';
 import type { Texture } from '../../texture/texture';
 import { structFieldLayout } from '../../schema/pack';
@@ -117,10 +119,32 @@ export class SamplerNode<D extends d.sampler | d.samplerComparison = d.sampler> 
  * Holds a reference to a GpuTexture<D> which the renderer uses to create/update
  * the GPU texture.
  */
+
+/**
+ * A read-only storage `GpuBuffer` reinterpreted as an `rgba32uint` texture for the WebGL backend (which
+ * has no SSBO). The renderer reads the buffer's own bytes directly as `width × height` u32 texels — no
+ * `DataTexture`, no second CPU array — and caches one GL texture per `GpuBuffer` (version-synced to
+ * `buffer.version`). Carried on the synthetic `TextureBindingNode` that a lowered `storage()` read
+ * samples through; the `width` is baked into the shader's texel addressing at compile time.
+ */
+export type StorageBufferTextureSource = {
+    buffer: GpuBuffer;
+    width: number;
+    height: number;
+};
+
 export class TextureBindingNode<D extends d.Texture = d.Texture> extends Node<D> {
     readonly kind = NodeKind.TextureBinding;
     /** The GpuTexture */
     value: GpuTexture<D> | null = null;
+
+    /**
+     * When set, this binding is NOT a GpuTexture but a read-only storage `GpuBuffer` reinterpreted as an
+     * `rgba32uint` texture — the WebGL `storage()` read-lowering (WebGL2 has no SSBO). `value` stays null;
+     * the renderer reads the buffer's bytes directly as `width × height` u32 texels and caches one GL
+     * texture per `GpuBuffer`. WebGPU never sets this (storage stays a native `array<Struct>` there).
+     */
+    storageBufferSource: StorageBufferTextureSource | null = null;
 
     /** Unique ID for this texture binding (e.g. 'tAlbedo', 'tShadowMap'). */
     readonly textureId: string;
@@ -459,8 +483,12 @@ function readTexel(base: TextureNode<FlatSampledTexture>, texelIndex: Node<d.u32
     return base.load(vec2i(x, y), i32(0)) as TextureNode<FlatSampledTexture>;
 }
 
-/** Decode one field at `byteOffset` from the record beginning at texel `texelBase`. */
-function decodeField(
+/**
+ * Decode one field at `byteOffset` from the record beginning at texel `texelBase` of an `rgba32uint`
+ * texture. Exported so the `storage()` WebGL lowering (the GLSL emitter's `matchStorageRead`) can decode
+ * a mirror-texture read through the same path as `texture(t).load(schema, i)`.
+ */
+export function decodeField(
     base: TextureNode<FlatSampledTexture>,
     texelBase: Node<d.u32>,
     width: number,
@@ -709,13 +737,14 @@ function sampledDescForStorage(desc: d.StorageTexture): FlatSampledTexture {
  * albedo.load(vec2i(10, 20))           // textureLoad
  */
 export function texture(tex: Texture): TextureNode<d.texture2d>;
+export function texture(dataTex: DataTexture): TextureNode<d.texture2d>;
 export function texture<D extends FlatSampledTexture>(gpuTex: GpuTexture<D>, gpuSampler: GpuSampler): TextureNode<D>;
 export function texture<S extends d.StorageTexture>(
     storageTex: GpuTexture<S>,
     gpuSampler: GpuSampler,
 ): TextureNode<StorageSampledOf<S>>;
 export function texture(
-    source: Texture | GpuTexture<FlatSampledTexture> | GpuTexture<d.StorageTexture>,
+    source: Texture | DataTexture | GpuTexture<FlatSampledTexture> | GpuTexture<d.StorageTexture>,
     gpuSampler?: GpuSampler,
 ): TextureNode<FlatSampledTexture> {
     if ('isGpuTexture' in source) {
@@ -742,8 +771,10 @@ export function texture(
         node.samplerNode = sampler(gpuSampler, binding.group);
         return node;
     } else {
-        // Texture._gpuTexture is GpuTexture<d.texture2d>
-        // Widen to FlatSampledTexture for the binding
+        // A high-level Texture or DataTexture — both expose `_gpuTexture` / `_gpuSampler` / `id`. The
+        // GpuTexture's descriptor carries the sampled type (a DataTexture backed by an integer format
+        // reports `texture2d<u32>`/`texture2d<i32>`, so the emitter declares usampler2D/isampler2D and
+        // `.load()` returns uvec4/ivec4) — so DataTexture rides this same branch, no cast needed.
         const gpuTex = source._gpuTexture;
         const desc = gpuTex.type as FlatSampledTexture;
         const binding = new TextureBindingNode(desc, `t${source.id}`);

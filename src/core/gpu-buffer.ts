@@ -8,11 +8,13 @@ import {
     u32 as u32Schema,
     type Any,
     type array,
+    type Infer,
     type sizedArray,
     type StructDesc,
     type StructSchema,
     type TypedArrayFor,
 } from '../schema/schema';
+import { layoutStrideOf, packTo, packToView } from '../schema/pack';
 
 /** determines how a buffer's lifecycle is managed */
 export enum BufferLifecycle {
@@ -262,6 +264,91 @@ export class GpuBuffer<T extends Any = Any> {
     /** Clear pending update ranges (called by renderer after upload) */
     clearUpdateRanges(): void {
         this.updateRanges.length = 0;
+    }
+
+    /**
+     * Pack `value` into element `index`, encoding it per `schema` (std430 — the storage-buffer layout)
+     * into `this.array` and queuing a partial re-upload (`addUpdateRange` + version bump). The common
+     * CPU-side write, parallel to {@link DataTexture.packAtIndex}: on WebGPU the renderer `writeBuffer`s
+     * just this range; on WebGL2 (where a read-only storage buffer is reinterpreted as an rgba32uint
+     * texture) it `texSubImage2D`s just the covering rows.
+     *
+     * `schema` is the ELEMENT type — `d.mat4x4f` for an `array<mat4x4f>` buffer, or the struct for
+     * `array<Struct>`. Its std430 stride must match the buffer's element stride (byteLength / count),
+     * else this throws rather than silently misaligning.
+     */
+    packAtIndex<D extends Any>(schema: D, index: number, value: Infer<D>): this {
+        const arr = this.array;
+        if (arr == null) {
+            throw new Error('[GpuBuffer] packAtIndex(): buffer has no CPU `array` to write into (its data was released after upload).');
+        }
+        const strideBytes = layoutStrideOf(schema, 'std430');
+        const elementStride = arr.byteLength / this.count;
+        if (strideBytes !== elementStride) {
+            throw new Error(
+                `[GpuBuffer] packAtIndex(): schema std430 stride ${strideBytes}B does not match the buffer's element stride ` +
+                    `${elementStride}B (${this.count} elements over ${arr.byteLength}B) — pass the element schema whose layout matches the buffer.`,
+            );
+        }
+        return this.packAtByte(schema, index * strideBytes, value);
+    }
+
+    /**
+     * Pack `value` (encoded per `schema`, std430) at a raw BYTE offset into `this.array` — the low-level
+     * primitive under {@link packAtIndex} and the buffer analogue of {@link DataTexture.packAtTexel}.
+     * Byte offsets are honest to `pack.ts`/std430 (which address in bytes); `byteOffset` must be a
+     * multiple of the array's component size. Queues a partial upload of exactly this element's
+     * components; a subsequent `needsUpdate = true` (full re-upload) supersedes queued ranges.
+     */
+    packAtByte<D extends Any>(schema: D, byteOffset: number, value: Infer<D>): this {
+        const arr = this.array;
+        if (arr == null) {
+            throw new Error('[GpuBuffer] packAtByte(): buffer has no CPU `array` to write into (its data was released after upload).');
+        }
+        const bytesPerComponent = arr.BYTES_PER_ELEMENT;
+        if (byteOffset % bytesPerComponent !== 0) {
+            throw new Error(
+                `[GpuBuffer] packAtByte(): byteOffset ${byteOffset} is not a multiple of the array's ${bytesPerComponent}-byte component size.`,
+            );
+        }
+        const componentOffset = byteOffset / bytesPerComponent;
+        const componentCount = layoutStrideOf(schema, 'std430') / bytesPerComponent;
+        packTo(schema, arr, byteOffset, value, 'std430');
+        this.addUpdateRange(componentOffset, componentCount);
+        this.needsUpdate = true;
+        return this;
+    }
+
+    /**
+     * Bulk write: pack an entire array of `values` from element 0, encoding each per `schema` (std430)
+     * at its element stride, then flag ONE full re-upload (`needsUpdate` + cleared partial ranges — a
+     * whole-array write supersedes any queued `packAtIndex` ranges on both backends). `schema` is the
+     * ELEMENT type; `values.length` must not exceed the buffer's element `count`.
+     */
+    pack<D extends Any>(schema: D, values: Infer<D>[]): this {
+        const arr = this.array;
+        if (arr == null) {
+            throw new Error('[GpuBuffer] pack(): buffer has no CPU `array` to write into (its data was released after upload).');
+        }
+        if (values.length > this.count) {
+            throw new Error(`[GpuBuffer] pack(): ${values.length} values exceed the buffer's ${this.count}-element capacity.`);
+        }
+        const strideBytes = layoutStrideOf(schema, 'std430');
+        const elementStride = arr.byteLength / this.count;
+        if (strideBytes !== elementStride) {
+            throw new Error(
+                `[GpuBuffer] pack(): schema std430 stride ${strideBytes}B does not match the buffer's element stride ` +
+                    `${elementStride}B (${this.count} elements over ${arr.byteLength}B) — pass the element schema whose layout matches the buffer.`,
+            );
+        }
+        const view = new DataView(arr.buffer, arr.byteOffset, arr.byteLength);
+        for (let i = 0; i < values.length; i++) {
+            packToView(schema, view, i * strideBytes, values[i], 'std430');
+        }
+        // One full re-upload: drop any queued partial ranges so both backends take the full path.
+        this.clearUpdateRanges();
+        this.needsUpdate = true;
+        return this;
     }
 
     /**

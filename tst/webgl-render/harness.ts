@@ -29,6 +29,7 @@ import {
     RenderTarget,
     Scene,
     screenUV,
+    storage,
     struct,
     Texture,
     texture,
@@ -1554,7 +1555,7 @@ async function caseStructTexture(): Promise<CaseResult> {
 
     const Rec = struct('STRec', { color: d.vec4f, id: d.u32 });
     const tex = createStructTexture(Rec, 1);
-    tex.store(Rec, 0, { color: [0.25, 0.5, 0.75, 0.1], id: 255 });
+    tex.packAtIndex(Rec, 0, { color: [0.25, 0.5, 0.75, 0.1], id: 255 });
 
     const rec = texture(tex).load(Rec, u32(0));
     const material = new Material({
@@ -1587,7 +1588,7 @@ async function caseStructTextureMat4(): Promise<CaseResult> {
     const M = struct('STMat', { m: d.mat4x4f });
     const tex = createStructTexture(M, 1);
     // column-major: column 0 = (0.25, 0.5, 0.75, 1), rest 0.
-    tex.store(M, 0, { m: [0.25, 0.5, 0.75, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] });
+    tex.packAtIndex(M, 0, { m: [0.25, 0.5, 0.75, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] });
 
     const rec = texture(tex).load(M, u32(0));
     const col0 = mul(rec.m, vec4(f32(1), f32(0), f32(0), f32(0)));
@@ -1618,7 +1619,7 @@ async function caseStructTexturePackedUnorm(): Promise<CaseResult> {
     renderer.clearColor = [0, 0, 0, 1];
     const Rec = struct('STPackU8', { col: d.unorm8x4 });
     const tex = createStructTexture(Rec, 1);
-    tex.store(Rec, 0, { col: [64 / 255, 128 / 255, 192 / 255, 1] });
+    tex.packAtIndex(Rec, 0, { col: [64 / 255, 128 / 255, 192 / 255, 1] });
     const rec = texture(tex).load(Rec, u32(0));
     const material = new Material({
         vertex: vec4(attribute('position', d.vec3f), f32(1)),
@@ -1646,7 +1647,7 @@ async function caseStructTexturePackedHalf(): Promise<CaseResult> {
     renderer.clearColor = [0, 0, 0, 1];
     const Rec = struct('STPackH', { hv: d.half2x16, uv: d.unorm2x16 });
     const tex = createStructTexture(Rec, 1);
-    tex.store(Rec, 0, { hv: [0.5, 0.25], uv: [0.5, 0.75] });
+    tex.packAtIndex(Rec, 0, { hv: [0.5, 0.25], uv: [0.5, 0.75] });
     const rec = texture(tex).load(Rec, u32(0));
     // rgb only — the default framebuffer is opaque, so a fractional alpha reads back as 255.
     // hv.x→r, hv.y→g (half2x16), uv.x→b (unorm2x16); alpha fixed at 1.
@@ -1676,7 +1677,7 @@ async function caseStructTexturePackedSnorm(): Promise<CaseResult> {
     renderer.clearColor = [0, 0, 0, 1];
     const Rec = struct('STPackS8', { s: d.snorm8x4 });
     const tex = createStructTexture(Rec, 1);
-    tex.store(Rec, 0, { s: [1, 0, -1, 0.5] });
+    tex.packAtIndex(Rec, 0, { s: [1, 0, -1, 0.5] });
     const rec = texture(tex).load(Rec, u32(0));
     const material = new Material({
         vertex: vec4(attribute('position', d.vec3f), f32(1)),
@@ -1711,7 +1712,7 @@ async function caseStructTextureBits(): Promise<CaseResult> {
     renderer.clearColor = [0, 0, 0, 1];
     const Rec = struct('STBits', { bf: d.bits({ a: 8, b: 8, c: 8 }) });
     const tex = createStructTexture(Rec, 1);
-    tex.store(Rec, 0, { bf: { a: 64, b: 128, c: 192 } } as never);
+    tex.packAtIndex(Rec, 0, { bf: { a: 64, b: 128, c: 192 } } as never);
     const rec = texture(tex).load(Rec, u32(0));
     // bits sub-accessor: `.a`/`.b`/`.c` → `Node<u32>` (statically typed — no cast needed).
     const bf = rec.bf;
@@ -1744,8 +1745,8 @@ async function caseStructTextureGrow(): Promise<CaseResult> {
 
     const Rec = struct('GrowRec', { color: d.vec4f, id: d.u32 });
     const tex = createStructTexture(Rec, 1); // capacity 1 → storing record 5 forces a height grow
-    tex.store(Rec, 0, { color: [0.9, 0.1, 0.2, 1], id: 1 });
-    tex.store(Rec, 5, { color: [0.25, 0.5, 0.75, 0.1], id: 255 });
+    tex.packAtIndex(Rec, 0, { color: [0.9, 0.1, 0.2, 1], id: 1 });
+    tex.packAtIndex(Rec, 5, { color: [0.25, 0.5, 0.75, 0.1], id: 255 });
 
     const rec = texture(tex).load(Rec, u32(5));
     const material = new Material({
@@ -1777,7 +1778,7 @@ async function caseStructTexturePartial(): Promise<CaseResult> {
 
     const Rec = struct('PartRec', { color: d.vec4f, id: d.u32 });
     const tex = createStructTexture(Rec, 1); // grows to a multi-row texture when record 5 is written
-    tex.store(Rec, 5, { color: [0.9, 0.1, 0.2, 1], id: 1 });
+    tex.packAtIndex(Rec, 5, { color: [0.9, 0.1, 0.2, 1], id: 1 });
 
     const rec = texture(tex).load(Rec, u32(5));
     const material = new Material({
@@ -1793,12 +1794,220 @@ async function caseStructTexturePartial(): Promise<CaseResult> {
 
     renderer.render(scene, camera); // render 1: full upload (allocates the grown texture)
     // Change record 5 → partial path (already allocated, no full flag): only row 5 is re-uploaded.
-    tex.store(Rec, 5, { color: [0.25, 0.5, 0.75, 0.1], id: 255 });
+    tex.packAtIndex(Rec, 5, { color: [0.25, 0.5, 0.75, 0.1], id: 255 });
     renderer.render(scene, camera); // render 2: partial texSubImage2D of row 5
 
     const pixel = readCenter(renderer.gl!);
     renderer.dispose();
     return { name: 'struct-texture-partial', pixel, expected: [u8(0.25), u8(0.5), u8(0.75), 255] };
+}
+
+/**
+ * storage-struct: read one record of a read-only `storage()` buffer whose element is a struct, on WebGL.
+ * WebGL2 has no SSBO, so the backend reinterprets the buffer AS an rgba32uint mirror texture (a zero-copy
+ * view over the buffer's bytes) and lowers `buf.element(2).fields().color` to a texelFetch + bitcast —
+ * the SAME `decodeField` path as `texture(t).load(schema, i)`. The center pixel must equal element 2's
+ * color, proving the reinterpretation + index math + field decode round-trip end to end.
+ */
+async function caseStorageStruct(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+
+    const Instance = struct('Instance', { color: d.vec4f });
+    const R = 0.6;
+    const G = 0.2;
+    const B = 0.8;
+    const N = 4;
+    const data = new Float32Array(N * 4); // one vec4f per element; std430 stride = 16 bytes = 1 texel
+    data[2 * 4 + 0] = R;
+    data[2 * 4 + 1] = G;
+    data[2 * 4 + 2] = B;
+    data[2 * 4 + 3] = 1;
+    const buf = new GpuBuffer(d.array(Instance), { data, usage: 'storage' });
+    const store = storage(buf); // read-only, value-based → lowered to a mirror texture
+
+    const geometry = createFullscreenTriangleGeometry();
+    const position = attribute('position', d.vec3f);
+    const material = new Material({
+        vertex: vec4(position, f32(1)),
+        fragment: store.element(u32(2)).fields().color,
+        depthTest: false,
+    });
+    const mesh = new Mesh(geometry, material);
+    const scene = new Scene();
+    scene.add(mesh);
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'storage-struct', pixel, expected: [u8(R), u8(G), u8(B), 255] };
+}
+
+/**
+ * storage-mat4: read a whole NON-struct element (a `mat4x4f`) from a read-only `storage()` buffer — the
+ * makecat per-instance-transform shape (`array<mat4x4f>` gathered by index). This exercises the bare
+ * `storage[i]` (Index-over-storage) lowering rather than a struct field: `store.element(1)` decodes the
+ * mat4 from 4 mirror texels, then `.element(3)` selects its 4th column as the fragment color. We put the
+ * probe color in element 1's column 3, so the center pixel must match it.
+ */
+async function caseStorageMat4(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+
+    const R = 0.3;
+    const G = 0.7;
+    const B = 0.5;
+    const N = 2;
+    const data = new Float32Array(N * 16); // mat4x4f stride = 64 bytes = 4 texels
+    // element 1, column 3 (bytes 48..63 within the element = floats 12..15) = (R, G, B, 1).
+    data[1 * 16 + 12] = R;
+    data[1 * 16 + 13] = G;
+    data[1 * 16 + 14] = B;
+    data[1 * 16 + 15] = 1;
+    const buf = new GpuBuffer(d.array(d.mat4x4f), { data, usage: 'storage' });
+    const store = storage(buf);
+
+    const geometry = createFullscreenTriangleGeometry();
+    const position = attribute('position', d.vec3f);
+    const material = new Material({
+        vertex: vec4(position, f32(1)),
+        fragment: store.element(u32(1)).element(u32(3)),
+        depthTest: false,
+    });
+    const mesh = new Mesh(geometry, material);
+    const scene = new Scene();
+    scene.add(mesh);
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'storage-mat4', pixel, expected: [u8(R), u8(G), u8(B), 255] };
+}
+
+/**
+ * storage-dynamic: mutate a read-only storage() buffer BETWEEN frames and confirm the WebGL read picks up
+ * the new bytes. The buffer is bound AS a per-GpuBuffer GL texture (no DataTexture); bumping `buffer.version`
+ * (via `needsUpdate`) must re-upload the texture on the next render. We render element 0's color, rewrite it
+ * in place, flag the buffer dirty, render again, and assert the SECOND frame's pixel is the updated color —
+ * proving version-sync (the follow-up the buffer-backed rework unlocks; a static mirror would show stale data).
+ */
+async function caseStorageDynamic(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+
+    const Instance = struct('Instance', { color: d.vec4f });
+    const N = 4;
+    const data = new Float32Array(N * 4); // one vec4f per element; std430 stride = 16 bytes = 1 texel
+    // Frame 1 color at element 0.
+    data[0] = 0.2;
+    data[1] = 0.4;
+    data[2] = 0.6;
+    data[3] = 1;
+    const buf = new GpuBuffer(d.array(Instance), { data, usage: 'storage' });
+    const store = storage(buf);
+
+    const geometry = createFullscreenTriangleGeometry();
+    const position = attribute('position', d.vec3f);
+    const material = new Material({
+        vertex: vec4(position, f32(1)),
+        fragment: store.element(u32(0)).fields().color,
+        depthTest: false,
+    });
+    const mesh = new Mesh(geometry, material);
+    const scene = new Scene();
+    scene.add(mesh);
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    // Frame 1 (allocates + uploads the buffer texture).
+    renderer.render(scene, camera);
+
+    // Mutate the buffer's bytes in place and flag it dirty — the next render must re-upload.
+    const R = 0.9;
+    const G = 0.1;
+    const B = 0.5;
+    data[0] = R;
+    data[1] = G;
+    data[2] = B;
+    buf.needsUpdate = true;
+
+    // Frame 2 must reflect the new bytes (version-synced re-upload of the same-size texture).
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'storage-dynamic', pixel, expected: [u8(R), u8(G), u8(B), 255] };
+}
+
+/**
+ * storage-store: exercise the COMPOSED write path — `GpuBuffer.packAtIndex(schema, i, value)` (CPU-side struct
+ * pack) feeding the buffer-as-texture PARTIAL upload (`texSubImage2D` of just the covering rows). The
+ * buffer is `array<Instance>` sized so its texel grid is 2048×4 (multi-row); we `store` a NEW color into
+ * a MIDDLE element in row 2 (not element 0) between frames, then read a pixel that combines the stored
+ * element and an untouched element (`vec4(elemA.x, elem0.y, elemA.z, 1)`). Frame 2 must show the new
+ * value on elemA's channels AND the original value on elem0's channel — proving `store` packs the right
+ * bytes, the partial upload targets the right row, and neighbouring rows are not clobbered.
+ */
+async function caseStorageStore(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+
+    const Instance = struct('Instance', { color: d.vec4f });
+    const N = 8192; // 1 texel/element → 8192 texels → a 2048×4 grid (height 4, so partial rows < full).
+    const A_IDX = 5000; // texel 5000 → row 2; element 0 → row 0 (a different, untouched row).
+    const data = new Float32Array(N * 4);
+    // Element 0 (untouched): only its .y (G) is asserted.
+    const G = 0.4;
+    data[0] = 0.1;
+    data[1] = G;
+    data[2] = 0.1;
+    data[3] = 1;
+    // Element A_IDX frame-1 value (overwritten by store before frame 2; not asserted).
+    data[A_IDX * 4 + 0] = 0.05;
+    data[A_IDX * 4 + 1] = 0.05;
+    data[A_IDX * 4 + 2] = 0.05;
+    data[A_IDX * 4 + 3] = 1;
+
+    const buf = new GpuBuffer(d.array(Instance), { data, usage: 'storage' });
+    const store = storage(buf);
+
+    const elemA = store.element(u32(A_IDX)).fields().color;
+    const elem0 = store.element(u32(0)).fields().color;
+
+    const geometry = createFullscreenTriangleGeometry();
+    const position = attribute('position', d.vec3f);
+    const material = new Material({
+        vertex: vec4(position, f32(1)),
+        // Combine the stored element (x, z) with the untouched element (y) so one pixel proves both.
+        fragment: vec4(elemA.x, elem0.y, elemA.z, f32(1)),
+        depthTest: false,
+    });
+    const mesh = new Mesh(geometry, material);
+    const scene = new Scene();
+    scene.add(mesh);
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    // Frame 1: allocates + fully uploads the buffer texture.
+    renderer.render(scene, camera);
+
+    // Schema-typed write of a NEW color into the middle element → queues a partial (row-2) upload.
+    const R = 0.8;
+    const B = 0.6;
+    buf.packAtIndex(Instance, A_IDX, { color: [R, 0.3, B, 1] });
+
+    // Frame 2: partial `texSubImage2D` of row 2 only; elem0's row 0 stays as originally uploaded.
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'storage-store', pixel, expected: [u8(R), u8(G), u8(B), 255] };
 }
 
 export async function run(): Promise<RunResult> {
@@ -1819,6 +2028,10 @@ export async function run(): Promise<RunResult> {
             caseStructTextureBits,
             caseStructTextureGrow,
             caseStructTexturePartial,
+            caseStorageStruct,
+            caseStorageMat4,
+            caseStorageDynamic,
+            caseStorageStore,
             caseRenderToTexture,
             caseMsaa,
             caseCubeRtt,
