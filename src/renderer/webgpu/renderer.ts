@@ -302,6 +302,12 @@ export class WebGPURenderer implements Renderer, RendererState {
     /** swap the active canvas target (used by inspector viewer for preview renders). */
     setCanvasTarget(canvasTarget: CanvasTarget | null): this {
         this._canvasTarget = canvasTarget;
+        // The swapchain path resolves its context + present target from swapchain.canvasTarget, so it
+        // must track the active target — otherwise every render presents into the target that happened
+        // to be current at init and swapping (multi-canvas rooms, inspector preview) leaves the visible
+        // canvas black. Depth/MSAA textures are reconciled to the new target's size on the next render
+        // (_resize + resolveSwapchainAttachments), so only the reference needs updating here.
+        this.swapchain.canvasTarget = canvasTarget;
         return this;
     }
 
