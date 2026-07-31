@@ -74,6 +74,45 @@ function glFormat(gl: WebGL2RenderingContext, format: string): GlFormat {
         case 'r32float':
             return { internalFormat: gl.R32F, format: gl.RED, type: gl.FLOAT, isDepth: false };
 
+        // Integer color (never filterable → texelFetch-only; NEAREST enforced at creation). The
+        // client format is the *_INTEGER variant; the type sizes the source typed array's components.
+        case 'r8uint':
+            return { internalFormat: gl.R8UI, format: gl.RED_INTEGER, type: gl.UNSIGNED_BYTE, isDepth: false };
+        case 'rg8uint':
+            return { internalFormat: gl.RG8UI, format: gl.RG_INTEGER, type: gl.UNSIGNED_BYTE, isDepth: false };
+        case 'rgba8uint':
+            return { internalFormat: gl.RGBA8UI, format: gl.RGBA_INTEGER, type: gl.UNSIGNED_BYTE, isDepth: false };
+        case 'r8sint':
+            return { internalFormat: gl.R8I, format: gl.RED_INTEGER, type: gl.BYTE, isDepth: false };
+        case 'rg8sint':
+            return { internalFormat: gl.RG8I, format: gl.RG_INTEGER, type: gl.BYTE, isDepth: false };
+        case 'rgba8sint':
+            return { internalFormat: gl.RGBA8I, format: gl.RGBA_INTEGER, type: gl.BYTE, isDepth: false };
+        case 'r16uint':
+            return { internalFormat: gl.R16UI, format: gl.RED_INTEGER, type: gl.UNSIGNED_SHORT, isDepth: false };
+        case 'rg16uint':
+            return { internalFormat: gl.RG16UI, format: gl.RG_INTEGER, type: gl.UNSIGNED_SHORT, isDepth: false };
+        case 'rgba16uint':
+            return { internalFormat: gl.RGBA16UI, format: gl.RGBA_INTEGER, type: gl.UNSIGNED_SHORT, isDepth: false };
+        case 'r16sint':
+            return { internalFormat: gl.R16I, format: gl.RED_INTEGER, type: gl.SHORT, isDepth: false };
+        case 'rg16sint':
+            return { internalFormat: gl.RG16I, format: gl.RG_INTEGER, type: gl.SHORT, isDepth: false };
+        case 'rgba16sint':
+            return { internalFormat: gl.RGBA16I, format: gl.RGBA_INTEGER, type: gl.SHORT, isDepth: false };
+        case 'r32uint':
+            return { internalFormat: gl.R32UI, format: gl.RED_INTEGER, type: gl.UNSIGNED_INT, isDepth: false };
+        case 'rg32uint':
+            return { internalFormat: gl.RG32UI, format: gl.RG_INTEGER, type: gl.UNSIGNED_INT, isDepth: false };
+        case 'rgba32uint':
+            return { internalFormat: gl.RGBA32UI, format: gl.RGBA_INTEGER, type: gl.UNSIGNED_INT, isDepth: false };
+        case 'r32sint':
+            return { internalFormat: gl.R32I, format: gl.RED_INTEGER, type: gl.INT, isDepth: false };
+        case 'rg32sint':
+            return { internalFormat: gl.RG32I, format: gl.RG_INTEGER, type: gl.INT, isDepth: false };
+        case 'rgba32sint':
+            return { internalFormat: gl.RGBA32I, format: gl.RGBA_INTEGER, type: gl.INT, isDepth: false };
+
         // Depth / depth-stencil.
         case 'depth16unorm':
             return { internalFormat: gl.DEPTH_COMPONENT16, format: gl.DEPTH_COMPONENT, type: gl.UNSIGNED_SHORT, isDepth: true };
@@ -197,11 +236,14 @@ export function getGlTextureData(state: GlTexturesState, texture: GpuTexture): G
 }
 
 /** Set a texture's min-filter so a texture without an explicit sampler object still samples. */
-function setDefaultMinFilter(gl: WebGL2RenderingContext, target: number, generateMipmaps: boolean): void {
+function setDefaultMinFilter(gl: WebGL2RenderingContext, target: number, generateMipmaps: boolean, isInteger: boolean): void {
     // A freshly-created GL texture defaults to a mipmapped min-filter, which reads as "incomplete"
     // when no mips exist. Sampler objects override this at bind time, but set a safe baseline here.
-    gl.texParameteri(target, gl.TEXTURE_MIN_FILTER, generateMipmaps ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR);
-    gl.texParameteri(target, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    // Integer textures are NOT filterable — LINEAR makes them incomplete (so even texelFetch reads 0),
+    // so they must be NEAREST regardless of the sampler.
+    const min = isInteger ? gl.NEAREST : generateMipmaps ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR;
+    gl.texParameteri(target, gl.TEXTURE_MIN_FILTER, min);
+    gl.texParameteri(target, gl.TEXTURE_MAG_FILTER, isInteger ? gl.NEAREST : gl.LINEAR);
     gl.texParameteri(target, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(target, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 }
@@ -286,6 +328,43 @@ function upload2D(gl: WebGL2RenderingContext, texture: GpuTexture, data: GlTextu
 
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+}
+
+/**
+ * Collapse a texture's pending {@link GpuTexture.updateRanges} (texel ranges) into a single covering
+ * row span `{y0, rows}`, or `null` if empty. Row-granular: whole dirty rows, so the merge is just the
+ * min/max row across all ranges — no same-row/straddle bookkeeping.
+ */
+function coveringRowSpan(texture: GpuTexture): { y0: number; rows: number } | null {
+    const width = texture.width;
+    let minTexel = Number.POSITIVE_INFINITY;
+    let maxTexel = Number.NEGATIVE_INFINITY;
+    for (const r of texture.updateRanges) {
+        if (r.count <= 0) continue;
+        if (r.start < minTexel) minTexel = r.start;
+        if (r.start + r.count - 1 > maxTexel) maxTexel = r.start + r.count - 1;
+    }
+    if (!Number.isFinite(minTexel)) return null;
+    const y0 = Math.floor(minTexel / width);
+    const y1 = Math.floor(maxTexel / width);
+    return { y0, rows: y1 - y0 + 1 };
+}
+
+/** Upload only the dirty rows `[y0, y0+rows)` of a 2D source-backed texture via `texSubImage2D`. */
+function uploadPartial2D(gl: WebGL2RenderingContext, texture: GpuTexture, data: GlTextureData, span: { y0: number; rows: number }): void {
+    const source = texture.source;
+    if (!source || !source.data) return;
+    const typed = typedArrayOf(source.data) as Uint32Array | null;
+    if (!typed) return;
+    const { format, type } = data.fmt;
+    const width = texture.width;
+    // Components per texel, derived from the array so this is format-agnostic (rgba32uint = 4, r32uint = 1).
+    const comps = Math.round(typed.length / (width * texture.height));
+    const { y0, rows } = span;
+    const start = y0 * width * comps;
+    const sub = typed.subarray(start, start + rows * width * comps);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y0, width, rows, format, type, sub as ArrayBufferView);
 }
 
 /** Upload the 6 cube faces (face order +X,-X,+Y,-Y,+Z,-Z) at level 0. */
@@ -433,6 +512,29 @@ export function updateTexture(gl: WebGL2RenderingContext, state: GlTexturesState
 
     if (data.allocated && data.version === texture.version) return data;
 
+    // Partial upload: an in-place `store`/`addUpdateRange` queued dirty texel ranges (no full re-upload
+    // and no resize) → re-specify only the covering rows via `texSubImage2D` on the existing GL texture,
+    // skipping the delete + full `texImage2D` below. A full flag (`needsUpdate`/grow) or a size change
+    // takes priority. `> ½` the texture dirty → fall through to a full upload (fewer, simpler calls).
+    if (
+        data.allocated &&
+        !texture.needsFullUpload &&
+        texture.updateRanges.length > 0 &&
+        texture.viewDimension === '2d' &&
+        !texture.isRenderTargetTexture &&
+        data.allocW === texture.width &&
+        data.allocH === texture.height
+    ) {
+        const span = coveringRowSpan(texture);
+        if (span && span.rows <= texture.height / 2) {
+            gl.bindTexture(data.target, data.texture);
+            uploadPartial2D(gl, texture, data, span);
+            texture.updateRanges.length = 0;
+            data.version = texture.version;
+            return data;
+        }
+    }
+
     // Re-allocation (a resize or format change bumped `texture.version` on an already-allocated
     // texture): render-target storage is immutable (`texStorage2D`), so it can't be re-specified on the
     // same GL object — a second `texStorage2D` errors with INVALID_OPERATION and leaves the OLD size in
@@ -454,7 +556,7 @@ export function updateTexture(gl: WebGL2RenderingContext, state: GlTexturesState
     data.target = glTarget(gl, texture);
 
     gl.bindTexture(data.target, data.texture);
-    setDefaultMinFilter(gl, data.target, texture.generateMipmaps);
+    setDefaultMinFilter(gl, data.target, texture.generateMipmaps, mipmapClassOf(texture.format) === 'integer');
 
     const dim = texture.viewDimension;
 
@@ -483,6 +585,12 @@ export function updateTexture(gl: WebGL2RenderingContext, state: GlTexturesState
         gl.generateMipmap(data.target);
     }
 
+    // A full (re)upload supersedes any queued partial ranges and clears the full flag. Record the
+    // allocated size so later in-place stores can take the partial `texSubImage2D` path above.
+    texture.updateRanges.length = 0;
+    texture.needsFullUpload = false;
+    data.allocW = texture.width;
+    data.allocH = texture.height;
     data.version = texture.version;
     data.generation++;
     data.allocated = true;

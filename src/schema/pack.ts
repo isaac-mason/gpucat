@@ -7,6 +7,8 @@ import {
     isSizedArrayDesc,
     isArrayDesc,
     isAtomicDesc,
+    isBitsDesc,
+    isPackedDesc,
 } from './schema';
 
 /**
@@ -214,6 +216,32 @@ export function layoutStrideOf(schema: Any, memLayout: MemoryLayout = 'std430'):
     return getLayout(schema, memLayout).stride;
 }
 
+/** A struct's per-field byte offsets + its texel stride (for texel-addressed struct storage). */
+export type StructFieldLayout = {
+    fields: { name: string; type: Any; byteOffset: number; byteSize: number }[];
+    /** Struct stride in bytes (size with tail padding). */
+    strideBytes: number;
+    /** Struct stride rounded up to whole 16-byte texels (`ceil(strideBytes / 16)`). */
+    texelStride: number;
+};
+
+/**
+ * Compute a flat struct's per-field byte offsets + texel stride in the given layout. Mirrors the
+ * offset walk in {@link emitStructWrites} (align each field, record offset, advance by size). Used
+ * by the structured-texture `load`/`store` accessor to place fields in `rgba32uint` texels.
+ */
+export function structFieldLayout(schema: StructDesc, memLayout: MemoryLayout = 'std430'): StructFieldLayout {
+    const fields: StructFieldLayout['fields'] = [];
+    let offset = 0;
+    for (const [name, fieldSchema] of Object.entries(schema.fields)) {
+        offset = roundUp(offset, alignOf(fieldSchema, memLayout));
+        fields.push({ name, type: fieldSchema, byteOffset: offset, byteSize: sizeOf(fieldSchema, memLayout) });
+        offset += sizeOf(fieldSchema, memLayout);
+    }
+    const strideBytes = layoutStrideOf(schema, memLayout);
+    return { fields, strideBytes, texelStride: Math.ceil(strideBytes / 16) };
+}
+
 /**
  * Get the byte alignment of a schema in the given memory layout.
  *
@@ -292,6 +320,7 @@ function alignOf(schema: Any, memLayout: MemoryLayout): number {
  * Storage layout alignment (std430).
  */
 function storageAlignOf(schema: Any): number {
+    if (isPackedDesc(schema) || isBitsDesc(schema)) return 4;
     if (isStructDesc(schema)) {
         let maxAlign = 4;
         for (const field of Object.values(schema.fields)) {
@@ -339,6 +368,7 @@ function storageAlignOf(schema: Any): number {
  * Get size for a schema in the given memory layout.
  */
 function sizeOf(schema: Any, memLayout: MemoryLayout): number {
+    if (isPackedDesc(schema) || isBitsDesc(schema)) return 4;
     if (isStructDesc(schema)) {
         const structAlign = alignOf(schema, memLayout);
         let offset = 0;
@@ -461,9 +491,60 @@ function emitArrayWrites(ctx: LayoutContext, schema: sizedArray, accessor: strin
     ctx.offset = startOffset + schema.length * stride;
 }
 
+/** JS expression that packs a logical value (`a` = the value accessor, an array) into a u32,
+ *  component 0 in the LOW bits — matching the shader `unpack*` decode. `f16(x)` (in scope) is
+ *  float→half bits. */
+function packedWriteExpr(packedType: string, a: string): string {
+    const u8 = (i: number) => `(Math.round(Math.min(Math.max(${a}[${i}],0),1)*255)&255)`;
+    const s8 = (i: number) => `(Math.round(Math.min(Math.max(${a}[${i}],-1),1)*127)&255)`;
+    const u16 = (i: number) => `(Math.round(Math.min(Math.max(${a}[${i}],0),1)*65535)&65535)`;
+    const s16 = (i: number) => `(Math.round(Math.min(Math.max(${a}[${i}],-1),1)*32767)&65535)`;
+    switch (packedType) {
+        case 'unorm8x4': return `((${u8(0)}|(${u8(1)}<<8)|(${u8(2)}<<16)|(${u8(3)}<<24))>>>0)`;
+        case 'snorm8x4': return `((${s8(0)}|(${s8(1)}<<8)|(${s8(2)}<<16)|(${s8(3)}<<24))>>>0)`;
+        case 'half2x16': return `((f16(${a}[0])|(f16(${a}[1])<<16))>>>0)`;
+        case 'unorm2x16': return `((${u16(0)}|(${u16(1)}<<16))>>>0)`;
+        case 'snorm2x16': return `((${s16(0)}|(${s16(1)}<<16))>>>0)`;
+        default: throw new Error(`[gpucat] pack: unknown packed type '${packedType}'`);
+    }
+}
+
+/** JS expression that unpacks a u32 (`u`) back to the logical array — inverse of {@link packedWriteExpr}.
+ *  `f16r(bits)` (in scope) is half→float. Used by CPU readback (`unpackFromView`); the shader decode
+ *  path is separate (accessor + GLSL emitter). */
+function packedReadExpr(packedType: string, u: string): string {
+    switch (packedType) {
+        case 'unorm8x4': return `[(${u}&255)/255,((${u}>>>8)&255)/255,((${u}>>>16)&255)/255,((${u}>>>24)&255)/255]`;
+        case 'snorm8x4': return `[Math.max((((${u}&255)<<24)>>24)/127,-1),Math.max(((((${u}>>>8)&255)<<24)>>24)/127,-1),Math.max(((((${u}>>>16)&255)<<24)>>24)/127,-1),Math.max(((((${u}>>>24)&255)<<24)>>24)/127,-1)]`;
+        case 'half2x16': return `[f16r(${u}&0xFFFF),f16r((${u}>>>16)&0xFFFF)]`;
+        case 'unorm2x16': return `[(${u}&0xFFFF)/65535,((${u}>>>16)&0xFFFF)/65535]`;
+        case 'snorm2x16': return `[Math.max((((${u}&0xFFFF)<<16)>>16)/32767,-1),Math.max(((((${u}>>>16)&0xFFFF)<<16)>>16)/32767,-1)]`;
+        default: throw new Error(`[gpucat] pack: unknown packed type '${packedType}'`);
+    }
+}
+
 function emitPrimitiveWrite(ctx: LayoutContext, schema: Any, accessor: string): void {
     const t = schema.wgslType;
     const off = ctx.offset;
+
+    if (isPackedDesc(schema)) {
+        ctx.lines.push(`v.setUint32(o+${off},${packedWriteExpr(schema.type, accessor)},true);`);
+        ctx.offset += 4;
+        return;
+    }
+
+    if (isBitsDesc(schema)) {
+        // Σ ((value.field & mask) << shift), field 0 in the low bits — matching the accessor decode.
+        const expr = schema.fields
+            .map((f) => {
+                const mask = f.width >= 32 ? 0xffffffff : ((1 << f.width) - 1) >>> 0;
+                return `((${accessor}.${f.name}&${mask})<<${f.shift})`;
+            })
+            .join('|');
+        ctx.lines.push(`v.setUint32(o+${off},(${expr})>>>0,true);`);
+        ctx.offset += 4;
+        return;
+    }
 
     // Scalars
     if (t === 'f32') {
@@ -692,6 +773,23 @@ function emitArrayRead(ctx: LayoutContext, schema: sizedArray): string {
 function emitPrimitiveRead(ctx: LayoutContext, schema: Any): string {
     const t = schema.wgslType;
     const off = ctx.offset;
+
+    if (isPackedDesc(schema)) {
+        ctx.offset += 4;
+        return packedReadExpr(schema.type, `v.getUint32(o+${off},true)`);
+    }
+
+    if (isBitsDesc(schema)) {
+        ctx.offset += 4;
+        const u = `v.getUint32(o+${off},true)`;
+        const parts = schema.fields
+            .map((f) => {
+                const mask = f.width >= 32 ? 0xffffffff : ((1 << f.width) - 1) >>> 0;
+                return `${f.name}:(((${u})>>>${f.shift})&${mask})>>>0`;
+            })
+            .join(',');
+        return `{${parts}}`;
+    }
 
     // Scalars
     if (t === 'f32') {

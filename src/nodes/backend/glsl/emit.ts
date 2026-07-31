@@ -693,6 +693,34 @@ function generateCall(ctx: GlslBuildContext, node: CallNode<d.Any>): string {
         );
     }
 
+    // bitcast<T>(x): bit-reinterpret. WGSL spells it `bitcast<T>`; GLSL ES 3.00 uses type-directed
+    // builtins for float↔int/uint (uintBitsToFloat / floatBitsToUint / intBitsToFloat / floatBitsToInt)
+    // and plain int()/uint() for the (same-width) int↔uint reinterpret. Target T is in the fn name; the
+    // source type comes from the single argument.
+    const bc = node.fn.match(/^bitcast<(f32|u32|i32)>$/);
+    if (bc && args.length === 1) {
+        const to = bc[1];
+        const from = (node.args[0] as { type: { wgslType: string } }).type.wgslType;
+        if (to === 'f32') return `${from === 'i32' ? 'intBitsToFloat' : 'uintBitsToFloat'}(${args[0]})`;
+        if (to === 'u32') return `${from === 'f32' ? 'floatBitsToUint' : 'uint'}(${args[0]})`;
+        return `${from === 'f32' ? 'floatBitsToInt' : 'int'}(${args[0]})`; // to === 'i32'
+    }
+
+    // Packed unpack builtins. WGSL has all natively; GLSL ES 3.00 has the 2×16 family (renamed) but
+    // NOT the 4×8 family — those are emulated with shift/mask. Component 0 is in the LOW bits,
+    // matching the CPU encode (pack.ts `packedWriteExpr`).
+    if (node.fn === 'unpack2x16float') return `unpackHalf2x16(${args[0]})`;
+    if (node.fn === 'unpack2x16unorm') return `unpackUnorm2x16(${args[0]})`;
+    if (node.fn === 'unpack2x16snorm') return `unpackSnorm2x16(${args[0]})`;
+    if (node.fn === 'unpack4x8unorm') {
+        const p = args[0];
+        return `(vec4(uvec4(${p}&0xFFu,(${p}>>8u)&0xFFu,(${p}>>16u)&0xFFu,(${p}>>24u)&0xFFu))/255.0)`;
+    }
+    if (node.fn === 'unpack4x8snorm') {
+        const p = args[0];
+        return `max(vec4(ivec4(int(${p}<<24u)>>24,int(${p}<<16u)>>24,int(${p}<<8u)>>24,int(${p})>>24))/127.0,vec4(-1.0))`;
+    }
+
     const fn = CALL_RENAMES[node.fn] ?? node.fn;
     return `${fn}(${args.join(', ')})`;
 }
@@ -1105,8 +1133,10 @@ export function emitGlslTextures(ctx: GlslBuildContext): {
             const id = binding.textureId;
             const name = samplerUniformName(id);
             const samplerType = glslSamplerType(binding.type);
-            // Depth-compare shadow samplers must be highp in GLSL ES 3.00.
-            const precision = samplerType.includes('Shadow') ? 'highp ' : '';
+            // GLSL ES 3.00 has no default precision for depth-compare shadow samplers or for integer
+            // samplers (usampler2D / isampler2D — leading 'u'/'i'), so those must be declared highp.
+            const isIntegerSampler = samplerType[0] === 'u' || samplerType[0] === 'i';
+            const precision = samplerType.includes('Shadow') || isIntegerSampler ? 'highp ' : '';
             lines.push(`uniform ${precision}${samplerType} ${name};`);
 
             textures.push({

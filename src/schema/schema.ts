@@ -523,6 +523,75 @@ export const Void: Void = { type: 'void', wgslType: 'void' };
 export type WgslFn = { type: 'wgslfn'; wgslType: 'wgslfn' };
 export const WgslFn: WgslFn = { type: 'wgslfn', wgslType: 'wgslfn' };
 
+/* packed descriptors — each stores 4 bytes (one u32 texel lane) and decodes to a float vector.
+ * For use as struct fields in structured textures (`texture(t).load(schema, i)`): they store
+ * compactly and decode via WGSL `unpack*` builtins (GLSL-emulated where no builtin exists). Their
+ * `wgslType`/`glslType` name the *decoded* type; layout size/align (4) is handled by `isPackedDesc`
+ * in the packer, so they are NOT valid as emitted WGSL/GLSL struct members. */
+
+export type unorm8x4 = { type: 'unorm8x4'; wgslType: 'vec4f'; glslType: 'vec4' };
+export const unorm8x4: unorm8x4 = { type: 'unorm8x4', wgslType: 'vec4f', glslType: 'vec4' };
+
+export type snorm8x4 = { type: 'snorm8x4'; wgslType: 'vec4f'; glslType: 'vec4' };
+export const snorm8x4: snorm8x4 = { type: 'snorm8x4', wgslType: 'vec4f', glslType: 'vec4' };
+
+export type half2x16 = { type: 'half2x16'; wgslType: 'vec2f'; glslType: 'vec2' };
+export const half2x16: half2x16 = { type: 'half2x16', wgslType: 'vec2f', glslType: 'vec2' };
+
+export type unorm2x16 = { type: 'unorm2x16'; wgslType: 'vec2f'; glslType: 'vec2' };
+export const unorm2x16: unorm2x16 = { type: 'unorm2x16', wgslType: 'vec2f', glslType: 'vec2' };
+
+export type snorm2x16 = { type: 'snorm2x16'; wgslType: 'vec2f'; glslType: 'vec2' };
+export const snorm2x16: snorm2x16 = { type: 'snorm2x16', wgslType: 'vec2f', glslType: 'vec2' };
+
+export type Packed = unorm8x4 | snorm8x4 | half2x16 | unorm2x16 | snorm2x16;
+
+/** Per-packed-type metadata — decoded lane count + the WGSL `unpack` builtin. Single source of
+ *  truth so CPU encode (pack.ts) and shader decode (accessor + GLSL emitter) cannot drift. */
+export const PACKED_SPECS = {
+    unorm8x4: { lanes: 4, unpackFn: 'unpack4x8unorm' },
+    snorm8x4: { lanes: 4, unpackFn: 'unpack4x8snorm' },
+    half2x16: { lanes: 2, unpackFn: 'unpack2x16float' },
+    unorm2x16: { lanes: 2, unpackFn: 'unpack2x16unorm' },
+    snorm2x16: { lanes: 2, unpackFn: 'unpack2x16snorm' },
+} as const;
+
+const PACKED_TYPE_SET = new Set(Object.keys(PACKED_SPECS));
+/** True for a packed descriptor (unorm8x4 / snorm8x4 / half2x16 / unorm2x16 / snorm2x16). */
+export function isPackedDesc(desc: Any): desc is Packed {
+    return PACKED_TYPE_SET.has((desc as { type: string }).type);
+}
+
+/* bitfields — a u32 split into named bit ranges (structured-texture field type) */
+
+export type BitsField = { name: string; width: number; shift: number };
+export type bits = { type: 'bits'; wgslType: 'u32'; glslType: 'uint'; fields: BitsField[] };
+
+/**
+ * A bitfield packed into one `u32`: `d.bits({ flags: 8, materialId: 24 })`. Fields are declared
+ * low→high bits (the first field occupies the low bits). Total width must be ≤ 32. For use as a
+ * structured-texture struct field: it stores as 4 B and the accessor decodes each named field to a
+ * `u32` via shift/mask (no builtins — works on both backends). Not a valid emitted WGSL/GLSL member.
+ */
+export function bits(fields: Record<string, number>): bits {
+    const list: BitsField[] = [];
+    let shift = 0;
+    for (const [name, width] of Object.entries(fields)) {
+        if (!Number.isInteger(width) || width <= 0) {
+            throw new Error(`[gpucat] d.bits: field '${name}' width must be a positive integer, got ${width}`);
+        }
+        list.push({ name, width, shift });
+        shift += width;
+    }
+    if (shift > 32) throw new Error(`[gpucat] d.bits: total width ${shift} exceeds 32 bits`);
+    return { type: 'bits', wgslType: 'u32', glslType: 'uint', fields: list };
+}
+
+/** True for a bitfield descriptor (`d.bits({...})`). Layout size/align (4) handled like packed. */
+export function isBitsDesc(desc: Any): desc is bits {
+    return (desc as { type?: string }).type === 'bits';
+}
+
 /* any, the master union of all descriptor types */
 
 export type Any =
@@ -538,6 +607,13 @@ export type Any =
     | vec2u
     | vec2bool
     | vec2h
+    // Packed (structured-texture field types)
+    | unorm8x4
+    | snorm8x4
+    | half2x16
+    | unorm2x16
+    | snorm2x16
+    | bits
     // Vec3
     | vec3f
     | vec3i

@@ -5,6 +5,7 @@ import {
     createBoxGeometry,
     createFullscreenTriangleGeometry,
     createIndirectBuffer,
+    createStructTexture,
     CubeRenderTarget,
     CubeTexture,
     cubeTexture,
@@ -28,9 +29,11 @@ import {
     RenderTarget,
     Scene,
     screenUV,
+    struct,
     Texture,
     texture,
     transformFeedback,
+    u32,
     Uniform,
     uniform,
     varying,
@@ -1501,6 +1504,303 @@ async function caseBatchedDrawsNonIndexed(): Promise<CaseResult> {
     return { name: 'batched-draws-nonindexed', pixel, expected: [0, 255, 0, 255] };
 }
 
+/**
+ * integer-texture (rgba32uint): a 1×1 RGBA32UI DataTexture with known raw-`u32` channels, read via
+ * `texture(tex).load(...)` → `uvec4` (usampler2D + integer texelFetch) and converted to a color.
+ * Proves WebGL2 integer-texture support end-to-end: the RGBA32UI format upload, the `usampler2D`
+ * declaration, and integer `texelFetch`. A regression (sampler2D / float path) would misread it.
+ */
+async function caseIntegerTexture(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+
+    // 1×1 rgba32uint: one texel = (64, 128, 192, 255) as raw u32 channels.
+    const tex = new DataTexture(new Uint32Array([64, 128, 192, 255]), 1, 1, {
+        format: 'rgba32uint',
+        magFilter: 'nearest',
+        minFilter: 'nearest',
+    });
+
+    const texel = texture(tex).load(vec2i(i32(0), i32(0)), i32(0)); // Node<vec4u>
+    const material = new Material({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        fragment: vec4(f32(texel.x).div(f32(255)), f32(texel.y).div(f32(255)), f32(texel.z).div(f32(255)), f32(1)),
+        depthTest: false,
+    });
+
+    const mesh = new Mesh(createFullscreenTriangleGeometry(), material);
+    const scene = new Scene();
+    scene.add(mesh);
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'integer-texture', pixel, expected: [64, 128, 192, 255] };
+}
+
+/**
+ * struct-texture: schema-typed store→load round-trip. A `createStructTexture` for `{ color: vec4f,
+ * id: u32 }` is written with `store(Rec, 0, …)` (CPU std430 pack into rgba32uint), then the fragment
+ * reads it back with `texture(tex).load(Rec, 0)` — `.color` (a multi-lane f32 field via bitcast) into
+ * rgb and `.id` (a u32 field at the next texel) into alpha. Proves store/load AGREE on the texel
+ * layout across both field kinds + a multi-texel record.
+ */
+async function caseStructTexture(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+
+    const Rec = struct('STRec', { color: d.vec4f, id: d.u32 });
+    const tex = createStructTexture(Rec, 1);
+    tex.store(Rec, 0, { color: [0.25, 0.5, 0.75, 0.1], id: 255 });
+
+    const rec = texture(tex).load(Rec, u32(0));
+    const material = new Material({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        fragment: vec4(rec.color.x, rec.color.y, rec.color.z, f32(rec.id).div(f32(255))),
+        depthTest: false,
+    });
+    const scene = new Scene();
+    scene.add(new Mesh(createFullscreenTriangleGeometry(), material));
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    // color rgb = (0.25,0.5,0.75); alpha = id/255 = 1.
+    return { name: 'struct-texture', pixel, expected: [u8(0.25), u8(0.5), u8(0.75), 255] };
+}
+
+/**
+ * struct-texture-mat4: a `{ m: mat4x4f }` record (4 texels, one per column). Stored with column 0 =
+ * (0.25, 0.5, 0.75, 1); the fragment loads `.m` and computes `m · (1,0,0,0)` = column 0 → color.
+ * Proves the mat4 decode (4 texel reads, per-lane bitcast, `mat4(...)` reassembly) round-trips.
+ */
+async function caseStructTextureMat4(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+
+    const M = struct('STMat', { m: d.mat4x4f });
+    const tex = createStructTexture(M, 1);
+    // column-major: column 0 = (0.25, 0.5, 0.75, 1), rest 0.
+    tex.store(M, 0, { m: [0.25, 0.5, 0.75, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] });
+
+    const rec = texture(tex).load(M, u32(0));
+    const col0 = mul(rec.m, vec4(f32(1), f32(0), f32(0), f32(0)));
+    const material = new Material({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        fragment: vec4(col0.x, col0.y, col0.z, f32(1)),
+        depthTest: false,
+    });
+    const scene = new Scene();
+    scene.add(new Mesh(createFullscreenTriangleGeometry(), material));
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'struct-texture-mat4', pixel, expected: [u8(0.25), u8(0.5), u8(0.75), 255] };
+}
+
+/**
+ * struct-texture-unorm8x4: a packed `unorm8x4` field (4 B → one u32). Stored [64,128,192,255]/255,
+ * loaded via `unpack4x8unorm` — which the GLSL emitter EMULATES (shift/mask + /255, not an ES-3.00
+ * builtin). Proves CPU encode ↔ shader decode agree on byte order (component 0 = low bits).
+ */
+async function caseStructTexturePackedUnorm(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+    const Rec = struct('STPackU8', { col: d.unorm8x4 });
+    const tex = createStructTexture(Rec, 1);
+    tex.store(Rec, 0, { col: [64 / 255, 128 / 255, 192 / 255, 1] });
+    const rec = texture(tex).load(Rec, u32(0));
+    const material = new Material({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        fragment: vec4(rec.col.x, rec.col.y, rec.col.z, rec.col.w),
+        depthTest: false,
+    });
+    const scene = new Scene();
+    scene.add(new Mesh(createFullscreenTriangleGeometry(), material));
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'struct-texture-unorm8x4', pixel, expected: [64, 128, 192, 255] };
+}
+
+/**
+ * struct-texture-half2x16: packed `half2x16` (rg) + `unorm2x16` (ba) in one texel — the 2×16 family,
+ * which lowers to native GLSL ES 3.00 builtins (unpackHalf2x16 / unpackUnorm2x16). half values are
+ * fp16-exact (0.5, 0.25); unorm values 0.5/0.75.
+ */
+async function caseStructTexturePackedHalf(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+    const Rec = struct('STPackH', { hv: d.half2x16, uv: d.unorm2x16 });
+    const tex = createStructTexture(Rec, 1);
+    tex.store(Rec, 0, { hv: [0.5, 0.25], uv: [0.5, 0.75] });
+    const rec = texture(tex).load(Rec, u32(0));
+    // rgb only — the default framebuffer is opaque, so a fractional alpha reads back as 255.
+    // hv.x→r, hv.y→g (half2x16), uv.x→b (unorm2x16); alpha fixed at 1.
+    const material = new Material({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        fragment: vec4(rec.hv.x, rec.hv.y, rec.uv.x, f32(1)),
+        depthTest: false,
+    });
+    const scene = new Scene();
+    scene.add(new Mesh(createFullscreenTriangleGeometry(), material));
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'struct-texture-half2x16', pixel, expected: [u8(0.5), u8(0.25), u8(0.5), 255] };
+}
+
+/**
+ * struct-texture-snorm8x4: signed packed `snorm8x4`, values [1, 0, -1, 0.5], decoded via
+ * `unpack4x8snorm` (GLSL-emulated with sign-extend + /127 + max(-1)). Read back remapped x*0.5+0.5:
+ * 1→1(255), 0→0.5(128), -1→0(0), 0.5→~0.75(192).
+ */
+async function caseStructTexturePackedSnorm(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+    const Rec = struct('STPackS8', { s: d.snorm8x4 });
+    const tex = createStructTexture(Rec, 1);
+    tex.store(Rec, 0, { s: [1, 0, -1, 0.5] });
+    const rec = texture(tex).load(Rec, u32(0));
+    const material = new Material({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        // rgb = remap(s.xyz) into [0,1]; alpha fixed at 1 (opaque framebuffer). s.x=1→1, s.y=0→0.5,
+        // s.z=-1→0 exercises the signed sign-extend path.
+        fragment: vec4(
+            rec.s.x.mul(f32(0.5)).add(f32(0.5)),
+            rec.s.y.mul(f32(0.5)).add(f32(0.5)),
+            rec.s.z.mul(f32(0.5)).add(f32(0.5)),
+            f32(1),
+        ),
+        depthTest: false,
+    });
+    const scene = new Scene();
+    scene.add(new Mesh(createFullscreenTriangleGeometry(), material));
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'struct-texture-snorm8x4', pixel, expected: [255, u8(0.5), 0, 255] };
+}
+
+/**
+ * struct-texture-bits: a `d.bits({ a: 8, b: 8, c: 8 })` field (one u32, fields low→high). Stored
+ * {a:64,b:128,c:192}; each field is decoded via shift/mask (no builtins — works on both backends).
+ * Proves the bitfield CPU encode ↔ shader shift/mask decode agree.
+ */
+async function caseStructTextureBits(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+    const Rec = struct('STBits', { bf: d.bits({ a: 8, b: 8, c: 8 }) });
+    const tex = createStructTexture(Rec, 1);
+    tex.store(Rec, 0, { bf: { a: 64, b: 128, c: 192 } } as never);
+    const rec = texture(tex).load(Rec, u32(0));
+    // bits sub-accessor: `.a`/`.b`/`.c` → u32 nodes (typing for nested bits access is a follow-up).
+    const bf = rec.bf as unknown as { a: Node<d.u32>; b: Node<d.u32>; c: Node<d.u32> };
+    const material = new Material({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        fragment: vec4(f32(bf.a).div(f32(255)), f32(bf.b).div(f32(255)), f32(bf.c).div(f32(255)), f32(1)),
+        depthTest: false,
+    });
+    const scene = new Scene();
+    scene.add(new Mesh(createFullscreenTriangleGeometry(), material));
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'struct-texture-bits', pixel, expected: [64, 128, 192, 255] };
+}
+
+/**
+ * struct-texture-grow: a `createStructTexture` allocated at capacity 1, then written at record 5 —
+ * which forces an auto-grow (height only, width fixed). Loading record 5 (past the original
+ * allocation) must return its stored value, proving the texture grew, copied, and still addresses
+ * correctly under the compiled shader's fixed width. Without the grow, texel 10 is out of bounds and
+ * `texelFetch` would read 0.
+ */
+async function caseStructTextureGrow(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+
+    const Rec = struct('GrowRec', { color: d.vec4f, id: d.u32 });
+    const tex = createStructTexture(Rec, 1); // capacity 1 → storing record 5 forces a height grow
+    tex.store(Rec, 0, { color: [0.9, 0.1, 0.2, 1], id: 1 });
+    tex.store(Rec, 5, { color: [0.25, 0.5, 0.75, 0.1], id: 255 });
+
+    const rec = texture(tex).load(Rec, u32(5));
+    const material = new Material({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        fragment: vec4(rec.color.x, rec.color.y, rec.color.z, f32(rec.id).div(f32(255))),
+        depthTest: false,
+    });
+    const scene = new Scene();
+    scene.add(new Mesh(createFullscreenTriangleGeometry(), material));
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'struct-texture-grow', pixel, expected: [u8(0.25), u8(0.5), u8(0.75), 255] };
+}
+
+/**
+ * struct-texture-partial: exercises the PARTIAL upload path. Render once (full upload of a grown,
+ * multi-row texture), then change record 5 and render again — the second `store` routes through
+ * `addUpdateRange` → the renderer re-uploads only row 5 via `texSubImage2D` (not the whole texture).
+ * The final pixel must reflect the NEW value; a broken partial upload would show the stale first value.
+ */
+async function caseStructTexturePartial(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+
+    const Rec = struct('PartRec', { color: d.vec4f, id: d.u32 });
+    const tex = createStructTexture(Rec, 1); // grows to a multi-row texture when record 5 is written
+    tex.store(Rec, 5, { color: [0.9, 0.1, 0.2, 1], id: 1 });
+
+    const rec = texture(tex).load(Rec, u32(5));
+    const material = new Material({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        fragment: vec4(rec.color.x, rec.color.y, rec.color.z, f32(rec.id).div(f32(255))),
+        depthTest: false,
+    });
+    const scene = new Scene();
+    scene.add(new Mesh(createFullscreenTriangleGeometry(), material));
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    renderer.render(scene, camera); // render 1: full upload (allocates the grown texture)
+    // Change record 5 → partial path (already allocated, no full flag): only row 5 is re-uploaded.
+    tex.store(Rec, 5, { color: [0.25, 0.5, 0.75, 0.1], id: 255 });
+    renderer.render(scene, camera); // render 2: partial texSubImage2D of row 5
+
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'struct-texture-partial', pixel, expected: [u8(0.25), u8(0.5), u8(0.75), 255] };
+}
+
 export async function run(): Promise<RunResult> {
     try {
         const cases: CaseResult[] = [];
@@ -1510,6 +1810,15 @@ export async function run(): Promise<RunResult> {
             caseUniform,
             caseLit,
             caseTextured,
+            caseIntegerTexture,
+            caseStructTexture,
+            caseStructTextureMat4,
+            caseStructTexturePackedUnorm,
+            caseStructTexturePackedHalf,
+            caseStructTexturePackedSnorm,
+            caseStructTextureBits,
+            caseStructTextureGrow,
+            caseStructTexturePartial,
             caseRenderToTexture,
             caseMsaa,
             caseCubeRtt,

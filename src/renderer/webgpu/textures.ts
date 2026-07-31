@@ -177,12 +177,69 @@ export function finalizeCubeRenderTargetCapture(
  * Update a texture, checks source version and uploads if needed.
  * Returns the TextureData for the texture.
  */
+/** Covering row span for a texture's pending texel `updateRanges` (row-granular), or null if empty. */
+function coveringRowSpan(texture: GpuTexture): { y0: number; rows: number } | null {
+    const width = texture.width;
+    let minTexel = Number.POSITIVE_INFINITY;
+    let maxTexel = Number.NEGATIVE_INFINITY;
+    for (const r of texture.updateRanges) {
+        if (r.count <= 0) continue;
+        if (r.start < minTexel) minTexel = r.start;
+        if (r.start + r.count - 1 > maxTexel) maxTexel = r.start + r.count - 1;
+    }
+    if (!Number.isFinite(minTexel)) return null;
+    const y0 = Math.floor(minTexel / width);
+    const y1 = Math.floor(maxTexel / width);
+    return { y0, rows: y1 - y0 + 1 };
+}
+
+/** Partial upload: `writeTexture` only rows `[y0, y0+rows)` of a 2D typed-array source. */
+function uploadPartialTextureData(device: GPUDevice, texture: GpuTexture, data: TextureData, span: { y0: number; rows: number }): void {
+    const source = texture.source;
+    if (!source || !source.data || !isTypedArrayData(source.data)) return;
+    const view = source.data.data;
+    const width = texture.width;
+    const bytesPerPixel = getBytesPerPixel(texture.format);
+    const bytesPerRow = width * bytesPerPixel;
+    const { y0, rows } = span;
+    device.queue.writeTexture(
+        { texture: data.texture, origin: { x: 0, y: y0, z: 0 } },
+        view.buffer,
+        { offset: view.byteOffset + y0 * bytesPerRow, bytesPerRow, rowsPerImage: rows },
+        [width, rows],
+    );
+}
+
 export function updateTexture(cache: TextureCache, device: GPUDevice, texture: GpuTexture): TextureData {
     let data = cache.textureMap.get(texture);
 
     // Skip if already initialized and texture version matches
     if (data?.initialized && data.version === texture.version) {
         return data;
+    }
+
+    // Partial upload: an in-place `store`/`addUpdateRange` queued dirty texel ranges (no full flag, no
+    // resize) → `writeTexture` only the covering rows instead of the whole texture. A full flag
+    // (`needsUpdate`/grow) or size change takes priority; `> ½` dirty falls through to a full upload.
+    if (
+        data?.initialized &&
+        !data.isDefaultTexture &&
+        !texture.needsFullUpload &&
+        texture.updateRanges.length > 0 &&
+        texture.viewDimension === '2d' &&
+        !texture.type.type.startsWith('texture_storage_') &&
+        data.texture.width === texture.width &&
+        data.texture.height === texture.height &&
+        isSourceReady(texture.source) &&
+        isTypedArrayData(texture.source?.data ?? null)
+    ) {
+        const span = coveringRowSpan(texture);
+        if (span && span.rows <= texture.height / 2) {
+            uploadPartialTextureData(device, texture, data, span);
+            texture.updateRanges.length = 0;
+            data.version = texture.version;
+            return data;
+        }
     }
 
     const isCube = texture.viewDimension === 'cube' || texture.viewDimension === 'cube-array';
@@ -246,8 +303,11 @@ export function updateTexture(cache: TextureCache, device: GPUDevice, texture: G
         return data;
     }
 
-    // First time or was using default, create real GPU texture
-    if (!data || data.isDefaultTexture) {
+    // First time, was using default, or resized (grow) → (re)create the real GPU texture at the current
+    // size. WebGPU textures are immutable-size, so a grow must destroy + recreate before the full upload.
+    const sizeChanged =
+        !!data && !data.isDefaultTexture && (data.texture.width !== texture.width || data.texture.height !== texture.height);
+    if (!data || data.isDefaultTexture || sizeChanged) {
         const gpuTextureResource = createGPUTexture(device, texture);
 
         if (!data) {
@@ -260,12 +320,17 @@ export function updateTexture(cache: TextureCache, device: GPUDevice, texture: G
             };
             cache.textureMap.set(texture, data);
             cache.textureCount++;
-        } else {
+        } else if (data.isDefaultTexture) {
             // Was default, now real, update generation
             data.texture = gpuTextureResource;
             data.generation = texture.version;
             data.isDefaultTexture = false;
             cache.textureCount++;
+        } else {
+            // Resize (grow): destroy the old GPU texture and swap in the new (larger) one.
+            data.texture.destroy();
+            data.texture = gpuTextureResource;
+            data.generation = texture.version;
         }
 
         // Set up disposal callback to destroy the GPU texture
@@ -282,6 +347,10 @@ export function updateTexture(cache: TextureCache, device: GPUDevice, texture: G
         const mipmapState = getMipmapState(cache, device);
         generateMipmaps(mipmapState, data.texture, isCube, isArray ? texture.depthOrArrayLayers : 0);
     }
+
+    // A full (re)upload supersedes any queued partial ranges and clears the full flag.
+    texture.updateRanges.length = 0;
+    texture.needsFullUpload = false;
 
     // Update texture version
     data.version = texture.version;

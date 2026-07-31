@@ -6,8 +6,31 @@ import type { ArrayTexture } from '../../texture/array-texture';
 import type { CubeTexture } from '../../texture/cube-texture';
 import type { DepthTexture } from '../../texture/depth-texture';
 import type { Texture } from '../../texture/texture';
+import { structFieldLayout } from '../../schema/pack';
 import { uv } from './attribute';
-import { addToStack, CallNode, Node, NodeKind } from './core';
+import {
+    addToStack,
+    bitcastF32,
+    bitcastI32,
+    bitwiseAnd,
+    CallNode,
+    i32,
+    mat3,
+    mat4,
+    Node,
+    NodeKind,
+    shiftRight,
+    type StructDef,
+    u32,
+    vec2f,
+    vec2i,
+    vec2u,
+    vec3,
+    vec3i,
+    vec3u,
+    vec4,
+    vec4i,
+} from './core';
 import { objectGroup, type UniformGroup } from './uniform';
 import { varying } from './varying';
 
@@ -219,6 +242,17 @@ export type SamplingMode = 'sample' | 'level' | 'bias' | 'grad' | 'load';
  * - .offset(offset) - add offset parameter (2D only)
  * - .load(coords, level?) - use textureLoad (no sampler)
  */
+/**
+ * The vec4 result type for sampling/loading a texture: `vec4u`/`vec4i` for integer-sample textures
+ * (`texture_2d<u32>`/`<i32>` → usampler2D/isampler2D, whose texelFetch yields uvec4/ivec4), else
+ * `vec4f`. Set as the node's *runtime* type so both emitters declare the right texel type; the class
+ * keeps its static `vec4f` type (the common float case) to avoid widening every sampler's result.
+ */
+function textureResultVec4(desc: d.Texture): d.vec4f | d.vec4u | d.vec4i {
+    const sampleType = (desc as d.SampledTexture).sampleType?.type;
+    return sampleType === 'u32' ? d.vec4u : sampleType === 'i32' ? d.vec4i : d.vec4f;
+}
+
 export class TextureNode<D extends FlatSampledTexture = d.texture2d> extends Node<d.vec4f> {
     readonly kind = NodeKind.Texture;
 
@@ -271,8 +305,10 @@ export class TextureNode<D extends FlatSampledTexture = d.texture2d> extends Nod
     loadLevel: Node<d.i32> | null = null;
 
     constructor(bindingNode: TextureBindingNode<D>, uvNode: Node<d.TextureCoordOf<D>> | null = null) {
-        // Node type is vec4f (the sampled color)
-        super(d.vec4f);
+        // Node type is the sampled vec4 — vec4u/vec4i for integer-sample textures, else vec4f. Runtime
+        // type carries the truth (drives the emitter's texel type + swizzle element type); the static
+        // class type stays vec4f so existing float-texture usage isn't widened to a union.
+        super(textureResultVec4(bindingNode.type) as d.vec4f);
         this.bindingNode = bindingNode;
         // Default uv() (vec2f) only applies to 2D; 3D/1D always pass coords via sample().
         this.uvNode = uvNode ?? (varying(uv()) as unknown as Node<d.TextureCoordOf<D>>);
@@ -356,15 +392,172 @@ export class TextureNode<D extends FlatSampledTexture = d.texture2d> extends Nod
         return textureNode;
     }
 
-    /** Use textureLoad for direct texel fetch (no filtering) */
-    load(coords: Node<d.vec2i>, level?: Node<d.i32>): TextureNode<D> {
+    /** Use textureLoad for direct texel fetch (no filtering). */
+    load(coords: Node<d.vec2i>, level?: Node<d.i32>): TextureNode<D>;
+    /**
+     * Read a struct record by index: `texture(t).load(schema, i)` returns an accessor whose fields
+     * (`.color`, `.transform`, …) lazily decode from `rgba32uint` texels. `i` is a record index
+     * (offset `i · texelStride`, derived from the schema); use {@link loadAt} for an explicit texel.
+     */
+    load<S extends d.StructSchema>(schema: StructDef<S>, index: Node<d.u32> | Node<d.i32>): RecordAccessor<S>;
+    load(
+        a: Node<d.vec2i> | StructDef<d.StructSchema>,
+        b?: Node<d.i32> | Node<d.u32>,
+    ): TextureNode<D> | RecordAccessor<d.StructSchema> {
+        // Struct read: first arg is a struct def (its `.type` is the literal 'struct'; a coord Node's
+        // `.type` is a schema descriptor object, never that string).
+        if ((a as { type?: unknown }).type === 'struct') {
+            const schema = a as StructDef<d.StructSchema>;
+            const layout = structFieldLayout(schema as unknown as d.StructDesc);
+            const idx = ensureU32(b as Node<d.u32 | d.i32>);
+            const texelBase = layout.texelStride === 1 ? idx : idx.mul(u32(layout.texelStride));
+            return buildRecordAccessor(this.getBase(), schema, texelBase, accessorWidth(this));
+        }
         const textureNode = this.clone();
         textureNode.samplingMode = 'load';
-        textureNode.loadCoords = coords;
-        textureNode.loadLevel = level ?? null;
+        textureNode.loadCoords = a as Node<d.vec2i>;
+        textureNode.loadLevel = (b as Node<d.i32>) ?? null;
         textureNode.referenceNode = this.getBase();
         return textureNode;
     }
+
+    /** Read a struct record starting at an explicit TEXEL index (the primitive under {@link load}). */
+    loadAt<S extends d.StructSchema>(schema: StructDef<S>, texel: Node<d.u32> | Node<d.i32>): RecordAccessor<S> {
+        return buildRecordAccessor(this.getBase(), schema, ensureU32(texel), accessorWidth(this));
+    }
+}
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * Structured-texture read accessor — decodes struct fields from rgba32uint texels.
+ * Built purely from existing node primitives (textureLoad + swizzle + bitcast + constructors);
+ * no new NodeKind. Repeated texel reads across fields dedup via CSE.
+ * ─────────────────────────────────────────────────────────────────────────── */
+
+/** Per-field accessor object returned by {@link TextureNode.load}/{@link TextureNode.loadAt}. */
+export type RecordAccessor<S extends d.StructSchema> = { readonly [K in keyof S]: Node<S[K]> };
+
+/** Texture width (texels per row) — needed to map a linear texel index to (x, y). */
+function accessorWidth(node: TextureNode<FlatSampledTexture>): number {
+    return (node.bindingNode.value as unknown as { width: number }).width;
+}
+
+function ensureU32(n: Node<d.u32 | d.i32>): Node<d.u32> {
+    return (n.type as { wgslType?: string }).wgslType === 'u32' ? (n as Node<d.u32>) : u32(n);
+}
+
+/** Read one rgba32uint texel at a linear texel index → a `vec4u` node. */
+function readTexel(base: TextureNode<FlatSampledTexture>, texelIndex: Node<d.u32>, width: number): TextureNode<FlatSampledTexture> {
+    const x = i32(texelIndex.mod(u32(width)));
+    const y = i32(texelIndex.div(u32(width)));
+    return base.load(vec2i(x, y), i32(0)) as TextureNode<FlatSampledTexture>;
+}
+
+/** Decode one field at `byteOffset` from the record beginning at texel `texelBase`. */
+function decodeField(
+    base: TextureNode<FlatSampledTexture>,
+    texelBase: Node<d.u32>,
+    width: number,
+    byteOffset: number,
+    type: Any,
+): Node<Any> {
+    const texelWithin = Math.floor(byteOffset / 16);
+    const comp = (byteOffset % 16) / 4; // 0..3
+    const t = (type as { wgslType: string }).wgslType;
+    const texAt = (tw: number): TextureNode<FlatSampledTexture> =>
+        readTexel(base, tw === 0 ? texelBase : texelBase.add(u32(tw)), width);
+    // Swizzle a texel's component (0..3) → its u32 lane.
+    const lane = (texel: TextureNode<FlatSampledTexture>, i: number): Node<d.u32> =>
+        ([texel.x, texel.y, texel.z, texel.w][i] as unknown) as Node<d.u32>;
+
+    const texel = texAt(texelWithin);
+
+    // Packed types occupy one u32 lane → decode via the WGSL unpack builtin (the GLSL emitter
+    // translates `unpack*` to native builtins / shift-mask). CSE-friendly: just wraps the lane.
+    if (d.isPackedDesc(type)) {
+        const spec = d.PACKED_SPECS[type.type as keyof typeof d.PACKED_SPECS];
+        const logical = spec.lanes === 4 ? d.vec4f : d.vec2f;
+        return new CallNode(logical, spec.unpackFn, [lane(texel, comp)]);
+    }
+
+    // Bitfields: one u32 lane split into named fields via shift/mask (no builtins, both backends).
+    // Returns a sub-accessor whose `.<name>` lazily emits `(lane >> shift) & mask`.
+    if (d.isBitsDesc(type)) {
+        const laneNode = lane(texel, comp);
+        const sub: Record<string, Node<d.u32>> = {};
+        for (const bf of type.fields) {
+            Object.defineProperty(sub, bf.name, {
+                enumerable: true,
+                get: () => {
+                    const shifted = bf.shift === 0 ? laneNode : shiftRight(laneNode, u32(bf.shift));
+                    if (bf.width >= 32) return shifted;
+                    const mask = ((1 << bf.width) - 1) >>> 0;
+                    return bitwiseAnd(shifted, u32(mask));
+                },
+            });
+        }
+        return sub as unknown as Node<Any>;
+    }
+
+    // Scalars
+    if (t === 'u32') return lane(texel, comp);
+    if (t === 'i32') return bitcastI32(lane(texel, comp));
+    if (t === 'f32') return bitcastF32(lane(texel, comp));
+    // vec2 (aligns to 8 → both lanes in one texel, at comp / comp+1)
+    if (t === 'vec2u') return vec2u(lane(texel, comp), lane(texel, comp + 1));
+    if (t === 'vec2i') return vec2i(bitcastI32(lane(texel, comp)), bitcastI32(lane(texel, comp + 1)));
+    if (t === 'vec2f') return vec2f(bitcastF32(lane(texel, comp)), bitcastF32(lane(texel, comp + 1)));
+    // vec3 (aligns to 16 → lanes 0,1,2 of one texel)
+    if (t === 'vec3u') return vec3u(lane(texel, 0), lane(texel, 1), lane(texel, 2));
+    if (t === 'vec3i') return vec3i(bitcastI32(lane(texel, 0)), bitcastI32(lane(texel, 1)), bitcastI32(lane(texel, 2)));
+    if (t === 'vec3f') return vec3(bitcastF32(lane(texel, 0)), bitcastF32(lane(texel, 1)), bitcastF32(lane(texel, 2)));
+    // vec4 (whole texel)
+    if (t === 'vec4u') return texel as unknown as Node<Any>;
+    if (t === 'vec4i')
+        return vec4i(bitcastI32(lane(texel, 0)), bitcastI32(lane(texel, 1)), bitcastI32(lane(texel, 2)), bitcastI32(lane(texel, 3)));
+    if (t === 'vec4f')
+        return vec4(bitcastF32(lane(texel, 0)), bitcastF32(lane(texel, 1)), bitcastF32(lane(texel, 2)), bitcastF32(lane(texel, 3)));
+    // f32 matrices: each column has stride 16 (one texel) for 3- and 4-row matrices.
+    const m = t.match(/^mat(\d)x(\d)f$/);
+    if (m) {
+        const cols = Number(m[1]);
+        const rows = Number(m[2]);
+        if (rows !== 3 && rows !== 4) {
+            throw new Error(`[gpucat] structured-texture load: matrix '${t}' (2-row column packing) not yet supported`);
+        }
+        const columns = Array.from({ length: cols }, (_, c) => {
+            const ct = texAt(texelWithin + c);
+            return rows === 4
+                ? vec4(bitcastF32(lane(ct, 0)), bitcastF32(lane(ct, 1)), bitcastF32(lane(ct, 2)), bitcastF32(lane(ct, 3)))
+                : vec3(bitcastF32(lane(ct, 0)), bitcastF32(lane(ct, 1)), bitcastF32(lane(ct, 2)));
+        });
+        if (cols === 4 && rows === 4) {
+            const c = columns as Node<d.Vec4>[];
+            return mat4(c[0], c[1], c[2], c[3]);
+        }
+        if (cols === 3 && rows === 3) {
+            const c = columns as Node<d.Vec3>[];
+            return mat3(c[0], c[1], c[2]);
+        }
+        throw new Error(`[gpucat] structured-texture load: matrix '${t}' not yet supported`);
+    }
+    throw new Error(`[gpucat] structured-texture load: field type '${t}' not supported`);
+}
+
+function buildRecordAccessor<S extends d.StructSchema>(
+    base: TextureNode<FlatSampledTexture>,
+    schema: StructDef<S>,
+    texelBase: Node<d.u32>,
+    width: number,
+): RecordAccessor<S> {
+    const layout = structFieldLayout(schema as unknown as d.StructDesc);
+    const acc: Record<string, Node<Any>> = {};
+    for (const f of layout.fields) {
+        Object.defineProperty(acc, f.name, {
+            enumerable: true,
+            get: () => decodeField(base, texelBase, width, f.byteOffset, f.type),
+        });
+    }
+    return acc as RecordAccessor<S>;
 }
 
 /* ────────────────────────────────────────────────────────────────────────────

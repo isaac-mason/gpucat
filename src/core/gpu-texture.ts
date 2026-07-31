@@ -184,13 +184,35 @@ export class GpuTexture<D extends d.Texture = d.Texture> {
     /** Version number, incremented when needsUpdate is set */
     version = 0;
 
-    /** Mark texture as needing re-upload */
+    /** Mark texture as needing a FULL re-upload. Takes priority over {@link updateRanges}. */
     set needsUpdate(_: true) {
         this.version++;
+        this.needsFullUpload = true;
     }
 
     /** Track which layers need updating (for 2D array textures) */
     readonly layerUpdates: Set<number> = new Set();
+
+    /**
+     * Pending partial-upload regions as TEXEL ranges `{start, count}` into `source.data`, for 2D
+     * source-backed textures. When non-empty at upload and {@link needsFullUpload} is not set, the renderer
+     * uploads only the covering rows (`texSubImage2D` / `writeTexture`) instead of the whole texture.
+     * Mirrors {@link layerUpdates}. Populated via {@link addUpdateRange}; cleared by the renderer after
+     * upload. Overridden by a full upload (needsUpdate / resize).
+     */
+    readonly updateRanges: { start: number; count: number }[] = [];
+
+    /**
+     * When true, the next upload re-specifies the whole texture (set by `needsUpdate`, a resize, or the
+     * first upload) and takes priority over {@link updateRanges}. The renderer resets it after uploading.
+     */
+    needsFullUpload = false;
+
+    /** Queue a partial (texel-range) update and trigger a re-upload — WITHOUT forcing a full upload. */
+    addUpdateRange(start: number, count: number): void {
+        this.updateRanges.push({ start, count });
+        this.version++;
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Render target flag
