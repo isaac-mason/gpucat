@@ -21,7 +21,10 @@
  * contents are produced by an FBO render, so `updateTexture` on them only ensures the allocation.
  */
 
+import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { GpuTexture } from '../../core/gpu-texture';
+import type { StorageBufferTextureSource } from '../../nodes/lib/texture';
+import { collapseUpdateRanges } from '../core/update-ranges';
 
 /** GL format triple for a color/depth texture: the sized internal format + upload format + type. */
 type GlFormat = {
@@ -219,15 +222,104 @@ export type GlTextureData = {
     allocH: number;
 };
 
+/**
+ * GL texture backing a read-only storage `GpuBuffer` reinterpreted as rgba32uint (the WebGL `storage()`
+ * read-lowering). Cached per `GpuBuffer` so N materials sampling the same buffer share one GL texture,
+ * and re-uploaded when `buffer.version` moves — mutate the buffer between frames and the read stays current.
+ */
+export type GlBufferTextureData = {
+    texture: WebGLTexture;
+    /** `buffer.version` at last upload — the re-upload gate. */
+    version: number;
+    /** GL-allocated texel dimensions (a grow re-allocates rather than sub-uploading). */
+    width: number;
+    height: number;
+};
+
 /** Textures state: per-GpuTexture GL data, keyed by GpuTexture identity, plus a disposal set. */
 export type GlTexturesState = {
     data: WeakMap<GpuTexture, GlTextureData>;
+    /** Storage-buffer-backed GL textures, keyed by the `GpuBuffer` (WebGL storage() read-lowering). */
+    bufferData: WeakMap<GpuBuffer, GlBufferTextureData>;
     all: Set<WebGLTexture>;
 };
 
 /** Create an empty textures state. */
 export function createGlTexturesState(): GlTexturesState {
-    return { data: new WeakMap(), all: new Set() };
+    return { data: new WeakMap(), bufferData: new WeakMap(), all: new Set() };
+}
+
+/**
+ * Resolve (create/upload/re-sync) the GL texture for a read-only storage `GpuBuffer` bound AS an
+ * rgba32uint texture, and return it bound-ready. The pixel data is a ZERO-COPY `Uint32Array` view over
+ * the buffer's own `ArrayBuffer` — the same bytes seen as `width × height` u32 texels — so nothing is
+ * duplicated on the CPU. Cached per `GpuBuffer`; re-synced when `buffer.version` moves or ranges are
+ * queued — a row-granular `texSubImage2D` for `packAtIndex`/`addUpdateRange` partial writes, a full upload for
+ * a bare version bump, or a full re-allocation if the texel grid grew. The caller binds it.
+ */
+export function updateStorageBufferTexture(
+    gl: WebGL2RenderingContext,
+    state: GlTexturesState,
+    source: StorageBufferTextureSource,
+): WebGLTexture {
+    const { buffer, width, height } = source;
+    const arr = buffer.array;
+    if (arr == null) {
+        throw new Error(
+            '[WebGLRenderer] storage() read-lowering: the storage buffer has no CPU `array` to reinterpret ' +
+                '(its data was released after upload); keep it resident to sample it on WebGL2.',
+        );
+    }
+    // Reinterpret the buffer's bytes as rgba32uint texels. A single-arg length keeps this a zero-copy view.
+    const view = new Uint32Array(arr.buffer, arr.byteOffset, width * height * 4);
+
+    let data = state.bufferData.get(buffer);
+    if (!data) {
+        const texture = gl.createTexture();
+        if (!texture) throw new Error('[WebGLRenderer] gl.createTexture returned null (storage buffer texture).');
+        state.all.add(texture);
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32UI, width, height, 0, gl.RGBA_INTEGER, gl.UNSIGNED_INT, view);
+        // Integer textures are never filterable — NEAREST, clamp; sampled only via texelFetch.
+        setDefaultMinFilter(gl, gl.TEXTURE_2D, false, true);
+        data = { texture, version: buffer.version, width, height };
+        state.bufferData.set(buffer, data);
+        return texture;
+    }
+
+    const sizeChanged = data.width !== width || data.height !== height;
+    // Clean (version matched, no queued ranges, same size) → the cached texture is already current.
+    if (!sizeChanged && data.version === buffer.version && buffer.updateRanges.length === 0) {
+        return data.texture;
+    }
+
+    gl.bindTexture(gl.TEXTURE_2D, data.texture);
+    if (sizeChanged) {
+        // Grow/shrink → re-specify the whole mutable texture at the new size (queued ranges are moot).
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32UI, width, height, 0, gl.RGBA_INTEGER, gl.UNSIGNED_INT, view);
+        data.width = width;
+        data.height = height;
+    } else {
+        // Same size: prefer a row-granular partial upload when `packAtIndex`/`addUpdateRange` queued
+        // dirty ranges. `updateRanges` are flat COMPONENT indices, so the grid width in that unit is
+        // width·4 (4 u32 components per rgba32uint texel); clamp the span to `[0, height)`. A bare
+        // version bump (no ranges) or a span covering more than half the rows → full.
+        const raw = buffer.updateRanges.length > 0 ? collapseUpdateRanges(buffer.updateRanges, width * 4) : null;
+        const y0 = raw ? Math.max(0, raw.rowStart) : 0;
+        const y1 = raw ? Math.min(height - 1, raw.rowStart + raw.rowCount - 1) : -1;
+        const span = raw && y1 >= y0 ? { y0, rows: y1 - y0 + 1 } : null;
+        if (span && span.rows <= height / 2) {
+            const start = span.y0 * width * 4;
+            const sub = view.subarray(start, start + span.rows * width * 4);
+            gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+            gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, span.y0, width, span.rows, gl.RGBA_INTEGER, gl.UNSIGNED_INT, sub);
+        } else {
+            gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA_INTEGER, gl.UNSIGNED_INT, view);
+        }
+    }
+    buffer.clearUpdateRanges();
+    data.version = buffer.version;
+    return data.texture;
 }
 
 /** Get the cached GlTextureData for a GpuTexture (or null if never seen). */
@@ -328,26 +420,6 @@ function upload2D(gl: WebGL2RenderingContext, texture: GpuTexture, data: GlTextu
 
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
-}
-
-/**
- * Collapse a texture's pending {@link GpuTexture.updateRanges} (texel ranges) into a single covering
- * row span `{y0, rows}`, or `null` if empty. Row-granular: whole dirty rows, so the merge is just the
- * min/max row across all ranges — no same-row/straddle bookkeeping.
- */
-function coveringRowSpan(texture: GpuTexture): { y0: number; rows: number } | null {
-    const width = texture.width;
-    let minTexel = Number.POSITIVE_INFINITY;
-    let maxTexel = Number.NEGATIVE_INFINITY;
-    for (const r of texture.updateRanges) {
-        if (r.count <= 0) continue;
-        if (r.start < minTexel) minTexel = r.start;
-        if (r.start + r.count - 1 > maxTexel) maxTexel = r.start + r.count - 1;
-    }
-    if (!Number.isFinite(minTexel)) return null;
-    const y0 = Math.floor(minTexel / width);
-    const y1 = Math.floor(maxTexel / width);
-    return { y0, rows: y1 - y0 + 1 };
 }
 
 /** Upload only the dirty rows `[y0, y0+rows)` of a 2D source-backed texture via `texSubImage2D`. */
@@ -512,7 +584,7 @@ export function updateTexture(gl: WebGL2RenderingContext, state: GlTexturesState
 
     if (data.allocated && data.version === texture.version) return data;
 
-    // Partial upload: an in-place `store`/`addUpdateRange` queued dirty texel ranges (no full re-upload
+    // Partial upload: an in-place `packAtIndex`/`addUpdateRange` queued dirty texel ranges (no full re-upload
     // and no resize) → re-specify only the covering rows via `texSubImage2D` on the existing GL texture,
     // skipping the delete + full `texImage2D` below. A full flag (`needsUpdate`/grow) or a size change
     // takes priority. `> ½` the texture dirty → fall through to a full upload (fewer, simpler calls).
@@ -525,10 +597,10 @@ export function updateTexture(gl: WebGL2RenderingContext, state: GlTexturesState
         data.allocW === texture.width &&
         data.allocH === texture.height
     ) {
-        const span = coveringRowSpan(texture);
-        if (span && span.rows <= texture.height / 2) {
+        const span = collapseUpdateRanges(texture.updateRanges, texture.width);
+        if (span && span.rowCount <= texture.height / 2) {
             gl.bindTexture(data.target, data.texture);
-            uploadPartial2D(gl, texture, data, span);
+            uploadPartial2D(gl, texture, data, { y0: span.rowStart, rows: span.rowCount });
             texture.updateRanges.length = 0;
             data.version = texture.version;
             return data;

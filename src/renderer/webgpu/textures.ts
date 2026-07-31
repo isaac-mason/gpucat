@@ -19,6 +19,7 @@ import type { GpuTexture } from '../../core/gpu-texture';
 import type { RenderTarget } from '../../core/render-target';
 import type { Source } from '../../texture/source';
 import { createMipmapState, generateMipmaps, type MipmapState } from './mipmap-utils';
+import { collapseUpdateRanges } from '../core/update-ranges';
 
 /** Data stored per Texture in the cache */
 export type TextureData = {
@@ -177,22 +178,6 @@ export function finalizeCubeRenderTargetCapture(
  * Update a texture, checks source version and uploads if needed.
  * Returns the TextureData for the texture.
  */
-/** Covering row span for a texture's pending texel `updateRanges` (row-granular), or null if empty. */
-function coveringRowSpan(texture: GpuTexture): { y0: number; rows: number } | null {
-    const width = texture.width;
-    let minTexel = Number.POSITIVE_INFINITY;
-    let maxTexel = Number.NEGATIVE_INFINITY;
-    for (const r of texture.updateRanges) {
-        if (r.count <= 0) continue;
-        if (r.start < minTexel) minTexel = r.start;
-        if (r.start + r.count - 1 > maxTexel) maxTexel = r.start + r.count - 1;
-    }
-    if (!Number.isFinite(minTexel)) return null;
-    const y0 = Math.floor(minTexel / width);
-    const y1 = Math.floor(maxTexel / width);
-    return { y0, rows: y1 - y0 + 1 };
-}
-
 /** Partial upload: `writeTexture` only rows `[y0, y0+rows)` of a 2D typed-array source. */
 function uploadPartialTextureData(device: GPUDevice, texture: GpuTexture, data: TextureData, span: { y0: number; rows: number }): void {
     const source = texture.source;
@@ -218,7 +203,7 @@ export function updateTexture(cache: TextureCache, device: GPUDevice, texture: G
         return data;
     }
 
-    // Partial upload: an in-place `store`/`addUpdateRange` queued dirty texel ranges (no full flag, no
+    // Partial upload: an in-place `packAtIndex`/`addUpdateRange` queued dirty texel ranges (no full flag, no
     // resize) → `writeTexture` only the covering rows instead of the whole texture. A full flag
     // (`needsUpdate`/grow) or size change takes priority; `> ½` dirty falls through to a full upload.
     if (
@@ -233,9 +218,9 @@ export function updateTexture(cache: TextureCache, device: GPUDevice, texture: G
         isSourceReady(texture.source) &&
         isTypedArrayData(texture.source?.data ?? null)
     ) {
-        const span = coveringRowSpan(texture);
-        if (span && span.rows <= texture.height / 2) {
-            uploadPartialTextureData(device, texture, data, span);
+        const span = collapseUpdateRanges(texture.updateRanges, texture.width);
+        if (span && span.rowCount <= texture.height / 2) {
+            uploadPartialTextureData(device, texture, data, { y0: span.rowStart, rows: span.rowCount });
             texture.updateRanges.length = 0;
             data.version = texture.version;
             return data;

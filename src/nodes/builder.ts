@@ -14,6 +14,7 @@ import {
     generateGlslFragmentShader,
     generateGlslTransformFeedbackShader,
     generateGlslVertexShader,
+    type StorageMirror,
 } from './backend/glsl/emit';
 import {
     collectVaryings,
@@ -46,8 +47,8 @@ import {
     type DepthTextureNode,
     SamplerNode,
     type StorageTextureBindingNode,
-    type TextureBindingNode,
-    type TextureNode,
+    TextureBindingNode,
+    TextureNode,
 } from './lib/texture';
 import type { UniformGroup, UniformNode } from './lib/uniform';
 import type { InterpolationSampling, InterpolationType } from './lib/varying';
@@ -211,6 +212,51 @@ export type CompileGlslOptions = {
     precision?: 'highp' | 'mediump' | 'lowp';
 };
 
+/**
+ * Bind a read-only, CPU-backed storage buffer AS an rgba32uint texture for WebGL (which has no SSBO).
+ * No mirror object is minted here: the returned `base` is a synthetic sampler-less `TextureNode` whose
+ * binding carries the `GpuBuffer` itself (`storageBufferSource`). At bind time the WebGL renderer reads
+ * the buffer's own bytes directly as u32 texels (float fields round-trip through the accessor's
+ * `uintBitsToFloat`) and caches one GL texture per `GpuBuffer`, version-synced — so mutating the buffer
+ * between frames re-uploads, and N materials sharing a buffer share one GL texture. We only pick the
+ * texel grid shape (baked into the shader's addressing via `width`): a width ≤ 2048 that divides the
+ * texel count exactly, so no padding is ever needed; if none tiles into ≤2048×2048 we throw.
+ */
+function createStorageBinding(node: StorageNode<d.Any>): StorageMirror {
+    const buffer = node.value!;
+    const arr = buffer.array;
+    if (arr == null) {
+        throw new Error(
+            `[glsl] storage() read-lowering needs a CPU-backed buffer, but this storage buffer has no ` +
+                `\`array\` (its CPU data was released after upload); keep the data resident to read it on WebGL`,
+        );
+    }
+    if (arr.byteLength === 0 || arr.byteLength % 16 !== 0) {
+        throw new Error(
+            `[glsl] storage() read-lowering: buffer byte length ${arr.byteLength} must be a non-zero multiple ` +
+                `of 16 (whole rgba32uint texels) to reinterpret as a WebGL texture without padding`,
+        );
+    }
+    const totalTexels = arr.byteLength / 16;
+    // Pick a texel width ≤ 2048 that divides totalTexels exactly, so the buffer's bytes fill the grid
+    // with no padding. Common case (≤ 2048 texels) → a single row of width `totalTexels`.
+    let width = Math.min(totalTexels, 2048);
+    while (width > 1 && totalTexels % width !== 0) width--;
+    const height = totalTexels / width;
+    if (height > 2048) {
+        throw new Error(
+            `[glsl] storage() read-lowering: ${totalTexels} texels don't tile into a ≤2048×2048 grid ` +
+                `(no width ≤ 2048 divides evenly); split or reshape the buffer`,
+        );
+    }
+    // Synthetic, sampler-less integer texture binding backed by the buffer itself — `.load()` lowers to
+    // texelFetch on a usampler2D, needing no sampler. The renderer resolves `storageBufferSource`.
+    const binding = new TextureBindingNode(d.texture2d(d.u32) as d.texture2d, `storage${node.id}`);
+    binding.storageBufferSource = { buffer, width, height };
+    const base = new TextureNode(binding);
+    return { base, width };
+}
+
 export function compileGlsl(slots: CompileSlots, opts: CompileGlslOptions = {}): CompileResult {
     const hasFragment = slots.fragment != null;
     // A frag_depth override (material.depth) is a fragment-stage value; a fragment shader must run to
@@ -239,9 +285,20 @@ export function compileGlsl(slots: CompileSlots, opts: CompileGlslOptions = {}):
         walkTypeForStructs(node.type, registerGlslStructDef);
     }
 
-    // Reject compute-only / not-yet-supported resources at compile time with a clear error.
-    if (discovered.storages.size > 0 || discovered.storageNames.size > 0) {
-        throw new Error(`[glsl] storage buffers are not yet supported in the GLSL emitter`);
+    // storage() on WebGL: a read-only, value-based (CPU-backed) storage buffer is bound AS an rgba32uint
+    // texture — reads lower to texelFetch through the same accessor as `texture(t).load(schema, i)` (see
+    // the GLSL emitter's `storageMirrors`). No SSBOs, no second CPU array: the renderer reinterprets the
+    // buffer's own bytes at bind time (see `storageBufferSource`). read_write / atomic / compute writes
+    // and name-based bindings have no WebGL render-path analogue and still fail loudly.
+    const storageMirrors = new Map<number, StorageMirror>();
+    for (const node of discovered.storages.values()) {
+        if (node.access !== 'read' || node.value == null) {
+            throw new Error(
+                `[glsl] storage() on the WebGL2 backend supports only read-only, value-based buffers ` +
+                    `(reinterpreted as a texture); '${node.access}' / name-based / compute storage is not supported`,
+            );
+        }
+        storageMirrors.set(node.id, createStorageBinding(node));
     }
     if (discovered.storageTextures.size > 0) {
         // WebGL2 has no storage textures.
@@ -256,6 +313,10 @@ export function compileGlsl(slots: CompileSlots, opts: CompileGlslOptions = {}):
 
     const vertexCtx = createGlslContext('vertex', discovered);
     const fragmentCtx = createGlslContext('fragment', discovered);
+    // Both stages share the same storage→mirror mapping so a storage read lowers identically wherever
+    // it appears (a vertex shader gathering per-instance data, a fragment shader reading a palette, …).
+    vertexCtx.storageMirrors = storageMirrors;
+    fragmentCtx.storageMirrors = storageMirrors;
 
     // Pre-collect varyings from the fragment roots (color + depth override) so the vertex shader knows
     // what to output. A varying used only by the depth expression must still be produced by the vertex

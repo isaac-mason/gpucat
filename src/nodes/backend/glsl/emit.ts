@@ -17,7 +17,7 @@
 
 import type { StructSchema } from '../../../schema/schema';
 import * as d from '../../../schema/schema';
-import { layoutAlignOf, layoutSizeOf } from '../../../schema/pack';
+import { layoutAlignOf, layoutSizeOf, layoutStrideOf, structFieldLayout } from '../../../schema/pack';
 import type { CompileSlots, Discovery, SamplerEntry, TextureEntry, UniformGroupBlock, UniformMember } from '../../builder';
 import type { TracedFn } from '../wgsl/emit';
 import { type AnyNode, getChildren } from '../../graph';
@@ -27,6 +27,7 @@ import {
     type CallNode,
     type FnNode,
     type IfNode,
+    type IndexNode,
     isNode,
     type LoopNode,
     type Node,
@@ -35,12 +36,14 @@ import {
     type PrivateVarNode,
     type StackNode,
     type StructDef,
+    u32,
     type WgslFunctionNodeRef,
 } from '../../lib/core';
 import type { MRTNode } from '../../lib/mrt';
 import {
     type ArrayTextureNode,
     type CubeTextureNode,
+    decodeField,
     type DepthTextureNode,
     SamplerNode,
     type TextureBindingNode,
@@ -193,6 +196,17 @@ function glslLiteral(wgslType: string, value: number | number[] | string): strin
 }
 
 /**
+ * A read-only storage() buffer bound AS a texture for WebGL (which has no SSBO). `base` is a synthetic
+ * sampler-less `TextureNode` whose binding carries the `GpuBuffer` itself (`storageBufferSource`); the
+ * renderer reinterprets the buffer's bytes as rgba32uint texels. `width` is the texel width (for row
+ * addressing), baked into the emitted texelFetch coordinates.
+ */
+export type StorageMirror = {
+    base: TextureNode<d.FlatSampledTexture>;
+    width: number;
+};
+
+/**
  * GLSL build context — a sibling of the WGSL BuildContext, but slimmed to this slice. It carries the
  * discovered facts (referenced, not copied — one discovery pass feeds both vertex + fragment) plus
  * per-stage emission scratch (attributes, varyings, CSE vars, code lines).
@@ -224,6 +238,11 @@ export type GlslBuildContext = {
     textures: Map<string, TextureBindingNode>; // textureId -> binding node (insertion-ordered)
     textureSamplers: Map<string, SamplerNode<d.sampler | d.samplerComparison>>; // textureId -> its sampler
 
+    // Read-only storage() buffers reinterpreted as rgba32uint mirror textures (WebGL has no SSBO).
+    // Keyed by StorageNode id → the mirror's base texture node + its texel width, so a `storage[i].field`
+    // read lowers to the same `decodeField` path as `texture(t).load(schema, i)`. Populated by compileGlsl.
+    storageMirrors: Map<number, StorageMirror>;
+
     // Per-stage emission scratch.
     attributes: Map<number, { shaderName: string; type: d.Any; location: number; node: AttributeNode<d.Any> }>;
     varyings: Map<string, { node: VaryingNode<d.Any>; vertexExpr: string }>;
@@ -248,6 +267,8 @@ export function createGlslContext(stage: ShaderStage, discovery: Discovery): Gls
         // Fresh per-context: the emitter registers textures/samplers as it walks each stage.
         textures: new Map(),
         textureSamplers: new Map(),
+        // Populated once by compileGlsl (shared across stages) — see storage() read-lowering.
+        storageMirrors: new Map(),
         attributes: new Map(),
         varyings: new Map(),
         builtins: new Set(),
@@ -264,6 +285,79 @@ function unsupported(kind: string): never {
 }
 
 /* expression generation */
+
+/**
+ * A resolved storage() read to lower: one field of an rgba32uint mirror texture, addressed exactly like
+ * `texture(t).load(schema, i)`. `matchStorageRead` produces it; `lowerStorageRead` emits it. Splitting
+ * "is this a storage read?" from "emit it" keeps each half small and independently testable.
+ */
+type StorageReadMatch = {
+    base: TextureNode<d.FlatSampledTexture>;
+    texelBase: Node<d.u32>;
+    width: number;
+    byteOffset: number;
+    type: d.Any;
+};
+
+/** The mirror texture for `idx`'s array, iff that array is a read-only storage buffer we've lowered. */
+function storageMirrorOf(ctx: GlslBuildContext, idxNode: IndexNode<d.Any>): StorageMirror | null {
+    const arr = idxNode.array as AnyNode;
+    if (arr.kind !== NodeKind.Storage) return null;
+    return ctx.storageMirrors.get(arr.id) ?? null;
+}
+
+/**
+ * Detection only: is `node` a read from a lowered read-only storage buffer? Handles both `storage[i].field`
+ * (struct element) and bare `storage[i]` (non-struct element). Returns the resolved field to decode, or
+ * null. No emission, no side effects — the caller decides whether/how to lower.
+ */
+function matchStorageRead(ctx: GlslBuildContext, node: AnyNode): StorageReadMatch | null {
+    if (node.kind === NodeKind.Field) {
+        const obj = node.object as AnyNode;
+        if (obj.kind !== NodeKind.Index) return null;
+        const idxNode = obj as IndexNode<d.Any>;
+        const mirror = storageMirrorOf(ctx, idxNode);
+        if (!mirror) return null;
+        const elementSchema = idxNode.type; // IndexNode.type = the array element (the struct)
+        if (!d.isStructDesc(elementSchema)) return null;
+        const layout = structFieldLayout(elementSchema as unknown as d.StructDesc);
+        const f = layout.fields.find((ff) => ff.name === node.fieldName);
+        if (!f) return null;
+        return {
+            base: mirror.base,
+            texelBase: storageTexelBase(idxNode.index, layout.texelStride),
+            width: mirror.width,
+            byteOffset: f.byteOffset,
+            type: f.type,
+        };
+    }
+    if (node.kind === NodeKind.Index) {
+        const idxNode = node as IndexNode<d.Any>;
+        const mirror = storageMirrorOf(ctx, idxNode);
+        if (!mirror) return null;
+        const elementSchema = idxNode.type;
+        if (d.isStructDesc(elementSchema)) return null; // struct elements are read via `.field` above
+        const texelStride = Math.ceil(layoutStrideOf(elementSchema, 'std430') / 16);
+        return {
+            base: mirror.base,
+            texelBase: storageTexelBase(idxNode.index, texelStride),
+            width: mirror.width,
+            byteOffset: 0,
+            type: elementSchema,
+        };
+    }
+    return null;
+}
+
+/** Emit a matched storage read through the same `decodeField` path as `texture(t).load(schema, i)`. */
+function lowerStorageRead(ctx: GlslBuildContext, m: StorageReadMatch): string {
+    return generateExpr(ctx, decodeField(m.base, m.texelBase, m.width, m.byteOffset, m.type));
+}
+
+function storageTexelBase(indexNode: Node<d.Any>, texelStride: number): Node<d.u32> {
+    const idx = u32(indexNode);
+    return texelStride === 1 ? idx : idx.mul(u32(texelStride));
+}
 
 function generateExpr(ctx: GlslBuildContext, rawNode: Node<d.Any>): string {
     const node = rawNode as AnyNode;
@@ -328,11 +422,21 @@ function generateExpr(ctx: GlslBuildContext, rawNode: Node<d.Any>): string {
             break;
         }
         case NodeKind.Field: {
+            const storageRead = matchStorageRead(ctx, node);
+            if (storageRead) {
+                expr = lowerStorageRead(ctx, storageRead);
+                break;
+            }
             const obj = generateExpr(ctx, node.object);
             expr = `${obj}.${node.fieldName}`;
             break;
         }
         case NodeKind.Index: {
+            const storageRead = matchStorageRead(ctx, node);
+            if (storageRead) {
+                expr = lowerStorageRead(ctx, storageRead);
+                break;
+            }
             const arr = generateExpr(ctx, node.array);
             const idx = generateExpr(ctx, node.index);
             expr = `${arr}[${idx}]`;

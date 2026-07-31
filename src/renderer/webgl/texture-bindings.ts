@@ -17,7 +17,7 @@ import type { SamplerEntry, TextureEntry } from '../../nodes/builder';
 import { getBindings, type RenderObject } from '../core/render-object';
 import type { ProgramInfo } from './programs';
 import { getGlSampler, type GlSamplersState } from './samplers';
-import { getGlTextureData, updateTexture, type GlTexturesState } from './textures';
+import { getGlTextureData, updateStorageBufferTexture, updateTexture, type GlTexturesState } from './textures';
 
 /** The combined-sampler uniform name for a texture id (mirrors the GLSL emitter's `samplerUniformName`). */
 function samplerUniformName(textureId: string): string {
@@ -89,6 +89,21 @@ export function bindTextures(
 
             const entry = binding.entry;
             const unit = entry.binding;
+
+            // storage() read-lowering: the binding is a read-only storage GpuBuffer reinterpreted AS an
+            // rgba32uint texture (WebGL2 has no SSBO). Resolve the per-buffer GL texture (version-synced),
+            // bind it sampler-less (integer texelFetch needs no sampler), and set its combined-sampler uniform.
+            const storageSource = entry.node.storageBufferSource;
+            if (storageSource) {
+                const glTexture = updateStorageBufferTexture(gl, textures, storageSource);
+                gl.activeTexture(gl.TEXTURE0 + unit);
+                gl.bindTexture(gl.TEXTURE_2D, glTexture);
+                gl.bindSampler(unit, null);
+                const loc = getSamplerLocation(gl, programInfo, samplerUniformName(entry.textureId));
+                if (loc) gl.uniform1i(loc, unit);
+                continue;
+            }
+
             const gpuTexture = entry.node.value;
             if (!gpuTexture) continue;
 
