@@ -7,7 +7,7 @@ import type { AttributeNode } from './lib/attribute';
 import { type ComputeNode, type FnNode, type Node, type PrivateVarNode, type StructDef, type WorkgroupVarNode } from './lib/core';
 import type { TransformFeedbackNode } from './lib/transform-feedback';
 import type { StorageNode } from './lib/storage';
-import { SamplerNode, type StorageTextureBindingNode, type TextureBindingNode } from './lib/texture';
+import { SamplerNode, type StorageTextureBindingNode, TextureBindingNode } from './lib/texture';
 import type { UniformGroup, UniformNode } from './lib/uniform';
 import type { InterpolationSampling, InterpolationType } from './lib/varying';
 import type { WgslFunctionNode } from './lib/wgsl-fn';

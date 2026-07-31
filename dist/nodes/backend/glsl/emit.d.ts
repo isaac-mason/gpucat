@@ -20,10 +20,20 @@ import type { CompileSlots, Discovery, SamplerEntry, TextureEntry, UniformGroupB
 import type { TracedFn } from '../wgsl/emit';
 import type { AttributeNode } from '../../lib/attribute';
 import { type FnNode, type Node, type PrivateVarNode, type StackNode, type StructDef, type WgslFunctionNodeRef } from '../../lib/core';
-import { SamplerNode, type TextureBindingNode } from '../../lib/texture';
+import { SamplerNode, type TextureBindingNode, type TextureNode } from '../../lib/texture';
 import type { UniformGroup, UniformNode } from '../../lib/uniform';
 import type { VaryingNode } from '../../lib/varying';
 type ShaderStage = 'vertex' | 'fragment';
+/**
+ * A read-only storage() buffer bound AS a texture for WebGL (which has no SSBO). `base` is a synthetic
+ * sampler-less `TextureNode` whose binding carries the `GpuBuffer` itself (`storageBufferSource`); the
+ * renderer reinterprets the buffer's bytes as rgba32uint texels. `width` is the texel width (for row
+ * addressing), baked into the emitted texelFetch coordinates.
+ */
+export type StorageMirror = {
+    base: TextureNode<d.FlatSampledTexture>;
+    width: number;
+};
 /**
  * GLSL build context — a sibling of the WGSL BuildContext, but slimmed to this slice. It carries the
  * discovered facts (referenced, not copied — one discovery pass feeds both vertex + fragment) plus
@@ -46,6 +56,7 @@ export type GlslBuildContext = {
     structDefs: Map<string, StructDef<StructSchema>>;
     textures: Map<string, TextureBindingNode>;
     textureSamplers: Map<string, SamplerNode<d.sampler | d.samplerComparison>>;
+    storageMirrors: Map<number, StorageMirror>;
     attributes: Map<number, {
         shaderName: string;
         type: d.Any;

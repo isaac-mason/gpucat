@@ -20,7 +20,9 @@
  * allocated at the target's size/format by `render-target.ts` (via `ensureAllocated`) and their
  * contents are produced by an FBO render, so `updateTexture` on them only ensures the allocation.
  */
+import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { GpuTexture } from '../../core/gpu-texture';
+import type { StorageBufferTextureSource } from '../../nodes/lib/texture';
 /** GL format triple for a color/depth texture: the sized internal format + upload format + type. */
 type GlFormat = {
     /** Sized internal format for texStorage/texImage (e.g. gl.RGBA8, gl.RGBA16F, gl.DEPTH_COMPONENT24). */
@@ -51,13 +53,37 @@ export type GlTextureData = {
     allocW: number;
     allocH: number;
 };
+/**
+ * GL texture backing a read-only storage `GpuBuffer` reinterpreted as rgba32uint (the WebGL `storage()`
+ * read-lowering). Cached per `GpuBuffer` so N materials sampling the same buffer share one GL texture,
+ * and re-uploaded when `buffer.version` moves — mutate the buffer between frames and the read stays current.
+ */
+export type GlBufferTextureData = {
+    texture: WebGLTexture;
+    /** `buffer.version` at last upload — the re-upload gate. */
+    version: number;
+    /** GL-allocated texel dimensions (a grow re-allocates rather than sub-uploading). */
+    width: number;
+    height: number;
+};
 /** Textures state: per-GpuTexture GL data, keyed by GpuTexture identity, plus a disposal set. */
 export type GlTexturesState = {
     data: WeakMap<GpuTexture, GlTextureData>;
+    /** Storage-buffer-backed GL textures, keyed by the `GpuBuffer` (WebGL storage() read-lowering). */
+    bufferData: WeakMap<GpuBuffer, GlBufferTextureData>;
     all: Set<WebGLTexture>;
 };
 /** Create an empty textures state. */
 export declare function createGlTexturesState(): GlTexturesState;
+/**
+ * Resolve (create/upload/re-sync) the GL texture for a read-only storage `GpuBuffer` bound AS an
+ * rgba32uint texture, and return it bound-ready. The pixel data is a ZERO-COPY `Uint32Array` view over
+ * the buffer's own `ArrayBuffer` — the same bytes seen as `width × height` u32 texels — so nothing is
+ * duplicated on the CPU. Cached per `GpuBuffer`; re-synced when `buffer.version` moves or ranges are
+ * queued — a row-granular `texSubImage2D` for `packAtIndex`/`addUpdateRange` partial writes, a full upload for
+ * a bare version bump, or a full re-allocation if the texel grid grew. The caller binds it.
+ */
+export declare function updateStorageBufferTexture(gl: WebGL2RenderingContext, state: GlTexturesState, source: StorageBufferTextureSource): WebGLTexture;
 /** Get the cached GlTextureData for a GpuTexture (or null if never seen). */
 export declare function getGlTextureData(state: GlTexturesState, texture: GpuTexture): GlTextureData | null;
 /**

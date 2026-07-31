@@ -501,9 +501,11 @@ The scene graph, cameras, and the objects you put in it.
 **Objects**
 
 <table><tr>
-<td><a href="#mesh"><code>Mesh</code></a></td><td><a href="#linegeometry"><code>LineGeometry</code></a></td><td><a href="#linesegmentsgeometry"><code>LineSegmentsGeometry</code></a></td><td><a href="#linematerialoptions"><code>LineMaterialOptions</code></a></td>
+<td><a href="#indexedmeshdraw"><code>IndexedMeshDraw</code></a></td><td><a href="#nonindexedmeshdraw"><code>NonIndexedMeshDraw</code></a></td><td><a href="#meshdraw"><code>MeshDraw</code></a></td><td><a href="#mesh"><code>Mesh</code></a></td>
 </tr><tr>
-<td><a href="#linematerial"><code>LineMaterial</code></a></td><td><a href="#linesegments"><code>LineSegments</code></a></td><td><a href="#line"><code>Line</code></a></td><td></td>
+<td><a href="#linegeometry"><code>LineGeometry</code></a></td><td><a href="#linesegmentsgeometry"><code>LineSegmentsGeometry</code></a></td><td><a href="#linematerialoptions"><code>LineMaterialOptions</code></a></td><td><a href="#linematerial"><code>LineMaterial</code></a></td>
+</tr><tr>
+<td><a href="#linesegments"><code>LineSegments</code></a></td><td><a href="#line"><code>Line</code></a></td><td></td><td></td>
 </tr></table>
 
 **Geometry**
@@ -589,9 +591,9 @@ WGSL type descriptors (imported as `d`) and std430 buffer packing.
 </tr><tr>
 <td><a href="#packto"><code>packTo</code></a></td><td><a href="#unpack"><code>unpack</code></a></td><td><a href="#unpackarray"><code>unpackArray</code></a></td><td><a href="#layoutsizeof"><code>layoutSizeOf</code></a></td>
 </tr><tr>
-<td><a href="#layoutstrideof"><code>layoutStrideOf</code></a></td><td><a href="#layoutalignof"><code>layoutAlignOf</code></a></td><td><a href="#getcompiledlayout"><code>getCompiledLayout</code></a></td><td><a href="#packtoview"><code>packToView</code></a></td>
+<td><a href="#layoutstrideof"><code>layoutStrideOf</code></a></td><td><a href="#structfieldlayout"><code>StructFieldLayout</code></a></td><td><a href="#structfieldlayout-2"><code>structFieldLayout</code></a></td><td><a href="#layoutalignof"><code>layoutAlignOf</code></a></td>
 </tr><tr>
-<td><a href="#unpackfromview"><code>unpackFromView</code></a></td><td></td><td></td><td></td>
+<td><a href="#getcompiledlayout"><code>getCompiledLayout</code></a></td><td><a href="#packtoview"><code>packToView</code></a></td><td><a href="#unpackfromview"><code>unpackFromView</code></a></td><td></td>
 </tr></table>
 
 ### Controls & debugging
@@ -740,10 +742,28 @@ export class GpuTexture<D extends d.Texture = d.Texture> {
     premultiplyAlpha: boolean;
     /** Version number, incremented when needsUpdate is set */
     version: number;
-    /** Mark texture as needing re-upload */
+    /** Mark texture as needing a FULL re-upload. Takes priority over {@link updateRanges}. */
     set needsUpdate(_: true);
     /** Track which layers need updating (for 2D array textures) */
     readonly layerUpdates: Set<number>;
+    /**
+     * Pending partial-upload regions as TEXEL ranges `{start, count}` into `source.data`, for 2D
+     * source-backed textures. When non-empty at upload and {@link needsFullUpload} is not set, the renderer
+     * uploads only the covering rows (`texSubImage2D` / `writeTexture`) instead of the whole texture.
+     * Mirrors {@link layerUpdates}. Populated via {@link addUpdateRange}; cleared by the renderer after
+     * upload. Overridden by a full upload (needsUpdate / resize).
+     */
+    readonly updateRanges: {
+        start: number;
+        count: number;
+    }[];
+    /**
+     * When true, the next upload re-specifies the whole texture (set by `needsUpdate`, a resize, or the
+     * first upload) and takes priority over {@link updateRanges}. The renderer resets it after uploading.
+     */
+    needsFullUpload: boolean;
+    /** Queue a partial (texel-range) update and trigger a re-upload — WITHOUT forcing a full upload. */
+    addUpdateRange(start: number, count: number): void;
     /**
      * Whether this texture is a render target (managed by RenderTarget system).
      * When true, the renderer skips source data upload - the GPU texture is
@@ -2651,6 +2671,7 @@ export const tan: <D extends Any>(a: Node<D>) => Node<D>;
  * albedo.load(vec2i(10, 20))           // textureLoad
  */
 export function texture(tex: Texture): TextureNode<d.texture2d>;
+export function texture(dataTex: DataTexture): TextureNode<d.texture2d>;
 export function texture<D extends FlatSampledTexture>(gpuTex: GpuTexture<D>, gpuSampler: GpuSampler): TextureNode<D>;
 export function texture<S extends d.StorageTexture>(storageTex: GpuTexture<S>, gpuSampler: GpuSampler): TextureNode<StorageSampledOf<S>>;
 ```
@@ -3679,6 +3700,56 @@ export class CubeCamera extends Object3D {
 }
 ```
 
+#### `IndexedMeshDraw`
+
+```ts
+/**
+ * One sub-draw of a batched mesh — a plain instanced draw command over the mesh's (typically
+ * merged) geometry, field-for-field a WebGPU indirect-draw arg struct. The mesh's geometry selects
+ * the variant: indexed geometry uses {@link IndexedMeshDraw} (`GPUDrawIndexedIndirect`),
+ * non-indexed uses {@link NonIndexedMeshDraw} (`GPUDrawIndirect`).
+ *
+ * When a `Mesh` has `draws` set, the renderer loops these instead of the single `drawRange` +
+ * `count` draw. Per-instance data is expected to live in data textures indexed by `instanceIndex`
+ * (base-inclusive: `firstInstance + gl_InstanceID` on WebGL, native `instance_index` on WebGPU).
+ */
+export type IndexedMeshDraw = {
+    /** Indices to draw from the (merged) index buffer. */
+    indexCount: number;
+    /** Instances for this sub-draw (may differ per entry). `<= 0` skips the entry. */
+    instanceCount: number;
+    /** Offset into the index buffer, in ELEMENTS (converted to bytes at the WebGL call). */
+    firstIndex: number;
+    /** Base into the instance-index space; `instanceIndex` reads back `firstInstance + local`. */
+    firstInstance: number;
+    /** Added to each index before vertex fetch. WebGPU-only; ignored on WebGL2 (defaults 0). */
+    baseVertex?: number;
+};
+```
+
+#### `NonIndexedMeshDraw`
+
+```ts
+/** Non-indexed batched sub-draw — the `GPUDrawIndirect` arg struct, used when the mesh's geometry has no index buffer. */
+export type NonIndexedMeshDraw = {
+    /** Vertices to draw from the (merged) vertex buffer(s). */
+    vertexCount: number;
+    /** Instances for this sub-draw (may differ per entry). `<= 0` skips the entry. */
+    instanceCount: number;
+    /** Offset of the first vertex. */
+    firstVertex: number;
+    /** Base into the instance-index space; `instanceIndex` reads back `firstInstance + local`. */
+    firstInstance: number;
+};
+```
+
+#### `MeshDraw`
+
+```ts
+/** One batched sub-draw; the variant matches the mesh's geometry (indexed vs non-indexed). */
+export type MeshDraw = IndexedMeshDraw | NonIndexedMeshDraw;
+```
+
 #### `Mesh`
 
 ```ts
@@ -3687,6 +3758,13 @@ export class Mesh extends Object3D {
     geometry: Geometry;
     material: Material;
     count: number;
+    /**
+     * Optional batched draw list. When set, the renderer issues one instanced draw per entry
+     * (a CPU loop) instead of the single `drawRange` + `count` draw, and `count`/`drawRange`
+     * are ignored. All entries share this mesh's `geometry` + `material` (one pipeline). An
+     * empty array draws nothing. Entries must match the mesh's geometry (indexed vs non-indexed).
+     */
+    draws?: MeshDraw[];
     frustumCulled: boolean;
     constructor(geometry: Geometry, material: Material);
     raycast(raycaster: Raycaster, intersects: Intersection[]): void;
@@ -4218,6 +4296,33 @@ export class GpuBuffer<T extends Any = Any> {
     /** Clear pending update ranges (called by renderer after upload) */
     clearUpdateRanges(): void;
     /**
+     * Pack `value` into element `index`, encoding it per `schema` (std430 — the storage-buffer layout)
+     * into `this.array` and queuing a partial re-upload (`addUpdateRange` + version bump). The common
+     * CPU-side write, parallel to {@link DataTexture.packAtIndex}: on WebGPU the renderer `writeBuffer`s
+     * just this range; on WebGL2 (where a read-only storage buffer is reinterpreted as an rgba32uint
+     * texture) it `texSubImage2D`s just the covering rows.
+     *
+     * `schema` is the ELEMENT type — `d.mat4x4f` for an `array<mat4x4f>` buffer, or the struct for
+     * `array<Struct>`. Its std430 stride must match the buffer's element stride (byteLength / count),
+     * else this throws rather than silently misaligning.
+     */
+    packAtIndex<D extends Any>(schema: D, index: number, value: Infer<D>): this;
+    /**
+     * Pack `value` (encoded per `schema`, std430) at a raw BYTE offset into `this.array` — the low-level
+     * primitive under {@link packAtIndex} and the buffer analogue of {@link DataTexture.packAtTexel}.
+     * Byte offsets are honest to `pack.ts`/std430 (which address in bytes); `byteOffset` must be a
+     * multiple of the array's component size. Queues a partial upload of exactly this element's
+     * components; a subsequent `needsUpdate = true` (full re-upload) supersedes queued ranges.
+     */
+    packAtByte<D extends Any>(schema: D, byteOffset: number, value: Infer<D>): this;
+    /**
+     * Bulk write: pack an entire array of `values` from element 0, encoding each per `schema` (std430)
+     * at its element stride, then flag ONE full re-upload (`needsUpdate` + cleared partial ranges — a
+     * whole-array write supersedes any queued `packAtIndex` ranges on both backends). `schema` is the
+     * ELEMENT type; `values.length` must not exceed the buffer's element `count`.
+     */
+    pack<D extends Any>(schema: D, values: Infer<D>[]): this;
+    /**
      * Increment usage count.
      * For REF_COUNTED buffers: tracks usage and can "revive" a disposed buffer.
      * For MANUAL buffers: no-op (lifecycle is user-managed).
@@ -4645,11 +4750,14 @@ export class Texture<out T extends SourceData = SourceData> {
      */
     onUpdate: ((texture: Texture<SourceData>) => void) | null;
     /**
-     * Whether this texture belongs to a render target.
-     * Set to true by RenderTarget when creating its textures.
+     * Whether this texture belongs to a render target. Forwards to the underlying `GpuTexture` (the
+     * single source of truth the backends read), so setting it on the wrapper always takes effect —
+     * a plain field here would silently not reach the `GpuTexture`, making the backend treat the
+     * texture as a source upload (0-sized storage) instead of a render-target allocation.
      * @default false
      */
-    isRenderTargetTexture: boolean;
+    get isRenderTargetTexture(): boolean;
+    set isRenderTargetTexture(value: boolean);
     /**
      * Constructs a new Texture.
      *
@@ -5527,6 +5635,35 @@ export function layoutSizeOf(schema: Any, memLayout?: MemoryLayout): number;
  * const stride = layoutStrideOf(Particle); // 32
  */
 export function layoutStrideOf(schema: Any, memLayout?: MemoryLayout): number;
+```
+
+#### `StructFieldLayout`
+
+```ts
+/** A struct's per-field byte offsets + its texel stride (for texel-addressed struct storage). */
+export type StructFieldLayout = {
+    fields: {
+        name: string;
+        type: Any;
+        byteOffset: number;
+        byteSize: number;
+    }[];
+    /** Struct stride in bytes (size with tail padding). */
+    strideBytes: number;
+    /** Struct stride rounded up to whole 16-byte texels (`ceil(strideBytes / 16)`). */
+    texelStride: number;
+};
+```
+
+#### `structFieldLayout`
+
+```ts
+/**
+ * Compute a flat struct's per-field byte offsets + texel stride in the given layout. Mirrors the
+ * offset walk in {@link emitStructWrites} (align each field, record offset, advance by size). Used
+ * by the structured-texture `load`/`store` accessor to place fields in `rgba32uint` texels.
+ */
+export function structFieldLayout(schema: StructDesc, memLayout?: MemoryLayout): StructFieldLayout;
 ```
 
 #### `layoutAlignOf`

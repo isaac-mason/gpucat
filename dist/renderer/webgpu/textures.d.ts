@@ -77,10 +77,6 @@ export declare function createTextureCache(): TextureCache;
  */
 export declare function generateTextureMipmaps(cache: TextureCache, device: GPUDevice, texture: GpuTexture): void;
 export declare function finalizeCubeRenderTargetCapture(cache: TextureCache, device: GPUDevice, renderTarget: CubeRenderTarget, activeMipmapLevel: number): void;
-/**
- * Update a texture, checks source version and uploads if needed.
- * Returns the TextureData for the texture.
- */
 export declare function updateTexture(cache: TextureCache, device: GPUDevice, texture: GpuTexture): TextureData;
 /**
  * Get or create a sampler from Sampler settings.

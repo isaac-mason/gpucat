@@ -510,7 +510,89 @@ export type WgslFn = {
     wgslType: 'wgslfn';
 };
 export declare const WgslFn: WgslFn;
-export type Any = f32 | i32 | u32 | bool | f16 | vec2f | vec2i | vec2u | vec2bool | vec2h | vec3f | vec3i | vec3u | vec3bool | vec3h | vec4f | vec4i | vec4u | vec4bool | vec4h | mat2x2f | mat2x3f | mat2x4f | mat3x2f | mat3x3f | mat3x4f | mat4x2f | mat4x3f | mat4x4f | mat2x2h | mat2x3h | mat2x4h | mat3x2h | mat3x3h | mat3x4h | mat4x2h | mat4x3h | mat4x4h | atomicI32 | atomicU32 | StructDesc | array<any> | sizedArray<any> | texture1d | texture2d | texture2dArray | texture3d | textureCube | textureCubeArray | textureMultisampled2d | textureDepth2d | textureDepth2dArray | textureDepthCube | textureDepthCubeArray | textureDepthMultisampled2d | textureStorage1d | textureStorage2d | textureStorage2dArray | textureStorage3d | sampler | samplerComparison | Void | WgslFn;
+export type unorm8x4 = {
+    type: 'unorm8x4';
+    wgslType: 'vec4f';
+    glslType: 'vec4';
+};
+export declare const unorm8x4: unorm8x4;
+export type snorm8x4 = {
+    type: 'snorm8x4';
+    wgslType: 'vec4f';
+    glslType: 'vec4';
+};
+export declare const snorm8x4: snorm8x4;
+export type half2x16 = {
+    type: 'half2x16';
+    wgslType: 'vec2f';
+    glslType: 'vec2';
+};
+export declare const half2x16: half2x16;
+export type unorm2x16 = {
+    type: 'unorm2x16';
+    wgslType: 'vec2f';
+    glslType: 'vec2';
+};
+export declare const unorm2x16: unorm2x16;
+export type snorm2x16 = {
+    type: 'snorm2x16';
+    wgslType: 'vec2f';
+    glslType: 'vec2';
+};
+export declare const snorm2x16: snorm2x16;
+export type Packed = unorm8x4 | snorm8x4 | half2x16 | unorm2x16 | snorm2x16;
+/** Per-packed-type metadata — decoded lane count + the WGSL `unpack` builtin. Single source of
+ *  truth so CPU encode (pack.ts) and shader decode (accessor + GLSL emitter) cannot drift. */
+export declare const PACKED_SPECS: {
+    readonly unorm8x4: {
+        readonly lanes: 4;
+        readonly unpackFn: "unpack4x8unorm";
+    };
+    readonly snorm8x4: {
+        readonly lanes: 4;
+        readonly unpackFn: "unpack4x8snorm";
+    };
+    readonly half2x16: {
+        readonly lanes: 2;
+        readonly unpackFn: "unpack2x16float";
+    };
+    readonly unorm2x16: {
+        readonly lanes: 2;
+        readonly unpackFn: "unpack2x16unorm";
+    };
+    readonly snorm2x16: {
+        readonly lanes: 2;
+        readonly unpackFn: "unpack2x16snorm";
+    };
+};
+/** True for a packed descriptor (unorm8x4 / snorm8x4 / half2x16 / unorm2x16 / snorm2x16). */
+export declare function isPackedDesc(desc: Any): desc is Packed;
+export type BitsField = {
+    name: string;
+    width: number;
+    shift: number;
+};
+export type bits<F extends Record<string, number> = Record<string, number>> = {
+    type: 'bits';
+    wgslType: 'u32';
+    glslType: 'uint';
+    fields: BitsField[];
+    /**
+     * Phantom carrying the declared bit-field names for static typing of the load accessor (so
+     * `load(rec, i).<bitsField>.<name>` types as `Node<u32>` without a cast). Never set at runtime.
+     */
+    readonly __fields?: F;
+};
+/**
+ * A bitfield packed into one `u32`: `d.bits({ flags: 8, materialId: 24 })`. Fields are declared
+ * low→high bits (the first field occupies the low bits). Total width must be ≤ 32. For use as a
+ * structured-texture struct field: it stores as 4 B and the accessor decodes each named field to a
+ * `u32` via shift/mask (no builtins — works on both backends). Not a valid emitted WGSL/GLSL member.
+ */
+export declare function bits<F extends Record<string, number>>(fields: F): bits<F>;
+/** True for a bitfield descriptor (`d.bits({...})`). Layout size/align (4) handled like packed. */
+export declare function isBitsDesc(desc: Any): desc is bits;
+export type Any = f32 | i32 | u32 | bool | f16 | vec2f | vec2i | vec2u | vec2bool | vec2h | unorm8x4 | snorm8x4 | half2x16 | unorm2x16 | snorm2x16 | bits | vec3f | vec3i | vec3u | vec3bool | vec3h | vec4f | vec4i | vec4u | vec4bool | vec4h | mat2x2f | mat2x3f | mat2x4f | mat3x2f | mat3x3f | mat3x4f | mat4x2f | mat4x3f | mat4x4f | mat2x2h | mat2x3h | mat2x4h | mat3x2h | mat3x3h | mat3x4h | mat4x2h | mat4x3h | mat4x4h | atomicI32 | atomicU32 | StructDesc | array<any> | sizedArray<any> | texture1d | texture2d | texture2dArray | texture3d | textureCube | textureCubeArray | textureMultisampled2d | textureDepth2d | textureDepth2dArray | textureDepthCube | textureDepthCubeArray | textureDepthMultisampled2d | textureStorage1d | textureStorage2d | textureStorage2dArray | textureStorage3d | sampler | samplerComparison | Void | WgslFn;
 /** Extract the descriptor type for a field K from struct descriptor D */
 export type StructField<D extends Any, K extends string> = D extends StructDesc<infer S> ? (K extends keyof S ? S[K] : never) : never;
 /** Extract keys from a struct descriptor */

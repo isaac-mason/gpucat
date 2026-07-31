@@ -3710,27 +3710,6 @@ function computeBarycentricUV(point, vA, vB, vC, ia, ib, ic, uvs) {
 }
 
 const _worldSphereCenter = [0, 0, 0];
-/** `u32`s per packed sub-draw (the `DrawIndexedIndirect` layout: indexCount, instanceCount, firstIndex, baseVertex, firstInstance). */
-const MESH_DRAW_STRIDE = 5;
-/**
- * Pack a `MeshDraw[]` into the WebGPU `DrawIndexedIndirect` byte layout — 5 × `u32` per draw:
- * `[indexCount, instanceCount, firstIndex, baseVertex, firstInstance]`. The result is directly
- * uploadable as a GPU indirect buffer (WebGPU `drawIndexedIndirect`) or consumable by a WebGL
- * multi-draw path, with zero reshaping — same shape as `DrawIndexedIndirect` (`draw-indirect.ts`).
- */
-function packDraws(draws) {
-    const out = new Uint32Array(draws.length * MESH_DRAW_STRIDE);
-    for (let i = 0; i < draws.length; i++) {
-        const d = draws[i];
-        const o = i * MESH_DRAW_STRIDE;
-        out[o + 0] = d.indexCount;
-        out[o + 1] = d.instanceCount;
-        out[o + 2] = d.firstIndex;
-        out[o + 3] = d.baseVertex ?? 0;
-        out[o + 4] = d.firstInstance;
-    }
-    return out;
-}
 class Mesh extends Object3D {
     isMesh = true;
     geometry;
@@ -3740,7 +3719,7 @@ class Mesh extends Object3D {
      * Optional batched draw list. When set, the renderer issues one instanced draw per entry
      * (a CPU loop) instead of the single `drawRange` + `count` draw, and `count`/`drawRange`
      * are ignored. All entries share this mesh's `geometry` + `material` (one pipeline). An
-     * empty array draws nothing. Phase 1: requires indexed geometry.
+     * empty array draws nothing. Entries must match the mesh's geometry (indexed vs non-indexed).
      */
     draws;
     frustumCulled = true;
@@ -4337,6 +4316,49 @@ const sampler$1 = { type: 'sampler', wgslType: 'sampler' };
 const samplerComparison = { type: 'sampler_comparison', wgslType: 'sampler_comparison' };
 const Void = { type: 'void', wgslType: 'void' };
 const WgslFn = { type: 'wgslfn', wgslType: 'wgslfn' };
+const unorm8x4 = { type: 'unorm8x4', wgslType: 'vec4f', glslType: 'vec4' };
+const snorm8x4 = { type: 'snorm8x4', wgslType: 'vec4f', glslType: 'vec4' };
+const half2x16 = { type: 'half2x16', wgslType: 'vec2f', glslType: 'vec2' };
+const unorm2x16 = { type: 'unorm2x16', wgslType: 'vec2f', glslType: 'vec2' };
+const snorm2x16 = { type: 'snorm2x16', wgslType: 'vec2f', glslType: 'vec2' };
+/** Per-packed-type metadata — decoded lane count + the WGSL `unpack` builtin. Single source of
+ *  truth so CPU encode (pack.ts) and shader decode (accessor + GLSL emitter) cannot drift. */
+const PACKED_SPECS = {
+    unorm8x4: { lanes: 4, unpackFn: 'unpack4x8unorm' },
+    snorm8x4: { lanes: 4, unpackFn: 'unpack4x8snorm' },
+    half2x16: { lanes: 2, unpackFn: 'unpack2x16float' },
+    unorm2x16: { lanes: 2, unpackFn: 'unpack2x16unorm' },
+    snorm2x16: { lanes: 2, unpackFn: 'unpack2x16snorm' },
+};
+const PACKED_TYPE_SET = new Set(Object.keys(PACKED_SPECS));
+/** True for a packed descriptor (unorm8x4 / snorm8x4 / half2x16 / unorm2x16 / snorm2x16). */
+function isPackedDesc(desc) {
+    return PACKED_TYPE_SET.has(desc.type);
+}
+/**
+ * A bitfield packed into one `u32`: `d.bits({ flags: 8, materialId: 24 })`. Fields are declared
+ * low→high bits (the first field occupies the low bits). Total width must be ≤ 32. For use as a
+ * structured-texture struct field: it stores as 4 B and the accessor decodes each named field to a
+ * `u32` via shift/mask (no builtins — works on both backends). Not a valid emitted WGSL/GLSL member.
+ */
+function bits(fields) {
+    const list = [];
+    let shift = 0;
+    for (const [name, width] of Object.entries(fields)) {
+        if (!Number.isInteger(width) || width <= 0) {
+            throw new Error(`[gpucat] d.bits: field '${name}' width must be a positive integer, got ${width}`);
+        }
+        list.push({ name, width, shift });
+        shift += width;
+    }
+    if (shift > 32)
+        throw new Error(`[gpucat] d.bits: total width ${shift} exceeds 32 bits`);
+    return { type: 'bits', wgslType: 'u32', glslType: 'uint', fields: list };
+}
+/** True for a bitfield descriptor (`d.bits({...})`). Layout size/align (4) handled like packed. */
+function isBitsDesc(desc) {
+    return desc.type === 'bits';
+}
 /* type guards */
 function isAtomicDesc(desc) {
     return desc.type === 'atomic';
@@ -4816,27 +4838,32 @@ function compareResultDesc(d) {
 
 var schema = /*#__PURE__*/Object.freeze({
     __proto__: null,
+    PACKED_SPECS: PACKED_SPECS,
     STORAGE_FORMATS: STORAGE_FORMATS,
     Void: Void,
     WgslFn: WgslFn,
     arithResultDesc: arithResultDesc,
     array: array$1,
     atomic: atomic,
+    bits: bits,
     bool: bool$1,
     compareResultDesc: compareResultDesc,
     descFromGlslType: descFromGlslType,
     descFromWgslType: descFromWgslType,
     f16: f16$1,
     f32: f32$1,
+    half2x16: half2x16,
     i32: i32$1,
     isAnyTextureDesc: isAnyTextureDesc,
     isArrayDesc: isArrayDesc,
     isArrayTextureDesc: isArrayTextureDesc,
     isAtomicDesc: isAtomicDesc,
+    isBitsDesc: isBitsDesc,
     isCubeArrayTextureDesc: isCubeArrayTextureDesc,
     isCubeTextureDesc: isCubeTextureDesc,
     isDepthTextureDesc: isDepthTextureDesc,
     isMatDesc: isMatDesc,
+    isPackedDesc: isPackedDesc,
     isSamplerComparisonDesc: isSamplerComparisonDesc,
     isSamplerDesc: isSamplerDesc,
     isSizedArrayDesc: isSizedArrayDesc,
@@ -4873,6 +4900,8 @@ var schema = /*#__PURE__*/Object.freeze({
     samplerComparisonDesc: samplerComparisonDesc,
     samplerDesc: samplerDesc,
     sizedArray: sizedArray,
+    snorm2x16: snorm2x16,
+    snorm8x4: snorm8x4,
     storageValueOf: storageValueOf,
     texture1d: texture1d,
     texture2d: texture2d,
@@ -4895,6 +4924,8 @@ var schema = /*#__PURE__*/Object.freeze({
     textureViewDimension: textureViewDimension,
     typedArrayCtorOf: typedArrayCtorOf,
     u32: u32$1,
+    unorm2x16: unorm2x16,
+    unorm8x4: unorm8x4,
     vec2DescOf: vec2DescOf,
     vec2bool: vec2bool,
     vec2f: vec2f$1,
@@ -4918,6 +4949,879 @@ var schema = /*#__PURE__*/Object.freeze({
     wgslSizeOf: wgslSizeOf,
     wgslStrideOf: wgslStrideOf
 });
+
+/**
+ * Whether structs and array elements round their stride up to 16 bytes. True for both uniform
+ * layouts (`wgsl-uniform`, `std140`); false for `std430`, which packs tightest.
+ */
+function roundsElementsTo16(memLayout) {
+    return memLayout !== 'std430';
+}
+/**
+ * Whether every matrix column is padded to a vec4 (16-byte stride), even for 2-row matrices. True
+ * only for GLSL `std140`; WGSL layouts keep a 2-row matrix's columns at vec2 (8-byte) stride. This
+ * is the sole layout difference between `wgsl-uniform` and `std140`.
+ */
+function matColumnsAlwaysVec4(memLayout) {
+    return memLayout === 'std140';
+}
+/**
+ * Column stride (bytes) for an f32 matrix with the given row count in the given memory layout.
+ */
+function matColumnStrideF32(rows, memLayout) {
+    if (matColumnsAlwaysVec4(memLayout))
+        return 16;
+    return rows === 2 ? 8 : 16;
+}
+// Layout Cache
+const layoutCache = new WeakMap();
+function getLayout(schema, memLayout) {
+    let byMemoryLayout = layoutCache.get(schema);
+    if (!byMemoryLayout) {
+        byMemoryLayout = new Map();
+        layoutCache.set(schema, byMemoryLayout);
+    }
+    let layout = byMemoryLayout.get(memLayout);
+    if (!layout) {
+        layout = compileLayout(schema, memLayout);
+        byMemoryLayout.set(memLayout, layout);
+    }
+    return layout;
+}
+function toDataView(src) {
+    if (src instanceof ArrayBuffer) {
+        return new DataView(src);
+    }
+    return new DataView(src.buffer, src.byteOffset, src.byteLength);
+}
+/**
+ * Pack a value into a new ArrayBuffer.
+ *
+ * @example
+ * const buf = pack(Particle, { position: [1, 2, 3], health: 100 });
+ * const f32 = new Float32Array(buf);
+ */
+function pack(schema, value, memLayout = 'std430') {
+    const layout = getLayout(schema, memLayout);
+    const buf = new ArrayBuffer(layout.totalSize);
+    layout.write(new DataView(buf), 0, value);
+    return buf;
+}
+/**
+ * Pack an array of values into a new ArrayBuffer.
+ *
+ * @example
+ * const buf = packArray(Particle, particles);
+ * const f32 = new Float32Array(buf);
+ */
+function packArray(schema, items, memLayout = 'std430') {
+    const layout = getLayout(schema, memLayout);
+    const buf = new ArrayBuffer(layout.stride * items.length);
+    const view = new DataView(buf);
+    for (let i = 0; i < items.length; i++) {
+        layout.write(view, i * layout.stride, items[i]);
+    }
+    return buf;
+}
+/**
+ * Pack a value into an existing buffer at a byte offset.
+ *
+ * @example
+ * const buf = new ArrayBuffer(1024);
+ * packTo(Particle, buf, 0, particle1);
+ * packTo(Particle, buf, stride, particle2);
+ */
+function packTo(schema, dest, offset, value, memLayout = 'std430') {
+    const layout = getLayout(schema, memLayout);
+    layout.write(toDataView(dest), offset, value);
+}
+/**
+ * Unpack a value from a buffer.
+ *
+ * @example
+ * const particle = unpack(Particle, buf);
+ * const secondParticle = unpack(Particle, buf, stride);
+ */
+function unpack(schema, src, offset = 0, memLayout = 'std430') {
+    const layout = getLayout(schema, memLayout);
+    return layout.read(toDataView(src), offset);
+}
+/**
+ * Unpack an array of values from a buffer.
+ *
+ * @example
+ * const particles = unpackArray(Particle, buf, 100);
+ */
+function unpackArray(schema, src, count, offset = 0, memLayout = 'std430') {
+    const layout = getLayout(schema, memLayout);
+    const view = toDataView(src);
+    const items = new Array(count);
+    for (let i = 0; i < count; i++) {
+        items[i] = layout.read(view, offset + i * layout.stride);
+    }
+    return items;
+}
+/**
+ * Get the byte size of a schema.
+ *
+ * @example
+ * const size = layoutSizeOf(Particle); // 32
+ */
+function layoutSizeOf(schema, memLayout = 'std430') {
+    return getLayout(schema, memLayout).totalSize;
+}
+/**
+ * Get the stride (size with tail padding) for array elements.
+ *
+ * @example
+ * const stride = layoutStrideOf(Particle); // 32
+ */
+function layoutStrideOf(schema, memLayout = 'std430') {
+    return getLayout(schema, memLayout).stride;
+}
+/**
+ * Compute a flat struct's per-field byte offsets + texel stride in the given layout. Mirrors the
+ * offset walk in {@link emitStructWrites} (align each field, record offset, advance by size). Used
+ * by the structured-texture `load`/`store` accessor to place fields in `rgba32uint` texels.
+ */
+function structFieldLayout(schema, memLayout = 'std430') {
+    const fields = [];
+    let offset = 0;
+    for (const [name, fieldSchema] of Object.entries(schema.fields)) {
+        offset = roundUp(offset, alignOf(fieldSchema, memLayout));
+        fields.push({ name, type: fieldSchema, byteOffset: offset, byteSize: sizeOf(fieldSchema, memLayout) });
+        offset += sizeOf(fieldSchema, memLayout);
+    }
+    const strideBytes = layoutStrideOf(schema, memLayout);
+    return { fields, strideBytes, texelStride: Math.ceil(strideBytes / 16) };
+}
+/**
+ * Get the byte alignment of a schema in the given memory layout.
+ *
+ * @example
+ * const align = layoutAlignOf(vec3f, 'std140'); // 16
+ */
+function layoutAlignOf(schema, memLayout = 'std430') {
+    return alignOf(schema, memLayout);
+}
+// Internal: DataView-based pack/unpack (used by bindings.ts)
+/** Pack a value into a DataView. */
+function packToView(schema, view, offset, value, memLayout = 'std430') {
+    const layout = getLayout(schema, memLayout);
+    layout.write(view, offset, value);
+}
+// Alignment and Size (address-space aware)
+function roundUp(n, align) {
+    return Math.ceil(n / align) * align;
+}
+/**
+ * Get alignment for a schema in the given memory layout.
+ * Uniform layouts have stricter rules: structs and arrays round up to 16.
+ */
+function alignOf(schema, memLayout) {
+    // For uniform layouts (wgsl-uniform / std140), structs and array elements need roundUp(16, align).
+    if (roundsElementsTo16(memLayout)) {
+        if (isStructDesc(schema)) {
+            return roundUp(storageAlignOf(schema), 16);
+        }
+        if (isSizedArrayDesc(schema) || isArrayDesc(schema)) {
+            return roundUp(alignOf(schema.element, memLayout), 16);
+        }
+    }
+    // std140: all f32 matrices align to 16 (columns padded to vec4), including 2-row matrices.
+    // (f16 matrices aren't part of GLSL std140; they keep their std430 alignment.)
+    if (matColumnsAlwaysVec4(memLayout) && !isAtomicDesc(schema)) {
+        const t = schema.wgslType;
+        if (typeof t === 'string' && /^mat\dx\df$/.test(t))
+            return 16;
+    }
+    return storageAlignOf(schema);
+}
+/**
+ * Storage layout alignment (std430).
+ */
+function storageAlignOf(schema) {
+    if (isPackedDesc(schema) || isBitsDesc(schema))
+        return 4;
+    if (isStructDesc(schema)) {
+        let maxAlign = 4;
+        for (const field of Object.values(schema.fields)) {
+            maxAlign = Math.max(maxAlign, storageAlignOf(field));
+        }
+        return maxAlign;
+    }
+    if (isSizedArrayDesc(schema) || isArrayDesc(schema)) {
+        return storageAlignOf(schema.element);
+    }
+    if (isAtomicDesc(schema))
+        return 4;
+    const t = schema.wgslType;
+    // f16 types
+    if (t === 'f16' || t === 'vec2h')
+        return 4;
+    if (t === 'vec3h' || t === 'vec4h')
+        return 8;
+    if (t === 'mat2x2h')
+        return 4;
+    if (t === 'mat2x3h' || t === 'mat3x2h')
+        return 8;
+    if (t === 'mat2x4h' || t === 'mat4x2h')
+        return 8;
+    if (t === 'mat3x3h' || t === 'mat3x4h' || t === 'mat4x3h' || t === 'mat4x4h')
+        return 8;
+    // Scalars
+    if (t === 'f32' || t === 'i32' || t === 'u32' || t === 'bool')
+        return 4;
+    // vec2
+    if (t === 'vec2f' || t === 'vec2i' || t === 'vec2u' || t === 'vec2<bool>')
+        return 8;
+    // vec3/vec4
+    if (t === 'vec3f' || t === 'vec3i' || t === 'vec3u' || t === 'vec3<bool>')
+        return 16;
+    if (t === 'vec4f' || t === 'vec4i' || t === 'vec4u' || t === 'vec4<bool>')
+        return 16;
+    // Matrices f32
+    if (t === 'mat2x2f')
+        return 8;
+    if (t === 'mat3x2f' || t === 'mat4x2f')
+        return 8;
+    if (t === 'mat2x3f' || t === 'mat3x3f' || t === 'mat4x3f')
+        return 16;
+    if (t === 'mat2x4f' || t === 'mat3x4f' || t === 'mat4x4f')
+        return 16;
+    throw new Error(`[gpucat] alignOf: unsupported type '${t}'`);
+}
+/**
+ * Get size for a schema in the given memory layout.
+ */
+function sizeOf(schema, memLayout) {
+    if (isPackedDesc(schema) || isBitsDesc(schema))
+        return 4;
+    if (isStructDesc(schema)) {
+        const structAlign = alignOf(schema, memLayout);
+        let offset = 0;
+        for (const field of Object.values(schema.fields)) {
+            offset = roundUp(offset, alignOf(field, memLayout));
+            offset += sizeOf(field, memLayout);
+        }
+        return roundUp(offset, structAlign);
+    }
+    if (isSizedArrayDesc(schema)) {
+        const elementStride = arrayElementStrideOf(schema.element, memLayout);
+        return schema.length * elementStride;
+    }
+    if (isArrayDesc(schema)) {
+        throw new Error('[gpucat] sizeOf: cannot compute size of runtime-sized array');
+    }
+    if (isAtomicDesc(schema))
+        return 4;
+    const t = schema.wgslType;
+    // Scalars
+    if (t === 'f16')
+        return 2;
+    if (t === 'f32' || t === 'i32' || t === 'u32' || t === 'bool')
+        return 4;
+    // vec2
+    if (t === 'vec2h')
+        return 4;
+    if (t === 'vec2f' || t === 'vec2i' || t === 'vec2u' || t === 'vec2<bool>')
+        return 8;
+    // vec3
+    if (t === 'vec3h')
+        return 6;
+    if (t === 'vec3f' || t === 'vec3i' || t === 'vec3u' || t === 'vec3<bool>')
+        return 12;
+    // vec4
+    if (t === 'vec4h')
+        return 8;
+    if (t === 'vec4f' || t === 'vec4i' || t === 'vec4u' || t === 'vec4<bool>')
+        return 16;
+    // Matrices f32 - size = numColumns * column stride. Column stride is address-space
+    // dependent: std140 pads every column to 16; std430/wgsl-uniform use 8 for 2-row matrices.
+    {
+        const m = t.match(/^mat(\d)x(\d)f$/);
+        if (m) {
+            const cols = parseInt(m[1], 10);
+            const rows = parseInt(m[2], 10);
+            return cols * matColumnStrideF32(rows, memLayout);
+        }
+    }
+    // Matrices f16
+    if (t === 'mat2x2h')
+        return 2 * 4; // 2 cols * vec2h stride
+    if (t === 'mat3x2h')
+        return 3 * 4;
+    if (t === 'mat4x2h')
+        return 4 * 4;
+    if (t === 'mat2x3h')
+        return 2 * 8; // 2 cols * vec3h padded
+    if (t === 'mat3x3h')
+        return 3 * 8;
+    if (t === 'mat4x3h')
+        return 4 * 8;
+    if (t === 'mat2x4h')
+        return 2 * 8; // 2 cols * vec4h
+    if (t === 'mat3x4h')
+        return 3 * 8;
+    if (t === 'mat4x4h')
+        return 4 * 8;
+    throw new Error(`[gpucat] sizeOf: unsupported type '${t}'`);
+}
+/**
+ * Get stride (size with alignment padding) for array elements.
+ */
+function strideOf(schema, memLayout) {
+    return roundUp(sizeOf(schema, memLayout), alignOf(schema, memLayout));
+}
+/**
+ * Get stride for elements within an array (different from strideOf for uniform arrays).
+ * Uniform-layout arrays require 16-byte minimum element stride.
+ */
+function arrayElementStrideOf(elementSchema, memLayout) {
+    const baseStride = strideOf(elementSchema, memLayout);
+    if (roundsElementsTo16(memLayout)) {
+        return roundUp(baseStride, 16);
+    }
+    return baseStride;
+}
+// ---------------------------------------------------------------------------
+// Code Generation - Writers
+// ---------------------------------------------------------------------------
+/**
+ * Emit write statements for a schema.
+ */
+function emitWrites(ctx, schema, accessor) {
+    if (isStructDesc(schema)) {
+        emitStructWrites(ctx, schema, accessor);
+    }
+    else if (isSizedArrayDesc(schema)) {
+        emitArrayWrites(ctx, schema, accessor);
+    }
+    else {
+        emitPrimitiveWrite(ctx, schema, accessor);
+    }
+}
+function emitStructWrites(ctx, schema, accessor) {
+    for (const [key, fieldSchema] of Object.entries(schema.fields)) {
+        ctx.offset = roundUp(ctx.offset, alignOf(fieldSchema, ctx.memLayout));
+        emitWrites(ctx, fieldSchema, `${accessor}.${key}`);
+    }
+    // Struct tail padding
+    const structAlign = alignOf(schema, ctx.memLayout);
+    ctx.offset = roundUp(ctx.offset, structAlign);
+}
+function emitArrayWrites(ctx, schema, accessor) {
+    const stride = arrayElementStrideOf(schema.element, ctx.memLayout);
+    const startOffset = ctx.offset;
+    for (let i = 0; i < schema.length; i++) {
+        ctx.offset = startOffset + i * stride;
+        emitWrites(ctx, schema.element, `${accessor}[${i}]`);
+    }
+    // Position after the array (accounts for tail padding of last element)
+    ctx.offset = startOffset + schema.length * stride;
+}
+/** JS expression that packs a logical value (`a` = the value accessor, an array) into a u32,
+ *  component 0 in the LOW bits — matching the shader `unpack*` decode. `f16(x)` (in scope) is
+ *  float→half bits. */
+function packedWriteExpr(packedType, a) {
+    const u8 = (i) => `(Math.round(Math.min(Math.max(${a}[${i}],0),1)*255)&255)`;
+    const s8 = (i) => `(Math.round(Math.min(Math.max(${a}[${i}],-1),1)*127)&255)`;
+    const u16 = (i) => `(Math.round(Math.min(Math.max(${a}[${i}],0),1)*65535)&65535)`;
+    const s16 = (i) => `(Math.round(Math.min(Math.max(${a}[${i}],-1),1)*32767)&65535)`;
+    switch (packedType) {
+        case 'unorm8x4': return `((${u8(0)}|(${u8(1)}<<8)|(${u8(2)}<<16)|(${u8(3)}<<24))>>>0)`;
+        case 'snorm8x4': return `((${s8(0)}|(${s8(1)}<<8)|(${s8(2)}<<16)|(${s8(3)}<<24))>>>0)`;
+        case 'half2x16': return `((f16(${a}[0])|(f16(${a}[1])<<16))>>>0)`;
+        case 'unorm2x16': return `((${u16(0)}|(${u16(1)}<<16))>>>0)`;
+        case 'snorm2x16': return `((${s16(0)}|(${s16(1)}<<16))>>>0)`;
+        default: throw new Error(`[gpucat] pack: unknown packed type '${packedType}'`);
+    }
+}
+/** JS expression that unpacks a u32 (`u`) back to the logical array — inverse of {@link packedWriteExpr}.
+ *  `f16r(bits)` (in scope) is half→float. Used by CPU readback (`unpackFromView`); the shader decode
+ *  path is separate (accessor + GLSL emitter). */
+function packedReadExpr(packedType, u) {
+    switch (packedType) {
+        case 'unorm8x4': return `[(${u}&255)/255,((${u}>>>8)&255)/255,((${u}>>>16)&255)/255,((${u}>>>24)&255)/255]`;
+        case 'snorm8x4': return `[Math.max((((${u}&255)<<24)>>24)/127,-1),Math.max(((((${u}>>>8)&255)<<24)>>24)/127,-1),Math.max(((((${u}>>>16)&255)<<24)>>24)/127,-1),Math.max(((((${u}>>>24)&255)<<24)>>24)/127,-1)]`;
+        case 'half2x16': return `[f16r(${u}&0xFFFF),f16r((${u}>>>16)&0xFFFF)]`;
+        case 'unorm2x16': return `[(${u}&0xFFFF)/65535,((${u}>>>16)&0xFFFF)/65535]`;
+        case 'snorm2x16': return `[Math.max((((${u}&0xFFFF)<<16)>>16)/32767,-1),Math.max(((((${u}>>>16)&0xFFFF)<<16)>>16)/32767,-1)]`;
+        default: throw new Error(`[gpucat] pack: unknown packed type '${packedType}'`);
+    }
+}
+function emitPrimitiveWrite(ctx, schema, accessor) {
+    const t = schema.wgslType;
+    const off = ctx.offset;
+    if (isPackedDesc(schema)) {
+        ctx.lines.push(`v.setUint32(o+${off},${packedWriteExpr(schema.type, accessor)},true);`);
+        ctx.offset += 4;
+        return;
+    }
+    if (isBitsDesc(schema)) {
+        // Σ ((value.field & mask) << shift), field 0 in the low bits — matching the accessor decode.
+        const expr = schema.fields
+            .map((f) => {
+            const mask = f.width >= 32 ? 0xffffffff : ((1 << f.width) - 1) >>> 0;
+            return `((${accessor}.${f.name}&${mask})<<${f.shift})`;
+        })
+            .join('|');
+        ctx.lines.push(`v.setUint32(o+${off},(${expr})>>>0,true);`);
+        ctx.offset += 4;
+        return;
+    }
+    // Scalars
+    if (t === 'f32') {
+        ctx.lines.push(`v.setFloat32(o+${off},${accessor},true);`);
+        ctx.offset += 4;
+        return;
+    }
+    if (t === 'i32') {
+        ctx.lines.push(`v.setInt32(o+${off},${accessor},true);`);
+        ctx.offset += 4;
+        return;
+    }
+    if (t === 'u32' || t === 'bool') {
+        ctx.lines.push(`v.setUint32(o+${off},${accessor},true);`);
+        ctx.offset += 4;
+        return;
+    }
+    if (t === 'f16') {
+        ctx.lines.push(`v.setUint16(o+${off},f16(${accessor}),true);`);
+        ctx.offset += 2;
+        return;
+    }
+    // vec2
+    if (t === 'vec2f') {
+        ctx.lines.push(`v.setFloat32(o+${off},${accessor}[0],true);`);
+        ctx.lines.push(`v.setFloat32(o+${off + 4},${accessor}[1],true);`);
+        ctx.offset += 8;
+        return;
+    }
+    if (t === 'vec2i') {
+        ctx.lines.push(`v.setInt32(o+${off},${accessor}[0],true);`);
+        ctx.lines.push(`v.setInt32(o+${off + 4},${accessor}[1],true);`);
+        ctx.offset += 8;
+        return;
+    }
+    if (t === 'vec2u' || t === 'vec2<bool>') {
+        ctx.lines.push(`v.setUint32(o+${off},${accessor}[0],true);`);
+        ctx.lines.push(`v.setUint32(o+${off + 4},${accessor}[1],true);`);
+        ctx.offset += 8;
+        return;
+    }
+    if (t === 'vec2h') {
+        ctx.lines.push(`v.setUint16(o+${off},f16(${accessor}[0]),true);`);
+        ctx.lines.push(`v.setUint16(o+${off + 2},f16(${accessor}[1]),true);`);
+        ctx.offset += 4;
+        return;
+    }
+    // vec3
+    if (t === 'vec3f') {
+        ctx.lines.push(`v.setFloat32(o+${off},${accessor}[0],true);`);
+        ctx.lines.push(`v.setFloat32(o+${off + 4},${accessor}[1],true);`);
+        ctx.lines.push(`v.setFloat32(o+${off + 8},${accessor}[2],true);`);
+        ctx.offset += 12;
+        return;
+    }
+    if (t === 'vec3i') {
+        ctx.lines.push(`v.setInt32(o+${off},${accessor}[0],true);`);
+        ctx.lines.push(`v.setInt32(o+${off + 4},${accessor}[1],true);`);
+        ctx.lines.push(`v.setInt32(o+${off + 8},${accessor}[2],true);`);
+        ctx.offset += 12;
+        return;
+    }
+    if (t === 'vec3u' || t === 'vec3<bool>') {
+        ctx.lines.push(`v.setUint32(o+${off},${accessor}[0],true);`);
+        ctx.lines.push(`v.setUint32(o+${off + 4},${accessor}[1],true);`);
+        ctx.lines.push(`v.setUint32(o+${off + 8},${accessor}[2],true);`);
+        ctx.offset += 12;
+        return;
+    }
+    if (t === 'vec3h') {
+        ctx.lines.push(`v.setUint16(o+${off},f16(${accessor}[0]),true);`);
+        ctx.lines.push(`v.setUint16(o+${off + 2},f16(${accessor}[1]),true);`);
+        ctx.lines.push(`v.setUint16(o+${off + 4},f16(${accessor}[2]),true);`);
+        ctx.offset += 6;
+        return;
+    }
+    // vec4
+    if (t === 'vec4f') {
+        ctx.lines.push(`v.setFloat32(o+${off},${accessor}[0],true);`);
+        ctx.lines.push(`v.setFloat32(o+${off + 4},${accessor}[1],true);`);
+        ctx.lines.push(`v.setFloat32(o+${off + 8},${accessor}[2],true);`);
+        ctx.lines.push(`v.setFloat32(o+${off + 12},${accessor}[3],true);`);
+        ctx.offset += 16;
+        return;
+    }
+    if (t === 'vec4i') {
+        ctx.lines.push(`v.setInt32(o+${off},${accessor}[0],true);`);
+        ctx.lines.push(`v.setInt32(o+${off + 4},${accessor}[1],true);`);
+        ctx.lines.push(`v.setInt32(o+${off + 8},${accessor}[2],true);`);
+        ctx.lines.push(`v.setInt32(o+${off + 12},${accessor}[3],true);`);
+        ctx.offset += 16;
+        return;
+    }
+    if (t === 'vec4u' || t === 'vec4<bool>') {
+        ctx.lines.push(`v.setUint32(o+${off},${accessor}[0],true);`);
+        ctx.lines.push(`v.setUint32(o+${off + 4},${accessor}[1],true);`);
+        ctx.lines.push(`v.setUint32(o+${off + 8},${accessor}[2],true);`);
+        ctx.lines.push(`v.setUint32(o+${off + 12},${accessor}[3],true);`);
+        ctx.offset += 16;
+        return;
+    }
+    if (t === 'vec4h') {
+        ctx.lines.push(`v.setUint16(o+${off},f16(${accessor}[0]),true);`);
+        ctx.lines.push(`v.setUint16(o+${off + 2},f16(${accessor}[1]),true);`);
+        ctx.lines.push(`v.setUint16(o+${off + 4},f16(${accessor}[2]),true);`);
+        ctx.lines.push(`v.setUint16(o+${off + 6},f16(${accessor}[3]),true);`);
+        ctx.offset += 8;
+        return;
+    }
+    // Matrices f32 - column major
+    if (t.startsWith('mat') && t.endsWith('f')) {
+        emitMatrixWriteF32(ctx, t, accessor);
+        return;
+    }
+    // Matrices f16
+    if (t.startsWith('mat') && t.endsWith('h')) {
+        emitMatrixWriteF16(ctx, t, accessor);
+        return;
+    }
+    // Atomic
+    if (isAtomicDesc(schema)) {
+        const inner = schema.inner.wgslType;
+        if (inner === 'i32') {
+            ctx.lines.push(`v.setInt32(o+${off},${accessor},true);`);
+        }
+        else {
+            ctx.lines.push(`v.setUint32(o+${off},${accessor},true);`);
+        }
+        ctx.offset += 4;
+        return;
+    }
+    throw new Error(`[gpucat] emitPrimitiveWrite: unsupported type '${t}'`);
+}
+function emitMatrixWriteF32(ctx, t, accessor) {
+    // matCxRf: C columns, R rows
+    const match = t.match(/mat(\d)x(\d)f/);
+    if (!match)
+        throw new Error(`Invalid matrix type: ${t}`);
+    const cols = parseInt(match[1], 10);
+    const rows = parseInt(match[2], 10);
+    // Column stride: std140 pads every column to 16; std430/wgsl-uniform use vec2=8, vec3/4=16.
+    const colStride = matColumnStrideF32(rows, ctx.memLayout);
+    let off = ctx.offset;
+    for (let c = 0; c < cols; c++) {
+        for (let r = 0; r < rows; r++) {
+            const idx = c * rows + r;
+            ctx.lines.push(`v.setFloat32(o+${off + r * 4},${accessor}[${idx}],true);`);
+        }
+        off += colStride;
+    }
+    ctx.offset = off;
+}
+function emitMatrixWriteF16(ctx, t, accessor) {
+    const match = t.match(/mat(\d)x(\d)h/);
+    if (!match)
+        throw new Error(`Invalid matrix type: ${t}`);
+    const cols = parseInt(match[1], 10);
+    const rows = parseInt(match[2], 10);
+    // Column stride for f16: vec2h=4, vec3h/4h=8
+    const colStride = rows === 2 ? 4 : 8;
+    let off = ctx.offset;
+    for (let c = 0; c < cols; c++) {
+        for (let r = 0; r < rows; r++) {
+            const idx = c * rows + r;
+            ctx.lines.push(`v.setUint16(o+${off + r * 2},f16(${accessor}[${idx}]),true);`);
+        }
+        off += colStride;
+    }
+    ctx.offset = off;
+}
+// ---------------------------------------------------------------------------
+// Code Generation - Readers
+// ---------------------------------------------------------------------------
+/**
+ * Emit read expression for a schema. Returns a JS expression string.
+ */
+function emitReads(ctx, schema) {
+    if (isStructDesc(schema)) {
+        return emitStructRead(ctx, schema);
+    }
+    else if (isSizedArrayDesc(schema)) {
+        return emitArrayRead(ctx, schema);
+    }
+    else {
+        return emitPrimitiveRead(ctx, schema);
+    }
+}
+function emitStructRead(ctx, schema) {
+    const fields = [];
+    for (const [key, fieldSchema] of Object.entries(schema.fields)) {
+        ctx.offset = roundUp(ctx.offset, alignOf(fieldSchema, ctx.memLayout));
+        const valueExpr = emitReads(ctx, fieldSchema);
+        fields.push(`${key}:${valueExpr}`);
+    }
+    // Struct tail padding
+    const structAlign = alignOf(schema, ctx.memLayout);
+    ctx.offset = roundUp(ctx.offset, structAlign);
+    return `{${fields.join(',')}}`;
+}
+function emitArrayRead(ctx, schema) {
+    const elements = [];
+    const stride = arrayElementStrideOf(schema.element, ctx.memLayout);
+    const startOffset = ctx.offset;
+    for (let i = 0; i < schema.length; i++) {
+        ctx.offset = startOffset + i * stride;
+        elements.push(emitReads(ctx, schema.element));
+    }
+    // Position after the array
+    ctx.offset = startOffset + schema.length * stride;
+    return `[${elements.join(',')}]`;
+}
+function emitPrimitiveRead(ctx, schema) {
+    const t = schema.wgslType;
+    const off = ctx.offset;
+    if (isPackedDesc(schema)) {
+        ctx.offset += 4;
+        return packedReadExpr(schema.type, `v.getUint32(o+${off},true)`);
+    }
+    if (isBitsDesc(schema)) {
+        ctx.offset += 4;
+        const u = `v.getUint32(o+${off},true)`;
+        const parts = schema.fields
+            .map((f) => {
+            const mask = f.width >= 32 ? 0xffffffff : ((1 << f.width) - 1) >>> 0;
+            return `${f.name}:(((${u})>>>${f.shift})&${mask})>>>0`;
+        })
+            .join(',');
+        return `{${parts}}`;
+    }
+    // Scalars
+    if (t === 'f32') {
+        ctx.offset += 4;
+        return `v.getFloat32(o+${off},true)`;
+    }
+    if (t === 'i32') {
+        ctx.offset += 4;
+        return `v.getInt32(o+${off},true)`;
+    }
+    if (t === 'u32' || t === 'bool') {
+        ctx.offset += 4;
+        return `v.getUint32(o+${off},true)`;
+    }
+    if (t === 'f16') {
+        ctx.offset += 2;
+        return `f16r(v.getUint16(o+${off},true))`;
+    }
+    // vec2
+    if (t === 'vec2f') {
+        ctx.offset += 8;
+        return `[v.getFloat32(o+${off},true),v.getFloat32(o+${off + 4},true)]`;
+    }
+    if (t === 'vec2i') {
+        ctx.offset += 8;
+        return `[v.getInt32(o+${off},true),v.getInt32(o+${off + 4},true)]`;
+    }
+    if (t === 'vec2u' || t === 'vec2<bool>') {
+        ctx.offset += 8;
+        return `[v.getUint32(o+${off},true),v.getUint32(o+${off + 4},true)]`;
+    }
+    if (t === 'vec2h') {
+        ctx.offset += 4;
+        return `[f16r(v.getUint16(o+${off},true)),f16r(v.getUint16(o+${off + 2},true))]`;
+    }
+    // vec3
+    if (t === 'vec3f') {
+        ctx.offset += 12;
+        return `[v.getFloat32(o+${off},true),v.getFloat32(o+${off + 4},true),v.getFloat32(o+${off + 8},true)]`;
+    }
+    if (t === 'vec3i') {
+        ctx.offset += 12;
+        return `[v.getInt32(o+${off},true),v.getInt32(o+${off + 4},true),v.getInt32(o+${off + 8},true)]`;
+    }
+    if (t === 'vec3u' || t === 'vec3<bool>') {
+        ctx.offset += 12;
+        return `[v.getUint32(o+${off},true),v.getUint32(o+${off + 4},true),v.getUint32(o+${off + 8},true)]`;
+    }
+    if (t === 'vec3h') {
+        ctx.offset += 6;
+        return `[f16r(v.getUint16(o+${off},true)),f16r(v.getUint16(o+${off + 2},true)),f16r(v.getUint16(o+${off + 4},true))]`;
+    }
+    // vec4
+    if (t === 'vec4f') {
+        ctx.offset += 16;
+        return `[v.getFloat32(o+${off},true),v.getFloat32(o+${off + 4},true),v.getFloat32(o+${off + 8},true),v.getFloat32(o+${off + 12},true)]`;
+    }
+    if (t === 'vec4i') {
+        ctx.offset += 16;
+        return `[v.getInt32(o+${off},true),v.getInt32(o+${off + 4},true),v.getInt32(o+${off + 8},true),v.getInt32(o+${off + 12},true)]`;
+    }
+    if (t === 'vec4u' || t === 'vec4<bool>') {
+        ctx.offset += 16;
+        return `[v.getUint32(o+${off},true),v.getUint32(o+${off + 4},true),v.getUint32(o+${off + 8},true),v.getUint32(o+${off + 12},true)]`;
+    }
+    if (t === 'vec4h') {
+        ctx.offset += 8;
+        return `[f16r(v.getUint16(o+${off},true)),f16r(v.getUint16(o+${off + 2},true)),f16r(v.getUint16(o+${off + 4},true)),f16r(v.getUint16(o+${off + 6},true))]`;
+    }
+    // Matrices f32
+    if (t.startsWith('mat') && t.endsWith('f')) {
+        return emitMatrixReadF32(ctx, t);
+    }
+    // Matrices f16
+    if (t.startsWith('mat') && t.endsWith('h')) {
+        return emitMatrixReadF16(ctx, t);
+    }
+    // Atomic
+    if (isAtomicDesc(schema)) {
+        ctx.offset += 4;
+        const inner = schema.inner.wgslType;
+        if (inner === 'i32') {
+            return `v.getInt32(o+${off},true)`;
+        }
+        else {
+            return `v.getUint32(o+${off},true)`;
+        }
+    }
+    throw new Error(`[gpucat] emitPrimitiveRead: unsupported type '${t}'`);
+}
+function emitMatrixReadF32(ctx, t) {
+    const match = t.match(/mat(\d)x(\d)f/);
+    if (!match)
+        throw new Error(`Invalid matrix type: ${t}`);
+    const cols = parseInt(match[1], 10);
+    const rows = parseInt(match[2], 10);
+    const colStride = matColumnStrideF32(rows, ctx.memLayout);
+    const elements = [];
+    let off = ctx.offset;
+    for (let c = 0; c < cols; c++) {
+        for (let r = 0; r < rows; r++) {
+            elements.push(`v.getFloat32(o+${off + r * 4},true)`);
+        }
+        off += colStride;
+    }
+    ctx.offset = off;
+    return `[${elements.join(',')}]`;
+}
+function emitMatrixReadF16(ctx, t) {
+    const match = t.match(/mat(\d)x(\d)h/);
+    if (!match)
+        throw new Error(`Invalid matrix type: ${t}`);
+    const cols = parseInt(match[1], 10);
+    const rows = parseInt(match[2], 10);
+    const colStride = rows === 2 ? 4 : 8;
+    const elements = [];
+    let off = ctx.offset;
+    for (let c = 0; c < cols; c++) {
+        for (let r = 0; r < rows; r++) {
+            elements.push(`f16r(v.getUint16(o+${off + r * 2},true))`);
+        }
+        off += colStride;
+    }
+    ctx.offset = off;
+    return `[${elements.join(',')}]`;
+}
+// ---------------------------------------------------------------------------
+// f16 conversion helpers (injected into generated code)
+// ---------------------------------------------------------------------------
+/**
+ * Convert f32 to f16 bits.
+ */
+function f32ToF16Bits(value) {
+    const f32 = new Float32Array(1);
+    const u32 = new Uint32Array(f32.buffer);
+    f32[0] = value;
+    const bits = u32[0];
+    const sign = (bits >> 31) & 0x1;
+    const exp32 = (bits >> 23) & 0xff;
+    const mant32 = bits & 0x7fffff;
+    let exp16;
+    let mant16;
+    if (exp32 === 0) {
+        exp16 = 0;
+        mant16 = 0;
+    }
+    else if (exp32 === 0xff) {
+        exp16 = 0x1f;
+        mant16 = mant32 ? 0x200 : 0;
+    }
+    else {
+        const newExp = exp32 - 127 + 15;
+        if (newExp >= 0x1f) {
+            exp16 = 0x1f;
+            mant16 = 0;
+        }
+        else if (newExp <= 0) {
+            exp16 = 0;
+            mant16 = 0;
+        }
+        else {
+            exp16 = newExp;
+            mant16 = mant32 >> 13;
+        }
+    }
+    return (sign << 15) | (exp16 << 10) | mant16;
+}
+/**
+ * Convert f16 bits to f32.
+ */
+function f16BitsToF32(bits) {
+    const sign = (bits >> 15) & 0x1;
+    const exp16 = (bits >> 10) & 0x1f;
+    const mant16 = bits & 0x3ff;
+    let exp32;
+    let mant32;
+    if (exp16 === 0) {
+        if (mant16 === 0) {
+            exp32 = 0;
+            mant32 = 0;
+        }
+        else {
+            // Subnormal
+            let e = -1;
+            let m = mant16;
+            while ((m & 0x400) === 0) {
+                m <<= 1;
+                e -= 1;
+            }
+            exp32 = 127 - 15 + e + 1;
+            mant32 = (m & 0x3ff) << 13;
+        }
+    }
+    else if (exp16 === 0x1f) {
+        exp32 = 0xff;
+        mant32 = mant16 ? 0x400000 : 0;
+    }
+    else {
+        exp32 = exp16 - 15 + 127;
+        mant32 = mant16 << 13;
+    }
+    const u32 = new Uint32Array(1);
+    const f32 = new Float32Array(u32.buffer);
+    u32[0] = (sign << 31) | (exp32 << 23) | mant32;
+    return f32[0];
+}
+// ---------------------------------------------------------------------------
+// Layout Compilation
+// ---------------------------------------------------------------------------
+function compileLayout(schema, memLayout) {
+    // Generate writer
+    const writeCtx = { memLayout, offset: 0, lines: [] };
+    emitWrites(writeCtx, schema, 'd');
+    const totalSize = sizeOf(schema, memLayout);
+    const stride = strideOf(schema, memLayout);
+    const writeCode = `return function(v,o,d){${writeCtx.lines.join('')}}`;
+    // Generate reader
+    const readCtx = { memLayout, offset: 0};
+    const readExpr = emitReads(readCtx, schema);
+    const readCode = `return function(v,o){return ${readExpr}}`;
+    // Compile functions with f16 helpers in scope
+    const write = new Function('f16', writeCode)(f32ToF16Bits);
+    const read = new Function('f16r', readCode)(f16BitsToF32);
+    return { totalSize, stride, write, read };
+}
 
 /** determines how a buffer's lifecycle is managed */
 var BufferLifecycle;
@@ -5127,6 +6031,82 @@ class GpuBuffer {
     /** Clear pending update ranges (called by renderer after upload) */
     clearUpdateRanges() {
         this.updateRanges.length = 0;
+    }
+    /**
+     * Pack `value` into element `index`, encoding it per `schema` (std430 — the storage-buffer layout)
+     * into `this.array` and queuing a partial re-upload (`addUpdateRange` + version bump). The common
+     * CPU-side write, parallel to {@link DataTexture.packAtIndex}: on WebGPU the renderer `writeBuffer`s
+     * just this range; on WebGL2 (where a read-only storage buffer is reinterpreted as an rgba32uint
+     * texture) it `texSubImage2D`s just the covering rows.
+     *
+     * `schema` is the ELEMENT type — `d.mat4x4f` for an `array<mat4x4f>` buffer, or the struct for
+     * `array<Struct>`. Its std430 stride must match the buffer's element stride (byteLength / count),
+     * else this throws rather than silently misaligning.
+     */
+    packAtIndex(schema, index, value) {
+        const arr = this.array;
+        if (arr == null) {
+            throw new Error('[GpuBuffer] packAtIndex(): buffer has no CPU `array` to write into (its data was released after upload).');
+        }
+        const strideBytes = layoutStrideOf(schema, 'std430');
+        const elementStride = arr.byteLength / this.count;
+        if (strideBytes !== elementStride) {
+            throw new Error(`[GpuBuffer] packAtIndex(): schema std430 stride ${strideBytes}B does not match the buffer's element stride ` +
+                `${elementStride}B (${this.count} elements over ${arr.byteLength}B) — pass the element schema whose layout matches the buffer.`);
+        }
+        return this.packAtByte(schema, index * strideBytes, value);
+    }
+    /**
+     * Pack `value` (encoded per `schema`, std430) at a raw BYTE offset into `this.array` — the low-level
+     * primitive under {@link packAtIndex} and the buffer analogue of {@link DataTexture.packAtTexel}.
+     * Byte offsets are honest to `pack.ts`/std430 (which address in bytes); `byteOffset` must be a
+     * multiple of the array's component size. Queues a partial upload of exactly this element's
+     * components; a subsequent `needsUpdate = true` (full re-upload) supersedes queued ranges.
+     */
+    packAtByte(schema, byteOffset, value) {
+        const arr = this.array;
+        if (arr == null) {
+            throw new Error('[GpuBuffer] packAtByte(): buffer has no CPU `array` to write into (its data was released after upload).');
+        }
+        const bytesPerComponent = arr.BYTES_PER_ELEMENT;
+        if (byteOffset % bytesPerComponent !== 0) {
+            throw new Error(`[GpuBuffer] packAtByte(): byteOffset ${byteOffset} is not a multiple of the array's ${bytesPerComponent}-byte component size.`);
+        }
+        const componentOffset = byteOffset / bytesPerComponent;
+        const componentCount = layoutStrideOf(schema, 'std430') / bytesPerComponent;
+        packTo(schema, arr, byteOffset, value, 'std430');
+        this.addUpdateRange(componentOffset, componentCount);
+        this.needsUpdate = true;
+        return this;
+    }
+    /**
+     * Bulk write: pack an entire array of `values` from element 0, encoding each per `schema` (std430)
+     * at its element stride, then flag ONE full re-upload (`needsUpdate` + cleared partial ranges — a
+     * whole-array write supersedes any queued `packAtIndex` ranges on both backends). `schema` is the
+     * ELEMENT type; `values.length` must not exceed the buffer's element `count`.
+     */
+    pack(schema, values) {
+        const arr = this.array;
+        if (arr == null) {
+            throw new Error('[GpuBuffer] pack(): buffer has no CPU `array` to write into (its data was released after upload).');
+        }
+        if (values.length > this.count) {
+            throw new Error(`[GpuBuffer] pack(): ${values.length} values exceed the buffer's ${this.count}-element capacity.`);
+        }
+        const strideBytes = layoutStrideOf(schema, 'std430');
+        const elementStride = arr.byteLength / this.count;
+        if (strideBytes !== elementStride) {
+            throw new Error(`[GpuBuffer] pack(): schema std430 stride ${strideBytes}B does not match the buffer's element stride ` +
+                `${elementStride}B (${this.count} elements over ${arr.byteLength}B) — pass the element schema whose layout matches the buffer.`);
+        }
+        const view = new DataView(arr.buffer, arr.byteOffset, arr.byteLength);
+        for (let i = 0; i < values.length; i++) {
+            packToView(schema, view, i * strideBytes, values[i], 'std430');
+        }
+        // One full re-upload: drop any queued partial ranges so both backends take the full path.
+        this.clearUpdateRanges();
+        this.needsUpdate = true;
+        return this;
     }
     /**
      * Increment usage count.
@@ -8754,12 +9734,31 @@ class GpuTexture {
     // ─────────────────────────────────────────────────────────────────────────
     /** Version number, incremented when needsUpdate is set */
     version = 0;
-    /** Mark texture as needing re-upload */
+    /** Mark texture as needing a FULL re-upload. Takes priority over {@link updateRanges}. */
     set needsUpdate(_) {
         this.version++;
+        this.needsFullUpload = true;
     }
     /** Track which layers need updating (for 2D array textures) */
     layerUpdates = new Set();
+    /**
+     * Pending partial-upload regions as TEXEL ranges `{start, count}` into `source.data`, for 2D
+     * source-backed textures. When non-empty at upload and {@link needsFullUpload} is not set, the renderer
+     * uploads only the covering rows (`texSubImage2D` / `writeTexture`) instead of the whole texture.
+     * Mirrors {@link layerUpdates}. Populated via {@link addUpdateRange}; cleared by the renderer after
+     * upload. Overridden by a full upload (needsUpdate / resize).
+     */
+    updateRanges = [];
+    /**
+     * When true, the next upload re-specifies the whole texture (set by `needsUpdate`, a resize, or the
+     * first upload) and takes priority over {@link updateRanges}. The renderer resets it after uploading.
+     */
+    needsFullUpload = false;
+    /** Queue a partial (texel-range) update and trigger a re-upload — WITHOUT forcing a full upload. */
+    addUpdateRange(start, count) {
+        this.updateRanges.push({ start, count });
+        this.version++;
+    }
     // ─────────────────────────────────────────────────────────────────────────
     // Render target flag
     // ─────────────────────────────────────────────────────────────────────────
@@ -9470,28 +10469,17 @@ class SamplerNode extends Node {
         return cloned;
     }
 }
-/* ────────────────────────────────────────────────────────────────────────────
- * TextureBindingNode
- * ──────────────────────────────────────────────────────────────────────────── */
-/**
- * TextureBindingNode - represents a module-scope texture handle binding.
- *
- * This mirrors how SamplerNode works: it represents a `var t : texture_2d<f32>`
- * (or texture_cube<f32>, texture_depth_2d, etc.) at module scope. When used as
- * an expression, it generates just the binding name, never a sampling operation.
- *
- * The existing TextureNode/CubeTextureNode/DepthTextureNode own a
- * TextureBindingNode internally and delegate binding registration to it.
- * Free functions take TextureBindingNode + SamplerNode as arguments, producing
- * correct WGSL like `textureSample(myTex, mySampler, uv)`.
- *
- * Holds a reference to a GpuTexture<D> which the renderer uses to create/update
- * the GPU texture.
- */
 class TextureBindingNode extends Node {
     kind = NodeKind.TextureBinding;
     /** The GpuTexture */
     value = null;
+    /**
+     * When set, this binding is NOT a GpuTexture but a read-only storage `GpuBuffer` reinterpreted as an
+     * `rgba32uint` texture — the WebGL `storage()` read-lowering (WebGL2 has no SSBO). `value` stays null;
+     * the renderer reads the buffer's bytes directly as `width × height` u32 texels and caches one GL
+     * texture per `GpuBuffer`. WebGPU never sets this (storage stays a native `array<Struct>` there).
+     */
+    storageBufferSource = null;
     /** Unique ID for this texture binding (e.g. 'tAlbedo', 'tShadowMap'). */
     textureId;
     /** Uniform group, determines @group index. */
@@ -9582,6 +10570,16 @@ function storageTexture(gpuTex, access = 'write') {
  * - .offset(offset) - add offset parameter (2D only)
  * - .load(coords, level?) - use textureLoad (no sampler)
  */
+/**
+ * The vec4 result type for sampling/loading a texture: `vec4u`/`vec4i` for integer-sample textures
+ * (`texture_2d<u32>`/`<i32>` → usampler2D/isampler2D, whose texelFetch yields uvec4/ivec4), else
+ * `vec4f`. Set as the node's *runtime* type so both emitters declare the right texel type; the class
+ * keeps its static `vec4f` type (the common float case) to avoid widening every sampler's result.
+ */
+function textureResultVec4(desc) {
+    const sampleType = desc.sampleType?.type;
+    return sampleType === 'u32' ? vec4u$1 : sampleType === 'i32' ? vec4i$1 : vec4f$1;
+}
 class TextureNode extends Node {
     kind = NodeKind.Texture;
     /** The texture binding, holds GPU resource, textureId, group. */
@@ -9621,8 +10619,10 @@ class TextureNode extends Node {
     /** Level for textureLoad (i32) */
     loadLevel = null;
     constructor(bindingNode, uvNode = null) {
-        // Node type is vec4f (the sampled color)
-        super(vec4f$1);
+        // Node type is the sampled vec4 — vec4u/vec4i for integer-sample textures, else vec4f. Runtime
+        // type carries the truth (drives the emitter's texel type + swizzle element type); the static
+        // class type stays vec4f so existing float-texture usage isn't widened to a union.
+        super(textureResultVec4(bindingNode.type));
         this.bindingNode = bindingNode;
         // Default uv() (vec2f) only applies to 2D; 3D/1D always pass coords via sample().
         this.uvNode = uvNode ?? varying(uv());
@@ -9693,15 +10693,144 @@ class TextureNode extends Node {
         textureNode.referenceNode = this.getBase();
         return textureNode;
     }
-    /** Use textureLoad for direct texel fetch (no filtering) */
-    load(coords, level) {
+    load(a, b) {
+        // Struct read: first arg is a struct def (its `.type` is the literal 'struct'; a coord Node's
+        // `.type` is a schema descriptor object, never that string).
+        if (a.type === 'struct') {
+            const schema = a;
+            const layout = structFieldLayout(schema);
+            const idx = ensureU32(b);
+            const texelBase = layout.texelStride === 1 ? idx : idx.mul(u32(layout.texelStride));
+            return buildRecordAccessor(this.getBase(), schema, texelBase, accessorWidth(this));
+        }
         const textureNode = this.clone();
         textureNode.samplingMode = 'load';
-        textureNode.loadCoords = coords;
-        textureNode.loadLevel = level ?? null;
+        textureNode.loadCoords = a;
+        textureNode.loadLevel = b ?? null;
         textureNode.referenceNode = this.getBase();
         return textureNode;
     }
+    /** Read a struct record starting at an explicit TEXEL index (the primitive under {@link load}). */
+    loadAt(schema, texel) {
+        return buildRecordAccessor(this.getBase(), schema, ensureU32(texel), accessorWidth(this));
+    }
+}
+/** Texture width (texels per row) — needed to map a linear texel index to (x, y). */
+function accessorWidth(node) {
+    return node.bindingNode.value.width;
+}
+function ensureU32(n) {
+    return n.type.wgslType === 'u32' ? n : u32(n);
+}
+/** Read one rgba32uint texel at a linear texel index → a `vec4u` node. */
+function readTexel(base, texelIndex, width) {
+    const x = i32(texelIndex.mod(u32(width)));
+    const y = i32(texelIndex.div(u32(width)));
+    return base.load(vec2i(x, y), i32(0));
+}
+/**
+ * Decode one field at `byteOffset` from the record beginning at texel `texelBase` of an `rgba32uint`
+ * texture. Exported so the `storage()` WebGL lowering (the GLSL emitter's `matchStorageRead`) can decode
+ * a mirror-texture read through the same path as `texture(t).load(schema, i)`.
+ */
+function decodeField(base, texelBase, width, byteOffset, type) {
+    const texelWithin = Math.floor(byteOffset / 16);
+    const comp = (byteOffset % 16) / 4; // 0..3
+    const t = type.wgslType;
+    const texAt = (tw) => readTexel(base, tw === 0 ? texelBase : texelBase.add(u32(tw)), width);
+    // Swizzle a texel's component (0..3) → its u32 lane.
+    const lane = (texel, i) => [texel.x, texel.y, texel.z, texel.w][i];
+    const texel = texAt(texelWithin);
+    // Packed types occupy one u32 lane → decode via the WGSL unpack builtin (the GLSL emitter
+    // translates `unpack*` to native builtins / shift-mask). CSE-friendly: just wraps the lane.
+    if (isPackedDesc(type)) {
+        const spec = PACKED_SPECS[type.type];
+        const logical = spec.lanes === 4 ? vec4f$1 : vec2f$1;
+        return new CallNode(logical, spec.unpackFn, [lane(texel, comp)]);
+    }
+    // Bitfields: one u32 lane split into named fields via shift/mask (no builtins, both backends).
+    // Returns a sub-accessor whose `.<name>` lazily emits `(lane >> shift) & mask`.
+    if (isBitsDesc(type)) {
+        const laneNode = lane(texel, comp);
+        const sub = {};
+        for (const bf of type.fields) {
+            Object.defineProperty(sub, bf.name, {
+                enumerable: true,
+                get: () => {
+                    const shifted = bf.shift === 0 ? laneNode : shiftRight(laneNode, u32(bf.shift));
+                    if (bf.width >= 32)
+                        return shifted;
+                    const mask = ((1 << bf.width) - 1) >>> 0;
+                    return bitwiseAnd(shifted, u32(mask));
+                },
+            });
+        }
+        return sub;
+    }
+    // Scalars
+    if (t === 'u32')
+        return lane(texel, comp);
+    if (t === 'i32')
+        return bitcastI32(lane(texel, comp));
+    if (t === 'f32')
+        return bitcastF32(lane(texel, comp));
+    // vec2 (aligns to 8 → both lanes in one texel, at comp / comp+1)
+    if (t === 'vec2u')
+        return vec2u(lane(texel, comp), lane(texel, comp + 1));
+    if (t === 'vec2i')
+        return vec2i(bitcastI32(lane(texel, comp)), bitcastI32(lane(texel, comp + 1)));
+    if (t === 'vec2f')
+        return vec2f(bitcastF32(lane(texel, comp)), bitcastF32(lane(texel, comp + 1)));
+    // vec3 (aligns to 16 → lanes 0,1,2 of one texel)
+    if (t === 'vec3u')
+        return vec3u(lane(texel, 0), lane(texel, 1), lane(texel, 2));
+    if (t === 'vec3i')
+        return vec3i(bitcastI32(lane(texel, 0)), bitcastI32(lane(texel, 1)), bitcastI32(lane(texel, 2)));
+    if (t === 'vec3f')
+        return vec3(bitcastF32(lane(texel, 0)), bitcastF32(lane(texel, 1)), bitcastF32(lane(texel, 2)));
+    // vec4 (whole texel)
+    if (t === 'vec4u')
+        return texel;
+    if (t === 'vec4i')
+        return vec4i(bitcastI32(lane(texel, 0)), bitcastI32(lane(texel, 1)), bitcastI32(lane(texel, 2)), bitcastI32(lane(texel, 3)));
+    if (t === 'vec4f')
+        return vec4(bitcastF32(lane(texel, 0)), bitcastF32(lane(texel, 1)), bitcastF32(lane(texel, 2)), bitcastF32(lane(texel, 3)));
+    // f32 matrices: each column has stride 16 (one texel) for 3- and 4-row matrices.
+    const m = t.match(/^mat(\d)x(\d)f$/);
+    if (m) {
+        const cols = Number(m[1]);
+        const rows = Number(m[2]);
+        if (rows !== 3 && rows !== 4) {
+            throw new Error(`[gpucat] structured-texture load: matrix '${t}' (2-row column packing) not yet supported`);
+        }
+        const columns = Array.from({ length: cols }, (_, c) => {
+            const ct = texAt(texelWithin + c);
+            return rows === 4
+                ? vec4(bitcastF32(lane(ct, 0)), bitcastF32(lane(ct, 1)), bitcastF32(lane(ct, 2)), bitcastF32(lane(ct, 3)))
+                : vec3(bitcastF32(lane(ct, 0)), bitcastF32(lane(ct, 1)), bitcastF32(lane(ct, 2)));
+        });
+        if (cols === 4 && rows === 4) {
+            const c = columns;
+            return mat4(c[0], c[1], c[2], c[3]);
+        }
+        if (cols === 3 && rows === 3) {
+            const c = columns;
+            return mat3(c[0], c[1], c[2]);
+        }
+        throw new Error(`[gpucat] structured-texture load: matrix '${t}' not yet supported`);
+    }
+    throw new Error(`[gpucat] structured-texture load: field type '${t}' not supported`);
+}
+function buildRecordAccessor(base, schema, texelBase, width) {
+    const layout = structFieldLayout(schema);
+    const acc = {};
+    for (const f of layout.fields) {
+        Object.defineProperty(acc, f.name, {
+            enumerable: true,
+            get: () => decodeField(base, texelBase, width, f.byteOffset, f.type),
+        });
+    }
+    return acc;
 }
 /** Counter for generating unique sampler IDs when using GpuSampler directly */
 let _samplerIdCounter = 0;
@@ -9778,8 +10907,10 @@ function texture(source, gpuSampler) {
         return node;
     }
     else {
-        // Texture._gpuTexture is GpuTexture<d.texture2d>
-        // Widen to FlatSampledTexture for the binding
+        // A high-level Texture or DataTexture — both expose `_gpuTexture` / `_gpuSampler` / `id`. The
+        // GpuTexture's descriptor carries the sampled type (a DataTexture backed by an integer format
+        // reports `texture2d<u32>`/`texture2d<i32>`, so the emitter declares usampler2D/isampler2D and
+        // `.load()` returns uvec4/ivec4) — so DataTexture rides this same branch, no cast needed.
         const gpuTex = source._gpuTexture;
         const desc = gpuTex.type;
         const binding = new TextureBindingNode(desc, `t${source.id}`);
@@ -13774,797 +14905,6 @@ function alignTo4(n) {
 }
 
 /**
- * Whether structs and array elements round their stride up to 16 bytes. True for both uniform
- * layouts (`wgsl-uniform`, `std140`); false for `std430`, which packs tightest.
- */
-function roundsElementsTo16(memLayout) {
-    return memLayout !== 'std430';
-}
-/**
- * Whether every matrix column is padded to a vec4 (16-byte stride), even for 2-row matrices. True
- * only for GLSL `std140`; WGSL layouts keep a 2-row matrix's columns at vec2 (8-byte) stride. This
- * is the sole layout difference between `wgsl-uniform` and `std140`.
- */
-function matColumnsAlwaysVec4(memLayout) {
-    return memLayout === 'std140';
-}
-/**
- * Column stride (bytes) for an f32 matrix with the given row count in the given memory layout.
- */
-function matColumnStrideF32(rows, memLayout) {
-    if (matColumnsAlwaysVec4(memLayout))
-        return 16;
-    return rows === 2 ? 8 : 16;
-}
-// Layout Cache
-const layoutCache = new WeakMap();
-function getLayout(schema, memLayout) {
-    let byMemoryLayout = layoutCache.get(schema);
-    if (!byMemoryLayout) {
-        byMemoryLayout = new Map();
-        layoutCache.set(schema, byMemoryLayout);
-    }
-    let layout = byMemoryLayout.get(memLayout);
-    if (!layout) {
-        layout = compileLayout(schema, memLayout);
-        byMemoryLayout.set(memLayout, layout);
-    }
-    return layout;
-}
-function toDataView(src) {
-    if (src instanceof ArrayBuffer) {
-        return new DataView(src);
-    }
-    return new DataView(src.buffer, src.byteOffset, src.byteLength);
-}
-/**
- * Pack a value into a new ArrayBuffer.
- *
- * @example
- * const buf = pack(Particle, { position: [1, 2, 3], health: 100 });
- * const f32 = new Float32Array(buf);
- */
-function pack(schema, value, memLayout = 'std430') {
-    const layout = getLayout(schema, memLayout);
-    const buf = new ArrayBuffer(layout.totalSize);
-    layout.write(new DataView(buf), 0, value);
-    return buf;
-}
-/**
- * Pack an array of values into a new ArrayBuffer.
- *
- * @example
- * const buf = packArray(Particle, particles);
- * const f32 = new Float32Array(buf);
- */
-function packArray(schema, items, memLayout = 'std430') {
-    const layout = getLayout(schema, memLayout);
-    const buf = new ArrayBuffer(layout.stride * items.length);
-    const view = new DataView(buf);
-    for (let i = 0; i < items.length; i++) {
-        layout.write(view, i * layout.stride, items[i]);
-    }
-    return buf;
-}
-/**
- * Pack a value into an existing buffer at a byte offset.
- *
- * @example
- * const buf = new ArrayBuffer(1024);
- * packTo(Particle, buf, 0, particle1);
- * packTo(Particle, buf, stride, particle2);
- */
-function packTo(schema, dest, offset, value, memLayout = 'std430') {
-    const layout = getLayout(schema, memLayout);
-    layout.write(toDataView(dest), offset, value);
-}
-/**
- * Unpack a value from a buffer.
- *
- * @example
- * const particle = unpack(Particle, buf);
- * const secondParticle = unpack(Particle, buf, stride);
- */
-function unpack(schema, src, offset = 0, memLayout = 'std430') {
-    const layout = getLayout(schema, memLayout);
-    return layout.read(toDataView(src), offset);
-}
-/**
- * Unpack an array of values from a buffer.
- *
- * @example
- * const particles = unpackArray(Particle, buf, 100);
- */
-function unpackArray(schema, src, count, offset = 0, memLayout = 'std430') {
-    const layout = getLayout(schema, memLayout);
-    const view = toDataView(src);
-    const items = new Array(count);
-    for (let i = 0; i < count; i++) {
-        items[i] = layout.read(view, offset + i * layout.stride);
-    }
-    return items;
-}
-/**
- * Get the byte size of a schema.
- *
- * @example
- * const size = layoutSizeOf(Particle); // 32
- */
-function layoutSizeOf(schema, memLayout = 'std430') {
-    return getLayout(schema, memLayout).totalSize;
-}
-/**
- * Get the stride (size with tail padding) for array elements.
- *
- * @example
- * const stride = layoutStrideOf(Particle); // 32
- */
-function layoutStrideOf(schema, memLayout = 'std430') {
-    return getLayout(schema, memLayout).stride;
-}
-/**
- * Get the byte alignment of a schema in the given memory layout.
- *
- * @example
- * const align = layoutAlignOf(vec3f, 'std140'); // 16
- */
-function layoutAlignOf(schema, memLayout = 'std430') {
-    return alignOf(schema, memLayout);
-}
-// Internal: DataView-based pack/unpack (used by bindings.ts)
-/** Pack a value into a DataView. */
-function packToView(schema, view, offset, value, memLayout = 'std430') {
-    const layout = getLayout(schema, memLayout);
-    layout.write(view, offset, value);
-}
-// Alignment and Size (address-space aware)
-function roundUp(n, align) {
-    return Math.ceil(n / align) * align;
-}
-/**
- * Get alignment for a schema in the given memory layout.
- * Uniform layouts have stricter rules: structs and arrays round up to 16.
- */
-function alignOf(schema, memLayout) {
-    // For uniform layouts (wgsl-uniform / std140), structs and array elements need roundUp(16, align).
-    if (roundsElementsTo16(memLayout)) {
-        if (isStructDesc(schema)) {
-            return roundUp(storageAlignOf(schema), 16);
-        }
-        if (isSizedArrayDesc(schema) || isArrayDesc(schema)) {
-            return roundUp(alignOf(schema.element, memLayout), 16);
-        }
-    }
-    // std140: all f32 matrices align to 16 (columns padded to vec4), including 2-row matrices.
-    // (f16 matrices aren't part of GLSL std140; they keep their std430 alignment.)
-    if (matColumnsAlwaysVec4(memLayout) && !isAtomicDesc(schema)) {
-        const t = schema.wgslType;
-        if (typeof t === 'string' && /^mat\dx\df$/.test(t))
-            return 16;
-    }
-    return storageAlignOf(schema);
-}
-/**
- * Storage layout alignment (std430).
- */
-function storageAlignOf(schema) {
-    if (isStructDesc(schema)) {
-        let maxAlign = 4;
-        for (const field of Object.values(schema.fields)) {
-            maxAlign = Math.max(maxAlign, storageAlignOf(field));
-        }
-        return maxAlign;
-    }
-    if (isSizedArrayDesc(schema) || isArrayDesc(schema)) {
-        return storageAlignOf(schema.element);
-    }
-    if (isAtomicDesc(schema))
-        return 4;
-    const t = schema.wgslType;
-    // f16 types
-    if (t === 'f16' || t === 'vec2h')
-        return 4;
-    if (t === 'vec3h' || t === 'vec4h')
-        return 8;
-    if (t === 'mat2x2h')
-        return 4;
-    if (t === 'mat2x3h' || t === 'mat3x2h')
-        return 8;
-    if (t === 'mat2x4h' || t === 'mat4x2h')
-        return 8;
-    if (t === 'mat3x3h' || t === 'mat3x4h' || t === 'mat4x3h' || t === 'mat4x4h')
-        return 8;
-    // Scalars
-    if (t === 'f32' || t === 'i32' || t === 'u32' || t === 'bool')
-        return 4;
-    // vec2
-    if (t === 'vec2f' || t === 'vec2i' || t === 'vec2u' || t === 'vec2<bool>')
-        return 8;
-    // vec3/vec4
-    if (t === 'vec3f' || t === 'vec3i' || t === 'vec3u' || t === 'vec3<bool>')
-        return 16;
-    if (t === 'vec4f' || t === 'vec4i' || t === 'vec4u' || t === 'vec4<bool>')
-        return 16;
-    // Matrices f32
-    if (t === 'mat2x2f')
-        return 8;
-    if (t === 'mat3x2f' || t === 'mat4x2f')
-        return 8;
-    if (t === 'mat2x3f' || t === 'mat3x3f' || t === 'mat4x3f')
-        return 16;
-    if (t === 'mat2x4f' || t === 'mat3x4f' || t === 'mat4x4f')
-        return 16;
-    throw new Error(`[gpucat] alignOf: unsupported type '${t}'`);
-}
-/**
- * Get size for a schema in the given memory layout.
- */
-function sizeOf(schema, memLayout) {
-    if (isStructDesc(schema)) {
-        const structAlign = alignOf(schema, memLayout);
-        let offset = 0;
-        for (const field of Object.values(schema.fields)) {
-            offset = roundUp(offset, alignOf(field, memLayout));
-            offset += sizeOf(field, memLayout);
-        }
-        return roundUp(offset, structAlign);
-    }
-    if (isSizedArrayDesc(schema)) {
-        const elementStride = arrayElementStrideOf(schema.element, memLayout);
-        return schema.length * elementStride;
-    }
-    if (isArrayDesc(schema)) {
-        throw new Error('[gpucat] sizeOf: cannot compute size of runtime-sized array');
-    }
-    if (isAtomicDesc(schema))
-        return 4;
-    const t = schema.wgslType;
-    // Scalars
-    if (t === 'f16')
-        return 2;
-    if (t === 'f32' || t === 'i32' || t === 'u32' || t === 'bool')
-        return 4;
-    // vec2
-    if (t === 'vec2h')
-        return 4;
-    if (t === 'vec2f' || t === 'vec2i' || t === 'vec2u' || t === 'vec2<bool>')
-        return 8;
-    // vec3
-    if (t === 'vec3h')
-        return 6;
-    if (t === 'vec3f' || t === 'vec3i' || t === 'vec3u' || t === 'vec3<bool>')
-        return 12;
-    // vec4
-    if (t === 'vec4h')
-        return 8;
-    if (t === 'vec4f' || t === 'vec4i' || t === 'vec4u' || t === 'vec4<bool>')
-        return 16;
-    // Matrices f32 - size = numColumns * column stride. Column stride is address-space
-    // dependent: std140 pads every column to 16; std430/wgsl-uniform use 8 for 2-row matrices.
-    {
-        const m = t.match(/^mat(\d)x(\d)f$/);
-        if (m) {
-            const cols = parseInt(m[1], 10);
-            const rows = parseInt(m[2], 10);
-            return cols * matColumnStrideF32(rows, memLayout);
-        }
-    }
-    // Matrices f16
-    if (t === 'mat2x2h')
-        return 2 * 4; // 2 cols * vec2h stride
-    if (t === 'mat3x2h')
-        return 3 * 4;
-    if (t === 'mat4x2h')
-        return 4 * 4;
-    if (t === 'mat2x3h')
-        return 2 * 8; // 2 cols * vec3h padded
-    if (t === 'mat3x3h')
-        return 3 * 8;
-    if (t === 'mat4x3h')
-        return 4 * 8;
-    if (t === 'mat2x4h')
-        return 2 * 8; // 2 cols * vec4h
-    if (t === 'mat3x4h')
-        return 3 * 8;
-    if (t === 'mat4x4h')
-        return 4 * 8;
-    throw new Error(`[gpucat] sizeOf: unsupported type '${t}'`);
-}
-/**
- * Get stride (size with alignment padding) for array elements.
- */
-function strideOf(schema, memLayout) {
-    return roundUp(sizeOf(schema, memLayout), alignOf(schema, memLayout));
-}
-/**
- * Get stride for elements within an array (different from strideOf for uniform arrays).
- * Uniform-layout arrays require 16-byte minimum element stride.
- */
-function arrayElementStrideOf(elementSchema, memLayout) {
-    const baseStride = strideOf(elementSchema, memLayout);
-    if (roundsElementsTo16(memLayout)) {
-        return roundUp(baseStride, 16);
-    }
-    return baseStride;
-}
-// ---------------------------------------------------------------------------
-// Code Generation - Writers
-// ---------------------------------------------------------------------------
-/**
- * Emit write statements for a schema.
- */
-function emitWrites(ctx, schema, accessor) {
-    if (isStructDesc(schema)) {
-        emitStructWrites(ctx, schema, accessor);
-    }
-    else if (isSizedArrayDesc(schema)) {
-        emitArrayWrites(ctx, schema, accessor);
-    }
-    else {
-        emitPrimitiveWrite(ctx, schema, accessor);
-    }
-}
-function emitStructWrites(ctx, schema, accessor) {
-    for (const [key, fieldSchema] of Object.entries(schema.fields)) {
-        ctx.offset = roundUp(ctx.offset, alignOf(fieldSchema, ctx.memLayout));
-        emitWrites(ctx, fieldSchema, `${accessor}.${key}`);
-    }
-    // Struct tail padding
-    const structAlign = alignOf(schema, ctx.memLayout);
-    ctx.offset = roundUp(ctx.offset, structAlign);
-}
-function emitArrayWrites(ctx, schema, accessor) {
-    const stride = arrayElementStrideOf(schema.element, ctx.memLayout);
-    const startOffset = ctx.offset;
-    for (let i = 0; i < schema.length; i++) {
-        ctx.offset = startOffset + i * stride;
-        emitWrites(ctx, schema.element, `${accessor}[${i}]`);
-    }
-    // Position after the array (accounts for tail padding of last element)
-    ctx.offset = startOffset + schema.length * stride;
-}
-function emitPrimitiveWrite(ctx, schema, accessor) {
-    const t = schema.wgslType;
-    const off = ctx.offset;
-    // Scalars
-    if (t === 'f32') {
-        ctx.lines.push(`v.setFloat32(o+${off},${accessor},true);`);
-        ctx.offset += 4;
-        return;
-    }
-    if (t === 'i32') {
-        ctx.lines.push(`v.setInt32(o+${off},${accessor},true);`);
-        ctx.offset += 4;
-        return;
-    }
-    if (t === 'u32' || t === 'bool') {
-        ctx.lines.push(`v.setUint32(o+${off},${accessor},true);`);
-        ctx.offset += 4;
-        return;
-    }
-    if (t === 'f16') {
-        ctx.lines.push(`v.setUint16(o+${off},f16(${accessor}),true);`);
-        ctx.offset += 2;
-        return;
-    }
-    // vec2
-    if (t === 'vec2f') {
-        ctx.lines.push(`v.setFloat32(o+${off},${accessor}[0],true);`);
-        ctx.lines.push(`v.setFloat32(o+${off + 4},${accessor}[1],true);`);
-        ctx.offset += 8;
-        return;
-    }
-    if (t === 'vec2i') {
-        ctx.lines.push(`v.setInt32(o+${off},${accessor}[0],true);`);
-        ctx.lines.push(`v.setInt32(o+${off + 4},${accessor}[1],true);`);
-        ctx.offset += 8;
-        return;
-    }
-    if (t === 'vec2u' || t === 'vec2<bool>') {
-        ctx.lines.push(`v.setUint32(o+${off},${accessor}[0],true);`);
-        ctx.lines.push(`v.setUint32(o+${off + 4},${accessor}[1],true);`);
-        ctx.offset += 8;
-        return;
-    }
-    if (t === 'vec2h') {
-        ctx.lines.push(`v.setUint16(o+${off},f16(${accessor}[0]),true);`);
-        ctx.lines.push(`v.setUint16(o+${off + 2},f16(${accessor}[1]),true);`);
-        ctx.offset += 4;
-        return;
-    }
-    // vec3
-    if (t === 'vec3f') {
-        ctx.lines.push(`v.setFloat32(o+${off},${accessor}[0],true);`);
-        ctx.lines.push(`v.setFloat32(o+${off + 4},${accessor}[1],true);`);
-        ctx.lines.push(`v.setFloat32(o+${off + 8},${accessor}[2],true);`);
-        ctx.offset += 12;
-        return;
-    }
-    if (t === 'vec3i') {
-        ctx.lines.push(`v.setInt32(o+${off},${accessor}[0],true);`);
-        ctx.lines.push(`v.setInt32(o+${off + 4},${accessor}[1],true);`);
-        ctx.lines.push(`v.setInt32(o+${off + 8},${accessor}[2],true);`);
-        ctx.offset += 12;
-        return;
-    }
-    if (t === 'vec3u' || t === 'vec3<bool>') {
-        ctx.lines.push(`v.setUint32(o+${off},${accessor}[0],true);`);
-        ctx.lines.push(`v.setUint32(o+${off + 4},${accessor}[1],true);`);
-        ctx.lines.push(`v.setUint32(o+${off + 8},${accessor}[2],true);`);
-        ctx.offset += 12;
-        return;
-    }
-    if (t === 'vec3h') {
-        ctx.lines.push(`v.setUint16(o+${off},f16(${accessor}[0]),true);`);
-        ctx.lines.push(`v.setUint16(o+${off + 2},f16(${accessor}[1]),true);`);
-        ctx.lines.push(`v.setUint16(o+${off + 4},f16(${accessor}[2]),true);`);
-        ctx.offset += 6;
-        return;
-    }
-    // vec4
-    if (t === 'vec4f') {
-        ctx.lines.push(`v.setFloat32(o+${off},${accessor}[0],true);`);
-        ctx.lines.push(`v.setFloat32(o+${off + 4},${accessor}[1],true);`);
-        ctx.lines.push(`v.setFloat32(o+${off + 8},${accessor}[2],true);`);
-        ctx.lines.push(`v.setFloat32(o+${off + 12},${accessor}[3],true);`);
-        ctx.offset += 16;
-        return;
-    }
-    if (t === 'vec4i') {
-        ctx.lines.push(`v.setInt32(o+${off},${accessor}[0],true);`);
-        ctx.lines.push(`v.setInt32(o+${off + 4},${accessor}[1],true);`);
-        ctx.lines.push(`v.setInt32(o+${off + 8},${accessor}[2],true);`);
-        ctx.lines.push(`v.setInt32(o+${off + 12},${accessor}[3],true);`);
-        ctx.offset += 16;
-        return;
-    }
-    if (t === 'vec4u' || t === 'vec4<bool>') {
-        ctx.lines.push(`v.setUint32(o+${off},${accessor}[0],true);`);
-        ctx.lines.push(`v.setUint32(o+${off + 4},${accessor}[1],true);`);
-        ctx.lines.push(`v.setUint32(o+${off + 8},${accessor}[2],true);`);
-        ctx.lines.push(`v.setUint32(o+${off + 12},${accessor}[3],true);`);
-        ctx.offset += 16;
-        return;
-    }
-    if (t === 'vec4h') {
-        ctx.lines.push(`v.setUint16(o+${off},f16(${accessor}[0]),true);`);
-        ctx.lines.push(`v.setUint16(o+${off + 2},f16(${accessor}[1]),true);`);
-        ctx.lines.push(`v.setUint16(o+${off + 4},f16(${accessor}[2]),true);`);
-        ctx.lines.push(`v.setUint16(o+${off + 6},f16(${accessor}[3]),true);`);
-        ctx.offset += 8;
-        return;
-    }
-    // Matrices f32 - column major
-    if (t.startsWith('mat') && t.endsWith('f')) {
-        emitMatrixWriteF32(ctx, t, accessor);
-        return;
-    }
-    // Matrices f16
-    if (t.startsWith('mat') && t.endsWith('h')) {
-        emitMatrixWriteF16(ctx, t, accessor);
-        return;
-    }
-    // Atomic
-    if (isAtomicDesc(schema)) {
-        const inner = schema.inner.wgslType;
-        if (inner === 'i32') {
-            ctx.lines.push(`v.setInt32(o+${off},${accessor},true);`);
-        }
-        else {
-            ctx.lines.push(`v.setUint32(o+${off},${accessor},true);`);
-        }
-        ctx.offset += 4;
-        return;
-    }
-    throw new Error(`[gpucat] emitPrimitiveWrite: unsupported type '${t}'`);
-}
-function emitMatrixWriteF32(ctx, t, accessor) {
-    // matCxRf: C columns, R rows
-    const match = t.match(/mat(\d)x(\d)f/);
-    if (!match)
-        throw new Error(`Invalid matrix type: ${t}`);
-    const cols = parseInt(match[1], 10);
-    const rows = parseInt(match[2], 10);
-    // Column stride: std140 pads every column to 16; std430/wgsl-uniform use vec2=8, vec3/4=16.
-    const colStride = matColumnStrideF32(rows, ctx.memLayout);
-    let off = ctx.offset;
-    for (let c = 0; c < cols; c++) {
-        for (let r = 0; r < rows; r++) {
-            const idx = c * rows + r;
-            ctx.lines.push(`v.setFloat32(o+${off + r * 4},${accessor}[${idx}],true);`);
-        }
-        off += colStride;
-    }
-    ctx.offset = off;
-}
-function emitMatrixWriteF16(ctx, t, accessor) {
-    const match = t.match(/mat(\d)x(\d)h/);
-    if (!match)
-        throw new Error(`Invalid matrix type: ${t}`);
-    const cols = parseInt(match[1], 10);
-    const rows = parseInt(match[2], 10);
-    // Column stride for f16: vec2h=4, vec3h/4h=8
-    const colStride = rows === 2 ? 4 : 8;
-    let off = ctx.offset;
-    for (let c = 0; c < cols; c++) {
-        for (let r = 0; r < rows; r++) {
-            const idx = c * rows + r;
-            ctx.lines.push(`v.setUint16(o+${off + r * 2},f16(${accessor}[${idx}]),true);`);
-        }
-        off += colStride;
-    }
-    ctx.offset = off;
-}
-// ---------------------------------------------------------------------------
-// Code Generation - Readers
-// ---------------------------------------------------------------------------
-/**
- * Emit read expression for a schema. Returns a JS expression string.
- */
-function emitReads(ctx, schema) {
-    if (isStructDesc(schema)) {
-        return emitStructRead(ctx, schema);
-    }
-    else if (isSizedArrayDesc(schema)) {
-        return emitArrayRead(ctx, schema);
-    }
-    else {
-        return emitPrimitiveRead(ctx, schema);
-    }
-}
-function emitStructRead(ctx, schema) {
-    const fields = [];
-    for (const [key, fieldSchema] of Object.entries(schema.fields)) {
-        ctx.offset = roundUp(ctx.offset, alignOf(fieldSchema, ctx.memLayout));
-        const valueExpr = emitReads(ctx, fieldSchema);
-        fields.push(`${key}:${valueExpr}`);
-    }
-    // Struct tail padding
-    const structAlign = alignOf(schema, ctx.memLayout);
-    ctx.offset = roundUp(ctx.offset, structAlign);
-    return `{${fields.join(',')}}`;
-}
-function emitArrayRead(ctx, schema) {
-    const elements = [];
-    const stride = arrayElementStrideOf(schema.element, ctx.memLayout);
-    const startOffset = ctx.offset;
-    for (let i = 0; i < schema.length; i++) {
-        ctx.offset = startOffset + i * stride;
-        elements.push(emitReads(ctx, schema.element));
-    }
-    // Position after the array
-    ctx.offset = startOffset + schema.length * stride;
-    return `[${elements.join(',')}]`;
-}
-function emitPrimitiveRead(ctx, schema) {
-    const t = schema.wgslType;
-    const off = ctx.offset;
-    // Scalars
-    if (t === 'f32') {
-        ctx.offset += 4;
-        return `v.getFloat32(o+${off},true)`;
-    }
-    if (t === 'i32') {
-        ctx.offset += 4;
-        return `v.getInt32(o+${off},true)`;
-    }
-    if (t === 'u32' || t === 'bool') {
-        ctx.offset += 4;
-        return `v.getUint32(o+${off},true)`;
-    }
-    if (t === 'f16') {
-        ctx.offset += 2;
-        return `f16r(v.getUint16(o+${off},true))`;
-    }
-    // vec2
-    if (t === 'vec2f') {
-        ctx.offset += 8;
-        return `[v.getFloat32(o+${off},true),v.getFloat32(o+${off + 4},true)]`;
-    }
-    if (t === 'vec2i') {
-        ctx.offset += 8;
-        return `[v.getInt32(o+${off},true),v.getInt32(o+${off + 4},true)]`;
-    }
-    if (t === 'vec2u' || t === 'vec2<bool>') {
-        ctx.offset += 8;
-        return `[v.getUint32(o+${off},true),v.getUint32(o+${off + 4},true)]`;
-    }
-    if (t === 'vec2h') {
-        ctx.offset += 4;
-        return `[f16r(v.getUint16(o+${off},true)),f16r(v.getUint16(o+${off + 2},true))]`;
-    }
-    // vec3
-    if (t === 'vec3f') {
-        ctx.offset += 12;
-        return `[v.getFloat32(o+${off},true),v.getFloat32(o+${off + 4},true),v.getFloat32(o+${off + 8},true)]`;
-    }
-    if (t === 'vec3i') {
-        ctx.offset += 12;
-        return `[v.getInt32(o+${off},true),v.getInt32(o+${off + 4},true),v.getInt32(o+${off + 8},true)]`;
-    }
-    if (t === 'vec3u' || t === 'vec3<bool>') {
-        ctx.offset += 12;
-        return `[v.getUint32(o+${off},true),v.getUint32(o+${off + 4},true),v.getUint32(o+${off + 8},true)]`;
-    }
-    if (t === 'vec3h') {
-        ctx.offset += 6;
-        return `[f16r(v.getUint16(o+${off},true)),f16r(v.getUint16(o+${off + 2},true)),f16r(v.getUint16(o+${off + 4},true))]`;
-    }
-    // vec4
-    if (t === 'vec4f') {
-        ctx.offset += 16;
-        return `[v.getFloat32(o+${off},true),v.getFloat32(o+${off + 4},true),v.getFloat32(o+${off + 8},true),v.getFloat32(o+${off + 12},true)]`;
-    }
-    if (t === 'vec4i') {
-        ctx.offset += 16;
-        return `[v.getInt32(o+${off},true),v.getInt32(o+${off + 4},true),v.getInt32(o+${off + 8},true),v.getInt32(o+${off + 12},true)]`;
-    }
-    if (t === 'vec4u' || t === 'vec4<bool>') {
-        ctx.offset += 16;
-        return `[v.getUint32(o+${off},true),v.getUint32(o+${off + 4},true),v.getUint32(o+${off + 8},true),v.getUint32(o+${off + 12},true)]`;
-    }
-    if (t === 'vec4h') {
-        ctx.offset += 8;
-        return `[f16r(v.getUint16(o+${off},true)),f16r(v.getUint16(o+${off + 2},true)),f16r(v.getUint16(o+${off + 4},true)),f16r(v.getUint16(o+${off + 6},true))]`;
-    }
-    // Matrices f32
-    if (t.startsWith('mat') && t.endsWith('f')) {
-        return emitMatrixReadF32(ctx, t);
-    }
-    // Matrices f16
-    if (t.startsWith('mat') && t.endsWith('h')) {
-        return emitMatrixReadF16(ctx, t);
-    }
-    // Atomic
-    if (isAtomicDesc(schema)) {
-        ctx.offset += 4;
-        const inner = schema.inner.wgslType;
-        if (inner === 'i32') {
-            return `v.getInt32(o+${off},true)`;
-        }
-        else {
-            return `v.getUint32(o+${off},true)`;
-        }
-    }
-    throw new Error(`[gpucat] emitPrimitiveRead: unsupported type '${t}'`);
-}
-function emitMatrixReadF32(ctx, t) {
-    const match = t.match(/mat(\d)x(\d)f/);
-    if (!match)
-        throw new Error(`Invalid matrix type: ${t}`);
-    const cols = parseInt(match[1], 10);
-    const rows = parseInt(match[2], 10);
-    const colStride = matColumnStrideF32(rows, ctx.memLayout);
-    const elements = [];
-    let off = ctx.offset;
-    for (let c = 0; c < cols; c++) {
-        for (let r = 0; r < rows; r++) {
-            elements.push(`v.getFloat32(o+${off + r * 4},true)`);
-        }
-        off += colStride;
-    }
-    ctx.offset = off;
-    return `[${elements.join(',')}]`;
-}
-function emitMatrixReadF16(ctx, t) {
-    const match = t.match(/mat(\d)x(\d)h/);
-    if (!match)
-        throw new Error(`Invalid matrix type: ${t}`);
-    const cols = parseInt(match[1], 10);
-    const rows = parseInt(match[2], 10);
-    const colStride = rows === 2 ? 4 : 8;
-    const elements = [];
-    let off = ctx.offset;
-    for (let c = 0; c < cols; c++) {
-        for (let r = 0; r < rows; r++) {
-            elements.push(`f16r(v.getUint16(o+${off + r * 2},true))`);
-        }
-        off += colStride;
-    }
-    ctx.offset = off;
-    return `[${elements.join(',')}]`;
-}
-// ---------------------------------------------------------------------------
-// f16 conversion helpers (injected into generated code)
-// ---------------------------------------------------------------------------
-/**
- * Convert f32 to f16 bits.
- */
-function f32ToF16Bits(value) {
-    const f32 = new Float32Array(1);
-    const u32 = new Uint32Array(f32.buffer);
-    f32[0] = value;
-    const bits = u32[0];
-    const sign = (bits >> 31) & 0x1;
-    const exp32 = (bits >> 23) & 0xff;
-    const mant32 = bits & 0x7fffff;
-    let exp16;
-    let mant16;
-    if (exp32 === 0) {
-        exp16 = 0;
-        mant16 = 0;
-    }
-    else if (exp32 === 0xff) {
-        exp16 = 0x1f;
-        mant16 = mant32 ? 0x200 : 0;
-    }
-    else {
-        const newExp = exp32 - 127 + 15;
-        if (newExp >= 0x1f) {
-            exp16 = 0x1f;
-            mant16 = 0;
-        }
-        else if (newExp <= 0) {
-            exp16 = 0;
-            mant16 = 0;
-        }
-        else {
-            exp16 = newExp;
-            mant16 = mant32 >> 13;
-        }
-    }
-    return (sign << 15) | (exp16 << 10) | mant16;
-}
-/**
- * Convert f16 bits to f32.
- */
-function f16BitsToF32(bits) {
-    const sign = (bits >> 15) & 0x1;
-    const exp16 = (bits >> 10) & 0x1f;
-    const mant16 = bits & 0x3ff;
-    let exp32;
-    let mant32;
-    if (exp16 === 0) {
-        if (mant16 === 0) {
-            exp32 = 0;
-            mant32 = 0;
-        }
-        else {
-            // Subnormal
-            let e = -1;
-            let m = mant16;
-            while ((m & 0x400) === 0) {
-                m <<= 1;
-                e -= 1;
-            }
-            exp32 = 127 - 15 + e + 1;
-            mant32 = (m & 0x3ff) << 13;
-        }
-    }
-    else if (exp16 === 0x1f) {
-        exp32 = 0xff;
-        mant32 = mant16 ? 0x400000 : 0;
-    }
-    else {
-        exp32 = exp16 - 15 + 127;
-        mant32 = mant16 << 13;
-    }
-    const u32 = new Uint32Array(1);
-    const f32 = new Float32Array(u32.buffer);
-    u32[0] = (sign << 31) | (exp32 << 23) | mant32;
-    return f32[0];
-}
-// ---------------------------------------------------------------------------
-// Layout Compilation
-// ---------------------------------------------------------------------------
-function compileLayout(schema, memLayout) {
-    // Generate writer
-    const writeCtx = { memLayout, offset: 0, lines: [] };
-    emitWrites(writeCtx, schema, 'd');
-    const totalSize = sizeOf(schema, memLayout);
-    const stride = strideOf(schema, memLayout);
-    const writeCode = `return function(v,o,d){${writeCtx.lines.join('')}}`;
-    // Generate reader
-    const readCtx = { memLayout, offset: 0};
-    const readExpr = emitReads(readCtx, schema);
-    const readCode = `return function(v,o){return ${readExpr}}`;
-    // Compile functions with f16 helpers in scope
-    const write = new Function('f16', writeCode)(f32ToF16Bits);
-    const read = new Function('f16r', readCode)(f16BitsToF32);
-    return { totalSize, stride, write, read };
-}
-
-/**
  * graph.ts — backend-neutral node-graph utilities shared by discovery and every emitter.
  *
  * Pure structural analysis of the DSL node graph: the AnyNode discriminated union, child
@@ -14932,6 +15272,8 @@ function createGlslContext(stage, discovery) {
         // Fresh per-context: the emitter registers textures/samplers as it walks each stage.
         textures: new Map(),
         textureSamplers: new Map(),
+        // Populated once by compileGlsl (shared across stages) — see storage() read-lowering.
+        storageMirrors: new Map(),
         attributes: new Map(),
         varyings: new Map(),
         builtins: new Set(),
@@ -14945,7 +15287,69 @@ function createGlslContext(stage, discovery) {
 function unsupported(kind) {
     throw new Error(`[glsl] ${kind} not yet supported in the GLSL emitter`);
 }
-/* expression generation */
+/** The mirror texture for `idx`'s array, iff that array is a read-only storage buffer we've lowered. */
+function storageMirrorOf(ctx, idxNode) {
+    const arr = idxNode.array;
+    if (arr.kind !== NodeKind.Storage)
+        return null;
+    return ctx.storageMirrors.get(arr.id) ?? null;
+}
+/**
+ * Detection only: is `node` a read from a lowered read-only storage buffer? Handles both `storage[i].field`
+ * (struct element) and bare `storage[i]` (non-struct element). Returns the resolved field to decode, or
+ * null. No emission, no side effects — the caller decides whether/how to lower.
+ */
+function matchStorageRead(ctx, node) {
+    if (node.kind === NodeKind.Field) {
+        const obj = node.object;
+        if (obj.kind !== NodeKind.Index)
+            return null;
+        const idxNode = obj;
+        const mirror = storageMirrorOf(ctx, idxNode);
+        if (!mirror)
+            return null;
+        const elementSchema = idxNode.type; // IndexNode.type = the array element (the struct)
+        if (!isStructDesc(elementSchema))
+            return null;
+        const layout = structFieldLayout(elementSchema);
+        const f = layout.fields.find((ff) => ff.name === node.fieldName);
+        if (!f)
+            return null;
+        return {
+            base: mirror.base,
+            texelBase: storageTexelBase(idxNode.index, layout.texelStride),
+            width: mirror.width,
+            byteOffset: f.byteOffset,
+            type: f.type,
+        };
+    }
+    if (node.kind === NodeKind.Index) {
+        const idxNode = node;
+        const mirror = storageMirrorOf(ctx, idxNode);
+        if (!mirror)
+            return null;
+        const elementSchema = idxNode.type;
+        if (isStructDesc(elementSchema))
+            return null; // struct elements are read via `.field` above
+        const texelStride = Math.ceil(layoutStrideOf(elementSchema, 'std430') / 16);
+        return {
+            base: mirror.base,
+            texelBase: storageTexelBase(idxNode.index, texelStride),
+            width: mirror.width,
+            byteOffset: 0,
+            type: elementSchema,
+        };
+    }
+    return null;
+}
+/** Emit a matched storage read through the same `decodeField` path as `texture(t).load(schema, i)`. */
+function lowerStorageRead(ctx, m) {
+    return generateExpr$1(ctx, decodeField(m.base, m.texelBase, m.width, m.byteOffset, m.type));
+}
+function storageTexelBase(indexNode, texelStride) {
+    const idx = u32(indexNode);
+    return texelStride === 1 ? idx : idx.mul(u32(texelStride));
+}
 function generateExpr$1(ctx, rawNode) {
     const node = rawNode;
     // CSE: if already hoisted to a variable, return its name.
@@ -15007,11 +15411,21 @@ function generateExpr$1(ctx, rawNode) {
             break;
         }
         case NodeKind.Field: {
+            const storageRead = matchStorageRead(ctx, node);
+            if (storageRead) {
+                expr = lowerStorageRead(ctx, storageRead);
+                break;
+            }
             const obj = generateExpr$1(ctx, node.object);
             expr = `${obj}.${node.fieldName}`;
             break;
         }
         case NodeKind.Index: {
+            const storageRead = matchStorageRead(ctx, node);
+            if (storageRead) {
+                expr = lowerStorageRead(ctx, storageRead);
+                break;
+            }
             const arr = generateExpr$1(ctx, node.array);
             const idx = generateExpr$1(ctx, node.index);
             expr = `${arr}[${idx}]`;
@@ -15342,6 +15756,37 @@ function generateCall$1(ctx, node) {
         return `(!${args[0]})`;
     if (UNSUPPORTED_DERIVATIVES.has(node.fn)) {
         throw new Error(`[glsl] ${node.fn} (coarse/fine derivative) is not supported on the WebGL2 backend; use dpdx/dpdy/fwidth`);
+    }
+    // bitcast<T>(x): bit-reinterpret. WGSL spells it `bitcast<T>`; GLSL ES 3.00 uses type-directed
+    // builtins for float↔int/uint (uintBitsToFloat / floatBitsToUint / intBitsToFloat / floatBitsToInt)
+    // and plain int()/uint() for the (same-width) int↔uint reinterpret. Target T is in the fn name; the
+    // source type comes from the single argument.
+    const bc = node.fn.match(/^bitcast<(f32|u32|i32)>$/);
+    if (bc && args.length === 1) {
+        const to = bc[1];
+        const from = node.args[0].type.wgslType;
+        if (to === 'f32')
+            return `${from === 'i32' ? 'intBitsToFloat' : 'uintBitsToFloat'}(${args[0]})`;
+        if (to === 'u32')
+            return `${from === 'f32' ? 'floatBitsToUint' : 'uint'}(${args[0]})`;
+        return `${from === 'f32' ? 'floatBitsToInt' : 'int'}(${args[0]})`; // to === 'i32'
+    }
+    // Packed unpack builtins. WGSL has all natively; GLSL ES 3.00 has the 2×16 family (renamed) but
+    // NOT the 4×8 family — those are emulated with shift/mask. Component 0 is in the LOW bits,
+    // matching the CPU encode (pack.ts `packedWriteExpr`).
+    if (node.fn === 'unpack2x16float')
+        return `unpackHalf2x16(${args[0]})`;
+    if (node.fn === 'unpack2x16unorm')
+        return `unpackUnorm2x16(${args[0]})`;
+    if (node.fn === 'unpack2x16snorm')
+        return `unpackSnorm2x16(${args[0]})`;
+    if (node.fn === 'unpack4x8unorm') {
+        const p = args[0];
+        return `(vec4(uvec4(${p}&0xFFu,(${p}>>8u)&0xFFu,(${p}>>16u)&0xFFu,(${p}>>24u)&0xFFu))/255.0)`;
+    }
+    if (node.fn === 'unpack4x8snorm') {
+        const p = args[0];
+        return `max(vec4(ivec4(int(${p}<<24u)>>24,int(${p}<<16u)>>24,int(${p}<<8u)>>24,int(${p})>>24))/127.0,vec4(-1.0))`;
     }
     const fn = CALL_RENAMES[node.fn] ?? node.fn;
     return `${fn}(${args.join(', ')})`;
@@ -15718,8 +16163,10 @@ function emitGlslTextures(ctx) {
             const id = binding.textureId;
             const name = samplerUniformName$1(id);
             const samplerType = glslSamplerType(binding.type);
-            // Depth-compare shadow samplers must be highp in GLSL ES 3.00.
-            const precision = samplerType.includes('Shadow') ? 'highp ' : '';
+            // GLSL ES 3.00 has no default precision for depth-compare shadow samplers or for integer
+            // samplers (usampler2D / isampler2D — leading 'u'/'i'), so those must be declared highp.
+            const isIntegerSampler = samplerType[0] === 'u' || samplerType[0] === 'i';
+            const precision = samplerType.includes('Shadow') || isIntegerSampler ? 'highp ' : '';
             lines.push(`uniform ${precision}${samplerType} ${name};`);
             textures.push({
                 textureId: id,
@@ -17917,6 +18364,45 @@ function compile(slots) {
         graphInfo,
     };
 }
+/**
+ * Bind a read-only, CPU-backed storage buffer AS an rgba32uint texture for WebGL (which has no SSBO).
+ * No mirror object is minted here: the returned `base` is a synthetic sampler-less `TextureNode` whose
+ * binding carries the `GpuBuffer` itself (`storageBufferSource`). At bind time the WebGL renderer reads
+ * the buffer's own bytes directly as u32 texels (float fields round-trip through the accessor's
+ * `uintBitsToFloat`) and caches one GL texture per `GpuBuffer`, version-synced — so mutating the buffer
+ * between frames re-uploads, and N materials sharing a buffer share one GL texture. We only pick the
+ * texel grid shape (baked into the shader's addressing via `width`): a width ≤ 2048 that divides the
+ * texel count exactly, so no padding is ever needed; if none tiles into ≤2048×2048 we throw.
+ */
+function createStorageBinding(node) {
+    const buffer = node.value;
+    const arr = buffer.array;
+    if (arr == null) {
+        throw new Error(`[glsl] storage() read-lowering needs a CPU-backed buffer, but this storage buffer has no ` +
+            `\`array\` (its CPU data was released after upload); keep the data resident to read it on WebGL`);
+    }
+    if (arr.byteLength === 0 || arr.byteLength % 16 !== 0) {
+        throw new Error(`[glsl] storage() read-lowering: buffer byte length ${arr.byteLength} must be a non-zero multiple ` +
+            `of 16 (whole rgba32uint texels) to reinterpret as a WebGL texture without padding`);
+    }
+    const totalTexels = arr.byteLength / 16;
+    // Pick a texel width ≤ 2048 that divides totalTexels exactly, so the buffer's bytes fill the grid
+    // with no padding. Common case (≤ 2048 texels) → a single row of width `totalTexels`.
+    let width = Math.min(totalTexels, 2048);
+    while (width > 1 && totalTexels % width !== 0)
+        width--;
+    const height = totalTexels / width;
+    if (height > 2048) {
+        throw new Error(`[glsl] storage() read-lowering: ${totalTexels} texels don't tile into a ≤2048×2048 grid ` +
+            `(no width ≤ 2048 divides evenly); split or reshape the buffer`);
+    }
+    // Synthetic, sampler-less integer texture binding backed by the buffer itself — `.load()` lowers to
+    // texelFetch on a usampler2D, needing no sampler. The renderer resolves `storageBufferSource`.
+    const binding = new TextureBindingNode(texture2d(u32$1), `storage${node.id}`);
+    binding.storageBufferSource = { buffer, width, height };
+    const base = new TextureNode(binding);
+    return { base, width };
+}
 function compileGlsl(slots, opts = {}) {
     const hasFragment = slots.fragment != null;
     // A frag_depth override (material.depth) is a fragment-stage value; a fragment shader must run to
@@ -17945,9 +18431,18 @@ function compileGlsl(slots, opts = {}) {
     for (const node of discovered.nodeIdToNode.values()) {
         walkTypeForStructs(node.type, registerGlslStructDef);
     }
-    // Reject compute-only / not-yet-supported resources at compile time with a clear error.
-    if (discovered.storages.size > 0 || discovered.storageNames.size > 0) {
-        throw new Error(`[glsl] storage buffers are not yet supported in the GLSL emitter`);
+    // storage() on WebGL: a read-only, value-based (CPU-backed) storage buffer is bound AS an rgba32uint
+    // texture — reads lower to texelFetch through the same accessor as `texture(t).load(schema, i)` (see
+    // the GLSL emitter's `storageMirrors`). No SSBOs, no second CPU array: the renderer reinterprets the
+    // buffer's own bytes at bind time (see `storageBufferSource`). read_write / atomic / compute writes
+    // and name-based bindings have no WebGL render-path analogue and still fail loudly.
+    const storageMirrors = new Map();
+    for (const node of discovered.storages.values()) {
+        if (node.access !== 'read' || node.value == null) {
+            throw new Error(`[glsl] storage() on the WebGL2 backend supports only read-only, value-based buffers ` +
+                `(reinterpreted as a texture); '${node.access}' / name-based / compute storage is not supported`);
+        }
+        storageMirrors.set(node.id, createStorageBinding(node));
     }
     if (discovered.storageTextures.size > 0) {
         // WebGL2 has no storage textures.
@@ -17961,6 +18456,10 @@ function compileGlsl(slots, opts = {}) {
     // variant check happens at emit time (a wgslFn with no `glsl` companion throws there).
     const vertexCtx = createGlslContext('vertex', discovered);
     const fragmentCtx = createGlslContext('fragment', discovered);
+    // Both stages share the same storage→mirror mapping so a storage read lowers identically wherever
+    // it appears (a vertex shader gathering per-instance data, a fragment shader reading a palette, …).
+    vertexCtx.storageMirrors = storageMirrors;
+    fragmentCtx.storageMirrors = storageMirrors;
     // Pre-collect varyings from the fragment roots (color + depth override) so the vertex shader knows
     // what to output. A varying used only by the depth expression must still be produced by the vertex
     // stage.
@@ -18928,6 +19427,72 @@ function deleteForCompute(state, computeNode) {
     state.computeStates.delete(computeNode.id);
 }
 
+/**
+ * The bind-group-layout sample type for a sampled texture's actual format. A `texture_2d<f32>`
+ * declaration is format-agnostic in WGSL, but the layout's `sampleType` must match the bound
+ * texture's filterability: 32-bit float formats are `unfilterable-float` unless the device enables
+ * `float32-filterable`, and integer formats are `uint`/`sint`. Everything else is filterable `float`.
+ */
+function sampleTypeForFormat(format, float32Filterable) {
+    if (!format)
+        return 'float';
+    if (format.endsWith('uint'))
+        return 'uint';
+    if (format.endsWith('sint'))
+        return 'sint';
+    if (format === 'r32float' || format === 'rg32float' || format === 'rgba32float') {
+        return float32Filterable ? 'float' : 'unfilterable-float';
+    }
+    return 'float';
+}
+/**
+ * Build the `GPUTextureBindingLayout` for a sampled-texture binding. Derives viewDimension and the
+ * multisampled flag from the WGSL type, and the sampleType from the type + the bound texture's format:
+ * depth → `depth`; multisampled color → `unfilterable-float` (accessed via textureLoad); otherwise the
+ * format's filterability (see {@link sampleTypeForFormat}). Shared by the render and compute layout paths.
+ */
+function textureBindingLayout(entry, float32Filterable) {
+    const wgslType = entry.type;
+    const layout = {};
+    if (wgslType.includes('cube_array'))
+        layout.viewDimension = 'cube-array';
+    else if (wgslType.includes('cube'))
+        layout.viewDimension = 'cube';
+    else if (wgslType.includes('2d_array'))
+        layout.viewDimension = '2d-array';
+    else if (wgslType.includes('3d'))
+        layout.viewDimension = '3d';
+    const isMultisampled = wgslType.includes('multisampled');
+    if (isMultisampled)
+        layout.multisampled = true;
+    if (wgslType.startsWith('texture_depth')) {
+        layout.sampleType = 'depth';
+    }
+    else if (isMultisampled) {
+        layout.sampleType = 'unfilterable-float';
+    }
+    else {
+        const format = entry.node.value?.format;
+        layout.sampleType = format ? sampleTypeForFormat(format, float32Filterable) : 'float';
+    }
+    return layout;
+}
+/**
+ * Sampler binding type from the actual sampler settings: a comparison sampler → `comparison`; an
+ * all-nearest, no-compare sampler → `non-filtering` (required to pair with depth/unfilterable-float
+ * textures); otherwise `filtering`. Shared by the render and compute layout paths.
+ */
+function samplerBindingType(entry) {
+    if (entry.type === 'sampler_comparison')
+        return 'comparison';
+    const sampler = entry.samplerNode?.value;
+    if (sampler?.compare)
+        return 'comparison';
+    if (sampler && sampler.minFilter === 'nearest' && sampler.magFilter === 'nearest' && sampler.mipmapFilter === 'nearest') {
+        return 'non-filtering';
+    }
+    return 'filtering';
+}
 /** create a bind group layout cache */
 function createBindGroupLayoutCache() {
     return { cache: new Map() };
@@ -18976,6 +19541,7 @@ function hashString(str) {
  */
 function buildComputeBindGroupLayouts(device, bindings, layoutCache) {
     const vis = GPUShaderStage.COMPUTE;
+    const float32Filterable = device.features.has('float32-filterable');
     // Sort bindings by group index
     const sortedBindings = [...bindings].sort((a, b) => a.groupIndex - b.groupIndex);
     const layouts = [];
@@ -19002,22 +19568,10 @@ function buildComputeBindGroupLayouts(device, bindings, layoutCache) {
                     });
                     break;
                 case 'texture': {
-                    const texLayout = {};
-                    const wgslType = binding.entry.type;
-                    if (wgslType.includes('cube_array'))
-                        texLayout.viewDimension = 'cube-array';
-                    else if (wgslType.includes('cube'))
-                        texLayout.viewDimension = 'cube';
-                    else if (wgslType.includes('2d_array'))
-                        texLayout.viewDimension = '2d-array';
-                    else if (wgslType.includes('3d'))
-                        texLayout.viewDimension = '3d';
-                    if (wgslType.startsWith('texture_depth'))
-                        texLayout.sampleType = 'depth';
                     entries.push({
                         binding: binding.entry.binding,
                         visibility: vis,
-                        texture: texLayout,
+                        texture: textureBindingLayout(binding.entry, float32Filterable),
                     });
                     break;
                 }
@@ -19049,7 +19603,7 @@ function buildComputeBindGroupLayouts(device, bindings, layoutCache) {
                     entries.push({
                         binding: binding.entry.binding,
                         visibility: vis,
-                        sampler: { type: binding.entry.type === 'sampler_comparison' ? 'comparison' : 'filtering' },
+                        sampler: { type: samplerBindingType(binding.entry) },
                     });
                     break;
             }
@@ -20994,6 +21548,36 @@ function disposeMipmapState(state) {
 }
 
 /**
+ * update-ranges.ts (renderer core) — backend-neutral collapse of pending dirty ranges into a covering
+ * row span for a partial 2D upload. Shared by the WebGPU + WebGL texture paths and the WebGL
+ * storage-buffer-as-texture path, so the min/max-row math lives in exactly one place.
+ */
+/**
+ * Collapse dirty {@link LinearRange}s into a single covering row span. `unitsPerRow` is the grid width
+ * expressed in the ranges' own unit — texels/row for a texture's texel ranges, or components/row
+ * (`width · channels`) for a buffer reinterpreted as a texel grid. Row-granular: the span is just the
+ * min/max row touched, so there's no same-row/straddle bookkeeping. Returns `null` when no range is
+ * non-empty. Callers apply their own clamp and `> ½ dirty → full` fallback (both backend-specific).
+ */
+function collapseUpdateRanges(ranges, unitsPerRow) {
+    let min = Number.POSITIVE_INFINITY;
+    let max = Number.NEGATIVE_INFINITY;
+    for (const r of ranges) {
+        if (r.count <= 0)
+            continue;
+        if (r.start < min)
+            min = r.start;
+        if (r.start + r.count - 1 > max)
+            max = r.start + r.count - 1;
+    }
+    if (!Number.isFinite(min))
+        return null;
+    const rowStart = Math.floor(min / unitsPerRow);
+    const rowEnd = Math.floor(max / unitsPerRow);
+    return { rowStart, rowCount: rowEnd - rowStart + 1 };
+}
+
+/**
  * textures.ts, GPUTexture/GPUSampler cache and upload helpers.
  *
  * Uses WeakMap-based caching keyed by GpuTexture object.
@@ -21084,11 +21668,44 @@ function finalizeCubeRenderTargetCapture(cache, device, renderTarget, activeMipm
  * Update a texture, checks source version and uploads if needed.
  * Returns the TextureData for the texture.
  */
+/** Partial upload: `writeTexture` only rows `[y0, y0+rows)` of a 2D typed-array source. */
+function uploadPartialTextureData(device, texture, data, span) {
+    const source = texture.source;
+    if (!source || !source.data || !isTypedArrayData(source.data))
+        return;
+    const view = source.data.data;
+    const width = texture.width;
+    const bytesPerPixel = getBytesPerPixel(texture.format);
+    const bytesPerRow = width * bytesPerPixel;
+    const { y0, rows } = span;
+    device.queue.writeTexture({ texture: data.texture, origin: { x: 0, y: y0, z: 0 } }, view.buffer, { offset: view.byteOffset + y0 * bytesPerRow, bytesPerRow, rowsPerImage: rows }, [width, rows]);
+}
 function updateTexture$1(cache, device, texture) {
     let data = cache.textureMap.get(texture);
     // Skip if already initialized and texture version matches
     if (data?.initialized && data.version === texture.version) {
         return data;
+    }
+    // Partial upload: an in-place `packAtIndex`/`addUpdateRange` queued dirty texel ranges (no full flag, no
+    // resize) → `writeTexture` only the covering rows instead of the whole texture. A full flag
+    // (`needsUpdate`/grow) or size change takes priority; `> ½` dirty falls through to a full upload.
+    if (data?.initialized &&
+        !data.isDefaultTexture &&
+        !texture.needsFullUpload &&
+        texture.updateRanges.length > 0 &&
+        texture.viewDimension === '2d' &&
+        !texture.type.type.startsWith('texture_storage_') &&
+        data.texture.width === texture.width &&
+        data.texture.height === texture.height &&
+        isSourceReady(texture.source) &&
+        isTypedArrayData(texture.source?.data ?? null)) {
+        const span = collapseUpdateRanges(texture.updateRanges, texture.width);
+        if (span && span.rowCount <= texture.height / 2) {
+            uploadPartialTextureData(device, texture, data, { y0: span.rowStart, rows: span.rowCount });
+            texture.updateRanges.length = 0;
+            data.version = texture.version;
+            return data;
+        }
     }
     const isCube = texture.viewDimension === 'cube' || texture.viewDimension === 'cube-array';
     const isArray = texture.viewDimension === '2d-array';
@@ -21148,8 +21765,10 @@ function updateTexture$1(cache, device, texture) {
         }
         return data;
     }
-    // First time or was using default, create real GPU texture
-    if (!data || data.isDefaultTexture) {
+    // First time, was using default, or resized (grow) → (re)create the real GPU texture at the current
+    // size. WebGPU textures are immutable-size, so a grow must destroy + recreate before the full upload.
+    const sizeChanged = !!data && !data.isDefaultTexture && (data.texture.width !== texture.width || data.texture.height !== texture.height);
+    if (!data || data.isDefaultTexture || sizeChanged) {
         const gpuTextureResource = createGPUTexture(device, texture);
         if (!data) {
             data = {
@@ -21162,12 +21781,18 @@ function updateTexture$1(cache, device, texture) {
             cache.textureMap.set(texture, data);
             cache.textureCount++;
         }
-        else {
+        else if (data.isDefaultTexture) {
             // Was default, now real, update generation
             data.texture = gpuTextureResource;
             data.generation = texture.version;
             data.isDefaultTexture = false;
             cache.textureCount++;
+        }
+        else {
+            // Resize (grow): destroy the old GPU texture and swap in the new (larger) one.
+            data.texture.destroy();
+            data.texture = gpuTextureResource;
+            data.generation = texture.version;
         }
         // Set up disposal callback to destroy the GPU texture
         setupDispose(cache, texture);
@@ -21182,6 +21807,9 @@ function updateTexture$1(cache, device, texture) {
         const mipmapState = getMipmapState(cache, device);
         generateMipmaps(mipmapState, data.texture, isCube, isArray ? texture.depthOrArrayLayers : 0);
     }
+    // A full (re)upload supersedes any queued partial ranges and clears the full flag.
+    texture.updateRanges.length = 0;
+    texture.needsFullUpload = false;
     // Update texture version
     data.version = texture.version;
     data.initialized = true;
@@ -21721,33 +22349,6 @@ function createBindingsState(layoutCache) {
         data: new WeakMap(),
     };
 }
-/**
- * Derive GPUTextureBindingLayout from the WGSL type string.
- * Maps texture type names to the correct sampleType and viewDimension.
- */
-function getTextureLayoutFromType(wgslType) {
-    const layout = {};
-    // View dimension
-    if (wgslType.includes('cube_array')) {
-        layout.viewDimension = 'cube-array';
-    }
-    else if (wgslType.includes('cube')) {
-        layout.viewDimension = 'cube';
-    }
-    else if (wgslType.includes('2d_array')) {
-        layout.viewDimension = '2d-array';
-    }
-    else if (wgslType.includes('3d')) {
-        layout.viewDimension = '3d';
-    }
-    // default is '2d'
-    // Sample type
-    if (wgslType.startsWith('texture_depth')) {
-        layout.sampleType = 'depth';
-    }
-    // default is 'float'
-    return layout;
-}
 /** Map a storage texture WGSL dimension tag to a GPU view dimension. */
 function storageViewDimension(dim) {
     switch (dim) {
@@ -21870,12 +22471,13 @@ function initBindGroup(state, bindGroup, device, visibility) {
     if (data.bindGroupLayout)
         return;
     // build bind group layout entries
-    const entries = buildLayoutEntries(bindGroup, visibility);
+    const entries = buildLayoutEntries(bindGroup, visibility, device);
     // get or create the layout
     data.bindGroupLayout = getBindGroupLayout(state.layoutCache, device, entries);
 }
 /** Build bind group layout entries for a BindGroup. */
-function buildLayoutEntries(bindGroup, visibility) {
+function buildLayoutEntries(bindGroup, visibility, device) {
+    const float32Filterable = device.features.has('float32-filterable');
     const entries = [];
     for (const binding of bindGroup.bindings) {
         switch (binding.kind) {
@@ -21896,11 +22498,10 @@ function buildLayoutEntries(bindGroup, visibility) {
                 });
                 break;
             case 'texture': {
-                const texLayout = getTextureLayoutFromType(binding.entry.type);
                 entries.push({
                     binding: binding.entry.binding,
                     visibility,
-                    texture: texLayout,
+                    texture: textureBindingLayout(binding.entry, float32Filterable),
                 });
                 break;
             }
@@ -21921,7 +22522,7 @@ function buildLayoutEntries(bindGroup, visibility) {
                     binding: binding.entry.binding,
                     visibility,
                     sampler: {
-                        type: binding.entry.type === 'sampler_comparison' ? 'comparison' : 'filtering',
+                        type: samplerBindingType(binding.entry),
                     },
                 });
                 break;
@@ -33430,6 +34031,44 @@ function glFormat(gl, format) {
             return { internalFormat: gl.RG32F, format: gl.RG, type: gl.FLOAT, isDepth: false };
         case 'r32float':
             return { internalFormat: gl.R32F, format: gl.RED, type: gl.FLOAT, isDepth: false };
+        // Integer color (never filterable → texelFetch-only; NEAREST enforced at creation). The
+        // client format is the *_INTEGER variant; the type sizes the source typed array's components.
+        case 'r8uint':
+            return { internalFormat: gl.R8UI, format: gl.RED_INTEGER, type: gl.UNSIGNED_BYTE, isDepth: false };
+        case 'rg8uint':
+            return { internalFormat: gl.RG8UI, format: gl.RG_INTEGER, type: gl.UNSIGNED_BYTE, isDepth: false };
+        case 'rgba8uint':
+            return { internalFormat: gl.RGBA8UI, format: gl.RGBA_INTEGER, type: gl.UNSIGNED_BYTE, isDepth: false };
+        case 'r8sint':
+            return { internalFormat: gl.R8I, format: gl.RED_INTEGER, type: gl.BYTE, isDepth: false };
+        case 'rg8sint':
+            return { internalFormat: gl.RG8I, format: gl.RG_INTEGER, type: gl.BYTE, isDepth: false };
+        case 'rgba8sint':
+            return { internalFormat: gl.RGBA8I, format: gl.RGBA_INTEGER, type: gl.BYTE, isDepth: false };
+        case 'r16uint':
+            return { internalFormat: gl.R16UI, format: gl.RED_INTEGER, type: gl.UNSIGNED_SHORT, isDepth: false };
+        case 'rg16uint':
+            return { internalFormat: gl.RG16UI, format: gl.RG_INTEGER, type: gl.UNSIGNED_SHORT, isDepth: false };
+        case 'rgba16uint':
+            return { internalFormat: gl.RGBA16UI, format: gl.RGBA_INTEGER, type: gl.UNSIGNED_SHORT, isDepth: false };
+        case 'r16sint':
+            return { internalFormat: gl.R16I, format: gl.RED_INTEGER, type: gl.SHORT, isDepth: false };
+        case 'rg16sint':
+            return { internalFormat: gl.RG16I, format: gl.RG_INTEGER, type: gl.SHORT, isDepth: false };
+        case 'rgba16sint':
+            return { internalFormat: gl.RGBA16I, format: gl.RGBA_INTEGER, type: gl.SHORT, isDepth: false };
+        case 'r32uint':
+            return { internalFormat: gl.R32UI, format: gl.RED_INTEGER, type: gl.UNSIGNED_INT, isDepth: false };
+        case 'rg32uint':
+            return { internalFormat: gl.RG32UI, format: gl.RG_INTEGER, type: gl.UNSIGNED_INT, isDepth: false };
+        case 'rgba32uint':
+            return { internalFormat: gl.RGBA32UI, format: gl.RGBA_INTEGER, type: gl.UNSIGNED_INT, isDepth: false };
+        case 'r32sint':
+            return { internalFormat: gl.R32I, format: gl.RED_INTEGER, type: gl.INT, isDepth: false };
+        case 'rg32sint':
+            return { internalFormat: gl.RG32I, format: gl.RG_INTEGER, type: gl.INT, isDepth: false };
+        case 'rgba32sint':
+            return { internalFormat: gl.RGBA32I, format: gl.RGBA_INTEGER, type: gl.INT, isDepth: false };
         // Depth / depth-stencil.
         case 'depth16unorm':
             return { internalFormat: gl.DEPTH_COMPONENT16, format: gl.DEPTH_COMPONENT, type: gl.UNSIGNED_SHORT, isDepth: true };
@@ -33505,18 +34144,87 @@ function glTarget(gl, texture) {
 }
 /** Create an empty textures state. */
 function createGlTexturesState() {
-    return { data: new WeakMap(), all: new Set() };
+    return { data: new WeakMap(), bufferData: new WeakMap(), all: new Set() };
+}
+/**
+ * Resolve (create/upload/re-sync) the GL texture for a read-only storage `GpuBuffer` bound AS an
+ * rgba32uint texture, and return it bound-ready. The pixel data is a ZERO-COPY `Uint32Array` view over
+ * the buffer's own `ArrayBuffer` — the same bytes seen as `width × height` u32 texels — so nothing is
+ * duplicated on the CPU. Cached per `GpuBuffer`; re-synced when `buffer.version` moves or ranges are
+ * queued — a row-granular `texSubImage2D` for `packAtIndex`/`addUpdateRange` partial writes, a full upload for
+ * a bare version bump, or a full re-allocation if the texel grid grew. The caller binds it.
+ */
+function updateStorageBufferTexture(gl, state, source) {
+    const { buffer, width, height } = source;
+    const arr = buffer.array;
+    if (arr == null) {
+        throw new Error('[WebGLRenderer] storage() read-lowering: the storage buffer has no CPU `array` to reinterpret ' +
+            '(its data was released after upload); keep it resident to sample it on WebGL2.');
+    }
+    // Reinterpret the buffer's bytes as rgba32uint texels. A single-arg length keeps this a zero-copy view.
+    const view = new Uint32Array(arr.buffer, arr.byteOffset, width * height * 4);
+    let data = state.bufferData.get(buffer);
+    if (!data) {
+        const texture = gl.createTexture();
+        if (!texture)
+            throw new Error('[WebGLRenderer] gl.createTexture returned null (storage buffer texture).');
+        state.all.add(texture);
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32UI, width, height, 0, gl.RGBA_INTEGER, gl.UNSIGNED_INT, view);
+        // Integer textures are never filterable — NEAREST, clamp; sampled only via texelFetch.
+        setDefaultMinFilter(gl, gl.TEXTURE_2D, false, true);
+        data = { texture, version: buffer.version, width, height };
+        state.bufferData.set(buffer, data);
+        return texture;
+    }
+    const sizeChanged = data.width !== width || data.height !== height;
+    // Clean (version matched, no queued ranges, same size) → the cached texture is already current.
+    if (!sizeChanged && data.version === buffer.version && buffer.updateRanges.length === 0) {
+        return data.texture;
+    }
+    gl.bindTexture(gl.TEXTURE_2D, data.texture);
+    if (sizeChanged) {
+        // Grow/shrink → re-specify the whole mutable texture at the new size (queued ranges are moot).
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32UI, width, height, 0, gl.RGBA_INTEGER, gl.UNSIGNED_INT, view);
+        data.width = width;
+        data.height = height;
+    }
+    else {
+        // Same size: prefer a row-granular partial upload when `packAtIndex`/`addUpdateRange` queued
+        // dirty ranges. `updateRanges` are flat COMPONENT indices, so the grid width in that unit is
+        // width·4 (4 u32 components per rgba32uint texel); clamp the span to `[0, height)`. A bare
+        // version bump (no ranges) or a span covering more than half the rows → full.
+        const raw = buffer.updateRanges.length > 0 ? collapseUpdateRanges(buffer.updateRanges, width * 4) : null;
+        const y0 = raw ? Math.max(0, raw.rowStart) : 0;
+        const y1 = raw ? Math.min(height - 1, raw.rowStart + raw.rowCount - 1) : -1;
+        const span = raw && y1 >= y0 ? { y0, rows: y1 - y0 + 1 } : null;
+        if (span && span.rows <= height / 2) {
+            const start = span.y0 * width * 4;
+            const sub = view.subarray(start, start + span.rows * width * 4);
+            gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+            gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, span.y0, width, span.rows, gl.RGBA_INTEGER, gl.UNSIGNED_INT, sub);
+        }
+        else {
+            gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA_INTEGER, gl.UNSIGNED_INT, view);
+        }
+    }
+    buffer.clearUpdateRanges();
+    data.version = buffer.version;
+    return data.texture;
 }
 /** Get the cached GlTextureData for a GpuTexture (or null if never seen). */
 function getGlTextureData(state, texture) {
     return state.data.get(texture) ?? null;
 }
 /** Set a texture's min-filter so a texture without an explicit sampler object still samples. */
-function setDefaultMinFilter(gl, target, generateMipmaps) {
+function setDefaultMinFilter(gl, target, generateMipmaps, isInteger) {
     // A freshly-created GL texture defaults to a mipmapped min-filter, which reads as "incomplete"
     // when no mips exist. Sampler objects override this at bind time, but set a safe baseline here.
-    gl.texParameteri(target, gl.TEXTURE_MIN_FILTER, generateMipmaps ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR);
-    gl.texParameteri(target, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    // Integer textures are NOT filterable — LINEAR makes them incomplete (so even texelFetch reads 0),
+    // so they must be NEAREST regardless of the sampler.
+    const min = isInteger ? gl.NEAREST : generateMipmaps ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR;
+    gl.texParameteri(target, gl.TEXTURE_MIN_FILTER, min);
+    gl.texParameteri(target, gl.TEXTURE_MAG_FILTER, isInteger ? gl.NEAREST : gl.LINEAR);
     gl.texParameteri(target, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(target, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 }
@@ -33596,6 +34304,24 @@ function upload2D(gl, texture, data) {
     }
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+}
+/** Upload only the dirty rows `[y0, y0+rows)` of a 2D source-backed texture via `texSubImage2D`. */
+function uploadPartial2D(gl, texture, data, span) {
+    const source = texture.source;
+    if (!source || !source.data)
+        return;
+    const typed = typedArrayOf(source.data);
+    if (!typed)
+        return;
+    const { format, type } = data.fmt;
+    const width = texture.width;
+    // Components per texel, derived from the array so this is format-agnostic (rgba32uint = 4, r32uint = 1).
+    const comps = Math.round(typed.length / (width * texture.height));
+    const { y0, rows } = span;
+    const start = y0 * width * comps;
+    const sub = typed.subarray(start, start + rows * width * comps);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y0, width, rows, format, type, sub);
 }
 /** Upload the 6 cube faces (face order +X,-X,+Y,-Y,+Z,-Z) at level 0. */
 function uploadCube(gl, texture, data) {
@@ -33740,6 +34466,26 @@ function updateTexture(gl, state, texture) {
     const data = ensureGlTexture(gl, state, texture);
     if (data.allocated && data.version === texture.version)
         return data;
+    // Partial upload: an in-place `packAtIndex`/`addUpdateRange` queued dirty texel ranges (no full re-upload
+    // and no resize) → re-specify only the covering rows via `texSubImage2D` on the existing GL texture,
+    // skipping the delete + full `texImage2D` below. A full flag (`needsUpdate`/grow) or a size change
+    // takes priority. `> ½` the texture dirty → fall through to a full upload (fewer, simpler calls).
+    if (data.allocated &&
+        !texture.needsFullUpload &&
+        texture.updateRanges.length > 0 &&
+        texture.viewDimension === '2d' &&
+        !texture.isRenderTargetTexture &&
+        data.allocW === texture.width &&
+        data.allocH === texture.height) {
+        const span = collapseUpdateRanges(texture.updateRanges, texture.width);
+        if (span && span.rowCount <= texture.height / 2) {
+            gl.bindTexture(data.target, data.texture);
+            uploadPartial2D(gl, texture, data, { y0: span.rowStart, rows: span.rowCount });
+            texture.updateRanges.length = 0;
+            data.version = texture.version;
+            return data;
+        }
+    }
     // Re-allocation (a resize or format change bumped `texture.version` on an already-allocated
     // texture): render-target storage is immutable (`texStorage2D`), so it can't be re-specified on the
     // same GL object — a second `texStorage2D` errors with INVALID_OPERATION and leaves the OLD size in
@@ -33760,7 +34506,7 @@ function updateTexture(gl, state, texture) {
     data.fmt = glFormat(gl, texture.format);
     data.target = glTarget(gl, texture);
     gl.bindTexture(data.target, data.texture);
-    setDefaultMinFilter(gl, data.target, texture.generateMipmaps);
+    setDefaultMinFilter(gl, data.target, texture.generateMipmaps, mipmapClassOf(texture.format) === 'integer');
     const dim = texture.viewDimension;
     if (texture.isRenderTargetTexture) {
         // Render-target color/depth: allocate storage only (no source). The FBO render fills it.
@@ -33788,6 +34534,12 @@ function updateTexture(gl, state, texture) {
         canGenerateMipmap(gl, texture.format)) {
         gl.generateMipmap(data.target);
     }
+    // A full (re)upload supersedes any queued partial ranges and clears the full flag. Record the
+    // allocated size so later in-place stores can take the partial `texSubImage2D` path above.
+    texture.updateRanges.length = 0;
+    texture.needsFullUpload = false;
+    data.allocW = texture.width;
+    data.allocH = texture.height;
     data.version = texture.version;
     data.generation++;
     data.allocated = true;
@@ -33915,6 +34667,20 @@ function bindTextures(gl, textures, samplers, renderObject, programInfo) {
                 continue;
             const entry = binding.entry;
             const unit = entry.binding;
+            // storage() read-lowering: the binding is a read-only storage GpuBuffer reinterpreted AS an
+            // rgba32uint texture (WebGL2 has no SSBO). Resolve the per-buffer GL texture (version-synced),
+            // bind it sampler-less (integer texelFetch needs no sampler), and set its combined-sampler uniform.
+            const storageSource = entry.node.storageBufferSource;
+            if (storageSource) {
+                const glTexture = updateStorageBufferTexture(gl, textures, storageSource);
+                gl.activeTexture(gl.TEXTURE0 + unit);
+                gl.bindTexture(gl.TEXTURE_2D, glTexture);
+                gl.bindSampler(unit, null);
+                const loc = getSamplerLocation(gl, programInfo, samplerUniformName(entry.textureId));
+                if (loc)
+                    gl.uniform1i(loc, unit);
+                continue;
+            }
             const gpuTexture = entry.node.value;
             if (!gpuTexture)
                 continue;
@@ -35282,22 +36048,32 @@ function executeRenderPass$1(gl, caches, nodes, passCtx, prepared, params, inspe
         const drawBaseLoc = programInfo.drawBaseLocation ?? null;
         if (mesh.draws !== undefined) {
             // Batched: one instanced draw per entry, each with its own firstInstance base. The VAO is
-            // already bound once above, so the loop only sets u_drawBase + issues the draw.
-            // Phase 1: indexed geometry only.
-            if (!(geometry.index && drawInfo.indexType !== null)) {
-                throw new Error('[WebGLRenderer] mesh.draws requires indexed geometry (Phase 1).');
+            // already bound once above, so the loop only sets u_drawBase + issues the draw. The mesh's
+            // geometry selects indexed (drawElements) vs non-indexed (drawArrays) draws.
+            if (geometry.index && drawInfo.indexType !== null) {
+                // firstIndex is a byte offset for drawElements; each index is 1 (uint8), 2 (uint16) or
+                // 4 (uint32) bytes.
+                const bytesPerIndex = drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
+                for (const d of mesh.draws) {
+                    if (d.instanceCount <= 0)
+                        continue;
+                    if (drawBaseLoc !== null)
+                        gl.uniform1ui(drawBaseLoc, d.firstInstance);
+                    gl.drawElementsInstanced(gl.TRIANGLES, d.indexCount, drawInfo.indexType, d.firstIndex * bytesPerIndex, d.instanceCount);
+                    if (inspector)
+                        inspector.drawIndexed(d.indexCount, d.instanceCount);
+                }
             }
-            // firstIndex is a byte offset for drawElements; each index is 1 (uint8), 2 (uint16) or
-            // 4 (uint32) bytes.
-            const bytesPerIndex = drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
-            for (const d of mesh.draws) {
-                if (d.instanceCount <= 0)
-                    continue;
-                if (drawBaseLoc !== null)
-                    gl.uniform1ui(drawBaseLoc, d.firstInstance);
-                gl.drawElementsInstanced(gl.TRIANGLES, d.indexCount, drawInfo.indexType, d.firstIndex * bytesPerIndex, d.instanceCount);
-                if (inspector)
-                    inspector.drawIndexed(d.indexCount, d.instanceCount);
+            else {
+                for (const d of mesh.draws) {
+                    if (d.instanceCount <= 0)
+                        continue;
+                    if (drawBaseLoc !== null)
+                        gl.uniform1ui(drawBaseLoc, d.firstInstance);
+                    gl.drawArraysInstanced(gl.TRIANGLES, d.firstVertex, d.vertexCount, d.instanceCount);
+                    if (inspector)
+                        inspector.draw(d.vertexCount, d.instanceCount);
+                }
             }
         }
         else {
@@ -37234,7 +38010,7 @@ function draw(device, bindings, geometries, buffers, textures, renderObjectGpu, 
             }
             if (mesh.draws !== undefined) {
                 // Batched: one instanced drawIndexed per entry, each carrying its own firstInstance
-                // (native — instance_index is base-inclusive on WebGPU). Phase 1: indexed only.
+                // (native — instance_index is base-inclusive on WebGPU).
                 for (const d of mesh.draws) {
                     if (d.instanceCount <= 0)
                         continue;
@@ -37258,9 +38034,14 @@ function draw(device, bindings, geometries, buffers, textures, renderObjectGpu, 
         }
         else {
             if (mesh.draws !== undefined) {
-                throw new Error('[WebGPURenderer] mesh.draws requires indexed geometry (Phase 1).');
+                // Batched non-indexed: one instanced draw per entry, each carrying its own firstInstance.
+                for (const d of mesh.draws) {
+                    if (d.instanceCount <= 0)
+                        continue;
+                    passDraw(gpuPass, inspector, d.vertexCount, d.instanceCount, d.firstVertex, d.firstInstance);
+                }
             }
-            if (geometry.indirect) {
+            else if (geometry.indirect) {
                 const indirect = geometry.indirect;
                 const indBuf = ensureUploaded(buffers, device, indirect);
                 const byteStride = indirect.itemSize * 4;
@@ -37350,8 +38131,8 @@ function passSetIndexBuffer(pass, inspector, buffer, format) {
     if (inspector)
         inspector.setIndexBuffer();
 }
-function passDraw(pass, inspector, vertexCount, instanceCount, firstVertex) {
-    pass.draw(vertexCount, instanceCount, firstVertex);
+function passDraw(pass, inspector, vertexCount, instanceCount, firstVertex, firstInstance = 0) {
+    pass.draw(vertexCount, instanceCount, firstVertex, firstInstance);
     if (inspector)
         inspector.draw(vertexCount, instanceCount);
 }
@@ -37517,6 +38298,12 @@ class WebGPURenderer {
     /** swap the active canvas target (used by inspector viewer for preview renders). */
     setCanvasTarget(canvasTarget) {
         this._canvasTarget = canvasTarget;
+        // The swapchain path resolves its context + present target from swapchain.canvasTarget, so it
+        // must track the active target — otherwise every render presents into the target that happened
+        // to be current at init and swapping (multi-canvas rooms, inspector preview) leaves the visible
+        // canvas black. Depth/MSAA textures are reconciled to the new target's size on the next render
+        // (_resize + resolveSwapchainAttachments), so only the reference needs updating here.
+        this.swapchain.canvasTarget = canvasTarget;
         return this;
     }
     getCanvasTarget() {
@@ -38282,12 +39069,17 @@ class DataTexture {
         const src = data !== null
             ? new Source({ data, width, height })
             : null;
+        // Derive the shader-facing sample type from the format: integer formats (…uint/…sint) must be
+        // typed texture2d<u32>/texture2d<i32> so the GLSL emitter declares usampler2D/isampler2D and
+        // textureLoad returns uvec4/ivec4; every other format is float-sampled (texture2d<f32>).
+        const format = options.format ?? 'rgba8unorm';
+        const sampleType = format.endsWith('uint') ? u32$1 : format.endsWith('sint') ? i32$1 : f32$1;
         // Create the underlying GpuTexture
-        this._gpuTexture = new GpuTexture(texture2d(), {
+        this._gpuTexture = new GpuTexture(texture2d(sampleType), {
             width,
             height,
             source: src ?? undefined,
-            format: options.format ?? 'rgba8unorm',
+            format,
             generateMipmaps: options.generateMipmaps ?? false,
             flipY: options.flipY ?? false,
             premultiplyAlpha: options.premultiplyAlpha ?? false,
@@ -38364,6 +39156,91 @@ class DataTexture {
         }
     }
     /**
+     * Pack a struct record into record `index` (byte offset `index · texelStride · 16`), encoding
+     * `value` into the backing `rgba32uint` data (std430 layout) and flagging a GPU re-upload. The
+     * common CPU-side write; pair with `texture(this).load(schema, i)` on the shader side. Allocate via
+     * {@link createStructTexture}.
+     */
+    packAtIndex(schema, index, value) {
+        const { texelStride } = structFieldLayout(schema);
+        return this.packAtTexel(schema, index * texelStride, value);
+    }
+    /**
+     * Pack a struct record starting at an explicit TEXEL offset — the low-level primitive under
+     * {@link packAtIndex} (a texel is this texture's native addressing unit).
+     */
+    packAtTexel(schema, texel, value) {
+        const { texelStride } = structFieldLayout(schema);
+        // Auto-grow (height only — width is fixed, so a shader compiled against `load(schema, i)` keeps
+        // addressing correctly after the texture grows) before writing past the current allocation.
+        this._ensureTexels(texel + texelStride);
+        const data = this.data;
+        if (!data)
+            throw new Error('[DataTexture] packAtTexel(): texture has no backing data array.');
+        packTo(schema, data, texel * 16, value, 'std430');
+        // Partial upload of just this record's texels. If `_ensureTexels` grew the texture it already
+        // set `needsUpdate` (full), which takes priority over this range — a grow is one full re-upload.
+        this.addUpdateRange(texel, texelStride);
+        return this;
+    }
+    /**
+     * Bulk write: pack an entire array of struct `values` from record 0, encoding each per `schema`
+     * (std430) at its `texelStride`, growing the texture (height only) to hold them all, then flag ONE
+     * full re-upload (`needsUpdate` supersedes any queued partial ranges). Parallel to
+     * {@link GpuBuffer.pack}.
+     */
+    pack(schema, values) {
+        const { texelStride } = structFieldLayout(schema);
+        this._ensureTexels(values.length * texelStride);
+        const data = this.data;
+        if (!data)
+            throw new Error('[DataTexture] pack(): texture has no backing data array.');
+        const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+        for (let i = 0; i < values.length; i++) {
+            packToView(schema, view, i * texelStride * 16, values[i], 'std430');
+        }
+        // A whole-array write is one full re-upload — supersedes any queued partial ranges.
+        this.needsUpdate = true;
+        return this;
+    }
+    /**
+     * Queue a partial upload of a texel range so the renderer re-uploads only the covering rows
+     * (`texSubImage2D` / `writeTexture`) instead of the whole texture. Auto-called by
+     * {@link packAtIndex} / {@link packAtTexel}; call directly if you mutate `.data` by hand. A
+     * subsequent `needsUpdate = true` (full re-upload) supersedes any queued ranges.
+     */
+    addUpdateRange(startTexel, countTexels) {
+        this._gpuTexture.addUpdateRange(startTexel, countTexels);
+        if (this._gpuTexture.source)
+            this._gpuTexture.source.needsUpdate = true;
+        return this;
+    }
+    /**
+     * Ensure the backing `rgba32uint` array holds at least `requiredTexels` texels, growing HEIGHT
+     * (never width) if needed: reallocate `width × newHeight × 4` u32, copy existing data, swap the
+     * source, and bump the version so the renderer re-allocates the GL/GPU texture (via mutable
+     * `texImage2D` — DataTextures are not immutable-storage). Keeping width fixed is what lets an
+     * already-compiled `load(schema, i)` shader keep addressing correctly across a grow.
+     */
+    _ensureTexels(requiredTexels) {
+        const width = this.width;
+        if (requiredTexels <= width * this.height)
+            return;
+        const newHeight = Math.ceil(requiredTexels / width);
+        const newData = new Uint32Array(width * newHeight * 4);
+        const old = this.data;
+        if (old)
+            newData.set(old);
+        const img = this.image;
+        if (img) {
+            img.data = newData;
+            img.height = newHeight;
+        }
+        this._gpuTexture.height = newHeight;
+        // needsUpdate (below in storeAt) bumps the version; set here too so a bare grow re-uploads.
+        this.needsUpdate = true;
+    }
+    /**
      * Creates a clone of this texture.
      */
     clone() {
@@ -38396,6 +39273,27 @@ class DataTexture {
         this._gpuSampler.dispose();
     }
 }
+/**
+ * Allocate a `DataTexture` sized to hold `capacity` records of `schema`, backed by `rgba32uint`
+ * (NEAREST). Write records with `tex.packAtIndex(schema, i, value)` (or `tex.pack(schema, values)` in
+ * bulk); read them on the shader side with `texture(tex).load(schema, i)`. The struct is laid out
+ * std430, one record every `texelStride` texels (16 B each).
+ */
+function createStructTexture(schema, capacity, options = {}) {
+    const { texelStride } = structFieldLayout(schema);
+    const totalTexels = Math.max(1, capacity * texelStride);
+    // 2-D wrap so huge capacities fit under max texture dimension; the load accessor maps each
+    // texel index to (x, y) with this same width, so records may straddle a row boundary safely.
+    const width = Math.max(1, Math.min(totalTexels, 2048));
+    const height = Math.ceil(totalTexels / width);
+    const data = new Uint32Array(width * height * 4);
+    return new DataTexture(data, width, height, {
+        ...options,
+        format: 'rgba32uint',
+        magFilter: 'nearest',
+        minFilter: 'nearest',
+    });
+}
 
-export { ArrayTexture, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, FlyControls, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MESH_DRAW_STRIDE, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, Raycaster, RenderPipeline, RenderTarget, Return, Scene, Source, TOUCH, Texture, TransformControls, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WebGLRenderer, WebGPURenderer, While, WorkgroupVar, abs, acesToneMapping, acos, add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, ceil, clamp, color, comparisonSampler, compile, compileCompute, compileGlsl, compileTransformFeedback, compute, computeIndex, cond, cos, countLeadingZeros, countOneBits, countTrailingZeros, createBoxGeometry, createCylinderGeometry, createFullscreenTriangleGeometry, createIndexBuffer, createIndirectBuffer, createOctahedronGeometry, createPlaneGeometry, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createTorusGeometry, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frameGroup, frustum, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, globalId, glsl, glslFn, greaterThan, greaterThanEqual, i32, index, instanceIndex, inverseSqrt, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packDraws, packTo, pass, positionClip, pow, readPixels, reinhardToneMapping, renderGroup, renderOutput, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub, tan, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgsl, wgslFn, workgroupBarrier, workgroupId };
+export { ArrayTexture, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, FlyControls, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, Raycaster, RenderPipeline, RenderTarget, Return, Scene, Source, TOUCH, Texture, TransformControls, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WebGLRenderer, WebGPURenderer, While, WorkgroupVar, abs, acesToneMapping, acos, add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, ceil, clamp, color, comparisonSampler, compile, compileCompute, compileGlsl, compileTransformFeedback, compute, computeIndex, cond, cos, countLeadingZeros, countOneBits, countTrailingZeros, createBoxGeometry, createCylinderGeometry, createFullscreenTriangleGeometry, createIndexBuffer, createIndirectBuffer, createOctahedronGeometry, createPlaneGeometry, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createStructTexture, createTorusGeometry, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frameGroup, frustum, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, globalId, glsl, glslFn, greaterThan, greaterThanEqual, i32, index, instanceIndex, inverseSqrt, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, pass, positionClip, pow, readPixels, reinhardToneMapping, renderGroup, renderOutput, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub, tan, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgsl, wgslFn, workgroupBarrier, workgroupId };
 //# sourceMappingURL=index.js.map

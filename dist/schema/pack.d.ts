@@ -1,4 +1,4 @@
-import { type Any, type Infer } from './schema';
+import { type Any, type Infer, type StructDesc } from './schema';
 /**
  * A GPU buffer memory-layout standard. gpucat targets exactly three, one per (address space ×
  * shading language) combination it actually uses:
@@ -80,6 +80,25 @@ export declare function layoutSizeOf(schema: Any, memLayout?: MemoryLayout): num
  * const stride = layoutStrideOf(Particle); // 32
  */
 export declare function layoutStrideOf(schema: Any, memLayout?: MemoryLayout): number;
+/** A struct's per-field byte offsets + its texel stride (for texel-addressed struct storage). */
+export type StructFieldLayout = {
+    fields: {
+        name: string;
+        type: Any;
+        byteOffset: number;
+        byteSize: number;
+    }[];
+    /** Struct stride in bytes (size with tail padding). */
+    strideBytes: number;
+    /** Struct stride rounded up to whole 16-byte texels (`ceil(strideBytes / 16)`). */
+    texelStride: number;
+};
+/**
+ * Compute a flat struct's per-field byte offsets + texel stride in the given layout. Mirrors the
+ * offset walk in {@link emitStructWrites} (align each field, record offset, advance by size). Used
+ * by the structured-texture `load`/`store` accessor to place fields in `rgba32uint` texels.
+ */
+export declare function structFieldLayout(schema: StructDesc, memLayout?: MemoryLayout): StructFieldLayout;
 /**
  * Get the byte alignment of a schema in the given memory layout.
  *

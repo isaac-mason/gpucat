@@ -1,12 +1,14 @@
+import type { GpuBuffer } from '../../core/gpu-buffer';
 import { GpuSampler } from '../../core/gpu-sampler';
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { Any, CubeSampledTexture, FlatDepthTexture, FlatSampledTexture } from '../../schema/schema';
 import * as d from '../../schema/schema';
 import type { ArrayTexture } from '../../texture/array-texture';
 import type { CubeTexture } from '../../texture/cube-texture';
+import type { DataTexture } from '../../texture/data-texture';
 import type { DepthTexture } from '../../texture/depth-texture';
 import type { Texture } from '../../texture/texture';
-import { CallNode, Node, NodeKind } from './core';
+import { CallNode, Node, NodeKind, type StructDef } from './core';
 import { type UniformGroup } from './uniform';
 /**
  * SamplerNode - represents a sampler binding.
@@ -54,10 +56,29 @@ export declare class SamplerNode<D extends d.sampler | d.samplerComparison = d.s
  * Holds a reference to a GpuTexture<D> which the renderer uses to create/update
  * the GPU texture.
  */
+/**
+ * A read-only storage `GpuBuffer` reinterpreted as an `rgba32uint` texture for the WebGL backend (which
+ * has no SSBO). The renderer reads the buffer's own bytes directly as `width × height` u32 texels — no
+ * `DataTexture`, no second CPU array — and caches one GL texture per `GpuBuffer` (version-synced to
+ * `buffer.version`). Carried on the synthetic `TextureBindingNode` that a lowered `storage()` read
+ * samples through; the `width` is baked into the shader's texel addressing at compile time.
+ */
+export type StorageBufferTextureSource = {
+    buffer: GpuBuffer;
+    width: number;
+    height: number;
+};
 export declare class TextureBindingNode<D extends d.Texture = d.Texture> extends Node<D> {
     readonly kind = NodeKind.TextureBinding;
     /** The GpuTexture */
     value: GpuTexture<D> | null;
+    /**
+     * When set, this binding is NOT a GpuTexture but a read-only storage `GpuBuffer` reinterpreted as an
+     * `rgba32uint` texture — the WebGL `storage()` read-lowering (WebGL2 has no SSBO). `value` stays null;
+     * the renderer reads the buffer's bytes directly as `width × height` u32 texels and caches one GL
+     * texture per `GpuBuffer`. WebGPU never sets this (storage stays a native `array<Struct>` there).
+     */
+    storageBufferSource: StorageBufferTextureSource | null;
     /** Unique ID for this texture binding (e.g. 'tAlbedo', 'tShadowMap'). */
     readonly textureId: string;
     /** Uniform group, determines @group index. */
@@ -108,22 +129,6 @@ export declare function storageTexture<D extends d.StorageTexture>(gpuTex: GpuTe
  * Determines which WGSL function to emit.
  */
 export type SamplingMode = 'sample' | 'level' | 'bias' | 'grad' | 'load';
-/**
- * TextureNode - represents a texture sample operation.
- *
- * When used as a value, it samples the texture at the given UV coordinates.
- * The node type is 'vec4f' (the sampled color), not the texture type.
- *
- * Owns a TextureBindingNode that handles the module-scope binding.
- *
- * Supports chainable methods for ergonomic sampling control:
- * - .sample(uv) - set UV coordinates
- * - .level(level) - use textureSampleLevel
- * - .bias(bias) - use textureSampleBias
- * - .grad(ddx, ddy) - use textureSampleGrad
- * - .offset(offset) - add offset parameter (2D only)
- * - .load(coords, level?) - use textureLoad (no sampler)
- */
 export declare class TextureNode<D extends FlatSampledTexture = d.texture2d> extends Node<d.vec4f> {
     readonly kind = NodeKind.Texture;
     /** The texture binding, holds GPU resource, textureId, group. */
@@ -176,9 +181,35 @@ export declare class TextureNode<D extends FlatSampledTexture = d.texture2d> ext
     grad(ddx: Node<d.vec2f>, ddy: Node<d.vec2f>): TextureNode<D>;
     /** Add offset to sampling (2D and 2D-array only, must be const expression) */
     offset(offsetNode: Node<d.vec2i>): TextureNode<D>;
-    /** Use textureLoad for direct texel fetch (no filtering) */
+    /** Use textureLoad for direct texel fetch (no filtering). */
     load(coords: Node<d.vec2i>, level?: Node<d.i32>): TextureNode<D>;
+    /**
+     * Read a struct record by index: `texture(t).load(schema, i)` returns an accessor whose fields
+     * (`.color`, `.transform`, …) lazily decode from `rgba32uint` texels. `i` is a record index
+     * (offset `i · texelStride`, derived from the schema); use {@link loadAt} for an explicit texel.
+     */
+    load<S extends d.StructSchema>(schema: StructDef<S>, index: Node<d.u32> | Node<d.i32>): RecordAccessor<S>;
+    /** Read a struct record starting at an explicit TEXEL index (the primitive under {@link load}). */
+    loadAt<S extends d.StructSchema>(schema: StructDef<S>, texel: Node<d.u32> | Node<d.i32>): RecordAccessor<S>;
 }
+/** Per-field accessor object returned by {@link TextureNode.load}/{@link TextureNode.loadAt}. */
+export type RecordAccessor<S extends d.StructSchema> = {
+    readonly [K in keyof S]: FieldAccessor<S[K]>;
+};
+/**
+ * Decoded accessor type for one struct field. A `d.bits({...})` field becomes a sub-accessor with a
+ * `Node<u32>` per declared bit-field name (matching the runtime `decodeField` bits branch); every
+ * other field type stays a `Node` of its (decoded) type.
+ */
+type FieldAccessor<T extends d.Any> = T extends d.bits<infer F> ? {
+    readonly [N in keyof F]: Node<d.u32>;
+} : Node<T>;
+/**
+ * Decode one field at `byteOffset` from the record beginning at texel `texelBase` of an `rgba32uint`
+ * texture. Exported so the `storage()` WebGL lowering (the GLSL emitter's `matchStorageRead`) can decode
+ * a mirror-texture read through the same path as `texture(t).load(schema, i)`.
+ */
+export declare function decodeField(base: TextureNode<FlatSampledTexture>, texelBase: Node<d.u32>, width: number, byteOffset: number, type: Any): Node<Any>;
 /**
  * High-level texture types that have _gpuSampler.
  * All have ._gpuTexture and ._gpuSampler properties.
@@ -243,6 +274,7 @@ type StorageSampledOf<S extends d.StorageTexture> = S extends d.textureStorage3d
  * albedo.load(vec2i(10, 20))           // textureLoad
  */
 export declare function texture(tex: Texture): TextureNode<d.texture2d>;
+export declare function texture(dataTex: DataTexture): TextureNode<d.texture2d>;
 export declare function texture<D extends FlatSampledTexture>(gpuTex: GpuTexture<D>, gpuSampler: GpuSampler): TextureNode<D>;
 export declare function texture<S extends d.StorageTexture>(storageTex: GpuTexture<S>, gpuSampler: GpuSampler): TextureNode<StorageSampledOf<S>>;
 /**
