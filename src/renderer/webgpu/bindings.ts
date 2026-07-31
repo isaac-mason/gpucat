@@ -16,7 +16,7 @@ import type { NodeBuilderState } from '../core/node-builder-state';
 import type { NodeFrame } from '../core/node-frame';
 import type { RenderObject } from '../core/render-object';
 import { getBindings as getRenderObjectBindings } from '../core/render-object';
-import { type BindGroupLayoutCache, getBindGroupLayout } from './bind-group-layout';
+import { type BindGroupLayoutCache, getBindGroupLayout, samplerBindingType, textureBindingLayout } from './bind-group-layout';
 import type { BufferCache } from './buffers';
 import { ensureUploaded, getRaw, getUploaded, resolveStorageBuffer, uploadRaw } from './buffers';
 import type { RenderObjectGpuCache } from './render-object-gpu';
@@ -64,34 +64,6 @@ export function createBindingsState(layoutCache: BindGroupLayoutCache): Bindings
         layoutCache,
         data: new WeakMap(),
     };
-}
-
-/**
- * Derive GPUTextureBindingLayout from the WGSL type string.
- * Maps texture type names to the correct sampleType and viewDimension.
- */
-function getTextureLayoutFromType(wgslType: string): GPUTextureBindingLayout {
-    const layout: GPUTextureBindingLayout = {};
-
-    // View dimension
-    if (wgslType.includes('cube_array')) {
-        layout.viewDimension = 'cube-array';
-    } else if (wgslType.includes('cube')) {
-        layout.viewDimension = 'cube';
-    } else if (wgslType.includes('2d_array')) {
-        layout.viewDimension = '2d-array';
-    } else if (wgslType.includes('3d')) {
-        layout.viewDimension = '3d';
-    }
-    // default is '2d'
-
-    // Sample type
-    if (wgslType.startsWith('texture_depth')) {
-        layout.sampleType = 'depth';
-    }
-    // default is 'float'
-
-    return layout;
 }
 
 /** Map a storage texture WGSL dimension tag to a GPU view dimension. */
@@ -315,14 +287,19 @@ function initBindGroup(state: BindingsState, bindGroup: BindGroup, device: GPUDe
     if (data.bindGroupLayout) return;
 
     // build bind group layout entries
-    const entries = buildLayoutEntries(bindGroup, visibility);
+    const entries = buildLayoutEntries(bindGroup, visibility, device);
 
     // get or create the layout
     data.bindGroupLayout = getBindGroupLayout(state.layoutCache, device, entries);
 }
 
 /** Build bind group layout entries for a BindGroup. */
-function buildLayoutEntries(bindGroup: BindGroup, visibility: GPUShaderStageFlags): GPUBindGroupLayoutEntry[] {
+function buildLayoutEntries(
+    bindGroup: BindGroup,
+    visibility: GPUShaderStageFlags,
+    device: GPUDevice,
+): GPUBindGroupLayoutEntry[] {
+    const float32Filterable = device.features.has('float32-filterable');
     const entries: GPUBindGroupLayoutEntry[] = [];
 
     for (const binding of bindGroup.bindings) {
@@ -346,11 +323,10 @@ function buildLayoutEntries(bindGroup: BindGroup, visibility: GPUShaderStageFlag
                 break;
 
             case 'texture': {
-                const texLayout = getTextureLayoutFromType(binding.entry.type);
                 entries.push({
                     binding: binding.entry.binding,
                     visibility,
-                    texture: texLayout,
+                    texture: textureBindingLayout(binding.entry, float32Filterable),
                 });
                 break;
             }
@@ -373,7 +349,7 @@ function buildLayoutEntries(bindGroup: BindGroup, visibility: GPUShaderStageFlag
                     binding: binding.entry.binding,
                     visibility,
                     sampler: {
-                        type: binding.entry.type === 'sampler_comparison' ? 'comparison' : 'filtering',
+                        type: samplerBindingType(binding.entry),
                     },
                 });
                 break;

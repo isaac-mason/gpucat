@@ -1,8 +1,70 @@
+import type { SamplerEntry, TextureEntry } from '../../nodes/builder';
 import type { BindGroup as NodeBindGroup } from '../core/bind-group';
 
 export type BindGroupLayoutCache = {
     cache: Map<string, GPUBindGroupLayout>;
 };
+
+/**
+ * The bind-group-layout sample type for a sampled texture's actual format. A `texture_2d<f32>`
+ * declaration is format-agnostic in WGSL, but the layout's `sampleType` must match the bound
+ * texture's filterability: 32-bit float formats are `unfilterable-float` unless the device enables
+ * `float32-filterable`, and integer formats are `uint`/`sint`. Everything else is filterable `float`.
+ */
+export function sampleTypeForFormat(format: GPUTextureFormat | undefined, float32Filterable: boolean): GPUTextureSampleType {
+    if (!format) return 'float';
+    if (format.endsWith('uint')) return 'uint';
+    if (format.endsWith('sint')) return 'sint';
+    if (format === 'r32float' || format === 'rg32float' || format === 'rgba32float') {
+        return float32Filterable ? 'float' : 'unfilterable-float';
+    }
+    return 'float';
+}
+
+/**
+ * Build the `GPUTextureBindingLayout` for a sampled-texture binding. Derives viewDimension and the
+ * multisampled flag from the WGSL type, and the sampleType from the type + the bound texture's format:
+ * depth → `depth`; multisampled color → `unfilterable-float` (accessed via textureLoad); otherwise the
+ * format's filterability (see {@link sampleTypeForFormat}). Shared by the render and compute layout paths.
+ */
+export function textureBindingLayout(entry: TextureEntry, float32Filterable: boolean): GPUTextureBindingLayout {
+    const wgslType = entry.type;
+    const layout: GPUTextureBindingLayout = {};
+
+    if (wgslType.includes('cube_array')) layout.viewDimension = 'cube-array';
+    else if (wgslType.includes('cube')) layout.viewDimension = 'cube';
+    else if (wgslType.includes('2d_array')) layout.viewDimension = '2d-array';
+    else if (wgslType.includes('3d')) layout.viewDimension = '3d';
+
+    const isMultisampled = wgslType.includes('multisampled');
+    if (isMultisampled) layout.multisampled = true;
+
+    if (wgslType.startsWith('texture_depth')) {
+        layout.sampleType = 'depth';
+    } else if (isMultisampled) {
+        layout.sampleType = 'unfilterable-float';
+    } else {
+        const format = entry.node.value?.format;
+        layout.sampleType = format ? sampleTypeForFormat(format, float32Filterable) : 'float';
+    }
+
+    return layout;
+}
+
+/**
+ * Sampler binding type from the actual sampler settings: a comparison sampler → `comparison`; an
+ * all-nearest, no-compare sampler → `non-filtering` (required to pair with depth/unfilterable-float
+ * textures); otherwise `filtering`. Shared by the render and compute layout paths.
+ */
+export function samplerBindingType(entry: SamplerEntry): GPUSamplerBindingType {
+    if (entry.type === 'sampler_comparison') return 'comparison';
+    const sampler = entry.samplerNode?.value;
+    if (sampler?.compare) return 'comparison';
+    if (sampler && sampler.minFilter === 'nearest' && sampler.magFilter === 'nearest' && sampler.mipmapFilter === 'nearest') {
+        return 'non-filtering';
+    }
+    return 'filtering';
+}
 
 /** create a bind group layout cache */
 export function createBindGroupLayoutCache(): BindGroupLayoutCache {
@@ -64,6 +126,7 @@ export function buildComputeBindGroupLayouts(
     layoutCache: BindGroupLayoutCache,
 ): GPUBindGroupLayout[] {
     const vis = GPUShaderStage.COMPUTE;
+    const float32Filterable = device.features.has('float32-filterable');
 
     // Sort bindings by group index
     const sortedBindings = [...bindings].sort((a, b) => a.groupIndex - b.groupIndex);
@@ -94,17 +157,10 @@ export function buildComputeBindGroupLayouts(
                     });
                     break;
                 case 'texture': {
-                    const texLayout: GPUTextureBindingLayout = {};
-                    const wgslType = binding.entry.type;
-                    if (wgslType.includes('cube_array')) texLayout.viewDimension = 'cube-array';
-                    else if (wgslType.includes('cube')) texLayout.viewDimension = 'cube';
-                    else if (wgslType.includes('2d_array')) texLayout.viewDimension = '2d-array';
-                    else if (wgslType.includes('3d')) texLayout.viewDimension = '3d';
-                    if (wgslType.startsWith('texture_depth')) texLayout.sampleType = 'depth';
                     entries.push({
                         binding: binding.entry.binding,
                         visibility: vis,
-                        texture: texLayout,
+                        texture: textureBindingLayout(binding.entry, float32Filterable),
                     });
                     break;
                 }
@@ -138,7 +194,7 @@ export function buildComputeBindGroupLayouts(
                     entries.push({
                         binding: binding.entry.binding,
                         visibility: vis,
-                        sampler: { type: binding.entry.type === 'sampler_comparison' ? 'comparison' : 'filtering' },
+                        sampler: { type: samplerBindingType(binding.entry) },
                     });
                     break;
             }
