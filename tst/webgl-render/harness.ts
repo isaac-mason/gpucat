@@ -29,6 +29,7 @@ import {
     RenderTarget,
     Scene,
     screenUV,
+    select,
     storage,
     struct,
     Texture,
@@ -2106,6 +2107,90 @@ async function caseStoragePadDynamic(): Promise<CaseResult> {
     return { name: 'storage-pad-dynamic', pixel, expected: [u8(R), u8(G), u8(B), 255] };
 }
 
+/**
+ * readback-orientation: render a two-tone image (red where clip-space y > 0, green below) into an
+ * rgba8unorm RenderTarget, then assert `readRenderTargetPixels` returns red in the TOP rows and green
+ * in the BOTTOM rows. This proves the row-flip: GL reads bottom-to-top, and the readback must return
+ * top-to-bottom to match the WebGPU `readPixels` contract (output row 0 = clip +Y = top of image).
+ */
+async function caseReadbackOrientation(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const rt = new RenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+
+    const geometry = createFullscreenTriangleGeometry();
+    const position = attribute('position', d.vec3f);
+    const vy = varying(position.y, 'vy'); // clip-space y interpolated to each fragment
+    const material = new Material({
+        vertex: vec4(position, f32(1)),
+        fragment: select(vec4(0, 1, 0, 1), vec4(1, 0, 0, 1), vy.greaterThan(f32(0))),
+        depthTest: false,
+    });
+    const scene = new Scene();
+    scene.add(new Mesh(geometry, material));
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    const saved = renderer.renderTarget;
+    renderer.renderTarget = rt;
+    renderer.render(scene, camera);
+    renderer.renderTarget = saved;
+
+    const px = await renderer.readRenderTargetPixels(rt);
+    const at = (x: number, y: number): [number, number, number, number] => {
+        const i = (y * SIZE + x) * 4;
+        return [px[i], px[i + 1], px[i + 2], px[i + 3]];
+    };
+    const top = at(CENTER, 3);
+    const bottom = at(CENTER, SIZE - 4);
+    renderer.dispose();
+
+    const isRed = (c: number[]): boolean => c[0] > 200 && c[1] < 60 && c[2] < 60;
+    const isGreen = (c: number[]): boolean => c[1] > 200 && c[0] < 60 && c[2] < 60;
+    const pass = isRed(top) && isGreen(bottom);
+    return {
+        name: 'readback-orientation',
+        pixel: pass ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `top=${top.join(',')} bottom=${bottom.join(',')}`,
+    };
+}
+
+/**
+ * headless-offscreen: construct a WebGLRenderer over a 1x1 OffscreenCanvas (no DOM canvas, no setSize),
+ * render a solid color into a RenderTarget, and read it back — proving OffscreenCanvas acceptance
+ * end-to-end (the headless icon-bake path).
+ */
+async function caseHeadlessOffscreen(): Promise<CaseResult> {
+    const renderer = new WebGLRenderer({ canvas: new OffscreenCanvas(1, 1) });
+    await renderer.init();
+    const rt = new RenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+
+    const geometry = createFullscreenTriangleGeometry();
+    const position = attribute('position', d.vec3f);
+    const material = new Material({
+        vertex: vec4(position, f32(1)),
+        fragment: vec4(0.2, 0.8, 0.4, 1),
+        depthTest: false,
+    });
+    const scene = new Scene();
+    scene.add(new Mesh(geometry, material));
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    const saved = renderer.renderTarget;
+    renderer.renderTarget = rt;
+    renderer.render(scene, camera);
+    renderer.renderTarget = saved;
+
+    const px = await renderer.readRenderTargetPixels(rt);
+    const i = (CENTER * SIZE + CENTER) * 4;
+    const pixel: [number, number, number, number] = [px[i], px[i + 1], px[i + 2], px[i + 3]];
+    renderer.dispose();
+    return { name: 'headless-offscreen', pixel, expected: [u8(0.2), u8(0.8), u8(0.4), 255] };
+}
+
 export async function run(): Promise<RunResult> {
     try {
         const cases: CaseResult[] = [];
@@ -2131,6 +2216,8 @@ export async function run(): Promise<RunResult> {
             caseStoragePad,
             caseStoragePadDynamic,
             caseRenderToTexture,
+            caseReadbackOrientation,
+            caseHeadlessOffscreen,
             caseMsaa,
             caseCubeRtt,
             caseIndirectUnsupported,

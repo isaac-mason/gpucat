@@ -207,7 +207,7 @@ export class Viewer extends Tab {
         let item = this._itemLibrary.get(canvasData.id);
 
         if (!item) {
-            const domElement = canvasData.canvasTarget.domElement;
+            const domElement = canvasData.canvasTarget.domElement as HTMLCanvasElement;
             item = new Item(domElement, canvasData.name);
             (item.itemRow.children[1] as HTMLElement).style.justifyContent = 'flex-start';
             this._itemLibrary.set(canvasData.id, item);

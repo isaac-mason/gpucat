@@ -178,7 +178,9 @@ export class WebGPURenderer implements Renderer, RendererState {
                 '[WebGPURenderer] no canvas: renderer was created in headless mode. Render to a RenderTarget instead.',
             );
         }
-        return this._canvasTarget.domElement;
+        // WebGPURenderer only ever receives an HTMLCanvasElement (its `canvas` option), so the shared
+        // CanvasTarget's widened union narrows back to HTMLCanvasElement here.
+        return this._canvasTarget.domElement as HTMLCanvasElement;
     }
 
     // -----------------------------------------------------------------------

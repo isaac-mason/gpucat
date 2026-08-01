@@ -12,8 +12,8 @@ export type CanvasTargetOptions = {
  * owned by the backend, not by this class.
  */
 export class CanvasTarget {
-    /** The canvas element this target wraps. */
-    readonly domElement: HTMLCanvasElement;
+    /** The canvas element this target wraps. An `OffscreenCanvas` is accepted for headless/worker use. */
+    readonly domElement: HTMLCanvasElement | OffscreenCanvas;
 
     /**
      * True when this is the renderer's default (main) canvas target.
@@ -34,7 +34,7 @@ export class CanvasTarget {
     /** Alpha compositing mode for the canvas. */
     readonly alphaMode: CanvasAlphaMode;
 
-    constructor(canvas: HTMLCanvasElement, opts: CanvasTargetOptions = {}) {
+    constructor(canvas: HTMLCanvasElement | OffscreenCanvas, opts: CanvasTargetOptions = {}) {
         this.domElement = canvas;
         this._width = canvas.width;
         this._height = canvas.height;
@@ -85,7 +85,8 @@ export class CanvasTarget {
         this.domElement.width = Math.floor(width * this._pixelRatio);
         this.domElement.height = Math.floor(height * this._pixelRatio);
 
-        if (updateStyle) {
+        // An OffscreenCanvas has no `.style` (no DOM presentation); guard the CSS-size writes.
+        if (updateStyle && 'style' in this.domElement) {
             this.domElement.style.width = `${width}px`;
             this.domElement.style.height = `${height}px`;
         }

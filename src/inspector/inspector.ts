@@ -249,8 +249,11 @@ export class Inspector extends RendererInspector {
         // that don't mount the WebGPURenderer's implicit canvas (e.g. engines
         // rendering to per-room canvases via render targets) should append
         // `inspector.domElement` to the DOM themselves.
-        if (this.domElement.parentElement === null && renderer.domElement.parentElement) {
-            renderer.domElement.parentElement.appendChild(this.domElement);
+        // The inspector is a DOM tool, so the renderer's canvas here is always a real HTMLCanvasElement
+        // (never the OffscreenCanvas of a headless WebGL renderer).
+        const rendererCanvas = renderer.domElement as HTMLCanvasElement;
+        if (this.domElement.parentElement === null && rendererCanvas.parentElement) {
+            rendererCanvas.parentElement.appendChild(this.domElement);
         }
     }
 

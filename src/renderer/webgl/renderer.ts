@@ -40,6 +40,7 @@ import { createRenderObjectGlCache, type RenderObjectGlCache } from './render-ob
 import * as RenderPass from './render-pass';
 import * as RenderTargets from './render-target';
 import * as Samplers from './samplers';
+import * as ReadPixels from './read-pixels';
 import * as Textures from './textures';
 import * as TransformFeedback from './transform-feedback';
 import * as Uniforms from './uniforms';
@@ -52,8 +53,11 @@ import type { TransformFeedbackNode } from '../../nodes/lib/transform-feedback';
  * exposes.
  */
 export type WebGLRendererOptions = {
-    /** Canvas element to render into. If not provided, one will be created. */
-    canvas?: HTMLCanvasElement;
+    /**
+     * Canvas to render into. If not provided, one will be created. An `OffscreenCanvas` (e.g. a 1x1 in a
+     * worker) is accepted for headless/offline rendering, where all output goes to a `RenderTarget`.
+     */
+    canvas?: HTMLCanvasElement | OffscreenCanvas;
 
     /** Device pixel ratio. Applied to the canvas target before the first setSize. */
     pixelRatio?: number;
@@ -122,8 +126,8 @@ export class WebGLRenderer implements Renderer, RendererState {
         next?.setRenderer(this);
     }
 
-    /** The canvas dom element for the current canvas target. */
-    get domElement(): HTMLCanvasElement {
+    /** The canvas dom element for the current canvas target (an `OffscreenCanvas` when headless). */
+    get domElement(): HTMLCanvasElement | OffscreenCanvas {
         if (!this._canvasTarget) {
             throw new Error('[WebGLRenderer] no canvas target.');
         }
@@ -269,7 +273,9 @@ export class WebGLRenderer implements Renderer, RendererState {
 
         const canvas = opts.canvas ?? document.createElement('canvas');
         if (!opts.canvas) {
-            canvas.style.display = 'block';
+            // Only reached for the internally-created HTMLCanvasElement; a passed OffscreenCanvas (no
+            // `.style`) skips this branch.
+            (canvas as HTMLCanvasElement).style.display = 'block';
         }
         this._canvasTarget = new CanvasTarget(canvas, { alphaMode: opts.alpha ? 'premultiplied' : 'opaque' });
         this._canvasTarget.isDefaultCanvasTarget = true;
@@ -738,6 +744,27 @@ export class WebGLRenderer implements Renderer, RendererState {
             );
         }
         return TransformFeedback.readBufferAsync(this.gl, this._transformFeedback, buffer);
+    }
+
+    /**
+     * Read a `RenderTarget`'s color attachment back to a tightly-packed, top-to-bottom RGBA8
+     * `Uint8Array` (length `width * height * 4`), matching the WebGPU `readPixels` output byte-for-byte
+     * (GL reads bottom-to-top, so the rows are flipped). `attachmentIndex` selects an MRT color
+     * attachment; `layer` selects a cube face (0..5).
+     *
+     * The target must have been rendered (`render()` into it) and use an `rgba8unorm` /
+     * `rgba8unorm-srgb` color format. This method is WebGLRenderer-only; it enables headless/offline
+     * readback (e.g. icon baking) with no canvas presentation.
+     */
+    readRenderTargetPixels(renderTarget: RenderTarget, attachmentIndex = 0, layer = 0): Promise<Uint8Array> {
+        if (!this._initialized || !this.gl) {
+            return Promise.reject(
+                new Error('[WebGLRenderer] readRenderTargetPixels() called before init(). Await renderer.init() first.'),
+            );
+        }
+        return Promise.resolve(
+            ReadPixels.readRenderTargetPixels(this.gl, this._renderTargets, this._textures, renderTarget, attachmentIndex, layer),
+        );
     }
 
     /**

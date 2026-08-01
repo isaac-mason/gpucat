@@ -114,7 +114,9 @@ export function domElement(r: RendererState): HTMLCanvasElement {
             '[WebGPURenderer] no canvas: renderer was created in headless mode. Render to a RenderTarget instead.',
         );
     }
-    return r._canvasTarget.domElement;
+    // Presentation-path accessor; a headless WebGL renderer (OffscreenCanvas) renders to a RenderTarget
+    // and never reaches here, so the DOM-canvas type is the honest contract.
+    return r._canvasTarget.domElement as HTMLCanvasElement;
 }
 
 export function frameWidth(r: RendererState): number {
