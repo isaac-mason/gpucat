@@ -75,6 +75,9 @@ export type WebGPURendererOptions = {
     /** Canvas element to render into. If not provided, one will be created. Ignored when `headless` is true. */
     canvas?: HTMLCanvasElement;
 
+    /** Device pixel ratio. Applied to the canvas target before the first setSize. Ignored when `headless` is true. */
+    pixelRatio?: number;
+
     /** When true, the canvas context uses premultiplied alpha compositing. Defaults to false (opaque). */
     alpha?: boolean;
 
@@ -355,6 +358,7 @@ export class WebGPURenderer implements Renderer, RendererState {
             }
             this._canvasTarget = new CanvasTarget(canvas, { alphaMode: opts.alpha ? 'premultiplied' : 'opaque' });
             this._canvasTarget.isDefaultCanvasTarget = true;
+            if (opts.pixelRatio !== undefined) this._canvasTarget.setPixelRatio(opts.pixelRatio);
         }
 
         this._renderContexts = RenderContext.createRenderContextsState();
