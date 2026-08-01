@@ -469,7 +469,7 @@ renderer.backend;   // 'webgpu' | 'webgl'
 The node-graph material and DSL are authored once. `WebGPURenderer` compiles the graph to WGSL; `WebGLRenderer` compiles the same graph to GLSL ES 3.00. The DSL grammar is WGSL-native, and GLSL is a translation target reached through each schema's `glslType` companion, so the WGSL surface is never watered down to fit WebGL. Everything above the renderer, scene, geometry, materials, uniforms, textures, render targets, the shading language, is identical across both. Swapping backends is a one-line change:
 
 ```ts
-// build the scene and material once — nothing here is backend-specific
+// build the scene and material once; nothing here is backend-specific
 const material = new Material({ vertex: clipPos, fragment: litColor });
 const mesh = new Mesh(geom, material);
 scene.add(mesh);
@@ -500,13 +500,13 @@ The WebGL2 backend covers the standard rendering surface:
 
 ### What WebGL2 does not support
 
-These are WebGPU-only. On `WebGLRenderer` they throw a clear error, at shader-compile time where possible, otherwise at prepare — never silently. Use `WebGPURenderer` for any of them:
+These are WebGPU-only. On `WebGLRenderer` they throw a clear error, at shader-compile time where possible, otherwise at prepare. They never fail silently. Use `WebGPURenderer` for any of them:
 
 - **Compute**: `renderer.compute()`, compute nodes, and `Fn(...).compute(...)` kernels. For own-index GPU simulation (particles), WebGL2 offers [transform feedback](#transform-feedback-webgl2) instead; scatter/atomics/arbitrary-index writes stay WebGPU-only.
 - **Storage buffers** (`storage(...)`, `createStorageBuffer`) and **atomics**.
 - **Storage textures** and **workgroup vars** (`WorkgroupVar`).
 - **Inline WGSL**: `` wgsl`…` `` and `wgslFn(...)` (raw WGSL has no GLSL translation).
-- **Indirect draw** (`geometry.indirect`) — WebGPU-only, both the CPU-authored and the GPU-computed (compute-driven culling) variants.
+- **Indirect draw** (`geometry.indirect`): WebGPU-only, both the CPU-authored and the GPU-computed (compute-driven culling) variants.
 - **Texture constant-offset sampling** and **`f16` / half** types.
 - The inspector's live-value **probe** (WebGPU-only; the rest of the inspector works).
 
@@ -557,9 +557,9 @@ Both renderers share a common set of options; each backend adds a few of its own
 
 Backend compatibility is a property of the *features* you use, not of any single example (each example file constructs one specific renderer). Read it off the matrix above, or by category:
 
-- **Runs on both backends** — the shared rendering features: meshes and node-graph materials, textures, render targets and MRT, render-to-texture and post-processing, and camera controls. Anything built only from these works on either `WebGPURenderer` or `WebGLRenderer`.
-- **WebGPU-only** — compute (compute nodes and `renderer.compute()`), storage buffer *writes* (`read_write`, atomics, compute output), storage textures, workgroup vars, inline WGSL (`` wgsl`` `` / `wgslFn`), and indirect draw (`geometry.indirect`, both CPU-authored and compute-driven). Anything using these needs `WebGPURenderer`. Read-only storage reads are portable, covered below.
-- **WebGL2-only** — [transform feedback](#transform-feedback-webgl2) (`renderer.transformFeedback()`), the honest own-index GPU-simulation primitive, with native readback via `renderer.readBufferAsync()`. WebGPU has no transform feedback; you express the same simulation as a `compute()` kernel there, reusing the per-element body `Fn` verbatim.
+- **Runs on both backends:** meshes and node-graph materials, textures, render targets and MRT, render-to-texture and post-processing, and camera controls. Anything built only from these works on either `WebGPURenderer` or `WebGLRenderer`.
+- **WebGPU-only:** compute (compute nodes and `renderer.compute()`), storage buffer *writes* (`read_write`, atomics, compute output), storage textures, workgroup vars, inline WGSL (`` wgsl`` `` / `wgslFn`), and indirect draw (`geometry.indirect`, both CPU-authored and compute-driven). Anything using these needs `WebGPURenderer`. Read-only storage reads are portable, covered below.
+- **WebGL2-only:** [transform feedback](#transform-feedback-webgl2) (`renderer.transformFeedback()`), the honest own-index GPU-simulation primitive, with native readback via `renderer.readBufferAsync()`. WebGPU has no transform feedback; you express the same simulation as a `compute()` kernel there, reusing the per-element body `Fn` verbatim.
 
 The [examples browser](https://isaac-mason.github.io/gpucat/) groups examples by the backend each one targets, so the compute and storage-driven examples sit under WebGPU and the WebGL2 examples under WebGL.
 
@@ -1208,7 +1208,7 @@ const data = new DataTexture(pixels, 256, 256, { format: 'rgba8unorm' });
 
 `CubeTexture`, `ArrayTexture`, and `CanvasTexture` cover the other shapes, and sampler settings (`wrapS`, `magFilter`, `anisotropy`, and so on) live on the texture. A pass output is also a texture, which is what makes post-processing just node wiring. See [`Texture`](./api.md#texture).
 
-A video is just a texture whose contents change every frame — pass an `HTMLVideoElement` to `Texture` and mark it `needsUpdate` each frame; the renderer copies the current frame to the GPU. No special texture type:
+A video is just a texture whose contents change every frame. Pass an `HTMLVideoElement` to `Texture` and mark it `needsUpdate` each frame; the renderer copies the current frame to the GPU. No special texture type:
 
 ```ts
 const videoTexture = new Texture(videoElement);     // a playing HTMLVideoElement
@@ -1253,7 +1253,7 @@ videoTexture.needsUpdate = true;                    // re-copy the current frame
 
 ### Storage textures
 
-A storage texture is one a compute shader can **write** to (and optionally read), the texture analogue of a storage buffer. You create it with a `create*StorageTexture` helper, write texels with `textureStore` in a compute kernel, and — because the same texture is created with both storage and sampling usage — sample it in a later render pass with the ordinary `texture()` node. The classic use is generating or simulating an image on the GPU.
+A storage texture is one a compute shader can **write** to (and optionally read), the texture analogue of a storage buffer. You create it with a `create*StorageTexture` helper, write texels with `textureStore` in a compute kernel, and (because the same texture is created with both storage and sampling usage) sample it in a later render pass with the ordinary `texture()` node. The classic use is generating or simulating an image on the GPU.
 
 ```ts
 const tex = createStorageTexture(256, 256, 'rgba8unorm');   // 2d; also 3d / Array / 1d helpers
@@ -1265,7 +1265,7 @@ const paint = Fn(() => {
     textureStore(write, p, vec4(/* … */));
 }).compute({ workgroupSize: [8, 8, 1] });
 
-// render: sample the same texture (dual usage — no copy)
+// render: sample the same texture (dual usage, no copy)
 const sampler = new GpuSampler({ minFilter: 'linear', magFilter: 'linear' });
 const color = texture(tex, sampler).sample(screenUV);
 
@@ -1275,7 +1275,7 @@ renderer.compute([{ node: paint, dispatch: [Math.ceil(256 / 8), Math.ceil(256 / 
 
 `access` is a property of the binding, not the texture, so one texture can be bound `write` in one kernel and `read` in another (e.g. ping-pong simulations). Reads use `textureLoad(node, coords)` (no mip level). Writes are compute-only; binding a `write`/`read_write` storage texture in a vertex or fragment shader is a compile error. `read_write` access is limited by WebGPU to the `r32uint` / `r32sint` / `r32float` formats; the value type of `textureStore`/`textureLoad` follows the format's channel (`vec4f` / `vec4u` / `vec4i`). If the texture has mips and `mipmapsAutoUpdate` is on (the default), its mips regenerate after a compute write so it can be sampled mipmapped.
 
-3D storage textures (`createStorageTexture3d`) work the same way and pair naturally with `texture_3d` sampling — write a volume in compute, then raymarch it in a render pass (`texture(volume, sampler).sample(vec3)`). The sample coordinate type is derived from the texture: a 3D texture's `.sample()` requires a `vec3`, a 2D one a `vec2`.
+3D storage textures (`createStorageTexture3d`) work the same way and pair naturally with `texture_3d` sampling: write a volume in compute, then raymarch it in a render pass (`texture(volume, sampler).sample(vec3)`). The sample coordinate type is derived from the texture: a 3D texture's `.sample()` requires a `vec3`, a 2D one a `vec2`.
 
 <table>
   <tr>
@@ -1361,7 +1361,7 @@ const sim = Fn(() => {
 renderer.compute([{ node: sim, dispatch: [Math.ceil(N / 64), 1, 1] }]);
 ```
 
-The same buffer can feed a material, which is how the particle example draws what the compute pass just updated. A compute kernel can also write to a texture instead of a buffer — see [Storage textures](#storage-textures).
+The same buffer can feed a material, which is how the particle example draws what the compute pass just updated. A compute kernel can also write to a texture instead of a buffer. See [Storage textures](#storage-textures).
 
 For a full worked example, `examples/src/example-webgpu-ball-cluster.ts` simulates balls that pull toward a point and collide into a packed cluster, all on the GPU. It runs three compute passes per frame (clear grid, bin into a spatial-hash grid while snapshotting the previous state, then forces + collision against the 27 neighbouring cells), so each ball only checks nearby balls instead of every other one. `examples/src/example-webgpu-compute-particles.ts` is a simpler starting point.
 
