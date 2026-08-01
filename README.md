@@ -323,7 +323,7 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
 - Build an app: [The Renderer](#the-renderer) · [Scene and Objects](#scene-and-objects) · [Geometry](#geometry) · [Materials](#materials) · [Uniforms](#uniforms) · [Storage Buffers](#storage-buffers) · [Structs](#structs) · [Packing](#packing) · [Structured data](#structured-data) · [Render Pipeline](#render-pipeline)
 - Shading language: [Constants](#constants-and-constructors) · [Operators](#operators) · [Variables](#variables) · [Control Flow](#control-flow) · [Method Chaining](#method-chaining) · [Functions](#functions) · [Building Blocks](#building-blocks) · [Varyings](#varyings) · [Textures](#textures-and-samplers) · [Atomics](#atomics) · [Builtins](#builtins) · [Included Uniforms](#included-uniforms)
 - [Compute](#compute) · [Transform feedback (WebGL2)](#transform-feedback-webgl2) · [Drawing Many Things](#drawing-many-things) · [Controls and the Inspector](#controls-and-the-inspector)
-- [Compiling to WGSL](#compiling-to-wgsl) · [WGSL to gpucat](#wgsl-to-gpucat) · [API Reference](#api-reference)
+- [Compiling to WGSL](#compiling-to-wgsl) · [WGSL or GLSL to gpucat](#wgsl-or-glsl-to-gpucat) · [API Reference](#api-reference)
 
 ## Getting Started
 
@@ -1597,26 +1597,36 @@ var a = color;
 var result = (a * ((a * 2.51) + vec3f(0.03)));
 ```
 
-## WGSL to gpucat
+## WGSL or GLSL to gpucat
 
-A quick cheat-sheet if you know WGSL.
+A quick cheat-sheet if you know WGSL or GLSL. You write the node DSL, and it compiles to both.
 
-| WGSL | gpucat |
-| --- | --- |
-| `let x = 1.0;` | `const x = f32(1)` (auto-hoisted, or `Let('x', f32(1))`) |
-| `var x = 1.0;` | `const x = Var('x', f32(1))` |
-| `vec3f(1, 0, 0)` | `vec3(1, 0, 0)` or `vec3f(1, 0, 0)` |
-| `a * b` | `mul(a, b)` or `a.mul(b)` |
-| `a.xyz` | `a.xyz` |
-| `dot(a, b)` | `dot(a, b)` or `a.dot(b)` |
-| `select(f, t, cond)` | `select(f, t, cond)` |
-| `if (c) { ... } else { ... }` | `If(c, () => { ... }).Else(() => { ... })` |
-| `for (var i ...) { ... }` | `Loop(n, ({ i }) => { ... })` |
-| `@group(0) @binding(0) var<uniform> ...` | `uniform('name', d.f32)` |
-| `var<storage> data: array<u32>;` | `storage('data', d.array(d.u32), 'read')` |
-| `textureSample(t, s, uv)` | `texture(t)` or `textureSample(t, s, uv)` |
-| `fn f(x: f32) -> f32 { ... }` | `Fn((x) => ..., { name: 'f', params: [{ name: 'x', type: d.f32 }] })` |
-| `fn f(...) -> vec3f { ... }` | add `return: d.vec3f` to the layout to pin the type (checked against the body) |
+| WGSL | GLSL | gpucat |
+| --- | --- | --- |
+| `let x = 1.0;` | `float x = 1.0;` | `const x = f32(1)` (auto-hoisted, or `Let('x', f32(1))`) |
+| `var x = 1.0;` | (mutable by default) | `const x = Var('x', f32(1))` |
+| `f32`, `i32`, `u32`, `bool` | `float`, `int`, `uint`, `bool` | `d.f32`, `d.i32`, `d.u32`, `d.bool` |
+| `vec3f`, `mat3x3f`, `mat4x4f` | `vec3`, `mat3`, `mat4` | `d.vec3f`, `d.mat3x3f`, `d.mat4x4f` |
+| `vec3f(1, 0, 0)` | `vec3(1, 0, 0)` | `vec3(1, 0, 0)` |
+| `a * b` | `a * b` | `mul(a, b)` or `a.mul(b)` |
+| `a.xyz` | `a.xyz` | `a.xyz` |
+| `dot(a, b)`, `mix(a, b, t)` | `dot(a, b)`, `mix(a, b, t)` | `dot(a, b)`, `mix(a, b, t)` (or `a.dot(b)`) |
+| `select(f, t, c)` | `c ? t : f` | `select(f, t, c)` or `cond(c, t, f)` |
+| `if (c) { } else { }` | `if (c) { } else { }` | `If(c, () => { }).Else(() => { })` |
+| `for (var i ...) { }` | `for (int i ...) { }` | `Loop(n, ({ i }) => { })` |
+| `discard;` | `discard;` | `Discard()` |
+| `@location(0) p: vec3f` (vertex in) | `in vec3 aP;` | `attribute('p', d.vec3f)` |
+| `@location(0)` interstage | `out` / `in vec3 v;` | `const v = varying(value, 'v')` |
+| `var<uniform> ...` | `uniform float uT;` | `uniform('uT', d.f32)` |
+| `var<storage> array<u32>` | (no equivalent) | `storage('data', d.array(d.u32), 'read')` |
+| `textureSample(t, s, uv)` | `texture(tex, uv)` | `texture(t).sample(uv)` |
+| `textureLoad(t, xy, 0)` | `texelFetch(tex, xy, 0)` | `texture(t).load(vec2i(x, y))` |
+| return `@builtin(position)` | `gl_Position` | the material's `vertex` output |
+| return `@location(0)` | `gl_FragColor` | the material's `fragment` output |
+| `@builtin(position)` (fragment) | `gl_FragCoord` | `fragCoord` |
+| `@builtin(vertex_index)` | `gl_VertexID` | `vertexIndex` |
+| `@builtin(instance_index)` | `gl_InstanceID` | `instanceIndex` |
+| `fn f(x: f32) -> f32 { }` | `float f(float x) { }` | `Fn((x) => ..., { name: 'f', params: [{ name: 'x', type: d.f32 }] })` |
 
 ## API Reference
 
