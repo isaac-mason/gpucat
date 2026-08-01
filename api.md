@@ -5167,6 +5167,14 @@ export type CompileGlslOptions = {
      * Default: 'highp' — keeping the emitted GLSL byte-identical to the golden snapshots.
      */
     precision?: 'highp' | 'mediump' | 'lowp';
+    /**
+     * The WebGL2 context's `MAX_TEXTURE_SIZE`, used to pick the `storage()` read-lowering's texel-grid
+     * width (`width = min(totalTexels, maxTextureSize)`; height = ceil) so large read-only storage
+     * buffers tile into a grid the device can allocate. Undefined → a conservative 2048 (WebGL2's
+     * guaranteed floor). GLSL-only and storage-only: the width is baked into the shader's texel
+     * addressing, so a change here alters the emitted GLSL — the compile cache is keyed by it.
+     */
+    maxTextureSize?: number;
 };
 ```
 

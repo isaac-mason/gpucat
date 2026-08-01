@@ -72,6 +72,8 @@ export type GlTexturesState = {
     /** Storage-buffer-backed GL textures, keyed by the `GpuBuffer` (WebGL storage() read-lowering). */
     bufferData: WeakMap<GpuBuffer, GlBufferTextureData>;
     all: Set<WebGLTexture>;
+    /** Cached `gl.MAX_TEXTURE_SIZE`, read once on first storage-buffer upload (validates the texel grid). */
+    maxTextureSize?: number;
 };
 /** Create an empty textures state. */
 export declare function createGlTexturesState(): GlTexturesState;
@@ -79,9 +81,11 @@ export declare function createGlTexturesState(): GlTexturesState;
  * Resolve (create/upload/re-sync) the GL texture for a read-only storage `GpuBuffer` bound AS an
  * rgba32uint texture, and return it bound-ready. The pixel data is a ZERO-COPY `Uint32Array` view over
  * the buffer's own `ArrayBuffer` — the same bytes seen as `width × height` u32 texels — so nothing is
- * duplicated on the CPU. Cached per `GpuBuffer`; re-synced when `buffer.version` moves or ranges are
- * queued — a row-granular `texSubImage2D` for `packAtIndex`/`addUpdateRange` partial writes, a full upload for
- * a bare version bump, or a full re-allocation if the texel grid grew. The caller binds it.
+ * duplicated on the CPU. The grid width is `min(totalTexels, MAX_TEXTURE_SIZE)` (chosen at compile) so
+ * `width` need not divide the texel count: the last row is padded and uploaded narrower (see
+ * {@link uploadStorageRows}). Cached per `GpuBuffer`; re-synced when `buffer.version` moves or ranges are
+ * queued — a row-granular partial upload for `packAtIndex`/`addUpdateRange` writes, a full upload for a
+ * bare version bump, or a full re-allocation if the texel grid grew. The caller binds it.
  */
 export declare function updateStorageBufferTexture(gl: WebGL2RenderingContext, state: GlTexturesState, source: StorageBufferTextureSource): WebGLTexture;
 /** Get the cached GlTextureData for a GpuTexture (or null if never seen). */

@@ -112,6 +112,9 @@ export declare class WebGLRenderer implements Renderer, RendererState {
     private _height;
     /** Construction options, captured for init(). @internal */
     private readonly _opts;
+    /** Cached `gl.MAX_TEXTURE_SIZE`, read once at init. Threaded into the storage() lowering's grid-width
+     *  pick (bigger buffers tile into a device-sized grid). @internal */
+    private _maxTextureSize;
     /** MSAA sample count (0 or 1 = no MSAA). */
     samples: number;
     /** Whether the default framebuffer carries a stencil aspect. */

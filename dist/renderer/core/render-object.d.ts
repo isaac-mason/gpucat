@@ -136,4 +136,4 @@ export declare function getBindings(renderObject: RenderObject): BindGroup[];
  * This is used to detect when recompilation is needed.
  * The key includes render state, geometry attributes, and context configuration.
  */
-export declare function computeRenderObjectCacheKey(material: Material, geometry: Geometry, renderContext: RenderContext): string;
+export declare function computeRenderObjectCacheKey(material: Material, geometry: Geometry, renderContext: RenderContext, maxTextureSize?: number): string;
