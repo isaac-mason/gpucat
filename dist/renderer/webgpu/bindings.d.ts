@@ -24,7 +24,7 @@ export type BindGroupData = {
 /** Bindings state - manages per-BindGroup GPU resources */
 export type BindingsState = {
     /**
-     * Bind group layout cache. Owned by the backend and injected at creation — the same cache
+     * Bind group layout cache. Owned by the backend and injected at creation; the same cache
      * instance backs the pipelines layer, so a given entry shape yields exactly one GPU layout
      * shared across all bind groups and pipelines.
      */

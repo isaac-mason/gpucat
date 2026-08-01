@@ -87,7 +87,7 @@ export declare class DataTexture {
      */
     packAtIndex<S extends d.StructSchema>(schema: StructDef<S>, index: number, value: StructValue<S>): this;
     /**
-     * Pack a struct record starting at an explicit TEXEL offset — the low-level primitive under
+     * Pack a struct record starting at an explicit TEXEL offset, the low-level primitive under
      * {@link packAtIndex} (a texel is this texture's native addressing unit).
      */
     packAtTexel<S extends d.StructSchema>(schema: StructDef<S>, texel: number, value: StructValue<S>): this;
@@ -109,7 +109,7 @@ export declare class DataTexture {
      * Ensure the backing `rgba32uint` array holds at least `requiredTexels` texels, growing HEIGHT
      * (never width) if needed: reallocate `width × newHeight × 4` u32, copy existing data, swap the
      * source, and bump the version so the renderer re-allocates the GL/GPU texture (via mutable
-     * `texImage2D` — DataTextures are not immutable-storage). Keeping width fixed is what lets an
+     * `texImage2D`; DataTextures are not immutable-storage). Keeping width fixed is what lets an
      * already-compiled `load(schema, i)` shader keep addressing correctly across a grow.
      */
     private _ensureTexels;

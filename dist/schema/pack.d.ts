@@ -3,15 +3,15 @@ import { type Any, type Infer, type StructDesc } from './schema';
  * A GPU buffer memory-layout standard. gpucat targets exactly three, one per (address space ×
  * shading language) combination it actually uses:
  *
- * - `std430`       — WGSL storage-buffer layout (packs tightest).
- * - `wgsl-uniform` — WGSL uniform-buffer layout (like std430 but struct/array elements round to 16).
- * - `std140`       — GLSL uniform-buffer layout (like wgsl-uniform, but also pads EVERY matrix
- *                    column to a vec4 — including 2-row matrices).
+ * - `std430`: WGSL storage-buffer layout (packs tightest).
+ * - `wgsl-uniform`: WGSL uniform-buffer layout (like std430 but struct/array elements round to 16).
+ * - `std140`: GLSL uniform-buffer layout (like wgsl-uniform, but also pads EVERY matrix
+ *                    column to a vec4, including 2-row matrices).
  *
  * (WGSL uniform ≠ std140: they differ only in that mat2 column stride. There is no GLSL storage
  * layout because WebGL2 has no storage buffers, so the fourth combination doesn't exist.)
  *
- * The three collapse to two orthogonal rules — see {@link roundsElementsTo16} and
+ * The three collapse to two orthogonal rules; see {@link roundsElementsTo16} and
  * {@link matColumnsAlwaysVec4}.
  */
 export type MemoryLayout = 'std430' | 'wgsl-uniform' | 'std140';

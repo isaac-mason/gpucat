@@ -22,4 +22,4 @@ export type WebGL2ContextAttributes = {
  * Acquire the WebGL2 context for a canvas. Throws a clear error if WebGL2 is unavailable
  * (unsupported environment, or the canvas already has an incompatible context).
  */
-export declare function createContext(canvas: HTMLCanvasElement, attrs: WebGL2ContextAttributes): WebGL2RenderingContext;
+export declare function createContext(canvas: HTMLCanvasElement | OffscreenCanvas, attrs: WebGL2ContextAttributes): WebGL2RenderingContext;

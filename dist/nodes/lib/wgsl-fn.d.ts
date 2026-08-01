@@ -54,7 +54,7 @@ export type WgslFnLayout<D extends d.Any, P extends readonly ParamDesc[] = reado
     readonly params?: [...P];
     /**
      * Optional GLSL companion source: a complete GLSL function definition with the SAME name +
-     * parameter order as the WGSL one. When provided, the same node compiles on both backends —
+     * parameter order as the WGSL one. When provided, the same node compiles on both backends:
      * the WGSL emitter uses `source`, the GLSL emitter uses `glsl`.
      */
     readonly glsl?: string;
@@ -132,7 +132,7 @@ export type GlslFnLayout<D extends d.Any, P extends readonly ParamDesc[] = reado
 /**
  * Create a GLSL-only function from raw GLSL source code.
  *
- * Mirrors `wgslFn` but targets the WebGL backend only — the returned callable emits the GLSL
+ * Mirrors `wgslFn` but targets the WebGL backend only; the returned callable emits the GLSL
  * function on the WebGL backend and throws on the WebGPU (WGSL) backend. For a function that runs
  * on BOTH backends, use `wgslFn(wgslSrc, { output, params, glsl: glslSrc })` instead.
  *

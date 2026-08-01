@@ -95,19 +95,19 @@ export declare class GpuBuffer<T extends Any = Any> {
     /** Clear pending update ranges (called by renderer after upload) */
     clearUpdateRanges(): void;
     /**
-     * Pack `value` into element `index`, encoding it per `schema` (std430 — the storage-buffer layout)
+     * Pack `value` into element `index`, encoding it per `schema` (std430, the storage-buffer layout)
      * into `this.array` and queuing a partial re-upload (`addUpdateRange` + version bump). The common
      * CPU-side write, parallel to {@link DataTexture.packAtIndex}: on WebGPU the renderer `writeBuffer`s
      * just this range; on WebGL2 (where a read-only storage buffer is reinterpreted as an rgba32uint
      * texture) it `texSubImage2D`s just the covering rows.
      *
-     * `schema` is the ELEMENT type — `d.mat4x4f` for an `array<mat4x4f>` buffer, or the struct for
+     * `schema` is the ELEMENT type: `d.mat4x4f` for an `array<mat4x4f>` buffer, or the struct for
      * `array<Struct>`. Its std430 stride must match the buffer's element stride (byteLength / count),
      * else this throws rather than silently misaligning.
      */
     packAtIndex<D extends Any>(schema: D, index: number, value: Infer<D>): this;
     /**
-     * Pack `value` (encoded per `schema`, std430) at a raw BYTE offset into `this.array` — the low-level
+     * Pack `value` (encoded per `schema`, std430) at a raw BYTE offset into `this.array`, the low-level
      * primitive under {@link packAtIndex} and the buffer analogue of {@link DataTexture.packAtTexel}.
      * Byte offsets are honest to `pack.ts`/std430 (which address in bytes); `byteOffset` must be a
      * multiple of the array's component size. Queues a partial upload of exactly this element's
@@ -116,7 +116,7 @@ export declare class GpuBuffer<T extends Any = Any> {
     packAtByte<D extends Any>(schema: D, byteOffset: number, value: Infer<D>): this;
     /**
      * Bulk write: pack an entire array of `values` from element 0, encoding each per `schema` (std430)
-     * at its element stride, then flag ONE full re-upload (`needsUpdate` + cleared partial ranges — a
+     * at its element stride, then flag ONE full re-upload (`needsUpdate` + cleared partial ranges, a
      * whole-array write supersedes any queued `packAtIndex` ranges on both backends). `schema` is the
      * ELEMENT type; `values.length` must not exceed the buffer's element `count`.
      */

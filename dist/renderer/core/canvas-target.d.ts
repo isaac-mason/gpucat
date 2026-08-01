@@ -10,8 +10,8 @@ export type CanvasTargetOptions = {
  * owned by the backend, not by this class.
  */
 export declare class CanvasTarget {
-    /** The canvas element this target wraps. */
-    readonly domElement: HTMLCanvasElement;
+    /** The canvas element this target wraps. An `OffscreenCanvas` is accepted for headless/worker use. */
+    readonly domElement: HTMLCanvasElement | OffscreenCanvas;
     /**
      * True when this is the renderer's default (main) canvas target.
      * Set by the renderer after construction; the inspector preview targets are not default.
@@ -26,7 +26,7 @@ export declare class CanvasTarget {
     _pixelRatio: number;
     /** Alpha compositing mode for the canvas. */
     readonly alphaMode: CanvasAlphaMode;
-    constructor(canvas: HTMLCanvasElement, opts?: CanvasTargetOptions);
+    constructor(canvas: HTMLCanvasElement | OffscreenCanvas, opts?: CanvasTargetOptions);
     /**
      * Get the pixel ratio.
      */

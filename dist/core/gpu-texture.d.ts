@@ -127,7 +127,7 @@ export declare class GpuTexture<D extends d.Texture = d.Texture> {
      * first upload) and takes priority over {@link updateRanges}. The renderer resets it after uploading.
      */
     needsFullUpload: boolean;
-    /** Queue a partial (texel-range) update and trigger a re-upload — WITHOUT forcing a full upload. */
+    /** Queue a partial (texel-range) update and trigger a re-upload, WITHOUT forcing a full upload. */
     addUpdateRange(start: number, count: number): void;
     /**
      * Whether this texture is a render target (managed by RenderTarget system).
@@ -138,7 +138,7 @@ export declare class GpuTexture<D extends d.Texture = d.Texture> {
     /**
      * Render target this texture belongs to (color or depth attachment), or null.
      * Lets the bind path lazily (re)allocate a sampled render target whose own
-     * render pass hasn't run this frame — e.g. it was resized between renders.
+     * render pass hasn't run this frame, e.g. it was resized between renders.
      */
     renderTarget: RenderTarget | null;
     /** Renderer-set callback to destroy GPU resources */

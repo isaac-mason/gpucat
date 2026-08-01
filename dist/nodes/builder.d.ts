@@ -28,7 +28,7 @@ export declare function compile(slots: CompileSlots): CompileResult;
 export type CompileGlslOptions = {
     /**
      * Fragment-stage default precision qualifier (`precision <p> float;` / `precision <p> int;`).
-     * Default: 'highp' — keeping the emitted GLSL byte-identical to the golden snapshots.
+     * Default: 'highp', keeping the emitted GLSL byte-identical to the golden snapshots.
      */
     precision?: 'highp' | 'mediump' | 'lowp';
     /**
@@ -36,7 +36,7 @@ export type CompileGlslOptions = {
      * width (`width = min(totalTexels, maxTextureSize)`; height = ceil) so large read-only storage
      * buffers tile into a grid the device can allocate. Undefined → a conservative 2048 (WebGL2's
      * guaranteed floor). GLSL-only and storage-only: the width is baked into the shader's texel
-     * addressing, so a change here alters the emitted GLSL — the compile cache is keyed by it.
+     * addressing, so a change here alters the emitted GLSL; the compile cache is keyed by it.
      */
     maxTextureSize?: number;
 };
@@ -48,7 +48,7 @@ export declare function compileCompute(node: ComputeNode): ComputeCompileResult;
  * GLSL emitter to produce a real, linkable transform-feedback VERTEX program (attribute-in / captured-
  * varying-out) plus a no-op fragment shader so the program links.
  *
- * There is intentionally NO WGSL sibling — transform feedback is a WebGL2 primitive. Portability is via
+ * There is intentionally NO WGSL sibling: transform feedback is a WebGL2 primitive. Portability is via
  * a shared body `Fn` wrapped in a WebGPU compute(), not by this node spanning backends.
  */
 export declare function compileTransformFeedback(node: TransformFeedbackNode, opts?: CompileGlslOptions): TransformFeedbackGlslResult;

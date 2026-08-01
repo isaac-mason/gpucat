@@ -34,8 +34,11 @@ import type { TransformFeedbackNode } from '../../nodes/lib/transform-feedback';
  * exposes.
  */
 export type WebGLRendererOptions = {
-    /** Canvas element to render into. If not provided, one will be created. */
-    canvas?: HTMLCanvasElement;
+    /**
+     * Canvas to render into. If not provided, one will be created. An `OffscreenCanvas` (e.g. a 1x1 in a
+     * worker) is accepted for headless/offline rendering, where all output goes to a `RenderTarget`.
+     */
+    canvas?: HTMLCanvasElement | OffscreenCanvas;
     /** Device pixel ratio. Applied to the canvas target before the first setSize. */
     pixelRatio?: number;
     /** Enable MSAA antialiasing (maps to the WebGL2 `antialias` context attribute). */
@@ -78,8 +81,8 @@ export declare class WebGLRenderer implements Renderer, RendererState {
     set inspector(next: InspectorBase | null);
     /** Install or remove the inspector. Equivalent to assigning `renderer.inspector`. */
     setInspector(next: InspectorBase | null): void;
-    /** The canvas dom element for the current canvas target. */
-    get domElement(): HTMLCanvasElement;
+    /** The canvas dom element for the current canvas target (an `OffscreenCanvas` when headless). */
+    get domElement(): HTMLCanvasElement | OffscreenCanvas;
     /** The WebGL2 rendering context in use. Assigned in `init()`. @internal */
     gl: WebGL2RenderingContext | null;
     /** Bound `webglcontextlost` listener, registered in init() and removed in dispose(). @internal */
@@ -272,6 +275,17 @@ export declare class WebGLRenderer implements Renderer, RendererState {
      * call (that's what allocates its GL buffer); otherwise this throws.
      */
     readBufferAsync(buffer: GpuBuffer): Promise<Float32Array | Int32Array | Uint32Array>;
+    /**
+     * Read a `RenderTarget`'s color attachment back to a tightly-packed, top-to-bottom RGBA8
+     * `Uint8Array` (length `width * height * 4`), matching the WebGPU `readPixels` output byte-for-byte
+     * (GL reads bottom-to-top, so the rows are flipped). `attachmentIndex` selects an MRT color
+     * attachment; `layer` selects a cube face (0..5).
+     *
+     * The target must have been rendered (`render()` into it) and use an `rgba8unorm` /
+     * `rgba8unorm-srgb` color format. This method is WebGLRenderer-only; it enables headless/offline
+     * readback (e.g. icon baking) with no canvas presentation.
+     */
+    readRenderTargetPixels(renderTarget: RenderTarget, attachmentIndex?: number, layer?: number): Promise<Uint8Array>;
     /**
      * Dispose the renderer and force the WebGL2 context loss. After calling dispose(), the renderer
      * cannot be used again.

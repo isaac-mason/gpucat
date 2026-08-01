@@ -3,7 +3,7 @@ import type { Geometry } from '../geometry/geometry';
 import type { Material } from '../material/material';
 import { type Intersection, type Raycaster } from '../math/raycaster';
 /**
- * One sub-draw of a batched mesh — a plain instanced draw command over the mesh's (typically
+ * One sub-draw of a batched mesh: a plain instanced draw command over the mesh's (typically
  * merged) geometry, field-for-field a WebGPU indirect-draw arg struct. The mesh's geometry selects
  * the variant: indexed geometry uses {@link IndexedMeshDraw} (`GPUDrawIndexedIndirect`),
  * non-indexed uses {@link NonIndexedMeshDraw} (`GPUDrawIndirect`).
@@ -24,7 +24,7 @@ export type IndexedMeshDraw = {
     /** Added to each index before vertex fetch. WebGPU-only; ignored on WebGL2 (defaults 0). */
     baseVertex?: number;
 };
-/** Non-indexed batched sub-draw — the `GPUDrawIndirect` arg struct, used when the mesh's geometry has no index buffer. */
+/** Non-indexed batched sub-draw: the `GPUDrawIndirect` arg struct, used when the mesh's geometry has no index buffer. */
 export type NonIndexedMeshDraw = {
     /** Vertices to draw from the (merged) vertex buffer(s). */
     vertexCount: number;

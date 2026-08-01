@@ -64,7 +64,7 @@ export type PassNodeOptions = {
     samples?: number;
     /**
      * Friendly identifier for this pass. Used verbatim as the `passId` (so it
-     * must be unique among passes) — it names the pass in the inspector's perf
+     * must be unique among passes). It names the pass in the inspector's perf
      * panel and labels the GPU render pass for tooling (RenderDoc, browser GPU
      * errors). When omitted, an auto id like `_pass0` is generated.
      */

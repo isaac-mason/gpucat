@@ -4151,10 +4151,10 @@ class Uniform {
  *
  * `wgslType` stays WebGPU-native. A companion `glslType` carries the GLSL ES 3.00 type-name for the
  * subset of descriptors the GLSL backend can translate directly (scalars, float/int/uint vectors,
- * square float matrices, and structs — whose GLSL name equals their WGSL name). It is left OFF the
+ * square float matrices, and structs, whose GLSL name equals their WGSL name). It is left OFF the
  * descriptors the GLSL emitter can't express (f16 variants, bool vectors, non-square/half matrices,
  * textures, samplers, …) so the emitter's `glslType()` helper still throws loudly for them, exactly
- * as the old WGSL_TO_GLSL map did. Never neutralize `wgslType` for GLSL — add `glslType` alongside.
+ * as the old WGSL_TO_GLSL map did. Never neutralize `wgslType` for GLSL; add `glslType` alongside.
  */
 const f32$1 = { type: 'f32', wgslType: 'f32', glslType: 'float' };
 const i32$1 = { type: 'i32', wgslType: 'i32', glslType: 'int' };
@@ -4253,7 +4253,7 @@ const textureDepthMultisampled2d = {
  * format permits `access: 'read_write'`.
  *
  * Per the core WebGPU "Texture Format Capabilities" table, ONLY the 32-bit single-channel
- * formats — `r32uint`, `r32sint`, `r32float` — support `read_write` storage access. Every other
+ * formats (`r32uint`, `r32sint`, `r32float`) support `read_write` storage access. Every other
  * storage-capable format is read-only / write-only. (`bgra8unorm` storage also needs the
  * `bgra8unorm-storage` feature.) This is enforced in `storageTexture()` as a friendly early error;
  * the device is the ultimate authority.
@@ -4277,7 +4277,7 @@ const STORAGE_FORMATS = {
     rgba32sint: { channel: 'i32', readWrite: false },
     rgba32float: { channel: 'f32', readWrite: false },
 };
-/** Runtime version of StorageValueOf — maps a format to its vec4 value descriptor. */
+/** Runtime version of StorageValueOf: maps a format to its vec4 value descriptor. */
 function storageValueOf(format) {
     const channel = STORAGE_FORMATS[format].channel;
     if (channel === 'u32')
@@ -4321,7 +4321,7 @@ const snorm8x4 = { type: 'snorm8x4', wgslType: 'vec4f', glslType: 'vec4' };
 const half2x16 = { type: 'half2x16', wgslType: 'vec2f', glslType: 'vec2' };
 const unorm2x16 = { type: 'unorm2x16', wgslType: 'vec2f', glslType: 'vec2' };
 const snorm2x16 = { type: 'snorm2x16', wgslType: 'vec2f', glslType: 'vec2' };
-/** Per-packed-type metadata — decoded lane count + the WGSL `unpack` builtin. Single source of
+/** Per-packed-type metadata: decoded lane count + the WGSL `unpack` builtin. Single source of
  *  truth so CPU encode (pack.ts) and shader decode (accessor + GLSL emitter) cannot drift. */
 const PACKED_SPECS = {
     unorm8x4: { lanes: 4, unpackFn: 'unpack4x8unorm' },
@@ -4339,7 +4339,7 @@ function isPackedDesc(desc) {
  * A bitfield packed into one `u32`: `d.bits({ flags: 8, materialId: 24 })`. Fields are declared
  * low→high bits (the first field occupies the low bits). Total width must be ≤ 32. For use as a
  * structured-texture struct field: it stores as 4 B and the accessor decodes each named field to a
- * `u32` via shift/mask (no builtins — works on both backends). Not a valid emitted WGSL/GLSL member.
+ * `u32` via shift/mask (no builtins, works on both backends). Not a valid emitted WGSL/GLSL member.
  */
 function bits(fields) {
     const list = [];
@@ -5321,7 +5321,7 @@ function emitArrayWrites(ctx, schema, accessor) {
     ctx.offset = startOffset + schema.length * stride;
 }
 /** JS expression that packs a logical value (`a` = the value accessor, an array) into a u32,
- *  component 0 in the LOW bits — matching the shader `unpack*` decode. `f16(x)` (in scope) is
+ *  component 0 in the LOW bits, matching the shader `unpack*` decode. `f16(x)` (in scope) is
  *  float→half bits. */
 function packedWriteExpr(packedType, a) {
     const u8 = (i) => `(Math.round(Math.min(Math.max(${a}[${i}],0),1)*255)&255)`;
@@ -5337,7 +5337,7 @@ function packedWriteExpr(packedType, a) {
         default: throw new Error(`[gpucat] pack: unknown packed type '${packedType}'`);
     }
 }
-/** JS expression that unpacks a u32 (`u`) back to the logical array — inverse of {@link packedWriteExpr}.
+/** JS expression that unpacks a u32 (`u`) back to the logical array, inverse of {@link packedWriteExpr}.
  *  `f16r(bits)` (in scope) is half→float. Used by CPU readback (`unpackFromView`); the shader decode
  *  path is separate (accessor + GLSL emitter). */
 function packedReadExpr(packedType, u) {
@@ -6033,13 +6033,13 @@ class GpuBuffer {
         this.updateRanges.length = 0;
     }
     /**
-     * Pack `value` into element `index`, encoding it per `schema` (std430 — the storage-buffer layout)
+     * Pack `value` into element `index`, encoding it per `schema` (std430, the storage-buffer layout)
      * into `this.array` and queuing a partial re-upload (`addUpdateRange` + version bump). The common
      * CPU-side write, parallel to {@link DataTexture.packAtIndex}: on WebGPU the renderer `writeBuffer`s
      * just this range; on WebGL2 (where a read-only storage buffer is reinterpreted as an rgba32uint
      * texture) it `texSubImage2D`s just the covering rows.
      *
-     * `schema` is the ELEMENT type — `d.mat4x4f` for an `array<mat4x4f>` buffer, or the struct for
+     * `schema` is the ELEMENT type: `d.mat4x4f` for an `array<mat4x4f>` buffer, or the struct for
      * `array<Struct>`. Its std430 stride must match the buffer's element stride (byteLength / count),
      * else this throws rather than silently misaligning.
      */
@@ -6057,7 +6057,7 @@ class GpuBuffer {
         return this.packAtByte(schema, index * strideBytes, value);
     }
     /**
-     * Pack `value` (encoded per `schema`, std430) at a raw BYTE offset into `this.array` — the low-level
+     * Pack `value` (encoded per `schema`, std430) at a raw BYTE offset into `this.array`, the low-level
      * primitive under {@link packAtIndex} and the buffer analogue of {@link DataTexture.packAtTexel}.
      * Byte offsets are honest to `pack.ts`/std430 (which address in bytes); `byteOffset` must be a
      * multiple of the array's component size. Queues a partial upload of exactly this element's
@@ -6081,7 +6081,7 @@ class GpuBuffer {
     }
     /**
      * Bulk write: pack an entire array of `values` from element 0, encoding each per `schema` (std430)
-     * at its element stride, then flag ONE full re-upload (`needsUpdate` + cleared partial ranges — a
+     * at its element stride, then flag ONE full re-upload (`needsUpdate` + cleared partial ranges, a
      * whole-array write supersedes any queued `packAtIndex` ranges on both backends). `schema` is the
      * ELEMENT type; `values.length` must not exceed the buffer's element `count`.
      */
@@ -9754,7 +9754,7 @@ class GpuTexture {
      * first upload) and takes priority over {@link updateRanges}. The renderer resets it after uploading.
      */
     needsFullUpload = false;
-    /** Queue a partial (texel-range) update and trigger a re-upload — WITHOUT forcing a full upload. */
+    /** Queue a partial (texel-range) update and trigger a re-upload, WITHOUT forcing a full upload. */
     addUpdateRange(start, count) {
         this.updateRanges.push({ start, count });
         this.version++;
@@ -9771,7 +9771,7 @@ class GpuTexture {
     /**
      * Render target this texture belongs to (color or depth attachment), or null.
      * Lets the bind path lazily (re)allocate a sampled render target whose own
-     * render pass hasn't run this frame — e.g. it was resized between renders.
+     * render pass hasn't run this frame, e.g. it was resized between renders.
      */
     renderTarget = null;
     // ─────────────────────────────────────────────────────────────────────────
@@ -9941,7 +9941,7 @@ class Texture {
     onUpdate = null;
     /**
      * Whether this texture belongs to a render target. Forwards to the underlying `GpuTexture` (the
-     * single source of truth the backends read), so setting it on the wrapper always takes effect —
+     * single source of truth the backends read), so setting it on the wrapper always takes effect;
      * a plain field here would silently not reach the `GpuTexture`, making the backend treat the
      * texture as a source upload (0-sized storage) instead of a render-target allocation.
      * @default false
@@ -10243,7 +10243,7 @@ class RenderTarget {
     /**
      * Viewport for renders into this target as a `Vec4` [x, y, width, height] in the target's pixels
      * (top-left origin); null = full target. A render into a target uses the target's own viewport/scissor,
-     * never the renderer's swapchain one — so a swapchain compositing viewport can't leak into a
+     * never the renderer's swapchain one, so a swapchain compositing viewport can't leak into a
      * render-to-texture (or cube) pass.
      */
     viewport = null;
@@ -10301,7 +10301,7 @@ class RenderTarget {
      * renderer reallocates lazily on next use in `ensureRenderTargetTexturesAllocated`,
      * where `setRenderTargetTexture` destroys the old texture and creates the new
      * one atomically. Marking `needsUpdate` (+ the size mismatch) is enough to
-     * trigger that — a version-driven reallocation rather than eager destruction.
+     * trigger that: a version-driven reallocation rather than eager destruction.
      *
      * Eagerly disposing here would destroy a GPU texture synchronously, opening a
      * window where another pass that already recorded a draw against it (e.g. a
@@ -12626,7 +12626,7 @@ function wgsl(desc) {
 /**
  * Create an inline GLSL expression node using a tagged template literal.
  *
- * Mirrors `wgsl` but produces a GLSL-only node — it emits on the WebGL backend
+ * Mirrors `wgsl` but produces a GLSL-only node; it emits on the WebGL backend
  * and throws on the WebGPU (WGSL) backend. For a node that runs on BOTH backends,
  * use `wgsl(desc)\`...\`.glslSource\`...\`` instead.
  *
@@ -18374,11 +18374,11 @@ function compile(slots) {
  * No mirror object is minted here: the returned `base` is a synthetic sampler-less `TextureNode` whose
  * binding carries the `GpuBuffer` itself (`storageBufferSource`). At bind time the WebGL renderer reads
  * the buffer's own bytes directly as u32 texels (float fields round-trip through the accessor's
- * `uintBitsToFloat`) and caches one GL texture per `GpuBuffer`, version-synced — so mutating the buffer
+ * `uintBitsToFloat`) and caches one GL texture per `GpuBuffer`, version-synced, so mutating the buffer
  * between frames re-uploads, and N materials sharing a buffer share one GL texture. We only pick the
  * texel grid shape (baked into the shader's addressing via `width`): `width = min(totalTexels, cap)`
  * where `cap` is the device `MAX_TEXTURE_SIZE` (or 2048, WebGL2's guaranteed floor, when unknown), and
- * `height = ceil(totalTexels / width)`. No exact-division requirement — the renderer pads the (short)
+ * `height = ceil(totalTexels / width)`. No exact-division requirement: the renderer pads the (short)
  * last row and validates `height ≤ MAX_TEXTURE_SIZE` at upload. The baked width is device-specific, so
  * the GLSL compile cache is keyed by `maxTextureSize`.
  */
@@ -18674,7 +18674,7 @@ function compileCompute(node) {
  * GLSL emitter to produce a real, linkable transform-feedback VERTEX program (attribute-in / captured-
  * varying-out) plus a no-op fragment shader so the program links.
  *
- * There is intentionally NO WGSL sibling — transform feedback is a WebGL2 primitive. Portability is via
+ * There is intentionally NO WGSL sibling: transform feedback is a WebGL2 primitive. Portability is via
  * a shared body `Fn` wrapped in a WebGPU compute(), not by this node spanning backends.
  */
 function compileTransformFeedback(node, opts = {}) {
@@ -21041,7 +21041,7 @@ class QuadMesh extends Mesh {
  * owned by the backend, not by this class.
  */
 class CanvasTarget {
-    /** The canvas element this target wraps. */
+    /** The canvas element this target wraps. An `OffscreenCanvas` is accepted for headless/worker use. */
     domElement;
     /**
      * True when this is the renderer's default (main) canvas target.
@@ -21102,7 +21102,8 @@ class CanvasTarget {
         this._height = height;
         this.domElement.width = Math.floor(width * this._pixelRatio);
         this.domElement.height = Math.floor(height * this._pixelRatio);
-        if (updateStyle) {
+        // An OffscreenCanvas has no `.style` (no DOM presentation); guard the CSS-size writes.
+        if (updateStyle && 'style' in this.domElement) {
             this.domElement.style.width = `${width}px`;
             this.domElement.style.height = `${height}px`;
         }
@@ -22679,7 +22680,7 @@ function updateTextureBinding(textureCache, device, binding, data) {
         }
     }
 }
-/** Update a storage texture binding — ensure GPU texture exists, detect changes. */
+/** Update a storage texture binding: ensure GPU texture exists, detect changes. */
 function updateStorageTextureBinding(textureCache, device, binding, data) {
     const gpuTexture = binding.entry.node.value;
     if (gpuTexture === null)
@@ -31312,8 +31313,11 @@ class Inspector extends RendererInspector {
         // that don't mount the WebGPURenderer's implicit canvas (e.g. engines
         // rendering to per-room canvases via render targets) should append
         // `inspector.domElement` to the DOM themselves.
-        if (this.domElement.parentElement === null && renderer.domElement.parentElement) {
-            renderer.domElement.parentElement.appendChild(this.domElement);
+        // The inspector is a DOM tool, so the renderer's canvas here is always a real HTMLCanvasElement
+        // (never the OffscreenCanvas of a headless WebGL renderer).
+        const rendererCanvas = renderer.domElement;
+        if (this.domElement.parentElement === null && rendererCanvas.parentElement) {
+            rendererCanvas.parentElement.appendChild(this.domElement);
         }
     }
     /**
@@ -33174,6 +33178,8 @@ function domElement(r) {
     if (!r._canvasTarget) {
         throw new Error('[WebGPURenderer] no canvas: renderer was created in headless mode. Render to a RenderTarget instead.');
     }
+    // Presentation-path accessor; a headless WebGL renderer (OffscreenCanvas) renders to a RenderTarget
+    // and never reaches here, so the DOM-canvas type is the honest contract.
     return r._canvasTarget.domElement;
 }
 function frameWidth(r) {
@@ -33351,6 +33357,8 @@ function resolveViewportScissor(r, passCtx) {
  * (unsupported environment, or the canvas already has an incompatible context).
  */
 function createContext(canvas, attrs) {
+    // `getContext('webgl2', …)` exists on both HTMLCanvasElement and OffscreenCanvas at runtime; cast
+    // through HTMLCanvasElement so the single call type-checks across the union.
     const gl = canvas.getContext('webgl2', attrs);
     if (!gl) {
         throw new Error('[WebGLRenderer] WebGL2 is not available in this environment.');
@@ -35922,8 +35930,13 @@ function applyViewportScissor(gl, passCtx) {
         gl.depthRange(v.minDepth, v.maxDepth);
     }
     else {
-        // No explicit viewport for this pass → restore the default full depth range so a preceding
+        // No explicit viewport for this pass → cover the full framebuffer at its own size. `passCtx.width`
+        // / `.height` are the physical framebuffer dimensions (the render target's size, or the canvas
+        // drawing buffer). Setting this every pass (rather than relying on the last gl.viewport) is what
+        // lets a render target larger than the canvas draw correctly — e.g. a headless 1x1 OffscreenCanvas
+        // rendering into a full-size target. Also restore the default full depth range so a preceding
         // pass's custom depthRange doesn't persist as stale state.
+        gl.viewport(0, 0, passCtx.width, passCtx.height);
         gl.depthRange(0, 1);
     }
     if (passCtx.scissor) {
@@ -36153,6 +36166,74 @@ function executeRenderPass$1(gl, caches, nodes, passCtx, prepared, params, inspe
     // MSAA target: resolve the multisample render FBO into the sampleable texture FBO (blit). A no-op
     // for non-MSAA targets / the default framebuffer.
     resolveActiveRenderTarget(gl, caches.renderTargets);
+}
+
+/**
+ * read-pixels.ts (webgl) - render-target pixel readback.
+ *
+ * The GL analogue of `webgpu/read-pixels.ts`. Binds a RenderTarget's texture FBO and reads its color
+ * attachment back to a tightly-packed, top-to-bottom RGBA8 `Uint8Array`, the identical output contract
+ * to the WebGPU `readPixels`, so an offline/headless bake gets the same bytes on either backend.
+ *
+ * GL `readPixels` returns rows bottom-to-top (GL's origin is lower-left), so the rows are flipped to
+ * top-to-bottom to match the WebGPU convention. The public entry is the
+ * `WebGLRenderer.readRenderTargetPixels` method; this is the free-function impl it delegates to
+ * (mirroring `readBufferAsync`).
+ */
+/**
+ * Read a RenderTarget color attachment back to a tightly-packed, top-to-bottom RGBA8 `Uint8Array`
+ * (length `width * height * 4`), matching the WebGPU `readPixels` output. The target's color format
+ * must be `rgba8unorm` / `rgba8unorm-srgb` (WebGL2 has no BGRA render format). `attachmentIndex`
+ * selects an MRT color attachment; `layer` selects a cube face (0..5). Throws if the target has not
+ * been rendered to yet.
+ */
+function readRenderTargetPixels(gl, state, textures, renderTarget, attachmentIndex = 0, layer = 0) {
+    const tex = renderTarget.textures[attachmentIndex];
+    if (!tex) {
+        throw new Error(`[readRenderTargetPixels] no color attachment at index ${attachmentIndex}.`);
+    }
+    const fmt = tex.format;
+    if (fmt !== 'rgba8unorm' && fmt !== 'rgba8unorm-srgb') {
+        throw new Error(`[readRenderTargetPixels] unsupported attachment format '${fmt}' at index ${attachmentIndex}; ` +
+            `the WebGL2 backend reads back only rgba8unorm / rgba8unorm-srgb targets ` +
+            `(render through an rgba8unorm RenderTarget first).`);
+    }
+    const fboData = state.data.get(renderTarget);
+    if (!fboData) {
+        throw new Error('[readRenderTargetPixels] render target has not been rendered to yet; render() into it first.');
+    }
+    // MSAA target: resolve the multisample result into the texture FBO before reading it.
+    if (state.pendingResolve === renderTarget) {
+        resolveActiveRenderTarget(gl, state);
+    }
+    const { width, height } = renderTarget;
+    const prevRead = gl.getParameter(gl.READ_FRAMEBUFFER_BINDING);
+    if (renderTarget.isCubeRenderTarget === true) {
+        // Cube target: point the read FBO's color attachment at the requested face.
+        const cube = renderTarget;
+        const data = getGlTextureData(textures, cube.texture._gpuTexture);
+        if (!data) {
+            throw new Error('[readRenderTargetPixels] cube render target has no GL texture; render() into it first.');
+        }
+        gl.bindFramebuffer(gl.READ_FRAMEBUFFER, fboData.fbo);
+        gl.framebufferTexture2D(gl.READ_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_CUBE_MAP_POSITIVE_X + layer, data.texture, cube.activeMipmapLevel);
+        fboData.attachedFace = layer;
+    }
+    else {
+        gl.bindFramebuffer(gl.READ_FRAMEBUFFER, fboData.fbo);
+    }
+    gl.readBuffer(gl.COLOR_ATTACHMENT0 + attachmentIndex);
+    const raw = new Uint8Array(width * height * 4);
+    gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, raw);
+    // GL reads bottom-to-top; flip to top-to-bottom to match the WebGPU readPixels contract.
+    const out = new Uint8Array(width * height * 4);
+    const rowBytes = width * 4;
+    for (let y = 0; y < height; y++) {
+        const src = (height - 1 - y) * rowBytes;
+        out.set(raw.subarray(src, src + rowBytes), y * rowBytes);
+    }
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, prevRead);
+    return out;
 }
 
 /**
@@ -36525,7 +36606,7 @@ class WebGLRenderer {
         this._inspector = next;
         next?.setRenderer(this);
     }
-    /** The canvas dom element for the current canvas target. */
+    /** The canvas dom element for the current canvas target (an `OffscreenCanvas` when headless). */
     get domElement() {
         if (!this._canvasTarget) {
             throw new Error('[WebGLRenderer] no canvas target.');
@@ -36639,6 +36720,8 @@ class WebGLRenderer {
         this.stencil = opts.stencil ?? false;
         const canvas = opts.canvas ?? document.createElement('canvas');
         if (!opts.canvas) {
+            // Only reached for the internally-created HTMLCanvasElement; a passed OffscreenCanvas (no
+            // `.style`) skips this branch.
             canvas.style.display = 'block';
         }
         this._canvasTarget = new CanvasTarget(canvas, { alphaMode: opts.alpha ? 'premultiplied' : 'opaque' });
@@ -37003,6 +37086,22 @@ class WebGLRenderer {
             return Promise.reject(new Error('[WebGLRenderer] readBufferAsync() called before init(). Await renderer.init() first.'));
         }
         return readBufferAsync(this.gl, this._transformFeedback, buffer);
+    }
+    /**
+     * Read a `RenderTarget`'s color attachment back to a tightly-packed, top-to-bottom RGBA8
+     * `Uint8Array` (length `width * height * 4`), matching the WebGPU `readPixels` output byte-for-byte
+     * (GL reads bottom-to-top, so the rows are flipped). `attachmentIndex` selects an MRT color
+     * attachment; `layer` selects a cube face (0..5).
+     *
+     * The target must have been rendered (`render()` into it) and use an `rgba8unorm` /
+     * `rgba8unorm-srgb` color format. This method is WebGLRenderer-only; it enables headless/offline
+     * readback (e.g. icon baking) with no canvas presentation.
+     */
+    readRenderTargetPixels(renderTarget, attachmentIndex = 0, layer = 0) {
+        if (!this._initialized || !this.gl) {
+            return Promise.reject(new Error('[WebGLRenderer] readRenderTargetPixels() called before init(). Await renderer.init() first.'));
+        }
+        return Promise.resolve(readRenderTargetPixels(this.gl, this._renderTargets, this._textures, renderTarget, attachmentIndex, layer));
     }
     /**
      * Dispose the renderer and force the WebGL2 context loss. After calling dispose(), the renderer
@@ -38247,6 +38346,8 @@ class WebGPURenderer {
         if (!this._canvasTarget) {
             throw new Error('[WebGPURenderer] no canvas: renderer was created in headless mode. Render to a RenderTarget instead.');
         }
+        // WebGPURenderer only ever receives an HTMLCanvasElement (its `canvas` option), so the shared
+        // CanvasTarget's widened union narrows back to HTMLCanvasElement here.
         return this._canvasTarget.domElement;
     }
     // -----------------------------------------------------------------------
@@ -38396,6 +38497,8 @@ class WebGPURenderer {
             }
             this._canvasTarget = new CanvasTarget(canvas, { alphaMode: opts.alpha ? 'premultiplied' : 'opaque' });
             this._canvasTarget.isDefaultCanvasTarget = true;
+            if (opts.pixelRatio !== undefined)
+                this._canvasTarget.setPixelRatio(opts.pixelRatio);
         }
         this._renderContexts = createRenderContextsState();
         this._computeContext = createComputeContext();
@@ -39215,7 +39318,7 @@ class DataTexture {
         return this.packAtTexel(schema, index * texelStride, value);
     }
     /**
-     * Pack a struct record starting at an explicit TEXEL offset — the low-level primitive under
+     * Pack a struct record starting at an explicit TEXEL offset, the low-level primitive under
      * {@link packAtIndex} (a texel is this texture's native addressing unit).
      */
     packAtTexel(schema, texel, value) {
@@ -39268,7 +39371,7 @@ class DataTexture {
      * Ensure the backing `rgba32uint` array holds at least `requiredTexels` texels, growing HEIGHT
      * (never width) if needed: reallocate `width × newHeight × 4` u32, copy existing data, swap the
      * source, and bump the version so the renderer re-allocates the GL/GPU texture (via mutable
-     * `texImage2D` — DataTextures are not immutable-storage). Keeping width fixed is what lets an
+     * `texImage2D`; DataTextures are not immutable-storage). Keeping width fixed is what lets an
      * already-compiled `load(schema, i)` shader keep addressing correctly across a grow.
      */
     _ensureTexels(requiredTexels) {
