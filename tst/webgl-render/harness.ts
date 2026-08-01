@@ -1948,11 +1948,11 @@ async function caseStorageDynamic(): Promise<CaseResult> {
 /**
  * storage-store: exercise the COMPOSED write path — `GpuBuffer.packAtIndex(schema, i, value)` (CPU-side struct
  * pack) feeding the buffer-as-texture PARTIAL upload (`texSubImage2D` of just the covering rows). The
- * buffer is `array<Instance>` sized so its texel grid is 2048×4 (multi-row); we `store` a NEW color into
- * a MIDDLE element in row 2 (not element 0) between frames, then read a pixel that combines the stored
- * element and an untouched element (`vec4(elemA.x, elem0.y, elemA.z, 1)`). Frame 2 must show the new
- * value on elemA's channels AND the original value on elem0's channel — proving `store` packs the right
- * bytes, the partial upload targets the right row, and neighbouring rows are not clobbered.
+ * buffer is `array<Instance>` (8192 elements → a `min(8192, MAX_TEXTURE_SIZE)`-wide grid); we `store` a
+ * NEW color into a MIDDLE element (not element 0) between frames, then read a pixel that combines the
+ * stored element and an untouched element (`vec4(elemA.x, elem0.y, elemA.z, 1)`). Frame 2 must show the
+ * new value on elemA's channels AND the original value on elem0's channel — proving `store` packs the
+ * right bytes, the partial upload targets the right region, and untouched elements are not clobbered.
  */
 async function caseStorageStore(): Promise<CaseResult> {
     const renderer = await newRenderer();
@@ -2010,6 +2010,102 @@ async function caseStorageStore(): Promise<CaseResult> {
     return { name: 'storage-store', pixel, expected: [u8(R), u8(G), u8(B), 255] };
 }
 
+/**
+ * storage-pad: a read-only storage() buffer whose texel count is NOT a multiple of the grid width, so the
+ * lowering pads the short LAST row. We size the buffer to `MAX_TEXTURE_SIZE + 3` texels → width = MAX,
+ * height = 2, with a 3-texel padded last row; the probe element is the very last one (in that padded row).
+ * The center pixel must equal its color — proving the padded upload (full rows + a narrower last-row
+ * `texSubImage2D`), the 2D wrap addressing (`% width`, `/ width`), and that no read runs past the buffer.
+ */
+async function caseStoragePad(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+    const MAX = renderer.gl!.getParameter(renderer.gl!.MAX_TEXTURE_SIZE) as number;
+
+    const Instance = struct('Instance', { color: d.vec4f });
+    const N = MAX + 3; // width = min(N, MAX) = MAX → fullRows 1, remainder 3, height 2.
+    const LAST = N - 1; // last element sits in the padded last row.
+    const R = 0.6;
+    const G = 0.2;
+    const B = 0.8;
+    const data = new Float32Array(N * 4);
+    data[LAST * 4 + 0] = R;
+    data[LAST * 4 + 1] = G;
+    data[LAST * 4 + 2] = B;
+    data[LAST * 4 + 3] = 1;
+    const buf = new GpuBuffer(d.array(Instance), { data, usage: 'storage' });
+    const store = storage(buf);
+
+    const geometry = createFullscreenTriangleGeometry();
+    const position = attribute('position', d.vec3f);
+    const material = new Material({
+        vertex: vec4(position, f32(1)),
+        fragment: store.element(u32(LAST)).fields().color,
+        depthTest: false,
+    });
+    const mesh = new Mesh(geometry, material);
+    const scene = new Scene();
+    scene.add(mesh);
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'storage-pad', pixel, expected: [u8(R), u8(G), u8(B), 255] };
+}
+
+/**
+ * storage-pad-dynamic: mutate the element in the PADDED last row between frames and confirm the partial
+ * upload targets that (narrower) last row. `packAtIndex` on the last element queues a dirty range whose
+ * covering row is the padded row; the partial `texSubImage2D` must upload only its `remainder` texels.
+ * Frame 2 must show the new color.
+ */
+async function caseStoragePadDynamic(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+    const MAX = renderer.gl!.getParameter(renderer.gl!.MAX_TEXTURE_SIZE) as number;
+
+    const Instance = struct('Instance', { color: d.vec4f });
+    const N = MAX + 3;
+    const LAST = N - 1;
+    const data = new Float32Array(N * 4);
+    // Frame-1 value at the last element (overwritten before frame 2; not asserted).
+    data[LAST * 4 + 0] = 0.05;
+    data[LAST * 4 + 1] = 0.05;
+    data[LAST * 4 + 2] = 0.05;
+    data[LAST * 4 + 3] = 1;
+    const buf = new GpuBuffer(d.array(Instance), { data, usage: 'storage' });
+    const store = storage(buf);
+
+    const geometry = createFullscreenTriangleGeometry();
+    const position = attribute('position', d.vec3f);
+    const material = new Material({
+        vertex: vec4(position, f32(1)),
+        fragment: store.element(u32(LAST)).fields().color,
+        depthTest: false,
+    });
+    const mesh = new Mesh(geometry, material);
+    const scene = new Scene();
+    scene.add(mesh);
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    renderer.render(scene, camera); // frame 1: full upload (allocates the padded grid).
+
+    const R = 0.9;
+    const G = 0.1;
+    const B = 0.5;
+    buf.packAtIndex(Instance, LAST, { color: [R, G, B, 1] }); // dirty range → padded last row.
+
+    renderer.render(scene, camera); // frame 2: partial upload of just the last (narrower) row.
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'storage-pad-dynamic', pixel, expected: [u8(R), u8(G), u8(B), 255] };
+}
+
 export async function run(): Promise<RunResult> {
     try {
         const cases: CaseResult[] = [];
@@ -2032,6 +2128,8 @@ export async function run(): Promise<RunResult> {
             caseStorageMat4,
             caseStorageDynamic,
             caseStorageStore,
+            caseStoragePad,
+            caseStoragePadDynamic,
             caseRenderToTexture,
             caseMsaa,
             caseCubeRtt,

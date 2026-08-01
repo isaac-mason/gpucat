@@ -242,6 +242,8 @@ export type GlTexturesState = {
     /** Storage-buffer-backed GL textures, keyed by the `GpuBuffer` (WebGL storage() read-lowering). */
     bufferData: WeakMap<GpuBuffer, GlBufferTextureData>;
     all: Set<WebGLTexture>;
+    /** Cached `gl.MAX_TEXTURE_SIZE`, read once on first storage-buffer upload (validates the texel grid). */
+    maxTextureSize?: number;
 };
 
 /** Create an empty textures state. */
@@ -250,12 +252,46 @@ export function createGlTexturesState(): GlTexturesState {
 }
 
 /**
+ * Upload texel rows `[rowFrom, rowTo]` (inclusive) of a storage buffer reinterpreted as a `width`-wide
+ * rgba32uint grid, sourcing a ZERO-COPY `Uint32Array` view over the buffer's own bytes. The grid may be
+ * taller than the buffer's exact byte count (`width` need not divide `totalTexels`): the first `fullRows`
+ * rows are fully backed, and a padded last row (`remainder` texels < `width`, at `y = fullRows`) is
+ * uploaded narrower so the view never reads past the buffer. Padding texels stay zeroed and are never
+ * addressed by the shader (valid texel indices only reach `totalTexels - 1`).
+ */
+function uploadStorageRows(
+    gl: WebGL2RenderingContext,
+    arr: ArrayBufferView,
+    width: number,
+    fullRows: number,
+    remainder: number,
+    rowFrom: number,
+    rowTo: number,
+): void {
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    // Full rows within the requested range.
+    const fullTo = Math.min(rowTo, fullRows - 1);
+    if (fullTo >= rowFrom) {
+        const count = fullTo - rowFrom + 1;
+        const view = new Uint32Array(arr.buffer, arr.byteOffset + rowFrom * width * 16, count * width * 4);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, rowFrom, width, count, gl.RGBA_INTEGER, gl.UNSIGNED_INT, view);
+    }
+    // The short last row (if any) when it falls in the requested range — uploaded `remainder` texels wide.
+    if (remainder > 0 && rowFrom <= fullRows && rowTo >= fullRows) {
+        const view = new Uint32Array(arr.buffer, arr.byteOffset + fullRows * width * 16, remainder * 4);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, fullRows, remainder, 1, gl.RGBA_INTEGER, gl.UNSIGNED_INT, view);
+    }
+}
+
+/**
  * Resolve (create/upload/re-sync) the GL texture for a read-only storage `GpuBuffer` bound AS an
  * rgba32uint texture, and return it bound-ready. The pixel data is a ZERO-COPY `Uint32Array` view over
  * the buffer's own `ArrayBuffer` — the same bytes seen as `width × height` u32 texels — so nothing is
- * duplicated on the CPU. Cached per `GpuBuffer`; re-synced when `buffer.version` moves or ranges are
- * queued — a row-granular `texSubImage2D` for `packAtIndex`/`addUpdateRange` partial writes, a full upload for
- * a bare version bump, or a full re-allocation if the texel grid grew. The caller binds it.
+ * duplicated on the CPU. The grid width is `min(totalTexels, MAX_TEXTURE_SIZE)` (chosen at compile) so
+ * `width` need not divide the texel count: the last row is padded and uploaded narrower (see
+ * {@link uploadStorageRows}). Cached per `GpuBuffer`; re-synced when `buffer.version` moves or ranges are
+ * queued — a row-granular partial upload for `packAtIndex`/`addUpdateRange` writes, a full upload for a
+ * bare version bump, or a full re-allocation if the texel grid grew. The caller binds it.
  */
 export function updateStorageBufferTexture(
     gl: WebGL2RenderingContext,
@@ -270,8 +306,23 @@ export function updateStorageBufferTexture(
                 '(its data was released after upload); keep it resident to sample it on WebGL2.',
         );
     }
-    // Reinterpret the buffer's bytes as rgba32uint texels. A single-arg length keeps this a zero-copy view.
-    const view = new Uint32Array(arr.buffer, arr.byteOffset, width * height * 4);
+    // Validate the texel grid against the real device cap (read once). The compile-time width pick uses
+    // this same cap, so `width ≤ MAX`; `height = ceil(totalTexels / width)` can still exceed it for a
+    // buffer larger than `MAX²` texels → reject clearly rather than let GL fail opaquely.
+    if (state.maxTextureSize == null) state.maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
+    const max = state.maxTextureSize;
+    if (width > max || height > max) {
+        throw new Error(
+            `[WebGLRenderer] storage() read-lowering: the buffer needs a ${width}×${height} texel grid, which ` +
+                `exceeds this device's MAX_TEXTURE_SIZE=${max}; split or reshape the buffer.`,
+        );
+    }
+
+    // The buffer is a whole number of texels (guarded at compile). `width` may not divide it: `fullRows`
+    // rows are fully backed and a `remainder`-wide last row is padded up to `width`.
+    const totalTexels = arr.byteLength / 16;
+    const fullRows = Math.floor(totalTexels / width);
+    const remainder = totalTexels - fullRows * width;
 
     let data = state.bufferData.get(buffer);
     if (!data) {
@@ -279,9 +330,11 @@ export function updateStorageBufferTexture(
         if (!texture) throw new Error('[WebGLRenderer] gl.createTexture returned null (storage buffer texture).');
         state.all.add(texture);
         gl.bindTexture(gl.TEXTURE_2D, texture);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32UI, width, height, 0, gl.RGBA_INTEGER, gl.UNSIGNED_INT, view);
+        // Allocate the full (possibly padded) grid, then fill from the buffer's bytes.
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32UI, width, height, 0, gl.RGBA_INTEGER, gl.UNSIGNED_INT, null);
         // Integer textures are never filterable — NEAREST, clamp; sampled only via texelFetch.
         setDefaultMinFilter(gl, gl.TEXTURE_2D, false, true);
+        uploadStorageRows(gl, arr, width, fullRows, remainder, 0, height - 1);
         data = { texture, version: buffer.version, width, height };
         state.bufferData.set(buffer, data);
         return texture;
@@ -296,25 +349,23 @@ export function updateStorageBufferTexture(
     gl.bindTexture(gl.TEXTURE_2D, data.texture);
     if (sizeChanged) {
         // Grow/shrink → re-specify the whole mutable texture at the new size (queued ranges are moot).
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32UI, width, height, 0, gl.RGBA_INTEGER, gl.UNSIGNED_INT, view);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32UI, width, height, 0, gl.RGBA_INTEGER, gl.UNSIGNED_INT, null);
+        uploadStorageRows(gl, arr, width, fullRows, remainder, 0, height - 1);
         data.width = width;
         data.height = height;
     } else {
         // Same size: prefer a row-granular partial upload when `packAtIndex`/`addUpdateRange` queued
         // dirty ranges. `updateRanges` are flat COMPONENT indices, so the grid width in that unit is
         // width·4 (4 u32 components per rgba32uint texel); clamp the span to `[0, height)`. A bare
-        // version bump (no ranges) or a span covering more than half the rows → full.
+        // version bump (no ranges) or a span covering more than half the rows → full. `uploadStorageRows`
+        // handles the padded last row inside whatever span it's given.
         const raw = buffer.updateRanges.length > 0 ? collapseUpdateRanges(buffer.updateRanges, width * 4) : null;
         const y0 = raw ? Math.max(0, raw.rowStart) : 0;
         const y1 = raw ? Math.min(height - 1, raw.rowStart + raw.rowCount - 1) : -1;
-        const span = raw && y1 >= y0 ? { y0, rows: y1 - y0 + 1 } : null;
-        if (span && span.rows <= height / 2) {
-            const start = span.y0 * width * 4;
-            const sub = view.subarray(start, start + span.rows * width * 4);
-            gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-            gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, span.y0, width, span.rows, gl.RGBA_INTEGER, gl.UNSIGNED_INT, sub);
+        if (raw && y1 >= y0 && y1 - y0 + 1 <= height / 2) {
+            uploadStorageRows(gl, arr, width, fullRows, remainder, y0, y1);
         } else {
-            gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA_INTEGER, gl.UNSIGNED_INT, view);
+            uploadStorageRows(gl, arr, width, fullRows, remainder, 0, height - 1);
         }
     }
     buffer.clearUpdateRanges();

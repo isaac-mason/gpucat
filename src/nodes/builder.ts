@@ -210,6 +210,14 @@ export type CompileGlslOptions = {
      * Default: 'highp' — keeping the emitted GLSL byte-identical to the golden snapshots.
      */
     precision?: 'highp' | 'mediump' | 'lowp';
+    /**
+     * The WebGL2 context's `MAX_TEXTURE_SIZE`, used to pick the `storage()` read-lowering's texel-grid
+     * width (`width = min(totalTexels, maxTextureSize)`; height = ceil) so large read-only storage
+     * buffers tile into a grid the device can allocate. Undefined → a conservative 2048 (WebGL2's
+     * guaranteed floor). GLSL-only and storage-only: the width is baked into the shader's texel
+     * addressing, so a change here alters the emitted GLSL — the compile cache is keyed by it.
+     */
+    maxTextureSize?: number;
 };
 
 /**
@@ -219,10 +227,13 @@ export type CompileGlslOptions = {
  * the buffer's own bytes directly as u32 texels (float fields round-trip through the accessor's
  * `uintBitsToFloat`) and caches one GL texture per `GpuBuffer`, version-synced — so mutating the buffer
  * between frames re-uploads, and N materials sharing a buffer share one GL texture. We only pick the
- * texel grid shape (baked into the shader's addressing via `width`): a width ≤ 2048 that divides the
- * texel count exactly, so no padding is ever needed; if none tiles into ≤2048×2048 we throw.
+ * texel grid shape (baked into the shader's addressing via `width`): `width = min(totalTexels, cap)`
+ * where `cap` is the device `MAX_TEXTURE_SIZE` (or 2048, WebGL2's guaranteed floor, when unknown), and
+ * `height = ceil(totalTexels / width)`. No exact-division requirement — the renderer pads the (short)
+ * last row and validates `height ≤ MAX_TEXTURE_SIZE` at upload. The baked width is device-specific, so
+ * the GLSL compile cache is keyed by `maxTextureSize`.
  */
-function createStorageBinding(node: StorageNode<d.Any>): StorageMirror {
+function createStorageBinding(node: StorageNode<d.Any>, maxTextureSize: number | undefined): StorageMirror {
     const buffer = node.value!;
     const arr = buffer.array;
     if (arr == null) {
@@ -234,21 +245,16 @@ function createStorageBinding(node: StorageNode<d.Any>): StorageMirror {
     if (arr.byteLength === 0 || arr.byteLength % 16 !== 0) {
         throw new Error(
             `[glsl] storage() read-lowering: buffer byte length ${arr.byteLength} must be a non-zero multiple ` +
-                `of 16 (whole rgba32uint texels) to reinterpret as a WebGL texture without padding`,
+                `of 16 (whole rgba32uint texels) to reinterpret as a WebGL texture`,
         );
     }
     const totalTexels = arr.byteLength / 16;
-    // Pick a texel width ≤ 2048 that divides totalTexels exactly, so the buffer's bytes fill the grid
-    // with no padding. Common case (≤ 2048 texels) → a single row of width `totalTexels`.
-    let width = Math.min(totalTexels, 2048);
-    while (width > 1 && totalTexels % width !== 0) width--;
-    const height = totalTexels / width;
-    if (height > 2048) {
-        throw new Error(
-            `[glsl] storage() read-lowering: ${totalTexels} texels don't tile into a ≤2048×2048 grid ` +
-                `(no width ≤ 2048 divides evenly); split or reshape the buffer`,
-        );
-    }
+    // `width = min(totalTexels, cap)`, `height = ceil` — the renderer pads the short last row (no
+    // exact-division needed) and validates `height ≤ MAX_TEXTURE_SIZE`. Common case (`totalTexels ≤ cap`)
+    // → a single row of width `totalTexels`, byte-identical to the pre-capacity path.
+    const cap = maxTextureSize ?? 2048;
+    const width = Math.min(totalTexels, cap);
+    const height = Math.ceil(totalTexels / width);
     // Synthetic, sampler-less integer texture binding backed by the buffer itself — `.load()` lowers to
     // texelFetch on a usampler2D, needing no sampler. The renderer resolves `storageBufferSource`.
     const binding = new TextureBindingNode(d.texture2d(d.u32) as d.texture2d, `storage${node.id}`);
@@ -298,7 +304,7 @@ export function compileGlsl(slots: CompileSlots, opts: CompileGlslOptions = {}):
                     `(reinterpreted as a texture); '${node.access}' / name-based / compute storage is not supported`,
             );
         }
-        storageMirrors.set(node.id, createStorageBinding(node));
+        storageMirrors.set(node.id, createStorageBinding(node, opts.maxTextureSize));
     }
     if (discovered.storageTextures.size > 0) {
         // WebGL2 has no storage textures.

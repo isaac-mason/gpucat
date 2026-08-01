@@ -54,6 +54,7 @@ export function prepareRenderObject(
             renderObject.material,
             renderObject.geometry,
             renderObject.renderContext,
+            glslOptions?.maxTextureSize,
         );
         // Bind the GLSL emitter options (precision) into the compile callback. When no options are
         // requested this is `compileGlsl` with defaults — byte-identical to the golden path.

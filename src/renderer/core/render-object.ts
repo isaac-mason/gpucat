@@ -228,9 +228,19 @@ export function getBindings(renderObject: RenderObject): BindGroup[] {
  * This is used to detect when recompilation is needed.
  * The key includes render state, geometry attributes, and context configuration.
  */
-export function computeRenderObjectCacheKey(material: Material, geometry: Geometry, renderContext: RenderContext): string {
+export function computeRenderObjectCacheKey(
+    material: Material,
+    geometry: Geometry,
+    renderContext: RenderContext,
+    maxTextureSize?: number,
+): string {
     // Build cache key from material render state
     const parts: string[] = [];
+
+    // The storage() read-lowering bakes a MAX_TEXTURE_SIZE-derived texel-grid width into the GLSL, so a
+    // shader compiled for one device's cap must not be reused on a smaller-cap context (belt-and-suspenders
+    // — the program cache is per-renderer, but a RenderObject's compiled source can be shared).
+    if (maxTextureSize !== undefined) parts.push(`m${maxTextureSize}`);
 
     // Material render state
     parts.push(material.transparent ? 't' : 'o');

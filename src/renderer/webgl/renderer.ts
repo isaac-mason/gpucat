@@ -181,6 +181,10 @@ export class WebGLRenderer implements Renderer, RendererState {
     /** Construction options, captured for init(). @internal */
     private readonly _opts: WebGLRendererOptions;
 
+    /** Cached `gl.MAX_TEXTURE_SIZE`, read once at init. Threaded into the storage() lowering's grid-width
+     *  pick (bigger buffers tile into a device-sized grid). @internal */
+    private _maxTextureSize: number | undefined;
+
     /** MSAA sample count (0 or 1 = no MSAA). */
     samples: number;
 
@@ -310,6 +314,11 @@ export class WebGLRenderer implements Renderer, RendererState {
             failIfMajorPerformanceCaveat: this._opts.failIfMajorPerformanceCaveat ?? false,
         });
         this.gl.viewport(0, 0, this._width, this._height);
+
+        // Read MAX_TEXTURE_SIZE once. It caps the storage() read-lowering's texel-grid width so large
+        // read-only storage buffers tile into a grid this device can allocate (guaranteed ≥ 2048).
+        const maxTex = this.gl.getParameter(this.gl.MAX_TEXTURE_SIZE) as number;
+        this._maxTextureSize = typeof maxTex === 'number' && maxTex > 0 ? maxTex : undefined;
 
         // WebGL's parallel to WebGPU's `device.lost`: the canvas fires `webglcontextlost` when the
         // driver drops the context (GPU reset, tab backgrounding, `WEBGL_lose_context`). Preventing
@@ -578,7 +587,7 @@ export class WebGLRenderer implements Renderer, RendererState {
                     this._geometries,
                     this._renderObjectGl,
                     renderObject,
-                    this._opts.precision ? { precision: this._opts.precision } : undefined,
+                    { precision: this._opts.precision, maxTextureSize: this._maxTextureSize },
                 ),
         );
 
