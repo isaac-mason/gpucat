@@ -13,7 +13,7 @@ import {
 const _worldSphereCenter: Vec3 = [0, 0, 0];
 
 /**
- * One sub-draw of a batched mesh — a plain instanced draw command over the mesh's (typically
+ * One sub-draw of a batched mesh: a plain instanced draw command over the mesh's (typically
  * merged) geometry, field-for-field a WebGPU indirect-draw arg struct. The mesh's geometry selects
  * the variant: indexed geometry uses {@link IndexedMeshDraw} (`GPUDrawIndexedIndirect`),
  * non-indexed uses {@link NonIndexedMeshDraw} (`GPUDrawIndirect`).
@@ -35,7 +35,7 @@ export type IndexedMeshDraw = {
     baseVertex?: number;
 };
 
-/** Non-indexed batched sub-draw — the `GPUDrawIndirect` arg struct, used when the mesh's geometry has no index buffer. */
+/** Non-indexed batched sub-draw: the `GPUDrawIndirect` arg struct, used when the mesh's geometry has no index buffer. */
 export type NonIndexedMeshDraw = {
     /** Vertices to draw from the (merged) vertex buffer(s). */
     vertexCount: number;

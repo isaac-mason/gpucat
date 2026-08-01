@@ -65,7 +65,7 @@ export class RenderTarget {
     /**
      * Viewport for renders into this target as a `Vec4` [x, y, width, height] in the target's pixels
      * (top-left origin); null = full target. A render into a target uses the target's own viewport/scissor,
-     * never the renderer's swapchain one — so a swapchain compositing viewport can't leak into a
+     * never the renderer's swapchain one, so a swapchain compositing viewport can't leak into a
      * render-to-texture (or cube) pass.
      */
     viewport: Vec4 | null = null;
@@ -129,7 +129,7 @@ export class RenderTarget {
      * renderer reallocates lazily on next use in `ensureRenderTargetTexturesAllocated`,
      * where `setRenderTargetTexture` destroys the old texture and creates the new
      * one atomically. Marking `needsUpdate` (+ the size mismatch) is enough to
-     * trigger that — a version-driven reallocation rather than eager destruction.
+     * trigger that: a version-driven reallocation rather than eager destruction.
      *
      * Eagerly disposing here would destroy a GPU texture synchronously, opening a
      * window where another pass that already recorded a draw against it (e.g. a

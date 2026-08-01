@@ -15,15 +15,15 @@ import {
  * A GPU buffer memory-layout standard. gpucat targets exactly three, one per (address space ×
  * shading language) combination it actually uses:
  *
- * - `std430`       — WGSL storage-buffer layout (packs tightest).
- * - `wgsl-uniform` — WGSL uniform-buffer layout (like std430 but struct/array elements round to 16).
- * - `std140`       — GLSL uniform-buffer layout (like wgsl-uniform, but also pads EVERY matrix
- *                    column to a vec4 — including 2-row matrices).
+ * - `std430`: WGSL storage-buffer layout (packs tightest).
+ * - `wgsl-uniform`: WGSL uniform-buffer layout (like std430 but struct/array elements round to 16).
+ * - `std140`: GLSL uniform-buffer layout (like wgsl-uniform, but also pads EVERY matrix
+ *                    column to a vec4, including 2-row matrices).
  *
  * (WGSL uniform ≠ std140: they differ only in that mat2 column stride. There is no GLSL storage
  * layout because WebGL2 has no storage buffers, so the fourth combination doesn't exist.)
  *
- * The three collapse to two orthogonal rules — see {@link roundsElementsTo16} and
+ * The three collapse to two orthogonal rules; see {@link roundsElementsTo16} and
  * {@link matColumnsAlwaysVec4}.
  */
 export type MemoryLayout = 'std430' | 'wgsl-uniform' | 'std140';
@@ -492,7 +492,7 @@ function emitArrayWrites(ctx: LayoutContext, schema: sizedArray, accessor: strin
 }
 
 /** JS expression that packs a logical value (`a` = the value accessor, an array) into a u32,
- *  component 0 in the LOW bits — matching the shader `unpack*` decode. `f16(x)` (in scope) is
+ *  component 0 in the LOW bits, matching the shader `unpack*` decode. `f16(x)` (in scope) is
  *  float→half bits. */
 function packedWriteExpr(packedType: string, a: string): string {
     const u8 = (i: number) => `(Math.round(Math.min(Math.max(${a}[${i}],0),1)*255)&255)`;
@@ -509,7 +509,7 @@ function packedWriteExpr(packedType: string, a: string): string {
     }
 }
 
-/** JS expression that unpacks a u32 (`u`) back to the logical array — inverse of {@link packedWriteExpr}.
+/** JS expression that unpacks a u32 (`u`) back to the logical array, inverse of {@link packedWriteExpr}.
  *  `f16r(bits)` (in scope) is half→float. Used by CPU readback (`unpackFromView`); the shader decode
  *  path is separate (accessor + GLSL emitter). */
 function packedReadExpr(packedType: string, u: string): string {

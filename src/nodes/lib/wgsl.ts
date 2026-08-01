@@ -88,7 +88,7 @@ export function wgsl<D extends d.Any>(desc: D): (strings: TemplateStringsArray, 
 /**
  * Create an inline GLSL expression node using a tagged template literal.
  *
- * Mirrors `wgsl` but produces a GLSL-only node — it emits on the WebGL backend
+ * Mirrors `wgsl` but produces a GLSL-only node; it emits on the WebGL backend
  * and throws on the WebGPU (WGSL) backend. For a node that runs on BOTH backends,
  * use `wgsl(desc)\`...\`.glslSource\`...\`` instead.
  *

@@ -207,7 +207,7 @@ export function compile(slots: CompileSlots): CompileResult {
 export type CompileGlslOptions = {
     /**
      * Fragment-stage default precision qualifier (`precision <p> float;` / `precision <p> int;`).
-     * Default: 'highp' — keeping the emitted GLSL byte-identical to the golden snapshots.
+     * Default: 'highp', keeping the emitted GLSL byte-identical to the golden snapshots.
      */
     precision?: 'highp' | 'mediump' | 'lowp';
     /**
@@ -215,7 +215,7 @@ export type CompileGlslOptions = {
      * width (`width = min(totalTexels, maxTextureSize)`; height = ceil) so large read-only storage
      * buffers tile into a grid the device can allocate. Undefined → a conservative 2048 (WebGL2's
      * guaranteed floor). GLSL-only and storage-only: the width is baked into the shader's texel
-     * addressing, so a change here alters the emitted GLSL — the compile cache is keyed by it.
+     * addressing, so a change here alters the emitted GLSL; the compile cache is keyed by it.
      */
     maxTextureSize?: number;
 };
@@ -225,11 +225,11 @@ export type CompileGlslOptions = {
  * No mirror object is minted here: the returned `base` is a synthetic sampler-less `TextureNode` whose
  * binding carries the `GpuBuffer` itself (`storageBufferSource`). At bind time the WebGL renderer reads
  * the buffer's own bytes directly as u32 texels (float fields round-trip through the accessor's
- * `uintBitsToFloat`) and caches one GL texture per `GpuBuffer`, version-synced — so mutating the buffer
+ * `uintBitsToFloat`) and caches one GL texture per `GpuBuffer`, version-synced, so mutating the buffer
  * between frames re-uploads, and N materials sharing a buffer share one GL texture. We only pick the
  * texel grid shape (baked into the shader's addressing via `width`): `width = min(totalTexels, cap)`
  * where `cap` is the device `MAX_TEXTURE_SIZE` (or 2048, WebGL2's guaranteed floor, when unknown), and
- * `height = ceil(totalTexels / width)`. No exact-division requirement — the renderer pads the (short)
+ * `height = ceil(totalTexels / width)`. No exact-division requirement: the renderer pads the (short)
  * last row and validates `height ≤ MAX_TEXTURE_SIZE` at upload. The baked width is device-specific, so
  * the GLSL compile cache is keyed by `maxTextureSize`.
  */
@@ -558,7 +558,7 @@ export function compileCompute(node: ComputeNode): ComputeCompileResult {
  * GLSL emitter to produce a real, linkable transform-feedback VERTEX program (attribute-in / captured-
  * varying-out) plus a no-op fragment shader so the program links.
  *
- * There is intentionally NO WGSL sibling — transform feedback is a WebGL2 primitive. Portability is via
+ * There is intentionally NO WGSL sibling: transform feedback is a WebGL2 primitive. Portability is via
  * a shared body `Fn` wrapped in a WebGPU compute(), not by this node spanning backends.
  */
 export function compileTransformFeedback(node: TransformFeedbackNode, opts: CompileGlslOptions = {}): TransformFeedbackGlslResult {

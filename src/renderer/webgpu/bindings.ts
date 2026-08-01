@@ -42,7 +42,7 @@ export type BindGroupData = {
 /** Bindings state - manages per-BindGroup GPU resources */
 export type BindingsState = {
     /**
-     * Bind group layout cache. Owned by the backend and injected at creation — the same cache
+     * Bind group layout cache. Owned by the backend and injected at creation; the same cache
      * instance backs the pipelines layer, so a given entry shape yields exactly one GPU layout
      * shared across all bind groups and pipelines.
      */
@@ -542,7 +542,7 @@ function updateTextureBinding(textureCache: TextureCache, device: GPUDevice, bin
     }
 }
 
-/** Update a storage texture binding — ensure GPU texture exists, detect changes. */
+/** Update a storage texture binding: ensure GPU texture exists, detect changes. */
 function updateStorageTextureBinding(
     textureCache: TextureCache,
     device: GPUDevice,

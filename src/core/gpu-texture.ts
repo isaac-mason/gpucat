@@ -208,7 +208,7 @@ export class GpuTexture<D extends d.Texture = d.Texture> {
      */
     needsFullUpload = false;
 
-    /** Queue a partial (texel-range) update and trigger a re-upload — WITHOUT forcing a full upload. */
+    /** Queue a partial (texel-range) update and trigger a re-upload, WITHOUT forcing a full upload. */
     addUpdateRange(start: number, count: number): void {
         this.updateRanges.push({ start, count });
         this.version++;
@@ -228,7 +228,7 @@ export class GpuTexture<D extends d.Texture = d.Texture> {
     /**
      * Render target this texture belongs to (color or depth attachment), or null.
      * Lets the bind path lazily (re)allocate a sampled render target whose own
-     * render pass hasn't run this frame — e.g. it was resized between renders.
+     * render pass hasn't run this frame, e.g. it was resized between renders.
      */
     renderTarget: RenderTarget | null = null;
 

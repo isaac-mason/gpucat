@@ -10,10 +10,10 @@
  *
  * `wgslType` stays WebGPU-native. A companion `glslType` carries the GLSL ES 3.00 type-name for the
  * subset of descriptors the GLSL backend can translate directly (scalars, float/int/uint vectors,
- * square float matrices, and structs — whose GLSL name equals their WGSL name). It is left OFF the
+ * square float matrices, and structs, whose GLSL name equals their WGSL name). It is left OFF the
  * descriptors the GLSL emitter can't express (f16 variants, bool vectors, non-square/half matrices,
  * textures, samplers, …) so the emitter's `glslType()` helper still throws loudly for them, exactly
- * as the old WGSL_TO_GLSL map did. Never neutralize `wgslType` for GLSL — add `glslType` alongside.
+ * as the old WGSL_TO_GLSL map did. Never neutralize `wgslType` for GLSL; add `glslType` alongside.
  */
 
 /* scalar descriptors */
@@ -374,7 +374,7 @@ export type StorageTextureAccess = 'read' | 'write' | 'read_write';
  * format permits `access: 'read_write'`.
  *
  * Per the core WebGPU "Texture Format Capabilities" table, ONLY the 32-bit single-channel
- * formats — `r32uint`, `r32sint`, `r32float` — support `read_write` storage access. Every other
+ * formats (`r32uint`, `r32sint`, `r32float`) support `read_write` storage access. Every other
  * storage-capable format is read-only / write-only. (`bgra8unorm` storage also needs the
  * `bgra8unorm-storage` feature.) This is enforced in `storageTexture()` as a friendly early error;
  * the device is the ultimate authority.
@@ -409,7 +409,7 @@ export type StorageValueOf<F extends StorageTextureFormat> = (typeof STORAGE_FOR
       ? vec4i
       : vec4f;
 
-/** Runtime version of StorageValueOf — maps a format to its vec4 value descriptor. */
+/** Runtime version of StorageValueOf: maps a format to its vec4 value descriptor. */
 export function storageValueOf(format: StorageTextureFormat): vec4f | vec4i | vec4u {
     const channel = STORAGE_FORMATS[format].channel;
     if (channel === 'u32') return vec4u;
@@ -546,7 +546,7 @@ export const snorm2x16: snorm2x16 = { type: 'snorm2x16', wgslType: 'vec2f', glsl
 
 export type Packed = unorm8x4 | snorm8x4 | half2x16 | unorm2x16 | snorm2x16;
 
-/** Per-packed-type metadata — decoded lane count + the WGSL `unpack` builtin. Single source of
+/** Per-packed-type metadata: decoded lane count + the WGSL `unpack` builtin. Single source of
  *  truth so CPU encode (pack.ts) and shader decode (accessor + GLSL emitter) cannot drift. */
 export const PACKED_SPECS = {
     unorm8x4: { lanes: 4, unpackFn: 'unpack4x8unorm' },
@@ -581,7 +581,7 @@ export type bits<F extends Record<string, number> = Record<string, number>> = {
  * A bitfield packed into one `u32`: `d.bits({ flags: 8, materialId: 24 })`. Fields are declared
  * low→high bits (the first field occupies the low bits). Total width must be ≤ 32. For use as a
  * structured-texture struct field: it stores as 4 B and the accessor decodes each named field to a
- * `u32` via shift/mask (no builtins — works on both backends). Not a valid emitted WGSL/GLSL member.
+ * `u32` via shift/mask (no builtins, works on both backends). Not a valid emitted WGSL/GLSL member.
  */
 export function bits<F extends Record<string, number>>(fields: F): bits<F> {
     const list: BitsField[] = [];

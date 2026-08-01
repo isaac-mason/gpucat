@@ -764,7 +764,7 @@ export class GpuTexture<D extends d.Texture = d.Texture> {
      * first upload) and takes priority over {@link updateRanges}. The renderer resets it after uploading.
      */
     needsFullUpload: boolean;
-    /** Queue a partial (texel-range) update and trigger a re-upload — WITHOUT forcing a full upload. */
+    /** Queue a partial (texel-range) update and trigger a re-upload, WITHOUT forcing a full upload. */
     addUpdateRange(start: number, count: number): void;
     /**
      * Whether this texture is a render target (managed by RenderTarget system).
@@ -775,7 +775,7 @@ export class GpuTexture<D extends d.Texture = d.Texture> {
     /**
      * Render target this texture belongs to (color or depth attachment), or null.
      * Lets the bind path lazily (re)allocate a sampled render target whose own
-     * render pass hasn't run this frame — e.g. it was resized between renders.
+     * render pass hasn't run this frame, e.g. it was resized between renders.
      */
     renderTarget: RenderTarget | null;
     /** Set to true after dispose() */
@@ -838,7 +838,7 @@ export function compileGlsl(slots: CompileSlots, opts?: CompileGlslOptions): Com
  * GLSL emitter to produce a real, linkable transform-feedback VERTEX program (attribute-in / captured-
  * varying-out) plus a no-op fragment shader so the program links.
  *
- * There is intentionally NO WGSL sibling — transform feedback is a WebGL2 primitive. Portability is via
+ * There is intentionally NO WGSL sibling: transform feedback is a WebGL2 primitive. Portability is via
  * a shared body `Fn` wrapped in a WebGPU compute(), not by this node spanning backends.
  */
 export function compileTransformFeedback(node: TransformFeedbackNode, opts?: CompileGlslOptions): TransformFeedbackGlslResult;
@@ -1590,10 +1590,10 @@ export const f16: f16;
  *
  * `wgslType` stays WebGPU-native. A companion `glslType` carries the GLSL ES 3.00 type-name for the
  * subset of descriptors the GLSL backend can translate directly (scalars, float/int/uint vectors,
- * square float matrices, and structs — whose GLSL name equals their WGSL name). It is left OFF the
+ * square float matrices, and structs, whose GLSL name equals their WGSL name). It is left OFF the
  * descriptors the GLSL emitter can't express (f16 variants, bool vectors, non-square/half matrices,
  * textures, samplers, …) so the emitter's `glslType()` helper still throws loudly for them, exactly
- * as the old WGSL_TO_GLSL map did. Never neutralize `wgslType` for GLSL — add `glslType` alongside.
+ * as the old WGSL_TO_GLSL map did. Never neutralize `wgslType` for GLSL; add `glslType` alongside.
  */
 export type f32 = {
     type: 'f32';
@@ -2197,7 +2197,7 @@ export type PassNodeOptions = {
     samples?: number;
     /**
      * Friendly identifier for this pass. Used verbatim as the `passId` (so it
-     * must be unique among passes) — it names the pass in the inspector's perf
+     * must be unique among passes). It names the pass in the inspector's perf
      * panel and labels the GPU render pass for tooling (RenderDoc, browser GPU
      * errors). When omitted, an auto id like `_pass0` is generated.
      */
@@ -3227,7 +3227,7 @@ export function WorkgroupVar<D extends Any>(name: string, type: D): WorkgroupVar
 /**
  * Create an inline GLSL expression node using a tagged template literal.
  *
- * Mirrors `wgsl` but produces a GLSL-only node — it emits on the WebGL backend
+ * Mirrors `wgsl` but produces a GLSL-only node; it emits on the WebGL backend
  * and throws on the WebGPU (WGSL) backend. For a node that runs on BOTH backends,
  * use `wgsl(desc)\`...\`.glslSource\`...\`` instead.
  *
@@ -3245,7 +3245,7 @@ export function glsl<D extends d.Any>(desc: D): (strings: TemplateStringsArray, 
 /**
  * Create a GLSL-only function from raw GLSL source code.
  *
- * Mirrors `wgslFn` but targets the WebGL backend only — the returned callable emits the GLSL
+ * Mirrors `wgslFn` but targets the WebGL backend only; the returned callable emits the GLSL
  * function on the WebGL backend and throws on the WebGPU (WGSL) backend. For a function that runs
  * on BOTH backends, use `wgslFn(wgslSrc, { output, params, glsl: glslSrc })` instead.
  *
@@ -3428,7 +3428,7 @@ export class RenderTarget {
     /**
      * Viewport for renders into this target as a `Vec4` [x, y, width, height] in the target's pixels
      * (top-left origin); null = full target. A render into a target uses the target's own viewport/scissor,
-     * never the renderer's swapchain one — so a swapchain compositing viewport can't leak into a
+     * never the renderer's swapchain one, so a swapchain compositing viewport can't leak into a
      * render-to-texture (or cube) pass.
      */
     viewport: Vec4 | null;
@@ -3446,7 +3446,7 @@ export class RenderTarget {
      * renderer reallocates lazily on next use in `ensureRenderTargetTexturesAllocated`,
      * where `setRenderTargetTexture` destroys the old texture and creates the new
      * one atomically. Marking `needsUpdate` (+ the size mismatch) is enough to
-     * trigger that — a version-driven reallocation rather than eager destruction.
+     * trigger that: a version-driven reallocation rather than eager destruction.
      *
      * Eagerly disposing here would destroy a GPU texture synchronously, opening a
      * window where another pass that already recorded a draw against it (e.g. a
@@ -3706,7 +3706,7 @@ export class CubeCamera extends Object3D {
 
 ```ts
 /**
- * One sub-draw of a batched mesh — a plain instanced draw command over the mesh's (typically
+ * One sub-draw of a batched mesh: a plain instanced draw command over the mesh's (typically
  * merged) geometry, field-for-field a WebGPU indirect-draw arg struct. The mesh's geometry selects
  * the variant: indexed geometry uses {@link IndexedMeshDraw} (`GPUDrawIndexedIndirect`),
  * non-indexed uses {@link NonIndexedMeshDraw} (`GPUDrawIndirect`).
@@ -3732,7 +3732,7 @@ export type IndexedMeshDraw = {
 #### `NonIndexedMeshDraw`
 
 ```ts
-/** Non-indexed batched sub-draw — the `GPUDrawIndirect` arg struct, used when the mesh's geometry has no index buffer. */
+/** Non-indexed batched sub-draw: the `GPUDrawIndirect` arg struct, used when the mesh's geometry has no index buffer. */
 export type NonIndexedMeshDraw = {
     /** Vertices to draw from the (merged) vertex buffer(s). */
     vertexCount: number;
@@ -4298,19 +4298,19 @@ export class GpuBuffer<T extends Any = Any> {
     /** Clear pending update ranges (called by renderer after upload) */
     clearUpdateRanges(): void;
     /**
-     * Pack `value` into element `index`, encoding it per `schema` (std430 — the storage-buffer layout)
+     * Pack `value` into element `index`, encoding it per `schema` (std430, the storage-buffer layout)
      * into `this.array` and queuing a partial re-upload (`addUpdateRange` + version bump). The common
      * CPU-side write, parallel to {@link DataTexture.packAtIndex}: on WebGPU the renderer `writeBuffer`s
      * just this range; on WebGL2 (where a read-only storage buffer is reinterpreted as an rgba32uint
      * texture) it `texSubImage2D`s just the covering rows.
      *
-     * `schema` is the ELEMENT type — `d.mat4x4f` for an `array<mat4x4f>` buffer, or the struct for
+     * `schema` is the ELEMENT type: `d.mat4x4f` for an `array<mat4x4f>` buffer, or the struct for
      * `array<Struct>`. Its std430 stride must match the buffer's element stride (byteLength / count),
      * else this throws rather than silently misaligning.
      */
     packAtIndex<D extends Any>(schema: D, index: number, value: Infer<D>): this;
     /**
-     * Pack `value` (encoded per `schema`, std430) at a raw BYTE offset into `this.array` — the low-level
+     * Pack `value` (encoded per `schema`, std430) at a raw BYTE offset into `this.array`, the low-level
      * primitive under {@link packAtIndex} and the buffer analogue of {@link DataTexture.packAtTexel}.
      * Byte offsets are honest to `pack.ts`/std430 (which address in bytes); `byteOffset` must be a
      * multiple of the array's component size. Queues a partial upload of exactly this element's
@@ -4319,7 +4319,7 @@ export class GpuBuffer<T extends Any = Any> {
     packAtByte<D extends Any>(schema: D, byteOffset: number, value: Infer<D>): this;
     /**
      * Bulk write: pack an entire array of `values` from element 0, encoding each per `schema` (std430)
-     * at its element stride, then flag ONE full re-upload (`needsUpdate` + cleared partial ranges — a
+     * at its element stride, then flag ONE full re-upload (`needsUpdate` + cleared partial ranges, a
      * whole-array write supersedes any queued `packAtIndex` ranges on both backends). `schema` is the
      * ELEMENT type; `values.length` must not exceed the buffer's element `count`.
      */
@@ -4753,7 +4753,7 @@ export class Texture<out T extends SourceData = SourceData> {
     onUpdate: ((texture: Texture<SourceData>) => void) | null;
     /**
      * Whether this texture belongs to a render target. Forwards to the underlying `GpuTexture` (the
-     * single source of truth the backends read), so setting it on the wrapper always takes effect —
+     * single source of truth the backends read), so setting it on the wrapper always takes effect;
      * a plain field here would silently not reach the `GpuTexture`, making the backend treat the
      * texture as a source upload (0-sized storage) instead of a render-target allocation.
      * @default false
@@ -5238,7 +5238,7 @@ export class DataTexture {
      */
     packAtIndex<S extends d.StructSchema>(schema: StructDef<S>, index: number, value: StructValue<S>): this;
     /**
-     * Pack a struct record starting at an explicit TEXEL offset — the low-level primitive under
+     * Pack a struct record starting at an explicit TEXEL offset, the low-level primitive under
      * {@link packAtIndex} (a texel is this texture's native addressing unit).
      */
     packAtTexel<S extends d.StructSchema>(schema: StructDef<S>, texel: number, value: StructValue<S>): this;
@@ -5299,7 +5299,7 @@ export function compile(slots: CompileSlots): CompileResult;
 export type CompileGlslOptions = {
     /**
      * Fragment-stage default precision qualifier (`precision <p> float;` / `precision <p> int;`).
-     * Default: 'highp' — keeping the emitted GLSL byte-identical to the golden snapshots.
+     * Default: 'highp', keeping the emitted GLSL byte-identical to the golden snapshots.
      */
     precision?: 'highp' | 'mediump' | 'lowp';
     /**
@@ -5307,7 +5307,7 @@ export type CompileGlslOptions = {
      * width (`width = min(totalTexels, maxTextureSize)`; height = ceil) so large read-only storage
      * buffers tile into a grid the device can allocate. Undefined → a conservative 2048 (WebGL2's
      * guaranteed floor). GLSL-only and storage-only: the width is baked into the shader's texel
-     * addressing, so a change here alters the emitted GLSL — the compile cache is keyed by it.
+     * addressing, so a change here alters the emitted GLSL; the compile cache is keyed by it.
      */
     maxTextureSize?: number;
 };
@@ -5334,7 +5334,7 @@ export function compileCompute(node: ComputeNode): ComputeCompileResult;
  * GLSL emitter to produce a real, linkable transform-feedback VERTEX program (attribute-in / captured-
  * varying-out) plus a no-op fragment shader so the program links.
  *
- * There is intentionally NO WGSL sibling — transform feedback is a WebGL2 primitive. Portability is via
+ * There is intentionally NO WGSL sibling: transform feedback is a WebGL2 primitive. Portability is via
  * a shared body `Fn` wrapped in a WebGPU compute(), not by this node spanning backends.
  */
 export function compileTransformFeedback(node: TransformFeedbackNode, opts?: CompileGlslOptions): TransformFeedbackGlslResult;
@@ -5662,15 +5662,15 @@ WGSL type descriptors (imported as `d`) and std430 buffer packing.
  * A GPU buffer memory-layout standard. gpucat targets exactly three, one per (address space ×
  * shading language) combination it actually uses:
  *
- * - `std430`       — WGSL storage-buffer layout (packs tightest).
- * - `wgsl-uniform` — WGSL uniform-buffer layout (like std430 but struct/array elements round to 16).
- * - `std140`       — GLSL uniform-buffer layout (like wgsl-uniform, but also pads EVERY matrix
- *                    column to a vec4 — including 2-row matrices).
+ * - `std430`: WGSL storage-buffer layout (packs tightest).
+ * - `wgsl-uniform`: WGSL uniform-buffer layout (like std430 but struct/array elements round to 16).
+ * - `std140`: GLSL uniform-buffer layout (like wgsl-uniform, but also pads EVERY matrix
+ *                    column to a vec4, including 2-row matrices).
  *
  * (WGSL uniform ≠ std140: they differ only in that mat2 column stride. There is no GLSL storage
  * layout because WebGL2 has no storage buffers, so the fourth combination doesn't exist.)
  *
- * The three collapse to two orthogonal rules — see {@link roundsElementsTo16} and
+ * The three collapse to two orthogonal rules; see {@link roundsElementsTo16} and
  * {@link matColumnsAlwaysVec4}.
  */
 export type MemoryLayout = 'std430' | 'wgsl-uniform' | 'std140';
