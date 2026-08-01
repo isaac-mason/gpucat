@@ -52,8 +52,13 @@ function applyViewportScissor(gl: WebGL2RenderingContext, passCtx: RenderContext
         // custom range never leaks into this one.
         gl.depthRange(v.minDepth, v.maxDepth);
     } else {
-        // No explicit viewport for this pass → restore the default full depth range so a preceding
+        // No explicit viewport for this pass → cover the full framebuffer at its own size. `passCtx.width`
+        // / `.height` are the physical framebuffer dimensions (the render target's size, or the canvas
+        // drawing buffer). Setting this every pass (rather than relying on the last gl.viewport) is what
+        // lets a render target larger than the canvas draw correctly — e.g. a headless 1x1 OffscreenCanvas
+        // rendering into a full-size target. Also restore the default full depth range so a preceding
         // pass's custom depthRange doesn't persist as stale state.
+        gl.viewport(0, 0, passCtx.width, passCtx.height);
         gl.depthRange(0, 1);
     }
     if (passCtx.scissor) {
