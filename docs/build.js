@@ -51,7 +51,7 @@ const SECTIONS = [
         groups: [
             { title: 'Buffers & uniforms', modules: ['core/gpu-buffer', 'core/uniform'] },
             { title: 'Materials', modules: ['material/material'] },
-            { title: 'Textures', modules: ['texture/texture', 'texture/source', 'texture/canvas-texture', 'texture/cube-texture', 'texture/depth-texture', 'texture/array-texture'] },
+            { title: 'Textures', modules: ['texture/texture', 'texture/source', 'texture/canvas-texture', 'texture/cube-texture', 'texture/depth-texture', 'texture/array-texture', 'texture/data-texture'] },
         ],
     },
     {

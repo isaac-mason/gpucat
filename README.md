@@ -320,7 +320,7 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
 ## Contents
 
 - [Examples](#examples) · [Getting Started](#getting-started) · [Core Concepts](#core-concepts) · [Backends: WebGPU & WebGL2](#backends-webgpu--webgl2)
-- Build an app: [The Renderer](#the-renderer) · [Scene and Objects](#scene-and-objects) · [Geometry](#geometry) · [Materials](#materials) · [Uniforms](#uniforms) · [Storage Buffers](#storage-buffers) · [Structs](#structs) · [Packing](#packing) · [Render Pipeline](#render-pipeline)
+- Build an app: [The Renderer](#the-renderer) · [Scene and Objects](#scene-and-objects) · [Geometry](#geometry) · [Materials](#materials) · [Uniforms](#uniforms) · [Storage Buffers](#storage-buffers) · [Structs](#structs) · [Packing](#packing) · [Structured data](#structured-data) · [Render Pipeline](#render-pipeline)
 - Shading language: [Constants](#constants-and-constructors) · [Operators](#operators) · [Variables](#variables) · [Control Flow](#control-flow) · [Method Chaining](#method-chaining) · [Functions](#functions) · [Building Blocks](#building-blocks) · [Varyings](#varyings) · [Textures](#textures-and-samplers) · [Atomics](#atomics) · [Builtins](#builtins) · [Included Uniforms](#included-uniforms)
 - [Compute](#compute) · [Transform feedback (WebGL2)](#transform-feedback-webgl2) · [Drawing Many Things](#drawing-many-things) · [Controls and the Inspector](#controls-and-the-inspector)
 - [Compiling to WGSL](#compiling-to-wgsl) · [WGSL to gpucat](#wgsl-to-gpucat) · [API Reference](#api-reference)
@@ -545,7 +545,8 @@ Both renderers share a common set of options; each backend adds a few of its own
 | Inspector (GPU timing, memory, draws, scene, shaders) | ✓ | ✓ |
 | Transform feedback (`renderer.transformFeedback()`, own-index GPU sim) | ✗ (use `compute()`) | ✓ |
 | Compute (`renderer.compute()`, compute nodes, scatter/atomics) | ✓ | ✗ (use `transformFeedback()`) |
-| Storage buffers · atomics | ✓ | ✗ |
+| Storage buffer reads (lowered to a texture on WebGL2) | ✓ | ✓ |
+| Storage buffer writes · atomics | ✓ | ✗ |
 | Storage textures · workgroup vars | ✓ | ✗ |
 | Inline WGSL (`` wgsl`` `` / `wgslFn`) | ✓ | ✗ |
 | Indirect draw (`geometry.indirect`) | ✓ | ✗ |
@@ -557,7 +558,7 @@ Both renderers share a common set of options; each backend adds a few of its own
 Backend compatibility is a property of the *features* you use, not of any single example (each example file constructs one specific renderer). Read it off the matrix above, or by category:
 
 - **Runs on both backends** — the shared rendering features: meshes and node-graph materials, textures, render targets and MRT, render-to-texture and post-processing, and camera controls. Anything built only from these works on either `WebGPURenderer` or `WebGLRenderer`.
-- **WebGPU-only** — compute (compute nodes and `renderer.compute()`), storage buffers, atomics, storage textures, workgroup vars, inline WGSL (`` wgsl`` `` / `wgslFn`), and indirect draw (`geometry.indirect`, both CPU-authored and compute-driven). Anything using these needs `WebGPURenderer`.
+- **WebGPU-only** — compute (compute nodes and `renderer.compute()`), storage buffer *writes* (`read_write`, atomics, compute output), storage textures, workgroup vars, inline WGSL (`` wgsl`` `` / `wgslFn`), and indirect draw (`geometry.indirect`, both CPU-authored and compute-driven). Anything using these needs `WebGPURenderer`. Read-only storage reads are portable, covered below.
 - **WebGL2-only** — [transform feedback](#transform-feedback-webgl2) (`renderer.transformFeedback()`), the honest own-index GPU-simulation primitive, with native readback via `renderer.readBufferAsync()`. WebGPU has no transform feedback; you express the same simulation as a `compute()` kernel there, reusing the per-element body `Fn` verbatim.
 
 The [examples browser](https://isaac-mason.github.io/gpucat/) groups examples by the backend each one targets, so the compute and storage-driven examples sit under WebGPU and the WebGL2 examples under WebGL.
@@ -856,6 +857,12 @@ buf.needsUpdate = true;     // re-upload the whole buffer
 buf.addUpdateRange(0, 4);   // or upload just 4 components from offset 0
 ```
 
+### Reads run on WebGL2 (as a texture)
+
+WebGL2 has no storage buffers, but a read-only storage buffer is an indexed array, and so is a texture. So `storage(buffer, 'read')` and the `index(_, i)` / `.field` reads over it work on both backends. On WebGPU it stays a native `var<storage>` array. On WebGL2 the renderer reads the buffer's own bytes as an `rgba32uint` texture and lowers each read to a `texelFetch`, using the same path as [Structured data](#structured-data). There is no second copy and no CPU round-trip.
+
+This covers the common case of per-instance data a vertex or fragment shader reads. It does not make writes portable: `read_write` storage, atomics, and compute output stay WebGPU-only, and on WebGL2 GPU writes go through [transform feedback](#transform-feedback-webgl2). The buffer must be value-form and keep its CPU `array` resident, since the texture reads from it. On WebGL2 the capacity is `MAX_TEXTURE_SIZE²` texels, which is 64 MB on the weakest conformant hardware and gigabytes on typical GPUs. Split the buffer if you need more.
+
 See [`storage`](./api.md#storage), [`createStorageBuffer`](./api.md#createstoragebuffer), and [`GpuBuffer`](./api.md#gpubuffer).
 
 <table>
@@ -921,6 +928,39 @@ const buf = createStorageBuffer(d.array(Particle), new Float32Array(bytes));
 - `layoutSizeOf(schema)` and `layoutStrideOf(schema)` give the byte size and the array stride (size plus tail padding).
 
 Each takes an optional last argument, `'storage'` (default) or `'uniform'`, to pick the alignment rules. See [api.md](./api.md#schema-d) for the full list.
+
+## Structured data
+
+Per-instance data, such as transforms, a material palette, or per-splat attributes, is a typed array of structs the GPU reads by index. gpucat treats a texture or storage buffer as that array: it holds plain typed bytes, and a `d` schema describes the record at each read or write.
+
+```ts
+const Instance = d.struct({ transform: d.mat4x4f, tint: d.unorm8x4, materialId: d.u32 });
+
+// allocate a texture sized for N records
+const instances = createStructTexture(Instance, N);
+
+// CPU write, in records rather than raw texels:
+instances.packAtIndex(Instance, i, { transform: m, tint: [1, 0, 0, 1], materialId: 3 });
+
+// shader read, field access by name with no texel math:
+const rec   = texture(instances).load(Instance, instanceIndex);
+const world = mul(rec.transform, localPosition);
+```
+
+`load(schema, i)` reads record `i` and returns an accessor. Its fields (`rec.transform`, `rec.tint`) are typed nodes, and only the fields you read emit texture loads. On the CPU, `packAtIndex(schema, i, value)` writes one record, `pack(schema, values)` fills the whole texture in one upload, and `packAtByte` and `packAtTexel` address by raw offset. On WebGL2 this compiles to an integer texture and `texelFetch`, so it runs on both backends. The same `pack*` methods exist on [`GpuBuffer`](./api.md#gpubuffer) for filling a storage buffer.
+
+The texture holds plain typed bytes, so you can split data across several textures by update frequency. A per-frame `transform` texture then re-uploads only its dirty rows, which `packAtIndex` tracks, while a static `material` texture stays put. Instancing, batched draws, and gsplat all build on this.
+
+### Packed encodings
+
+Fields can use compact encodings to cut memory and upload bandwidth. A normal as `d.unorm8x4` is 4 bytes against a `vec3f`'s 12. gpucat encodes on write and decodes on read using the same schema, so they stay consistent:
+
+- `d.unorm8x4`, `d.snorm8x4`: four 8-bit (s)normalized lanes, read as a `vec4f`.
+- `d.half2x16`: two 16-bit floats, read as a `vec2f`.
+- `d.unorm2x16`, `d.snorm2x16`: two 16-bit (s)normalized lanes, read as a `vec2f`.
+- `d.bits({ flags: 8, materialId: 24 })`: named bitfields packed into one `u32`.
+
+See [`createStructTexture`](./api.md#createstructtexture), [`DataTexture`](./api.md#datatexture), and the `pack*` methods on [`GpuBuffer`](./api.md#gpubuffer).
 
 ## Render Pipeline
 
@@ -1442,7 +1482,7 @@ const world = index(transforms, instanceIndex);   // this instance's matrix
 mesh.count = N;
 ```
 
-A compute pass can fill or update that buffer, so the instances are driven entirely on the GPU. This is how the particle and ball-cluster examples work.
+A compute pass can fill or update that buffer, so the instances are driven entirely on the GPU. This is how the particle and ball-cluster examples work. This runs on WebGL2 too. A read-only `storage(buffer, 'read')` read [lowers to a texture](#reads-run-on-webgl2-as-a-texture), or you can hold the per-instance data in a [data texture](#structured-data) and read it with `load(schema, instanceIndex)`.
 
 <table>
   <tr>
