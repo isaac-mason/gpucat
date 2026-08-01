@@ -828,19 +828,7 @@ function frame() {
 }
 ```
 
-`transformFeedback()` and `readBufferAsync()` are **`WebGLRenderer`-only** methods. Calling them on a `WebGPURenderer` is a compile-time type error, the same as `compute()` on `WebGLRenderer`. Inside the kernel body you can use `uniform()` and `textureLoad()` (an explicit `DataTexture` you bind, for neighbour gather); the element index is `vertexIndex` (or `instanceIndex` when you pass `instanceCount`). Outputs are scalar / vector types; `vec3` wants `vec4f` and struct outputs are not supported (both throw a clear message).
-
-### No lies
-
-Transform feedback is the literal WebGL2 primitive, with nothing under the rug:
-
-- **One `GpuBuffer` = one GL buffer, always.** No dual buffer hidden behind a handle.
-- **No auto-swap.** You ping-pong input/output buffers explicitly in your own frame loop.
-- **No PBO texture mirror** and no post-dispatch buffer↔texture copy for coherence.
-- **Random-access reads are explicit:** a neighbour gather is a `textureLoad(dataTexture, ...)` on a `DataTexture` you bind (visible), or it is simply not expressible. No secret texture.
-- **Readback is explicit and native:** `renderer.readBufferAsync(buf)` is a real `copyBufferSubData` → fence → `getBufferSubData`, returning a typed array whose element type matches the buffer's schema.
-
-Scatter, arbitrary-index writes, and atomics are not part of this model — those stay on WebGPU's `compute()`.
+`transformFeedback()` and `readBufferAsync()` are **`WebGLRenderer`-only** methods. Calling them on a `WebGPURenderer` is a compile-time type error, the same as `compute()` on `WebGLRenderer`. Inside the kernel body you can use `uniform()` and `textureLoad()` (an explicit `DataTexture` you bind, for neighbour gather); the element index is `vertexIndex` (or `instanceIndex` when you pass `instanceCount`). Outputs are scalar / vector types; `vec3` wants `vec4f` and struct outputs are not supported (both throw a clear message). Scatter, arbitrary-index writes, and atomics are not part of this model; use `compute()` on WebGPU for those.
 
 ### Sharing the body with `compute()`
 
