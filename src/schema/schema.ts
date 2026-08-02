@@ -18,77 +18,98 @@
 
 /* scalar descriptors */
 
-export type f32 = { type: 'f32'; wgslType: 'f32'; glslType: 'float' };
-export const f32: f32 = { type: 'f32', wgslType: 'f32', glslType: 'float' };
+// Scalars and vectors carry their component `scalar` kind and component count `len` as fields so the
+// backends read them directly instead of re-deriving from the `wgslType` string (regex/`===` ladders).
+// The component kind is the same for a scalar and its vectors (vec3f -> 'f32'); `len` is 1 for a scalar.
+export type f32 = { type: 'f32'; wgslType: 'f32'; glslType: 'float'; scalar: 'f32'; len: 1 };
+export const f32: f32 = { type: 'f32', wgslType: 'f32', glslType: 'float', scalar: 'f32', len: 1 };
 
-export type i32 = { type: 'i32'; wgslType: 'i32'; glslType: 'int' };
-export const i32: i32 = { type: 'i32', wgslType: 'i32', glslType: 'int' };
+export type i32 = { type: 'i32'; wgslType: 'i32'; glslType: 'int'; scalar: 'i32'; len: 1 };
+export const i32: i32 = { type: 'i32', wgslType: 'i32', glslType: 'int', scalar: 'i32', len: 1 };
 
-export type u32 = { type: 'u32'; wgslType: 'u32'; glslType: 'uint' };
-export const u32: u32 = { type: 'u32', wgslType: 'u32', glslType: 'uint' };
+export type u32 = { type: 'u32'; wgslType: 'u32'; glslType: 'uint'; scalar: 'u32'; len: 1 };
+export const u32: u32 = { type: 'u32', wgslType: 'u32', glslType: 'uint', scalar: 'u32', len: 1 };
 
-export type bool = { type: 'bool'; wgslType: 'bool'; glslType: 'bool' };
-export const bool: bool = { type: 'bool', wgslType: 'bool', glslType: 'bool' };
+export type bool = { type: 'bool'; wgslType: 'bool'; glslType: 'bool'; scalar: 'bool'; len: 1 };
+export const bool: bool = { type: 'bool', wgslType: 'bool', glslType: 'bool', scalar: 'bool', len: 1 };
 
-export type f16 = { type: 'f16'; wgslType: 'f16' };
-export const f16: f16 = { type: 'f16', wgslType: 'f16' };
+export type f16 = { type: 'f16'; wgslType: 'f16'; scalar: 'f16'; len: 1 };
+export const f16: f16 = { type: 'f16', wgslType: 'f16', scalar: 'f16', len: 1 };
 
 export type Scalar = f32 | i32 | u32 | bool | f16;
 
 /* vec2 descriptors */
 
-export type vec2f = { type: 'vec2f'; wgslType: 'vec2f'; glslType: 'vec2' };
-export const vec2f: vec2f = { type: 'vec2f', wgslType: 'vec2f', glslType: 'vec2' };
+export type vec2f = { type: 'vec2f'; wgslType: 'vec2f'; glslType: 'vec2'; scalar: 'f32'; len: 2 };
+export const vec2f: vec2f = { type: 'vec2f', wgslType: 'vec2f', glslType: 'vec2', scalar: 'f32', len: 2 };
 
-export type vec2i = { type: 'vec2i'; wgslType: 'vec2i'; glslType: 'ivec2' };
-export const vec2i: vec2i = { type: 'vec2i', wgslType: 'vec2i', glslType: 'ivec2' };
+export type vec2i = { type: 'vec2i'; wgslType: 'vec2i'; glslType: 'ivec2'; scalar: 'i32'; len: 2 };
+export const vec2i: vec2i = { type: 'vec2i', wgslType: 'vec2i', glslType: 'ivec2', scalar: 'i32', len: 2 };
 
-export type vec2u = { type: 'vec2u'; wgslType: 'vec2u'; glslType: 'uvec2' };
-export const vec2u: vec2u = { type: 'vec2u', wgslType: 'vec2u', glslType: 'uvec2' };
+export type vec2u = { type: 'vec2u'; wgslType: 'vec2u'; glslType: 'uvec2'; scalar: 'u32'; len: 2 };
+export const vec2u: vec2u = { type: 'vec2u', wgslType: 'vec2u', glslType: 'uvec2', scalar: 'u32', len: 2 };
 
-export type vec2bool = { type: 'vec2<bool>'; wgslType: 'vec2<bool>'; glslType: 'bvec2' };
-export const vec2bool: vec2bool = { type: 'vec2<bool>', wgslType: 'vec2<bool>', glslType: 'bvec2' };
+export type vec2bool = { type: 'vec2<bool>'; wgslType: 'vec2<bool>'; glslType: 'bvec2'; scalar: 'bool'; len: 2 };
+export const vec2bool: vec2bool = {
+    type: 'vec2<bool>',
+    wgslType: 'vec2<bool>',
+    glslType: 'bvec2',
+    scalar: 'bool',
+    len: 2,
+};
 
-export type vec2h = { type: 'vec2h'; wgslType: 'vec2h' };
-export const vec2h: vec2h = { type: 'vec2h', wgslType: 'vec2h' };
+export type vec2h = { type: 'vec2h'; wgslType: 'vec2h'; scalar: 'f16'; len: 2 };
+export const vec2h: vec2h = { type: 'vec2h', wgslType: 'vec2h', scalar: 'f16', len: 2 };
 
 export type Vec2 = vec2f | vec2i | vec2u | vec2bool | vec2h;
 
 /* vec3 descriptors */
 
-export type vec3f = { type: 'vec3f'; wgslType: 'vec3f'; glslType: 'vec3' };
-export const vec3f: vec3f = { type: 'vec3f', wgslType: 'vec3f', glslType: 'vec3' };
+export type vec3f = { type: 'vec3f'; wgslType: 'vec3f'; glslType: 'vec3'; scalar: 'f32'; len: 3 };
+export const vec3f: vec3f = { type: 'vec3f', wgslType: 'vec3f', glslType: 'vec3', scalar: 'f32', len: 3 };
 
-export type vec3i = { type: 'vec3i'; wgslType: 'vec3i'; glslType: 'ivec3' };
-export const vec3i: vec3i = { type: 'vec3i', wgslType: 'vec3i', glslType: 'ivec3' };
+export type vec3i = { type: 'vec3i'; wgslType: 'vec3i'; glslType: 'ivec3'; scalar: 'i32'; len: 3 };
+export const vec3i: vec3i = { type: 'vec3i', wgslType: 'vec3i', glslType: 'ivec3', scalar: 'i32', len: 3 };
 
-export type vec3u = { type: 'vec3u'; wgslType: 'vec3u'; glslType: 'uvec3' };
-export const vec3u: vec3u = { type: 'vec3u', wgslType: 'vec3u', glslType: 'uvec3' };
+export type vec3u = { type: 'vec3u'; wgslType: 'vec3u'; glslType: 'uvec3'; scalar: 'u32'; len: 3 };
+export const vec3u: vec3u = { type: 'vec3u', wgslType: 'vec3u', glslType: 'uvec3', scalar: 'u32', len: 3 };
 
-export type vec3bool = { type: 'vec3<bool>'; wgslType: 'vec3<bool>'; glslType: 'bvec3' };
-export const vec3bool: vec3bool = { type: 'vec3<bool>', wgslType: 'vec3<bool>', glslType: 'bvec3' };
+export type vec3bool = { type: 'vec3<bool>'; wgslType: 'vec3<bool>'; glslType: 'bvec3'; scalar: 'bool'; len: 3 };
+export const vec3bool: vec3bool = {
+    type: 'vec3<bool>',
+    wgslType: 'vec3<bool>',
+    glslType: 'bvec3',
+    scalar: 'bool',
+    len: 3,
+};
 
-export type vec3h = { type: 'vec3h'; wgslType: 'vec3h' };
-export const vec3h: vec3h = { type: 'vec3h', wgslType: 'vec3h' };
+export type vec3h = { type: 'vec3h'; wgslType: 'vec3h'; scalar: 'f16'; len: 3 };
+export const vec3h: vec3h = { type: 'vec3h', wgslType: 'vec3h', scalar: 'f16', len: 3 };
 
 export type Vec3 = vec3f | vec3i | vec3u | vec3bool | vec3h;
 
 /* vec4 descriptors */
 
-export type vec4f = { type: 'vec4f'; wgslType: 'vec4f'; glslType: 'vec4' };
-export const vec4f: vec4f = { type: 'vec4f', wgslType: 'vec4f', glslType: 'vec4' };
+export type vec4f = { type: 'vec4f'; wgslType: 'vec4f'; glslType: 'vec4'; scalar: 'f32'; len: 4 };
+export const vec4f: vec4f = { type: 'vec4f', wgslType: 'vec4f', glslType: 'vec4', scalar: 'f32', len: 4 };
 
-export type vec4i = { type: 'vec4i'; wgslType: 'vec4i'; glslType: 'ivec4' };
-export const vec4i: vec4i = { type: 'vec4i', wgslType: 'vec4i', glslType: 'ivec4' };
+export type vec4i = { type: 'vec4i'; wgslType: 'vec4i'; glslType: 'ivec4'; scalar: 'i32'; len: 4 };
+export const vec4i: vec4i = { type: 'vec4i', wgslType: 'vec4i', glslType: 'ivec4', scalar: 'i32', len: 4 };
 
-export type vec4u = { type: 'vec4u'; wgslType: 'vec4u'; glslType: 'uvec4' };
-export const vec4u: vec4u = { type: 'vec4u', wgslType: 'vec4u', glslType: 'uvec4' };
+export type vec4u = { type: 'vec4u'; wgslType: 'vec4u'; glslType: 'uvec4'; scalar: 'u32'; len: 4 };
+export const vec4u: vec4u = { type: 'vec4u', wgslType: 'vec4u', glslType: 'uvec4', scalar: 'u32', len: 4 };
 
-export type vec4bool = { type: 'vec4<bool>'; wgslType: 'vec4<bool>'; glslType: 'bvec4' };
-export const vec4bool: vec4bool = { type: 'vec4<bool>', wgslType: 'vec4<bool>', glslType: 'bvec4' };
+export type vec4bool = { type: 'vec4<bool>'; wgslType: 'vec4<bool>'; glslType: 'bvec4'; scalar: 'bool'; len: 4 };
+export const vec4bool: vec4bool = {
+    type: 'vec4<bool>',
+    wgslType: 'vec4<bool>',
+    glslType: 'bvec4',
+    scalar: 'bool',
+    len: 4,
+};
 
-export type vec4h = { type: 'vec4h'; wgslType: 'vec4h' };
-export const vec4h: vec4h = { type: 'vec4h', wgslType: 'vec4h' };
+export type vec4h = { type: 'vec4h'; wgslType: 'vec4h'; scalar: 'f16'; len: 4 };
+export const vec4h: vec4h = { type: 'vec4h', wgslType: 'vec4h', scalar: 'f16', len: 4 };
 
 export type Vec4 = vec4f | vec4i | vec4u | vec4bool | vec4h;
 

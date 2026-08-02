@@ -79,26 +79,17 @@ const GLSL_INTEGER_WGSL_TYPES = new Set(['i32', 'u32', 'vec2i', 'vec3i', 'vec4i'
  * the operation's type must be wrapped in an explicit conversion constructor (mirrors three.js's
  * OperatorNode operand coercion via `format`).
  */
-function glslScalarKind(wgslType: string): 'f32' | 'i32' | 'u32' | 'bool' | null {
-    switch (wgslType) {
-        case 'f32':
-        case 'i32':
-        case 'u32':
-        case 'bool':
-            return wgslType;
-    }
-    if (/^vec[234]f$/.test(wgslType)) return 'f32';
-    if (/^vec[234]i$/.test(wgslType)) return 'i32';
-    if (/^vec[234]u$/.test(wgslType)) return 'u32';
-    if (/^vec[234]b?$/.test(wgslType) || /^vec[234]<bool>$/.test(wgslType)) return 'bool';
-    return null;
+/** Component kind (f32/i32/u32/bool) of a scalar/vector descriptor, read straight off its `scalar` field.
+ *  null for f16 and for matrices/composites — the GLSL backend never routes those through the scalar and
+ *  operator-coercion paths, and f16 has no GLSL ES 3.00 form. */
+function glslScalarKind(desc: d.Any): 'f32' | 'i32' | 'u32' | 'bool' | null {
+    if (!('scalar' in desc) || desc.scalar === 'f16') return null;
+    return desc.scalar;
 }
 
-/** Component count (1 for scalars, 2..4 for vectors) of a scalar/vector WGSL type, or null otherwise. */
-function glslVecLen(wgslType: string): 1 | 2 | 3 | 4 | null {
-    if (/^(f32|i32|u32|bool)$/.test(wgslType)) return 1;
-    const m = /^vec([234])/.exec(wgslType);
-    return m ? (Number(m[1]) as 2 | 3 | 4) : null;
+/** Component count (1 for scalars, 2..4 for vectors) of a scalar/vector descriptor, or null otherwise. */
+function glslVecLen(desc: d.Any): 1 | 2 | 3 | 4 | null {
+    return 'len' in desc ? desc.len : null;
 }
 
 /** GLSL constructor name for a given length + component kind (e.g. len 3 + i32 → `ivec3`). */
@@ -114,9 +105,9 @@ function glslCtorFor(len: 1 | 2 | 3 | 4, scalar: 'f32' | 'i32' | 'u32' | 'bool')
  * the expression unchanged when kinds already match or the operand is not a plain scalar/vector.
  */
 function coerceOperandScalar(node: Node<d.Any>, expr: string, target: 'f32' | 'i32' | 'u32'): string {
-    const kind = glslScalarKind(node.type.wgslType);
+    const kind = glslScalarKind(node.type);
     if (kind === null || kind === target) return expr;
-    const len = glslVecLen(node.type.wgslType);
+    const len = glslVecLen(node.type);
     if (len === null) return expr;
     return `${glslCtorFor(len, target)}(${expr})`;
 }
@@ -133,7 +124,7 @@ function coerceOperandScalar(node: Node<d.Any>, expr: string, target: 'f32' | 'i
  * covered without maintaining a hand-written name list.
  */
 function glslVaryingQualifier(node: VaryingNode<d.Any>): string {
-    const scalarKind = glslScalarKind(node.type.wgslType);
+    const scalarKind = glslScalarKind(node.type);
     const isInteger = scalarKind === 'i32' || scalarKind === 'u32';
     const interp = node.interpolationType;
     // 'linear' maps to `noperspective`, which is NOT part of GLSL ES 3.00 (desktop GLSL only) — reject
@@ -463,14 +454,14 @@ function generateExpr(ctx: GlslBuildContext, rawNode: Node<d.Any>): string {
             // op (int with uint, int/uint with float) is a hard compile error unless one side is wrapped
             // in an explicit conversion. Shifts are exempt — GLSL allows a differing-kind shift amount —
             // and comparisons/arithmetic coerce to the common kind (float wins; else the result kind).
-            const leftKind = glslScalarKind(node.left.type.wgslType);
-            const rightKind = glslScalarKind(node.right.type.wgslType);
+            const leftKind = glslScalarKind(node.left.type);
+            const rightKind = glslScalarKind(node.right.type);
             const isShift = node.op === '<<' || node.op === '>>';
             if (!isShift && leftKind && rightKind && leftKind !== rightKind && leftKind !== 'bool' && rightKind !== 'bool') {
                 const target =
                     leftKind === 'f32' || rightKind === 'f32'
                         ? 'f32'
-                        : ((glslScalarKind(node.type.wgslType) as 'i32' | 'u32' | null) ?? 'i32');
+                        : ((glslScalarKind(node.type) as 'i32' | 'u32' | null) ?? 'i32');
                 left = coerceOperandScalar(node.left, left, target);
                 right = coerceOperandScalar(node.right, right, target);
             }
@@ -565,11 +556,11 @@ function generateExpr(ctx: GlslBuildContext, rawNode: Node<d.Any>): string {
             //    in ES 3.20, so an integer-vector select must expand to a componentwise ternary instead.
             const condIsVec =
                 node.condition.type.wgslType.includes('<bool>') || /^vec[234]b?$/.test(node.condition.type.wgslType);
-            const resultScalar = glslScalarKind(node.type.wgslType);
+            const resultScalar = glslScalarKind(node.type);
             if (condIsVec && resultScalar !== 'f32') {
                 // Integer/uint/bool componentwise select. Hoist the three operands to temps (each is read
                 // once per component, and may carry side effects / be expensive) then build the vector.
-                const len = glslVecLen(node.type.wgslType);
+                const len = glslVecLen(node.type);
                 if (len === null || len === 1 || resultScalar === null) {
                     unsupported(`componentwise select producing '${node.type.wgslType}'`);
                 }
