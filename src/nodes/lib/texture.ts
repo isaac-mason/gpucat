@@ -552,34 +552,36 @@ export function decodeField(
         return sub as unknown as Node<Any>;
     }
 
-    // Scalars
-    if (t === 'u32') return lane(texel, comp);
-    if (t === 'i32') return bitcastI32(lane(texel, comp));
-    if (t === 'f32') return bitcastF32(lane(texel, comp));
-    // vec2 (aligns to 8 → both lanes in one texel, at comp / comp+1)
-    if (t === 'vec2u') return vec2u(lane(texel, comp), lane(texel, comp + 1));
-    if (t === 'vec2i') return vec2i(bitcastI32(lane(texel, comp)), bitcastI32(lane(texel, comp + 1)));
-    if (t === 'vec2f') return vec2f(bitcastF32(lane(texel, comp)), bitcastF32(lane(texel, comp + 1)));
-    // vec3 (aligns to 16 → lanes 0,1,2 of one texel)
-    if (t === 'vec3u') return vec3u(lane(texel, 0), lane(texel, 1), lane(texel, 2));
-    if (t === 'vec3i') return vec3i(bitcastI32(lane(texel, 0)), bitcastI32(lane(texel, 1)), bitcastI32(lane(texel, 2)));
-    if (t === 'vec3f') return vec3(bitcastF32(lane(texel, 0)), bitcastF32(lane(texel, 1)), bitcastF32(lane(texel, 2)));
-    // vec4 (whole texel)
-    if (t === 'vec4u') return texel as unknown as Node<Any>;
-    if (t === 'vec4i')
-        return vec4i(
-            bitcastI32(lane(texel, 0)),
-            bitcastI32(lane(texel, 1)),
-            bitcastI32(lane(texel, 2)),
-            bitcastI32(lane(texel, 3)),
-        );
-    if (t === 'vec4f')
-        return vec4(
-            bitcastF32(lane(texel, 0)),
-            bitcastF32(lane(texel, 1)),
-            bitcastF32(lane(texel, 2)),
-            bitcastF32(lane(texel, 3)),
-        );
+    // Scalars and float/int/uint vectors, driven by the descriptor's `scalar` kind + `len`. Read `len`
+    // lanes starting at `comp` (a vec2 aligns to 8 bytes so it may sit at comp 0 or 2; vec3/vec4 align to
+    // 16 so comp is 0), reinterpreting each lane per the component kind: u32 raw, i32/f32 via bitcast.
+    if ('scalar' in type && 'len' in type) {
+        const len = type.len;
+        const lanes = <T extends d.Any>(reinterpret: (l: Node<d.u32>) => Node<T>): Node<T>[] =>
+            Array.from({ length: len }, (_, k) => reinterpret(lane(texel, comp + k)));
+        if (type.scalar === 'u32') {
+            // A whole u32 vec4 IS the texel — return it directly, no per-lane reconstruction.
+            if (len === 4) return texel as unknown as Node<Any>;
+            const c = lanes((l) => l);
+            if (len === 1) return c[0] as Node<Any>;
+            return (len === 2 ? vec2u(c[0], c[1]) : vec3u(c[0], c[1], c[2])) as Node<Any>;
+        }
+        if (type.scalar === 'i32') {
+            const c = lanes(bitcastI32);
+            if (len === 1) return c[0] as Node<Any>;
+            return (
+                len === 2 ? vec2i(c[0], c[1]) : len === 3 ? vec3i(c[0], c[1], c[2]) : vec4i(c[0], c[1], c[2], c[3])
+            ) as Node<Any>;
+        }
+        if (type.scalar === 'f32') {
+            const c = lanes(bitcastF32);
+            if (len === 1) return c[0] as Node<Any>;
+            return (
+                len === 2 ? vec2f(c[0], c[1]) : len === 3 ? vec3(c[0], c[1], c[2]) : vec4(c[0], c[1], c[2], c[3])
+            ) as Node<Any>;
+        }
+        // bool / f16 components have no structured-texture decode form; fall through to the error below.
+    }
     // f32 matrices: each column has stride 16 (one texel) for 3- and 4-row matrices.
     const m = t.match(/^mat(\d)x(\d)f$/);
     if (m) {

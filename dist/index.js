@@ -4156,26 +4156,44 @@ class Uniform {
  * textures, samplers, …) so the emitter's `glslType()` helper still throws loudly for them, exactly
  * as the old WGSL_TO_GLSL map did. Never neutralize `wgslType` for GLSL; add `glslType` alongside.
  */
-const f32$1 = { type: 'f32', wgslType: 'f32', glslType: 'float' };
-const i32$1 = { type: 'i32', wgslType: 'i32', glslType: 'int' };
-const u32$1 = { type: 'u32', wgslType: 'u32', glslType: 'uint' };
-const bool$1 = { type: 'bool', wgslType: 'bool', glslType: 'bool' };
-const f16$1 = { type: 'f16', wgslType: 'f16' };
-const vec2f$1 = { type: 'vec2f', wgslType: 'vec2f', glslType: 'vec2' };
-const vec2i$1 = { type: 'vec2i', wgslType: 'vec2i', glslType: 'ivec2' };
-const vec2u$1 = { type: 'vec2u', wgslType: 'vec2u', glslType: 'uvec2' };
-const vec2bool = { type: 'vec2<bool>', wgslType: 'vec2<bool>', glslType: 'bvec2' };
-const vec2h$1 = { type: 'vec2h', wgslType: 'vec2h' };
-const vec3f$1 = { type: 'vec3f', wgslType: 'vec3f', glslType: 'vec3' };
-const vec3i$1 = { type: 'vec3i', wgslType: 'vec3i', glslType: 'ivec3' };
-const vec3u$1 = { type: 'vec3u', wgslType: 'vec3u', glslType: 'uvec3' };
-const vec3bool = { type: 'vec3<bool>', wgslType: 'vec3<bool>', glslType: 'bvec3' };
-const vec3h$1 = { type: 'vec3h', wgslType: 'vec3h' };
-const vec4f$1 = { type: 'vec4f', wgslType: 'vec4f', glslType: 'vec4' };
-const vec4i$1 = { type: 'vec4i', wgslType: 'vec4i', glslType: 'ivec4' };
-const vec4u$1 = { type: 'vec4u', wgslType: 'vec4u', glslType: 'uvec4' };
-const vec4bool = { type: 'vec4<bool>', wgslType: 'vec4<bool>', glslType: 'bvec4' };
-const vec4h$1 = { type: 'vec4h', wgslType: 'vec4h' };
+const f32$1 = { type: 'f32', wgslType: 'f32', glslType: 'float', scalar: 'f32', len: 1 };
+const i32$1 = { type: 'i32', wgslType: 'i32', glslType: 'int', scalar: 'i32', len: 1 };
+const u32$1 = { type: 'u32', wgslType: 'u32', glslType: 'uint', scalar: 'u32', len: 1 };
+const bool$1 = { type: 'bool', wgslType: 'bool', glslType: 'bool', scalar: 'bool', len: 1 };
+const f16$1 = { type: 'f16', wgslType: 'f16', scalar: 'f16', len: 1 };
+const vec2f$1 = { type: 'vec2f', wgslType: 'vec2f', glslType: 'vec2', scalar: 'f32', len: 2 };
+const vec2i$1 = { type: 'vec2i', wgslType: 'vec2i', glslType: 'ivec2', scalar: 'i32', len: 2 };
+const vec2u$1 = { type: 'vec2u', wgslType: 'vec2u', glslType: 'uvec2', scalar: 'u32', len: 2 };
+const vec2bool = {
+    type: 'vec2<bool>',
+    wgslType: 'vec2<bool>',
+    glslType: 'bvec2',
+    scalar: 'bool',
+    len: 2,
+};
+const vec2h$1 = { type: 'vec2h', wgslType: 'vec2h', scalar: 'f16', len: 2 };
+const vec3f$1 = { type: 'vec3f', wgslType: 'vec3f', glslType: 'vec3', scalar: 'f32', len: 3 };
+const vec3i$1 = { type: 'vec3i', wgslType: 'vec3i', glslType: 'ivec3', scalar: 'i32', len: 3 };
+const vec3u$1 = { type: 'vec3u', wgslType: 'vec3u', glslType: 'uvec3', scalar: 'u32', len: 3 };
+const vec3bool = {
+    type: 'vec3<bool>',
+    wgslType: 'vec3<bool>',
+    glslType: 'bvec3',
+    scalar: 'bool',
+    len: 3,
+};
+const vec3h$1 = { type: 'vec3h', wgslType: 'vec3h', scalar: 'f16', len: 3 };
+const vec4f$1 = { type: 'vec4f', wgslType: 'vec4f', glslType: 'vec4', scalar: 'f32', len: 4 };
+const vec4i$1 = { type: 'vec4i', wgslType: 'vec4i', glslType: 'ivec4', scalar: 'i32', len: 4 };
+const vec4u$1 = { type: 'vec4u', wgslType: 'vec4u', glslType: 'uvec4', scalar: 'u32', len: 4 };
+const vec4bool = {
+    type: 'vec4<bool>',
+    wgslType: 'vec4<bool>',
+    glslType: 'bvec4',
+    scalar: 'bool',
+    len: 4,
+};
+const vec4h$1 = { type: 'vec4h', wgslType: 'vec4h', scalar: 'f16', len: 4 };
 const mat2x2f$1 = { type: 'mat2x2f', wgslType: 'mat2x2f', glslType: 'mat2' };
 const mat2x3f$1 = { type: 'mat2x3f', wgslType: 'mat2x3f', glslType: 'mat2x3' };
 const mat2x4f$1 = { type: 'mat2x4f', wgslType: 'mat2x4f', glslType: 'mat2x4' };
@@ -10777,34 +10795,35 @@ function decodeField(base, texelBase, width, byteOffset, type) {
         }
         return sub;
     }
-    // Scalars
-    if (t === 'u32')
-        return lane(texel, comp);
-    if (t === 'i32')
-        return bitcastI32(lane(texel, comp));
-    if (t === 'f32')
-        return bitcastF32(lane(texel, comp));
-    // vec2 (aligns to 8 → both lanes in one texel, at comp / comp+1)
-    if (t === 'vec2u')
-        return vec2u(lane(texel, comp), lane(texel, comp + 1));
-    if (t === 'vec2i')
-        return vec2i(bitcastI32(lane(texel, comp)), bitcastI32(lane(texel, comp + 1)));
-    if (t === 'vec2f')
-        return vec2f(bitcastF32(lane(texel, comp)), bitcastF32(lane(texel, comp + 1)));
-    // vec3 (aligns to 16 → lanes 0,1,2 of one texel)
-    if (t === 'vec3u')
-        return vec3u(lane(texel, 0), lane(texel, 1), lane(texel, 2));
-    if (t === 'vec3i')
-        return vec3i(bitcastI32(lane(texel, 0)), bitcastI32(lane(texel, 1)), bitcastI32(lane(texel, 2)));
-    if (t === 'vec3f')
-        return vec3(bitcastF32(lane(texel, 0)), bitcastF32(lane(texel, 1)), bitcastF32(lane(texel, 2)));
-    // vec4 (whole texel)
-    if (t === 'vec4u')
-        return texel;
-    if (t === 'vec4i')
-        return vec4i(bitcastI32(lane(texel, 0)), bitcastI32(lane(texel, 1)), bitcastI32(lane(texel, 2)), bitcastI32(lane(texel, 3)));
-    if (t === 'vec4f')
-        return vec4(bitcastF32(lane(texel, 0)), bitcastF32(lane(texel, 1)), bitcastF32(lane(texel, 2)), bitcastF32(lane(texel, 3)));
+    // Scalars and float/int/uint vectors, driven by the descriptor's `scalar` kind + `len`. Read `len`
+    // lanes starting at `comp` (a vec2 aligns to 8 bytes so it may sit at comp 0 or 2; vec3/vec4 align to
+    // 16 so comp is 0), reinterpreting each lane per the component kind: u32 raw, i32/f32 via bitcast.
+    if ('scalar' in type && 'len' in type) {
+        const len = type.len;
+        const lanes = (reinterpret) => Array.from({ length: len }, (_, k) => reinterpret(lane(texel, comp + k)));
+        if (type.scalar === 'u32') {
+            // A whole u32 vec4 IS the texel — return it directly, no per-lane reconstruction.
+            if (len === 4)
+                return texel;
+            const c = lanes((l) => l);
+            if (len === 1)
+                return c[0];
+            return (len === 2 ? vec2u(c[0], c[1]) : vec3u(c[0], c[1], c[2]));
+        }
+        if (type.scalar === 'i32') {
+            const c = lanes(bitcastI32);
+            if (len === 1)
+                return c[0];
+            return (len === 2 ? vec2i(c[0], c[1]) : len === 3 ? vec3i(c[0], c[1], c[2]) : vec4i(c[0], c[1], c[2], c[3]));
+        }
+        if (type.scalar === 'f32') {
+            const c = lanes(bitcastF32);
+            if (len === 1)
+                return c[0];
+            return (len === 2 ? vec2f(c[0], c[1]) : len === 3 ? vec3(c[0], c[1], c[2]) : vec4(c[0], c[1], c[2], c[3]));
+        }
+        // bool / f16 components have no structured-texture decode form; fall through to the error below.
+    }
     // f32 matrices: each column has stride 16 (one texel) for 3- and 4-row matrices.
     const m = t.match(/^mat(\d)x(\d)f$/);
     if (m) {
@@ -15165,30 +15184,17 @@ const GLSL_INTEGER_WGSL_TYPES = new Set(['i32', 'u32', 'vec2i', 'vec3i', 'vec4i'
  * the operation's type must be wrapped in an explicit conversion constructor (mirrors three.js's
  * OperatorNode operand coercion via `format`).
  */
-function glslScalarKind(wgslType) {
-    switch (wgslType) {
-        case 'f32':
-        case 'i32':
-        case 'u32':
-        case 'bool':
-            return wgslType;
-    }
-    if (/^vec[234]f$/.test(wgslType))
-        return 'f32';
-    if (/^vec[234]i$/.test(wgslType))
-        return 'i32';
-    if (/^vec[234]u$/.test(wgslType))
-        return 'u32';
-    if (/^vec[234]b?$/.test(wgslType) || /^vec[234]<bool>$/.test(wgslType))
-        return 'bool';
-    return null;
+/** Component kind (f32/i32/u32/bool) of a scalar/vector descriptor, read straight off its `scalar` field.
+ *  null for f16 and for matrices/composites — the GLSL backend never routes those through the scalar and
+ *  operator-coercion paths, and f16 has no GLSL ES 3.00 form. */
+function glslScalarKind(desc) {
+    if (!('scalar' in desc) || desc.scalar === 'f16')
+        return null;
+    return desc.scalar;
 }
-/** Component count (1 for scalars, 2..4 for vectors) of a scalar/vector WGSL type, or null otherwise. */
-function glslVecLen(wgslType) {
-    if (/^(f32|i32|u32|bool)$/.test(wgslType))
-        return 1;
-    const m = /^vec([234])/.exec(wgslType);
-    return m ? Number(m[1]) : null;
+/** Component count (1 for scalars, 2..4 for vectors) of a scalar/vector descriptor, or null otherwise. */
+function glslVecLen(desc) {
+    return 'len' in desc ? desc.len : null;
 }
 /** GLSL constructor name for a given length + component kind (e.g. len 3 + i32 → `ivec3`). */
 function glslCtorFor(len, scalar) {
@@ -15203,10 +15209,10 @@ function glslCtorFor(len, scalar) {
  * the expression unchanged when kinds already match or the operand is not a plain scalar/vector.
  */
 function coerceOperandScalar(node, expr, target) {
-    const kind = glslScalarKind(node.type.wgslType);
+    const kind = glslScalarKind(node.type);
     if (kind === null || kind === target)
         return expr;
-    const len = glslVecLen(node.type.wgslType);
+    const len = glslVecLen(node.type);
     if (len === null)
         return expr;
     return `${glslCtorFor(len, target)}(${expr})`;
@@ -15223,7 +15229,7 @@ function coerceOperandScalar(node, expr, target) {
  * covered without maintaining a hand-written name list.
  */
 function glslVaryingQualifier(node) {
-    const scalarKind = glslScalarKind(node.type.wgslType);
+    const scalarKind = glslScalarKind(node.type);
     const isInteger = scalarKind === 'i32' || scalarKind === 'u32';
     const interp = node.interpolationType;
     // 'linear' maps to `noperspective`, which is NOT part of GLSL ES 3.00 (desktop GLSL only) — reject
@@ -15455,13 +15461,13 @@ function generateExpr$1(ctx, rawNode) {
             // op (int with uint, int/uint with float) is a hard compile error unless one side is wrapped
             // in an explicit conversion. Shifts are exempt — GLSL allows a differing-kind shift amount —
             // and comparisons/arithmetic coerce to the common kind (float wins; else the result kind).
-            const leftKind = glslScalarKind(node.left.type.wgslType);
-            const rightKind = glslScalarKind(node.right.type.wgslType);
+            const leftKind = glslScalarKind(node.left.type);
+            const rightKind = glslScalarKind(node.right.type);
             const isShift = node.op === '<<' || node.op === '>>';
             if (!isShift && leftKind && rightKind && leftKind !== rightKind && leftKind !== 'bool' && rightKind !== 'bool') {
                 const target = leftKind === 'f32' || rightKind === 'f32'
                     ? 'f32'
-                    : (glslScalarKind(node.type.wgslType) ?? 'i32');
+                    : (glslScalarKind(node.type) ?? 'i32');
                 left = coerceOperandScalar(node.left, left, target);
                 right = coerceOperandScalar(node.right, right, target);
             }
@@ -15557,11 +15563,11 @@ function generateExpr$1(ctx, rawNode) {
             //    exists ONLY for float genType in ES 3.00 — the int/uint/bool bvec-selector mix was added
             //    in ES 3.20, so an integer-vector select must expand to a componentwise ternary instead.
             const condIsVec = node.condition.type.wgslType.includes('<bool>') || /^vec[234]b?$/.test(node.condition.type.wgslType);
-            const resultScalar = glslScalarKind(node.type.wgslType);
+            const resultScalar = glslScalarKind(node.type);
             if (condIsVec && resultScalar !== 'f32') {
                 // Integer/uint/bool componentwise select. Hoist the three operands to temps (each is read
                 // once per component, and may carry side effects / be expensive) then build the vector.
-                const len = glslVecLen(node.type.wgslType);
+                const len = glslVecLen(node.type);
                 if (len === null || len === 1 || resultScalar === null) {
                     unsupported(`componentwise select producing '${node.type.wgslType}'`);
                 }
