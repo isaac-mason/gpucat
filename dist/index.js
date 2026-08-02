@@ -16518,7 +16518,10 @@ function emitGlslUniformBlocks(ctx) {
             const align = layoutAlignOf(u.type, 'std140');
             const size = layoutSizeOf(u.type, 'std140');
             offset = Math.ceil(offset / align) * align;
-            lines.push(`    ${glslType(u.type)} ${u.name};`);
+            // glslLocalDecl (not glslType) so struct and fixed-size-array members declare correctly: a
+            // struct member uses its name, and an array member uses GLSL's `<elem> <name>[N]` syntax
+            // (sized-array descriptors have no scalar `glslType`, so glslType() would throw on them).
+            lines.push(`    ${glslLocalDecl(u.type, u.name)};`);
             members.push({ uniformId: u.name, schema: u.type, offset, size, node: u });
             offset += size;
             structAlign = Math.max(structAlign, align);

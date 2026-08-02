@@ -39,6 +39,7 @@ import {
     textureSampleCompareLevel,
     transformFeedback,
     u32,
+    uniform,
     Var,
     varying,
     vec2f,
@@ -714,6 +715,20 @@ export const cases: Case[] = [
             }),
             depth: undefined,
         }),
+    },
+    {
+        // Fixed-size ARRAY member in a std140 UBO. The member decl must use GLSL's `<elem> <name>[N]`
+        // array syntax — a sized-array descriptor has no scalar glslType, so the prior `glslType(u.type)`
+        // path threw. (Struct members already worked via the struct-name path.) Must compile + link.
+        name: 'array-member UBO (std140 vec4[N])',
+        build: () => {
+            const palette = uniform('palette', d.sizedArray(d.vec4f, 3));
+            return {
+                vertex: vec4(attribute('position', d.vec3f), f32(1)),
+                fragment: palette.element(i32(1)),
+                depth: undefined,
+            };
+        },
     },
     {
         // Centroid-sampled varying. GLSL ES 3.00 has the `centroid` qualifier; it MUST appear on both the
