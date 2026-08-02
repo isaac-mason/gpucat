@@ -1,21 +1,22 @@
 import {
+    ArrayTexture,
     acesToneMapping,
     array,
+    arrayTexture,
     attribute,
     cameraProjectionMatrix,
     cameraViewMatrix,
-    compileGlsl,
+    type compileGlsl,
     compileTransformFeedback,
     createStorageTexture,
     d,
+    Fn,
     f32,
     fxaa,
-    sRGBTransferOETF,
-    Fn,
-    glslFn,
     GpuSampler,
-    i32,
+    glslFn,
     If,
+    i32,
     instanceIndex,
     Let,
     Loop,
@@ -24,17 +25,18 @@ import {
     mrt,
     type Node,
     screenUV,
-    vec2i,
-    vertexIndex,
     select,
+    sRGBTransferOETF,
     struct,
     texture,
     transformFeedback,
     Var,
     varying,
+    vec2i,
     vec3,
     vec3b,
     vec4,
+    vertexIndex,
     wgsl,
     wgslFn,
 } from '../../src/index';
@@ -99,10 +101,11 @@ export const tfCases: TfCase[] = [
         // per-component. Pre-fix this failed to compile (undeclared `_vN` + builtin redeclaration).
         name: 'tf step/wrap (builtin-named Fn + return CSE)',
         build: () => {
-            const wrap = Fn(
-                (x: Node<d.f32>) => x.sub(x.mul(f32(0.5)).add(x)),
-                { name: 'wrap', params: [{ name: 'x', type: d.f32 }] as const, return: d.f32 },
-            );
+            const wrap = Fn((x: Node<d.f32>) => x.sub(x.mul(f32(0.5)).add(x)), {
+                name: 'wrap',
+                params: [{ name: 'x', type: d.f32 }] as const,
+                return: d.f32,
+            });
             const step = Fn(
                 (pos: Node<d.vec4f>, vel: Node<d.vec4f>, dt: Node<d.f32>) => {
                     const next = pos.add(vel.mul(dt));
@@ -137,15 +140,17 @@ export const tfCases: TfCase[] = [
         build: () => {
             const data = createStorageTexture(1024, 1, 'rgba32float');
             const sampler = new GpuSampler({});
-            const gather = Fn(
-                (i: Node<d.i32>) => texture(data, sampler).load(vec2i(i.add(i32(1)), i32(0)), i32(0)),
-                { name: 'gather', params: [{ name: 'i', type: d.i32 }] as const, return: d.vec4f },
-            );
+            const gather = Fn((i: Node<d.i32>) => texture(data, sampler).load(vec2i(i.add(i32(1)), i32(0)), i32(0)), {
+                name: 'gather',
+                params: [{ name: 'i', type: d.i32 }] as const,
+                return: d.vec4f,
+            });
             return compileTransformFeedback(
-                transformFeedback(
-                    (io) => ({ pos: io.pos.add(gather(vertexIndex.toI32()).mul(f32(0.5))) }),
-                    { inputs: { pos: d.vec4f }, outputs: { pos: d.vec4f }, name: 'gather-fn' },
-                ),
+                transformFeedback((io) => ({ pos: io.pos.add(gather(vertexIndex.toI32()).mul(f32(0.5))) }), {
+                    inputs: { pos: d.vec4f },
+                    outputs: { pos: d.vec4f },
+                    name: 'gather-fn',
+                }),
             );
         },
     },
@@ -179,6 +184,24 @@ export const cases: Case[] = [
             const tex = createStorageTexture(64, 64, 'rgba8unorm');
             const sampler = new GpuSampler({ minFilter: 'linear', magFilter: 'linear' });
             const color = texture(tex, sampler).sample(screenUV);
+
+            return {
+                vertex: vec4(attribute('position', d.vec3f), f32(1)),
+                fragment: color,
+                depth: undefined,
+            };
+        },
+    },
+    {
+        // Regression: an ARRAY texture lowers to `sampler2DArray`, which (unlike sampler2D/samplerCube)
+        // has NO built-in default precision in GLSL ES 3.00. The combined-sampler uniform is declared at
+        // global scope — visible to the VERTEX stage too — so without a `precision highp sampler2DArray;`
+        // default, the vertex shader fails to compile ("No precision specified"). Exercises the emitter's
+        // per-sampler-type precision-default block.
+        name: 'array texture (sampler2DArray precision)',
+        build: () => {
+            const tex = new ArrayTexture(new Uint8Array(64 * 64 * 4 * 2), 64, 64, 2);
+            const color = arrayTexture(tex, i32(0)).sample(screenUV);
 
             return {
                 vertex: vec4(attribute('position', d.vec3f), f32(1)),
@@ -268,10 +291,11 @@ export const cases: Case[] = [
     {
         name: 'user function',
         build: () => {
-            const luminance = Fn(
-                (c: Node<d.vec3f>) => c.dot(vec3(0.299, 0.587, 0.114)),
-                { name: 'luminance', params: [{ name: 'c', type: d.vec3f }] as const, return: d.f32 },
-            );
+            const luminance = Fn((c: Node<d.vec3f>) => c.dot(vec3(0.299, 0.587, 0.114)), {
+                name: 'luminance',
+                params: [{ name: 'c', type: d.vec3f }] as const,
+                return: d.f32,
+            });
 
             const base = vec3(0.8, 0.3, 0.1);
             const l = luminance(base);
@@ -322,10 +346,7 @@ export const cases: Case[] = [
             const uv = varying(position, 'vPos');
             // Build a vec3<bool> (GLSL bvec3) from scalar componentwise comparisons; storing it in a
             // Var forces a `bvec3` type declaration + a `bvec3(...)` constructor in the emitted GLSL.
-            const mask = Var(
-                'mask',
-                vec3b(uv.x.greaterThan(f32(0.5)), uv.y.greaterThan(f32(0.5)), uv.z.greaterThan(f32(0.5))),
-            );
+            const mask = Var('mask', vec3b(uv.x.greaterThan(f32(0.5)), uv.y.greaterThan(f32(0.5)), uv.z.greaterThan(f32(0.5))));
             const cond = mask.all();
             const chosen = select(vec3(1.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0), cond);
             const fragment = vec4(chosen, f32(1));
@@ -370,7 +391,11 @@ export const cases: Case[] = [
         opts: { precision: 'mediump' },
         build: () => {
             const position = attribute('position', d.vec3f);
-            const lighting = f32(0.15).add(varying(position, 'vPos').dot(vec3(0.6, 1.0, 0.8)).max(f32(0)));
+            const lighting = f32(0.15).add(
+                varying(position, 'vPos')
+                    .dot(vec3(0.6, 1.0, 0.8))
+                    .max(f32(0)),
+            );
             return {
                 vertex: vec4(position, f32(1)),
                 fragment: vec4(vec3(0.4, 0.7, 1.0).mul(lighting), f32(1)),
@@ -404,14 +429,11 @@ export const cases: Case[] = [
         // WebGL (companion). This case compiles + links the GLSL companion under real WebGL2.
         name: 'wgslFn + glsl companion',
         build: () => {
-            const luma = wgslFn(
-                `fn luma(c: vec3f) -> f32 { return dot(c, vec3f(0.299, 0.587, 0.114)); }`,
-                {
-                    output: d.f32,
-                    params: [{ name: 'c', type: d.vec3f }] as const,
-                    glsl: `float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }`,
-                },
-            );
+            const luma = wgslFn(`fn luma(c: vec3f) -> f32 { return dot(c, vec3f(0.299, 0.587, 0.114)); }`, {
+                output: d.f32,
+                params: [{ name: 'c', type: d.vec3f }] as const,
+                glsl: `float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }`,
+            });
             // Also exercise the inline wgsl``.glslSource`` companion path.
             const base = vec3(0.8, 0.3, 0.1);
             const l = luma(base);
@@ -508,10 +530,11 @@ export const cases: Case[] = [
         name: 'Fn return-expr CSE decls (intermediate used 3x)',
         build: () => {
             // wrap(x): x - 2*round(x/2) — the sub-expression `round(x/2)` is a plain param use.
-            const wrap = Fn(
-                (x: Node<d.f32>) => x.sub(x.mul(f32(0.5)).add(x)),
-                { name: 'wrap', params: [{ name: 'x', type: d.f32 }] as const, return: d.f32 },
-            );
+            const wrap = Fn((x: Node<d.f32>) => x.sub(x.mul(f32(0.5)).add(x)), {
+                name: 'wrap',
+                params: [{ name: 'x', type: d.f32 }] as const,
+                return: d.f32,
+            });
             // next = pos + vel*dt; the return uses `next` 3× (CSE) and the `pos` param twice.
             const advance = Fn(
                 (pos: Node<d.vec3f>, vel: Node<d.vec3f>, dt: Node<d.f32>) => {
@@ -543,10 +566,11 @@ export const cases: Case[] = [
         // compile + link under real WebGL2.
         name: 'Fn named after GLSL builtin (step)',
         build: () => {
-            const step = Fn(
-                (x: Node<d.f32>) => x.mul(f32(2)).add(f32(1)),
-                { name: 'step', params: [{ name: 'x', type: d.f32 }] as const, return: d.f32 },
-            );
+            const step = Fn((x: Node<d.f32>) => x.mul(f32(2)).add(f32(1)), {
+                name: 'step',
+                params: [{ name: 'x', type: d.f32 }] as const,
+                return: d.f32,
+            });
             const position = attribute('position', d.vec3f);
             // Call the builtin-named Fn in the VERTEX stage (reads the attribute), pass via a varying.
             const s = varying(step(position.x), 'vStep');

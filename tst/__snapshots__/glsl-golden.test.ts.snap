@@ -407,6 +407,7 @@ layout(std140) uniform Uniforms_render {
 } uniforms_render;
 
 // Combined samplers
+precision highp sampler2D;
 uniform sampler2D u_t0;
 // Vertex shader
 layout(location = 0) in vec3 a_position;
@@ -426,6 +427,7 @@ layout(std140) uniform Uniforms_render {
 } uniforms_render;
 
 // Combined samplers
+precision highp sampler2D;
 uniform sampler2D u_t0;
 // Fragment shader
 layout(location = 0) out vec4 fragColor;

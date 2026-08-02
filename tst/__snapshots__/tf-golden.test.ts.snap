@@ -21,6 +21,7 @@ void main() {}",
   "vertexCode": "#version 300 es
 // Uniform blocks (std140)
 // Combined samplers
+precision highp sampler2D;
 uniform sampler2D u_t0;
 // Transform-feedback vertex shader
 layout(location = 0) in vec4 a_pos;

@@ -16342,17 +16342,17 @@ function emitGlslTextures(ctx) {
     const lines = [];
     const textures = [];
     const samplers = [];
+    // Distinct GLSL sampler types declared → one `precision highp <type>;` default each (below).
+    const samplerTypes = new Set();
     let unit = 0;
     sortedGroups.forEach((entry, groupIndex) => {
         for (const binding of entry.textures) {
             const id = binding.textureId;
             const name = samplerUniformName$1(id);
             const samplerType = glslSamplerType(binding.type);
-            // GLSL ES 3.00 has no default precision for depth-compare shadow samplers or for integer
-            // samplers (usampler2D / isampler2D — leading 'u'/'i'), so those must be declared highp.
-            const isIntegerSampler = samplerType[0] === 'u' || samplerType[0] === 'i';
-            const precision = samplerType.includes('Shadow') || isIntegerSampler ? 'highp ' : '';
-            lines.push(`uniform ${precision}${samplerType} ${name};`);
+            samplerTypes.add(samplerType);
+            // Bare declaration; the `precision highp <type>;` default block below qualifies it.
+            lines.push(`uniform ${samplerType} ${name};`);
             textures.push({
                 textureId: id,
                 // The declared combined-sampler type — the GLSL analogue of WGSL's texture var type.
@@ -16376,7 +16376,15 @@ function emitGlslTextures(ctx) {
             unit++;
         }
     });
-    return { glsl: lines.join('\n'), textures, samplers };
+    // Default precision per distinct sampler type, three.js-style (see its `defaultPrecisions`). GLSL ES
+    // 3.00 gives a built-in default only to sampler2D/samplerCube in the VERTEX stage and none in the
+    // FRAGMENT stage; sampler2DArray / sampler3D / cube-array / shadow / integer samplers have no default
+    // and MUST be qualified. Both stages share these declarations (emitGlslTextures runs once), so a
+    // single `precision highp <type>;` line per type keeps the `uniform …;` lines bare and lets a future
+    // per-texture precision override inline. `highp` is always valid — and integer + storage-mirror
+    // (usampler2D) samplers require it to hold 32-bit texels.
+    const precisionDefaults = [...samplerTypes].map((t) => `precision highp ${t};`);
+    return { glsl: [...precisionDefaults, ...lines].join('\n'), textures, samplers };
 }
 /* statement generation
  *
