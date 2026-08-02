@@ -7,11 +7,11 @@ import {
     compileGlsl,
     createStorageTexture,
     d,
-    f32,
     Fn,
+    f32,
     GpuSampler,
-    i32,
     If,
+    i32,
     Let,
     Loop,
     modelNormalMatrix,
@@ -137,10 +137,11 @@ describe('golden GLSL — render path', () => {
     });
 
     test('user function: define an Fn and call it in the fragment', () => {
-        const luminance = Fn(
-            (c: ReturnType<typeof vec3>) => c.dot(vec3(0.299, 0.587, 0.114)),
-            { name: 'luminance', params: [{ name: 'c', type: d.vec3f }] as const, return: d.f32 },
-        );
+        const luminance = Fn((c: ReturnType<typeof vec3>) => c.dot(vec3(0.299, 0.587, 0.114)), {
+            name: 'luminance',
+            params: [{ name: 'c', type: d.vec3f }] as const,
+            return: d.f32,
+        });
 
         const base = vec3(0.8, 0.3, 0.1);
         const l = luminance(base);
@@ -151,9 +152,14 @@ describe('golden GLSL — render path', () => {
             fragment,
             depth: undefined,
         });
-        // The function definition must appear before main().
-        expect(result.code).toContain('float luminance(vec3 c)');
-        expect(result.code.indexOf('float luminance(')).toBeLessThan(result.code.indexOf('void main()'));
+        // luminance is used only in the fragment stage. Per-stage function emission puts its definition
+        // in the fragment shader (before that stage's main), and keeps it OUT of the vertex shader — a
+        // fragment-only Fn emitted into the vertex stage could reference fragment-only features and fail
+        // to compile there.
+        const [vertexStage, fragmentStage] = result.code.split('// ---- fragment stage ----');
+        expect(fragmentStage).toContain('float luminance(vec3 c)');
+        expect(fragmentStage.indexOf('float luminance(')).toBeLessThan(fragmentStage.indexOf('void main()'));
+        expect(vertexStage).not.toContain('luminance');
         expect(renderShape(result)).toMatchSnapshot();
     });
 

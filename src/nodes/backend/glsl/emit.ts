@@ -1973,7 +1973,7 @@ function glslModuleScopeInitExpr(rawNode: Node<d.Any>): string {
  * A raw function reaching this backend WITHOUT a GLSL companion throws — that is the missing-variant
  * seam for the WebGL backend.
  */
-export function emitGlslRawFunctions(ctx: GlslBuildContext): string {
+export function emitGlslRawFunctions(ctx: GlslBuildContext, allow?: Set<WgslFunctionNodeRef>): string {
     const lines: string[] = [];
     const emitted = new Set<string>();
 
@@ -1988,6 +1988,9 @@ export function emitGlslRawFunctions(ctx: GlslBuildContext): string {
     };
 
     for (const [, fn] of ctx.rawFnDefs) {
+        // When `allow` is given (per-stage emission), skip raw fns not reachable in this stage — their
+        // reachable includes are already in `allow` (collectStageFns walks includes transitively).
+        if (allow && !allow.has(fn)) continue;
         // Includes first so callees are defined before callers.
         for (const inc of fn.includes) {
             if ((inc as { kind?: NodeKind }).kind === NodeKind.WgslFunction) emitOne(inc);
@@ -2022,13 +2025,60 @@ function tracedFnCallees(traced: TracedFn): string[] {
     return callees;
 }
 
-export function emitGlslDslFunctions(ctx: GlslBuildContext): string {
+/**
+ * The DSL Fn names and raw (wgslFn/glslFn) functions reachable from a stage's root nodes, transitively
+ * through called Fn bodies. Functions are emitted PER STAGE from this set (see the builder assembly) so
+ * a Fn used only in the fragment stage — and possibly using a fragment-only feature (derivatives,
+ * discard, gl_FragCoord) — is never emitted into the vertex shader (where it would fail to compile), and
+ * is traced in its actual stage's context. Roots may include nulls (absent slots) for convenience.
+ */
+export function collectStageFns(
+    ctx: GlslBuildContext,
+    roots: (Node<d.Any> | null | undefined)[],
+): { dsl: Set<string>; raw: Set<WgslFunctionNodeRef> } {
+    const dsl = new Set<string>();
+    const raw = new Set<WgslFunctionNodeRef>();
+    const seen = new Set<number>();
+    const visitRaw = (fn: WgslFunctionNodeRef): void => {
+        if (raw.has(fn)) return;
+        raw.add(fn);
+        for (const inc of fn.includes) visitRaw(inc);
+    };
+    const walk = (rawNode: Node<d.Any> | null | undefined): void => {
+        if (!rawNode) return;
+        const node = rawNode as AnyNode;
+        if (seen.has(node.id)) return;
+        seen.add(node.id);
+        // A VaryingNode is the vertex/fragment cut: the fragment reads its interpolated value as an
+        // `in`, it does not recompute the source. Stop here so fragment reachability never pulls in a
+        // fn used only to PRODUCE a varying (that fn belongs to the vertex stage). Vertex reachability
+        // descends into varyings by seeding their source nodes directly (see the builder).
+        if (node.kind === NodeKind.Varying) return;
+        if (node.kind === NodeKind.Call) {
+            const call = node as CallNode<d.Any>;
+            if (call.fnNode && !dsl.has(call.fnNode.fnName)) {
+                dsl.add(call.fnNode.fnName);
+                // Recurse into the fn body so its own callees (DSL and raw) are reached too.
+                const traced = ctx.fnDefs.get(call.fnNode.fnName)?.traced ?? call.fnNode.trace();
+                walk(traced.body);
+                walk(traced.output);
+            }
+            if (call.wgslFnNode) visitRaw(call.wgslFnNode);
+        }
+        for (const child of getChildren(node)) walk(child);
+    };
+    for (const root of roots) walk(root);
+    return { dsl, raw };
+}
+
+export function emitGlslDslFunctions(ctx: GlslBuildContext, allow?: Set<string>): string {
     const lines: string[] = [];
 
     // Emit definitions in dependency order (callees before callers) so GLSL's definition-before-use
     // rule is satisfied. Post-order DFS over the call graph; a `visiting` guard tolerates self/mutual
     // recursion (emits each fn once, best-effort order — GLSL would need a prototype for true mutual
-    // recursion, which the DSL doesn't produce).
+    // recursion, which the DSL doesn't produce). When `allow` is given (per-stage emission), only fns
+    // reachable in that stage are seeded — a fn used only in the other stage is never emitted here.
     const orderedNames: string[] = [];
     const done = new Set<string>();
     const visiting = new Set<string>();
@@ -2043,7 +2093,10 @@ export function emitGlslDslFunctions(ctx: GlslBuildContext): string {
         done.add(name);
         orderedNames.push(name);
     };
-    for (const name of ctx.fnDefs.keys()) visit(name);
+    for (const name of ctx.fnDefs.keys()) {
+        if (allow && !allow.has(name)) continue;
+        visit(name);
+    }
 
     for (const name of orderedNames) {
         const entry = ctx.fnDefs.get(name);

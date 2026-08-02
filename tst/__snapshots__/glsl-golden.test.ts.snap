@@ -73,20 +73,6 @@ exports[`golden GLSL — render path > control flow: Var + Loop + If accumulate 
   "builtins": [],
   "code": "#version 300 es
 // Uniform blocks (std140)
-// Functions
-float accumulate() {
-    float var_195_sum = 0.0;
-    for (int i_0_0 = 0; i_0_0 < 8; i_0_0++) {
-        if ((i_0_0 < 4)) {
-            var_195_sum = (var_195_sum + float(i_0_0));
-        } else {
-            var_195_sum = (var_195_sum + 1.0);
-        }
-    }
-    float let_212_scaled = (var_195_sum * 0.1);
-    return let_212_scaled;
-}
-
 // Vertex shader
 layout(location = 0) in vec3 a_position;
 
@@ -476,11 +462,6 @@ exports[`golden GLSL — render path > user function: define an Fn and call it i
   "builtins": [],
   "code": "#version 300 es
 // Uniform blocks (std140)
-// Functions
-float luminance(vec3 c) {
-    return dot(c, vec3(0.299, 0.587, 0.114));
-}
-
 // Vertex shader
 layout(location = 0) in vec3 a_position;
 

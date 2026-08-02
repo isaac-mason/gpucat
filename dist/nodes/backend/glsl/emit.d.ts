@@ -138,8 +138,19 @@ export declare function emitGlslModuleScopeVars(ctx: GlslBuildContext): string;
  * A raw function reaching this backend WITHOUT a GLSL companion throws — that is the missing-variant
  * seam for the WebGL backend.
  */
-export declare function emitGlslRawFunctions(ctx: GlslBuildContext): string;
-export declare function emitGlslDslFunctions(ctx: GlslBuildContext): string;
+export declare function emitGlslRawFunctions(ctx: GlslBuildContext, allow?: Set<WgslFunctionNodeRef>): string;
+/**
+ * The DSL Fn names and raw (wgslFn/glslFn) functions reachable from a stage's root nodes, transitively
+ * through called Fn bodies. Functions are emitted PER STAGE from this set (see the builder assembly) so
+ * a Fn used only in the fragment stage — and possibly using a fragment-only feature (derivatives,
+ * discard, gl_FragCoord) — is never emitted into the vertex shader (where it would fail to compile), and
+ * is traced in its actual stage's context. Roots may include nulls (absent slots) for convenience.
+ */
+export declare function collectStageFns(ctx: GlslBuildContext, roots: (Node<d.Any> | null | undefined)[]): {
+    dsl: Set<string>;
+    raw: Set<WgslFunctionNodeRef>;
+};
+export declare function emitGlslDslFunctions(ctx: GlslBuildContext, allow?: Set<string>): string;
 export declare function collectGlslVaryings(roots: Node<d.Any>[], ctx: GlslBuildContext): void;
 export declare function generateGlslVertexShader(slots: CompileSlots, ctx: GlslBuildContext): string;
 /**

@@ -16883,7 +16883,7 @@ function glslModuleScopeInitExpr(rawNode) {
  * A raw function reaching this backend WITHOUT a GLSL companion throws — that is the missing-variant
  * seam for the WebGL backend.
  */
-function emitGlslRawFunctions(ctx) {
+function emitGlslRawFunctions(ctx, allow) {
     const lines = [];
     const emitted = new Set();
     const emitOne = (fn) => {
@@ -16897,6 +16897,10 @@ function emitGlslRawFunctions(ctx) {
         emitted.add(fn.glslCode);
     };
     for (const [, fn] of ctx.rawFnDefs) {
+        // When `allow` is given (per-stage emission), skip raw fns not reachable in this stage — their
+        // reachable includes are already in `allow` (collectStageFns walks includes transitively).
+        if (allow && !allow.has(fn))
+            continue;
         // Includes first so callees are defined before callers.
         for (const inc of fn.includes) {
             if (inc.kind === NodeKind.WgslFunction)
@@ -16932,12 +16936,63 @@ function tracedFnCallees(traced) {
     walk(traced.output);
     return callees;
 }
-function emitGlslDslFunctions(ctx) {
+/**
+ * The DSL Fn names and raw (wgslFn/glslFn) functions reachable from a stage's root nodes, transitively
+ * through called Fn bodies. Functions are emitted PER STAGE from this set (see the builder assembly) so
+ * a Fn used only in the fragment stage — and possibly using a fragment-only feature (derivatives,
+ * discard, gl_FragCoord) — is never emitted into the vertex shader (where it would fail to compile), and
+ * is traced in its actual stage's context. Roots may include nulls (absent slots) for convenience.
+ */
+function collectStageFns(ctx, roots) {
+    const dsl = new Set();
+    const raw = new Set();
+    const seen = new Set();
+    const visitRaw = (fn) => {
+        if (raw.has(fn))
+            return;
+        raw.add(fn);
+        for (const inc of fn.includes)
+            visitRaw(inc);
+    };
+    const walk = (rawNode) => {
+        if (!rawNode)
+            return;
+        const node = rawNode;
+        if (seen.has(node.id))
+            return;
+        seen.add(node.id);
+        // A VaryingNode is the vertex/fragment cut: the fragment reads its interpolated value as an
+        // `in`, it does not recompute the source. Stop here so fragment reachability never pulls in a
+        // fn used only to PRODUCE a varying (that fn belongs to the vertex stage). Vertex reachability
+        // descends into varyings by seeding their source nodes directly (see the builder).
+        if (node.kind === NodeKind.Varying)
+            return;
+        if (node.kind === NodeKind.Call) {
+            const call = node;
+            if (call.fnNode && !dsl.has(call.fnNode.fnName)) {
+                dsl.add(call.fnNode.fnName);
+                // Recurse into the fn body so its own callees (DSL and raw) are reached too.
+                const traced = ctx.fnDefs.get(call.fnNode.fnName)?.traced ?? call.fnNode.trace();
+                walk(traced.body);
+                walk(traced.output);
+            }
+            if (call.wgslFnNode)
+                visitRaw(call.wgslFnNode);
+        }
+        for (const child of getChildren(node))
+            walk(child);
+    };
+    for (const root of roots)
+        walk(root);
+    return { dsl, raw };
+}
+function emitGlslDslFunctions(ctx, allow) {
     const lines = [];
     // Emit definitions in dependency order (callees before callers) so GLSL's definition-before-use
     // rule is satisfied. Post-order DFS over the call graph; a `visiting` guard tolerates self/mutual
     // recursion (emits each fn once, best-effort order — GLSL would need a prototype for true mutual
-    // recursion, which the DSL doesn't produce).
+    // recursion, which the DSL doesn't produce). When `allow` is given (per-stage emission), only fns
+    // reachable in that stage are seeded — a fn used only in the other stage is never emitted here.
     const orderedNames = [];
     const done = new Set();
     const visiting = new Set();
@@ -16954,8 +17009,11 @@ function emitGlslDslFunctions(ctx) {
         done.add(name);
         orderedNames.push(name);
     };
-    for (const name of ctx.fnDefs.keys())
+    for (const name of ctx.fnDefs.keys()) {
+        if (allow && !allow.has(name))
+            continue;
         visit(name);
+    }
     for (const name of orderedNames) {
         const entry = ctx.fnDefs.get(name);
         if (!entry)
@@ -19019,15 +19077,43 @@ function compileGlsl(slots, opts = {}) {
     // Struct declarations must precede everything that uses them (UBO members, locals, main()).
     const structsGlsl = emitGlslStructs(vertexCtx);
     const { glsl: uniformBlocksGlsl, uniformBlocks } = emitGlslUniformBlocks(vertexCtx);
-    // Module-scope PrivateVar globals + raw (wgslFn/glslFn) + user Fn definitions (all precede main()).
+    // Module-scope PrivateVar globals (precede main()).
     const moduleScopeVarsGlsl = emitGlslModuleScopeVars(vertexCtx);
-    const rawFnsGlsl = emitGlslRawFunctions(vertexCtx);
-    const dslFnsGlsl = emitGlslDslFunctions(vertexCtx);
+    // Functions are emitted PER STAGE: only those reachable from that stage's root expressions, each
+    // traced in that stage's own context. A Fn used only in the fragment stage — possibly using a
+    // fragment-only feature (derivatives, discard, gl_FragCoord) — must NOT be emitted into the vertex
+    // shader, where it would fail to compile. Vertex roots include the varying vertex-computations (a Fn
+    // may be used only to produce a varying), not just the clip-position expression.
+    const vertexRoots = [slots.vertex];
+    // Seed the varying VERTEX-computation sources (not the VaryingNodes themselves, which collectStageFns
+    // treats as leaves) so a Fn used only to produce a varying is still reached for the vertex stage.
+    // `VaryingNode.node` is a SubBuildNode wrapper; `.node.node` is the source expression (see
+    // generateVarying, which evaluates the same `node.node.node`).
+    for (const { node } of vertexCtx.varyings.values())
+        vertexRoots.push(node.node.node);
+    const vertexFns = collectStageFns(vertexCtx, vertexRoots);
+    const rawFnsGlsl = emitGlslRawFunctions(vertexCtx, vertexFns.raw);
+    const dslFnsGlsl = emitGlslDslFunctions(vertexCtx, vertexFns.dsl);
+    let fragmentRawFnsGlsl = '';
+    let fragmentDslFnsGlsl = '';
+    if (emitFragment) {
+        const fragmentFns = collectStageFns(fragmentCtx, [slots.fragment ?? null, slots.depth ?? null]);
+        fragmentRawFnsGlsl = emitGlslRawFunctions(fragmentCtx, fragmentFns.raw);
+        fragmentDslFnsGlsl = emitGlslDslFunctions(fragmentCtx, fragmentFns.dsl);
+    }
     // Combined samplers are collected LAST: a texture sampled only inside a user Fn body (e.g. FXAA's
-    // `FxaaSample`) is registered into `vertexCtx.textures` while that Fn body is emitted by
-    // emitGlslDslFunctions above, not during the stage walk. Emitting the sampler declarations before
-    // the functions would miss those textures, leaving the sampler undeclared in BOTH stages (the
-    // vertex just fails to compile first). The declarations still precede the functions in the output.
+    // `FxaaSample`) is registered into its stage context while that Fn body is emitted above, not during
+    // the stage walk. Re-merge any such fragment-stage textures/samplers into the vertex context so the
+    // shared sampler declarations below include them (the vertex shader declaring an unused sampler is
+    // harmless). The declarations still precede the functions in the output.
+    for (const [id, binding] of fragmentCtx.textures) {
+        if (!vertexCtx.textures.has(id))
+            vertexCtx.textures.set(id, binding);
+    }
+    for (const [id, samplerNode] of fragmentCtx.textureSamplers) {
+        if (!vertexCtx.textureSamplers.has(id))
+            vertexCtx.textureSamplers.set(id, samplerNode);
+    }
     const { glsl: samplersGlsl, textures: textureEntries, samplers: samplerEntries } = emitGlslTextures(vertexCtx);
     const version = '#version 300 es';
     // Only prefix the header when there are combined-sampler declarations, so texture-free shaders
@@ -19035,8 +19121,12 @@ function compileGlsl(slots, opts = {}) {
     const structsSection = structsGlsl ? `// Structs\n${structsGlsl}` : '';
     const samplersSection = samplersGlsl ? `// Combined samplers\n${samplersGlsl}` : '';
     const moduleScopeSection = moduleScopeVarsGlsl ? `// Module-scope variables\n${moduleScopeVarsGlsl}` : '';
-    const rawFnsSection = rawFnsGlsl ? `// Raw functions (wgslFn/glslFn)\n${rawFnsGlsl}` : '';
-    const dslFnsSection = dslFnsGlsl ? `// Functions\n${dslFnsGlsl}` : '';
+    // Function sections are per-stage (only the fns reachable in that stage), so the vertex shader never
+    // carries a fragment-only fn definition and vice versa.
+    const vertexRawFnsSection = rawFnsGlsl ? `// Raw functions (wgslFn/glslFn)\n${rawFnsGlsl}` : '';
+    const vertexDslFnsSection = dslFnsGlsl ? `// Functions\n${dslFnsGlsl}` : '';
+    const fragmentRawFnsSection = fragmentRawFnsGlsl ? `// Raw functions (wgslFn/glslFn)\n${fragmentRawFnsGlsl}` : '';
+    const fragmentDslFnsSection = fragmentDslFnsGlsl ? `// Functions\n${fragmentDslFnsGlsl}` : '';
     const vertexParts = [
         version,
         '',
@@ -19045,8 +19135,8 @@ function compileGlsl(slots, opts = {}) {
         uniformBlocksGlsl,
         samplersSection,
         moduleScopeSection,
-        rawFnsSection,
-        dslFnsSection,
+        vertexRawFnsSection,
+        vertexDslFnsSection,
         '// Vertex shader',
         vertexBody,
     ];
@@ -19067,8 +19157,8 @@ function compileGlsl(slots, opts = {}) {
             uniformBlocksGlsl,
             samplersSection,
             moduleScopeSection,
-            rawFnsSection,
-            dslFnsSection,
+            fragmentRawFnsSection,
+            fragmentDslFnsSection,
             '// Fragment shader',
             fragmentBody,
         ]
