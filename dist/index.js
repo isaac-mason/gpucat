@@ -15163,6 +15163,59 @@ function glslType(desc) {
 /** GLSL ES 3.00 integer scalar/vector types that MUST carry a `flat` interpolation qualifier. */
 const GLSL_INTEGER_WGSL_TYPES = new Set(['i32', 'u32', 'vec2i', 'vec3i', 'vec4i', 'vec2u', 'vec3u', 'vec4u']);
 /**
+ * Component scalar kind of a scalar/vector WGSL type, or null for matrices/structs/arrays (which have
+ * no single component kind for operand coercion). Used to detect and repair mixed-type binary ops:
+ * GLSL ES 3.00 forbids implicit int/uint/float mixing, so an operand whose component kind differs from
+ * the operation's type must be wrapped in an explicit conversion constructor (mirrors three.js's
+ * OperatorNode operand coercion via `format`).
+ */
+function glslScalarKind(wgslType) {
+    switch (wgslType) {
+        case 'f32':
+        case 'i32':
+        case 'u32':
+        case 'bool':
+            return wgslType;
+    }
+    if (/^vec[234]f$/.test(wgslType))
+        return 'f32';
+    if (/^vec[234]i$/.test(wgslType))
+        return 'i32';
+    if (/^vec[234]u$/.test(wgslType))
+        return 'u32';
+    if (/^vec[234]b?$/.test(wgslType) || /^vec[234]<bool>$/.test(wgslType))
+        return 'bool';
+    return null;
+}
+/** Component count (1 for scalars, 2..4 for vectors) of a scalar/vector WGSL type, or null otherwise. */
+function glslVecLen(wgslType) {
+    if (/^(f32|i32|u32|bool)$/.test(wgslType))
+        return 1;
+    const m = /^vec([234])/.exec(wgslType);
+    return m ? Number(m[1]) : null;
+}
+/** GLSL constructor name for a given length + component kind (e.g. len 3 + i32 → `ivec3`). */
+function glslCtorFor(len, scalar) {
+    const prefix = scalar === 'f32' ? '' : scalar === 'i32' ? 'i' : scalar === 'u32' ? 'u' : 'b';
+    if (len === 1)
+        return scalar === 'f32' ? 'float' : scalar === 'i32' ? 'int' : scalar === 'u32' ? 'uint' : 'bool';
+    return `${prefix}vec${len}`;
+}
+/**
+ * Wrap an operand expression in a component-kind conversion if it differs from `target`, preserving the
+ * operand's own vector length (so `vec3f * i32` coerces the scalar to `float`, not to `vec3`). Returns
+ * the expression unchanged when kinds already match or the operand is not a plain scalar/vector.
+ */
+function coerceOperandScalar(node, expr, target) {
+    const kind = glslScalarKind(node.type.wgslType);
+    if (kind === null || kind === target)
+        return expr;
+    const len = glslVecLen(node.type.wgslType);
+    if (len === null)
+        return expr;
+    return `${glslCtorFor(len, target)}(${expr})`;
+}
+/**
  * Interpolation qualifier for a GLSL varying declaration, derived from the same `interpolationType`
  * the WGSL emitter reads. Returns a leading-space qualifier ('flat ' / 'smooth ') or '' for the
  * perspective-correct default. Integer-typed varyings are FORCED to `flat` even when unset — GLSL ES
@@ -15384,8 +15437,22 @@ function generateExpr$1(ctx, rawNode) {
             expr = generateBuiltin$1(ctx, node);
             break;
         case NodeKind.BinaryOp: {
-            const left = generateExpr$1(ctx, node.left);
-            const right = generateExpr$1(ctx, node.right);
+            let left = generateExpr$1(ctx, node.left);
+            let right = generateExpr$1(ctx, node.right);
+            // Operand coercion: GLSL ES 3.00 has no implicit numeric conversions, so a mixed-kind binary
+            // op (int with uint, int/uint with float) is a hard compile error unless one side is wrapped
+            // in an explicit conversion. Shifts are exempt — GLSL allows a differing-kind shift amount —
+            // and comparisons/arithmetic coerce to the common kind (float wins; else the result kind).
+            const leftKind = glslScalarKind(node.left.type.wgslType);
+            const rightKind = glslScalarKind(node.right.type.wgslType);
+            const isShift = node.op === '<<' || node.op === '>>';
+            if (!isShift && leftKind && rightKind && leftKind !== rightKind && leftKind !== 'bool' && rightKind !== 'bool') {
+                const target = leftKind === 'f32' || rightKind === 'f32'
+                    ? 'f32'
+                    : (glslScalarKind(node.type.wgslType) ?? 'i32');
+                left = coerceOperandScalar(node.left, left, target);
+                right = coerceOperandScalar(node.right, right, target);
+            }
             // Componentwise vector comparisons: GLSL ES rejects the relational/equality OPERATORS on
             // vectors and instead provides built-in functions returning a bvec. Detect via the result
             // type being a bool vector (`vecN<bool>`); scalar comparisons keep the operator.
@@ -15473,13 +15540,49 @@ function generateExpr$1(ctx, rawNode) {
         case NodeKind.Conditional: {
             // WGSL select(f, t, cond). GLSL has no `select`:
             //  - scalar bool cond → ternary `(cond ? t : f)`.
-            //  - vector bool cond (componentwise select) → `mix(f, t, cond)`: GLSL ES 3.00's genBType
-            //    `mix(x, y, a)` picks per component (a ? y : x), which matches select's semantics. A
-            //    ternary is illegal here since GLSL requires a scalar bool condition.
+            //  - vector bool cond, FLOAT result (componentwise select) → `mix(f, t, cond)`: GLSL ES
+            //    3.00's genType `mix(x, y, genBType a)` picks per component (a ? y : x). This overload
+            //    exists ONLY for float genType in ES 3.00 — the int/uint/bool bvec-selector mix was added
+            //    in ES 3.20, so an integer-vector select must expand to a componentwise ternary instead.
+            const condIsVec = node.condition.type.wgslType.includes('<bool>') || /^vec[234]b?$/.test(node.condition.type.wgslType);
+            const resultScalar = glslScalarKind(node.type.wgslType);
+            if (condIsVec && resultScalar !== 'f32') {
+                // Integer/uint/bool componentwise select. Hoist the three operands to temps (each is read
+                // once per component, and may carry side effects / be expensive) then build the vector.
+                const len = glslVecLen(node.type.wgslType);
+                if (len === null || len === 1 || resultScalar === null) {
+                    unsupported(`componentwise select producing '${node.type.wgslType}'`);
+                }
+                const ind = '    '.repeat(ctx.indentLevel);
+                const cv = `_sc${ctx.varCounter++}`;
+                const tv = `_st${ctx.varCounter++}`;
+                const fv = `_sf${ctx.varCounter++}`;
+                const ifFalse = node.ifFalse;
+                if (!ifFalse)
+                    unsupported(`componentwise select of '${node.type.wgslType}' without an ifFalse value`);
+                ctx.code.push(`${ind}${glslLocalDecl(node.condition.type, cv)} = ${generateExpr$1(ctx, node.condition)};`);
+                ctx.code.push(`${ind}${glslLocalDecl(node.type, tv)} = ${generateExpr$1(ctx, node.ifTrue)};`);
+                ctx.code.push(`${ind}${glslLocalDecl(node.type, fv)} = ${generateExpr$1(ctx, ifFalse)};`);
+                const comps = ['x', 'y', 'z', 'w'].slice(0, len).map((c) => `(${cv}.${c} ? ${tv}.${c} : ${fv}.${c})`);
+                expr = `${glslCtorFor(len, resultScalar)}(${comps.join(', ')})`;
+                break;
+            }
             const cond = generateExpr$1(ctx, node.condition);
             const t = generateExpr$1(ctx, node.ifTrue);
-            const f = node.ifFalse ? generateExpr$1(ctx, node.ifFalse) : `${glslType(node.type)}(0)`;
-            expr = node.condition.type.wgslType.includes('<bool>') ? `mix(${f}, ${t}, ${cond})` : `(${cond} ? ${t} : ${f})`;
+            // A missing ifFalse only has a well-defined zero for scalar/vec/mat numeric types; struct and
+            // array results have no `T(0)` form, so reject rather than emit un-compilable GLSL. (In
+            // practice select() always carries an ifFalse — this guards the degenerate graph.)
+            let f;
+            if (node.ifFalse) {
+                f = generateExpr$1(ctx, node.ifFalse);
+            }
+            else if (isStructDesc(node.type) || isSizedArrayDesc(node.type)) {
+                unsupported(`select without an ifFalse value producing '${node.type.wgslType}' (no zero literal for struct/array)`);
+            }
+            else {
+                f = `${glslType(node.type)}(0)`;
+            }
+            expr = condIsVec ? `mix(${f}, ${t}, ${cond})` : `(${cond} ? ${t} : ${f})`;
             break;
         }
         case NodeKind.Let:
