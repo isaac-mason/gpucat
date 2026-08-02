@@ -440,7 +440,7 @@ export class TextureNode<D extends FlatSampledTexture = d.texture2d> extends Nod
             const layout = structFieldLayout(schema as unknown as d.StructDesc);
             const idx = ensureU32(b as Node<d.u32 | d.i32>);
             const texelBase = layout.texelStride === 1 ? idx : idx.mul(u32(layout.texelStride));
-            return buildRecordAccessor(this.getBase(), schema, texelBase, accessorWidth(this));
+            return buildRecordAccessor(this.getBase(), schema, texelBase, storageRowWidth(this.getBase()));
         }
         const textureNode = this.clone();
         textureNode.samplingMode = 'load';
@@ -452,7 +452,7 @@ export class TextureNode<D extends FlatSampledTexture = d.texture2d> extends Nod
 
     /** Read a struct record starting at an explicit TEXEL index (the primitive under {@link load}). */
     loadAt<S extends d.StructSchema>(schema: StructDef<S>, texel: Node<d.u32> | Node<d.i32>): RecordAccessor<S> {
-        return buildRecordAccessor(this.getBase(), schema, ensureU32(texel), accessorWidth(this));
+        return buildRecordAccessor(this.getBase(), schema, ensureU32(texel), storageRowWidth(this.getBase()));
     }
 }
 
@@ -472,27 +472,22 @@ export type RecordAccessor<S extends d.StructSchema> = { readonly [K in keyof S]
  */
 type FieldAccessor<T extends d.Any> = T extends d.bits<infer F> ? { readonly [N in keyof F]: Node<d.u32> } : Node<T>;
 
-/** Texture width (texels per row) — needed to map a linear texel index to (x, y). */
-function accessorWidth(node: TextureNode<FlatSampledTexture>): number {
-    return (node.bindingNode.value as unknown as { width: number }).width;
-}
-
 function ensureU32(n: Node<d.u32 | d.i32>): Node<d.u32> {
     return (n.type as { wgslType?: string }).wgslType === 'u32' ? (n as Node<d.u32>) : u32(n);
 }
 
-/** Read one rgba32uint texel at a linear texel index → a `vec4u` node. `width` (texels per row) is either
- *  a compile-time constant (real `texture(t).load(schema, i)` — the texture's known width) or a runtime
- *  `Node<u32>` from `textureSize()` (the WebGL `storage()` lowering — see `storageRowWidth`), so a
- *  size-independent, binding-independent shader falls out. */
+/** Read one rgba32uint texel at a linear texel index → a `vec4u` node. `width` (texels per row) is always
+ *  the runtime `textureSize()` node from {@link storageRowWidth} — the SAME addressing for both a real
+ *  `texture(t).load(schema, i)` and the WebGL `storage()` mirror lowering, mirroring three.js's PBO
+ *  indexing. Reading the width at runtime (never baking it) keeps the shader size- and binding-independent
+ *  and correct when the underlying texture is resized under a cached program. */
 function readTexel(
     base: TextureNode<FlatSampledTexture>,
     texelIndex: Node<d.u32>,
-    width: number | Node<d.u32>,
+    width: Node<d.u32>,
 ): TextureNode<FlatSampledTexture> {
-    const w = typeof width === 'number' ? u32(width) : width;
-    const x = i32(texelIndex.mod(w));
-    const y = i32(texelIndex.div(w));
+    const x = i32(texelIndex.mod(width));
+    const y = i32(texelIndex.div(width));
     return base.load(vec2i(x, y), i32(0)) as TextureNode<FlatSampledTexture>;
 }
 
@@ -515,7 +510,7 @@ export function storageRowWidth(base: TextureNode<FlatSampledTexture>): Node<d.u
 export function decodeField(
     base: TextureNode<FlatSampledTexture>,
     texelBase: Node<d.u32>,
-    width: number | Node<d.u32>,
+    width: Node<d.u32>,
     byteOffset: number,
     type: Any,
 ): Node<Any> {
@@ -616,7 +611,7 @@ function buildRecordAccessor<S extends d.StructSchema>(
     base: TextureNode<FlatSampledTexture>,
     schema: StructDef<S>,
     texelBase: Node<d.u32>,
-    width: number,
+    width: Node<d.u32>,
 ): RecordAccessor<S> {
     const layout = structFieldLayout(schema as unknown as d.StructDesc);
     const acc: Record<string, Node<Any>> = {};

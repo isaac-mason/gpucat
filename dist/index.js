@@ -10701,7 +10701,7 @@ class TextureNode extends Node {
             const layout = structFieldLayout(schema);
             const idx = ensureU32(b);
             const texelBase = layout.texelStride === 1 ? idx : idx.mul(u32(layout.texelStride));
-            return buildRecordAccessor(this.getBase(), schema, texelBase, accessorWidth(this));
+            return buildRecordAccessor(this.getBase(), schema, texelBase, storageRowWidth(this.getBase()));
         }
         const textureNode = this.clone();
         textureNode.samplingMode = 'load';
@@ -10712,24 +10712,20 @@ class TextureNode extends Node {
     }
     /** Read a struct record starting at an explicit TEXEL index (the primitive under {@link load}). */
     loadAt(schema, texel) {
-        return buildRecordAccessor(this.getBase(), schema, ensureU32(texel), accessorWidth(this));
+        return buildRecordAccessor(this.getBase(), schema, ensureU32(texel), storageRowWidth(this.getBase()));
     }
-}
-/** Texture width (texels per row) — needed to map a linear texel index to (x, y). */
-function accessorWidth(node) {
-    return node.bindingNode.value.width;
 }
 function ensureU32(n) {
     return n.type.wgslType === 'u32' ? n : u32(n);
 }
-/** Read one rgba32uint texel at a linear texel index → a `vec4u` node. `width` (texels per row) is either
- *  a compile-time constant (real `texture(t).load(schema, i)` — the texture's known width) or a runtime
- *  `Node<u32>` from `textureSize()` (the WebGL `storage()` lowering — see `storageRowWidth`), so a
- *  size-independent, binding-independent shader falls out. */
+/** Read one rgba32uint texel at a linear texel index → a `vec4u` node. `width` (texels per row) is always
+ *  the runtime `textureSize()` node from {@link storageRowWidth} — the SAME addressing for both a real
+ *  `texture(t).load(schema, i)` and the WebGL `storage()` mirror lowering, mirroring three.js's PBO
+ *  indexing. Reading the width at runtime (never baking it) keeps the shader size- and binding-independent
+ *  and correct when the underlying texture is resized under a cached program. */
 function readTexel(base, texelIndex, width) {
-    const w = typeof width === 'number' ? u32(width) : width;
-    const x = i32(texelIndex.mod(w));
-    const y = i32(texelIndex.div(w));
+    const x = i32(texelIndex.mod(width));
+    const y = i32(texelIndex.div(width));
     return base.load(vec2i(x, y), i32(0));
 }
 /**

@@ -228,7 +228,7 @@ export declare function storageRowWidth(base: TextureNode<FlatSampledTexture>): 
  * texture. Exported so the `storage()` WebGL lowering (the GLSL emitter's `matchStorageRead`) can decode
  * a mirror-texture read through the same path as `texture(t).load(schema, i)`.
  */
-export declare function decodeField(base: TextureNode<FlatSampledTexture>, texelBase: Node<d.u32>, width: number | Node<d.u32>, byteOffset: number, type: Any): Node<Any>;
+export declare function decodeField(base: TextureNode<FlatSampledTexture>, texelBase: Node<d.u32>, width: Node<d.u32>, byteOffset: number, type: Any): Node<Any>;
 /**
  * High-level texture types that have _gpuSampler.
  * All have ._gpuTexture and ._gpuSampler properties.
