@@ -7,9 +7,9 @@
  * node-graph → text. compile()/compileCompute() (in ../../builder) orchestrate discover → emit.
  */
 
+import { layoutAlignOf, layoutSizeOf } from '../../../schema/pack';
 import type { StructSchema } from '../../../schema/schema';
 import * as d from '../../../schema/schema';
-import { layoutAlignOf, layoutSizeOf } from '../../../schema/pack';
 import type {
     AttributeEntry,
     CompileSlots,
@@ -1556,8 +1556,9 @@ export function generateFragmentShader(
                     const member = mrtNode.members[i];
                     if (!member) continue; // sparse array possible
                     const name = mrtNode._resolvedNames[i] || `output_${i}`;
-                    const wgslType = member.type.wgslType === 'vec4f' ? 'vec4f' : 'vec4f'; // MRT always outputs vec4f
-                    lines.push(`    @location(${i}) ${name}: ${wgslType},`);
+                    // MRT outputs are declared vec4f here (unlike the GLSL emitter, which derives the
+                    // target type from the member node). See the emitter asymmetry note.
+                    lines.push(`    @location(${i}) ${name}: vec4f,`);
                 }
             } else {
                 // fallback: use outputNodes directly (unresolved order)

@@ -15174,8 +15174,6 @@ function glslType(desc) {
     }
     return desc.glslType;
 }
-/** GLSL ES 3.00 integer scalar/vector types that MUST carry a `flat` interpolation qualifier. */
-const GLSL_INTEGER_WGSL_TYPES = new Set(['i32', 'u32', 'vec2i', 'vec3i', 'vec4i', 'vec2u', 'vec3u', 'vec4u']);
 /**
  * Component scalar kind of a scalar/vector WGSL type, or null for matrices/structs/arrays (which have
  * no single component kind for operand coercion). Used to detect and repair mixed-type binary ops:
@@ -17227,9 +17225,10 @@ function generateGlslTransformFeedbackShader(ctx, body, outputs) {
     if (attributeList.length > 0)
         lines.push('');
     // Captured-varying outputs. Integer-typed varyings must be `flat` (GLSL ES 3.00 won't link them
-    // otherwise) — the same rule as render varyings.
+    // otherwise) — the same rule as render varyings, derived from the descriptor's scalar kind.
     for (const out of outputMeta) {
-        const flat = GLSL_INTEGER_WGSL_TYPES.has(out.type.wgslType) ? 'flat ' : '';
+        const scalarKind = glslScalarKind(out.type);
+        const flat = scalarKind === 'i32' || scalarKind === 'u32' ? 'flat ' : '';
         lines.push(`${flat}out ${glslType(out.type)} ${out.varyingName};`);
     }
     if (outputMeta.length > 0)
@@ -18709,8 +18708,9 @@ function generateFragmentShader(fragmentNode, ctx, varyings, depthNode = null) {
                     if (!member)
                         continue; // sparse array possible
                     const name = mrtNode._resolvedNames[i] || `output_${i}`;
-                    const wgslType = member.type.wgslType === 'vec4f' ? 'vec4f' : 'vec4f'; // MRT always outputs vec4f
-                    lines.push(`    @location(${i}) ${name}: ${wgslType},`);
+                    // MRT outputs are declared vec4f here (unlike the GLSL emitter, which derives the
+                    // target type from the member node). See the emitter asymmetry note.
+                    lines.push(`    @location(${i}) ${name}: vec4f,`);
                 }
             }
             else {
