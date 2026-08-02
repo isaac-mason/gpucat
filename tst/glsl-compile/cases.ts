@@ -9,6 +9,7 @@ import {
     createStorageTexture,
     d,
     f32,
+    fxaa,
     sRGBTransferOETF,
     Fn,
     glslFn,
@@ -127,6 +128,27 @@ export const tfCases: TfCase[] = [
             );
         },
     },
+    {
+        // Transform-feedback twin of the FXAA bug: a texture sampled ONLY inside a helper Fn body (not
+        // directly in the kernel). The combined sampler is registered while the Fn body is emitted, so
+        // emitting the sampler declarations before the functions would leave `u_t0` undeclared. Pre-fix
+        // this failed to compile (undeclared identifier); the reorder in compileTransformFeedback fixes it.
+        name: 'tf gather inside a Fn (sampler registered during fn-body emit)',
+        build: () => {
+            const data = createStorageTexture(1024, 1, 'rgba32float');
+            const sampler = new GpuSampler({});
+            const gather = Fn(
+                (i: Node<d.i32>) => texture(data, sampler).load(vec2i(i.add(i32(1)), i32(0)), i32(0)),
+                { name: 'gather', params: [{ name: 'i', type: d.i32 }] as const, return: d.vec4f },
+            );
+            return compileTransformFeedback(
+                transformFeedback(
+                    (io) => ({ pos: io.pos.add(gather(vertexIndex.toI32()).mul(f32(0.5))) }),
+                    { inputs: { pos: d.vec4f }, outputs: { pos: d.vec4f }, name: 'gather-fn' },
+                ),
+            );
+        },
+    },
 ];
 
 /**
@@ -161,6 +183,23 @@ export const cases: Case[] = [
             return {
                 vertex: vec4(attribute('position', d.vec3f), f32(1)),
                 fragment: color,
+                depth: undefined,
+            };
+        },
+    },
+    {
+        // Regression: a texture sampled ONLY inside a user Fn body (FXAA's FxaaSample), reachable from
+        // the fragment. The combined sampler is registered while that Fn body is emitted, which runs
+        // AFTER the sampler-declaration pass — pre-fix the sampler was undeclared in BOTH stages (the
+        // vertex just failed to compile first: "'u_pass2_output' : undeclared identifier"). Compiles +
+        // links only when combined samplers are collected after the Fn bodies.
+        name: 'fxaa fullscreen (texture sampled inside a Fn)',
+        build: () => {
+            const tex = createStorageTexture(64, 64, 'rgba8unorm');
+            const sampler = new GpuSampler({ minFilter: 'linear', magFilter: 'linear' });
+            return {
+                vertex: vec4(attribute('position', d.vec3f), f32(1)),
+                fragment: fxaa(texture(tex, sampler)),
                 depth: undefined,
             };
         },

@@ -361,12 +361,18 @@ export function compileGlsl(slots: CompileSlots, opts: CompileGlslOptions = {}):
     const structsGlsl = emitGlslStructs(vertexCtx);
 
     const { glsl: uniformBlocksGlsl, uniformBlocks } = emitGlslUniformBlocks(vertexCtx);
-    const { glsl: samplersGlsl, textures: textureEntries, samplers: samplerEntries } = emitGlslTextures(vertexCtx);
 
     // Module-scope PrivateVar globals + raw (wgslFn/glslFn) + user Fn definitions (all precede main()).
     const moduleScopeVarsGlsl = emitGlslModuleScopeVars(vertexCtx);
     const rawFnsGlsl = emitGlslRawFunctions(vertexCtx);
     const dslFnsGlsl = emitGlslDslFunctions(vertexCtx);
+
+    // Combined samplers are collected LAST: a texture sampled only inside a user Fn body (e.g. FXAA's
+    // `FxaaSample`) is registered into `vertexCtx.textures` while that Fn body is emitted by
+    // emitGlslDslFunctions above, not during the stage walk. Emitting the sampler declarations before
+    // the functions would miss those textures, leaving the sampler undeclared in BOTH stages (the
+    // vertex just fails to compile first). The declarations still precede the functions in the output.
+    const { glsl: samplersGlsl, textures: textureEntries, samplers: samplerEntries } = emitGlslTextures(vertexCtx);
 
     const version = '#version 300 es';
 
@@ -607,10 +613,14 @@ export function compileTransformFeedback(node: TransformFeedbackNode, opts: Comp
     // Bindings + functions (same emit set as the render vertex stage).
     const structsGlsl = emitGlslStructs(ctx);
     const { glsl: uniformBlocksGlsl, uniformBlocks } = emitGlslUniformBlocks(ctx);
-    const { glsl: samplersGlsl, textures: textureEntries, samplers: samplerEntries } = emitGlslTextures(ctx);
     const moduleScopeVarsGlsl = emitGlslModuleScopeVars(ctx);
     const rawFnsGlsl = emitGlslRawFunctions(ctx);
     const dslFnsGlsl = emitGlslDslFunctions(ctx);
+    // Combined samplers are collected LAST, same as compileGlsl: a texture sampled only inside a user
+    // Fn body (neighbour-gather via a helper Fn) is registered into `ctx.textures` while that Fn body
+    // is emitted above, not during the kernel walk. Emitting the declarations first would miss it,
+    // leaving the sampler undeclared. The declarations still precede the functions in the output.
+    const { glsl: samplersGlsl, textures: textureEntries, samplers: samplerEntries } = emitGlslTextures(ctx);
 
     const version = '#version 300 es';
     const structsSection = structsGlsl ? `// Structs\n${structsGlsl}` : '';
