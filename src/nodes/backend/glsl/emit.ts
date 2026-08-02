@@ -15,11 +15,10 @@
  * Nothing here touches GPUDevice or any runtime object — it is purely node-graph → text.
  */
 
+import { layoutAlignOf, layoutSizeOf, layoutStrideOf, structFieldLayout } from '../../../schema/pack';
 import type { StructSchema } from '../../../schema/schema';
 import * as d from '../../../schema/schema';
-import { layoutAlignOf, layoutSizeOf, layoutStrideOf, structFieldLayout } from '../../../schema/pack';
 import type { CompileSlots, Discovery, SamplerEntry, TextureEntry, UniformGroupBlock, UniformMember } from '../../builder';
-import type { TracedFn } from '../wgsl/emit';
 import { type AnyNode, getChildren } from '../../graph';
 import type { AttributeNode } from '../../lib/attribute';
 import type { BuiltinNode } from '../../lib/builtin';
@@ -43,14 +42,15 @@ import type { MRTNode } from '../../lib/mrt';
 import {
     type ArrayTextureNode,
     type CubeTextureNode,
-    decodeField,
     type DepthTextureNode,
+    decodeField,
     SamplerNode,
     type TextureBindingNode,
     type TextureNode,
 } from '../../lib/texture';
 import type { UniformGroup, UniformNode } from '../../lib/uniform';
 import type { VaryingNode } from '../../lib/varying';
+import type { TracedFn } from '../wgsl/emit';
 
 type ShaderStage = 'vertex' | 'fragment';
 
@@ -70,16 +70,7 @@ function glslType(desc: d.Any): string {
 }
 
 /** GLSL ES 3.00 integer scalar/vector types that MUST carry a `flat` interpolation qualifier. */
-const GLSL_INTEGER_WGSL_TYPES = new Set([
-    'i32',
-    'u32',
-    'vec2i',
-    'vec3i',
-    'vec4i',
-    'vec2u',
-    'vec3u',
-    'vec4u',
-]);
+const GLSL_INTEGER_WGSL_TYPES = new Set(['i32', 'u32', 'vec2i', 'vec3i', 'vec4i', 'vec2u', 'vec3u', 'vec4u']);
 
 /**
  * Interpolation qualifier for a GLSL varying declaration, derived from the same `interpolationType`
@@ -153,14 +144,7 @@ const CALL_RENAMES: Record<string, string> = {
  * plain dFdx/dFdy/fwidth). Emitting the bare name would produce an un-compilable shader, so the GLSL
  * emitter rejects them with a clear error rather than degrade silently.
  */
-const UNSUPPORTED_DERIVATIVES = new Set([
-    'dpdxCoarse',
-    'dpdyCoarse',
-    'fwidthCoarse',
-    'dpdxFine',
-    'dpdyFine',
-    'fwidthFine',
-]);
+const UNSUPPORTED_DERIVATIVES = new Set(['dpdxCoarse', 'dpdyCoarse', 'fwidthCoarse', 'dpdxFine', 'dpdyFine', 'fwidthFine']);
 
 /** Emit a GLSL literal for a constant value of the given WGSL type. */
 function glslLiteral(wgslType: string, value: number | number[] | string): string {
@@ -203,7 +187,10 @@ function glslLiteral(wgslType: string, value: number | number[] | string): strin
  */
 export type StorageMirror = {
     base: TextureNode<d.FlatSampledTexture>;
-    width: number;
+    /** runtime texel-row width (`textureSize(base,0).x`), cached so CSE hoists the one `textureSize`
+     *  call. Storage addressing uses this instead of a baked width, so value- and name-based storage
+     *  compile to identical GLSL. */
+    widthNode: Node<d.u32>;
 };
 
 /**
@@ -294,7 +281,7 @@ function unsupported(kind: string): never {
 type StorageReadMatch = {
     base: TextureNode<d.FlatSampledTexture>;
     texelBase: Node<d.u32>;
-    width: number;
+    width: Node<d.u32>;
     byteOffset: number;
     type: d.Any;
 };
@@ -326,7 +313,7 @@ function matchStorageRead(ctx: GlslBuildContext, node: AnyNode): StorageReadMatc
         return {
             base: mirror.base,
             texelBase: storageTexelBase(idxNode.index, layout.texelStride),
-            width: mirror.width,
+            width: mirror.widthNode,
             byteOffset: f.byteOffset,
             type: f.type,
         };
@@ -341,7 +328,7 @@ function matchStorageRead(ctx: GlslBuildContext, node: AnyNode): StorageReadMatc
         return {
             base: mirror.base,
             texelBase: storageTexelBase(idxNode.index, texelStride),
-            width: mirror.width,
+            width: mirror.widthNode,
             byteOffset: 0,
             type: elementSchema,
         };
@@ -609,36 +596,216 @@ function distinctAttributes(ctx: GlslBuildContext): { shaderName: string; type: 
  */
 const GLSL_RESERVED_NAMES = new Set([
     // Common built-in functions.
-    'radians', 'degrees', 'sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'sinh', 'cosh', 'tanh',
-    'asinh', 'acosh', 'atanh', 'pow', 'exp', 'log', 'exp2', 'log2', 'sqrt', 'inversesqrt',
-    'abs', 'sign', 'floor', 'trunc', 'round', 'roundEven', 'ceil', 'fract', 'mod', 'modf',
-    'min', 'max', 'clamp', 'mix', 'step', 'smoothstep', 'isnan', 'isinf',
-    'floatBitsToInt', 'floatBitsToUint', 'intBitsToFloat', 'uintBitsToFloat',
-    'fma', 'frexp', 'ldexp', 'packSnorm2x16', 'unpackSnorm2x16', 'packUnorm2x16', 'unpackUnorm2x16',
-    'packHalf2x16', 'unpackHalf2x16', 'length', 'distance', 'dot', 'cross', 'normalize',
-    'faceforward', 'reflect', 'refract', 'matrixCompMult', 'outerProduct', 'transpose',
-    'determinant', 'inverse', 'lessThan', 'lessThanEqual', 'greaterThan', 'greaterThanEqual',
-    'equal', 'notEqual', 'any', 'all', 'not', 'texture', 'textureProj', 'textureLod',
-    'textureOffset', 'texelFetch', 'texelFetchOffset', 'textureProjOffset', 'textureLodOffset',
-    'textureProjLod', 'textureProjLodOffset', 'textureGrad', 'textureGradOffset',
-    'textureProjGrad', 'textureProjGradOffset', 'textureSize', 'textureGather',
-    'dFdx', 'dFdy', 'fwidth', 'emitVertex', 'endPrimitive',
+    'radians',
+    'degrees',
+    'sin',
+    'cos',
+    'tan',
+    'asin',
+    'acos',
+    'atan',
+    'sinh',
+    'cosh',
+    'tanh',
+    'asinh',
+    'acosh',
+    'atanh',
+    'pow',
+    'exp',
+    'log',
+    'exp2',
+    'log2',
+    'sqrt',
+    'inversesqrt',
+    'abs',
+    'sign',
+    'floor',
+    'trunc',
+    'round',
+    'roundEven',
+    'ceil',
+    'fract',
+    'mod',
+    'modf',
+    'min',
+    'max',
+    'clamp',
+    'mix',
+    'step',
+    'smoothstep',
+    'isnan',
+    'isinf',
+    'floatBitsToInt',
+    'floatBitsToUint',
+    'intBitsToFloat',
+    'uintBitsToFloat',
+    'fma',
+    'frexp',
+    'ldexp',
+    'packSnorm2x16',
+    'unpackSnorm2x16',
+    'packUnorm2x16',
+    'unpackUnorm2x16',
+    'packHalf2x16',
+    'unpackHalf2x16',
+    'length',
+    'distance',
+    'dot',
+    'cross',
+    'normalize',
+    'faceforward',
+    'reflect',
+    'refract',
+    'matrixCompMult',
+    'outerProduct',
+    'transpose',
+    'determinant',
+    'inverse',
+    'lessThan',
+    'lessThanEqual',
+    'greaterThan',
+    'greaterThanEqual',
+    'equal',
+    'notEqual',
+    'any',
+    'all',
+    'not',
+    'texture',
+    'textureProj',
+    'textureLod',
+    'textureOffset',
+    'texelFetch',
+    'texelFetchOffset',
+    'textureProjOffset',
+    'textureLodOffset',
+    'textureProjLod',
+    'textureProjLodOffset',
+    'textureGrad',
+    'textureGradOffset',
+    'textureProjGrad',
+    'textureProjGradOffset',
+    'textureSize',
+    'textureGather',
+    'dFdx',
+    'dFdy',
+    'fwidth',
+    'emitVertex',
+    'endPrimitive',
     // Keywords / reserved words.
-    'const', 'uniform', 'buffer', 'shared', 'attribute', 'varying', 'coherent', 'volatile',
-    'restrict', 'readonly', 'writeonly', 'layout', 'centroid', 'flat', 'smooth', 'noperspective',
-    'patch', 'sample', 'break', 'continue', 'do', 'for', 'while', 'switch', 'case', 'default',
-    'if', 'else', 'in', 'out', 'inout', 'float', 'int', 'void', 'bool', 'true', 'false',
-    'invariant', 'precise', 'discard', 'return', 'mat2', 'mat3', 'mat4', 'vec2', 'vec3', 'vec4',
-    'ivec2', 'ivec3', 'ivec4', 'bvec2', 'bvec3', 'bvec4', 'uint', 'uvec2', 'uvec3', 'uvec4',
-    'lowp', 'mediump', 'highp', 'precision', 'sampler2D', 'sampler3D', 'samplerCube', 'struct',
+    'const',
+    'uniform',
+    'buffer',
+    'shared',
+    'attribute',
+    'varying',
+    'coherent',
+    'volatile',
+    'restrict',
+    'readonly',
+    'writeonly',
+    'layout',
+    'centroid',
+    'flat',
+    'smooth',
+    'noperspective',
+    'patch',
+    'sample',
+    'break',
+    'continue',
+    'do',
+    'for',
+    'while',
+    'switch',
+    'case',
+    'default',
+    'if',
+    'else',
+    'in',
+    'out',
+    'inout',
+    'float',
+    'int',
+    'void',
+    'bool',
+    'true',
+    'false',
+    'invariant',
+    'precise',
+    'discard',
+    'return',
+    'mat2',
+    'mat3',
+    'mat4',
+    'vec2',
+    'vec3',
+    'vec4',
+    'ivec2',
+    'ivec3',
+    'ivec4',
+    'bvec2',
+    'bvec3',
+    'bvec4',
+    'uint',
+    'uvec2',
+    'uvec3',
+    'uvec4',
+    'lowp',
+    'mediump',
+    'highp',
+    'precision',
+    'sampler2D',
+    'sampler3D',
+    'samplerCube',
+    'struct',
     'main',
     // GLSL ES 3.00 reserved-for-future-use words — illegal as identifiers even though unused.
-    'input', 'output', 'filter', 'sizeof', 'cast', 'namespace', 'using', 'common', 'partition',
-    'active', 'asm', 'class', 'union', 'enum', 'typedef', 'template', 'this', 'resource', 'goto',
-    'inline', 'noinline', 'public', 'static', 'extern', 'external', 'interface', 'long', 'short',
-    'double', 'half', 'fixed', 'unsigned', 'superp', 'hvec2', 'hvec3', 'hvec4', 'dvec2', 'dvec3',
-    'dvec4', 'fvec2', 'fvec3', 'fvec4', 'sampler1D', 'sampler1DShadow', 'sampler2DRectShadow',
-    'row_major', 'packed',
+    'input',
+    'output',
+    'filter',
+    'sizeof',
+    'cast',
+    'namespace',
+    'using',
+    'common',
+    'partition',
+    'active',
+    'asm',
+    'class',
+    'union',
+    'enum',
+    'typedef',
+    'template',
+    'this',
+    'resource',
+    'goto',
+    'inline',
+    'noinline',
+    'public',
+    'static',
+    'extern',
+    'external',
+    'interface',
+    'long',
+    'short',
+    'double',
+    'half',
+    'fixed',
+    'unsigned',
+    'superp',
+    'hvec2',
+    'hvec3',
+    'hvec4',
+    'dvec2',
+    'dvec3',
+    'dvec4',
+    'fvec2',
+    'fvec3',
+    'fvec4',
+    'sampler1D',
+    'sampler1DShadow',
+    'sampler2DRectShadow',
+    'row_major',
+    'packed',
 ]);
 
 /**
@@ -882,10 +1049,12 @@ function generateTextureCall(ctx: GlslBuildContext, node: CallNode<d.Any>): stri
             return `texelFetch(${name}, ivec2(${coords}), ${level})`;
         }
         case 'textureDimensions': {
-            // (t [, level]) → textureSize(name [, level]). textureSize requires a level arg in
-            // GLSL ES 3.00, so default to 0 when none was given.
-            const level = rawArgs[1] ? generateExpr(ctx, rawArgs[1]) : '0';
-            return `textureSize(${name}, ${level})`;
+            // WGSL textureDimensions(t [, level:u32]) → vec{2,3}<u32>; GLSL textureSize(sampler, int) →
+            // ivec{2,3}. textureSize requires a level (default 0), and its lod is int — a u32 level would
+            // find no overload. Cast the lod to int, and the ivec result back to the node's u32 vector
+            // type so downstream `.x`/`% `/`/ ` stay unsigned.
+            const level = rawArgs[1] ? `int(${generateExpr(ctx, rawArgs[1])})` : '0';
+            return `${glslType(node.type)}(textureSize(${name}, ${level}))`;
         }
         default:
             throw new Error(`[glsl] texture builtin '${node.fn}' not yet supported in the GLSL emitter`);
@@ -1493,9 +1662,7 @@ export function emitGlslRawFunctions(ctx: GlslBuildContext): string {
 
     const emitOne = (fn: WgslFunctionNodeRef) => {
         if (!fn.glslCode) {
-            throw new Error(
-                `[glsl] this wgslFn/glslFn has no \`glsl\` variant; add one to run on the WebGL backend`,
-            );
+            throw new Error(`[glsl] this wgslFn/glslFn has no \`glsl\` variant; add one to run on the WebGL backend`);
         }
         if (emitted.has(fn.glslCode)) return;
         lines.push(fn.glslCode.trim());
@@ -1692,7 +1859,13 @@ const FRAGMENT_ONLY_DERIVATIVES = new Set([
  * derivatives don't exist in a transform-feedback vertex kernel, so require the explicit-LOD form
  * (`textureLod` / `textureLoad`) instead.
  */
-const IMPLICIT_LOD_TEXTURE_FNS = new Set(['textureSample', 'textureSampleBias', 'textureSampleCompare', 'textureGather', 'textureGatherCompare']);
+const IMPLICIT_LOD_TEXTURE_FNS = new Set([
+    'textureSample',
+    'textureSampleBias',
+    'textureSampleCompare',
+    'textureGather',
+    'textureGatherCompare',
+]);
 
 /**
  * Reject body constructs that can't run in a transform-feedback vertex kernel. Walks the traced body
@@ -1707,7 +1880,9 @@ function validateTransformFeedbackBody(roots: Node<d.Any>[]): void {
 
         switch (node.kind) {
             case NodeKind.Discard:
-                throw new Error(`[transformFeedback] 'discard' is a fragment-only op and can't be used in a transform-feedback kernel.`);
+                throw new Error(
+                    `[transformFeedback] 'discard' is a fragment-only op and can't be used in a transform-feedback kernel.`,
+                );
             case NodeKind.Storage:
                 throw new Error(
                     `[transformFeedback] storage() buffers are not part of the transform-feedback DSL; ` +
@@ -1716,7 +1891,9 @@ function validateTransformFeedbackBody(roots: Node<d.Any>[]): void {
             case NodeKind.StorageTextureBinding:
                 throw new Error(`[transformFeedback] storage textures are not supported in a transform-feedback kernel.`);
             case NodeKind.WorkgroupVar:
-                throw new Error(`[transformFeedback] workgroup variables are compute-only and can't be used in a transform-feedback kernel.`);
+                throw new Error(
+                    `[transformFeedback] workgroup variables are compute-only and can't be used in a transform-feedback kernel.`,
+                );
             case NodeKind.Call: {
                 const call = node as CallNode<d.Any>;
                 if (FRAGMENT_ONLY_DERIVATIVES.has(call.fn)) {
@@ -1731,10 +1908,14 @@ function validateTransformFeedbackBody(roots: Node<d.Any>[]): void {
                     );
                 }
                 if (call.fn === 'workgroupBarrier' || call.fn === 'storageBarrier' || call.fn === 'textureBarrier') {
-                    throw new Error(`[transformFeedback] '${call.fn}()' is compute-only and can't be used in a transform-feedback kernel.`);
+                    throw new Error(
+                        `[transformFeedback] '${call.fn}()' is compute-only and can't be used in a transform-feedback kernel.`,
+                    );
                 }
                 if (call.fn.startsWith('atomic')) {
-                    throw new Error(`[transformFeedback] atomics ('${call.fn}') are not part of the transform-feedback DSL; use a WebGPU compute().`);
+                    throw new Error(
+                        `[transformFeedback] atomics ('${call.fn}') are not part of the transform-feedback DSL; use a WebGPU compute().`,
+                    );
                 }
                 break;
             }
@@ -1884,7 +2065,11 @@ export function generateGlslFragmentShader(
             // Unresolved: fall back to declaration order of the named outputs.
             let loc = 0;
             for (const name in mrtNode.outputNodes) {
-                mrtOutputs.push({ name: glslOutputName(name), location: loc, expr: generateExpr(ctx, mrtNode.outputNodes[name]) });
+                mrtOutputs.push({
+                    name: glslOutputName(name),
+                    location: loc,
+                    expr: generateExpr(ctx, mrtNode.outputNodes[name]),
+                });
                 loc++;
             }
         }

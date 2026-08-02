@@ -1,6 +1,7 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import { GpuSampler } from '../../core/gpu-sampler';
 import type { GpuTexture } from '../../core/gpu-texture';
+import { structFieldLayout } from '../../schema/pack';
 import type { Any, CubeSampledTexture, FlatDepthTexture, FlatSampledTexture } from '../../schema/schema';
 import * as d from '../../schema/schema';
 import type { ArrayTexture } from '../../texture/array-texture';
@@ -8,7 +9,6 @@ import type { CubeTexture } from '../../texture/cube-texture';
 import type { DataTexture } from '../../texture/data-texture';
 import type { DepthTexture } from '../../texture/depth-texture';
 import type { Texture } from '../../texture/texture';
-import { structFieldLayout } from '../../schema/pack';
 import { uv } from './attribute';
 import {
     addToStack,
@@ -21,8 +21,8 @@ import {
     mat4,
     Node,
     NodeKind,
-    shiftRight,
     type StructDef,
+    shiftRight,
     u32,
     vec2f,
     vec2i,
@@ -125,13 +125,18 @@ export class SamplerNode<D extends d.sampler | d.samplerComparison = d.sampler> 
  * has no SSBO). The renderer reads the buffer's own bytes directly as `width × height` u32 texels — no
  * `DataTexture`, no second CPU array — and caches one GL texture per `GpuBuffer` (version-synced to
  * `buffer.version`). Carried on the synthetic `TextureBindingNode` that a lowered `storage()` read
- * samples through; the `width` is baked into the shader's texel addressing at compile time.
+ * samples through. The shader reads the row width at RUNTIME via `textureSize()` (see `storageRowWidth`),
+ * so the emitted GLSL is independent of buffer size AND of value-vs-name binding — both compile identically.
+ *
+ * Two shapes:
+ *  - value-based: the `GpuBuffer` is known at compile (`storage(buffer, 'read')`), so its texel grid is
+ *    computed here and the renderer uploads it directly.
+ *  - name-based: `storage('slot', 'read')` bound via `geometry.setBuffer('slot', buf)`. The buffer isn't
+ *    known until draw, so only the name is carried; the renderer resolves it from the render object's
+ *    geometry at bind time and sizes the grid then.
  */
-export type StorageBufferTextureSource = {
-    buffer: GpuBuffer;
-    width: number;
-    height: number;
-};
+export type ResolvedStorageBufferTexture = { buffer: GpuBuffer; width: number; height: number };
+export type StorageBufferTextureSource = ResolvedStorageBufferTexture | { name: string };
 
 export class TextureBindingNode<D extends d.Texture = d.Texture> extends Node<D> {
     readonly kind = NodeKind.TextureBinding;
@@ -476,11 +481,30 @@ function ensureU32(n: Node<d.u32 | d.i32>): Node<d.u32> {
     return (n.type as { wgslType?: string }).wgslType === 'u32' ? (n as Node<d.u32>) : u32(n);
 }
 
-/** Read one rgba32uint texel at a linear texel index → a `vec4u` node. */
-function readTexel(base: TextureNode<FlatSampledTexture>, texelIndex: Node<d.u32>, width: number): TextureNode<FlatSampledTexture> {
-    const x = i32(texelIndex.mod(u32(width)));
-    const y = i32(texelIndex.div(u32(width)));
+/** Read one rgba32uint texel at a linear texel index → a `vec4u` node. `width` (texels per row) is either
+ *  a compile-time constant (real `texture(t).load(schema, i)` — the texture's known width) or a runtime
+ *  `Node<u32>` from `textureSize()` (the WebGL `storage()` lowering — see `storageRowWidth`), so a
+ *  size-independent, binding-independent shader falls out. */
+function readTexel(
+    base: TextureNode<FlatSampledTexture>,
+    texelIndex: Node<d.u32>,
+    width: number | Node<d.u32>,
+): TextureNode<FlatSampledTexture> {
+    const w = typeof width === 'number' ? u32(width) : width;
+    const x = i32(texelIndex.mod(w));
+    const y = i32(texelIndex.div(w));
     return base.load(vec2i(x, y), i32(0)) as TextureNode<FlatSampledTexture>;
+}
+
+/**
+ * Runtime texel-row width of a storage mirror texture: `uint(textureSize(tex, 0).x)`. The WebGL
+ * `storage()` read-lowering addresses texels with this instead of a baked width constant, mirroring
+ * three.js's PBO addressing (`index % textureSize(...).x`). The emitted GLSL is then identical whether
+ * the buffer is value- or name-based and whatever its size, and the renderer sizes the mirror texture
+ * tight. Build ONE per mirror (cached on the `StorageMirror`) so CSE hoists the `textureSize` call.
+ */
+export function storageRowWidth(base: TextureNode<FlatSampledTexture>): Node<d.u32> {
+    return textureDimensions(base.bindingNode).x;
 }
 
 /**
@@ -491,7 +515,7 @@ function readTexel(base: TextureNode<FlatSampledTexture>, texelIndex: Node<d.u32
 export function decodeField(
     base: TextureNode<FlatSampledTexture>,
     texelBase: Node<d.u32>,
-    width: number,
+    width: number | Node<d.u32>,
     byteOffset: number,
     type: Any,
 ): Node<Any> {
@@ -502,7 +526,7 @@ export function decodeField(
         readTexel(base, tw === 0 ? texelBase : texelBase.add(u32(tw)), width);
     // Swizzle a texel's component (0..3) → its u32 lane.
     const lane = (texel: TextureNode<FlatSampledTexture>, i: number): Node<d.u32> =>
-        ([texel.x, texel.y, texel.z, texel.w][i] as unknown) as Node<d.u32>;
+        [texel.x, texel.y, texel.z, texel.w][i] as unknown as Node<d.u32>;
 
     const texel = texAt(texelWithin);
 
@@ -548,9 +572,19 @@ export function decodeField(
     // vec4 (whole texel)
     if (t === 'vec4u') return texel as unknown as Node<Any>;
     if (t === 'vec4i')
-        return vec4i(bitcastI32(lane(texel, 0)), bitcastI32(lane(texel, 1)), bitcastI32(lane(texel, 2)), bitcastI32(lane(texel, 3)));
+        return vec4i(
+            bitcastI32(lane(texel, 0)),
+            bitcastI32(lane(texel, 1)),
+            bitcastI32(lane(texel, 2)),
+            bitcastI32(lane(texel, 3)),
+        );
     if (t === 'vec4f')
-        return vec4(bitcastF32(lane(texel, 0)), bitcastF32(lane(texel, 1)), bitcastF32(lane(texel, 2)), bitcastF32(lane(texel, 3)));
+        return vec4(
+            bitcastF32(lane(texel, 0)),
+            bitcastF32(lane(texel, 1)),
+            bitcastF32(lane(texel, 2)),
+            bitcastF32(lane(texel, 3)),
+        );
     // f32 matrices: each column has stride 16 (one texel) for 3- and 4-row matrices.
     const m = t.match(/^mat(\d)x(\d)f$/);
     if (m) {

@@ -22,7 +22,7 @@
  */
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { GpuTexture } from '../../core/gpu-texture';
-import type { StorageBufferTextureSource } from '../../nodes/lib/texture';
+import type { ResolvedStorageBufferTexture } from '../../nodes/lib/texture';
 /** GL format triple for a color/depth texture: the sized internal format + upload format + type. */
 type GlFormat = {
     /** Sized internal format for texStorage/texImage (e.g. gl.RGBA8, gl.RGBA16F, gl.DEPTH_COMPONENT24). */
@@ -87,7 +87,7 @@ export declare function createGlTexturesState(): GlTexturesState;
  * queued — a row-granular partial upload for `packAtIndex`/`addUpdateRange` writes, a full upload for a
  * bare version bump, or a full re-allocation if the texel grid grew. The caller binds it.
  */
-export declare function updateStorageBufferTexture(gl: WebGL2RenderingContext, state: GlTexturesState, source: StorageBufferTextureSource): WebGLTexture;
+export declare function updateStorageBufferTexture(gl: WebGL2RenderingContext, state: GlTexturesState, source: ResolvedStorageBufferTexture): WebGLTexture;
 /** Get the cached GlTextureData for a GpuTexture (or null if never seen). */
 export declare function getGlTextureData(state: GlTexturesState, texture: GpuTexture): GlTextureData | null;
 /**

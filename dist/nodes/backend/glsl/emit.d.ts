@@ -17,12 +17,12 @@
 import type { StructSchema } from '../../../schema/schema';
 import * as d from '../../../schema/schema';
 import type { CompileSlots, Discovery, SamplerEntry, TextureEntry, UniformGroupBlock } from '../../builder';
-import type { TracedFn } from '../wgsl/emit';
 import type { AttributeNode } from '../../lib/attribute';
 import { type FnNode, type Node, type PrivateVarNode, type StackNode, type StructDef, type WgslFunctionNodeRef } from '../../lib/core';
 import { SamplerNode, type TextureBindingNode, type TextureNode } from '../../lib/texture';
 import type { UniformGroup, UniformNode } from '../../lib/uniform';
 import type { VaryingNode } from '../../lib/varying';
+import type { TracedFn } from '../wgsl/emit';
 type ShaderStage = 'vertex' | 'fragment';
 /**
  * A read-only storage() buffer bound AS a texture for WebGL (which has no SSBO). `base` is a synthetic
@@ -32,7 +32,10 @@ type ShaderStage = 'vertex' | 'fragment';
  */
 export type StorageMirror = {
     base: TextureNode<d.FlatSampledTexture>;
-    width: number;
+    /** runtime texel-row width (`textureSize(base,0).x`), cached so CSE hoists the one `textureSize`
+     *  call. Storage addressing uses this instead of a baked width, so value- and name-based storage
+     *  compile to identical GLSL. */
+    widthNode: Node<d.u32>;
 };
 /**
  * GLSL build context — a sibling of the WGSL BuildContext, but slimmed to this slice. It carries the

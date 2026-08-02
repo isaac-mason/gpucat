@@ -14,10 +14,11 @@
  */
 
 import type { SamplerEntry, TextureEntry } from '../../nodes/builder';
+import type { ResolvedStorageBufferTexture, StorageBufferTextureSource } from '../../nodes/lib/texture';
 import { getBindings, type RenderObject } from '../core/render-object';
 import type { ProgramInfo } from './programs';
-import { getGlSampler, type GlSamplersState } from './samplers';
-import { getGlTextureData, updateStorageBufferTexture, updateTexture, type GlTexturesState } from './textures';
+import { type GlSamplersState, getGlSampler } from './samplers';
+import { type GlTexturesState, getGlTextureData, updateStorageBufferTexture, updateTexture } from './textures';
 
 /** The combined-sampler uniform name for a texture id (mirrors the GLSL emitter's `samplerUniformName`). */
 function samplerUniformName(textureId: string): string {
@@ -33,10 +34,15 @@ let floatLinearSupported: boolean | null = null;
  * clear error rather than silently render black. Half-float (16float) linear is core in WebGL2, and
  * nearest filtering of float32 is always fine; both are left alone.
  */
-function assertFloatLinearFilterable(gl: WebGL2RenderingContext, textureFormat: string, gpuSampler: { minFilter: string; magFilter: string; mipmapFilter: string } | null): void {
+function assertFloatLinearFilterable(
+    gl: WebGL2RenderingContext,
+    textureFormat: string,
+    gpuSampler: { minFilter: string; magFilter: string; mipmapFilter: string } | null,
+): void {
     if (!textureFormat.includes('32float')) return;
     if (!gpuSampler) return;
-    const usesLinear = gpuSampler.minFilter === 'linear' || gpuSampler.magFilter === 'linear' || gpuSampler.mipmapFilter === 'linear';
+    const usesLinear =
+        gpuSampler.minFilter === 'linear' || gpuSampler.magFilter === 'linear' || gpuSampler.mipmapFilter === 'linear';
     if (!usesLinear) return;
     if (floatLinearSupported === null) floatLinearSupported = !!gl.getExtension('OES_texture_float_linear');
     if (!floatLinearSupported) {
@@ -66,6 +72,46 @@ function getSamplerLocation(gl: WebGL2RenderingContext, programInfo: ProgramInfo
  * @param frame the node frame (unused for value sourcing here — texture/sampler node `value` is set
  *   at graph-build time — but kept for symmetry with the uniform path and future update hooks)
  */
+/**
+ * Resolve a storage()-read mirror source to `{ buffer, width, height }` for {@link updateStorageBufferTexture}.
+ * Value-based sources are returned as-is. Name-based sources (`storage('slot', 'read')` bound via
+ * `geometry.setBuffer('slot', buf)`) resolve the buffer from THIS render object's geometry and size the
+ * texel grid now (`width = min(texels, MAX_TEXTURE_SIZE)`, `height = ceil`) — the shader reads the actual
+ * width back via `textureSize()`, so any binding/size works with one compiled shader.
+ */
+function resolveStorageSource(
+    gl: WebGL2RenderingContext,
+    textures: GlTexturesState,
+    renderObject: RenderObject,
+    source: StorageBufferTextureSource,
+): ResolvedStorageBufferTexture {
+    if (!('name' in source)) return source;
+    const buffer = renderObject.geometry.getBuffer(source.name);
+    if (!buffer) {
+        throw new Error(
+            `[WebGLRenderer] storage('${source.name}') read-lowering: no buffer bound for that name on the ` +
+                `geometry — call geometry.setBuffer('${source.name}', buffer).`,
+        );
+    }
+    const arr = buffer.array;
+    if (arr == null) {
+        throw new Error(
+            `[WebGLRenderer] storage('${source.name}') read-lowering: the buffer has no CPU \`array\` to ` +
+                `reinterpret (released after upload); keep it resident to sample it on WebGL2.`,
+        );
+    }
+    if (arr.byteLength === 0 || arr.byteLength % 16 !== 0) {
+        throw new Error(
+            `[WebGLRenderer] storage('${source.name}') read-lowering: buffer byte length ${arr.byteLength} must ` +
+                `be a non-zero multiple of 16 (whole rgba32uint texels) to reinterpret as a texture.`,
+        );
+    }
+    if (textures.maxTextureSize == null) textures.maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
+    const totalTexels = arr.byteLength / 16;
+    const width = Math.min(totalTexels, textures.maxTextureSize);
+    return { buffer, width, height: Math.ceil(totalTexels / width) };
+}
+
 export function bindTextures(
     gl: WebGL2RenderingContext,
     textures: GlTexturesState,
@@ -95,7 +141,10 @@ export function bindTextures(
             // bind it sampler-less (integer texelFetch needs no sampler), and set its combined-sampler uniform.
             const storageSource = entry.node.storageBufferSource;
             if (storageSource) {
-                const glTexture = updateStorageBufferTexture(gl, textures, storageSource);
+                // Name-based sources (`storage('slot','read')` + `geometry.setBuffer('slot',…)`) resolve
+                // their buffer from THIS render object's geometry now; value-based already carry it.
+                const resolved = resolveStorageSource(gl, textures, renderObject, storageSource);
+                const glTexture = updateStorageBufferTexture(gl, textures, resolved);
                 gl.activeTexture(gl.TEXTURE0 + unit);
                 gl.bindTexture(gl.TEXTURE_2D, glTexture);
                 gl.bindSampler(unit, null);

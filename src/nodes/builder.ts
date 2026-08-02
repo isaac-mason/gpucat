@@ -39,7 +39,6 @@ import {
     type StructDef,
     type WorkgroupVarNode,
 } from './lib/core';
-import type { TransformFeedbackNode } from './lib/transform-feedback';
 import type { StorageNode } from './lib/storage';
 import {
     type ArrayTextureNode,
@@ -47,9 +46,11 @@ import {
     type DepthTextureNode,
     SamplerNode,
     type StorageTextureBindingNode,
+    storageRowWidth,
     TextureBindingNode,
     TextureNode,
 } from './lib/texture';
+import type { TransformFeedbackNode } from './lib/transform-feedback';
 import type { UniformGroup, UniformNode } from './lib/uniform';
 import type { InterpolationSampling, InterpolationType } from './lib/varying';
 import type { WgslFunctionNode } from './lib/wgsl-fn';
@@ -234,33 +235,40 @@ export type CompileGlslOptions = {
  * the GLSL compile cache is keyed by `maxTextureSize`.
  */
 function createStorageBinding(node: StorageNode<d.Any>, maxTextureSize: number | undefined): StorageMirror {
-    const buffer = node.value!;
-    const arr = buffer.array;
-    if (arr == null) {
-        throw new Error(
-            `[glsl] storage() read-lowering needs a CPU-backed buffer, but this storage buffer has no ` +
-                `\`array\` (its CPU data was released after upload); keep the data resident to read it on WebGL`,
-        );
-    }
-    if (arr.byteLength === 0 || arr.byteLength % 16 !== 0) {
-        throw new Error(
-            `[glsl] storage() read-lowering: buffer byte length ${arr.byteLength} must be a non-zero multiple ` +
-                `of 16 (whole rgba32uint texels) to reinterpret as a WebGL texture`,
-        );
-    }
-    const totalTexels = arr.byteLength / 16;
-    // `width = min(totalTexels, cap)`, `height = ceil` — the renderer pads the short last row (no
-    // exact-division needed) and validates `height ≤ MAX_TEXTURE_SIZE`. Common case (`totalTexels ≤ cap`)
-    // → a single row of width `totalTexels`, byte-identical to the pre-capacity path.
-    const cap = maxTextureSize ?? 2048;
-    const width = Math.min(totalTexels, cap);
-    const height = Math.ceil(totalTexels / width);
-    // Synthetic, sampler-less integer texture binding backed by the buffer itself — `.load()` lowers to
-    // texelFetch on a usampler2D, needing no sampler. The renderer resolves `storageBufferSource`.
+    // Synthetic, sampler-less integer texture binding backed by the storage buffer's own bytes —
+    // `.load()` lowers to texelFetch on a usampler2D, needing no sampler. The renderer resolves
+    // `storageBufferSource`. The shader reads the row width at RUNTIME via `textureSize()` (see
+    // `storageRowWidth`), so the texel grid shape is NOT baked in — value- and name-based storage of any
+    // size compile to identical GLSL, and the compile cache no longer varies with `maxTextureSize`.
     const binding = new TextureBindingNode(d.texture2d(d.u32) as d.texture2d, `storage${node.id}`);
-    binding.storageBufferSource = { buffer, width, height };
+    if (node.value != null) {
+        // Value-based: buffer known at compile → size the tight texel grid now. `width = min(texels, cap)`,
+        // `height = ceil`; the renderer pads the short last row and validates `height ≤ MAX_TEXTURE_SIZE`.
+        const arr = node.value.array;
+        if (arr == null) {
+            throw new Error(
+                `[glsl] storage() read-lowering needs a CPU-backed buffer, but this storage buffer has no ` +
+                    `\`array\` (its CPU data was released after upload); keep the data resident to read it on WebGL`,
+            );
+        }
+        if (arr.byteLength === 0 || arr.byteLength % 16 !== 0) {
+            throw new Error(
+                `[glsl] storage() read-lowering: buffer byte length ${arr.byteLength} must be a non-zero multiple ` +
+                    `of 16 (whole rgba32uint texels) to reinterpret as a WebGL texture`,
+            );
+        }
+        const totalTexels = arr.byteLength / 16;
+        const cap = maxTextureSize ?? 2048;
+        const width = Math.min(totalTexels, cap);
+        binding.storageBufferSource = { buffer: node.value, width, height: Math.ceil(totalTexels / width) };
+    } else {
+        // Name-based: `storage('slot', 'read')` bound via `geometry.setBuffer('slot', buf)`. The buffer
+        // isn't known until draw; the renderer resolves it from the render object's geometry and sizes the
+        // rgba32uint mirror at bind time (same version-synced cache). See texture-bindings.ts.
+        binding.storageBufferSource = { name: node.bufferName! };
+    }
     const base = new TextureNode(binding);
-    return { base, width };
+    return { base, widthNode: storageRowWidth(base) };
 }
 
 export function compileGlsl(slots: CompileSlots, opts: CompileGlslOptions = {}): CompileResult {
@@ -291,17 +299,18 @@ export function compileGlsl(slots: CompileSlots, opts: CompileGlslOptions = {}):
         walkTypeForStructs(node.type, registerGlslStructDef);
     }
 
-    // storage() on WebGL: a read-only, value-based (CPU-backed) storage buffer is bound AS an rgba32uint
-    // texture — reads lower to texelFetch through the same accessor as `texture(t).load(schema, i)` (see
-    // the GLSL emitter's `storageMirrors`). No SSBOs, no second CPU array: the renderer reinterprets the
-    // buffer's own bytes at bind time (see `storageBufferSource`). read_write / atomic / compute writes
-    // and name-based bindings have no WebGL render-path analogue and still fail loudly.
+    // storage() on WebGL: a read-only storage buffer is bound AS an rgba32uint texture — reads lower to
+    // texelFetch through the same accessor as `texture(t).load(schema, i)` (see the GLSL emitter's
+    // `storageMirrors`). No SSBOs, no second CPU array: the renderer reinterprets the buffer's own bytes.
+    // Value-based (`storage(buffer, 'read')`) resolves the buffer here; name-based (`storage('slot',
+    // 'read')` + `geometry.setBuffer('slot', …)`) resolves it from the render object's geometry at bind
+    // time. Only read_write / atomic / compute writes have no WebGL render-path analogue and fail loudly.
     const storageMirrors = new Map<number, StorageMirror>();
     for (const node of discovered.storages.values()) {
-        if (node.access !== 'read' || node.value == null) {
+        if (node.access !== 'read') {
             throw new Error(
-                `[glsl] storage() on the WebGL2 backend supports only read-only, value-based buffers ` +
-                    `(reinterpreted as a texture); '${node.access}' / name-based / compute storage is not supported`,
+                `[glsl] storage() on the WebGL2 backend supports only read-only buffers (reinterpreted as a ` +
+                    `texture); '${node.access}' (read_write / atomic / compute) storage is not supported`,
             );
         }
         storageMirrors.set(node.id, createStorageBinding(node, opts.maxTextureSize));
@@ -567,7 +576,10 @@ export function compileCompute(node: ComputeNode): ComputeCompileResult {
  * There is intentionally NO WGSL sibling: transform feedback is a WebGL2 primitive. Portability is via
  * a shared body `Fn` wrapped in a WebGPU compute(), not by this node spanning backends.
  */
-export function compileTransformFeedback(node: TransformFeedbackNode, opts: CompileGlslOptions = {}): TransformFeedbackGlslResult {
+export function compileTransformFeedback(
+    node: TransformFeedbackNode,
+    opts: CompileGlslOptions = {},
+): TransformFeedbackGlslResult {
     if (Object.keys(node.outputs).length > 4) {
         // MAX_TRANSFORM_FEEDBACK_SEPARATE_ATTRIBS is 4 on the test platform (see the plan's Phase 0.5).
         throw new Error(
@@ -603,7 +615,9 @@ export function compileTransformFeedback(node: TransformFeedbackNode, opts: Comp
         throw new Error(`[transformFeedback] storage textures are not supported in a transform-feedback kernel`);
     }
     if (discovered.workgroupVars.size > 0) {
-        throw new Error(`[transformFeedback] workgroup variables are compute-only and can't be used in a transform-feedback kernel`);
+        throw new Error(
+            `[transformFeedback] workgroup variables are compute-only and can't be used in a transform-feedback kernel`,
+        );
     }
 
     const ctx = createGlslContext('vertex', discovered);
@@ -633,7 +647,9 @@ export function compileTransformFeedback(node: TransformFeedbackNode, opts: Comp
         version,
         // The vertex stage defaults to highp; a precision qualifier is emitted only when a non-default
         // was requested, keeping texture-free kernels byte-clean.
-        opts.precision && opts.precision !== 'highp' ? `precision ${opts.precision} float;\nprecision ${opts.precision} int;\n` : '',
+        opts.precision && opts.precision !== 'highp'
+            ? `precision ${opts.precision} float;\nprecision ${opts.precision} int;\n`
+            : '',
         structsSection,
         '// Uniform blocks (std140)',
         uniformBlocksGlsl,

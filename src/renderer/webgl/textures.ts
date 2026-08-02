@@ -23,7 +23,7 @@
 
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { GpuTexture } from '../../core/gpu-texture';
-import type { StorageBufferTextureSource } from '../../nodes/lib/texture';
+import type { ResolvedStorageBufferTexture } from '../../nodes/lib/texture';
 import { collapseUpdateRanges } from '../core/update-ranges';
 
 /** GL format triple for a color/depth texture: the sized internal format + upload format + type. */
@@ -48,7 +48,12 @@ function glFormat(gl: WebGL2RenderingContext, format: string): GlFormat {
         // 8-bit unorm color.
         case 'rgba8unorm':
         case 'rgba8unorm-srgb':
-            return { internalFormat: format.endsWith('srgb') ? gl.SRGB8_ALPHA8 : gl.RGBA8, format: gl.RGBA, type: gl.UNSIGNED_BYTE, isDepth: false };
+            return {
+                internalFormat: format.endsWith('srgb') ? gl.SRGB8_ALPHA8 : gl.RGBA8,
+                format: gl.RGBA,
+                type: gl.UNSIGNED_BYTE,
+                isDepth: false,
+            };
         case 'bgra8unorm':
             // WebGL2 core has no BGRA internal format. Uploading as RGBA8 would silently reorder the
             // B and R channels (wrong colors), so reject rather than corrupt the result.
@@ -134,9 +139,7 @@ function glFormat(gl: WebGL2RenderingContext, format: string): GlFormat {
             };
 
         default:
-            throw new Error(
-                `[WebGLRenderer] texture format '${format}' is not supported on the WebGL2 backend.`,
-            );
+            throw new Error(`[WebGLRenderer] texture format '${format}' is not supported on the WebGL2 backend.`);
     }
 }
 
@@ -296,7 +299,7 @@ function uploadStorageRows(
 export function updateStorageBufferTexture(
     gl: WebGL2RenderingContext,
     state: GlTexturesState,
-    source: StorageBufferTextureSource,
+    source: ResolvedStorageBufferTexture,
 ): WebGLTexture {
     const { buffer, width, height } = source;
     const arr = buffer.array;
@@ -474,7 +477,12 @@ function upload2D(gl: WebGL2RenderingContext, texture: GpuTexture, data: GlTextu
 }
 
 /** Upload only the dirty rows `[y0, y0+rows)` of a 2D source-backed texture via `texSubImage2D`. */
-function uploadPartial2D(gl: WebGL2RenderingContext, texture: GpuTexture, data: GlTextureData, span: { y0: number; rows: number }): void {
+function uploadPartial2D(
+    gl: WebGL2RenderingContext,
+    texture: GpuTexture,
+    data: GlTextureData,
+    span: { y0: number; rows: number },
+): void {
     const source = texture.source;
     if (!source || !source.data) return;
     const typed = typedArrayOf(source.data) as Uint32Array | null;
@@ -533,7 +541,19 @@ function uploadArray(gl: WebGL2RenderingContext, texture: GpuTexture, data: GlTe
             if (typed) {
                 gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, layer, w, h, 1, format, type, typed as ArrayBufferView);
             } else if (isExternalImage(texture.sources[layer]?.data)) {
-                gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, layer, w, h, 1, format, type, texture.sources[layer].data as TexImageSource);
+                gl.texSubImage3D(
+                    gl.TEXTURE_2D_ARRAY,
+                    0,
+                    0,
+                    0,
+                    layer,
+                    w,
+                    h,
+                    1,
+                    format,
+                    type,
+                    texture.sources[layer].data as TexImageSource,
+                );
             }
         }
     } else if (texture.source) {

@@ -17,15 +17,6 @@ import { type RenderObject } from '../core/render-object';
 import type { ProgramInfo } from './programs';
 import { type GlSamplersState } from './samplers';
 import { type GlTexturesState } from './textures';
-/**
- * Bind every texture + sampler on a RenderObject into its assigned GL texture units for the given
- * program. Uploads each texture (version-gated) and its paired sampler object, binds them to the
- * unit the GLSL emitter assigned (`entry.binding`), and sets the combined-sampler uniform to that
- * unit. Returns the highest unit used +1 (unused; the caller may ignore it).
- *
- * @param frame the node frame (unused for value sourcing here — texture/sampler node `value` is set
- *   at graph-build time — but kept for symmetry with the uniform path and future update hooks)
- */
 export declare function bindTextures(gl: WebGL2RenderingContext, textures: GlTexturesState, samplers: GlSamplersState, renderObject: RenderObject, programInfo: ProgramInfo): void;
 /**
  * Bind a STANDALONE kernel's textures + samplers (transform feedback) into their assigned GL texture

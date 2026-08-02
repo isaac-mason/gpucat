@@ -10722,11 +10722,25 @@ function accessorWidth(node) {
 function ensureU32(n) {
     return n.type.wgslType === 'u32' ? n : u32(n);
 }
-/** Read one rgba32uint texel at a linear texel index → a `vec4u` node. */
+/** Read one rgba32uint texel at a linear texel index → a `vec4u` node. `width` (texels per row) is either
+ *  a compile-time constant (real `texture(t).load(schema, i)` — the texture's known width) or a runtime
+ *  `Node<u32>` from `textureSize()` (the WebGL `storage()` lowering — see `storageRowWidth`), so a
+ *  size-independent, binding-independent shader falls out. */
 function readTexel(base, texelIndex, width) {
-    const x = i32(texelIndex.mod(u32(width)));
-    const y = i32(texelIndex.div(u32(width)));
+    const w = typeof width === 'number' ? u32(width) : width;
+    const x = i32(texelIndex.mod(w));
+    const y = i32(texelIndex.div(w));
     return base.load(vec2i(x, y), i32(0));
+}
+/**
+ * Runtime texel-row width of a storage mirror texture: `uint(textureSize(tex, 0).x)`. The WebGL
+ * `storage()` read-lowering addresses texels with this instead of a baked width constant, mirroring
+ * three.js's PBO addressing (`index % textureSize(...).x`). The emitted GLSL is then identical whether
+ * the buffer is value- or name-based and whatever its size, and the renderer sizes the mirror texture
+ * tight. Build ONE per mirror (cached on the `StorageMirror`) so CSE hoists the `textureSize` call.
+ */
+function storageRowWidth(base) {
+    return textureDimensions(base.bindingNode).x;
 }
 /**
  * Decode one field at `byteOffset` from the record beginning at texel `texelBase` of an `rgba32uint`
@@ -15147,16 +15161,7 @@ function glslType(desc) {
     return glsl;
 }
 /** GLSL ES 3.00 integer scalar/vector types that MUST carry a `flat` interpolation qualifier. */
-const GLSL_INTEGER_WGSL_TYPES = new Set([
-    'i32',
-    'u32',
-    'vec2i',
-    'vec3i',
-    'vec4i',
-    'vec2u',
-    'vec3u',
-    'vec4u',
-]);
+const GLSL_INTEGER_WGSL_TYPES = new Set(['i32', 'u32', 'vec2i', 'vec3i', 'vec4i', 'vec2u', 'vec3u', 'vec4u']);
 /**
  * Interpolation qualifier for a GLSL varying declaration, derived from the same `interpolationType`
  * the WGSL emitter reads. Returns a leading-space qualifier ('flat ' / 'smooth ') or '' for the
@@ -15225,14 +15230,7 @@ const CALL_RENAMES = {
  * plain dFdx/dFdy/fwidth). Emitting the bare name would produce an un-compilable shader, so the GLSL
  * emitter rejects them with a clear error rather than degrade silently.
  */
-const UNSUPPORTED_DERIVATIVES = new Set([
-    'dpdxCoarse',
-    'dpdyCoarse',
-    'fwidthCoarse',
-    'dpdxFine',
-    'dpdyFine',
-    'fwidthFine',
-]);
+const UNSUPPORTED_DERIVATIVES = new Set(['dpdxCoarse', 'dpdyCoarse', 'fwidthCoarse', 'dpdxFine', 'dpdyFine', 'fwidthFine']);
 /** Emit a GLSL literal for a constant value of the given WGSL type. */
 function glslLiteral(wgslType, value) {
     if (typeof value === 'string')
@@ -15323,7 +15321,7 @@ function matchStorageRead(ctx, node) {
         return {
             base: mirror.base,
             texelBase: storageTexelBase(idxNode.index, layout.texelStride),
-            width: mirror.width,
+            width: mirror.widthNode,
             byteOffset: f.byteOffset,
             type: f.type,
         };
@@ -15340,7 +15338,7 @@ function matchStorageRead(ctx, node) {
         return {
             base: mirror.base,
             texelBase: storageTexelBase(idxNode.index, texelStride),
-            width: mirror.width,
+            width: mirror.widthNode,
             byteOffset: 0,
             type: elementSchema,
         };
@@ -15594,36 +15592,216 @@ function distinctAttributes(ctx) {
  */
 const GLSL_RESERVED_NAMES = new Set([
     // Common built-in functions.
-    'radians', 'degrees', 'sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'sinh', 'cosh', 'tanh',
-    'asinh', 'acosh', 'atanh', 'pow', 'exp', 'log', 'exp2', 'log2', 'sqrt', 'inversesqrt',
-    'abs', 'sign', 'floor', 'trunc', 'round', 'roundEven', 'ceil', 'fract', 'mod', 'modf',
-    'min', 'max', 'clamp', 'mix', 'step', 'smoothstep', 'isnan', 'isinf',
-    'floatBitsToInt', 'floatBitsToUint', 'intBitsToFloat', 'uintBitsToFloat',
-    'fma', 'frexp', 'ldexp', 'packSnorm2x16', 'unpackSnorm2x16', 'packUnorm2x16', 'unpackUnorm2x16',
-    'packHalf2x16', 'unpackHalf2x16', 'length', 'distance', 'dot', 'cross', 'normalize',
-    'faceforward', 'reflect', 'refract', 'matrixCompMult', 'outerProduct', 'transpose',
-    'determinant', 'inverse', 'lessThan', 'lessThanEqual', 'greaterThan', 'greaterThanEqual',
-    'equal', 'notEqual', 'any', 'all', 'not', 'texture', 'textureProj', 'textureLod',
-    'textureOffset', 'texelFetch', 'texelFetchOffset', 'textureProjOffset', 'textureLodOffset',
-    'textureProjLod', 'textureProjLodOffset', 'textureGrad', 'textureGradOffset',
-    'textureProjGrad', 'textureProjGradOffset', 'textureSize', 'textureGather',
-    'dFdx', 'dFdy', 'fwidth', 'emitVertex', 'endPrimitive',
+    'radians',
+    'degrees',
+    'sin',
+    'cos',
+    'tan',
+    'asin',
+    'acos',
+    'atan',
+    'sinh',
+    'cosh',
+    'tanh',
+    'asinh',
+    'acosh',
+    'atanh',
+    'pow',
+    'exp',
+    'log',
+    'exp2',
+    'log2',
+    'sqrt',
+    'inversesqrt',
+    'abs',
+    'sign',
+    'floor',
+    'trunc',
+    'round',
+    'roundEven',
+    'ceil',
+    'fract',
+    'mod',
+    'modf',
+    'min',
+    'max',
+    'clamp',
+    'mix',
+    'step',
+    'smoothstep',
+    'isnan',
+    'isinf',
+    'floatBitsToInt',
+    'floatBitsToUint',
+    'intBitsToFloat',
+    'uintBitsToFloat',
+    'fma',
+    'frexp',
+    'ldexp',
+    'packSnorm2x16',
+    'unpackSnorm2x16',
+    'packUnorm2x16',
+    'unpackUnorm2x16',
+    'packHalf2x16',
+    'unpackHalf2x16',
+    'length',
+    'distance',
+    'dot',
+    'cross',
+    'normalize',
+    'faceforward',
+    'reflect',
+    'refract',
+    'matrixCompMult',
+    'outerProduct',
+    'transpose',
+    'determinant',
+    'inverse',
+    'lessThan',
+    'lessThanEqual',
+    'greaterThan',
+    'greaterThanEqual',
+    'equal',
+    'notEqual',
+    'any',
+    'all',
+    'not',
+    'texture',
+    'textureProj',
+    'textureLod',
+    'textureOffset',
+    'texelFetch',
+    'texelFetchOffset',
+    'textureProjOffset',
+    'textureLodOffset',
+    'textureProjLod',
+    'textureProjLodOffset',
+    'textureGrad',
+    'textureGradOffset',
+    'textureProjGrad',
+    'textureProjGradOffset',
+    'textureSize',
+    'textureGather',
+    'dFdx',
+    'dFdy',
+    'fwidth',
+    'emitVertex',
+    'endPrimitive',
     // Keywords / reserved words.
-    'const', 'uniform', 'buffer', 'shared', 'attribute', 'varying', 'coherent', 'volatile',
-    'restrict', 'readonly', 'writeonly', 'layout', 'centroid', 'flat', 'smooth', 'noperspective',
-    'patch', 'sample', 'break', 'continue', 'do', 'for', 'while', 'switch', 'case', 'default',
-    'if', 'else', 'in', 'out', 'inout', 'float', 'int', 'void', 'bool', 'true', 'false',
-    'invariant', 'precise', 'discard', 'return', 'mat2', 'mat3', 'mat4', 'vec2', 'vec3', 'vec4',
-    'ivec2', 'ivec3', 'ivec4', 'bvec2', 'bvec3', 'bvec4', 'uint', 'uvec2', 'uvec3', 'uvec4',
-    'lowp', 'mediump', 'highp', 'precision', 'sampler2D', 'sampler3D', 'samplerCube', 'struct',
+    'const',
+    'uniform',
+    'buffer',
+    'shared',
+    'attribute',
+    'varying',
+    'coherent',
+    'volatile',
+    'restrict',
+    'readonly',
+    'writeonly',
+    'layout',
+    'centroid',
+    'flat',
+    'smooth',
+    'noperspective',
+    'patch',
+    'sample',
+    'break',
+    'continue',
+    'do',
+    'for',
+    'while',
+    'switch',
+    'case',
+    'default',
+    'if',
+    'else',
+    'in',
+    'out',
+    'inout',
+    'float',
+    'int',
+    'void',
+    'bool',
+    'true',
+    'false',
+    'invariant',
+    'precise',
+    'discard',
+    'return',
+    'mat2',
+    'mat3',
+    'mat4',
+    'vec2',
+    'vec3',
+    'vec4',
+    'ivec2',
+    'ivec3',
+    'ivec4',
+    'bvec2',
+    'bvec3',
+    'bvec4',
+    'uint',
+    'uvec2',
+    'uvec3',
+    'uvec4',
+    'lowp',
+    'mediump',
+    'highp',
+    'precision',
+    'sampler2D',
+    'sampler3D',
+    'samplerCube',
+    'struct',
     'main',
     // GLSL ES 3.00 reserved-for-future-use words — illegal as identifiers even though unused.
-    'input', 'output', 'filter', 'sizeof', 'cast', 'namespace', 'using', 'common', 'partition',
-    'active', 'asm', 'class', 'union', 'enum', 'typedef', 'template', 'this', 'resource', 'goto',
-    'inline', 'noinline', 'public', 'static', 'extern', 'external', 'interface', 'long', 'short',
-    'double', 'half', 'fixed', 'unsigned', 'superp', 'hvec2', 'hvec3', 'hvec4', 'dvec2', 'dvec3',
-    'dvec4', 'fvec2', 'fvec3', 'fvec4', 'sampler1D', 'sampler1DShadow', 'sampler2DRectShadow',
-    'row_major', 'packed',
+    'input',
+    'output',
+    'filter',
+    'sizeof',
+    'cast',
+    'namespace',
+    'using',
+    'common',
+    'partition',
+    'active',
+    'asm',
+    'class',
+    'union',
+    'enum',
+    'typedef',
+    'template',
+    'this',
+    'resource',
+    'goto',
+    'inline',
+    'noinline',
+    'public',
+    'static',
+    'extern',
+    'external',
+    'interface',
+    'long',
+    'short',
+    'double',
+    'half',
+    'fixed',
+    'unsigned',
+    'superp',
+    'hvec2',
+    'hvec3',
+    'hvec4',
+    'dvec2',
+    'dvec3',
+    'dvec4',
+    'fvec2',
+    'fvec3',
+    'fvec4',
+    'sampler1D',
+    'sampler1DShadow',
+    'sampler2DRectShadow',
+    'row_major',
+    'packed',
 ]);
 /**
  * Map a user `Fn` name to a GLSL-safe identifier: reserved / builtin names are prefixed `fn_`, all
@@ -15851,10 +16029,12 @@ function generateTextureCall(ctx, node) {
             return `texelFetch(${name}, ivec2(${coords}), ${level})`;
         }
         case 'textureDimensions': {
-            // (t [, level]) → textureSize(name [, level]). textureSize requires a level arg in
-            // GLSL ES 3.00, so default to 0 when none was given.
-            const level = rawArgs[1] ? generateExpr$1(ctx, rawArgs[1]) : '0';
-            return `textureSize(${name}, ${level})`;
+            // WGSL textureDimensions(t [, level:u32]) → vec{2,3}<u32>; GLSL textureSize(sampler, int) →
+            // ivec{2,3}. textureSize requires a level (default 0), and its lod is int — a u32 level would
+            // find no overload. Cast the lod to int, and the ivec result back to the node's u32 vector
+            // type so downstream `.x`/`% `/`/ ` stay unsigned.
+            const level = rawArgs[1] ? `int(${generateExpr$1(ctx, rawArgs[1])})` : '0';
+            return `${glslType(node.type)}(textureSize(${name}, ${level}))`;
         }
         default:
             throw new Error(`[glsl] texture builtin '${node.fn}' not yet supported in the GLSL emitter`);
@@ -16589,7 +16769,13 @@ const FRAGMENT_ONLY_DERIVATIVES = new Set([
  * derivatives don't exist in a transform-feedback vertex kernel, so require the explicit-LOD form
  * (`textureLod` / `textureLoad`) instead.
  */
-const IMPLICIT_LOD_TEXTURE_FNS = new Set(['textureSample', 'textureSampleBias', 'textureSampleCompare', 'textureGather', 'textureGatherCompare']);
+const IMPLICIT_LOD_TEXTURE_FNS = new Set([
+    'textureSample',
+    'textureSampleBias',
+    'textureSampleCompare',
+    'textureGather',
+    'textureGatherCompare',
+]);
 /**
  * Reject body constructs that can't run in a transform-feedback vertex kernel. Walks the traced body
  * + output expressions, throwing a clear `[transformFeedback]` / `[glsl]` error naming the fix.
@@ -16746,7 +16932,11 @@ function generateGlslFragmentShader(fragmentNode, ctx, varyings, depthNode = nul
             // Unresolved: fall back to declaration order of the named outputs.
             let loc = 0;
             for (const name in mrtNode.outputNodes) {
-                mrtOutputs.push({ name: glslOutputName(name), location: loc, expr: generateExpr$1(ctx, mrtNode.outputNodes[name]) });
+                mrtOutputs.push({
+                    name: glslOutputName(name),
+                    location: loc,
+                    expr: generateExpr$1(ctx, mrtNode.outputNodes[name]),
+                });
                 loc++;
             }
         }
@@ -18383,29 +18573,37 @@ function compile(slots) {
  * the GLSL compile cache is keyed by `maxTextureSize`.
  */
 function createStorageBinding(node, maxTextureSize) {
-    const buffer = node.value;
-    const arr = buffer.array;
-    if (arr == null) {
-        throw new Error(`[glsl] storage() read-lowering needs a CPU-backed buffer, but this storage buffer has no ` +
-            `\`array\` (its CPU data was released after upload); keep the data resident to read it on WebGL`);
-    }
-    if (arr.byteLength === 0 || arr.byteLength % 16 !== 0) {
-        throw new Error(`[glsl] storage() read-lowering: buffer byte length ${arr.byteLength} must be a non-zero multiple ` +
-            `of 16 (whole rgba32uint texels) to reinterpret as a WebGL texture`);
-    }
-    const totalTexels = arr.byteLength / 16;
-    // `width = min(totalTexels, cap)`, `height = ceil` — the renderer pads the short last row (no
-    // exact-division needed) and validates `height ≤ MAX_TEXTURE_SIZE`. Common case (`totalTexels ≤ cap`)
-    // → a single row of width `totalTexels`, byte-identical to the pre-capacity path.
-    const cap = maxTextureSize ?? 2048;
-    const width = Math.min(totalTexels, cap);
-    const height = Math.ceil(totalTexels / width);
-    // Synthetic, sampler-less integer texture binding backed by the buffer itself — `.load()` lowers to
-    // texelFetch on a usampler2D, needing no sampler. The renderer resolves `storageBufferSource`.
+    // Synthetic, sampler-less integer texture binding backed by the storage buffer's own bytes —
+    // `.load()` lowers to texelFetch on a usampler2D, needing no sampler. The renderer resolves
+    // `storageBufferSource`. The shader reads the row width at RUNTIME via `textureSize()` (see
+    // `storageRowWidth`), so the texel grid shape is NOT baked in — value- and name-based storage of any
+    // size compile to identical GLSL, and the compile cache no longer varies with `maxTextureSize`.
     const binding = new TextureBindingNode(texture2d(u32$1), `storage${node.id}`);
-    binding.storageBufferSource = { buffer, width, height };
+    if (node.value != null) {
+        // Value-based: buffer known at compile → size the tight texel grid now. `width = min(texels, cap)`,
+        // `height = ceil`; the renderer pads the short last row and validates `height ≤ MAX_TEXTURE_SIZE`.
+        const arr = node.value.array;
+        if (arr == null) {
+            throw new Error(`[glsl] storage() read-lowering needs a CPU-backed buffer, but this storage buffer has no ` +
+                `\`array\` (its CPU data was released after upload); keep the data resident to read it on WebGL`);
+        }
+        if (arr.byteLength === 0 || arr.byteLength % 16 !== 0) {
+            throw new Error(`[glsl] storage() read-lowering: buffer byte length ${arr.byteLength} must be a non-zero multiple ` +
+                `of 16 (whole rgba32uint texels) to reinterpret as a WebGL texture`);
+        }
+        const totalTexels = arr.byteLength / 16;
+        const cap = maxTextureSize ?? 2048;
+        const width = Math.min(totalTexels, cap);
+        binding.storageBufferSource = { buffer: node.value, width, height: Math.ceil(totalTexels / width) };
+    }
+    else {
+        // Name-based: `storage('slot', 'read')` bound via `geometry.setBuffer('slot', buf)`. The buffer
+        // isn't known until draw; the renderer resolves it from the render object's geometry and sizes the
+        // rgba32uint mirror at bind time (same version-synced cache). See texture-bindings.ts.
+        binding.storageBufferSource = { name: node.bufferName };
+    }
     const base = new TextureNode(binding);
-    return { base, width };
+    return { base, widthNode: storageRowWidth(base) };
 }
 function compileGlsl(slots, opts = {}) {
     const hasFragment = slots.fragment != null;
@@ -18435,16 +18633,17 @@ function compileGlsl(slots, opts = {}) {
     for (const node of discovered.nodeIdToNode.values()) {
         walkTypeForStructs(node.type, registerGlslStructDef);
     }
-    // storage() on WebGL: a read-only, value-based (CPU-backed) storage buffer is bound AS an rgba32uint
-    // texture — reads lower to texelFetch through the same accessor as `texture(t).load(schema, i)` (see
-    // the GLSL emitter's `storageMirrors`). No SSBOs, no second CPU array: the renderer reinterprets the
-    // buffer's own bytes at bind time (see `storageBufferSource`). read_write / atomic / compute writes
-    // and name-based bindings have no WebGL render-path analogue and still fail loudly.
+    // storage() on WebGL: a read-only storage buffer is bound AS an rgba32uint texture — reads lower to
+    // texelFetch through the same accessor as `texture(t).load(schema, i)` (see the GLSL emitter's
+    // `storageMirrors`). No SSBOs, no second CPU array: the renderer reinterprets the buffer's own bytes.
+    // Value-based (`storage(buffer, 'read')`) resolves the buffer here; name-based (`storage('slot',
+    // 'read')` + `geometry.setBuffer('slot', …)`) resolves it from the render object's geometry at bind
+    // time. Only read_write / atomic / compute writes have no WebGL render-path analogue and fail loudly.
     const storageMirrors = new Map();
     for (const node of discovered.storages.values()) {
-        if (node.access !== 'read' || node.value == null) {
-            throw new Error(`[glsl] storage() on the WebGL2 backend supports only read-only, value-based buffers ` +
-                `(reinterpreted as a texture); '${node.access}' / name-based / compute storage is not supported`);
+        if (node.access !== 'read') {
+            throw new Error(`[glsl] storage() on the WebGL2 backend supports only read-only buffers (reinterpreted as a ` +
+                `texture); '${node.access}' (read_write / atomic / compute) storage is not supported`);
         }
         storageMirrors.set(node.id, createStorageBinding(node, opts.maxTextureSize));
     }
@@ -18738,7 +18937,9 @@ function compileTransformFeedback(node, opts = {}) {
         version,
         // The vertex stage defaults to highp; a precision qualifier is emitted only when a non-default
         // was requested, keeping texture-free kernels byte-clean.
-        opts.precision && opts.precision !== 'highp' ? `precision ${opts.precision} float;\nprecision ${opts.precision} int;\n` : '',
+        opts.precision && opts.precision !== 'highp'
+            ? `precision ${opts.precision} float;\nprecision ${opts.precision} int;\n`
+            : '',
         structsSection,
         '// Uniform blocks (std140)',
         uniformBlocksGlsl,
@@ -34028,7 +34229,12 @@ function glFormat(gl, format) {
         // 8-bit unorm color.
         case 'rgba8unorm':
         case 'rgba8unorm-srgb':
-            return { internalFormat: format.endsWith('srgb') ? gl.SRGB8_ALPHA8 : gl.RGBA8, format: gl.RGBA, type: gl.UNSIGNED_BYTE, isDepth: false };
+            return {
+                internalFormat: format.endsWith('srgb') ? gl.SRGB8_ALPHA8 : gl.RGBA8,
+                format: gl.RGBA,
+                type: gl.UNSIGNED_BYTE,
+                isDepth: false,
+            };
         case 'bgra8unorm':
             // WebGL2 core has no BGRA internal format. Uploading as RGBA8 would silently reorder the
             // B and R channels (wrong colors), so reject rather than corrupt the result.
@@ -34710,6 +34916,36 @@ function getSamplerLocation(gl, programInfo, name) {
  * @param frame the node frame (unused for value sourcing here — texture/sampler node `value` is set
  *   at graph-build time — but kept for symmetry with the uniform path and future update hooks)
  */
+/**
+ * Resolve a storage()-read mirror source to `{ buffer, width, height }` for {@link updateStorageBufferTexture}.
+ * Value-based sources are returned as-is. Name-based sources (`storage('slot', 'read')` bound via
+ * `geometry.setBuffer('slot', buf)`) resolve the buffer from THIS render object's geometry and size the
+ * texel grid now (`width = min(texels, MAX_TEXTURE_SIZE)`, `height = ceil`) — the shader reads the actual
+ * width back via `textureSize()`, so any binding/size works with one compiled shader.
+ */
+function resolveStorageSource(gl, textures, renderObject, source) {
+    if (!('name' in source))
+        return source;
+    const buffer = renderObject.geometry.getBuffer(source.name);
+    if (!buffer) {
+        throw new Error(`[WebGLRenderer] storage('${source.name}') read-lowering: no buffer bound for that name on the ` +
+            `geometry — call geometry.setBuffer('${source.name}', buffer).`);
+    }
+    const arr = buffer.array;
+    if (arr == null) {
+        throw new Error(`[WebGLRenderer] storage('${source.name}') read-lowering: the buffer has no CPU \`array\` to ` +
+            `reinterpret (released after upload); keep it resident to sample it on WebGL2.`);
+    }
+    if (arr.byteLength === 0 || arr.byteLength % 16 !== 0) {
+        throw new Error(`[WebGLRenderer] storage('${source.name}') read-lowering: buffer byte length ${arr.byteLength} must ` +
+            `be a non-zero multiple of 16 (whole rgba32uint texels) to reinterpret as a texture.`);
+    }
+    if (textures.maxTextureSize == null)
+        textures.maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+    const totalTexels = arr.byteLength / 16;
+    const width = Math.min(totalTexels, textures.maxTextureSize);
+    return { buffer, width, height: Math.ceil(totalTexels / width) };
+}
 function bindTextures(gl, textures, samplers, renderObject, programInfo) {
     const bindGroups = getBindings(renderObject);
     // First pass: collect the GpuSampler assigned to each texture unit (samplers share the unit of
@@ -34731,7 +34967,10 @@ function bindTextures(gl, textures, samplers, renderObject, programInfo) {
             // bind it sampler-less (integer texelFetch needs no sampler), and set its combined-sampler uniform.
             const storageSource = entry.node.storageBufferSource;
             if (storageSource) {
-                const glTexture = updateStorageBufferTexture(gl, textures, storageSource);
+                // Name-based sources (`storage('slot','read')` + `geometry.setBuffer('slot',…)`) resolve
+                // their buffer from THIS render object's geometry now; value-based already carry it.
+                const resolved = resolveStorageSource(gl, textures, renderObject, storageSource);
+                const glTexture = updateStorageBufferTexture(gl, textures, resolved);
                 gl.activeTexture(gl.TEXTURE0 + unit);
                 gl.bindTexture(gl.TEXTURE_2D, glTexture);
                 gl.bindSampler(unit, null);

@@ -61,12 +61,23 @@ export declare class SamplerNode<D extends d.sampler | d.samplerComparison = d.s
  * has no SSBO). The renderer reads the buffer's own bytes directly as `width × height` u32 texels — no
  * `DataTexture`, no second CPU array — and caches one GL texture per `GpuBuffer` (version-synced to
  * `buffer.version`). Carried on the synthetic `TextureBindingNode` that a lowered `storage()` read
- * samples through; the `width` is baked into the shader's texel addressing at compile time.
+ * samples through. The shader reads the row width at RUNTIME via `textureSize()` (see `storageRowWidth`),
+ * so the emitted GLSL is independent of buffer size AND of value-vs-name binding — both compile identically.
+ *
+ * Two shapes:
+ *  - value-based: the `GpuBuffer` is known at compile (`storage(buffer, 'read')`), so its texel grid is
+ *    computed here and the renderer uploads it directly.
+ *  - name-based: `storage('slot', 'read')` bound via `geometry.setBuffer('slot', buf)`. The buffer isn't
+ *    known until draw, so only the name is carried; the renderer resolves it from the render object's
+ *    geometry at bind time and sizes the grid then.
  */
-export type StorageBufferTextureSource = {
+export type ResolvedStorageBufferTexture = {
     buffer: GpuBuffer;
     width: number;
     height: number;
+};
+export type StorageBufferTextureSource = ResolvedStorageBufferTexture | {
+    name: string;
 };
 export declare class TextureBindingNode<D extends d.Texture = d.Texture> extends Node<D> {
     readonly kind = NodeKind.TextureBinding;
@@ -205,11 +216,19 @@ type FieldAccessor<T extends d.Any> = T extends d.bits<infer F> ? {
     readonly [N in keyof F]: Node<d.u32>;
 } : Node<T>;
 /**
+ * Runtime texel-row width of a storage mirror texture: `uint(textureSize(tex, 0).x)`. The WebGL
+ * `storage()` read-lowering addresses texels with this instead of a baked width constant, mirroring
+ * three.js's PBO addressing (`index % textureSize(...).x`). The emitted GLSL is then identical whether
+ * the buffer is value- or name-based and whatever its size, and the renderer sizes the mirror texture
+ * tight. Build ONE per mirror (cached on the `StorageMirror`) so CSE hoists the `textureSize` call.
+ */
+export declare function storageRowWidth(base: TextureNode<FlatSampledTexture>): Node<d.u32>;
+/**
  * Decode one field at `byteOffset` from the record beginning at texel `texelBase` of an `rgba32uint`
  * texture. Exported so the `storage()` WebGL lowering (the GLSL emitter's `matchStorageRead`) can decode
  * a mirror-texture read through the same path as `texture(t).load(schema, i)`.
  */
-export declare function decodeField(base: TextureNode<FlatSampledTexture>, texelBase: Node<d.u32>, width: number, byteOffset: number, type: Any): Node<Any>;
+export declare function decodeField(base: TextureNode<FlatSampledTexture>, texelBase: Node<d.u32>, width: number | Node<d.u32>, byteOffset: number, type: Any): Node<Any>;
 /**
  * High-level texture types that have _gpuSampler.
  * All have ._gpuTexture and ._gpuSampler properties.
