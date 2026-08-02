@@ -92,6 +92,47 @@ fn fs_main() -> FragmentOutput {
 }
 `;
 
+exports[`golden WGSL — MRT integer targets > FragmentOutput field type comes from the member node, not a hardcoded vec4f 1`] = `
+{
+  "builtins": [],
+  "code": "// Bindings (uniforms, storage, textures, samplers)
+// Module-scope variables
+// WGSL Functions
+// DSL Functions
+// Vertex Shader
+struct VertexInput {
+    @location(0) _position_0: vec3f,
+}
+
+struct VertexOutput {
+    @builtin(position) position: vec4f,
+}
+
+@vertex
+fn vs_main(input: VertexInput) -> VertexOutput {
+    var output: VertexOutput;
+    output.position = vec4f(input._position_0, 1.0);
+    return output;
+}
+// Fragment Shader
+struct FragmentOutput {
+    @location(0) color: vec4f,
+    @location(1) ids: vec4u,
+}
+
+@fragment
+fn fs_main() -> FragmentOutput {
+    var output: FragmentOutput;
+    output.color = vec4f(1.0, 0.0, 0.0, 1.0);
+    output.ids = vec4u(7u, 0u, 0u, 1u);
+    return output;
+}",
+  "fragmentEntryPoint": "fs_main",
+  "varyings": [],
+  "vertexEntryPoint": "vs_main",
+}
+`;
+
 exports[`golden WGSL — compute path > atomic histogram: storage atomics + index + Var + If 1`] = `
 {
   "builtins": [

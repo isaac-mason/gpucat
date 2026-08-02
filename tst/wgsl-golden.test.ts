@@ -31,6 +31,7 @@ import {
     localId,
     modelNormalMatrix,
     modelWorldMatrix,
+    mrt,
     type Node,
     screenUV,
     select,
@@ -45,6 +46,7 @@ import {
     vec2,
     vec3,
     vec4,
+    vec4u,
     WorkgroupVar,
     wgsl,
     wgslFn,
@@ -213,8 +215,7 @@ describe('GLSL companion does not affect WGSL output', () => {
 
     test('inline wgsl`` with a .glslSource companion emits the same WGSL expression', () => {
         const a = vec3(0.8, 0.3, 0.1);
-        const withGlsl = wgsl(d.f32)`dot(${a}, vec3f(0.299, 0.587, 0.114))`
-            .glslSource`dot(${a}, vec3(0.299, 0.587, 0.114))`;
+        const withGlsl = wgsl(d.f32)`dot(${a}, vec3f(0.299, 0.587, 0.114))`.glslSource`dot(${a}, vec3(0.299, 0.587, 0.114))`;
         const code = compile({
             vertex: vec4(attribute('position', d.vec3f), f32(1)),
             fragment: vec4(a.mul(withGlsl), f32(1)),
@@ -287,5 +288,26 @@ describe('frag_depth override (Material.depth)', () => {
         const glsl = findM(compileGlsl({ vertex: clipPosition, fragment }));
         expect(glsl?.offset).toBe(16); // GLSL std140: mat2x2 columns padded to vec4 → align 16
         expect(glsl?.size).toBe(32);
+    });
+});
+
+// Appended LAST on purpose: node ids are module-global + monotonic, so a node-creating test inserted
+// earlier would shift every later test's embedded ids and churn their snapshots.
+describe('golden WGSL — MRT integer targets', () => {
+    test('FragmentOutput field type comes from the member node, not a hardcoded vec4f', () => {
+        const color = vec4(1.0, 0.0, 0.0, 1.0);
+        const ids = vec4u(u32(7), u32(0), u32(0), u32(1));
+        const fragment = mrt({ color, ids });
+
+        const result = compile({
+            vertex: vec4(attribute('position', d.vec3f), f32(1)),
+            fragment,
+            depth: undefined,
+        });
+        // The uint G-buffer target must declare its @location field as vec4u so it matches the assigned
+        // value; a vec4f field would be a WGSL type error. The color target stays vec4f.
+        expect(result.code).toContain('@location(0) color: vec4f,');
+        expect(result.code).toContain('@location(1) ids: vec4u,');
+        expect(renderShape(result)).toMatchSnapshot();
     });
 });

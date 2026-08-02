@@ -1551,20 +1551,20 @@ export function generateFragmentShader(
             // use members array (populated by resolveOutputs) for @location order
             // fall back to outputNodes keys if members not resolved yet
             if (mrtNode.members.length > 0) {
-                // members are resolved - use them in order
+                // members are resolved - use them in order. The field type comes from the member node
+                // (vec4f for a color target, vec4u/vec4i for an integer G-buffer target) so it matches the
+                // assigned value — same as the GLSL emitter, which derives its `out` type the same way.
                 for (let i = 0; i < mrtNode.members.length; i++) {
                     const member = mrtNode.members[i];
                     if (!member) continue; // sparse array possible
                     const name = mrtNode._resolvedNames[i] || `output_${i}`;
-                    // MRT outputs are declared vec4f here (unlike the GLSL emitter, which derives the
-                    // target type from the member node). See the emitter asymmetry note.
-                    lines.push(`    @location(${i}) ${name}: vec4f,`);
+                    lines.push(`    @location(${i}) ${name}: ${member.type.wgslType},`);
                 }
             } else {
                 // fallback: use outputNodes directly (unresolved order)
                 let loc = 0;
                 for (const name in mrtNode.outputNodes) {
-                    lines.push(`    @location(${loc}) ${name}: vec4f,`);
+                    lines.push(`    @location(${loc}) ${name}: ${mrtNode.outputNodes[name].type.wgslType},`);
                     loc++;
                 }
             }
