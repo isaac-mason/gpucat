@@ -122,14 +122,19 @@ function coerceOperandScalar(node: Node<d.Any>, expr: string, target: 'f32' | 'i
 }
 
 /**
- * Interpolation qualifier for a GLSL varying declaration, derived from the same `interpolationType`
- * the WGSL emitter reads. Returns a leading-space qualifier ('flat ' / 'smooth ') or '' for the
- * perspective-correct default. Integer-typed varyings are FORCED to `flat` even when unset — GLSL ES
- * 3.00 rejects a non-flat integer varying (the program will not link), and the WGSL side likewise
- * requires @interpolate(flat) for integers.
+ * Interpolation qualifier for a GLSL varying declaration, derived from the same `interpolationType` /
+ * `interpolationSampling` the WGSL emitter reads. Returns a leading-space qualifier ('flat ' /
+ * 'centroid ') or '' for the perspective-correct default. The SAME qualifier must be emitted on the
+ * vertex `out` and the fragment `in` for the program to link.
+ *
+ * Integer-typed varyings are FORCED to `flat` even when unset — GLSL ES 3.00 rejects a non-flat integer
+ * varying (the program will not link), matching the WGSL side's @interpolate(flat) requirement. The
+ * integer test is descriptor-derived (via {@link glslScalarKind}) so any integer scalar/vector type is
+ * covered without maintaining a hand-written name list.
  */
 function glslVaryingQualifier(node: VaryingNode<d.Any>): string {
-    const isInteger = GLSL_INTEGER_WGSL_TYPES.has(node.type.wgslType);
+    const scalarKind = glslScalarKind(node.type.wgslType);
+    const isInteger = scalarKind === 'i32' || scalarKind === 'u32';
     const interp = node.interpolationType;
     // 'linear' maps to `noperspective`, which is NOT part of GLSL ES 3.00 (desktop GLSL only) — reject
     // rather than silently perspective-interpolate.
@@ -138,10 +143,19 @@ function glslVaryingQualifier(node: VaryingNode<d.Any>): string {
             `[glsl] varying '${node.name ?? ''}' uses linear (noperspective) interpolation, which is not supported on the WebGL2 backend`,
         );
     }
-    // Integer varyings are illegal in GLSL ES 3.00 without `flat` (the program won't link), so force
-    // it regardless of interpolationType. 'perspective' (or unset, for floats) is GLSL's default —
-    // no qualifier.
+    // Integer varyings are illegal in GLSL ES 3.00 without `flat` (the program won't link), so force it
+    // regardless of interpolationType. `flat` has no interpolation, so a sampling qualifier is
+    // meaningless alongside it.
     if (interp === 'flat' || isInteger) return 'flat ';
+    // Sampling qualifier (only meaningful for interpolated varyings). GLSL ES 3.00 has `centroid`;
+    // `sample` (sample-rate shading) is ES 3.20+ and rejected. 'center'/'either'/unset are the default.
+    const sampling = node.interpolationSampling;
+    if (sampling === 'sample') {
+        throw new Error(
+            `[glsl] varying '${node.name ?? ''}' uses 'sample' interpolation (sample-rate shading), which is GLSL ES 3.20+ and not supported on the WebGL2 backend`,
+        );
+    }
+    if (sampling === 'centroid') return 'centroid ';
     return '';
 }
 
@@ -2281,7 +2295,7 @@ export function generateGlslFragmentShader(
 
     // Pre-generate the output expressions BEFORE emitting main()'s body so any CSE locals they hoist
     // are already appended to ctx.code (mirrors the WGSL emitter's ordering).
-    let mrtOutputs: { name: string; location: number; expr: string }[] | null = null;
+    let mrtOutputs: { name: string; location: number; expr: string; type: string }[] | null = null;
     let colorExpr = '';
     if (mrtNode) {
         mrtOutputs = [];
@@ -2291,16 +2305,23 @@ export function generateGlslFragmentShader(
                 const member = mrtNode.members[i];
                 if (!member) continue; // sparse array possible
                 const name = mrtNode._resolvedNames[i] || `output_${i}`;
-                mrtOutputs.push({ name: glslOutputName(name), location: i, expr: generateExpr(ctx, member) });
+                mrtOutputs.push({
+                    name: glslOutputName(name),
+                    location: i,
+                    expr: generateExpr(ctx, member),
+                    type: glslType(member.type),
+                });
             }
         } else {
             // Unresolved: fall back to declaration order of the named outputs.
             let loc = 0;
             for (const name in mrtNode.outputNodes) {
+                const member = mrtNode.outputNodes[name];
                 mrtOutputs.push({
                     name: glslOutputName(name),
                     location: loc,
-                    expr: generateExpr(ctx, mrtNode.outputNodes[name]),
+                    expr: generateExpr(ctx, member),
+                    type: glslType(member.type),
                 });
                 loc++;
             }
@@ -2323,9 +2344,10 @@ export function generateGlslFragmentShader(
     if (ctx.varyings.size > 0) lines.push('');
 
     if (mrtOutputs) {
-        // One `out vec4` per render target (MRT outputs are always vec4-shaped).
-        for (const { name, location } of mrtOutputs) {
-            lines.push(`layout(location = ${location}) out vec4 ${name};`);
+        // One `out <type>` per render target. The type comes from the member node (vec4 for a color
+        // target, but ivec4/uvec4 for an integer G-buffer target), not a hardcoded vec4.
+        for (const { name, location, type } of mrtOutputs) {
+            lines.push(`layout(location = ${location}) out ${type} ${name};`);
         }
         lines.push('');
     } else if (hasColor) {

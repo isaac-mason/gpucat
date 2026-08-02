@@ -47,6 +47,7 @@ import {
     vec3b,
     vec3i,
     vec4,
+    vec4u,
     vertexIndex,
     wgsl,
     wgslFn,
@@ -696,6 +697,34 @@ export const cases: Case[] = [
             return {
                 vertex: vec4(attribute('position', d.vec3f), f32(1)),
                 fragment: vec4(vec3(a.add(b)), f32(1)),
+                depth: undefined,
+            };
+        },
+    },
+    {
+        // MRT with an INTEGER render target. The GLSL `out` type must come from the member node (uvec4
+        // for a uint G-buffer id target), not a hardcoded vec4 — an integer value assigned to an
+        // `out vec4` is a type error. Must compile + link.
+        name: 'MRT integer target (uvec4 out)',
+        build: () => ({
+            vertex: vec4(attribute('position', d.vec3f), f32(1)),
+            fragment: mrt({
+                color: vec4(1.0, 0.0, 0.0, 1.0),
+                ids: vec4u(u32(7), u32(0), u32(0), u32(1)),
+            }),
+            depth: undefined,
+        }),
+    },
+    {
+        // Centroid-sampled varying. GLSL ES 3.00 has the `centroid` qualifier; it MUST appear on both the
+        // vertex `out` and the fragment `in` or the program fails to link. Exercises the sampling-qualifier
+        // path (distinct from flat/perspective).
+        name: 'centroid varying (vertex out + fragment in match)',
+        build: () => {
+            const centroidVarying = varying(attribute('position', d.vec3f)).setInterpolation('smooth', 'centroid');
+            return {
+                vertex: vec4(centroidVarying, f32(1)),
+                fragment: vec4(centroidVarying, f32(1)),
                 depth: undefined,
             };
         },
