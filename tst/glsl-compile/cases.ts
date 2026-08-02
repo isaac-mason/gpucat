@@ -3,6 +3,7 @@ import {
     acesToneMapping,
     array,
     arrayTexture,
+    atan2,
     attribute,
     cameraProjectionMatrix,
     cameraViewMatrix,
@@ -18,6 +19,7 @@ import {
     If,
     i32,
     instanceIndex,
+    inverseSqrt,
     Let,
     Loop,
     modelNormalMatrix,
@@ -206,6 +208,26 @@ export const cases: Case[] = [
             return {
                 vertex: vec4(attribute('position', d.vec3f), f32(1)),
                 fragment: color,
+                depth: undefined,
+            };
+        },
+    },
+    {
+        // Regression: WGSL operators/builtins whose GLSL ES 3.00 spelling differs. `%` on FLOATS is the
+        // `mod()` builtin (GLSL `%` is integer-only — `float % float` is a compile error); atan2 /
+        // inverseSqrt rename to atan / inversesqrt ("no matching function" otherwise). Voxel materials
+        // hit float mod (UV/anim wrapping). (The integer bit-count builtins are ES 3.10+ and are rejected
+        // with a clear message, not renamed — a separate unit test covers that.)
+        name: 'renamed builtins + float mod (GLSL spellings)',
+        build: () => {
+            const m = f32(5.5).mod(f32(2.0)); // float % → mod()
+            const a = atan2(f32(0.5), f32(1.0)); // → atan(y, x)
+            const s = inverseSqrt(f32(4.0)); // → inversesqrt
+            const acc = m.add(a).add(s);
+
+            return {
+                vertex: vec4(attribute('position', d.vec3f), f32(1)),
+                fragment: vec4(acc, acc, acc, f32(1)),
                 depth: undefined,
             };
         },

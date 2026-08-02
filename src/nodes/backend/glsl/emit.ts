@@ -136,7 +136,14 @@ const CALL_RENAMES: Record<string, string> = {
     dpdx: 'dFdx',
     dpdy: 'dFdy',
     fwidth: 'fwidth',
-    // WGSL and GLSL agree on the common math builtins used by the lit-mesh case; overrides go here.
+    // WGSL math builtins whose GLSL ES 3.00 spelling differs (same args, just renamed) — emitting the
+    // WGSL name verbatim is a "no matching function" compile error otherwise. NOTE: the integer bit
+    // builtins (countOneBits/reverseBits/firstLeadingBit/firstTrailingBit → bitCount/bitfieldReverse/
+    // findMSB/findLSB) are GLSL ES 3.10 / desktop-4.0 only, NOT WebGL2's ES 3.00, so they are rejected
+    // in generateCall rather than renamed (they'd fail to compile).
+    atan2: 'atan', // GLSL's 2-arg atan(y, x) IS atan2
+    inverseSqrt: 'inversesqrt',
+    // WGSL and GLSL agree on the remaining common math builtins; further overrides go here.
 };
 
 /**
@@ -381,6 +388,10 @@ function generateExpr(ctx: GlslBuildContext, rawNode: Node<d.Any>): string {
             const glslFn = VEC_COMPARE_FN[node.op];
             if (glslFn && node.type.wgslType.includes('<bool>')) {
                 expr = `${glslFn}(${left}, ${right})`;
+            } else if (node.op === '%' && node.type.wgslType.includes('f32')) {
+                // GLSL ES 3.00 `%` is integer-only; the float remainder is the `mod()` builtin (WGSL/TSL
+                // allow `%` on floats). Result type is f32/vecN<f32> ⇒ route to mod().
+                expr = `mod(${left}, ${right})`;
             } else {
                 expr = `(${left} ${node.op} ${right})`;
             }
@@ -992,9 +1003,23 @@ function generateCall(ctx: GlslBuildContext, node: CallNode<d.Any>): string {
         return `max(vec4(ivec4(int(${p}<<24u)>>24,int(${p}<<16u)>>24,int(${p}<<8u)>>24,int(${p})>>24))/127.0,vec4(-1.0))`;
     }
 
+    // Integer bit-count/scan builtins are GLSL ES 3.10+ / desktop-4.0 only — WebGL2 is ES 3.00, which
+    // has no bitCount/bitfieldReverse/findMSB/findLSB. Reject with a clear message rather than emit a
+    // name the driver won't resolve (would fail as an opaque "no matching function"). A polyfill could
+    // be added if a material ever needs them.
+    if (ES300_UNAVAILABLE_FNS.has(node.fn)) {
+        throw new Error(
+            `[glsl] '${node.fn}' has no GLSL ES 3.00 (WebGL2) builtin — the integer bit-count/scan ` +
+                `functions are ES 3.10+ / desktop-only; not yet supported on the WebGL backend (needs a polyfill)`,
+        );
+    }
+
     const fn = CALL_RENAMES[node.fn] ?? node.fn;
     return `${fn}(${args.join(', ')})`;
 }
+
+/** WGSL builtins with no GLSL ES 3.00 (WebGL2) counterpart — rejected clearly in generateCall. */
+const ES300_UNAVAILABLE_FNS = new Set(['countOneBits', 'reverseBits', 'firstLeadingBit', 'firstTrailingBit']);
 
 /**
  * Translate a WGSL texture free function to its GLSL combined-sampler form. The first arg is the
