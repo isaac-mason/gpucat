@@ -4194,15 +4194,15 @@ const vec4bool = {
     len: 4,
 };
 const vec4h$1 = { type: 'vec4h', wgslType: 'vec4h', scalar: 'f16', len: 4 };
-const mat2x2f$1 = { type: 'mat2x2f', wgslType: 'mat2x2f', glslType: 'mat2' };
-const mat2x3f$1 = { type: 'mat2x3f', wgslType: 'mat2x3f', glslType: 'mat2x3' };
-const mat2x4f$1 = { type: 'mat2x4f', wgslType: 'mat2x4f', glslType: 'mat2x4' };
-const mat3x2f$1 = { type: 'mat3x2f', wgslType: 'mat3x2f', glslType: 'mat3x2' };
-const mat3x3f$1 = { type: 'mat3x3f', wgslType: 'mat3x3f', glslType: 'mat3' };
-const mat3x4f$1 = { type: 'mat3x4f', wgslType: 'mat3x4f', glslType: 'mat3x4' };
-const mat4x2f$1 = { type: 'mat4x2f', wgslType: 'mat4x2f', glslType: 'mat4x2' };
-const mat4x3f$1 = { type: 'mat4x3f', wgslType: 'mat4x3f', glslType: 'mat4x3' };
-const mat4x4f$1 = { type: 'mat4x4f', wgslType: 'mat4x4f', glslType: 'mat4' };
+const mat2x2f$1 = { type: 'mat2x2f', wgslType: 'mat2x2f', glslType: 'mat2', scalar: 'f32', cols: 2, rows: 2 };
+const mat2x3f$1 = { type: 'mat2x3f', wgslType: 'mat2x3f', glslType: 'mat2x3', scalar: 'f32', cols: 2, rows: 3 };
+const mat2x4f$1 = { type: 'mat2x4f', wgslType: 'mat2x4f', glslType: 'mat2x4', scalar: 'f32', cols: 2, rows: 4 };
+const mat3x2f$1 = { type: 'mat3x2f', wgslType: 'mat3x2f', glslType: 'mat3x2', scalar: 'f32', cols: 3, rows: 2 };
+const mat3x3f$1 = { type: 'mat3x3f', wgslType: 'mat3x3f', glslType: 'mat3', scalar: 'f32', cols: 3, rows: 3 };
+const mat3x4f$1 = { type: 'mat3x4f', wgslType: 'mat3x4f', glslType: 'mat3x4', scalar: 'f32', cols: 3, rows: 4 };
+const mat4x2f$1 = { type: 'mat4x2f', wgslType: 'mat4x2f', glslType: 'mat4x2', scalar: 'f32', cols: 4, rows: 2 };
+const mat4x3f$1 = { type: 'mat4x3f', wgslType: 'mat4x3f', glslType: 'mat4x3', scalar: 'f32', cols: 4, rows: 3 };
+const mat4x4f$1 = { type: 'mat4x4f', wgslType: 'mat4x4f', glslType: 'mat4', scalar: 'f32', cols: 4, rows: 4 };
 const mat2x2h$1 = { type: 'mat2x2h', wgslType: 'mat2x2h' };
 const mat2x3h$1 = { type: 'mat2x3h', wgslType: 'mat2x3h' };
 const mat2x4h$1 = { type: 'mat2x4h', wgslType: 'mat2x4h' };
@@ -10824,11 +10824,11 @@ function decodeField(base, texelBase, width, byteOffset, type) {
         }
         // bool / f16 components have no structured-texture decode form; fall through to the error below.
     }
-    // f32 matrices: each column has stride 16 (one texel) for 3- and 4-row matrices.
-    const m = t.match(/^mat(\d)x(\d)f$/);
-    if (m) {
-        const cols = Number(m[1]);
-        const rows = Number(m[2]);
+    // f32 matrices: each column has stride 16 (one texel) for 3- and 4-row matrices. Shape read from the
+    // descriptor's cols/rows (present only on the matNxMf descriptors).
+    if ('cols' in type && 'rows' in type) {
+        const cols = type.cols;
+        const rows = type.rows;
         if (rows !== 3 && rows !== 4) {
             throw new Error(`[gpucat] structured-texture load: matrix '${t}' (2-row column packing) not yet supported`);
         }
@@ -15188,7 +15188,9 @@ const GLSL_INTEGER_WGSL_TYPES = new Set(['i32', 'u32', 'vec2i', 'vec3i', 'vec4i'
  *  null for f16 and for matrices/composites — the GLSL backend never routes those through the scalar and
  *  operator-coercion paths, and f16 has no GLSL ES 3.00 form. */
 function glslScalarKind(desc) {
-    if (!('scalar' in desc) || desc.scalar === 'f16')
+    // Gate on `len` (scalars/vectors only): matrices carry `scalar` too but must stay null here, since
+    // this feeds the scalar/operator paths a matrix never takes. f16 has no GLSL ES 3.00 form.
+    if (!('len' in desc) || desc.scalar === 'f16')
         return null;
     return desc.scalar;
 }

@@ -582,11 +582,11 @@ export function decodeField(
         }
         // bool / f16 components have no structured-texture decode form; fall through to the error below.
     }
-    // f32 matrices: each column has stride 16 (one texel) for 3- and 4-row matrices.
-    const m = t.match(/^mat(\d)x(\d)f$/);
-    if (m) {
-        const cols = Number(m[1]);
-        const rows = Number(m[2]);
+    // f32 matrices: each column has stride 16 (one texel) for 3- and 4-row matrices. Shape read from the
+    // descriptor's cols/rows (present only on the matNxMf descriptors).
+    if ('cols' in type && 'rows' in type) {
+        const cols = type.cols;
+        const rows = type.rows;
         if (rows !== 3 && rows !== 4) {
             throw new Error(`[gpucat] structured-texture load: matrix '${t}' (2-row column packing) not yet supported`);
         }

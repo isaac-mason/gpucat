@@ -115,34 +115,38 @@ export type Vec4 = vec4f | vec4i | vec4u | vec4bool | vec4h;
 
 export type Vec = Vec2 | Vec3 | Vec4;
 
+// Matrices carry their `cols` x `rows` shape and f32 component `scalar` as fields (mat<COLS>x<ROWS>f) so
+// backends read the shape directly instead of parsing the `matNxMf` name. They intentionally have NO
+// `len` field: `len` marks a scalar/vector for the operand-coercion paths, and a matrix must not enter
+// those (glslScalarKind gates on `len`, so it stays null for matrices as before).
 /* matrix descriptors, f32 */
 
-export type mat2x2f = { type: 'mat2x2f'; wgslType: 'mat2x2f'; glslType: 'mat2' };
-export const mat2x2f: mat2x2f = { type: 'mat2x2f', wgslType: 'mat2x2f', glslType: 'mat2' };
+export type mat2x2f = { type: 'mat2x2f'; wgslType: 'mat2x2f'; glslType: 'mat2'; scalar: 'f32'; cols: 2; rows: 2 };
+export const mat2x2f: mat2x2f = { type: 'mat2x2f', wgslType: 'mat2x2f', glslType: 'mat2', scalar: 'f32', cols: 2, rows: 2 };
 
-export type mat2x3f = { type: 'mat2x3f'; wgslType: 'mat2x3f'; glslType: 'mat2x3' };
-export const mat2x3f: mat2x3f = { type: 'mat2x3f', wgslType: 'mat2x3f', glslType: 'mat2x3' };
+export type mat2x3f = { type: 'mat2x3f'; wgslType: 'mat2x3f'; glslType: 'mat2x3'; scalar: 'f32'; cols: 2; rows: 3 };
+export const mat2x3f: mat2x3f = { type: 'mat2x3f', wgslType: 'mat2x3f', glslType: 'mat2x3', scalar: 'f32', cols: 2, rows: 3 };
 
-export type mat2x4f = { type: 'mat2x4f'; wgslType: 'mat2x4f'; glslType: 'mat2x4' };
-export const mat2x4f: mat2x4f = { type: 'mat2x4f', wgslType: 'mat2x4f', glslType: 'mat2x4' };
+export type mat2x4f = { type: 'mat2x4f'; wgslType: 'mat2x4f'; glslType: 'mat2x4'; scalar: 'f32'; cols: 2; rows: 4 };
+export const mat2x4f: mat2x4f = { type: 'mat2x4f', wgslType: 'mat2x4f', glslType: 'mat2x4', scalar: 'f32', cols: 2, rows: 4 };
 
-export type mat3x2f = { type: 'mat3x2f'; wgslType: 'mat3x2f'; glslType: 'mat3x2' };
-export const mat3x2f: mat3x2f = { type: 'mat3x2f', wgslType: 'mat3x2f', glslType: 'mat3x2' };
+export type mat3x2f = { type: 'mat3x2f'; wgslType: 'mat3x2f'; glslType: 'mat3x2'; scalar: 'f32'; cols: 3; rows: 2 };
+export const mat3x2f: mat3x2f = { type: 'mat3x2f', wgslType: 'mat3x2f', glslType: 'mat3x2', scalar: 'f32', cols: 3, rows: 2 };
 
-export type mat3x3f = { type: 'mat3x3f'; wgslType: 'mat3x3f'; glslType: 'mat3' };
-export const mat3x3f: mat3x3f = { type: 'mat3x3f', wgslType: 'mat3x3f', glslType: 'mat3' };
+export type mat3x3f = { type: 'mat3x3f'; wgslType: 'mat3x3f'; glslType: 'mat3'; scalar: 'f32'; cols: 3; rows: 3 };
+export const mat3x3f: mat3x3f = { type: 'mat3x3f', wgslType: 'mat3x3f', glslType: 'mat3', scalar: 'f32', cols: 3, rows: 3 };
 
-export type mat3x4f = { type: 'mat3x4f'; wgslType: 'mat3x4f'; glslType: 'mat3x4' };
-export const mat3x4f: mat3x4f = { type: 'mat3x4f', wgslType: 'mat3x4f', glslType: 'mat3x4' };
+export type mat3x4f = { type: 'mat3x4f'; wgslType: 'mat3x4f'; glslType: 'mat3x4'; scalar: 'f32'; cols: 3; rows: 4 };
+export const mat3x4f: mat3x4f = { type: 'mat3x4f', wgslType: 'mat3x4f', glslType: 'mat3x4', scalar: 'f32', cols: 3, rows: 4 };
 
-export type mat4x2f = { type: 'mat4x2f'; wgslType: 'mat4x2f'; glslType: 'mat4x2' };
-export const mat4x2f: mat4x2f = { type: 'mat4x2f', wgslType: 'mat4x2f', glslType: 'mat4x2' };
+export type mat4x2f = { type: 'mat4x2f'; wgslType: 'mat4x2f'; glslType: 'mat4x2'; scalar: 'f32'; cols: 4; rows: 2 };
+export const mat4x2f: mat4x2f = { type: 'mat4x2f', wgslType: 'mat4x2f', glslType: 'mat4x2', scalar: 'f32', cols: 4, rows: 2 };
 
-export type mat4x3f = { type: 'mat4x3f'; wgslType: 'mat4x3f'; glslType: 'mat4x3' };
-export const mat4x3f: mat4x3f = { type: 'mat4x3f', wgslType: 'mat4x3f', glslType: 'mat4x3' };
+export type mat4x3f = { type: 'mat4x3f'; wgslType: 'mat4x3f'; glslType: 'mat4x3'; scalar: 'f32'; cols: 4; rows: 3 };
+export const mat4x3f: mat4x3f = { type: 'mat4x3f', wgslType: 'mat4x3f', glslType: 'mat4x3', scalar: 'f32', cols: 4, rows: 3 };
 
-export type mat4x4f = { type: 'mat4x4f'; wgslType: 'mat4x4f'; glslType: 'mat4' };
-export const mat4x4f: mat4x4f = { type: 'mat4x4f', wgslType: 'mat4x4f', glslType: 'mat4' };
+export type mat4x4f = { type: 'mat4x4f'; wgslType: 'mat4x4f'; glslType: 'mat4'; scalar: 'f32'; cols: 4; rows: 4 };
+export const mat4x4f: mat4x4f = { type: 'mat4x4f', wgslType: 'mat4x4f', glslType: 'mat4', scalar: 'f32', cols: 4, rows: 4 };
 
 export type MatF = mat2x2f | mat2x3f | mat2x4f | mat3x2f | mat3x3f | mat3x4f | mat4x2f | mat4x3f | mat4x4f;
 

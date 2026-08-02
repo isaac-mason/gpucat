@@ -180,54 +180,81 @@ export type mat2x2f = {
     type: 'mat2x2f';
     wgslType: 'mat2x2f';
     glslType: 'mat2';
+    scalar: 'f32';
+    cols: 2;
+    rows: 2;
 };
 export declare const mat2x2f: mat2x2f;
 export type mat2x3f = {
     type: 'mat2x3f';
     wgslType: 'mat2x3f';
     glslType: 'mat2x3';
+    scalar: 'f32';
+    cols: 2;
+    rows: 3;
 };
 export declare const mat2x3f: mat2x3f;
 export type mat2x4f = {
     type: 'mat2x4f';
     wgslType: 'mat2x4f';
     glslType: 'mat2x4';
+    scalar: 'f32';
+    cols: 2;
+    rows: 4;
 };
 export declare const mat2x4f: mat2x4f;
 export type mat3x2f = {
     type: 'mat3x2f';
     wgslType: 'mat3x2f';
     glslType: 'mat3x2';
+    scalar: 'f32';
+    cols: 3;
+    rows: 2;
 };
 export declare const mat3x2f: mat3x2f;
 export type mat3x3f = {
     type: 'mat3x3f';
     wgslType: 'mat3x3f';
     glslType: 'mat3';
+    scalar: 'f32';
+    cols: 3;
+    rows: 3;
 };
 export declare const mat3x3f: mat3x3f;
 export type mat3x4f = {
     type: 'mat3x4f';
     wgslType: 'mat3x4f';
     glslType: 'mat3x4';
+    scalar: 'f32';
+    cols: 3;
+    rows: 4;
 };
 export declare const mat3x4f: mat3x4f;
 export type mat4x2f = {
     type: 'mat4x2f';
     wgslType: 'mat4x2f';
     glslType: 'mat4x2';
+    scalar: 'f32';
+    cols: 4;
+    rows: 2;
 };
 export declare const mat4x2f: mat4x2f;
 export type mat4x3f = {
     type: 'mat4x3f';
     wgslType: 'mat4x3f';
     glslType: 'mat4x3';
+    scalar: 'f32';
+    cols: 4;
+    rows: 3;
 };
 export declare const mat4x3f: mat4x3f;
 export type mat4x4f = {
     type: 'mat4x4f';
     wgslType: 'mat4x4f';
     glslType: 'mat4';
+    scalar: 'f32';
+    cols: 4;
+    rows: 4;
 };
 export declare const mat4x4f: mat4x4f;
 export type MatF = mat2x2f | mat2x3f | mat2x4f | mat3x2f | mat3x3f | mat3x4f | mat4x2f | mat4x3f | mat4x4f;

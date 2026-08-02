@@ -83,7 +83,9 @@ const GLSL_INTEGER_WGSL_TYPES = new Set(['i32', 'u32', 'vec2i', 'vec3i', 'vec4i'
  *  null for f16 and for matrices/composites — the GLSL backend never routes those through the scalar and
  *  operator-coercion paths, and f16 has no GLSL ES 3.00 form. */
 function glslScalarKind(desc: d.Any): 'f32' | 'i32' | 'u32' | 'bool' | null {
-    if (!('scalar' in desc) || desc.scalar === 'f16') return null;
+    // Gate on `len` (scalars/vectors only): matrices carry `scalar` too but must stay null here, since
+    // this feeds the scalar/operator paths a matrix never takes. f16 has no GLSL ES 3.00 form.
+    if (!('len' in desc) || desc.scalar === 'f16') return null;
     return desc.scalar;
 }
 
