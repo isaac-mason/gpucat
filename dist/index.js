@@ -15169,11 +15169,10 @@ function walkTypeForStructs(type, register) {
  * mapping surfaces loudly, exactly as the old WGSL_TO_GLSL map did.
  */
 function glslType(desc) {
-    const glsl = desc.glslType;
-    if (glsl === undefined) {
+    if (!('glslType' in desc)) {
         throw new Error(`[glsl] type '${desc.wgslType}' not yet supported in the GLSL emitter`);
     }
-    return glsl;
+    return desc.glslType;
 }
 /** GLSL ES 3.00 integer scalar/vector types that MUST carry a `flat` interpolation qualifier. */
 const GLSL_INTEGER_WGSL_TYPES = new Set(['i32', 'u32', 'vec2i', 'vec3i', 'vec4i', 'vec2u', 'vec3u', 'vec4u']);
@@ -15197,6 +15196,11 @@ function glslScalarKind(desc) {
 /** Component count (1 for scalars, 2..4 for vectors) of a scalar/vector descriptor, or null otherwise. */
 function glslVecLen(desc) {
     return 'len' in desc ? desc.len : null;
+}
+/** True for a bool VECTOR (vecN<bool>) — the result of a componentwise comparison and the condition of a
+ *  vector select. GLSL routes both to bvec-specific forms (built-in relational fns / componentwise ternary). */
+function isBoolVec(desc) {
+    return 'len' in desc && desc.scalar === 'bool' && desc.len > 1;
 }
 /** GLSL constructor name for a given length + component kind (e.g. len 3 + i32 → `ivec3`). */
 function glslCtorFor(len, scalar) {
@@ -15273,20 +15277,9 @@ const VEC_COMPARE_FN = {
 const CALL_RENAMES = {
     fract: 'fract',
     mix: 'mix',
-    // Scalar/vector conversion "functions" are constructor calls in both languages, but spelled with
-    // the WGSL type name (f32(x)) vs the GLSL type name (float(x)). Rewrite the type-named ones.
-    f32: 'float',
-    i32: 'int',
-    u32: 'uint',
-    vec2f: 'vec2',
-    vec3f: 'vec3',
-    vec4f: 'vec4',
-    vec2i: 'ivec2',
-    vec3i: 'ivec3',
-    vec4i: 'ivec4',
-    vec2u: 'uvec2',
-    vec3u: 'uvec3',
-    vec4u: 'uvec4',
+    // Type-constructor conversions (f32(x) -> float(x), vec3u(...) -> uvec3(...)) are NOT listed here:
+    // generateCall resolves them straight from the target descriptor's `glslType` field (a constructor
+    // call is spelled with its result type's WGSL name), so this table holds only genuine builtin renames.
     // Derivative builtins: WGSL spells them dpdx/dpdy; GLSL ES 3.00 uses dFdx/dFdy. fwidth is spelled
     // the same in both, listed for clarity. (The coarse/fine variants have no GLSL ES 3.00 form and
     // are rejected in generateCall below.)
@@ -15328,16 +15321,18 @@ function glslLiteral(wgslType, value) {
     };
     if (typeof value === 'number')
         return scalar(wgslType, value);
-    // Vector / matrix literal: constructor of the GLSL type with per-component literals.
-    const elemWgsl = wgslType.endsWith('f') ? 'f32' : wgslType.endsWith('i') ? 'i32' : wgslType.endsWith('u') ? 'u32' : 'f32';
-    const components = value.map((v) => scalar(elemWgsl, v));
-    // Resolve the GLSL type name from the schema descriptor's `glslType` companion. Unknown / GLSL-
-    // untranslatable types have no `glslType`, so this throws — matching the old WGSL_TO_GLSL miss.
-    const glsl = descFromWgslType(wgslType).glslType;
-    if (glsl === undefined) {
+    // Vector / matrix literal: constructor of the GLSL type with per-component literals. Component kind
+    // and GLSL type name both come from the schema descriptor (its `scalar` + `glslType` fields) instead
+    // of parsing the wgslType suffix. Unknown / GLSL-untranslatable types have no `glslType`, so this
+    // throws — matching the old WGSL_TO_GLSL miss. Matrix and float/bool/f16 vector components format as
+    // f32 literals; only integer vectors take i32/u32.
+    const desc = descFromWgslType(wgslType);
+    if (!('glslType' in desc)) {
         throw new Error(`[glsl] literal of type '${wgslType}' not yet supported in the GLSL emitter`);
     }
-    return `${glsl}(${components.join(', ')})`;
+    const elemScalar = 'scalar' in desc && (desc.scalar === 'i32' || desc.scalar === 'u32') ? desc.scalar : 'f32';
+    const components = value.map((v) => scalar(elemScalar, v));
+    return `${desc.glslType}(${components.join(', ')})`;
 }
 function createGlslContext(stage, discovery) {
     return {
@@ -15477,7 +15472,7 @@ function generateExpr$1(ctx, rawNode) {
             // vectors and instead provides built-in functions returning a bvec. Detect via the result
             // type being a bool vector (`vecN<bool>`); scalar comparisons keep the operator.
             const glslFn = VEC_COMPARE_FN[node.op];
-            if (glslFn && node.type.wgslType.includes('<bool>')) {
+            if (glslFn && isBoolVec(node.type)) {
                 expr = `${glslFn}(${left}, ${right})`;
             }
             else if (node.op === '%' && node.type.wgslType.includes('f32')) {
@@ -15564,7 +15559,7 @@ function generateExpr$1(ctx, rawNode) {
             //    3.00's genType `mix(x, y, genBType a)` picks per component (a ? y : x). This overload
             //    exists ONLY for float genType in ES 3.00 — the int/uint/bool bvec-selector mix was added
             //    in ES 3.20, so an integer-vector select must expand to a componentwise ternary instead.
-            const condIsVec = node.condition.type.wgslType.includes('<bool>') || /^vec[234]b?$/.test(node.condition.type.wgslType);
+            const condIsVec = isBoolVec(node.condition.type);
             const resultScalar = glslScalarKind(node.type);
             if (condIsVec && resultScalar !== 'f32') {
                 // Integer/uint/bool componentwise select. Hoist the three operands to temps (each is read
@@ -16171,6 +16166,12 @@ function generateCall$1(ctx, node) {
     if (ES300_UNAVAILABLE_FNS.has(node.fn)) {
         throw new Error(`[glsl] '${node.fn}' has no GLSL ES 3.00 (WebGL2) builtin — the integer bit-count/scan ` +
             `functions are ES 3.10+ / desktop-only; not yet supported on the WebGL backend (needs a polyfill)`);
+    }
+    // A type-constructor call (f32(x), vec3u(...), mat3x3f(...)) is spelled with the WGSL type name and
+    // produces that type; emit the GLSL type name from the descriptor's `glslType` companion. Types with
+    // no GLSL form (e.g. f16 vectors) lack `glslType` and fall through to the rename table / verbatim.
+    if (node.fn === node.type.wgslType && 'glslType' in node.type) {
+        return `${node.type.glslType}(${args.join(', ')})`;
     }
     const fn = CALL_RENAMES[node.fn] ?? node.fn;
     return `${fn}(${args.join(', ')})`;
