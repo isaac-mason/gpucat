@@ -7,14 +7,17 @@ import {
     attribute,
     cameraProjectionMatrix,
     cameraViewMatrix,
+    comparisonSampler,
     type compileGlsl,
     compileTransformFeedback,
     createStorageTexture,
     d,
+    depthTexture,
     Fn,
     f32,
     fxaa,
     GpuSampler,
+    GpuTexture,
     glslFn,
     If,
     i32,
@@ -31,10 +34,14 @@ import {
     sRGBTransferOETF,
     struct,
     texture,
+    textureNumLayers,
+    textureSampleCompare,
+    textureSampleCompareLevel,
     transformFeedback,
     u32,
     Var,
     varying,
+    vec2f,
     vec2i,
     vec3,
     vec3b,
@@ -627,6 +634,68 @@ export const cases: Case[] = [
             return {
                 vertex: vec4(attribute('position', d.vec3f), f32(1)),
                 fragment: vec4(vec3(picked.toF32()), f32(1)),
+                depth: undefined,
+            };
+        },
+    },
+    {
+        // Vertex-stage texture sample. GLSL ES 3.00's implicit-LOD `texture()` needs screen-space
+        // derivatives that exist only in the fragment stage — sampling in the vertex stage must lower to
+        // an explicit `textureLod(…, 0.0)`. Sampled inside a varying so the read happens in the vertex
+        // stage. Pre-fix this failed to compile ("no matching overloaded function 'texture'").
+        name: 'vertex-stage texture sample (implicit LOD → textureLod)',
+        build: () => {
+            const tex = createStorageTexture(4, 4, 'rgba8unorm');
+            const smp = new GpuSampler({});
+            const sampledInVertex = varying(texture(tex, smp).sample(vec2f(0.5, 0.5)));
+            return { vertex: vec4(sampledInVertex.xyz, f32(1)), fragment: sampledInVertex, depth: undefined };
+        },
+    },
+    {
+        // textureNumLayers: a DSL builtin with no prior GLSL case. The array layer count lowers to
+        // `uint(textureSize(name, 0).z)` (the z of a 2D-array's dimensions). Must compile + link.
+        // (textureGather is intentionally NOT covered — it is a GLSL ES 3.10 builtin absent from WebGL2's
+        // ES 3.00, so the emitter rejects it rather than emitting an un-compilable call.)
+        name: 'textureNumLayers (array layer count)',
+        build: () => {
+            const layers = new ArrayTexture(new Uint8Array(4 * 4 * 4 * 2), 4, 4, 2);
+            const layerCount = textureNumLayers(arrayTexture(layers, i32(0)).bindingNode);
+            return {
+                vertex: vec4(attribute('position', d.vec3f), f32(1)),
+                fragment: vec4(vec3(f32(layerCount)), f32(1)),
+                depth: undefined,
+            };
+        },
+    },
+    {
+        // Plain depth-texture READ (non-comparison sampler). GLSL ES 3.00 reads a depth texture through a
+        // regular `sampler2D`, returning depth in .r — distinct from the shadow-compare path. Pre-fix the
+        // node-method sampling threw ("plain depth-texture sampling not yet supported").
+        name: 'plain depth read (sampler2D .x)',
+        build: () => {
+            const dtex = new GpuTexture(d.textureDepth2d, { width: 4, height: 4, format: 'depth24plus', usage: 6 });
+            const depth = depthTexture(dtex, new GpuSampler({}));
+            return {
+                vertex: vec4(attribute('position', d.vec3f), f32(1)),
+                fragment: vec4(vec3(depth.sample(vec2f(0.5, 0.5))), f32(1)),
+                depth: undefined,
+            };
+        },
+    },
+    {
+        // Shadow compare sampling at implicit and explicit LOD. A comparison sampler → `sampler2DShadow`;
+        // textureSampleCompare → `texture(shadow, vec3(uv, ref))`, textureSampleCompareLevel →
+        // `textureLod(shadow, vec3(uv, ref), lod)`. Must compile + link on real WebGL2.
+        name: 'shadow compare (sampler2DShadow, implicit + explicit LOD)',
+        build: () => {
+            const dtex = new GpuTexture(d.textureDepth2d, { width: 4, height: 4, format: 'depth24plus', usage: 6 });
+            const depth = depthTexture(dtex, new GpuSampler({ compare: 'less' }));
+            const cmp = comparisonSampler(new GpuSampler({ compare: 'less' }), 'less');
+            const a = textureSampleCompare(depth.bindingNode, cmp, vec2f(0.5, 0.5), f32(0.5));
+            const b = textureSampleCompareLevel(depth.bindingNode, cmp, vec2f(0.5, 0.5), f32(0.5), i32(0));
+            return {
+                vertex: vec4(attribute('position', d.vec3f), f32(1)),
+                fragment: vec4(vec3(a.add(b)), f32(1)),
                 depth: undefined,
             };
         },

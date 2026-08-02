@@ -1122,50 +1122,115 @@ function generateCall(ctx: GlslBuildContext, node: CallNode<d.Any>): string {
 const ES300_UNAVAILABLE_FNS = new Set(['countOneBits', 'reverseBits', 'firstLeadingBit', 'firstTrailingBit']);
 
 /**
+ * Implicit-LOD sampling. GLSL ES 3.00's `texture()` (and its bias overload) derives the mip level from
+ * screen-space derivatives, which exist ONLY in the fragment stage — calling it in a vertex shader is a
+ * compile error. The vertex stage has no implicit LOD, so fall back to an explicit `textureLod(…, 0.0)`
+ * at the base level (mirrors three.js's GLSLNodeBuilder). Any bias is dropped in the vertex stage since
+ * it has no meaning without implicit derivatives.
+ */
+function implicitSample(ctx: GlslBuildContext, name: string, coord: string, bias?: string): string {
+    if (ctx.stage === 'vertex') return `textureLod(${name}, ${coord}, 0.0)`;
+    return bias !== undefined ? `texture(${name}, ${coord}, ${bias})` : `texture(${name}, ${coord})`;
+}
+
+/**
  * Translate a WGSL texture free function to its GLSL combined-sampler form. The first arg is the
  * TextureBindingNode; sampling variants carry a SamplerNode as the second arg (dropped in GLSL —
  * its settings live in the combined-sampler metadata instead).
  */
 function generateTextureCall(ctx: GlslBuildContext, node: CallNode<d.Any>): string {
     const rawArgs = node.args as AnyNode[];
-    const binding = rawArgs[0];
+
+    // textureGather's signature puts the component index FIRST (component, t, s, coords[, offset]); every
+    // other builtin has the TextureBindingNode as arg 0. Resolve the binding position per builtin.
+    const bindingIndex = node.fn === 'textureGather' ? 1 : 0;
+    const binding = rawArgs[bindingIndex];
     if (!binding || binding.kind !== NodeKind.TextureBinding) {
-        unsupported(`texture builtin '${node.fn}' whose first argument is not a texture binding`);
+        unsupported(`texture builtin '${node.fn}' whose texture argument is not a texture binding`);
     }
     const tex = binding as TextureBindingNode;
 
     // Register the texture; comparison samplers become the combined sampler's runtime settings.
-    const samplerArg = rawArgs[1];
+    const samplerArg = rawArgs[bindingIndex + 1];
     const sampler = samplerArg && samplerArg.kind === NodeKind.Sampler ? (samplerArg as SamplerNode) : null;
     const name = registerTexture(ctx, tex, sampler);
 
     const restFrom = (i: number) => rawArgs.slice(i).map((a) => generateExpr(ctx, a));
 
+    // A GLSL texture*Offset offset argument MUST be a constant expression. Accept only literal / const-
+    // constructor nodes and reject anything the emitter can't prove constant (a clear error beats a
+    // driver-side "not a constant expression").
+    const constOffset = (i: number): string => {
+        const off = rawArgs[i];
+        if (off.kind !== NodeKind.Construct && off.kind !== NodeKind.Literal) {
+            throw new Error(
+                `[glsl] texture sampling offset must be a constant expression on the WebGL backend (got ${off.constructor.name})`,
+            );
+        }
+        return generateExpr(ctx, off);
+    };
+
     switch (node.fn) {
         case 'textureSample': {
-            // (t, s, coords [, offset]) → texture(name, coords). Offset unsupported.
-            if (rawArgs.length > 3) throw new Error(`[glsl] textureSample offset not yet supported in the GLSL emitter`);
-            return `texture(${name}, ${generateExpr(ctx, rawArgs[2])})`;
+            // (t, s, coords [, offset]) → texture(name, coords) — or textureLod at level 0 in the vertex
+            // stage (no implicit derivatives there). With a const offset → textureOffset / textureLodOffset.
+            const coords = generateExpr(ctx, rawArgs[2]);
+            if (rawArgs.length > 3) {
+                const off = constOffset(3);
+                return ctx.stage === 'vertex'
+                    ? `textureLodOffset(${name}, ${coords}, 0.0, ${off})`
+                    : `textureOffset(${name}, ${coords}, ${off})`;
+            }
+            return implicitSample(ctx, name, coords);
         }
         case 'textureSampleLevel': {
-            if (rawArgs.length > 4) throw new Error(`[glsl] textureSampleLevel offset not yet supported in the GLSL emitter`);
-            return `textureLod(${name}, ${generateExpr(ctx, rawArgs[2])}, ${generateExpr(ctx, rawArgs[3])})`;
+            const coords = generateExpr(ctx, rawArgs[2]);
+            const level = generateExpr(ctx, rawArgs[3]);
+            if (rawArgs.length > 4) return `textureLodOffset(${name}, ${coords}, ${level}, ${constOffset(4)})`;
+            return `textureLod(${name}, ${coords}, ${level})`;
         }
         case 'textureSampleBias': {
-            if (rawArgs.length > 4) throw new Error(`[glsl] textureSampleBias offset not yet supported in the GLSL emitter`);
-            return `texture(${name}, ${generateExpr(ctx, rawArgs[2])}, ${generateExpr(ctx, rawArgs[3])})`;
+            // Bias only applies in the fragment stage; the vertex stage samples level 0.
+            const coords = generateExpr(ctx, rawArgs[2]);
+            const bias = generateExpr(ctx, rawArgs[3]);
+            if (rawArgs.length > 4) {
+                const off = constOffset(4);
+                return ctx.stage === 'vertex'
+                    ? `textureLodOffset(${name}, ${coords}, 0.0, ${off})`
+                    : `textureOffset(${name}, ${coords}, ${off}, ${bias})`;
+            }
+            return implicitSample(ctx, name, coords, bias);
         }
         case 'textureSampleGrad': {
-            if (rawArgs.length > 5) throw new Error(`[glsl] textureSampleGrad offset not yet supported in the GLSL emitter`);
             const [coords, ddx, ddy] = restFrom(2);
+            if (rawArgs.length > 5) return `textureGradOffset(${name}, ${coords}, ${ddx}, ${ddy}, ${constOffset(5)})`;
             return `textureGrad(${name}, ${coords}, ${ddx}, ${ddy})`;
         }
         case 'textureSampleCompare': {
             // (t, s, coords, depthRef [, offset]) → texture(shadowSampler, vec3(coords, depthRef)).
-            if (rawArgs.length > 4) throw new Error(`[glsl] textureSampleCompare offset not yet supported in the GLSL emitter`);
             const coords = generateExpr(ctx, rawArgs[2]);
             const depthRef = generateExpr(ctx, rawArgs[3]);
+            if (rawArgs.length > 4) return `textureOffset(${name}, vec3(${coords}, ${depthRef}), ${constOffset(4)})`;
             return `texture(${name}, vec3(${coords}, ${depthRef}))`;
+        }
+        case 'textureSampleCompareLevel': {
+            // (t, s, coords, depthRef, level [, offset]) → shadow sample at an explicit LOD. Depth level
+            // is i32; GLSL textureLod takes a float lod.
+            const coords = generateExpr(ctx, rawArgs[2]);
+            const depthRef = generateExpr(ctx, rawArgs[3]);
+            const level = `float(${generateExpr(ctx, rawArgs[4])})`;
+            if (rawArgs.length > 5) return `textureLodOffset(${name}, vec3(${coords}, ${depthRef}), ${level}, ${constOffset(5)})`;
+            return `textureLod(${name}, vec3(${coords}, ${depthRef}), ${level})`;
+        }
+        case 'textureGather':
+        case 'textureGatherCompare': {
+            // textureGather / textureGatherOffset / textureGatherCompare are GLSL ES 3.10 (and desktop
+            // 4.0) builtins — WebGL2 is GLSL ES 3.00, where they do not exist. Emitting the call is a
+            // hard "no matching overloaded function" compile error, so reject with a clear message (the
+            // real-WebGL2 harness confirms the driver has no such overload).
+            throw new Error(
+                `[glsl] ${node.fn} is a GLSL ES 3.10 builtin with no GLSL ES 3.00 form; not supported on the WebGL2 backend`,
+            );
         }
         case 'textureLoad': {
             // (t, coords, level) → texelFetch(name, ivec2(coords), level).
@@ -1180,6 +1245,16 @@ function generateTextureCall(ctx: GlslBuildContext, node: CallNode<d.Any>): stri
             // type so downstream `.x`/`% `/`/ ` stay unsigned.
             const level = rawArgs[1] ? `int(${generateExpr(ctx, rawArgs[1])})` : '0';
             return `${glslType(node.type)}(textureSize(${name}, ${level}))`;
+        }
+        case 'textureNumLayers': {
+            // Array layer count = the z of the array texture's dimensions. textureSize on a 2D-array
+            // sampler returns ivec3(w, h, layers); cast the layer count to the node's u32 result.
+            return `uint(textureSize(${name}, 0).z)`;
+        }
+        case 'textureNumLevels': {
+            // No GLSL ES 3.00 form: the mip-count query (GL_TEXTURE_IMAGE_SIZE / textureQueryLevels) is
+            // desktop GLSL 4.30+ only. Reject rather than emit an un-compilable call.
+            throw new Error(`[glsl] textureNumLevels has no GLSL ES 3.00 builtin and is not supported on the WebGL2 backend`);
         }
         default:
             throw new Error(`[glsl] texture builtin '${node.fn}' not yet supported in the GLSL emitter`);
@@ -1207,15 +1282,20 @@ function samplerUniformName(textureId: string): string {
  * from an integer sampleType. Depth-compare samplers are `sampler*Shadow`. Anything the GLSL
  * emitter can't express throws a clear "not yet supported" error.
  */
-function glslSamplerType(desc: d.Texture): string {
+function glslSamplerType(desc: d.Texture, isComparison: boolean): string {
     const type = desc.type;
 
-    // Depth textures. A comparison sampler → shadow sampler; otherwise a plain float sampler
-    // (GLSL ES 3.00 can read a depth texture through a regular sampler2D, returning depth in .r).
+    // Depth textures. A comparison sampler → shadow sampler; otherwise a plain float sampler (GLSL ES
+    // 3.00 reads a depth texture through a regular sampler2D, returning depth in .r). The shape (2D /
+    // 2D-array / cube) picks the matching shadow-or-plain sampler.
     if (d.isDepthTextureDesc(desc)) {
         switch (type) {
             case 'texture_depth_2d':
-                return 'sampler2DShadow';
+                return isComparison ? 'sampler2DShadow' : 'sampler2D';
+            case 'texture_depth_2d_array':
+                return isComparison ? 'sampler2DArrayShadow' : 'sampler2DArray';
+            case 'texture_depth_cube':
+                return isComparison ? 'samplerCubeShadow' : 'samplerCube';
             default:
                 throw new Error(`[glsl] depth texture '${type}' not yet supported in the GLSL emitter`);
         }
@@ -1305,14 +1385,14 @@ function generateTexture(ctx: GlslBuildContext, node: TextureNode): string {
         }
         case 'bias': {
             if (!node.biasNode) throw new Error(`[glsl] TextureNode '${id}' in bias mode has no biasNode`);
-            return `texture(${name}, ${uv}, ${generateExpr(ctx, node.biasNode)})`;
+            return implicitSample(ctx, name, uv, generateExpr(ctx, node.biasNode));
         }
         case 'level': {
             if (!node.levelNode) throw new Error(`[glsl] TextureNode '${id}' in level mode has no levelNode`);
             return `textureLod(${name}, ${uv}, ${generateExpr(ctx, node.levelNode)})`;
         }
         default:
-            return `texture(${name}, ${uv})`;
+            return implicitSample(ctx, name, uv);
     }
 }
 
@@ -1334,27 +1414,43 @@ function generateCubeTexture(ctx: GlslBuildContext, node: CubeTextureNode): stri
         }
         case 'bias': {
             if (!node.biasNode) throw new Error(`[glsl] CubeTextureNode '${id}' in bias mode has no biasNode`);
-            return `texture(${name}, ${dir}, ${generateExpr(ctx, node.biasNode)})`;
+            return implicitSample(ctx, name, dir, generateExpr(ctx, node.biasNode));
         }
         case 'level': {
             if (!node.levelNode) throw new Error(`[glsl] CubeTextureNode '${id}' in level mode has no levelNode`);
             return `textureLod(${name}, ${dir}, ${generateExpr(ctx, node.levelNode)})`;
         }
         default:
-            return `texture(${name}, ${dir})`;
+            return implicitSample(ctx, name, dir);
     }
 }
 
-function generateDepthTexture(_ctx: GlslBuildContext, _node: DepthTextureNode): string {
-    // The DepthTextureNode.sample()/.level()/.load() surface maps to a GLSL shadow sampler, but a
-    // shadow sampler needs a compare reference (`texture(sampler2DShadow, vec3(uv, ref))`) that this
-    // node kind doesn't carry — a plain depth READ isn't expressible through it. Only compare
-    // sampling via the free function textureSampleCompare (handled in generateTextureCall) is
-    // supported. Reject the node-method path rather than emit wrong GLSL.
-    throw new Error(
-        `[glsl] plain depth-texture sampling not yet supported in the GLSL emitter; ` +
-            `use textureSampleCompare for shadow comparison`,
-    );
+function generateDepthTexture(ctx: GlslBuildContext, node: DepthTextureNode): string {
+    // A DepthTextureNode carries a REGULAR (non-comparison) sampler — its .sample()/.level()/.load()
+    // surface is a plain depth READ, not a shadow compare (that goes through textureSampleCompare with
+    // a comparison sampler). GLSL ES 3.00 reads a depth texture through a regular sampler2D, returning
+    // the depth in .r, so bind a plain sampler (→ glslSamplerType picks `sampler2D`) and take `.x`.
+    const binding = node.bindingNode;
+    const id = binding.textureId;
+
+    if (node.samplingMode === 'load') {
+        if (!node.loadCoords) throw new Error(`[glsl] DepthTextureNode '${id}' in load mode has no loadCoords`);
+        const name = registerTexture(ctx, binding, null);
+        const coords = generateExpr(ctx, node.loadCoords);
+        const level = node.loadLevel ? generateExpr(ctx, node.loadLevel) : '0';
+        return `texelFetch(${name}, ivec2(${coords}), ${level}).x`;
+    }
+
+    const name = registerTexture(ctx, binding, node.samplerNode);
+    const uv = generateExpr(ctx, node.uvNode);
+    if (node.offsetNode) throw new Error(`[glsl] depth-texture sampling offset not yet supported in the GLSL emitter`);
+
+    if (node.samplingMode === 'level') {
+        if (!node.levelNode) throw new Error(`[glsl] DepthTextureNode '${id}' in level mode has no levelNode`);
+        // Depth level is i32; GLSL textureLod takes a float lod.
+        return `textureLod(${name}, ${uv}, float(${generateExpr(ctx, node.levelNode)})).x`;
+    }
+    return `${implicitSample(ctx, name, uv)}.x`;
 }
 
 function generateArrayTexture(ctx: GlslBuildContext, node: ArrayTextureNode): string {
@@ -1388,14 +1484,14 @@ function generateArrayTexture(ctx: GlslBuildContext, node: ArrayTextureNode): st
         }
         case 'bias': {
             if (!node.biasNode) throw new Error(`[glsl] ArrayTextureNode '${id}' in bias mode has no biasNode`);
-            return `texture(${name}, ${coord}, ${generateExpr(ctx, node.biasNode)})`;
+            return implicitSample(ctx, name, coord, generateExpr(ctx, node.biasNode));
         }
         case 'level': {
             if (!node.levelNode) throw new Error(`[glsl] ArrayTextureNode '${id}' in level mode has no levelNode`);
             return `textureLod(${name}, ${coord}, ${generateExpr(ctx, node.levelNode)})`;
         }
         default:
-            return `texture(${name}, ${coord})`;
+            return implicitSample(ctx, name, coord);
     }
 }
 
@@ -1532,7 +1628,10 @@ export function emitGlslTextures(ctx: GlslBuildContext): {
         for (const binding of entry.textures) {
             const id = binding.textureId;
             const name = samplerUniformName(id);
-            const samplerType = glslSamplerType(binding.type);
+            // A depth texture's GLSL sampler shape depends on whether a COMPARISON sampler is bound to
+            // it (shadow sampler) or a regular one (plain sampler2D read).
+            const isComparison = Boolean(ctx.textureSamplers.get(id)?.compare);
+            const samplerType = glslSamplerType(binding.type, isComparison);
             samplerTypes.add(samplerType);
             // Bare declaration; the `precision highp <type>;` default block below qualifies it.
             lines.push(`uniform ${samplerType} ${name};`);
