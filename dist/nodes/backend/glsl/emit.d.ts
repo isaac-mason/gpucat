@@ -75,6 +75,9 @@ export type GlslBuildContext = {
     varCounter: number;
     indentLevel: number;
     code: string[];
+    hoistBuffer: string[];
+    hoistedIds: Set<number>;
+    paramIds: Set<number>;
 };
 export declare function createGlslContext(stage: ShaderStage, discovery: Discovery): GlslBuildContext;
 /**

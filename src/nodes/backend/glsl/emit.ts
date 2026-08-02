@@ -309,6 +309,17 @@ export type GlslBuildContext = {
     // Indentation level for nested control flow (1 = main body, 2 = first nested block, …).
     indentLevel: number;
     code: string[];
+    // CSE locals hoisted to the FUNCTION-BODY TOP (see the CSE hoist in generateExpr). A multi-use node
+    // first materialized inside a nested block but also read outside it would leak out of GLSL's block
+    // scope; when the node depends only on always-in-scope inputs it is instead declared here, at the
+    // top of the body, and its id recorded in hoistedIds so dependents can chain onto it safely. Both
+    // are per-function (reset for each Fn sub-context) and prepended to `code` at body assembly.
+    hoistBuffer: string[];
+    hoistedIds: Set<number>;
+    // Ids of the enclosing function's PARAMETERS — declared in the signature, so in scope from the
+    // first body line. A loop index is ALSO a ParameterNode but is block-scoped (declared in the `for`
+    // header), so kind alone can't tell them apart; only params registered here are top-hoist-safe.
+    paramIds: Set<number>;
 };
 
 export function createGlslContext(stage: ShaderStage, discovery: Discovery): GlslBuildContext {
@@ -333,6 +344,9 @@ export function createGlslContext(stage: ShaderStage, discovery: Discovery): Gls
         varCounter: 0,
         indentLevel: 1,
         code: [],
+        hoistBuffer: [],
+        hoistedIds: new Set(),
+        paramIds: new Set(),
     };
 }
 
@@ -643,15 +657,69 @@ function generateExpr(ctx: GlslBuildContext, rawNode: Node<d.Any>): string {
     const usage = ctx.usageCount.get(node.id) ?? 1;
     if (usage > 1 && !ctx.nodeVars.has(node.id) && !isTrivialExpr(node)) {
         const varName = `_v${ctx.varCounter++}`;
-        // Mutated hoists must stay mutable; GLSL has no `let`/`const` distinction for this, so both
-        // are plain typed locals (an immutable one could be `const` but a plain local is fine).
-        const ind = '    '.repeat(ctx.indentLevel);
-        ctx.code.push(`${ind}${glslLocalDecl(node.type, varName)} = ${expr};`);
+        const decl = glslLocalDecl(node.type, varName);
+        // A CSE local first materialized inside a nested block (indentLevel > 1) but read again outside
+        // it would be out of GLSL block scope. When the value depends ONLY on always-in-scope inputs
+        // (params/uniforms/attributes/varyings/builtins/literals + already-top-hoisted locals), declare
+        // it at the FUNCTION-BODY TOP instead so every use — inside or outside the block — resolves. A
+        // value that reaches a Var/Let/loop index cannot be hoisted (its input is block-scoped), so it
+        // stays at the current indent, exactly as before.
+        if (ctx.indentLevel > 1 && isTopHoistable(ctx, node)) {
+            ctx.hoistBuffer.push(`    ${decl} = ${expr};`);
+            ctx.hoistedIds.add(node.id);
+        } else {
+            // Mutated hoists must stay mutable; GLSL has no `let`/`const` distinction for this, so both
+            // are plain typed locals (an immutable one could be `const` but a plain local is fine).
+            const ind = '    '.repeat(ctx.indentLevel);
+            ctx.code.push(`${ind}${decl} = ${expr};`);
+        }
         ctx.nodeVars.set(node.id, varName);
         return varName;
     }
 
     return expr;
+}
+
+/**
+ * Whether a CSE candidate can be hoisted to the FUNCTION-BODY TOP: true iff every leaf it depends on is
+ * in scope from the function's first line. Always-in-scope leaves are parameters, uniforms, attributes,
+ * varyings, builtins, literals, samplers/textures, and module-scope globals — plus any CSE local ALREADY
+ * hoisted to the top (chained). Reaching a materialized local that is NOT top-hoisted (a Var/Let, a loop
+ * index, or a block-level CSE local) means the value is block-scoped and must stay where it is.
+ */
+function isTopHoistable(ctx: GlslBuildContext, rawNode: Node<d.Any>): boolean {
+    const seen = new Set<number>();
+    const walk = (raw: Node<d.Any>): boolean => {
+        const node = raw as AnyNode;
+        // Safe references: an already-top-hoisted CSE local, or an enclosing-function parameter (both
+        // in scope from the first body line). Checked BEFORE the nodeVars test because params live in
+        // nodeVars too — as does a block-scoped loop index of the very same ParameterNode kind.
+        if (ctx.hoistedIds.has(node.id) || ctx.paramIds.has(node.id)) return true;
+        // Any other MATERIALIZED local is block-scoped and hoisting above it would escape scope: a
+        // Var/Let, a loop index, or a CSE local kept at block level. (The hoist buffer sits above every
+        // body statement, so even a base-level Var declared mid-body is unreachable from it.)
+        if (ctx.nodeVars.has(node.id)) return false;
+        if (seen.has(node.id)) return true;
+        seen.add(node.id);
+        switch (node.kind) {
+            // Non-memoized leaves declared at the top of the shader — in scope from the first line.
+            case NodeKind.Uniform:
+            case NodeKind.Attribute:
+            case NodeKind.Varying:
+            case NodeKind.Builtin:
+            case NodeKind.Literal:
+            case NodeKind.Sampler:
+            case NodeKind.TextureBinding:
+            case NodeKind.PrivateVar:
+                return true;
+            default:
+                for (const child of getChildren(node)) {
+                    if (!walk(child)) return false;
+                }
+                return true;
+        }
+    };
+    return walk(rawNode);
 }
 
 /**
@@ -1999,11 +2067,15 @@ export function emitGlslDslFunctions(ctx: GlslBuildContext): string {
             varCounter: 0,
             indentLevel: 1,
             code: [],
+            hoistBuffer: [],
+            hoistedIds: new Set(),
+            paramIds: new Set(),
         };
 
-        // Register param names so parameter references resolve to them.
+        // Register param names so parameter references resolve to them (and mark them top-hoist-safe).
         for (const p of traced.params as ParameterNode<d.Any>[]) {
             fnCtx.nodeVars.set(p.id, p.paramName ?? `p${p.paramIndex}`);
+            fnCtx.paramIds.add(p.id);
         }
 
         for (const stmt of traced.body.body) generateStmt(fnCtx, stmt);
@@ -2014,6 +2086,7 @@ export function emitGlslDslFunctions(ctx: GlslBuildContext): string {
         // (before the return). Flushing first would drop them, leaving `_vN` undeclared.
         const retExpr = fn.type.wgslType !== 'void' ? generateExpr(fnCtx, traced.output) : null;
         lines.push(`${retType} ${glslFnName(name)}(${params}) {`);
+        lines.push(...fnCtx.hoistBuffer);
         lines.push(...fnCtx.code);
         if (retExpr !== null) lines.push(`    return ${retExpr};`);
         lines.push(`}`);
@@ -2078,6 +2151,7 @@ export function generateGlslVertexShader(slots: CompileSlots, ctx: GlslBuildCont
     }
 
     lines.push('void main() {');
+    lines.push(...ctx.hoistBuffer);
     lines.push(...ctx.code);
     for (const [name, { vertexExpr }] of ctx.varyings) {
         lines.push(`    ${name} = ${vertexExpr};`);
@@ -2236,6 +2310,7 @@ export function generateGlslTransformFeedbackShader(
     }
 
     lines.push('void main() {');
+    lines.push(...ctx.hoistBuffer);
     lines.push(...ctx.code);
     for (const out of outputMeta) {
         lines.push(`    ${out.varyingName} = ${out.expr};`);
@@ -2359,6 +2434,7 @@ export function generateGlslFragmentShader(
     }
     // A depth-only fragment stage (no color output) declares no `out` — it only writes gl_FragDepth.
     lines.push('void main() {');
+    lines.push(...ctx.hoistBuffer);
     lines.push(...ctx.code);
     if (mrtOutputs) {
         for (const { name, expr } of mrtOutputs) {

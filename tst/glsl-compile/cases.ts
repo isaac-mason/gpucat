@@ -717,6 +717,55 @@ export const cases: Case[] = [
         }),
     },
     {
+        // CSE across a block boundary: a pure multi-use value first materialized inside an `if` body but
+        // ALSO read after it. Pre-fix the emitter declared the CSE local inside the `if` block, so the
+        // later read referenced an out-of-scope identifier (link error). The value depends only on the
+        // function parameter, so it must hoist to the function-body top.
+        name: 'CSE hoisted across block boundary (param-dependent)',
+        build: () => {
+            const compute = Fn(
+                (x: Node<d.f32>) => {
+                    const shared = x.mul(f32(3.0)).add(f32(1.0));
+                    const acc = Var('acc', f32(0.0));
+                    If(x.greaterThan(f32(0.5)), () => {
+                        acc.assign(shared.mul(f32(2.0)));
+                    });
+                    return acc.add(shared);
+                },
+                { name: 'compute', params: [{ name: 'x', type: d.f32 }] as const, return: d.f32 },
+            );
+            return {
+                vertex: vec4(attribute('position', d.vec3f), f32(1)),
+                fragment: vec4(vec3(compute(varying(attribute('position', d.vec3f).x, 'vX'))), f32(1)),
+                depth: undefined,
+            };
+        },
+    },
+    {
+        // Guard the fix above does NOT over-hoist: a multi-use value that depends on the LOOP INDEX must
+        // stay inside the loop (hoisting it to the function top would reference the `for`-scoped index
+        // before it exists). Must compile + link.
+        name: 'CSE depending on loop index stays in-loop',
+        build: () => {
+            const loopy = Fn(
+                () => {
+                    const sum = Var('sum', f32(0));
+                    Loop(4, ({ i }: { i: Node<d.i32> }) => {
+                        const t = i.toF32().mul(f32(2.0)).add(f32(1.0));
+                        sum.assign(sum.add(t).add(t.mul(f32(0.5))));
+                    });
+                    return sum;
+                },
+                { name: 'loopy', params: [] as const, return: d.f32 },
+            );
+            return {
+                vertex: vec4(attribute('position', d.vec3f), f32(1)),
+                fragment: vec4(vec3(loopy()), f32(1)),
+                depth: undefined,
+            };
+        },
+    },
+    {
         // Fixed-size ARRAY member in a std140 UBO. The member decl must use GLSL's `<elem> <name>[N]`
         // array syntax — a sized-array descriptor has no scalar glslType, so the prior `glslType(u.type)`
         // path threw. (Struct members already worked via the struct-name path.) Must compile + link.
