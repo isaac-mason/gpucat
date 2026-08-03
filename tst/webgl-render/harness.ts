@@ -2018,6 +2018,153 @@ async function caseStorageStore(): Promise<CaseResult> {
  * The center pixel must equal its color — proving the padded upload (full rows + a narrower last-row
  * `texSubImage2D`), the 2D wrap addressing (`% width`, `/ width`), and that no read runs past the buffer.
  */
+/**
+ * storage-u32: read a scalar element from a read-only `storage(d.array(d.u32))` buffer. A u32 is 4 bytes
+ * (four per rgba32uint mirror texel), so element `i` lives at texel `i/4`, lane `i%4` — NOT texel `i`. This
+ * probes whether the sub-16-byte-element addressing is correct. Element 5 holds 128; the center pixel's red
+ * channel must read back 128. (makecat's voxel `quads`/`quadSlot` are `array<u32>`.)
+ */
+async function caseStorageU32(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+
+    const N = 64; // 256 bytes = multiple of 16, so this isolates ADDRESSING from the byte-length guard.
+    const data = new Uint32Array(N);
+    for (let i = 0; i < N; i++) data[i] = i; // distinct per element
+    data[5] = 128;
+    const buf = new GpuBuffer(d.array(d.u32), { data, usage: 'storage' });
+    const store = storage(buf);
+
+    const geometry = createFullscreenTriangleGeometry();
+    const position = attribute('position', d.vec3f);
+    const material = new Material({
+        vertex: vec4(position, f32(1)),
+        fragment: vec4(store.element(u32(5)).toF32().div(f32(255)), f32(0), f32(0), f32(1)),
+        depthTest: false,
+    });
+    const mesh = new Mesh(geometry, material);
+    const scene = new Scene();
+    scene.add(mesh);
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'storage-u32', pixel, expected: [128, 0, 0, 255] };
+}
+
+/**
+ * storage-u32-odd: a `storage(d.array(d.u32))` whose byte length is NOT a multiple of 16 (7 u32 = 28
+ * bytes) — the exact shape that made makecat's `quadSlot` throw the old "multiple of 16" guard. With an
+ * `r32uint` mirror (4-byte texels) it binds and reads correctly. Reads the last element.
+ */
+async function caseStorageU32Odd(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+
+    const N = 7; // 28 bytes — %16 != 0 (old guard rejected), %4 == 0 (r32uint is fine).
+    const data = new Uint32Array(N);
+    for (let i = 0; i < N; i++) data[i] = i * 10;
+    data[6] = 210;
+    const buf = new GpuBuffer(d.array(d.u32), { data, usage: 'storage' });
+    const store = storage(buf);
+
+    const geometry = createFullscreenTriangleGeometry();
+    const position = attribute('position', d.vec3f);
+    const material = new Material({
+        vertex: vec4(position, f32(1)),
+        fragment: vec4(store.element(u32(6)).toF32().div(f32(255)), f32(0), f32(0), f32(1)),
+        depthTest: false,
+    });
+    const mesh = new Mesh(geometry, material);
+    const scene = new Scene();
+    scene.add(mesh);
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'storage-u32-odd', pixel, expected: [210, 0, 0, 255] };
+}
+
+/**
+ * storage-vec2: a `storage(d.array(d.vec2f))` — 8-byte stride → `rg32uint` mirror (2 u32 lanes/texel).
+ * Element 3's (x, y) drive red/green, proving the rg32uint format + vec2 lane decode.
+ */
+async function caseStorageVec2(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+
+    const N = 8;
+    const data = new Float32Array(N * 2);
+    data[3 * 2 + 0] = 0.5;
+    data[3 * 2 + 1] = 0.25;
+    const buf = new GpuBuffer(d.array(d.vec2f), { data, usage: 'storage' });
+    const store = storage(buf);
+
+    const geometry = createFullscreenTriangleGeometry();
+    const position = attribute('position', d.vec3f);
+    const v = store.element(u32(3));
+    const material = new Material({
+        vertex: vec4(position, f32(1)),
+        fragment: vec4(v.x, v.y, f32(0), f32(1)),
+        depthTest: false,
+    });
+    const mesh = new Mesh(geometry, material);
+    const scene = new Scene();
+    scene.add(mesh);
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'storage-vec2', pixel, expected: [128, 64, 0, 255] };
+}
+
+/**
+ * storage-u32-struct: a `storage(d.array(struct{a:u32,b:u32}))` — an 8-byte all-scalar struct →
+ * `rg32uint` mirror (makecat's `VisibleQuad` shape). Field `a` decodes from lane .x (byteOffset 0), field
+ * `b` from lane .y (byteOffset 4), proving struct-field decode within an rg32uint texel.
+ */
+async function caseStorageU32Struct(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+
+    const Rec = struct('U32Pair', { a: d.u32, b: d.u32 });
+    const N = 8;
+    const data = new Uint32Array(N * 2);
+    data[3 * 2 + 0] = 100;
+    data[3 * 2 + 1] = 200;
+    const buf = new GpuBuffer(d.array(Rec), { data, usage: 'storage' });
+    const store = storage(buf);
+
+    const geometry = createFullscreenTriangleGeometry();
+    const position = attribute('position', d.vec3f);
+    const rec = store.element(u32(3));
+    const material = new Material({
+        vertex: vec4(position, f32(1)),
+        fragment: vec4(rec.field('a').toF32().div(f32(255)), rec.field('b').toF32().div(f32(255)), f32(0), f32(1)),
+        depthTest: false,
+    });
+    const mesh = new Mesh(geometry, material);
+    const scene = new Scene();
+    scene.add(mesh);
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'storage-u32-struct', pixel, expected: [100, 200, 0, 255] };
+}
+
 async function caseStoragePad(): Promise<CaseResult> {
     const renderer = await newRenderer();
     renderer.clearColor = [0, 0, 0, 1];
@@ -2210,6 +2357,10 @@ export async function run(): Promise<RunResult> {
             caseStructTextureGrow,
             caseStructTexturePartial,
             caseStorageStruct,
+            caseStorageU32,
+            caseStorageU32Odd,
+            caseStorageVec2,
+            caseStorageU32Struct,
             caseStorageMat4,
             caseStorageDynamic,
             caseStorageStore,

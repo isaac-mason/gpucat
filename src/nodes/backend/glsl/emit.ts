@@ -364,9 +364,10 @@ function storageMirrorOf(ctx: GlslBuildContext, idxNode: IndexNode<d.Any>): Stor
 }
 
 /**
- * Detection only: is `node` a read from a lowered read-only storage buffer? Handles both `storage[i].field`
- * (struct element) and bare `storage[i]` (non-struct element). Returns the resolved field to decode, or
- * null. No emission, no side effects — the caller decides whether/how to lower.
+ * Detection only: is `node` a read from a lowered read-only storage buffer? Handles `storage[i].field`
+ * (a struct member, leaf-first) and bare `storage[i]` of any element type — scalar/vec/matrix or a whole
+ * struct (which `decodeField` assembles into a struct constructor). Returns the resolved field to decode,
+ * or null. No emission, no side effects — the caller decides whether/how to lower.
  */
 function matchStorageRead(ctx: GlslBuildContext, node: AnyNode): StorageReadMatch | null {
     if (node.kind === NodeKind.Field) {
@@ -392,8 +393,11 @@ function matchStorageRead(ctx: GlslBuildContext, node: AnyNode): StorageReadMatc
         const idxNode = node as IndexNode<d.Any>;
         const mirror = storageMirrorOf(ctx, idxNode);
         if (!mirror) return null;
+        // Any element type, struct or scalar/vec/matrix: a struct element read whole (materialized to
+        // a var, or CSE-hoisted) decodes to a struct constructor via `decodeField`. Same texel-stride
+        // formula for both (a struct's stride is a whole number of 16-byte texels). `storage[i].field`
+        // is still resolved leaf-first by the Field case above; this is the bare-element fallback.
         const elementSchema = idxNode.type;
-        if (d.isStructDesc(elementSchema)) return null; // struct elements are read via `.field` above
         const texelStride = Math.ceil(layoutStrideOf(elementSchema, 'std430') / 16);
         return {
             base: mirror.base,

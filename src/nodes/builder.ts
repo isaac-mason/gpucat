@@ -47,6 +47,7 @@ import {
     type DepthTextureNode,
     SamplerNode,
     type StorageTextureBindingNode,
+    storageMirrorBytesPerTexel,
     storageRowWidth,
     TextureBindingNode,
     TextureNode,
@@ -242,6 +243,11 @@ function createStorageBinding(node: StorageNode<d.Any>, maxTextureSize: number |
     // `storageRowWidth`), so the texel grid shape is NOT baked in — value- and name-based storage of any
     // size compile to identical GLSL, and the compile cache no longer varies with `maxTextureSize`.
     const binding = new TextureBindingNode(d.texture2d(d.u32) as d.texture2d, `storage${node.id}`);
+    // Texel byte-width chosen from the element's std430 stride (4 → r32uint, 8 → rg32uint, 16·k →
+    // rgba32uint), so one element (or a whole number of texels) lands per texel and the emitted addressing
+    // (element `i` → texel `i·stride/bytesPerTexel`) is exact. Known from the schema for both binding forms.
+    const element = (node.type as { element?: d.Any }).element ?? node.type;
+    const bytesPerTexel = storageMirrorBytesPerTexel(element);
     if (node.value != null) {
         // Value-based: buffer known at compile → size the tight texel grid now. `width = min(texels, cap)`,
         // `height = ceil`; the renderer pads the short last row and validates `height ≤ MAX_TEXTURE_SIZE`.
@@ -252,21 +258,21 @@ function createStorageBinding(node: StorageNode<d.Any>, maxTextureSize: number |
                     `\`array\` (its CPU data was released after upload); keep the data resident to read it on WebGL`,
             );
         }
-        if (arr.byteLength === 0 || arr.byteLength % 16 !== 0) {
+        if (arr.byteLength === 0 || arr.byteLength % bytesPerTexel !== 0) {
             throw new Error(
                 `[glsl] storage() read-lowering: buffer byte length ${arr.byteLength} must be a non-zero multiple ` +
-                    `of 16 (whole rgba32uint texels) to reinterpret as a WebGL texture`,
+                    `of ${bytesPerTexel} (whole texels) to reinterpret as a WebGL texture`,
             );
         }
-        const totalTexels = arr.byteLength / 16;
+        const totalTexels = arr.byteLength / bytesPerTexel;
         const cap = maxTextureSize ?? 2048;
         const width = Math.min(totalTexels, cap);
-        binding.storageBufferSource = { buffer: node.value, width, height: Math.ceil(totalTexels / width) };
+        binding.storageBufferSource = { buffer: node.value, width, height: Math.ceil(totalTexels / width), bytesPerTexel };
     } else {
         // Name-based: `storage('slot', 'read')` bound via `geometry.setBuffer('slot', buf)`. The buffer
         // isn't known until draw; the renderer resolves it from the render object's geometry and sizes the
-        // rgba32uint mirror at bind time (same version-synced cache). See texture-bindings.ts.
-        binding.storageBufferSource = { name: node.bufferName! };
+        // mirror at bind time (same version-synced cache). See texture-bindings.ts.
+        binding.storageBufferSource = { name: node.bufferName!, bytesPerTexel };
     }
     const base = new TextureNode(binding);
     return { base, widthNode: storageRowWidth(base) };

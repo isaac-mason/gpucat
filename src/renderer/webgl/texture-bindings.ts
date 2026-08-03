@@ -100,16 +100,17 @@ function resolveStorageSource(
                 `reinterpret (released after upload); keep it resident to sample it on WebGL2.`,
         );
     }
-    if (arr.byteLength === 0 || arr.byteLength % 16 !== 0) {
+    const bytesPerTexel = source.bytesPerTexel;
+    if (arr.byteLength === 0 || arr.byteLength % bytesPerTexel !== 0) {
         throw new Error(
             `[WebGLRenderer] storage('${source.name}') read-lowering: buffer byte length ${arr.byteLength} must ` +
-                `be a non-zero multiple of 16 (whole rgba32uint texels) to reinterpret as a texture.`,
+                `be a non-zero multiple of ${bytesPerTexel} (whole texels) to reinterpret as a texture.`,
         );
     }
     if (textures.maxTextureSize == null) textures.maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
-    const totalTexels = arr.byteLength / 16;
+    const totalTexels = arr.byteLength / bytesPerTexel;
     const width = Math.min(totalTexels, textures.maxTextureSize);
-    return { buffer, width, height: Math.ceil(totalTexels / width) };
+    return { buffer, width, height: Math.ceil(totalTexels / width), bytesPerTexel };
 }
 
 export function bindTextures(

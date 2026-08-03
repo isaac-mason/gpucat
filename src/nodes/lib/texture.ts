@@ -1,7 +1,7 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import { GpuSampler } from '../../core/gpu-sampler';
 import type { GpuTexture } from '../../core/gpu-texture';
-import { structFieldLayout } from '../../schema/pack';
+import { layoutStrideOf, structFieldLayout } from '../../schema/pack';
 import type { Any, CubeSampledTexture, FlatDepthTexture, FlatSampledTexture } from '../../schema/schema';
 import * as d from '../../schema/schema';
 import type { ArrayTexture } from '../../texture/array-texture';
@@ -16,6 +16,7 @@ import {
     bitcastI32,
     bitwiseAnd,
     CallNode,
+    ConstructNode,
     i32,
     mat3,
     mat4,
@@ -121,22 +122,48 @@ export class SamplerNode<D extends d.sampler | d.samplerComparison = d.sampler> 
  */
 
 /**
- * A read-only storage `GpuBuffer` reinterpreted as an `rgba32uint` texture for the WebGL backend (which
- * has no SSBO). The renderer reads the buffer's own bytes directly as `width × height` u32 texels — no
+ * A read-only storage `GpuBuffer` reinterpreted as an integer texture for the WebGL backend (which has
+ * no SSBO). The renderer reads the buffer's own bytes directly as `width × height` texels — no
  * `DataTexture`, no second CPU array — and caches one GL texture per `GpuBuffer` (version-synced to
  * `buffer.version`). Carried on the synthetic `TextureBindingNode` that a lowered `storage()` read
  * samples through. The shader reads the row width at RUNTIME via `textureSize()` (see `storageRowWidth`),
  * so the emitted GLSL is independent of buffer size AND of value-vs-name binding — both compile identically.
  *
+ * `bytesPerTexel` sizes each texel to the element so exactly one element (or, for a >16-byte element, a
+ * whole number of texels) lands per texel — `4 → r32uint`, `8 → rg32uint`, `16·k → rgba32uint` — see
+ * {@link storageMirrorBytesPerTexel}. Element `i` then reads at texel `i · (stride/bytesPerTexel)`, which
+ * is what the emitted addressing already assumes; the renderer maps `bytesPerTexel` to the GL format.
+ *
  * Two shapes:
  *  - value-based: the `GpuBuffer` is known at compile (`storage(buffer, 'read')`), so its texel grid is
  *    computed here and the renderer uploads it directly.
  *  - name-based: `storage('slot', 'read')` bound via `geometry.setBuffer('slot', buf)`. The buffer isn't
- *    known until draw, so only the name is carried; the renderer resolves it from the render object's
- *    geometry at bind time and sizes the grid then.
+ *    known until draw, so only the name (and the element's `bytesPerTexel`, known from the schema) is
+ *    carried; the renderer resolves the buffer from the render object's geometry and sizes the grid then.
  */
-export type ResolvedStorageBufferTexture = { buffer: GpuBuffer; width: number; height: number };
-export type StorageBufferTextureSource = ResolvedStorageBufferTexture | { name: string };
+export type ResolvedStorageBufferTexture = { buffer: GpuBuffer; width: number; height: number; bytesPerTexel: number };
+export type StorageBufferTextureSource = ResolvedStorageBufferTexture | { name: string; bytesPerTexel: number };
+
+/**
+ * Bytes per mirror texel for a read-only `storage()` element on WebGL: the element's std430 array stride,
+ * capped at one rgba32uint texel. `4 → r32uint`, `8 → rg32uint`, and any multiple of 16 → `rgba32uint`
+ * (spanning `stride/16` texels per element). This packs one element (or a whole number of texels) per
+ * texel, so a scalar `array<u32>` reads element `i` from texel `i` — NOT `4·i` — and needs no padding
+ * (its byte length is always a multiple of 4). We never use a 3-component (`rgb`) texel: std430 pads a
+ * `vec3` to 16 bytes, so the only sub-16 strides are 4 and 8. Throws for an exotic stride (e.g. a 12- or
+ * 20-byte all-scalar struct) that has no whole-texel home — pad the struct to a multiple of 16 to read it.
+ */
+export function storageMirrorBytesPerTexel(element: Any): number {
+    const stride = layoutStrideOf(element, 'std430');
+    if (stride === 4) return 4;
+    if (stride === 8) return 8;
+    if (stride % 16 === 0) return 16;
+    throw new Error(
+        `[gpucat] storage() read-lowering: element stride ${stride} bytes has no whole-texel WebGL layout ` +
+            `(supported: 4 → r32uint, 8 → rg32uint, multiples of 16 → rgba32uint). Pad the element to a ` +
+            `multiple of 16 bytes to read it on WebGL2.`,
+    );
+}
 
 export class TextureBindingNode<D extends d.Texture = d.Texture> extends Node<D> {
     readonly kind = NodeKind.TextureBinding;
@@ -605,6 +632,18 @@ export function decodeField(
             return mat3(c[0], c[1], c[2]);
         }
         throw new Error(`[gpucat] structured-texture load: matrix '${t}' not yet supported`);
+    }
+    // Nested / whole struct: a structured-texture decode form like the scalar/vec/matrix branches above,
+    // decoding each member at its own byte offset and assembling a struct constructor (recursing for
+    // nested structs). Shared texel reads across members dedupe via CSE, so the record costs one fetch
+    // per distinct texel. Serves any struct-typed `texture(t).load(schema, i)` read; the storage() WebGL
+    // lowering reuses it like the other branches (a whole `storage.element(i)`, or a nested
+    // `.field('params').field('tint')`, resolves here). Members that are themselves arrays / bool / f16
+    // fall through to the per-member error below.
+    if (d.isStructDesc(type)) {
+        const layout = structFieldLayout(type as unknown as d.StructDesc);
+        const members = layout.fields.map((f) => decodeField(base, texelBase, width, byteOffset + f.byteOffset, f.type));
+        return new ConstructNode(type, members);
     }
     throw new Error(`[gpucat] structured-texture load: field type '${t}' not supported`);
 }

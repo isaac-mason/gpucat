@@ -32,6 +32,7 @@ import {
     screenUV,
     select,
     sRGBTransferOETF,
+    storage,
     struct,
     texture,
     textureNumLayers,
@@ -791,6 +792,40 @@ export const cases: Case[] = [
                 fragment: vec4(centroidVarying, f32(1)),
                 depth: undefined,
             };
+        },
+    },
+    {
+        // Nested-struct storage() read via the Field path (makecat's model/sprite instance shape). A
+        // read-only storage buffer of a struct whose members include a matrix and a NESTED struct. The
+        // vertex stage reads `worldMatrix` for position and `params.tint` (a struct-typed field, then a
+        // sub-field) as a varying: decoding the nested struct into a constructor and selecting a leaf was
+        // the `field type 'struct' not supported` case before the fix. Per-instance reads stay in the
+        // vertex stage (`gl_InstanceID` is vertex-only), handed to the fragment via a varying. Compile+link.
+        name: 'storage nested-struct field read (params.tint via varying)',
+        build: () => {
+            const Params = struct('IconParamsA', { uvOffset: d.vec2f, uvScale: d.vec2f, tint: d.vec4f });
+            const Instance = struct('IconInstanceA', { worldMatrix: d.mat4x4f, params: Params });
+            const slotMap = storage('slotMap', d.array(d.u32), 'read');
+            const instanceData = storage('instanceData', d.array(Instance), 'read');
+            const inst = instanceData.element(slotMap.element(instanceIndex));
+            const clip = inst.field('worldMatrix').mul(vec4(attribute('position', d.vec3f), f32(1)));
+            return { vertex: clip, fragment: varying(inst.field('params').field('tint'), 'vTintA'), depth: undefined };
+        },
+    },
+    {
+        // Whole struct storage element read via the Index path. Materializing a struct element to a var
+        // (`storage.element(i).toVar()`) emits the bare element, which decodes to a struct constructor
+        // assigned to a GLSL local; fields then read off the local. Pre-fix this emitted a bare StorageNode
+        // (`node kind 'StorageNode' not yet supported`). Vertex-stage read, tint handed out as a varying.
+        name: 'storage whole-struct element to var',
+        build: () => {
+            const Params = struct('IconParamsB', { uvOffset: d.vec2f, uvScale: d.vec2f, tint: d.vec4f });
+            const Instance = struct('IconInstanceB', { worldMatrix: d.mat4x4f, params: Params });
+            const slotMap = storage('slotMap', d.array(d.u32), 'read');
+            const instanceData = storage('instanceData', d.array(Instance), 'read');
+            const inst = instanceData.element(slotMap.element(instanceIndex)).toVar('inst');
+            const clip = inst.field('worldMatrix').mul(vec4(attribute('position', d.vec3f), f32(1)));
+            return { vertex: clip, fragment: varying(inst.field('params').field('tint'), 'vTintB'), depth: undefined };
         },
     },
 ];

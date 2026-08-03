@@ -76,7 +76,7 @@ describe('storage() lowering — renderer validates the grid against MAX_TEXTURE
         const state = createGlTexturesState();
         state.maxTextureSize = 4; // pre-seed the cap so no GL call is needed before the guard fires.
         const buf = new GpuBuffer(d.array(Instance), { data: new Float32Array(25 * 4), usage: 'storage' });
-        const source: ResolvedStorageBufferTexture = { buffer: buf, width: 5, height: 5 };
+        const source: ResolvedStorageBufferTexture = { buffer: buf, width: 5, height: 5, bytesPerTexel: 16 };
         // 5 > 4 → the validation throws before touching the (unused) GL context.
         expect(() => updateStorageBufferTexture({} as WebGL2RenderingContext, state, source)).toThrow(/MAX_TEXTURE_SIZE/);
     });
