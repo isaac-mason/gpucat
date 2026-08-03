@@ -18,6 +18,15 @@ import * as Textures from './textures';
  */
 export declare function getContext(contexts: WeakMap<CanvasTarget, GPUCanvasContext>, device: GPUDevice, canvasTarget: CanvasTarget, format: GPUTextureFormat, alphaMode?: GPUCanvasAlphaMode): GPUCanvasContext;
 /**
+ * Re-`configure()` the cached WebGPU context for a canvas target against the current device/format.
+ * Safari/WebKit clears a context's configuration whenever the canvas backing store is resized (any
+ * `canvas.width`/`canvas.height` write), so the next `getCurrentTexture()` throws "canvas is not
+ * configured". Called from the resize path to restore it. No-op when the context hasn't been acquired
+ * yet (`getContext()` will configure on first use) and a portable no-op on Chrome, which keeps the
+ * configuration across resizes.
+ */
+export declare function reconfigureContext(contexts: WeakMap<CanvasTarget, GPUCanvasContext>, device: GPUDevice, canvasTarget: CanvasTarget, format: GPUTextureFormat, alphaMode?: GPUCanvasAlphaMode): void;
+/**
  * Unconfigure and release the WebGPU context for a canvas target. Called from `dispose()` for the
  * swapchain canvas target. After this, `getContext()` creates a fresh context.
  */

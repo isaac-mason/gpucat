@@ -38568,6 +38568,20 @@ function getContext(contexts, device, canvasTarget, format, alphaMode) {
     return ctx;
 }
 /**
+ * Re-`configure()` the cached WebGPU context for a canvas target against the current device/format.
+ * Safari/WebKit clears a context's configuration whenever the canvas backing store is resized (any
+ * `canvas.width`/`canvas.height` write), so the next `getCurrentTexture()` throws "canvas is not
+ * configured". Called from the resize path to restore it. No-op when the context hasn't been acquired
+ * yet (`getContext()` will configure on first use) and a portable no-op on Chrome, which keeps the
+ * configuration across resizes.
+ */
+function reconfigureContext(contexts, device, canvasTarget, format, alphaMode) {
+    const ctx = contexts.get(canvasTarget);
+    if (!ctx)
+        return;
+    ctx.configure({ device, format, alphaMode: canvasTarget.alphaMode });
+}
+/**
  * Unconfigure and release the WebGPU context for a canvas target. Called from `dispose()` for the
  * swapchain canvas target. After this, `getContext()` creates a fresh context.
  */
@@ -39351,6 +39365,10 @@ class WebGPURenderer {
         if (depth && depth.width === width && depth.height === height)
             return;
         recreateSwapchainTextures(this.device, this.swapchain, this.format, width, height);
+        // Safari drops the canvas context's configuration on the backing-store resize that just
+        // occurred (the width/height write feeding this call), so re-configure before the next
+        // getCurrentTexture. Runs only on an actual size change (past the early return above).
+        reconfigureContext(this.canvasContexts, this.device, this.swapchain.canvasTarget, this.format);
     }
     /** set the device pixel ratio. call before setSize(). Throws in headless mode. */
     setPixelRatio(value) {
