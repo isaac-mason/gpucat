@@ -1,4 +1,5 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
+import type { GpuTexture } from '../../core/gpu-texture';
 import type { SamplerEntry, StorageEntry, StorageTextureEntry, TextureEntry, UniformGroupBlock } from '../../nodes/builder';
 /**
  * A single binding within a BindGroup.
@@ -43,16 +44,21 @@ export type TextureBinding = {
     readonly kind: 'texture';
     /** The texture entry from compilation. */
     entry: TextureEntry;
-    /** Generation counter for detecting texture changes. */
+    /** Generation counter for detecting in-place uploads to the SAME texture. */
     generation: number;
+    /** Last seen GpuTexture (for detecting texture swaps, e.g. an atlas reload
+     *  that rebinds the node's `value` to a fresh, different GpuTexture). */
+    lastTexture: GpuTexture | null;
 };
 /** Storage texture binding (compute write / read) */
 export type StorageTextureBinding = {
     readonly kind: 'storageTexture';
     /** The storage texture entry from compilation. */
     entry: StorageTextureEntry;
-    /** Generation counter for detecting texture changes. */
+    /** Generation counter for detecting in-place uploads to the SAME texture. */
     generation: number;
+    /** Last seen GpuTexture (for detecting texture swaps on the bound node). */
+    lastTexture: GpuTexture | null;
 };
 /** Sampler binding */
 export type SamplerBinding = {

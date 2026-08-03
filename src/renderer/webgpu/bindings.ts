@@ -511,6 +511,17 @@ function updateTextureBinding(textureCache: TextureCache, device: GPUDevice, bin
 
     if (gpuTexture === null) return;
 
+    // Texture SWAP: the node was rebound to a different GpuTexture (e.g. an atlas
+    // reload allocating a fresh texture, or a placeholder->real swap). Generation
+    // only tracks in-place uploads to one texture, so a swap to a fresh texture
+    // (whose generation can coincide with the stale one) would slip through and
+    // leave the bind group pointing at the old — now disposed — texture, faulting
+    // the next submit. Mirror updateStorageBinding's lastBuffer identity check.
+    if (gpuTexture !== binding.lastTexture) {
+        binding.lastTexture = gpuTexture;
+        data.needsUpdate = true;
+    }
+
     // For render target textures, the GPU resource is set externally via setRenderTargetTexture().
     // For regular textures, updateTexture() handles upload.
     // Both cases: check generation to detect changes.
@@ -551,6 +562,13 @@ function updateStorageTextureBinding(
 ): void {
     const gpuTexture = binding.entry.node.value;
     if (gpuTexture === null) return;
+
+    // Swap detection: same rationale as updateTextureBinding — a rebound node
+    // pointing at a fresh GpuTexture must rebuild the bind group.
+    if (gpuTexture !== binding.lastTexture) {
+        binding.lastTexture = gpuTexture;
+        data.needsUpdate = true;
+    }
 
     // Storage textures hold no source data; updateTexture just ensures the GPU
     // texture exists and returns its cache entry (with a generation counter).

@@ -1,4 +1,5 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
+import type { GpuTexture } from '../../core/gpu-texture';
 import type { SamplerEntry, StorageEntry, StorageTextureEntry, TextureEntry, UniformGroupBlock } from '../../nodes/builder';
 
 let bindGroupIdCounter = 0;
@@ -49,8 +50,11 @@ export type TextureBinding = {
     readonly kind: 'texture';
     /** The texture entry from compilation. */
     entry: TextureEntry;
-    /** Generation counter for detecting texture changes. */
+    /** Generation counter for detecting in-place uploads to the SAME texture. */
     generation: number;
+    /** Last seen GpuTexture (for detecting texture swaps, e.g. an atlas reload
+     *  that rebinds the node's `value` to a fresh, different GpuTexture). */
+    lastTexture: GpuTexture | null;
 };
 
 /** Storage texture binding (compute write / read) */
@@ -58,8 +62,10 @@ export type StorageTextureBinding = {
     readonly kind: 'storageTexture';
     /** The storage texture entry from compilation. */
     entry: StorageTextureEntry;
-    /** Generation counter for detecting texture changes. */
+    /** Generation counter for detecting in-place uploads to the SAME texture. */
     generation: number;
+    /** Last seen GpuTexture (for detecting texture swaps on the bound node). */
+    lastTexture: GpuTexture | null;
 };
 
 /** Sampler binding */
@@ -137,11 +143,11 @@ export function createResourceBindGroup(
     }
 
     for (const entry of textures) {
-        bindings.push({ kind: 'texture', entry, generation: 0 });
+        bindings.push({ kind: 'texture', entry, generation: 0, lastTexture: null });
     }
 
     for (const entry of storageTextures) {
-        bindings.push({ kind: 'storageTexture', entry, generation: 0 });
+        bindings.push({ kind: 'storageTexture', entry, generation: 0, lastTexture: null });
     }
 
     for (const entry of samplers) {
@@ -186,12 +192,14 @@ export function cloneBindGroup(source: BindGroup): BindGroup {
                     kind: 'texture' as const,
                     entry: binding.entry,
                     generation: 0,
+                    lastTexture: null,
                 };
             case 'storageTexture':
                 return {
                     kind: 'storageTexture' as const,
                     entry: binding.entry,
                     generation: 0,
+                    lastTexture: null,
                 };
             case 'sampler':
                 return {

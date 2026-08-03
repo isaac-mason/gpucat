@@ -14278,10 +14278,10 @@ function createResourceBindGroup(name, groupIndex, shared, storage, textures, st
         bindings.push({ kind: 'storage', entry, lastBuffer: null });
     }
     for (const entry of textures) {
-        bindings.push({ kind: 'texture', entry, generation: 0 });
+        bindings.push({ kind: 'texture', entry, generation: 0, lastTexture: null });
     }
     for (const entry of storageTextures) {
-        bindings.push({ kind: 'storageTexture', entry, generation: 0 });
+        bindings.push({ kind: 'storageTexture', entry, generation: 0, lastTexture: null });
     }
     for (const entry of samplers) {
         bindings.push({ kind: 'sampler', entry, samplerKey: null });
@@ -14323,12 +14323,14 @@ function cloneBindGroup(source) {
                     kind: 'texture',
                     entry: binding.entry,
                     generation: 0,
+                    lastTexture: null,
                 };
             case 'storageTexture':
                 return {
                     kind: 'storageTexture',
                     entry: binding.entry,
                     generation: 0,
+                    lastTexture: null,
                 };
             case 'sampler':
                 return {
@@ -14526,10 +14528,10 @@ function buildTemplateBindGroups(uniformGroups, storage, textures, storageTextur
                 bindGroup.bindings.push({ kind: 'storage', entry: s, lastBuffer: null });
             }
             for (const t of groupTextures) {
-                bindGroup.bindings.push({ kind: 'texture', entry: t, generation: 0 });
+                bindGroup.bindings.push({ kind: 'texture', entry: t, generation: 0, lastTexture: null });
             }
             for (const st of groupStorageTextures) {
-                bindGroup.bindings.push({ kind: 'storageTexture', entry: st, generation: 0 });
+                bindGroup.bindings.push({ kind: 'storageTexture', entry: st, generation: 0, lastTexture: null });
             }
             for (const s of groupSamplers) {
                 bindGroup.bindings.push({ kind: 'sampler', entry: s, samplerKey: null });
@@ -23349,6 +23351,16 @@ function updateTextureBinding(textureCache, device, binding, data) {
     const gpuTexture = textureNode.value;
     if (gpuTexture === null)
         return;
+    // Texture SWAP: the node was rebound to a different GpuTexture (e.g. an atlas
+    // reload allocating a fresh texture, or a placeholder->real swap). Generation
+    // only tracks in-place uploads to one texture, so a swap to a fresh texture
+    // (whose generation can coincide with the stale one) would slip through and
+    // leave the bind group pointing at the old — now disposed — texture, faulting
+    // the next submit. Mirror updateStorageBinding's lastBuffer identity check.
+    if (gpuTexture !== binding.lastTexture) {
+        binding.lastTexture = gpuTexture;
+        data.needsUpdate = true;
+    }
     // For render target textures, the GPU resource is set externally via setRenderTargetTexture().
     // For regular textures, updateTexture() handles upload.
     // Both cases: check generation to detect changes.
@@ -23383,6 +23395,12 @@ function updateStorageTextureBinding(textureCache, device, binding, data) {
     const gpuTexture = binding.entry.node.value;
     if (gpuTexture === null)
         return;
+    // Swap detection: same rationale as updateTextureBinding — a rebound node
+    // pointing at a fresh GpuTexture must rebuild the bind group.
+    if (gpuTexture !== binding.lastTexture) {
+        binding.lastTexture = gpuTexture;
+        data.needsUpdate = true;
+    }
     // Storage textures hold no source data; updateTexture just ensures the GPU
     // texture exists and returns its cache entry (with a generation counter).
     const texData = updateTexture$1(textureCache, device, gpuTexture);
