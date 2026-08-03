@@ -130,10 +130,15 @@ export function packArray<D extends Any>(
     memLayout: MemoryLayout = 'std430',
 ): ArrayBuffer {
     const layout = getLayout<Infer<D>>(schema, memLayout);
-    const buf = new ArrayBuffer(layout.stride * items.length);
+    // Elements are laid out as an array, so use the array-element stride (uniform layouts round
+    // element stride up to 16), not the schema's bare struct stride — otherwise a small struct
+    // (e.g. `{f32}`) would pack at its natural 4-byte stride instead of the array's 16. This
+    // matches `sizedArray` packing and the WGSL/std140 array stride rules.
+    const stride = arrayElementStrideOf(schema, memLayout);
+    const buf = new ArrayBuffer(stride * items.length);
     const view = new DataView(buf);
     for (let i = 0; i < items.length; i++) {
-        layout.write(view, i * layout.stride, items[i]);
+        layout.write(view, i * stride, items[i]);
     }
     return buf;
 }
@@ -189,9 +194,10 @@ export function unpackArray<D extends Any>(
 ): Infer<D>[] {
     const layout = getLayout<Infer<D>>(schema, memLayout);
     const view = toDataView(src);
+    const stride = arrayElementStrideOf(schema, memLayout);
     const items: Infer<D>[] = new Array(count);
     for (let i = 0; i < count; i++) {
-        items[i] = layout.read(view, offset + i * layout.stride);
+        items[i] = layout.read(view, offset + i * stride);
     }
     return items;
 }
@@ -295,16 +301,28 @@ function roundUp(n: number, align: number): number {
 
 /**
  * Get alignment for a schema in the given memory layout.
- * Uniform layouts have stricter rules: structs and arrays round up to 16.
+ * Uniform layouts have stricter rules: array elements round up to 16 (both uniform layouts),
+ * and std140 additionally rounds STRUCT alignment up to 16. WGSL uniform keeps a nested struct
+ * at its natural alignment (max member alignment) — Dawn lays a `struct{f32,f32}`-then-struct
+ * member out at offset 8, not 16, so rounding structs to 16 for wgsl-uniform misaligns every
+ * member after a sub-16-aligned nested struct.
  */
 function alignOf(schema: Any, memLayout: MemoryLayout): number {
-    // For uniform layouts (wgsl-uniform / std140), structs and array elements need roundUp(16, align).
     if (roundsElementsTo16(memLayout)) {
-        if (isStructDesc(schema)) {
-            return roundUp(storageAlignOf(schema), 16);
-        }
+        // Array elements are 16-aligned in every uniform layout (WGSL uniform + std140).
         if (isSizedArrayDesc(schema) || isArrayDesc(schema)) {
             return roundUp(alignOf(schema.element, memLayout), 16);
+        }
+        if (isStructDesc(schema)) {
+            // A struct's alignment is the max of its members' alignments IN THIS layout — so a
+            // struct containing a 16-aligned array/vec4 member is itself 16-aligned. std140
+            // additionally rounds the whole struct up to 16; WGSL uniform does not (Dawn keeps a
+            // `struct{f32,f32}` at natural align 4, verified against a real device).
+            let maxAlign = 4;
+            for (const field of Object.values(schema.fields)) {
+                maxAlign = Math.max(maxAlign, alignOf(field, memLayout));
+            }
+            return memLayout === 'std140' ? roundUp(maxAlign, 16) : maxAlign;
         }
     }
     // std140: all f32 matrices align to 16 (columns padded to vec4), including 2-row matrices.

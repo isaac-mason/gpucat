@@ -5034,10 +5034,15 @@ function pack(schema, value, memLayout = 'std430') {
  */
 function packArray(schema, items, memLayout = 'std430') {
     const layout = getLayout(schema, memLayout);
-    const buf = new ArrayBuffer(layout.stride * items.length);
+    // Elements are laid out as an array, so use the array-element stride (uniform layouts round
+    // element stride up to 16), not the schema's bare struct stride — otherwise a small struct
+    // (e.g. `{f32}`) would pack at its natural 4-byte stride instead of the array's 16. This
+    // matches `sizedArray` packing and the WGSL/std140 array stride rules.
+    const stride = arrayElementStrideOf(schema, memLayout);
+    const buf = new ArrayBuffer(stride * items.length);
     const view = new DataView(buf);
     for (let i = 0; i < items.length; i++) {
-        layout.write(view, i * layout.stride, items[i]);
+        layout.write(view, i * stride, items[i]);
     }
     return buf;
 }
@@ -5073,9 +5078,10 @@ function unpack(schema, src, offset = 0, memLayout = 'std430') {
 function unpackArray(schema, src, count, offset = 0, memLayout = 'std430') {
     const layout = getLayout(schema, memLayout);
     const view = toDataView(src);
+    const stride = arrayElementStrideOf(schema, memLayout);
     const items = new Array(count);
     for (let i = 0; i < count; i++) {
-        items[i] = layout.read(view, offset + i * layout.stride);
+        items[i] = layout.read(view, offset + i * stride);
     }
     return items;
 }
@@ -5134,16 +5140,28 @@ function roundUp(n, align) {
 }
 /**
  * Get alignment for a schema in the given memory layout.
- * Uniform layouts have stricter rules: structs and arrays round up to 16.
+ * Uniform layouts have stricter rules: array elements round up to 16 (both uniform layouts),
+ * and std140 additionally rounds STRUCT alignment up to 16. WGSL uniform keeps a nested struct
+ * at its natural alignment (max member alignment) — Dawn lays a `struct{f32,f32}`-then-struct
+ * member out at offset 8, not 16, so rounding structs to 16 for wgsl-uniform misaligns every
+ * member after a sub-16-aligned nested struct.
  */
 function alignOf(schema, memLayout) {
-    // For uniform layouts (wgsl-uniform / std140), structs and array elements need roundUp(16, align).
     if (roundsElementsTo16(memLayout)) {
-        if (isStructDesc(schema)) {
-            return roundUp(storageAlignOf(schema), 16);
-        }
+        // Array elements are 16-aligned in every uniform layout (WGSL uniform + std140).
         if (isSizedArrayDesc(schema) || isArrayDesc(schema)) {
             return roundUp(alignOf(schema.element, memLayout), 16);
+        }
+        if (isStructDesc(schema)) {
+            // A struct's alignment is the max of its members' alignments IN THIS layout — so a
+            // struct containing a 16-aligned array/vec4 member is itself 16-aligned. std140
+            // additionally rounds the whole struct up to 16; WGSL uniform does not (Dawn keeps a
+            // `struct{f32,f32}` at natural align 4, verified against a real device).
+            let maxAlign = 4;
+            for (const field of Object.values(schema.fields)) {
+                maxAlign = Math.max(maxAlign, alignOf(field, memLayout));
+            }
+            return memLayout === 'std140' ? roundUp(maxAlign, 16) : maxAlign;
         }
     }
     // std140: all f32 matrices align to 16 (columns padded to vec4), including 2-row matrices.
@@ -16613,7 +16631,12 @@ function emitGlslUniformBlocks(ctx) {
         const members = [];
         let offset = 0;
         let structAlign = 4;
-        for (const u of entry.uniforms) {
+        // A shared group backs one buffer reused across materials (cached by its uniform set),
+        // so its layout must be deterministic for a given set no matter the per-material traversal
+        // order. Order by stable node id (mirrors the WGSL emit and three.js). Non-shared groups
+        // keep declaration order.
+        const orderedUniforms = entry.group.shared ? [...entry.uniforms].sort((a, b) => a.id - b.id) : entry.uniforms;
+        for (const u of orderedUniforms) {
             // std140 offsets/sizes come from pack.ts — the single memory-layout authority.
             const align = layoutAlignOf(u.type, 'std140');
             const size = layoutSizeOf(u.type, 'std140');
@@ -18423,7 +18446,16 @@ function emitAllBindings(ctx) {
             lines.push(`struct Uniforms_${groupName} {`);
             const members = [];
             let offset = 0;
-            for (const u of bindGroup.uniforms) {
+            // A shared group backs one buffer reused across materials and is cached by its
+            // uniform set (order-independent), so its byte layout must be deterministic for a
+            // given set no matter the per-material graph traversal order; otherwise the cached
+            // block mismatches a material compiled in a different order. Order by stable node id
+            // (mirrors three.js NodeBuilder._getBindGroup). Non-shared groups are per-object and
+            // cloned, so their declaration order is fine.
+            const orderedUniforms = bindGroup.group.shared
+                ? [...bindGroup.uniforms].sort((a, b) => a.id - b.id)
+                : bindGroup.uniforms;
+            for (const u of orderedUniforms) {
                 // Uniform member offsets/sizes come from pack.ts — the single memory-layout
                 // authority — using the WGSL uniform address-space rules the driver lays the
                 // `var<uniform>` struct out with. (Mirrors the GLSL emitter's std140 use.)

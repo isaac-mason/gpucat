@@ -1179,7 +1179,17 @@ export function emitAllBindings(ctx: BuildContext): {
             const members: UniformMember[] = [];
             let offset = 0;
 
-            for (const u of bindGroup.uniforms) {
+            // A shared group backs one buffer reused across materials and is cached by its
+            // uniform set (order-independent), so its byte layout must be deterministic for a
+            // given set no matter the per-material graph traversal order; otherwise the cached
+            // block mismatches a material compiled in a different order. Order by stable node id
+            // (mirrors three.js NodeBuilder._getBindGroup). Non-shared groups are per-object and
+            // cloned, so their declaration order is fine.
+            const orderedUniforms = bindGroup.group.shared
+                ? [...bindGroup.uniforms].sort((a, b) => a.id - b.id)
+                : bindGroup.uniforms;
+
+            for (const u of orderedUniforms) {
                 // Uniform member offsets/sizes come from pack.ts — the single memory-layout
                 // authority — using the WGSL uniform address-space rules the driver lays the
                 // `var<uniform>` struct out with. (Mirrors the GLSL emitter's std140 use.)

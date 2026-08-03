@@ -1628,7 +1628,12 @@ export function emitGlslUniformBlocks(ctx: GlslBuildContext): { glsl: string; un
         const members: UniformMember[] = [];
         let offset = 0;
         let structAlign = 4;
-        for (const u of entry.uniforms) {
+        // A shared group backs one buffer reused across materials (cached by its uniform set),
+        // so its layout must be deterministic for a given set no matter the per-material traversal
+        // order. Order by stable node id (mirrors the WGSL emit and three.js). Non-shared groups
+        // keep declaration order.
+        const orderedUniforms = entry.group.shared ? [...entry.uniforms].sort((a, b) => a.id - b.id) : entry.uniforms;
+        for (const u of orderedUniforms) {
             // std140 offsets/sizes come from pack.ts — the single memory-layout authority.
             const align = layoutAlignOf(u.type, 'std140');
             const size = layoutSizeOf(u.type, 'std140');

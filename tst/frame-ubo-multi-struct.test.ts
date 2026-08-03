@@ -3,12 +3,13 @@ import { attribute, compile, d, f32, struct, vec4 } from '../src/index';
 import { fields, frameGroup, Uniform, UniformNode } from '../src/nodes/nodes';
 import { packToView } from '../src/schema/pack';
 
-// Reproduces makecat's frame UBO: two struct members packed into one `Uniforms_frame` UBO.
-// `EnvTime` is 8 bytes but a struct in wgsl-uniform layout has size rounded to 16 and align 16, so
-// `EnvConfig` must land at offset 16 — and its first field `enabled` at byte 16. If the member offset
-// is miscomputed (struct align not rounded to 16), the shader reads `enabled` from the wrong bytes and
-// gets 0 (symptom: the sky's `enabledMask` is 0 → black).
-describe('frame UBO with two struct members aligns the second struct to 16', () => {
+// Two struct members packed into one `Uniforms_frame` UBO. A leading `struct{f32,f32}` (8 bytes,
+// align 4) is followed by a second struct. In WGSL uniform layout a nested struct keeps its NATURAL
+// alignment (max member align), so the second struct lands at offset 8 — NOT 16. This matches how a
+// real WGSL driver (Dawn) lays the emitted `struct Uniforms_frame` out; the packer must agree, or the
+// shader reads the second struct's fields from the wrong bytes (they read the leading struct's tail /
+// padding, i.e. 0). This is the general WGSL rule (three.js-style), verified against a real device.
+describe('frame UBO with two struct members: nested struct uses natural alignment', () => {
     const EnvTime = struct('EnvTime', { time: d.f32, wallTime: d.f32 });
     const EnvConfig = struct('EnvConfig', {
         enabled: d.u32,
@@ -66,10 +67,11 @@ describe('frame UBO with two struct members aligns the second struct to 16', () 
         const cfgMember = frame!.members.find((m) => m.uniformId === 'uniform_310')!;
         const timeMember = frame!.members.find((m) => m.uniformId === 'uniform_307')!;
 
-        // Both struct members are 16-aligned (struct-in-uniform rounds align up to 16), regardless of
-        // which order they were discovered in.
-        expect(cfgMember.offset % 16).toBe(0);
-        expect(timeMember.offset % 16).toBe(0);
+        // WGSL uniform keeps a nested struct at natural alignment: the leading EnvTime occupies
+        // bytes 0..7 (align 4, size 8), so EnvConfig (align 4) follows at offset 8, and `enabled`
+        // (its first field) at byte 8. Neither is forced to a 16-byte boundary.
+        expect(timeMember.offset).toBe(0);
+        expect(cfgMember.offset).toBe(8);
 
         // The emitted `struct Uniforms_frame { ... }` must list members in ascending-offset order so the
         // WGSL driver's layout matches the offsets the packer writes at.
@@ -103,6 +105,6 @@ describe('frame UBO with two struct members aligns the second struct to 16', () 
             } as never,
             'wgsl-uniform',
         );
-        expect(view.getUint32(cfgMember.offset, true)).toBe(1); // enabled == 1 at EnvConfig offset
+        expect(view.getUint32(cfgMember.offset, true)).toBe(1); // enabled == 1 at EnvConfig offset (byte 8)
     });
 });

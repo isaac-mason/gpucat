@@ -456,16 +456,16 @@ describe('sized arrays in schemas', () => {
 // ---------------------------------------------------------------------------
 
 describe('uniform vs storage layout', () => {
-    test('struct alignment: uniform rounds up to 16', () => {
-        const Inner = struct('Inner', { a: d.f32, b: d.f32 }); // align=4 in storage
+    test('struct alignment: WGSL uniform keeps natural align (std140 rounds to 16)', () => {
+        const Inner = struct('Inner', { a: d.f32, b: d.f32 }); // align=4 (max member align)
 
-        // In storage: Inner has align=4
-        // In uniform: Inner has align=roundUp(4, 16)=16
-        const storageAlign = layoutStrideOf(Inner, 'std430');
-        const uniformAlign = layoutStrideOf(Inner, 'wgsl-uniform');
-
-        expect(storageAlign).toBe(8); // 2 * f32
-        expect(uniformAlign).toBe(16); // rounded up to 16
+        // WGSL uniform does NOT round a nested struct up to 16: Dawn lays a `struct{f32,f32}`
+        // out at natural align=4/size=8 (verified against a real device). Rounding it to 16
+        // shifted every following member by 8 bytes, so the shader read them at the wrong
+        // offset. Only GLSL std140 rounds struct alignment to 16.
+        expect(layoutStrideOf(Inner, 'std430')).toBe(8); // 2 * f32
+        expect(layoutStrideOf(Inner, 'wgsl-uniform')).toBe(8); // natural (was wrongly 16)
+        expect(layoutStrideOf(Inner, 'std140')).toBe(16); // std140 rounds struct align to 16
     });
 
     test('array element alignment: uniform rounds up to 16', () => {
