@@ -1208,6 +1208,8 @@ export type bool = {
     type: 'bool';
     wgslType: 'bool';
     glslType: 'bool';
+    scalar: 'bool';
+    len: 1;
 };
 export const bool: bool;
 ```
@@ -1571,6 +1573,8 @@ export const For: typeof Loop;
 export type f16 = {
     type: 'f16';
     wgslType: 'f16';
+    scalar: 'f16';
+    len: 1;
 };
 export const f16: f16;
 ```
@@ -1599,6 +1603,8 @@ export type f32 = {
     type: 'f32';
     wgslType: 'f32';
     glslType: 'float';
+    scalar: 'f32';
+    len: 1;
 };
 export const f32: f32;
 ```
@@ -1774,6 +1780,8 @@ export type i32 = {
     type: 'i32';
     wgslType: 'i32';
     glslType: 'int';
+    scalar: 'i32';
+    len: 1;
 };
 export const i32: i32;
 ```
@@ -1874,6 +1882,9 @@ export type mat2x2f = {
     type: 'mat2x2f';
     wgslType: 'mat2x2f';
     glslType: 'mat2';
+    scalar: 'f32';
+    cols: 2;
+    rows: 2;
 };
 export const mat2x2f: mat2x2f;
 ```
@@ -1895,6 +1906,9 @@ export type mat2x3f = {
     type: 'mat2x3f';
     wgslType: 'mat2x3f';
     glslType: 'mat2x3';
+    scalar: 'f32';
+    cols: 2;
+    rows: 3;
 };
 export const mat2x3f: mat2x3f;
 ```
@@ -1916,6 +1930,9 @@ export type mat2x4f = {
     type: 'mat2x4f';
     wgslType: 'mat2x4f';
     glslType: 'mat2x4';
+    scalar: 'f32';
+    cols: 2;
+    rows: 4;
 };
 export const mat2x4f: mat2x4f;
 ```
@@ -1945,6 +1962,9 @@ export type mat3x2f = {
     type: 'mat3x2f';
     wgslType: 'mat3x2f';
     glslType: 'mat3x2';
+    scalar: 'f32';
+    cols: 3;
+    rows: 2;
 };
 export const mat3x2f: mat3x2f;
 ```
@@ -1966,6 +1986,9 @@ export type mat3x3f = {
     type: 'mat3x3f';
     wgslType: 'mat3x3f';
     glslType: 'mat3';
+    scalar: 'f32';
+    cols: 3;
+    rows: 3;
 };
 export const mat3x3f: mat3x3f;
 ```
@@ -1987,6 +2010,9 @@ export type mat3x4f = {
     type: 'mat3x4f';
     wgslType: 'mat3x4f';
     glslType: 'mat3x4';
+    scalar: 'f32';
+    cols: 3;
+    rows: 4;
 };
 export const mat3x4f: mat3x4f;
 ```
@@ -2014,6 +2040,9 @@ export type mat4x2f = {
     type: 'mat4x2f';
     wgslType: 'mat4x2f';
     glslType: 'mat4x2';
+    scalar: 'f32';
+    cols: 4;
+    rows: 2;
 };
 export const mat4x2f: mat4x2f;
 ```
@@ -2035,6 +2064,9 @@ export type mat4x3f = {
     type: 'mat4x3f';
     wgslType: 'mat4x3f';
     glslType: 'mat4x3';
+    scalar: 'f32';
+    cols: 4;
+    rows: 3;
 };
 export const mat4x3f: mat4x3f;
 ```
@@ -2056,6 +2088,9 @@ export type mat4x4f = {
     type: 'mat4x4f';
     wgslType: 'mat4x4f';
     glslType: 'mat4';
+    scalar: 'f32';
+    cols: 4;
+    rows: 4;
 };
 export const mat4x4f: mat4x4f;
 ```
@@ -2859,6 +2894,8 @@ export type u32 = {
     type: 'u32';
     wgslType: 'u32';
     glslType: 'uint';
+    scalar: 'u32';
+    len: 1;
 };
 export const u32: u32;
 ```
@@ -2993,6 +3030,8 @@ export type vec2f = {
     type: 'vec2f';
     wgslType: 'vec2f';
     glslType: 'vec2';
+    scalar: 'f32';
+    len: 2;
 };
 export const vec2f: vec2f;
 ```
@@ -3003,6 +3042,8 @@ export const vec2f: vec2f;
 export type vec2h = {
     type: 'vec2h';
     wgslType: 'vec2h';
+    scalar: 'f16';
+    len: 2;
 };
 export const vec2h: vec2h;
 ```
@@ -3014,6 +3055,8 @@ export type vec2i = {
     type: 'vec2i';
     wgslType: 'vec2i';
     glslType: 'ivec2';
+    scalar: 'i32';
+    len: 2;
 };
 export const vec2i: vec2i;
 ```
@@ -3025,6 +3068,8 @@ export type vec2u = {
     type: 'vec2u';
     wgslType: 'vec2u';
     glslType: 'uvec2';
+    scalar: 'u32';
+    len: 2;
 };
 export const vec2u: vec2u;
 ```
@@ -3056,6 +3101,8 @@ export type vec3f = {
     type: 'vec3f';
     wgslType: 'vec3f';
     glslType: 'vec3';
+    scalar: 'f32';
+    len: 3;
 };
 export const vec3f: vec3f;
 ```
@@ -3066,6 +3113,8 @@ export const vec3f: vec3f;
 export type vec3h = {
     type: 'vec3h';
     wgslType: 'vec3h';
+    scalar: 'f16';
+    len: 3;
 };
 export const vec3h: vec3h;
 ```
@@ -3077,6 +3126,8 @@ export type vec3i = {
     type: 'vec3i';
     wgslType: 'vec3i';
     glslType: 'ivec3';
+    scalar: 'i32';
+    len: 3;
 };
 export const vec3i: vec3i;
 ```
@@ -3088,6 +3139,8 @@ export type vec3u = {
     type: 'vec3u';
     wgslType: 'vec3u';
     glslType: 'uvec3';
+    scalar: 'u32';
+    len: 3;
 };
 export const vec3u: vec3u;
 ```
@@ -3123,6 +3176,8 @@ export type vec4f = {
     type: 'vec4f';
     wgslType: 'vec4f';
     glslType: 'vec4';
+    scalar: 'f32';
+    len: 4;
 };
 export const vec4f: vec4f;
 ```
@@ -3133,6 +3188,8 @@ export const vec4f: vec4f;
 export type vec4h = {
     type: 'vec4h';
     wgslType: 'vec4h';
+    scalar: 'f16';
+    len: 4;
 };
 export const vec4h: vec4h;
 ```
@@ -3144,6 +3201,8 @@ export type vec4i = {
     type: 'vec4i';
     wgslType: 'vec4i';
     glslType: 'ivec4';
+    scalar: 'i32';
+    len: 4;
 };
 export const vec4i: vec4i;
 ```
@@ -3155,6 +3214,8 @@ export type vec4u = {
     type: 'vec4u';
     wgslType: 'vec4u';
     glslType: 'uvec4';
+    scalar: 'u32';
+    len: 4;
 };
 export const vec4u: vec4u;
 ```
@@ -3549,9 +3610,9 @@ export class Object3D {
     scale: Vec3;
     parent: Object3D | null;
     children: Object3D[];
-    matrix: import("mathcat").Mat4;
-    matrixWorld: import("mathcat").Mat4;
-    normalMatrix: import("mathcat").Mat3;
+    matrix: mat4.Mat4;
+    matrixWorld: mat4.Mat4;
+    normalMatrix: mat3.Mat3;
     matrixVersion: number;
     add(child: Object3D): this;
     remove(child: Object3D): this;
@@ -3587,8 +3648,8 @@ export class Camera extends Object3D {
      * [0,1]); the renderer stamps its own convention on before rendering and rebuilds the projection.
      */
     coordinateSystem: CoordinateSystem;
-    projectionMatrix: import("mathcat").Mat4;
-    matrixWorldInverse: import("mathcat").Mat4;
+    projectionMatrix: mat4.Mat4;
+    matrixWorldInverse: mat4.Mat4;
     constructor();
     /** Recompute the projection matrix for the current `coordinateSystem`. Overridden by subclasses. */
     updateProjectionMatrix(): void;
