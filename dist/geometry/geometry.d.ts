@@ -1,4 +1,4 @@
-import type { Box3, Sphere } from 'mathcat';
+import type { Box3, Sphere } from 'mathcat/shapes';
 import type { GpuBuffer } from '../core/gpu-buffer';
 import type { Any } from '../schema/schema';
 /**

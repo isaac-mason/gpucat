@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       mathcat:
-        specifier: 0.0.13
-        version: 0.0.13
+        specifier: github:isaac-mason/mathcat#dev
+        version: github.com/isaac-mason/mathcat/c25a32156b50b228a9d846e0ec835396343b7a73
     devDependencies:
       '@biomejs/biome':
         specifier: ^2.4.6
@@ -2568,10 +2568,6 @@ packages:
     resolution: {integrity: sha512-HIGDmqrjy6KE4LRH9uGLdYoVl+69idwtE5OjHILnNB4IL4RE2aVNagjLAWFKWH5xlcxNH9i+AoBgRKR4VdsyFw==}
     dev: false
 
-  /mathcat@0.0.13:
-    resolution: {integrity: sha512-d5KhlEP3p6/ACSGpgwSBPCiiubdVXYb95mkK/rfQd5DirqHjMTYpvX5AP3vZXiQGO4y9DomRgSjOYwXW3dhA+w==}
-    dev: false
-
   /mdn-data@2.27.1:
     resolution: {integrity: sha512-9Yubnt3e8A0OKwxYSXyhLymGW4sCufcLG6VdiDdUGVkPhpqLxlvP5vl1983gQjJl3tqbrM731mjaZaP68AgosQ==}
     dev: true
@@ -3841,3 +3837,9 @@ packages:
   /yallist@4.0.0:
     resolution: {integrity: sha512-3wdGidZyq5PB084XLES5TpOSRA3wjXAlIWMhum2kRcv/41Sn2emQ0dycQW4uZXLejwKvg6EsvbdlVL+FYEct7A==}
     dev: true
+
+  github.com/isaac-mason/mathcat/c25a32156b50b228a9d846e0ec835396343b7a73:
+    resolution: {tarball: https://codeload.github.com/isaac-mason/mathcat/tar.gz/c25a32156b50b228a9d846e0ec835396343b7a73}
+    name: mathcat
+    version: 0.0.14
+    dev: false

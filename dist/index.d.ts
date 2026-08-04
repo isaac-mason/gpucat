@@ -44,5 +44,5 @@ export * from './texture/depth-texture';
 export type { DataTextureImage, ImageSize, SourceData } from './texture/source';
 export { Source } from './texture/source';
 export * from './texture/texture';
-export type { Color, ColorInput } from './utils/color';
-export * as color from './utils/color';
+export type { Color, ColorInput } from 'mathcat/color';
+export { color } from 'mathcat/color';

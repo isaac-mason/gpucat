@@ -1,4 +1,4 @@
-import { type ColorInput, fromColorInput } from '../../utils/color';
+import { color, type ColorInput } from 'mathcat/color';
 import { vec3f } from './core';
 
 /**
@@ -20,7 +20,7 @@ import { vec3f } from './core';
  * rgb([1, 0.5, 0]);
  */
 export function rgb(input: ColorInput) {
-    const c = fromColorInput(input);
+    const c = color.fromColorInput(input);
     if (c === null) return vec3f(0, 0, 0);
     return vec3f(c[0], c[1], c[2]);
 }

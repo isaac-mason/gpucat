@@ -1,1720 +1,5930 @@
-const EPSILON = 0.000001;
+//#region \0rolldown/runtime.js
+var __defProp = Object.defineProperty;
+var __exportAll = (all, no_symbols) => {
+	let target = {};
+	for (var name in all) __defProp(target, name, {
+		get: all[name],
+		enumerable: true
+	});
+	__defProp(target, Symbol.toStringTag, { value: "Module" });
+	return target;
+};
 
+//#region src/core/scalar.ts
+const EPSILON = 1e-6;
 /**
- * Creates a new, empty vec2
- *
- * @returns a new 2D vector
- */
+* Symmetric round
+* see https://www.npmjs.com/package/round-half-up-symmetric#user-content-detailed-background
+*
+* @param a value to round
+*/
+function round$2(a) {
+	if (a >= 0) return Math.round(a);
+	return a % .5 === 0 ? Math.floor(a) : Math.round(a);
+}
+/**
+* Tests whether or not the arguments have approximately the same value, within an absolute
+* or relative tolerance of glMatrix.EPSILON (an absolute tolerance is used for values less
+* than or equal to 1.0, and a relative tolerance is used for larger values)
+*
+* @param a The first number to test.
+* @param b The second number to test.
+* @returns True if the numbers are approximately equal, false otherwise.
+*/
+function equals$7(a, b, epsilon = EPSILON) {
+	return Math.abs(a - b) <= epsilon * Math.max(1, Math.abs(a), Math.abs(b));
+}
+/**
+*
+* Returns the result of linearly interpolating between input A and input B by input T.
+*
+* @param v0
+* @param v1
+* @param t
+* @returns
+*/
+function lerp$5(v0, v1, t) {
+	return v0 * (1 - t) + v1 * t;
+}
+/**
+* Clamp a value between min and max
+*/
+const clamp$2 = (value, min, max) => {
+	return Math.max(min, Math.min(max, value));
+};
+
+//#region src/core/vec2.ts
+var vec2_exports = /* @__PURE__ */ __exportAll({
+	add: () => add$6,
+	addScalar: () => addScalar$2,
+	angle: () => angle$1,
+	ceil: () => ceil$2,
+	clone: () => clone$7,
+	copy: () => copy$7,
+	create: () => create$8,
+	cross: () => cross$2,
+	dist: () => dist$1,
+	distance: () => distance$1,
+	div: () => div$2,
+	divide: () => divide$1,
+	dot: () => dot$4,
+	equals: () => equals$4,
+	exactEquals: () => exactEquals$7,
+	finite: () => finite$1,
+	floor: () => floor$2,
+	fromBuffer: () => fromBuffer$2,
+	fromValues: () => fromValues$7,
+	inverse: () => inverse$1,
+	len: () => len$2,
+	length: () => length$4,
+	lerp: () => lerp$2,
+	max: () => max$3,
+	min: () => min$3,
+	mul: () => mul$5,
+	multiply: () => multiply$5,
+	negate: () => negate$3,
+	normalize: () => normalize$6,
+	rotate: () => rotate$2,
+	round: () => round$1,
+	scale: () => scale$6,
+	scaleAndAdd: () => scaleAndAdd$1,
+	set: () => set$7,
+	sqrDist: () => sqrDist$1,
+	sqrLen: () => sqrLen$2,
+	squaredDistance: () => squaredDistance$1,
+	squaredLength: () => squaredLength$3,
+	str: () => str$5,
+	sub: () => sub$4,
+	subtract: () => subtract$3,
+	subtractScalar: () => subtractScalar$1,
+	toBuffer: () => toBuffer$2,
+	transformMat2: () => transformMat2,
+	transformMat2d: () => transformMat2d,
+	transformMat3: () => transformMat3$1,
+	transformMat4: () => transformMat4$2,
+	zero: () => zero$3
+});
+/**
+* Creates a new, empty vec2
+*
+* @returns a new 2D vector
+*/
 function create$8() {
-    return [0, 0];
+	return [0, 0];
 }
+/**
+* Creates a new vec2 initialized with values from an existing vector
+*
+* @param a vector to clone
+* @returns a new 2D vector
+*/
+function clone$7(a) {
+	return [a[0], a[1]];
+}
+/**
+* Creates a new vec2 initialized with the given values
+*
+* @param x X component
+* @param y Y component
+* @returns a new 2D vector
+*/
+function fromValues$7(x, y) {
+	return [x, y];
+}
+/**
+* Copy the values from one vec2 to another
+*
+* @param out the receiving vector
+* @param a the source vector
+* @returns out
+*/
+function copy$7(out, a) {
+	out[0] = a[0];
+	out[1] = a[1];
+	return out;
+}
+/**
+* Set the components of a vec2 to the given values
+*
+* @param out the receiving vector
+* @param x X component
+* @param y Y component
+* @returns out
+*/
+function set$7(out, x, y) {
+	out[0] = x;
+	out[1] = y;
+	return out;
+}
+/**
+* Sets the components of a vec2 from a buffer
+* @param out the receiving vector
+* @param buffer the source buffer
+* @param startIndex the starting index in the buffer
+* @returns out
+*/
+function fromBuffer$2(out, buffer, startIndex) {
+	out[0] = buffer[startIndex];
+	out[1] = buffer[startIndex + 1];
+	return out;
+}
+/**
+* Writes the components of a vec2 to a buffer
+* @param outBuffer The output buffer
+* @param vec The source vector
+* @param startIndex The starting index in the buffer
+* @returns The output buffer
+*/
+function toBuffer$2(outBuffer, vec, startIndex) {
+	outBuffer[startIndex] = vec[0];
+	outBuffer[startIndex + 1] = vec[1];
+	return outBuffer;
+}
+/**
+* Adds two vec2's
+*
+* @param out the receiving vector
+* @param a the first operand
+* @param b the second operand
+* @returns out
+*/
+function add$6(out, a, b) {
+	out[0] = a[0] + b[0];
+	out[1] = a[1] + b[1];
+	return out;
+}
+/**
+* Adds a scalar value to all components of a vec2
+*
+* @param out the receiving vector
+* @param a the source vector
+* @param b the scalar value to add
+* @returns out
+*/
+function addScalar$2(out, a, b) {
+	out[0] = a[0] + b;
+	out[1] = a[1] + b;
+	return out;
+}
+/**
+* Subtracts vector b from vector a
+*
+* @param out the receiving vector
+* @param a the first operand
+* @param b the second operand
+* @returns out
+*/
+function subtract$3(out, a, b) {
+	out[0] = a[0] - b[0];
+	out[1] = a[1] - b[1];
+	return out;
+}
+/**
+* Subtracts a scalar value from all components of a vec2
+*
+* @param out the receiving vector
+* @param a the source vector
+* @param b the scalar value to subtract
+* @returns out
+*/
+function subtractScalar$1(out, a, b) {
+	out[0] = a[0] - b;
+	out[1] = a[1] - b;
+	return out;
+}
+/**
+* Multiplies two vec2's
+*
+* @param out the receiving vector
+* @param a the first operand
+* @param b the second operand
+* @returns out
+*/
+function multiply$5(out, a, b) {
+	out[0] = a[0] * b[0];
+	out[1] = a[1] * b[1];
+	return out;
+}
+/**
+* Divides two vec2's
+*
+* @param out the receiving vector
+* @param a the first operand
+* @param b the second operand
+* @returns out
+*/
+function divide$1(out, a, b) {
+	out[0] = a[0] / b[0];
+	out[1] = a[1] / b[1];
+	return out;
+}
+/**
+* Math.ceil the components of a vec2
+*
+* @param out the receiving vector
+* @param a vector to ceil
+* @returns out
+*/
+function ceil$2(out, a) {
+	out[0] = Math.ceil(a[0]);
+	out[1] = Math.ceil(a[1]);
+	return out;
+}
+/**
+* Math.floor the components of a vec2
+*
+* @param out the receiving vector
+* @param a vector to floor
+* @returns out
+*/
+function floor$2(out, a) {
+	out[0] = Math.floor(a[0]);
+	out[1] = Math.floor(a[1]);
+	return out;
+}
+/**
+* Returns the minimum of two vec2's
+*
+* @param out the receiving vector
+* @param a the first operand
+* @param b the second operand
+* @returns out
+*/
+function min$3(out, a, b) {
+	out[0] = Math.min(a[0], b[0]);
+	out[1] = Math.min(a[1], b[1]);
+	return out;
+}
+/**
+* Returns the maximum of two vec2's
+*
+* @param out the receiving vector
+* @param a the first operand
+* @param b the second operand
+* @returns out
+*/
+function max$3(out, a, b) {
+	out[0] = Math.max(a[0], b[0]);
+	out[1] = Math.max(a[1], b[1]);
+	return out;
+}
+/**
+* symmetric round the components of a vec2
+*
+* @param out the receiving vector
+* @param a vector to round
+* @returns out
+*/
+function round$1(out, a) {
+	out[0] = round$2(a[0]);
+	out[1] = round$2(a[1]);
+	return out;
+}
+/**
+* Scales a vec2 by a scalar number
+*
+* @param out the receiving vector
+* @param a the vector to scale
+* @param b amount to scale the vector by
+* @returns out
+*/
+function scale$6(out, a, b) {
+	out[0] = a[0] * b;
+	out[1] = a[1] * b;
+	return out;
+}
+/**
+* Adds two vec2's after scaling the second operand by a scalar value
+*
+* @param out the receiving vector
+* @param a the first operand
+* @param b the second operand
+* @param scale the amount to scale b by before adding
+* @returns out
+*/
+function scaleAndAdd$1(out, a, b, scale) {
+	out[0] = a[0] + b[0] * scale;
+	out[1] = a[1] + b[1] * scale;
+	return out;
+}
+/**
+* Calculates the euclidian distance between two vec2's
+*
+* @param a the first operand
+* @param b the second operand
+* @returns distance between a and b
+*/
+function distance$1(a, b) {
+	const x = b[0] - a[0];
+	const y = b[1] - a[1];
+	return Math.sqrt(x * x + y * y);
+}
+/**
+* Calculates the squared euclidian distance between two vec2's
+*
+* @param a the first operand
+* @param b the second operand
+* @returns squared distance between a and b
+*/
+function squaredDistance$1(a, b) {
+	const x = b[0] - a[0];
+	const y = b[1] - a[1];
+	return x * x + y * y;
+}
+/**
+* Calculates the length of a vec2
+*
+* @param a vector to calculate length of
+* @returns length of a
+*/
+function length$4(a) {
+	const x = a[0];
+	const y = a[1];
+	return Math.sqrt(x * x + y * y);
+}
+/**
+* Calculates the squared length of a vec2
+*
+* @param a vector to calculate squared length of
+* @returns squared length of a
+*/
+function squaredLength$3(a) {
+	const x = a[0];
+	const y = a[1];
+	return x * x + y * y;
+}
+/**
+* Negates the components of a vec2
+*
+* @param out the receiving vector
+* @param a vector to negate
+* @returns out
+*/
+function negate$3(out, a) {
+	out[0] = -a[0];
+	out[1] = -a[1];
+	return out;
+}
+/**
+* Returns the inverse of the components of a vec2
+*
+* @param out the receiving vector
+* @param a vector to invert
+* @returns out
+*/
+function inverse$1(out, a) {
+	out[0] = 1 / a[0];
+	out[1] = 1 / a[1];
+	return out;
+}
+/**
+* Normalize a vec2
+*
+* @param out the receiving vector
+* @param a vector to normalize
+* @returns out
+*/
+function normalize$6(out, a) {
+	const x = a[0];
+	const y = a[1];
+	let len = x * x + y * y;
+	if (len > 0) len = 1 / Math.sqrt(len);
+	out[0] = a[0] * len;
+	out[1] = a[1] * len;
+	return out;
+}
+/**
+* Calculates the dot product of two vec2's
+*
+* @param a the first operand
+* @param b the second operand
+* @returns dot product of a and b
+*/
+function dot$4(a, b) {
+	return a[0] * b[0] + a[1] * b[1];
+}
+/**
+* Computes the cross product of two vec2's
+* Note that the cross product must by definition produce a 3D vector
+*
+* @param out the receiving vector
+* @param a the first operand
+* @param b the second operand
+* @returns out
+*/
+function cross$2(out, a, b) {
+	const z = a[0] * b[1] - a[1] * b[0];
+	out[0] = out[1] = 0;
+	out[2] = z;
+	return out;
+}
+/**
+* Performs a linear interpolation between two vec2's
+*
+* @param out the receiving vector
+* @param a the first operand
+* @param b the second operand
+* @param t interpolation amount, in the range [0-1], between the two inputs
+* @returns out
+*/
+function lerp$2(out, a, b, t) {
+	const ax = a[0];
+	const ay = a[1];
+	out[0] = ax + t * (b[0] - ax);
+	out[1] = ay + t * (b[1] - ay);
+	return out;
+}
+/**
+* Transforms the vec2 with a mat2
+*
+* @param out the receiving vector
+* @param a the vector to transform
+* @param m matrix to transform with
+* @returns out
+*/
+function transformMat2(out, a, m) {
+	const x = a[0];
+	const y = a[1];
+	out[0] = m[0] * x + m[2] * y;
+	out[1] = m[1] * x + m[3] * y;
+	return out;
+}
+/**
+* Transforms the vec2 with a mat2d
+*
+* @param out the receiving vector
+* @param a the vector to transform
+* @param m matrix to transform with
+* @returns out
+*/
+function transformMat2d(out, a, m) {
+	const x = a[0];
+	const y = a[1];
+	out[0] = m[0] * x + m[2] * y + m[4];
+	out[1] = m[1] * x + m[3] * y + m[5];
+	return out;
+}
+/**
+* Transforms the vec2 with a mat3
+* 3rd vector component is implicitly '1'
+*
+* @param out the receiving vector
+* @param a the vector to transform
+* @param m matrix to transform with
+* @returns out
+*/
+function transformMat3$1(out, a, m) {
+	const x = a[0];
+	const y = a[1];
+	out[0] = m[0] * x + m[3] * y + m[6];
+	out[1] = m[1] * x + m[4] * y + m[7];
+	return out;
+}
+/**
+* Transforms the vec2 with a mat4
+* 3rd vector component is implicitly '0'
+* 4th vector component is implicitly '1'
+*
+* @param out the receiving vector
+* @param a the vector to transform
+* @param m matrix to transform with
+* @returns out
+*/
+function transformMat4$2(out, a, m) {
+	const x = a[0];
+	const y = a[1];
+	out[0] = m[0] * x + m[4] * y + m[12];
+	out[1] = m[1] * x + m[5] * y + m[13];
+	return out;
+}
+/**
+* Rotate a 2D vector
+* @param out The receiving vec2
+* @param a The vec2 point to rotate
+* @param b The origin of the rotation
+* @param rad The angle of rotation in radians
+* @returns out
+*/
+function rotate$2(out, a, b, rad) {
+	const p0 = a[0] - b[0];
+	const p1 = a[1] - b[1];
+	const sinC = Math.sin(rad);
+	const cosC = Math.cos(rad);
+	out[0] = p0 * cosC - p1 * sinC + b[0];
+	out[1] = p0 * sinC + p1 * cosC + b[1];
+	return out;
+}
+/**
+* Get the angle between two 2D vectors
+* @param a The first operand
+* @param b The second operand
+* @returns The angle in radians
+*/
+function angle$1(a, b) {
+	const x1 = a[0];
+	const y1 = a[1];
+	const x2 = b[0];
+	const y2 = b[1];
+	const mag = Math.sqrt((x1 * x1 + y1 * y1) * (x2 * x2 + y2 * y2));
+	const cosine = mag && (x1 * x2 + y1 * y2) / mag;
+	return Math.acos(Math.min(Math.max(cosine, -1), 1));
+}
+/**
+* Set the components of a vec2 to zero
+*
+* @param out the receiving vector
+* @returns out
+*/
+function zero$3(out) {
+	out[0] = 0;
+	out[1] = 0;
+	return out;
+}
+/**
+* Returns a string representation of a vector
+*
+* @param a vector to represent as a string
+* @returns string representation of the vector
+*/
+function str$5(a) {
+	return `vec2(${a[0]}, ${a[1]})`;
+}
+/**
+* Returns whether or not the vectors exactly have the same elements in the same position (when compared with ===)
+*
+* @param a The first vector.
+* @param b The second vector.
+* @returns True if the vectors are equal, false otherwise.
+*/
+function exactEquals$7(a, b) {
+	return a[0] === b[0] && a[1] === b[1];
+}
+/**
+* Returns whether or not the vectors have approximately the same elements in the same position.
+*
+* @param a The first vector.
+* @param b The second vector.
+* @returns True if the vectors are equal, false otherwise.
+*/
+function equals$4(a, b) {
+	const a0 = a[0];
+	const a1 = a[1];
+	const b0 = b[0];
+	const b1 = b[1];
+	return Math.abs(a0 - b0) <= 1e-6 * Math.max(1, Math.abs(a0), Math.abs(b0)) && Math.abs(a1 - b1) <= 1e-6 * Math.max(1, Math.abs(a1), Math.abs(b1));
+}
+/**
+* Returns whether or not the vector is finite
+* @param a vector to test
+* @returns whether or not the vector is finite
+*/
+function finite$1(a) {
+	return Number.isFinite(a[0]) && Number.isFinite(a[1]);
+}
+/**
+* Alias for {@link length}
+*/
+const len$2 = length$4;
+/**
+* Alias for {@link subtract}
+*/
+const sub$4 = subtract$3;
+/**
+* Alias for {@link multiply}
+*/
+const mul$5 = multiply$5;
+/**
+* Alias for {@link divide}
+*/
+const div$2 = divide$1;
+/**
+* Alias for {@link distance}
+*/
+const dist$1 = distance$1;
+/**
+* Alias for {@link squaredDistance}
+*/
+const sqrDist$1 = squaredDistance$1;
+/**
+* Alias for {@link squaredLength}
+*/
+const sqrLen$2 = squaredLength$3;
 
+//#region src/core/vec3.ts
+var vec3_exports = /* @__PURE__ */ __exportAll({
+	add: () => add$2,
+	addScalar: () => addScalar$1,
+	angle: () => angle,
+	bezier: () => bezier,
+	ceil: () => ceil$1,
+	clone: () => clone$2$1,
+	copy: () => copy$2$1,
+	create: () => create$2$1,
+	cross: () => cross$1,
+	dist: () => dist,
+	distance: () => distance,
+	div: () => div$1,
+	divide: () => divide,
+	dot: () => dot$3,
+	equals: () => equals$2$1,
+	exactEquals: () => exactEquals$2$1,
+	finite: () => finite,
+	floor: () => floor$1,
+	fromBuffer: () => fromBuffer$1,
+	fromValues: () => fromValues$2,
+	hermite: () => hermite,
+	inverse: () => inverse,
+	isScaleInsideOut: () => isScaleInsideOut,
+	len: () => len,
+	length: () => length$3,
+	lerp: () => lerp,
+	max: () => max$2,
+	min: () => min$2,
+	mul: () => mul$2,
+	multiply: () => multiply$2,
+	negate: () => negate$2,
+	normalize: () => normalize$5,
+	perpendicular: () => perpendicular,
+	rotateX: () => rotateX$1$1,
+	rotateY: () => rotateY$1$1,
+	rotateZ: () => rotateZ$1$1,
+	round: () => round,
+	scale: () => scale$2,
+	scaleAndAdd: () => scaleAndAdd,
+	set: () => set$2,
+	setScalar: () => setScalar$1,
+	slerp: () => slerp$1,
+	sqrDist: () => sqrDist,
+	sqrLen: () => sqrLen,
+	squaredDistance: () => squaredDistance,
+	squaredLength: () => squaredLength,
+	str: () => str$2,
+	sub: () => sub$2,
+	subtract: () => subtract$2,
+	subtractScalar: () => subtractScalar,
+	toBuffer: () => toBuffer$1,
+	transformMat3: () => transformMat3,
+	transformMat4: () => transformMat4$1,
+	transformQuat: () => transformQuat,
+	zero: () => zero$2
+});
 /**
- * Creates a new, empty vec3
- *
- * @returns a new 3D vector
- */
-function create$7() {
-    return [0, 0, 0];
+* Creates a new, empty vec3
+*
+* @returns a new 3D vector
+*/
+function create$2$1() {
+	return [
+		0,
+		0,
+		0
+	];
 }
 /**
- * Creates a new vec3 initialized with values from an existing vector
- *
- * @param a vector to clone
- * @returns a new 3D vector
- */
-function clone$3(a) {
-    const out = [0, 0, 0];
-    out[0] = a[0];
-    out[1] = a[1];
-    out[2] = a[2];
-    return out;
+* Creates a new vec3 initialized with values from an existing vector
+*
+* @param a vector to clone
+* @returns a new 3D vector
+*/
+function clone$2$1(a) {
+	const out = [
+		0,
+		0,
+		0
+	];
+	out[0] = a[0];
+	out[1] = a[1];
+	out[2] = a[2];
+	return out;
 }
 /**
- * Calculates the length of a vec3
- *
- * @param a vector to calculate length of
- * @returns length of a
- */
-function length$1(a) {
-    const x = a[0];
-    const y = a[1];
-    const z = a[2];
-    return Math.sqrt(x * x + y * y + z * z);
+* Calculates the length of a vec3
+*
+* @param a vector to calculate length of
+* @returns length of a
+*/
+function length$3(a) {
+	const x = a[0];
+	const y = a[1];
+	const z = a[2];
+	return Math.sqrt(x * x + y * y + z * z);
 }
 /**
- * Creates a new vec3 initialized with the given values
- *
- * @param x X component
- * @param y Y component
- * @param z Z component
- * @returns a new 3D vector
- */
+* Creates a new vec3 initialized with the given values
+*
+* @param x X component
+* @param y Y component
+* @param z Z component
+* @returns a new 3D vector
+*/
 function fromValues$2(x, y, z) {
-    const out = [0, 0, 0];
-    out[0] = x;
-    out[1] = y;
-    out[2] = z;
-    return out;
+	const out = [
+		0,
+		0,
+		0
+	];
+	out[0] = x;
+	out[1] = y;
+	out[2] = z;
+	return out;
 }
 /**
- * Copy the values from one vec3 to another
- *
- * @param out the receiving vector
- * @param a the source vector
- * @returns out
- */
-function copy$6(out, a) {
-    out[0] = a[0];
-    out[1] = a[1];
-    out[2] = a[2];
-    return out;
+* Copy the values from one vec3 to another
+*
+* @param out the receiving vector
+* @param a the source vector
+* @returns out
+*/
+function copy$2$1(out, a) {
+	out[0] = a[0];
+	out[1] = a[1];
+	out[2] = a[2];
+	return out;
 }
 /**
- * Set the components of a vec3 to the given values
- *
- * @param out the receiving vector
- * @param x X component
- * @param y Y component
- * @param z Z component
- * @returns out
- */
+* Set the components of a vec3 to the given values
+*
+* @param out the receiving vector
+* @param x X component
+* @param y Y component
+* @param z Z component
+* @returns out
+*/
 function set$2(out, x, y, z) {
-    out[0] = x;
-    out[1] = y;
-    out[2] = z;
-    return out;
+	out[0] = x;
+	out[1] = y;
+	out[2] = z;
+	return out;
 }
 /**
- * Sets the components of a vec3 from a buffer
- * @param out the receiving vector
- * @param buffer the source buffer
- * @param startIndex the starting index in the buffer
- * @returns out
- */
-function fromBuffer(out, buffer, startIndex) {
-    out[0] = buffer[startIndex];
-    out[1] = buffer[startIndex + 1];
-    out[2] = buffer[startIndex + 2];
-    return out;
+* Sets all components of a vec3 to the given scalar value
+*
+* @param out the receiving vector
+* @param s scalar value to set
+* @returns out
+*/
+function setScalar$1(out, s) {
+	out[0] = s;
+	out[1] = s;
+	out[2] = s;
+	return out;
 }
 /**
- * Adds two vec3's
- *
- * @param out the receiving vector
- * @param a the first operand
- * @param b the second operand
- * @returns out
- */
-function add$1(out, a, b) {
-    out[0] = a[0] + b[0];
-    out[1] = a[1] + b[1];
-    out[2] = a[2] + b[2];
-    return out;
+* Sets the components of a vec3 from a buffer
+* @param out the receiving vector
+* @param buffer the source buffer
+* @param startIndex the starting index in the buffer
+* @returns out
+*/
+function fromBuffer$1(out, buffer, startIndex) {
+	out[0] = buffer[startIndex];
+	out[1] = buffer[startIndex + 1];
+	out[2] = buffer[startIndex + 2];
+	return out;
 }
 /**
- * Subtracts vector b from vector a
- *
- * @param out the receiving vector
- * @param a the first operand
- * @param b the second operand
- * @returns out
- */
-function subtract(out, a, b) {
-    out[0] = a[0] - b[0];
-    out[1] = a[1] - b[1];
-    out[2] = a[2] - b[2];
-    return out;
+* Writes the components of a vec3 to a buffer
+* @param outBuffer The output buffer
+* @param vec The source vector
+* @param startIndex The starting index in the buffer
+* @returns The output buffer
+*/
+function toBuffer$1(outBuffer, vec, startIndex) {
+	outBuffer[startIndex] = vec[0];
+	outBuffer[startIndex + 1] = vec[1];
+	outBuffer[startIndex + 2] = vec[2];
+	return outBuffer;
 }
 /**
- * Multiplies two vec3's
- *
- * @param out the receiving vector
- * @param a the first operand
- * @param b the second operand
- * @returns out
- */
+* Adds two vec3's
+*
+* @param out the receiving vector
+* @param a the first operand
+* @param b the second operand
+* @returns out
+*/
+function add$2(out, a, b) {
+	out[0] = a[0] + b[0];
+	out[1] = a[1] + b[1];
+	out[2] = a[2] + b[2];
+	return out;
+}
+/**
+* Adds a scalar value to all components of a vec3
+*
+* @param out the receiving vector
+* @param a the source vector
+* @param b the scalar value to add
+* @returns out
+*/
+function addScalar$1(out, a, b) {
+	out[0] = a[0] + b;
+	out[1] = a[1] + b;
+	out[2] = a[2] + b;
+	return out;
+}
+/**
+* Subtracts vector b from vector a
+*
+* @param out the receiving vector
+* @param a the first operand
+* @param b the second operand
+* @returns out
+*/
+function subtract$2(out, a, b) {
+	out[0] = a[0] - b[0];
+	out[1] = a[1] - b[1];
+	out[2] = a[2] - b[2];
+	return out;
+}
+/**
+* Subtracts a scalar value from all components of a vec3
+*
+* @param out the receiving vector
+* @param a the source vector
+* @param b the scalar value to subtract
+* @returns out
+*/
+function subtractScalar(out, a, b) {
+	out[0] = a[0] - b;
+	out[1] = a[1] - b;
+	out[2] = a[2] - b;
+	return out;
+}
+/**
+* Multiplies two vec3's
+*
+* @param out the receiving vector
+* @param a the first operand
+* @param b the second operand
+* @returns out
+*/
 function multiply$2(out, a, b) {
-    out[0] = a[0] * b[0];
-    out[1] = a[1] * b[1];
-    out[2] = a[2] * b[2];
-    return out;
+	out[0] = a[0] * b[0];
+	out[1] = a[1] * b[1];
+	out[2] = a[2] * b[2];
+	return out;
 }
 /**
- * Divides two vec3's
- *
- * @param out the receiving vector
- * @param a the first operand
- * @param b the second operand
- * @returns out
- */
+* Divides two vec3's
+*
+* @param out the receiving vector
+* @param a the first operand
+* @param b the second operand
+* @returns out
+*/
 function divide(out, a, b) {
-    out[0] = a[0] / b[0];
-    out[1] = a[1] / b[1];
-    out[2] = a[2] / b[2];
-    return out;
+	out[0] = a[0] / b[0];
+	out[1] = a[1] / b[1];
+	out[2] = a[2] / b[2];
+	return out;
 }
 /**
- * Scales a vec3 by a scalar number
- *
- * @param out the receiving vector
- * @param a the vector to scale
- * @param b amount to scale the vector by
- * @returns out
- */
-function scale(out, a, b) {
-    out[0] = a[0] * b;
-    out[1] = a[1] * b;
-    out[2] = a[2] * b;
-    return out;
+* Math.ceil the components of a vec3
+*
+* @param out the receiving vector
+* @param a vector to ceil
+* @returns out
+*/
+function ceil$1(out, a) {
+	out[0] = Math.ceil(a[0]);
+	out[1] = Math.ceil(a[1]);
+	out[2] = Math.ceil(a[2]);
+	return out;
 }
 /**
- * Adds two vec3's after scaling the second operand by a scalar value
- *
- * @param out the receiving vector
- * @param a the first operand
- * @param b the second operand
- * @param scale the amount to scale b by before adding
- * @returns out
- */
+* Math.floor the components of a vec3
+*
+* @param out the receiving vector
+* @param a vector to floor
+* @returns out
+*/
+function floor$1(out, a) {
+	out[0] = Math.floor(a[0]);
+	out[1] = Math.floor(a[1]);
+	out[2] = Math.floor(a[2]);
+	return out;
+}
+/**
+* Returns the minimum of two vec3's
+*
+* @param out the receiving vector
+* @param a the first operand
+* @param b the second operand
+* @returns out
+*/
+function min$2(out, a, b) {
+	out[0] = Math.min(a[0], b[0]);
+	out[1] = Math.min(a[1], b[1]);
+	out[2] = Math.min(a[2], b[2]);
+	return out;
+}
+/**
+* Returns the maximum of two vec3's
+*
+* @param out the receiving vector
+* @param a the first operand
+* @param b the second operand
+* @returns out
+*/
+function max$2(out, a, b) {
+	out[0] = Math.max(a[0], b[0]);
+	out[1] = Math.max(a[1], b[1]);
+	out[2] = Math.max(a[2], b[2]);
+	return out;
+}
+/**
+* symmetric round the components of a vec3
+*
+* @param out the receiving vector
+* @param a vector to round
+* @returns out
+*/
+function round(out, a) {
+	out[0] = round$2(a[0]);
+	out[1] = round$2(a[1]);
+	out[2] = round$2(a[2]);
+	return out;
+}
+/**
+* Scales a vec3 by a scalar number
+*
+* @param out the receiving vector
+* @param a the vector to scale
+* @param b amount to scale the vector by
+* @returns out
+*/
+function scale$2(out, a, b) {
+	out[0] = a[0] * b;
+	out[1] = a[1] * b;
+	out[2] = a[2] * b;
+	return out;
+}
+/**
+* Adds two vec3's after scaling the second operand by a scalar value
+*
+* @param out the receiving vector
+* @param a the first operand
+* @param b the second operand
+* @param scale the amount to scale b by before adding
+* @returns out
+*/
 function scaleAndAdd(out, a, b, scale) {
-    out[0] = a[0] + b[0] * scale;
-    out[1] = a[1] + b[1] * scale;
-    out[2] = a[2] + b[2] * scale;
-    return out;
+	out[0] = a[0] + b[0] * scale;
+	out[1] = a[1] + b[1] * scale;
+	out[2] = a[2] + b[2] * scale;
+	return out;
 }
 /**
- * Calculates the euclidian distance between two vec3's
- *
- * @param a the first operand
- * @param b the second operand
- * @returns distance between a and b
- */
+* Calculates the euclidian distance between two vec3's
+*
+* @param a the first operand
+* @param b the second operand
+* @returns distance between a and b
+*/
 function distance(a, b) {
-    const x = b[0] - a[0];
-    const y = b[1] - a[1];
-    const z = b[2] - a[2];
-    return Math.sqrt(x * x + y * y + z * z);
+	const x = b[0] - a[0];
+	const y = b[1] - a[1];
+	const z = b[2] - a[2];
+	return Math.sqrt(x * x + y * y + z * z);
 }
 /**
- * Calculates the squared euclidian distance between two vec3's
- *
- * @param a the first operand
- * @param b the second operand
- * @returns squared distance between a and b
- */
+* Calculates the squared euclidian distance between two vec3's
+*
+* @param a the first operand
+* @param b the second operand
+* @returns squared distance between a and b
+*/
 function squaredDistance(a, b) {
-    const x = b[0] - a[0];
-    const y = b[1] - a[1];
-    const z = b[2] - a[2];
-    return x * x + y * y + z * z;
+	const x = b[0] - a[0];
+	const y = b[1] - a[1];
+	const z = b[2] - a[2];
+	return x * x + y * y + z * z;
 }
 /**
- * Negates the components of a vec3
- *
- * @param out the receiving vector
- * @param a vector to negate
- * @returns out
- */
-function negate$1(out, a) {
-    out[0] = -a[0];
-    out[1] = -a[1];
-    out[2] = -a[2];
-    return out;
+* Calculates the squared length of a vec3
+*
+* @param a vector to calculate squared length of
+* @returns squared length of a
+*/
+function squaredLength(a) {
+	const x = a[0];
+	const y = a[1];
+	const z = a[2];
+	return x * x + y * y + z * z;
 }
 /**
- * Normalize a vec3
- *
- * @param out the receiving vector
- * @param a vector to normalize
- * @returns out
- */
-function normalize$4(out, a) {
-    const x = a[0];
-    const y = a[1];
-    const z = a[2];
-    let len = x * x + y * y + z * z;
-    if (len > 0) {
-        //TODO: evaluate use of glm_invsqrt here?
-        len = 1 / Math.sqrt(len);
-    }
-    out[0] = a[0] * len;
-    out[1] = a[1] * len;
-    out[2] = a[2] * len;
-    return out;
+* Negates the components of a vec3
+*
+* @param out the receiving vector
+* @param a vector to negate
+* @returns out
+*/
+function negate$2(out, a) {
+	out[0] = -a[0];
+	out[1] = -a[1];
+	out[2] = -a[2];
+	return out;
 }
 /**
- * Calculates the dot product of two vec3's
- *
- * @param a the first operand
- * @param b the second operand
- * @returns dot product of a and b
- */
-function dot$1(a, b) {
-    return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+* Returns the inverse of the components of a vec3
+*
+* @param out the receiving vector
+* @param a vector to invert
+* @returns out
+*/
+function inverse(out, a) {
+	out[0] = 1 / a[0];
+	out[1] = 1 / a[1];
+	out[2] = 1 / a[2];
+	return out;
 }
 /**
- * Computes the cross product of two vec3's
- *
- * @param out the receiving vector
- * @param a the first operand
- * @param b the second operand
- * @returns out
- */
+* Normalize a vec3
+*
+* @param out the receiving vector
+* @param a vector to normalize
+* @returns out
+*/
+function normalize$5(out, a) {
+	const x = a[0];
+	const y = a[1];
+	const z = a[2];
+	let len = x * x + y * y + z * z;
+	if (len > 0) len = 1 / Math.sqrt(len);
+	out[0] = a[0] * len;
+	out[1] = a[1] * len;
+	out[2] = a[2] * len;
+	return out;
+}
+/**
+* Calculates the dot product of two vec3's
+*
+* @param a the first operand
+* @param b the second operand
+* @returns dot product of a and b
+*/
+function dot$3(a, b) {
+	return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+/**
+* Computes the cross product of two vec3's
+*
+* @param out the receiving vector
+* @param a the first operand
+* @param b the second operand
+* @returns out
+*/
 function cross$1(out, a, b) {
-    const ax = a[0];
-    const ay = a[1];
-    const az = a[2];
-    const bx = b[0];
-    const by = b[1];
-    const bz = b[2];
-    out[0] = ay * bz - az * by;
-    out[1] = az * bx - ax * bz;
-    out[2] = ax * by - ay * bx;
-    return out;
+	const ax = a[0];
+	const ay = a[1];
+	const az = a[2];
+	const bx = b[0];
+	const by = b[1];
+	const bz = b[2];
+	out[0] = ay * bz - az * by;
+	out[1] = az * bx - ax * bz;
+	out[2] = ax * by - ay * bx;
+	return out;
 }
 /**
- * Transforms the vec3 with a mat4.
- * 4th vector component is implicitly '1'
- *
- * @param out the receiving vector
- * @param a the vector to transform
- * @param m matrix to transform with
- * @returns out
- */
+* Calculates a normalized perpendicular vector to the given vector.
+* Useful for finding an arbitrary orthogonal basis vector.
+*
+* @param out the receiving vector
+* @param a the source vector
+* @returns the out vector
+*/
+function perpendicular(out, a) {
+	if (Math.abs(a[0]) > Math.abs(a[1])) {
+		const invLen = 1 / Math.sqrt(a[0] * a[0] + a[2] * a[2]);
+		out[0] = a[2] * invLen;
+		out[1] = 0;
+		out[2] = -a[0] * invLen;
+	} else {
+		const invLen = 1 / Math.sqrt(a[1] * a[1] + a[2] * a[2]);
+		out[0] = 0;
+		out[1] = a[2] * invLen;
+		out[2] = -a[1] * invLen;
+	}
+	return out;
+}
+/**
+* Performs a linear interpolation between two vec3's
+*
+* @param out the receiving vector
+* @param a the first operand
+* @param b the second operand
+* @param t interpolation amount, in the range [0-1], between the two inputs
+* @returns out
+*/
+function lerp(out, a, b, t) {
+	const ax = a[0];
+	const ay = a[1];
+	const az = a[2];
+	out[0] = ax + t * (b[0] - ax);
+	out[1] = ay + t * (b[1] - ay);
+	out[2] = az + t * (b[2] - az);
+	return out;
+}
+/**
+* Performs a spherical linear interpolation between two vec3's
+*
+* @param out the receiving vector
+* @param a the first operand
+* @param b the second operand
+* @param t interpolation amount, in the range [0-1], between the two inputs
+* @returns out
+*/
+function slerp$1(out, a, b, t) {
+	const angle = Math.acos(Math.min(Math.max(dot$3(a, b), -1), 1));
+	const sinTotal = Math.sin(angle);
+	const ratioA = Math.sin((1 - t) * angle) / sinTotal;
+	const ratioB = Math.sin(t * angle) / sinTotal;
+	out[0] = ratioA * a[0] + ratioB * b[0];
+	out[1] = ratioA * a[1] + ratioB * b[1];
+	out[2] = ratioA * a[2] + ratioB * b[2];
+	return out;
+}
+/**
+* Performs a hermite interpolation with two control points
+*
+* @param out the receiving vector
+* @param a the first operand
+* @param b the second operand
+* @param c the third operand
+* @param d the fourth operand
+* @param t interpolation amount, in the range [0-1], between the two inputs
+* @returns out
+*/
+function hermite(out, a, b, c, d, t) {
+	const factorTimes2 = t * t;
+	const factor1 = factorTimes2 * (2 * t - 3) + 1;
+	const factor2 = factorTimes2 * (t - 2) + t;
+	const factor3 = factorTimes2 * (t - 1);
+	const factor4 = factorTimes2 * (3 - 2 * t);
+	out[0] = a[0] * factor1 + b[0] * factor2 + c[0] * factor3 + d[0] * factor4;
+	out[1] = a[1] * factor1 + b[1] * factor2 + c[1] * factor3 + d[1] * factor4;
+	out[2] = a[2] * factor1 + b[2] * factor2 + c[2] * factor3 + d[2] * factor4;
+	return out;
+}
+/**
+* Performs a bezier interpolation with two control points
+*
+* @param out the receiving vector
+* @param a the first operand
+* @param b the second operand
+* @param c the third operand
+* @param d the fourth operand
+* @param t interpolation amount, in the range [0-1], between the two inputs
+* @returns out
+*/
+function bezier(out, a, b, c, d, t) {
+	const inverseFactor = 1 - t;
+	const inverseFactorTimesTwo = inverseFactor * inverseFactor;
+	const factorTimes2 = t * t;
+	const factor1 = inverseFactorTimesTwo * inverseFactor;
+	const factor2 = 3 * t * inverseFactorTimesTwo;
+	const factor3 = 3 * factorTimes2 * inverseFactor;
+	const factor4 = factorTimes2 * t;
+	out[0] = a[0] * factor1 + b[0] * factor2 + c[0] * factor3 + d[0] * factor4;
+	out[1] = a[1] * factor1 + b[1] * factor2 + c[1] * factor3 + d[1] * factor4;
+	out[2] = a[2] * factor1 + b[2] * factor2 + c[2] * factor3 + d[2] * factor4;
+	return out;
+}
+/**
+* Transforms the vec3 with a mat4.
+* 4th vector component is implicitly '1'
+*
+* @param out the receiving vector
+* @param a the vector to transform
+* @param m matrix to transform with
+* @returns out
+*/
 function transformMat4$1(out, a, m) {
-    const x = a[0];
-    const y = a[1];
-    const z = a[2];
-    let w = m[3] * x + m[7] * y + m[11] * z + m[15];
-    w = w || 1.0;
-    out[0] = (m[0] * x + m[4] * y + m[8] * z + m[12]) / w;
-    out[1] = (m[1] * x + m[5] * y + m[9] * z + m[13]) / w;
-    out[2] = (m[2] * x + m[6] * y + m[10] * z + m[14]) / w;
-    return out;
+	const x = a[0];
+	const y = a[1];
+	const z = a[2];
+	let w = m[3] * x + m[7] * y + m[11] * z + m[15];
+	w = w || 1;
+	out[0] = (m[0] * x + m[4] * y + m[8] * z + m[12]) / w;
+	out[1] = (m[1] * x + m[5] * y + m[9] * z + m[13]) / w;
+	out[2] = (m[2] * x + m[6] * y + m[10] * z + m[14]) / w;
+	return out;
 }
 /**
- * Transforms the vec3 with a quat
- * Can also be used for dual quaternions. (Multiply it with the real part)
- *
- * @param out the receiving vector
- * @param a the vector to transform
- * @param q quaternion to transform with
- * @returns out
- */
+* Transforms the vec3 with a mat3.
+*
+* @param out the receiving vector
+* @param a the vector to transform
+* @param m the 3x3 matrix to transform with
+* @returns out
+*/
+function transformMat3(out, a, m) {
+	const x = a[0];
+	const y = a[1];
+	const z = a[2];
+	out[0] = x * m[0] + y * m[3] + z * m[6];
+	out[1] = x * m[1] + y * m[4] + z * m[7];
+	out[2] = x * m[2] + y * m[5] + z * m[8];
+	return out;
+}
+/**
+* Transforms the vec3 with a quat
+* Can also be used for dual quaternions. (Multiply it with the real part)
+*
+* @param out the receiving vector
+* @param a the vector to transform
+* @param q quaternion to transform with
+* @returns out
+*/
 function transformQuat(out, a, q) {
-    // benchmarks: https://jsperf.com/quaternion-transform-vec3-implementations-fixed
-    const qx = q[0];
-    const qy = q[1];
-    const qz = q[2];
-    const qw = q[3];
-    const x = a[0];
-    const y = a[1];
-    const z = a[2];
-    // var qvec = [qx, qy, qz];
-    // var uv = vec3.cross([], qvec, a);
-    let uvx = qy * z - qz * y;
-    let uvy = qz * x - qx * z;
-    let uvz = qx * y - qy * x;
-    // var uuv = vec3.cross([], qvec, uv);
-    let uuvx = qy * uvz - qz * uvy;
-    let uuvy = qz * uvx - qx * uvz;
-    let uuvz = qx * uvy - qy * uvx;
-    // vec3.scale(uv, uv, 2 * w);
-    const w2 = qw * 2;
-    uvx *= w2;
-    uvy *= w2;
-    uvz *= w2;
-    // vec3.scale(uuv, uuv, 2);
-    uuvx *= 2;
-    uuvy *= 2;
-    uuvz *= 2;
-    // return vec3.add(out, a, vec3.add(out, uv, uuv));
-    out[0] = x + uvx + uuvx;
-    out[1] = y + uvy + uuvy;
-    out[2] = z + uvz + uuvz;
-    return out;
+	const qx = q[0];
+	const qy = q[1];
+	const qz = q[2];
+	const qw = q[3];
+	const x = a[0];
+	const y = a[1];
+	const z = a[2];
+	let uvx = qy * z - qz * y;
+	let uvy = qz * x - qx * z;
+	let uvz = qx * y - qy * x;
+	let uuvx = qy * uvz - qz * uvy;
+	let uuvy = qz * uvx - qx * uvz;
+	let uuvz = qx * uvy - qy * uvx;
+	const w2 = qw * 2;
+	uvx *= w2;
+	uvy *= w2;
+	uvz *= w2;
+	uuvx *= 2;
+	uuvy *= 2;
+	uuvz *= 2;
+	out[0] = x + uvx + uuvx;
+	out[1] = y + uvy + uuvy;
+	out[2] = z + uvz + uuvz;
+	return out;
 }
 /**
- * Get the angle between two 3D vectors
- * @param a The first operand
- * @param b The second operand
- * @returns The angle in radians
- */
+* Rotate a 3D vector around the x-axis
+* @param out The receiving vec3
+* @param a The vec3 point to rotate
+* @param b The origin of the rotation
+* @param rad The angle of rotation in radians
+* @returns out
+*/
+function rotateX$1$1(out, a, b, rad) {
+	const p = [];
+	const r = [];
+	p[0] = a[0] - b[0];
+	p[1] = a[1] - b[1];
+	p[2] = a[2] - b[2];
+	r[0] = p[0];
+	r[1] = p[1] * Math.cos(rad) - p[2] * Math.sin(rad);
+	r[2] = p[1] * Math.sin(rad) + p[2] * Math.cos(rad);
+	out[0] = r[0] + b[0];
+	out[1] = r[1] + b[1];
+	out[2] = r[2] + b[2];
+	return out;
+}
+/**
+* Rotate a 3D vector around the y-axis
+* @param out The receiving vec3
+* @param a The vec3 point to rotate
+* @param b The origin of the rotation
+* @param rad The angle of rotation in radians
+* @returns out
+*/
+function rotateY$1$1(out, a, b, rad) {
+	const p = [];
+	const r = [];
+	p[0] = a[0] - b[0];
+	p[1] = a[1] - b[1];
+	p[2] = a[2] - b[2];
+	r[0] = p[2] * Math.sin(rad) + p[0] * Math.cos(rad);
+	r[1] = p[1];
+	r[2] = p[2] * Math.cos(rad) - p[0] * Math.sin(rad);
+	out[0] = r[0] + b[0];
+	out[1] = r[1] + b[1];
+	out[2] = r[2] + b[2];
+	return out;
+}
+/**
+* Rotate a 3D vector around the z-axis
+* @param out The receiving vec3
+* @param a The vec3 point to rotate
+* @param b The origin of the rotation
+* @param rad The angle of rotation in radians
+* @returns out
+*/
+function rotateZ$1$1(out, a, b, rad) {
+	const p = [];
+	const r = [];
+	p[0] = a[0] - b[0];
+	p[1] = a[1] - b[1];
+	p[2] = a[2] - b[2];
+	r[0] = p[0] * Math.cos(rad) - p[1] * Math.sin(rad);
+	r[1] = p[0] * Math.sin(rad) + p[1] * Math.cos(rad);
+	r[2] = p[2];
+	out[0] = r[0] + b[0];
+	out[1] = r[1] + b[1];
+	out[2] = r[2] + b[2];
+	return out;
+}
+/**
+* Get the angle between two 3D vectors
+* @param a The first operand
+* @param b The second operand
+* @returns The angle in radians
+*/
 function angle(a, b) {
-    const ax = a[0];
-    const ay = a[1];
-    const az = a[2];
-    const bx = b[0];
-    const by = b[1];
-    const bz = b[2];
-    const mag = Math.sqrt((ax * ax + ay * ay + az * az) * (bx * bx + by * by + bz * bz));
-    const cosine = mag && dot$1(a, b) / mag;
-    return Math.acos(Math.min(Math.max(cosine, -1), 1));
-}
-
-/**
- * Copy the values from one vec4 to another
- *
- * @param out the receiving vector
- * @param a the source vector
- * @returns out
- */
-function copy$5(out, a) {
-    out[0] = a[0];
-    out[1] = a[1];
-    out[2] = a[2];
-    out[3] = a[3];
-    return out;
+	const ax = a[0];
+	const ay = a[1];
+	const az = a[2];
+	const bx = b[0];
+	const by = b[1];
+	const bz = b[2];
+	const mag = Math.sqrt((ax * ax + ay * ay + az * az) * (bx * bx + by * by + bz * bz));
+	const cosine = mag && dot$3(a, b) / mag;
+	return Math.acos(Math.min(Math.max(cosine, -1), 1));
 }
 /**
- * Normalize a vec4
- *
- * @param out the receiving vector
- * @param a vector to normalize
- * @returns out
- */
-function normalize$3(out, a) {
-    const x = a[0];
-    const y = a[1];
-    const z = a[2];
-    const w = a[3];
-    let len = x * x + y * y + z * z + w * w;
-    if (len > 0) {
-        len = 1 / Math.sqrt(len);
-    }
-    out[0] = x * len;
-    out[1] = y * len;
-    out[2] = z * len;
-    out[3] = w * len;
-    return out;
-}
-
-/**
- * Creates a new identity mat4
- *
- * @returns a new 4x4 matrix
- */
-function create$6() {
-    return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+* Set the components of a vec3 to zero
+*
+* @param out the receiving vector
+* @returns out
+*/
+function zero$2(out) {
+	out[0] = 0;
+	out[1] = 0;
+	out[2] = 0;
+	return out;
 }
 /**
- * Copy the values from one mat4 to another
- *
- * @param out the receiving matrix
- * @param a the source matrix
- * @returns out
- */
-function copy$4(out, a) {
-    out[0] = a[0];
-    out[1] = a[1];
-    out[2] = a[2];
-    out[3] = a[3];
-    out[4] = a[4];
-    out[5] = a[5];
-    out[6] = a[6];
-    out[7] = a[7];
-    out[8] = a[8];
-    out[9] = a[9];
-    out[10] = a[10];
-    out[11] = a[11];
-    out[12] = a[12];
-    out[13] = a[13];
-    out[14] = a[14];
-    out[15] = a[15];
-    return out;
+* Returns a string representation of a vector
+*
+* @param a vector to represent as a string
+* @returns string representation of the vector
+*/
+function str$2(a) {
+	return `vec3(${a[0]}, ${a[1]}, ${a[2]})`;
 }
 /**
- * Set a mat4 to the identity matrix
- *
- * @param out the receiving matrix
- * @returns out
- */
+* Returns whether or not the vectors have exactly the same elements in the same position (when compared with ===)
+*
+* @param a The first vector.
+* @param b The second vector.
+* @returns True if the vectors are equal, false otherwise.
+*/
+function exactEquals$2$1(a, b) {
+	return a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
+}
+/**
+* Returns whether or not the vectors have approximately the same elements in the same position.
+*
+* @param a The first vector.
+* @param b The second vector.
+* @returns True if the vectors are equal, false otherwise.
+*/
+function equals$2$1(a, b) {
+	const a0 = a[0];
+	const a1 = a[1];
+	const a2 = a[2];
+	const b0 = b[0];
+	const b1 = b[1];
+	const b2 = b[2];
+	return Math.abs(a0 - b0) <= 1e-6 * Math.max(1, Math.abs(a0), Math.abs(b0)) && Math.abs(a1 - b1) <= 1e-6 * Math.max(1, Math.abs(a1), Math.abs(b1)) && Math.abs(a2 - b2) <= 1e-6 * Math.max(1, Math.abs(a2), Math.abs(b2));
+}
+/**
+* Returns whether or not the vector is finite
+* @param a vector to test
+* @returns whether or not the vector is finite
+*/
+function finite(a) {
+	return Number.isFinite(a[0]) && Number.isFinite(a[1]) && Number.isFinite(a[2]);
+}
+/**
+* Determines if a scale vector represents an inside-out transformation (reflection)
+* Returns true if an odd number of scale components are negative
+*
+* @param scale The scale vector to test
+* @returns true if the scale represents a reflection (odd number of negative components)
+*/
+function isScaleInsideOut(scale) {
+	const mask = (scale[0] < 0 ? 1 : 0) | (scale[1] < 0 ? 2 : 0) | (scale[2] < 0 ? 4 : 0);
+	let count = 0;
+	let m = mask;
+	while (m) {
+		count += m & 1;
+		m >>= 1;
+	}
+	return (count & 1) !== 0;
+}
+/**
+* Alias for {@link subtract}
+*/
+const sub$2 = subtract$2;
+/**
+* Alias for {@link multiply}
+*/
+const mul$2 = multiply$2;
+/**
+* Alias for {@link divide}
+*/
+const div$1 = divide;
+/**
+* Alias for {@link distance}
+*/
+const dist = distance;
+/**
+* Alias for {@link squaredDistance}
+*/
+const sqrDist = squaredDistance;
+/**
+* Alias for {@link length}
+*/
+const len = length$3;
+/**
+* Alias for {@link squaredLength}
+*/
+const sqrLen = squaredLength;
+//#endregion
+//#region src/core/mat4.ts
+var mat4_exports = /* @__PURE__ */ __exportAll({
+	add: () => add$1$1,
+	adjoint: () => adjoint$1,
+	clone: () => clone$1$2,
+	copy: () => copy$1$2,
+	create: () => create$1$1,
+	crossProductMatrix: () => crossProductMatrix,
+	decompose: () => decompose,
+	determinant: () => determinant$1,
+	equals: () => equals$1$2,
+	exactEquals: () => exactEquals$1$1,
+	frob: () => frob$1,
+	fromQuat: () => fromQuat$1,
+	fromQuat2: () => fromQuat2,
+	fromRotation: () => fromRotation$1,
+	fromRotationTranslation: () => fromRotationTranslation,
+	fromRotationTranslationScale: () => fromRotationTranslationScale,
+	fromRotationTranslationScaleOrigin: () => fromRotationTranslationScaleOrigin,
+	fromScaling: () => fromScaling$1,
+	fromTranslation: () => fromTranslation$1,
+	fromValues: () => fromValues$1$1,
+	fromXRotation: () => fromXRotation,
+	fromYRotation: () => fromYRotation,
+	fromZRotation: () => fromZRotation,
+	frustumNO: () => frustumNO,
+	frustumZO: () => frustumZO,
+	getRotation: () => getRotation,
+	getScaling: () => getScaling,
+	getTranslation: () => getTranslation,
+	identity: () => identity$1,
+	invert: () => invert$1,
+	invert3x3: () => invert3x3,
+	lookAt: () => lookAt,
+	mul: () => mul$1,
+	multiply: () => multiply$1,
+	multiply3x3: () => multiply3x3,
+	multiply3x3RightTransposed: () => multiply3x3RightTransposed,
+	multiply3x3TransposedVec: () => multiply3x3TransposedVec,
+	multiply3x3Vec: () => multiply3x3Vec,
+	multiplyScalar: () => multiplyScalar$1,
+	multiplyScalarAndAdd: () => multiplyScalarAndAdd$1,
+	orthoNO: () => orthoNO,
+	orthoZO: () => orthoZO,
+	perspectiveFromFieldOfViewNO: () => perspectiveFromFieldOfViewNO,
+	perspectiveFromFieldOfViewZO: () => perspectiveFromFieldOfViewZO,
+	perspectiveNO: () => perspectiveNO,
+	perspectiveZO: () => perspectiveZO,
+	rotate: () => rotate$1,
+	rotateX: () => rotateX,
+	rotateY: () => rotateY,
+	rotateZ: () => rotateZ,
+	scale: () => scale$1$1,
+	set: () => set$1$2,
+	str: () => str$1,
+	sub: () => sub$1$1,
+	subtract: () => subtract$1,
+	targetTo: () => targetTo,
+	translate: () => translate$1,
+	transpose: () => transpose$1,
+	zero: () => zero$1
+});
+/**
+* Creates a new identity mat4
+*
+* @returns a new 4x4 matrix
+*/
+function create$1$1() {
+	return [
+		1,
+		0,
+		0,
+		0,
+		0,
+		1,
+		0,
+		0,
+		0,
+		0,
+		1,
+		0,
+		0,
+		0,
+		0,
+		1
+	];
+}
+/**
+* Creates a new mat4 initialized with values from an existing matrix
+*
+* @param a matrix to clone
+* @returns a new 4x4 matrix
+*/
+function clone$1$2(a) {
+	const out = create$1$1();
+	out[0] = a[0];
+	out[1] = a[1];
+	out[2] = a[2];
+	out[3] = a[3];
+	out[4] = a[4];
+	out[5] = a[5];
+	out[6] = a[6];
+	out[7] = a[7];
+	out[8] = a[8];
+	out[9] = a[9];
+	out[10] = a[10];
+	out[11] = a[11];
+	out[12] = a[12];
+	out[13] = a[13];
+	out[14] = a[14];
+	out[15] = a[15];
+	return out;
+}
+/**
+* Copy the values from one mat4 to another
+*
+* @param out the receiving matrix
+* @param a the source matrix
+* @returns out
+*/
+function copy$1$2(out, a) {
+	out[0] = a[0];
+	out[1] = a[1];
+	out[2] = a[2];
+	out[3] = a[3];
+	out[4] = a[4];
+	out[5] = a[5];
+	out[6] = a[6];
+	out[7] = a[7];
+	out[8] = a[8];
+	out[9] = a[9];
+	out[10] = a[10];
+	out[11] = a[11];
+	out[12] = a[12];
+	out[13] = a[13];
+	out[14] = a[14];
+	out[15] = a[15];
+	return out;
+}
+/**
+* Create a new mat4 with the given values
+*
+* @param m00 Component in column 0, row 0 position (index 0)
+* @param m01 Component in column 0, row 1 position (index 1)
+* @param m02 Component in column 0, row 2 position (index 2)
+* @param m03 Component in column 0, row 3 position (index 3)
+* @param m10 Component in column 1, row 0 position (index 4)
+* @param m11 Component in column 1, row 1 position (index 5)
+* @param m12 Component in column 1, row 2 position (index 6)
+* @param m13 Component in column 1, row 3 position (index 7)
+* @param m20 Component in column 2, row 0 position (index 8)
+* @param m21 Component in column 2, row 1 position (index 9)
+* @param m22 Component in column 2, row 2 position (index 10)
+* @param m23 Component in column 2, row 3 position (index 11)
+* @param m30 Component in column 3, row 0 position (index 12)
+* @param m31 Component in column 3, row 1 position (index 13)
+* @param m32 Component in column 3, row 2 position (index 14)
+* @param m33 Component in column 3, row 3 position (index 15)
+* @returns A new mat4
+*/
+function fromValues$1$1(m00, m01, m02, m03, m10, m11, m12, m13, m20, m21, m22, m23, m30, m31, m32, m33) {
+	const out = create$1$1();
+	out[0] = m00;
+	out[1] = m01;
+	out[2] = m02;
+	out[3] = m03;
+	out[4] = m10;
+	out[5] = m11;
+	out[6] = m12;
+	out[7] = m13;
+	out[8] = m20;
+	out[9] = m21;
+	out[10] = m22;
+	out[11] = m23;
+	out[12] = m30;
+	out[13] = m31;
+	out[14] = m32;
+	out[15] = m33;
+	return out;
+}
+/**
+* Set the components of a mat4 to the given values
+*
+* @param out the receiving matrix
+* @param m00 Component in column 0, row 0 position (index 0)
+* @param m01 Component in column 0, row 1 position (index 1)
+* @param m02 Component in column 0, row 2 position (index 2)
+* @param m03 Component in column 0, row 3 position (index 3)
+* @param m10 Component in column 1, row 0 position (index 4)
+* @param m11 Component in column 1, row 1 position (index 5)
+* @param m12 Component in column 1, row 2 position (index 6)
+* @param m13 Component in column 1, row 3 position (index 7)
+* @param m20 Component in column 2, row 0 position (index 8)
+* @param m21 Component in column 2, row 1 position (index 9)
+* @param m22 Component in column 2, row 2 position (index 10)
+* @param m23 Component in column 2, row 3 position (index 11)
+* @param m30 Component in column 3, row 0 position (index 12)
+* @param m31 Component in column 3, row 1 position (index 13)
+* @param m32 Component in column 3, row 2 position (index 14)
+* @param m33 Component in column 3, row 3 position (index 15)
+* @returns out
+*/
+function set$1$2(out, m00, m01, m02, m03, m10, m11, m12, m13, m20, m21, m22, m23, m30, m31, m32, m33) {
+	out[0] = m00;
+	out[1] = m01;
+	out[2] = m02;
+	out[3] = m03;
+	out[4] = m10;
+	out[5] = m11;
+	out[6] = m12;
+	out[7] = m13;
+	out[8] = m20;
+	out[9] = m21;
+	out[10] = m22;
+	out[11] = m23;
+	out[12] = m30;
+	out[13] = m31;
+	out[14] = m32;
+	out[15] = m33;
+	return out;
+}
+/**
+* Set a mat4 to the identity matrix
+*
+* @param out the receiving matrix
+* @returns out
+*/
 function identity$1(out) {
-    out[0] = 1;
-    out[1] = 0;
-    out[2] = 0;
-    out[3] = 0;
-    out[4] = 0;
-    out[5] = 1;
-    out[6] = 0;
-    out[7] = 0;
-    out[8] = 0;
-    out[9] = 0;
-    out[10] = 1;
-    out[11] = 0;
-    out[12] = 0;
-    out[13] = 0;
-    out[14] = 0;
-    out[15] = 1;
-    return out;
+	out[0] = 1;
+	out[1] = 0;
+	out[2] = 0;
+	out[3] = 0;
+	out[4] = 0;
+	out[5] = 1;
+	out[6] = 0;
+	out[7] = 0;
+	out[8] = 0;
+	out[9] = 0;
+	out[10] = 1;
+	out[11] = 0;
+	out[12] = 0;
+	out[13] = 0;
+	out[14] = 0;
+	out[15] = 1;
+	return out;
 }
 /**
- * Transpose the values of a mat4
- *
- * @param out the receiving matrix
- * @param a the source matrix
- * @returns out
- */
+* Set a mat4 to the zero matrix
+*
+* @param out the receiving matrix
+* @returns out
+*/
+function zero$1(out) {
+	out[0] = 0;
+	out[1] = 0;
+	out[2] = 0;
+	out[3] = 0;
+	out[4] = 0;
+	out[5] = 0;
+	out[6] = 0;
+	out[7] = 0;
+	out[8] = 0;
+	out[9] = 0;
+	out[10] = 0;
+	out[11] = 0;
+	out[12] = 0;
+	out[13] = 0;
+	out[14] = 0;
+	out[15] = 0;
+	return out;
+}
+/**
+* Transpose the values of a mat4
+*
+* @param out the receiving matrix
+* @param a the source matrix
+* @returns out
+*/
 function transpose$1(out, a) {
-    // If we are transposing ourselves we can skip a few steps but have to cache some values
-    if (out === a) {
-        const a01 = a[1];
-        const a02 = a[2];
-        const a03 = a[3];
-        const a12 = a[6];
-        const a13 = a[7];
-        const a23 = a[11];
-        out[1] = a[4];
-        out[2] = a[8];
-        out[3] = a[12];
-        out[4] = a01;
-        out[6] = a[9];
-        out[7] = a[13];
-        out[8] = a02;
-        out[9] = a12;
-        out[11] = a[14];
-        out[12] = a03;
-        out[13] = a13;
-        out[14] = a23;
-    }
-    else {
-        out[0] = a[0];
-        out[1] = a[4];
-        out[2] = a[8];
-        out[3] = a[12];
-        out[4] = a[1];
-        out[5] = a[5];
-        out[6] = a[9];
-        out[7] = a[13];
-        out[8] = a[2];
-        out[9] = a[6];
-        out[10] = a[10];
-        out[11] = a[14];
-        out[12] = a[3];
-        out[13] = a[7];
-        out[14] = a[11];
-        out[15] = a[15];
-    }
-    return out;
+	if (out === a) {
+		const a01 = a[1];
+		const a02 = a[2];
+		const a03 = a[3];
+		const a12 = a[6];
+		const a13 = a[7];
+		const a23 = a[11];
+		out[1] = a[4];
+		out[2] = a[8];
+		out[3] = a[12];
+		out[4] = a01;
+		out[6] = a[9];
+		out[7] = a[13];
+		out[8] = a02;
+		out[9] = a12;
+		out[11] = a[14];
+		out[12] = a03;
+		out[13] = a13;
+		out[14] = a23;
+	} else {
+		out[0] = a[0];
+		out[1] = a[4];
+		out[2] = a[8];
+		out[3] = a[12];
+		out[4] = a[1];
+		out[5] = a[5];
+		out[6] = a[9];
+		out[7] = a[13];
+		out[8] = a[2];
+		out[9] = a[6];
+		out[10] = a[10];
+		out[11] = a[14];
+		out[12] = a[3];
+		out[13] = a[7];
+		out[14] = a[11];
+		out[15] = a[15];
+	}
+	return out;
 }
 /**
- * Inverts a mat4
- *
- * @param out the receiving matrix
- * @param a the source matrix
- * @returns out, or null if source matrix is not invertible
- */
+* Inverts a mat4
+*
+* @param out the receiving matrix
+* @param a the source matrix
+* @returns out, or null if source matrix is not invertible
+*/
 function invert$1(out, a) {
-    const a00 = a[0];
-    const a01 = a[1];
-    const a02 = a[2];
-    const a03 = a[3];
-    const a10 = a[4];
-    const a11 = a[5];
-    const a12 = a[6];
-    const a13 = a[7];
-    const a20 = a[8];
-    const a21 = a[9];
-    const a22 = a[10];
-    const a23 = a[11];
-    const a30 = a[12];
-    const a31 = a[13];
-    const a32 = a[14];
-    const a33 = a[15];
-    const b00 = a00 * a11 - a01 * a10;
-    const b01 = a00 * a12 - a02 * a10;
-    const b02 = a00 * a13 - a03 * a10;
-    const b03 = a01 * a12 - a02 * a11;
-    const b04 = a01 * a13 - a03 * a11;
-    const b05 = a02 * a13 - a03 * a12;
-    const b06 = a20 * a31 - a21 * a30;
-    const b07 = a20 * a32 - a22 * a30;
-    const b08 = a20 * a33 - a23 * a30;
-    const b09 = a21 * a32 - a22 * a31;
-    const b10 = a21 * a33 - a23 * a31;
-    const b11 = a22 * a33 - a23 * a32;
-    // Calculate the determinant
-    let det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
-    if (!det) {
-        return null;
-    }
-    det = 1.0 / det;
-    out[0] = (a11 * b11 - a12 * b10 + a13 * b09) * det;
-    out[1] = (a02 * b10 - a01 * b11 - a03 * b09) * det;
-    out[2] = (a31 * b05 - a32 * b04 + a33 * b03) * det;
-    out[3] = (a22 * b04 - a21 * b05 - a23 * b03) * det;
-    out[4] = (a12 * b08 - a10 * b11 - a13 * b07) * det;
-    out[5] = (a00 * b11 - a02 * b08 + a03 * b07) * det;
-    out[6] = (a32 * b02 - a30 * b05 - a33 * b01) * det;
-    out[7] = (a20 * b05 - a22 * b02 + a23 * b01) * det;
-    out[8] = (a10 * b10 - a11 * b08 + a13 * b06) * det;
-    out[9] = (a01 * b08 - a00 * b10 - a03 * b06) * det;
-    out[10] = (a30 * b04 - a31 * b02 + a33 * b00) * det;
-    out[11] = (a21 * b02 - a20 * b04 - a23 * b00) * det;
-    out[12] = (a11 * b07 - a10 * b09 - a12 * b06) * det;
-    out[13] = (a00 * b09 - a01 * b07 + a02 * b06) * det;
-    out[14] = (a31 * b01 - a30 * b03 - a32 * b00) * det;
-    out[15] = (a20 * b03 - a21 * b01 + a22 * b00) * det;
-    return out;
+	const a00 = a[0];
+	const a01 = a[1];
+	const a02 = a[2];
+	const a03 = a[3];
+	const a10 = a[4];
+	const a11 = a[5];
+	const a12 = a[6];
+	const a13 = a[7];
+	const a20 = a[8];
+	const a21 = a[9];
+	const a22 = a[10];
+	const a23 = a[11];
+	const a30 = a[12];
+	const a31 = a[13];
+	const a32 = a[14];
+	const a33 = a[15];
+	const b00 = a00 * a11 - a01 * a10;
+	const b01 = a00 * a12 - a02 * a10;
+	const b02 = a00 * a13 - a03 * a10;
+	const b03 = a01 * a12 - a02 * a11;
+	const b04 = a01 * a13 - a03 * a11;
+	const b05 = a02 * a13 - a03 * a12;
+	const b06 = a20 * a31 - a21 * a30;
+	const b07 = a20 * a32 - a22 * a30;
+	const b08 = a20 * a33 - a23 * a30;
+	const b09 = a21 * a32 - a22 * a31;
+	const b10 = a21 * a33 - a23 * a31;
+	const b11 = a22 * a33 - a23 * a32;
+	let det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
+	if (!det) return null;
+	det = 1 / det;
+	out[0] = (a11 * b11 - a12 * b10 + a13 * b09) * det;
+	out[1] = (a02 * b10 - a01 * b11 - a03 * b09) * det;
+	out[2] = (a31 * b05 - a32 * b04 + a33 * b03) * det;
+	out[3] = (a22 * b04 - a21 * b05 - a23 * b03) * det;
+	out[4] = (a12 * b08 - a10 * b11 - a13 * b07) * det;
+	out[5] = (a00 * b11 - a02 * b08 + a03 * b07) * det;
+	out[6] = (a32 * b02 - a30 * b05 - a33 * b01) * det;
+	out[7] = (a20 * b05 - a22 * b02 + a23 * b01) * det;
+	out[8] = (a10 * b10 - a11 * b08 + a13 * b06) * det;
+	out[9] = (a01 * b08 - a00 * b10 - a03 * b06) * det;
+	out[10] = (a30 * b04 - a31 * b02 + a33 * b00) * det;
+	out[11] = (a21 * b02 - a20 * b04 - a23 * b00) * det;
+	out[12] = (a11 * b07 - a10 * b09 - a12 * b06) * det;
+	out[13] = (a00 * b09 - a01 * b07 + a02 * b06) * det;
+	out[14] = (a31 * b01 - a30 * b03 - a32 * b00) * det;
+	out[15] = (a20 * b03 - a21 * b01 + a22 * b00) * det;
+	return out;
 }
 /**
- * Multiplies two mat4s
- *
- * @param out the receiving matrix
- * @param a the first operand
- * @param b the second operand
- * @returns out
- */
+* Inverts only the 3x3 rotation part of a mat4.
+* Sets the translation column and bottom row to [0, 0, 0, 1].
+* Equivalent to Jolt's Mat44::Inversed3x3()
+*
+* @param out the receiving matrix
+* @param a the source matrix
+* @returns out, or null if the 3x3 part is not invertible
+*/
+function invert3x3(out, a) {
+	const a00 = a[0];
+	const a01 = a[1];
+	const a02 = a[2];
+	const a10 = a[4];
+	const a11 = a[5];
+	const a12 = a[6];
+	const a20 = a[8];
+	const a21 = a[9];
+	const a22 = a[10];
+	const b01 = a22 * a11 - a12 * a21;
+	const b11 = -a22 * a10 + a12 * a20;
+	const b21 = a21 * a10 - a11 * a20;
+	let det = a00 * b01 + a01 * b11 + a02 * b21;
+	if (!det) return null;
+	det = 1 / det;
+	out[0] = b01 * det;
+	out[1] = (-a22 * a01 + a02 * a21) * det;
+	out[2] = (a12 * a01 - a02 * a11) * det;
+	out[3] = 0;
+	out[4] = b11 * det;
+	out[5] = (a22 * a00 - a02 * a20) * det;
+	out[6] = (-a12 * a00 + a02 * a10) * det;
+	out[7] = 0;
+	out[8] = b21 * det;
+	out[9] = (-a21 * a00 + a01 * a20) * det;
+	out[10] = (a11 * a00 - a01 * a10) * det;
+	out[11] = 0;
+	out[12] = 0;
+	out[13] = 0;
+	out[14] = 0;
+	out[15] = 1;
+	return out;
+}
+/**
+* Calculates the adjugate of a mat4
+*
+* @param out the receiving matrix
+* @param a the source matrix
+* @returns out
+*/
+function adjoint$1(out, a) {
+	const a00 = a[0];
+	const a01 = a[1];
+	const a02 = a[2];
+	const a03 = a[3];
+	const a10 = a[4];
+	const a11 = a[5];
+	const a12 = a[6];
+	const a13 = a[7];
+	const a20 = a[8];
+	const a21 = a[9];
+	const a22 = a[10];
+	const a23 = a[11];
+	const a30 = a[12];
+	const a31 = a[13];
+	const a32 = a[14];
+	const a33 = a[15];
+	const b00 = a00 * a11 - a01 * a10;
+	const b01 = a00 * a12 - a02 * a10;
+	const b02 = a00 * a13 - a03 * a10;
+	const b03 = a01 * a12 - a02 * a11;
+	const b04 = a01 * a13 - a03 * a11;
+	const b05 = a02 * a13 - a03 * a12;
+	const b06 = a20 * a31 - a21 * a30;
+	const b07 = a20 * a32 - a22 * a30;
+	const b08 = a20 * a33 - a23 * a30;
+	const b09 = a21 * a32 - a22 * a31;
+	const b10 = a21 * a33 - a23 * a31;
+	const b11 = a22 * a33 - a23 * a32;
+	out[0] = a11 * b11 - a12 * b10 + a13 * b09;
+	out[1] = a02 * b10 - a01 * b11 - a03 * b09;
+	out[2] = a31 * b05 - a32 * b04 + a33 * b03;
+	out[3] = a22 * b04 - a21 * b05 - a23 * b03;
+	out[4] = a12 * b08 - a10 * b11 - a13 * b07;
+	out[5] = a00 * b11 - a02 * b08 + a03 * b07;
+	out[6] = a32 * b02 - a30 * b05 - a33 * b01;
+	out[7] = a20 * b05 - a22 * b02 + a23 * b01;
+	out[8] = a10 * b10 - a11 * b08 + a13 * b06;
+	out[9] = a01 * b08 - a00 * b10 - a03 * b06;
+	out[10] = a30 * b04 - a31 * b02 + a33 * b00;
+	out[11] = a21 * b02 - a20 * b04 - a23 * b00;
+	out[12] = a11 * b07 - a10 * b09 - a12 * b06;
+	out[13] = a00 * b09 - a01 * b07 + a02 * b06;
+	out[14] = a31 * b01 - a30 * b03 - a32 * b00;
+	out[15] = a20 * b03 - a21 * b01 + a22 * b00;
+	return out;
+}
+/**
+* Calculates the determinant of a mat4
+*
+* @param a the source matrix
+* @returns determinant of a
+*/
+function determinant$1(a) {
+	const a00 = a[0];
+	const a01 = a[1];
+	const a02 = a[2];
+	const a03 = a[3];
+	const a10 = a[4];
+	const a11 = a[5];
+	const a12 = a[6];
+	const a13 = a[7];
+	const a20 = a[8];
+	const a21 = a[9];
+	const a22 = a[10];
+	const a23 = a[11];
+	const a30 = a[12];
+	const a31 = a[13];
+	const a32 = a[14];
+	const a33 = a[15];
+	const b0 = a00 * a11 - a01 * a10;
+	const b1 = a00 * a12 - a02 * a10;
+	const b2 = a01 * a12 - a02 * a11;
+	const b3 = a20 * a31 - a21 * a30;
+	const b4 = a20 * a32 - a22 * a30;
+	const b5 = a21 * a32 - a22 * a31;
+	const b6 = a00 * b5 - a01 * b4 + a02 * b3;
+	const b7 = a10 * b5 - a11 * b4 + a12 * b3;
+	const b8 = a20 * b2 - a21 * b1 + a22 * b0;
+	const b9 = a30 * b2 - a31 * b1 + a32 * b0;
+	return a13 * b6 - a03 * b7 + a33 * b8 - a23 * b9;
+}
+/**
+* Multiplies two mat4s
+*
+* @param out the receiving matrix
+* @param a the first operand
+* @param b the second operand
+* @returns out
+*/
 function multiply$1(out, a, b) {
-    const a00 = a[0];
-    const a01 = a[1];
-    const a02 = a[2];
-    const a03 = a[3];
-    const a10 = a[4];
-    const a11 = a[5];
-    const a12 = a[6];
-    const a13 = a[7];
-    const a20 = a[8];
-    const a21 = a[9];
-    const a22 = a[10];
-    const a23 = a[11];
-    const a30 = a[12];
-    const a31 = a[13];
-    const a32 = a[14];
-    const a33 = a[15];
-    // Cache only the current line of the second matrix
-    let b0 = b[0];
-    let b1 = b[1];
-    let b2 = b[2];
-    let b3 = b[3];
-    out[0] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
-    out[1] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
-    out[2] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
-    out[3] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
-    b0 = b[4];
-    b1 = b[5];
-    b2 = b[6];
-    b3 = b[7];
-    out[4] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
-    out[5] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
-    out[6] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
-    out[7] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
-    b0 = b[8];
-    b1 = b[9];
-    b2 = b[10];
-    b3 = b[11];
-    out[8] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
-    out[9] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
-    out[10] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
-    out[11] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
-    b0 = b[12];
-    b1 = b[13];
-    b2 = b[14];
-    b3 = b[15];
-    out[12] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
-    out[13] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
-    out[14] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
-    out[15] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
-    return out;
+	const a00 = a[0];
+	const a01 = a[1];
+	const a02 = a[2];
+	const a03 = a[3];
+	const a10 = a[4];
+	const a11 = a[5];
+	const a12 = a[6];
+	const a13 = a[7];
+	const a20 = a[8];
+	const a21 = a[9];
+	const a22 = a[10];
+	const a23 = a[11];
+	const a30 = a[12];
+	const a31 = a[13];
+	const a32 = a[14];
+	const a33 = a[15];
+	let b0 = b[0];
+	let b1 = b[1];
+	let b2 = b[2];
+	let b3 = b[3];
+	out[0] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
+	out[1] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
+	out[2] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
+	out[3] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
+	b0 = b[4];
+	b1 = b[5];
+	b2 = b[6];
+	b3 = b[7];
+	out[4] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
+	out[5] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
+	out[6] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
+	out[7] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
+	b0 = b[8];
+	b1 = b[9];
+	b2 = b[10];
+	b3 = b[11];
+	out[8] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
+	out[9] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
+	out[10] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
+	out[11] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
+	b0 = b[12];
+	b1 = b[13];
+	b2 = b[14];
+	b3 = b[15];
+	out[12] = b0 * a00 + b1 * a10 + b2 * a20 + b3 * a30;
+	out[13] = b0 * a01 + b1 * a11 + b2 * a21 + b3 * a31;
+	out[14] = b0 * a02 + b1 * a12 + b2 * a22 + b3 * a32;
+	out[15] = b0 * a03 + b1 * a13 + b2 * a23 + b3 * a33;
+	return out;
 }
 /**
- * Rotates a matrix by the given angle around the X axis
- *
- * @param out the receiving matrix
- * @param a the matrix to rotate
- * @param rad the angle to rotate the matrix by
- * @returns out
- */
+* Multiplies two mat4s treating them as 3x3 rotation matrices.
+* Only computes the upper-left 3x3 portion, sets the 4th column to [0,0,0,1].
+* More efficient than full mat4.multiply when working with pure rotations.
+*
+* @param out the receiving matrix
+* @param a the first operand
+* @param b the second operand
+* @returns out
+*/
+function multiply3x3(out, a, b) {
+	const a00 = a[0];
+	const a01 = a[1];
+	const a02 = a[2];
+	const a10 = a[4];
+	const a11 = a[5];
+	const a12 = a[6];
+	const a20 = a[8];
+	const a21 = a[9];
+	const a22 = a[10];
+	let b0 = b[0];
+	let b1 = b[1];
+	let b2 = b[2];
+	out[0] = b0 * a00 + b1 * a10 + b2 * a20;
+	out[1] = b0 * a01 + b1 * a11 + b2 * a21;
+	out[2] = b0 * a02 + b1 * a12 + b2 * a22;
+	out[3] = 0;
+	b0 = b[4];
+	b1 = b[5];
+	b2 = b[6];
+	out[4] = b0 * a00 + b1 * a10 + b2 * a20;
+	out[5] = b0 * a01 + b1 * a11 + b2 * a21;
+	out[6] = b0 * a02 + b1 * a12 + b2 * a22;
+	out[7] = 0;
+	b0 = b[8];
+	b1 = b[9];
+	b2 = b[10];
+	out[8] = b0 * a00 + b1 * a10 + b2 * a20;
+	out[9] = b0 * a01 + b1 * a11 + b2 * a21;
+	out[10] = b0 * a02 + b1 * a12 + b2 * a22;
+	out[11] = 0;
+	out[12] = 0;
+	out[13] = 0;
+	out[14] = 0;
+	out[15] = 1;
+	return out;
+}
+/**
+* Multiplies a mat4 by the transpose of another mat4,
+* treating both as 3x3 rotation matrices.
+* Computes: out = a * transpose(b) (3x3 only)
+* Sets the 4th column to [0,0,0,1].
+*
+* @param out the receiving matrix
+* @param a the first operand
+* @param b the second operand (will be transposed)
+* @returns out
+*/
+function multiply3x3RightTransposed(out, a, b) {
+	const a00 = a[0];
+	const a01 = a[1];
+	const a02 = a[2];
+	const a10 = a[4];
+	const a11 = a[5];
+	const a12 = a[6];
+	const a20 = a[8];
+	const a21 = a[9];
+	const a22 = a[10];
+	let bt0 = b[0];
+	let bt1 = b[4];
+	let bt2 = b[8];
+	out[0] = bt0 * a00 + bt1 * a10 + bt2 * a20;
+	out[1] = bt0 * a01 + bt1 * a11 + bt2 * a21;
+	out[2] = bt0 * a02 + bt1 * a12 + bt2 * a22;
+	out[3] = 0;
+	bt0 = b[1];
+	bt1 = b[5];
+	bt2 = b[9];
+	out[4] = bt0 * a00 + bt1 * a10 + bt2 * a20;
+	out[5] = bt0 * a01 + bt1 * a11 + bt2 * a21;
+	out[6] = bt0 * a02 + bt1 * a12 + bt2 * a22;
+	out[7] = 0;
+	bt0 = b[2];
+	bt1 = b[6];
+	bt2 = b[10];
+	out[8] = bt0 * a00 + bt1 * a10 + bt2 * a20;
+	out[9] = bt0 * a01 + bt1 * a11 + bt2 * a21;
+	out[10] = bt0 * a02 + bt1 * a12 + bt2 * a22;
+	out[11] = 0;
+	out[12] = 0;
+	out[13] = 0;
+	out[14] = 0;
+	out[15] = 1;
+	return out;
+}
+/**
+* Transform a Vec3 by the transpose of the 3x3 rotation part.
+*
+* @param out the receiving vector
+* @param mat the matrix to transform with
+* @param vec the vector to transform
+* @returns out
+*/
+function multiply3x3TransposedVec(out, mat, vec) {
+	const x = vec[0];
+	const y = vec[1];
+	const z = vec[2];
+	out[0] = mat[0] * x + mat[1] * y + mat[2] * z;
+	out[1] = mat[4] * x + mat[5] * y + mat[6] * z;
+	out[2] = mat[8] * x + mat[9] * y + mat[10] * z;
+	return out;
+}
+/**
+* Transform a Vec3 by only the 3x3 rotation part of a Mat4.
+*
+* @param out the receiving vector
+* @param mat the matrix to transform with
+* @param vec the vector to transform
+* @returns out
+*/
+function multiply3x3Vec(out, mat, vec) {
+	const x = vec[0];
+	const y = vec[1];
+	const z = vec[2];
+	out[0] = mat[0] * x + mat[4] * y + mat[8] * z;
+	out[1] = mat[1] * x + mat[5] * y + mat[9] * z;
+	out[2] = mat[2] * x + mat[6] * y + mat[10] * z;
+	return out;
+}
+/**
+* Cross product matrix (skew-symmetric matrix).
+* Equivalent to Jolt's Mat44::sCrossProduct(Vec3Arg)
+*
+* @param out the receiving matrix
+* @param v the vector to create the cross product matrix from
+* @returns out
+*/
+function crossProductMatrix(out, v) {
+	const x = v[0];
+	const y = v[1];
+	const z = v[2];
+	return set$1$2(out, 0, z, -y, 0, -z, 0, x, 0, y, -x, 0, 0, 0, 0, 0, 1);
+}
+/**
+* Translate a mat4 by the given vector
+*
+* @param out the receiving matrix
+* @param a the matrix to translate
+* @param v vector to translate by
+* @returns out
+*/
+function translate$1(out, a, v) {
+	const x = v[0];
+	const y = v[1];
+	const z = v[2];
+	let a00;
+	let a01;
+	let a02;
+	let a03;
+	let a10;
+	let a11;
+	let a12;
+	let a13;
+	let a20;
+	let a21;
+	let a22;
+	let a23;
+	if (a === out) {
+		out[12] = a[0] * x + a[4] * y + a[8] * z + a[12];
+		out[13] = a[1] * x + a[5] * y + a[9] * z + a[13];
+		out[14] = a[2] * x + a[6] * y + a[10] * z + a[14];
+		out[15] = a[3] * x + a[7] * y + a[11] * z + a[15];
+	} else {
+		a00 = a[0];
+		a01 = a[1];
+		a02 = a[2];
+		a03 = a[3];
+		a10 = a[4];
+		a11 = a[5];
+		a12 = a[6];
+		a13 = a[7];
+		a20 = a[8];
+		a21 = a[9];
+		a22 = a[10];
+		a23 = a[11];
+		out[0] = a00;
+		out[1] = a01;
+		out[2] = a02;
+		out[3] = a03;
+		out[4] = a10;
+		out[5] = a11;
+		out[6] = a12;
+		out[7] = a13;
+		out[8] = a20;
+		out[9] = a21;
+		out[10] = a22;
+		out[11] = a23;
+		out[12] = a00 * x + a10 * y + a20 * z + a[12];
+		out[13] = a01 * x + a11 * y + a21 * z + a[13];
+		out[14] = a02 * x + a12 * y + a22 * z + a[14];
+		out[15] = a03 * x + a13 * y + a23 * z + a[15];
+	}
+	return out;
+}
+/**
+* Scales the mat4 by the dimensions in the given vec3 not using vectorization
+*
+* @param out the receiving matrix
+* @param a the matrix to scale
+* @param v the vec3 to scale the matrix by
+* @returns out
+**/
+function scale$1$1(out, a, v) {
+	const x = v[0];
+	const y = v[1];
+	const z = v[2];
+	out[0] = a[0] * x;
+	out[1] = a[1] * x;
+	out[2] = a[2] * x;
+	out[3] = a[3] * x;
+	out[4] = a[4] * y;
+	out[5] = a[5] * y;
+	out[6] = a[6] * y;
+	out[7] = a[7] * y;
+	out[8] = a[8] * z;
+	out[9] = a[9] * z;
+	out[10] = a[10] * z;
+	out[11] = a[11] * z;
+	out[12] = a[12];
+	out[13] = a[13];
+	out[14] = a[14];
+	out[15] = a[15];
+	return out;
+}
+/**
+* Rotates a mat4 by the given angle around the given axis
+*
+* @param out the receiving matrix
+* @param a the matrix to rotate
+* @param rad the angle to rotate the matrix by
+* @param axis the axis to rotate around
+* @returns out
+*/
+function rotate$1(out, a, rad, axis) {
+	let x = axis[0];
+	let y = axis[1];
+	let z = axis[2];
+	let len = Math.sqrt(x * x + y * y + z * z);
+	if (len < 1e-6) return null;
+	len = 1 / len;
+	x *= len;
+	y *= len;
+	z *= len;
+	const s = Math.sin(rad);
+	const c = Math.cos(rad);
+	const t = 1 - c;
+	const a00 = a[0];
+	const a01 = a[1];
+	const a02 = a[2];
+	const a03 = a[3];
+	const a10 = a[4];
+	const a11 = a[5];
+	const a12 = a[6];
+	const a13 = a[7];
+	const a20 = a[8];
+	const a21 = a[9];
+	const a22 = a[10];
+	const a23 = a[11];
+	const b00 = x * x * t + c;
+	const b01 = y * x * t + z * s;
+	const b02 = z * x * t - y * s;
+	const b10 = x * y * t - z * s;
+	const b11 = y * y * t + c;
+	const b12 = z * y * t + x * s;
+	const b20 = x * z * t + y * s;
+	const b21 = y * z * t - x * s;
+	const b22 = z * z * t + c;
+	out[0] = a00 * b00 + a10 * b01 + a20 * b02;
+	out[1] = a01 * b00 + a11 * b01 + a21 * b02;
+	out[2] = a02 * b00 + a12 * b01 + a22 * b02;
+	out[3] = a03 * b00 + a13 * b01 + a23 * b02;
+	out[4] = a00 * b10 + a10 * b11 + a20 * b12;
+	out[5] = a01 * b10 + a11 * b11 + a21 * b12;
+	out[6] = a02 * b10 + a12 * b11 + a22 * b12;
+	out[7] = a03 * b10 + a13 * b11 + a23 * b12;
+	out[8] = a00 * b20 + a10 * b21 + a20 * b22;
+	out[9] = a01 * b20 + a11 * b21 + a21 * b22;
+	out[10] = a02 * b20 + a12 * b21 + a22 * b22;
+	out[11] = a03 * b20 + a13 * b21 + a23 * b22;
+	if (a !== out) {
+		out[12] = a[12];
+		out[13] = a[13];
+		out[14] = a[14];
+		out[15] = a[15];
+	}
+	return out;
+}
+/**
+* Rotates a matrix by the given angle around the X axis
+*
+* @param out the receiving matrix
+* @param a the matrix to rotate
+* @param rad the angle to rotate the matrix by
+* @returns out
+*/
 function rotateX(out, a, rad) {
-    const s = Math.sin(rad);
-    const c = Math.cos(rad);
-    const a10 = a[4];
-    const a11 = a[5];
-    const a12 = a[6];
-    const a13 = a[7];
-    const a20 = a[8];
-    const a21 = a[9];
-    const a22 = a[10];
-    const a23 = a[11];
-    if (a !== out) {
-        // If the source and destination differ, copy the unchanged rows
-        out[0] = a[0];
-        out[1] = a[1];
-        out[2] = a[2];
-        out[3] = a[3];
-        out[12] = a[12];
-        out[13] = a[13];
-        out[14] = a[14];
-        out[15] = a[15];
-    }
-    // Perform axis-specific matrix multiplication
-    out[4] = a10 * c + a20 * s;
-    out[5] = a11 * c + a21 * s;
-    out[6] = a12 * c + a22 * s;
-    out[7] = a13 * c + a23 * s;
-    out[8] = a20 * c - a10 * s;
-    out[9] = a21 * c - a11 * s;
-    out[10] = a22 * c - a12 * s;
-    out[11] = a23 * c - a13 * s;
-    return out;
+	const s = Math.sin(rad);
+	const c = Math.cos(rad);
+	const a10 = a[4];
+	const a11 = a[5];
+	const a12 = a[6];
+	const a13 = a[7];
+	const a20 = a[8];
+	const a21 = a[9];
+	const a22 = a[10];
+	const a23 = a[11];
+	if (a !== out) {
+		out[0] = a[0];
+		out[1] = a[1];
+		out[2] = a[2];
+		out[3] = a[3];
+		out[12] = a[12];
+		out[13] = a[13];
+		out[14] = a[14];
+		out[15] = a[15];
+	}
+	out[4] = a10 * c + a20 * s;
+	out[5] = a11 * c + a21 * s;
+	out[6] = a12 * c + a22 * s;
+	out[7] = a13 * c + a23 * s;
+	out[8] = a20 * c - a10 * s;
+	out[9] = a21 * c - a11 * s;
+	out[10] = a22 * c - a12 * s;
+	out[11] = a23 * c - a13 * s;
+	return out;
 }
 /**
- * Rotates a matrix by the given angle around the Y axis
- *
- * @param out the receiving matrix
- * @param a the matrix to rotate
- * @param rad the angle to rotate the matrix by
- * @returns out
- */
+* Rotates a matrix by the given angle around the Y axis
+*
+* @param out the receiving matrix
+* @param a the matrix to rotate
+* @param rad the angle to rotate the matrix by
+* @returns out
+*/
 function rotateY(out, a, rad) {
-    const s = Math.sin(rad);
-    const c = Math.cos(rad);
-    const a00 = a[0];
-    const a01 = a[1];
-    const a02 = a[2];
-    const a03 = a[3];
-    const a20 = a[8];
-    const a21 = a[9];
-    const a22 = a[10];
-    const a23 = a[11];
-    if (a !== out) {
-        // If the source and destination differ, copy the unchanged rows
-        out[4] = a[4];
-        out[5] = a[5];
-        out[6] = a[6];
-        out[7] = a[7];
-        out[12] = a[12];
-        out[13] = a[13];
-        out[14] = a[14];
-        out[15] = a[15];
-    }
-    // Perform axis-specific matrix multiplication
-    out[0] = a00 * c - a20 * s;
-    out[1] = a01 * c - a21 * s;
-    out[2] = a02 * c - a22 * s;
-    out[3] = a03 * c - a23 * s;
-    out[8] = a00 * s + a20 * c;
-    out[9] = a01 * s + a21 * c;
-    out[10] = a02 * s + a22 * c;
-    out[11] = a03 * s + a23 * c;
-    return out;
+	const s = Math.sin(rad);
+	const c = Math.cos(rad);
+	const a00 = a[0];
+	const a01 = a[1];
+	const a02 = a[2];
+	const a03 = a[3];
+	const a20 = a[8];
+	const a21 = a[9];
+	const a22 = a[10];
+	const a23 = a[11];
+	if (a !== out) {
+		out[4] = a[4];
+		out[5] = a[5];
+		out[6] = a[6];
+		out[7] = a[7];
+		out[12] = a[12];
+		out[13] = a[13];
+		out[14] = a[14];
+		out[15] = a[15];
+	}
+	out[0] = a00 * c - a20 * s;
+	out[1] = a01 * c - a21 * s;
+	out[2] = a02 * c - a22 * s;
+	out[3] = a03 * c - a23 * s;
+	out[8] = a00 * s + a20 * c;
+	out[9] = a01 * s + a21 * c;
+	out[10] = a02 * s + a22 * c;
+	out[11] = a03 * s + a23 * c;
+	return out;
 }
 /**
- * Creates a matrix from a vector translation
- * This is equivalent to (but much faster than):
- *
- *     mat4.identity(dest);
- *     mat4.translate(dest, dest, vec);
- *
- * @param out mat4 receiving operation result
- * @param v Translation vector
- * @returns out
- */
-function fromTranslation(out, v) {
-    out[0] = 1;
-    out[1] = 0;
-    out[2] = 0;
-    out[3] = 0;
-    out[4] = 0;
-    out[5] = 1;
-    out[6] = 0;
-    out[7] = 0;
-    out[8] = 0;
-    out[9] = 0;
-    out[10] = 1;
-    out[11] = 0;
-    out[12] = v[0];
-    out[13] = v[1];
-    out[14] = v[2];
-    out[15] = 1;
-    return out;
+* Rotates a matrix by the given angle around the Z axis
+*
+* @param out the receiving matrix
+* @param a the matrix to rotate
+* @param rad the angle to rotate the matrix by
+* @returns out
+*/
+function rotateZ(out, a, rad) {
+	const s = Math.sin(rad);
+	const c = Math.cos(rad);
+	const a00 = a[0];
+	const a01 = a[1];
+	const a02 = a[2];
+	const a03 = a[3];
+	const a10 = a[4];
+	const a11 = a[5];
+	const a12 = a[6];
+	const a13 = a[7];
+	if (a !== out) {
+		out[8] = a[8];
+		out[9] = a[9];
+		out[10] = a[10];
+		out[11] = a[11];
+		out[12] = a[12];
+		out[13] = a[13];
+		out[14] = a[14];
+		out[15] = a[15];
+	}
+	out[0] = a00 * c + a10 * s;
+	out[1] = a01 * c + a11 * s;
+	out[2] = a02 * c + a12 * s;
+	out[3] = a03 * c + a13 * s;
+	out[4] = a10 * c - a00 * s;
+	out[5] = a11 * c - a01 * s;
+	out[6] = a12 * c - a02 * s;
+	out[7] = a13 * c - a03 * s;
+	return out;
 }
 /**
- * Returns the translation vector component of a transformation
- *  matrix. If a matrix is built with fromRotationTranslation,
- *  the returned vector will be the same as the translation vector
- *  originally supplied.
- * @param out Vector to receive translation component
- * @param mat Matrix to be decomposed (input)
- * @return out
- */
+* Creates a matrix from a vector translation
+* This is equivalent to (but much faster than):
+*
+*     mat4.identity(dest);
+*     mat4.translate(dest, dest, vec);
+*
+* @param out mat4 receiving operation result
+* @param v Translation vector
+* @returns out
+*/
+function fromTranslation$1(out, v) {
+	out[0] = 1;
+	out[1] = 0;
+	out[2] = 0;
+	out[3] = 0;
+	out[4] = 0;
+	out[5] = 1;
+	out[6] = 0;
+	out[7] = 0;
+	out[8] = 0;
+	out[9] = 0;
+	out[10] = 1;
+	out[11] = 0;
+	out[12] = v[0];
+	out[13] = v[1];
+	out[14] = v[2];
+	out[15] = 1;
+	return out;
+}
+/**
+* Creates a matrix from a vector scaling
+* This is equivalent to (but much faster than):
+*
+*     mat4.identity(dest);
+*     mat4.scale(dest, dest, vec);
+*
+* @param out mat4 receiving operation result
+* @param v Scaling vector
+* @returns out
+*/
+function fromScaling$1(out, v) {
+	out[0] = v[0];
+	out[1] = 0;
+	out[2] = 0;
+	out[3] = 0;
+	out[4] = 0;
+	out[5] = v[1];
+	out[6] = 0;
+	out[7] = 0;
+	out[8] = 0;
+	out[9] = 0;
+	out[10] = v[2];
+	out[11] = 0;
+	out[12] = 0;
+	out[13] = 0;
+	out[14] = 0;
+	out[15] = 1;
+	return out;
+}
+/**
+* Creates a matrix from a given angle around a given axis
+* This is equivalent to (but much faster than):
+*
+*     mat4.identity(dest);
+*     mat4.rotate(dest, dest, rad, axis);
+*
+* @param out mat4 receiving operation result
+* @param rad the angle to rotate the matrix by
+* @param axis the axis to rotate around
+* @returns out
+*/
+function fromRotation$1(out, rad, axis) {
+	let x = axis[0];
+	let y = axis[1];
+	let z = axis[2];
+	let len = Math.sqrt(x * x + y * y + z * z);
+	if (len < 1e-6) return null;
+	len = 1 / len;
+	x *= len;
+	y *= len;
+	z *= len;
+	const s = Math.sin(rad);
+	const c = Math.cos(rad);
+	const t = 1 - c;
+	out[0] = x * x * t + c;
+	out[1] = y * x * t + z * s;
+	out[2] = z * x * t - y * s;
+	out[3] = 0;
+	out[4] = x * y * t - z * s;
+	out[5] = y * y * t + c;
+	out[6] = z * y * t + x * s;
+	out[7] = 0;
+	out[8] = x * z * t + y * s;
+	out[9] = y * z * t - x * s;
+	out[10] = z * z * t + c;
+	out[11] = 0;
+	out[12] = 0;
+	out[13] = 0;
+	out[14] = 0;
+	out[15] = 1;
+	return out;
+}
+/**
+* Creates a matrix from the given angle around the X axis
+* This is equivalent to (but much faster than):
+*
+*     mat4.identity(dest);
+*     mat4.rotateX(dest, dest, rad);
+*
+* @param out mat4 receiving operation result
+* @param rad the angle to rotate the matrix by
+* @returns out
+*/
+function fromXRotation(out, rad) {
+	const s = Math.sin(rad);
+	const c = Math.cos(rad);
+	out[0] = 1;
+	out[1] = 0;
+	out[2] = 0;
+	out[3] = 0;
+	out[4] = 0;
+	out[5] = c;
+	out[6] = s;
+	out[7] = 0;
+	out[8] = 0;
+	out[9] = -s;
+	out[10] = c;
+	out[11] = 0;
+	out[12] = 0;
+	out[13] = 0;
+	out[14] = 0;
+	out[15] = 1;
+	return out;
+}
+/**
+* Creates a matrix from the given angle around the Y axis
+* This is equivalent to (but much faster than):
+*
+*     mat4.identity(dest);
+*     mat4.rotateY(dest, dest, rad);
+*
+* @param out mat4 receiving operation result
+* @param rad the angle to rotate the matrix by
+* @returns out
+*/
+function fromYRotation(out, rad) {
+	const s = Math.sin(rad);
+	const c = Math.cos(rad);
+	out[0] = c;
+	out[1] = 0;
+	out[2] = -s;
+	out[3] = 0;
+	out[4] = 0;
+	out[5] = 1;
+	out[6] = 0;
+	out[7] = 0;
+	out[8] = s;
+	out[9] = 0;
+	out[10] = c;
+	out[11] = 0;
+	out[12] = 0;
+	out[13] = 0;
+	out[14] = 0;
+	out[15] = 1;
+	return out;
+}
+/**
+* Creates a matrix from the given angle around the Z axis
+* This is equivalent to (but much faster than):
+*
+*     mat4.identity(dest);
+*     mat4.rotateZ(dest, dest, rad);
+*
+* @param out mat4 receiving operation result
+* @param rad the angle to rotate the matrix by
+* @returns out
+*/
+function fromZRotation(out, rad) {
+	const s = Math.sin(rad);
+	const c = Math.cos(rad);
+	out[0] = c;
+	out[1] = s;
+	out[2] = 0;
+	out[3] = 0;
+	out[4] = -s;
+	out[5] = c;
+	out[6] = 0;
+	out[7] = 0;
+	out[8] = 0;
+	out[9] = 0;
+	out[10] = 1;
+	out[11] = 0;
+	out[12] = 0;
+	out[13] = 0;
+	out[14] = 0;
+	out[15] = 1;
+	return out;
+}
+/**
+* Creates a matrix from a quaternion rotation and vector translation
+* This is equivalent to (but much faster than):
+*
+*     mat4.identity(dest);
+*     mat4.translate(dest, dest, vec);
+*     let quatMat = mat4.create();
+*     mat4.fromQuat(quatMat, quat);
+*     mat4.multiply(dest, dest, quatMat);
+*
+* @param out mat4 receiving operation result
+* @param q Rotation quaternion
+* @param v Translation vector
+* @returns out
+*/
+function fromRotationTranslation(out, q, v) {
+	const x = q[0];
+	const y = q[1];
+	const z = q[2];
+	const w = q[3];
+	const x2 = x + x;
+	const y2 = y + y;
+	const z2 = z + z;
+	const xx = x * x2;
+	const xy = x * y2;
+	const xz = x * z2;
+	const yy = y * y2;
+	const yz = y * z2;
+	const zz = z * z2;
+	const wx = w * x2;
+	const wy = w * y2;
+	const wz = w * z2;
+	out[0] = 1 - (yy + zz);
+	out[1] = xy + wz;
+	out[2] = xz - wy;
+	out[3] = 0;
+	out[4] = xy - wz;
+	out[5] = 1 - (xx + zz);
+	out[6] = yz + wx;
+	out[7] = 0;
+	out[8] = xz + wy;
+	out[9] = yz - wx;
+	out[10] = 1 - (xx + yy);
+	out[11] = 0;
+	out[12] = v[0];
+	out[13] = v[1];
+	out[14] = v[2];
+	out[15] = 1;
+	return out;
+}
+/**
+* Creates a new mat4 from a dual quat.
+*
+* @param out Matrix
+* @param a Dual Quaternion
+* @returns mat4 receiving operation result
+*/
+function fromQuat2(out, a) {
+	const translation = [
+		0,
+		0,
+		0
+	];
+	const bx = -a[0];
+	const by = -a[1];
+	const bz = -a[2];
+	const bw = a[3];
+	const ax = a[4];
+	const ay = a[5];
+	const az = a[6];
+	const aw = a[7];
+	const magnitude = bx * bx + by * by + bz * bz + bw * bw;
+	if (magnitude > 0) {
+		translation[0] = (ax * bw + aw * bx + ay * bz - az * by) * 2 / magnitude;
+		translation[1] = (ay * bw + aw * by + az * bx - ax * bz) * 2 / magnitude;
+		translation[2] = (az * bw + aw * bz + ax * by - ay * bx) * 2 / magnitude;
+	} else {
+		translation[0] = (ax * bw + aw * bx + ay * bz - az * by) * 2;
+		translation[1] = (ay * bw + aw * by + az * bx - ax * bz) * 2;
+		translation[2] = (az * bw + aw * bz + ax * by - ay * bx) * 2;
+	}
+	fromRotationTranslation(out, a, translation);
+	return out;
+}
+/**
+* Returns the translation vector component of a transformation
+*  matrix. If a matrix is built with fromRotationTranslation,
+*  the returned vector will be the same as the translation vector
+*  originally supplied.
+* @param out Vector to receive translation component
+* @param mat Matrix to be decomposed (input)
+* @return out
+*/
 function getTranslation(out, mat) {
-    out[0] = mat[12];
-    out[1] = mat[13];
-    out[2] = mat[14];
-    return out;
+	out[0] = mat[12];
+	out[1] = mat[13];
+	out[2] = mat[14];
+	return out;
 }
 /**
- * Returns the scaling factor component of a transformation
- *  matrix. If a matrix is built with fromRotationTranslationScale
- *  with a normalized Quaternion parameter, the returned vector will be
- *  the same as the scaling vector
- *  originally supplied.
- * @param out Vector to receive scaling factor component
- * @param mat Matrix to be decomposed (input)
- * @return out
- */
+* Returns the scaling factor component of a transformation
+*  matrix. If a matrix is built with fromRotationTranslationScale
+*  with a normalized Quaternion parameter, the returned vector will be
+*  the same as the scaling vector
+*  originally supplied.
+* @param out Vector to receive scaling factor component
+* @param mat Matrix to be decomposed (input)
+* @return out
+*/
 function getScaling(out, mat) {
-    const m11 = mat[0];
-    const m12 = mat[1];
-    const m13 = mat[2];
-    const m21 = mat[4];
-    const m22 = mat[5];
-    const m23 = mat[6];
-    const m31 = mat[8];
-    const m32 = mat[9];
-    const m33 = mat[10];
-    out[0] = Math.sqrt(m11 * m11 + m12 * m12 + m13 * m13);
-    out[1] = Math.sqrt(m21 * m21 + m22 * m22 + m23 * m23);
-    out[2] = Math.sqrt(m31 * m31 + m32 * m32 + m33 * m33);
-    return out;
+	const m11 = mat[0];
+	const m12 = mat[1];
+	const m13 = mat[2];
+	const m21 = mat[4];
+	const m22 = mat[5];
+	const m23 = mat[6];
+	const m31 = mat[8];
+	const m32 = mat[9];
+	const m33 = mat[10];
+	out[0] = Math.sqrt(m11 * m11 + m12 * m12 + m13 * m13);
+	out[1] = Math.sqrt(m21 * m21 + m22 * m22 + m23 * m23);
+	out[2] = Math.sqrt(m31 * m31 + m32 * m32 + m33 * m33);
+	return out;
 }
 /**
- * Returns a quaternion representing the rotational component
- *  of a transformation matrix. If a matrix is built with
- *  fromRotationTranslation, the returned quaternion will be the
- *  same as the quaternion originally supplied.
- * @param out Quaternion to receive the rotation component
- * @param mat Matrix to be decomposed (input)
- * @return out
- */
+* Returns a quaternion representing the rotational component
+*  of a transformation matrix. If a matrix is built with
+*  fromRotationTranslation, the returned quaternion will be the
+*  same as the quaternion originally supplied.
+* @param out Quaternion to receive the rotation component
+* @param mat Matrix to be decomposed (input)
+* @return out
+*/
 function getRotation(out, mat) {
-    const scaling = [0, 0, 0];
-    getScaling(scaling, mat);
-    const is1 = 1 / scaling[0];
-    const is2 = 1 / scaling[1];
-    const is3 = 1 / scaling[2];
-    const sm11 = mat[0] * is1;
-    const sm12 = mat[1] * is2;
-    const sm13 = mat[2] * is3;
-    const sm21 = mat[4] * is1;
-    const sm22 = mat[5] * is2;
-    const sm23 = mat[6] * is3;
-    const sm31 = mat[8] * is1;
-    const sm32 = mat[9] * is2;
-    const sm33 = mat[10] * is3;
-    const trace = sm11 + sm22 + sm33;
-    let S = 0;
-    if (trace > 0) {
-        S = Math.sqrt(trace + 1.0) * 2;
-        out[3] = 0.25 * S;
-        out[0] = (sm23 - sm32) / S;
-        out[1] = (sm31 - sm13) / S;
-        out[2] = (sm12 - sm21) / S;
-    }
-    else if (sm11 > sm22 && sm11 > sm33) {
-        S = Math.sqrt(1.0 + sm11 - sm22 - sm33) * 2;
-        out[3] = (sm23 - sm32) / S;
-        out[0] = 0.25 * S;
-        out[1] = (sm12 + sm21) / S;
-        out[2] = (sm31 + sm13) / S;
-    }
-    else if (sm22 > sm33) {
-        S = Math.sqrt(1.0 + sm22 - sm11 - sm33) * 2;
-        out[3] = (sm31 - sm13) / S;
-        out[0] = (sm12 + sm21) / S;
-        out[1] = 0.25 * S;
-        out[2] = (sm23 + sm32) / S;
-    }
-    else {
-        S = Math.sqrt(1.0 + sm33 - sm11 - sm22) * 2;
-        out[3] = (sm12 - sm21) / S;
-        out[0] = (sm31 + sm13) / S;
-        out[1] = (sm23 + sm32) / S;
-        out[2] = 0.25 * S;
-    }
-    return out;
+	const scaling = [
+		0,
+		0,
+		0
+	];
+	getScaling(scaling, mat);
+	const is1 = 1 / scaling[0];
+	const is2 = 1 / scaling[1];
+	const is3 = 1 / scaling[2];
+	const sm11 = mat[0] * is1;
+	const sm12 = mat[1] * is2;
+	const sm13 = mat[2] * is3;
+	const sm21 = mat[4] * is1;
+	const sm22 = mat[5] * is2;
+	const sm23 = mat[6] * is3;
+	const sm31 = mat[8] * is1;
+	const sm32 = mat[9] * is2;
+	const sm33 = mat[10] * is3;
+	const trace = sm11 + sm22 + sm33;
+	let S = 0;
+	if (trace > 0) {
+		S = Math.sqrt(trace + 1) * 2;
+		out[3] = .25 * S;
+		out[0] = (sm23 - sm32) / S;
+		out[1] = (sm31 - sm13) / S;
+		out[2] = (sm12 - sm21) / S;
+	} else if (sm11 > sm22 && sm11 > sm33) {
+		S = Math.sqrt(1 + sm11 - sm22 - sm33) * 2;
+		out[3] = (sm23 - sm32) / S;
+		out[0] = .25 * S;
+		out[1] = (sm12 + sm21) / S;
+		out[2] = (sm31 + sm13) / S;
+	} else if (sm22 > sm33) {
+		S = Math.sqrt(1 + sm22 - sm11 - sm33) * 2;
+		out[3] = (sm31 - sm13) / S;
+		out[0] = (sm12 + sm21) / S;
+		out[1] = .25 * S;
+		out[2] = (sm23 + sm32) / S;
+	} else {
+		S = Math.sqrt(1 + sm33 - sm11 - sm22) * 2;
+		out[3] = (sm12 - sm21) / S;
+		out[0] = (sm31 + sm13) / S;
+		out[1] = (sm23 + sm32) / S;
+		out[2] = .25 * S;
+	}
+	return out;
 }
 /**
- * Decomposes a transformation matrix into its rotation, translation
- * and scale components. Returns only the rotation component
- * @param out_r Quaternion to receive the rotation component
- * @param out_t Vector to receive the translation vector
- * @param out_s Vector to receive the scaling factor
- * @param mat Matrix to be decomposed (input)
- * @returns out_r
- */
+* Decomposes a transformation matrix into its rotation, translation
+* and scale components. Returns only the rotation component
+* @param out_r Quaternion to receive the rotation component
+* @param out_t Vector to receive the translation vector
+* @param out_s Vector to receive the scaling factor
+* @param mat Matrix to be decomposed (input)
+* @returns out_r
+*/
 function decompose(out_r, out_t, out_s, mat) {
-    out_t[0] = mat[12];
-    out_t[1] = mat[13];
-    out_t[2] = mat[14];
-    const m11 = mat[0];
-    const m12 = mat[1];
-    const m13 = mat[2];
-    const m21 = mat[4];
-    const m22 = mat[5];
-    const m23 = mat[6];
-    const m31 = mat[8];
-    const m32 = mat[9];
-    const m33 = mat[10];
-    out_s[0] = Math.sqrt(m11 * m11 + m12 * m12 + m13 * m13);
-    out_s[1] = Math.sqrt(m21 * m21 + m22 * m22 + m23 * m23);
-    out_s[2] = Math.sqrt(m31 * m31 + m32 * m32 + m33 * m33);
-    const is1 = 1 / out_s[0];
-    const is2 = 1 / out_s[1];
-    const is3 = 1 / out_s[2];
-    const sm11 = m11 * is1;
-    const sm12 = m12 * is2;
-    const sm13 = m13 * is3;
-    const sm21 = m21 * is1;
-    const sm22 = m22 * is2;
-    const sm23 = m23 * is3;
-    const sm31 = m31 * is1;
-    const sm32 = m32 * is2;
-    const sm33 = m33 * is3;
-    const trace = sm11 + sm22 + sm33;
-    let S = 0;
-    if (trace > 0) {
-        S = Math.sqrt(trace + 1.0) * 2;
-        out_r[3] = 0.25 * S;
-        out_r[0] = (sm23 - sm32) / S;
-        out_r[1] = (sm31 - sm13) / S;
-        out_r[2] = (sm12 - sm21) / S;
-    }
-    else if (sm11 > sm22 && sm11 > sm33) {
-        S = Math.sqrt(1.0 + sm11 - sm22 - sm33) * 2;
-        out_r[3] = (sm23 - sm32) / S;
-        out_r[0] = 0.25 * S;
-        out_r[1] = (sm12 + sm21) / S;
-        out_r[2] = (sm31 + sm13) / S;
-    }
-    else if (sm22 > sm33) {
-        S = Math.sqrt(1.0 + sm22 - sm11 - sm33) * 2;
-        out_r[3] = (sm31 - sm13) / S;
-        out_r[0] = (sm12 + sm21) / S;
-        out_r[1] = 0.25 * S;
-        out_r[2] = (sm23 + sm32) / S;
-    }
-    else {
-        S = Math.sqrt(1.0 + sm33 - sm11 - sm22) * 2;
-        out_r[3] = (sm12 - sm21) / S;
-        out_r[0] = (sm31 + sm13) / S;
-        out_r[1] = (sm23 + sm32) / S;
-        out_r[2] = 0.25 * S;
-    }
-    return out_r;
+	out_t[0] = mat[12];
+	out_t[1] = mat[13];
+	out_t[2] = mat[14];
+	const m11 = mat[0];
+	const m12 = mat[1];
+	const m13 = mat[2];
+	const m21 = mat[4];
+	const m22 = mat[5];
+	const m23 = mat[6];
+	const m31 = mat[8];
+	const m32 = mat[9];
+	const m33 = mat[10];
+	out_s[0] = Math.sqrt(m11 * m11 + m12 * m12 + m13 * m13);
+	out_s[1] = Math.sqrt(m21 * m21 + m22 * m22 + m23 * m23);
+	out_s[2] = Math.sqrt(m31 * m31 + m32 * m32 + m33 * m33);
+	const is1 = 1 / out_s[0];
+	const is2 = 1 / out_s[1];
+	const is3 = 1 / out_s[2];
+	const sm11 = m11 * is1;
+	const sm12 = m12 * is2;
+	const sm13 = m13 * is3;
+	const sm21 = m21 * is1;
+	const sm22 = m22 * is2;
+	const sm23 = m23 * is3;
+	const sm31 = m31 * is1;
+	const sm32 = m32 * is2;
+	const sm33 = m33 * is3;
+	const trace = sm11 + sm22 + sm33;
+	let S = 0;
+	if (trace > 0) {
+		S = Math.sqrt(trace + 1) * 2;
+		out_r[3] = .25 * S;
+		out_r[0] = (sm23 - sm32) / S;
+		out_r[1] = (sm31 - sm13) / S;
+		out_r[2] = (sm12 - sm21) / S;
+	} else if (sm11 > sm22 && sm11 > sm33) {
+		S = Math.sqrt(1 + sm11 - sm22 - sm33) * 2;
+		out_r[3] = (sm23 - sm32) / S;
+		out_r[0] = .25 * S;
+		out_r[1] = (sm12 + sm21) / S;
+		out_r[2] = (sm31 + sm13) / S;
+	} else if (sm22 > sm33) {
+		S = Math.sqrt(1 + sm22 - sm11 - sm33) * 2;
+		out_r[3] = (sm31 - sm13) / S;
+		out_r[0] = (sm12 + sm21) / S;
+		out_r[1] = .25 * S;
+		out_r[2] = (sm23 + sm32) / S;
+	} else {
+		S = Math.sqrt(1 + sm33 - sm11 - sm22) * 2;
+		out_r[3] = (sm12 - sm21) / S;
+		out_r[0] = (sm31 + sm13) / S;
+		out_r[1] = (sm23 + sm32) / S;
+		out_r[2] = .25 * S;
+	}
+	return out_r;
 }
 /**
- * Creates a matrix from a quaternion rotation, vector translation and vector scale
- * This is equivalent to (but much faster than):
- *
- *     mat4.identity(dest);
- *     mat4.translate(dest, dest, vec);
- *     let quatMat = mat4.create();
- *     mat4.fromQuat(quatMat, quat);
- *     mat4.multiply(dest, dest, quatMat);
- *     mat4.scale(dest, dest, scale)
- *
- * @param out mat4 receiving operation result
- * @param q Rotation quaternion
- * @param v Translation vector
- * @param s Scaling vector
- * @returns out
- */
+* Creates a matrix from a quaternion rotation, vector translation and vector scale
+* This is equivalent to (but much faster than):
+*
+*     mat4.identity(dest);
+*     mat4.translate(dest, dest, vec);
+*     let quatMat = mat4.create();
+*     mat4.fromQuat(quatMat, quat);
+*     mat4.multiply(dest, dest, quatMat);
+*     mat4.scale(dest, dest, scale)
+*
+* @param out mat4 receiving operation result
+* @param q Rotation quaternion
+* @param v Translation vector
+* @param s Scaling vector
+* @returns out
+*/
 function fromRotationTranslationScale(out, q, v, s) {
-    // Quaternion math
-    const x = q[0];
-    const y = q[1];
-    const z = q[2];
-    const w = q[3];
-    const x2 = x + x;
-    const y2 = y + y;
-    const z2 = z + z;
-    const xx = x * x2;
-    const xy = x * y2;
-    const xz = x * z2;
-    const yy = y * y2;
-    const yz = y * z2;
-    const zz = z * z2;
-    const wx = w * x2;
-    const wy = w * y2;
-    const wz = w * z2;
-    const sx = s[0];
-    const sy = s[1];
-    const sz = s[2];
-    out[0] = (1 - (yy + zz)) * sx;
-    out[1] = (xy + wz) * sx;
-    out[2] = (xz - wy) * sx;
-    out[3] = 0;
-    out[4] = (xy - wz) * sy;
-    out[5] = (1 - (xx + zz)) * sy;
-    out[6] = (yz + wx) * sy;
-    out[7] = 0;
-    out[8] = (xz + wy) * sz;
-    out[9] = (yz - wx) * sz;
-    out[10] = (1 - (xx + yy)) * sz;
-    out[11] = 0;
-    out[12] = v[0];
-    out[13] = v[1];
-    out[14] = v[2];
-    out[15] = 1;
-    return out;
+	const x = q[0];
+	const y = q[1];
+	const z = q[2];
+	const w = q[3];
+	const x2 = x + x;
+	const y2 = y + y;
+	const z2 = z + z;
+	const xx = x * x2;
+	const xy = x * y2;
+	const xz = x * z2;
+	const yy = y * y2;
+	const yz = y * z2;
+	const zz = z * z2;
+	const wx = w * x2;
+	const wy = w * y2;
+	const wz = w * z2;
+	const sx = s[0];
+	const sy = s[1];
+	const sz = s[2];
+	out[0] = (1 - (yy + zz)) * sx;
+	out[1] = (xy + wz) * sx;
+	out[2] = (xz - wy) * sx;
+	out[3] = 0;
+	out[4] = (xy - wz) * sy;
+	out[5] = (1 - (xx + zz)) * sy;
+	out[6] = (yz + wx) * sy;
+	out[7] = 0;
+	out[8] = (xz + wy) * sz;
+	out[9] = (yz - wx) * sz;
+	out[10] = (1 - (xx + yy)) * sz;
+	out[11] = 0;
+	out[12] = v[0];
+	out[13] = v[1];
+	out[14] = v[2];
+	out[15] = 1;
+	return out;
 }
 /**
- * Generates a perspective projection matrix with the given bounds.
- * The near/far clip planes correspond to a normalized device coordinate Z range of [-1, 1],
- * which matches WebGL/OpenGL's clip volume.
- * Passing null/undefined/no value for far will generate infinite projection matrix.
- *
- * @param out mat4 frustum matrix will be written into
- * @param fovy Vertical field of view in radians
- * @param aspect Aspect ratio. typically viewport width/height
- * @param near Near bound of the frustum
- * @param far Far bound of the frustum, can be null or Infinity
- * @returns out
- */
+* Creates a matrix from a quaternion rotation, vector translation and vector scale, rotating and scaling around the given origin
+* This is equivalent to (but much faster than):
+*
+*     mat4.identity(dest);
+*     mat4.translate(dest, dest, vec);
+*     mat4.translate(dest, dest, origin);
+*     let quatMat = mat4.create();
+*     mat4.fromQuat(quatMat, quat);
+*     mat4.multiply(dest, dest, quatMat);
+*     mat4.scale(dest, dest, scale)
+*     mat4.translate(dest, dest, negativeOrigin);
+*
+* @param out mat4 receiving operation result
+* @param q Rotation quaternion
+* @param v Translation vector
+* @param s Scaling vector
+* @param o The origin vector around which to scale and rotate
+* @returns out
+*/
+function fromRotationTranslationScaleOrigin(out, q, v, s, o) {
+	const x = q[0];
+	const y = q[1];
+	const z = q[2];
+	const w = q[3];
+	const x2 = x + x;
+	const y2 = y + y;
+	const z2 = z + z;
+	const xx = x * x2;
+	const xy = x * y2;
+	const xz = x * z2;
+	const yy = y * y2;
+	const yz = y * z2;
+	const zz = z * z2;
+	const wx = w * x2;
+	const wy = w * y2;
+	const wz = w * z2;
+	const sx = s[0];
+	const sy = s[1];
+	const sz = s[2];
+	const ox = o[0];
+	const oy = o[1];
+	const oz = o[2];
+	const out0 = (1 - (yy + zz)) * sx;
+	const out1 = (xy + wz) * sx;
+	const out2 = (xz - wy) * sx;
+	const out4 = (xy - wz) * sy;
+	const out5 = (1 - (xx + zz)) * sy;
+	const out6 = (yz + wx) * sy;
+	const out8 = (xz + wy) * sz;
+	const out9 = (yz - wx) * sz;
+	const out10 = (1 - (xx + yy)) * sz;
+	out[0] = out0;
+	out[1] = out1;
+	out[2] = out2;
+	out[3] = 0;
+	out[4] = out4;
+	out[5] = out5;
+	out[6] = out6;
+	out[7] = 0;
+	out[8] = out8;
+	out[9] = out9;
+	out[10] = out10;
+	out[11] = 0;
+	out[12] = v[0] + ox - (out0 * ox + out4 * oy + out8 * oz);
+	out[13] = v[1] + oy - (out1 * ox + out5 * oy + out9 * oz);
+	out[14] = v[2] + oz - (out2 * ox + out6 * oy + out10 * oz);
+	out[15] = 1;
+	return out;
+}
+/**
+* Calculates a 4x4 matrix from the given quaternion
+*
+* @param out mat4 receiving operation result
+* @param q Quaternion to create matrix from
+*
+* @returns out
+*/
+function fromQuat$1(out, q) {
+	const x = q[0];
+	const y = q[1];
+	const z = q[2];
+	const w = q[3];
+	const x2 = x + x;
+	const y2 = y + y;
+	const z2 = z + z;
+	const xx = x * x2;
+	const yx = y * x2;
+	const yy = y * y2;
+	const zx = z * x2;
+	const zy = z * y2;
+	const zz = z * z2;
+	const wx = w * x2;
+	const wy = w * y2;
+	const wz = w * z2;
+	out[0] = 1 - yy - zz;
+	out[1] = yx + wz;
+	out[2] = zx - wy;
+	out[3] = 0;
+	out[4] = yx - wz;
+	out[5] = 1 - xx - zz;
+	out[6] = zy + wx;
+	out[7] = 0;
+	out[8] = zx + wy;
+	out[9] = zy - wx;
+	out[10] = 1 - xx - yy;
+	out[11] = 0;
+	out[12] = 0;
+	out[13] = 0;
+	out[14] = 0;
+	out[15] = 1;
+	return out;
+}
+/**
+* Generates a frustum matrix with the given bounds.
+* The near/far clip planes correspond to a normalized device coordinate Z range of [-1, 1],
+* which matches WebGL/OpenGL's clip volume.
+*
+* @param out mat4 frustum matrix will be written into
+* @param left Left bound of the frustum
+* @param right Right bound of the frustum
+* @param bottom Bottom bound of the frustum
+* @param top Top bound of the frustum
+* @param near Near bound of the frustum
+* @param far Far bound of the frustum
+* @returns out
+*/
+function frustumNO(out, left, right, bottom, top, near, far) {
+	const rl = 1 / (right - left);
+	const tb = 1 / (top - bottom);
+	const nf = 1 / (near - far);
+	out[0] = near * 2 * rl;
+	out[1] = 0;
+	out[2] = 0;
+	out[3] = 0;
+	out[4] = 0;
+	out[5] = near * 2 * tb;
+	out[6] = 0;
+	out[7] = 0;
+	out[8] = (right + left) * rl;
+	out[9] = (top + bottom) * tb;
+	out[10] = (far + near) * nf;
+	out[11] = -1;
+	out[12] = 0;
+	out[13] = 0;
+	out[14] = far * near * 2 * nf;
+	out[15] = 0;
+	return out;
+}
+/**
+* Generates a frustum matrix with the given bounds, suitable for WebGPU.
+* The near/far clip planes correspond to a normalized device coordinate Z range of [0, 1],
+* which matches WebGPU/Vulkan/DirectX/Metal's clip volume.
+*
+* @param out mat4 frustum matrix will be written into
+* @param left Left bound of the frustum
+* @param right Right bound of the frustum
+* @param bottom Bottom bound of the frustum
+* @param top Top bound of the frustum
+* @param near Near bound of the frustum
+* @param far Far bound of the frustum
+* @returns out
+*/
+function frustumZO(out, left, right, bottom, top, near, far) {
+	const rl = 1 / (right - left);
+	const tb = 1 / (top - bottom);
+	const nf = 1 / (near - far);
+	out[0] = near * 2 * rl;
+	out[1] = 0;
+	out[2] = 0;
+	out[3] = 0;
+	out[4] = 0;
+	out[5] = near * 2 * tb;
+	out[6] = 0;
+	out[7] = 0;
+	out[8] = (right + left) * rl;
+	out[9] = (top + bottom) * tb;
+	out[10] = far * nf;
+	out[11] = -1;
+	out[12] = 0;
+	out[13] = 0;
+	out[14] = far * near * nf;
+	out[15] = 0;
+	return out;
+}
+/**
+* Generates a perspective projection matrix with the given bounds.
+* The near/far clip planes correspond to a normalized device coordinate Z range of [-1, 1],
+* which matches WebGL/OpenGL's clip volume.
+* Passing null/undefined/no value for far will generate infinite projection matrix.
+*
+* @param out mat4 frustum matrix will be written into
+* @param fovy Vertical field of view in radians
+* @param aspect Aspect ratio. typically viewport width/height
+* @param near Near bound of the frustum
+* @param far Far bound of the frustum, can be null or Infinity
+* @returns out
+*/
 function perspectiveNO(out, fovy, aspect, near, far) {
-    const f = 1.0 / Math.tan(fovy / 2);
-    out[0] = f / aspect;
-    out[1] = 0;
-    out[2] = 0;
-    out[3] = 0;
-    out[4] = 0;
-    out[5] = f;
-    out[6] = 0;
-    out[7] = 0;
-    out[8] = 0;
-    out[9] = 0;
-    out[11] = -1;
-    out[12] = 0;
-    out[13] = 0;
-    out[15] = 0;
-    if (far != null && far !== Number.POSITIVE_INFINITY) {
-        const nf = 1 / (near - far);
-        out[10] = (far + near) * nf;
-        out[14] = 2 * far * near * nf;
-    }
-    else {
-        out[10] = -1;
-        out[14] = -2 * near;
-    }
-    return out;
+	const f = 1 / Math.tan(fovy / 2);
+	out[0] = f / aspect;
+	out[1] = 0;
+	out[2] = 0;
+	out[3] = 0;
+	out[4] = 0;
+	out[5] = f;
+	out[6] = 0;
+	out[7] = 0;
+	out[8] = 0;
+	out[9] = 0;
+	out[11] = -1;
+	out[12] = 0;
+	out[13] = 0;
+	out[15] = 0;
+	if (far != null && far !== Number.POSITIVE_INFINITY) {
+		const nf = 1 / (near - far);
+		out[10] = (far + near) * nf;
+		out[14] = 2 * far * near * nf;
+	} else {
+		out[10] = -1;
+		out[14] = -2 * near;
+	}
+	return out;
 }
 /**
- * Generates a perspective projection matrix suitable for WebGPU with the given bounds.
- * The near/far clip planes correspond to a normalized device coordinate Z range of [0, 1],
- * which matches WebGPU/Vulkan/DirectX/Metal's clip volume.
- * Passing null/undefined/no value for far will generate infinite projection matrix.
- *
- * @param out mat4 frustum matrix will be written into
- * @param fovy Vertical field of view in radians
- * @param aspect Aspect ratio. typically viewport width/height
- * @param near Near bound of the frustum
- * @param far Far bound of the frustum, can be null or Infinity
- * @returns out
- */
+* Generates a perspective projection matrix suitable for WebGPU with the given bounds.
+* The near/far clip planes correspond to a normalized device coordinate Z range of [0, 1],
+* which matches WebGPU/Vulkan/DirectX/Metal's clip volume.
+* Passing null/undefined/no value for far will generate infinite projection matrix.
+*
+* @param out mat4 frustum matrix will be written into
+* @param fovy Vertical field of view in radians
+* @param aspect Aspect ratio. typically viewport width/height
+* @param near Near bound of the frustum
+* @param far Far bound of the frustum, can be null or Infinity
+* @returns out
+*/
 function perspectiveZO(out, fovy, aspect, near, far) {
-    const f = 1.0 / Math.tan(fovy / 2);
-    out[0] = f / aspect;
-    out[1] = 0;
-    out[2] = 0;
-    out[3] = 0;
-    out[4] = 0;
-    out[5] = f;
-    out[6] = 0;
-    out[7] = 0;
-    out[8] = 0;
-    out[9] = 0;
-    out[11] = -1;
-    out[12] = 0;
-    out[13] = 0;
-    out[15] = 0;
-    if (far != null && far !== Number.POSITIVE_INFINITY) {
-        const nf = 1 / (near - far);
-        out[10] = far * nf;
-        out[14] = far * near * nf;
-    }
-    else {
-        out[10] = -1;
-        out[14] = -near;
-    }
-    return out;
+	const f = 1 / Math.tan(fovy / 2);
+	out[0] = f / aspect;
+	out[1] = 0;
+	out[2] = 0;
+	out[3] = 0;
+	out[4] = 0;
+	out[5] = f;
+	out[6] = 0;
+	out[7] = 0;
+	out[8] = 0;
+	out[9] = 0;
+	out[11] = -1;
+	out[12] = 0;
+	out[13] = 0;
+	out[15] = 0;
+	if (far != null && far !== Number.POSITIVE_INFINITY) {
+		const nf = 1 / (near - far);
+		out[10] = far * nf;
+		out[14] = far * near * nf;
+	} else {
+		out[10] = -1;
+		out[14] = -near;
+	}
+	return out;
 }
 /**
- * Generates a orthogonal projection matrix with the given bounds.
- * The near/far clip planes correspond to a normalized device coordinate Z range of [-1, 1],
- * which matches WebGL/OpenGL's clip volume.
- *
- * @param out mat4 frustum matrix will be written into
- * @param left Left bound of the frustum
- * @param right Right bound of the frustum
- * @param bottom Bottom bound of the frustum
- * @param top Top bound of the frustum
- * @param near Near bound of the frustum
- * @param far Far bound of the frustum
- * @returns out
- */
+* Generates a perspective projection matrix with the given field of view.
+* This is primarily useful for generating projection matrices to be used
+* with the still experimental WebVR API.
+* The near/far clip planes correspond to a normalized device coordinate Z range of [-1, 1],
+* which matches WebGL/OpenGL's clip volume.
+*
+* @param out mat4 frustum matrix will be written into
+* @param fov Object containing the following values: upDegrees, downDegrees, leftDegrees, rightDegrees
+* @param near Near bound of the frustum
+* @param far Far bound of the frustum
+* @returns out
+*/
+function perspectiveFromFieldOfViewNO(out, fov, near, far) {
+	const upTan = Math.tan(fov.upDegrees * Math.PI / 180);
+	const downTan = Math.tan(fov.downDegrees * Math.PI / 180);
+	const leftTan = Math.tan(fov.leftDegrees * Math.PI / 180);
+	const rightTan = Math.tan(fov.rightDegrees * Math.PI / 180);
+	const xScale = 2 / (leftTan + rightTan);
+	const yScale = 2 / (upTan + downTan);
+	const nf = 1 / (near - far);
+	out[0] = xScale;
+	out[1] = 0;
+	out[2] = 0;
+	out[3] = 0;
+	out[4] = 0;
+	out[5] = yScale;
+	out[6] = 0;
+	out[7] = 0;
+	out[8] = -((leftTan - rightTan) * xScale * .5);
+	out[9] = (upTan - downTan) * yScale * .5;
+	out[10] = (far + near) * nf;
+	out[11] = -1;
+	out[12] = 0;
+	out[13] = 0;
+	out[14] = 2 * far * near * nf;
+	out[15] = 0;
+	return out;
+}
+/**
+* Generates a perspective projection matrix with the given field of view, suitable for WebGPU.
+* This is primarily useful for generating projection matrices to be used
+* with the still experimental WebVR API.
+* The near/far clip planes correspond to a normalized device coordinate Z range of [0, 1],
+* which matches WebGPU/Vulkan/DirectX/Metal's clip volume.
+*
+* @param out mat4 frustum matrix will be written into
+* @param fov Object containing the following values: upDegrees, downDegrees, leftDegrees, rightDegrees
+* @param near Near bound of the frustum
+* @param far Far bound of the frustum
+* @returns out
+*/
+function perspectiveFromFieldOfViewZO(out, fov, near, far) {
+	const upTan = Math.tan(fov.upDegrees * Math.PI / 180);
+	const downTan = Math.tan(fov.downDegrees * Math.PI / 180);
+	const leftTan = Math.tan(fov.leftDegrees * Math.PI / 180);
+	const rightTan = Math.tan(fov.rightDegrees * Math.PI / 180);
+	const xScale = 2 / (leftTan + rightTan);
+	const yScale = 2 / (upTan + downTan);
+	out[0] = xScale;
+	out[1] = 0;
+	out[2] = 0;
+	out[3] = 0;
+	out[4] = 0;
+	out[5] = yScale;
+	out[6] = 0;
+	out[7] = 0;
+	out[8] = -((leftTan - rightTan) * xScale * .5);
+	out[9] = (upTan - downTan) * yScale * .5;
+	out[10] = far / (near - far);
+	out[11] = -1;
+	out[12] = 0;
+	out[13] = 0;
+	out[14] = far * near / (near - far);
+	out[15] = 0;
+	return out;
+}
+/**
+* Generates a orthogonal projection matrix with the given bounds.
+* The near/far clip planes correspond to a normalized device coordinate Z range of [-1, 1],
+* which matches WebGL/OpenGL's clip volume.
+*
+* @param out mat4 frustum matrix will be written into
+* @param left Left bound of the frustum
+* @param right Right bound of the frustum
+* @param bottom Bottom bound of the frustum
+* @param top Top bound of the frustum
+* @param near Near bound of the frustum
+* @param far Far bound of the frustum
+* @returns out
+*/
 function orthoNO(out, left, right, bottom, top, near, far) {
-    const lr = 1 / (left - right);
-    const bt = 1 / (bottom - top);
-    const nf = 1 / (near - far);
-    out[0] = -2 * lr;
-    out[1] = 0;
-    out[2] = 0;
-    out[3] = 0;
-    out[4] = 0;
-    out[5] = -2 * bt;
-    out[6] = 0;
-    out[7] = 0;
-    out[8] = 0;
-    out[9] = 0;
-    out[10] = 2 * nf;
-    out[11] = 0;
-    out[12] = (left + right) * lr;
-    out[13] = (top + bottom) * bt;
-    out[14] = (far + near) * nf;
-    out[15] = 1;
-    return out;
+	const lr = 1 / (left - right);
+	const bt = 1 / (bottom - top);
+	const nf = 1 / (near - far);
+	out[0] = -2 * lr;
+	out[1] = 0;
+	out[2] = 0;
+	out[3] = 0;
+	out[4] = 0;
+	out[5] = -2 * bt;
+	out[6] = 0;
+	out[7] = 0;
+	out[8] = 0;
+	out[9] = 0;
+	out[10] = 2 * nf;
+	out[11] = 0;
+	out[12] = (left + right) * lr;
+	out[13] = (top + bottom) * bt;
+	out[14] = (far + near) * nf;
+	out[15] = 1;
+	return out;
 }
 /**
- * Generates a orthogonal projection matrix with the given bounds.
- * The near/far clip planes correspond to a normalized device coordinate Z range of [0, 1],
- * which matches WebGPU/Vulkan/DirectX/Metal's clip volume.
- *
- * @param out mat4 frustum matrix will be written into
- * @param left Left bound of the frustum
- * @param right Right bound of the frustum
- * @param bottom Bottom bound of the frustum
- * @param top Top bound of the frustum
- * @param near Near bound of the frustum
- * @param far Far bound of the frustum
- * @returns out
- */
+* Generates a orthogonal projection matrix with the given bounds.
+* The near/far clip planes correspond to a normalized device coordinate Z range of [0, 1],
+* which matches WebGPU/Vulkan/DirectX/Metal's clip volume.
+*
+* @param out mat4 frustum matrix will be written into
+* @param left Left bound of the frustum
+* @param right Right bound of the frustum
+* @param bottom Bottom bound of the frustum
+* @param top Top bound of the frustum
+* @param near Near bound of the frustum
+* @param far Far bound of the frustum
+* @returns out
+*/
 function orthoZO(out, left, right, bottom, top, near, far) {
-    const lr = 1 / (left - right);
-    const bt = 1 / (bottom - top);
-    const nf = 1 / (near - far);
-    out[0] = -2 * lr;
-    out[1] = 0;
-    out[2] = 0;
-    out[3] = 0;
-    out[4] = 0;
-    out[5] = -2 * bt;
-    out[6] = 0;
-    out[7] = 0;
-    out[8] = 0;
-    out[9] = 0;
-    out[10] = nf;
-    out[11] = 0;
-    out[12] = (left + right) * lr;
-    out[13] = (top + bottom) * bt;
-    out[14] = near * nf;
-    out[15] = 1;
-    return out;
+	const lr = 1 / (left - right);
+	const bt = 1 / (bottom - top);
+	const nf = 1 / (near - far);
+	out[0] = -2 * lr;
+	out[1] = 0;
+	out[2] = 0;
+	out[3] = 0;
+	out[4] = 0;
+	out[5] = -2 * bt;
+	out[6] = 0;
+	out[7] = 0;
+	out[8] = 0;
+	out[9] = 0;
+	out[10] = nf;
+	out[11] = 0;
+	out[12] = (left + right) * lr;
+	out[13] = (top + bottom) * bt;
+	out[14] = near * nf;
+	out[15] = 1;
+	return out;
 }
 /**
- * Generates a matrix that makes something look at something else.
- *
- * @param out mat4 frustum matrix will be written into
- * @param eye Position of the viewer
- * @param target Point the viewer is looking at
- * @param up vec3 pointing up
- * @returns out
- */
+* Generates a look-at matrix with the given eye position, focal point, and up axis.
+* If you want a matrix that actually makes an object look at another object, you should use targetTo instead.
+*
+* @param out mat4 frustum matrix will be written into
+* @param eye Position of the viewer
+* @param center Point the viewer is looking at
+* @param up vec3 pointing up
+* @returns out
+*/
+function lookAt(out, eye, center, up) {
+	let x0;
+	let x1;
+	let x2;
+	let y0;
+	let y1;
+	let y2;
+	let z0;
+	let z1;
+	let z2;
+	let len;
+	const eyex = eye[0];
+	const eyey = eye[1];
+	const eyez = eye[2];
+	const upx = up[0];
+	const upy = up[1];
+	const upz = up[2];
+	const centerx = center[0];
+	const centery = center[1];
+	const centerz = center[2];
+	if (Math.abs(eyex - centerx) < 1e-6 && Math.abs(eyey - centery) < 1e-6 && Math.abs(eyez - centerz) < 1e-6) return identity$1(out);
+	z0 = eyex - centerx;
+	z1 = eyey - centery;
+	z2 = eyez - centerz;
+	len = 1 / Math.sqrt(z0 * z0 + z1 * z1 + z2 * z2);
+	z0 *= len;
+	z1 *= len;
+	z2 *= len;
+	x0 = upy * z2 - upz * z1;
+	x1 = upz * z0 - upx * z2;
+	x2 = upx * z1 - upy * z0;
+	len = Math.sqrt(x0 * x0 + x1 * x1 + x2 * x2);
+	if (!len) {
+		x0 = 0;
+		x1 = 0;
+		x2 = 0;
+	} else {
+		len = 1 / len;
+		x0 *= len;
+		x1 *= len;
+		x2 *= len;
+	}
+	y0 = z1 * x2 - z2 * x1;
+	y1 = z2 * x0 - z0 * x2;
+	y2 = z0 * x1 - z1 * x0;
+	len = Math.sqrt(y0 * y0 + y1 * y1 + y2 * y2);
+	if (!len) {
+		y0 = 0;
+		y1 = 0;
+		y2 = 0;
+	} else {
+		len = 1 / len;
+		y0 *= len;
+		y1 *= len;
+		y2 *= len;
+	}
+	out[0] = x0;
+	out[1] = y0;
+	out[2] = z0;
+	out[3] = 0;
+	out[4] = x1;
+	out[5] = y1;
+	out[6] = z1;
+	out[7] = 0;
+	out[8] = x2;
+	out[9] = y2;
+	out[10] = z2;
+	out[11] = 0;
+	out[12] = -(x0 * eyex + x1 * eyey + x2 * eyez);
+	out[13] = -(y0 * eyex + y1 * eyey + y2 * eyez);
+	out[14] = -(z0 * eyex + z1 * eyey + z2 * eyez);
+	out[15] = 1;
+	return out;
+}
+/**
+* Generates a matrix that makes something look at something else.
+*
+* @param out mat4 frustum matrix will be written into
+* @param eye Position of the viewer
+* @param target Point the viewer is looking at
+* @param up vec3 pointing up
+* @returns out
+*/
 function targetTo(out, eye, target, up) {
-    const eyex = eye[0];
-    const eyey = eye[1];
-    const eyez = eye[2];
-    const upx = up[0];
-    const upy = up[1];
-    const upz = up[2];
-    let z0 = eyex - target[0];
-    let z1 = eyey - target[1];
-    let z2 = eyez - target[2];
-    let len = z0 * z0 + z1 * z1 + z2 * z2;
-    if (len > 0) {
-        len = 1 / Math.sqrt(len);
-        z0 *= len;
-        z1 *= len;
-        z2 *= len;
-    }
-    let x0 = upy * z2 - upz * z1;
-    let x1 = upz * z0 - upx * z2;
-    let x2 = upx * z1 - upy * z0;
-    len = x0 * x0 + x1 * x1 + x2 * x2;
-    if (len > 0) {
-        len = 1 / Math.sqrt(len);
-        x0 *= len;
-        x1 *= len;
-        x2 *= len;
-    }
-    out[0] = x0;
-    out[1] = x1;
-    out[2] = x2;
-    out[3] = 0;
-    out[4] = z1 * x2 - z2 * x1;
-    out[5] = z2 * x0 - z0 * x2;
-    out[6] = z0 * x1 - z1 * x0;
-    out[7] = 0;
-    out[8] = z0;
-    out[9] = z1;
-    out[10] = z2;
-    out[11] = 0;
-    out[12] = eyex;
-    out[13] = eyey;
-    out[14] = eyez;
-    out[15] = 1;
-    return out;
-}
-
-/**
- * Creates a new identity mat3
- *
- * @returns a new 3x3 matrix
- */
-function create$5() {
-    return [1, 0, 0, 0, 1, 0, 0, 0, 1];
+	const eyex = eye[0];
+	const eyey = eye[1];
+	const eyez = eye[2];
+	const upx = up[0];
+	const upy = up[1];
+	const upz = up[2];
+	let z0 = eyex - target[0];
+	let z1 = eyey - target[1];
+	let z2 = eyez - target[2];
+	let len = z0 * z0 + z1 * z1 + z2 * z2;
+	if (len > 0) {
+		len = 1 / Math.sqrt(len);
+		z0 *= len;
+		z1 *= len;
+		z2 *= len;
+	}
+	let x0 = upy * z2 - upz * z1;
+	let x1 = upz * z0 - upx * z2;
+	let x2 = upx * z1 - upy * z0;
+	len = x0 * x0 + x1 * x1 + x2 * x2;
+	if (len > 0) {
+		len = 1 / Math.sqrt(len);
+		x0 *= len;
+		x1 *= len;
+		x2 *= len;
+	}
+	out[0] = x0;
+	out[1] = x1;
+	out[2] = x2;
+	out[3] = 0;
+	out[4] = z1 * x2 - z2 * x1;
+	out[5] = z2 * x0 - z0 * x2;
+	out[6] = z0 * x1 - z1 * x0;
+	out[7] = 0;
+	out[8] = z0;
+	out[9] = z1;
+	out[10] = z2;
+	out[11] = 0;
+	out[12] = eyex;
+	out[13] = eyey;
+	out[14] = eyez;
+	out[15] = 1;
+	return out;
 }
 /**
- * Copies the upper-left 3x3 values into the given mat3.
- *
- * @param out the receiving 3x3 matrix
- * @param a   the source 4x4 matrix
- * @returns out
- */
-function fromMat4$1(out, a) {
-    out[0] = a[0];
-    out[1] = a[1];
-    out[2] = a[2];
-    out[3] = a[4];
-    out[4] = a[5];
-    out[5] = a[6];
-    out[6] = a[8];
-    out[7] = a[9];
-    out[8] = a[10];
-    return out;
+* Returns a string representation of a mat4
+*
+* @param a matrix to represent as a string
+* @returns {String} string representation of the matrix
+*/
+function str$1(a) {
+	return `mat4(${a[0]}, ${a[1]}, ${a[2]}, ${a[3]}, ${a[4]}, ${a[5]}, ${a[6]}, ${a[7]}, ${a[8]}, ${a[9]}, ${a[10]}, ${a[11]}, ${a[12]}, ${a[13]}, ${a[14]}, ${a[15]})`;
 }
 /**
- * Calculates a 3x3 normal matrix (transpose inverse) from the 4x4 matrix
- *
- * @param out mat3 receiving operation result
- * @param a Mat4 to derive the normal matrix from
- *
- * @returns out
- */
-function normalFromMat4(out, a) {
-    const a00 = a[0];
-    const a01 = a[1];
-    const a02 = a[2];
-    const a03 = a[3];
-    const a10 = a[4];
-    const a11 = a[5];
-    const a12 = a[6];
-    const a13 = a[7];
-    const a20 = a[8];
-    const a21 = a[9];
-    const a22 = a[10];
-    const a23 = a[11];
-    const a30 = a[12];
-    const a31 = a[13];
-    const a32 = a[14];
-    const a33 = a[15];
-    const b00 = a00 * a11 - a01 * a10;
-    const b01 = a00 * a12 - a02 * a10;
-    const b02 = a00 * a13 - a03 * a10;
-    const b03 = a01 * a12 - a02 * a11;
-    const b04 = a01 * a13 - a03 * a11;
-    const b05 = a02 * a13 - a03 * a12;
-    const b06 = a20 * a31 - a21 * a30;
-    const b07 = a20 * a32 - a22 * a30;
-    const b08 = a20 * a33 - a23 * a30;
-    const b09 = a21 * a32 - a22 * a31;
-    const b10 = a21 * a33 - a23 * a31;
-    const b11 = a22 * a33 - a23 * a32;
-    // Calculate the determinant
-    let det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
-    if (!det) {
-        return null;
-    }
-    det = 1.0 / det;
-    out[0] = (a11 * b11 - a12 * b10 + a13 * b09) * det;
-    out[1] = (a12 * b08 - a10 * b11 - a13 * b07) * det;
-    out[2] = (a10 * b10 - a11 * b08 + a13 * b06) * det;
-    out[3] = (a02 * b10 - a01 * b11 - a03 * b09) * det;
-    out[4] = (a00 * b11 - a02 * b08 + a03 * b07) * det;
-    out[5] = (a01 * b08 - a00 * b10 - a03 * b06) * det;
-    out[6] = (a31 * b05 - a32 * b04 + a33 * b03) * det;
-    out[7] = (a32 * b02 - a30 * b05 - a33 * b01) * det;
-    out[8] = (a30 * b04 - a31 * b02 + a33 * b00) * det;
-    return out;
-}
-
-/**
- * Creates a new identity quat
- *
- * @returns a new quaternion
- */
-function create$4() {
-    return [0, 0, 0, 1];
+* Returns Frobenius norm of a mat4
+*
+* @param a the matrix to calculate Frobenius norm of
+* @returns Frobenius norm
+*/
+function frob$1(a) {
+	return Math.sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2] + a[3] * a[3] + a[4] * a[4] + a[5] * a[5] + a[6] * a[6] + a[7] * a[7] + a[8] * a[8] + a[9] * a[9] + a[10] * a[10] + a[11] * a[11] + a[12] * a[12] + a[13] * a[13] + a[14] * a[14] + a[15] * a[15]);
 }
 /**
- * Set a quat to the identity quaternion
- *
- * @param out the receiving quaternion
- * @returns out
- */
+* Adds two mat4's
+*
+* @param out the receiving matrix
+* @param a the first operand
+* @param b the second operand
+* @returns out
+*/
+function add$1$1(out, a, b) {
+	out[0] = a[0] + b[0];
+	out[1] = a[1] + b[1];
+	out[2] = a[2] + b[2];
+	out[3] = a[3] + b[3];
+	out[4] = a[4] + b[4];
+	out[5] = a[5] + b[5];
+	out[6] = a[6] + b[6];
+	out[7] = a[7] + b[7];
+	out[8] = a[8] + b[8];
+	out[9] = a[9] + b[9];
+	out[10] = a[10] + b[10];
+	out[11] = a[11] + b[11];
+	out[12] = a[12] + b[12];
+	out[13] = a[13] + b[13];
+	out[14] = a[14] + b[14];
+	out[15] = a[15] + b[15];
+	return out;
+}
+/**
+* Subtracts matrix b from matrix a
+*
+* @param out the receiving matrix
+* @param a the first operand
+* @param b the second operand
+* @returns out
+*/
+function subtract$1(out, a, b) {
+	out[0] = a[0] - b[0];
+	out[1] = a[1] - b[1];
+	out[2] = a[2] - b[2];
+	out[3] = a[3] - b[3];
+	out[4] = a[4] - b[4];
+	out[5] = a[5] - b[5];
+	out[6] = a[6] - b[6];
+	out[7] = a[7] - b[7];
+	out[8] = a[8] - b[8];
+	out[9] = a[9] - b[9];
+	out[10] = a[10] - b[10];
+	out[11] = a[11] - b[11];
+	out[12] = a[12] - b[12];
+	out[13] = a[13] - b[13];
+	out[14] = a[14] - b[14];
+	out[15] = a[15] - b[15];
+	return out;
+}
+/**
+* Multiply each element of the matrix by a scalar.
+*
+* @param out the receiving matrix
+* @param a the matrix to scale
+* @param b amount to scale the matrix's elements by
+* @returns out
+*/
+function multiplyScalar$1(out, a, b) {
+	out[0] = a[0] * b;
+	out[1] = a[1] * b;
+	out[2] = a[2] * b;
+	out[3] = a[3] * b;
+	out[4] = a[4] * b;
+	out[5] = a[5] * b;
+	out[6] = a[6] * b;
+	out[7] = a[7] * b;
+	out[8] = a[8] * b;
+	out[9] = a[9] * b;
+	out[10] = a[10] * b;
+	out[11] = a[11] * b;
+	out[12] = a[12] * b;
+	out[13] = a[13] * b;
+	out[14] = a[14] * b;
+	out[15] = a[15] * b;
+	return out;
+}
+/**
+* Adds two mat4's after multiplying each element of the second operand by a scalar value.
+*
+* @param out the receiving vector
+* @param a the first operand
+* @param b the second operand
+* @param scale the amount to scale b's elements by before adding
+* @returns out
+*/
+function multiplyScalarAndAdd$1(out, a, b, scale) {
+	out[0] = a[0] + b[0] * scale;
+	out[1] = a[1] + b[1] * scale;
+	out[2] = a[2] + b[2] * scale;
+	out[3] = a[3] + b[3] * scale;
+	out[4] = a[4] + b[4] * scale;
+	out[5] = a[5] + b[5] * scale;
+	out[6] = a[6] + b[6] * scale;
+	out[7] = a[7] + b[7] * scale;
+	out[8] = a[8] + b[8] * scale;
+	out[9] = a[9] + b[9] * scale;
+	out[10] = a[10] + b[10] * scale;
+	out[11] = a[11] + b[11] * scale;
+	out[12] = a[12] + b[12] * scale;
+	out[13] = a[13] + b[13] * scale;
+	out[14] = a[14] + b[14] * scale;
+	out[15] = a[15] + b[15] * scale;
+	return out;
+}
+/**
+* Returns whether or not the matrices have exactly the same elements in the same position (when compared with ===)
+*
+* @param a The first matrix.
+* @param b The second matrix.
+* @returns {Boolean} True if the matrices are equal, false otherwise.
+*/
+function exactEquals$1$1(a, b) {
+	return a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3] && a[4] === b[4] && a[5] === b[5] && a[6] === b[6] && a[7] === b[7] && a[8] === b[8] && a[9] === b[9] && a[10] === b[10] && a[11] === b[11] && a[12] === b[12] && a[13] === b[13] && a[14] === b[14] && a[15] === b[15];
+}
+/**
+* Returns whether or not the matrices have approximately the same elements in the same position.
+*
+* @param a The first matrix.
+* @param b The second matrix.
+* @returns {Boolean} True if the matrices are equal, false otherwise.
+*/
+function equals$1$2(a, b) {
+	const a0 = a[0];
+	const a1 = a[1];
+	const a2 = a[2];
+	const a3 = a[3];
+	const a4 = a[4];
+	const a5 = a[5];
+	const a6 = a[6];
+	const a7 = a[7];
+	const a8 = a[8];
+	const a9 = a[9];
+	const a10 = a[10];
+	const a11 = a[11];
+	const a12 = a[12];
+	const a13 = a[13];
+	const a14 = a[14];
+	const a15 = a[15];
+	const b0 = b[0];
+	const b1 = b[1];
+	const b2 = b[2];
+	const b3 = b[3];
+	const b4 = b[4];
+	const b5 = b[5];
+	const b6 = b[6];
+	const b7 = b[7];
+	const b8 = b[8];
+	const b9 = b[9];
+	const b10 = b[10];
+	const b11 = b[11];
+	const b12 = b[12];
+	const b13 = b[13];
+	const b14 = b[14];
+	const b15 = b[15];
+	return Math.abs(a0 - b0) <= 1e-6 * Math.max(1, Math.abs(a0), Math.abs(b0)) && Math.abs(a1 - b1) <= 1e-6 * Math.max(1, Math.abs(a1), Math.abs(b1)) && Math.abs(a2 - b2) <= 1e-6 * Math.max(1, Math.abs(a2), Math.abs(b2)) && Math.abs(a3 - b3) <= 1e-6 * Math.max(1, Math.abs(a3), Math.abs(b3)) && Math.abs(a4 - b4) <= 1e-6 * Math.max(1, Math.abs(a4), Math.abs(b4)) && Math.abs(a5 - b5) <= 1e-6 * Math.max(1, Math.abs(a5), Math.abs(b5)) && Math.abs(a6 - b6) <= 1e-6 * Math.max(1, Math.abs(a6), Math.abs(b6)) && Math.abs(a7 - b7) <= 1e-6 * Math.max(1, Math.abs(a7), Math.abs(b7)) && Math.abs(a8 - b8) <= 1e-6 * Math.max(1, Math.abs(a8), Math.abs(b8)) && Math.abs(a9 - b9) <= 1e-6 * Math.max(1, Math.abs(a9), Math.abs(b9)) && Math.abs(a10 - b10) <= 1e-6 * Math.max(1, Math.abs(a10), Math.abs(b10)) && Math.abs(a11 - b11) <= 1e-6 * Math.max(1, Math.abs(a11), Math.abs(b11)) && Math.abs(a12 - b12) <= 1e-6 * Math.max(1, Math.abs(a12), Math.abs(b12)) && Math.abs(a13 - b13) <= 1e-6 * Math.max(1, Math.abs(a13), Math.abs(b13)) && Math.abs(a14 - b14) <= 1e-6 * Math.max(1, Math.abs(a14), Math.abs(b14)) && Math.abs(a15 - b15) <= 1e-6 * Math.max(1, Math.abs(a15), Math.abs(b15));
+}
+/**
+* Alias for {@link mat4.multiply}
+* @function
+*/
+const mul$1 = multiply$1;
+/**
+* Alias for {@link mat4.subtract}
+* @function
+*/
+const sub$1$1 = subtract$1;
+//#endregion
+//#region src/core/mat3.ts
+var mat3_exports = /* @__PURE__ */ __exportAll({
+	add: () => add$5,
+	adjoint: () => adjoint,
+	clone: () => clone$6,
+	copy: () => copy$6,
+	create: () => create$7,
+	determinant: () => determinant,
+	equals: () => equals$3,
+	exactEquals: () => exactEquals$3,
+	frob: () => frob,
+	fromMat2d: () => fromMat2d,
+	fromMat4: () => fromMat4,
+	fromQuat: () => fromQuat$2,
+	fromRotation: () => fromRotation,
+	fromScaling: () => fromScaling,
+	fromTranslation: () => fromTranslation,
+	fromValues: () => fromValues$3,
+	identity: () => identity,
+	invert: () => invert,
+	mul: () => mul$4,
+	multiply: () => multiply$4,
+	multiplyScalar: () => multiplyScalar$2,
+	multiplyScalarAndAdd: () => multiplyScalarAndAdd,
+	normalFromMat4: () => normalFromMat4,
+	projection: () => projection,
+	rotate: () => rotate,
+	scale: () => scale$3,
+	set: () => set$3,
+	str: () => str$3,
+	sub: () => sub$3,
+	subtract: () => subtract,
+	translate: () => translate,
+	transpose: () => transpose$2,
+	zero: () => zero
+});
+/**
+* Creates a new identity mat3
+*
+* @returns a new 3x3 matrix
+*/
+function create$7() {
+	return [
+		1,
+		0,
+		0,
+		0,
+		1,
+		0,
+		0,
+		0,
+		1
+	];
+}
+/**
+* Copies the upper-left 3x3 values into the given mat3.
+*
+* @param out the receiving 3x3 matrix
+* @param a   the source 4x4 matrix
+* @returns out
+*/
+function fromMat4(out, a) {
+	out[0] = a[0];
+	out[1] = a[1];
+	out[2] = a[2];
+	out[3] = a[4];
+	out[4] = a[5];
+	out[5] = a[6];
+	out[6] = a[8];
+	out[7] = a[9];
+	out[8] = a[10];
+	return out;
+}
+/**
+* Creates a new mat3 initialized with values from an existing matrix
+*
+* @param a matrix to clone
+* @returns a new 3x3 matrix
+*/
+function clone$6(a) {
+	const out = create$7();
+	out[0] = a[0];
+	out[1] = a[1];
+	out[2] = a[2];
+	out[3] = a[3];
+	out[4] = a[4];
+	out[5] = a[5];
+	out[6] = a[6];
+	out[7] = a[7];
+	out[8] = a[8];
+	return out;
+}
+/**
+* Copy the values from one mat3 to another
+*
+* @param out the receiving matrix
+* @param a the source matrix
+* @returns out
+*/
+function copy$6(out, a) {
+	out[0] = a[0];
+	out[1] = a[1];
+	out[2] = a[2];
+	out[3] = a[3];
+	out[4] = a[4];
+	out[5] = a[5];
+	out[6] = a[6];
+	out[7] = a[7];
+	out[8] = a[8];
+	return out;
+}
+/**
+* Create a new mat3 with the given values
+*
+* @param m00 Component in column 0, row 0 position (index 0)
+* @param m01 Component in column 0, row 1 position (index 1)
+* @param m02 Component in column 0, row 2 position (index 2)
+* @param m10 Component in column 1, row 0 position (index 3)
+* @param m11 Component in column 1, row 1 position (index 4)
+* @param m12 Component in column 1, row 2 position (index 5)
+* @param m20 Component in column 2, row 0 position (index 6)
+* @param m21 Component in column 2, row 1 position (index 7)
+* @param m22 Component in column 2, row 2 position (index 8)
+* @returns A new mat3
+*/
+function fromValues$3(m00, m01, m02, m10, m11, m12, m20, m21, m22) {
+	const out = create$7();
+	out[0] = m00;
+	out[1] = m01;
+	out[2] = m02;
+	out[3] = m10;
+	out[4] = m11;
+	out[5] = m12;
+	out[6] = m20;
+	out[7] = m21;
+	out[8] = m22;
+	return out;
+}
+/**
+* Set the components of a mat3 to the given values
+*
+* @param out the receiving matrix
+* @param m00 Component in column 0, row 0 position (index 0)
+* @param m01 Component in column 0, row 1 position (index 1)
+* @param m02 Component in column 0, row 2 position (index 2)
+* @param m10 Component in column 1, row 0 position (index 3)
+* @param m11 Component in column 1, row 1 position (index 4)
+* @param m12 Component in column 1, row 2 position (index 5)
+* @param m20 Component in column 2, row 0 position (index 6)
+* @param m21 Component in column 2, row 1 position (index 7)
+* @param m22 Component in column 2, row 2 position (index 8)
+* @returns out
+*/
+function set$3(out, m00, m01, m02, m10, m11, m12, m20, m21, m22) {
+	out[0] = m00;
+	out[1] = m01;
+	out[2] = m02;
+	out[3] = m10;
+	out[4] = m11;
+	out[5] = m12;
+	out[6] = m20;
+	out[7] = m21;
+	out[8] = m22;
+	return out;
+}
+/**
+* Set a mat3 to the identity matrix
+*
+* @param out the receiving matrix
+* @returns out
+*/
 function identity(out) {
-    out[0] = 0;
-    out[1] = 0;
-    out[2] = 0;
-    out[3] = 1;
-    return out;
+	out[0] = 1;
+	out[1] = 0;
+	out[2] = 0;
+	out[3] = 0;
+	out[4] = 1;
+	out[5] = 0;
+	out[6] = 0;
+	out[7] = 0;
+	out[8] = 1;
+	return out;
 }
 /**
- * Sets a quat from the given angle and rotation axis,
- * then returns it.
- *
- * @param out the receiving quaternion
- * @param axis the axis around which to rotate
- * @param rad the angle in radians
- * @returns out
- **/
-function setAxisAngle(out, axis, rad) {
-    rad *= 0.5;
-    const s = Math.sin(rad);
-    out[0] = s * axis[0];
-    out[1] = s * axis[1];
-    out[2] = s * axis[2];
-    out[3] = Math.cos(rad);
-    return out;
+* Set a mat3 to the zero matrix
+*
+* @param out the receiving matrix
+* @returns out
+*/
+function zero(out) {
+	out[0] = 0;
+	out[1] = 0;
+	out[2] = 0;
+	out[3] = 0;
+	out[4] = 0;
+	out[5] = 0;
+	out[6] = 0;
+	out[7] = 0;
+	out[8] = 0;
+	return out;
 }
 /**
- * Multiplies two quat's
- *
- * @param out the receiving quaternion
- * @param a the first operand
- * @param b the second operand
- * @returns out
- */
-function multiply(out, a, b) {
-    const ax = a[0];
-    const ay = a[1];
-    const az = a[2];
-    const aw = a[3];
-    const bx = b[0];
-    const by = b[1];
-    const bz = b[2];
-    const bw = b[3];
-    out[0] = ax * bw + aw * bx + ay * bz - az * by;
-    out[1] = ay * bw + aw * by + az * bx - ax * bz;
-    out[2] = az * bw + aw * bz + ax * by - ay * bx;
-    out[3] = aw * bw - ax * bx - ay * by - az * bz;
-    return out;
+* Transpose the values of a mat3
+*
+* @param out the receiving matrix
+* @param a the source matrix
+* @returns out
+*/
+function transpose$2(out, a) {
+	if (out === a) {
+		const a01 = a[1];
+		const a02 = a[2];
+		const a12 = a[5];
+		out[1] = a[3];
+		out[2] = a[6];
+		out[3] = a01;
+		out[5] = a[7];
+		out[6] = a02;
+		out[7] = a12;
+	} else {
+		out[0] = a[0];
+		out[1] = a[3];
+		out[2] = a[6];
+		out[3] = a[1];
+		out[4] = a[4];
+		out[5] = a[7];
+		out[6] = a[2];
+		out[7] = a[5];
+		out[8] = a[8];
+	}
+	return out;
 }
 /**
- * Calculates the inverse of a quat
- *
- * @param out the receiving quaternion
- * @param a quat to calculate inverse of
- * @returns out
- */
+* Inverts a mat3
+*
+* @param out the receiving matrix
+* @param a the source matrix
+* @returns out
+*/
 function invert(out, a) {
-    const a0 = a[0];
-    const a1 = a[1];
-    const a2 = a[2];
-    const a3 = a[3];
-    const dot = a0 * a0 + a1 * a1 + a2 * a2 + a3 * a3;
-    const invDot = dot ? 1.0 / dot : 0;
-    // TODO: Would be faster to return [0,0,0,0] immediately if dot == 0
-    out[0] = -a0 * invDot;
-    out[1] = -a1 * invDot;
-    out[2] = -a2 * invDot;
-    out[3] = a3 * invDot;
-    return out;
+	const a00 = a[0];
+	const a01 = a[1];
+	const a02 = a[2];
+	const a10 = a[3];
+	const a11 = a[4];
+	const a12 = a[5];
+	const a20 = a[6];
+	const a21 = a[7];
+	const a22 = a[8];
+	const b01 = a22 * a11 - a12 * a21;
+	const b11 = -a22 * a10 + a12 * a20;
+	const b21 = a21 * a10 - a11 * a20;
+	let det = a00 * b01 + a01 * b11 + a02 * b21;
+	if (!det) return null;
+	det = 1 / det;
+	out[0] = b01 * det;
+	out[1] = (-a22 * a01 + a02 * a21) * det;
+	out[2] = (a12 * a01 - a02 * a11) * det;
+	out[3] = b11 * det;
+	out[4] = (a22 * a00 - a02 * a20) * det;
+	out[5] = (-a12 * a00 + a02 * a10) * det;
+	out[6] = b21 * det;
+	out[7] = (-a21 * a00 + a01 * a20) * det;
+	out[8] = (a11 * a00 - a01 * a10) * det;
+	return out;
 }
 /**
- * Calculates the conjugate of a quat
- * If the quaternion is normalized, this function is faster than quat.inverse and produces the same result.
- *
- * @param out the receiving quaternion
- * @param a quat to calculate conjugate of
- * @returns out
- */
-function conjugate(out, a) {
-    out[0] = -a[0];
-    out[1] = -a[1];
-    out[2] = -a[2];
-    out[3] = a[3];
-    return out;
+* Calculates the adjugate of a mat3
+*
+* @param out the receiving matrix
+* @param a the source matrix
+* @returns out
+*/
+function adjoint(out, a) {
+	const a00 = a[0];
+	const a01 = a[1];
+	const a02 = a[2];
+	const a10 = a[3];
+	const a11 = a[4];
+	const a12 = a[5];
+	const a20 = a[6];
+	const a21 = a[7];
+	const a22 = a[8];
+	out[0] = a11 * a22 - a12 * a21;
+	out[1] = a02 * a21 - a01 * a22;
+	out[2] = a01 * a12 - a02 * a11;
+	out[3] = a12 * a20 - a10 * a22;
+	out[4] = a00 * a22 - a02 * a20;
+	out[5] = a02 * a10 - a00 * a12;
+	out[6] = a10 * a21 - a11 * a20;
+	out[7] = a01 * a20 - a00 * a21;
+	out[8] = a00 * a11 - a01 * a10;
+	return out;
 }
 /**
- * Creates a quaternion from the given 3x3 rotation matrix.
- *
- * NOTE: The resultant quaternion is not normalized, so you should be sure
- * to renormalize the quaternion yourself where necessary.
- *
- * @param out the receiving quaternion
- * @param m rotation matrix
- * @returns out
- */
+* Calculates the determinant of a mat3
+*
+* @param a the source matrix
+* @returns determinant of a
+*/
+function determinant(a) {
+	const a00 = a[0];
+	const a01 = a[1];
+	const a02 = a[2];
+	const a10 = a[3];
+	const a11 = a[4];
+	const a12 = a[5];
+	const a20 = a[6];
+	const a21 = a[7];
+	const a22 = a[8];
+	return a00 * (a22 * a11 - a12 * a21) + a01 * (-a22 * a10 + a12 * a20) + a02 * (a21 * a10 - a11 * a20);
+}
+/**
+* Multiplies two mat3's
+*
+* @param out the receiving matrix
+* @param a the first operand
+* @param b the second operand
+* @returns out
+*/
+function multiply$4(out, a, b) {
+	const a00 = a[0];
+	const a01 = a[1];
+	const a02 = a[2];
+	const a10 = a[3];
+	const a11 = a[4];
+	const a12 = a[5];
+	const a20 = a[6];
+	const a21 = a[7];
+	const a22 = a[8];
+	const b00 = b[0];
+	const b01 = b[1];
+	const b02 = b[2];
+	const b10 = b[3];
+	const b11 = b[4];
+	const b12 = b[5];
+	const b20 = b[6];
+	const b21 = b[7];
+	const b22 = b[8];
+	out[0] = b00 * a00 + b01 * a10 + b02 * a20;
+	out[1] = b00 * a01 + b01 * a11 + b02 * a21;
+	out[2] = b00 * a02 + b01 * a12 + b02 * a22;
+	out[3] = b10 * a00 + b11 * a10 + b12 * a20;
+	out[4] = b10 * a01 + b11 * a11 + b12 * a21;
+	out[5] = b10 * a02 + b11 * a12 + b12 * a22;
+	out[6] = b20 * a00 + b21 * a10 + b22 * a20;
+	out[7] = b20 * a01 + b21 * a11 + b22 * a21;
+	out[8] = b20 * a02 + b21 * a12 + b22 * a22;
+	return out;
+}
+/**
+* Translate a mat3 by the given vector
+*
+* @param out the receiving matrix
+* @param a the matrix to translate
+* @param v vector to translate by
+* @returns out
+*/
+function translate(out, a, v) {
+	const a00 = a[0];
+	const a01 = a[1];
+	const a02 = a[2];
+	const a10 = a[3];
+	const a11 = a[4];
+	const a12 = a[5];
+	const a20 = a[6];
+	const a21 = a[7];
+	const a22 = a[8];
+	const x = v[0];
+	const y = v[1];
+	out[0] = a00;
+	out[1] = a01;
+	out[2] = a02;
+	out[3] = a10;
+	out[4] = a11;
+	out[5] = a12;
+	out[6] = x * a00 + y * a10 + a20;
+	out[7] = x * a01 + y * a11 + a21;
+	out[8] = x * a02 + y * a12 + a22;
+	return out;
+}
+/**
+* Rotates a mat3 by the given angle
+*
+* @param out the receiving matrix
+* @param a the matrix to rotate
+* @param rad the angle to rotate the matrix by
+* @returns out
+*/
+function rotate(out, a, rad) {
+	const a00 = a[0];
+	const a01 = a[1];
+	const a02 = a[2];
+	const a10 = a[3];
+	const a11 = a[4];
+	const a12 = a[5];
+	const a20 = a[6];
+	const a21 = a[7];
+	const a22 = a[8];
+	const s = Math.sin(rad);
+	const c = Math.cos(rad);
+	out[0] = c * a00 + s * a10;
+	out[1] = c * a01 + s * a11;
+	out[2] = c * a02 + s * a12;
+	out[3] = c * a10 - s * a00;
+	out[4] = c * a11 - s * a01;
+	out[5] = c * a12 - s * a02;
+	out[6] = a20;
+	out[7] = a21;
+	out[8] = a22;
+	return out;
+}
+/**
+* Scales the mat3 by the dimensions in the given vec2
+*
+* @param out the receiving matrix
+* @param a the matrix to rotate
+* @param v the vec2 to scale the matrix by
+* @returns out
+**/
+function scale$3(out, a, v) {
+	const x = v[0];
+	const y = v[1];
+	out[0] = x * a[0];
+	out[1] = x * a[1];
+	out[2] = x * a[2];
+	out[3] = y * a[3];
+	out[4] = y * a[4];
+	out[5] = y * a[5];
+	out[6] = a[6];
+	out[7] = a[7];
+	out[8] = a[8];
+	return out;
+}
+/**
+* Creates a matrix from a vector translation
+* This is equivalent to (but much faster than):
+*
+*     mat3.identity(dest);
+*     mat3.translate(dest, dest, vec);
+*
+* @param out mat3 receiving operation result
+* @param v Translation vector
+* @returns out
+*/
+function fromTranslation(out, v) {
+	out[0] = 1;
+	out[1] = 0;
+	out[2] = 0;
+	out[3] = 0;
+	out[4] = 1;
+	out[5] = 0;
+	out[6] = v[0];
+	out[7] = v[1];
+	out[8] = 1;
+	return out;
+}
+/**
+* Creates a matrix from a given angle
+* This is equivalent to (but much faster than):
+*
+*     mat3.identity(dest);
+*     mat3.rotate(dest, dest, rad);
+*
+* @param out mat3 receiving operation result
+* @param rad the angle to rotate the matrix by
+* @returns out
+*/
+function fromRotation(out, rad) {
+	const s = Math.sin(rad);
+	const c = Math.cos(rad);
+	out[0] = c;
+	out[1] = s;
+	out[2] = 0;
+	out[3] = -s;
+	out[4] = c;
+	out[5] = 0;
+	out[6] = 0;
+	out[7] = 0;
+	out[8] = 1;
+	return out;
+}
+/**
+* Creates a matrix from a vector scaling
+* This is equivalent to (but much faster than):
+*
+*     mat3.identity(dest);
+*     mat3.scale(dest, dest, vec);
+*
+* @param out mat3 receiving operation result
+* @param v Scaling vector
+* @returns out
+*/
+function fromScaling(out, v) {
+	out[0] = v[0];
+	out[1] = 0;
+	out[2] = 0;
+	out[3] = 0;
+	out[4] = v[1];
+	out[5] = 0;
+	out[6] = 0;
+	out[7] = 0;
+	out[8] = 1;
+	return out;
+}
+/**
+* Copies the values from a mat2d into a mat3
+*
+* @param out the receiving matrix
+* @param a the matrix to copy
+* @returns out
+**/
+function fromMat2d(out, a) {
+	out[0] = a[0];
+	out[1] = a[1];
+	out[2] = 0;
+	out[3] = a[2];
+	out[4] = a[3];
+	out[5] = 0;
+	out[6] = a[4];
+	out[7] = a[5];
+	out[8] = 1;
+	return out;
+}
+/**
+* Calculates a 3x3 matrix from the given quaternion
+*
+* @param out mat3 receiving operation result
+* @param q Quaternion to create matrix from
+*
+* @returns out
+*/
+function fromQuat$2(out, q) {
+	const x = q[0];
+	const y = q[1];
+	const z = q[2];
+	const w = q[3];
+	const x2 = x + x;
+	const y2 = y + y;
+	const z2 = z + z;
+	const xx = x * x2;
+	const yx = y * x2;
+	const yy = y * y2;
+	const zx = z * x2;
+	const zy = z * y2;
+	const zz = z * z2;
+	const wx = w * x2;
+	const wy = w * y2;
+	const wz = w * z2;
+	out[0] = 1 - yy - zz;
+	out[3] = yx - wz;
+	out[6] = zx + wy;
+	out[1] = yx + wz;
+	out[4] = 1 - xx - zz;
+	out[7] = zy - wx;
+	out[2] = zx - wy;
+	out[5] = zy + wx;
+	out[8] = 1 - xx - yy;
+	return out;
+}
+/**
+* Calculates a 3x3 normal matrix (transpose inverse) from the 4x4 matrix
+*
+* @param out mat3 receiving operation result
+* @param a Mat4 to derive the normal matrix from
+*
+* @returns out
+*/
+function normalFromMat4(out, a) {
+	const a00 = a[0];
+	const a01 = a[1];
+	const a02 = a[2];
+	const a03 = a[3];
+	const a10 = a[4];
+	const a11 = a[5];
+	const a12 = a[6];
+	const a13 = a[7];
+	const a20 = a[8];
+	const a21 = a[9];
+	const a22 = a[10];
+	const a23 = a[11];
+	const a30 = a[12];
+	const a31 = a[13];
+	const a32 = a[14];
+	const a33 = a[15];
+	const b00 = a00 * a11 - a01 * a10;
+	const b01 = a00 * a12 - a02 * a10;
+	const b02 = a00 * a13 - a03 * a10;
+	const b03 = a01 * a12 - a02 * a11;
+	const b04 = a01 * a13 - a03 * a11;
+	const b05 = a02 * a13 - a03 * a12;
+	const b06 = a20 * a31 - a21 * a30;
+	const b07 = a20 * a32 - a22 * a30;
+	const b08 = a20 * a33 - a23 * a30;
+	const b09 = a21 * a32 - a22 * a31;
+	const b10 = a21 * a33 - a23 * a31;
+	const b11 = a22 * a33 - a23 * a32;
+	let det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
+	if (!det) return null;
+	det = 1 / det;
+	out[0] = (a11 * b11 - a12 * b10 + a13 * b09) * det;
+	out[1] = (a12 * b08 - a10 * b11 - a13 * b07) * det;
+	out[2] = (a10 * b10 - a11 * b08 + a13 * b06) * det;
+	out[3] = (a02 * b10 - a01 * b11 - a03 * b09) * det;
+	out[4] = (a00 * b11 - a02 * b08 + a03 * b07) * det;
+	out[5] = (a01 * b08 - a00 * b10 - a03 * b06) * det;
+	out[6] = (a31 * b05 - a32 * b04 + a33 * b03) * det;
+	out[7] = (a32 * b02 - a30 * b05 - a33 * b01) * det;
+	out[8] = (a30 * b04 - a31 * b02 + a33 * b00) * det;
+	return out;
+}
+/**
+* Generates a 2D projection matrix with the given bounds
+*
+* @param out mat3 frustum matrix will be written into
+* @param width Width of your gl context
+* @param height Height of gl context
+* @returns out
+*/
+function projection(out, width, height) {
+	out[0] = 2 / width;
+	out[1] = 0;
+	out[2] = 0;
+	out[3] = 0;
+	out[4] = -2 / height;
+	out[5] = 0;
+	out[6] = -1;
+	out[7] = 1;
+	out[8] = 1;
+	return out;
+}
+/**
+* Returns a string representation of a mat3
+*
+* @param a matrix to represent as a string
+* @returns string representation of the matrix
+*/
+function str$3(a) {
+	return `mat3(${a[0]}, ${a[1]}, ${a[2]}, ${a[3]}, ${a[4]}, ${a[5]}, ${a[6]}, ${a[7]}, ${a[8]})`;
+}
+/**
+* Returns Frobenius norm of a mat3
+*
+* @param a the matrix to calculate Frobenius norm of
+* @returns Frobenius norm
+*/
+function frob(a) {
+	return Math.sqrt(a[0] * a[0] + a[1] * a[1] + a[2] * a[2] + a[3] * a[3] + a[4] * a[4] + a[5] * a[5] + a[6] * a[6] + a[7] * a[7] + a[8] * a[8]);
+}
+/**
+* Adds two mat3's
+*
+* @param out the receiving matrix
+* @param a the first operand
+* @param b the second operand
+* @returns out
+*/
+function add$5(out, a, b) {
+	out[0] = a[0] + b[0];
+	out[1] = a[1] + b[1];
+	out[2] = a[2] + b[2];
+	out[3] = a[3] + b[3];
+	out[4] = a[4] + b[4];
+	out[5] = a[5] + b[5];
+	out[6] = a[6] + b[6];
+	out[7] = a[7] + b[7];
+	out[8] = a[8] + b[8];
+	return out;
+}
+/**
+* Subtracts matrix b from matrix a
+*
+* @param out the receiving matrix
+* @param a the first operand
+* @param b the second operand
+* @returns out
+*/
+function subtract(out, a, b) {
+	out[0] = a[0] - b[0];
+	out[1] = a[1] - b[1];
+	out[2] = a[2] - b[2];
+	out[3] = a[3] - b[3];
+	out[4] = a[4] - b[4];
+	out[5] = a[5] - b[5];
+	out[6] = a[6] - b[6];
+	out[7] = a[7] - b[7];
+	out[8] = a[8] - b[8];
+	return out;
+}
+/**
+* Multiply each element of the matrix by a scalar.
+*
+* @param out the receiving matrix
+* @param a the matrix to scale
+* @param b amount to scale the matrix's elements by
+* @returns out
+*/
+function multiplyScalar$2(out, a, b) {
+	out[0] = a[0] * b;
+	out[1] = a[1] * b;
+	out[2] = a[2] * b;
+	out[3] = a[3] * b;
+	out[4] = a[4] * b;
+	out[5] = a[5] * b;
+	out[6] = a[6] * b;
+	out[7] = a[7] * b;
+	out[8] = a[8] * b;
+	return out;
+}
+/**
+* Adds two mat3's after multiplying each element of the second operand by a scalar value.
+*
+* @param out the receiving vector
+* @param a the first operand
+* @param b the second operand
+* @param scale the amount to scale b's elements by before adding
+* @returns out
+*/
+function multiplyScalarAndAdd(out, a, b, scale) {
+	out[0] = a[0] + b[0] * scale;
+	out[1] = a[1] + b[1] * scale;
+	out[2] = a[2] + b[2] * scale;
+	out[3] = a[3] + b[3] * scale;
+	out[4] = a[4] + b[4] * scale;
+	out[5] = a[5] + b[5] * scale;
+	out[6] = a[6] + b[6] * scale;
+	out[7] = a[7] + b[7] * scale;
+	out[8] = a[8] + b[8] * scale;
+	return out;
+}
+/**
+* Returns whether or not the matrices have exactly the same elements in the same position (when compared with ===)
+*
+* @param a The first matrix.
+* @param b The second matrix.
+* @returns True if the matrices are equal, false otherwise.
+*/
+function exactEquals$3(a, b) {
+	return a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3] && a[4] === b[4] && a[5] === b[5] && a[6] === b[6] && a[7] === b[7] && a[8] === b[8];
+}
+/**
+* Returns whether or not the matrices have approximately the same elements in the same position.
+*
+* @param a The first matrix.
+* @param b The second matrix.
+* @returns True if the matrices are equal, false otherwise.
+*/
+function equals$3(a, b) {
+	const a0 = a[0];
+	const a1 = a[1];
+	const a2 = a[2];
+	const a3 = a[3];
+	const a4 = a[4];
+	const a5 = a[5];
+	const a6 = a[6];
+	const a7 = a[7];
+	const a8 = a[8];
+	const b0 = b[0];
+	const b1 = b[1];
+	const b2 = b[2];
+	const b3 = b[3];
+	const b4 = b[4];
+	const b5 = b[5];
+	const b6 = b[6];
+	const b7 = b[7];
+	const b8 = b[8];
+	return Math.abs(a0 - b0) <= 1e-6 * Math.max(1, Math.abs(a0), Math.abs(b0)) && Math.abs(a1 - b1) <= 1e-6 * Math.max(1, Math.abs(a1), Math.abs(b1)) && Math.abs(a2 - b2) <= 1e-6 * Math.max(1, Math.abs(a2), Math.abs(b2)) && Math.abs(a3 - b3) <= 1e-6 * Math.max(1, Math.abs(a3), Math.abs(b3)) && Math.abs(a4 - b4) <= 1e-6 * Math.max(1, Math.abs(a4), Math.abs(b4)) && Math.abs(a5 - b5) <= 1e-6 * Math.max(1, Math.abs(a5), Math.abs(b5)) && Math.abs(a6 - b6) <= 1e-6 * Math.max(1, Math.abs(a6), Math.abs(b6)) && Math.abs(a7 - b7) <= 1e-6 * Math.max(1, Math.abs(a7), Math.abs(b7)) && Math.abs(a8 - b8) <= 1e-6 * Math.max(1, Math.abs(a8), Math.abs(b8));
+}
+/**
+* Alias for {@link mat3.multiply}
+* @function
+*/
+const mul$4 = multiply$4;
+/**
+* Alias for {@link mat3.subtract}
+* @function
+*/
+const sub$3 = subtract;
+
+/**
+* Creates a new, empty vec4
+*
+* @returns a new 4D vector
+*/
+function create$6() {
+	return [
+		0,
+		0,
+		0,
+		0
+	];
+}
+/**
+* Creates a new vec4 initialized with values from an existing vector
+*
+* @param a vector to clone
+* @returns a new 4D vector
+*/
+function clone$5(a) {
+	const out = create$6();
+	out[0] = a[0];
+	out[1] = a[1];
+	out[2] = a[2];
+	out[3] = a[3];
+	return out;
+}
+/**
+* Creates a new vec4 initialized with the given values
+*
+* @param x X component
+* @param y Y component
+* @param z Z component
+* @param w W component
+* @returns a new 4D vector
+*/
+function fromValues$6(x, y, z, w) {
+	const out = create$6();
+	out[0] = x;
+	out[1] = y;
+	out[2] = z;
+	out[3] = w;
+	return out;
+}
+/**
+* Copy the values from one vec4 to another
+*
+* @param out the receiving vector
+* @param a the source vector
+* @returns out
+*/
+function copy$5(out, a) {
+	out[0] = a[0];
+	out[1] = a[1];
+	out[2] = a[2];
+	out[3] = a[3];
+	return out;
+}
+/**
+* Set the components of a vec4 to the given values
+*
+* @param out the receiving vector
+* @param x X component
+* @param y Y component
+* @param z Z component
+* @param w W component
+* @returns out
+*/
+function set$6(out, x, y, z, w) {
+	out[0] = x;
+	out[1] = y;
+	out[2] = z;
+	out[3] = w;
+	return out;
+}
+/**
+* Adds two vec4's
+*
+* @param out the receiving vector
+* @param a the first operand
+* @param b the second operand
+* @returns out
+*/
+function add$4(out, a, b) {
+	out[0] = a[0] + b[0];
+	out[1] = a[1] + b[1];
+	out[2] = a[2] + b[2];
+	out[3] = a[3] + b[3];
+	return out;
+}
+/**
+* Scales a vec4 by a scalar number
+*
+* @param out the receiving vector
+* @param a the vector to scale
+* @param b amount to scale the vector by
+* @returns out
+*/
+function scale$5(out, a, b) {
+	out[0] = a[0] * b;
+	out[1] = a[1] * b;
+	out[2] = a[2] * b;
+	out[3] = a[3] * b;
+	return out;
+}
+/**
+* Calculates the length of a vec4
+*
+* @param a vector to calculate length of
+* @returns length of a
+*/
+function length$2(a) {
+	const x = a[0];
+	const y = a[1];
+	const z = a[2];
+	const w = a[3];
+	return Math.sqrt(x * x + y * y + z * z + w * w);
+}
+/**
+* Calculates the squared length of a vec4
+*
+* @param a vector to calculate squared length of
+* @returns squared length of a
+*/
+function squaredLength$2(a) {
+	const x = a[0];
+	const y = a[1];
+	const z = a[2];
+	const w = a[3];
+	return x * x + y * y + z * z + w * w;
+}
+/**
+* Normalize a vec4
+*
+* @param out the receiving vector
+* @param a vector to normalize
+* @returns out
+*/
+function normalize$3(out, a) {
+	const x = a[0];
+	const y = a[1];
+	const z = a[2];
+	const w = a[3];
+	let len = x * x + y * y + z * z + w * w;
+	if (len > 0) len = 1 / Math.sqrt(len);
+	out[0] = x * len;
+	out[1] = y * len;
+	out[2] = z * len;
+	out[3] = w * len;
+	return out;
+}
+/**
+* Calculates the dot product of two vec4's
+*
+* @param a the first operand
+* @param b the second operand
+* @returns dot product of a and b
+*/
+function dot$2(a, b) {
+	return a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3];
+}
+/**
+* Performs a linear interpolation between two vec4's
+*
+* @param out the receiving vector
+* @param a the first operand
+* @param b the second operand
+* @param t interpolation amount, in the range [0-1], between the two inputs
+* @returns out
+*/
+function lerp$4(out, a, b, t) {
+	const ax = a[0];
+	const ay = a[1];
+	const az = a[2];
+	const aw = a[3];
+	out[0] = ax + t * (b[0] - ax);
+	out[1] = ay + t * (b[1] - ay);
+	out[2] = az + t * (b[2] - az);
+	out[3] = aw + t * (b[3] - aw);
+	return out;
+}
+/**
+* Returns whether or not the vectors have exactly the same elements in the same position (when compared with ===)
+*
+* @param a The first vector.
+* @param b The second vector.
+* @returns True if the vectors are equal, false otherwise.
+*/
+function exactEquals$6(a, b) {
+	return a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3];
+}
+//#endregion
+//#region src/core/quat.ts
+var quat_exports = /* @__PURE__ */ __exportAll({
+	add: () => add$3,
+	calculateW: () => calculateW,
+	clone: () => clone$4,
+	conjugate: () => conjugate$1,
+	copy: () => copy$4,
+	create: () => create$5,
+	dot: () => dot$1,
+	equals: () => equals$6,
+	exactEquals: () => exactEquals$5,
+	exp: () => exp$1,
+	fromBuffer: () => fromBuffer,
+	fromDegrees: () => fromDegrees$1,
+	fromEuler: () => fromEuler,
+	fromMat3: () => fromMat3,
+	fromMat4: () => fromMat4$1,
+	fromValues: () => fromValues$5,
+	getAngle: () => getAngle,
+	getAxisAngle: () => getAxisAngle,
+	identity: () => identity$3,
+	invert: () => invert$3,
+	len: () => len$1,
+	length: () => length$1,
+	lerp: () => lerp$3,
+	ln: () => ln,
+	mul: () => mul$3,
+	multiply: () => multiply$3,
+	normalize: () => normalize$2,
+	pow: () => pow$1,
+	rotateX: () => rotateX$1,
+	rotateY: () => rotateY$1,
+	rotateZ: () => rotateZ$1,
+	rotationTo: () => rotationTo,
+	scale: () => scale$4,
+	set: () => set$5,
+	setAxes: () => setAxes,
+	setAxisAngle: () => setAxisAngle,
+	slerp: () => slerp,
+	sqlerp: () => sqlerp,
+	sqrLen: () => sqrLen$1,
+	squaredLength: () => squaredLength$1,
+	str: () => str$4,
+	toBuffer: () => toBuffer
+});
+/**
+* Creates a new identity quat
+*
+* @returns a new quaternion
+*/
+function create$5() {
+	return [
+		0,
+		0,
+		0,
+		1
+	];
+}
+/**
+* Sets the components of a quat from a buffer
+* @param out the receiving quaternion
+* @param buffer the source buffer
+* @param startIndex the starting index in the buffer
+* @returns out
+*/
+function fromBuffer(out, buffer, startIndex) {
+	out[0] = buffer[startIndex];
+	out[1] = buffer[startIndex + 1];
+	out[2] = buffer[startIndex + 2];
+	out[3] = buffer[startIndex + 3];
+	return out;
+}
+/**
+* Writes the components of a quat to a buffer
+* @param outBuffer The output buffer
+* @param q The source quaternion
+* @param startIndex The starting index in the buffer
+* @returns The output buffer
+*/
+function toBuffer(outBuffer, q, startIndex) {
+	outBuffer[startIndex] = q[0];
+	outBuffer[startIndex + 1] = q[1];
+	outBuffer[startIndex + 2] = q[2];
+	outBuffer[startIndex + 3] = q[3];
+	return outBuffer;
+}
+/**
+* Set a quat to the identity quaternion
+*
+* @param out the receiving quaternion
+* @returns out
+*/
+function identity$3(out) {
+	out[0] = 0;
+	out[1] = 0;
+	out[2] = 0;
+	out[3] = 1;
+	return out;
+}
+/**
+* Sets a quat from the given angle and rotation axis,
+* then returns it.
+*
+* @param out the receiving quaternion
+* @param axis the axis around which to rotate
+* @param rad the angle in radians
+* @returns out
+**/
+function setAxisAngle(out, axis, rad) {
+	rad *= .5;
+	const s = Math.sin(rad);
+	out[0] = s * axis[0];
+	out[1] = s * axis[1];
+	out[2] = s * axis[2];
+	out[3] = Math.cos(rad);
+	return out;
+}
+/**
+* Gets the rotation axis and angle for a given
+*  quaternion. If a quaternion is created with
+*  setAxisAngle, this method will return the same
+*  values as providied in the original parameter list
+*  OR functionally equivalent values.
+* Example: The quaternion formed by axis [0, 0, 1] and
+*  angle -90 is the same as the quaternion formed by
+*  [0, 0, 1] and 270. This method favors the latter.
+* @param  out_axis  Vector receiving the axis of rotation
+* @param  q     Quaternion to be decomposed
+* @return     Angle, in radians, of the rotation
+*/
+function getAxisAngle(out_axis, q) {
+	const rad = Math.acos(q[3]) * 2;
+	const s = Math.sin(rad / 2);
+	if (s > 1e-6) {
+		out_axis[0] = q[0] / s;
+		out_axis[1] = q[1] / s;
+		out_axis[2] = q[2] / s;
+	} else {
+		out_axis[0] = 1;
+		out_axis[1] = 0;
+		out_axis[2] = 0;
+	}
+	return rad;
+}
+/**
+* Gets the angular distance between two unit quaternions
+*
+* @param  a     Origin unit quaternion
+* @param  b     Destination unit quaternion
+* @return     Angle, in radians, between the two quaternions
+*/
+function getAngle(a, b) {
+	const dotproduct = dot$1(a, b);
+	return Math.acos(2 * dotproduct * dotproduct - 1);
+}
+/**
+* Multiplies two quat's
+*
+* @param out the receiving quaternion
+* @param a the first operand
+* @param b the second operand
+* @returns out
+*/
+function multiply$3(out, a, b) {
+	const ax = a[0];
+	const ay = a[1];
+	const az = a[2];
+	const aw = a[3];
+	const bx = b[0];
+	const by = b[1];
+	const bz = b[2];
+	const bw = b[3];
+	out[0] = ax * bw + aw * bx + ay * bz - az * by;
+	out[1] = ay * bw + aw * by + az * bx - ax * bz;
+	out[2] = az * bw + aw * bz + ax * by - ay * bx;
+	out[3] = aw * bw - ax * bx - ay * by - az * bz;
+	return out;
+}
+/**
+* Rotates a quaternion by the given angle about the X axis
+*
+* @param out quat receiving operation result
+* @param a quat to rotate
+* @param rad angle (in radians) to rotate
+* @returns out
+*/
+function rotateX$1(out, a, rad) {
+	rad *= .5;
+	const ax = a[0];
+	const ay = a[1];
+	const az = a[2];
+	const aw = a[3];
+	const bx = Math.sin(rad);
+	const bw = Math.cos(rad);
+	out[0] = ax * bw + aw * bx;
+	out[1] = ay * bw + az * bx;
+	out[2] = az * bw - ay * bx;
+	out[3] = aw * bw - ax * bx;
+	return out;
+}
+/**
+* Rotates a quaternion by the given angle about the Y axis
+*
+* @param out quat receiving operation result
+* @param a quat to rotate
+* @param rad angle (in radians) to rotate
+* @returns out
+*/
+function rotateY$1(out, a, rad) {
+	rad *= .5;
+	const ax = a[0];
+	const ay = a[1];
+	const az = a[2];
+	const aw = a[3];
+	const by = Math.sin(rad);
+	const bw = Math.cos(rad);
+	out[0] = ax * bw - az * by;
+	out[1] = ay * bw + aw * by;
+	out[2] = az * bw + ax * by;
+	out[3] = aw * bw - ay * by;
+	return out;
+}
+/**
+* Rotates a quaternion by the given angle about the Z axis
+*
+* @param out quat receiving operation result
+* @param a quat to rotate
+* @param rad angle (in radians) to rotate
+* @returns out
+*/
+function rotateZ$1(out, a, rad) {
+	rad *= .5;
+	const ax = a[0];
+	const ay = a[1];
+	const az = a[2];
+	const aw = a[3];
+	const bz = Math.sin(rad);
+	const bw = Math.cos(rad);
+	out[0] = ax * bw + ay * bz;
+	out[1] = ay * bw - ax * bz;
+	out[2] = az * bw + aw * bz;
+	out[3] = aw * bw - az * bz;
+	return out;
+}
+/**
+* Calculates the W component of a quat from the X, Y, and Z components.
+* Assumes that quaternion is 1 unit in length.
+* Any existing W component will be ignored.
+*
+* @param out the receiving quaternion
+* @param a quat to calculate W component of
+* @returns out
+*/
+function calculateW(out, a) {
+	const x = a[0];
+	const y = a[1];
+	const z = a[2];
+	out[0] = x;
+	out[1] = y;
+	out[2] = z;
+	out[3] = Math.sqrt(Math.abs(1 - x * x - y * y - z * z));
+	return out;
+}
+/**
+* Calculate the exponential of a unit quaternion.
+*
+* @param out the receiving quaternion
+* @param a quat to calculate the exponential of
+* @returns out
+*/
+function exp$1(out, a) {
+	const x = a[0];
+	const y = a[1];
+	const z = a[2];
+	const w = a[3];
+	const r = Math.sqrt(x * x + y * y + z * z);
+	const et = Math.exp(w);
+	const s = r > 0 ? et * Math.sin(r) / r : 0;
+	out[0] = x * s;
+	out[1] = y * s;
+	out[2] = z * s;
+	out[3] = et * Math.cos(r);
+	return out;
+}
+/**
+* Calculate the natural logarithm of a unit quaternion.
+*
+* @param out the receiving quaternion
+* @param a quat to calculate the exponential of
+* @returns out
+*/
+function ln(out, a) {
+	const x = a[0];
+	const y = a[1];
+	const z = a[2];
+	const w = a[3];
+	const r = Math.sqrt(x * x + y * y + z * z);
+	const t = r > 0 ? Math.atan2(r, w) / r : 0;
+	out[0] = x * t;
+	out[1] = y * t;
+	out[2] = z * t;
+	out[3] = .5 * Math.log(x * x + y * y + z * z + w * w);
+	return out;
+}
+/**
+* Calculate the scalar power of a unit quaternion.
+*
+* @param out the receiving quaternion
+* @param a quat to calculate the exponential of
+* @param b amount to scale the quaternion by
+* @returns out
+*/
+function pow$1(out, a, b) {
+	ln(out, a);
+	scale$4(out, out, b);
+	exp$1(out, out);
+	return out;
+}
+/**
+* Performs a spherical linear interpolation between two quat
+*
+* @param out the receiving quaternion
+* @param a the first operand
+* @param b the second operand
+* @param t interpolation amount, in the range [0-1], between the two inputs
+* @returns out
+*/
+function slerp(out, a, b, t) {
+	const ax = a[0];
+	const ay = a[1];
+	const az = a[2];
+	const aw = a[3];
+	let bx = b[0];
+	let by = b[1];
+	let bz = b[2];
+	let bw = b[3];
+	let omega;
+	let cosom;
+	let sinom;
+	let scale0;
+	let scale1;
+	cosom = ax * bx + ay * by + az * bz + aw * bw;
+	if (cosom < 0) {
+		cosom = -cosom;
+		bx = -bx;
+		by = -by;
+		bz = -bz;
+		bw = -bw;
+	}
+	if (1 - cosom > 1e-6) {
+		omega = Math.acos(cosom);
+		sinom = Math.sin(omega);
+		scale0 = Math.sin((1 - t) * omega) / sinom;
+		scale1 = Math.sin(t * omega) / sinom;
+	} else {
+		scale0 = 1 - t;
+		scale1 = t;
+	}
+	out[0] = scale0 * ax + scale1 * bx;
+	out[1] = scale0 * ay + scale1 * by;
+	out[2] = scale0 * az + scale1 * bz;
+	out[3] = scale0 * aw + scale1 * bw;
+	return out;
+}
+/**
+* Calculates the inverse of a quat
+*
+* @param out the receiving quaternion
+* @param a quat to calculate inverse of
+* @returns out
+*/
+function invert$3(out, a) {
+	const a0 = a[0];
+	const a1 = a[1];
+	const a2 = a[2];
+	const a3 = a[3];
+	const dot = a0 * a0 + a1 * a1 + a2 * a2 + a3 * a3;
+	const invDot = dot ? 1 / dot : 0;
+	out[0] = -a0 * invDot;
+	out[1] = -a1 * invDot;
+	out[2] = -a2 * invDot;
+	out[3] = a3 * invDot;
+	return out;
+}
+/**
+* Calculates the conjugate of a quat
+* If the quaternion is normalized, this function is faster than quat.inverse and produces the same result.
+*
+* @param out the receiving quaternion
+* @param a quat to calculate conjugate of
+* @returns out
+*/
+function conjugate$1(out, a) {
+	out[0] = -a[0];
+	out[1] = -a[1];
+	out[2] = -a[2];
+	out[3] = a[3];
+	return out;
+}
+/**
+* Creates a quaternion from the given 3x3 rotation matrix.
+*
+* NOTE: The resultant quaternion is not normalized, so you should be sure
+* to renormalize the quaternion yourself where necessary.
+*
+* @param out the receiving quaternion
+* @param m rotation matrix
+* @returns out
+*/
 function fromMat3(out, m) {
-    // Algorithm in Ken Shoemake's article in 1987 SIGGRAPH course notes
-    // article "Quaternion Calculus and Fast Animation".
-    const fTrace = m[0] + m[4] + m[8];
-    let fRoot;
-    if (fTrace > 0.0) {
-        // |w| > 1/2, may as well choose w > 1/2
-        fRoot = Math.sqrt(fTrace + 1.0); // 2w
-        out[3] = 0.5 * fRoot;
-        fRoot = 0.5 / fRoot; // 1/(4w)
-        out[0] = (m[5] - m[7]) * fRoot;
-        out[1] = (m[6] - m[2]) * fRoot;
-        out[2] = (m[1] - m[3]) * fRoot;
-    }
-    else {
-        // |w| <= 1/2
-        let i = 0;
-        if (m[4] > m[0])
-            i = 1;
-        if (m[8] > m[i * 3 + i])
-            i = 2;
-        const j = (i + 1) % 3;
-        const k = (i + 2) % 3;
-        fRoot = Math.sqrt(m[i * 3 + i] - m[j * 3 + j] - m[k * 3 + k] + 1.0);
-        out[i] = 0.5 * fRoot;
-        fRoot = 0.5 / fRoot;
-        out[3] = (m[j * 3 + k] - m[k * 3 + j]) * fRoot;
-        out[j] = (m[j * 3 + i] + m[i * 3 + j]) * fRoot;
-        out[k] = (m[k * 3 + i] + m[i * 3 + k]) * fRoot;
-    }
-    return out;
+	const fTrace = m[0] + m[4] + m[8];
+	let fRoot;
+	if (fTrace > 0) {
+		fRoot = Math.sqrt(fTrace + 1);
+		out[3] = .5 * fRoot;
+		fRoot = .5 / fRoot;
+		out[0] = (m[5] - m[7]) * fRoot;
+		out[1] = (m[6] - m[2]) * fRoot;
+		out[2] = (m[1] - m[3]) * fRoot;
+	} else {
+		let i = 0;
+		if (m[4] > m[0]) i = 1;
+		if (m[8] > m[i * 3 + i]) i = 2;
+		const j = (i + 1) % 3;
+		const k = (i + 2) % 3;
+		fRoot = Math.sqrt(m[i * 3 + i] - m[j * 3 + j] - m[k * 3 + k] + 1);
+		out[i] = .5 * fRoot;
+		fRoot = .5 / fRoot;
+		out[3] = (m[j * 3 + k] - m[k * 3 + j]) * fRoot;
+		out[j] = (m[j * 3 + i] + m[i * 3 + j]) * fRoot;
+		out[k] = (m[k * 3 + i] + m[i * 3 + k]) * fRoot;
+	}
+	return out;
 }
 /**
- * Calculates a quaternion from a 4x4 rotation matrix
- * Extracts the 3x3 rotation part and calls fromMat3
- *
- * @param out the receiving quaternion
- * @param m rotation matrix
- * @returns out
- */
-function fromMat4(out, m) {
-    const m3 = create$5();
-    fromMat4$1(m3, m);
-    return fromMat3(out, m3);
+* Calculates a quaternion from a 4x4 rotation matrix
+* Extracts the 3x3 rotation part and calls fromMat3
+*
+* @param out the receiving quaternion
+* @param m rotation matrix
+* @returns out
+*/
+function fromMat4$1(out, m) {
+	const m3 = create$7();
+	fromMat4(m3, m);
+	return fromMat3(out, m3);
 }
 /**
- * Creates a quaternion from the given euler
- * @param out the receiving quaternion
- * @param euler the euler to create the quaternion from
- * @returns out
- */
+* Creates a quaternion from the given euler
+* @param out the receiving quaternion
+* @param euler the euler to create the quaternion from
+* @returns out
+*/
 function fromEuler(out, euler) {
-    const x = euler[0];
-    const y = euler[1];
-    const z = euler[2];
-    const order = euler[3] || 'xyz';
-    const cos = Math.cos;
-    const sin = Math.sin;
-    const c1 = cos(x / 2);
-    const c2 = cos(y / 2);
-    const c3 = cos(z / 2);
-    const s1 = sin(x / 2);
-    const s2 = sin(y / 2);
-    const s3 = sin(z / 2);
-    switch (order) {
-        case 'xyz':
-            out[0] = s1 * c2 * c3 + c1 * s2 * s3;
-            out[1] = c1 * s2 * c3 - s1 * c2 * s3;
-            out[2] = c1 * c2 * s3 + s1 * s2 * c3;
-            out[3] = c1 * c2 * c3 - s1 * s2 * s3;
-            break;
-        case 'yxz':
-            out[0] = s1 * c2 * c3 + c1 * s2 * s3;
-            out[1] = c1 * s2 * c3 - s1 * c2 * s3;
-            out[2] = c1 * c2 * s3 - s1 * s2 * c3;
-            out[3] = c1 * c2 * c3 + s1 * s2 * s3;
-            break;
-        case 'zxy':
-            out[0] = s1 * c2 * c3 - c1 * s2 * s3;
-            out[1] = c1 * s2 * c3 + s1 * c2 * s3;
-            out[2] = c1 * c2 * s3 + s1 * s2 * c3;
-            out[3] = c1 * c2 * c3 - s1 * s2 * s3;
-            break;
-        case 'zyx':
-            out[0] = s1 * c2 * c3 - c1 * s2 * s3;
-            out[1] = c1 * s2 * c3 + s1 * c2 * s3;
-            out[2] = c1 * c2 * s3 - s1 * s2 * c3;
-            out[3] = c1 * c2 * c3 + s1 * s2 * s3;
-            break;
-        case 'yzx':
-            out[0] = s1 * c2 * c3 + c1 * s2 * s3;
-            out[1] = c1 * s2 * c3 + s1 * c2 * s3;
-            out[2] = c1 * c2 * s3 - s1 * s2 * c3;
-            out[3] = c1 * c2 * c3 - s1 * s2 * s3;
-            break;
-        case 'xzy':
-            out[0] = s1 * c2 * c3 - c1 * s2 * s3;
-            out[1] = c1 * s2 * c3 - s1 * c2 * s3;
-            out[2] = c1 * c2 * s3 + s1 * s2 * c3;
-            out[3] = c1 * c2 * c3 + s1 * s2 * s3;
-            break;
-        default:
-            console.warn(`fromEuler() encountered an unknown order: ${order}`);
-    }
-    return out;
+	const x = euler[0];
+	const y = euler[1];
+	const z = euler[2];
+	const order = euler[3] || "xyz";
+	const cos = Math.cos;
+	const sin = Math.sin;
+	const c1 = cos(x / 2);
+	const c2 = cos(y / 2);
+	const c3 = cos(z / 2);
+	const s1 = sin(x / 2);
+	const s2 = sin(y / 2);
+	const s3 = sin(z / 2);
+	switch (order) {
+		case "xyz":
+			out[0] = s1 * c2 * c3 + c1 * s2 * s3;
+			out[1] = c1 * s2 * c3 - s1 * c2 * s3;
+			out[2] = c1 * c2 * s3 + s1 * s2 * c3;
+			out[3] = c1 * c2 * c3 - s1 * s2 * s3;
+			break;
+		case "yxz":
+			out[0] = s1 * c2 * c3 + c1 * s2 * s3;
+			out[1] = c1 * s2 * c3 - s1 * c2 * s3;
+			out[2] = c1 * c2 * s3 - s1 * s2 * c3;
+			out[3] = c1 * c2 * c3 + s1 * s2 * s3;
+			break;
+		case "zxy":
+			out[0] = s1 * c2 * c3 - c1 * s2 * s3;
+			out[1] = c1 * s2 * c3 + s1 * c2 * s3;
+			out[2] = c1 * c2 * s3 + s1 * s2 * c3;
+			out[3] = c1 * c2 * c3 - s1 * s2 * s3;
+			break;
+		case "zyx":
+			out[0] = s1 * c2 * c3 - c1 * s2 * s3;
+			out[1] = c1 * s2 * c3 + s1 * c2 * s3;
+			out[2] = c1 * c2 * s3 - s1 * s2 * c3;
+			out[3] = c1 * c2 * c3 + s1 * s2 * s3;
+			break;
+		case "yzx":
+			out[0] = s1 * c2 * c3 + c1 * s2 * s3;
+			out[1] = c1 * s2 * c3 + s1 * c2 * s3;
+			out[2] = c1 * c2 * s3 - s1 * s2 * c3;
+			out[3] = c1 * c2 * c3 - s1 * s2 * s3;
+			break;
+		case "xzy":
+			out[0] = s1 * c2 * c3 - c1 * s2 * s3;
+			out[1] = c1 * s2 * c3 - s1 * c2 * s3;
+			out[2] = c1 * c2 * s3 + s1 * s2 * c3;
+			out[3] = c1 * c2 * c3 + s1 * s2 * s3;
+			break;
+		default: console.warn(`fromEuler() encountered an unknown order: ${order}`);
+	}
+	return out;
+}
+const _fromDegrees_euler = [
+	0,
+	0,
+	0,
+	"xyz"
+];
+/**
+* Creates a quaternion from euler angles specified in degrees.
+* Shorthand for converting degrees to radians and then creating a quaternion from euler.
+*
+* @param out the receiving quaternion
+* @param x The x euler rotation in degrees
+* @param y The y euler rotation in degrees
+* @param z The z euler rotation in degrees
+* @param order The order of rotation
+* @returns out
+*/
+function fromDegrees$1(out, x, y, z, order) {
+	_fromDegrees_euler[0] = x * Math.PI / 180;
+	_fromDegrees_euler[1] = y * Math.PI / 180;
+	_fromDegrees_euler[2] = z * Math.PI / 180;
+	_fromDegrees_euler[3] = order;
+	return fromEuler(out, _fromDegrees_euler);
 }
 /**
- * Copy the values from one quat to another
- *
- * @param out the receiving quaternion
- * @param a the source quaternion
- * @returns out
- */
-const copy$3 = copy$5;
+* Returns a string representation of a quaternion
+*
+* @param a vector to represent as a string
+* @returns string representation of the vector
+*/
+function str$4(a) {
+	return `quat(${a[0]}, ${a[1]}, ${a[2]}, ${a[3]})`;
+}
 /**
- * Normalize a quat
- *
- * @param out the receiving quaternion
- * @param a quaternion to normalize
- * @returns out
- */
+* Creates a new quat initialized with values from an existing quaternion
+*
+* @param a quaternion to clone
+* @returns a new quaternion
+*/
+const clone$4 = clone$5;
+/**
+* Creates a new quat initialized with the given values
+*
+* @param x X component
+* @param y Y component
+* @param z Z component
+* @param w W component
+* @returns a new quaternion
+*/
+const fromValues$5 = fromValues$6;
+/**
+* Copy the values from one quat to another
+*
+* @param out the receiving quaternion
+* @param a the source quaternion
+* @returns out
+*/
+const copy$4 = copy$5;
+/**
+* Set the components of a quat to the given values
+*
+* @param out the receiving quaternion
+* @param x X component
+* @param y Y component
+* @param z Z component
+* @param w W component
+* @returns out
+*/
+const set$5 = set$6;
+/**
+* Adds two quat's
+*
+* @param out the receiving quaternion
+* @param a the first operand
+* @param b the second operand
+* @returns out
+*/
+const add$3 = add$4;
+/**
+* Scales a quat by a scalar number
+*
+* @param out the receiving quaternion
+* @param a the quaternion to scale
+* @param b amount to scale the quaternion by
+* @returns out
+*/
+const scale$4 = scale$5;
+/**
+* Calculates the dot product of two quat's
+*
+* @param a the first operand
+* @param b the second operand
+* @returns dot product of a and b
+*/
+const dot$1 = dot$2;
+/**
+* Performs a linear interpolation between two quat's
+*
+* @param out the receiving quaternion
+* @param a the first operand
+* @param b the second operand
+* @param t interpolation amount, in the range [0-1], between the two inputs
+* @returns out
+*/
+const lerp$3 = lerp$4;
+/**
+* Calculates the length of a quat
+*
+* @param a quaternion to calculate length of
+* @returns length of a
+*/
+const length$1 = length$2;
+/**
+* Alias for {@link length}
+*/
+const len$1 = length$1;
+/**
+* Calculates the squared length of a quat
+*
+* @param a quaternion to calculate squared length of
+* @returns squared length of a
+*/
+const squaredLength$1 = squaredLength$2;
+/**
+* Alias for {@link squaredLength}
+*/
+const sqrLen$1 = squaredLength$1;
+/**
+* Alias for {@link multiply}
+*/
+const mul$3 = multiply$3;
+/**
+* Normalize a quat
+*
+* @param out the receiving quaternion
+* @param a quaternion to normalize
+* @returns out
+*/
 const normalize$2 = normalize$3;
 /**
- * Sets a quaternion to represent the shortest rotation from one
- * vector to another.
- *
- * Both vectors are assumed to be unit length.
- *
- * @param out the receiving quaternion.
- * @param a the initial vector
- * @param b the destination vector
- * @returns out
- */
+* Returns whether or not the quaternions have exactly the same elements in the same position (when compared with ===)
+*
+* @param a The first quaternion.
+* @param b The second quaternion.
+* @returns True if the quaternions are equal, false otherwise.
+*/
+const exactEquals$5 = exactEquals$6;
+/**
+* Returns whether or not the quaternions have approximately the same elements in the same position.
+*
+* @param a The first quaternion.
+* @param b The second quaternion.
+* @returns True if the quaternions are equal, false otherwise.
+*/
+function equals$6(a, b) {
+	return Math.abs(dot$2(a, b)) >= 1 - EPSILON;
+}
+/**
+* Sets a quaternion to represent the shortest rotation from one
+* vector to another.
+*
+* Both vectors are assumed to be unit length.
+*
+* @param out the receiving quaternion.
+* @param a the initial vector
+* @param b the destination vector
+* @returns out
+*/
 const rotationTo = /* @__PURE__ */ (() => {
-    const tmpvec3 = create$7();
-    const xUnitVec3 = fromValues$2(1, 0, 0);
-    const yUnitVec3 = fromValues$2(0, 1, 0);
-    return (out, a, b) => {
-        const dot = dot$1(a, b);
-        if (dot < -0.999999) {
-            cross$1(tmpvec3, xUnitVec3, a);
-            if (length$1(tmpvec3) < 0.000001)
-                cross$1(tmpvec3, yUnitVec3, a);
-            normalize$4(tmpvec3, tmpvec3);
-            setAxisAngle(out, tmpvec3, Math.PI);
-            return out;
-        }
-        if (dot > 0.999999) {
-            out[0] = 0;
-            out[1] = 0;
-            out[2] = 0;
-            out[3] = 1;
-            return out;
-        }
-        cross$1(tmpvec3, a, b);
-        out[0] = tmpvec3[0];
-        out[1] = tmpvec3[1];
-        out[2] = tmpvec3[2];
-        out[3] = 1 + dot;
-        return normalize$2(out, out);
-    };
+	const tmpvec3 = create$2$1();
+	const xUnitVec3 = fromValues$2(1, 0, 0);
+	const yUnitVec3 = fromValues$2(0, 1, 0);
+	return (out, a, b) => {
+		const dot = dot$3(a, b);
+		if (dot < -0.999999) {
+			cross$1(tmpvec3, xUnitVec3, a);
+			if (length$3(tmpvec3) < 1e-6) cross$1(tmpvec3, yUnitVec3, a);
+			normalize$5(tmpvec3, tmpvec3);
+			setAxisAngle(out, tmpvec3, Math.PI);
+			return out;
+		}
+		if (dot > .999999) {
+			out[0] = 0;
+			out[1] = 0;
+			out[2] = 0;
+			out[3] = 1;
+			return out;
+		}
+		cross$1(tmpvec3, a, b);
+		out[0] = tmpvec3[0];
+		out[1] = tmpvec3[1];
+		out[2] = tmpvec3[2];
+		out[3] = 1 + dot;
+		return normalize$2(out, out);
+	};
 })();
-
 /**
- * Creates a new Euler from the given values.
- * @param x The x rotation in radians.
- * @param y The y rotation in radians.
- * @param z The z rotation in radians.
- * @param order The order of rotation.
- * @returns A new Euler.
- */
-function fromValues$1(x, y, z, order) {
-    return [x, y, z, order];
+* Performs a spherical linear interpolation with two control points
+*
+* @param out the receiving quaternion
+* @param a the first operand
+* @param b the second operand
+* @param c the third operand
+* @param d the fourth operand
+* @param t interpolation amount, in the range [0-1], between the two inputs
+* @returns out
+*/
+const sqlerp = /* @__PURE__ */ (() => {
+	const temp1 = create$5();
+	const temp2 = create$5();
+	return (out, a, b, c, d, t) => {
+		slerp(temp1, a, d, t);
+		slerp(temp2, b, c, t);
+		slerp(out, temp1, temp2, 2 * t * (1 - t));
+		return out;
+	};
+})();
+/**
+* Sets the specified quaternion with values corresponding to the given
+* axes. Each axis is a vec3 and is expected to be unit length and
+* perpendicular to all other specified axes.
+*
+* @param view  the vector representing the viewing direction
+* @param right the vector representing the local "right" direction
+* @param up    the vector representing the local "up" direction
+* @returns out
+*/
+const setAxes = /* @__PURE__ */ (() => {
+	const matr = create$7();
+	return (out, view, right, up) => {
+		matr[0] = right[0];
+		matr[3] = right[1];
+		matr[6] = right[2];
+		matr[1] = up[0];
+		matr[4] = up[1];
+		matr[7] = up[2];
+		matr[2] = -view[0];
+		matr[5] = -view[1];
+		matr[8] = -view[2];
+		return normalize$2(out, fromMat3(out, matr));
+	};
+})();
+//#endregion
+//#region src/core/euler.ts
+var euler_exports = /* @__PURE__ */ __exportAll({
+	create: () => create$4$1,
+	equals: () => equals$5,
+	exactEquals: () => exactEquals$4,
+	fromDegrees: () => fromDegrees,
+	fromQuat: () => fromQuat,
+	fromRotationMat4: () => fromRotationMat4,
+	fromValues: () => fromValues$4,
+	reorder: () => reorder,
+	set: () => set$4
+});
+/**
+* Creates a new Euler with default values (0, 0, 0, 'xyz').
+*/
+function create$4$1() {
+	return [
+		0,
+		0,
+		0,
+		"xyz"
+	];
 }
-
 /**
- * Transform a bounding box by a 4x4 matrix.
- * Uses Arvo's trick — transform the center, build new half-extents from
- * |M| · extents — which is ~4× fewer ops than transforming all 8 corners.
- * Reference: Jim Arvo, "Transforming Axis-Aligned Bounding Boxes",
- * Graphics Gems I (1990).
- * https://github.com/erich666/GraphicsGems/blob/master/gems/TransBox.c
- * Assumes mat is affine (no perspective), which is always true for AABB
- * transforms in practice.
- * Safe under aliasing (out and box may be the same array): all six box
- * components are read into locals before out is written.
- * @param out - The output Box3
- * @param box - The input Box3
- * @param mat - The 4x4 transformation matrix
- * @returns The transformed Box3
- */
-function transformMat4(out, box, mat) {
-    const bMinX = box[0];
-    const bMinY = box[1];
-    const bMinZ = box[2];
-    const bMaxX = box[3];
-    const bMaxY = box[4];
-    const bMaxZ = box[5];
-    // empty input → empty output (preserve sentinel rather than producing
-    // a bogus transformed box from negative extents)
-    if (bMinX > bMaxX || bMinY > bMaxY || bMinZ > bMaxZ) {
-        out[0] = Number.POSITIVE_INFINITY;
-        out[1] = Number.POSITIVE_INFINITY;
-        out[2] = Number.POSITIVE_INFINITY;
-        out[3] = Number.NEGATIVE_INFINITY;
-        out[4] = Number.NEGATIVE_INFINITY;
-        out[5] = Number.NEGATIVE_INFINITY;
-        return out;
-    }
-    const cx = (bMinX + bMaxX) * 0.5;
-    const cy = (bMinY + bMaxY) * 0.5;
-    const cz = (bMinZ + bMaxZ) * 0.5;
-    const ex = (bMaxX - bMinX) * 0.5;
-    const ey = (bMaxY - bMinY) * 0.5;
-    const ez = (bMaxZ - bMinZ) * 0.5;
-    const m0 = mat[0], m1 = mat[1], m2 = mat[2];
-    const m4 = mat[4], m5 = mat[5], m6 = mat[6];
-    const m8 = mat[8], m9 = mat[9], m10 = mat[10];
-    const tcx = m0 * cx + m4 * cy + m8 * cz + mat[12];
-    const tcy = m1 * cx + m5 * cy + m9 * cz + mat[13];
-    const tcz = m2 * cx + m6 * cy + m10 * cz + mat[14];
-    const tex = Math.abs(m0) * ex + Math.abs(m4) * ey + Math.abs(m8) * ez;
-    const tey = Math.abs(m1) * ex + Math.abs(m5) * ey + Math.abs(m9) * ez;
-    const tez = Math.abs(m2) * ex + Math.abs(m6) * ey + Math.abs(m10) * ez;
-    out[0] = tcx - tex;
-    out[1] = tcy - tey;
-    out[2] = tcz - tez;
-    out[3] = tcx + tex;
-    out[4] = tcy + tey;
-    out[5] = tcz + tez;
-    return out;
+* Creates a new Euler from the given values.
+* @param x The x rotation in radians.
+* @param y The y rotation in radians.
+* @param z The z rotation in radians.
+* @param order The order of rotation.
+* @returns A new Euler.
+*/
+function fromValues$4(x, y, z, order) {
+	return [
+		x,
+		y,
+		z,
+		order
+	];
 }
-new Array(27); // 9 axes * 3 components
-
 /**
- * Creates a new plane with normal (0, 1, 0) and constant 0
- * @returns A new plane
- */
+* Sets a given Euler from the given values.
+* @param x The x rotation in radians.
+* @param y The y rotation in radians.
+* @param z The z rotation in radians.
+* @param order The order of rotation.
+* @returns The output Euler.
+*/
+function set$4(out, x, y, z, order) {
+	out[0] = x;
+	out[1] = y;
+	out[2] = z;
+	out[3] = order;
+	return out;
+}
+/**
+* Sets Euler angle radians from given degrees
+* @param out The output Euler.
+* @param x The x rotation in degrees.
+* @param y The y rotation in degrees.
+* @param z The z rotation in degrees.
+* @param order The order of rotation.
+* @returns The output Euler.
+*/
+function fromDegrees(out, x, y, z, order) {
+	out[0] = x * Math.PI / 180;
+	out[1] = y * Math.PI / 180;
+	out[2] = z * Math.PI / 180;
+	out[3] = order;
+	return out;
+}
+/**
+* Sets the Euler angles from a rotation matrix.
+* @param out The output Euler.
+* @param rotationMatrix The input rotation matrix.
+* @param order The order of the Euler angles.
+* @returns The output Euler.
+*/
+function fromRotationMat4(out, rotationMatrix, order = out[3] || "xyz") {
+	const m11 = rotationMatrix[0];
+	const m12 = rotationMatrix[4];
+	const m13 = rotationMatrix[8];
+	const m21 = rotationMatrix[1];
+	const m22 = rotationMatrix[5];
+	const m23 = rotationMatrix[9];
+	const m31 = rotationMatrix[2];
+	const m32 = rotationMatrix[6];
+	const m33 = rotationMatrix[10];
+	switch (order) {
+		case "xyz":
+			out[1] = Math.asin(clamp$2(m13, -1, 1));
+			if (Math.abs(m13) < .9999999) {
+				out[0] = Math.atan2(-m23, m33);
+				out[2] = Math.atan2(-m12, m11);
+			} else {
+				out[0] = Math.atan2(m32, m22);
+				out[2] = 0;
+			}
+			break;
+		case "yxz":
+			out[0] = Math.asin(-clamp$2(m23, -1, 1));
+			if (Math.abs(m23) < .9999999) {
+				out[1] = Math.atan2(m13, m33);
+				out[2] = Math.atan2(m21, m22);
+			} else {
+				out[1] = Math.atan2(-m31, m11);
+				out[2] = 0;
+			}
+			break;
+		case "zxy":
+			out[0] = Math.asin(clamp$2(m32, -1, 1));
+			if (Math.abs(m32) < .9999999) {
+				out[1] = Math.atan2(-m31, m33);
+				out[2] = Math.atan2(-m12, m22);
+			} else {
+				out[1] = 0;
+				out[2] = Math.atan2(m21, m11);
+			}
+			break;
+		case "zyx":
+			out[1] = Math.asin(-clamp$2(m31, -1, 1));
+			if (Math.abs(m31) < .9999999) {
+				out[0] = Math.atan2(m32, m33);
+				out[2] = Math.atan2(m21, m11);
+			} else {
+				out[0] = 0;
+				out[2] = Math.atan2(-m12, m22);
+			}
+			break;
+		case "yzx":
+			out[2] = Math.asin(clamp$2(m21, -1, 1));
+			if (Math.abs(m21) < .9999999) {
+				out[0] = Math.atan2(-m23, m22);
+				out[1] = Math.atan2(-m31, m11);
+			} else {
+				out[0] = 0;
+				out[1] = Math.atan2(m13, m33);
+			}
+			break;
+		case "xzy":
+			out[2] = Math.asin(-clamp$2(m12, -1, 1));
+			if (Math.abs(m12) < .9999999) {
+				out[0] = Math.atan2(m32, m22);
+				out[1] = Math.atan2(m13, m11);
+			} else {
+				out[0] = Math.atan2(-m23, m33);
+				out[1] = 0;
+			}
+			break;
+		default: console.warn(`encountered an unknown order: ${order}`);
+	}
+	out[3] = order;
+	return out;
+}
+/**
+* Returns whether or not the euler angles have exactly the same elements in the same position (when compared with ===)
+*
+* @param a The first euler.
+* @param b The second euler.
+* @returns True if the euler angles are equal, false otherwise.
+*/
+function exactEquals$4(a, b) {
+	return a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3];
+}
+/**
+* Returns whether or not the euler angles have approximately the same elements in the same position.
+*
+* @param a The first euler.
+* @param b The second euler.
+* @returns True if the euler angles are equal, false otherwise.
+*/
+function equals$5(a, b) {
+	const a0 = a[0];
+	const a1 = a[1];
+	const a2 = a[2];
+	const b0 = b[0];
+	const b1 = b[1];
+	const b2 = b[2];
+	return Math.abs(a0 - b0) <= 1e-6 * Math.max(1, Math.abs(a0), Math.abs(b0)) && Math.abs(a1 - b1) <= 1e-6 * Math.max(1, Math.abs(a1), Math.abs(b1)) && Math.abs(a2 - b2) <= 1e-6 * Math.max(1, Math.abs(a2), Math.abs(b2)) && a[3] === b[3];
+}
+const _setFromQuaternionRotationMatrix = /*@__PURE__*/ create$1$1();
+/**
+* Sets the Euler angles from a quaternion.
+* @param out The output Euler.
+* @param q The input quaternion.
+* @param order The order of the Euler.
+* @returns The output Euler
+*/
+function fromQuat(out, q, order) {
+	fromQuat$1(_setFromQuaternionRotationMatrix, q);
+	return fromRotationMat4(out, _setFromQuaternionRotationMatrix, order);
+}
+const _reorderQuaternion = /*@__PURE__*/ create$5();
+/**
+* Reorders the Euler based on the specified order.
+* @param out The output Euler.
+* @param a The input Euler.
+* @param order The order of the Euler.
+* @returns The output Euler.
+*/
+function reorder(out, a, order) {
+	fromEuler(_reorderQuaternion, a);
+	fromQuat(out, _reorderQuaternion, order);
+	return out;
+}
+//#endregion
+//#region src/core/spherical.ts
+var spherical_exports = /* @__PURE__ */ __exportAll({
+	angleTo: () => angleTo,
+	clone: () => clone$3,
+	copy: () => copy$3,
+	create: () => create$3,
+	equals: () => equals$1$1,
+	exactEquals: () => exactEquals$2,
+	fromValues: () => fromValues,
+	fromVec2: () => fromVec2,
+	fromVec3: () => fromVec3,
+	lerp: () => lerp$1$1,
+	makeSafe: () => makeSafe,
+	normalize: () => normalize$4,
+	scale: () => scale$1,
+	set: () => set,
+	setFromVec3: () => setFromVec3,
+	str: () => str,
+	toVec2: () => toVec2,
+	toVec3: () => toVec3
+});
+/**
+* Creates a new spherical coordinate at r=1, theta=0, phi=0
+*
+* @returns a new Spherical
+*/
 function create$3() {
-    return { normal: [0, 1, 0], constant: 0 };
+	return [
+		1,
+		0,
+		0
+	];
 }
 /**
- * Clones a plane
- * @param plane - The plane to clone
- * @returns A new plane
- */
-function clone$2(plane) {
-    return {
-        normal: clone$3(plane.normal),
-        constant: plane.constant,
-    };
+* Creates a new Spherical initialized with the given values
+*
+* @param r radial distance
+* @param theta azimuthal angle in the XZ plane from +Z (radians)
+* @param phi polar angle from +Y axis (radians)
+* @returns a new Spherical
+*/
+function fromValues(r, theta, phi) {
+	const out = [
+		0,
+		0,
+		0
+	];
+	out[0] = r;
+	out[1] = theta;
+	out[2] = phi;
+	return out;
 }
 /**
- * Copies one plane to another
- * @param out - The output plane
- * @param plane - The source plane
- * @returns The output plane
- */
-function copy$2(out, plane) {
-    copy$6(out.normal, plane.normal);
-    out.constant = plane.constant;
-    return out;
+* Creates a new Spherical initialized with values from an existing one
+*
+* @param a the source Spherical
+* @returns a new Spherical
+*/
+function clone$3(a) {
+	const out = [
+		0,
+		0,
+		0
+	];
+	out[0] = a[0];
+	out[1] = a[1];
+	out[2] = a[2];
+	return out;
 }
 /**
- * Normalizes a plane (ensures the normal vector is unit length)
- * @param out - The output plane
- * @param plane - The input plane
- * @returns The normalized plane
- */
-function normalize$1(out, plane) {
-    const invMagnitude = 1.0 / length$1(plane.normal);
-    scale(out.normal, plane.normal, invMagnitude);
-    out.constant = plane.constant * invMagnitude;
-    return out;
+* Copies values from one Spherical to another
+*
+* @param out the receiving Spherical
+* @param a the source Spherical
+* @returns out
+*/
+function copy$3(out, a) {
+	out[0] = a[0];
+	out[1] = a[1];
+	out[2] = a[2];
+	return out;
 }
 /**
- * Calculates the signed distance from a point to the plane
- * @param plane - The plane
- * @param point - The point
- * @returns The signed distance (positive = in direction of normal)
- */
-function distanceToPoint(plane, point) {
-    return dot$1(plane.normal, point) + plane.constant;
-}
-
-/**
- * Creates a new spherical coordinate at r=1, theta=0, phi=0
- *
- * @returns a new Spherical
- */
-function create$2() {
-    return [1, 0, 0];
+* Sets the components of a Spherical
+*
+* @param out the receiving Spherical
+* @param r radial distance
+* @param theta azimuthal angle in the XZ plane from +Z (radians)
+* @param phi polar angle from +Y axis (radians)
+* @returns out
+*/
+function set(out, r, theta, phi) {
+	out[0] = r;
+	out[1] = theta;
+	out[2] = phi;
+	return out;
 }
 /**
- * Sets the components of a Spherical
- *
- * @param out the receiving Spherical
- * @param r radial distance
- * @param theta azimuthal angle in the XZ plane from +Z (radians)
- * @param phi polar angle from +Y axis (radians)
- * @returns out
- */
-function set$1(out, r, theta, phi) {
-    out[0] = r;
-    out[1] = theta;
-    out[2] = phi;
-    return out;
+* Sets r=1, preserving the angles. No-op if r is already zero.
+*
+* @param out the receiving Spherical
+* @param a the source Spherical
+* @returns out
+*/
+function normalize$4(out, a) {
+	out[0] = 1;
+	out[1] = a[1];
+	out[2] = a[2];
+	return out;
 }
 /**
- * Sets a Spherical from Cartesian Vec3 coordinates (Three.js / OpenGL convention):
- *   r     = sqrt(x² + y² + z²)
- *   theta = atan2(x, z)   (azimuthal angle in XZ plane from +Z)
- *   phi   = acos(y / r)   (polar angle from +Y)
- *
- * @param out the receiving Spherical
- * @param v the source Vec3
- * @returns out
- */
+* Scales the radial distance r by a scalar
+*
+* @param out the receiving Spherical
+* @param a the source Spherical
+* @param s scalar to multiply r by
+* @returns out
+*/
+function scale$1(out, a, s) {
+	out[0] = a[0] * s;
+	out[1] = a[1];
+	out[2] = a[2];
+	return out;
+}
+/**
+* Wraps an angle (in radians) into the range [-π, π].
+*/
+function wrapAngle(a) {
+	const TAU = Math.PI * 2;
+	return a - TAU * Math.floor((a + Math.PI) / TAU);
+}
+/**
+* Linearly interpolates between two Spherical coordinates taking the shortest
+* angular path for theta and phi.
+*
+* @param out the receiving Spherical
+* @param a the first operand
+* @param b the second operand
+* @param t interpolation factor in [0, 1]
+* @returns out
+*/
+function lerp$1$1(out, a, b, t) {
+	out[0] = lerp$5(a[0], b[0], t);
+	out[1] = a[1] + wrapAngle(b[1] - a[1]) * t;
+	out[2] = a[2] + wrapAngle(b[2] - a[2]) * t;
+	return out;
+}
+/**
+* Sets a Spherical from Cartesian Vec3 coordinates (Three.js / OpenGL convention):
+*   r     = sqrt(x² + y² + z²)
+*   theta = atan2(x, z)   (azimuthal angle in XZ plane from +Z)
+*   phi   = acos(y / r)   (polar angle from +Y)
+*
+* @param out the receiving Spherical
+* @param v the source Vec3
+* @returns out
+*/
 function setFromVec3(out, v) {
-    const x = v[0];
-    const y = v[1];
-    const z = v[2];
-    const r = Math.sqrt(x * x + y * y + z * z);
-    out[0] = r;
-    out[1] = r === 0 ? 0 : Math.atan2(x, z);
-    out[2] = r === 0 ? 0 : Math.acos(Math.max(-1, Math.min(1, y / r)));
-    return out;
+	const x = v[0];
+	const y = v[1];
+	const z = v[2];
+	const r = Math.sqrt(x * x + y * y + z * z);
+	out[0] = r;
+	out[1] = r === 0 ? 0 : Math.atan2(x, z);
+	out[2] = r === 0 ? 0 : Math.acos(Math.max(-1, Math.min(1, y / r)));
+	return out;
 }
+/** @alias setFromVec3 */
+const fromVec3 = setFromVec3;
 /**
- * Clamps phi to the range [EPSILON, π - EPSILON] to avoid coordinate
- * singularities at the poles (gimbal lock / division by zero).
- * r and theta are left unchanged.
- *
- * @param out the receiving Spherical
- * @param a the source Spherical
- * @returns out
- */
+* Clamps phi to the range [EPSILON, π - EPSILON] to avoid coordinate
+* singularities at the poles (gimbal lock / division by zero).
+* r and theta are left unchanged.
+*
+* @param out the receiving Spherical
+* @param a the source Spherical
+* @returns out
+*/
 function makeSafe(out, a) {
-    const EPS = EPSILON;
-    out[0] = a[0];
-    out[1] = a[1];
-    out[2] = Math.max(EPS, Math.min(Math.PI - EPS, a[2]));
-    return out;
+	const EPS = EPSILON;
+	out[0] = a[0];
+	out[1] = a[1];
+	out[2] = Math.max(EPS, Math.min(Math.PI - EPS, a[2]));
+	return out;
 }
 /**
- * Converts spherical coordinates to a Cartesian Vec3 (Three.js / OpenGL convention):
- *   x = r * sin(phi) * sin(theta)
- *   y = r * cos(phi)
- *   z = r * sin(phi) * cos(theta)
- *
- * @param out the receiving Vec3
- * @param a the source Spherical
- * @returns out
- */
+* Converts spherical coordinates to a Cartesian Vec3 (Three.js / OpenGL convention):
+*   x = r * sin(phi) * sin(theta)
+*   y = r * cos(phi)
+*   z = r * sin(phi) * cos(theta)
+*
+* @param out the receiving Vec3
+* @param a the source Spherical
+* @returns out
+*/
 function toVec3(out, a) {
-    const r = a[0];
-    const theta = a[1];
-    const phi = a[2];
-    const sinPhi = Math.sin(phi);
-    out[0] = r * sinPhi * Math.sin(theta);
-    out[1] = r * Math.cos(phi);
-    out[2] = r * sinPhi * Math.cos(theta);
-    return out;
+	const r = a[0];
+	const theta = a[1];
+	const phi = a[2];
+	const sinPhi = Math.sin(phi);
+	out[0] = r * sinPhi * Math.sin(theta);
+	out[1] = r * Math.cos(phi);
+	out[2] = r * sinPhi * Math.cos(theta);
+	return out;
+}
+/**
+* Converts a Vec2 (x, z) in the horizontal XZ plane to spherical coordinates.
+* The point is treated as lying on the equator (phi = π/2, y = 0).
+*
+* @param out the receiving Spherical
+* @param v the source Vec2 interpreted as (x, z)
+* @returns out
+*/
+function fromVec2(out, v) {
+	const x = v[0];
+	const z = v[1];
+	const r = Math.sqrt(x * x + z * z);
+	out[0] = r;
+	out[1] = r === 0 ? 0 : Math.atan2(x, z);
+	out[2] = Math.PI / 2;
+	return out;
+}
+/**
+* Projects spherical coordinates onto the XZ plane, returning a Vec2 (x, z).
+* Equivalent to taking the horizontal footprint of the 3D point.
+*
+* @param out the receiving Vec2
+* @param a the source Spherical
+* @returns out
+*/
+function toVec2(out, a) {
+	const r = a[0];
+	const theta = a[1];
+	const phi = a[2];
+	const sinPhi = Math.sin(phi);
+	out[0] = r * sinPhi * Math.sin(theta);
+	out[1] = r * sinPhi * Math.cos(theta);
+	return out;
+}
+/**
+* Returns true if two Spherical coordinates are approximately equal,
+* within an absolute/relative tolerance of EPSILON.
+*
+* @param a the first Spherical
+* @param b the second Spherical
+* @returns true if approximately equal
+*/
+function equals$1$1(a, b) {
+	return equals$7(a[0], b[0]) && equals$7(a[1], b[1]) && equals$7(a[2], b[2]);
+}
+/**
+* Returns true if two Spherical coordinates are exactly equal (===).
+*
+* @param a the first Spherical
+* @param b the second Spherical
+* @returns true if exactly equal
+*/
+function exactEquals$2(a, b) {
+	return a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
+}
+/**
+* Returns a string representation of a Spherical
+*
+* @param a the source Spherical
+* @returns string representation
+*/
+function str(a) {
+	return `Spherical(${a[0]}, ${a[1]}, ${a[2]})`;
+}
+/**
+* Returns the great-circle angle (in radians) between two spherical coordinates,
+* ignoring r. Equivalent to the central angle between the two directions on a
+* unit sphere.
+*
+* Uses the numerically stable haversine formula.
+*
+* @param a the first Spherical
+* @param b the second Spherical
+* @returns angle in radians in [0, π]
+*/
+function angleTo(a, b) {
+	const phiA = a[2];
+	const phiB = b[2];
+	const dTheta = b[1] - a[1];
+	const hav = Math.sin((phiB - phiA) / 2) ** 2 + Math.sin(phiA) * Math.sin(phiB) * Math.sin(dTheta / 2) ** 2;
+	return 2 * Math.asin(Math.sqrt(Math.max(0, Math.min(1, hav))));
 }
 
 let objectIdCounter = 0;
-const _lookAt_tmp = create$6();
+const _lookAt_tmp = mat4_exports.create();
 class Object3D {
     isObject3D = true;
     /** Brand set true on Mesh (+ subclasses); declared here so `obj.isMesh` checks type on a base ref. */
@@ -1728,9 +5938,9 @@ class Object3D {
     scale = [1, 1, 1];
     parent = null;
     children = [];
-    matrix = create$6();
-    matrixWorld = create$6();
-    normalMatrix = create$5();
+    matrix = mat4_exports.create();
+    matrixWorld = mat4_exports.create();
+    normalMatrix = mat3_exports.create();
     matrixVersion = 0;
     add(child) {
         if (child.parent)
@@ -1755,18 +5965,18 @@ class Object3D {
         return this;
     }
     lookAt(target, up = [0, 1, 0]) {
-        targetTo(_lookAt_tmp, this.position, target, up);
-        fromMat4(this.quaternion, _lookAt_tmp);
+        mat4_exports.targetTo(_lookAt_tmp, this.position, target, up);
+        quat_exports.fromMat4(this.quaternion, _lookAt_tmp);
     }
     updateWorldMatrix() {
-        fromRotationTranslationScale(this.matrix, this.quaternion, this.position, this.scale);
+        mat4_exports.fromRotationTranslationScale(this.matrix, this.quaternion, this.position, this.scale);
         if (this.parent) {
-            multiply$1(this.matrixWorld, this.parent.matrixWorld, this.matrix);
+            mat4_exports.multiply(this.matrixWorld, this.parent.matrixWorld, this.matrix);
         }
         else {
-            copy$4(this.matrixWorld, this.matrix);
+            mat4_exports.copy(this.matrixWorld, this.matrix);
         }
-        normalFromMat4(this.normalMatrix, this.matrixWorld);
+        mat3_exports.normalFromMat4(this.normalMatrix, this.matrixWorld);
         this.matrixVersion++;
         for (const child of this.children) {
             child.updateWorldMatrix();
@@ -1779,17 +5989,17 @@ class Object3D {
         }
     }
     getWorldPosition(out) {
-        return getTranslation(out, this.matrixWorld);
+        return mat4_exports.getTranslation(out, this.matrixWorld);
     }
     getWorldQuaternion(out) {
-        return getRotation(out, this.matrixWorld);
+        return mat4_exports.getRotation(out, this.matrixWorld);
     }
     getWorldDirection(out) {
         const e = this.matrixWorld;
         out[0] = -e[8];
         out[1] = -e[9];
         out[2] = -e[10];
-        normalize$4(out, out);
+        vec3_exports.normalize(out, out);
         return out;
     }
     /**
@@ -1819,7 +6029,7 @@ var CoordinateSystem;
     CoordinateSystem[CoordinateSystem["WEBGPU"] = 1] = "WEBGPU";
 })(CoordinateSystem || (CoordinateSystem = {}));
 
-const _invViewProj = create$6();
+const _invViewProj = mat4_exports.create();
 class Camera extends Object3D {
     isCamera = true;
     isOrthographicCamera;
@@ -1831,8 +6041,8 @@ class Camera extends Object3D {
      * [0,1]); the renderer stamps its own convention on before rendering and rebuilds the projection.
      */
     coordinateSystem = CoordinateSystem.WEBGPU;
-    projectionMatrix = create$6();
-    matrixWorldInverse = create$6();
+    projectionMatrix = mat4_exports.create();
+    matrixWorldInverse = mat4_exports.create();
     constructor() {
         super();
         this.name = 'Camera';
@@ -1841,8 +6051,8 @@ class Camera extends Object3D {
     updateProjectionMatrix() { }
     /** recompute the matrixWorldInverse from the current matrixWorld. */
     updateViewMatrix() {
-        if (invert$1(this.matrixWorldInverse, this.matrixWorld) === null) {
-            identity$1(this.matrixWorldInverse);
+        if (mat4_exports.invert(this.matrixWorldInverse, this.matrixWorld) === null) {
+            mat4_exports.identity(this.matrixWorldInverse);
         }
     }
 }
@@ -1851,9 +6061,9 @@ class Camera extends Object3D {
  * NDC: x,y in [-1, 1], z in [0, 1] where 0 is near plane, 1 is far plane (WebGPU convention).
  */
 function unproject(out, ndc, camera) {
-    multiply$1(_invViewProj, camera.projectionMatrix, camera.matrixWorldInverse);
-    invert$1(_invViewProj, _invViewProj);
-    transformMat4$1(out, ndc, _invViewProj);
+    mat4_exports.multiply(_invViewProj, camera.projectionMatrix, camera.matrixWorldInverse);
+    mat4_exports.invert(_invViewProj, _invViewProj);
+    vec3_exports.transformMat4(out, ndc, _invViewProj);
     return out;
 }
 
@@ -1874,10 +6084,10 @@ class PerspectiveCamera extends Camera {
     updateProjectionMatrix() {
         // WebGPU clip space is z in [0,1] (ZO); WebGL is z in [-1,1] (NO). Only the depth mapping differs.
         if (this.coordinateSystem === CoordinateSystem.WEBGL) {
-            perspectiveNO(this.projectionMatrix, this.fov, this.aspect, this.near, this.far);
+            mat4_exports.perspectiveNO(this.projectionMatrix, this.fov, this.aspect, this.near, this.far);
         }
         else {
-            perspectiveZO(this.projectionMatrix, this.fov, this.aspect, this.near, this.far);
+            mat4_exports.perspectiveZO(this.projectionMatrix, this.fov, this.aspect, this.near, this.far);
         }
     }
 }
@@ -1950,8 +6160,8 @@ class CubeCamera extends Object3D {
         renderer.renderTarget = this.renderTarget;
         for (let face = 0; face < 6; face++) {
             const camera = this.cameras[face];
-            copy$6(camera.position, _worldPos);
-            add$1(_target$1, _worldPos, DIRS[face]);
+            vec3_exports.copy(camera.position, _worldPos);
+            vec3_exports.add(_target$1, _worldPos, DIRS[face]);
             camera.lookAt(_target$1, UPS[face]);
             camera.updateWorldMatrix();
             camera.updateViewMatrix();
@@ -2065,10 +6275,10 @@ class OrthographicCamera extends Camera {
         }
         // WebGPU clip space is z in [0,1] (orthoZO); WebGL is z in [-1,1] (orthoNO). Only depth differs.
         if (this.coordinateSystem === CoordinateSystem.WEBGL) {
-            orthoNO(this.projectionMatrix, left, right, bottom, top, this.near, this.far);
+            mat4_exports.orthoNO(this.projectionMatrix, left, right, bottom, top, this.near, this.far);
         }
         else {
-            orthoZO(this.projectionMatrix, left, right, bottom, top, this.near, this.far);
+            mat4_exports.orthoZO(this.projectionMatrix, left, right, bottom, top, this.near, this.far);
         }
     }
 }
@@ -2198,34 +6408,34 @@ class FlyControls {
             // camera forward = -Z column of the camera's local rotation
             const q = this.object.quaternion;
             // forward direction (camera looks down -Z)
-            set$2(_forward, 0, 0, -1);
-            transformQuat(_forward, _forward, q);
+            vec3_exports.set(_forward, 0, 0, -1);
+            vec3_exports.transformQuat(_forward, _forward, q);
             // right direction (+X in camera space)
-            set$2(_right, 1, 0, 0);
-            transformQuat(_right, _right, q);
+            vec3_exports.set(_right, 1, 0, 0);
+            vec3_exports.transformQuat(_right, _right, q);
             // build move direction
-            set$2(_moveDir, 0, 0, 0);
+            vec3_exports.set(_moveDir, 0, 0, 0);
             // forward/back: project forward onto XZ plane for ground-relative movement
-            scaleAndAdd(_moveDir, _moveDir, _forward, -moveZ);
+            vec3_exports.scaleAndAdd(_moveDir, _moveDir, _forward, -moveZ);
             // strafe
-            scaleAndAdd(_moveDir, _moveDir, _right, moveX);
+            vec3_exports.scaleAndAdd(_moveDir, _moveDir, _right, moveX);
             // vertical: world Y
             _moveDir[1] += moveY;
-            const len = length$1(_moveDir);
+            const len = vec3_exports.length(_moveDir);
             if (len > _EPS$1) {
-                scale(_moveDir, _moveDir, 1 / len);
+                vec3_exports.scale(_moveDir, _moveDir, 1 / len);
             }
             const speed = this.movementSpeed * delta;
-            scaleAndAdd(this.object.position, this.object.position, _moveDir, speed);
+            vec3_exports.scaleAndAdd(this.object.position, this.object.position, _moveDir, speed);
         }
         // -- apply yaw/pitch to quaternion --
-        const e = fromValues$1(this._pitch, this._yaw, 0, 'yxz');
-        fromEuler(this.object.quaternion, e);
+        const e = euler_exports.fromValues(this._pitch, this._yaw, 0, 'yxz');
+        quat_exports.fromEuler(this.object.quaternion, e);
         // -- update matrices --
         this.object.updateWorldMatrix();
         this.object.updateViewMatrix();
         // -- check if changed --
-        const posDist = squaredDistance(this._lastPosition, this.object.position);
+        const posDist = vec3_exports.squaredDistance(this._lastPosition, this.object.position);
         const quatDot = this._lastQuaternion[0] * this.object.quaternion[0] +
             this._lastQuaternion[1] * this.object.quaternion[1] +
             this._lastQuaternion[2] * this.object.quaternion[2] +
@@ -2233,8 +6443,8 @@ class FlyControls {
         const quatDist = 8 * (1 - Math.abs(quatDot));
         if (posDist > _EPS$1 || quatDist > _EPS$1) {
             this.onChange.emit();
-            copy$6(this._lastPosition, this.object.position);
-            copy$3(this._lastQuaternion, this.object.quaternion);
+            vec3_exports.copy(this._lastPosition, this.object.position);
+            quat_exports.copy(this._lastQuaternion, this.object.quaternion);
         }
     }
     // -- private --
@@ -2243,8 +6453,8 @@ class FlyControls {
         // Convert quaternion to a forward direction, then extract yaw/pitch.
         const q = this.object.quaternion;
         // forward = quaternion * (0, 0, -1)
-        set$2(_forward, 0, 0, -1);
-        transformQuat(_forward, _forward, q);
+        vec3_exports.set(_forward, 0, 0, -1);
+        vec3_exports.transformQuat(_forward, _forward, q);
         // yaw = atan2(forward.x, forward.z), but forward is -Z, so:
         this._yaw = Math.atan2(-_forward[0], -_forward[2]);
         // pitch = asin(-forward.y), clamped
@@ -2484,21 +6694,21 @@ class OrbitControls {
     // quaternion to align camera.up with world +Y and its inverse
     /** @internal */ _quat;
     /** @internal */ _quatInverse;
-    /** @internal */ _spherical = create$2();
-    /** @internal */ _sphericalDelta = create$2();
+    /** @internal */ _spherical = spherical_exports.create();
+    /** @internal */ _sphericalDelta = spherical_exports.create();
     /** @internal */ _scale = 1;
     /** @internal */ _panOffset = [0, 0, 0];
-    /** @internal */ _rotateStart = create$8();
-    /** @internal */ _rotateEnd = create$8();
-    /** @internal */ _rotateDelta = create$8();
-    /** @internal */ _panStart = create$8();
-    /** @internal */ _panEnd = create$8();
-    /** @internal */ _panDelta = create$8();
-    /** @internal */ _dollyStart = create$8();
-    /** @internal */ _dollyEnd = create$8();
-    /** @internal */ _dollyDelta = create$8();
+    /** @internal */ _rotateStart = vec2_exports.create();
+    /** @internal */ _rotateEnd = vec2_exports.create();
+    /** @internal */ _rotateDelta = vec2_exports.create();
+    /** @internal */ _panStart = vec2_exports.create();
+    /** @internal */ _panEnd = vec2_exports.create();
+    /** @internal */ _panDelta = vec2_exports.create();
+    /** @internal */ _dollyStart = vec2_exports.create();
+    /** @internal */ _dollyEnd = vec2_exports.create();
+    /** @internal */ _dollyDelta = vec2_exports.create();
     /** @internal */ _dollyDirection = [0, 0, 0];
-    /** @internal */ _mouse = create$8();
+    /** @internal */ _mouse = vec2_exports.create();
     /** @internal */ _performCursorZoom = false;
     /** @internal */ _pointers = [];
     /** @internal */ _pointerPositions = {};
@@ -2524,11 +6734,11 @@ class OrbitControls {
         const up = [0, 1, 0];
         // camera.up equivalent: we use +Y by default since Object3D doesn't carry an "up" field
         // if they need a different up axis.
-        this._quat = rotationTo(create$4(), up, up); // identity, up already is +Y
-        this._quatInverse = conjugate(create$4(), this._quat);
+        this._quat = quat_exports.rotationTo(quat_exports.create(), up, up); // identity, up already is +Y
+        this._quatInverse = quat_exports.conjugate(quat_exports.create(), this._quat);
         // Saved state snapshots
-        this.target0 = clone$3(this.target);
-        this.position0 = clone$3(object.position);
+        this.target0 = vec3_exports.clone(this.target);
+        this.position0 = vec3_exports.clone(object.position);
         this.zoom0 = object.fov ?? 1; // use fov as proxy for zoom
         // Bind handlers
         this._onPointerDown = _onPointerDown.bind(this);
@@ -2626,7 +6836,7 @@ class OrbitControls {
         return this._spherical[1];
     }
     getDistance() {
-        return distance(this.object.position, this.target);
+        return vec3_exports.distance(this.object.position, this.target);
     }
     // -------------------------------------------------------------------------
     // Key event helpers
@@ -2645,13 +6855,13 @@ class OrbitControls {
     // Save / reset state
     // -------------------------------------------------------------------------
     saveState() {
-        copy$6(this.target0, this.target);
-        copy$6(this.position0, this.object.position);
+        vec3_exports.copy(this.target0, this.target);
+        vec3_exports.copy(this.position0, this.object.position);
         this.zoom0 = this.object.fov ?? 1;
     }
     reset() {
-        copy$6(this.target, this.target0);
-        copy$6(this.object.position, this.position0);
+        vec3_exports.copy(this.target, this.target0);
+        vec3_exports.copy(this.object.position, this.position0);
         const cam = this.object;
         if (typeof cam.fov === 'number') {
             cam.fov = this.zoom0;
@@ -2690,9 +6900,9 @@ class OrbitControls {
     update(deltaTime = null) {
         const position = this.object.position;
         // offset = position - target, rotated to Y-up space
-        subtract(_v, position, this.target);
-        transformQuat(_v, _v, this._quat);
-        setFromVec3(this._spherical, _v);
+        vec3_exports.subtract(_v, position, this.target);
+        vec3_exports.transformQuat(_v, _v, this._quat);
+        spherical_exports.setFromVec3(this._spherical, _v);
         if (this.autoRotate && this.state === STATE.NONE) {
             this._rotateLeft(this._getAutoRotationAngle(deltaTime));
         }
@@ -2728,22 +6938,22 @@ class OrbitControls {
         }
         // Clamp polar
         this._spherical[2] = Math.max(this.minPolarAngle, Math.min(this.maxPolarAngle, this._spherical[2]));
-        makeSafe(this._spherical, this._spherical);
+        spherical_exports.makeSafe(this._spherical, this._spherical);
         // Pan offset
         if (this.enableDamping) {
-            scaleAndAdd(this.target, this.target, this._panOffset, this.dampingFactor);
+            vec3_exports.scaleAndAdd(this.target, this.target, this._panOffset, this.dampingFactor);
         }
         else {
-            add$1(this.target, this.target, this._panOffset);
+            vec3_exports.add(this.target, this.target, this._panOffset);
         }
         // Clamp target distance from cursor
-        subtract(this.target, this.target, this.cursor);
-        const tLen = length$1(this.target);
+        vec3_exports.subtract(this.target, this.target, this.cursor);
+        const tLen = vec3_exports.length(this.target);
         const tLenClamped = Math.max(this.minTargetRadius, Math.min(this.maxTargetRadius, tLen));
         if (tLen > 0) {
-            scale(this.target, this.target, tLenClamped / tLen);
+            vec3_exports.scale(this.target, this.target, tLenClamped / tLen);
         }
-        add$1(this.target, this.target, this.cursor);
+        vec3_exports.add(this.target, this.target, this.cursor);
         let zoomChanged = false;
         // Radius / zoom update
         const isPerspective = _isPerspective(this.object);
@@ -2756,27 +6966,27 @@ class OrbitControls {
             zoomChanged = prevRadius !== this._spherical[0];
         }
         // Convert back to Cartesian and rotate to camera-up space
-        toVec3(_v, this._spherical);
-        transformQuat(_v, _v, this._quatInverse);
-        add$1(position, this.target, _v);
+        spherical_exports.toVec3(_v, this._spherical);
+        vec3_exports.transformQuat(_v, _v, this._quatInverse);
+        vec3_exports.add(position, this.target, _v);
         this.object.lookAt(this.target);
         // Apply damping decay
         if (this.enableDamping) {
             this._sphericalDelta[1] *= 1 - this.dampingFactor;
             this._sphericalDelta[2] *= 1 - this.dampingFactor;
-            scale(this._panOffset, this._panOffset, 1 - this.dampingFactor);
+            vec3_exports.scale(this._panOffset, this._panOffset, 1 - this.dampingFactor);
         }
         else {
-            set$1(this._sphericalDelta, 0, 0, 0);
-            set$2(this._panOffset, 0, 0, 0);
+            spherical_exports.set(this._sphericalDelta, 0, 0, 0);
+            vec3_exports.set(this._panOffset, 0, 0, 0);
         }
         // Zoom-to-cursor adjustment for perspective camera
         if (this.zoomToCursor && this._performCursorZoom && isPerspective) {
-            const prevRadius = length$1(_v);
+            const prevRadius = vec3_exports.length(_v);
             const newRadius = this._clampDistance(prevRadius * this._scale);
             const radiusDelta = prevRadius - newRadius;
             if (radiusDelta !== 0) {
-                scaleAndAdd(this.object.position, this.object.position, this._dollyDirection, radiusDelta);
+                vec3_exports.scaleAndAdd(this.object.position, this.object.position, this._dollyDirection, radiusDelta);
                 this.object.updateWorldMatrix();
                 zoomChanged = true;
             }
@@ -2785,15 +6995,15 @@ class OrbitControls {
                 // target = camera.position + camera forward * newRadius
                 // forward is -Z column of camera matrix (column 2, negated)
                 mat4GetColumn(_v, this.object.matrix, 2);
-                negate$1(_v, _v);
-                normalize$4(_v, _v);
-                scaleAndAdd(this.target, this.object.position, _v, newRadius);
+                vec3_exports.negate(_v, _v);
+                vec3_exports.normalize(_v, _v);
+                vec3_exports.scaleAndAdd(this.target, this.object.position, _v, newRadius);
             }
             else {
                 // intersect the camera ray with the horizontal plane at target.y
                 mat4GetColumn(_v, this.object.matrix, 2);
-                negate$1(_v, _v);
-                normalize$4(_v, _v);
+                vec3_exports.negate(_v, _v);
+                vec3_exports.normalize(_v, _v);
                 const upDot = Math.abs(_v[1]);
                 if (upDot < _TILT_LIMIT) {
                     // recalculate target by look-at result
@@ -2817,19 +7027,19 @@ class OrbitControls {
         this.object.updateWorldMatrix();
         this.object.updateViewMatrix();
         // Check if anything actually changed
-        const dx = squaredDistance(this._lastPosition, this.object.position);
+        const dx = vec3_exports.squaredDistance(this._lastPosition, this.object.position);
         const dq = 8 *
             (1 -
                 Math.abs(this._lastQuaternion[0] * this.object.quaternion[0] +
                     this._lastQuaternion[1] * this.object.quaternion[1] +
                     this._lastQuaternion[2] * this.object.quaternion[2] +
                     this._lastQuaternion[3] * this.object.quaternion[3]));
-        const dt = squaredDistance(this._lastTargetPosition, this.target);
+        const dt = vec3_exports.squaredDistance(this._lastTargetPosition, this.target);
         if (zoomChanged || dx > _EPS || dq > _EPS || dt > _EPS) {
             this.dispatchEvent('change');
-            copy$6(this._lastPosition, this.object.position);
-            copy$3(this._lastQuaternion, this.object.quaternion);
-            copy$6(this._lastTargetPosition, this.target);
+            vec3_exports.copy(this._lastPosition, this.object.position);
+            quat_exports.copy(this._lastQuaternion, this.object.quaternion);
+            vec3_exports.copy(this._lastTargetPosition, this.target);
             return true;
         }
         return false;
@@ -2855,8 +7065,8 @@ class OrbitControls {
     }
     /** @internal */ _panLeft(distance, objectMatrix) {
         mat4GetColumn(_v, objectMatrix, 0);
-        scale(_v, _v, -distance);
-        add$1(this._panOffset, this._panOffset, _v);
+        vec3_exports.scale(_v, _v, -distance);
+        vec3_exports.add(this._panOffset, this._panOffset, _v);
     }
     /** @internal */ _panUp(distance, objectMatrix) {
         if (this.screenSpacePanning) {
@@ -2866,10 +7076,10 @@ class OrbitControls {
             // Use (up × right) = world-up-projected pan direction
             mat4GetColumn(_v, objectMatrix, 0);
             const up = [0, 1, 0];
-            cross$1(_v, up, _v);
+            vec3_exports.cross(_v, up, _v);
         }
-        scale(_v, _v, distance);
-        add$1(this._panOffset, this._panOffset, _v);
+        vec3_exports.scale(_v, _v, distance);
+        vec3_exports.add(this._panOffset, this._panOffset, _v);
     }
     // deltaX and deltaY in pixels (right/down positive)
     _pan(deltaX, deltaY) {
@@ -2877,8 +7087,8 @@ class OrbitControls {
         const cam = this.object;
         if (_isPerspective(this.object) && element) {
             const position = this.object.position;
-            subtract(_v, position, this.target);
-            let targetDistance = length$1(_v);
+            vec3_exports.subtract(_v, position, this.target);
+            let targetDistance = vec3_exports.length(_v);
             // fov is in radians
             targetDistance *= Math.tan(cam.fov / 2);
             this._panLeft((2 * deltaX * targetDistance) / element.clientHeight, this.object.matrix);
@@ -2908,8 +7118,8 @@ class OrbitControls {
         // Dolly direction: un-project the mouse position through the camera.
         // We approximate by setting dollyDirection to normalized (offset from camera to target)
         // adjusted by mouse NDC.
-        subtract(this._dollyDirection, this.target, this.object.position);
-        normalize$4(this._dollyDirection, this._dollyDirection);
+        vec3_exports.subtract(this._dollyDirection, this.target, this.object.position);
+        vec3_exports.normalize(this._dollyDirection, this._dollyDirection);
     }
     /** @internal */ _clampDistance(dist) {
         return Math.max(this.minDistance, Math.min(this.maxDistance, dist));
@@ -3157,7 +7367,7 @@ class OrbitControls {
     _trackPointer(event) {
         let pos = this._pointerPositions[event.pointerId];
         if (pos === undefined) {
-            pos = create$8();
+            pos = vec2_exports.create();
             this._pointerPositions[event.pointerId] = pos;
         }
         pos[0] = event.pageX;
@@ -3165,7 +7375,7 @@ class OrbitControls {
     }
     _getSecondPointerPosition(event) {
         const pointerId = event.pointerId === this._pointers[0] ? this._pointers[1] : this._pointers[0];
-        return this._pointerPositions[pointerId] ?? create$8();
+        return this._pointerPositions[pointerId] ?? vec2_exports.create();
     }
     _customWheelEvent(event) {
         const newEvent = {
@@ -3545,41 +7755,41 @@ class Raycaster {
     constructor(origin, direction, near = 0, far = Infinity) {
         this.ray = { origin: [0, 0, 0], direction: [0, 0, 0] };
         if (origin)
-            copy$6(this.ray.origin, origin);
+            vec3_exports.copy(this.ray.origin, origin);
         if (direction)
-            copy$6(this.ray.direction, direction);
+            vec3_exports.copy(this.ray.direction, direction);
         this.near = near;
         this.far = far;
     }
     set(origin, direction) {
-        copy$6(this.ray.origin, origin);
-        copy$6(this.ray.direction, direction);
+        vec3_exports.copy(this.ray.origin, origin);
+        vec3_exports.copy(this.ray.direction, direction);
     }
     setFromCamera(coords, camera) {
         const isOrthographic = camera.isOrthographicCamera === true;
         if (isOrthographic) {
             unproject(this.ray.origin, [coords[0], coords[1], 0], camera);
             const e = camera.matrixWorld;
-            set$2(_direction, -e[8], -e[9], -e[10]);
-            normalize$4(this.ray.direction, _direction);
+            vec3_exports.set(_direction, -e[8], -e[9], -e[10]);
+            vec3_exports.normalize(this.ray.direction, _direction);
         }
         else {
-            getTranslation(this.ray.origin, camera.matrixWorld);
+            mat4_exports.getTranslation(this.ray.origin, camera.matrixWorld);
             unproject(_target, [coords[0], coords[1], 1], camera);
-            subtract(_direction, _target, this.ray.origin);
-            normalize$4(this.ray.direction, _direction);
+            vec3_exports.subtract(_direction, _target, this.ray.origin);
+            vec3_exports.normalize(this.ray.direction, _direction);
         }
         this.near = camera.near;
         this.far = camera.far;
     }
     intersectObject(object, recursive = true, intersects = []) {
-        intersect(object, this, intersects, recursive);
+        intersect$1(object, this, intersects, recursive);
         intersects.sort(ascSort);
         return intersects;
     }
     intersectObjects(objects, recursive = true, intersects = []) {
         for (const object of objects) {
-            intersect(object, this, intersects, recursive);
+            intersect$1(object, this, intersects, recursive);
         }
         intersects.sort(ascSort);
         return intersects;
@@ -3588,18 +7798,18 @@ class Raycaster {
 function ascSort(a, b) {
     return a.distance - b.distance;
 }
-function intersect(object, raycaster, intersects, recursive) {
+function intersect$1(object, raycaster, intersects, recursive) {
     object.raycast(raycaster, intersects);
     if (recursive) {
         for (const child of object.children) {
-            intersect(child, raycaster, intersects, true);
+            intersect$1(child, raycaster, intersects, true);
         }
     }
 }
 // ============================================================================
 // Helpers for Mesh.raycast() - exported for use by Mesh
 // ============================================================================
-const _inverseMatrix = create$6();
+const _inverseMatrix = mat4_exports.create();
 const _localRay = { origin: [0, 0, 0], direction: [0, 0, 0] };
 const _intersectionPoint = [0, 0, 0];
 const _intersectionPointWorld = [0, 0, 0];
@@ -3614,8 +7824,8 @@ const _faceNormal = [0, 0, 0];
  * Returns the local ray for intersection testing.
  */
 function transformRayToLocalSpace(raycaster, matrixWorld) {
-    invert$1(_inverseMatrix, matrixWorld);
-    transformMat4$1(_localRay.origin, raycaster.ray.origin, _inverseMatrix);
+    mat4_exports.invert(_inverseMatrix, matrixWorld);
+    vec3_exports.transformMat4(_localRay.origin, raycaster.ray.origin, _inverseMatrix);
     // Transform direction by upper 3x3 of inverse matrix
     const m = _inverseMatrix;
     const dx = raycaster.ray.direction[0];
@@ -3624,7 +7834,7 @@ function transformRayToLocalSpace(raycaster, matrixWorld) {
     _localRay.direction[0] = m[0] * dx + m[4] * dy + m[8] * dz;
     _localRay.direction[1] = m[1] * dx + m[5] * dy + m[9] * dz;
     _localRay.direction[2] = m[2] * dx + m[6] * dy + m[10] * dz;
-    normalize$4(_localRay.direction, _localRay.direction);
+    vec3_exports.normalize(_localRay.direction, _localRay.direction);
     return _localRay;
 }
 /**
@@ -3635,35 +7845,35 @@ function checkTriangleIntersection(object, raycaster, localRay, matrixWorld, a, 
     const ia = indices ? indices[a] : a;
     const ib = indices ? indices[b] : b;
     const ic = indices ? indices[c] : c;
-    fromBuffer(_vA, positions, ia * 3);
-    fromBuffer(_vB, positions, ib * 3);
-    fromBuffer(_vC, positions, ic * 3);
+    vec3_exports.fromBuffer(_vA, positions, ia * 3);
+    vec3_exports.fromBuffer(_vB, positions, ib * 3);
+    vec3_exports.fromBuffer(_vC, positions, ic * 3);
     const t = rayTriangleIntersection(localRay.origin, localRay.direction, _vA, _vB, _vC);
     if (t === null)
         return;
     // Compute intersection point in local space: origin + direction * t
-    scaleAndAdd(_intersectionPoint, localRay.origin, localRay.direction, t);
+    vec3_exports.scaleAndAdd(_intersectionPoint, localRay.origin, localRay.direction, t);
     // Transform to world space
-    transformMat4$1(_intersectionPointWorld, _intersectionPoint, matrixWorld);
+    vec3_exports.transformMat4(_intersectionPointWorld, _intersectionPoint, matrixWorld);
     // Check distance against near/far
-    const distance$1 = distance(raycaster.ray.origin, _intersectionPointWorld);
-    if (distance$1 < raycaster.near || distance$1 > raycaster.far)
+    const distance = vec3_exports.distance(raycaster.ray.origin, _intersectionPointWorld);
+    if (distance < raycaster.near || distance > raycaster.far)
         return;
     // Compute face normal
-    subtract(_edge1, _vB, _vA);
-    subtract(_edge2, _vC, _vA);
-    cross$1(_faceNormal, _edge1, _edge2);
-    normalize$4(_faceNormal, _faceNormal);
+    vec3_exports.subtract(_edge1, _vB, _vA);
+    vec3_exports.subtract(_edge2, _vC, _vA);
+    vec3_exports.cross(_faceNormal, _edge1, _edge2);
+    vec3_exports.normalize(_faceNormal, _faceNormal);
     const intersection = {
-        distance: distance$1,
-        point: clone$3(_intersectionPointWorld),
+        distance,
+        point: vec3_exports.clone(_intersectionPointWorld),
         object,
         faceIndex,
         face: {
             a: ia,
             b: ib,
             c: ic,
-            normal: clone$3(_faceNormal),
+            normal: vec3_exports.clone(_faceNormal),
         },
     };
     if (uvs) {
@@ -3681,14 +7891,14 @@ function computeBarycentricUV(point, vA, vB, vC, ia, ib, ic, uvs) {
     const v0 = [0, 0, 0];
     const v1 = [0, 0, 0];
     const v2 = [0, 0, 0];
-    subtract(v0, vC, vA);
-    subtract(v1, vB, vA);
-    subtract(v2, point, vA);
-    const dot00 = dot$1(v0, v0);
-    const dot01 = dot$1(v0, v1);
-    const dot02 = dot$1(v0, v2);
-    const dot11 = dot$1(v1, v1);
-    const dot12 = dot$1(v1, v2);
+    vec3_exports.subtract(v0, vC, vA);
+    vec3_exports.subtract(v1, vB, vA);
+    vec3_exports.subtract(v2, point, vA);
+    const dot00 = vec3_exports.dot(v0, v0);
+    const dot01 = vec3_exports.dot(v0, v1);
+    const dot02 = vec3_exports.dot(v0, v2);
+    const dot11 = vec3_exports.dot(v1, v1);
+    const dot12 = vec3_exports.dot(v1, v2);
     const denom = dot00 * dot11 - dot01 * dot01;
     if (Math.abs(denom) < 1e-10)
         return null;
@@ -3740,7 +7950,7 @@ class Mesh extends Object3D {
         if (geometry.boundingSphere) {
             const sphere = geometry.boundingSphere;
             // transform sphere center to world space
-            transformMat4$1(_worldSphereCenter, sphere.center, matrixWorld);
+            vec3_exports.transformMat4(_worldSphereCenter, sphere.center, matrixWorld);
             // get world scale to transform radius (approximate for non-uniform scale)
             const sx = Math.hypot(matrixWorld[0], matrixWorld[1], matrixWorld[2]);
             const sy = Math.hypot(matrixWorld[4], matrixWorld[5], matrixWorld[6]);
@@ -3748,9 +7958,9 @@ class Mesh extends Object3D {
             const worldRadius = sphere.radius * Math.max(sx, sy, sz);
             // quick sphere-ray distance test
             const rayToCenter = [0, 0, 0];
-            subtract(rayToCenter, _worldSphereCenter, raycaster.ray.origin);
-            const tca = dot$1(rayToCenter, raycaster.ray.direction);
-            const d2 = dot$1(rayToCenter, rayToCenter) - tca * tca;
+            vec3_exports.subtract(rayToCenter, _worldSphereCenter, raycaster.ray.origin);
+            const tca = vec3_exports.dot(rayToCenter, raycaster.ray.direction);
+            const d2 = vec3_exports.dot(rayToCenter, rayToCenter) - tca * tca;
             if (d2 > worldRadius * worldRadius)
                 return;
         }
@@ -4855,117 +9065,117 @@ function compareResultDesc(d) {
 }
 
 var schema = /*#__PURE__*/Object.freeze({
-    __proto__: null,
-    PACKED_SPECS: PACKED_SPECS,
-    STORAGE_FORMATS: STORAGE_FORMATS,
-    Void: Void,
-    WgslFn: WgslFn,
-    arithResultDesc: arithResultDesc,
-    array: array$1,
-    atomic: atomic,
-    bits: bits,
-    bool: bool$1,
-    compareResultDesc: compareResultDesc,
-    descFromGlslType: descFromGlslType,
-    descFromWgslType: descFromWgslType,
-    f16: f16$1,
-    f32: f32$1,
-    half2x16: half2x16,
-    i32: i32$1,
-    isAnyTextureDesc: isAnyTextureDesc,
-    isArrayDesc: isArrayDesc,
-    isArrayTextureDesc: isArrayTextureDesc,
-    isAtomicDesc: isAtomicDesc,
-    isBitsDesc: isBitsDesc,
-    isCubeArrayTextureDesc: isCubeArrayTextureDesc,
-    isCubeTextureDesc: isCubeTextureDesc,
-    isDepthTextureDesc: isDepthTextureDesc,
-    isMatDesc: isMatDesc,
-    isPackedDesc: isPackedDesc,
-    isSamplerComparisonDesc: isSamplerComparisonDesc,
-    isSamplerDesc: isSamplerDesc,
-    isSizedArrayDesc: isSizedArrayDesc,
-    isStorageTextureDesc: isStorageTextureDesc,
-    isStructDef: isStructDef,
-    isStructDesc: isStructDesc,
-    isTextureDesc: isTextureDesc,
-    isVecDesc: isVecDesc,
-    itemSizeOf: itemSizeOf,
-    mat2x2f: mat2x2f$1,
-    mat2x2h: mat2x2h$1,
-    mat2x3f: mat2x3f$1,
-    mat2x3h: mat2x3h$1,
-    mat2x4f: mat2x4f$1,
-    mat2x4h: mat2x4h$1,
-    mat3x2f: mat3x2f$1,
-    mat3x2h: mat3x2h$1,
-    mat3x3f: mat3x3f$1,
-    mat3x3h: mat3x3h$1,
-    mat3x4f: mat3x4f$1,
-    mat3x4h: mat3x4h$1,
-    mat4x2f: mat4x2f$1,
-    mat4x2h: mat4x2h$1,
-    mat4x3f: mat4x3f$1,
-    mat4x3h: mat4x3h$1,
-    mat4x4f: mat4x4f$1,
-    mat4x4h: mat4x4h$1,
-    matColumnDesc: matColumnDesc,
-    mulResultDesc: mulResultDesc,
-    roundUp: roundUp$1,
-    sampleResultOf: sampleResultOf,
-    sampler: sampler$1,
-    samplerComparison: samplerComparison,
-    samplerComparisonDesc: samplerComparisonDesc,
-    samplerDesc: samplerDesc,
-    sizedArray: sizedArray,
-    snorm2x16: snorm2x16,
-    snorm8x4: snorm8x4,
-    storageValueOf: storageValueOf,
-    texture1d: texture1d,
-    texture2d: texture2d,
-    texture2dArray: texture2dArray,
-    texture3d: texture3d,
-    textureCube: textureCube,
-    textureCubeArray: textureCubeArray,
-    textureDepth2d: textureDepth2d,
-    textureDepth2dArray: textureDepth2dArray,
-    textureDepthCube: textureDepthCube,
-    textureDepthCubeArray: textureDepthCubeArray,
-    textureDepthMultisampled2d: textureDepthMultisampled2d,
-    textureDimension: textureDimension,
-    textureMultisampled2d: textureMultisampled2d,
-    textureSampleResultOf: textureSampleResultOf,
-    textureStorage1d: textureStorage1d,
-    textureStorage2d: textureStorage2d,
-    textureStorage2dArray: textureStorage2dArray,
-    textureStorage3d: textureStorage3d,
-    textureViewDimension: textureViewDimension,
-    typedArrayCtorOf: typedArrayCtorOf,
-    u32: u32$1,
-    unorm2x16: unorm2x16,
-    unorm8x4: unorm8x4,
-    vec2DescOf: vec2DescOf,
-    vec2bool: vec2bool,
-    vec2f: vec2f$1,
-    vec2h: vec2h$1,
-    vec2i: vec2i$1,
-    vec2u: vec2u$1,
-    vec3DescOf: vec3DescOf,
-    vec3bool: vec3bool,
-    vec3f: vec3f$1,
-    vec3h: vec3h$1,
-    vec3i: vec3i$1,
-    vec3u: vec3u$1,
-    vec4DescOf: vec4DescOf,
-    vec4bool: vec4bool,
-    vec4f: vec4f$1,
-    vec4h: vec4h$1,
-    vec4i: vec4i$1,
-    vec4u: vec4u$1,
-    vecElementDescOrSelf: vecElementDescOrSelf,
-    wgslAlignOf: wgslAlignOf,
-    wgslSizeOf: wgslSizeOf,
-    wgslStrideOf: wgslStrideOf
+	__proto__: null,
+	PACKED_SPECS: PACKED_SPECS,
+	STORAGE_FORMATS: STORAGE_FORMATS,
+	Void: Void,
+	WgslFn: WgslFn,
+	arithResultDesc: arithResultDesc,
+	array: array$1,
+	atomic: atomic,
+	bits: bits,
+	bool: bool$1,
+	compareResultDesc: compareResultDesc,
+	descFromGlslType: descFromGlslType,
+	descFromWgslType: descFromWgslType,
+	f16: f16$1,
+	f32: f32$1,
+	half2x16: half2x16,
+	i32: i32$1,
+	isAnyTextureDesc: isAnyTextureDesc,
+	isArrayDesc: isArrayDesc,
+	isArrayTextureDesc: isArrayTextureDesc,
+	isAtomicDesc: isAtomicDesc,
+	isBitsDesc: isBitsDesc,
+	isCubeArrayTextureDesc: isCubeArrayTextureDesc,
+	isCubeTextureDesc: isCubeTextureDesc,
+	isDepthTextureDesc: isDepthTextureDesc,
+	isMatDesc: isMatDesc,
+	isPackedDesc: isPackedDesc,
+	isSamplerComparisonDesc: isSamplerComparisonDesc,
+	isSamplerDesc: isSamplerDesc,
+	isSizedArrayDesc: isSizedArrayDesc,
+	isStorageTextureDesc: isStorageTextureDesc,
+	isStructDef: isStructDef,
+	isStructDesc: isStructDesc,
+	isTextureDesc: isTextureDesc,
+	isVecDesc: isVecDesc,
+	itemSizeOf: itemSizeOf,
+	mat2x2f: mat2x2f$1,
+	mat2x2h: mat2x2h$1,
+	mat2x3f: mat2x3f$1,
+	mat2x3h: mat2x3h$1,
+	mat2x4f: mat2x4f$1,
+	mat2x4h: mat2x4h$1,
+	mat3x2f: mat3x2f$1,
+	mat3x2h: mat3x2h$1,
+	mat3x3f: mat3x3f$1,
+	mat3x3h: mat3x3h$1,
+	mat3x4f: mat3x4f$1,
+	mat3x4h: mat3x4h$1,
+	mat4x2f: mat4x2f$1,
+	mat4x2h: mat4x2h$1,
+	mat4x3f: mat4x3f$1,
+	mat4x3h: mat4x3h$1,
+	mat4x4f: mat4x4f$1,
+	mat4x4h: mat4x4h$1,
+	matColumnDesc: matColumnDesc,
+	mulResultDesc: mulResultDesc,
+	roundUp: roundUp$1,
+	sampleResultOf: sampleResultOf,
+	sampler: sampler$1,
+	samplerComparison: samplerComparison,
+	samplerComparisonDesc: samplerComparisonDesc,
+	samplerDesc: samplerDesc,
+	sizedArray: sizedArray,
+	snorm2x16: snorm2x16,
+	snorm8x4: snorm8x4,
+	storageValueOf: storageValueOf,
+	texture1d: texture1d,
+	texture2d: texture2d,
+	texture2dArray: texture2dArray,
+	texture3d: texture3d,
+	textureCube: textureCube,
+	textureCubeArray: textureCubeArray,
+	textureDepth2d: textureDepth2d,
+	textureDepth2dArray: textureDepth2dArray,
+	textureDepthCube: textureDepthCube,
+	textureDepthCubeArray: textureDepthCubeArray,
+	textureDepthMultisampled2d: textureDepthMultisampled2d,
+	textureDimension: textureDimension,
+	textureMultisampled2d: textureMultisampled2d,
+	textureSampleResultOf: textureSampleResultOf,
+	textureStorage1d: textureStorage1d,
+	textureStorage2d: textureStorage2d,
+	textureStorage2dArray: textureStorage2dArray,
+	textureStorage3d: textureStorage3d,
+	textureViewDimension: textureViewDimension,
+	typedArrayCtorOf: typedArrayCtorOf,
+	u32: u32$1,
+	unorm2x16: unorm2x16,
+	unorm8x4: unorm8x4,
+	vec2DescOf: vec2DescOf,
+	vec2bool: vec2bool,
+	vec2f: vec2f$1,
+	vec2h: vec2h$1,
+	vec2i: vec2i$1,
+	vec2u: vec2u$1,
+	vec3DescOf: vec3DescOf,
+	vec3bool: vec3bool,
+	vec3f: vec3f$1,
+	vec3h: vec3h$1,
+	vec3i: vec3i$1,
+	vec3u: vec3u$1,
+	vec4DescOf: vec4DescOf,
+	vec4bool: vec4bool,
+	vec4f: vec4f$1,
+	vec4h: vec4h$1,
+	vec4i: vec4i$1,
+	vec4u: vec4u$1,
+	vecElementDescOrSelf: vecElementDescOrSelf,
+	wgslAlignOf: wgslAlignOf,
+	wgslSizeOf: wgslSizeOf,
+	wgslStrideOf: wgslStrideOf
 });
 
 /**
@@ -7089,10 +11299,10 @@ class Node {
     }
     // ── Math ──────────────────────────────────────────────────────────────────
     add(b) {
-        return add(this, b);
+        return add$1(this, b);
     }
     sub(b) {
-        return sub(this, b);
+        return sub$1(this, b);
     }
     div(b) {
         return div(this, b);
@@ -7122,10 +11332,10 @@ class Node {
         return cos(this);
     }
     negate() {
-        return negate(this);
+        return negate$1(this);
     }
     normalize() {
-        return normalize(this);
+        return normalize$1(this);
     }
     length() {
         return length(this);
@@ -7140,13 +11350,13 @@ class Node {
         return pow(this, b);
     }
     max(b) {
-        return max(this, b);
+        return max$1(this, b);
     }
     min(b) {
-        return min(this, b);
+        return min$1(this, b);
     }
     clamp(lo, hi) {
-        return clamp(this, lo, hi);
+        return clamp$1(this, lo, hi);
     }
     mix(b, t) {
         return mix(this, b, t);
@@ -7209,10 +11419,10 @@ class Node {
         return makeLet(this, label);
     }
     addAssign(v) {
-        addToStack(new AssignNode(this, add(this, v)));
+        addToStack(new AssignNode(this, add$1(this, v)));
     }
     subAssign(v) {
-        addToStack(new AssignNode(this, sub(this, v)));
+        addToStack(new AssignNode(this, sub$1(this, v)));
     }
     mulAssign(v) {
         addToStack(new AssignNode(this, mul(this, v)));
@@ -7227,7 +11437,7 @@ class Node {
         return mod(this, b);
     }
     oneMinus() {
-        return sub(f32(1), this);
+        return sub$1(f32(1), this);
     }
     or(b) {
         return or(this, b);
@@ -8324,13 +12534,13 @@ function mat3(c0, c1, c2, s10, s11, s12, s20, s21, s22) {
     return new ConstructNode(mat3x3f$1, [c0, z, z, z, c0, z, z, z, c0]);
 }
 // ── Standalone math functions ─────────────────────────────────────────────────
-const add = (a, b) => new BinaryOpNode('+', arithResultDesc(a.type, b.type), a, b);
-const sub = (a, b) => new BinaryOpNode('-', arithResultDesc(a.type, b.type), a, b);
+const add$1 = (a, b) => new BinaryOpNode('+', arithResultDesc(a.type, b.type), a, b);
+const sub$1 = (a, b) => new BinaryOpNode('-', arithResultDesc(a.type, b.type), a, b);
 const div = (a, b) => new BinaryOpNode('/', arithResultDesc(a.type, b.type), a, b);
 const mul = (a, b) => new BinaryOpNode('*', mulResultDesc(a.type, b.type), a, b);
 const dot = (a, b) => new CallNode(f32$1, 'dot', [a, b]);
 const cross = (a, b) => new CallNode(a.type, 'cross', [a, b]);
-const normalize = (a) => new CallNode(a.type, 'normalize', [a]);
+const normalize$1 = (a) => new CallNode(a.type, 'normalize', [a]);
 const length = (a) => new CallNode(f32$1, 'length', [a]);
 /** Pack two f32s as halves into a u32. Lower 16 bits = v.x, upper = v.y. WGSL: `pack2x16float`. */
 const pack2x16float = (v) => new CallNode(u32$1, 'pack2x16float', [v]);
@@ -8359,7 +12569,7 @@ const fract = (a) => new CallNode(a.type, 'fract', [a]);
 const sqrt = (a) => new CallNode(a.type, 'sqrt', [a]);
 const sin = (a) => new CallNode(a.type, 'sin', [a]);
 const cos = (a) => new CallNode(a.type, 'cos', [a]);
-const negate = (a) => new CallNode(a.type, 'negate', [a]);
+const negate$1 = (a) => new CallNode(a.type, 'negate', [a]);
 const pow = (a, b) => new CallNode(a.type, 'pow', [a, b]);
 const exp = (a) => new CallNode(a.type, 'exp', [a]);
 const log = (a) => new CallNode(a.type, 'log', [a]);
@@ -8371,21 +12581,21 @@ const atan2 = (y, x) => new CallNode(y.type, 'atan2', [y, x]);
 const asin = (a) => new CallNode(a.type, 'asin', [a]);
 const acos = (a) => new CallNode(a.type, 'acos', [a]);
 const inverseSqrt = (a) => new CallNode(a.type, 'inverseSqrt', [a]);
-function max(a, b, ...rest) {
+function max$1(a, b, ...rest) {
     let result = new CallNode(a.type, 'max', [a, b]);
     for (const n of rest) {
         result = new CallNode(a.type, 'max', [result, n]);
     }
     return result;
 }
-function min(a, b, ...rest) {
+function min$1(a, b, ...rest) {
     let result = new CallNode(a.type, 'min', [a, b]);
     for (const n of rest) {
         result = new CallNode(a.type, 'min', [result, n]);
     }
     return result;
 }
-const clamp = (a, lo, hi) => new CallNode(a.type, 'clamp', [a, lo, hi]);
+const clamp$1 = (a, lo, hi) => new CallNode(a.type, 'clamp', [a, lo, hi]);
 const mix = (a, b, t) => new CallNode(a.type, 'mix', [a, b, t]);
 const step = (edge, x) => new CallNode(x.type, 'step', [edge, x]);
 const smoothstep = (lo, hi, x) => new CallNode(x.type, 'smoothstep', [lo, hi, x]);
@@ -9212,351 +13422,455 @@ const cameraNear = /*@__PURE__*/ new UniformNode(new Uniform(f32$1, undefined, r
 /** Camera far plane distance. In renderGroup. */
 const cameraFar = /*@__PURE__*/ new UniformNode(new Uniform(f32$1, undefined, renderGroup), 'cameraFar').onRenderUpdate((frame) => frame.camera.far);
 
-const CSS_COLORS = {
-    aliceblue: 0xf0f8ff,
-    antiquewhite: 0xfaebd7,
-    aqua: 0x00ffff,
-    aquamarine: 0x7fffd4,
-    azure: 0xf0ffff,
-    beige: 0xf5f5dc,
-    bisque: 0xffe4c4,
-    black: 0x000000,
-    blanchedalmond: 0xffebcd,
-    blue: 0x0000ff,
-    blueviolet: 0x8a2be2,
-    brown: 0xa52a2a,
-    burlywood: 0xdeb887,
-    cadetblue: 0x5f9ea0,
-    chartreuse: 0x7fff00,
-    chocolate: 0xd2691e,
-    coral: 0xff7f50,
-    cornflowerblue: 0x6495ed,
-    cornsilk: 0xfff8dc,
-    crimson: 0xdc143c,
-    cyan: 0x00ffff,
-    darkblue: 0x00008b,
-    darkcyan: 0x008b8b,
-    darkgoldenrod: 0xb8860b,
-    darkgray: 0xa9a9a9,
-    darkgreen: 0x006400,
-    darkgrey: 0xa9a9a9,
-    darkkhaki: 0xbdb76b,
-    darkmagenta: 0x8b008b,
-    darkolivegreen: 0x556b2f,
-    darkorange: 0xff8c00,
-    darkorchid: 0x9932cc,
-    darkred: 0x8b0000,
-    darksalmon: 0xe9967a,
-    darkseagreen: 0x8fbc8f,
-    darkslateblue: 0x483d8b,
-    darkslategray: 0x2f4f4f,
-    darkslategrey: 0x2f4f4f,
-    darkturquoise: 0x00ced1,
-    darkviolet: 0x9400d3,
-    deeppink: 0xff1493,
-    deepskyblue: 0x00bfff,
-    dimgray: 0x696969,
-    dimgrey: 0x696969,
-    dodgerblue: 0x1e90ff,
-    firebrick: 0xb22222,
-    floralwhite: 0xfffaf0,
-    forestgreen: 0x228b22,
-    fuchsia: 0xff00ff,
-    gainsboro: 0xdcdcdc,
-    ghostwhite: 0xf8f8ff,
-    gold: 0xffd700,
-    goldenrod: 0xdaa520,
-    gray: 0x808080,
-    green: 0x008000,
-    greenyellow: 0xadff2f,
-    grey: 0x808080,
-    honeydew: 0xf0fff0,
-    hotpink: 0xff69b4,
-    indianred: 0xcd5c5c,
-    indigo: 0x4b0082,
-    ivory: 0xfffff0,
-    khaki: 0xf0e68c,
-    lavender: 0xe6e6fa,
-    lavenderblush: 0xfff0f5,
-    lawngreen: 0x7cfc00,
-    lemonchiffon: 0xfffacd,
-    lightblue: 0xadd8e6,
-    lightcoral: 0xf08080,
-    lightcyan: 0xe0ffff,
-    lightgoldenrodyellow: 0xfafad2,
-    lightgray: 0xd3d3d3,
-    lightgreen: 0x90ee90,
-    lightgrey: 0xd3d3d3,
-    lightpink: 0xffb6c1,
-    lightsalmon: 0xffa07a,
-    lightseagreen: 0x20b2aa,
-    lightskyblue: 0x87cefa,
-    lightslategray: 0x778899,
-    lightslategrey: 0x778899,
-    lightsteelblue: 0xb0c4de,
-    lightyellow: 0xffffe0,
-    lime: 0x00ff00,
-    limegreen: 0x32cd32,
-    linen: 0xfaf0e6,
-    magenta: 0xff00ff,
-    maroon: 0x800000,
-    mediumaquamarine: 0x66cdaa,
-    mediumblue: 0x0000cd,
-    mediumorchid: 0xba55d3,
-    mediumpurple: 0x9370db,
-    mediumseagreen: 0x3cb371,
-    mediumslateblue: 0x7b68ee,
-    mediumspringgreen: 0x00fa9a,
-    mediumturquoise: 0x48d1cc,
-    mediumvioletred: 0xc71585,
-    midnightblue: 0x191970,
-    mintcream: 0xf5fffa,
-    mistyrose: 0xffe4e1,
-    moccasin: 0xffe4b5,
-    navajowhite: 0xffdead,
-    navy: 0x000080,
-    oldlace: 0xfdf5e6,
-    olive: 0x808000,
-    olivedrab: 0x6b8e23,
-    orange: 0xffa500,
-    orangered: 0xff4500,
-    orchid: 0xda70d6,
-    palegoldenrod: 0xeee8aa,
-    palegreen: 0x98fb98,
-    paleturquoise: 0xafeeee,
-    palevioletred: 0xdb7093,
-    papayawhip: 0xffefd5,
-    peachpuff: 0xffdab9,
-    peru: 0xcd853f,
-    pink: 0xffc0cb,
-    plum: 0xdda0dd,
-    powderblue: 0xb0e0e6,
-    purple: 0x800080,
-    rebeccapurple: 0x663399,
-    red: 0xff0000,
-    rosybrown: 0xbc8f8f,
-    royalblue: 0x4169e1,
-    saddlebrown: 0x8b4513,
-    salmon: 0xfa8072,
-    sandybrown: 0xf4a460,
-    seagreen: 0x2e8b57,
-    seashell: 0xfff5ee,
-    sienna: 0xa0522d,
-    silver: 0xc0c0c0,
-    skyblue: 0x87ceeb,
-    slateblue: 0x6a5acd,
-    slategray: 0x737373,
-    slategrey: 0x737373,
-    snow: 0xfffafa,
-    springgreen: 0x00ff7f,
-    steelblue: 0x4682b4,
-    tan: 0xd2b48c,
-    teal: 0x008080,
-    thistle: 0xd8bfd8,
-    tomato: 0xff6347,
-    turquoise: 0x40e0d0,
-    violet: 0xee82ee,
-    wheat: 0xf5deb3,
-    white: 0xffffff,
-    whitesmoke: 0xf5f5f5,
-    yellow: 0xffff00,
-    yellowgreen: 0x9acd32,
-};
-/* eslint-enable sort-keys */
-// ---------------------------------------------------------------------------
-// sRGB <-> linear conversion helpers
-// ---------------------------------------------------------------------------
 /** Convert a single sRGB gamma-encoded channel [0, 1] to linear light [0, 1]. */
-function srgbChannelToLinear(c) {
-    return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+function srgbToLinear(c) {
+	return c <= .04045 ? c / 12.92 : ((c + .055) / 1.055) ** 2.4;
 }
 /** Convert a single linear light channel [0, 1] to sRGB gamma-encoded [0, 1]. */
-function linearChannelToSrgb(c) {
-    return c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+function linearToSrgb(c) {
+	return c <= .0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - .055;
 }
-// ---------------------------------------------------------------------------
-// Internal parser helpers
-// ---------------------------------------------------------------------------
+//#endregion
+//#region src/color/parse.ts
+const CSS_COLORS = {
+	aliceblue: 15792383,
+	antiquewhite: 16444375,
+	aqua: 65535,
+	aquamarine: 8388564,
+	azure: 15794175,
+	beige: 16119260,
+	bisque: 16770244,
+	black: 0,
+	blanchedalmond: 16772045,
+	blue: 255,
+	blueviolet: 9055202,
+	brown: 10824234,
+	burlywood: 14596231,
+	cadetblue: 6266528,
+	chartreuse: 8388352,
+	chocolate: 13789470,
+	coral: 16744272,
+	cornflowerblue: 6591981,
+	cornsilk: 16775388,
+	crimson: 14423100,
+	cyan: 65535,
+	darkblue: 139,
+	darkcyan: 35723,
+	darkgoldenrod: 12092939,
+	darkgray: 11119017,
+	darkgreen: 25600,
+	darkgrey: 11119017,
+	darkkhaki: 12433259,
+	darkmagenta: 9109643,
+	darkolivegreen: 5597999,
+	darkorange: 16747520,
+	darkorchid: 10040012,
+	darkred: 9109504,
+	darksalmon: 15308410,
+	darkseagreen: 9419919,
+	darkslateblue: 4734347,
+	darkslategray: 3100495,
+	darkslategrey: 3100495,
+	darkturquoise: 52945,
+	darkviolet: 9699539,
+	deeppink: 16716947,
+	deepskyblue: 49151,
+	dimgray: 6908265,
+	dimgrey: 6908265,
+	dodgerblue: 2003199,
+	firebrick: 11674146,
+	floralwhite: 16775920,
+	forestgreen: 2263842,
+	fuchsia: 16711935,
+	gainsboro: 14474460,
+	ghostwhite: 16316671,
+	gold: 16766720,
+	goldenrod: 14329120,
+	gray: 8421504,
+	green: 32768,
+	greenyellow: 11403055,
+	grey: 8421504,
+	honeydew: 15794160,
+	hotpink: 16738740,
+	indianred: 13458524,
+	indigo: 4915330,
+	ivory: 16777200,
+	khaki: 15787660,
+	lavender: 15132410,
+	lavenderblush: 16773365,
+	lawngreen: 8190976,
+	lemonchiffon: 16775885,
+	lightblue: 11393254,
+	lightcoral: 15761536,
+	lightcyan: 14745599,
+	lightgoldenrodyellow: 16448210,
+	lightgray: 13882323,
+	lightgreen: 9498256,
+	lightgrey: 13882323,
+	lightpink: 16758465,
+	lightsalmon: 16752762,
+	lightseagreen: 2142890,
+	lightskyblue: 8900346,
+	lightslategray: 7833753,
+	lightslategrey: 7833753,
+	lightsteelblue: 11584734,
+	lightyellow: 16777184,
+	lime: 65280,
+	limegreen: 3329330,
+	linen: 16445670,
+	magenta: 16711935,
+	maroon: 8388608,
+	mediumaquamarine: 6737322,
+	mediumblue: 205,
+	mediumorchid: 12211667,
+	mediumpurple: 9662683,
+	mediumseagreen: 3978097,
+	mediumslateblue: 8087790,
+	mediumspringgreen: 64154,
+	mediumturquoise: 4772300,
+	mediumvioletred: 13047173,
+	midnightblue: 1644912,
+	mintcream: 16121850,
+	mistyrose: 16770273,
+	moccasin: 16770229,
+	navajowhite: 16768685,
+	navy: 128,
+	oldlace: 16643558,
+	olive: 8421376,
+	olivedrab: 7048739,
+	orange: 16753920,
+	orangered: 16729344,
+	orchid: 14315734,
+	palegoldenrod: 15657130,
+	palegreen: 10025880,
+	paleturquoise: 11529966,
+	palevioletred: 14381203,
+	papayawhip: 16773077,
+	peachpuff: 16767673,
+	peru: 13468991,
+	pink: 16761035,
+	plum: 14524637,
+	powderblue: 11591910,
+	purple: 8388736,
+	rebeccapurple: 6697881,
+	red: 16711680,
+	rosybrown: 12357519,
+	royalblue: 4286945,
+	saddlebrown: 9127187,
+	salmon: 16416882,
+	sandybrown: 16032864,
+	seagreen: 3050327,
+	seashell: 16774638,
+	sienna: 10506797,
+	silver: 12632256,
+	skyblue: 8900331,
+	slateblue: 6970061,
+	slategray: 7566195,
+	slategrey: 7566195,
+	snow: 16775930,
+	springgreen: 65407,
+	steelblue: 4620980,
+	tan: 13808780,
+	teal: 32896,
+	thistle: 14204888,
+	tomato: 16737095,
+	turquoise: 4251856,
+	violet: 15631086,
+	wheat: 16113331,
+	white: 16777215,
+	whitesmoke: 16119285,
+	yellow: 16776960,
+	yellowgreen: 10145074
+};
+/**
+* Parse any supported color input and write the result into `out`. Returns `out`.
+*
+* Supported inputs:
+*   - CSS hex strings:       '#f00', '#ff0000'
+*   - CSS rgb():             'rgb(255, 0, 0)', 'rgb(100%, 0%, 0%)'
+*   - CSS hsl():             'hsl(0, 100%, 50%)'
+*   - 0xRRGGBB integers:     0xff0000 (sRGB gamma)
+*   - Named CSS colors:      'red', 'lime', 'deepskyblue', ...
+*   - [r, g, b] array:       treated as already-linear [0, 1]
+*/
+function setFromColorInput(out, input) {
+	const parsed = parse(input);
+	if (parsed === null) return out;
+	out[0] = parsed[0];
+	out[1] = parsed[1];
+	out[2] = parsed[2];
+	return out;
+}
+/** Parse any supported color input into a new Color, or null if unrecognised. */
+function fromColorInput(input) {
+	return parse(input);
+}
+function parse(input) {
+	if (Array.isArray(input)) return [
+		input[0] ?? 0,
+		input[1] ?? 0,
+		input[2] ?? 0
+	];
+	if (typeof input === "number") {
+		const r = (input >> 16 & 255) / 255;
+		const g = (input >> 8 & 255) / 255;
+		const b = (input & 255) / 255;
+		return [
+			srgbToLinear(r),
+			srgbToLinear(g),
+			srgbToLinear(b)
+		];
+	}
+	const s = input.trim().toLowerCase();
+	if (/^#[0-9a-f]{3}$/i.test(s)) return parseHex3(s);
+	if (/^#[0-9a-f]{6}$/i.test(s)) return parseHex6(s);
+	if (s.startsWith("rgb(")) {
+		const result = parseRgbString(s);
+		if (result) return result;
+	}
+	if (s.startsWith("hsl(")) {
+		const result = parseHslString(s);
+		if (result) return result;
+	}
+	const hex = CSS_COLORS[s];
+	if (hex !== void 0) return parseHex6(`#${hex.toString(16).padStart(6, "0")}`);
+	console.warn(`[mathcat] color: unrecognised color input: "${input}"`);
+	return null;
+}
 function parseHex3(hex) {
-    const r = parseInt(hex[1] + hex[1], 16) / 255;
-    const g = parseInt(hex[2] + hex[2], 16) / 255;
-    const b = parseInt(hex[3] + hex[3], 16) / 255;
-    return [srgbChannelToLinear(r), srgbChannelToLinear(g), srgbChannelToLinear(b)];
+	const r = parseInt(hex[1] + hex[1], 16) / 255;
+	const g = parseInt(hex[2] + hex[2], 16) / 255;
+	const b = parseInt(hex[3] + hex[3], 16) / 255;
+	return [
+		srgbToLinear(r),
+		srgbToLinear(g),
+		srgbToLinear(b)
+	];
 }
 function parseHex6(hex) {
-    const r = parseInt(hex.slice(1, 3), 16) / 255;
-    const g = parseInt(hex.slice(3, 5), 16) / 255;
-    const b = parseInt(hex.slice(5, 7), 16) / 255;
-    return [srgbChannelToLinear(r), srgbChannelToLinear(g), srgbChannelToLinear(b)];
+	const r = parseInt(hex.slice(1, 3), 16) / 255;
+	const g = parseInt(hex.slice(3, 5), 16) / 255;
+	const b = parseInt(hex.slice(5, 7), 16) / 255;
+	return [
+		srgbToLinear(r),
+		srgbToLinear(g),
+		srgbToLinear(b)
+	];
 }
 function parseRgbString(str) {
-    const m = str.match(/^rgb\(\s*([^,]+),\s*([^,]+),\s*([^)]+)\)$/i);
-    if (!m)
-        return null;
-    const parse = (s) => {
-        s = s.trim();
-        if (s.endsWith('%'))
-            return parseFloat(s) / 100;
-        return parseFloat(s) / 255;
-    };
-    return [srgbChannelToLinear(parse(m[1])), srgbChannelToLinear(parse(m[2])), srgbChannelToLinear(parse(m[3]))];
+	const m = str.match(/^rgb\(\s*([^,]+),\s*([^,]+),\s*([^)]+)\)$/i);
+	if (!m) return null;
+	const parseChannel = (s) => {
+		s = s.trim();
+		if (s.endsWith("%")) return parseFloat(s) / 100;
+		return parseFloat(s) / 255;
+	};
+	return [
+		srgbToLinear(parseChannel(m[1])),
+		srgbToLinear(parseChannel(m[2])),
+		srgbToLinear(parseChannel(m[3]))
+	];
 }
 function parseHslString(str) {
-    const m = str.match(/^hsl\(\s*([^,]+),\s*([^,]+),\s*([^)]+)\)$/i);
-    if (!m)
-        return null;
-    const h = parseFloat(m[1]) / 360;
-    const s = parseFloat(m[2]) / 100;
-    const l = parseFloat(m[3]) / 100;
-    return hslToLinear(h, s, l);
+	const m = str.match(/^hsl\(\s*([^,]+),\s*([^,]+),\s*([^)]+)\)$/i);
+	if (!m) return null;
+	return hslToLinear(parseFloat(m[1]) / 360, parseFloat(m[2]) / 100, parseFloat(m[3]) / 100);
 }
 function hslToLinear(h, s, l) {
-    let r, g, b;
-    if (s === 0) {
-        r = g = b = l;
-    }
-    else {
-        const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-        const p = 2 * l - q;
-        r = hue2rgb(p, q, h + 1 / 3);
-        g = hue2rgb(p, q, h);
-        b = hue2rgb(p, q, h - 1 / 3);
-    }
-    return [srgbChannelToLinear(r), srgbChannelToLinear(g), srgbChannelToLinear(b)];
+	let r;
+	let g;
+	let b;
+	if (s === 0) r = g = b = l;
+	else {
+		const q = l < .5 ? l * (1 + s) : l + s - l * s;
+		const p = 2 * l - q;
+		r = hue2rgb(p, q, h + 1 / 3);
+		g = hue2rgb(p, q, h);
+		b = hue2rgb(p, q, h - 1 / 3);
+	}
+	return [
+		srgbToLinear(r),
+		srgbToLinear(g),
+		srgbToLinear(b)
+	];
 }
 function hue2rgb(p, q, t) {
-    if (t < 0)
-        t += 1;
-    if (t > 1)
-        t -= 1;
-    if (t < 1 / 6)
-        return p + (q - p) * 6 * t;
-    if (t < 1 / 2)
-        return q;
-    if (t < 2 / 3)
-        return p + (q - p) * (2 / 3 - t) * 6;
-    return p;
+	if (t < 0) t += 1;
+	if (t > 1) t -= 1;
+	if (t < 1 / 6) return p + (q - p) * 6 * t;
+	if (t < 1 / 2) return q;
+	if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+	return p;
 }
+//#endregion
+//#region src/color/color.ts
+var color_exports = /* @__PURE__ */ __exportAll({
+	add: () => add,
+	addScalar: () => addScalar,
+	clamp: () => clamp,
+	clone: () => clone$1$1,
+	copy: () => copy$1$1,
+	create: () => create$1,
+	equals: () => equals$2,
+	fromColorInput: () => fromColorInput,
+	fromSRGB: () => fromSRGB,
+	fromValues: () => fromValues$1,
+	lerp: () => lerp$1,
+	luminance: () => luminance,
+	multiply: () => multiply,
+	multiplyScalar: () => multiplyScalar,
+	set: () => set$1$1,
+	setFromColorInput: () => setFromColorInput,
+	setFromSRGB: () => setFromSRGB,
+	setScalar: () => setScalar,
+	sub: () => sub,
+	toCSS: () => toCSS,
+	toHex: () => toHex,
+	toHexString: () => toHexString$1,
+	toSRGB: () => toSRGB
+});
 /** Create a new Color initialized to black [0, 0, 0]. */
 function create$1() {
-    return [0, 0, 0];
+	return [
+		0,
+		0,
+		0
+	];
 }
 /** Create a new Color with the given linear r, g, b values. */
-function fromValues(r, g, b) {
-    return [r, g, b];
+function fromValues$1(r, g, b) {
+	return [
+		r,
+		g,
+		b
+	];
 }
 /** Create a new Color that is a copy of `c`. */
-function clone$1(c) {
-    return [c[0], c[1], c[2]];
+function clone$1$1(c) {
+	return [
+		c[0],
+		c[1],
+		c[2]
+	];
 }
 /** Copy the values from `src` into `out`. Returns `out`. */
-function copy$1(out, src) {
-    out[0] = src[0];
-    out[1] = src[1];
-    out[2] = src[2];
-    return out;
+function copy$1$1(out, src) {
+	out[0] = src[0];
+	out[1] = src[1];
+	out[2] = src[2];
+	return out;
 }
 /** Set the linear r, g, b components of `out` directly. Returns `out`. */
-function set(out, r, g, b) {
-    out[0] = r;
-    out[1] = g;
-    out[2] = b;
-    return out;
+function set$1$1(out, r, g, b) {
+	out[0] = r;
+	out[1] = g;
+	out[2] = b;
+	return out;
+}
+/** Set all three channels of `out` to the same linear value `s` (a gray). Returns `out`. */
+function setScalar(out, s) {
+	out[0] = s;
+	out[1] = s;
+	out[2] = s;
+	return out;
 }
 /**
- * Set `out` from an sRGB gamma-encoded [r, g, b] array with values in [0, 1].
- * Converts from sRGB gamma space to linear. Returns `out`.
- */
+* Set `out` from an sRGB gamma-encoded [r, g, b] array with values in [0, 1].
+* Converts from sRGB gamma space to linear. Returns `out`.
+*/
 function setFromSRGB(out, srgb) {
-    out[0] = srgbChannelToLinear(srgb[0]);
-    out[1] = srgbChannelToLinear(srgb[1]);
-    out[2] = srgbChannelToLinear(srgb[2]);
-    return out;
+	out[0] = srgbToLinear(srgb[0]);
+	out[1] = srgbToLinear(srgb[1]);
+	out[2] = srgbToLinear(srgb[2]);
+	return out;
 }
 /** Create a new Color from an sRGB gamma-encoded [r, g, b] array with values in [0, 1]. */
 function fromSRGB(srgb) {
-    return setFromSRGB(create$1(), srgb);
+	return setFromSRGB(create$1(), srgb);
 }
-/**
- * Parse any supported color input and write the result into `out`. Returns `out`.
- *
- * Supported inputs:
- *   - CSS hex strings:       '#f00', '#ff0000'
- *   - CSS rgb():             'rgb(255, 0, 0)', 'rgb(100%, 0%, 0%)'
- *   - CSS hsl():             'hsl(0, 100%, 50%)'
- *   - 0xRRGGBB integers:     0xff0000 (sRGB gamma)
- *   - Named CSS colors:      'red', 'lime', 'deepskyblue', ...
- *   - [r, g, b] array:       treated as already-linear [0, 1]
- */
-function setFromColorInput(out, input) {
-    const parsed = parse(input);
-    if (parsed === null)
-        return out;
-    out[0] = parsed[0];
-    out[1] = parsed[1];
-    out[2] = parsed[2];
-    return out;
+/** Write the sRGB gamma-encoded [r, g, b] of a linear Color into `out` (values [0, 1]). */
+function toSRGB(out, c) {
+	out[0] = linearToSrgb(c[0]);
+	out[1] = linearToSrgb(c[1]);
+	out[2] = linearToSrgb(c[2]);
+	return out;
 }
-/** Parse any supported color input into a new Color */
-function fromColorInput(input) {
-    return parse(input);
-}
-/** Create a CSS `rgb(...)` string in sRGB gamma space (for HTML/canvas use) */
+/** Create a CSS `rgb(...)` string in sRGB gamma space (for HTML/canvas use). */
 function toCSS(c) {
-    const r = Math.round(linearChannelToSrgb(c[0]) * 255);
-    const g = Math.round(linearChannelToSrgb(c[1]) * 255);
-    const b = Math.round(linearChannelToSrgb(c[2]) * 255);
-    return `rgb(${r}, ${g}, ${b})`;
+	return `rgb(${to255(c[0])}, ${to255(c[1])}, ${to255(c[2])})`;
 }
-function parse(input) {
-    // [r, g, b] array, treated as already-linear
-    if (Array.isArray(input)) {
-        return [input[0] ?? 0, input[1] ?? 0, input[2] ?? 0];
-    }
-    // Integer 0xRRGGBB (sRGB gamma)
-    if (typeof input === 'number') {
-        const r = ((input >> 16) & 0xff) / 255;
-        const g = ((input >> 8) & 0xff) / 255;
-        const b = (input & 0xff) / 255;
-        return [srgbChannelToLinear(r), srgbChannelToLinear(g), srgbChannelToLinear(b)];
-    }
-    // String forms
-    const s = input.trim().toLowerCase();
-    if (/^#[0-9a-f]{3}$/i.test(s))
-        return parseHex3(s);
-    if (/^#[0-9a-f]{6}$/i.test(s))
-        return parseHex6(s);
-    if (s.startsWith('rgb(')) {
-        const result = parseRgbString(s);
-        if (result)
-            return result;
-    }
-    if (s.startsWith('hsl(')) {
-        const result = parseHslString(s);
-        if (result)
-            return result;
-    }
-    const hex = CSS_COLORS[s];
-    if (hex !== undefined) {
-        return parseHex6('#' + hex.toString(16).padStart(6, '0'));
-    }
-    console.warn(`[gpucat] color: unrecognised color input: "${input}"`);
-    return null;
+/** Convert to a 0xRRGGBB integer in sRGB gamma space. */
+function toHex(c) {
+	return to255(c[0]) << 16 | to255(c[1]) << 8 | to255(c[2]);
 }
-
-var color = /*#__PURE__*/Object.freeze({
-    __proto__: null,
-    clone: clone$1,
-    copy: copy$1,
-    create: create$1,
-    fromColorInput: fromColorInput,
-    fromSRGB: fromSRGB,
-    fromValues: fromValues,
-    set: set,
-    setFromColorInput: setFromColorInput,
-    setFromSRGB: setFromSRGB,
-    toCSS: toCSS
-});
+/** Convert to a 6-digit sRGB hex string without a leading '#', e.g. 'ff8800'. */
+function toHexString$1(c) {
+	return toHex(c).toString(16).padStart(6, "0");
+}
+/** Add `a + b` component-wise into `out`. Returns `out`. */
+function add(out, a, b) {
+	out[0] = a[0] + b[0];
+	out[1] = a[1] + b[1];
+	out[2] = a[2] + b[2];
+	return out;
+}
+/** Add scalar `s` to each channel of `a` into `out`. Returns `out`. */
+function addScalar(out, a, s) {
+	out[0] = a[0] + s;
+	out[1] = a[1] + s;
+	out[2] = a[2] + s;
+	return out;
+}
+/** Subtract `a - b` component-wise into `out`. Returns `out`. */
+function sub(out, a, b) {
+	out[0] = a[0] - b[0];
+	out[1] = a[1] - b[1];
+	out[2] = a[2] - b[2];
+	return out;
+}
+/** Multiply `a * b` component-wise into `out` (tinting). Returns `out`. */
+function multiply(out, a, b) {
+	out[0] = a[0] * b[0];
+	out[1] = a[1] * b[1];
+	out[2] = a[2] * b[2];
+	return out;
+}
+/** Scale each channel of `a` by `s` into `out` (brightness). Returns `out`. */
+function multiplyScalar(out, a, s) {
+	out[0] = a[0] * s;
+	out[1] = a[1] * s;
+	out[2] = a[2] * s;
+	return out;
+}
+/** Linearly interpolate from `a` to `b` by `t` into `out` (physically-correct blend). Returns `out`. */
+function lerp$1(out, a, b, t) {
+	out[0] = a[0] + (b[0] - a[0]) * t;
+	out[1] = a[1] + (b[1] - a[1]) * t;
+	out[2] = a[2] + (b[2] - a[2]) * t;
+	return out;
+}
+/** Clamp each channel of `c` to [0, 1] into `out`. Returns `out`. */
+function clamp(out, c) {
+	out[0] = clamp01$1(c[0]);
+	out[1] = clamp01$1(c[1]);
+	out[2] = clamp01$1(c[2]);
+	return out;
+}
+/** Whether `a` and `b` are equal, within an optional per-channel `epsilon` (default exact). */
+function equals$2(a, b, epsilon = 0) {
+	return Math.abs(a[0] - b[0]) <= epsilon && Math.abs(a[1] - b[1]) <= epsilon && Math.abs(a[2] - b[2]) <= epsilon;
+}
+/** Relative luminance in [0, 1] (Rec. 709 weights, on linear light). */
+function luminance(c) {
+	return .2126 * c[0] + .7152 * c[1] + .0722 * c[2];
+}
+function clamp01$1(x) {
+	return x < 0 ? 0 : x > 1 ? 1 : x;
+}
+/** linear channel -> clamped sRGB byte [0, 255]. */
+function to255(c) {
+	return Math.max(0, Math.min(255, Math.round(linearToSrgb(c) * 255)));
+}
 
 /**
  * Convert any color input to a `vec3f` linear RGB node.
@@ -9577,7 +13891,7 @@ var color = /*#__PURE__*/Object.freeze({
  * rgb([1, 0.5, 0]);
  */
 function rgb(input) {
-    const c = fromColorInput(input);
+    const c = color_exports.fromColorInput(input);
     if (c === null)
         return vec3f(0, 0, 0);
     return vec3f(c[0], c[1], c[2]);
@@ -12105,11 +16419,11 @@ function fxaa(textureNode) {
         const nw = SampleLuminanceOffset(texSize, uv, f32(-1.0), f32(-1.0));
         const se = SampleLuminanceOffset(texSize, uv, f32(1.0), f32(1.0));
         const sw = SampleLuminanceOffset(texSize, uv, f32(-1.0), f32(1.0));
-        const highest = max(s, e, n, w, m);
-        const lowest = min(s, e, n, w, m);
+        const highest = max$1(s, e, n, w, m);
+        const lowest = min$1(s, e, n, w, m);
         const contrast = highest.sub(lowest).toVar('contrast');
         // Should skip pixel? (low contrast = no edge)
-        const threshold = max(f32(CONTRAST_THRESHOLD), f32(RELATIVE_THRESHOLD).mul(highest));
+        const threshold = max$1(f32(CONTRAST_THRESHOLD), f32(RELATIVE_THRESHOLD).mul(highest));
         If(contrast.lessThan(threshold), () => {
             Return(Sample(uv));
         });
@@ -12119,7 +16433,7 @@ function fxaa(textureNode) {
             .add(se.add(sw).add(ne).add(nw))
             .mul(f32(1.0 / 12.0));
         const filterDiff = abs(filterSum.sub(m));
-        const filterClamped = clamp(filterDiff.div(max(contrast, f32(0.0001))), f32(0.0), f32(1.0));
+        const filterClamped = clamp$1(filterDiff.div(max$1(contrast, f32(0.0001))), f32(0.0), f32(1.0));
         const pixelBlendFactor = smoothstep(f32(0.0), f32(1.0), filterClamped).toVar('pixelBlendFactor');
         const pixelBlend = pixelBlendFactor.mul(pixelBlendFactor).mul(f32(SUBPIXEL_BLENDING)).toVar('pixelBlend');
         // Determine edge direction (horizontal vs vertical)
@@ -12217,7 +16531,7 @@ function fxaa(textureNode) {
             edgeBlend.assign(f32(0.5).sub(shortestDistance.div(pDistance.add(nDistance))));
         });
         // Final blend
-        const finalBlend = max(pixelBlend, edgeBlend).toVar('finalBlend');
+        const finalBlend = max$1(pixelBlend, edgeBlend).toVar('finalBlend');
         const finalUv = uv.toVar('finalUv');
         If(isHorizontal, () => {
             finalUv.y.addAssign(pixelStep.mul(finalBlend));
@@ -12935,9 +17249,9 @@ function applyMatrix4ToGeometry(geometry, matrix) {
     const normalBuf = geometry.getBuffer('normal');
     const normals = normalBuf?.array;
     // normal matrix for transforming normals
-    const normalMat = create$6();
-    invert$1(normalMat, matrix);
-    transpose$1(normalMat, normalMat);
+    const normalMat = mat4_exports.create();
+    mat4_exports.invert(normalMat, matrix);
+    mat4_exports.transpose(normalMat, normalMat);
     let minX = Infinity, minY = Infinity, minZ = Infinity;
     let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
     const v = [0, 0, 0];
@@ -12945,7 +17259,7 @@ function applyMatrix4ToGeometry(geometry, matrix) {
         v[0] = positions[i];
         v[1] = positions[i + 1];
         v[2] = positions[i + 2];
-        transformMat4$1(v, v, matrix);
+        vec3_exports.transformMat4(v, v, matrix);
         positions[i] = v[0];
         positions[i + 1] = v[1];
         positions[i + 2] = v[2];
@@ -13023,20 +17337,20 @@ function intersectObjectRecursive(object, raycaster, intersects, recursive, incl
 // Reusable temp objects
 // ============================================================================
 const _raycaster = new Raycaster();
-const _tempVec = create$7();
-const _tempVec2 = create$7();
-const _tempQuat = create$4();
-const _tempQuat2 = create$4();
+const _tempVec = vec3_exports.create();
+const _tempVec2 = vec3_exports.create();
+const _tempQuat = quat_exports.create();
+const _tempQuat2 = quat_exports.create();
 const _identityQuat = [0, 0, 0, 1];
-const _tempMat = create$6();
+const _tempMat = mat4_exports.create();
 const _unitX = [1, 0, 0];
 const _unitY = [0, 1, 0];
 const _unitZ = [0, 0, 1];
 const _zeroVec = [0, 0, 0];
 const _alignVector = [0, 1, 0];
 const _dirVector = [0, 0, 0];
-const _v1 = [0, 0, 0];
-const _v2 = [0, 0, 0];
+const _v1$1 = [0, 0, 0];
+const _v2$1 = [0, 0, 0];
 const _v3 = [0, 0, 0];
 // ============================================================================
 // TransformControlsPlane
@@ -13064,58 +17378,58 @@ class TransformControlsPlane extends Mesh {
     }
     updateWorldMatrix() {
         let space = this.space;
-        copy$6(this.position, this.worldPosition);
+        vec3_exports.copy(this.position, this.worldPosition);
         if (this.mode === 'scale')
             space = 'local';
         const q = space === 'local' ? this.worldQuaternion : _identityQuat;
-        transformQuat(_v1, _unitX, q);
-        transformQuat(_v2, _unitY, q);
-        transformQuat(_v3, _unitZ, q);
+        vec3_exports.transformQuat(_v1$1, _unitX, q);
+        vec3_exports.transformQuat(_v2$1, _unitY, q);
+        vec3_exports.transformQuat(_v3, _unitZ, q);
         // align the plane for current transform mode, axis and space
-        copy$6(_alignVector, _v2);
+        vec3_exports.copy(_alignVector, _v2$1);
         switch (this.mode) {
             case 'translate':
             case 'scale':
                 switch (this.axis) {
                     case 'X':
-                        cross$1(_alignVector, this.eye, _v1);
-                        cross$1(_dirVector, _v1, _alignVector);
+                        vec3_exports.cross(_alignVector, this.eye, _v1$1);
+                        vec3_exports.cross(_dirVector, _v1$1, _alignVector);
                         break;
                     case 'Y':
-                        cross$1(_alignVector, this.eye, _v2);
-                        cross$1(_dirVector, _v2, _alignVector);
+                        vec3_exports.cross(_alignVector, this.eye, _v2$1);
+                        vec3_exports.cross(_dirVector, _v2$1, _alignVector);
                         break;
                     case 'Z':
-                        cross$1(_alignVector, this.eye, _v3);
-                        cross$1(_dirVector, _v3, _alignVector);
+                        vec3_exports.cross(_alignVector, this.eye, _v3);
+                        vec3_exports.cross(_dirVector, _v3, _alignVector);
                         break;
                     case 'XY':
-                        copy$6(_dirVector, _v3);
+                        vec3_exports.copy(_dirVector, _v3);
                         break;
                     case 'YZ':
-                        copy$6(_dirVector, _v1);
+                        vec3_exports.copy(_dirVector, _v1$1);
                         break;
                     case 'XZ':
-                        copy$6(_alignVector, _v3);
-                        copy$6(_dirVector, _v2);
+                        vec3_exports.copy(_alignVector, _v3);
+                        vec3_exports.copy(_dirVector, _v2$1);
                         break;
                     case 'XYZ':
                     case 'E':
-                        set$2(_dirVector, 0, 0, 0);
+                        vec3_exports.set(_dirVector, 0, 0, 0);
                         break;
                 }
                 break;
             case 'rotate':
             default:
-                set$2(_dirVector, 0, 0, 0);
+                vec3_exports.set(_dirVector, 0, 0, 0);
         }
-        if (length$1(_dirVector) === 0) {
+        if (vec3_exports.length(_dirVector) === 0) {
             // in rotate mode, make the plane parallel to camera
-            copy$3(this.quaternion, this.cameraQuaternion);
+            quat_exports.copy(this.quaternion, this.cameraQuaternion);
         }
         else {
-            targetTo(_tempMat, _zeroVec, _dirVector, _alignVector);
-            fromMat4(this.quaternion, _tempMat);
+            mat4_exports.targetTo(_tempMat, _zeroVec, _dirVector, _alignVector);
+            quat_exports.fromMat4(this.quaternion, _tempMat);
         }
         super.updateWorldMatrix();
     }
@@ -13185,17 +17499,17 @@ class TransformControlsGizmo extends Object3D {
         const matInvisible = createGizmoMaterial({ color: [1, 1, 1], opacity: 0.15 });
         // reusable geometries
         const arrowGeometry = createCylinderGeometry(0, 0.04, 0.1, 12);
-        applyMatrix4ToGeometry(arrowGeometry, fromTranslation(create$6(), [0, 0.05, 0]));
+        applyMatrix4ToGeometry(arrowGeometry, mat4_exports.fromTranslation(mat4_exports.create(), [0, 0.05, 0]));
         const scaleHandleGeometry = createBoxGeometry(0.08, 0.08, 0.08);
-        applyMatrix4ToGeometry(scaleHandleGeometry, fromTranslation(create$6(), [0, 0.04, 0]));
+        applyMatrix4ToGeometry(scaleHandleGeometry, mat4_exports.fromTranslation(mat4_exports.create(), [0, 0.04, 0]));
         const lineGeometry2 = createCylinderGeometry(0.0075, 0.0075, 0.5, 3);
-        applyMatrix4ToGeometry(lineGeometry2, fromTranslation(create$6(), [0, 0.25, 0]));
+        applyMatrix4ToGeometry(lineGeometry2, mat4_exports.fromTranslation(mat4_exports.create(), [0, 0.25, 0]));
         function CircleGeometry(radius, arc) {
             const geom = createTorusGeometry(radius, 0.0075, 3, 64, arc * Math.PI * 2);
             // Sequential application: v' = Rx * Ry * v
-            const m = create$6();
-            rotateX(m, m, Math.PI / 2);
-            rotateY(m, m, Math.PI / 2);
+            const m = mat4_exports.create();
+            mat4_exports.rotateX(m, m, Math.PI / 2);
+            mat4_exports.rotateY(m, m, Math.PI / 2);
             applyMatrix4ToGeometry(geom, m);
             return geom;
         }
@@ -13396,12 +17710,12 @@ class TransformControlsGizmo extends Object3D {
                         const p = position ? [position[0], position[1], position[2]] : [0, 0, 0];
                         const r = [0, 0, 0, 1];
                         if (rotation) {
-                            const e = fromValues$1(rotation[0], rotation[1], rotation[2], 'xyz');
-                            fromEuler(r, e);
+                            const e = euler_exports.fromValues(rotation[0], rotation[1], rotation[2], 'xyz');
+                            quat_exports.fromEuler(r, e);
                         }
                         const s = scale ? [scale[0], scale[1], scale[2]] : [1, 1, 1];
-                        const bakeMatrix = create$6();
-                        fromRotationTranslationScale(bakeMatrix, r, p, s);
+                        const bakeMatrix = mat4_exports.create();
+                        mat4_exports.fromRotationTranslationScale(bakeMatrix, r, p, s);
                         applyMatrix4ToGeometry(obj.geometry, bakeMatrix);
                     }
                     obj.renderOrder = Infinity;
@@ -13441,8 +17755,8 @@ class TransformControlsGizmo extends Object3D {
         for (let i = 0; i < handles.length; i++) {
             const handle = handles[i];
             handle.visible = true;
-            identity(handle.quaternion);
-            copy$6(handle.position, this.worldPosition);
+            quat_exports.identity(handle.quaternion);
+            vec3_exports.copy(handle.position, this.worldPosition);
             // constant screen-size factor
             let factor;
             if (this.camera?.isOrthographicCamera) {
@@ -13452,91 +17766,91 @@ class TransformControlsGizmo extends Object3D {
             else if (this.camera) {
                 const cam = this.camera;
                 const fov = cam.fov ?? (Math.PI / 4);
-                factor = distance(this.worldPosition, this.cameraPosition)
+                factor = vec3_exports.distance(this.worldPosition, this.cameraPosition)
                     * Math.min(1.9 * Math.tan(fov / 2) / (cam.zoom ?? 1), 7);
             }
             else {
                 factor = 1;
             }
             const s = factor * this.size / 4;
-            set$2(handle.scale, s, s, s);
+            vec3_exports.set(handle.scale, s, s, s);
             // skip helper processing (deferred per plan)
             if (handle.tag === 'helper') {
                 handle.visible = false;
                 continue;
             }
             // align handles to current local or world rotation
-            copy$3(handle.quaternion, quaternion);
+            quat_exports.copy(handle.quaternion, quaternion);
             if (this.mode === 'translate' || this.mode === 'scale') {
                 const AXIS_HIDE_THRESHOLD = 0.99;
                 const PLANE_HIDE_THRESHOLD = 0.2;
                 if (handle.name === 'X') {
-                    transformQuat(_alignVector, _unitX, quaternion);
-                    if (Math.abs(dot$1(_alignVector, this.eye)) > AXIS_HIDE_THRESHOLD) {
-                        set$2(handle.scale, 1e-10, 1e-10, 1e-10);
+                    vec3_exports.transformQuat(_alignVector, _unitX, quaternion);
+                    if (Math.abs(vec3_exports.dot(_alignVector, this.eye)) > AXIS_HIDE_THRESHOLD) {
+                        vec3_exports.set(handle.scale, 1e-10, 1e-10, 1e-10);
                         handle.visible = false;
                     }
                 }
                 if (handle.name === 'Y') {
-                    transformQuat(_alignVector, _unitY, quaternion);
-                    if (Math.abs(dot$1(_alignVector, this.eye)) > AXIS_HIDE_THRESHOLD) {
-                        set$2(handle.scale, 1e-10, 1e-10, 1e-10);
+                    vec3_exports.transformQuat(_alignVector, _unitY, quaternion);
+                    if (Math.abs(vec3_exports.dot(_alignVector, this.eye)) > AXIS_HIDE_THRESHOLD) {
+                        vec3_exports.set(handle.scale, 1e-10, 1e-10, 1e-10);
                         handle.visible = false;
                     }
                 }
                 if (handle.name === 'Z') {
-                    transformQuat(_alignVector, _unitZ, quaternion);
-                    if (Math.abs(dot$1(_alignVector, this.eye)) > AXIS_HIDE_THRESHOLD) {
-                        set$2(handle.scale, 1e-10, 1e-10, 1e-10);
+                    vec3_exports.transformQuat(_alignVector, _unitZ, quaternion);
+                    if (Math.abs(vec3_exports.dot(_alignVector, this.eye)) > AXIS_HIDE_THRESHOLD) {
+                        vec3_exports.set(handle.scale, 1e-10, 1e-10, 1e-10);
                         handle.visible = false;
                     }
                 }
                 if (handle.name === 'XY') {
-                    transformQuat(_alignVector, _unitZ, quaternion);
-                    if (Math.abs(dot$1(_alignVector, this.eye)) < PLANE_HIDE_THRESHOLD) {
-                        set$2(handle.scale, 1e-10, 1e-10, 1e-10);
+                    vec3_exports.transformQuat(_alignVector, _unitZ, quaternion);
+                    if (Math.abs(vec3_exports.dot(_alignVector, this.eye)) < PLANE_HIDE_THRESHOLD) {
+                        vec3_exports.set(handle.scale, 1e-10, 1e-10, 1e-10);
                         handle.visible = false;
                     }
                 }
                 if (handle.name === 'YZ') {
-                    transformQuat(_alignVector, _unitX, quaternion);
-                    if (Math.abs(dot$1(_alignVector, this.eye)) < PLANE_HIDE_THRESHOLD) {
-                        set$2(handle.scale, 1e-10, 1e-10, 1e-10);
+                    vec3_exports.transformQuat(_alignVector, _unitX, quaternion);
+                    if (Math.abs(vec3_exports.dot(_alignVector, this.eye)) < PLANE_HIDE_THRESHOLD) {
+                        vec3_exports.set(handle.scale, 1e-10, 1e-10, 1e-10);
                         handle.visible = false;
                     }
                 }
                 if (handle.name === 'XZ') {
-                    transformQuat(_alignVector, _unitY, quaternion);
-                    if (Math.abs(dot$1(_alignVector, this.eye)) < PLANE_HIDE_THRESHOLD) {
-                        set$2(handle.scale, 1e-10, 1e-10, 1e-10);
+                    vec3_exports.transformQuat(_alignVector, _unitY, quaternion);
+                    if (Math.abs(vec3_exports.dot(_alignVector, this.eye)) < PLANE_HIDE_THRESHOLD) {
+                        vec3_exports.set(handle.scale, 1e-10, 1e-10, 1e-10);
                         handle.visible = false;
                     }
                 }
             }
             else if (this.mode === 'rotate') {
-                copy$3(_tempQuat2, quaternion);
+                quat_exports.copy(_tempQuat2, quaternion);
                 // alignVector = eye in local space
-                invert(_tempQuat, quaternion);
-                transformQuat(_alignVector, this.eye, _tempQuat);
+                quat_exports.invert(_tempQuat, quaternion);
+                vec3_exports.transformQuat(_alignVector, this.eye, _tempQuat);
                 if (handle.name.indexOf('E') !== -1) {
                     // E ring: face camera
-                    targetTo(_tempMat, this.eye, _zeroVec, _unitY);
-                    fromMat4(handle.quaternion, _tempMat);
+                    mat4_exports.targetTo(_tempMat, this.eye, _zeroVec, _unitY);
+                    quat_exports.fromMat4(handle.quaternion, _tempMat);
                 }
                 if (handle.name === 'X') {
-                    setAxisAngle(_tempQuat, _unitX, Math.atan2(-_alignVector[1], _alignVector[2]));
-                    multiply(_tempQuat, _tempQuat2, _tempQuat);
-                    copy$3(handle.quaternion, _tempQuat);
+                    quat_exports.setAxisAngle(_tempQuat, _unitX, Math.atan2(-_alignVector[1], _alignVector[2]));
+                    quat_exports.multiply(_tempQuat, _tempQuat2, _tempQuat);
+                    quat_exports.copy(handle.quaternion, _tempQuat);
                 }
                 if (handle.name === 'Y') {
-                    setAxisAngle(_tempQuat, _unitY, Math.atan2(_alignVector[0], _alignVector[2]));
-                    multiply(_tempQuat, _tempQuat2, _tempQuat);
-                    copy$3(handle.quaternion, _tempQuat);
+                    quat_exports.setAxisAngle(_tempQuat, _unitY, Math.atan2(_alignVector[0], _alignVector[2]));
+                    quat_exports.multiply(_tempQuat, _tempQuat2, _tempQuat);
+                    quat_exports.copy(handle.quaternion, _tempQuat);
                 }
                 if (handle.name === 'Z') {
-                    setAxisAngle(_tempQuat, _unitZ, Math.atan2(_alignVector[1], _alignVector[0]));
-                    multiply(_tempQuat, _tempQuat2, _tempQuat);
-                    copy$3(handle.quaternion, _tempQuat);
+                    quat_exports.setAxisAngle(_tempQuat, _unitZ, Math.atan2(_alignVector[1], _alignVector[0]));
+                    quat_exports.multiply(_tempQuat, _tempQuat2, _tempQuat);
+                    quat_exports.copy(handle.quaternion, _tempQuat);
                 }
             }
             // hide disabled axes
@@ -13582,21 +17896,21 @@ class TransformControlsRoot extends Object3D {
                 console.error('TransformControls: The attached 3D object must be a part of the scene graph.');
             }
             else {
-                decompose(controls._parentQuaternion, controls._parentPosition, controls._parentScale, controls.object.parent.matrixWorld);
+                mat4_exports.decompose(controls._parentQuaternion, controls._parentPosition, controls._parentScale, controls.object.parent.matrixWorld);
             }
-            decompose(controls.worldQuaternion, controls.worldPosition, controls._worldScale, controls.object.matrixWorld);
-            invert(controls._parentQuaternionInv, controls._parentQuaternion);
-            invert(controls._worldQuaternionInv, controls.worldQuaternion);
+            mat4_exports.decompose(controls.worldQuaternion, controls.worldPosition, controls._worldScale, controls.object.matrixWorld);
+            quat_exports.invert(controls._parentQuaternionInv, controls._parentQuaternion);
+            quat_exports.invert(controls._worldQuaternionInv, controls.worldQuaternion);
         }
         controls.camera.updateWorldMatrix();
-        decompose(controls.cameraQuaternion, controls.cameraPosition, controls._cameraScale, controls.camera.matrixWorld);
+        mat4_exports.decompose(controls.cameraQuaternion, controls.cameraPosition, controls._cameraScale, controls.camera.matrixWorld);
         if (controls.camera?.isOrthographicCamera) {
             controls.camera.getWorldDirection(controls.eye);
-            negate$1(controls.eye, controls.eye);
+            vec3_exports.negate(controls.eye, controls.eye);
         }
         else {
-            subtract(controls.eye, controls.cameraPosition, controls.worldPosition);
-            normalize$4(controls.eye, controls.eye);
+            vec3_exports.subtract(controls.eye, controls.cameraPosition, controls.worldPosition);
+            vec3_exports.normalize(controls.eye, controls.eye);
         }
         super.updateWorldMatrix();
     }
@@ -13799,12 +18113,12 @@ class TransformControls {
         if (!this.enabled)
             return;
         if (this.dragging && this.object) {
-            copy$6(this.object.position, this._positionStart);
-            copy$3(this.object.quaternion, this._quaternionStart);
-            copy$6(this.object.scale, this._scaleStart);
+            vec3_exports.copy(this.object.position, this._positionStart);
+            quat_exports.copy(this.object.quaternion, this._quaternionStart);
+            vec3_exports.copy(this.object.scale, this._scaleStart);
             this.onChange.emit();
             this.onObjectChange.emit();
-            copy$6(this.pointStart, this.pointEnd);
+            vec3_exports.copy(this.pointStart, this.pointEnd);
         }
     }
     dispose() {
@@ -13837,11 +18151,11 @@ class TransformControls {
                 if (this.object.parent) {
                     this.object.parent.updateWorldMatrix();
                 }
-                copy$6(this._positionStart, this.object.position);
-                copy$3(this._quaternionStart, this.object.quaternion);
-                copy$6(this._scaleStart, this.object.scale);
-                decompose(this.worldQuaternionStart, this.worldPositionStart, this._worldScaleStart, this.object.matrixWorld);
-                subtract(this.pointStart, planeIntersect.point, this.worldPositionStart);
+                vec3_exports.copy(this._positionStart, this.object.position);
+                quat_exports.copy(this._quaternionStart, this.object.quaternion);
+                vec3_exports.copy(this._scaleStart, this.object.scale);
+                mat4_exports.decompose(this.worldQuaternionStart, this.worldPositionStart, this._worldScaleStart, this.object.matrixWorld);
+                vec3_exports.subtract(this.pointStart, planeIntersect.point, this.worldPositionStart);
             }
             this.dragging = true;
             this._syncState();
@@ -13867,11 +18181,11 @@ class TransformControls {
         if (!planeIntersect) {
             return;
         }
-        subtract(this.pointEnd, planeIntersect.point, this.worldPositionStart);
+        vec3_exports.subtract(this.pointEnd, planeIntersect.point, this.worldPositionStart);
         if (mode === 'translate') {
-            subtract(this._offset, this.pointEnd, this.pointStart);
+            vec3_exports.subtract(this._offset, this.pointEnd, this.pointStart);
             if (space === 'local' && axis !== 'XYZ') {
-                transformQuat(this._offset, this._offset, this._worldQuaternionInv);
+                vec3_exports.transformQuat(this._offset, this._offset, this._worldQuaternionInv);
             }
             if (axis.indexOf('X') === -1)
                 this._offset[0] = 0;
@@ -13880,32 +18194,32 @@ class TransformControls {
             if (axis.indexOf('Z') === -1)
                 this._offset[2] = 0;
             if (space === 'local' && axis !== 'XYZ') {
-                transformQuat(this._offset, this._offset, this._quaternionStart);
-                divide(this._offset, this._offset, this._parentScale);
+                vec3_exports.transformQuat(this._offset, this._offset, this._quaternionStart);
+                vec3_exports.divide(this._offset, this._offset, this._parentScale);
             }
             else {
-                transformQuat(this._offset, this._offset, this._parentQuaternionInv);
-                divide(this._offset, this._offset, this._parentScale);
+                vec3_exports.transformQuat(this._offset, this._offset, this._parentQuaternionInv);
+                vec3_exports.divide(this._offset, this._offset, this._parentScale);
             }
-            add$1(object.position, this._offset, this._positionStart);
+            vec3_exports.add(object.position, this._offset, this._positionStart);
             // snap
             if (this.translationSnap) {
                 const snap = this.translationSnap;
                 if (space === 'local') {
-                    invert(_tempQuat, this._quaternionStart);
-                    transformQuat(object.position, object.position, _tempQuat);
+                    quat_exports.invert(_tempQuat, this._quaternionStart);
+                    vec3_exports.transformQuat(object.position, object.position, _tempQuat);
                     if (axis.indexOf('X') !== -1)
                         object.position[0] = Math.round(object.position[0] / snap) * snap;
                     if (axis.indexOf('Y') !== -1)
                         object.position[1] = Math.round(object.position[1] / snap) * snap;
                     if (axis.indexOf('Z') !== -1)
                         object.position[2] = Math.round(object.position[2] / snap) * snap;
-                    transformQuat(object.position, object.position, this._quaternionStart);
+                    vec3_exports.transformQuat(object.position, object.position, this._quaternionStart);
                 }
                 if (space === 'world') {
                     if (object.parent) {
-                        getTranslation(_tempVec, object.parent.matrixWorld);
-                        add$1(object.position, object.position, _tempVec);
+                        mat4_exports.getTranslation(_tempVec, object.parent.matrixWorld);
+                        vec3_exports.add(object.position, object.position, _tempVec);
                     }
                     if (axis.indexOf('X') !== -1)
                         object.position[0] = Math.round(object.position[0] / snap) * snap;
@@ -13914,8 +18228,8 @@ class TransformControls {
                     if (axis.indexOf('Z') !== -1)
                         object.position[2] = Math.round(object.position[2] / snap) * snap;
                     if (object.parent) {
-                        getTranslation(_tempVec, object.parent.matrixWorld);
-                        subtract(object.position, object.position, _tempVec);
+                        mat4_exports.getTranslation(_tempVec, object.parent.matrixWorld);
+                        vec3_exports.subtract(object.position, object.position, _tempVec);
                     }
                 }
             }
@@ -13926,17 +18240,17 @@ class TransformControls {
         }
         else if (mode === 'scale') {
             if (axis.indexOf('XYZ') !== -1) {
-                let dd = length$1(this.pointEnd) / length$1(this.pointStart);
-                if (dot$1(this.pointEnd, this.pointStart) < 0)
+                let dd = vec3_exports.length(this.pointEnd) / vec3_exports.length(this.pointStart);
+                if (vec3_exports.dot(this.pointEnd, this.pointStart) < 0)
                     dd *= -1;
-                set$2(_tempVec2, dd, dd, dd);
+                vec3_exports.set(_tempVec2, dd, dd, dd);
             }
             else {
-                copy$6(_tempVec, this.pointStart);
-                copy$6(_tempVec2, this.pointEnd);
-                transformQuat(_tempVec, _tempVec, this._worldQuaternionInv);
-                transformQuat(_tempVec2, _tempVec2, this._worldQuaternionInv);
-                divide(_tempVec2, _tempVec2, _tempVec);
+                vec3_exports.copy(_tempVec, this.pointStart);
+                vec3_exports.copy(_tempVec2, this.pointEnd);
+                vec3_exports.transformQuat(_tempVec, _tempVec, this._worldQuaternionInv);
+                vec3_exports.transformQuat(_tempVec2, _tempVec2, this._worldQuaternionInv);
+                vec3_exports.divide(_tempVec2, _tempVec2, _tempVec);
                 if (axis.indexOf('X') === -1)
                     _tempVec2[0] = 1;
                 if (axis.indexOf('Y') === -1)
@@ -13944,7 +18258,7 @@ class TransformControls {
                 if (axis.indexOf('Z') === -1)
                     _tempVec2[2] = 1;
             }
-            multiply$2(object.scale, this._scaleStart, _tempVec2);
+            vec3_exports.multiply(object.scale, this._scaleStart, _tempVec2);
             if (this.scaleSnap) {
                 const snap = this.scaleSnap;
                 if (axis.indexOf('X') !== -1)
@@ -13956,39 +18270,39 @@ class TransformControls {
             }
         }
         else if (mode === 'rotate') {
-            subtract(this._offset, this.pointEnd, this.pointStart);
-            getTranslation(_tempVec, this.camera.matrixWorld);
-            const ROTATION_SPEED = 20 / distance(this.worldPosition, _tempVec);
+            vec3_exports.subtract(this._offset, this.pointEnd, this.pointStart);
+            mat4_exports.getTranslation(_tempVec, this.camera.matrixWorld);
+            const ROTATION_SPEED = 20 / vec3_exports.distance(this.worldPosition, _tempVec);
             let _inPlaneRotation = false;
             if (axis === 'XYZE') {
-                cross$1(this.rotationAxis, this._offset, this.eye);
-                normalize$4(this.rotationAxis, this.rotationAxis);
-                cross$1(_tempVec, this.rotationAxis, this.eye);
-                this.rotationAngle = dot$1(this._offset, _tempVec) * ROTATION_SPEED;
+                vec3_exports.cross(this.rotationAxis, this._offset, this.eye);
+                vec3_exports.normalize(this.rotationAxis, this.rotationAxis);
+                vec3_exports.cross(_tempVec, this.rotationAxis, this.eye);
+                this.rotationAngle = vec3_exports.dot(this._offset, _tempVec) * ROTATION_SPEED;
             }
             else if (axis === 'X' || axis === 'Y' || axis === 'Z') {
                 const unit = axis === 'X' ? _unitX : axis === 'Y' ? _unitY : _unitZ;
-                copy$6(this.rotationAxis, unit);
-                copy$6(_tempVec, unit);
+                vec3_exports.copy(this.rotationAxis, unit);
+                vec3_exports.copy(_tempVec, unit);
                 if (space === 'local') {
-                    transformQuat(_tempVec, _tempVec, this.worldQuaternion);
+                    vec3_exports.transformQuat(_tempVec, _tempVec, this.worldQuaternion);
                 }
-                cross$1(_tempVec, _tempVec, this.eye);
-                if (length$1(_tempVec) === 0) {
+                vec3_exports.cross(_tempVec, _tempVec, this.eye);
+                if (vec3_exports.length(_tempVec) === 0) {
                     _inPlaneRotation = true;
                 }
                 else {
-                    normalize$4(_tempVec, _tempVec);
-                    this.rotationAngle = dot$1(this._offset, _tempVec) * ROTATION_SPEED;
+                    vec3_exports.normalize(_tempVec, _tempVec);
+                    this.rotationAngle = vec3_exports.dot(this._offset, _tempVec) * ROTATION_SPEED;
                 }
             }
             if (axis === 'E' || _inPlaneRotation) {
-                copy$6(this.rotationAxis, this.eye);
-                this.rotationAngle = angle(this.pointEnd, this.pointStart);
-                normalize$4(this._startNorm, this.pointStart);
-                normalize$4(this._endNorm, this.pointEnd);
-                cross$1(_tempVec, this._endNorm, this._startNorm);
-                this.rotationAngle *= (dot$1(_tempVec, this.eye) < 0 ? 1 : -1);
+                vec3_exports.copy(this.rotationAxis, this.eye);
+                this.rotationAngle = vec3_exports.angle(this.pointEnd, this.pointStart);
+                vec3_exports.normalize(this._startNorm, this.pointStart);
+                vec3_exports.normalize(this._endNorm, this.pointEnd);
+                vec3_exports.cross(_tempVec, this._endNorm, this._startNorm);
+                this.rotationAngle *= (vec3_exports.dot(_tempVec, this.eye) < 0 ? 1 : -1);
             }
             // snap
             if (this.rotationSnap) {
@@ -13996,16 +18310,16 @@ class TransformControls {
             }
             // apply rotation
             if (space === 'local' && axis !== 'E' && axis !== 'XYZE') {
-                copy$3(object.quaternion, this._quaternionStart);
-                setAxisAngle(_tempQuat, this.rotationAxis, this.rotationAngle);
-                multiply(object.quaternion, object.quaternion, _tempQuat);
-                normalize$2(object.quaternion, object.quaternion);
+                quat_exports.copy(object.quaternion, this._quaternionStart);
+                quat_exports.setAxisAngle(_tempQuat, this.rotationAxis, this.rotationAngle);
+                quat_exports.multiply(object.quaternion, object.quaternion, _tempQuat);
+                quat_exports.normalize(object.quaternion, object.quaternion);
             }
             else {
-                transformQuat(this.rotationAxis, this.rotationAxis, this._parentQuaternionInv);
-                setAxisAngle(_tempQuat, this.rotationAxis, this.rotationAngle);
-                multiply(object.quaternion, _tempQuat, this._quaternionStart);
-                normalize$2(object.quaternion, object.quaternion);
+                vec3_exports.transformQuat(this.rotationAxis, this.rotationAxis, this._parentQuaternionInv);
+                quat_exports.setAxisAngle(_tempQuat, this.rotationAxis, this.rotationAngle);
+                quat_exports.multiply(object.quaternion, _tempQuat, this._quaternionStart);
+                quat_exports.normalize(object.quaternion, object.quaternion);
             }
         }
         this.onChange.emit();
@@ -32616,38 +36930,910 @@ class Inspector extends RendererInspector {
     }
 }
 
+//#region src/shapes/box3.ts
+var box3_exports = /* @__PURE__ */ __exportAll({
+	center: () => center,
+	clone: () => clone$2,
+	containsBox3: () => containsBox3,
+	containsPoint: () => containsPoint$1,
+	copy: () => copy$2,
+	create: () => create$4,
+	empty: () => empty,
+	equals: () => equals$1,
+	exactEquals: () => exactEquals$1,
+	expandByExtents: () => expandByExtents,
+	expandByMargin: () => expandByMargin,
+	expandByPoint: () => expandByPoint,
+	extents: () => extents,
+	intersectsBox3: () => intersectsBox3$2,
+	intersectsPlane3: () => intersectsPlane3,
+	intersectsSphere: () => intersectsSphere$1,
+	intersectsTriangle3: () => intersectsTriangle3,
+	max: () => max,
+	min: () => min,
+	scale: () => scale,
+	set: () => set$1,
+	setFromCenterAndSize: () => setFromCenterAndSize,
+	setFromVectors: () => setFromVectors,
+	size: () => size,
+	surfaceArea: () => surfaceArea,
+	transformMat4: () => transformMat4,
+	union: () => union
+});
+/**
+* Create a new empty Box3 with "min" set to positive infinity and "max" set to negative infinity
+* @returns A new Box3
+*/
+function create$4() {
+	return [
+		Number.POSITIVE_INFINITY,
+		Number.POSITIVE_INFINITY,
+		Number.POSITIVE_INFINITY,
+		Number.NEGATIVE_INFINITY,
+		Number.NEGATIVE_INFINITY,
+		Number.NEGATIVE_INFINITY
+	];
+}
+/**
+* Clones a Box3
+* @param box - A Box3 to clone
+* @returns a clone of box
+*/
+function clone$2(box) {
+	return [
+		box[0],
+		box[1],
+		box[2],
+		box[3],
+		box[4],
+		box[5]
+	];
+}
+/**
+* Copies a Box3 to another Box3
+* @param out the output Box3
+* @param box the input Box3
+* @returns the output Box3
+*/
+function copy$2(out, box) {
+	out[0] = box[0];
+	out[1] = box[1];
+	out[2] = box[2];
+	out[3] = box[3];
+	out[4] = box[4];
+	out[5] = box[5];
+	return out;
+}
+/**
+* Sets the min and max values of a Box3
+* @param out - The output Box3
+* @param minX - The minimum X coordinate
+* @param minY - The minimum Y coordinate
+* @param minZ - The minimum Z coordinate
+* @param maxX - The maximum X coordinate
+* @param maxY - The maximum Y coordinate
+* @param maxZ - The maximum Z coordinate
+* @returns The updated Box3
+*/
+function set$1(out, minX, minY, minZ, maxX, maxY, maxZ) {
+	out[0] = minX;
+	out[1] = minY;
+	out[2] = minZ;
+	out[3] = maxX;
+	out[4] = maxY;
+	out[5] = maxZ;
+	return out;
+}
+/**
+* Sets the min and max values of a Box3 from Vec3 vectors
+* @param out - The output Box3
+* @param min - The minimum corner
+* @param max - The maximum corner
+* @returns The updated Box3
+*/
+function setFromVectors(out, min, max) {
+	out[0] = min[0];
+	out[1] = min[1];
+	out[2] = min[2];
+	out[3] = max[0];
+	out[4] = max[1];
+	out[5] = max[2];
+	return out;
+}
+/**
+* Extracts the minimum corner of a Box3
+* @param out - The output Vec3 for the minimum corner
+* @param box - The input Box3
+* @returns The minimum corner
+*/
+function min(out, box) {
+	out[0] = box[0];
+	out[1] = box[1];
+	out[2] = box[2];
+	return out;
+}
+/**
+* Extracts the maximum corner of a Box3
+* @param out - The output Vec3 for the maximum corner
+* @param box - The input Box3
+* @returns The maximum corner
+*/
+function max(out, box) {
+	out[0] = box[3];
+	out[1] = box[4];
+	out[2] = box[5];
+	return out;
+}
+/**
+* Set a Box3 to empty (min to positive infinity, max to negative infinity)
+* @param out - The Box3 to make empty
+* @returns The emptied Box3
+*/
+function empty(out) {
+	out[0] = Number.POSITIVE_INFINITY;
+	out[1] = Number.POSITIVE_INFINITY;
+	out[2] = Number.POSITIVE_INFINITY;
+	out[3] = Number.NEGATIVE_INFINITY;
+	out[4] = Number.NEGATIVE_INFINITY;
+	out[5] = Number.NEGATIVE_INFINITY;
+	return out;
+}
+/**
+* Returns whether or not the boxes have exactly the same elements in the same position (when compared with ===)
+* @param a - The first box
+* @param b - The second box
+* @returns True if the boxes are equal, false otherwise
+*/
+function exactEquals$1(a, b) {
+	return a[0] === b[0] && a[1] === b[1] && a[2] === b[2] && a[3] === b[3] && a[4] === b[4] && a[5] === b[5];
+}
+/**
+* Returns whether or not the boxes have approximately the same elements in the same position
+* @param a - The first box
+* @param b - The second box
+* @returns True if the boxes are equal, false otherwise
+*/
+function equals$1(a, b) {
+	const a0 = a[0];
+	const a1 = a[1];
+	const a2 = a[2];
+	const a3 = a[3];
+	const a4 = a[4];
+	const a5 = a[5];
+	const b0 = b[0];
+	const b1 = b[1];
+	const b2 = b[2];
+	const b3 = b[3];
+	const b4 = b[4];
+	const b5 = b[5];
+	return Math.abs(a0 - b0) <= 1e-6 * Math.max(1, Math.abs(a0), Math.abs(b0)) && Math.abs(a1 - b1) <= 1e-6 * Math.max(1, Math.abs(a1), Math.abs(b1)) && Math.abs(a2 - b2) <= 1e-6 * Math.max(1, Math.abs(a2), Math.abs(b2)) && Math.abs(a3 - b3) <= 1e-6 * Math.max(1, Math.abs(a3), Math.abs(b3)) && Math.abs(a4 - b4) <= 1e-6 * Math.max(1, Math.abs(a4), Math.abs(b4)) && Math.abs(a5 - b5) <= 1e-6 * Math.max(1, Math.abs(a5), Math.abs(b5));
+}
+const _setFromCenterAndSize_halfSize = /*@__PURE__*/ create$2$1();
+const _setFromCenterAndSize_min = /*@__PURE__*/ create$2$1();
+const _setFromCenterAndSize_max = /*@__PURE__*/ create$2$1();
+/**
+* Sets the box from a center point and size
+* @param out - The output Box3
+* @param center - The center point
+* @param size - The size of the box
+* @returns The updated Box3
+*/
+function setFromCenterAndSize(out, center, size) {
+	const halfSize = scale$2(_setFromCenterAndSize_halfSize, size, .5);
+	sub$2(_setFromCenterAndSize_min, center, halfSize);
+	add$2(_setFromCenterAndSize_max, center, halfSize);
+	out[0] = _setFromCenterAndSize_min[0];
+	out[1] = _setFromCenterAndSize_min[1];
+	out[2] = _setFromCenterAndSize_min[2];
+	out[3] = _setFromCenterAndSize_max[0];
+	out[4] = _setFromCenterAndSize_max[1];
+	out[5] = _setFromCenterAndSize_max[2];
+	return out;
+}
+/**
+* Expands a Box3 to include a point
+* @param out - The output Box3
+* @param box - The input Box3
+* @param point - The point to include
+* @returns The expanded Box3
+*/
+function expandByPoint(out, box, point) {
+	out[0] = Math.min(box[0], point[0]);
+	out[1] = Math.min(box[1], point[1]);
+	out[2] = Math.min(box[2], point[2]);
+	out[3] = Math.max(box[3], point[0]);
+	out[4] = Math.max(box[4], point[1]);
+	out[5] = Math.max(box[5], point[2]);
+	return out;
+}
+/**
+* Widens a Box3 by a vector on both sides
+* Subtracts the vector from min and adds it to max
+* @param out - The output Box3
+* @param box - The input Box3
+* @param vector - The vector to expand by
+* @returns The expanded Box3
+*/
+function expandByExtents(out, box, vector) {
+	out[0] = box[0] - vector[0];
+	out[1] = box[1] - vector[1];
+	out[2] = box[2] - vector[2];
+	out[3] = box[3] + vector[0];
+	out[4] = box[4] + vector[1];
+	out[5] = box[5] + vector[2];
+	return out;
+}
+/**
+* Expands a Box3 uniformly by a scalar margin on all sides
+* Subtracts the margin from min and adds it to max on each axis
+* @param out - The output Box3
+* @param box - The input Box3
+* @param margin - The uniform margin to expand by
+* @returns The expanded Box3
+*/
+function expandByMargin(out, box, margin) {
+	out[0] = box[0] - margin;
+	out[1] = box[1] - margin;
+	out[2] = box[2] - margin;
+	out[3] = box[3] + margin;
+	out[4] = box[4] + margin;
+	out[5] = box[5] + margin;
+	return out;
+}
+/**
+* Computes the union of two bounding boxes
+* Returns a Box3 that encompasses both input boxes
+* @param out - The output Box3
+* @param boxA - The first Box3
+* @param boxB - The second Box3
+* @returns The union Box3
+*/
+function union(out, boxA, boxB) {
+	out[0] = Math.min(boxA[0], boxB[0]);
+	out[1] = Math.min(boxA[1], boxB[1]);
+	out[2] = Math.min(boxA[2], boxB[2]);
+	out[3] = Math.max(boxA[3], boxB[3]);
+	out[4] = Math.max(boxA[4], boxB[4]);
+	out[5] = Math.max(boxA[5], boxB[5]);
+	return out;
+}
+/**
+* Calculate the center point of a bounding box
+* @param out - The output Vec3 for the center
+* @param box - The input Box3
+* @returns The center point
+*/
+function center(out, box) {
+	out[0] = (box[0] + box[3]) * .5;
+	out[1] = (box[1] + box[4]) * .5;
+	out[2] = (box[2] + box[5]) * .5;
+	return out;
+}
+/**
+* Calculate the extents (half-size) of a bounding box
+* @param out - The output Vec3 for the extents
+* @param box - The input Box3
+* @returns The extents (distance from center to each face)
+*/
+function extents(out, box) {
+	out[0] = (box[3] - box[0]) * .5;
+	out[1] = (box[4] - box[1]) * .5;
+	out[2] = (box[5] - box[2]) * .5;
+	return out;
+}
+/**
+* Calculate the size (dimensions) of a bounding box
+* @param out - The output Vec3 for the size
+* @param box - The input Box3
+* @returns The size (width, height, depth)
+*/
+function size(out, box) {
+	out[0] = box[3] - box[0];
+	out[1] = box[4] - box[1];
+	out[2] = box[5] - box[2];
+	return out;
+}
+/**
+* Calculate the surface area of a bounding box
+* @param box - The input Box3
+* @returns The surface area
+*/
+function surfaceArea(box) {
+	const width = box[3] - box[0];
+	const height = box[4] - box[1];
+	const depth = box[5] - box[2];
+	return 2 * (width * height + width * depth + height * depth);
+}
+/**
+* Scale a bounding box by a vector, handling non-uniform and negative scaling
+* @param out - The output Box3
+* @param box - The input Box3
+* @param scale - The scale to apply (as a Vec3)
+* @returns The scaled Box3
+*/
+function scale(out, box, scale) {
+	const minX = box[0] * scale[0];
+	const maxX = box[3] * scale[0];
+	const minY = box[1] * scale[1];
+	const maxY = box[4] * scale[1];
+	const minZ = box[2] * scale[2];
+	const maxZ = box[5] * scale[2];
+	out[0] = Math.min(minX, maxX);
+	out[3] = Math.max(minX, maxX);
+	out[1] = Math.min(minY, maxY);
+	out[4] = Math.max(minY, maxY);
+	out[2] = Math.min(minZ, maxZ);
+	out[5] = Math.max(minZ, maxZ);
+	return out;
+}
+/**
+* Transform a bounding box by a 4x4 matrix.
+* Uses Arvo's trick — transform the center, build new half-extents from
+* |M| · extents — which is ~4× fewer ops than transforming all 8 corners.
+* Reference: Jim Arvo, "Transforming Axis-Aligned Bounding Boxes",
+* Graphics Gems I (1990).
+* https://github.com/erich666/GraphicsGems/blob/master/gems/TransBox.c
+* Assumes mat is affine (no perspective), which is always true for AABB
+* transforms in practice.
+* Safe under aliasing (out and box may be the same array): all six box
+* components are read into locals before out is written.
+* @param out - The output Box3
+* @param box - The input Box3
+* @param mat - The 4x4 transformation matrix
+* @returns The transformed Box3
+*/
+function transformMat4(out, box, mat) {
+	const bMinX = box[0];
+	const bMinY = box[1];
+	const bMinZ = box[2];
+	const bMaxX = box[3];
+	const bMaxY = box[4];
+	const bMaxZ = box[5];
+	if (bMinX > bMaxX || bMinY > bMaxY || bMinZ > bMaxZ) {
+		out[0] = Number.POSITIVE_INFINITY;
+		out[1] = Number.POSITIVE_INFINITY;
+		out[2] = Number.POSITIVE_INFINITY;
+		out[3] = Number.NEGATIVE_INFINITY;
+		out[4] = Number.NEGATIVE_INFINITY;
+		out[5] = Number.NEGATIVE_INFINITY;
+		return out;
+	}
+	const cx = (bMinX + bMaxX) * .5;
+	const cy = (bMinY + bMaxY) * .5;
+	const cz = (bMinZ + bMaxZ) * .5;
+	const ex = (bMaxX - bMinX) * .5;
+	const ey = (bMaxY - bMinY) * .5;
+	const ez = (bMaxZ - bMinZ) * .5;
+	const m0 = mat[0], m1 = mat[1], m2 = mat[2];
+	const m4 = mat[4], m5 = mat[5], m6 = mat[6];
+	const m8 = mat[8], m9 = mat[9], m10 = mat[10];
+	const tcx = m0 * cx + m4 * cy + m8 * cz + mat[12];
+	const tcy = m1 * cx + m5 * cy + m9 * cz + mat[13];
+	const tcz = m2 * cx + m6 * cy + m10 * cz + mat[14];
+	const tex = Math.abs(m0) * ex + Math.abs(m4) * ey + Math.abs(m8) * ez;
+	const tey = Math.abs(m1) * ex + Math.abs(m5) * ey + Math.abs(m9) * ez;
+	const tez = Math.abs(m2) * ex + Math.abs(m6) * ey + Math.abs(m10) * ez;
+	out[0] = tcx - tex;
+	out[1] = tcy - tey;
+	out[2] = tcz - tez;
+	out[3] = tcx + tex;
+	out[4] = tcy + tey;
+	out[5] = tcz + tez;
+	return out;
+}
+/**
+* Test if a point is contained within the bounding box
+* @param box - The bounding box
+* @param point - The point to test
+* @returns true if the point is inside or on the boundary of the box
+*/
+function containsPoint$1(box, point) {
+	return point[0] >= box[0] && point[0] <= box[3] && point[1] >= box[1] && point[1] <= box[4] && point[2] >= box[2] && point[2] <= box[5];
+}
+/**
+* Test if one Box3 completely contains another Box3
+* @param container - The potentially containing Box3
+* @param contained - The Box3 that might be contained
+* @returns true if the container Box3 completely contains the contained Box3
+*/
+function containsBox3(container, contained) {
+	return contained[0] >= container[0] && contained[3] <= container[3] && contained[1] >= container[1] && contained[4] <= container[4] && contained[2] >= container[2] && contained[5] <= container[5];
+}
+/**
+* Check whether two bounding boxes intersect
+*/
+function intersectsBox3$2(boxA, boxB) {
+	return boxA[0] <= boxB[3] && boxA[3] >= boxB[0] && boxA[1] <= boxB[4] && boxA[4] >= boxB[1] && boxA[2] <= boxB[5] && boxA[5] >= boxB[2];
+}
+const _center = [
+	0,
+	0,
+	0
+];
+const _extents = [
+	0,
+	0,
+	0
+];
+const _v0 = [
+	0,
+	0,
+	0
+];
+const _v1 = [
+	0,
+	0,
+	0
+];
+const _v2 = [
+	0,
+	0,
+	0
+];
+const _f0 = [
+	0,
+	0,
+	0
+];
+const _f1 = [
+	0,
+	0,
+	0
+];
+const _f2 = [
+	0,
+	0,
+	0
+];
+const _triangleNormal = [
+	0,
+	0,
+	0
+];
+const _closestPoint = [
+	0,
+	0,
+	0
+];
+const _axesCross = new Array(27);
+const _axesBoxFaces = [
+	1,
+	0,
+	0,
+	0,
+	1,
+	0,
+	0,
+	0,
+	1
+];
+const _axisTriangle = [
+	0,
+	0,
+	0
+];
+function _satForAxes(axes, axisCount) {
+	for (let i = 0; i < axisCount; i++) {
+		const ax = axes[i * 3 + 0];
+		const ay = axes[i * 3 + 1];
+		const az = axes[i * 3 + 2];
+		if (ax === 0 && ay === 0 && az === 0) continue;
+		const p0 = _v0[0] * ax + _v0[1] * ay + _v0[2] * az;
+		const p1 = _v1[0] * ax + _v1[1] * ay + _v1[2] * az;
+		const p2 = _v2[0] * ax + _v2[1] * ay + _v2[2] * az;
+		let minP = p0;
+		let maxP = p0;
+		if (p1 < minP) minP = p1;
+		else if (p1 > maxP) maxP = p1;
+		if (p2 < minP) minP = p2;
+		else if (p2 > maxP) maxP = p2;
+		const r = _extents[0] * Math.abs(ax) + _extents[1] * Math.abs(ay) + _extents[2] * Math.abs(az);
+		if (maxP < -r || minP > r) return false;
+	}
+	return true;
+}
+function intersectsTriangle3(box, a, b, c) {
+	if (box[0] > box[3] || box[1] > box[4] || box[2] > box[5]) return false;
+	_center[0] = (box[0] + box[3]) * .5;
+	_center[1] = (box[1] + box[4]) * .5;
+	_center[2] = (box[2] + box[5]) * .5;
+	_extents[0] = box[3] - _center[0];
+	_extents[1] = box[4] - _center[1];
+	_extents[2] = box[5] - _center[2];
+	_v0[0] = a[0] - _center[0];
+	_v0[1] = a[1] - _center[1];
+	_v0[2] = a[2] - _center[2];
+	_v1[0] = b[0] - _center[0];
+	_v1[1] = b[1] - _center[1];
+	_v1[2] = b[2] - _center[2];
+	_v2[0] = c[0] - _center[0];
+	_v2[1] = c[1] - _center[1];
+	_v2[2] = c[2] - _center[2];
+	_f0[0] = _v1[0] - _v0[0];
+	_f0[1] = _v1[1] - _v0[1];
+	_f0[2] = _v1[2] - _v0[2];
+	_f1[0] = _v2[0] - _v1[0];
+	_f1[1] = _v2[1] - _v1[1];
+	_f1[2] = _v2[2] - _v1[2];
+	_f2[0] = _v0[0] - _v2[0];
+	_f2[1] = _v0[1] - _v2[1];
+	_f2[2] = _v0[2] - _v2[2];
+	_axesCross[0] = 0;
+	_axesCross[1] = -_f0[2];
+	_axesCross[2] = _f0[1];
+	_axesCross[3] = 0;
+	_axesCross[4] = -_f1[2];
+	_axesCross[5] = _f1[1];
+	_axesCross[6] = 0;
+	_axesCross[7] = -_f2[2];
+	_axesCross[8] = _f2[1];
+	_axesCross[9] = _f0[2];
+	_axesCross[10] = 0;
+	_axesCross[11] = -_f0[0];
+	_axesCross[12] = _f1[2];
+	_axesCross[13] = 0;
+	_axesCross[14] = -_f1[0];
+	_axesCross[15] = _f2[2];
+	_axesCross[16] = 0;
+	_axesCross[17] = -_f2[0];
+	_axesCross[18] = -_f0[1];
+	_axesCross[19] = _f0[0];
+	_axesCross[20] = 0;
+	_axesCross[21] = -_f1[1];
+	_axesCross[22] = _f1[0];
+	_axesCross[23] = 0;
+	_axesCross[24] = -_f2[1];
+	_axesCross[25] = _f2[0];
+	_axesCross[26] = 0;
+	if (!_satForAxes(_axesCross, 9)) return false;
+	if (!_satForAxes(_axesBoxFaces, 3)) return false;
+	cross$1(_triangleNormal, _f0, _f1);
+	_axisTriangle[0] = _triangleNormal[0];
+	_axisTriangle[1] = _triangleNormal[1];
+	_axisTriangle[2] = _triangleNormal[2];
+	return _satForAxes(_axisTriangle, 1);
+}
+/**
+* Test intersection between axis-aligned bounding box and a sphere.
+*/
+function intersectsSphere$1(box, sphere) {
+	const { center, radius } = sphere;
+	_closestPoint[0] = center[0] < box[0] ? box[0] : center[0] > box[3] ? box[3] : center[0];
+	_closestPoint[1] = center[1] < box[1] ? box[1] : center[1] > box[4] ? box[4] : center[1];
+	_closestPoint[2] = center[2] < box[2] ? box[2] : center[2] > box[5] ? box[5] : center[2];
+	const dx = _closestPoint[0] - center[0];
+	const dy = _closestPoint[1] - center[1];
+	const dz = _closestPoint[2] - center[2];
+	return dx * dx + dy * dy + dz * dz <= radius * radius;
+}
+/**
+* Test intersection between axis-aligned bounding box and plane.
+*/
+function intersectsPlane3(box, plane) {
+	const { normal, constant } = plane;
+	let minDot = 0;
+	let maxDot = 0;
+	if (normal[0] > 0) {
+		minDot = normal[0] * box[0];
+		maxDot = normal[0] * box[3];
+	} else {
+		minDot = normal[0] * box[3];
+		maxDot = normal[0] * box[0];
+	}
+	if (normal[1] > 0) {
+		minDot += normal[1] * box[1];
+		maxDot += normal[1] * box[4];
+	} else {
+		minDot += normal[1] * box[4];
+		maxDot += normal[1] * box[1];
+	}
+	if (normal[2] > 0) {
+		minDot += normal[2] * box[2];
+		maxDot += normal[2] * box[5];
+	} else {
+		minDot += normal[2] * box[5];
+		maxDot += normal[2] * box[2];
+	}
+	return minDot + constant <= 0 && maxDot + constant >= 0;
+}
+//#endregion
+//#region src/shapes/plane3.ts
+var plane3_exports = /* @__PURE__ */ __exportAll({
+	clone: () => clone$1,
+	copy: () => copy$1,
+	create: () => create$2,
+	distanceToPoint: () => distanceToPoint,
+	equals: () => equals,
+	exactEquals: () => exactEquals,
+	fromCoplanarPoints: () => fromCoplanarPoints,
+	fromNormalAndConstant: () => fromNormalAndConstant,
+	fromNormalAndPoint: () => fromNormalAndPoint,
+	intersect: () => intersect,
+	intersectsSphere: () => intersectsSphere$2,
+	negate: () => negate,
+	normalize: () => normalize,
+	offset: () => offset,
+	projectPoint: () => projectPoint,
+	transform: () => transform
+});
+/**
+* Creates a new plane with normal (0, 1, 0) and constant 0
+* @returns A new plane
+*/
+function create$2() {
+	return {
+		normal: [
+			0,
+			1,
+			0
+		],
+		constant: 0
+	};
+}
+/**
+* Creates a plane from a normal and constant
+* @param out - The output plane
+* @param normal - The plane normal (should be unit length)
+* @param constant - The signed distance from origin
+* @returns The output plane
+*/
+function fromNormalAndConstant(out, normal, constant) {
+	copy$2$1(out.normal, normal);
+	out.constant = constant;
+	return out;
+}
+/**
+* Creates a plane from a normal and a point on the plane
+* @param out - The output plane
+* @param normal - The plane normal (should be unit length)
+* @param point - A point on the plane
+* @returns The output plane
+*/
+function fromNormalAndPoint(out, normal, point) {
+	copy$2$1(out.normal, normal);
+	out.constant = -dot$3(normal, point);
+	return out;
+}
+/**
+* Creates a plane from three coplanar points
+* @param out - The output plane
+* @param a - First point
+* @param b - Second point
+* @param c - Third point
+* @returns The output plane
+*/
+function fromCoplanarPoints(out, a, b, c) {
+	const ax = a[0];
+	const ay = a[1];
+	const az = a[2];
+	const v1x = b[0] - ax;
+	const v1y = b[1] - ay;
+	const v1z = b[2] - az;
+	const v2x = c[0] - ax;
+	const v2y = c[1] - ay;
+	const v2z = c[2] - az;
+	let nx = v1y * v2z - v1z * v2y;
+	let ny = v1z * v2x - v1x * v2z;
+	let nz = v1x * v2y - v1y * v2x;
+	let len = nx * nx + ny * ny + nz * nz;
+	if (len > 0) len = 1 / Math.sqrt(len);
+	nx *= len;
+	ny *= len;
+	nz *= len;
+	out.normal[0] = nx;
+	out.normal[1] = ny;
+	out.normal[2] = nz;
+	out.constant = -(nx * ax + ny * ay + nz * az);
+	return out;
+}
+/**
+* Clones a plane
+* @param plane - The plane to clone
+* @returns A new plane
+*/
+function clone$1(plane) {
+	return {
+		normal: clone$2$1(plane.normal),
+		constant: plane.constant
+	};
+}
+/**
+* Copies one plane to another
+* @param out - The output plane
+* @param plane - The source plane
+* @returns The output plane
+*/
+function copy$1(out, plane) {
+	copy$2$1(out.normal, plane.normal);
+	out.constant = plane.constant;
+	return out;
+}
+/**
+* Normalizes a plane (ensures the normal vector is unit length)
+* @param out - The output plane
+* @param plane - The input plane
+* @returns The normalized plane
+*/
+function normalize(out, plane) {
+	const invMagnitude = 1 / length$3(plane.normal);
+	scale$2(out.normal, plane.normal, invMagnitude);
+	out.constant = plane.constant * invMagnitude;
+	return out;
+}
+/**
+* Negates a plane (flips the normal and constant)
+* @param out - The output plane
+* @param plane - The input plane
+* @returns The negated plane
+*/
+function negate(out, plane) {
+	negate$2(out.normal, plane.normal);
+	out.constant = -plane.constant;
+	return out;
+}
+/**
+* Offsets a plane by a distance along its normal
+* @param out - The output plane
+* @param plane - The input plane
+* @param distance - The distance to offset (positive = in direction of normal)
+* @returns The offset plane
+*/
+function offset(out, plane, distance) {
+	copy$2$1(out.normal, plane.normal);
+	out.constant = plane.constant - distance;
+	return out;
+}
+/**
+* Calculates the signed distance from a point to the plane
+* @param plane - The plane
+* @param point - The point
+* @returns The signed distance (positive = in direction of normal)
+*/
+function distanceToPoint(plane, point) {
+	return dot$3(plane.normal, point) + plane.constant;
+}
+/**
+* Projects a point onto the plane
+* @param out - The output point
+* @param plane - The plane
+* @param point - The point to project
+* @returns The projected point
+*/
+function projectPoint(out, plane, point) {
+	const distance = distanceToPoint(plane, point);
+	return scaleAndAdd(out, point, plane.normal, -distance);
+}
+/**
+* Transforms a plane by a 4x4 matrix
+* @param out - The output plane
+* @param plane - The plane to transform
+* @param matrix - The transformation matrix
+* @returns The transformed plane
+*/
+function transform(out, plane, matrix) {
+	const inx = plane.normal[0];
+	const iny = plane.normal[1];
+	const inz = plane.normal[2];
+	const px = inx * -plane.constant;
+	const py = iny * -plane.constant;
+	const pz = inz * -plane.constant;
+	let nx = matrix[0] * inx + matrix[4] * iny + matrix[8] * inz;
+	let ny = matrix[1] * inx + matrix[5] * iny + matrix[9] * inz;
+	let nz = matrix[2] * inx + matrix[6] * iny + matrix[10] * inz;
+	let w = matrix[3] * px + matrix[7] * py + matrix[11] * pz + matrix[15];
+	w = w || 1;
+	const tpx = (matrix[0] * px + matrix[4] * py + matrix[8] * pz + matrix[12]) / w;
+	const tpy = (matrix[1] * px + matrix[5] * py + matrix[9] * pz + matrix[13]) / w;
+	const tpz = (matrix[2] * px + matrix[6] * py + matrix[10] * pz + matrix[14]) / w;
+	let len = nx * nx + ny * ny + nz * nz;
+	if (len > 0) len = 1 / Math.sqrt(len);
+	nx *= len;
+	ny *= len;
+	nz *= len;
+	out.normal[0] = nx;
+	out.normal[1] = ny;
+	out.normal[2] = nz;
+	out.constant = -(nx * tpx + ny * tpy + nz * tpz);
+	return out;
+}
+/**
+* Tests if a sphere intersects the plane
+* @param plane - The plane
+* @param sphere - The sphere
+* @returns True if they intersect
+*/
+function intersectsSphere$2(plane, sphere) {
+	return Math.abs(distanceToPoint(plane, sphere.center)) <= sphere.radius;
+}
+/**
+* Tests if two planes are exactly equal
+* @param a - First plane
+* @param b - Second plane
+* @returns True if planes are exactly equal
+*/
+function exactEquals(a, b) {
+	return exactEquals$2$1(a.normal, b.normal) && a.constant === b.constant;
+}
+/**
+* Finds the intersection point of three planes
+* @param out - The output point where the three planes intersect
+* @param p1 - First plane
+* @param p2 - Second plane
+* @param p3 - Third plane
+* @returns True if intersection exists, false if planes are degenerate or parallel
+*/
+function intersect(out, p1, p2, p3) {
+	const n1x = p1.normal[0];
+	const n1y = p1.normal[1];
+	const n1z = p1.normal[2];
+	const n2x = p2.normal[0];
+	const n2y = p2.normal[1];
+	const n2z = p2.normal[2];
+	const n3x = p3.normal[0];
+	const n3y = p3.normal[1];
+	const n3z = p3.normal[2];
+	const c1x = n2y * n3z - n2z * n3y;
+	const c1y = n2z * n3x - n2x * n3z;
+	const c1z = n2x * n3y - n2y * n3x;
+	const denom = n1x * c1x + n1y * c1y + n1z * c1z;
+	if (Math.abs(denom) < 1e-6) return false;
+	const c2x = n3y * n1z - n3z * n1y;
+	const c2y = n3z * n1x - n3x * n1z;
+	const c2z = n3x * n1y - n3y * n1x;
+	const c3x = n1y * n2z - n1z * n2y;
+	const c3y = n1z * n2x - n1x * n2z;
+	const c3z = n1x * n2y - n1y * n2x;
+	const d1 = p1.constant;
+	const d2 = p2.constant;
+	const d3 = p3.constant;
+	const s = -1 / denom;
+	out[0] = (d1 * c1x + d2 * c2x + d3 * c3x) * s;
+	out[1] = (d1 * c1y + d2 * c2y + d3 * c3y) * s;
+	out[2] = (d1 * c1z + d2 * c2z + d3 * c3z) * s;
+	return true;
+}
+/**
+* Tests if two planes are equal
+* @param a - First plane
+* @param b - Second plane
+* @returns True if planes are equal
+*/
+function equals(a, b) {
+	return equals$2$1(a.normal, b.normal) && Math.abs(a.constant - b.constant) < 1e-6;
+}
+
 function create() {
     return [
-        create$3(),
-        create$3(),
-        create$3(),
-        create$3(),
-        create$3(),
-        create$3(),
+        plane3_exports.create(),
+        plane3_exports.create(),
+        plane3_exports.create(),
+        plane3_exports.create(),
+        plane3_exports.create(),
+        plane3_exports.create(),
     ];
 }
 function clone(f) {
     return [
-        clone$2(f[0]),
-        clone$2(f[1]),
-        clone$2(f[2]),
-        clone$2(f[3]),
-        clone$2(f[4]),
-        clone$2(f[5]),
+        plane3_exports.clone(f[0]),
+        plane3_exports.clone(f[1]),
+        plane3_exports.clone(f[2]),
+        plane3_exports.clone(f[3]),
+        plane3_exports.clone(f[4]),
+        plane3_exports.clone(f[5]),
     ];
 }
 function copy(out, f) {
-    copy$2(out[0], f[0]);
-    copy$2(out[1], f[1]);
-    copy$2(out[2], f[2]);
-    copy$2(out[3], f[3]);
-    copy$2(out[4], f[4]);
-    copy$2(out[5], f[5]);
+    plane3_exports.copy(out[0], f[0]);
+    plane3_exports.copy(out[1], f[1]);
+    plane3_exports.copy(out[2], f[2]);
+    plane3_exports.copy(out[3], f[3]);
+    plane3_exports.copy(out[4], f[4]);
+    plane3_exports.copy(out[5], f[5]);
     return out;
 }
 function setFromViewProjectionMatrix(out, proj, view, coordinateSystem = CoordinateSystem.WEBGPU) {
-    const vp = create$6();
-    multiply$1(vp, proj, view);
+    const vp = mat4_exports.create();
+    mat4_exports.multiply(vp, proj, view);
     const m = vp;
     setPlane(out[0], m[0] + m[3], m[4] + m[7], m[8] + m[11], m[12] + m[15]);
     setPlane(out[1], -m[0] + m[3], -m[4] + m[7], -m[8] + m[11], -m[12] + m[15]);
@@ -32663,14 +37849,14 @@ function setFromViewProjectionMatrix(out, proj, view, coordinateSystem = Coordin
     }
     setPlane(out[5], -m[2] + m[3], -m[6] + m[7], -m[10] + m[11], -m[14] + m[15]);
     for (let i = 0; i < 6; i++) {
-        normalize$1(out[i], out[i]);
+        plane3_exports.normalize(out[i], out[i]);
     }
     return out;
 }
 function intersectsSphere(f, s) {
     const { center, radius } = s;
     for (let i = 0; i < 6; i++) {
-        if (distanceToPoint(f[i], center) < -radius) {
+        if (plane3_exports.distanceToPoint(f[i], center) < -radius) {
             return false;
         }
     }
@@ -32700,13 +37886,13 @@ function setPlane(out, nx, ny, nz, d) {
 }
 
 var frustum = /*#__PURE__*/Object.freeze({
-    __proto__: null,
-    clone: clone,
-    copy: copy,
-    create: create,
-    intersectsBox3: intersectsBox3,
-    intersectsSphere: intersectsSphere,
-    setFromViewProjectionMatrix: setFromViewProjectionMatrix
+	__proto__: null,
+	clone: clone,
+	copy: copy,
+	create: create,
+	intersectsBox3: intersectsBox3,
+	intersectsSphere: intersectsSphere,
+	setFromViewProjectionMatrix: setFromViewProjectionMatrix
 });
 
 // ─── Geometry ────────────────────────────────────────────────────────────────
@@ -33088,17 +38274,17 @@ function lineVertex(lineWidthNode, worldUnits = false) {
     if (worldUnits) {
         // world-units path: expand in view space
         // line direction in view space
-        const lineDir = normalize(sub(viewEnd.xyz, viewStart.xyz));
+        const lineDir = normalize$1(sub$1(viewEnd.xyz, viewStart.xyz));
         // view-space forward: direction from midpoint to camera (camera is at origin in view space)
-        const midpoint = mul(add(viewStart.xyz, viewEnd.xyz), f32(0.5));
-        const viewFwd = normalize(midpoint.negate());
+        const midpoint = mul(add$1(viewStart.xyz, viewEnd.xyz), f32(0.5));
+        const viewFwd = normalize$1(midpoint.negate());
         // perpendicular to both line direction and view forward
-        const up = normalize(cross(lineDir, viewFwd));
+        const up = normalize$1(cross(lineDir, viewFwd));
         // offset in view space
         const hw = mul(lineWidthNode, f32(0.5));
         const offset = mul(up, mul(hw, sideAttr));
         // apply offset to view-space position
-        const offsetView = vec4f(add(viewPos.xyz, offset), f32(1));
+        const offsetView = vec4f(add$1(viewPos.xyz, offset), f32(1));
         // project to clip space
         return mul(cameraProjectionMatrix, offsetView);
     }
@@ -33111,16 +38297,16 @@ function lineVertex(lineWidthNode, worldUnits = false) {
     const ndcEnd = div(clipEnd.xy, clipEnd.w);
     // screen-space direction, corrected for aspect ratio
     const aspect = div(screenSize.x, screenSize.y);
-    const rawDir = sub(ndcEnd, ndcStart);
+    const rawDir = sub$1(ndcEnd, ndcStart);
     const dirCorrected = vec2f(mul(rawDir.x, aspect), rawDir.y);
-    const dir = normalize(dirCorrected);
+    const dir = normalize$1(dirCorrected);
     // perpendicular in screen space, un-corrected back to NDC
     const perp = vec2f(div(dir.y.negate(), aspect), dir.x);
     // offset magnitude: pixels → NDC (divide by screen height)
     const halfOffset = mul(perp, div(mul(lineWidthNode, f32(0.5)), screenSize.y));
     // apply offset in clip space (multiply by w to go NDC → clip)
     const offsetClip = mul(halfOffset, clipPos.w);
-    const finalXY = add(clipPos.xy, mul(offsetClip, sideAttr));
+    const finalXY = add$1(clipPos.xy, mul(offsetClip, sideAttr));
     return vec4f(finalXY, clipPos.zw);
 }
 /**
@@ -33223,14 +38409,14 @@ function raycastWorldUnits(object, starts, ends, n, matrixWorld, raycaster, line
         _end[0] = ends[vi];
         _end[1] = ends[vi + 1];
         _end[2] = ends[vi + 2];
-        transformMat4$1(_start, _start, matrixWorld);
-        transformMat4$1(_end, _end, matrixWorld);
+        vec3_exports.transformMat4(_start, _start, matrixWorld);
+        vec3_exports.transformMat4(_end, _end, matrixWorld);
         distanceSqToSegment(ray.origin, ray.direction, _start, _end, point, pointOnLine);
         const isInside = Math.sqrt((point[0] - pointOnLine[0]) ** 2 + (point[1] - pointOnLine[1]) ** 2 + (point[2] - pointOnLine[2]) ** 2) <
             lineWidth * 0.5;
         if (isInside) {
             intersects.push({
-                distance: distance(ray.origin, point),
+                distance: vec3_exports.distance(ray.origin, point),
                 point: [...point],
                 object,
                 faceIndex: s,
@@ -33245,8 +38431,8 @@ function raycastScreenSpace(object, starts, ends, n, matrixWorld, raycaster, lin
     if (!screenVal)
         return;
     const sw = screenVal[0], sh = screenVal[1];
-    const mv = create$6();
-    multiply$1(mv, camera.matrixWorldInverse, matrixWorld);
+    const mv = mat4_exports.create();
+    mat4_exports.multiply(mv, camera.matrixWorldInverse, matrixWorld);
     const near = -camera.near;
     // Project a point 1 unit along the ray to screen pixels (avoids w=0 at camera origin)
     const ssOrigin = new Float64Array(4);
@@ -33334,11 +38520,11 @@ function raycastScreenSpace(object, starts, ends, n, matrixWorld, raycaster, lin
             _end[0] = ends[vi];
             _end[1] = ends[vi + 1];
             _end[2] = ends[vi + 2];
-            transformMat4$1(_start, _start, matrixWorld);
-            transformMat4$1(_end, _end, matrixWorld);
+            vec3_exports.transformMat4(_start, _start, matrixWorld);
+            vec3_exports.transformMat4(_end, _end, matrixWorld);
             distanceSqToSegment(raycaster.ray.origin, raycaster.ray.direction, _start, _end, point, pointOnLine);
             intersects.push({
-                distance: distance(raycaster.ray.origin, point),
+                distance: vec3_exports.distance(raycaster.ray.origin, point),
                 point: [...point],
                 object,
                 faceIndex: s,
@@ -33851,7 +39037,7 @@ function isMeshVisible(mesh) {
     // --- AABB test (fallback) -----------------------------------------------
     if (geom.boundingBox !== undefined) {
         // Transform the local AABB by the world matrix to a world-space AABB.
-        transformMat4(_worldBox, geom.boundingBox, wm);
+        box3_exports.transformMat4(_worldBox, geom.boundingBox, wm);
         return intersectsBox3(_frustum, _worldBox);
     }
     // --- no bounds, always draw -------------------------------------------
@@ -40232,5 +45418,5 @@ function createStructTexture(schema, capacity, options = {}) {
     });
 }
 
-export { ArrayTexture, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, FlyControls, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, Raycaster, RenderPipeline, RenderTarget, Return, Scene, Source, TOUCH, Texture, TransformControls, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WebGLRenderer, WebGPURenderer, While, WorkgroupVar, abs, acesToneMapping, acos, add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, ceil, clamp, color, comparisonSampler, compile, compileCompute, compileGlsl, compileTransformFeedback, compute, computeIndex, cond, cos, countLeadingZeros, countOneBits, countTrailingZeros, createBoxGeometry, createCylinderGeometry, createFullscreenTriangleGeometry, createIndexBuffer, createIndirectBuffer, createOctahedronGeometry, createPlaneGeometry, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createStructTexture, createTorusGeometry, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frameGroup, frustum, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, globalId, glsl, glslFn, greaterThan, greaterThanEqual, i32, index, instanceIndex, inverseSqrt, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, pass, positionClip, pow, readPixels, reinhardToneMapping, renderGroup, renderOutput, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub, tan, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgsl, wgslFn, workgroupBarrier, workgroupId };
+export { ArrayTexture, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, FlyControls, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, Raycaster, RenderPipeline, RenderTarget, Return, Scene, Source, TOUCH, Texture, TransformControls, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WebGLRenderer, WebGPURenderer, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, ceil, clamp$1 as clamp, color_exports as color, comparisonSampler, compile, compileCompute, compileGlsl, compileTransformFeedback, compute, computeIndex, cond, cos, countLeadingZeros, countOneBits, countTrailingZeros, createBoxGeometry, createCylinderGeometry, createFullscreenTriangleGeometry, createIndexBuffer, createIndirectBuffer, createOctahedronGeometry, createPlaneGeometry, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createStructTexture, createTorusGeometry, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frameGroup, frustum, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, globalId, glsl, glslFn, greaterThan, greaterThanEqual, i32, index, instanceIndex, inverseSqrt, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max$1 as max, min$1 as min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, normalize$1 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, pass, positionClip, pow, readPixels, reinhardToneMapping, renderGroup, renderOutput, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub$1 as sub, tan, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgsl, wgslFn, workgroupBarrier, workgroupId };
 //# sourceMappingURL=index.js.map

@@ -40,7 +40,7 @@ import {
     WebGPURenderer,
     type Node,
 } from 'gpucat';
-import { createSimplex2D } from 'mathcat';
+import { simplex2d } from 'mathcat/noise';
 import { createOffsetAllocator, oaAllocate, oaFree, oaStorageReport, type OAHandle } from './offset-allocator';
 
 /*
@@ -160,7 +160,8 @@ function fbm2D(noise: (x: number, y: number) => number, x: number, y: number, oc
 }
 
 function generateTerrain(world: World): void {
-    const noise = createSimplex2D(42);
+    const gen = simplex2d.create(42);
+    const noise = (x: number, y: number) => simplex2d.sample(gen, x, y);
     const scale = 0.012;
     const minH = 4, maxH = WORLD_VY - 8;
     for (let wx = 0; wx < WORLD_VX; wx++) {

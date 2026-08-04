@@ -1,4 +1,4 @@
-import { type ColorInput } from '../../utils/color';
+import { type ColorInput } from 'mathcat/color';
 /**
  * Convert any color input to a `vec3f` linear RGB node.
  *

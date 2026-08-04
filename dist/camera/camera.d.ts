@@ -1,4 +1,4 @@
-import { type Vec3 } from 'mathcat';
+import { mat4, type Vec3 } from 'mathcat';
 import { Object3D } from '../core/object3d';
 import { CoordinateSystem } from '../core/coordinate-system';
 export declare class Camera extends Object3D {
@@ -12,8 +12,8 @@ export declare class Camera extends Object3D {
      * [0,1]); the renderer stamps its own convention on before rendering and rebuilds the projection.
      */
     coordinateSystem: CoordinateSystem;
-    projectionMatrix: import("mathcat").Mat4;
-    matrixWorldInverse: import("mathcat").Mat4;
+    projectionMatrix: mat4.Mat4;
+    matrixWorldInverse: mat4.Mat4;
     constructor();
     /** Recompute the projection matrix for the current `coordinateSystem`. Overridden by subclasses. */
     updateProjectionMatrix(): void;

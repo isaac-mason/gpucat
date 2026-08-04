@@ -1,4 +1,4 @@
-import { type Quat, type Vec3 } from 'mathcat';
+import { mat4, mat3, type Quat, type Vec3 } from 'mathcat';
 export declare class Object3D {
     readonly isObject3D = true;
     /** Brand set true on Mesh (+ subclasses); declared here so `obj.isMesh` checks type on a base ref. */
@@ -12,9 +12,9 @@ export declare class Object3D {
     scale: Vec3;
     parent: Object3D | null;
     children: Object3D[];
-    matrix: import("mathcat").Mat4;
-    matrixWorld: import("mathcat").Mat4;
-    normalMatrix: import("mathcat").Mat3;
+    matrix: mat4.Mat4;
+    matrixWorld: mat4.Mat4;
+    normalMatrix: mat3.Mat3;
     matrixVersion: number;
     add(child: Object3D): this;
     remove(child: Object3D): this;

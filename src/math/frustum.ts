@@ -1,4 +1,5 @@
-import { mat4, plane3, type Mat4, type Box3, type Sphere, type Plane3 } from 'mathcat';
+import { mat4, type Mat4 } from 'mathcat';
+import { plane3, type Box3, type Plane3, type Sphere } from 'mathcat/shapes';
 import { CoordinateSystem } from '../core/coordinate-system';
 
 export type Frustum = [Plane3, Plane3, Plane3, Plane3, Plane3, Plane3];

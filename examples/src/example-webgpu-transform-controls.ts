@@ -24,7 +24,7 @@ import {
     vec4,
     WebGPURenderer,
 } from 'gpucat';
-import { transform } from 'mathcat/dist/plane3';
+import { plane3 } from 'mathcat/shapes';
 
 /* renderer, scene, camera */
 
@@ -101,7 +101,7 @@ const transformControls = new TransformControls(camera, renderer.domElement);
 transformControls.attach(box);
 scene.add(transformControls.getHelper());
 
-console.log({ transform, box })
+console.log({ transform: plane3.transform, box })
 
 // disable orbit controls while dragging
 transformControls.onMouseDown.add(() => {
