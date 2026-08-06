@@ -763,10 +763,19 @@ function allocateRenderTargetStorage(gl: WebGL2RenderingContext, texture: GpuTex
     const w = texture.width;
     const h = texture.height;
     const levels = mipLevelCount(texture);
-    // TEXTURE_CUBE_MAP immutable storage allocates all 6 faces; each face is then attachable to an FBO
-    // via framebufferTexture2D(TEXTURE_CUBE_MAP_POSITIVE_X + face, …) (see render-target.ts).
-    const target = data.target === gl.TEXTURE_CUBE_MAP ? gl.TEXTURE_CUBE_MAP : gl.TEXTURE_2D;
-    gl.texStorage2D(target, levels, data.fmt.internalFormat, w, h);
+    if (data.target === gl.TEXTURE_CUBE_MAP) {
+        // Immutable storage allocates all 6 faces at once; each face is then attachable to an FBO
+        // via framebufferTexture2D(TEXTURE_CUBE_MAP_POSITIVE_X + face, ...) (see render-target.ts).
+        gl.texStorage2D(gl.TEXTURE_CUBE_MAP, levels, data.fmt.internalFormat, w, h);
+    } else if (levels > 1) {
+        // Mipmapped 2D target: immutable storage for the whole chain.
+        gl.texStorage2D(gl.TEXTURE_2D, levels, data.fmt.internalFormat, w, h);
+    } else {
+        // Single-level 2D target: MUTABLE `texImage2D`, matching three.js's render-target allocation.
+        // Some drivers (notably Chrome/ANGLE-on-Metal) return FRAMEBUFFER_UNSUPPORTED for an immutable
+        // `texStorage2D` color attachment; `texImage2D` is the broadly-compatible path.
+        gl.texImage2D(gl.TEXTURE_2D, 0, data.fmt.internalFormat, w, h, 0, data.fmt.format, data.fmt.type, null);
+    }
     data.allocW = w;
     data.allocH = h;
 }

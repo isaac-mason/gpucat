@@ -287,8 +287,14 @@ export declare class WebGLRenderer implements Renderer, RendererState {
      */
     readRenderTargetPixels(renderTarget: RenderTarget, attachmentIndex?: number, layer?: number): Promise<Uint8Array>;
     /**
-     * Dispose the renderer and force the WebGL2 context loss. After calling dispose(), the renderer
-     * cannot be used again.
+     * Dispose the renderer: free all GL resources (textures, buffers, programs, FBOs) and detach the
+     * context-loss listeners. After calling dispose(), this renderer instance cannot be used again.
+     *
+     * Deliberately does NOT force `WEBGL_lose_context.loseContext()`: the resources above are already
+     * freed, and forcing loss poisons the CANVAS: a context is per-canvas, so a new renderer created
+     * on the same canvas (React StrictMode / HMR re-mounts, or any deliberate reuse) would call
+     * getContext() and get back the still-lost context. The live context is lightweight and is reclaimed
+     * when the canvas is dropped/GC'd. Callers that truly want the context gone can loseContext() the gl.
      */
     dispose(): void;
 }

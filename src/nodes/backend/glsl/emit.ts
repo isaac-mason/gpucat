@@ -1019,14 +1019,19 @@ function generateAttribute(ctx: GlslBuildContext, node: AttributeNode<d.Any>): s
     const existing = ctx.attributes.get(node.id);
     if (existing) return existing.shaderName;
 
-    // Named attributes (geometry inputs like `uv`) are declared ONCE by name: several distinct
-    // `attribute('uv')` nodes (same name, different node ids) must share one `layout(location=N) in`
-    // decl. If a named attribute with this name is already registered, alias this node's id to the
-    // existing entry (reusing its location + shaderName) instead of allocating a new location — else
-    // GLSL redefines `in a_uv` and fails to compile. Unnamed/buffer attributes stay deduped by id.
+    // Named attributes (geometry inputs like `uv`) are declared ONCE per (name, offset, stride): several
+    // distinct `attribute('uv')` nodes referencing the SAME logical input (same name + view) must share one
+    // `layout(location=N) in` decl, else GLSL redefines `in a_uv` and fails to compile. But same-NAME
+    // attributes at DIFFERENT offsets are DISTINCT interleaved inputs (e.g. posU@0 and normalV@16 sharing
+    // one 32-byte-stride buffer): they must get distinct locations, matching vertexBufferGroups. Aliasing
+    // them by name alone collapses both to offset 0, so the second's data (which the VAO binds to its own
+    // location) is silently dropped by the shader. Unnamed/buffer attributes stay deduped by id.
+    let sameNameSeen = false;
     if (node.isNamedReference && node.name) {
         for (const entry of ctx.attributes.values()) {
-            if (entry.node.isNamedReference && entry.node.name === node.name) {
+            if (!entry.node.isNamedReference || entry.node.name !== node.name) continue;
+            sameNameSeen = true;
+            if (entry.node.offset === node.offset && entry.node.stride === node.stride) {
                 ctx.attributes.set(node.id, entry);
                 return entry.shaderName;
             }
@@ -1036,8 +1041,15 @@ function generateAttribute(ctx: GlslBuildContext, node: AttributeNode<d.Any>): s
     // Next location counts DISTINCT attributes (distinct locations), not aliased map entries — aliasing
     // multiple node ids to one entry would make `ctx.attributes.size` overcount.
     const location = distinctAttributeCount(ctx);
-    // Prefix with `a_` so attribute names never collide with GLSL keywords or varyings.
-    const shaderName = node.isNamedReference && node.name ? `a_${node.name}` : `a_buf_${location}`;
+    // Prefix with `a_` so attribute names never collide with GLSL keywords or varyings. When a same-named
+    // but distinct-offset attribute already exists, suffix with the location to keep the `in` decls unique
+    // (the VAO binds by layout(location), so this identifier is cosmetic).
+    const shaderName =
+        node.isNamedReference && node.name
+            ? sameNameSeen
+                ? `a_${node.name}_${location}`
+                : `a_${node.name}`
+            : `a_buf_${location}`;
     ctx.attributes.set(node.id, { shaderName, type: node.type, location, node });
     return shaderName;
 }

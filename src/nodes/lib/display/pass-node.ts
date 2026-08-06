@@ -362,6 +362,9 @@ export class PassNode extends Node<d.vec4f> {
     getDepthTextureNode(name = 'depth'): DepthTextureNode {
         let node = this._depthTextureNodes[name];
         if (node === undefined) {
+            // Sampling the depth: it must be a texture attachment, not a renderbuffer
+            // (the WebGL backend reads this to attach the depth texture, not an RBO).
+            this.renderTarget.depthSampled = true;
             const depthTex = this.getDepthTexture(name);
             if (!depthTex) throw new Error(`PassNode: no '${name}' depth attachment to bind`);
             const binding = new TextureBindingNode(d.textureDepth2d, `_pass${this.passId}_${name}`, objectGroup);

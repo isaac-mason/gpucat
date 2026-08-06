@@ -47,7 +47,10 @@ function bindFramebuffer(gl: WebGL2RenderingContext, caches: DrawCaches, params:
 function applyViewportScissor(gl: WebGL2RenderingContext, passCtx: RenderContext): void {
     if (passCtx.viewport) {
         const v = passCtx.viewportValue;
-        gl.viewport(v.x, v.y, v.width, v.height);
+        // WebGPU's viewport origin is top-left; GL's is bottom-left. Flip Y against the framebuffer height
+        // so a top-left rect (e.g. the studio grid's per-card cells, sourced from DOM coordinates) lands in
+        // the right place. A full-framebuffer viewport is unchanged by the flip.
+        gl.viewport(v.x, passCtx.height - v.y - v.height, v.width, v.height);
         // Honor the viewport's depth range (defaults 0,1). Threaded through per pass so a prior pass's
         // custom range never leaks into this one.
         gl.depthRange(v.minDepth, v.maxDepth);
@@ -64,7 +67,8 @@ function applyViewportScissor(gl: WebGL2RenderingContext, passCtx: RenderContext
     if (passCtx.scissor) {
         const s = passCtx.scissorValue;
         gl.enable(gl.SCISSOR_TEST);
-        gl.scissor(s.x, s.y, s.width, s.height);
+        // Same top-left to bottom-left Y flip as the viewport above.
+        gl.scissor(s.x, passCtx.height - s.y - s.height, s.width, s.height);
     } else {
         gl.disable(gl.SCISSOR_TEST);
     }

@@ -2338,6 +2338,104 @@ async function caseHeadlessOffscreen(): Promise<CaseResult> {
     return { name: 'headless-offscreen', pixel, expected: [u8(0.2), u8(0.8), u8(0.4), 255] };
 }
 
+/**
+ * storage+texture: the avatar-material shape that nothing else covers. A read-only storage() buffer
+ * (lowered to a usampler2D integer texture) read in the VERTEX stage AND a regular sampler2D texture
+ * sampled in the FRAGMENT stage, in ONE material. Both samplers are declared in both GLSL stages
+ * (combined-sampler model); the draw must give each a DISTINCT texture unit or GL raises 1282
+ * "mismatch between texture format and sampler type". Reads back the sampled texel (magenta); a wrong
+ * unit assignment makes the fragment read the integer storage texture instead.
+ */
+async function caseStorageAndTexture(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+
+    // storage: one vec4 we read in the VERTEX and hand to the fragment as a varying (like the avatar's uv).
+    const buf = new GpuBuffer(d.array(d.vec4f), { data: new Float32Array([0.5, 0.5, 0, 0]), usage: 'storage' });
+    const store = storage(buf);
+
+    // texture: solid magenta 2x2 (the expected sample).
+    const R = u8(0.6);
+    const G = u8(0.2);
+    const B = u8(0.8);
+    const tdata = new Uint8Array(2 * 2 * 4);
+    for (let i = 0; i < 4; i++) {
+        tdata[i * 4 + 0] = R;
+        tdata[i * 4 + 1] = G;
+        tdata[i * 4 + 2] = B;
+        tdata[i * 4 + 3] = 255;
+    }
+    const tex = new DataTexture(tdata, 2, 2, { format: 'rgba8unorm', magFilter: 'nearest', minFilter: 'nearest' });
+
+    const geometry = createFullscreenTriangleGeometry();
+    const position = attribute('position', d.vec3f);
+    const uvFromStorage = varying(store.element(u32(0)).xy, 'vUv'); // storage read in the vertex stage
+    const material = new Material({
+        vertex: vec4(position, f32(1)),
+        fragment: texture(tex).sample(uvFromStorage), // sampler2D in the fragment stage
+        depthTest: false,
+    });
+    const mesh = new Mesh(geometry, material);
+    const scene = new Scene();
+    scene.add(mesh);
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'storage+texture', pixel, expected: [R, G, B, 255] };
+}
+
+/**
+ * interleaved-attrs: two attributes sharing ONE buffer name ('vertex') but at DIFFERENT byte offsets,
+ * the avatar's `posU`@0 / `normalV`@16 interleave. The GLSL emitter used to dedup named attributes by NAME
+ * alone, collapsing both to offset 0, so the SECOND attribute's data was silently dropped (its .w read the
+ * first's .w). We put a distinct probe in each attribute's .w (0.6 in the first, 0.8 in the second) and
+ * output vec4(first.w, second.w, 0, 1): the green channel proves the second attribute is fetched from its
+ * own offset/location. Buggy output would be [153,153,0,255] (green collapses to red); correct is
+ * [153,204,0,255]. This is the WebGL2 analogue of the WGSL path, which always kept them distinct.
+ */
+async function caseInterleavedAttrs(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+
+    const Vtx = struct('InterleavedVtx', { a: d.vec4f, b: d.vec4f }); // 32-byte stride, b at offset 16
+    const U = 0.6;
+    const V = 0.8;
+    // fullscreen triangle in a.xyz; a.w = U probe, b.w = V probe (same on all 3 verts for constant interp).
+    // biome-ignore format: vertex rows
+    const data = new Float32Array([
+        -1, -1, 0, U,   0, 0, 0, V,
+         3, -1, 0, U,   0, 0, 0, V,
+        -1,  3, 0, U,   0, 0, 0, V,
+    ]);
+    const vbuf = new GpuBuffer(Vtx, { data, usage: 'vertex' });
+    const geometry = new Geometry();
+    geometry.setBuffer('vertex', vbuf);
+
+    const aFirst = attribute('vertex', d.vec4f, { stride: 32, offset: 0 });
+    const aSecond = attribute('vertex', d.vec4f, { stride: 32, offset: 16 });
+    const vColor = varying(vec4(aFirst.w, aSecond.w, f32(0), f32(1)), 'vColor');
+    const material = new Material({
+        vertex: vec4(aFirst.xyz, f32(1)),
+        fragment: vColor,
+        depthTest: false,
+    });
+    const mesh = new Mesh(geometry, material);
+    const scene = new Scene();
+    scene.add(mesh);
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'interleaved-attrs', pixel, expected: [u8(U), u8(V), 0, 255] };
+}
+
 export async function run(): Promise<RunResult> {
     try {
         const cases: CaseResult[] = [];
@@ -2347,6 +2445,8 @@ export async function run(): Promise<RunResult> {
             caseUniform,
             caseLit,
             caseTextured,
+            caseStorageAndTexture,
+            caseInterleavedAttrs,
             caseIntegerTexture,
             caseStructTexture,
             caseStructTextureMat4,

@@ -24,6 +24,16 @@ export type RenderTargetOptions = {
     /** Caller-provided depth texture. Overrides `depthBuffer`/`depthFormat`. */
     depthTexture?: DepthTexture;
 
+    /**
+     * Whether the depth attachment will be sampled (read as a texture). Default false
+     * for auto-allocated depth: the WebGL backend then attaches a depth RENDERBUFFER
+     * (matching three.js) rather than a texture, which is more broadly FBO-complete
+     * across drivers, with depth-testing unaffected. Set true automatically when a depth
+     * texture is provided or `PassNode.getDepthTextureNode()` is called. Ignored by
+     * the WebGPU backend, which always uses the depth texture.
+     */
+    depthSampled?: boolean;
+
     /** MSAA sample count. Default: 1. */
     samples?: number;
 
@@ -63,6 +73,14 @@ export class RenderTarget {
     depthTexture: DepthTexture | null = null;
 
     /**
+     * Whether the depth attachment is sampled. When false and the target owns an
+     * auto-allocated depth, the WebGL backend attaches a depth RENDERBUFFER instead
+     * of a texture (three.js parity, more broadly FBO-complete; depth-testing still
+     * works). Set true by `PassNode.getDepthTextureNode()`. WebGPU ignores it.
+     */
+    depthSampled = false;
+
+    /**
      * Viewport for renders into this target as a `Vec4` [x, y, width, height] in the target's pixels
      * (top-left origin); null = full target. A render into a target uses the target's own viewport/scissor,
      * never the renderer's swapchain one, so a swapchain compositing viewport can't leak into a
@@ -95,12 +113,17 @@ export class RenderTarget {
         if (opts.depthTexture) {
             this.depthTexture = opts.depthTexture;
             this.depthTexture._gpuTexture.isRenderTargetTexture = true;
+            // A caller-provided depth texture exists to be read/shared.
+            this.depthSampled = true;
         } else if (opts.depthBuffer !== false) {
             const depthFormat = opts.depthFormat ?? (opts.stencilBuffer ? 'depth24plus-stencil8' : 'depth24plus');
             const depthTexture = new DepthTexture(width, height, depthFormat);
             depthTexture.name = 'depth';
             depthTexture._gpuTexture.isRenderTargetTexture = true;
             this.depthTexture = depthTexture;
+            // Auto depth defaults to a renderbuffer on WebGL (three.js parity);
+            // `getDepthTextureNode()` flips this to true when depth is sampled.
+            this.depthSampled = opts.depthSampled ?? false;
         }
         if (this.depthTexture) {
             this.depthTexture._gpuTexture.renderTarget = this;

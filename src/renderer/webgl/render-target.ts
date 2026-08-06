@@ -37,11 +37,13 @@ type FboData = {
     /** The GL framebuffer object (the resolve/texture FBO — its color attachments are the target's textures). */
     fbo: WebGLFramebuffer;
     /**
-     * Depth renderbuffer slot for the single-sampled FBO. In practice always null: depth is a
-     * sampleable depth texture when the target has one, else (depthBuffer:false) there is no depth.
-     * Kept so a carried-over renderbuffer from an earlier build is freed on rebuild.
+     * Depth renderbuffer for the single-sampled FBO. Non-null when the target has depth that isn't
+     * sampled (`depthSampled === false`): a renderbuffer is leaner than a sampleable depth texture and
+     * more broadly FBO-complete (three.js parity). Null when depth is a sampled texture, or no depth.
      */
     depthRenderbuffer: WebGLRenderbuffer | null;
+    /** Whether the depth was built as a sampled texture (vs a renderbuffer); a change forces a rebuild. */
+    depthSampled: boolean;
     /** Color-attachment texture generations at last (re)build — a change forces a rebuild. */
     colorGenerations: number[];
     /** Depth-attachment texture generation at last rebuild (or -1 for renderbuffer/none). */
@@ -85,6 +87,22 @@ export function createGlRenderTargetsState(): GlRenderTargetsState {
 /** Whether the target's depth format carries a stencil aspect. */
 function depthFormatHasStencil(format: string | undefined): boolean {
     return format === 'depth24plus-stencil8' || format === 'depth32float-stencil8';
+}
+
+/** Sized GL internal format for a depth (/stencil) renderbuffer of the given depth-texture format. */
+function depthRenderbufferInternalFormat(gl: WebGL2RenderingContext, format: string | undefined): number {
+    switch (format) {
+        case 'depth16unorm':
+            return gl.DEPTH_COMPONENT16;
+        case 'depth32float':
+            return gl.DEPTH_COMPONENT32F;
+        case 'depth24plus-stencil8':
+            return gl.DEPTH24_STENCIL8;
+        case 'depth32float-stencil8':
+            return gl.DEPTH32F_STENCIL8;
+        default:
+            return gl.DEPTH_COMPONENT24; // 'depth24plus' and the sensible default
+    }
 }
 
 /**
@@ -138,22 +156,25 @@ export function bindRenderTargetFramebuffer(
         colorGenerations.push(data.generation);
     }
 
-    // Ensure the depth texture's GL storage exists (if the target uses a depth texture).
+    // Ensure the depth texture's GL storage exists ONLY when depth is sampled (attached as a texture).
+    // Unsampled depth uses a renderbuffer (allocated in rebuildFbo), so skip the depth texture entirely;
+    // leaner on the weaker devices the WebGL fallback runs on.
     let depthGeneration = -1;
-    if (renderTarget.depthTexture) {
+    if (renderTarget.depthTexture && renderTarget.depthSampled) {
         const data = updateTexture(gl, textures, renderTarget.depthTexture._gpuTexture);
         depthGeneration = data.generation;
     }
 
     let fboData = state.data.get(renderTarget);
     const sizeChanged = fboData ? fboData.width !== renderTarget.width || fboData.height !== renderTarget.height : true;
+    const depthModeChanged = fboData ? fboData.depthSampled !== renderTarget.depthSampled : false;
     const generationsChanged =
         fboData &&
         (fboData.depthGeneration !== depthGeneration ||
             fboData.colorGenerations.length !== colorGenerations.length ||
             fboData.colorGenerations.some((g, i) => g !== colorGenerations[i]));
 
-    if (!fboData || sizeChanged || generationsChanged) {
+    if (!fboData || sizeChanged || depthModeChanged || generationsChanged) {
         fboData = rebuildFbo(gl, state, textures, renderTarget, fboData, colorGenerations, depthGeneration);
     }
 
@@ -240,33 +261,54 @@ function rebuildFbo(
         gl.drawBuffers([gl.NONE]);
     }
 
-    // Depth attachment (shared across cube faces).
+    // Depth attachment (shared across cube faces). A sampled depth is attached as a texture; an
+    // unsampled depth uses a renderbuffer (leaner and more broadly FBO-complete, three.js parity); no
+    // depthTexture at all means the caller opted out (depthBuffer:false).
     let depthRenderbuffer = existing?.depthRenderbuffer ?? null;
-    if (renderTarget.depthTexture) {
-        // Depth texture attachment (sampleable, e.g. for shadow maps).
+    const freeDepthRenderbuffer = () => {
         if (depthRenderbuffer) {
             gl.deleteRenderbuffer(depthRenderbuffer);
             state.renderbuffers.delete(depthRenderbuffer);
             depthRenderbuffer = null;
         }
+    };
+    if (renderTarget.depthTexture && renderTarget.depthSampled) {
+        // Sampleable depth texture (e.g. shadow maps, depth-of-field, scene-depth occlusion).
+        freeDepthRenderbuffer();
         const data = getGlTextureData(textures, renderTarget.depthTexture._gpuTexture);
         if (data) {
             const stencil = depthFormatHasStencil(renderTarget.depthTexture.format);
             const attachment = stencil ? gl.DEPTH_STENCIL_ATTACHMENT : gl.DEPTH_ATTACHMENT;
             gl.framebufferTexture2D(gl.FRAMEBUFFER, attachment, gl.TEXTURE_2D, data.texture, 0);
         }
-    } else {
-        // No depth texture → no depth at all. RenderTarget always auto-creates a depthTexture unless
-        // depthBuffer:false, so reaching here means the caller explicitly opted out of depth; leave
-        // depth unattached (correct). Free any renderbuffer carried over from a previous build.
-        if (depthRenderbuffer) {
-            gl.deleteRenderbuffer(depthRenderbuffer);
-            state.renderbuffers.delete(depthRenderbuffer);
-            depthRenderbuffer = null;
+    } else if (renderTarget.depthTexture) {
+        // Unsampled depth uses a renderbuffer (reused across rebuilds; re-specified at the current size).
+        const stencil = depthFormatHasStencil(renderTarget.depthTexture.format);
+        const internalFormat = depthRenderbufferInternalFormat(gl, renderTarget.depthTexture.format);
+        if (!depthRenderbuffer) {
+            const created = gl.createRenderbuffer();
+            if (!created) throw new Error('[WebGLRenderer] gl.createRenderbuffer returned null (depth).');
+            depthRenderbuffer = created;
+            state.renderbuffers.add(depthRenderbuffer);
         }
+        gl.bindRenderbuffer(gl.RENDERBUFFER, depthRenderbuffer);
+        gl.renderbufferStorage(gl.RENDERBUFFER, internalFormat, renderTarget.width, renderTarget.height);
+        const attachment = stencil ? gl.DEPTH_STENCIL_ATTACHMENT : gl.DEPTH_ATTACHMENT;
+        gl.framebufferRenderbuffer(gl.FRAMEBUFFER, attachment, gl.RENDERBUFFER, depthRenderbuffer);
+    } else {
+        // depthBuffer:false means no depth. Free any renderbuffer carried over from a previous build.
+        freeDepthRenderbuffer();
     }
 
-    // Validate.
+    // Validate. A lost context makes every GL query return null/default and reports the framebuffer
+    // as UNSUPPORTED (0x8cdd), so check for loss FIRST, or a dead context masquerades as a format bug.
+    if (gl.isContextLost()) {
+        throw new Error(
+            '[WebGLRenderer] WebGL2 context is lost; cannot build a framebuffer. This is usually too many ' +
+                'live WebGL contexts on the page (each canvas/renderer holds one; the browser evicts the oldest) ' +
+                'or a GPU-process crash, not a render-target format problem. See the `webglcontextlost` reason.',
+        );
+    }
     const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
     if (status !== gl.FRAMEBUFFER_COMPLETE) {
         // Enumerate each attachment's logical (RenderTarget) size vs actual GL-allocated size + format,
@@ -281,15 +323,34 @@ function rebuildFbo(
             const gl_ = d ? `${d.allocW}x${d.allocH} allocated=${d.allocated}` : 'no GL texture';
             return `${label}: format=${tex.format} logical=${tex._gpuTexture.width}x${tex._gpuTexture.height} gl=${gl_}`;
         };
+        // Diagnostics: the GL renderer string (reveals a software/blocklisted context) + any accumulated
+        // GL error + the depth attachment mode + a LIVE dump of what the FBO actually holds (asks GL,
+        // not our bookkeeping; this is authoritative when our view of the attachments disagrees).
+        const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+        const rendererStr = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+        const glErr = gl.getError();
+        const depthMode = !renderTarget.depthTexture ? 'none' : renderTarget.depthSampled ? 'texture' : 'renderbuffer';
+        const TYPE_NAME: Record<number, string> = { [gl.NONE]: 'none', [gl.TEXTURE]: 'tex', [gl.RENDERBUFFER]: 'rbo' };
+        const liveAttachment = (label: string, point: number): string => {
+            const type = gl.getFramebufferAttachmentParameter(gl.FRAMEBUFFER, point, gl.FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE);
+            if (type === gl.NONE) return `${label}=none`;
+            const sz = (p: number) => gl.getFramebufferAttachmentParameter(gl.FRAMEBUFFER, point, p);
+            const bits = `r${sz(gl.FRAMEBUFFER_ATTACHMENT_RED_SIZE)}g${sz(gl.FRAMEBUFFER_ATTACHMENT_GREEN_SIZE)}b${sz(gl.FRAMEBUFFER_ATTACHMENT_BLUE_SIZE)}a${sz(gl.FRAMEBUFFER_ATTACHMENT_ALPHA_SIZE)}d${sz(gl.FRAMEBUFFER_ATTACHMENT_DEPTH_SIZE)}s${sz(gl.FRAMEBUFFER_ATTACHMENT_STENCIL_SIZE)}`;
+            gl.getError(); // some size queries are invalid per attachment type; clear the flag
+            return `${label}=${TYPE_NAME[type as number] ?? type}(${bits})`;
+        };
         const parts = [
             `target=${renderTarget.width}x${renderTarget.height}`,
             ...renderTarget.textures.map((t, i) => describe(`color[${i}]`, t)),
-            describe('depth', renderTarget.depthTexture),
+            `depth[${depthMode}]: ${describe('', renderTarget.depthTexture)}`,
+            `renderer=${rendererStr}`,
+            `glError=0x${glErr.toString(16)}`,
+            `LIVE ${liveAttachment('color0', gl.COLOR_ATTACHMENT0)} ${liveAttachment('depth', gl.DEPTH_ATTACHMENT)} ${liveAttachment('stencil', gl.STENCIL_ATTACHMENT)} ${liveAttachment('depthStencil', gl.DEPTH_STENCIL_ATTACHMENT)}`,
         ];
         throw new Error(
             `[WebGLRenderer] framebuffer is incomplete (status 0x${status.toString(16)}); ` +
                 `rendering into an incomplete framebuffer is not supported on the WebGL2 backend. ` +
-                `Attachments — ${parts.join(' | ')}`,
+                `${parts.join(' | ')}`,
         );
     }
 
@@ -307,6 +368,7 @@ function rebuildFbo(
     const fboData: FboData = {
         fbo,
         depthRenderbuffer,
+        depthSampled: renderTarget.depthSampled,
         colorGenerations,
         depthGeneration,
         width: renderTarget.width,

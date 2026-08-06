@@ -140,13 +140,21 @@ export function bindTextures(
             // storage() read-lowering: the binding is a read-only storage GpuBuffer reinterpreted AS an
             // rgba32uint texture (WebGL2 has no SSBO). Resolve the per-buffer GL texture (version-synced),
             // bind it sampler-less (integer texelFetch needs no sampler), and set its combined-sampler uniform.
+            // Select this binding's unit FIRST: `updateTexture` / `updateStorageBufferTexture` bind the GL
+            // texture to the currently-active unit to upload it, so selecting the target unit up front
+            // makes that upload-bind land on the right unit. Otherwise the next binding's upload would
+            // clobber the texture we just bound to a still-active earlier unit (e.g. a storage integer
+            // texture at unit 0 being overwritten by a regular texture's upload, giving a
+            // usampler2D/sampler2D format mismatch at draw).
+            gl.activeTexture(gl.TEXTURE0 + unit);
+
             const storageSource = entry.node.storageBufferSource;
             if (storageSource) {
                 // Name-based sources (`storage('slot','read')` + `geometry.setBuffer('slot',…)`) resolve
                 // their buffer from THIS render object's geometry now; value-based already carry it.
                 const resolved = resolveStorageSource(gl, textures, renderObject, storageSource);
                 const glTexture = updateStorageBufferTexture(gl, textures, resolved);
-                gl.activeTexture(gl.TEXTURE0 + unit);
+                gl.activeTexture(gl.TEXTURE0 + unit); // updateStorageBufferTexture may have left another unit active
                 gl.bindTexture(gl.TEXTURE_2D, glTexture);
                 gl.bindSampler(unit, null);
                 const loc = getSamplerLocation(gl, programInfo, samplerUniformName(entry.textureId));
@@ -167,7 +175,7 @@ export function bindTextures(
             }
             if (!texData) continue;
 
-            gl.activeTexture(gl.TEXTURE0 + unit);
+            gl.activeTexture(gl.TEXTURE0 + unit); // updateTexture may have left another unit active
             gl.bindTexture(texData.target, texData.texture);
 
             // Find the sampler assigned to this same unit and bind its GL sampler object.

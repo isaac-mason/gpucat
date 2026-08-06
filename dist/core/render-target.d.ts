@@ -17,6 +17,15 @@ export type RenderTargetOptions = {
     stencilBuffer?: boolean;
     /** Caller-provided depth texture. Overrides `depthBuffer`/`depthFormat`. */
     depthTexture?: DepthTexture;
+    /**
+     * Whether the depth attachment will be sampled (read as a texture). Default false
+     * for auto-allocated depth: the WebGL backend then attaches a depth RENDERBUFFER
+     * (matching three.js) rather than a texture, which is more broadly FBO-complete
+     * across drivers, with depth-testing unaffected. Set true automatically when a depth
+     * texture is provided or `PassNode.getDepthTextureNode()` is called. Ignored by
+     * the WebGPU backend, which always uses the depth texture.
+     */
+    depthSampled?: boolean;
     /** MSAA sample count. Default: 1. */
     samples?: number;
     /** Number of color attachments (MRT). Default: 1. */
@@ -47,6 +56,13 @@ export declare class RenderTarget {
     textures: RenderTargetTexture[];
     /** Depth texture, or null if no depth */
     depthTexture: DepthTexture | null;
+    /**
+     * Whether the depth attachment is sampled. When false and the target owns an
+     * auto-allocated depth, the WebGL backend attaches a depth RENDERBUFFER instead
+     * of a texture (three.js parity, more broadly FBO-complete; depth-testing still
+     * works). Set true by `PassNode.getDepthTextureNode()`. WebGPU ignores it.
+     */
+    depthSampled: boolean;
     /**
      * Viewport for renders into this target as a `Vec4` [x, y, width, height] in the target's pixels
      * (top-left origin); null = full target. A render into a target uses the target's own viewport/scissor,

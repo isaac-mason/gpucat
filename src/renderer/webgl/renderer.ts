@@ -334,10 +334,15 @@ export class WebGLRenderer implements Renderer, RendererState {
         this._onContextLost = (e: Event): void => {
             e.preventDefault();
             this._isDeviceLost = true;
+            // `statusMessage` carries the driver's reason (e.g. "Too many active WebGL contexts",
+            // "GPU process crashed"). Surface it, since a lost context otherwise masquerades as
+            // unrelated FBO/format errors downstream.
+            const statusMessage = (e as Event & { statusMessage?: string }).statusMessage || '';
+            console.error(`[WebGLRenderer] WebGL2 context lost. reason: ${statusMessage || '(none given)'}`);
             this.onDeviceLost?.({
                 api: 'WebGL2',
-                message: 'WebGL2 context lost',
-                reason: null,
+                message: `WebGL2 context lost${statusMessage ? `: ${statusMessage}` : ''}`,
+                reason: statusMessage || null,
                 originalEvent: e,
             });
         };
@@ -768,12 +773,18 @@ export class WebGLRenderer implements Renderer, RendererState {
     }
 
     /**
-     * Dispose the renderer and force the WebGL2 context loss. After calling dispose(), the renderer
-     * cannot be used again.
+     * Dispose the renderer: free all GL resources (textures, buffers, programs, FBOs) and detach the
+     * context-loss listeners. After calling dispose(), this renderer instance cannot be used again.
+     *
+     * Deliberately does NOT force `WEBGL_lose_context.loseContext()`: the resources above are already
+     * freed, and forcing loss poisons the CANVAS: a context is per-canvas, so a new renderer created
+     * on the same canvas (React StrictMode / HMR re-mounts, or any deliberate reuse) would call
+     * getContext() and get back the still-lost context. The live context is lightweight and is reclaimed
+     * when the canvas is dropped/GC'd. Callers that truly want the context gone can loseContext() the gl.
      */
     dispose(): void {
-        // Remove the context-loss listeners before forcing loseContext() below, so our own teardown
-        // doesn't fire the user's onDeviceLost callback.
+        // Remove the context-loss listeners first, so tearing down GL resources below never fires the
+        // user's onDeviceLost callback.
         const canvas = this._canvasTarget?.domElement;
         if (canvas) {
             if (this._onContextLost) canvas.removeEventListener('webglcontextlost', this._onContextLost, false);
@@ -796,10 +807,8 @@ export class WebGLRenderer implements Renderer, RendererState {
             RenderTargets.disposeGlRenderTargets(this.gl, this._renderTargets);
             TransformFeedback.disposeTransformFeedback(this.gl, this._transformFeedback);
             // Per-geometry GL resources are freed via the geometries WeakMap on GC, or per-geometry
-            // disposeGeometry; the context loss below drops the rest.
+            // disposeGeometry.
         }
-
-        this.gl?.getExtension('WEBGL_lose_context')?.loseContext();
 
         if (this._canvasTarget) this._canvasTarget.dispose();
 

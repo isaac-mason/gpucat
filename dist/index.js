@@ -14591,6 +14591,13 @@ class RenderTarget {
     /** Depth texture, or null if no depth */
     depthTexture = null;
     /**
+     * Whether the depth attachment is sampled. When false and the target owns an
+     * auto-allocated depth, the WebGL backend attaches a depth RENDERBUFFER instead
+     * of a texture (three.js parity, more broadly FBO-complete; depth-testing still
+     * works). Set true by `PassNode.getDepthTextureNode()`. WebGPU ignores it.
+     */
+    depthSampled = false;
+    /**
      * Viewport for renders into this target as a `Vec4` [x, y, width, height] in the target's pixels
      * (top-left origin); null = full target. A render into a target uses the target's own viewport/scissor,
      * never the renderer's swapchain one, so a swapchain compositing viewport can't leak into a
@@ -14618,6 +14625,8 @@ class RenderTarget {
         if (opts.depthTexture) {
             this.depthTexture = opts.depthTexture;
             this.depthTexture._gpuTexture.isRenderTargetTexture = true;
+            // A caller-provided depth texture exists to be read/shared.
+            this.depthSampled = true;
         }
         else if (opts.depthBuffer !== false) {
             const depthFormat = opts.depthFormat ?? (opts.stencilBuffer ? 'depth24plus-stencil8' : 'depth24plus');
@@ -14625,6 +14634,9 @@ class RenderTarget {
             depthTexture.name = 'depth';
             depthTexture._gpuTexture.isRenderTargetTexture = true;
             this.depthTexture = depthTexture;
+            // Auto depth defaults to a renderbuffer on WebGL (three.js parity);
+            // `getDepthTextureNode()` flips this to true when depth is sampled.
+            this.depthSampled = opts.depthSampled ?? false;
         }
         if (this.depthTexture) {
             this.depthTexture._gpuTexture.renderTarget = this;
@@ -16146,6 +16158,9 @@ class PassNode extends Node {
     getDepthTextureNode(name = 'depth') {
         let node = this._depthTextureNodes[name];
         if (node === undefined) {
+            // Sampling the depth: it must be a texture attachment, not a renderbuffer
+            // (the WebGL backend reads this to attach the depth texture, not an RBO).
+            this.renderTarget.depthSampled = true;
             const depthTex = this.getDepthTexture(name);
             if (!depthTex)
                 throw new Error(`PassNode: no '${name}' depth attachment to bind`);
@@ -20383,14 +20398,20 @@ function generateAttribute$1(ctx, node) {
     const existing = ctx.attributes.get(node.id);
     if (existing)
         return existing.shaderName;
-    // Named attributes (geometry inputs like `uv`) are declared ONCE by name: several distinct
-    // `attribute('uv')` nodes (same name, different node ids) must share one `layout(location=N) in`
-    // decl. If a named attribute with this name is already registered, alias this node's id to the
-    // existing entry (reusing its location + shaderName) instead of allocating a new location — else
-    // GLSL redefines `in a_uv` and fails to compile. Unnamed/buffer attributes stay deduped by id.
+    // Named attributes (geometry inputs like `uv`) are declared ONCE per (name, offset, stride): several
+    // distinct `attribute('uv')` nodes referencing the SAME logical input (same name + view) must share one
+    // `layout(location=N) in` decl, else GLSL redefines `in a_uv` and fails to compile. But same-NAME
+    // attributes at DIFFERENT offsets are DISTINCT interleaved inputs (e.g. posU@0 and normalV@16 sharing
+    // one 32-byte-stride buffer): they must get distinct locations, matching vertexBufferGroups. Aliasing
+    // them by name alone collapses both to offset 0, so the second's data (which the VAO binds to its own
+    // location) is silently dropped by the shader. Unnamed/buffer attributes stay deduped by id.
+    let sameNameSeen = false;
     if (node.isNamedReference && node.name) {
         for (const entry of ctx.attributes.values()) {
-            if (entry.node.isNamedReference && entry.node.name === node.name) {
+            if (!entry.node.isNamedReference || entry.node.name !== node.name)
+                continue;
+            sameNameSeen = true;
+            if (entry.node.offset === node.offset && entry.node.stride === node.stride) {
                 ctx.attributes.set(node.id, entry);
                 return entry.shaderName;
             }
@@ -20399,8 +20420,14 @@ function generateAttribute$1(ctx, node) {
     // Next location counts DISTINCT attributes (distinct locations), not aliased map entries — aliasing
     // multiple node ids to one entry would make `ctx.attributes.size` overcount.
     const location = distinctAttributeCount(ctx);
-    // Prefix with `a_` so attribute names never collide with GLSL keywords or varyings.
-    const shaderName = node.isNamedReference && node.name ? `a_${node.name}` : `a_buf_${location}`;
+    // Prefix with `a_` so attribute names never collide with GLSL keywords or varyings. When a same-named
+    // but distinct-offset attribute already exists, suffix with the location to keep the `in` decls unique
+    // (the VAO binds by layout(location), so this identifier is cosmetic).
+    const shaderName = node.isNamedReference && node.name
+        ? sameNameSeen
+            ? `a_${node.name}_${location}`
+            : `a_${node.name}`
+        : `a_buf_${location}`;
     ctx.attributes.set(node.id, { shaderName, type: node.type, location, node });
     return shaderName;
 }
@@ -40524,10 +40551,21 @@ function allocateRenderTargetStorage(gl, texture, data) {
     const w = texture.width;
     const h = texture.height;
     const levels = mipLevelCount(texture);
-    // TEXTURE_CUBE_MAP immutable storage allocates all 6 faces; each face is then attachable to an FBO
-    // via framebufferTexture2D(TEXTURE_CUBE_MAP_POSITIVE_X + face, …) (see render-target.ts).
-    const target = data.target === gl.TEXTURE_CUBE_MAP ? gl.TEXTURE_CUBE_MAP : gl.TEXTURE_2D;
-    gl.texStorage2D(target, levels, data.fmt.internalFormat, w, h);
+    if (data.target === gl.TEXTURE_CUBE_MAP) {
+        // Immutable storage allocates all 6 faces at once; each face is then attachable to an FBO
+        // via framebufferTexture2D(TEXTURE_CUBE_MAP_POSITIVE_X + face, ...) (see render-target.ts).
+        gl.texStorage2D(gl.TEXTURE_CUBE_MAP, levels, data.fmt.internalFormat, w, h);
+    }
+    else if (levels > 1) {
+        // Mipmapped 2D target: immutable storage for the whole chain.
+        gl.texStorage2D(gl.TEXTURE_2D, levels, data.fmt.internalFormat, w, h);
+    }
+    else {
+        // Single-level 2D target: MUTABLE `texImage2D`, matching three.js's render-target allocation.
+        // Some drivers (notably Chrome/ANGLE-on-Metal) return FRAMEBUFFER_UNSUPPORTED for an immutable
+        // `texStorage2D` color attachment; `texImage2D` is the broadly-compatible path.
+        gl.texImage2D(gl.TEXTURE_2D, 0, data.fmt.internalFormat, w, h, 0, data.fmt.format, data.fmt.type, null);
+    }
     data.allocW = w;
     data.allocH = h;
 }
@@ -40670,13 +40708,20 @@ function bindTextures(gl, textures, samplers, renderObject, programInfo) {
             // storage() read-lowering: the binding is a read-only storage GpuBuffer reinterpreted AS an
             // rgba32uint texture (WebGL2 has no SSBO). Resolve the per-buffer GL texture (version-synced),
             // bind it sampler-less (integer texelFetch needs no sampler), and set its combined-sampler uniform.
+            // Select this binding's unit FIRST: `updateTexture` / `updateStorageBufferTexture` bind the GL
+            // texture to the currently-active unit to upload it, so selecting the target unit up front
+            // makes that upload-bind land on the right unit. Otherwise the next binding's upload would
+            // clobber the texture we just bound to a still-active earlier unit (e.g. a storage integer
+            // texture at unit 0 being overwritten by a regular texture's upload, giving a
+            // usampler2D/sampler2D format mismatch at draw).
+            gl.activeTexture(gl.TEXTURE0 + unit);
             const storageSource = entry.node.storageBufferSource;
             if (storageSource) {
                 // Name-based sources (`storage('slot','read')` + `geometry.setBuffer('slot',…)`) resolve
                 // their buffer from THIS render object's geometry now; value-based already carry it.
                 const resolved = resolveStorageSource(gl, textures, renderObject, storageSource);
                 const glTexture = updateStorageBufferTexture(gl, textures, resolved);
-                gl.activeTexture(gl.TEXTURE0 + unit);
+                gl.activeTexture(gl.TEXTURE0 + unit); // updateStorageBufferTexture may have left another unit active
                 gl.bindTexture(gl.TEXTURE_2D, glTexture);
                 gl.bindSampler(unit, null);
                 const loc = getSamplerLocation(gl, programInfo, samplerUniformName(entry.textureId));
@@ -40698,7 +40743,7 @@ function bindTextures(gl, textures, samplers, renderObject, programInfo) {
             }
             if (!texData)
                 continue;
-            gl.activeTexture(gl.TEXTURE0 + unit);
+            gl.activeTexture(gl.TEXTURE0 + unit); // updateTexture may have left another unit active
             gl.bindTexture(texData.target, texData.texture);
             // Find the sampler assigned to this same unit and bind its GL sampler object.
             const gpuSampler = findSamplerForUnit(bindGroups, unit);
@@ -41209,6 +41254,21 @@ function createGlRenderTargetsState() {
 function depthFormatHasStencil(format) {
     return format === 'depth24plus-stencil8' || format === 'depth32float-stencil8';
 }
+/** Sized GL internal format for a depth (/stencil) renderbuffer of the given depth-texture format. */
+function depthRenderbufferInternalFormat(gl, format) {
+    switch (format) {
+        case 'depth16unorm':
+            return gl.DEPTH_COMPONENT16;
+        case 'depth32float':
+            return gl.DEPTH_COMPONENT32F;
+        case 'depth24plus-stencil8':
+            return gl.DEPTH24_STENCIL8;
+        case 'depth32float-stencil8':
+            return gl.DEPTH32F_STENCIL8;
+        default:
+            return gl.DEPTH_COMPONENT24; // 'depth24plus' and the sensible default
+    }
+}
 /**
  * A float/half-float color attachment is only framebuffer-renderable in WebGL2 with the matching
  * extension (`EXT_color_buffer_float` for 32-bit and 16-bit float; `EXT_color_buffer_half_float` for
@@ -41251,19 +41311,22 @@ function bindRenderTargetFramebuffer(gl, state, textures, renderTarget) {
         const data = updateTexture(gl, textures, tex._gpuTexture);
         colorGenerations.push(data.generation);
     }
-    // Ensure the depth texture's GL storage exists (if the target uses a depth texture).
+    // Ensure the depth texture's GL storage exists ONLY when depth is sampled (attached as a texture).
+    // Unsampled depth uses a renderbuffer (allocated in rebuildFbo), so skip the depth texture entirely;
+    // leaner on the weaker devices the WebGL fallback runs on.
     let depthGeneration = -1;
-    if (renderTarget.depthTexture) {
+    if (renderTarget.depthTexture && renderTarget.depthSampled) {
         const data = updateTexture(gl, textures, renderTarget.depthTexture._gpuTexture);
         depthGeneration = data.generation;
     }
     let fboData = state.data.get(renderTarget);
     const sizeChanged = fboData ? fboData.width !== renderTarget.width || fboData.height !== renderTarget.height : true;
+    const depthModeChanged = fboData ? fboData.depthSampled !== renderTarget.depthSampled : false;
     const generationsChanged = fboData &&
         (fboData.depthGeneration !== depthGeneration ||
             fboData.colorGenerations.length !== colorGenerations.length ||
             fboData.colorGenerations.some((g, i) => g !== colorGenerations[i]));
-    if (!fboData || sizeChanged || generationsChanged) {
+    if (!fboData || sizeChanged || depthModeChanged || generationsChanged) {
         fboData = rebuildFbo(gl, state, textures, renderTarget, fboData, colorGenerations, depthGeneration);
     }
     // Cube target: (re)attach the selected face as the color attachment if it changed.
@@ -41337,15 +41400,20 @@ function rebuildFbo(gl, state, textures, renderTarget, existing, colorGeneration
         // Depth-only target: no color output.
         gl.drawBuffers([gl.NONE]);
     }
-    // Depth attachment (shared across cube faces).
+    // Depth attachment (shared across cube faces). A sampled depth is attached as a texture; an
+    // unsampled depth uses a renderbuffer (leaner and more broadly FBO-complete, three.js parity); no
+    // depthTexture at all means the caller opted out (depthBuffer:false).
     let depthRenderbuffer = existing?.depthRenderbuffer ?? null;
-    if (renderTarget.depthTexture) {
-        // Depth texture attachment (sampleable, e.g. for shadow maps).
+    const freeDepthRenderbuffer = () => {
         if (depthRenderbuffer) {
             gl.deleteRenderbuffer(depthRenderbuffer);
             state.renderbuffers.delete(depthRenderbuffer);
             depthRenderbuffer = null;
         }
+    };
+    if (renderTarget.depthTexture && renderTarget.depthSampled) {
+        // Sampleable depth texture (e.g. shadow maps, depth-of-field, scene-depth occlusion).
+        freeDepthRenderbuffer();
         const data = getGlTextureData(textures, renderTarget.depthTexture._gpuTexture);
         if (data) {
             const stencil = depthFormatHasStencil(renderTarget.depthTexture.format);
@@ -41353,17 +41421,33 @@ function rebuildFbo(gl, state, textures, renderTarget, existing, colorGeneration
             gl.framebufferTexture2D(gl.FRAMEBUFFER, attachment, gl.TEXTURE_2D, data.texture, 0);
         }
     }
-    else {
-        // No depth texture → no depth at all. RenderTarget always auto-creates a depthTexture unless
-        // depthBuffer:false, so reaching here means the caller explicitly opted out of depth; leave
-        // depth unattached (correct). Free any renderbuffer carried over from a previous build.
-        if (depthRenderbuffer) {
-            gl.deleteRenderbuffer(depthRenderbuffer);
-            state.renderbuffers.delete(depthRenderbuffer);
-            depthRenderbuffer = null;
+    else if (renderTarget.depthTexture) {
+        // Unsampled depth uses a renderbuffer (reused across rebuilds; re-specified at the current size).
+        const stencil = depthFormatHasStencil(renderTarget.depthTexture.format);
+        const internalFormat = depthRenderbufferInternalFormat(gl, renderTarget.depthTexture.format);
+        if (!depthRenderbuffer) {
+            const created = gl.createRenderbuffer();
+            if (!created)
+                throw new Error('[WebGLRenderer] gl.createRenderbuffer returned null (depth).');
+            depthRenderbuffer = created;
+            state.renderbuffers.add(depthRenderbuffer);
         }
+        gl.bindRenderbuffer(gl.RENDERBUFFER, depthRenderbuffer);
+        gl.renderbufferStorage(gl.RENDERBUFFER, internalFormat, renderTarget.width, renderTarget.height);
+        const attachment = stencil ? gl.DEPTH_STENCIL_ATTACHMENT : gl.DEPTH_ATTACHMENT;
+        gl.framebufferRenderbuffer(gl.FRAMEBUFFER, attachment, gl.RENDERBUFFER, depthRenderbuffer);
     }
-    // Validate.
+    else {
+        // depthBuffer:false means no depth. Free any renderbuffer carried over from a previous build.
+        freeDepthRenderbuffer();
+    }
+    // Validate. A lost context makes every GL query return null/default and reports the framebuffer
+    // as UNSUPPORTED (0x8cdd), so check for loss FIRST, or a dead context masquerades as a format bug.
+    if (gl.isContextLost()) {
+        throw new Error('[WebGLRenderer] WebGL2 context is lost; cannot build a framebuffer. This is usually too many ' +
+            'live WebGL contexts on the page (each canvas/renderer holds one; the browser evicts the oldest) ' +
+            'or a GPU-process crash, not a render-target format problem. See the `webglcontextlost` reason.');
+    }
     const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
     if (status !== gl.FRAMEBUFFER_COMPLETE) {
         // Enumerate each attachment's logical (RenderTarget) size vs actual GL-allocated size + format,
@@ -41376,14 +41460,34 @@ function rebuildFbo(gl, state, textures, renderTarget, existing, colorGeneration
             const gl_ = d ? `${d.allocW}x${d.allocH} allocated=${d.allocated}` : 'no GL texture';
             return `${label}: format=${tex.format} logical=${tex._gpuTexture.width}x${tex._gpuTexture.height} gl=${gl_}`;
         };
+        // Diagnostics: the GL renderer string (reveals a software/blocklisted context) + any accumulated
+        // GL error + the depth attachment mode + a LIVE dump of what the FBO actually holds (asks GL,
+        // not our bookkeeping; this is authoritative when our view of the attachments disagrees).
+        const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+        const rendererStr = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+        const glErr = gl.getError();
+        const depthMode = !renderTarget.depthTexture ? 'none' : renderTarget.depthSampled ? 'texture' : 'renderbuffer';
+        const TYPE_NAME = { [gl.NONE]: 'none', [gl.TEXTURE]: 'tex', [gl.RENDERBUFFER]: 'rbo' };
+        const liveAttachment = (label, point) => {
+            const type = gl.getFramebufferAttachmentParameter(gl.FRAMEBUFFER, point, gl.FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE);
+            if (type === gl.NONE)
+                return `${label}=none`;
+            const sz = (p) => gl.getFramebufferAttachmentParameter(gl.FRAMEBUFFER, point, p);
+            const bits = `r${sz(gl.FRAMEBUFFER_ATTACHMENT_RED_SIZE)}g${sz(gl.FRAMEBUFFER_ATTACHMENT_GREEN_SIZE)}b${sz(gl.FRAMEBUFFER_ATTACHMENT_BLUE_SIZE)}a${sz(gl.FRAMEBUFFER_ATTACHMENT_ALPHA_SIZE)}d${sz(gl.FRAMEBUFFER_ATTACHMENT_DEPTH_SIZE)}s${sz(gl.FRAMEBUFFER_ATTACHMENT_STENCIL_SIZE)}`;
+            gl.getError(); // some size queries are invalid per attachment type; clear the flag
+            return `${label}=${TYPE_NAME[type] ?? type}(${bits})`;
+        };
         const parts = [
             `target=${renderTarget.width}x${renderTarget.height}`,
             ...renderTarget.textures.map((t, i) => describe(`color[${i}]`, t)),
-            describe('depth', renderTarget.depthTexture),
+            `depth[${depthMode}]: ${describe('', renderTarget.depthTexture)}`,
+            `renderer=${rendererStr}`,
+            `glError=0x${glErr.toString(16)}`,
+            `LIVE ${liveAttachment('color0', gl.COLOR_ATTACHMENT0)} ${liveAttachment('depth', gl.DEPTH_ATTACHMENT)} ${liveAttachment('stencil', gl.STENCIL_ATTACHMENT)} ${liveAttachment('depthStencil', gl.DEPTH_STENCIL_ATTACHMENT)}`,
         ];
         throw new Error(`[WebGLRenderer] framebuffer is incomplete (status 0x${status.toString(16)}); ` +
             `rendering into an incomplete framebuffer is not supported on the WebGL2 backend. ` +
-            `Attachments — ${parts.join(' | ')}`);
+            `${parts.join(' | ')}`);
     }
     // MSAA render FBO (multisample renderbuffers). Rebuilt whenever the texture FBO is; a cube target
     // never carries one (CubeRenderTarget forces samples:1).
@@ -41398,6 +41502,7 @@ function rebuildFbo(gl, state, textures, renderTarget, existing, colorGeneration
     const fboData = {
         fbo,
         depthRenderbuffer,
+        depthSampled: renderTarget.depthSampled,
         colorGenerations,
         depthGeneration,
         width: renderTarget.width,
@@ -41877,7 +41982,10 @@ function bindFramebuffer(gl, caches, params) {
 function applyViewportScissor(gl, passCtx) {
     if (passCtx.viewport) {
         const v = passCtx.viewportValue;
-        gl.viewport(v.x, v.y, v.width, v.height);
+        // WebGPU's viewport origin is top-left; GL's is bottom-left. Flip Y against the framebuffer height
+        // so a top-left rect (e.g. the studio grid's per-card cells, sourced from DOM coordinates) lands in
+        // the right place. A full-framebuffer viewport is unchanged by the flip.
+        gl.viewport(v.x, passCtx.height - v.y - v.height, v.width, v.height);
         // Honor the viewport's depth range (defaults 0,1). Threaded through per pass so a prior pass's
         // custom range never leaks into this one.
         gl.depthRange(v.minDepth, v.maxDepth);
@@ -41895,7 +42003,8 @@ function applyViewportScissor(gl, passCtx) {
     if (passCtx.scissor) {
         const s = passCtx.scissorValue;
         gl.enable(gl.SCISSOR_TEST);
-        gl.scissor(s.x, s.y, s.width, s.height);
+        // Same top-left to bottom-left Y flip as the viewport above.
+        gl.scissor(s.x, passCtx.height - s.y - s.height, s.width, s.height);
     }
     else {
         gl.disable(gl.SCISSOR_TEST);
@@ -42729,10 +42838,15 @@ class WebGLRenderer {
         this._onContextLost = (e) => {
             e.preventDefault();
             this._isDeviceLost = true;
+            // `statusMessage` carries the driver's reason (e.g. "Too many active WebGL contexts",
+            // "GPU process crashed"). Surface it, since a lost context otherwise masquerades as
+            // unrelated FBO/format errors downstream.
+            const statusMessage = e.statusMessage || '';
+            console.error(`[WebGLRenderer] WebGL2 context lost. reason: ${statusMessage || '(none given)'}`);
             this.onDeviceLost?.({
                 api: 'WebGL2',
-                message: 'WebGL2 context lost',
-                reason: null,
+                message: `WebGL2 context lost${statusMessage ? `: ${statusMessage}` : ''}`,
+                reason: statusMessage || null,
                 originalEvent: e,
             });
         };
@@ -43057,12 +43171,18 @@ class WebGLRenderer {
         return Promise.resolve(readRenderTargetPixels(this.gl, this._renderTargets, this._textures, renderTarget, attachmentIndex, layer));
     }
     /**
-     * Dispose the renderer and force the WebGL2 context loss. After calling dispose(), the renderer
-     * cannot be used again.
+     * Dispose the renderer: free all GL resources (textures, buffers, programs, FBOs) and detach the
+     * context-loss listeners. After calling dispose(), this renderer instance cannot be used again.
+     *
+     * Deliberately does NOT force `WEBGL_lose_context.loseContext()`: the resources above are already
+     * freed, and forcing loss poisons the CANVAS: a context is per-canvas, so a new renderer created
+     * on the same canvas (React StrictMode / HMR re-mounts, or any deliberate reuse) would call
+     * getContext() and get back the still-lost context. The live context is lightweight and is reclaimed
+     * when the canvas is dropped/GC'd. Callers that truly want the context gone can loseContext() the gl.
      */
     dispose() {
-        // Remove the context-loss listeners before forcing loseContext() below, so our own teardown
-        // doesn't fire the user's onDeviceLost callback.
+        // Remove the context-loss listeners first, so tearing down GL resources below never fires the
+        // user's onDeviceLost callback.
         const canvas = this._canvasTarget?.domElement;
         if (canvas) {
             if (this._onContextLost)
@@ -43085,9 +43205,8 @@ class WebGLRenderer {
             disposeGlRenderTargets(this.gl, this._renderTargets);
             disposeTransformFeedback(this.gl, this._transformFeedback);
             // Per-geometry GL resources are freed via the geometries WeakMap on GC, or per-geometry
-            // disposeGeometry; the context loss below drops the rest.
+            // disposeGeometry.
         }
-        this.gl?.getExtension('WEBGL_lose_context')?.loseContext();
         if (this._canvasTarget)
             this._canvasTarget.dispose();
         this._initialized = false;

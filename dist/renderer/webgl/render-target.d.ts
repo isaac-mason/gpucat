@@ -34,11 +34,13 @@ type FboData = {
     /** The GL framebuffer object (the resolve/texture FBO — its color attachments are the target's textures). */
     fbo: WebGLFramebuffer;
     /**
-     * Depth renderbuffer slot for the single-sampled FBO. In practice always null: depth is a
-     * sampleable depth texture when the target has one, else (depthBuffer:false) there is no depth.
-     * Kept so a carried-over renderbuffer from an earlier build is freed on rebuild.
+     * Depth renderbuffer for the single-sampled FBO. Non-null when the target has depth that isn't
+     * sampled (`depthSampled === false`): a renderbuffer is leaner than a sampleable depth texture and
+     * more broadly FBO-complete (three.js parity). Null when depth is a sampled texture, or no depth.
      */
     depthRenderbuffer: WebGLRenderbuffer | null;
+    /** Whether the depth was built as a sampled texture (vs a renderbuffer); a change forces a rebuild. */
+    depthSampled: boolean;
     /** Color-attachment texture generations at last (re)build — a change forces a rebuild. */
     colorGenerations: number[];
     /** Depth-attachment texture generation at last rebuild (or -1 for renderbuffer/none). */
