@@ -415,6 +415,9 @@ export function compileGlsl(slots: CompileSlots, opts: CompileGlslOptions = {}):
     for (const [id, samplerNode] of fragmentCtx.textureSamplers) {
         if (!vertexCtx.textureSamplers.has(id)) vertexCtx.textureSamplers.set(id, samplerNode);
     }
+    // A texture whose flipY wrap was emitted only in the fragment stage still needs its `u_flipY_<id>`
+    // declared in the shared sampler block below (harmless in the vertex shader if unused there).
+    for (const id of fragmentCtx.flipYTextures) vertexCtx.flipYTextures.add(id);
     const { glsl: samplersGlsl, textures: textureEntries, samplers: samplerEntries } = emitGlslTextures(vertexCtx);
 
     const version = '#version 300 es';

@@ -25,6 +25,11 @@ function samplerUniformName(textureId: string): string {
     return `u_${textureId}`;
 }
 
+/** The per-texture flipY uniform name (mirrors the GLSL emitter's `flipUniformName`). */
+function flipUniformName(textureId: string): string {
+    return `u_flipY_${textureId}`.replace(/_{2,}/g, '_');
+}
+
 /** Cached OES_texture_float_linear support (probed once): null = unprobed, then true/false. */
 let floatLinearSupported: boolean | null = null;
 
@@ -60,6 +65,16 @@ function getSamplerLocation(gl: WebGL2RenderingContext, programInfo: ProgramInfo
     }
     const loc = gl.getUniformLocation(programInfo.program, name);
     programInfo.samplerLocations.set(name, loc);
+    return loc;
+}
+
+/** Resolve (and cache) a per-texture flipY uniform's location; null when the texture wasn't flip-wrapped. */
+function getFlipLocation(gl: WebGL2RenderingContext, programInfo: ProgramInfo, name: string): WebGLUniformLocation | null {
+    if (programInfo.flipLocations.has(name)) {
+        return programInfo.flipLocations.get(name) ?? null;
+    }
+    const loc = gl.getUniformLocation(programInfo.program, name);
+    programInfo.flipLocations.set(name, loc);
     return loc;
 }
 
@@ -196,6 +211,13 @@ export function bindTextures(
             // Set the combined-sampler uniform to this texture unit.
             const loc = getSamplerLocation(gl, programInfo, samplerUniformName(entry.textureId));
             if (loc) gl.uniform1i(loc, unit);
+
+            // Drive the per-texture flipY conditional (declared only for flip-wrapped 2D samples): a
+            // render-target texture was rendered bottom-up vs WebGPU's top-down, so its 2D samples flip V;
+            // an ordinary texture (flipped at upload instead) does not. `getFlipLocation` returns null when
+            // this texture's samples weren't wrapped, so the set is skipped.
+            const flipLoc = getFlipLocation(gl, programInfo, flipUniformName(entry.textureId));
+            if (flipLoc) gl.uniform1i(flipLoc, gpuTexture.isRenderTargetTexture ? 1 : 0);
         }
     }
 }

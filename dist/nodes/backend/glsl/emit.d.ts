@@ -59,6 +59,7 @@ export type GlslBuildContext = {
     structDefs: Map<string, StructDef<StructSchema>>;
     textures: Map<string, TextureBindingNode>;
     textureSamplers: Map<string, SamplerNode<d.sampler | d.samplerComparison>>;
+    flipYTextures: Set<string>;
     storageMirrors: Map<number, StorageMirror>;
     attributes: Map<number, {
         shaderName: string;

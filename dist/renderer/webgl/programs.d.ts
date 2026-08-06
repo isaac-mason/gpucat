@@ -32,6 +32,12 @@ export type ProgramInfo = {
      */
     samplerLocations: Map<string, WebGLUniformLocation | null>;
     /**
+     * Cached per-texture flipY uniform locations, keyed by the flip-uniform name (`u_flipY_<textureId>`).
+     * Resolved lazily like `samplerLocations`; a cached `null` means the texture's samples weren't
+     * flip-wrapped (non-2D, or a storage read), so the draw path skips setting it.
+     */
+    flipLocations: Map<string, WebGLUniformLocation | null>;
+    /**
      * Location of the batched-draw base uniform (`u_drawBase`), or `null` when the program doesn't
      * use `instanceIndex` (so the uniform isn't declared). Resolved at link time. The batched draw
      * loop sets it per sub-draw (`firstInstance`); the single-draw path resets it to 0.

@@ -39,6 +39,7 @@ import {
     Uniform,
     uniform,
     varying,
+    vec2f,
     vec2i,
     vec3,
     vec4,
@@ -2436,6 +2437,60 @@ async function caseInterleavedAttrs(): Promise<CaseResult> {
     return { name: 'interleaved-attrs', pixel, expected: [u8(U), u8(V), 0, 255] };
 }
 
+/**
+ * rtt-flip: prove the render-target V-flip. WebGL's framebuffer origin is bottom-left vs WebGPU's
+ * top-left, so a texture RENDERED INTO is stored with its rows in the opposite V order; sampling it must
+ * flip V to match WebGPU. Pass 1 renders a two-tone into the RT (clip-space top = RED, bottom = GREEN).
+ * Pass 2 samples the RT at a FIXED uv in the top region (v=0.25) fullscreen and reads it back. WebGPU
+ * would return the top color (RED) there; the flip makes WebGL agree. Without the flip WebGL samples the
+ * bottom-up storage and returns GREEN, so this fails if the render-target flip regresses.
+ */
+async function caseRenderTargetFlip(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const rt = new RenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+
+    // Pass 1: two-tone into the RT. clip y > 0 (top) = RED, below = GREEN.
+    const geometry1 = createFullscreenTriangleGeometry();
+    const position1 = attribute('position', d.vec3f);
+    const vy = varying(position1.y, 'vy');
+    const twoTone = new Material({
+        vertex: vec4(position1, f32(1)),
+        fragment: select(vec4(0, 1, 0, 1), vec4(1, 0, 0, 1), vy.greaterThan(f32(0))),
+        depthTest: false,
+    });
+    const scene1 = new Scene();
+    scene1.add(new Mesh(geometry1, twoTone));
+    const camera1 = new PerspectiveCamera();
+    scene1.updateWorldMatrix();
+    camera1.updateViewMatrix();
+
+    const saved = renderer.renderTarget;
+    renderer.renderTarget = rt;
+    renderer.render(scene1, camera1);
+    renderer.renderTarget = saved;
+
+    // Pass 2: sample the RT at a constant top-region uv (v = 0.25) onto the default framebuffer.
+    renderer.clearColor = [0, 0, 0, 1];
+    const geometry2 = createFullscreenTriangleGeometry();
+    const position2 = attribute('position', d.vec3f);
+    const sampleMat = new Material({
+        vertex: vec4(position2, f32(1)),
+        fragment: texture(rt.texture! as Texture).sample(vec2f(0.5, 0.25)),
+        depthTest: false,
+    });
+    const scene2 = new Scene();
+    scene2.add(new Mesh(geometry2, sampleMat));
+    const camera2 = new PerspectiveCamera();
+    scene2.updateWorldMatrix();
+    camera2.updateViewMatrix();
+
+    renderer.render(scene2, camera2);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    // v=0.25 is the top region, so RED (matching WebGPU's top-left sampling origin).
+    return { name: 'rtt-flip', pixel, expected: [255, 0, 0, 255] };
+}
+
 export async function run(): Promise<RunResult> {
     try {
         const cases: CaseResult[] = [];
@@ -2447,6 +2502,7 @@ export async function run(): Promise<RunResult> {
             caseTextured,
             caseStorageAndTexture,
             caseInterleavedAttrs,
+            caseRenderTargetFlip,
             caseIntegerTexture,
             caseStructTexture,
             caseStructTextureMat4,

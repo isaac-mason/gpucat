@@ -196,6 +196,7 @@ export function renderProbe(
         program: p.program,
         uboBindingPoints: p.uboBindingPoints,
         samplerLocations: p.samplerLocations,
+        flipLocations: new Map(),
     };
 
     // Bind the probe FBO + a 1×1 viewport and clear.

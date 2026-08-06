@@ -19727,6 +19727,7 @@ function createGlslContext(stage, discovery) {
         // Fresh per-context: the emitter registers textures/samplers as it walks each stage.
         textures: new Map(),
         textureSamplers: new Map(),
+        flipYTextures: new Set(),
         // Populated once by compileGlsl (shared across stages) — see storage() read-lowering.
         storageMirrors: new Map(),
         attributes: new Map(),
@@ -20615,6 +20616,9 @@ function generateTextureCall(ctx, node) {
         }
         return generateExpr$1(ctx, off);
     };
+    // NOTE: the render-target V-flip lives in `generateTexture` (the `.sample()`/`.load()` path), the
+    // analog of three.js's `TextureNode.setupUV`. These low-level WGSL texture BUILTIN calls are not
+    // flip-wrapped, matching three.js (its raw builtins bypass `setupUV` too).
     switch (node.fn) {
         case 'textureSample': {
             // (t, s, coords [, offset]) → texture(name, coords) — or textureLod at level 0 in the vertex
@@ -20720,6 +20724,19 @@ function samplerUniformName$1(textureId) {
     // '_pass0_output') would otherwise yield `u__…`, and GLSL ES reserves any '__' sequence.
     return `u_${textureId}`.replace(/_{2,}/g, '_');
 }
+/** Per-texture flipY uniform name (a `bool` the renderer sets from the bound texture's render-target flag). */
+function flipUniformName$1(textureId) {
+    return `u_flipY_${textureId}`.replace(/_{2,}/g, '_');
+}
+/**
+ * Whether a texture's 2D samples should be wrapped in the flipY conditional. Only plain and depth 2D
+ * textures can be render targets sampled with a 2D uv where a V flip is meaningful; cube / array / 3D
+ * sampling uses a direction or layer, so they are left alone.
+ */
+function textureNeedsFlip(binding) {
+    const type = binding.type.type;
+    return type === 'texture_2d' || type === 'texture_depth_2d';
+}
 /**
  * GLSL ES 3.00 combined-sampler type for a texture descriptor. Picks the shape (`2D`/`Cube`/
  * `2DArray`/`2DShadow`) from the descriptor's dimensionality, and the sample-type prefix (`i`/`u`)
@@ -20787,6 +20804,15 @@ function ensureSampler(node) {
 function generateTexture$1(ctx, node) {
     const binding = node.bindingNode;
     const id = binding.textureId;
+    // WebGL's bottom-left framebuffer origin flips the V order of a texture that was RENDERED INTO vs
+    // WebGPU's top-left, so 2D samples of a render-target texture flip V. PRESENCE is baked per-backend
+    // (only this GLSL emitter emits the wrap; WebGPU never does), ACTIVATION is the runtime `u_flipY_<id>`
+    // the renderer sets from the bound texture's isRenderTargetTexture. Routed through the pure `_flipY2f`/
+    // `_flipY2i` helpers so the coord expression is evaluated once. Non-2D (cube/array/3D) never flip.
+    const flip = textureNeedsFlip(binding);
+    if (flip)
+        ctx.flipYTextures.add(id);
+    const flipName = flipUniformName$1(id);
     // textureLoad → texelFetch (no sampler filtering).
     if (node.samplingMode === 'load') {
         if (!node.loadCoords)
@@ -20795,12 +20821,15 @@ function generateTexture$1(ctx, node) {
         const coords = generateExpr$1(ctx, node.loadCoords);
         const level = node.loadLevel ? generateExpr$1(ctx, node.loadLevel) : '0';
         // WGSL loadCoords are already integer (vec2i); wrap defensively for GLSL's ivec2 texelFetch.
-        return `texelFetch(${name}, ivec2(${coords}), ${level})`;
+        const coordExpr = flip
+            ? `_flipY2i(${flipName}, ivec2(${coords}), textureSize(${name}, ${level}).y)`
+            : `ivec2(${coords})`;
+        return `texelFetch(${name}, ${coordExpr}, ${level})`;
     }
     const name = registerTexture(ctx, binding, ensureSampler(node));
     if (!node.uvNode)
         throw new Error(`[glsl] TextureNode '${id}' has no uvNode. Use texture.sample(uv).`);
-    const uv = generateExpr$1(ctx, node.uvNode);
+    const uv = flip ? `_flipY2f(${flipName}, ${generateExpr$1(ctx, node.uvNode)})` : generateExpr$1(ctx, node.uvNode);
     // GLSL's texture() has no const-offset overload we support here — reject rather than drop it.
     if (node.offsetNode)
         throw new Error(`[glsl] texture sampling offset not yet supported in the GLSL emitter`);
@@ -21054,6 +21083,11 @@ function emitGlslTextures(ctx) {
             samplerTypes.add(samplerType);
             // Bare declaration; the `precision highp <type>;` default block below qualifies it.
             lines.push(`uniform ${samplerType} ${name};`);
+            // Per-texture flipY flag: set by the renderer from the bound texture's render-target status
+            // (see the flipNorm/flipTexel wrap in generateTextureCall). Declared only for textures whose
+            // 2D samples are wrapped, so ordinary textures pay nothing.
+            if (ctx.flipYTextures.has(id))
+                lines.push(`uniform bool ${flipUniformName$1(id)};`);
             textures.push({
                 textureId: id,
                 // The declared combined-sampler type — the GLSL analogue of WGSL's texture var type.
@@ -21085,7 +21119,17 @@ function emitGlslTextures(ctx) {
     // per-texture precision override inline. `highp` is always valid — and integer + storage-mirror
     // (usampler2D) samplers require it to hold 32-bit texels.
     const precisionDefaults = [...samplerTypes].map((t) => `precision highp ${t};`);
-    return { glsl: [...precisionDefaults, ...lines].join('\n'), textures, samplers };
+    // Render-target flipY helpers (emitted once, when any sample was flip-wrapped). Pure functions so the
+    // caller passes the coord expression as an argument and it is evaluated exactly once. `_flipY2f` flips
+    // a normalized uv (`1 - y`); `_flipY2i` flips an integer texelFetch coord (`height - y - 1`). Both no-op
+    // when the flag is false (an ordinary, non-render-target texture is bound).
+    const flipHelpers = ctx.flipYTextures.size > 0
+        ? [
+            'vec2 _flipY2f(bool f, vec2 uv) { return f ? vec2(uv.x, 1.0 - uv.y) : uv; }',
+            'ivec2 _flipY2i(bool f, ivec2 c, int h) { return f ? ivec2(c.x, h - c.y - 1) : c; }',
+        ]
+        : [];
+    return { glsl: [...precisionDefaults, ...lines, ...flipHelpers].join('\n'), textures, samplers };
 }
 /* statement generation
  *
@@ -23535,6 +23579,10 @@ function compileGlsl(slots, opts = {}) {
         if (!vertexCtx.textureSamplers.has(id))
             vertexCtx.textureSamplers.set(id, samplerNode);
     }
+    // A texture whose flipY wrap was emitted only in the fragment stage still needs its `u_flipY_<id>`
+    // declared in the shared sampler block below (harmless in the vertex shader if unused there).
+    for (const id of fragmentCtx.flipYTextures)
+        vertexCtx.flipYTextures.add(id);
     const { glsl: samplersGlsl, textures: textureEntries, samplers: samplerEntries } = emitGlslTextures(vertexCtx);
     const version = '#version 300 es';
     // Only prefix the header when there are combined-sampler declarations, so texture-free shaders
@@ -39643,7 +39691,13 @@ function getProgram(gl, cache, code, uniformGroups) {
     // Batched-draw base uniform. `getUniformLocation` returns null when u_drawBase isn't declared
     // (program doesn't use instanceIndex) — that null is the draw path's "no batched base" sentinel.
     const drawBaseLocation = gl.getUniformLocation(program, 'u_drawBase');
-    const info = { program, uboBindingPoints, samplerLocations: new Map(), drawBaseLocation };
+    const info = {
+        program,
+        uboBindingPoints,
+        samplerLocations: new Map(),
+        flipLocations: new Map(),
+        drawBaseLocation,
+    };
     cache.programs.set(code, info);
     return info;
 }
@@ -39698,7 +39752,7 @@ function createTransformFeedbackProgram(gl, vertex, fragment, feedbackVaryings, 
         gl.uniformBlockBinding(program, blockIndex, bindingPoint);
         uboBindingPoints.set(group.groupName, bindingPoint);
     }
-    return { program, uboBindingPoints, samplerLocations: new Map() };
+    return { program, uboBindingPoints, samplerLocations: new Map(), flipLocations: new Map() };
 }
 /** Delete all cached programs (called on renderer dispose). */
 function disposePrograms(gl, cache) {
@@ -40617,6 +40671,10 @@ function getGlTexturesStats(state) {
 function samplerUniformName(textureId) {
     return `u_${textureId}`;
 }
+/** The per-texture flipY uniform name (mirrors the GLSL emitter's `flipUniformName`). */
+function flipUniformName(textureId) {
+    return `u_flipY_${textureId}`.replace(/_{2,}/g, '_');
+}
 /** Cached OES_texture_float_linear support (probed once): null = unprobed, then true/false. */
 let floatLinearSupported = null;
 /**
@@ -40647,6 +40705,15 @@ function getSamplerLocation(gl, programInfo, name) {
     }
     const loc = gl.getUniformLocation(programInfo.program, name);
     programInfo.samplerLocations.set(name, loc);
+    return loc;
+}
+/** Resolve (and cache) a per-texture flipY uniform's location; null when the texture wasn't flip-wrapped. */
+function getFlipLocation(gl, programInfo, name) {
+    if (programInfo.flipLocations.has(name)) {
+        return programInfo.flipLocations.get(name) ?? null;
+    }
+    const loc = gl.getUniformLocation(programInfo.program, name);
+    programInfo.flipLocations.set(name, loc);
     return loc;
 }
 /**
@@ -40764,6 +40831,13 @@ function bindTextures(gl, textures, samplers, renderObject, programInfo) {
             const loc = getSamplerLocation(gl, programInfo, samplerUniformName(entry.textureId));
             if (loc)
                 gl.uniform1i(loc, unit);
+            // Drive the per-texture flipY conditional (declared only for flip-wrapped 2D samples): a
+            // render-target texture was rendered bottom-up vs WebGPU's top-down, so its 2D samples flip V;
+            // an ordinary texture (flipped at upload instead) does not. `getFlipLocation` returns null when
+            // this texture's samples weren't wrapped, so the set is skipped.
+            const flipLoc = getFlipLocation(gl, programInfo, flipUniformName(entry.textureId));
+            if (flipLoc)
+                gl.uniform1i(flipLoc, gpuTexture.isRenderTargetTexture ? 1 : 0);
         }
     }
 }
@@ -41156,6 +41230,7 @@ function renderProbe(gl, state, caches, ro, patchedFragment) {
         program: p.program,
         uboBindingPoints: p.uboBindingPoints,
         samplerLocations: p.samplerLocations,
+        flipLocations: new Map(),
     };
     // Bind the probe FBO + a 1×1 viewport and clear.
     gl.bindFramebuffer(gl.FRAMEBUFFER, p.fbo);
