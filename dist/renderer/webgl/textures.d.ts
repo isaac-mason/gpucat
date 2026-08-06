@@ -74,6 +74,8 @@ export type GlTexturesState = {
     all: Set<WebGLTexture>;
     /** Cached `gl.MAX_TEXTURE_SIZE`, read once on first storage-buffer upload (validates the texel grid). */
     maxTextureSize?: number;
+    /** Cached `gl.MAX_COMBINED_TEXTURE_IMAGE_UNITS`, read once (guards the flat texture-unit assignment). */
+    maxTextureUnits?: number;
 };
 /** Create an empty textures state. */
 export declare function createGlTexturesState(): GlTexturesState;

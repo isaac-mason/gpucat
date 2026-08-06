@@ -34,6 +34,8 @@ type GeometryBuffers = {
 /** Geometries state: per-geometry GL resources, keyed by geometry identity. */
 export type GeometriesState = {
     data: WeakMap<Geometry, GeometryBuffers>;
+    /** Cached `gl.MAX_VERTEX_ATTRIBS`, read once (guards attribute-location assignment). */
+    maxVertexAttribs?: number;
 };
 /** Create an empty geometries state. */
 export declare function createGeometriesState(): GeometriesState;

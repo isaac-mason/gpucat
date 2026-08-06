@@ -38,6 +38,8 @@ type GeometryBuffers = {
 /** Geometries state: per-geometry GL resources, keyed by geometry identity. */
 export type GeometriesState = {
     data: WeakMap<Geometry, GeometryBuffers>;
+    /** Cached `gl.MAX_VERTEX_ATTRIBS`, read once (guards attribute-location assignment). */
+    maxVertexAttribs?: number;
 };
 
 /** Create an empty geometries state. */
@@ -270,6 +272,18 @@ export function prepareGeometry(
                 for (let slot = 0; slot < fmt.slots; slot++) {
                     const location = attr.shaderLocation + slot;
                     const offset = attr.offset + slot * columnBytes;
+                    // Guard against the device attribute cap: a location past MAX_VERTEX_ATTRIBS is a
+                    // silent no-op fetch (the shader reads zeros). Report it as a clear error instead.
+                    if (state.maxVertexAttribs == null) {
+                        state.maxVertexAttribs = gl.getParameter(gl.MAX_VERTEX_ATTRIBS) as number;
+                    }
+                    if (location >= state.maxVertexAttribs) {
+                        throw new Error(
+                            `[WebGLRenderer] a geometry uses vertex attribute location ${location}, but this ` +
+                                `device's MAX_VERTEX_ATTRIBS=${state.maxVertexAttribs}; reduce the number of vertex ` +
+                                `attributes on the WebGL2 backend.`,
+                        );
+                    }
                     gl.enableVertexAttribArray(location);
                     if (fmt.glType === 'float') {
                         gl.vertexAttribPointer(location, fmt.size, compType, false, stride, offset);

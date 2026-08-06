@@ -39555,6 +39555,16 @@ function prepareGeometry(gl, state, geometry, nodeState, program) {
                 for (let slot = 0; slot < fmt.slots; slot++) {
                     const location = attr.shaderLocation + slot;
                     const offset = attr.offset + slot * columnBytes;
+                    // Guard against the device attribute cap: a location past MAX_VERTEX_ATTRIBS is a
+                    // silent no-op fetch (the shader reads zeros). Report it as a clear error instead.
+                    if (state.maxVertexAttribs == null) {
+                        state.maxVertexAttribs = gl.getParameter(gl.MAX_VERTEX_ATTRIBS);
+                    }
+                    if (location >= state.maxVertexAttribs) {
+                        throw new Error(`[WebGLRenderer] a geometry uses vertex attribute location ${location}, but this ` +
+                            `device's MAX_VERTEX_ATTRIBS=${state.maxVertexAttribs}; reduce the number of vertex ` +
+                            `attributes on the WebGL2 backend.`);
+                    }
                     gl.enableVertexAttribArray(location);
                     if (fmt.glType === 'float') {
                         gl.vertexAttribPointer(location, fmt.size, compType, false, stride, offset);
@@ -40772,6 +40782,18 @@ function bindTextures(gl, textures, samplers, renderObject, programInfo) {
                 continue;
             const entry = binding.entry;
             const unit = entry.binding;
+            // Guard the flat texture-unit assignment against the device cap. Units are `entry.binding`,
+            // a 0-based index across every texture + storage-buffer a material samples; once it reaches
+            // MAX_COMBINED_TEXTURE_IMAGE_UNITS, `activeTexture(TEXTURE0 + unit)` addresses a non-existent
+            // unit and the draw samples garbage. Turn that silent corruption into a clear, actionable error.
+            if (textures.maxTextureUnits == null) {
+                textures.maxTextureUnits = gl.getParameter(gl.MAX_COMBINED_TEXTURE_IMAGE_UNITS);
+            }
+            if (unit >= textures.maxTextureUnits) {
+                throw new Error(`[WebGLRenderer] a material samples more textures + storage buffers than this device's ` +
+                    `MAX_COMBINED_TEXTURE_IMAGE_UNITS=${textures.maxTextureUnits} (needs unit ${unit}); ` +
+                    `reduce the number sampled by one material on the WebGL2 backend.`);
+            }
             // storage() read-lowering: the binding is a read-only storage GpuBuffer reinterpreted AS an
             // rgba32uint texture (WebGL2 has no SSBO). Resolve the per-buffer GL texture (version-synced),
             // bind it sampler-less (integer texelFetch needs no sampler), and set its combined-sampler uniform.

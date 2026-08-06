@@ -152,6 +152,21 @@ export function bindTextures(
             const entry = binding.entry;
             const unit = entry.binding;
 
+            // Guard the flat texture-unit assignment against the device cap. Units are `entry.binding`,
+            // a 0-based index across every texture + storage-buffer a material samples; once it reaches
+            // MAX_COMBINED_TEXTURE_IMAGE_UNITS, `activeTexture(TEXTURE0 + unit)` addresses a non-existent
+            // unit and the draw samples garbage. Turn that silent corruption into a clear, actionable error.
+            if (textures.maxTextureUnits == null) {
+                textures.maxTextureUnits = gl.getParameter(gl.MAX_COMBINED_TEXTURE_IMAGE_UNITS) as number;
+            }
+            if (unit >= textures.maxTextureUnits) {
+                throw new Error(
+                    `[WebGLRenderer] a material samples more textures + storage buffers than this device's ` +
+                        `MAX_COMBINED_TEXTURE_IMAGE_UNITS=${textures.maxTextureUnits} (needs unit ${unit}); ` +
+                        `reduce the number sampled by one material on the WebGL2 backend.`,
+                );
+            }
+
             // storage() read-lowering: the binding is a read-only storage GpuBuffer reinterpreted AS an
             // rgba32uint texture (WebGL2 has no SSBO). Resolve the per-buffer GL texture (version-synced),
             // bind it sampler-less (integer texelFetch needs no sampler), and set its combined-sampler uniform.
