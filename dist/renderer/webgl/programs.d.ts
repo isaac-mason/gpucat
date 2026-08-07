@@ -43,6 +43,12 @@ export type ProgramInfo = {
      * loop sets it per sub-draw (`firstInstance`); the single-draw path resets it to 0.
      */
     drawBaseLocation?: WebGLUniformLocation | null;
+    /**
+     * Location of the fragCoord Y-flip height uniform (`u_fragCoordFlipHeight`), or `null` when the
+     * program doesn't use `@builtin(position)` (so the uniform isn't declared). The draw path sets it
+     * to the current framebuffer height so gl_FragCoord / screenUV match WebGPU's top-left origin.
+     */
+    fragCoordFlipHeightLocation?: WebGLUniformLocation | null;
 };
 /** Program cache, keyed by the combined GLSL source string. */
 export type ProgramCache = {

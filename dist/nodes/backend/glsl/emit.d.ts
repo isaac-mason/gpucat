@@ -61,6 +61,9 @@ export type GlslBuildContext = {
     textureSamplers: Map<string, SamplerNode<d.sampler | d.samplerComparison>>;
     flipYTextures: Set<string>;
     storageMirrors: Map<number, StorageMirror>;
+    /** Cache of storage-mirror data-texture ids (derived from `storageMirrors`), built once on first
+     *  lookup. Storage mirrors are populated before emission and never change, so this is safe to memo. */
+    storageMirrorTextureIds?: Set<string>;
     attributes: Map<number, {
         shaderName: string;
         type: d.Any;

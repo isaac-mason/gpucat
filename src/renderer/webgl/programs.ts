@@ -46,6 +46,12 @@ export type ProgramInfo = {
      * loop sets it per sub-draw (`firstInstance`); the single-draw path resets it to 0.
      */
     drawBaseLocation?: WebGLUniformLocation | null;
+    /**
+     * Location of the fragCoord Y-flip height uniform (`u_fragCoordFlipHeight`), or `null` when the
+     * program doesn't use `@builtin(position)` (so the uniform isn't declared). The draw path sets it
+     * to the current framebuffer height so gl_FragCoord / screenUV match WebGPU's top-left origin.
+     */
+    fragCoordFlipHeightLocation?: WebGLUniformLocation | null;
 };
 
 /** Program cache, keyed by the combined GLSL source string. */
@@ -152,12 +158,17 @@ export function getProgram(
     // (program doesn't use instanceIndex) — that null is the draw path's "no batched base" sentinel.
     const drawBaseLocation = gl.getUniformLocation(program, 'u_drawBase');
 
+    // fragCoord Y-flip height. null when @builtin(position) isn't used (uniform not declared) — the
+    // draw path's "no flip uniform to set" sentinel.
+    const fragCoordFlipHeightLocation = gl.getUniformLocation(program, 'u_fragCoordFlipHeight');
+
     const info: ProgramInfo = {
         program,
         uboBindingPoints,
         samplerLocations: new Map(),
         flipLocations: new Map(),
         drawBaseLocation,
+        fragCoordFlipHeightLocation,
     };
     cache.programs.set(code, info);
     return info;

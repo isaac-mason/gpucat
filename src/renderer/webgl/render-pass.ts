@@ -229,6 +229,12 @@ export function executeRenderPass(
         if (currentProgram !== programInfo.program) {
             gl.useProgram(programInfo.program);
             currentProgram = programInfo.program;
+            // gl_FragCoord Y-flip height: @builtin(position)/screenUV lower to a flip against the
+            // framebuffer height so they match WebGPU's top-left origin. Constant per pass; set on
+            // each program bind. null location = program doesn't use the builtin.
+            if (programInfo.fragCoordFlipHeightLocation != null) {
+                gl.uniform1f(programInfo.fragCoordFlipHeightLocation, passCtx.height);
+            }
             if (inspector) inspector.setPipeline(mesh.name || material.constructor.name);
         }
 

@@ -19753,6 +19753,20 @@ function storageMirrorOf(ctx, idxNode) {
         return null;
     return ctx.storageMirrors.get(arr.id) ?? null;
 }
+/** Whether `id` is a storage-mirror data texture (a read-only `storage()` buffer lowered to a data
+ *  texture). These hold uploaded linear data, never a rendered-into image, so their texelFetch reads
+ *  must NOT get the render-target V-flip — and flipping by textureId would also make value- vs
+ *  name-based storage emit divergent GLSL. The id set is memoized on the context (see the field doc). */
+function isStorageMirrorTexture(ctx, id) {
+    let ids = ctx.storageMirrorTextureIds;
+    if (ids === undefined) {
+        ids = new Set();
+        for (const mirror of ctx.storageMirrors.values())
+            ids.add(mirror.base.bindingNode.textureId);
+        ctx.storageMirrorTextureIds = ids;
+    }
+    return ids.has(id);
+}
 /**
  * Detection only: is `node` a read from a lowered read-only storage buffer? Handles `storage[i].field`
  * (a struct member, leaf-first) and bare `storage[i]` of any element type — scalar/vec/matrix or a whole
@@ -20464,8 +20478,24 @@ function generateBuiltin$1(ctx, node) {
             return '(u_drawBase + uint(gl_InstanceID))';
         case 'position':
             // Fragment position; the vertex clip position is written to gl_Position by main().
+            //
+            // Canonical orientation in gpucat is WebGPU's TOP-LEFT origin. gl_FragCoord.y is BOTTOM-up
+            // on WebGL, so we flip it here (against the current render target height,
+            // `u_fragCoordFlipHeight`, set per pass by the renderer) so @builtin(position) / screenUV /
+            // any raw fragCoord read matches WebGPU. Without it a screen-space sample of a render target
+            // (post-process, avatar/studio compositing) comes out mirrored — see the `screen-orient-*`
+            // webgl-render cases.
+            //
+            // This DELIBERATELY differs from three.js, whose node system keeps the WebGL-native
+            // bottom-left origin and flips the *WebGPU* side instead (getFragCoord returns raw
+            // gl_FragCoord; ScreenNode flips when isFlipY()). We flip WebGL because WebGPU is the
+            // primary path (zero overhead there), and flipping fragCoord globally — not just screenUV —
+            // keeps EVERY position read backend-consistent. Do not "align with three.js" by removing
+            // this; it would re-mirror every render-to-texture-then-present. The expression stays inline
+            // (not a main() local) so it is valid inside emitted user Fn scopes too — gl_FragCoord and
+            // the uniform are both GLSL globals. Declared by generateGlslFragmentShader when used.
             if (ctx.stage === 'fragment')
-                return 'gl_FragCoord';
+                return '(vec4(gl_FragCoord.x, u_fragCoordFlipHeight - gl_FragCoord.y, gl_FragCoord.z, gl_FragCoord.w))';
             unsupported("builtin 'position' in vertex stage");
             break;
         default:
@@ -20809,7 +20839,7 @@ function generateTexture$1(ctx, node) {
     // (only this GLSL emitter emits the wrap; WebGPU never does), ACTIVATION is the runtime `u_flipY_<id>`
     // the renderer sets from the bound texture's isRenderTargetTexture. Routed through the pure `_flipY2f`/
     // `_flipY2i` helpers so the coord expression is evaluated once. Non-2D (cube/array/3D) never flip.
-    const flip = textureNeedsFlip(binding);
+    const flip = textureNeedsFlip(binding) && !isStorageMirrorTexture(ctx, id);
     if (flip)
         ctx.flipYTextures.add(id);
     const flipName = flipUniformName$1(id);
@@ -21792,6 +21822,13 @@ function generateGlslFragmentShader(fragmentNode, ctx, varyings, depthNode = nul
     }
     else if (hasColor) {
         lines.push('layout(location = 0) out vec4 fragColor;');
+        lines.push('');
+    }
+    // @builtin(position) lowers to a Y-flipped gl_FragCoord (see generateBuiltin 'position'); declare
+    // the render-target height uniform it reads when the builtin is used. The renderer sets it to the
+    // framebuffer height each pass.
+    if (ctx.builtins.has('position')) {
+        lines.push('uniform highp float u_fragCoordFlipHeight;');
         lines.push('');
     }
     // A depth-only fragment stage (no color output) declares no `out` — it only writes gl_FragDepth.
@@ -39701,12 +39738,16 @@ function getProgram(gl, cache, code, uniformGroups) {
     // Batched-draw base uniform. `getUniformLocation` returns null when u_drawBase isn't declared
     // (program doesn't use instanceIndex) — that null is the draw path's "no batched base" sentinel.
     const drawBaseLocation = gl.getUniformLocation(program, 'u_drawBase');
+    // fragCoord Y-flip height. null when @builtin(position) isn't used (uniform not declared) — the
+    // draw path's "no flip uniform to set" sentinel.
+    const fragCoordFlipHeightLocation = gl.getUniformLocation(program, 'u_fragCoordFlipHeight');
     const info = {
         program,
         uboBindingPoints,
         samplerLocations: new Map(),
         flipLocations: new Map(),
         drawBaseLocation,
+        fragCoordFlipHeightLocation,
     };
     cache.programs.set(code, info);
     return info;
@@ -42220,6 +42261,12 @@ function executeRenderPass$1(gl, caches, nodes, passCtx, prepared, params, inspe
         if (currentProgram !== programInfo.program) {
             gl.useProgram(programInfo.program);
             currentProgram = programInfo.program;
+            // gl_FragCoord Y-flip height: @builtin(position)/screenUV lower to a flip against the
+            // framebuffer height so they match WebGPU's top-left origin. Constant per pass; set on
+            // each program bind. null location = program doesn't use the builtin.
+            if (programInfo.fragCoordFlipHeightLocation != null) {
+                gl.uniform1f(programInfo.fragCoordFlipHeightLocation, passCtx.height);
+            }
             if (inspector)
                 inspector.setPipeline(mesh.name || material.constructor.name);
         }

@@ -6,6 +6,9 @@ exports[`struct-texture decode: emitted GLSL across scalar/vector field kinds 1`
 // Combined samplers
 precision highp usampler2D;
 uniform usampler2D u_t0;
+uniform bool u_flipY_t0;
+vec2 _flipY2f(bool f, vec2 uv) { return f ? vec2(uv.x, 1.0 - uv.y) : uv; }
+ivec2 _flipY2i(bool f, ivec2 c, int h) { return f ? ivec2(c.x, h - c.y - 1) : c; }
 // Vertex shader
 layout(location = 0) in vec2 a_uv;
 layout(location = 1) in vec3 a_position;
@@ -26,6 +29,9 @@ precision highp int;
 // Combined samplers
 precision highp usampler2D;
 uniform usampler2D u_t0;
+uniform bool u_flipY_t0;
+vec2 _flipY2f(bool f, vec2 uv) { return f ? vec2(uv.x, 1.0 - uv.y) : uv; }
+ivec2 _flipY2i(bool f, ivec2 c, int h) { return f ? ivec2(c.x, h - c.y - 1) : c; }
 // Fragment shader
 in vec2 v_107;
 
@@ -34,12 +40,12 @@ layout(location = 0) out vec4 fragColor;
 void main() {
     uint _v0 = (0u * 5u);
     uint _v1 = (_v0 + 1u);
-    uvec4 _v2 = texelFetch(u_t0, ivec2(ivec2(int((_v1 % uvec2(textureSize(u_t0, 0)).x)), int((_v1 / uvec2(textureSize(u_t0, 0)).x)))), 0);
+    uvec4 _v2 = texelFetch(u_t0, _flipY2i(u_flipY_t0, ivec2(ivec2(int((_v1 % uvec2(textureSize(u_t0, 0)).x)), int((_v1 / uvec2(textureSize(u_t0, 0)).x)))), textureSize(u_t0, 0).y), 0);
     uint _v3 = (_v0 + 2u);
-    uvec4 _v4 = texelFetch(u_t0, ivec2(ivec2(int((_v3 % uvec2(textureSize(u_t0, 0)).x)), int((_v3 / uvec2(textureSize(u_t0, 0)).x)))), 0);
+    uvec4 _v4 = texelFetch(u_t0, _flipY2i(u_flipY_t0, ivec2(ivec2(int((_v3 % uvec2(textureSize(u_t0, 0)).x)), int((_v3 / uvec2(textureSize(u_t0, 0)).x)))), textureSize(u_t0, 0).y), 0);
     uint _v5 = (_v0 + 3u);
-    uvec4 _v6 = texelFetch(u_t0, ivec2(ivec2(int((_v5 % uvec2(textureSize(u_t0, 0)).x)), int((_v5 / uvec2(textureSize(u_t0, 0)).x)))), 0);
+    uvec4 _v6 = texelFetch(u_t0, _flipY2i(u_flipY_t0, ivec2(ivec2(int((_v5 % uvec2(textureSize(u_t0, 0)).x)), int((_v5 / uvec2(textureSize(u_t0, 0)).x)))), textureSize(u_t0, 0).y), 0);
     uint _v7 = (_v0 + 4u);
-    fragColor = vec4(((((uintBitsToFloat(texelFetch(u_t0, ivec2(ivec2(int((_v0 % uvec2(textureSize(u_t0, 0)).x)), int((_v0 / uvec2(textureSize(u_t0, 0)).x)))), 0).z) + float(texelFetch(u_t0, ivec2(ivec2(int((_v0 % uvec2(textureSize(u_t0, 0)).x)), int((_v0 / uvec2(textureSize(u_t0, 0)).x)))), 0).x)) + float(int(texelFetch(u_t0, ivec2(ivec2(int((_v0 % uvec2(textureSize(u_t0, 0)).x)), int((_v0 / uvec2(textureSize(u_t0, 0)).x)))), 0).y))) + vec2(uintBitsToFloat(_v2.x), uintBitsToFloat(_v2.y)).x) + vec3(uintBitsToFloat(_v4.x), uintBitsToFloat(_v4.y), uintBitsToFloat(_v4.z)).y), vec4(uintBitsToFloat(_v6.x), uintBitsToFloat(_v6.y), uintBitsToFloat(_v6.z), uintBitsToFloat(_v6.w)).z, float(texelFetch(u_t0, ivec2(ivec2(int((_v7 % uvec2(textureSize(u_t0, 0)).x)), int((_v7 / uvec2(textureSize(u_t0, 0)).x)))), 0).w), 1.0);
+    fragColor = vec4(((((uintBitsToFloat(texelFetch(u_t0, _flipY2i(u_flipY_t0, ivec2(ivec2(int((_v0 % uvec2(textureSize(u_t0, 0)).x)), int((_v0 / uvec2(textureSize(u_t0, 0)).x)))), textureSize(u_t0, 0).y), 0).z) + float(texelFetch(u_t0, _flipY2i(u_flipY_t0, ivec2(ivec2(int((_v0 % uvec2(textureSize(u_t0, 0)).x)), int((_v0 / uvec2(textureSize(u_t0, 0)).x)))), textureSize(u_t0, 0).y), 0).x)) + float(int(texelFetch(u_t0, _flipY2i(u_flipY_t0, ivec2(ivec2(int((_v0 % uvec2(textureSize(u_t0, 0)).x)), int((_v0 / uvec2(textureSize(u_t0, 0)).x)))), textureSize(u_t0, 0).y), 0).y))) + vec2(uintBitsToFloat(_v2.x), uintBitsToFloat(_v2.y)).x) + vec3(uintBitsToFloat(_v4.x), uintBitsToFloat(_v4.y), uintBitsToFloat(_v4.z)).y), vec4(uintBitsToFloat(_v6.x), uintBitsToFloat(_v6.y), uintBitsToFloat(_v6.z), uintBitsToFloat(_v6.w)).z, float(texelFetch(u_t0, _flipY2i(u_flipY_t0, ivec2(ivec2(int((_v7 % uvec2(textureSize(u_t0, 0)).x)), int((_v7 / uvec2(textureSize(u_t0, 0)).x)))), textureSize(u_t0, 0).y), 0).w), 1.0);
 }"
 `;

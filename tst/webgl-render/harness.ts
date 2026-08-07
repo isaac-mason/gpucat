@@ -28,6 +28,7 @@ import {
     PerspectiveCamera,
     RenderTarget,
     Scene,
+    screenCoordinate,
     screenUV,
     select,
     storage,
@@ -2491,10 +2492,268 @@ async function caseRenderTargetFlip(): Promise<CaseResult> {
     return { name: 'rtt-flip', pixel, expected: [255, 0, 0, 255] };
 }
 
+/** Read the default framebuffer at (x,y). readPixels origin is bottom-left, so y=SIZE-4 is the
+ *  DISPLAYED TOP and y=3 is the DISPLAYED BOTTOM. */
+function readAt(gl: WebGL2RenderingContext, x: number, y: number): [number, number, number, number] {
+    const buf = new Uint8Array(4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+    return [buf[0], buf[1], buf[2], buf[3]];
+}
+
+const isRed = (c: number[]): boolean => c[0] > 200 && c[1] < 60 && c[2] < 60;
+
+/**
+ * screen-orient-direct: two-tone (clip top RED, bottom GREEN) rendered DIRECTLY to the default
+ * framebuffer. The browser presents the default fb right-side-up, so displayed-top MUST be RED. The
+ * baseline for `screen-orient-present` below — proves the direct path is upright before comparing.
+ */
+async function caseScreenOrientDirect(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+    const g = createFullscreenTriangleGeometry();
+    const p = attribute('position', d.vec3f);
+    const vy = varying(p.y, 'vy');
+    const mat = new Material({
+        vertex: vec4(p, f32(1)),
+        fragment: select(vec4(0, 1, 0, 1), vec4(1, 0, 0, 1), vy.greaterThan(f32(0))),
+        depthTest: false,
+    });
+    const s = new Scene();
+    s.add(new Mesh(g, mat));
+    const c = new PerspectiveCamera();
+    s.updateWorldMatrix();
+    c.updateViewMatrix();
+    renderer.render(s, c);
+    const gl = renderer.gl!;
+    const dispTop = readAt(gl, CENTER, SIZE - 4);
+    const dispBottom = readAt(gl, CENTER, 3);
+    renderer.dispose();
+    return {
+        name: 'screen-orient-direct',
+        pixel: isRed(dispTop) ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `dispTop=${dispTop.join(',')} dispBottom=${dispBottom.join(',')} (top should be RED)`,
+    };
+}
+
+/**
+ * screen-orient-present: the app present path — two-tone into an RT, then a fullscreen pass sampling
+ * it via `screenUV` to the default framebuffer (the studio/avatar `renderOutput(fxaa(texture(rt)))`
+ * shape, minus the pure color math, which doesn't affect orientation). Displayed-top MUST be RED to
+ * match the direct baseline / WebGPU. GREEN means the on-screen present is vertically mirrored, which
+ * happens when gl_FragCoord.y (bottom-up) isn't flipped to top-left: screenUV then double-inverts
+ * against the render-target sample flip. The constant-uv `rtt-flip` case can't catch this — it needs
+ * a screenUV-varying sample across the whole image.
+ */
+async function caseScreenOrientPresent(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const rt = new RenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+    // pass 1: two-tone into the RT.
+    const g1 = createFullscreenTriangleGeometry();
+    const p1 = attribute('position', d.vec3f);
+    const vy = varying(p1.y, 'vy');
+    const twoTone = new Material({
+        vertex: vec4(p1, f32(1)),
+        fragment: select(vec4(0, 1, 0, 1), vec4(1, 0, 0, 1), vy.greaterThan(f32(0))),
+        depthTest: false,
+    });
+    const s1 = new Scene();
+    s1.add(new Mesh(g1, twoTone));
+    const c1 = new PerspectiveCamera();
+    s1.updateWorldMatrix();
+    c1.updateViewMatrix();
+    const saved = renderer.renderTarget;
+    renderer.renderTarget = rt;
+    renderer.render(s1, c1);
+    renderer.renderTarget = saved;
+    // pass 2: present via screenUV to the default framebuffer.
+    renderer.clearColor = [0, 0, 0, 1];
+    const g2 = createFullscreenTriangleGeometry();
+    const p2 = attribute('position', d.vec3f);
+    const present = new Material({
+        vertex: vec4(p2, f32(1)),
+        fragment: texture(rt.texture! as Texture).sample(screenUV),
+        depthTest: false,
+    });
+    const s2 = new Scene();
+    s2.add(new Mesh(g2, present));
+    const c2 = new PerspectiveCamera();
+    s2.updateWorldMatrix();
+    c2.updateViewMatrix();
+    renderer.render(s2, c2);
+    const gl = renderer.gl!;
+    const dispTop = readAt(gl, CENTER, SIZE - 4);
+    const dispBottom = readAt(gl, CENTER, 3);
+    renderer.dispose();
+    return {
+        name: 'screen-orient-present',
+        pixel: isRed(dispTop) ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `dispTop=${dispTop.join(',')} dispBottom=${dispBottom.join(',')} (top should be RED; GREEN = mirrored)`,
+    };
+}
+
+/**
+ * fragcoord-direct: a shader that reads RAW gl_FragCoord (screenCoordinate), NOT screenUV, and splits
+ * the image by pixel row straight to the default framebuffer. With fragCoord flipped to WebGPU's
+ * top-left origin, `fragCoord.y < height/2` is the DISPLAYED TOP, so displayed-top MUST be RED. Guards
+ * the global fragCoord flip for direct (non-screenUV) position reads.
+ */
+async function caseFragCoordDirect(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+    const g = createFullscreenTriangleGeometry();
+    const p = attribute('position', d.vec3f);
+    const mat = new Material({
+        vertex: vec4(p, f32(1)),
+        // top-left fragCoord: y < half → top → RED, else GREEN.
+        fragment: select(vec4(0, 1, 0, 1), vec4(1, 0, 0, 1), screenCoordinate.y.lessThan(f32(SIZE / 2))),
+        depthTest: false,
+    });
+    const s = new Scene();
+    s.add(new Mesh(g, mat));
+    const c = new PerspectiveCamera();
+    s.updateWorldMatrix();
+    c.updateViewMatrix();
+    renderer.render(s, c);
+    const gl = renderer.gl!;
+    const dispTop = readAt(gl, CENTER, SIZE - 4);
+    const dispBottom = readAt(gl, CENTER, 3);
+    renderer.dispose();
+    return {
+        name: 'fragcoord-direct',
+        pixel: isRed(dispTop) ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `dispTop=${dispTop.join(',')} dispBottom=${dispBottom.join(',')} (top should be RED)`,
+    };
+}
+
+/**
+ * geomuv-present: two-tone into an RT, then present sampling by the fullscreen triangle's GEOMETRY uv
+ * attribute (top-left convention), NOT screenUV, to the default framebuffer. Isolates the render-target
+ * V-flip for geometry-uv sampling (no fragCoord in the uv). Displayed-top MUST be RED.
+ */
+async function caseGeomUvPresent(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const rt = new RenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+    // pass 1: two-tone into the RT (clip top RED, bottom GREEN).
+    const g1 = createFullscreenTriangleGeometry();
+    const p1 = attribute('position', d.vec3f);
+    const vy = varying(p1.y, 'vy');
+    const twoTone = new Material({
+        vertex: vec4(p1, f32(1)),
+        fragment: select(vec4(0, 1, 0, 1), vec4(1, 0, 0, 1), vy.greaterThan(f32(0))),
+        depthTest: false,
+    });
+    const s1 = new Scene();
+    s1.add(new Mesh(g1, twoTone));
+    const c1 = new PerspectiveCamera();
+    s1.updateWorldMatrix();
+    c1.updateViewMatrix();
+    const saved = renderer.renderTarget;
+    renderer.renderTarget = rt;
+    renderer.render(s1, c1);
+    renderer.renderTarget = saved;
+    // pass 2: present sampling by the geometry uv (top-left), not screenUV.
+    renderer.clearColor = [0, 0, 0, 1];
+    const g2 = createFullscreenTriangleGeometry();
+    const p2 = attribute('position', d.vec3f);
+    const vUv = varying(attribute('uv', d.vec2f), 'vUv');
+    const present = new Material({
+        vertex: vec4(p2, f32(1)),
+        fragment: texture(rt.texture! as Texture).sample(vUv),
+        depthTest: false,
+    });
+    const s2 = new Scene();
+    s2.add(new Mesh(g2, present));
+    const c2 = new PerspectiveCamera();
+    s2.updateWorldMatrix();
+    c2.updateViewMatrix();
+    renderer.render(s2, c2);
+    const gl = renderer.gl!;
+    const dispTop = readAt(gl, CENTER, SIZE - 4);
+    const dispBottom = readAt(gl, CENTER, 3);
+    renderer.dispose();
+    return {
+        name: 'geomuv-present',
+        pixel: isRed(dispTop) ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `dispTop=${dispTop.join(',')} dispBottom=${dispBottom.join(',')} (top should be RED)`,
+    };
+}
+
+/**
+ * viewport-cell-present: the studio-grid shape. Render solid RED into the TOP-HALF cell of a shared RT
+ * via viewport+scissor (a top-left rect) over a BLUE-cleared RT, then present the whole RT via screenUV.
+ * The RED cell MUST land in the DISPLAYED TOP (viewport Y flipped to GL's bottom-left) with BLUE below.
+ * If the viewport Y-flip regresses, RED lands at the bottom.
+ */
+async function caseViewportCellPresent(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const rt = new RenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+    // clear the whole RT to BLUE.
+    renderer.clearColor = [0, 0, 1, 1];
+    const saved = renderer.renderTarget;
+    renderer.renderTarget = rt;
+    renderer.render(new Scene(), new PerspectiveCamera());
+    // draw solid RED into the top-half cell (top-left rect), without re-clearing the blue.
+    rt.viewport = [0, 0, SIZE, SIZE / 2];
+    rt.scissor = [0, 0, SIZE, SIZE / 2];
+    rt.scissorTest = true;
+    renderer.autoClear = false;
+    const g = createFullscreenTriangleGeometry();
+    const p = attribute('position', d.vec3f);
+    const red = new Material({ vertex: vec4(p, f32(1)), fragment: vec4(1, 0, 0, 1), depthTest: false });
+    const s = new Scene();
+    s.add(new Mesh(g, red));
+    const c = new PerspectiveCamera();
+    s.updateWorldMatrix();
+    c.updateViewMatrix();
+    renderer.render(s, c);
+    // restore full-target state + present via screenUV.
+    rt.scissorTest = false;
+    rt.viewport = null;
+    rt.scissor = null;
+    renderer.autoClear = true;
+    renderer.renderTarget = saved;
+    renderer.clearColor = [0, 0, 0, 1];
+    const g2 = createFullscreenTriangleGeometry();
+    const p2 = attribute('position', d.vec3f);
+    const present = new Material({
+        vertex: vec4(p2, f32(1)),
+        fragment: texture(rt.texture! as Texture).sample(screenUV),
+        depthTest: false,
+    });
+    const s2 = new Scene();
+    s2.add(new Mesh(g2, present));
+    const c2 = new PerspectiveCamera();
+    s2.updateWorldMatrix();
+    c2.updateViewMatrix();
+    renderer.render(s2, c2);
+    const gl = renderer.gl!;
+    const dispTop = readAt(gl, CENTER, SIZE - 4);
+    const dispBottom = readAt(gl, CENTER, 3);
+    renderer.dispose();
+    const isBlue = (col: number[]): boolean => col[2] > 200 && col[0] < 60 && col[1] < 60;
+    const pass = isRed(dispTop) && isBlue(dispBottom);
+    return {
+        name: 'viewport-cell-present',
+        pixel: pass ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `dispTop=${dispTop.join(',')} dispBottom=${dispBottom.join(',')} (top RED, bottom BLUE)`,
+    };
+}
+
 export async function run(): Promise<RunResult> {
     try {
         const cases: CaseResult[] = [];
         const runners: Array<() => Promise<CaseResult>> = [
+            caseScreenOrientDirect,
+            caseScreenOrientPresent,
+            caseFragCoordDirect,
+            caseGeomUvPresent,
+            caseViewportCellPresent,
             caseClear,
             caseSolid,
             caseUniform,

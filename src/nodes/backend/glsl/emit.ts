@@ -292,6 +292,9 @@ export type GlslBuildContext = {
     // Keyed by StorageNode id → the mirror's base texture node + its texel width, so a `storage[i].field`
     // read lowers to the same `decodeField` path as `texture(t).load(schema, i)`. Populated by compileGlsl.
     storageMirrors: Map<number, StorageMirror>;
+    /** Cache of storage-mirror data-texture ids (derived from `storageMirrors`), built once on first
+     *  lookup. Storage mirrors are populated before emission and never change, so this is safe to memo. */
+    storageMirrorTextureIds?: Set<string>;
 
     // Per-stage emission scratch.
     attributes: Map<number, { shaderName: string; type: d.Any; location: number; node: AttributeNode<d.Any> }>;
@@ -369,6 +372,20 @@ function storageMirrorOf(ctx: GlslBuildContext, idxNode: IndexNode<d.Any>): Stor
     const arr = idxNode.array as AnyNode;
     if (arr.kind !== NodeKind.Storage) return null;
     return ctx.storageMirrors.get(arr.id) ?? null;
+}
+
+/** Whether `id` is a storage-mirror data texture (a read-only `storage()` buffer lowered to a data
+ *  texture). These hold uploaded linear data, never a rendered-into image, so their texelFetch reads
+ *  must NOT get the render-target V-flip — and flipping by textureId would also make value- vs
+ *  name-based storage emit divergent GLSL. The id set is memoized on the context (see the field doc). */
+function isStorageMirrorTexture(ctx: GlslBuildContext, id: string): boolean {
+    let ids = ctx.storageMirrorTextureIds;
+    if (ids === undefined) {
+        ids = new Set();
+        for (const mirror of ctx.storageMirrors.values()) ids.add(mirror.base.bindingNode.textureId);
+        ctx.storageMirrorTextureIds = ids;
+    }
+    return ids.has(id);
 }
 
 /**
@@ -1097,7 +1114,24 @@ function generateBuiltin(ctx: GlslBuildContext, node: BuiltinNode<d.Any>): strin
             return '(u_drawBase + uint(gl_InstanceID))';
         case 'position':
             // Fragment position; the vertex clip position is written to gl_Position by main().
-            if (ctx.stage === 'fragment') return 'gl_FragCoord';
+            //
+            // Canonical orientation in gpucat is WebGPU's TOP-LEFT origin. gl_FragCoord.y is BOTTOM-up
+            // on WebGL, so we flip it here (against the current render target height,
+            // `u_fragCoordFlipHeight`, set per pass by the renderer) so @builtin(position) / screenUV /
+            // any raw fragCoord read matches WebGPU. Without it a screen-space sample of a render target
+            // (post-process, avatar/studio compositing) comes out mirrored — see the `screen-orient-*`
+            // webgl-render cases.
+            //
+            // This DELIBERATELY differs from three.js, whose node system keeps the WebGL-native
+            // bottom-left origin and flips the *WebGPU* side instead (getFragCoord returns raw
+            // gl_FragCoord; ScreenNode flips when isFlipY()). We flip WebGL because WebGPU is the
+            // primary path (zero overhead there), and flipping fragCoord globally — not just screenUV —
+            // keeps EVERY position read backend-consistent. Do not "align with three.js" by removing
+            // this; it would re-mirror every render-to-texture-then-present. The expression stays inline
+            // (not a main() local) so it is valid inside emitted user Fn scopes too — gl_FragCoord and
+            // the uniform are both GLSL globals. Declared by generateGlslFragmentShader when used.
+            if (ctx.stage === 'fragment')
+                return '(vec4(gl_FragCoord.x, u_fragCoordFlipHeight - gl_FragCoord.y, gl_FragCoord.z, gl_FragCoord.w))';
             unsupported("builtin 'position' in vertex stage");
             break;
         default:
@@ -1479,7 +1513,7 @@ function generateTexture(ctx: GlslBuildContext, node: TextureNode): string {
     // (only this GLSL emitter emits the wrap; WebGPU never does), ACTIVATION is the runtime `u_flipY_<id>`
     // the renderer sets from the bound texture's isRenderTargetTexture. Routed through the pure `_flipY2f`/
     // `_flipY2i` helpers so the coord expression is evaluated once. Non-2D (cube/array/3D) never flip.
-    const flip = textureNeedsFlip(binding);
+    const flip = textureNeedsFlip(binding) && !isStorageMirrorTexture(ctx, id);
     if (flip) ctx.flipYTextures.add(id);
     const flipName = flipUniformName(id);
 
@@ -2551,6 +2585,13 @@ export function generateGlslFragmentShader(
         lines.push('');
     } else if (hasColor) {
         lines.push('layout(location = 0) out vec4 fragColor;');
+        lines.push('');
+    }
+    // @builtin(position) lowers to a Y-flipped gl_FragCoord (see generateBuiltin 'position'); declare
+    // the render-target height uniform it reads when the builtin is used. The renderer sets it to the
+    // framebuffer height each pass.
+    if (ctx.builtins.has('position')) {
+        lines.push('uniform highp float u_fragCoordFlipHeight;');
         lines.push('');
     }
     // A depth-only fragment stage (no color output) declares no `out` — it only writes gl_FragDepth.
