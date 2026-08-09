@@ -124,6 +124,18 @@ export declare class RendererInspector extends InspectorBase {
     private _gpuInitialized;
     private _querySet;
     private _resolveBuffer;
+    /** In-flight readback map promises, so teardown can await them before it
+     *  destroys the buffers they read (see `drainThenDestroy`). Each settles once
+     *  its buffer is unmapped. */
+    private _pendingMaps;
+    /** Bumped on every GPU teardown. A readback captures this at submit and bails
+     *  after its `await` if it no longer matches — the gpucat analog of three.js's
+     *  `isDisposed` re-check, but re-attach-safe (a fresh attach runs a new
+     *  generation rather than staying permanently dead). */
+    private _generation;
+    /** Set once we hit the readback cap and drop a frame, so the warning fires once
+     *  per attach instead of every frame while saturated. Reset in init(). */
+    private _readbackSaturatedLogged;
     /** The WebGL disjoint-timer extension, or null if unavailable. */
     private _glTimerExt;
     /** Free pool of GL timer-query objects to reuse. */
@@ -135,11 +147,12 @@ export declare class RendererInspector extends InspectorBase {
     private _glActiveQuery;
     /** Per-frame list of entries whose GL query landed in this frame, to compute the frame span. */
     private _glFrameQueries;
-    /** Pool of MAP_READ readback buffers (see READBACK_POOL_SIZE). Each frame
-     *  resolves into a free (unmapped) one, so a pending mapAsync from a prior
-     *  frame never blocks the next — every frame's gpuMs resolves and back-patches
-     *  its record. The resolve buffer isn't pooled: resolveQuerySet + copy run
-     *  synchronously at submit, so it's free again before the next frame. */
+    /** Pool of MAP_READ readback buffers, grown on demand up to READBACK_POOL_CAP
+     *  (see _acquireReadback). Each frame resolves into a free (unmapped) one, so a
+     *  pending mapAsync from a prior frame never blocks the next — every frame's
+     *  gpuMs resolves and back-patches its record. The resolve buffer isn't pooled:
+     *  resolveQuerySet + copy run synchronously at submit, so it's free again before
+     *  the next frame. */
     private _readbackPool;
     private _lastFinishTime;
     private _deltaTimes;
@@ -154,7 +167,26 @@ export declare class RendererInspector extends InspectorBase {
     private _entryRefs;
     setRenderer(renderer: InspectableRenderer | null): void;
     init(): void;
-    private _destroyTimestampGpu;
+    /**
+     * Destroy GPU resources only after in-flight GPU work drains: any submitted
+     * command buffer that references them (timestamp resolve/copy, probe passes)
+     * and any pending readback map. Destroying a resource while it's still
+     * referenced by in-flight work can lose the whole device in Dawn ("A valid
+     * external Instance reference no longer exists"), taking the host app's
+     * renderer down with it. Falls back to an immediate destroy when there's no
+     * WebGPU device (WebGL, or the renderer is already gone). The returned promise
+     * resolves once the resources are actually destroyed, so a caller can `await`
+     * full teardown (mirrors three.js's async `TimestampQueryPool.dispose()`).
+     */
+    protected drainThenDestroy(destroy: () => void): Promise<void>;
+    /**
+     * Release the GPU timestamp resources. Awaitable: WebGPU query/buffer destroys
+     * are deferred behind `drainThenDestroy` so in-flight resolve/copy work and
+     * pending readback maps finish first (a synchronous destroy mid-submit can lose
+     * the whole device). WebGL timer-query cleanup is synchronous. Idempotent — a
+     * second call finds the fields already nulled and no-ops.
+     */
+    protected disposeTimestampGpu(): Promise<void>;
     /** Acquire the disjoint-timer extension if available; enables per-pass GPU timing on WebGL. */
     private _initWebGLTimestamps;
     /** Grab a free GL timer query, creating one if the pool is empty. */
@@ -209,6 +241,13 @@ export declare class RendererInspector extends InspectorBase {
     getRecentFrames(count: number): FrameRecord[];
     /** Collect all GPU entries (render/compute) from timeline tree, mapped by querySlot */
     private _collectGpuEntries;
+    /**
+     * A free (unmapped) readback buffer for this frame's timestamps. Reuses a
+     * pooled buffer if one is idle, else allocates a new one while under the cap so
+     * the pool self-sizes to the real map latency. Returns null (logging once) at
+     * the cap, so a stalled readback drops a frame instead of growing without bound.
+     */
+    private _acquireReadback;
     /**
      * Resolves GPU timestamps for a frame.
      * Checks buffer.mapState before using, skips if not 'unmapped'.

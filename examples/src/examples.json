@@ -470,5 +470,16 @@
         ],
         "backend": "webgl",
         "category": "compute"
+    },
+    "example-webgpu-inspector-toggle": {
+        "title": "Inspector Toggle",
+        "description": "Mount and unmount the inspector (manually or on an auto-toggle soak) while rendering, to verify attach/detach never loses the device.",
+        "tags": [
+            "inspector",
+            "diagnostics",
+            "device-lost"
+        ],
+        "backend": "webgpu",
+        "category": "diagnostics"
     }
 }

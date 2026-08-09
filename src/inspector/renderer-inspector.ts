@@ -140,10 +140,13 @@ interface EXT_disjoint_timer_query_webgl2 {
 const FRAME_HISTORY = 512;
 const MAX_PASSES_PER_FRAME = 64;
 // Readback buffers rotate so a frame's timestamps can resolve while prior frames'
-// mapAsync reads are still in flight. Sized to cover typical map latency (1-3
-// frames) so *every* frame resolves — the Perf Timeline recording needs per-frame
-// GPU times, not just a recent one. Buffers are tiny (1 KiB), so err generous.
-const READBACK_POOL_SIZE = 6;
+// mapAsync reads are still in flight (map latency is 1-3 frames typically). The
+// pool is allocated on demand and self-sizes to the real latency rather than a
+// fixed guess (see _acquireReadback), so the Perf Timeline recording gets a
+// per-frame value without over-allocating. This cap only bounds the worst case: if
+// readbacks stall (device lost / tab backgrounded) it turns an unbounded pool leak
+// into a logged, dropped frame. Buffers are tiny (~1 KiB).
+const READBACK_POOL_CAP = 8;
 
 // ---------------------------------------------------------------------------
 // RendererInspector
@@ -164,6 +167,18 @@ export class RendererInspector extends InspectorBase {
     private _gpuInitialized = false;
     private _querySet: GPUQuerySet | null = null;
     private _resolveBuffer: GPUBuffer | null = null;
+    /** In-flight readback map promises, so teardown can await them before it
+     *  destroys the buffers they read (see `drainThenDestroy`). Each settles once
+     *  its buffer is unmapped. */
+    private _pendingMaps = new Set<Promise<unknown>>();
+    /** Bumped on every GPU teardown. A readback captures this at submit and bails
+     *  after its `await` if it no longer matches — the gpucat analog of three.js's
+     *  `isDisposed` re-check, but re-attach-safe (a fresh attach runs a new
+     *  generation rather than staying permanently dead). */
+    private _generation = 0;
+    /** Set once we hit the readback cap and drop a frame, so the warning fires once
+     *  per attach instead of every frame while saturated. Reset in init(). */
+    private _readbackSaturatedLogged = false;
 
     // -----------------------------------------------------------------------
     // WebGL GPU-timing state (EXT_disjoint_timer_query_webgl2)
@@ -179,11 +194,12 @@ export class RendererInspector extends InspectorBase {
     private _glActiveQuery: { query: WebGLQuery; entry: RenderEntry | ComputeEntry } | null = null;
     /** Per-frame list of entries whose GL query landed in this frame, to compute the frame span. */
     private _glFrameQueries: { query: WebGLQuery; entry: RenderEntry | ComputeEntry }[] = [];
-    /** Pool of MAP_READ readback buffers (see READBACK_POOL_SIZE). Each frame
-     *  resolves into a free (unmapped) one, so a pending mapAsync from a prior
-     *  frame never blocks the next — every frame's gpuMs resolves and back-patches
-     *  its record. The resolve buffer isn't pooled: resolveQuerySet + copy run
-     *  synchronously at submit, so it's free again before the next frame. */
+    /** Pool of MAP_READ readback buffers, grown on demand up to READBACK_POOL_CAP
+     *  (see _acquireReadback). Each frame resolves into a free (unmapped) one, so a
+     *  pending mapAsync from a prior frame never blocks the next — every frame's
+     *  gpuMs resolves and back-patches its record. The resolve buffer isn't pooled:
+     *  resolveQuerySet + copy run synchronously at submit, so it's free again before
+     *  the next frame. */
     private _readbackPool: GPUBuffer[] = [];
 
     // FPS tracking
@@ -223,7 +239,7 @@ export class RendererInspector extends InspectorBase {
 
     override setRenderer(renderer: InspectableRenderer | null): void {
         if (renderer === null) {
-            this._destroyTimestampGpu();
+            void this.disposeTimestampGpu();
             super.setRenderer(null);
             return;
         }
@@ -256,31 +272,70 @@ export class RendererInspector extends InspectorBase {
                 size: resolveSize,
                 usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC,
             });
+            // Readback buffers are allocated on demand and pooled (see _acquireReadback),
+            // so the pool self-sizes to the observed map latency.
             this._readbackPool = [];
-            for (let i = 0; i < READBACK_POOL_SIZE; i++) {
-                this._readbackPool.push(
-                    device.createBuffer({
-                        size: resolveSize,
-                        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-                    }),
-                );
-            }
+            this._readbackSaturatedLogged = false;
         }
 
         this._gpuInitialized = true;
     }
 
-    private _destroyTimestampGpu(): void {
-        // WebGPU query resources.
-        this._querySet?.destroy();
-        this._querySet = null;
-        // GPUBuffers don't always expose destroy on all browsers; guard.
-        if (this._resolveBuffer?.destroy) this._resolveBuffer.destroy();
-        this._resolveBuffer = null;
-        for (const b of this._readbackPool) b.destroy?.();
-        this._readbackPool = [];
+    /**
+     * Destroy GPU resources only after in-flight GPU work drains: any submitted
+     * command buffer that references them (timestamp resolve/copy, probe passes)
+     * and any pending readback map. Destroying a resource while it's still
+     * referenced by in-flight work can lose the whole device in Dawn ("A valid
+     * external Instance reference no longer exists"), taking the host app's
+     * renderer down with it. Falls back to an immediate destroy when there's no
+     * WebGPU device (WebGL, or the renderer is already gone). The returned promise
+     * resolves once the resources are actually destroyed, so a caller can `await`
+     * full teardown (mirrors three.js's async `TimestampQueryPool.dispose()`).
+     */
+    protected async drainThenDestroy(destroy: () => void): Promise<void> {
+        const renderer = this.renderer;
+        const device = renderer && renderer.backend === 'webgpu' ? renderer.device : null;
+        if (!device) {
+            destroy();
+            return;
+        }
+        const pending = [...this._pendingMaps];
+        await Promise.allSettled([device.queue.onSubmittedWorkDone(), ...pending]);
+        destroy();
+    }
 
-        // WebGL timer-query resources.
+    /**
+     * Release the GPU timestamp resources. Awaitable: WebGPU query/buffer destroys
+     * are deferred behind `drainThenDestroy` so in-flight resolve/copy work and
+     * pending readback maps finish first (a synchronous destroy mid-submit can lose
+     * the whole device). WebGL timer-query cleanup is synchronous. Idempotent — a
+     * second call finds the fields already nulled and no-ops.
+     */
+    protected disposeTimestampGpu(): Promise<void> {
+        // Bump the generation so any in-flight readback bails after its await
+        // instead of writing results into a torn-down inspector.
+        this._generation++;
+
+        // Capture + null the WebGPU fields synchronously so no further frame touches
+        // them, then destroy once in-flight work has drained.
+        const querySet = this._querySet;
+        const resolveBuffer = this._resolveBuffer;
+        const readbackPool = this._readbackPool;
+        this._querySet = null;
+        this._resolveBuffer = null;
+        this._readbackPool = [];
+        const drained =
+            querySet || resolveBuffer || readbackPool.length > 0
+                ? this.drainThenDestroy(() => {
+                      querySet?.destroy();
+                      // GPUBuffers don't always expose destroy on all browsers; guard.
+                      if (resolveBuffer?.destroy) resolveBuffer.destroy();
+                      for (const b of readbackPool) b.destroy?.();
+                  })
+                : Promise.resolve();
+
+        // WebGL timer-query resources. GL timer queries are polled (getQueryParameter),
+        // not mapped, and deleteQuery is safe on an in-flight query, so tear down inline.
         const gl = this.renderer && this.renderer.backend === 'webgl' ? this.renderer.gl : null;
         if (gl) {
             for (const q of this._glQueryPool) gl.deleteQuery(q);
@@ -295,6 +350,8 @@ export class RendererInspector extends InspectorBase {
 
         this.hasTimestamps = false;
         this._gpuInitialized = false;
+
+        return drained;
     }
 
     // -----------------------------------------------------------------------
@@ -702,6 +759,32 @@ export class RendererInspector extends InspectorBase {
     }
 
     /**
+     * A free (unmapped) readback buffer for this frame's timestamps. Reuses a
+     * pooled buffer if one is idle, else allocates a new one while under the cap so
+     * the pool self-sizes to the real map latency. Returns null (logging once) at
+     * the cap, so a stalled readback drops a frame instead of growing without bound.
+     */
+    private _acquireReadback(device: GPUDevice, size: number): GPUBuffer | null {
+        const free = this._readbackPool.find((b) => b.mapState === 'unmapped');
+        if (free) return free;
+        if (this._readbackPool.length < READBACK_POOL_CAP) {
+            const buffer = device.createBuffer({
+                size,
+                usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+            });
+            this._readbackPool.push(buffer);
+            return buffer;
+        }
+        if (!this._readbackSaturatedLogged) {
+            this._readbackSaturatedLogged = true;
+            this.log.warn(
+                `[inspector] timestamp readback pool saturated at ${READBACK_POOL_CAP} buffers; dropping this frame's GPU timings (readbacks are landing slower than ${READBACK_POOL_CAP} frames).`,
+            );
+        }
+        return null;
+    }
+
+    /**
      * Resolves GPU timestamps for a frame.
      * Checks buffer.mapState before using, skips if not 'unmapped'.
      */
@@ -718,10 +801,10 @@ export class RendererInspector extends InspectorBase {
         const slotCount = Math.min(gpuEntries.size, MAX_PASSES_PER_FRAME);
         if (slotCount === 0) return;
 
-        // Grab a free readback buffer from the pool. Only skip if the whole pool is
-        // still in flight (map latency spiked past READBACK_POOL_SIZE frames) —
-        // rare, and recording resumes the very next frame.
-        const rb = this._readbackPool.find((b) => b.mapState === 'unmapped');
+        // Grab a free readback buffer, growing the pool on demand up to the cap.
+        // Null means the whole pool is still in flight and we're at the cap — drop
+        // this frame's timings (logged once) rather than grow without bound.
+        const rb = this._acquireReadback(device, MAX_PASSES_PER_FRAME * 2 * 8);
         if (!rb) return;
 
         // Find the max slot used to know how many to resolve
@@ -736,8 +819,18 @@ export class RendererInspector extends InspectorBase {
         encoder.copyBufferToBuffer(this._resolveBuffer!, 0, rb, 0, slotsToResolve * 2 * 8);
         device.queue.submit([encoder.finish()]);
 
-        rb.mapAsync(GPUMapMode.READ, 0, slotsToResolve * 2 * 8)
+        // Capture the generation so a readback that lands after a teardown bails
+        // instead of writing into a torn-down inspector (three.js's post-await
+        // `isDisposed` re-check). Tracked in `_pendingMaps` so teardown can await it
+        // before destroying `rb`.
+        const gen = this._generation;
+        const mapDone = rb
+            .mapAsync(GPUMapMode.READ, 0, slotsToResolve * 2 * 8)
             .then(() => {
+                if (gen !== this._generation) {
+                    if (rb.mapState === 'mapped') rb.unmap();
+                    return;
+                }
                 const data = new BigUint64Array(rb.getMappedRange(0, slotsToResolve * 2 * 8));
 
                 // Frame GPU epoch + end: earliest begin and latest end across the
@@ -773,5 +866,7 @@ export class RendererInspector extends InspectorBase {
                 if (rb.mapState === 'mapped') rb.unmap();
                 void frameId;
             });
+        this._pendingMaps.add(mapDone);
+        void mapDone.finally(() => this._pendingMaps.delete(mapDone));
     }
 }

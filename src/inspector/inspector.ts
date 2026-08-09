@@ -266,14 +266,17 @@ export class Inspector extends RendererInspector {
      * Normally called automatically via `renderer.setInspector(null)`; expose
      * directly for callers that want explicit teardown.
      */
-    dispose(): void {
-        this.clearProbe();
+    async dispose(): Promise<void> {
+        const probeDrained = this.clearProbe();
         for (const cd of this._canvasNodes.values()) {
             cd.canvasTarget.dispose();
         }
         this._canvasNodes.clear();
         this.profiler.dispose();
         this.domElement.remove();
+        // Await the GPU teardowns (probe depth texture + timestamp query resources)
+        // so a caller that `await`s dispose() knows all destroys have landed.
+        await Promise.all([probeDrained, this.disposeTimestampGpu()]);
     }
 
     // -----------------------------------------------------------------------
@@ -589,18 +592,26 @@ export class Inspector extends RendererInspector {
         return element;
     }
 
-    /** Remove the active probe (WebGPU and WebGL). */
-    clearProbe(): void {
+    /** Remove the active probe (WebGPU and WebGL). Returns a promise that resolves
+     *  once the WebGPU probe's GPU resources are actually destroyed (drained first). */
+    clearProbe(): Promise<void> {
+        let drained: Promise<void> = Promise.resolve();
         if (this._activeProbe) {
-            this._activeProbe.canvasTarget.dispose();
-            this._activeProbe.depthTexture.destroy();
+            const { canvasTarget, depthTexture } = this._activeProbe;
             this._activeProbe = null;
+            // Drain in-flight probe passes before destroying their depth texture; a
+            // mid-submit destroy can lose the device (see drainThenDestroy).
+            drained = this.drainThenDestroy(() => {
+                canvasTarget.dispose();
+                depthTexture.destroy();
+            });
         }
         if (this._activeGlProbe) {
             this._activeGlProbe = null;
             const renderer = this.getRenderer();
             if (renderer && renderer.backend === 'webgl') renderer.clearProbe();
         }
+        return drained;
     }
 
     // -----------------------------------------------------------------------

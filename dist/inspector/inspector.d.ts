@@ -70,7 +70,7 @@ export declare class Inspector extends RendererInspector {
      * Normally called automatically via `renderer.setInspector(null)`; expose
      * directly for callers that want explicit teardown.
      */
-    dispose(): void;
+    dispose(): Promise<void>;
     begin(frameId: number): void;
     beginRender(passId: string, frameId: number): void;
     finishRender(passId: string, frameId: number): void;
@@ -104,8 +104,9 @@ export declare class Inspector extends RendererInspector {
      * Returns the element, or null if patching fails. Never touches `device`.
      */
     private _setGlProbe;
-    /** Remove the active probe (WebGPU and WebGL). */
-    clearProbe(): void;
+    /** Remove the active probe (WebGPU and WebGL). Returns a promise that resolves
+     *  once the WebGPU probe's GPU resources are actually destroyed (drained first). */
+    clearProbe(): Promise<void>;
     navigateToRO(ro: RenderObject): void;
     private _processFrame;
     /**
