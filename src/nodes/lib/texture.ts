@@ -178,6 +178,16 @@ export class TextureBindingNode<D extends d.Texture = d.Texture> extends Node<D>
      */
     storageBufferSource: StorageBufferTextureSource | null = null;
 
+    /**
+     * When set, this binding's texture is the OUTPUT of a render pass, refreshed each frame by that pass.
+     * Carrying the source on the binding (not on a bespoke node subclass) is what lets any sampling node —
+     * color or depth — share one lifecycle: `getChildren` reaches `passNode` through here so discovery
+     * renders the source pass and orders it before consumers, and because `.sample()`/`.load()` clones
+     * SHARE this binding, that wiring survives cloning automatically. `previous` selects the ping-pong
+     * (last-frame) texture. `value` is (re)written from the pass each frame; the pass owns the texture.
+     */
+    passSource: { passNode: Node<d.Any>; textureName: string; previous: boolean } | null = null;
+
     /** Unique ID for this texture binding (e.g. 'tAlbedo', 'tShadowMap'). */
     readonly textureId: string;
 
@@ -1136,17 +1146,17 @@ export class DepthTextureNode extends Node<d.f32> {
         return this.referenceNode ? this.referenceNode.getBase() : this;
     }
 
-    /** Clone this texture node with all sampling properties */
+    /** Clone this texture node */
     clone(): DepthTextureNode {
         const cloned = new DepthTextureNode(this.bindingNode, this.uvNode);
         cloned.referenceNode = this.referenceNode;
         cloned.samplerNode = this.samplerNode;
-        // Copy sampling mode properties
         cloned.samplingMode = this.samplingMode;
         cloned.levelNode = this.levelNode;
         cloned.offsetNode = this.offsetNode;
         cloned.loadCoords = this.loadCoords;
         cloned.loadLevel = this.loadLevel;
+        if (this._beforeNodes) cloned._beforeNodes = [...this._beforeNodes];
         return cloned;
     }
 

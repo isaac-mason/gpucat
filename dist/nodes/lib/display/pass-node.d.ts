@@ -7,54 +7,7 @@ import type { DepthTexture } from '../../../texture/depth-texture';
 import { Texture } from '../../../texture/texture';
 import { Node, NodeKind } from '../core';
 import type { MRTNode } from '../mrt';
-import { DepthTextureNode, TextureBindingNode, TextureNode } from '../texture';
-/**
- * Represents the texture of a pass node.
- * Extends TextureNode to ensure proper registration during setup for sampler generation.
- */
-export declare class PassTextureNode extends TextureNode {
-    /** A reference to the pass node. */
-    readonly passNode: PassNode;
-    /**
-     * Constructs a new pass texture node.
-     *
-     * @param passNode - The pass node.
-     * @param texture - The output texture (Texture with isRenderTargetTexture=true, or DepthTexture).
-     * @param textureId - Optional custom texture ID. If not provided, uses default pass output ID.
-     * @param existingBinding - If provided, reuse this binding instead of creating a new one (used by clone).
-     */
-    constructor(passNode: PassNode, texture?: Texture | null, textureId?: string, existingBinding?: TextureBindingNode<d.texture2d>);
-    clone(): PassTextureNode;
-}
-/**
- * An extension of PassTextureNode which allows to manage more than one
- * internal texture. Relevant for MRT and getPreviousTexture() API.
- */
-export declare class PassMultipleTextureNode extends PassTextureNode {
-    /** The output texture name. */
-    readonly textureName: string;
-    /** Whether previous frame data should be used or not. */
-    readonly previousTexture: boolean;
-    /**
-     * Constructs a new pass multiple texture node.
-     *
-     * @param passNode - The pass node.
-     * @param textureName - The output texture name.
-     * @param previousTexture - Whether previous frame data should be used.
-     */
-    constructor(passNode: PassNode, textureName: string, previousTexture?: boolean, existingBinding?: TextureBindingNode<d.texture2d>);
-    /**
-     * Updates the texture reference of this node.
-     * Called in setup() to get the current texture.
-     * Stores the GpuTexture, GPU resources are accessed at bind time via the texture cache.
-     */
-    updateTexture(): void;
-    /**
-     * Clone sharing the same bindingNode so the renderer's texture updates
-     * are visible to all clones (e.g. nodes returned by .sample(uv)).
-     */
-    clone(): PassMultipleTextureNode;
-}
+import { type DepthTextureNode, type TextureNode } from '../texture';
 export type PassNodeOptions = {
     /** RGBA clear color for this pass's color attachment. Defaults to [0, 0, 0, 1]. */
     clearColor?: [number, number, number, number];
@@ -160,11 +113,11 @@ export declare class PassNode extends Node<d.vec4f> {
     /**
      * Returns the texture node for the given output name.
      */
-    getTextureNode(name?: string): PassMultipleTextureNode;
+    getTextureNode(name?: string): TextureNode<d.texture2d>;
     /**
      * Returns the previous texture node for the given output name.
      */
-    getPreviousTextureNode(name?: string): PassMultipleTextureNode;
+    getPreviousTextureNode(name?: string): TextureNode<d.texture2d>;
     /**
      * Returns a viewZ node of this pass.
      * Uses cameraNear/cameraFar builtin nodes for correct depth reconstruction.
@@ -189,5 +142,3 @@ export declare class PassNode extends Node<d.vec4f> {
 export declare const pass: (scene: Scene, camera: Camera, options?: PassNodeOptions) => PassNode;
 /** creates a depth pass node */
 export declare const depthPass: (scene: Scene, camera: Camera, options?: PassNodeOptions) => PassNode;
-/** creates a pass texture node */
-export declare const passTexture: (passNode: PassNode, texture?: Texture | null) => PassTextureNode;

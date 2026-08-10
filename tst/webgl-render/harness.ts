@@ -2677,6 +2677,83 @@ async function casePassDepthSample(): Promise<CaseResult> {
     };
 }
 
+/**
+ * pass-occlude: makecat's TWO-pass CanvasTrait occlusion end to end — a SCENE pass writes depth, then a
+ * SEPARATE OVERLAY pass renders a fullscreen "canvas" quad whose material samples the SCENE pass's depth
+ * (`scenePass.getDepthTextureNode().load()`) and shows BLUE where occluded (scene in front) / GREEN where
+ * visible. Directly tests `getDepthTextureNode()` + the cross-pass texture binding: the overlay must read
+ * the SCENE pass's written depth from inside a DIFFERENT pass's render. Scene depth = 0.3 (top half) /
+ * 1.0 (bottom); the canvas sits at depth 0.5 → TOP must be occluded (BLUE), BOTTOM visible (GREEN). All
+ * GREEN = "not occluded" (the reported makecat symptom); that would mean the overlay read a wrong/cleared depth.
+ */
+async function casePassOcclude(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+
+    // Scene pass: depth 0.3 in the top half (clip y > 0), 1.0 (far) in the bottom.
+    const scene = new Scene();
+    const scam = new PerspectiveCamera();
+    scene.add(scam);
+    const sg = createFullscreenTriangleGeometry();
+    const sp = attribute('position', d.vec3f);
+    const svy = varying(sp.y, 'occSvy');
+    const sMat = new Material({
+        vertex: vec4(sp, f32(1)),
+        fragment: vec4(f32(1), f32(0), f32(0), f32(1)), // RED scene, everywhere
+        depth: select(f32(1.0), f32(0.3), svy.greaterThan(f32(0))),
+        depthTest: false, // ALWAYS pass so frag-depth writes across the whole quad (no discard confound)
+    });
+    scene.add(new Mesh(sg, sMat));
+    scene.updateWorldMatrix();
+    scam.updateViewMatrix();
+
+    const scenePass = pass(scene, scam);
+    const sceneColor = scenePass.getTextureNode();
+    const sceneDepth = scenePass.getDepthTextureNode();
+
+    // Overlay "canvas" at depth 0.5, sampling the SCENE depth: GREEN (premult) where visible, transparent
+    // where occluded (scene in front). This is makecat's exact occlusion pattern.
+    const overlayScene = new Scene();
+    const ocam = new PerspectiveCamera();
+    overlayScene.add(ocam);
+    const og = createFullscreenTriangleGeometry();
+    const op = attribute('position', d.vec3f);
+    const texel = vec2i(mul(screenUV, vec2f(textureDimensions(sceneDepth.bindingNode))));
+    const sceneZ = sceneDepth.load(texel);
+    const occluded = f32(0.5).greaterThan(sceneZ); // canvas (0.5) behind scene (sceneZ < 0.5) → occluded
+    const canvasA = select(f32(1), f32(0), occluded); // occluded ? 0 : 1 → visible alpha
+    const oMat = new Material({
+        vertex: vec4(op, f32(1)),
+        fragment: vec4(f32(0), canvasA, f32(0), canvasA), // premultiplied green
+        depthTest: false,
+    });
+    overlayScene.add(new Mesh(og, oMat));
+    overlayScene.updateWorldMatrix();
+    ocam.updateViewMatrix();
+
+    const overlayPass = pass(overlayScene, ocam);
+    // makecat-faithful composite: sceneColor GENUINELY blended (premult-over), so the scene pass isn't
+    // pruned and renders first — out = sceneColor·(1−overlayA) + overlayRgb.
+    const ov = overlayPass.getTextureNode();
+    const compRgb = sceneColor.rgb.mul(f32(1).sub(ov.a)).add(ov.rgb);
+    const pipeline = new RenderPipeline(renderer, renderOutput(vec4(compRgb, f32(1))));
+
+    renderer.clearColor = [1, 0, 1, 1];
+    pipeline.render();
+
+    const gl = renderer.gl!;
+    const top = readAt(gl, CENTER, SIZE - 4); // scene 0.3 in front → occluded → shows RED scene
+    const bottom = readAt(gl, CENTER, 3); //     scene 1.0 far → visible → GREEN canvas
+    pipeline.dispose();
+    renderer.dispose();
+    const ok = top[0] > 128 && top[1] < 128 && bottom[1] > 128 && bottom[0] < 128;
+    return {
+        name: 'pass-occlude',
+        pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `top(r,g)=[${top[0]},${top[1]}] bottom(r,g)=[${bottom[0]},${bottom[1]}] (top RED=occluded, bottom GREEN=visible; all-GREEN=not occluded)`,
+    };
+}
+
 /** Read the default framebuffer at (x,y). readPixels origin is bottom-left, so y=SIZE-4 is the
  *  DISPLAYED TOP and y=3 is the DISPLAYED BOTTOM. */
 function readAt(gl: WebGL2RenderingContext, x: number, y: number): [number, number, number, number] {
@@ -2950,6 +3027,7 @@ export async function run(): Promise<RunResult> {
             caseRtLoadOrient,
             caseDepthLoadRead,
             casePassDepthSample,
+            casePassOcclude,
             caseIntegerTexture,
             caseStructTexture,
             caseStructTextureMat4,

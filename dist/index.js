@@ -14906,6 +14906,15 @@ class TextureBindingNode extends Node {
      * texture per `GpuBuffer`. WebGPU never sets this (storage stays a native `array<Struct>` there).
      */
     storageBufferSource = null;
+    /**
+     * When set, this binding's texture is the OUTPUT of a render pass, refreshed each frame by that pass.
+     * Carrying the source on the binding (not on a bespoke node subclass) is what lets any sampling node —
+     * color or depth — share one lifecycle: `getChildren` reaches `passNode` through here so discovery
+     * renders the source pass and orders it before consumers, and because `.sample()`/`.load()` clones
+     * SHARE this binding, that wiring survives cloning automatically. `previous` selects the ping-pong
+     * (last-frame) texture. `value` is (re)written from the pass each frame; the pass owns the texture.
+     */
+    passSource = null;
     /** Unique ID for this texture binding (e.g. 'tAlbedo', 'tShadowMap'). */
     textureId;
     /** Uniform group, determines @group index. */
@@ -15569,17 +15578,18 @@ class DepthTextureNode extends Node {
     getBase() {
         return this.referenceNode ? this.referenceNode.getBase() : this;
     }
-    /** Clone this texture node with all sampling properties */
+    /** Clone this texture node */
     clone() {
         const cloned = new DepthTextureNode(this.bindingNode, this.uvNode);
         cloned.referenceNode = this.referenceNode;
         cloned.samplerNode = this.samplerNode;
-        // Copy sampling mode properties
         cloned.samplingMode = this.samplingMode;
         cloned.levelNode = this.levelNode;
         cloned.offsetNode = this.offsetNode;
         cloned.loadCoords = this.loadCoords;
         cloned.loadLevel = this.loadLevel;
+        if (this._beforeNodes)
+            cloned._beforeNodes = [...this._beforeNodes];
         return cloned;
     }
     /* ─────────────────────────────────────────────────────────────────────────
@@ -15942,83 +15952,6 @@ const screenUV = /*@__PURE__*/ (() => {
 
 let _passCount = 0;
 /**
- * Represents the texture of a pass node.
- * Extends TextureNode to ensure proper registration during setup for sampler generation.
- */
-class PassTextureNode extends TextureNode {
-    /** A reference to the pass node. */
-    passNode;
-    /**
-     * Constructs a new pass texture node.
-     *
-     * @param passNode - The pass node.
-     * @param texture - The output texture (Texture with isRenderTargetTexture=true, or DepthTexture).
-     * @param textureId - Optional custom texture ID. If not provided, uses default pass output ID.
-     * @param existingBinding - If provided, reuse this binding instead of creating a new one (used by clone).
-     */
-    constructor(passNode, texture = null, textureId, existingBinding) {
-        const binding = existingBinding ?? new TextureBindingNode(texture2d(), textureId ?? `_pass${passNode.passId}_output`, objectGroup);
-        super(binding);
-        this.passNode = passNode;
-        this.before(passNode);
-        // Set GpuTexture reference if texture provided
-        if (texture) {
-            this.bindingNode.value = texture._gpuTexture;
-        }
-    }
-    clone() {
-        const cloned = new PassTextureNode(this.passNode, null, undefined, this.bindingNode);
-        cloned.samplerNode = this.samplerNode;
-        return cloned;
-    }
-}
-/**
- * An extension of PassTextureNode which allows to manage more than one
- * internal texture. Relevant for MRT and getPreviousTexture() API.
- */
-class PassMultipleTextureNode extends PassTextureNode {
-    /** The output texture name. */
-    textureName;
-    /** Whether previous frame data should be used or not. */
-    previousTexture;
-    /**
-     * Constructs a new pass multiple texture node.
-     *
-     * @param passNode - The pass node.
-     * @param textureName - The output texture name.
-     * @param previousTexture - Whether previous frame data should be used.
-     */
-    constructor(passNode, textureName, previousTexture = false, existingBinding) {
-        // Compute the unique textureId BEFORE calling super so it's used in the node ID
-        const uniqueTextureId = `${passNode.passId}_${textureName}${previousTexture ? '_prev' : ''}`;
-        // Pass the unique textureId to super so the node gets a unique ID
-        super(passNode, null, uniqueTextureId, existingBinding);
-        this.textureName = textureName;
-        this.previousTexture = previousTexture;
-    }
-    /**
-     * Updates the texture reference of this node.
-     * Called in setup() to get the current texture.
-     * Stores the GpuTexture, GPU resources are accessed at bind time via the texture cache.
-     */
-    updateTexture() {
-        const texture = this.previousTexture
-            ? this.passNode.getPreviousTexture(this.textureName)
-            : this.passNode.getTexture(this.textureName);
-        this.bindingNode.value = texture._gpuTexture;
-    }
-    /**
-     * Clone sharing the same bindingNode so the renderer's texture updates
-     * are visible to all clones (e.g. nodes returned by .sample(uv)).
-     */
-    clone() {
-        const cloned = new PassMultipleTextureNode(this.passNode, this.textureName, this.previousTexture, this.bindingNode);
-        cloned.samplerNode = this.samplerNode;
-        cloned.uvNode = this.uvNode;
-        return cloned;
-    }
-}
-/**
  * Represents a render pass (sometimes called beauty pass) in context of post processing.
  * This pass produces a render for the given scene and camera and can provide multiple outputs
  * via MRT for further processing.
@@ -16179,8 +16112,7 @@ class PassNode extends Node {
             }
             this._textures[name] = prevTexture;
             this._previousTextures[name] = texture;
-            this._textureNodes[name]?.updateTexture();
-            this._previousTextureNodes[name]?.updateTexture();
+            // Binding values are refreshed post-render by _updateTextureResources().
         }
     }
     /**
@@ -16210,10 +16142,10 @@ class PassNode extends Node {
             const depthTex = this.getDepthTexture(name);
             if (!depthTex)
                 throw new Error(`PassNode: no '${name}' depth attachment to bind`);
-            const binding = new TextureBindingNode(textureDepth2d, `_pass${this.passId}_${name}`, objectGroup);
-            binding.value = depthTex._gpuTexture;
-            node = new DepthTextureNode(binding);
-            node.before(this);
+            node = depthTexture(depthTex);
+            // Tie the binding to this pass so discovery renders + orders the pass before any
+            // consumer of the depth — carried through .load()/.sample() clones via the shared binding.
+            node.bindingNode.passSource = { passNode: this, textureName: name, previous: false };
             this._depthTextureNodes[name] = node;
         }
         return node;
@@ -16224,8 +16156,8 @@ class PassNode extends Node {
     getTextureNode(name = 'output') {
         let textureNode = this._textureNodes[name];
         if (textureNode === undefined) {
-            textureNode = new PassMultipleTextureNode(this, name);
-            textureNode.updateTexture();
+            textureNode = texture(this.getTexture(name));
+            textureNode.bindingNode.passSource = { passNode: this, textureName: name, previous: false };
             this._textureNodes[name] = textureNode;
         }
         return textureNode;
@@ -16240,8 +16172,8 @@ class PassNode extends Node {
             if (this._textureNodes[name] === undefined) {
                 this.getTextureNode(name);
             }
-            textureNode = new PassMultipleTextureNode(this, name, true);
-            textureNode.updateTexture();
+            textureNode = texture(this.getPreviousTexture(name));
+            textureNode.bindingNode.passSource = { passNode: this, textureName: name, previous: true };
             this._previousTextureNodes[name] = textureNode;
         }
         return textureNode;
@@ -16314,11 +16246,19 @@ class PassNode extends Node {
         this._updateTextureResources();
     }
     _updateTextureResources() {
-        // Update all texture nodes with current GPU textures
+        // Refresh every pass-sourced binding with its current GPU texture. setSize / toggleTexture
+        // can swap the underlying texture object between frames, so each binding is re-pointed here.
         for (const name in this._textureNodes) {
-            this._textureNodes[name].updateTexture();
+            this._textureNodes[name].bindingNode.value = this.getTexture(name)._gpuTexture;
         }
-        // Depth attachments are stable references, no per-frame refresh.
+        for (const name in this._previousTextureNodes) {
+            this._previousTextureNodes[name].bindingNode.value = this.getPreviousTexture(name)._gpuTexture;
+        }
+        for (const name in this._depthTextureNodes) {
+            const depthTex = this.getDepthTexture(name);
+            if (depthTex)
+                this._depthTextureNodes[name].bindingNode.value = depthTex._gpuTexture;
+        }
     }
     /**
      * Frees internal resources. Should be called when the node is no longer in use.
@@ -19432,7 +19372,12 @@ function getChildren(rawNode) {
         const textureNode = node.scope === 'fragment' ? node.getTextureNode() : node.getLinearDepthNode();
         children.push(textureNode);
     }
-    else if (node.kind === NodeKind.TextureBinding) ;
+    else if (node.kind === NodeKind.TextureBinding) {
+        // A binding fed by a render pass depends on that pass: reaching it here makes discovery render
+        // the pass (its updateBefore) and order it before this binding's consumers. Otherwise a leaf.
+        if (node.passSource)
+            children.push(node.passSource.passNode);
+    }
     else if (node.kind === NodeKind.StorageTextureBinding) ;
     else if (node.kind === NodeKind.Texture) {
         // TextureNode owns a bindingNode for the texture var declaration
@@ -22398,7 +22343,7 @@ function generateTexture(ctx, node) {
         return `textureLoad(${name}, ${coordsExpr}, ${levelExpr})`;
     }
     // Sampling modes require a sampler
-    // If no samplerNode exists (e.g., PassTextureNode), create a default one
+    // If no samplerNode exists (e.g. a pass-sourced texture), create a default one
     let samplerNode = node.samplerNode;
     if (!samplerNode) {
         samplerNode = new SamplerNode(sampler$1, name, binding.group);

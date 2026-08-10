@@ -516,7 +516,7 @@ function generateTexture(ctx: BuildContext, node: TextureNode): string {
     }
 
     // Sampling modes require a sampler
-    // If no samplerNode exists (e.g., PassTextureNode), create a default one
+    // If no samplerNode exists (e.g. a pass-sourced texture), create a default one
     let samplerNode = node.samplerNode;
     if (!samplerNode) {
         samplerNode = new SamplerNode(d.sampler, name, binding.group);

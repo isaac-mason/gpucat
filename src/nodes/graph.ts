@@ -149,7 +149,9 @@ export function getChildren(rawNode: Node<d.Any>): Node<d.Any>[] {
         const textureNode = node.scope === 'fragment' ? node.getTextureNode() : node.getLinearDepthNode();
         children.push(textureNode);
     } else if (node.kind === NodeKind.TextureBinding) {
-        // TextureBindingNode is a leaf, no children
+        // A binding fed by a render pass depends on that pass: reaching it here makes discovery render
+        // the pass (its updateBefore) and order it before this binding's consumers. Otherwise a leaf.
+        if (node.passSource) children.push(node.passSource.passNode);
     } else if (node.kind === NodeKind.StorageTextureBinding) {
         // StorageTextureBindingNode is a leaf, no children
     } else if (node.kind === NodeKind.Texture) {
