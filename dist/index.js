@@ -39525,8 +39525,10 @@ function getGeometryBuffers(state, geometry) {
         gb = {
             attributeBuffers: new Map(),
             attributeVersions: new Map(),
+            attributeSizes: new Map(),
             indexBuffer: null,
             indexVersion: -1,
+            indexSize: -1,
             vaos: new Map(),
         };
         state.data.set(geometry, gb);
@@ -39599,41 +39601,109 @@ function glComponentType(gl, glType) {
 // -------------------------------------------------------------------------------------------------
 // Buffer upload.
 // -------------------------------------------------------------------------------------------------
-/** Upload (or re-upload if the version changed) an attribute buffer, returning its GL buffer. */
-function ensureAttributeBuffer(gl, gb, name, buffer) {
-    let glBuffer = gb.attributeBuffers.get(name);
-    const lastVersion = gb.attributeVersions.get(name) ?? -1;
-    if (!glBuffer) {
-        const created = gl.createBuffer();
-        if (!created)
-            throw new Error('[WebGLRenderer] gl.createBuffer returned null.');
-        glBuffer = created;
-        gb.attributeBuffers.set(name, glBuffer);
+/**
+ * Push a buffer's pending `updateRanges` as partial `bufferSubData` uploads (caller has
+ * already bound `glBuffer` to `target`). Mirrors three.js `WebGLAttributes.updateBuffer`:
+ * sort + merge adjacent/overlapping ranges IN PLACE to cut GL command overhead, then one
+ * `bufferSubData` per merged span. Ranges are flat array-element (component) indices; the
+ * `srcOffset`/`length` args below are element counts (WebGL2 typed-array overload). Clears
+ * the ranges once applied.
+ */
+function uploadDirtyRanges(gl, target, array, buffer) {
+    const ranges = buffer.updateRanges;
+    ranges.sort((a, b) => a.start - b.start);
+    let mergeIndex = 0;
+    for (let i = 1; i < ranges.length; i++) {
+        const prev = ranges[mergeIndex];
+        const r = ranges[i];
+        // +1 so exactly-adjacent ranges merge (safe over positive integer indices).
+        if (r.start <= prev.start + prev.count + 1) {
+            prev.count = Math.max(prev.count, r.start + r.count - prev.start);
+        }
+        else {
+            mergeIndex++;
+            ranges[mergeIndex] = r;
+        }
     }
-    if (lastVersion !== buffer.version || gb.attributeVersions.get(name) === undefined) {
-        const array = buffer.array;
-        if (!array)
-            throw new Error(`[WebGLRenderer] attribute buffer '${name}' has null array.`);
+    ranges.length = mergeIndex + 1;
+    const bpe = array.BYTES_PER_ELEMENT;
+    for (let i = 0; i < ranges.length; i++) {
+        const r = ranges[i];
+        gl.bufferSubData(target, r.start * bpe, array, r.start, r.count);
+    }
+    buffer.clearUpdateRanges();
+}
+// Upload model, mirroring the WebGPU backend (`webgpu/buffers.ts` ensureUploaded) so both
+// backends share ONE mental model. Precedence per (re)upload:
+//   1. RESIZE guard — no GL buffer yet, or the array grew past the last upload: `bufferData`
+//      to (re)allocate at the new size (a full upload). This is the growable-arena path three.js
+//      lacks (it forbids resize); gpucat keys it off a size compare, NOT the version, so a grow
+//      that forgets to bump the version is still safe.
+//   2. PARTIAL — `addUpdateRange` spans pending (no version bump needed — the common streaming
+//      path): merged `bufferSubData` (see `uploadDirtyRanges`).
+//   3. FULL — version advanced with no ranges: `bufferSubData(…, 0, array)` (size is unchanged
+//      here, guaranteed by the resize guard above), matching three.js `WebGLAttributes`.
+/** Upload (creating/growing/patching as needed) an attribute buffer, returning its GL buffer. */
+function ensureAttributeBuffer(gl, gb, name, buffer) {
+    const array = buffer.array;
+    if (!array)
+        throw new Error(`[WebGLRenderer] attribute buffer '${name}' has null array.`);
+    let glBuffer = gb.attributeBuffers.get(name);
+    const lastSize = gb.attributeSizes.get(name) ?? -1;
+    if (!glBuffer || lastSize < array.byteLength) {
+        if (!glBuffer) {
+            const created = gl.createBuffer();
+            if (!created)
+                throw new Error('[WebGLRenderer] gl.createBuffer returned null.');
+            glBuffer = created;
+            gb.attributeBuffers.set(name, glBuffer);
+        }
         gl.bindBuffer(gl.ARRAY_BUFFER, glBuffer);
         gl.bufferData(gl.ARRAY_BUFFER, array, gl.STATIC_DRAW);
+        gb.attributeSizes.set(name, array.byteLength);
+        gb.attributeVersions.set(name, buffer.version);
+        buffer.clearUpdateRanges();
+        return glBuffer;
+    }
+    if (buffer.updateRanges.length > 0) {
+        gl.bindBuffer(gl.ARRAY_BUFFER, glBuffer);
+        uploadDirtyRanges(gl, gl.ARRAY_BUFFER, array, buffer);
+        gb.attributeVersions.set(name, buffer.version);
+    }
+    else if (gb.attributeVersions.get(name) !== buffer.version) {
+        gl.bindBuffer(gl.ARRAY_BUFFER, glBuffer);
+        gl.bufferSubData(gl.ARRAY_BUFFER, 0, array);
         gb.attributeVersions.set(name, buffer.version);
     }
     return glBuffer;
 }
-/** Upload (or re-upload) the index buffer, returning its GL buffer. */
+/** Upload (creating/growing/patching as needed) the index buffer, returning its GL buffer. */
 function ensureIndexBuffer(gl, gb, index) {
-    if (!gb.indexBuffer) {
-        const created = gl.createBuffer();
-        if (!created)
-            throw new Error('[WebGLRenderer] gl.createBuffer returned null (index).');
-        gb.indexBuffer = created;
-    }
-    if (gb.indexVersion !== index.version) {
-        const array = index.array;
-        if (!array)
-            throw new Error('[WebGLRenderer] index buffer has null array.');
+    const array = index.array;
+    if (!array)
+        throw new Error('[WebGLRenderer] index buffer has null array.');
+    if (!gb.indexBuffer || gb.indexSize < array.byteLength) {
+        if (!gb.indexBuffer) {
+            const created = gl.createBuffer();
+            if (!created)
+                throw new Error('[WebGLRenderer] gl.createBuffer returned null (index).');
+            gb.indexBuffer = created;
+        }
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gb.indexBuffer);
         gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, array, gl.STATIC_DRAW);
+        gb.indexSize = array.byteLength;
+        gb.indexVersion = index.version;
+        index.clearUpdateRanges();
+        return gb.indexBuffer;
+    }
+    if (index.updateRanges.length > 0) {
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gb.indexBuffer);
+        uploadDirtyRanges(gl, gl.ELEMENT_ARRAY_BUFFER, array, index);
+        gb.indexVersion = index.version;
+    }
+    else if (gb.indexVersion !== index.version) {
+        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gb.indexBuffer);
+        gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, array);
         gb.indexVersion = index.version;
     }
     return gb.indexBuffer;

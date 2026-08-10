@@ -24,10 +24,15 @@ type GeometryBuffers = {
     attributeBuffers: Map<string, WebGLBuffer>;
     /** Last-uploaded version per attribute-buffer name (for needsUpdate/version tracking). */
     attributeVersions: Map<string, number>;
+    /** Last-uploaded byte size per attribute-buffer name. Drives the resize guard (recreate
+     *  the GL buffer when the array grows), mirroring the WebGPU backend's `buf.size < byteLength`. */
+    attributeSizes: Map<string, number>;
     /** GL index buffer (ELEMENT_ARRAY_BUFFER), or null for non-indexed geometry. */
     indexBuffer: WebGLBuffer | null;
     /** Last-uploaded index buffer version. */
     indexVersion: number;
+    /** Last-uploaded index buffer byte size (resize guard, as above). */
+    indexSize: number;
     /** VAOs keyed by program identity (a geometry may be drawn by several materials). */
     vaos: Map<WebGLProgram, WebGLVertexArrayObject>;
 };
