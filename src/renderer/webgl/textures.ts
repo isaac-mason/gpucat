@@ -161,6 +161,29 @@ export function isIntegerTextureFormat(format: string): boolean {
     return format.endsWith('uint') || format.endsWith('sint');
 }
 
+/**
+ * Whether a texture format is a depth (/stencil) format. Like integer formats, depth textures are NOT
+ * texture-filterable in WebGL2, so their default filter must be NEAREST or a non-comparison read returns 0.
+ */
+export function isDepthTextureFormat(format: string): boolean {
+    return format.startsWith('depth');
+}
+
+/**
+ * Whether a format is NOT texture-filterable on this device — its default (sampler-object-less) filter
+ * must be NEAREST, or a non-comparison `texture()`/`texelFetch()` read renders the texture INCOMPLETE and
+ * returns 0. Encodes WebGL2's filterability rule (the analog of three.js's DepthTexture/float-RT defaulting
+ * to NearestFilter): integer + depth are never filterable; 32-bit float needs `OES_texture_float_linear`
+ * (half-float linear is core). A comparison (shadow) sampler is unaffected — it binds its own sampler object.
+ */
+function isNonFilterableFormat(gl: WebGL2RenderingContext, format: string): boolean {
+    if (isDepthTextureFormat(format)) return true;
+    const cls = mipmapClassOf(format);
+    if (cls === 'integer') return true;
+    if (cls === 'float32') return !gl.getExtension('OES_texture_float_linear');
+    return false;
+}
+
 function mipmapClassOf(format: string): MipmapClass {
     if (isIntegerTextureFormat(format)) return 'integer';
     if (format.includes('32float')) return 'float32';
@@ -407,14 +430,16 @@ export function getGlTextureData(state: GlTexturesState, texture: GpuTexture): G
 }
 
 /** Set a texture's min-filter so a texture without an explicit sampler object still samples. */
-function setDefaultMinFilter(gl: WebGL2RenderingContext, target: number, generateMipmaps: boolean, isInteger: boolean): void {
+function setDefaultMinFilter(gl: WebGL2RenderingContext, target: number, generateMipmaps: boolean, nonFilterable: boolean): void {
     // A freshly-created GL texture defaults to a mipmapped min-filter, which reads as "incomplete"
     // when no mips exist. Sampler objects override this at bind time, but set a safe baseline here.
-    // Integer textures are NOT filterable — LINEAR makes them incomplete (so even texelFetch reads 0),
-    // so they must be NEAREST regardless of the sampler.
-    const min = isInteger ? gl.NEAREST : generateMipmaps ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR;
+    // Integer AND depth textures are NOT texture-filterable in WebGL2 — a LINEAR filter makes them
+    // texture-INCOMPLETE, so a non-comparison `texture()`/`texelFetch()` read returns 0 (this is why a
+    // depth render target sampled via `.load()`/`.sample()` came back black). They must be NEAREST here.
+    // A comparison (shadow) sampler still works: it binds its own sampler object, overriding this.
+    const min = nonFilterable ? gl.NEAREST : generateMipmaps ? gl.LINEAR_MIPMAP_LINEAR : gl.LINEAR;
     gl.texParameteri(target, gl.TEXTURE_MIN_FILTER, min);
-    gl.texParameteri(target, gl.TEXTURE_MAG_FILTER, isInteger ? gl.NEAREST : gl.LINEAR);
+    gl.texParameteri(target, gl.TEXTURE_MAG_FILTER, nonFilterable ? gl.NEAREST : gl.LINEAR);
     gl.texParameteri(target, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(target, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 }
@@ -724,7 +749,7 @@ export function updateTexture(gl: WebGL2RenderingContext, state: GlTexturesState
     data.target = glTarget(gl, texture);
 
     gl.bindTexture(data.target, data.texture);
-    setDefaultMinFilter(gl, data.target, texture.generateMipmaps, mipmapClassOf(texture.format) === 'integer');
+    setDefaultMinFilter(gl, data.target, texture.generateMipmaps, isNonFilterableFormat(gl, texture.format));
 
     const dim = texture.viewDimension;
 

@@ -11,6 +11,7 @@ import {
     cubeTexture,
     d,
     DataTexture,
+    depthTexture,
     DrawIndirect,
     f32,
     Geometry,
@@ -2557,6 +2558,67 @@ async function caseRtLoadOrient(): Promise<CaseResult> {
     };
 }
 
+/**
+ * depth-load-read: a DEPTH render target sampled via `depthTexture(rt).load(...)` must return real depth,
+ * not 0 — and be correctly oriented. This is makecat's CanvasTrait occlusion read. A depth texture with a
+ * LINEAR default filter is texture-INCOMPLETE in WebGL2 (depth is not filterable), so the read comes back
+ * 0 → the occlusion discards everything → a screen-space mask; the NEAREST default fixes it. Pass 1 writes
+ * depth 0.2 to the top (clip y>0) and 0.8 to the bottom via a frag-depth override; pass 2 reads it by
+ * top-left screenUV. Displayed top must be the NEAR (dark ~0.2) depth — nonzero AND not mirrored.
+ */
+async function caseDepthLoadRead(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const rt = new RenderTarget(SIZE, SIZE, { count: 0, depthFormat: 'depth32float', depthSampled: true });
+
+    const g1 = createFullscreenTriangleGeometry();
+    const p1 = attribute('position', d.vec3f);
+    const vy = varying(p1.y, 'vyDepthRead');
+    const depthMat = new Material({
+        vertex: vec4(p1, f32(1)),
+        fragment: undefined,
+        depth: select(f32(0.8), f32(0.2), vy.greaterThan(f32(0))),
+    });
+    const s1 = new Scene();
+    s1.add(new Mesh(g1, depthMat));
+    const cam1 = new PerspectiveCamera();
+    s1.updateWorldMatrix();
+    cam1.updateViewMatrix();
+    renderer.renderTarget = rt;
+    renderer.render(s1, cam1);
+    renderer.renderTarget = null;
+
+    renderer.clearColor = [0, 0, 0, 1];
+    const depthNode = depthTexture(rt.depthTexture!);
+    const texel = vec2i(mul(screenUV, vec2f(textureDimensions(depthNode.bindingNode))));
+    const sceneZ = depthNode.load(texel);
+    const g2 = createFullscreenTriangleGeometry();
+    const p2 = attribute('position', d.vec3f);
+    const showMat = new Material({
+        vertex: vec4(p2, f32(1)),
+        fragment: vec4(sceneZ, sceneZ, sceneZ, f32(1)),
+        depthTest: false,
+    });
+    const s2 = new Scene();
+    s2.add(new Mesh(g2, showMat));
+    const cam2 = new PerspectiveCamera();
+    s2.updateWorldMatrix();
+    cam2.updateViewMatrix();
+    renderer.render(s2, cam2);
+
+    const gl = renderer.gl!;
+    const top = readAt(gl, CENTER, SIZE - 4); // displayed top → near depth 0.2 → dark (~51), NONZERO
+    const bottom = readAt(gl, CENTER, 3); //     displayed bottom → far depth 0.8 → light (~204)
+    renderer.dispose();
+    // Nonzero (read works) AND oriented (top is the near/dark depth, not the mirrored far/light one).
+    const ok = bottom[0] > top[0] && bottom[0] > 100 && top[0] < 128;
+    return {
+        name: 'depth-load-read',
+        pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `top=${top[0]} bottom=${bottom[0]} (top≈51 near, bottom≈204 far; both 0 = depth read broken)`,
+    };
+}
+
 /** Read the default framebuffer at (x,y). readPixels origin is bottom-left, so y=SIZE-4 is the
  *  DISPLAYED TOP and y=3 is the DISPLAYED BOTTOM. */
 function readAt(gl: WebGL2RenderingContext, x: number, y: number): [number, number, number, number] {
@@ -2828,6 +2890,7 @@ export async function run(): Promise<RunResult> {
             caseInterleavedAttrs,
             caseRenderTargetFlip,
             caseRtLoadOrient,
+            caseDepthLoadRead,
             caseIntegerTexture,
             caseStructTexture,
             caseStructTextureMat4,
