@@ -34,6 +34,13 @@ type GlFormat = {
     /** Whether this is a depth (/stencil) format — those are allocated, never uploaded from source. */
     isDepth: boolean;
 };
+/**
+ * Whether a texture format is integer (`…uint`/`…sint`). Integer textures are never
+ * texture-filterable in WebGL2 — they must be read with `texelFetch` (nearest); a LINEAR filter makes
+ * the sample read as incomplete (black). Used to force NEAREST on upload and to reject a linear
+ * sampler paired with one.
+ */
+export declare function isIntegerTextureFormat(format: string): boolean;
 /** Per-GpuTexture GL resources + version tracking (mirrors the WebGPU TextureData). */
 export type GlTextureData = {
     /** The GL texture object. */

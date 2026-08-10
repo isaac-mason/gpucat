@@ -18,12 +18,11 @@ export type RenderTargetOptions = {
     /** Caller-provided depth texture. Overrides `depthBuffer`/`depthFormat`. */
     depthTexture?: DepthTexture;
     /**
-     * Whether the depth attachment will be sampled (read as a texture). Default false
-     * for auto-allocated depth: the WebGL backend then attaches a depth RENDERBUFFER
-     * (matching three.js) rather than a texture, which is more broadly FBO-complete
-     * across drivers, with depth-testing unaffected. Set true automatically when a depth
-     * texture is provided or `PassNode.getDepthTextureNode()` is called. Ignored by
-     * the WebGPU backend, which always uses the depth texture.
+     * Whether the depth attachment will be sampled (read as a texture). Default false: the depth is a
+     * write-only attachment (a RENDERBUFFER on WebGL — more broadly FBO-complete, three.js parity), and
+     * `rt.depthTexture` is null. Set true (or provide an explicit `depthTexture`, or call
+     * `PassNode.getDepthTextureNode()`) to expose the depth as a sampleable texture — required to read
+     * it in a shader (e.g. a shadow map). Depth testing works either way; this only governs readability.
      */
     depthSampled?: boolean;
     /** MSAA sample count. Default: 1. */
@@ -54,13 +53,29 @@ export declare class RenderTarget {
      * Each has a `.name` for MRT mapping; the first texture is also accessible via the `texture` getter.
      */
     textures: RenderTargetTexture[];
-    /** Depth texture, or null if no depth */
-    depthTexture: DepthTexture | null;
+    /**
+     * The depth ATTACHMENT texture — always present when the target has a depth buffer, and what the
+     * backends read to build/attach depth (so depth testing always works). Internal: it is NOT the
+     * sampling surface. Consumers sample via the public {@link depthTexture} getter, which only exposes
+     * this when the depth is declared sampled.
+     */
+    _depthAttachment: DepthTexture | null;
+    /**
+     * The depth attachment exposed for SAMPLING, or null when the depth isn't declared sampled.
+     * three.js-aligned: a render target's depth is readable as a texture only when you opt in
+     * (`depthSampled: true`, an explicit `depthTexture`, or `PassNode.getDepthTextureNode()`), mirroring
+     * three.js where the *presence* of `renderTarget.depthTexture` is the signal. The actual depth
+     * attachment for depth testing always exists (see {@link _depthAttachment}); returning null here
+     * makes sampling an undeclared depth fail loud (a null at wiring time) instead of silently reading
+     * an unwritten texture — which on the WebGL backend reads as ~1.0 everywhere, e.g. no shadows.
+     */
+    get depthTexture(): DepthTexture | null;
     /**
      * Whether the depth attachment is sampled. When false and the target owns an
      * auto-allocated depth, the WebGL backend attaches a depth RENDERBUFFER instead
      * of a texture (three.js parity, more broadly FBO-complete; depth-testing still
-     * works). Set true by `PassNode.getDepthTextureNode()`. WebGPU ignores it.
+     * works). Set true by `PassNode.getDepthTextureNode()` or the `depthSampled` option.
+     * WebGPU always allocates the attachment as a texture, so it is unaffected.
      */
     depthSampled: boolean;
     /**

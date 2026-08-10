@@ -69,11 +69,13 @@ export declare function getRenderContextColorFormats(renderContext: {
 }, canvasFormat: GPUTextureFormat): GPUTextureFormat[];
 /**
  * Depth-stencil format for a render context, or null if the target has no depth attachment.
- * Reads `renderTarget.depthTexture?.format`; falls back to the swapchain depth format.
+ * Reads the always-present depth ATTACHMENT (`_depthAttachment`), not the sampling-gated
+ * `depthTexture` getter — a target's pipeline needs the depth format whether or not it's sampled.
+ * Falls back to the swapchain depth format.
  */
 export declare function getRenderContextDepthFormat(renderContext: {
     renderTarget: {
-        depthTexture: {
+        _depthAttachment: {
             format: GPUTextureFormat;
         } | null;
     } | null;

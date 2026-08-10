@@ -6030,6 +6030,7 @@ var CoordinateSystem;
 })(CoordinateSystem || (CoordinateSystem = {}));
 
 const _invViewProj = mat4_exports.create();
+const _ndc = vec3_exports.create();
 class Camera extends Object3D {
     isCamera = true;
     isOrthographicCamera;
@@ -6058,12 +6059,20 @@ class Camera extends Object3D {
 }
 /**
  * Unproject a point from NDC (normalized device coordinates) to world space.
- * NDC: x,y in [-1, 1], z in [0, 1] where 0 is near plane, 1 is far plane (WebGPU convention).
+ * NDC: x,y in [-1, 1], z in the CANONICAL [0, 1] near→far convention (WebGPU) — backend-agnostic.
+ *
+ * The camera's projection may use the WebGL NDC-z range [-1, 1] (perspectiveNO/orthoNO), so the
+ * canonical z is mapped into the camera's actual range before applying the inverse view-projection.
+ * This keeps callers (and the frustum-corner helpers in examples) backend-agnostic: pass z=0 for the
+ * near plane and z=1 for the far plane regardless of backend.
  */
 function unproject(out, ndc, camera) {
     mat4_exports.multiply(_invViewProj, camera.projectionMatrix, camera.matrixWorldInverse);
     mat4_exports.invert(_invViewProj, _invViewProj);
-    vec3_exports.transformMat4(out, ndc, _invViewProj);
+    _ndc[0] = ndc[0];
+    _ndc[1] = ndc[1];
+    _ndc[2] = camera.coordinateSystem === CoordinateSystem.WEBGL ? ndc[2] * 2 - 1 : ndc[2];
+    vec3_exports.transformMat4(out, _ndc, _invViewProj);
     return out;
 }
 
@@ -13424,6 +13433,19 @@ const cameraPosition = /*@__PURE__*/ new UniformNode(new Uniform(vec3f$1, undefi
 const cameraNear = /*@__PURE__*/ new UniformNode(new Uniform(f32$1, undefined, renderGroup), 'cameraNear').onRenderUpdate((frame) => frame.camera.near);
 /** Camera far plane distance. In renderGroup. */
 const cameraFar = /*@__PURE__*/ new UniformNode(new Uniform(f32$1, undefined, renderGroup), 'cameraFar').onRenderUpdate((frame) => frame.camera.far);
+/**
+ * Remap an NDC depth value (typically `clipPos.z / clipPos.w`) into the [0,1] range a depth texture
+ * stores, so shadow-map / depth-buffer comparisons are written ONCE and work on both backends. It is
+ * lowered per emitter — the node graph stays identical:
+ *   - WebGPU: NDC z is already [0,1] (ZO projection) → passthrough.
+ *   - WebGL:  NDC z is [-1,1] (NO projection)        → `z * 0.5 + 0.5`.
+ *
+ * This keeps the per-backend depth-range convention out of user graphs (the analog of three.js baking
+ * the remap into its shadow bias matrix rather than exposing it).
+ */
+function ndcDepthToStorage(ndcZ) {
+    return new CallNode(f32$1, 'ndcDepthToStorage', [ndcZ]);
+}
 
 /** Convert a single sRGB gamma-encoded channel [0, 1] to linear light [0, 1]. */
 function srgbToLinear(c) {
@@ -14591,13 +14613,31 @@ class RenderTarget {
      * Each has a `.name` for MRT mapping; the first texture is also accessible via the `texture` getter.
      */
     textures;
-    /** Depth texture, or null if no depth */
-    depthTexture = null;
+    /**
+     * The depth ATTACHMENT texture — always present when the target has a depth buffer, and what the
+     * backends read to build/attach depth (so depth testing always works). Internal: it is NOT the
+     * sampling surface. Consumers sample via the public {@link depthTexture} getter, which only exposes
+     * this when the depth is declared sampled.
+     */
+    _depthAttachment = null;
+    /**
+     * The depth attachment exposed for SAMPLING, or null when the depth isn't declared sampled.
+     * three.js-aligned: a render target's depth is readable as a texture only when you opt in
+     * (`depthSampled: true`, an explicit `depthTexture`, or `PassNode.getDepthTextureNode()`), mirroring
+     * three.js where the *presence* of `renderTarget.depthTexture` is the signal. The actual depth
+     * attachment for depth testing always exists (see {@link _depthAttachment}); returning null here
+     * makes sampling an undeclared depth fail loud (a null at wiring time) instead of silently reading
+     * an unwritten texture — which on the WebGL backend reads as ~1.0 everywhere, e.g. no shadows.
+     */
+    get depthTexture() {
+        return this.depthSampled ? this._depthAttachment : null;
+    }
     /**
      * Whether the depth attachment is sampled. When false and the target owns an
      * auto-allocated depth, the WebGL backend attaches a depth RENDERBUFFER instead
      * of a texture (three.js parity, more broadly FBO-complete; depth-testing still
-     * works). Set true by `PassNode.getDepthTextureNode()`. WebGPU ignores it.
+     * works). Set true by `PassNode.getDepthTextureNode()` or the `depthSampled` option.
+     * WebGPU always allocates the attachment as a texture, so it is unaffected.
      */
     depthSampled = false;
     /**
@@ -14626,8 +14666,8 @@ class RenderTarget {
             this.textures.push(texture);
         }
         if (opts.depthTexture) {
-            this.depthTexture = opts.depthTexture;
-            this.depthTexture._gpuTexture.isRenderTargetTexture = true;
+            this._depthAttachment = opts.depthTexture;
+            this._depthAttachment._gpuTexture.isRenderTargetTexture = true;
             // A caller-provided depth texture exists to be read/shared.
             this.depthSampled = true;
         }
@@ -14636,13 +14676,13 @@ class RenderTarget {
             const depthTexture = new DepthTexture(width, height, depthFormat);
             depthTexture.name = 'depth';
             depthTexture._gpuTexture.isRenderTargetTexture = true;
-            this.depthTexture = depthTexture;
-            // Auto depth defaults to a renderbuffer on WebGL (three.js parity);
-            // `getDepthTextureNode()` flips this to true when depth is sampled.
+            this._depthAttachment = depthTexture;
+            // The attachment always exists (depth testing); whether it's sampleable (a texture vs a WebGL
+            // renderbuffer, and exposed via `depthTexture`) is opt-in. `getDepthTextureNode()` also flips this.
             this.depthSampled = opts.depthSampled ?? false;
         }
-        if (this.depthTexture) {
-            this.depthTexture._gpuTexture.renderTarget = this;
+        if (this._depthAttachment) {
+            this._depthAttachment._gpuTexture.renderTarget = this;
         }
     }
     /** The first color attachment texture, or undefined when count=0 (depth-only target). */
@@ -14684,8 +14724,8 @@ class RenderTarget {
             tex._gpuTexture.height = height;
             tex._gpuTexture.needsUpdate = true;
         }
-        if (this.depthTexture) {
-            this.depthTexture.setSize(width, height);
+        if (this._depthAttachment) {
+            this._depthAttachment.setSize(width, height);
         }
     }
     /**
@@ -14696,8 +14736,8 @@ class RenderTarget {
         for (const tex of this.textures) {
             tex._gpuTexture.dispose();
         }
-        if (this.depthTexture) {
-            this.depthTexture._gpuTexture.dispose();
+        if (this._depthAttachment) {
+            this._depthAttachment._gpuTexture.dispose();
         }
     }
     /** Returns the texture index for the given name, or -1 if not found. */
@@ -16040,8 +16080,11 @@ class PassNode extends Node {
         this.renderTarget = renderTarget;
         // Initialize _textures with output and depth
         this._textures['output'] = renderTarget.texture;
-        if (renderTarget.depthTexture) {
-            this._textures['depth'] = renderTarget.depthTexture;
+        // The depth ATTACHMENT (always present here); getDepthTextureNode() flips depthSampled true when
+        // it's actually read. Reference the attachment, not the sampling-gated `depthTexture` getter,
+        // which is null until sampling is declared.
+        if (renderTarget._depthAttachment) {
+            this._textures['depth'] = renderTarget._depthAttachment;
         }
     }
     /**
@@ -19731,6 +19774,7 @@ function createGlslContext(stage, discovery) {
         textures: new Map(),
         textureSamplers: new Map(),
         flipYTextures: new Set(),
+        flipHelperFns: new Set(),
         // Populated once by compileGlsl (shared across stages) — see storage() read-lowering.
         storageMirrors: new Map(),
         attributes: new Map(),
@@ -20554,6 +20598,9 @@ function generateCall$1(ctx, node) {
         return `(-${args[0]})`;
     if (node.fn === 'not' && args.length === 1)
         return `(!${args[0]})`;
+    // NDC depth → stored [0,1]. WebGL NDC z is [-1,1] (NO projection), so remap; WGSL passes through.
+    if (node.fn === 'ndcDepthToStorage' && args.length === 1)
+        return `((${args[0]}) * 0.5 + 0.5)`;
     if (UNSUPPORTED_DERIVATIVES.has(node.fn)) {
         throw new Error(`[glsl] ${node.fn} (coarse/fine derivative) is not supported on the WebGL2 backend; use dpdx/dpdy/fwidth`);
     }
@@ -20638,6 +20685,10 @@ function generateTextureCall(ctx, node) {
     const samplerArg = rawArgs[bindingIndex + 1];
     const sampler = samplerArg && samplerArg.kind === NodeKind.Sampler ? samplerArg : null;
     const name = registerTexture(ctx, tex, sampler);
+    // Render-target V-flip — the SAME shared helper `generateTexture` uses. The free-function texture
+    // builtins (notably `textureSampleCompare`, the only comparison/shadow entry point) must honor it too
+    // or an RT texture sampled via a builtin comes out V-mirrored vs one sampled via `.sample()`.
+    const f = textureFlip(ctx, tex);
     const restFrom = (i) => rawArgs.slice(i).map((a) => generateExpr$1(ctx, a));
     // A GLSL texture*Offset offset argument MUST be a constant expression. Accept only literal / const-
     // constructor nodes and reject anything the emitter can't prove constant (a clear error beats a
@@ -20656,7 +20707,7 @@ function generateTextureCall(ctx, node) {
         case 'textureSample': {
             // (t, s, coords [, offset]) → texture(name, coords) — or textureLod at level 0 in the vertex
             // stage (no implicit derivatives there). With a const offset → textureOffset / textureLodOffset.
-            const coords = generateExpr$1(ctx, rawArgs[2]);
+            const coords = f.uv(generateExpr$1(ctx, rawArgs[2]));
             if (rawArgs.length > 3) {
                 const off = constOffset(3);
                 return ctx.stage === 'vertex'
@@ -20666,7 +20717,7 @@ function generateTextureCall(ctx, node) {
             return implicitSample(ctx, name, coords);
         }
         case 'textureSampleLevel': {
-            const coords = generateExpr$1(ctx, rawArgs[2]);
+            const coords = f.uv(generateExpr$1(ctx, rawArgs[2]));
             const level = generateExpr$1(ctx, rawArgs[3]);
             if (rawArgs.length > 4)
                 return `textureLodOffset(${name}, ${coords}, ${level}, ${constOffset(4)})`;
@@ -20674,7 +20725,7 @@ function generateTextureCall(ctx, node) {
         }
         case 'textureSampleBias': {
             // Bias only applies in the fragment stage; the vertex stage samples level 0.
-            const coords = generateExpr$1(ctx, rawArgs[2]);
+            const coords = f.uv(generateExpr$1(ctx, rawArgs[2]));
             const bias = generateExpr$1(ctx, rawArgs[3]);
             if (rawArgs.length > 4) {
                 const off = constOffset(4);
@@ -20685,14 +20736,18 @@ function generateTextureCall(ctx, node) {
             return implicitSample(ctx, name, coords, bias);
         }
         case 'textureSampleGrad': {
-            const [coords, ddx, ddy] = restFrom(2);
+            const [rawCoords, rawDdx, rawDdy] = restFrom(2);
+            // Flip the uv and, under an active flip, negate the gradients' Y (v→1-v inverts dv/dscreen).
+            const coords = f.uv(rawCoords);
+            const ddx = f.grad(rawDdx);
+            const ddy = f.grad(rawDdy);
             if (rawArgs.length > 5)
                 return `textureGradOffset(${name}, ${coords}, ${ddx}, ${ddy}, ${constOffset(5)})`;
             return `textureGrad(${name}, ${coords}, ${ddx}, ${ddy})`;
         }
         case 'textureSampleCompare': {
             // (t, s, coords, depthRef [, offset]) → texture(shadowSampler, vec3(coords, depthRef)).
-            const coords = generateExpr$1(ctx, rawArgs[2]);
+            const coords = f.uv(generateExpr$1(ctx, rawArgs[2]));
             const depthRef = generateExpr$1(ctx, rawArgs[3]);
             if (rawArgs.length > 4)
                 return `textureOffset(${name}, vec3(${coords}, ${depthRef}), ${constOffset(4)})`;
@@ -20701,7 +20756,7 @@ function generateTextureCall(ctx, node) {
         case 'textureSampleCompareLevel': {
             // (t, s, coords, depthRef, level [, offset]) → shadow sample at an explicit LOD. Depth level
             // is i32; GLSL textureLod takes a float lod.
-            const coords = generateExpr$1(ctx, rawArgs[2]);
+            const coords = f.uv(generateExpr$1(ctx, rawArgs[2]));
             const depthRef = generateExpr$1(ctx, rawArgs[3]);
             const level = `float(${generateExpr$1(ctx, rawArgs[4])})`;
             if (rawArgs.length > 5)
@@ -20720,7 +20775,8 @@ function generateTextureCall(ctx, node) {
             // (t, coords, level) → texelFetch(name, ivec2(coords), level).
             const coords = generateExpr$1(ctx, rawArgs[1]);
             const level = rawArgs[2] ? generateExpr$1(ctx, rawArgs[2]) : '0';
-            return `texelFetch(${name}, ivec2(${coords}), ${level})`;
+            const coordExpr = f.texel(`ivec2(${coords})`, `textureSize(${name}, ${level}).y`);
+            return `texelFetch(${name}, ${coordExpr}, ${level})`;
         }
         case 'textureDimensions': {
             // WGSL textureDimensions(t [, level:u32]) → vec{2,3}<u32>; GLSL textureSize(sampler, int) →
@@ -20769,6 +20825,34 @@ function flipUniformName$1(textureId) {
 function textureNeedsFlip(binding) {
     const type = binding.type.type;
     return type === 'texture_2d' || type === 'texture_depth_2d';
+}
+/**
+ * The render-target V-flip for one texture binding, resolved once — the SINGLE source of truth every
+ * texture-read generator routes coordinates through, so the flip rule can't drift between paths. (It
+ * drifted before: `.sample()` flipped but the free-function builtins, `textureSampleCompare`, and plain
+ * depth reads did not, so a shadow map sampled via the compare builtin came out V-mirrored vs one
+ * sampled via `.sample()`.) `flip` is true only for a render-target-capable 2D / 2D-depth texture that
+ * isn't a storage mirror; the wrappers emit the same `_flipY2f`/`_flipY2i`/`_flipYd` the renderer gates
+ * at runtime via `u_flipY_<id>` (= isRenderTargetTexture), so they are no-ops for ordinary textures.
+ * (2D-array render targets are not flipped yet — an unexercised path; see generateArrayTexture.)
+ */
+function textureFlip(ctx, binding) {
+    const flip = textureNeedsFlip(binding) && !isStorageMirrorTexture(ctx, binding.textureId);
+    const name = flipUniformName$1(binding.textureId);
+    const wrap = (fn, ...args) => {
+        ctx.flipYTextures.add(binding.textureId);
+        ctx.flipHelperFns.add(fn); // only emit the helper functions actually referenced
+        return `${fn}(${name}, ${args.join(', ')})`;
+    };
+    return {
+        flip,
+        /** Normalized uv → `1 - v`. */
+        uv: (uvExpr) => (flip ? wrap('_flipY2f', uvExpr) : uvExpr),
+        /** Integer texelFetch coord → `h - y - 1`; caller passes the sampled-level height expression. */
+        texel: (coordExpr, heightExpr) => (flip ? wrap('_flipY2i', coordExpr, heightExpr) : coordExpr),
+        /** A grad derivative's Y is negated under an active flip (`v → 1-v` flips `dv/dscreen`). */
+        grad: (gradExpr) => (flip ? wrap('_flipYd', gradExpr) : gradExpr),
+    };
 }
 /**
  * GLSL ES 3.00 combined-sampler type for a texture descriptor. Picks the shape (`2D`/`Cube`/
@@ -20840,12 +20924,9 @@ function generateTexture$1(ctx, node) {
     // WebGL's bottom-left framebuffer origin flips the V order of a texture that was RENDERED INTO vs
     // WebGPU's top-left, so 2D samples of a render-target texture flip V. PRESENCE is baked per-backend
     // (only this GLSL emitter emits the wrap; WebGPU never does), ACTIVATION is the runtime `u_flipY_<id>`
-    // the renderer sets from the bound texture's isRenderTargetTexture. Routed through the pure `_flipY2f`/
-    // `_flipY2i` helpers so the coord expression is evaluated once. Non-2D (cube/array/3D) never flip.
-    const flip = textureNeedsFlip(binding) && !isStorageMirrorTexture(ctx, id);
-    if (flip)
-        ctx.flipYTextures.add(id);
-    const flipName = flipUniformName$1(id);
+    // the renderer sets from the bound texture's isRenderTargetTexture. Routed through the shared
+    // `textureFlip` helper so every texture-read path flips identically. Non-2D (cube/array/3D) never flip.
+    const f = textureFlip(ctx, binding);
     // textureLoad → texelFetch (no sampler filtering).
     if (node.samplingMode === 'load') {
         if (!node.loadCoords)
@@ -20854,15 +20935,13 @@ function generateTexture$1(ctx, node) {
         const coords = generateExpr$1(ctx, node.loadCoords);
         const level = node.loadLevel ? generateExpr$1(ctx, node.loadLevel) : '0';
         // WGSL loadCoords are already integer (vec2i); wrap defensively for GLSL's ivec2 texelFetch.
-        const coordExpr = flip
-            ? `_flipY2i(${flipName}, ivec2(${coords}), textureSize(${name}, ${level}).y)`
-            : `ivec2(${coords})`;
+        const coordExpr = f.texel(`ivec2(${coords})`, `textureSize(${name}, ${level}).y`);
         return `texelFetch(${name}, ${coordExpr}, ${level})`;
     }
     const name = registerTexture(ctx, binding, ensureSampler(node));
     if (!node.uvNode)
         throw new Error(`[glsl] TextureNode '${id}' has no uvNode. Use texture.sample(uv).`);
-    const uv = flip ? `_flipY2f(${flipName}, ${generateExpr$1(ctx, node.uvNode)})` : generateExpr$1(ctx, node.uvNode);
+    const uv = f.uv(generateExpr$1(ctx, node.uvNode));
     // GLSL's texture() has no const-offset overload we support here — reject rather than drop it.
     if (node.offsetNode)
         throw new Error(`[glsl] texture sampling offset not yet supported in the GLSL emitter`);
@@ -20870,8 +20949,9 @@ function generateTexture$1(ctx, node) {
         case 'grad': {
             if (!node.gradNode)
                 throw new Error(`[glsl] TextureNode '${id}' in grad mode has no gradNode`);
-            const ddx = generateExpr$1(ctx, node.gradNode[0]);
-            const ddy = generateExpr$1(ctx, node.gradNode[1]);
+            // Under an active V-flip the uv derivative's Y sign inverts, so flip the gradients too.
+            const ddx = f.grad(generateExpr$1(ctx, node.gradNode[0]));
+            const ddy = f.grad(generateExpr$1(ctx, node.gradNode[1]));
             return `textureGrad(${name}, ${uv}, ${ddx}, ${ddy})`;
         }
         case 'bias': {
@@ -20925,16 +21005,21 @@ function generateDepthTexture$1(ctx, node) {
     // the depth in .r, so bind a plain sampler (→ glslSamplerType picks `sampler2D`) and take `.x`.
     const binding = node.bindingNode;
     const id = binding.textureId;
+    // A depth attachment is a render-target texture (bottom-up storage on WebGL), so a plain depth read
+    // needs the same V-flip as a color read — otherwise `pass.getViewZNode()`/SSAO/DoF depth reads come
+    // out vertically mirrored vs WebGPU. Same shared helper as every other path.
+    const f = textureFlip(ctx, binding);
     if (node.samplingMode === 'load') {
         if (!node.loadCoords)
             throw new Error(`[glsl] DepthTextureNode '${id}' in load mode has no loadCoords`);
         const name = registerTexture(ctx, binding, null);
         const coords = generateExpr$1(ctx, node.loadCoords);
         const level = node.loadLevel ? generateExpr$1(ctx, node.loadLevel) : '0';
-        return `texelFetch(${name}, ivec2(${coords}), ${level}).x`;
+        const coordExpr = f.texel(`ivec2(${coords})`, `textureSize(${name}, ${level}).y`);
+        return `texelFetch(${name}, ${coordExpr}, ${level}).x`;
     }
     const name = registerTexture(ctx, binding, node.samplerNode);
-    const uv = generateExpr$1(ctx, node.uvNode);
+    const uv = f.uv(generateExpr$1(ctx, node.uvNode));
     if (node.offsetNode)
         throw new Error(`[glsl] depth-texture sampling offset not yet supported in the GLSL emitter`);
     if (node.samplingMode === 'level') {
@@ -21152,16 +21237,17 @@ function emitGlslTextures(ctx) {
     // per-texture precision override inline. `highp` is always valid — and integer + storage-mirror
     // (usampler2D) samplers require it to hold 32-bit texels.
     const precisionDefaults = [...samplerTypes].map((t) => `precision highp ${t};`);
-    // Render-target flipY helpers (emitted once, when any sample was flip-wrapped). Pure functions so the
-    // caller passes the coord expression as an argument and it is evaluated exactly once. `_flipY2f` flips
-    // a normalized uv (`1 - y`); `_flipY2i` flips an integer texelFetch coord (`height - y - 1`). Both no-op
-    // when the flag is false (an ordinary, non-render-target texture is bound).
-    const flipHelpers = ctx.flipYTextures.size > 0
-        ? [
-            'vec2 _flipY2f(bool f, vec2 uv) { return f ? vec2(uv.x, 1.0 - uv.y) : uv; }',
-            'ivec2 _flipY2i(bool f, ivec2 c, int h) { return f ? ivec2(c.x, h - c.y - 1) : c; }',
-        ]
-        : [];
+    // Render-target flipY helpers. Pure functions (the coord expression is passed as an argument and
+    // evaluated exactly once), all no-op when the runtime flag is false (an ordinary, non-render-target
+    // texture is bound). Only the helpers actually referenced this stage are emitted — a shader that
+    // only `.sample()`s carries `_flipY2f` but not the texelFetch (`_flipY2i`) or grad (`_flipYd`) forms.
+    const flipHelperDefs = {
+        _flipY2f: 'vec2 _flipY2f(bool f, vec2 uv) { return f ? vec2(uv.x, 1.0 - uv.y) : uv; }', // uv → 1 - v
+        _flipY2i: 'ivec2 _flipY2i(bool f, ivec2 c, int h) { return f ? ivec2(c.x, h - c.y - 1) : c; }', // texel → h-y-1
+        _flipYd: 'vec2 _flipYd(bool f, vec2 g) { return f ? vec2(g.x, -g.y) : g; }', // grad Y sign under flip
+    };
+    // Fixed key order for deterministic output regardless of reference order.
+    const flipHelpers = ['_flipY2f', '_flipY2i', '_flipYd'].filter((fn) => ctx.flipHelperFns.has(fn)).map((fn) => flipHelperDefs[fn]);
     return { glsl: [...precisionDefaults, ...lines, ...flipHelpers].join('\n'), textures, samplers };
 }
 /* statement generation
@@ -22574,6 +22660,10 @@ function generateCall(ctx, node) {
     if (node.fn === 'not' && args.length === 1) {
         return `(!${args[0]})`;
     }
+    // NDC depth → stored [0,1]. WebGPU NDC z is already [0,1] (ZO projection) — passthrough; GLSL remaps.
+    if (node.fn === 'ndcDepthToStorage' && args.length === 1) {
+        return `(${args[0]})`;
+    }
     // atomic functions need pointer reference
     const atomicFns = [
         'atomicAdd',
@@ -23620,9 +23710,12 @@ function compileGlsl(slots, opts = {}) {
             vertexCtx.textureSamplers.set(id, samplerNode);
     }
     // A texture whose flipY wrap was emitted only in the fragment stage still needs its `u_flipY_<id>`
-    // declared in the shared sampler block below (harmless in the vertex shader if unused there).
+    // declared in the shared sampler block below (harmless in the vertex shader if unused there), and the
+    // flip HELPER functions it referenced must likewise be carried across so they're emitted once.
     for (const id of fragmentCtx.flipYTextures)
         vertexCtx.flipYTextures.add(id);
+    for (const fn of fragmentCtx.flipHelperFns)
+        vertexCtx.flipHelperFns.add(fn);
     const { glsl: samplersGlsl, textures: textureEntries, samplers: samplerEntries } = emitGlslTextures(vertexCtx);
     const version = '#version 300 es';
     // Only prefix the header when there are combined-sampler declarations, so texture-free shaders
@@ -24796,13 +24889,15 @@ function getRenderContextColorFormats(renderContext, canvasFormat) {
 }
 /**
  * Depth-stencil format for a render context, or null if the target has no depth attachment.
- * Reads `renderTarget.depthTexture?.format`; falls back to the swapchain depth format.
+ * Reads the always-present depth ATTACHMENT (`_depthAttachment`), not the sampling-gated
+ * `depthTexture` getter — a target's pipeline needs the depth format whether or not it's sampled.
+ * Falls back to the swapchain depth format.
  */
 function getRenderContextDepthFormat(renderContext, canvasDepthFormat) {
     const rt = renderContext.renderTarget;
     if (rt === null)
         return canvasDepthFormat;
-    return rt.depthTexture ? rt.depthTexture.format : null;
+    return rt._depthAttachment ? rt._depthAttachment.format : null;
 }
 /**
  * Get cache statistics.
@@ -27487,8 +27582,8 @@ function ensureRenderTargetTexturesAllocated(cache, device, renderTarget) {
             break;
         }
     }
-    if (!needsAllocation && renderTarget.depthTexture) {
-        needsAllocation = !hasRenderTargetTextureAllocation(cache, renderTarget.depthTexture._gpuTexture, width, height, renderTarget.depthTexture.format, sampleCount, 1);
+    if (!needsAllocation && renderTarget._depthAttachment) {
+        needsAllocation = !hasRenderTargetTextureAllocation(cache, renderTarget._depthAttachment._gpuTexture, width, height, renderTarget._depthAttachment.format, sampleCount, 1);
     }
     if (!needsAllocation)
         return;
@@ -27518,21 +27613,21 @@ function ensureRenderTargetTexturesAllocated(cache, device, renderTarget) {
             : null;
         setRenderTargetTexture(cache, tex._gpuTexture, resolveTexture, msaaTexture);
     }
-    if (renderTarget.depthTexture) {
+    if (renderTarget._depthAttachment) {
         const gpuDepthTexture = device.createTexture({
             size: [width, height],
-            format: renderTarget.depthTexture.format,
+            format: renderTarget._depthAttachment.format,
             usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
             sampleCount,
         });
-        setRenderTargetTexture(cache, renderTarget.depthTexture._gpuTexture, gpuDepthTexture);
+        setRenderTargetTexture(cache, renderTarget._depthAttachment._gpuTexture, gpuDepthTexture);
     }
 }
 function ensureCubeRenderTargetTexturesAllocated(cache, device, renderTarget) {
     const cubeMipCount = renderTarget.texture.generateMipmaps ? Math.floor(Math.log2(renderTarget.size)) + 1 : 1;
     const cubeReady = hasRenderTargetTextureAllocation(cache, renderTarget.texture._gpuTexture, renderTarget.size, renderTarget.size, renderTarget.texture.format, 1, cubeMipCount);
-    const depthReady = !renderTarget.depthTexture ||
-        hasRenderTargetTextureAllocation(cache, renderTarget.depthTexture._gpuTexture, renderTarget.size, renderTarget.size, renderTarget.depthTexture.format, 1, 1);
+    const depthReady = !renderTarget._depthAttachment ||
+        hasRenderTargetTextureAllocation(cache, renderTarget._depthAttachment._gpuTexture, renderTarget.size, renderTarget.size, renderTarget._depthAttachment.format, 1, 1);
     if (cubeReady && depthReady)
         return;
     // See note in ensureRenderTargetTexturesAllocated: let setRenderTargetTexture()
@@ -27547,14 +27642,14 @@ function ensureCubeRenderTargetTexturesAllocated(cache, device, renderTarget) {
         sampleCount: 1,
     });
     setRenderTargetTexture(cache, renderTarget.texture._gpuTexture, colorTex);
-    if (renderTarget.depthTexture) {
+    if (renderTarget._depthAttachment) {
         const depthTex = device.createTexture({
             size: [renderTarget.size, renderTarget.size],
-            format: renderTarget.depthTexture.format,
+            format: renderTarget._depthAttachment.format,
             usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
             sampleCount: 1,
         });
-        setRenderTargetTexture(cache, renderTarget.depthTexture._gpuTexture, depthTex);
+        setRenderTargetTexture(cache, renderTarget._depthAttachment._gpuTexture, depthTex);
     }
 }
 
@@ -38918,8 +39013,8 @@ function buildAttachmentState(renderTarget) {
     const formats = renderTarget.textures.map((t) => t.format).join(',');
     const count = renderTarget.textures.length;
     const samples = renderTarget.samples;
-    const depth = renderTarget.depthTexture !== null;
-    const stencil = renderTarget.depthTexture !== null && renderTarget.depthTexture.format.includes('stencil');
+    const depth = renderTarget._depthAttachment !== null;
+    const stencil = renderTarget._depthAttachment !== null && renderTarget._depthAttachment.format.includes('stencil');
     return `${count}:${formats}:${samples}:${depth}:${stencil}`;
 }
 /**
@@ -38964,8 +39059,8 @@ function getRenderContext(state, renderTarget, mrt, callDepth) {
     // Update dynamic values on each access
     if (renderTarget !== null) {
         context.sampleCount = renderTarget.samples === 0 ? 1 : renderTarget.samples;
-        context.depth = renderTarget.depthTexture !== null;
-        context.stencil = renderTarget.depthTexture !== null && renderTarget.depthTexture.format.includes('stencil');
+        context.depth = renderTarget._depthAttachment !== null;
+        context.stencil = renderTarget._depthAttachment !== null && renderTarget._depthAttachment.format.includes('stencil');
     }
     context.clearDepthValue = state.defaultClearDepth;
     context.clearStencilValue = state.defaultClearStencil;
@@ -39710,6 +39805,12 @@ function ensureIndexBuffer(gl, gb, index) {
  */
 function prepareGeometry(gl, state, geometry, nodeState, program) {
     const gb = getGeometryBuffers(state, geometry);
+    // Detach any currently-bound VAO before uploading. An index upload binds ELEMENT_ARRAY_BUFFER,
+    // which is captured as VAO state — doing that while a *previous* object's cached VAO is still
+    // bound would rewrite that VAO's element binding to this geometry's index buffer, so its next
+    // draw would run against the wrong (possibly smaller) buffer. Uploads must land on the default
+    // VAO 0. The caller (the draw loop) rebinds the resolved VAO after this returns.
+    gl.bindVertexArray(null);
     // Upload all attribute buffers referenced by the compiled vertex buffer groups (+ any re-uploads).
     for (const group of nodeState.vertexBufferGroups) {
         if (group.name !== null) {
@@ -40309,8 +40410,17 @@ function glFormat(gl, format) {
             throw new Error(`[WebGLRenderer] texture format '${format}' is not supported on the WebGL2 backend.`);
     }
 }
+/**
+ * Whether a texture format is integer (`…uint`/`…sint`). Integer textures are never
+ * texture-filterable in WebGL2 — they must be read with `texelFetch` (nearest); a LINEAR filter makes
+ * the sample read as incomplete (black). Used to force NEAREST on upload and to reject a linear
+ * sampler paired with one.
+ */
+function isIntegerTextureFormat(format) {
+    return format.endsWith('uint') || format.endsWith('sint');
+}
 function mipmapClassOf(format) {
-    if (format.endsWith('uint') || format.endsWith('sint'))
+    if (isIntegerTextureFormat(format))
         return 'integer';
     if (format.includes('32float'))
         return 'float32';
@@ -40919,6 +41029,25 @@ function assertFloatLinearFilterable(gl, textureFormat, gpuSampler) {
             `which is not available; use a 'nearest' filter for '${textureFormat}' textures on the WebGL2 backend.`);
     }
 }
+/**
+ * Guard: an integer texture (`…uint`/`…sint`) is never texture-filterable — it must be read with
+ * `texelFetch` (nearest). A LINEAR sampler paired with one makes the sample read as incomplete
+ * (black) — a WRONG result, not lower quality — so throw a clear error rather than render black.
+ * Normally integer textures carry no sampler (texelFetch needs none), so this only fires on a genuine
+ * misuse; it mirrors {@link assertFloatLinearFilterable}.
+ */
+function assertIntegerNotFiltered(textureFormat, gpuSampler) {
+    if (!gpuSampler)
+        return;
+    if (!isIntegerTextureFormat(textureFormat))
+        return;
+    const usesLinear = gpuSampler.minFilter === 'linear' || gpuSampler.magFilter === 'linear' || gpuSampler.mipmapFilter === 'linear';
+    if (!usesLinear)
+        return;
+    throw new Error(`[WebGLRenderer] integer texture format '${textureFormat}' is not texture-filterable; a 'linear' ` +
+        `sampler samples it as incomplete (black). Use a 'nearest' filter (or read it with texelFetch/.load()) ` +
+        `on the WebGL2 backend.`);
+}
 /** Resolve (and cache) a combined-sampler uniform's location on a program. */
 function getSamplerLocation(gl, programInfo, name) {
     if (programInfo.samplerLocations.has(name)) {
@@ -41050,6 +41179,7 @@ function bindTextures(gl, textures, samplers, renderObject, programInfo) {
             // Reject a linear filter on a float32 texture when float-linear isn't available (would
             // sample as incomplete/black = wrong output, not just lower quality).
             assertFloatLinearFilterable(gl, gpuTexture.format, gpuSampler);
+            assertIntegerNotFiltered(gpuTexture.format, gpuSampler);
             if (gpuSampler) {
                 const hasMips = gpuTexture.generateMipmaps;
                 const glSampler = getGlSampler(gl, samplers, gpuSampler, hasMips);
@@ -41104,6 +41234,7 @@ function bindStandaloneTextures(gl, textures, samplers, textureEntries, samplerE
         gl.bindTexture(texData.target, texData.texture);
         const gpuSampler = findStandaloneSamplerForUnit(samplerEntries, unit);
         assertFloatLinearFilterable(gl, gpuTexture.format, gpuSampler);
+        assertIntegerNotFiltered(gpuTexture.format, gpuSampler);
         if (gpuSampler) {
             const hasMips = gpuTexture.generateMipmaps;
             const glSampler = getGlSampler(gl, samplers, gpuSampler, hasMips);
@@ -41623,8 +41754,8 @@ function bindRenderTargetFramebuffer(gl, state, textures, renderTarget) {
     // Unsampled depth uses a renderbuffer (allocated in rebuildFbo), so skip the depth texture entirely;
     // leaner on the weaker devices the WebGL fallback runs on.
     let depthGeneration = -1;
-    if (renderTarget.depthTexture && renderTarget.depthSampled) {
-        const data = updateTexture(gl, textures, renderTarget.depthTexture._gpuTexture);
+    if (renderTarget._depthAttachment && renderTarget.depthSampled) {
+        const data = updateTexture(gl, textures, renderTarget._depthAttachment._gpuTexture);
         depthGeneration = data.generation;
     }
     let fboData = state.data.get(renderTarget);
@@ -41641,7 +41772,7 @@ function bindRenderTargetFramebuffer(gl, state, textures, renderTarget) {
     if (isCube(renderTarget) && fboData.attachedFace !== renderTarget.activeFace) {
         attachCubeFace(gl, textures, renderTarget, fboData);
     }
-    const hasStencil = depthFormatHasStencil(renderTarget.depthTexture?.format);
+    const hasStencil = depthFormatHasStencil(renderTarget._depthAttachment?.format);
     // MSAA: render into the multisample FBO; remember the target so pass end resolves it.
     if (fboData.msaa) {
         gl.bindFramebuffer(gl.FRAMEBUFFER, fboData.msaa.fbo);
@@ -41719,20 +41850,20 @@ function rebuildFbo(gl, state, textures, renderTarget, existing, colorGeneration
             depthRenderbuffer = null;
         }
     };
-    if (renderTarget.depthTexture && renderTarget.depthSampled) {
+    if (renderTarget._depthAttachment && renderTarget.depthSampled) {
         // Sampleable depth texture (e.g. shadow maps, depth-of-field, scene-depth occlusion).
         freeDepthRenderbuffer();
-        const data = getGlTextureData(textures, renderTarget.depthTexture._gpuTexture);
+        const data = getGlTextureData(textures, renderTarget._depthAttachment._gpuTexture);
         if (data) {
-            const stencil = depthFormatHasStencil(renderTarget.depthTexture.format);
+            const stencil = depthFormatHasStencil(renderTarget._depthAttachment.format);
             const attachment = stencil ? gl.DEPTH_STENCIL_ATTACHMENT : gl.DEPTH_ATTACHMENT;
             gl.framebufferTexture2D(gl.FRAMEBUFFER, attachment, gl.TEXTURE_2D, data.texture, 0);
         }
     }
-    else if (renderTarget.depthTexture) {
+    else if (renderTarget._depthAttachment) {
         // Unsampled depth uses a renderbuffer (reused across rebuilds; re-specified at the current size).
-        const stencil = depthFormatHasStencil(renderTarget.depthTexture.format);
-        const internalFormat = depthRenderbufferInternalFormat(gl, renderTarget.depthTexture.format);
+        const stencil = depthFormatHasStencil(renderTarget._depthAttachment.format);
+        const internalFormat = depthRenderbufferInternalFormat(gl, renderTarget._depthAttachment.format);
         if (!depthRenderbuffer) {
             const created = gl.createRenderbuffer();
             if (!created)
@@ -41774,7 +41905,7 @@ function rebuildFbo(gl, state, textures, renderTarget, existing, colorGeneration
         const dbg = gl.getExtension('WEBGL_debug_renderer_info');
         const rendererStr = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
         const glErr = gl.getError();
-        const depthMode = !renderTarget.depthTexture ? 'none' : renderTarget.depthSampled ? 'texture' : 'renderbuffer';
+        const depthMode = !renderTarget._depthAttachment ? 'none' : renderTarget.depthSampled ? 'texture' : 'renderbuffer';
         const TYPE_NAME = { [gl.NONE]: 'none', [gl.TEXTURE]: 'tex', [gl.RENDERBUFFER]: 'rbo' };
         const liveAttachment = (label, point) => {
             const type = gl.getFramebufferAttachmentParameter(gl.FRAMEBUFFER, point, gl.FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE);
@@ -41788,7 +41919,7 @@ function rebuildFbo(gl, state, textures, renderTarget, existing, colorGeneration
         const parts = [
             `target=${renderTarget.width}x${renderTarget.height}`,
             ...renderTarget.textures.map((t, i) => describe(`color[${i}]`, t)),
-            `depth[${depthMode}]: ${describe('', renderTarget.depthTexture)}`,
+            `depth[${depthMode}]: ${describe('', renderTarget._depthAttachment)}`,
             `renderer=${rendererStr}`,
             `glError=0x${glErr.toString(16)}`,
             `LIVE ${liveAttachment('color0', gl.COLOR_ATTACHMENT0)} ${liveAttachment('depth', gl.DEPTH_ATTACHMENT)} ${liveAttachment('stencil', gl.STENCIL_ATTACHMENT)} ${liveAttachment('depthStencil', gl.DEPTH_STENCIL_ATTACHMENT)}`,
@@ -41876,15 +42007,15 @@ function buildMsaaFbo(gl, state, textures, renderTarget) {
         gl.drawBuffers(drawBuffers);
     // Multisample depth renderbuffer, matching the target's depth format.
     let depthRenderbuffer = null;
-    if (renderTarget.depthTexture) {
-        const depthData = getGlTextureData(textures, renderTarget.depthTexture._gpuTexture);
+    if (renderTarget._depthAttachment) {
+        const depthData = getGlTextureData(textures, renderTarget._depthAttachment._gpuTexture);
         if (depthData) {
             const rb = gl.createRenderbuffer();
             if (rb) {
                 state.renderbuffers.add(rb);
                 gl.bindRenderbuffer(gl.RENDERBUFFER, rb);
                 gl.renderbufferStorageMultisample(gl.RENDERBUFFER, samples, depthData.fmt.internalFormat, w, h);
-                const stencil = depthFormatHasStencil(renderTarget.depthTexture.format);
+                const stencil = depthFormatHasStencil(renderTarget._depthAttachment.format);
                 const attachment = stencil ? gl.DEPTH_STENCIL_ATTACHMENT : gl.DEPTH_ATTACHMENT;
                 gl.framebufferRenderbuffer(gl.FRAMEBUFFER, attachment, gl.RENDERBUFFER, rb);
                 depthRenderbuffer = rb;
@@ -41949,6 +42080,12 @@ function resolveActiveRenderTarget(gl, state) {
     const count = fboData.msaa.colorRenderbuffers.length;
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER, fboData.msaa.fbo);
     gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, fboData.fbo);
+    // blitFramebuffer is subject to the scissor test (the only fragment op besides pixel-ownership
+    // that affects a blit, per GLES3). The draw loop leaves SCISSOR_TEST enabled for a partial-viewport
+    // pass (e.g. a studio grid cell), which would clip the resolve to the scissor rect and leave the
+    // rest of the texture holding unresolved garbage. Disable it for the resolve; the next pass sets
+    // its own scissor state via applyViewportScissor.
+    gl.disable(gl.SCISSOR_TEST);
     // Resolve each color attachment independently: a blit resolves READ_BUFFER → the draw FBO's
     // drawBuffers, so point both at attachment i in turn (MRT-safe; single-attachment is the common case).
     for (let i = 0; i < count; i++) {
@@ -42005,6 +42142,34 @@ function createGlStateCache() {
         polygonOffsetUnits: null,
         alphaToCoverage: null,
     };
+}
+/**
+ * Establish the known GL global-state baseline the fresh per-pass `GlStateCache` assumes, called once
+ * at the top of each pass's draw section (before the draw loop). This is the WebGL2 backend's tight
+ * analogue of three.js `WebGLState.reset()`: the draw loop rebuilds most state per draw (a fresh cache
+ * forces `applyMaterialState` to write every field on the first object, and `applyViewportScissor`
+ * re-establishes scissor + depthRange every pass), so the ONLY states that need an explicit baseline
+ * are the globals `applyMaterialState` does NOT set on every draw and could therefore inherit from a
+ * prior pass, a manual clear, or the transform-feedback path:
+ *
+ *  - `frontFace(CCW)`      — `setCullState` sets winding only inside the cull-ENABLED branch, so a pass
+ *                            of only `cullMode:'none'` materials would keep a stale winding. gpucat is
+ *                            uniformly CCW; pin it.
+ *  - `stencilMask(0xff)`   — `setStencilState` sets the write mask only inside the stencil-ENABLED
+ *                            branch, so a `stencilTest:false` pass would inherit whatever mask a prior
+ *                            stencil pass / stencil clear left. 0xff matches the stencil-clear mask.
+ *  - `disable(RASTERIZER_DISCARD)` — the render draw loop assumes rasterization is on; transform
+ *                            feedback is the only path that enables discard. Insurance so a stray
+ *                            enabled discard can't silently blank a render pass.
+ *
+ * Deliberately does NOT touch depth/cull-enable/blend/colorMask/alphaToCoverage/scissor/depthRange:
+ * those are already re-established every pass, so re-setting them here would be redundant and could
+ * fight the first draw's material state.
+ */
+function establishPassBaseline(gl) {
+    gl.frontFace(gl.CCW);
+    gl.stencilMask(0xff);
+    gl.disable(gl.RASTERIZER_DISCARD);
 }
 // -------------------------------------------------------------------------------------------------
 // Enum → GL constant maps. Keyed by the WebGPU-vocabulary strings gpucat's Material uses.
@@ -42406,6 +42571,9 @@ function executeRenderPass$1(gl, caches, nodes, passCtx, prepared, params, inspe
         return;
     }
     const hasStencil = !!passCtx.stencil;
+    // Pin the GL globals the fresh state cache assumes but the per-draw material state doesn't set
+    // (winding, stencil write mask, rasterizer discard) — see establishPassBaseline.
+    establishPassBaseline(gl);
     const stateCache = createGlStateCache();
     let currentProgram = null;
     let currentVao = null;
@@ -42460,9 +42628,11 @@ function executeRenderPass$1(gl, caches, nodes, passCtx, prepared, params, inspe
         // Texture + sampler bindings → GL texture units + combined-sampler uniforms.
         bindTextures(gl, caches.textures, caches.samplers, renderObject, programInfo);
         // Geometry VAO (uploads buffers + builds/reuses the VAO for this program).
+        // `prepareGeometry` detaches the VAO to upload buffers safely (see its note), so the GL VAO
+        // is unbound on return — always rebind the resolved one here rather than deduping the GL call.
         const drawInfo = prepareGeometry(gl, caches.geometries, geometry, nodeState, programInfo.program);
+        gl.bindVertexArray(drawInfo.vao);
         if (currentVao !== drawInfo.vao) {
-            gl.bindVertexArray(drawInfo.vao);
             currentVao = drawInfo.vao;
             // Inspector: a VAO carries all vertex (+index) buffer bindings; log it as a single
             // vertex-buffer bind (slot 0) plus an index bind when the geometry is indexed.
@@ -42517,7 +42687,9 @@ function executeRenderPass$1(gl, caches, nodes, passCtx, prepared, params, inspe
             const start = geometry.drawRange.start;
             if (geometry.index && drawInfo.indexType !== null) {
                 const indexArray = geometry.index.array;
-                const count = Math.min(geometry.drawRange.count, indexArray.length);
+                // Clamp against the indices REMAINING after `start`, not the whole buffer — otherwise a
+                // non-zero drawRange.start reads past the end of the index buffer (GL: insufficient buffer).
+                const count = Math.min(geometry.drawRange.count, indexArray.length - start);
                 // firstIndex is a byte offset for drawElements; each index is 1 (uint8), 2 (uint16) or
                 // 4 (uint32) bytes.
                 const bytesPerIndex = drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
@@ -42527,9 +42699,12 @@ function executeRenderPass$1(gl, caches, nodes, passCtx, prepared, params, inspe
             }
             else {
                 const position = geometry.buffers.get('position');
+                // Vertices remaining after `start`; clamp drawRange.count to it so a non-zero start
+                // can't over-read the vertex buffer.
+                const available = (position?.count ?? geometry.drawRange.count) - start;
                 const vertexCount = geometry.drawRange.count === Infinity
-                    ? (position?.count ?? 3)
-                    : Math.min(geometry.drawRange.count, position?.count ?? geometry.drawRange.count);
+                    ? (position?.count ?? 3) - start
+                    : Math.min(geometry.drawRange.count, available);
                 gl.drawArraysInstanced(gl.TRIANGLES, start, vertexCount, instances);
                 if (inspector)
                     inspector.draw(vertexCount, instances);
@@ -42676,8 +42851,11 @@ function ensureIoBuffer(gl, state, buffer, role, name) {
         const array = buffer.array;
         gl.bindBuffer(gl.ARRAY_BUFFER, entry.glBuffer);
         if (array) {
-            // STATIC_READ for outputs (read back after write), STATIC_DRAW for inputs (fed as attributes).
-            gl.bufferData(gl.ARRAY_BUFFER, array, role === 'output' ? gl.STATIC_READ : gl.STATIC_DRAW);
+            // Outputs are GPU-written (TF capture) and GPU-consumed (copied to a staging buffer in
+            // readBufferAsync, then fed back as attributes) → DYNAMIC_COPY, not *_READ. A READ hint makes
+            // the driver keep a readback shadow copy for a getBufferSubData that never comes, discarded on
+            // every re-write (perf-warning spam). Inputs are fed straight in as attributes → STATIC_DRAW.
+            gl.bufferData(gl.ARRAY_BUFFER, array, role === 'output' ? gl.DYNAMIC_COPY : gl.STATIC_DRAW);
         }
         else if (role === 'output') {
             throw new Error(`[WebGLRenderer] transform-feedback output buffer '${name}' has a null array; ` +
@@ -43366,10 +43544,11 @@ class WebGLRenderer {
                     generateRenderTargetMipmaps(this.gl, this._textures, tex._gpuTexture);
             }
         }
-        // Optional: drain the GL error queue so a mistake surfaces (WebGL has no error scopes).
-        const err = this.gl.getError();
-        if (err !== this.gl.NO_ERROR)
-            console.error('[WebGLRenderer] render error', err);
+        // No per-render `gl.getError()` poll: it's a hard CPU↔GPU sync point on ANGLE (the client
+        // blocks on the service-side error flag), so polling every render() stalls the pipeline —
+        // several ms/frame with multiple passes. The browser already logs GL errors to the console
+        // for free, so the poll is pure cost. This matches three.js, which only calls getError() in
+        // its shader-link failure path (WebGLProgram), never in the render loop.
         // Close the inspector's render pass. WebGPU emits finishRender inside its render-pass module;
         // WebGL's render() owns the pass lifecycle (immediate mode, no encoder), so it pairs
         // beginRender/finishRender here — guaranteeing balance regardless of executeRenderPass's early
@@ -44295,15 +44474,15 @@ function resolveRenderTargetAttachments(device, textures, renderTarget, clearCol
             });
     }
     let depthAttachment;
-    if (renderTarget.depthTexture) {
-        const depthTextureData = getTextureData(textures, renderTarget.depthTexture._gpuTexture);
+    if (renderTarget._depthAttachment) {
+        const depthTextureData = getTextureData(textures, renderTarget._depthAttachment._gpuTexture);
         if (depthTextureData) {
             depthAttachment = {
                 view: getRenderTargetView(depthTextureData),
                 depthClearValue: 1.0,
                 depthLoadOp: loadOp,
                 depthStoreOp: 'store',
-                ...stencilAttachmentOps(renderTarget.depthTexture.format, params.autoClear, params),
+                ...stencilAttachmentOps(renderTarget._depthAttachment.format, params.autoClear, params),
             };
         }
     }
@@ -44380,15 +44559,15 @@ function resolveCubeAttachments(device, textures, renderTarget, clearColor) {
         },
     ];
     let depthAttachment;
-    if (renderTarget.depthTexture) {
-        const depthData = getTextureData(textures, renderTarget.depthTexture._gpuTexture);
+    if (renderTarget._depthAttachment) {
+        const depthData = getTextureData(textures, renderTarget._depthAttachment._gpuTexture);
         if (depthData) {
             depthAttachment = {
                 view: getRenderTargetView(depthData),
                 depthClearValue: 1.0,
                 depthLoadOp: 'clear',
                 depthStoreOp: 'store',
-                ...stencilAttachmentOps(renderTarget.depthTexture.format, true, {
+                ...stencilAttachmentOps(renderTarget._depthAttachment.format, true, {
                     autoClearStencil: true,
                     clearStencilValue: 0,
                 }),
@@ -45850,5 +46029,5 @@ function createStructTexture(schema, capacity, options = {}) {
     });
 }
 
-export { ArrayTexture, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, FlyControls, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, Raycaster, RenderPipeline, RenderTarget, Return, Scene, Source, TOUCH, Texture, TransformControls, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WebGLRenderer, WebGPURenderer, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, ceil, clamp$1 as clamp, color_exports as color, comparisonSampler, compile, compileCompute, compileGlsl, compileTransformFeedback, compute, computeIndex, cond, cos, countLeadingZeros, countOneBits, countTrailingZeros, createBoxGeometry, createCylinderGeometry, createFullscreenTriangleGeometry, createIndexBuffer, createIndirectBuffer, createOctahedronGeometry, createPlaneGeometry, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createStructTexture, createTorusGeometry, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frameGroup, frustum, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, globalId, glsl, glslFn, greaterThan, greaterThanEqual, i32, index, instanceIndex, inverseSqrt, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max$1 as max, min$1 as min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, normalize$1 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, pass, positionClip, pow, readPixels, reinhardToneMapping, renderGroup, renderOutput, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub$1 as sub, tan, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgsl, wgslFn, workgroupBarrier, workgroupId };
+export { ArrayTexture, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, FlyControls, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, Raycaster, RenderPipeline, RenderTarget, Return, Scene, Source, TOUCH, Texture, TransformControls, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WebGLRenderer, WebGPURenderer, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, ceil, clamp$1 as clamp, color_exports as color, comparisonSampler, compile, compileCompute, compileGlsl, compileTransformFeedback, compute, computeIndex, cond, cos, countLeadingZeros, countOneBits, countTrailingZeros, createBoxGeometry, createCylinderGeometry, createFullscreenTriangleGeometry, createIndexBuffer, createIndirectBuffer, createOctahedronGeometry, createPlaneGeometry, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createStructTexture, createTorusGeometry, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frameGroup, frustum, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, globalId, glsl, glslFn, greaterThan, greaterThanEqual, i32, index, instanceIndex, inverseSqrt, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max$1 as max, min$1 as min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, ndcDepthToStorage, normalize$1 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, pass, positionClip, pow, readPixels, reinhardToneMapping, renderGroup, renderOutput, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub$1 as sub, tan, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgsl, wgslFn, workgroupBarrier, workgroupId };
 //# sourceMappingURL=index.js.map

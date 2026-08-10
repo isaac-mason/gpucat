@@ -22,6 +22,11 @@ export declare class Camera extends Object3D {
 }
 /**
  * Unproject a point from NDC (normalized device coordinates) to world space.
- * NDC: x,y in [-1, 1], z in [0, 1] where 0 is near plane, 1 is far plane (WebGPU convention).
+ * NDC: x,y in [-1, 1], z in the CANONICAL [0, 1] near→far convention (WebGPU) — backend-agnostic.
+ *
+ * The camera's projection may use the WebGL NDC-z range [-1, 1] (perspectiveNO/orthoNO), so the
+ * canonical z is mapped into the camera's actual range before applying the inverse view-projection.
+ * This keeps callers (and the frustum-corner helpers in examples) backend-agnostic: pass z=0 for the
+ * near plane and z=1 for the far plane regardless of backend.
  */
 export declare function unproject(out: Vec3, ndc: Vec3, camera: Camera): Vec3;

@@ -60,6 +60,9 @@ export type GlslBuildContext = {
     textures: Map<string, TextureBindingNode>;
     textureSamplers: Map<string, SamplerNode<d.sampler | d.samplerComparison>>;
     flipYTextures: Set<string>;
+    /** Which flip HELPER functions (`_flipY2f`/`_flipY2i`/`_flipYd`) were actually referenced this stage,
+     *  so only those are emitted (a shader that only `.sample()`s shouldn't carry the texelFetch/grad ones). */
+    flipHelperFns: Set<string>;
     storageMirrors: Map<number, StorageMirror>;
     /** Cache of storage-mirror data-texture ids (derived from `storageMirrors`), built once on first
      *  lookup. Storage mirrors are populated before emission and never change, so this is safe to memo. */
