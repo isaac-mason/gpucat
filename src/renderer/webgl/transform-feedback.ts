@@ -120,8 +120,11 @@ function ensureIoBuffer(
         const array = buffer.array;
         gl.bindBuffer(gl.ARRAY_BUFFER, entry.glBuffer);
         if (array) {
-            // STATIC_READ for outputs (read back after write), STATIC_DRAW for inputs (fed as attributes).
-            gl.bufferData(gl.ARRAY_BUFFER, array, role === 'output' ? gl.STATIC_READ : gl.STATIC_DRAW);
+            // Outputs are GPU-written (TF capture) and GPU-consumed (copied to a staging buffer in
+            // readBufferAsync, then fed back as attributes) → DYNAMIC_COPY, not *_READ. A READ hint makes
+            // the driver keep a readback shadow copy for a getBufferSubData that never comes, discarded on
+            // every re-write (perf-warning spam). Inputs are fed straight in as attributes → STATIC_DRAW.
+            gl.bufferData(gl.ARRAY_BUFFER, array, role === 'output' ? gl.DYNAMIC_COPY : gl.STATIC_DRAW);
         } else if (role === 'output') {
             throw new Error(
                 `[WebGLRenderer] transform-feedback output buffer '${name}' has a null array; ` +

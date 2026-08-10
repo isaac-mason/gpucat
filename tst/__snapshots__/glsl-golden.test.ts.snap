@@ -397,7 +397,6 @@ precision highp sampler2D;
 uniform sampler2D u_t0;
 uniform bool u_flipY_t0;
 vec2 _flipY2f(bool f, vec2 uv) { return f ? vec2(uv.x, 1.0 - uv.y) : uv; }
-ivec2 _flipY2i(bool f, ivec2 c, int h) { return f ? ivec2(c.x, h - c.y - 1) : c; }
 // Vertex shader
 layout(location = 0) in vec3 a_position;
 
@@ -420,7 +419,6 @@ precision highp sampler2D;
 uniform sampler2D u_t0;
 uniform bool u_flipY_t0;
 vec2 _flipY2f(bool f, vec2 uv) { return f ? vec2(uv.x, 1.0 - uv.y) : uv; }
-ivec2 _flipY2i(bool f, ivec2 c, int h) { return f ? ivec2(c.x, h - c.y - 1) : c; }
 // Fragment shader
 layout(location = 0) out vec4 fragColor;
 

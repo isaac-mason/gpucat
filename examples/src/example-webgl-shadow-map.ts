@@ -18,6 +18,7 @@ import {
     modelNormalMatrix,
     modelWorldMatrix,
     mul,
+    ndcDepthToStorage,
     type Node,
     normalize,
     OrbitControls,
@@ -30,13 +31,14 @@ import {
     textureSampleCompare,
     Uniform,
     uniform,
+    unproject,
     varying,
     vec2,
     vec3,
     vec4,
     WebGLRenderer,
 } from 'gpucat';
-import { type Euler, type Mat4, mat4, quat, type Vec4, vec4 as v4 } from 'mathcat';
+import { type Euler, mat4, type Mat4, quat, type Vec3 } from 'mathcat';
 
 // ─── Renderer ───────────────────────────────────────────────────────────────
 
@@ -73,6 +75,9 @@ window.addEventListener('resize', () => {
 const shadowRT = new RenderTarget(SHADOW_SIZE, SHADOW_SIZE, {
     depthFormat: 'depth32float',
     count: 0,
+    // Declare that the depth attachment is sampled (this is a shadow map). Required to read it as a
+    // texture: the WebGL backend otherwise attaches a depth renderbuffer, and `rt.depthTexture` is null.
+    depthSampled: true,
 });
 
 // ─── Shared vertex transform nodes ─────────────────────────────────────────
@@ -133,9 +138,10 @@ const lightNDC = lightClip.xyz.div(lightClip.w);
 // Convert from NDC [-1,1] xy to UV [0,1], flip Y for texture coords
 const shadowUV = vec2(lightNDC.x.mul(f32(0.5)).add(f32(0.5)), lightNDC.y.mul(f32(-0.5)).add(f32(0.5)));
 
-// Depth reference. On the WebGL backend cameras use NDC z in [-1,1] (perspectiveNO/orthoNO),
-// so remap the projected z to the [0,1] range the depth texture stores before comparing.
-const depthRef = lightNDC.z.mul(f32(0.5)).add(f32(0.5));
+// Depth reference in the [0,1] range the depth texture stores. `ndcDepthToStorage` absorbs the
+// per-backend NDC-z convention (WebGL [-1,1] → [0,1]; WebGPU already [0,1]), so this line — and the
+// whole shader graph — is identical across backends.
+const depthRef = ndcDepthToStorage(lightNDC.z);
 
 // 3x3 PCF: sample a grid around the shadow UV and average the results
 const texelSize = f32(1.0 / SHADOW_SIZE);
@@ -218,19 +224,19 @@ lightCamera.updateViewMatrix();
 
 // ─── Light camera frustum helper (wireframe via thin quads) ─────────────────
 
-// 8 clip-space corners of an orthographic frustum. On WebGL NDC z is in [-1,1],
-// so the near/far planes are z=-1 and z=+1.
-const clipCorners: Vec4[] = [
-    // near plane (z=-1)
-    [-1, -1, -1, 1],
-    [-1, 1, -1, 1],
-    [1, 1, -1, 1],
-    [1, -1, -1, 1],
+// 8 corners of the light's frustum in canonical NDC: x,y in [-1,1]; z in [0,1] (0 = near, 1 = far),
+// backend-agnostic. `unproject` maps them to world space and internally handles the WebGL [-1,1] z range.
+const clipCorners: Vec3[] = [
+    // near plane (z=0)
+    [-1, -1, 0],
+    [-1, 1, 0],
+    [1, 1, 0],
+    [1, -1, 0],
     // far plane (z=1)
-    [-1, -1, 1, 1],
-    [-1, 1, 1, 1],
-    [1, 1, 1, 1],
-    [1, -1, 1, 1],
+    [-1, -1, 1],
+    [-1, 1, 1],
+    [1, 1, 1],
+    [1, -1, 1],
 ];
 
 // 12 edges of a box: [cornerA, cornerB]
@@ -275,23 +281,14 @@ scene.add(frustumMesh);
 
 const LINE_THICKNESS = 0.03;
 
-// Scratch arrays for unproject computation
-const worldCorners: Vec4[] = clipCorners.map(() => [0, 0, 0, 0] as Vec4);
-const invVP: Mat4 = mat4.create();
+// Scratch: unprojected world-space corners.
+const worldCorners: Vec3[] = clipCorners.map(() => [0, 0, 0] as Vec3);
 
 function updateFrustumGeometry(): void {
-    // Compute inverse VP for the light camera
-    const vp: Mat4 = mat4.create();
-    mat4.mul(vp, lightCamera.projectionMatrix, lightCamera.matrixWorldInverse);
-    mat4.invert(invVP, vp);
-
-    // Unproject clip corners to world space
+    // Unproject the light frustum's clip corners to world space. `unproject` is backend-agnostic: it
+    // maps the canonical [0,1] z into the camera's NDC-z range and does the perspective divide.
     for (let i = 0; i < clipCorners.length; i++) {
-        v4.transformMat4(worldCorners[i], clipCorners[i], invVP);
-        const w = worldCorners[i][3];
-        worldCorners[i][0] /= w;
-        worldCorners[i][1] /= w;
-        worldCorners[i][2] /= w;
+        unproject(worldCorners[i], clipCorners[i], lightCamera);
     }
 
     // Build thin quads for each edge

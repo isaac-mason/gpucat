@@ -209,15 +209,15 @@ function resolveRenderTargetAttachments(
     }
 
     let depthAttachment: GPURenderPassDepthStencilAttachment | undefined;
-    if (renderTarget.depthTexture) {
-        const depthTextureData = Textures.getTextureData(textures, renderTarget.depthTexture._gpuTexture);
+    if (renderTarget._depthAttachment) {
+        const depthTextureData = Textures.getTextureData(textures, renderTarget._depthAttachment._gpuTexture);
         if (depthTextureData) {
             depthAttachment = {
                 view: Textures.getRenderTargetView(depthTextureData),
                 depthClearValue: 1.0,
                 depthLoadOp: loadOp,
                 depthStoreOp: 'store',
-                ...stencilAttachmentOps(renderTarget.depthTexture.format, params.autoClear, params),
+                ...stencilAttachmentOps(renderTarget._depthAttachment.format, params.autoClear, params),
             };
         }
     }
@@ -317,15 +317,15 @@ function resolveCubeAttachments(
     ];
 
     let depthAttachment: GPURenderPassDepthStencilAttachment | undefined;
-    if (renderTarget.depthTexture) {
-        const depthData = Textures.getTextureData(textures, renderTarget.depthTexture._gpuTexture);
+    if (renderTarget._depthAttachment) {
+        const depthData = Textures.getTextureData(textures, renderTarget._depthAttachment._gpuTexture);
         if (depthData) {
             depthAttachment = {
                 view: Textures.getRenderTargetView(depthData),
                 depthClearValue: 1.0,
                 depthLoadOp: 'clear',
                 depthStoreOp: 'store',
-                ...stencilAttachmentOps(renderTarget.depthTexture.format, true, {
+                ...stencilAttachmentOps(renderTarget._depthAttachment.format, true, {
                     autoClearStencil: true,
                     clearStencilValue: 0,
                 } as RenderPassParams),

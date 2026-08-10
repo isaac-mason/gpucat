@@ -17,8 +17,8 @@ test('CubeRenderTarget wraps a sized cube texture with 6 faces', () => {
     expect(rt.texture._gpuTexture.isRenderTargetTexture).toBe(true);
     // the inherited 2D color texture carries the face format for pipeline creation
     expect(rt.texture.format).toBe('rgba8unorm');
-    // a depth attachment is allocated and reused across faces
-    expect(rt.depthTexture).not.toBeNull();
+    // a depth attachment is allocated and reused across faces (unsampled → not exposed via depthTexture)
+    expect(rt._depthAttachment).not.toBeNull();
 });
 
 test('CubeCamera sets up six 90-degree face cameras', () => {

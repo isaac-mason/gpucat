@@ -287,6 +287,9 @@ export type GlslBuildContext = {
     // the bound texture's isRenderTargetTexture (the analog of three.js's `_flipYUniform.value`). WebGL's
     // bottom-left framebuffer origin flips the V order of a texture that was rendered into vs WebGPU.
     flipYTextures: Set<string>;
+    /** Which flip HELPER functions (`_flipY2f`/`_flipY2i`/`_flipYd`) were actually referenced this stage,
+     *  so only those are emitted (a shader that only `.sample()`s shouldn't carry the texelFetch/grad ones). */
+    flipHelperFns: Set<string>;
 
     // Read-only storage() buffers reinterpreted as rgba32uint mirror textures (WebGL has no SSBO).
     // Keyed by StorageNode id → the mirror's base texture node + its texel width, so a `storage[i].field`
@@ -332,6 +335,7 @@ export function createGlslContext(stage: ShaderStage, discovery: Discovery): Gls
         textures: new Map(),
         textureSamplers: new Map(),
         flipYTextures: new Set(),
+        flipHelperFns: new Set(),
         // Populated once by compileGlsl (shared across stages) — see storage() read-lowering.
         storageMirrors: new Map(),
         attributes: new Map(),
@@ -1193,6 +1197,8 @@ function generateCall(ctx: GlslBuildContext, node: CallNode<d.Any>): string {
 
     if (node.fn === 'negate' && args.length === 1) return `(-${args[0]})`;
     if (node.fn === 'not' && args.length === 1) return `(!${args[0]})`;
+    // NDC depth → stored [0,1]. WebGL NDC z is [-1,1] (NO projection), so remap; WGSL passes through.
+    if (node.fn === 'ndcDepthToStorage' && args.length === 1) return `((${args[0]}) * 0.5 + 0.5)`;
 
     if (UNSUPPORTED_DERIVATIVES.has(node.fn)) {
         throw new Error(
@@ -1287,6 +1293,11 @@ function generateTextureCall(ctx: GlslBuildContext, node: CallNode<d.Any>): stri
     const sampler = samplerArg && samplerArg.kind === NodeKind.Sampler ? (samplerArg as SamplerNode) : null;
     const name = registerTexture(ctx, tex, sampler);
 
+    // Render-target V-flip — the SAME shared helper `generateTexture` uses. The free-function texture
+    // builtins (notably `textureSampleCompare`, the only comparison/shadow entry point) must honor it too
+    // or an RT texture sampled via a builtin comes out V-mirrored vs one sampled via `.sample()`.
+    const f = textureFlip(ctx, tex);
+
     const restFrom = (i: number) => rawArgs.slice(i).map((a) => generateExpr(ctx, a));
 
     // A GLSL texture*Offset offset argument MUST be a constant expression. Accept only literal / const-
@@ -1309,7 +1320,7 @@ function generateTextureCall(ctx: GlslBuildContext, node: CallNode<d.Any>): stri
         case 'textureSample': {
             // (t, s, coords [, offset]) → texture(name, coords) — or textureLod at level 0 in the vertex
             // stage (no implicit derivatives there). With a const offset → textureOffset / textureLodOffset.
-            const coords = generateExpr(ctx, rawArgs[2]);
+            const coords = f.uv(generateExpr(ctx, rawArgs[2]));
             if (rawArgs.length > 3) {
                 const off = constOffset(3);
                 return ctx.stage === 'vertex'
@@ -1319,14 +1330,14 @@ function generateTextureCall(ctx: GlslBuildContext, node: CallNode<d.Any>): stri
             return implicitSample(ctx, name, coords);
         }
         case 'textureSampleLevel': {
-            const coords = generateExpr(ctx, rawArgs[2]);
+            const coords = f.uv(generateExpr(ctx, rawArgs[2]));
             const level = generateExpr(ctx, rawArgs[3]);
             if (rawArgs.length > 4) return `textureLodOffset(${name}, ${coords}, ${level}, ${constOffset(4)})`;
             return `textureLod(${name}, ${coords}, ${level})`;
         }
         case 'textureSampleBias': {
             // Bias only applies in the fragment stage; the vertex stage samples level 0.
-            const coords = generateExpr(ctx, rawArgs[2]);
+            const coords = f.uv(generateExpr(ctx, rawArgs[2]));
             const bias = generateExpr(ctx, rawArgs[3]);
             if (rawArgs.length > 4) {
                 const off = constOffset(4);
@@ -1337,13 +1348,17 @@ function generateTextureCall(ctx: GlslBuildContext, node: CallNode<d.Any>): stri
             return implicitSample(ctx, name, coords, bias);
         }
         case 'textureSampleGrad': {
-            const [coords, ddx, ddy] = restFrom(2);
+            const [rawCoords, rawDdx, rawDdy] = restFrom(2);
+            // Flip the uv and, under an active flip, negate the gradients' Y (v→1-v inverts dv/dscreen).
+            const coords = f.uv(rawCoords);
+            const ddx = f.grad(rawDdx);
+            const ddy = f.grad(rawDdy);
             if (rawArgs.length > 5) return `textureGradOffset(${name}, ${coords}, ${ddx}, ${ddy}, ${constOffset(5)})`;
             return `textureGrad(${name}, ${coords}, ${ddx}, ${ddy})`;
         }
         case 'textureSampleCompare': {
             // (t, s, coords, depthRef [, offset]) → texture(shadowSampler, vec3(coords, depthRef)).
-            const coords = generateExpr(ctx, rawArgs[2]);
+            const coords = f.uv(generateExpr(ctx, rawArgs[2]));
             const depthRef = generateExpr(ctx, rawArgs[3]);
             if (rawArgs.length > 4) return `textureOffset(${name}, vec3(${coords}, ${depthRef}), ${constOffset(4)})`;
             return `texture(${name}, vec3(${coords}, ${depthRef}))`;
@@ -1351,7 +1366,7 @@ function generateTextureCall(ctx: GlslBuildContext, node: CallNode<d.Any>): stri
         case 'textureSampleCompareLevel': {
             // (t, s, coords, depthRef, level [, offset]) → shadow sample at an explicit LOD. Depth level
             // is i32; GLSL textureLod takes a float lod.
-            const coords = generateExpr(ctx, rawArgs[2]);
+            const coords = f.uv(generateExpr(ctx, rawArgs[2]));
             const depthRef = generateExpr(ctx, rawArgs[3]);
             const level = `float(${generateExpr(ctx, rawArgs[4])})`;
             if (rawArgs.length > 5) return `textureLodOffset(${name}, vec3(${coords}, ${depthRef}), ${level}, ${constOffset(5)})`;
@@ -1371,7 +1386,8 @@ function generateTextureCall(ctx: GlslBuildContext, node: CallNode<d.Any>): stri
             // (t, coords, level) → texelFetch(name, ivec2(coords), level).
             const coords = generateExpr(ctx, rawArgs[1]);
             const level = rawArgs[2] ? generateExpr(ctx, rawArgs[2]) : '0';
-            return `texelFetch(${name}, ivec2(${coords}), ${level})`;
+            const coordExpr = f.texel(`ivec2(${coords})`, `textureSize(${name}, ${level}).y`);
+            return `texelFetch(${name}, ${coordExpr}, ${level})`;
         }
         case 'textureDimensions': {
             // WGSL textureDimensions(t [, level:u32]) → vec{2,3}<u32>; GLSL textureSize(sampler, int) →
@@ -1424,6 +1440,35 @@ function flipUniformName(textureId: string): string {
 function textureNeedsFlip(binding: TextureBindingNode): boolean {
     const type = binding.type.type;
     return type === 'texture_2d' || type === 'texture_depth_2d';
+}
+
+/**
+ * The render-target V-flip for one texture binding, resolved once — the SINGLE source of truth every
+ * texture-read generator routes coordinates through, so the flip rule can't drift between paths. (It
+ * drifted before: `.sample()` flipped but the free-function builtins, `textureSampleCompare`, and plain
+ * depth reads did not, so a shadow map sampled via the compare builtin came out V-mirrored vs one
+ * sampled via `.sample()`.) `flip` is true only for a render-target-capable 2D / 2D-depth texture that
+ * isn't a storage mirror; the wrappers emit the same `_flipY2f`/`_flipY2i`/`_flipYd` the renderer gates
+ * at runtime via `u_flipY_<id>` (= isRenderTargetTexture), so they are no-ops for ordinary textures.
+ * (2D-array render targets are not flipped yet — an unexercised path; see generateArrayTexture.)
+ */
+function textureFlip(ctx: GlslBuildContext, binding: TextureBindingNode) {
+    const flip = textureNeedsFlip(binding) && !isStorageMirrorTexture(ctx, binding.textureId);
+    const name = flipUniformName(binding.textureId);
+    const wrap = (fn: string, ...args: string[]): string => {
+        ctx.flipYTextures.add(binding.textureId);
+        ctx.flipHelperFns.add(fn); // only emit the helper functions actually referenced
+        return `${fn}(${name}, ${args.join(', ')})`;
+    };
+    return {
+        flip,
+        /** Normalized uv → `1 - v`. */
+        uv: (uvExpr: string): string => (flip ? wrap('_flipY2f', uvExpr) : uvExpr),
+        /** Integer texelFetch coord → `h - y - 1`; caller passes the sampled-level height expression. */
+        texel: (coordExpr: string, heightExpr: string): string => (flip ? wrap('_flipY2i', coordExpr, heightExpr) : coordExpr),
+        /** A grad derivative's Y is negated under an active flip (`v → 1-v` flips `dv/dscreen`). */
+        grad: (gradExpr: string): string => (flip ? wrap('_flipYd', gradExpr) : gradExpr),
+    };
 }
 
 /**
@@ -1511,11 +1556,9 @@ function generateTexture(ctx: GlslBuildContext, node: TextureNode): string {
     // WebGL's bottom-left framebuffer origin flips the V order of a texture that was RENDERED INTO vs
     // WebGPU's top-left, so 2D samples of a render-target texture flip V. PRESENCE is baked per-backend
     // (only this GLSL emitter emits the wrap; WebGPU never does), ACTIVATION is the runtime `u_flipY_<id>`
-    // the renderer sets from the bound texture's isRenderTargetTexture. Routed through the pure `_flipY2f`/
-    // `_flipY2i` helpers so the coord expression is evaluated once. Non-2D (cube/array/3D) never flip.
-    const flip = textureNeedsFlip(binding) && !isStorageMirrorTexture(ctx, id);
-    if (flip) ctx.flipYTextures.add(id);
-    const flipName = flipUniformName(id);
+    // the renderer sets from the bound texture's isRenderTargetTexture. Routed through the shared
+    // `textureFlip` helper so every texture-read path flips identically. Non-2D (cube/array/3D) never flip.
+    const f = textureFlip(ctx, binding);
 
     // textureLoad → texelFetch (no sampler filtering).
     if (node.samplingMode === 'load') {
@@ -1524,16 +1567,14 @@ function generateTexture(ctx: GlslBuildContext, node: TextureNode): string {
         const coords = generateExpr(ctx, node.loadCoords);
         const level = node.loadLevel ? generateExpr(ctx, node.loadLevel) : '0';
         // WGSL loadCoords are already integer (vec2i); wrap defensively for GLSL's ivec2 texelFetch.
-        const coordExpr = flip
-            ? `_flipY2i(${flipName}, ivec2(${coords}), textureSize(${name}, ${level}).y)`
-            : `ivec2(${coords})`;
+        const coordExpr = f.texel(`ivec2(${coords})`, `textureSize(${name}, ${level}).y`);
         return `texelFetch(${name}, ${coordExpr}, ${level})`;
     }
 
     const name = registerTexture(ctx, binding, ensureSampler(node));
 
     if (!node.uvNode) throw new Error(`[glsl] TextureNode '${id}' has no uvNode. Use texture.sample(uv).`);
-    const uv = flip ? `_flipY2f(${flipName}, ${generateExpr(ctx, node.uvNode)})` : generateExpr(ctx, node.uvNode);
+    const uv = f.uv(generateExpr(ctx, node.uvNode));
 
     // GLSL's texture() has no const-offset overload we support here — reject rather than drop it.
     if (node.offsetNode) throw new Error(`[glsl] texture sampling offset not yet supported in the GLSL emitter`);
@@ -1541,8 +1582,9 @@ function generateTexture(ctx: GlslBuildContext, node: TextureNode): string {
     switch (node.samplingMode) {
         case 'grad': {
             if (!node.gradNode) throw new Error(`[glsl] TextureNode '${id}' in grad mode has no gradNode`);
-            const ddx = generateExpr(ctx, node.gradNode[0]);
-            const ddy = generateExpr(ctx, node.gradNode[1]);
+            // Under an active V-flip the uv derivative's Y sign inverts, so flip the gradients too.
+            const ddx = f.grad(generateExpr(ctx, node.gradNode[0]));
+            const ddy = f.grad(generateExpr(ctx, node.gradNode[1]));
             return `textureGrad(${name}, ${uv}, ${ddx}, ${ddy})`;
         }
         case 'bias': {
@@ -1594,17 +1636,22 @@ function generateDepthTexture(ctx: GlslBuildContext, node: DepthTextureNode): st
     // the depth in .r, so bind a plain sampler (→ glslSamplerType picks `sampler2D`) and take `.x`.
     const binding = node.bindingNode;
     const id = binding.textureId;
+    // A depth attachment is a render-target texture (bottom-up storage on WebGL), so a plain depth read
+    // needs the same V-flip as a color read — otherwise `pass.getViewZNode()`/SSAO/DoF depth reads come
+    // out vertically mirrored vs WebGPU. Same shared helper as every other path.
+    const f = textureFlip(ctx, binding);
 
     if (node.samplingMode === 'load') {
         if (!node.loadCoords) throw new Error(`[glsl] DepthTextureNode '${id}' in load mode has no loadCoords`);
         const name = registerTexture(ctx, binding, null);
         const coords = generateExpr(ctx, node.loadCoords);
         const level = node.loadLevel ? generateExpr(ctx, node.loadLevel) : '0';
-        return `texelFetch(${name}, ivec2(${coords}), ${level}).x`;
+        const coordExpr = f.texel(`ivec2(${coords})`, `textureSize(${name}, ${level}).y`);
+        return `texelFetch(${name}, ${coordExpr}, ${level}).x`;
     }
 
     const name = registerTexture(ctx, binding, node.samplerNode);
-    const uv = generateExpr(ctx, node.uvNode);
+    const uv = f.uv(generateExpr(ctx, node.uvNode));
     if (node.offsetNode) throw new Error(`[glsl] depth-texture sampling offset not yet supported in the GLSL emitter`);
 
     if (node.samplingMode === 'level') {
@@ -1845,17 +1892,17 @@ export function emitGlslTextures(ctx: GlslBuildContext): {
     // (usampler2D) samplers require it to hold 32-bit texels.
     const precisionDefaults = [...samplerTypes].map((t) => `precision highp ${t};`);
 
-    // Render-target flipY helpers (emitted once, when any sample was flip-wrapped). Pure functions so the
-    // caller passes the coord expression as an argument and it is evaluated exactly once. `_flipY2f` flips
-    // a normalized uv (`1 - y`); `_flipY2i` flips an integer texelFetch coord (`height - y - 1`). Both no-op
-    // when the flag is false (an ordinary, non-render-target texture is bound).
-    const flipHelpers =
-        ctx.flipYTextures.size > 0
-            ? [
-                  'vec2 _flipY2f(bool f, vec2 uv) { return f ? vec2(uv.x, 1.0 - uv.y) : uv; }',
-                  'ivec2 _flipY2i(bool f, ivec2 c, int h) { return f ? ivec2(c.x, h - c.y - 1) : c; }',
-              ]
-            : [];
+    // Render-target flipY helpers. Pure functions (the coord expression is passed as an argument and
+    // evaluated exactly once), all no-op when the runtime flag is false (an ordinary, non-render-target
+    // texture is bound). Only the helpers actually referenced this stage are emitted — a shader that
+    // only `.sample()`s carries `_flipY2f` but not the texelFetch (`_flipY2i`) or grad (`_flipYd`) forms.
+    const flipHelperDefs: Record<string, string> = {
+        _flipY2f: 'vec2 _flipY2f(bool f, vec2 uv) { return f ? vec2(uv.x, 1.0 - uv.y) : uv; }', // uv → 1 - v
+        _flipY2i: 'ivec2 _flipY2i(bool f, ivec2 c, int h) { return f ? ivec2(c.x, h - c.y - 1) : c; }', // texel → h-y-1
+        _flipYd: 'vec2 _flipYd(bool f, vec2 g) { return f ? vec2(g.x, -g.y) : g; }', // grad Y sign under flip
+    };
+    // Fixed key order for deterministic output regardless of reference order.
+    const flipHelpers = (['_flipY2f', '_flipY2i', '_flipYd'] as const).filter((fn) => ctx.flipHelperFns.has(fn)).map((fn) => flipHelperDefs[fn]);
     return { glsl: [...precisionDefaults, ...lines, ...flipHelpers].join('\n'), textures, samplers };
 }
 

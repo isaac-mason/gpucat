@@ -73,7 +73,7 @@ test('MSAA render target allocates a single-sample resolve texture plus a multis
     expect(getRenderTargetMsaaView(colorData)).not.toBeNull();
 
     // Depth stays at the pass sample count so all attachments match.
-    const depthData = getTextureData(cache, rt.depthTexture!._gpuTexture)!;
+    const depthData = getTextureData(cache, rt._depthAttachment!._gpuTexture)!;
     expect(depthData.texture.sampleCount).toBe(4);
 
     // resolve color + MSAA color + depth
@@ -86,12 +86,12 @@ test('depth-only render target (count: 0) is allocated once and is idempotent', 
     const rt = new RenderTarget(1024, 1024, { count: 0, depthFormat: 'depth32float' });
 
     expect(rt.textures).toHaveLength(0);
-    expect(rt.depthTexture).not.toBeNull();
+    expect(rt._depthAttachment).not.toBeNull();
 
     ensureRenderTargetTexturesAllocated(cache, device, rt);
     expect(created).toHaveLength(1); // depth only
 
-    const depthData = getTextureData(cache, rt.depthTexture!._gpuTexture)!;
+    const depthData = getTextureData(cache, rt._depthAttachment!._gpuTexture)!;
     const gen = depthData.generation;
     const tex = depthData.texture;
 

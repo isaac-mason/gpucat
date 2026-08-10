@@ -18,7 +18,7 @@ import type { ResolvedStorageBufferTexture, StorageBufferTextureSource } from '.
 import { getBindings, type RenderObject } from '../core/render-object';
 import type { ProgramInfo } from './programs';
 import { type GlSamplersState, getGlSampler } from './samplers';
-import { type GlTexturesState, getGlTextureData, updateStorageBufferTexture, updateTexture } from './textures';
+import { type GlTexturesState, getGlTextureData, isIntegerTextureFormat, updateStorageBufferTexture, updateTexture } from './textures';
 
 /** The combined-sampler uniform name for a texture id (mirrors the GLSL emitter's `samplerUniformName`). */
 function samplerUniformName(textureId: string): string {
@@ -56,6 +56,29 @@ function assertFloatLinearFilterable(
                 `which is not available; use a 'nearest' filter for '${textureFormat}' textures on the WebGL2 backend.`,
         );
     }
+}
+
+/**
+ * Guard: an integer texture (`…uint`/`…sint`) is never texture-filterable — it must be read with
+ * `texelFetch` (nearest). A LINEAR sampler paired with one makes the sample read as incomplete
+ * (black) — a WRONG result, not lower quality — so throw a clear error rather than render black.
+ * Normally integer textures carry no sampler (texelFetch needs none), so this only fires on a genuine
+ * misuse; it mirrors {@link assertFloatLinearFilterable}.
+ */
+function assertIntegerNotFiltered(
+    textureFormat: string,
+    gpuSampler: { minFilter: string; magFilter: string; mipmapFilter: string } | null,
+): void {
+    if (!gpuSampler) return;
+    if (!isIntegerTextureFormat(textureFormat)) return;
+    const usesLinear =
+        gpuSampler.minFilter === 'linear' || gpuSampler.magFilter === 'linear' || gpuSampler.mipmapFilter === 'linear';
+    if (!usesLinear) return;
+    throw new Error(
+        `[WebGLRenderer] integer texture format '${textureFormat}' is not texture-filterable; a 'linear' ` +
+            `sampler samples it as incomplete (black). Use a 'nearest' filter (or read it with texelFetch/.load()) ` +
+            `on the WebGL2 backend.`,
+    );
 }
 
 /** Resolve (and cache) a combined-sampler uniform's location on a program. */
@@ -213,6 +236,7 @@ export function bindTextures(
             // Reject a linear filter on a float32 texture when float-linear isn't available (would
             // sample as incomplete/black = wrong output, not just lower quality).
             assertFloatLinearFilterable(gl, gpuTexture.format, gpuSampler);
+            assertIntegerNotFiltered(gpuTexture.format, gpuSampler);
             if (gpuSampler) {
                 const hasMips = gpuTexture.generateMipmaps;
                 const glSampler = getGlSampler(gl, samplers, gpuSampler, hasMips);
@@ -277,6 +301,7 @@ export function bindStandaloneTextures(
 
         const gpuSampler = findStandaloneSamplerForUnit(samplerEntries, unit);
         assertFloatLinearFilterable(gl, gpuTexture.format, gpuSampler);
+        assertIntegerNotFiltered(gpuTexture.format, gpuSampler);
         if (gpuSampler) {
             const hasMips = gpuTexture.generateMipmaps;
             const glSampler = getGlSampler(gl, samplers, gpuSampler, hasMips);

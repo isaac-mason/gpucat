@@ -160,8 +160,8 @@ export function bindRenderTargetFramebuffer(
     // Unsampled depth uses a renderbuffer (allocated in rebuildFbo), so skip the depth texture entirely;
     // leaner on the weaker devices the WebGL fallback runs on.
     let depthGeneration = -1;
-    if (renderTarget.depthTexture && renderTarget.depthSampled) {
-        const data = updateTexture(gl, textures, renderTarget.depthTexture._gpuTexture);
+    if (renderTarget._depthAttachment && renderTarget.depthSampled) {
+        const data = updateTexture(gl, textures, renderTarget._depthAttachment._gpuTexture);
         depthGeneration = data.generation;
     }
 
@@ -183,7 +183,7 @@ export function bindRenderTargetFramebuffer(
         attachCubeFace(gl, textures, renderTarget, fboData);
     }
 
-    const hasStencil = depthFormatHasStencil(renderTarget.depthTexture?.format);
+    const hasStencil = depthFormatHasStencil(renderTarget._depthAttachment?.format);
 
     // MSAA: render into the multisample FBO; remember the target so pass end resolves it.
     if (fboData.msaa) {
@@ -272,19 +272,19 @@ function rebuildFbo(
             depthRenderbuffer = null;
         }
     };
-    if (renderTarget.depthTexture && renderTarget.depthSampled) {
+    if (renderTarget._depthAttachment && renderTarget.depthSampled) {
         // Sampleable depth texture (e.g. shadow maps, depth-of-field, scene-depth occlusion).
         freeDepthRenderbuffer();
-        const data = getGlTextureData(textures, renderTarget.depthTexture._gpuTexture);
+        const data = getGlTextureData(textures, renderTarget._depthAttachment._gpuTexture);
         if (data) {
-            const stencil = depthFormatHasStencil(renderTarget.depthTexture.format);
+            const stencil = depthFormatHasStencil(renderTarget._depthAttachment.format);
             const attachment = stencil ? gl.DEPTH_STENCIL_ATTACHMENT : gl.DEPTH_ATTACHMENT;
             gl.framebufferTexture2D(gl.FRAMEBUFFER, attachment, gl.TEXTURE_2D, data.texture, 0);
         }
-    } else if (renderTarget.depthTexture) {
+    } else if (renderTarget._depthAttachment) {
         // Unsampled depth uses a renderbuffer (reused across rebuilds; re-specified at the current size).
-        const stencil = depthFormatHasStencil(renderTarget.depthTexture.format);
-        const internalFormat = depthRenderbufferInternalFormat(gl, renderTarget.depthTexture.format);
+        const stencil = depthFormatHasStencil(renderTarget._depthAttachment.format);
+        const internalFormat = depthRenderbufferInternalFormat(gl, renderTarget._depthAttachment.format);
         if (!depthRenderbuffer) {
             const created = gl.createRenderbuffer();
             if (!created) throw new Error('[WebGLRenderer] gl.createRenderbuffer returned null (depth).');
@@ -329,7 +329,7 @@ function rebuildFbo(
         const dbg = gl.getExtension('WEBGL_debug_renderer_info');
         const rendererStr = dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
         const glErr = gl.getError();
-        const depthMode = !renderTarget.depthTexture ? 'none' : renderTarget.depthSampled ? 'texture' : 'renderbuffer';
+        const depthMode = !renderTarget._depthAttachment ? 'none' : renderTarget.depthSampled ? 'texture' : 'renderbuffer';
         const TYPE_NAME: Record<number, string> = { [gl.NONE]: 'none', [gl.TEXTURE]: 'tex', [gl.RENDERBUFFER]: 'rbo' };
         const liveAttachment = (label: string, point: number): string => {
             const type = gl.getFramebufferAttachmentParameter(gl.FRAMEBUFFER, point, gl.FRAMEBUFFER_ATTACHMENT_OBJECT_TYPE);
@@ -342,7 +342,7 @@ function rebuildFbo(
         const parts = [
             `target=${renderTarget.width}x${renderTarget.height}`,
             ...renderTarget.textures.map((t, i) => describe(`color[${i}]`, t)),
-            `depth[${depthMode}]: ${describe('', renderTarget.depthTexture)}`,
+            `depth[${depthMode}]: ${describe('', renderTarget._depthAttachment)}`,
             `renderer=${rendererStr}`,
             `glError=0x${glErr.toString(16)}`,
             `LIVE ${liveAttachment('color0', gl.COLOR_ATTACHMENT0)} ${liveAttachment('depth', gl.DEPTH_ATTACHMENT)} ${liveAttachment('stencil', gl.STENCIL_ATTACHMENT)} ${liveAttachment('depthStencil', gl.DEPTH_STENCIL_ATTACHMENT)}`,
@@ -440,15 +440,15 @@ function buildMsaaFbo(
 
     // Multisample depth renderbuffer, matching the target's depth format.
     let depthRenderbuffer: WebGLRenderbuffer | null = null;
-    if (renderTarget.depthTexture) {
-        const depthData = getGlTextureData(textures, renderTarget.depthTexture._gpuTexture);
+    if (renderTarget._depthAttachment) {
+        const depthData = getGlTextureData(textures, renderTarget._depthAttachment._gpuTexture);
         if (depthData) {
             const rb = gl.createRenderbuffer();
             if (rb) {
                 state.renderbuffers.add(rb);
                 gl.bindRenderbuffer(gl.RENDERBUFFER, rb);
                 gl.renderbufferStorageMultisample(gl.RENDERBUFFER, samples, depthData.fmt.internalFormat, w, h);
-                const stencil = depthFormatHasStencil(renderTarget.depthTexture.format);
+                const stencil = depthFormatHasStencil(renderTarget._depthAttachment.format);
                 const attachment = stencil ? gl.DEPTH_STENCIL_ATTACHMENT : gl.DEPTH_ATTACHMENT;
                 gl.framebufferRenderbuffer(gl.FRAMEBUFFER, attachment, gl.RENDERBUFFER, rb);
                 depthRenderbuffer = rb;
@@ -517,6 +517,13 @@ export function resolveActiveRenderTarget(gl: WebGL2RenderingContext, state: GlR
 
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER, fboData.msaa.fbo);
     gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, fboData.fbo);
+
+    // blitFramebuffer is subject to the scissor test (the only fragment op besides pixel-ownership
+    // that affects a blit, per GLES3). The draw loop leaves SCISSOR_TEST enabled for a partial-viewport
+    // pass (e.g. a studio grid cell), which would clip the resolve to the scissor rect and leave the
+    // rest of the texture holding unresolved garbage. Disable it for the resolve; the next pass sets
+    // its own scissor state via applyViewportScissor.
+    gl.disable(gl.SCISSOR_TEST);
 
     // Resolve each color attachment independently: a blit resolves READ_BUFFER → the draw FBO's
     // drawBuffers, so point both at attachment i in turn (MRT-safe; single-attachment is the common case).

@@ -94,10 +94,10 @@ test('renderer depthFormat/stencil options resolve the swapchain stencil aspect'
 });
 
 test('RenderTarget stencilBuffer allocates a stencil-capable depth texture', () => {
-    expect(new RenderTarget(64, 64).depthTexture?.format).toBe('depth24plus');
-    expect(new RenderTarget(64, 64, { stencilBuffer: true }).depthTexture?.format).toBe('depth24plus-stencil8');
+    expect(new RenderTarget(64, 64)._depthAttachment?.format).toBe('depth24plus');
+    expect(new RenderTarget(64, 64, { stencilBuffer: true })._depthAttachment?.format).toBe('depth24plus-stencil8');
     // An explicit depthFormat wins over stencilBuffer.
-    expect(new RenderTarget(64, 64, { stencilBuffer: true, depthFormat: 'depth32float' }).depthTexture?.format).toBe(
+    expect(new RenderTarget(64, 64, { stencilBuffer: true, depthFormat: 'depth32float' })._depthAttachment?.format).toBe(
         'depth32float',
     );
 });

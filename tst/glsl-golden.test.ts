@@ -4,9 +4,12 @@ import {
     attribute,
     cameraProjectionMatrix,
     cameraViewMatrix,
+    comparisonSampler,
     compileGlsl,
     createStorageTexture,
     d,
+    DepthTexture,
+    depthTexture,
     Fn,
     f32,
     GpuSampler,
@@ -21,8 +24,10 @@ import {
     select,
     struct,
     texture,
+    textureSampleCompare,
     Var,
     varying,
+    vec2i,
     vec3,
     vec4,
 } from '../src/index';
@@ -239,5 +244,45 @@ describe('golden GLSL — render path', () => {
         expect(result.code).not.toContain('out vec4 fragColor');
         expect(result.fragmentEntryPoint).toBe('main');
         expect(renderShape(result)).toMatchSnapshot();
+    });
+
+    // NOTE: keep this LAST — it creates extra nodes, and node ids are module-global + monotonic, so
+    // inserting it earlier would shift the ids baked into every following snapshot.
+    test('render-target depth reads + shadow compare flip V like color (RT orientation)', () => {
+        // A depth attachment is a render-target texture; its reads must apply the same V-flip as a color
+        // RT on WebGL, or shadow maps / depth-composite passes come out vertically mirrored. Regression
+        // net for the shared-flip fix — `generateDepthTexture` and `textureSampleCompare` (the shadow-map
+        // path) previously skipped the flip that `.sample()` applied, so a shadow map sampled via the
+        // compare builtin was mirrored relative to how it was stored.
+        const depthTex = new DepthTexture(64, 64, 'depth32float');
+
+        // Plain depth read via .sample() must emit the flip wrap.
+        const sampled = depthTexture(depthTex).sample(screenUV);
+        const rSample = compileGlsl({
+            vertex: vec4(attribute('position', d.vec3f), f32(1)),
+            fragment: vec4(vec3(sampled, sampled, sampled), f32(1)),
+            depth: undefined,
+        });
+        expect(rSample.code).toContain('_flipY2f');
+
+        // Depth read via .load() must emit the integer-coord flip wrap.
+        const loaded = depthTexture(depthTex).load(vec2i(i32(0), i32(0)));
+        const rLoad = compileGlsl({
+            vertex: vec4(attribute('position', d.vec3f), f32(1)),
+            fragment: vec4(vec3(loaded, loaded, loaded), f32(1)),
+            depth: undefined,
+        });
+        expect(rLoad.code).toContain('_flipY2i');
+
+        // Shadow comparison sample (the original bug) must flip too.
+        const shadow = depthTexture(depthTex);
+        const cmp = comparisonSampler(depthTex, 'less');
+        const factor = textureSampleCompare(shadow.bindingNode, cmp, screenUV, f32(0.5));
+        const rCompare = compileGlsl({
+            vertex: vec4(attribute('position', d.vec3f), f32(1)),
+            fragment: vec4(vec3(factor, factor, factor), f32(1)),
+            depth: undefined,
+        });
+        expect(rCompare.code).toContain('_flipY2f');
     });
 });

@@ -218,8 +218,11 @@ export class PassNode extends Node<d.vec4f> {
 
         // Initialize _textures with output and depth
         this._textures['output'] = renderTarget.texture! as Texture;
-        if (renderTarget.depthTexture) {
-            this._textures['depth'] = renderTarget.depthTexture;
+        // The depth ATTACHMENT (always present here); getDepthTextureNode() flips depthSampled true when
+        // it's actually read. Reference the attachment, not the sampling-gated `depthTexture` getter,
+        // which is null until sampling is declared.
+        if (renderTarget._depthAttachment) {
+            this._textures['depth'] = renderTarget._depthAttachment;
         }
     }
 

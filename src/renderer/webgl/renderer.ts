@@ -622,9 +622,11 @@ export class WebGLRenderer implements Renderer, RendererState {
             }
         }
 
-        // Optional: drain the GL error queue so a mistake surfaces (WebGL has no error scopes).
-        const err = this.gl.getError();
-        if (err !== this.gl.NO_ERROR) console.error('[WebGLRenderer] render error', err);
+        // No per-render `gl.getError()` poll: it's a hard CPU↔GPU sync point on ANGLE (the client
+        // blocks on the service-side error flag), so polling every render() stalls the pipeline —
+        // several ms/frame with multiple passes. The browser already logs GL errors to the console
+        // for free, so the poll is pure cost. This matches three.js, which only calls getError() in
+        // its shader-link failure path (WebGLProgram), never in the render loop.
 
         // Close the inspector's render pass. WebGPU emits finishRender inside its render-pass module;
         // WebGL's render() owns the pass lifecycle (immediate mode, no encoder), so it pairs

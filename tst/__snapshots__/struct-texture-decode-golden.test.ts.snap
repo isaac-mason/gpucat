@@ -7,7 +7,6 @@ exports[`struct-texture decode: emitted GLSL across scalar/vector field kinds 1`
 precision highp usampler2D;
 uniform usampler2D u_t0;
 uniform bool u_flipY_t0;
-vec2 _flipY2f(bool f, vec2 uv) { return f ? vec2(uv.x, 1.0 - uv.y) : uv; }
 ivec2 _flipY2i(bool f, ivec2 c, int h) { return f ? ivec2(c.x, h - c.y - 1) : c; }
 // Vertex shader
 layout(location = 0) in vec2 a_uv;
@@ -30,7 +29,6 @@ precision highp int;
 precision highp usampler2D;
 uniform usampler2D u_t0;
 uniform bool u_flipY_t0;
-vec2 _flipY2f(bool f, vec2 uv) { return f ? vec2(uv.x, 1.0 - uv.y) : uv; }
 ivec2 _flipY2i(bool f, ivec2 c, int h) { return f ? ivec2(c.x, h - c.y - 1) : c; }
 // Fragment shader
 in vec2 v_107;

@@ -901,13 +901,13 @@ export function ensureRenderTargetTexturesAllocated(cache: TextureCache, device:
         }
     }
 
-    if (!needsAllocation && renderTarget.depthTexture) {
+    if (!needsAllocation && renderTarget._depthAttachment) {
         needsAllocation = !hasRenderTargetTextureAllocation(
             cache,
-            renderTarget.depthTexture._gpuTexture,
+            renderTarget._depthAttachment._gpuTexture,
             width,
             height,
-            renderTarget.depthTexture.format,
+            renderTarget._depthAttachment.format,
             sampleCount,
             1,
         );
@@ -945,14 +945,14 @@ export function ensureRenderTargetTexturesAllocated(cache: TextureCache, device:
         setRenderTargetTexture(cache, tex._gpuTexture, resolveTexture, msaaTexture);
     }
 
-    if (renderTarget.depthTexture) {
+    if (renderTarget._depthAttachment) {
         const gpuDepthTexture = device.createTexture({
             size: [width, height],
-            format: renderTarget.depthTexture.format,
+            format: renderTarget._depthAttachment.format,
             usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
             sampleCount,
         });
-        setRenderTargetTexture(cache, renderTarget.depthTexture._gpuTexture, gpuDepthTexture);
+        setRenderTargetTexture(cache, renderTarget._depthAttachment._gpuTexture, gpuDepthTexture);
     }
 }
 
@@ -970,13 +970,13 @@ function ensureCubeRenderTargetTexturesAllocated(cache: TextureCache, device: GP
     );
 
     const depthReady =
-        !renderTarget.depthTexture ||
+        !renderTarget._depthAttachment ||
         hasRenderTargetTextureAllocation(
             cache,
-            renderTarget.depthTexture._gpuTexture,
+            renderTarget._depthAttachment._gpuTexture,
             renderTarget.size,
             renderTarget.size,
-            renderTarget.depthTexture.format,
+            renderTarget._depthAttachment.format,
             1,
             1,
         );
@@ -996,13 +996,13 @@ function ensureCubeRenderTargetTexturesAllocated(cache: TextureCache, device: GP
     });
     setRenderTargetTexture(cache, renderTarget.texture._gpuTexture, colorTex);
 
-    if (renderTarget.depthTexture) {
+    if (renderTarget._depthAttachment) {
         const depthTex = device.createTexture({
             size: [renderTarget.size, renderTarget.size],
-            format: renderTarget.depthTexture.format,
+            format: renderTarget._depthAttachment.format,
             usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
             sampleCount: 1,
         });
-        setRenderTargetTexture(cache, renderTarget.depthTexture._gpuTexture, depthTex);
+        setRenderTargetTexture(cache, renderTarget._depthAttachment._gpuTexture, depthTex);
     }
 }

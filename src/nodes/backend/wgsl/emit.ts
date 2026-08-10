@@ -829,6 +829,10 @@ function generateCall(ctx: BuildContext, node: CallNode<d.Any>): string {
     if (node.fn === 'not' && args.length === 1) {
         return `(!${args[0]})`;
     }
+    // NDC depth → stored [0,1]. WebGPU NDC z is already [0,1] (ZO projection) — passthrough; GLSL remaps.
+    if (node.fn === 'ndcDepthToStorage' && args.length === 1) {
+        return `(${args[0]})`;
+    }
 
     // atomic functions need pointer reference
     const atomicFns = [

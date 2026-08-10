@@ -151,8 +151,18 @@ function glFormat(gl: WebGL2RenderingContext, format: string): GlFormat {
  */
 type MipmapClass = 'unorm' | 'float32' | 'float16' | 'integer';
 
+/**
+ * Whether a texture format is integer (`…uint`/`…sint`). Integer textures are never
+ * texture-filterable in WebGL2 — they must be read with `texelFetch` (nearest); a LINEAR filter makes
+ * the sample read as incomplete (black). Used to force NEAREST on upload and to reject a linear
+ * sampler paired with one.
+ */
+export function isIntegerTextureFormat(format: string): boolean {
+    return format.endsWith('uint') || format.endsWith('sint');
+}
+
 function mipmapClassOf(format: string): MipmapClass {
-    if (format.endsWith('uint') || format.endsWith('sint')) return 'integer';
+    if (isIntegerTextureFormat(format)) return 'integer';
     if (format.includes('32float')) return 'float32';
     if (format.includes('16float')) return 'float16';
     return 'unorm';

@@ -295,6 +295,13 @@ export function prepareGeometry(
 ): GeometryDrawInfo {
     const gb = getGeometryBuffers(state, geometry);
 
+    // Detach any currently-bound VAO before uploading. An index upload binds ELEMENT_ARRAY_BUFFER,
+    // which is captured as VAO state — doing that while a *previous* object's cached VAO is still
+    // bound would rewrite that VAO's element binding to this geometry's index buffer, so its next
+    // draw would run against the wrong (possibly smaller) buffer. Uploads must land on the default
+    // VAO 0. The caller (the draw loop) rebinds the resolved VAO after this returns.
+    gl.bindVertexArray(null);
+
     // Upload all attribute buffers referenced by the compiled vertex buffer groups (+ any re-uploads).
     for (const group of nodeState.vertexBufferGroups) {
         if (group.name !== null) {

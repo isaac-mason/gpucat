@@ -25,7 +25,7 @@ import * as Geometries from './geometries';
 import { getRenderObjectGl, type RenderObjectGlCache } from './render-object-gl';
 import { bindRenderTargetFramebuffer, resolveActiveRenderTarget, type GlRenderTargetsState } from './render-target';
 import type { GlSamplersState } from './samplers';
-import { applyMaterialState, createGlStateCache } from './state';
+import { applyMaterialState, createGlStateCache, establishPassBaseline } from './state';
 import { bindTextures } from './texture-bindings';
 import type { GlTexturesState } from './textures';
 import * as Uniforms from './uniforms';
@@ -200,6 +200,9 @@ export function executeRenderPass(
     }
 
     const hasStencil = !!passCtx.stencil;
+    // Pin the GL globals the fresh state cache assumes but the per-draw material state doesn't set
+    // (winding, stencil write mask, rasterizer discard) — see establishPassBaseline.
+    establishPassBaseline(gl);
     const stateCache = createGlStateCache();
     let currentProgram: WebGLProgram | null = null;
     let currentVao: WebGLVertexArrayObject | null = null;
@@ -257,9 +260,11 @@ export function executeRenderPass(
         bindTextures(gl, caches.textures, caches.samplers, renderObject, programInfo);
 
         // Geometry VAO (uploads buffers + builds/reuses the VAO for this program).
+        // `prepareGeometry` detaches the VAO to upload buffers safely (see its note), so the GL VAO
+        // is unbound on return — always rebind the resolved one here rather than deduping the GL call.
         const drawInfo = Geometries.prepareGeometry(gl, caches.geometries, geometry, nodeState, programInfo.program);
+        gl.bindVertexArray(drawInfo.vao);
         if (currentVao !== drawInfo.vao) {
-            gl.bindVertexArray(drawInfo.vao);
             currentVao = drawInfo.vao;
             // Inspector: a VAO carries all vertex (+index) buffer bindings; log it as a single
             // vertex-buffer bind (slot 0) plus an index bind when the geometry is indexed.
@@ -308,7 +313,9 @@ export function executeRenderPass(
 
             if (geometry.index && drawInfo.indexType !== null) {
                 const indexArray = geometry.index.array!;
-                const count = Math.min(geometry.drawRange.count, indexArray.length);
+                // Clamp against the indices REMAINING after `start`, not the whole buffer — otherwise a
+                // non-zero drawRange.start reads past the end of the index buffer (GL: insufficient buffer).
+                const count = Math.min(geometry.drawRange.count, indexArray.length - start);
                 // firstIndex is a byte offset for drawElements; each index is 1 (uint8), 2 (uint16) or
                 // 4 (uint32) bytes.
                 const bytesPerIndex = drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
@@ -316,10 +323,13 @@ export function executeRenderPass(
                 if (inspector) inspector.drawIndexed(count, instances);
             } else {
                 const position = geometry.buffers.get('position');
+                // Vertices remaining after `start`; clamp drawRange.count to it so a non-zero start
+                // can't over-read the vertex buffer.
+                const available = (position?.count ?? geometry.drawRange.count) - start;
                 const vertexCount =
                     geometry.drawRange.count === Infinity
-                        ? (position?.count ?? 3)
-                        : Math.min(geometry.drawRange.count, position?.count ?? geometry.drawRange.count);
+                        ? (position?.count ?? 3) - start
+                        : Math.min(geometry.drawRange.count, available);
                 gl.drawArraysInstanced(gl.TRIANGLES, start, vertexCount, instances);
                 if (inspector) inspector.draw(vertexCount, instances);
             }

@@ -188,6 +188,7 @@ export {
     modelWorldMatrix,
     mrt,
     mul,
+    ndcDepthToStorage,
     type Node,
     type NumericType,
     normalize,
