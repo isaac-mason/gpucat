@@ -15588,8 +15588,6 @@ class DepthTextureNode extends Node {
         cloned.offsetNode = this.offsetNode;
         cloned.loadCoords = this.loadCoords;
         cloned.loadLevel = this.loadLevel;
-        if (this._beforeNodes)
-            cloned._beforeNodes = [...this._beforeNodes];
         return cloned;
     }
     /* ─────────────────────────────────────────────────────────────────────────
@@ -15627,6 +15625,29 @@ class DepthTextureNode extends Node {
         return textureNode;
     }
 }
+/**
+ * A DepthTexture's default GpuSampler is a COMPARISON sampler (`compare` set) for shadow mapping, but a
+ * DepthTextureNode's `.sample()`/`.level()` surface is a PLAIN depth read whose WGSL declares a plain
+ * `sampler`. WebGPU derives the sampler binding type from `compare`, so binding a comparison sampler
+ * where the shader declares a plain one is a layout/shader mismatch (pipeline-creation error). Strip
+ * `compare` for the plain read; shadow compares build their own `comparisonSampler()` explicitly.
+ * Returns the source untouched when it already carries no compare (the common non-depth-texture case).
+ */
+function plainDepthSampler(src) {
+    if (src.compare === undefined)
+        return src;
+    return new GpuSampler({
+        minFilter: src.minFilter,
+        magFilter: src.magFilter,
+        mipmapFilter: src.mipmapFilter,
+        addressModeU: src.addressModeU,
+        addressModeV: src.addressModeV,
+        addressModeW: src.addressModeW,
+        maxAnisotropy: src.maxAnisotropy,
+        lodMinClamp: src.lodMinClamp,
+        lodMaxClamp: src.lodMaxClamp,
+    });
+}
 function depthTexture(source, gpuSampler) {
     if ('isGpuTexture' in source) {
         if (!gpuSampler) {
@@ -15636,7 +15657,7 @@ function depthTexture(source, gpuSampler) {
         const binding = new TextureBindingNode(desc, `t${_textureIdCounter++}`);
         binding.value = source;
         const node = new DepthTextureNode(binding);
-        node.samplerNode = sampler(gpuSampler, binding.group);
+        node.samplerNode = sampler(plainDepthSampler(gpuSampler), binding.group);
         return node;
     }
     else {
@@ -15645,7 +15666,7 @@ function depthTexture(source, gpuSampler) {
         const binding = new TextureBindingNode(desc, `t${source.id}`);
         binding.value = gpuTex;
         const node = new DepthTextureNode(binding);
-        node.samplerNode = sampler(source._gpuSampler, binding.group);
+        node.samplerNode = sampler(plainDepthSampler(source._gpuSampler), binding.group);
         return node;
     }
 }
