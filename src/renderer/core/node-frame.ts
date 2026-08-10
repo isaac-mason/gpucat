@@ -62,9 +62,7 @@ export class NodeFrame {
         this.renderId = previousRenderId;
     }
 
-    // -----------------------------------------------------------------------
     // Render Context (set before each update cycle)
-    // -----------------------------------------------------------------------
 
     /**
      * The current renderer (backend-neutral contract).
@@ -102,9 +100,7 @@ export class NodeFrame {
      */
     height: number = 0;
 
-    // -----------------------------------------------------------------------
     // Deduplication Maps
-    // -----------------------------------------------------------------------
 
     /**
      * Used to control Node.update() calls.
@@ -122,9 +118,7 @@ export class NodeFrame {
      */
     readonly updateAfterMap: WeakMap<UpdateAfterNode, UpdateMaps> = new WeakMap();
 
-    // -----------------------------------------------------------------------
     // Methods
-    // -----------------------------------------------------------------------
 
     private _getMaps<T extends object>(map: WeakMap<T, UpdateMaps>, node: T): UpdateMaps {
         let maps = map.get(node);

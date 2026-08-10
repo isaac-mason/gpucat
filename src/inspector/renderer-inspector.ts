@@ -34,9 +34,7 @@ import * as pipelines from '../renderer/webgpu/pipelines';
 import type { Any } from '../schema/schema';
 import { type InspectableRenderer, InspectorBase } from './inspector-base';
 
-// ---------------------------------------------------------------------------
 // Frame data types
-// ---------------------------------------------------------------------------
 
 /** Base fields shared by all timeline entries */
 type TimelineEntryBase = {
@@ -148,9 +146,7 @@ const MAX_PASSES_PER_FRAME = 64;
 // into a logged, dropped frame. Buffers are tiny (~1 KiB).
 const READBACK_POOL_CAP = 8;
 
-// ---------------------------------------------------------------------------
 // RendererInspector
-// ---------------------------------------------------------------------------
 
 export class RendererInspector extends InspectorBase {
     /** Rolling ring buffer of frame records. */
@@ -180,9 +176,7 @@ export class RendererInspector extends InspectorBase {
      *  per attach instead of every frame while saturated. Reset in init(). */
     private _readbackSaturatedLogged = false;
 
-    // -----------------------------------------------------------------------
     // WebGL GPU-timing state (EXT_disjoint_timer_query_webgl2)
-    // -----------------------------------------------------------------------
     /** The WebGL disjoint-timer extension, or null if unavailable. */
     private _glTimerExt: EXT_disjoint_timer_query_webgl2 | null = null;
     /** Free pool of GL timer-query objects to reuse. */
@@ -354,9 +348,7 @@ export class RendererInspector extends InspectorBase {
         return drained;
     }
 
-    // -----------------------------------------------------------------------
     // WebGL GPU-timing (EXT_disjoint_timer_query_webgl2)
-    // -----------------------------------------------------------------------
 
     /** Acquire the disjoint-timer extension if available; enables per-pass GPU timing on WebGL. */
     private _initWebGLTimestamps(): void {
@@ -625,9 +617,7 @@ export class RendererInspector extends InspectorBase {
         }
     }
 
-    // -----------------------------------------------------------------------
     // Public perf API - for user code to add markers
-    // -----------------------------------------------------------------------
 
     /** Public API for adding performance markers from user code */
     readonly perf = {
@@ -656,9 +646,7 @@ export class RendererInspector extends InspectorBase {
         },
     };
 
-    // -----------------------------------------------------------------------
     // Timeline entry management
-    // -----------------------------------------------------------------------
 
     /** Push an entry onto the stack, nesting it under current parent if any */
     private _pushEntry(entry: TimelineEntry): void {
@@ -706,9 +694,7 @@ export class RendererInspector extends InspectorBase {
         }
     }
 
-    // -----------------------------------------------------------------------
     // Public query API
-    // -----------------------------------------------------------------------
 
     /** Returns the most recent completed FrameRecord, or null. Fresh CPU + stats,
      *  but its `gpuMs` is still null (async readback lands a frame or two later). */
@@ -742,9 +728,7 @@ export class RendererInspector extends InspectorBase {
         return result;
     }
 
-    // -----------------------------------------------------------------------
     // GPU timestamp resolution
-    // -----------------------------------------------------------------------
 
     /** Collect all GPU entries (render/compute) from timeline tree, mapped by querySlot */
     private _collectGpuEntries(entries: TimelineEntry[], out: Map<number, RenderEntry | ComputeEntry>): void {

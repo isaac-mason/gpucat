@@ -1,8 +1,6 @@
 import { Parameters } from './parameters';
 
-// ---------------------------------------------------------------------------
 // Persistence helpers
-// ---------------------------------------------------------------------------
 
 function loadState(): { showFPS: boolean } {
     try {
@@ -24,9 +22,7 @@ function saveState(state: { showFPS: boolean }): void {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Settings tab
-// ---------------------------------------------------------------------------
 
 export class Settings extends Parameters {
     constructor() {

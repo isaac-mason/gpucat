@@ -341,7 +341,7 @@ export function createCylinderGeometry(
 
     let vi = 0;
 
-    // --- body ---
+    // body
     for (let ring = 0; ring < 2; ring++) {
         const y = ring === 0 ? halfHeight : -halfHeight;
         const r = ring === 0 ? radiusTop : radiusBottom;
@@ -386,7 +386,7 @@ export function createCylinderGeometry(
         indices[ii++] = dd;
     }
 
-    // --- top cap ---
+    // top cap
     if (hasTop) {
         const centerIndex = vi;
         const pi0 = vi * 3;
@@ -427,7 +427,7 @@ export function createCylinderGeometry(
         }
     }
 
-    // --- bottom cap ---
+    // bottom cap
     if (hasBottom) {
         const centerIndex = vi;
         const pi0 = vi * 3;

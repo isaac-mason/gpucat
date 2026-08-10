@@ -54,9 +54,7 @@ import { setText } from './ui/utils';
 
 type DisplayCycleEntry = { needsUpdate: boolean; duration: number; time: number };
 
-// ---------------------------------------------------------------------------
 // ProbeEntry, live shader value inspector canvas
-// ---------------------------------------------------------------------------
 
 type ProbeEntry = {
     /** The probed expression. */
@@ -77,9 +75,7 @@ type ProbeEntry = {
     cacheKey: string;
 };
 
-// ---------------------------------------------------------------------------
 // GlProbeEntry, WebGL live shader-value readback (GLSL parallel to ProbeEntry)
-// ---------------------------------------------------------------------------
 
 type GlProbeEntry = {
     /** The probed expression. */
@@ -203,9 +199,7 @@ export class Inspector extends RendererInspector {
         return this.profiler.domElement;
     }
 
-    // -----------------------------------------------------------------------
     // Lifecycle
-    // -----------------------------------------------------------------------
 
     /**
      * Surface log messages in the Console tab AND devtools. Overrides the
@@ -279,9 +273,7 @@ export class Inspector extends RendererInspector {
         await Promise.all([probeDrained, this.disposeTimestampGpu()]);
     }
 
-    // -----------------------------------------------------------------------
     // Timeline hooks, forward calls to timeline.onCall()
-    // -----------------------------------------------------------------------
 
     override begin(frameId: number): void {
         super.begin(frameId);
@@ -384,9 +376,7 @@ export class Inspector extends RendererInspector {
         if (record) this._processFrame(record);
     }
 
-    // -----------------------------------------------------------------------
     // createParameters, expose dat.GUI-style groups via the Parameters tab
-    // -----------------------------------------------------------------------
 
     createParameters(name: string): GUI {
         // Activate the mini-panel (top-right floating panel) without showing
@@ -398,9 +388,7 @@ export class Inspector extends RendererInspector {
         return this.parameters.createGroup(name);
     }
 
-    // -----------------------------------------------------------------------
     // Probe API, shader value live inspector
-    // -----------------------------------------------------------------------
 
     /**
      * Set the active probe to the given variable expression in the given mesh's
@@ -614,9 +602,7 @@ export class Inspector extends RendererInspector {
         return drained;
     }
 
-    // -----------------------------------------------------------------------
     // navigateToRO, jump to a RenderObject in the Draw Calls tab
-    // -----------------------------------------------------------------------
 
     navigateToRO(ro: RenderObject): void {
         this.profiler.setActiveTab(this.drawCalls.id);
@@ -624,9 +610,7 @@ export class Inspector extends RendererInspector {
         this.drawCalls.selectRO(ro, this);
     }
 
-    // -----------------------------------------------------------------------
     // Private: per-frame update dispatch
-    // -----------------------------------------------------------------------
 
     private _processFrame(record: FrameRecord): void {
         const now = performance.now();

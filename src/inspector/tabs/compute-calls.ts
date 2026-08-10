@@ -20,9 +20,7 @@ import { Tab } from '../ui/tab';
 import { buildBindingsTable, kvRow } from './draw-calls';
 import { ShaderPanel } from './shader-panel';
 
-// ---------------------------------------------------------------------------
 // Internal record, one per live ComputeNode
-// ---------------------------------------------------------------------------
 
 type ComputeNodeRecord = {
     id: string;
@@ -30,15 +28,11 @@ type ComputeNodeRecord = {
     item: Item;
 };
 
-// ---------------------------------------------------------------------------
 // Sub-tab type
-// ---------------------------------------------------------------------------
 
 type DetailSubTab = 'shader' | 'bindings';
 
-// ---------------------------------------------------------------------------
 // ComputeCalls Tab
-// ---------------------------------------------------------------------------
 
 export class ComputeCalls extends Tab {
     readonly list: List;
@@ -49,7 +43,7 @@ export class ComputeCalls extends Tab {
     /** Currently selected ComputeNode */
     private _selectedNode: ComputeNode | null = null;
 
-    // --- Detail panel ---
+    // Detail panel
     private _detailPanel: HTMLDivElement;
     private _detailSubBtns: Map<DetailSubTab, HTMLButtonElement> = new Map();
     private _shaderPane: HTMLDivElement;
@@ -61,7 +55,7 @@ export class ComputeCalls extends Tab {
     constructor() {
         super('Compute');
 
-        // --- List (left column) ---
+        // List (left column)
         const list = new List('Compute Node');
         list.setGridStyle('1fr');
 
@@ -69,7 +63,7 @@ export class ComputeCalls extends Tab {
         scrollWrapper.className = 'list-scroll-wrapper scene-hierarchy-list';
         scrollWrapper.appendChild(list.domElement);
 
-        // --- Detail panel (right column) ---
+        // Detail panel (right column)
         const detailPanel = document.createElement('div');
         detailPanel.className = 'dc-detail-panel';
         detailPanel.style.display = 'none';
@@ -117,7 +111,7 @@ export class ComputeCalls extends Tab {
 
         this._detailPanel = detailPanel;
 
-        // --- Root layout (list | detail) ---
+        // Root layout (list | detail)
         const layout = document.createElement('div');
         layout.className = 'scene-hierarchy-layout';
         layout.appendChild(scrollWrapper);
@@ -131,9 +125,7 @@ export class ComputeCalls extends Tab {
         this._showDetailSubTab('shader');
     }
 
-    // -----------------------------------------------------------------------
     // Public API
-    // -----------------------------------------------------------------------
 
     /**
      * Called by Inspector._processFrame() every frame when compute passes exist.
@@ -142,9 +134,7 @@ export class ComputeCalls extends Tab {
     update(inspector: Inspector, renderer: WebGPURenderer): void {
         const liveNodes = inspector.computeNodes;
 
-        // ------------------------------------------------------------------
         // 1. Remove stale node items
-        // ------------------------------------------------------------------
         for (const [id, record] of this._nodeRecords) {
             if (!liveNodes.has(id)) {
                 this.list.remove(record.item);
@@ -156,9 +146,7 @@ export class ComputeCalls extends Tab {
             }
         }
 
-        // ------------------------------------------------------------------
         // 2. Add new node items
-        // ------------------------------------------------------------------
         for (const [id, node] of liveNodes) {
             if (this._nodeRecords.has(id)) continue;
 
@@ -184,9 +172,7 @@ export class ComputeCalls extends Tab {
             });
         }
 
-        // ------------------------------------------------------------------
         // 3. Refresh detail panel if a node is currently selected
-        // ------------------------------------------------------------------
         if (this._selectedNode && liveNodes.has(this._selectedNode.id)) {
             this._refreshShaderPanel(renderer);
         }
@@ -212,9 +198,7 @@ export class ComputeCalls extends Tab {
         this._populateDetail(node, inspector, renderer);
     }
 
-    // -----------------------------------------------------------------------
     // Detail panel population
-    // -----------------------------------------------------------------------
 
     private _populateDetail(node: ComputeNode, _inspector: Inspector, renderer: WebGPURenderer): void {
         // Metadata pane, workgroup size
@@ -272,9 +256,7 @@ export class ComputeCalls extends Tab {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 function _nodeDisplayName(node: ComputeNode): string {
     if (node.name) return node.name;

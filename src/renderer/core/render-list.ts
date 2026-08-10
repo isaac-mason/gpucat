@@ -20,9 +20,7 @@ import type { Material } from '../../material/material';
 import * as frustum from '../../math/frustum';
 import type { Mesh } from '../../objects/mesh';
 
-// ---------------------------------------------------------------------------
 // Types
-// ---------------------------------------------------------------------------
 
 /**
  * RenderItem - A single item in the render list.
@@ -65,9 +63,7 @@ export type RenderList = {
     /** The camera this list was built for. */
     camera: Camera | null;
 
-    // -------------------------------------------------------------------------
     // Object Pool
-    // -------------------------------------------------------------------------
 
     /** Pool of RenderItems (reused across frames). */
     renderItems: RenderItem[];
@@ -75,9 +71,7 @@ export type RenderList = {
     /** Current index into the pool (number of active items). */
     renderItemsIndex: number;
 
-    // -------------------------------------------------------------------------
     // Sorted Lists
-    // -------------------------------------------------------------------------
 
     /** Opaque items (sorted by pipeline key). */
     opaque: RenderItem[];
@@ -85,9 +79,7 @@ export type RenderList = {
     /** Transparent items (sorted back-to-front by Z). */
     transparent: RenderItem[];
 
-    // -------------------------------------------------------------------------
     // Statistics
-    // -------------------------------------------------------------------------
 
     /** Number of items performing occlusion queries (future use). */
     occlusionQueryCount: number;
@@ -101,9 +93,7 @@ export type RenderListsState = {
     lists: WeakMap<Object3D, WeakMap<Camera, RenderList>>;
 };
 
-// ---------------------------------------------------------------------------
 // Factories
-// ---------------------------------------------------------------------------
 
 /** ID counter for RenderItems. */
 let renderItemIdCounter = 0;
@@ -132,9 +122,7 @@ export function createRenderListsState(): RenderListsState {
     };
 }
 
-// ---------------------------------------------------------------------------
 // RenderList Access
-// ---------------------------------------------------------------------------
 
 /**
  * Get or create a RenderList for the given object and camera.
@@ -159,9 +147,7 @@ export function getRenderList(state: RenderListsState, object: Object3D, camera:
     return list;
 }
 
-// ---------------------------------------------------------------------------
 // List Management
-// ---------------------------------------------------------------------------
 
 /**
  * Begin building a render list for a new frame.
@@ -245,9 +231,7 @@ export function finishRenderList(_list: RenderList): void {
     // Future: could reset unused pool items to null references for GC
 }
 
-// ---------------------------------------------------------------------------
 // Sorting
-// ---------------------------------------------------------------------------
 
 /**
  * Sort the render list.
@@ -323,9 +307,7 @@ export function reversePainterSortStable(a: RenderItem, b: RenderItem): number {
     return a.id - b.id;
 }
 
-// ---------------------------------------------------------------------------
 // Scene Collection
-// ---------------------------------------------------------------------------
 
 /** Frustum used for culling; rebuilt from VP every frame. */
 const _frustum = frustum.create();
@@ -417,7 +399,7 @@ function isMeshVisible(mesh: Mesh): boolean {
 
     if (!mesh.frustumCulled) return true;
 
-    // --- sphere test (preferred) ------------------------------------------
+    // sphere test (preferred)
     if (geom.boundingSphere !== undefined) {
         const ls = geom.boundingSphere;
 
@@ -438,14 +420,14 @@ function isMeshVisible(mesh: Mesh): boolean {
         return frustum.intersectsSphere(_frustum, _worldSphere);
     }
 
-    // --- AABB test (fallback) -----------------------------------------------
+    // AABB test (fallback)
     if (geom.boundingBox !== undefined) {
         // Transform the local AABB by the world matrix to a world-space AABB.
         box3.transformMat4(_worldBox, geom.boundingBox, wm);
         return frustum.intersectsBox3(_frustum, _worldBox);
     }
 
-    // --- no bounds, always draw -------------------------------------------
+    // no bounds, always draw
     return true;
 }
 
@@ -471,9 +453,7 @@ function computeViewZ(mesh: Mesh, camera: Camera): number {
     return vm[2] * wx + vm[6] * wy + vm[10] * wz + vm[14];
 }
 
-// ---------------------------------------------------------------------------
 // Custom Sort Support
-// ---------------------------------------------------------------------------
 
 /**
  * Collect and sort with custom sort functions.
@@ -500,9 +480,7 @@ export function collectRenderListWithSort(
     return list;
 }
 
-// ---------------------------------------------------------------------------
 // Statistics
-// ---------------------------------------------------------------------------
 
 /**
  * Get render list statistics.

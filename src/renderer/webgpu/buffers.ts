@@ -165,9 +165,7 @@ export function resolveStorageBuffer(
     }
 }
 
-// ---------------------------------------------------------------------------
 // Raw buffers (object-keyed, for UBOs and BufferAttributeNodes)
-// ---------------------------------------------------------------------------
 
 /**
  * Result of uploadRaw - includes buffer and whether it was newly created.
@@ -217,9 +215,7 @@ export function getRaw(cache: BufferCache, key: object): GPUBuffer | undefined {
     return cache.rawMap.get(key);
 }
 
-// ---------------------------------------------------------------------------
 // Stats
-// ---------------------------------------------------------------------------
 
 /**
  * Returns approximate buffer counts tracked by this cache.

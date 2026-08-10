@@ -24,9 +24,7 @@ import { List } from '../ui/list';
 import { Tab } from '../ui/tab';
 import { ShaderPanel } from './shader-panel';
 
-// ---------------------------------------------------------------------------
 // Internal record, one per live RenderObject
-// ---------------------------------------------------------------------------
 
 type RONode = {
     id: number;
@@ -36,15 +34,11 @@ type RONode = {
     passId: string;
 };
 
-// ---------------------------------------------------------------------------
 // Sub-tab type
-// ---------------------------------------------------------------------------
 
 type DetailSubTab = 'shader' | 'pipeline' | 'bindings';
 
-// ---------------------------------------------------------------------------
 // DrawCalls Tab
-// ---------------------------------------------------------------------------
 
 export class DrawCalls extends Tab {
     readonly list: List;
@@ -58,7 +52,7 @@ export class DrawCalls extends Tab {
     /** Currently selected RO */
     private _selectedRO: RenderObject | null = null;
 
-    // --- Detail panel ---
+    // Detail panel
     private _detailPanel: HTMLDivElement;
     private _detailSubBtns: Map<DetailSubTab, HTMLButtonElement> = new Map();
     private _shaderPane: HTMLDivElement;
@@ -70,7 +64,7 @@ export class DrawCalls extends Tab {
     constructor() {
         super('Draw Calls');
 
-        // --- List (left column) ---
+        // List (left column)
         const list = new List('Draw Call');
         list.setGridStyle('1fr');
 
@@ -78,7 +72,7 @@ export class DrawCalls extends Tab {
         scrollWrapper.className = 'list-scroll-wrapper scene-hierarchy-list';
         scrollWrapper.appendChild(list.domElement);
 
-        // --- Detail panel (right column) ---
+        // Detail panel (right column)
         const detailPanel = document.createElement('div');
         detailPanel.className = 'dc-detail-panel';
         detailPanel.style.display = 'none';
@@ -126,7 +120,7 @@ export class DrawCalls extends Tab {
 
         this._detailPanel = detailPanel;
 
-        // --- Root layout (list | detail) ---
+        // Root layout (list | detail)
         const layout = document.createElement('div');
         layout.className = 'scene-hierarchy-layout';
         layout.appendChild(scrollWrapper);
@@ -140,9 +134,7 @@ export class DrawCalls extends Tab {
         this._showDetailSubTab('shader');
     }
 
-    // -----------------------------------------------------------------------
     // Public API
-    // -----------------------------------------------------------------------
 
     /**
      * Called by Inspector._processFrame() every frame.
@@ -156,9 +148,7 @@ export class DrawCalls extends Tab {
     update(inspector: Inspector, renderer: InspectableRenderer): void {
         const liveROs = renderer._renderObjects.renderObjects;
 
-        // ------------------------------------------------------------------
         // 1. Build a snapshot: passId → RO[] (skip internal meshes)
-        // ------------------------------------------------------------------
         const passBuckets = new Map<string, RenderObject[]>();
         for (const ro of liveROs) {
             if (_isInternalMesh(ro)) continue;
@@ -171,9 +161,7 @@ export class DrawCalls extends Tab {
             bucket.push(ro);
         }
 
-        // ------------------------------------------------------------------
         // 2. Remove stale pass headers (and their children are auto-removed)
-        // ------------------------------------------------------------------
         for (const [passId, headerItem] of this._passHeaders) {
             if (!passBuckets.has(passId)) {
                 this.list.remove(headerItem);
@@ -191,9 +179,7 @@ export class DrawCalls extends Tab {
             }
         }
 
-        // ------------------------------------------------------------------
         // 3. Remove stale RO items that disappeared from their pass
-        // ------------------------------------------------------------------
         const liveIds = new Set<number>();
         for (const bucket of passBuckets.values()) {
             for (const ro of bucket) liveIds.add(ro.id);
@@ -211,9 +197,7 @@ export class DrawCalls extends Tab {
             }
         }
 
-        // ------------------------------------------------------------------
         // 4. Ensure pass header items exist and add new RO children
-        // ------------------------------------------------------------------
         for (const [passId, ros] of passBuckets) {
             // Ensure pass header exists in the List
             if (!this._passHeaders.has(passId)) {
@@ -256,9 +240,7 @@ export class DrawCalls extends Tab {
             }
         }
 
-        // ------------------------------------------------------------------
         // 5. Refresh shader panel if a RO is currently selected
-        // ------------------------------------------------------------------
         if (this._selectedRO) {
             this._shaderPanel.updateFromRO(inspector, this._selectedRO);
         }
@@ -284,9 +266,7 @@ export class DrawCalls extends Tab {
         this._populateDetail(ro, inspector);
     }
 
-    // -----------------------------------------------------------------------
     // Detail panel population
-    // -----------------------------------------------------------------------
 
     private _populateDetail(ro: RenderObject, inspector: Inspector): void {
         // Shader pane, delegate to ShaderPanel (reuses probe support)
@@ -330,9 +310,7 @@ export class DrawCalls extends Tab {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 function _isInternalMesh(ro: RenderObject): boolean {
     // Skip gpucat-internal meshes (e.g. fullscreen quad used by post-processing)
@@ -345,9 +323,7 @@ function _roDisplayName(ro: RenderObject): string {
     return meshName;
 }
 
-// ---------------------------------------------------------------------------
 // Pipeline table
-// ---------------------------------------------------------------------------
 
 function _buildPipelineTable(ro: RenderObject): HTMLDivElement {
     const container = document.createElement('div');
@@ -386,16 +362,14 @@ function _buildPipelineTable(ro: RenderObject): HTMLDivElement {
     return container;
 }
 
-// ---------------------------------------------------------------------------
 // Bindings table (exported for reuse by ComputeCalls)
-// ---------------------------------------------------------------------------
 
 export function buildBindingsTable(state: NodeBuilderState): HTMLDivElement {
     const container = document.createElement('div');
 
     const { uniformGroups, textures, samplers, storage, vertexBufferGroups, varyings, builtinsUsed } = state;
 
-    // --- Vertex Buffer Groups ---
+    // Vertex Buffer Groups
     if (vertexBufferGroups.length > 0) {
         container.appendChild(sectionHeader('Vertex Buffers'));
         const table = document.createElement('div');
@@ -428,7 +402,7 @@ export function buildBindingsTable(state: NodeBuilderState): HTMLDivElement {
         container.appendChild(table);
     }
 
-    // --- Varyings ---
+    // Varyings
     if (varyings.length > 0) {
         container.appendChild(sectionHeader('Varyings'));
         const table = document.createElement('div');
@@ -445,7 +419,7 @@ export function buildBindingsTable(state: NodeBuilderState): HTMLDivElement {
         container.appendChild(table);
     }
 
-    // --- Builtins ---
+    // Builtins
     if (builtinsUsed.size > 0) {
         container.appendChild(sectionHeader('Builtins'));
         const table = document.createElement('div');
@@ -456,7 +430,7 @@ export function buildBindingsTable(state: NodeBuilderState): HTMLDivElement {
         container.appendChild(table);
     }
 
-    // --- Uniform groups ---
+    // Uniform groups
     if (uniformGroups.length > 0) {
         container.appendChild(sectionHeader('Uniform Groups'));
         const table = document.createElement('div');
@@ -483,7 +457,7 @@ export function buildBindingsTable(state: NodeBuilderState): HTMLDivElement {
         container.appendChild(table);
     }
 
-    // --- Textures ---
+    // Textures
     if (textures.length > 0) {
         container.appendChild(sectionHeader('Textures'));
         const table = document.createElement('div');
@@ -494,7 +468,7 @@ export function buildBindingsTable(state: NodeBuilderState): HTMLDivElement {
         container.appendChild(table);
     }
 
-    // --- Samplers ---
+    // Samplers
     if (samplers.length > 0) {
         container.appendChild(sectionHeader('Samplers'));
         const table = document.createElement('div');
@@ -505,7 +479,7 @@ export function buildBindingsTable(state: NodeBuilderState): HTMLDivElement {
         container.appendChild(table);
     }
 
-    // --- Storage ---
+    // Storage
     if (storage.length > 0) {
         container.appendChild(sectionHeader('Storage Buffers'));
         const table = document.createElement('div');
@@ -534,9 +508,7 @@ export function buildBindingsTable(state: NodeBuilderState): HTMLDivElement {
     return container;
 }
 
-// ---------------------------------------------------------------------------
 // DOM helpers (exported for reuse by ComputeCalls)
-// ---------------------------------------------------------------------------
 
 export function kvRow(key: string, value: string): HTMLDivElement {
     const row = document.createElement('div');

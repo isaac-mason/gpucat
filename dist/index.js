@@ -6593,17 +6593,12 @@ const TOUCH = {
     DOLLY_PAN: 2,
     DOLLY_ROTATE: 3,
 };
-// ---------------------------------------------------------------------------
-// Module-level scratch variables (avoid per-frame allocation)
-// ---------------------------------------------------------------------------
 const _v = [0, 0, 0];
 const _twoPI = 2 * Math.PI;
 const _EPS = 0.000001;
 const _TILT_LIMIT = Math.cos(70 * (Math.PI / 180));
-// ---------------------------------------------------------------------------
 // mat4 column extraction helpers (column-major, gl-matrix layout)
 // col 0: indices 0-3, col 1: 4-7, col 2: 8-11, col 3: 12-15
-// ---------------------------------------------------------------------------
 function mat4GetColumn(out, m, col) {
     const base = col * 4;
     out[0] = m[base];
@@ -6611,9 +6606,7 @@ function mat4GetColumn(out, m, col) {
     out[2] = m[base + 2];
     return out;
 }
-// ---------------------------------------------------------------------------
 // OrbitControls
-// ---------------------------------------------------------------------------
 /**
  * OrbitControls
  *
@@ -6630,59 +6623,59 @@ class OrbitControls {
     domElement = null;
     /** Whether the controls are active. */
     enabled = true;
-    // ---- target / cursor --------------------------------------------------
+    // target / cursor
     /** The point the camera orbits around. */
     target = [0, 0, 0];
     /**
      * The focus point of the `minTargetRadius` / `maxTargetRadius` limits.
      */
     cursor = [0, 0, 0];
-    // ---- distance limits (perspective) ------------------------------------
+    // distance limits (perspective)
     minDistance = 0;
     maxDistance = Infinity;
-    // ---- zoom limits (orthographic) ----------------------------------------
+    // zoom limits (orthographic)
     minZoom = 0;
     maxZoom = Infinity;
-    // ---- target radius limits ---------------------------------------------
+    // target radius limits
     minTargetRadius = 0;
     maxTargetRadius = Infinity;
-    // ---- polar angle limits -----------------------------------------------
+    // polar angle limits
     /** Minimum polar angle (radians), default 0. */
     minPolarAngle = 0;
     /** Maximum polar angle (radians), default Math.PI. */
     maxPolarAngle = Math.PI;
-    // ---- azimuth limits ---------------------------------------------------
+    // azimuth limits
     minAzimuthAngle = -Infinity;
     maxAzimuthAngle = Infinity;
-    // ---- damping ----------------------------------------------------------
+    // damping
     enableDamping = false;
     dampingFactor = 0.05;
-    // ---- zoom -------------------------------------------------------------
+    // zoom
     enableZoom = true;
     zoomSpeed = 1.0;
     zoomToCursor = false;
-    // ---- rotate -----------------------------------------------------------
+    // rotate
     enableRotate = true;
     rotateSpeed = 1.0;
     keyRotateSpeed = 1.0;
-    // ---- pan --------------------------------------------------------------
+    // pan
     enablePan = true;
     panSpeed = 1.0;
     /** When true the camera pans in screen space; otherwise in world-up plane. */
     screenSpacePanning = true;
     keyPanSpeed = 7.0;
-    // ---- auto-rotate ------------------------------------------------------
+    // auto-rotate
     autoRotate = false;
     /** 2.0 ≈ 30 s per orbit at 60 fps */
     autoRotateSpeed = 2.0;
-    // ---- key bindings -----------------------------------------------------
+    // key bindings
     keys = {
         LEFT: 'ArrowLeft',
         UP: 'ArrowUp',
         RIGHT: 'ArrowRight',
         BOTTOM: 'ArrowDown',
     };
-    // ---- mouse / touch action map ----------------------------------------
+    // mouse / touch action map
     mouseButtons = {
         LEFT: MOUSE.ROTATE,
         MIDDLE: MOUSE.DOLLY,
@@ -6692,11 +6685,11 @@ class OrbitControls {
         ONE: TOUCH.ROTATE,
         TWO: TOUCH.DOLLY_PAN,
     };
-    // ---- saved state (for reset()) ----------------------------------------
+    // saved state (for reset())
     target0;
     position0;
     zoom0;
-    // ---- internal state ---------------------------------------------------
+    // internal state
     state = STATE.NONE;
     /** @internal */ _cursorStyle = 'auto';
     /** @internal */ _domElementKeyEvents = null;
@@ -6770,9 +6763,7 @@ class OrbitControls {
         }
         this.update();
     }
-    // -------------------------------------------------------------------------
     // EventEmitter surface
-    // -------------------------------------------------------------------------
     addEventListener(type, listener) {
         if (!this._listeners.has(type))
             this._listeners.set(type, new Set());
@@ -6790,9 +6781,7 @@ class OrbitControls {
             listener(event);
         }
     }
-    // -------------------------------------------------------------------------
     // Cursor style
-    // -------------------------------------------------------------------------
     get cursorStyle() {
         return this._cursorStyle;
     }
@@ -6802,9 +6791,7 @@ class OrbitControls {
             this.domElement.style.cursor = type === 'grab' ? 'grab' : 'auto';
         }
     }
-    // -------------------------------------------------------------------------
     // Connect / disconnect / dispose
-    // -------------------------------------------------------------------------
     connect(element) {
         this.domElement = element;
         element.addEventListener('pointerdown', this._onPointerDown);
@@ -6838,9 +6825,7 @@ class OrbitControls {
     dispose() {
         this.disconnect();
     }
-    // -------------------------------------------------------------------------
     // Getters
-    // -------------------------------------------------------------------------
     getPolarAngle() {
         return this._spherical[2];
     }
@@ -6850,9 +6835,7 @@ class OrbitControls {
     getDistance() {
         return vec3_exports.distance(this.object.position, this.target);
     }
-    // -------------------------------------------------------------------------
     // Key event helpers
-    // -------------------------------------------------------------------------
     listenToKeyEvents(domElement) {
         domElement.addEventListener('keydown', this._onKeyDown);
         this._domElementKeyEvents = domElement;
@@ -6863,9 +6846,7 @@ class OrbitControls {
             this._domElementKeyEvents = null;
         }
     }
-    // -------------------------------------------------------------------------
     // Save / reset state
-    // -------------------------------------------------------------------------
     saveState() {
         vec3_exports.copy(this.target0, this.target);
         vec3_exports.copy(this.position0, this.object.position);
@@ -6883,9 +6864,7 @@ class OrbitControls {
         this.update();
         this.state = STATE.NONE;
     }
-    // -------------------------------------------------------------------------
     // Programmatic controls
-    // -------------------------------------------------------------------------
     pan(deltaX, deltaY) {
         this._pan(deltaX, deltaY);
         this.update();
@@ -6906,9 +6885,7 @@ class OrbitControls {
         this._rotateUp(angle);
         this.update();
     }
-    // -------------------------------------------------------------------------
     // update(), call every frame when damping/autoRotate are enabled
-    // -------------------------------------------------------------------------
     update(deltaTime = null) {
         const position = this.object.position;
         // offset = position - target, rotated to Y-up space
@@ -7056,9 +7033,7 @@ class OrbitControls {
         }
         return false;
     }
-    // -------------------------------------------------------------------------
     // Private helpers
-    // -------------------------------------------------------------------------
     /** @internal */ _getAutoRotationAngle(deltaTime) {
         if (deltaTime !== null) {
             return ((_twoPI / 60) * this.autoRotateSpeed) * deltaTime;
@@ -7136,7 +7111,7 @@ class OrbitControls {
     /** @internal */ _clampDistance(dist) {
         return Math.max(this.minDistance, Math.min(this.maxDistance, dist));
     }
-    // ---- mouse event handlers -------------------------------------------
+    // mouse event handlers
     _handleMouseDownRotate(event) {
         this._rotateStart[0] = event.clientX;
         this._rotateStart[1] = event.clientY;
@@ -7257,7 +7232,7 @@ class OrbitControls {
             this.update();
         }
     }
-    // ---- touch event handlers -------------------------------------------
+    // touch event handlers
     _handleTouchStartRotate(event) {
         if (this._pointers.length === 1) {
             this._rotateStart[0] = event.pageX;
@@ -7363,7 +7338,7 @@ class OrbitControls {
         if (this.enableRotate)
             this._handleTouchMoveRotate(event);
     }
-    // ---- pointer tracking -----------------------------------------------
+    // pointer tracking
     _addPointer(event) {
         this._pointers.push(event.pointerId);
     }
@@ -7410,15 +7385,11 @@ class OrbitControls {
         return newEvent;
     }
 }
-// ---------------------------------------------------------------------------
 // Type guard
-// ---------------------------------------------------------------------------
 function _isPerspective(camera) {
     return typeof camera.fov === 'number';
 }
-// ---------------------------------------------------------------------------
 // Module-level event handler functions (bound in constructor)
-// ---------------------------------------------------------------------------
 function _onPointerDown(event) {
     if (!this.enabled)
         return;
@@ -7818,9 +7789,7 @@ function intersect$1(object, raycaster, intersects, recursive) {
         }
     }
 }
-// ============================================================================
 // Helpers for Mesh.raycast() - exported for use by Mesh
-// ============================================================================
 const _inverseMatrix = mat4_exports.create();
 const _localRay = { origin: [0, 0, 0], direction: [0, 0, 0] };
 const _intersectionPoint = [0, 0, 0];
@@ -9542,9 +9511,7 @@ function arrayElementStrideOf(elementSchema, memLayout) {
     }
     return baseStride;
 }
-// ---------------------------------------------------------------------------
 // Code Generation - Writers
-// ---------------------------------------------------------------------------
 /**
  * Emit write statements for a schema.
  */
@@ -9797,9 +9764,7 @@ function emitMatrixWriteF16(ctx, t, accessor) {
     }
     ctx.offset = off;
 }
-// ---------------------------------------------------------------------------
 // Code Generation - Readers
-// ---------------------------------------------------------------------------
 /**
  * Emit read expression for a schema. Returns a JS expression string.
  */
@@ -9981,9 +9946,7 @@ function emitMatrixReadF16(ctx, t) {
     ctx.offset = off;
     return `[${elements.join(',')}]`;
 }
-// ---------------------------------------------------------------------------
 // f16 conversion helpers (injected into generated code)
-// ---------------------------------------------------------------------------
 /**
  * Convert f32 to f16 bits.
  */
@@ -10061,9 +10024,7 @@ function f16BitsToF32(bits) {
     u32[0] = (sign << 31) | (exp32 << 23) | mant32;
     return f32[0];
 }
-// ---------------------------------------------------------------------------
 // Layout Compilation
-// ---------------------------------------------------------------------------
 function compileLayout(schema, memLayout) {
     // Generate writer
     const writeCtx = { memLayout, offset: 0, lines: [] };
@@ -10782,7 +10743,7 @@ function createCylinderGeometry(radiusTop = 1, radiusBottom = 1, height = 1, rad
     const slope = (radiusBottom - radiusTop) / height;
     const normalScale = 1 / Math.sqrt(1 + slope * slope);
     let vi = 0;
-    // --- body ---
+    // body
     for (let ring = 0; ring < 2; ring++) {
         const y = ring === 0 ? halfHeight : -halfHeight;
         const r = ring === 0 ? radiusTop : radiusBottom;
@@ -10821,7 +10782,7 @@ function createCylinderGeometry(radiusTop = 1, radiusBottom = 1, height = 1, rad
         indices[ii++] = c;
         indices[ii++] = dd;
     }
-    // --- top cap ---
+    // top cap
     if (hasTop) {
         const centerIndex = vi;
         const pi0 = vi * 3;
@@ -10858,7 +10819,7 @@ function createCylinderGeometry(radiusTop = 1, radiusBottom = 1, height = 1, rad
             indices[ii++] = centerIndex + 1 + seg + 1;
         }
     }
-    // --- bottom cap ---
+    // bottom cap
     if (hasBottom) {
         const centerIndex = vi;
         const pi0 = vi * 3;
@@ -14777,7 +14738,6 @@ class SubBuildNode extends Node {
         this.subBuildName = subBuildName;
     }
 }
-// TODO: kill SubBuildNode? or keep?
 /**
  * Creates a SubBuildNode wrapper.
  */
@@ -14925,9 +14885,6 @@ class TextureBindingNode extends Node {
         this.group = group;
     }
 }
-/* ────────────────────────────────────────────────────────────────────────────
- * StorageTextureBindingNode
- * ──────────────────────────────────────────────────────────────────────────── */
 /**
  * StorageTextureBindingNode - a module-scope storage texture binding, i.e.
  * `var t : texture_storage_2d<rgba8unorm, write>`. Written via `textureStore`
@@ -15036,9 +14993,6 @@ class TextureNode extends Node {
      * Can be set explicitly for custom sampler sharing.
      */
     samplerNode = null;
-    /* ─────────────────────────────────────────────────────────────────────────
-     * Sampling mode properties
-     * ───────────────────────────────────────────────────────────────────────── */
     /** Current sampling mode */
     samplingMode = 'sample';
     /** Level node for textureSampleLevel (f32 for regular textures) */
@@ -15087,9 +15041,6 @@ class TextureNode extends Node {
         cloned.loadLevel = this.loadLevel;
         return cloned;
     }
-    /* ─────────────────────────────────────────────────────────────────────────
-     * Chainable sampling methods
-     * ───────────────────────────────────────────────────────────────────────── */
     /** Sample the texture at the given coordinates (vec2 for 2D, vec3 for 3D, f32 for 1D). */
     sample(uvNode) {
         const textureNode = this.clone();
@@ -15424,9 +15375,6 @@ class CubeTextureNode extends Node {
      * Auto-created by cubeTexture() factory from texture settings.
      */
     samplerNode = null;
-    /* ─────────────────────────────────────────────────────────────────────────
-     * Sampling mode properties
-     * ───────────────────────────────────────────────────────────────────────── */
     /** Current sampling mode */
     samplingMode = 'sample';
     /** Level node for textureSampleLevel (f32) */
@@ -15457,9 +15405,6 @@ class CubeTextureNode extends Node {
         cloned.gradNode = this.gradNode;
         return cloned;
     }
-    /* ─────────────────────────────────────────────────────────────────────────
-     * Chainable sampling methods
-     * ───────────────────────────────────────────────────────────────────────── */
     /** Sample the cube texture in the given direction */
     sample(directionNode) {
         const textureNode = this.clone();
@@ -15555,9 +15500,6 @@ class DepthTextureNode extends Node {
      * For comparison sampling, use comparisonSampler() and the free functions.
      */
     samplerNode = null;
-    /* ─────────────────────────────────────────────────────────────────────────
-     * Sampling mode properties
-     * ───────────────────────────────────────────────────────────────────────── */
     /** Current sampling mode */
     samplingMode = 'sample';
     /** Level node for textureSampleLevel (i32 for depth textures) */
@@ -15590,9 +15532,6 @@ class DepthTextureNode extends Node {
         cloned.loadLevel = this.loadLevel;
         return cloned;
     }
-    /* ─────────────────────────────────────────────────────────────────────────
-     * Chainable sampling methods
-     * ───────────────────────────────────────────────────────────────────────── */
     /** Sample the depth texture at the given UV coordinates */
     sample(uvNode) {
         const textureNode = this.clone();
@@ -15710,9 +15649,6 @@ class ArrayTextureNode extends Node {
      * Auto-created by arrayTexture() factory from texture settings.
      */
     samplerNode = null;
-    /* ─────────────────────────────────────────────────────────────────────────
-     * Sampling mode properties
-     * ───────────────────────────────────────────────────────────────────────── */
     /** Current sampling mode */
     samplingMode = 'sample';
     /** Level node for textureSampleLevel (f32) */
@@ -15752,9 +15688,6 @@ class ArrayTextureNode extends Node {
         cloned.loadLevel = this.loadLevel;
         return cloned;
     }
-    /* ─────────────────────────────────────────────────────────────────────────
-     * Chainable sampling methods
-     * ───────────────────────────────────────────────────────────────────────── */
     /** Set the array layer index */
     layer(layerNode) {
         const textureNode = this.clone();
@@ -17224,9 +17157,7 @@ function glslFn(source, layout, includes = []) {
     return fn;
 }
 
-// ============================================================================
 // Gizmo Material Factory
-// ============================================================================
 function createGizmoMaterial(options) {
     const opacity = options.opacity ?? 1;
     const colorUniform = uniform('color', vec4f$1);
@@ -17256,9 +17187,7 @@ function createGizmoMaterial(options) {
     ]));
     return mat;
 }
-// ============================================================================
 // Geometry Utilities
-// ============================================================================
 /**
  * Bakes a transform matrix into geometry vertex positions and normals.
  * This modifies the underlying buffer data in-place.
@@ -17331,9 +17260,7 @@ function applyMatrix4ToGeometry(geometry, matrix) {
         geometry.boundingSphere = { center: [cx, cy, cz], radius: Math.sqrt(maxDistSq) };
     }
 }
-// ============================================================================
 // Raycaster helper, intersect including invisible objects
-// ============================================================================
 function intersectObjectWithRay(object, raycaster, includeInvisible = false) {
     const allIntersections = intersectObjectRecursive(object, raycaster, [], true, includeInvisible);
     allIntersections.sort((a, b) => a.distance - b.distance);
@@ -17355,9 +17282,7 @@ function intersectObjectRecursive(object, raycaster, intersects, recursive, incl
     }
     return intersects;
 }
-// ============================================================================
 // Reusable temp objects
-// ============================================================================
 const _raycaster = new Raycaster();
 const _tempVec = vec3_exports.create();
 const _tempVec2 = vec3_exports.create();
@@ -17374,9 +17299,7 @@ const _dirVector = [0, 0, 0];
 const _v1$1 = [0, 0, 0];
 const _v2$1 = [0, 0, 0];
 const _v3 = [0, 0, 0];
-// ============================================================================
 // TransformControlsPlane
-// ============================================================================
 class TransformControlsPlane extends Mesh {
     // synced from controls via defineProperty
     mode = 'translate';
@@ -17456,9 +17379,7 @@ class TransformControlsPlane extends Mesh {
         super.updateWorldMatrix();
     }
 }
-// ============================================================================
 // GizmoMesh, Mesh with extra tag/name fields for gizmo logic
-// ============================================================================
 class GizmoMesh extends Mesh {
     tag;
     // store original color/opacity for highlight restore
@@ -17478,9 +17399,7 @@ class GizmoMesh extends Mesh {
         return v ? [v[0], v[1], v[2], v[3]] : [1, 1, 1, 1];
     }
 }
-// ============================================================================
 // TransformControlsGizmo
-// ============================================================================
 class TransformControlsGizmo extends Object3D {
     gizmo = {};
     picker = {};
@@ -17535,7 +17454,7 @@ class TransformControlsGizmo extends Object3D {
             applyMatrix4ToGeometry(geom, m);
             return geom;
         }
-        // --- Gizmo definitions ---
+        // Gizmo definitions
         const gizmoTranslate = {
             X: [
                 [new Mesh(arrowGeometry, matRed), [0.5, 0, 0], [0, 0, -Math.PI / 2], null],
@@ -17680,7 +17599,7 @@ class TransformControlsGizmo extends Object3D {
                 [new Mesh(createBoxGeometry(0.2, 0.2, 0.2), matInvisible), [0, 0, 0], null, null],
             ],
         };
-        // --- setupGizmo: bake transforms into geometry ---
+        // setupGizmo: bake transforms into geometry
         function setupGizmo(gizmoMap) {
             const parent = new Object3D();
             for (const name in gizmoMap) {
@@ -17900,9 +17819,7 @@ class TransformControlsGizmo extends Object3D {
         super.updateWorldMatrix();
     }
 }
-// ============================================================================
 // TransformControlsRoot
-// ============================================================================
 class TransformControlsRoot extends Object3D {
     controls;
     constructor(controls) {
@@ -17946,9 +17863,7 @@ class TransformControlsRoot extends Object3D {
         });
     }
 }
-// ============================================================================
 // TransformControls
-// ============================================================================
 function getPointer(domElement, event) {
     if (domElement.ownerDocument.pointerLockElement) {
         return { x: 0, y: 0, button: event.button };
@@ -18147,7 +18062,7 @@ class TransformControls {
         this.disconnect();
         this._root.dispose();
     }
-    // --- Pointer logic ---
+    // Pointer logic
     pointerHover(pointer) {
         if (this.object === undefined || this.dragging === true)
             return;
@@ -19311,9 +19226,7 @@ function uploadRaw(cache, device, key, data, usage) {
 function getRaw(cache, key) {
     return cache.rawMap.get(key);
 }
-// ---------------------------------------------------------------------------
 // Stats
-// ---------------------------------------------------------------------------
 /**
  * Returns approximate buffer counts tracked by this cache.
  */
@@ -24257,9 +24170,7 @@ class NodeFrame {
     endRender(previousRenderId) {
         this.renderId = previousRenderId;
     }
-    // -----------------------------------------------------------------------
     // Render Context (set before each update cycle)
-    // -----------------------------------------------------------------------
     /**
      * The current renderer (backend-neutral contract).
      */
@@ -24289,9 +24200,7 @@ class NodeFrame {
      * Render target height in pixels.
      */
     height = 0;
-    // -----------------------------------------------------------------------
     // Deduplication Maps
-    // -----------------------------------------------------------------------
     /**
      * Used to control Node.update() calls.
      * Maps nodes to their last update frame/render IDs.
@@ -24305,9 +24214,7 @@ class NodeFrame {
      * Used to control Node.updateAfter() calls.
      */
     updateAfterMap = new WeakMap();
-    // -----------------------------------------------------------------------
     // Methods
-    // -----------------------------------------------------------------------
     _getMaps(map, node) {
         let maps = map.get(node);
         if (!maps) {
@@ -25393,9 +25300,7 @@ function _getBlending(blendMode) {
 class InspectorBase {
     /** Back-reference to the renderer. Set by renderer after init(). */
     renderer = null;
-    // -----------------------------------------------------------------------
     // Performance markers (no-op in base class)
-    // -----------------------------------------------------------------------
     /** Performance marker API - no-op in base class, implemented in RendererInspector */
     perf = {
         start: (_name) => { },
@@ -25422,9 +25327,7 @@ class InspectorBase {
             console.error(msg);
         },
     };
-    // -----------------------------------------------------------------------
     // Lifecycle
-    // -----------------------------------------------------------------------
     /**
      * Attach (renderer non-null) or detach (renderer null).
      * Subclasses override to perform setup on attach and teardown on detach.
@@ -25440,16 +25343,12 @@ class InspectorBase {
      * top-level renderer does NOT call this.
      */
     init() { }
-    // -----------------------------------------------------------------------
     // Frame hooks
-    // -----------------------------------------------------------------------
     /** Called at the very start of WebGPURenderer.render(), before any work. */
     begin(_frameId) { }
     /** Called at the very end of WebGPURenderer.render(), after queue.submit(). */
     finish(_frameId) { }
-    // -----------------------------------------------------------------------
     // Render pass hooks
-    // -----------------------------------------------------------------------
     /** Called before a PassNode scene render pass begins. */
     beginRender(_passId, _frameId) { }
     /** Called after a PassNode scene render pass ends. */
@@ -25461,33 +25360,25 @@ class InspectorBase {
     getTimestampWrites(_passId) {
         return undefined;
     }
-    // -----------------------------------------------------------------------
     // Compute pass hooks
-    // -----------------------------------------------------------------------
     /** Called before a compute dispatch. */
     beginCompute(_node, _frameId) { }
     /** Called after a compute dispatch. */
     finishCompute(_nodeId, _frameId) { }
-    // -----------------------------------------------------------------------
     // Scene hooks
-    // -----------------------------------------------------------------------
     /**
      * Called at the start of renderScene(), before the GPU pass begins.
      * Gives the inspector a reference to the scene being rendered, along with
      * the pipeline key parameters needed to retrieve compiled WGSL later.
      */
     beginRenderScene(_passId, _scene, _samples, _colorFormat, _frameId) { }
-    // -----------------------------------------------------------------------
     // Node inspection
-    // -----------------------------------------------------------------------
     /**
      * Called when a node marked with .inspect() is encountered during rendering.
      * Subclasses override this to register the node for Viewer tab preview.
      */
     inspect(_node) { }
-    // -----------------------------------------------------------------------
     // Per-draw-call hooks (inside a render pass)
-    // -----------------------------------------------------------------------
     /**
      * Called whenever a new pipeline is bound (i.e. renderObject.pipeline changed).
      * `label` is the mesh/material label for the object that triggered the switch.
@@ -25523,9 +25414,7 @@ class InspectorBase {
      * Called for each drawIndexedIndirect() (indexed indirect draw).
      */
     drawIndexedIndirect() { }
-    // -----------------------------------------------------------------------
     // Per-dispatch hooks (inside a compute pass)
-    // -----------------------------------------------------------------------
     /**
      * Called for each dispatchWorkgroups() issued in a compute pass.
      */
@@ -25577,9 +25466,7 @@ const MAX_PASSES_PER_FRAME = 64;
 // readbacks stall (device lost / tab backgrounded) it turns an unbounded pool leak
 // into a logged, dropped frame. Buffers are tiny (~1 KiB).
 const READBACK_POOL_CAP = 8;
-// ---------------------------------------------------------------------------
 // RendererInspector
-// ---------------------------------------------------------------------------
 class RendererInspector extends InspectorBase {
     /** Rolling ring buffer of frame records. */
     frames = new Array(FRAME_HISTORY).fill(null);
@@ -25604,9 +25491,7 @@ class RendererInspector extends InspectorBase {
     /** Set once we hit the readback cap and drop a frame, so the warning fires once
      *  per attach instead of every frame while saturated. Reset in init(). */
     _readbackSaturatedLogged = false;
-    // -----------------------------------------------------------------------
     // WebGL GPU-timing state (EXT_disjoint_timer_query_webgl2)
-    // -----------------------------------------------------------------------
     /** The WebGL disjoint-timer extension, or null if unavailable. */
     _glTimerExt = null;
     /** Free pool of GL timer-query objects to reuse. */
@@ -25766,9 +25651,7 @@ class RendererInspector extends InspectorBase {
         this._gpuInitialized = false;
         return drained;
     }
-    // -----------------------------------------------------------------------
     // WebGL GPU-timing (EXT_disjoint_timer_query_webgl2)
-    // -----------------------------------------------------------------------
     /** Acquire the disjoint-timer extension if available; enables per-pass GPU timing on WebGL. */
     _initWebGLTimestamps() {
         const r = this.renderer;
@@ -26016,9 +25899,7 @@ class RendererInspector extends InspectorBase {
             this._pendingScenes.push(record);
         }
     }
-    // -----------------------------------------------------------------------
     // Public perf API - for user code to add markers
-    // -----------------------------------------------------------------------
     /** Public API for adding performance markers from user code */
     perf = {
         /**
@@ -26044,9 +25925,7 @@ class RendererInspector extends InspectorBase {
             this._finishEntry(name);
         },
     };
-    // -----------------------------------------------------------------------
     // Timeline entry management
-    // -----------------------------------------------------------------------
     /** Push an entry onto the stack, nesting it under current parent if any */
     _pushEntry(entry) {
         const parent = this._entryStack[this._entryStack.length - 1];
@@ -26095,9 +25974,7 @@ class RendererInspector extends InspectorBase {
                 this._entryRefs.delete(entry.name);
         }
     }
-    // -----------------------------------------------------------------------
     // Public query API
-    // -----------------------------------------------------------------------
     /** Returns the most recent completed FrameRecord, or null. Fresh CPU + stats,
      *  but its `gpuMs` is still null (async readback lands a frame or two later). */
     resolveFrame() {
@@ -26132,9 +26009,7 @@ class RendererInspector extends InspectorBase {
         }
         return result;
     }
-    // -----------------------------------------------------------------------
     // GPU timestamp resolution
-    // -----------------------------------------------------------------------
     /** Collect all GPU entries (render/compute) from timeline tree, mapped by querySlot */
     _collectGpuEntries(entries, out) {
         for (const entry of entries) {
@@ -28139,9 +28014,7 @@ function updateComputeBindGroup(data, bufferCache, textureCache, device, bindGro
  * `fragColor` (location 0) output and rewrite its assignment to the coerced probe value; any MRT
  * outputs are neutralised so only location 0 carries the probe result.
  */
-// ---------------------------------------------------------------------------
 // extractGlslProbeTarget, parse a hovered GLSL line into a ProbeTarget
-// ---------------------------------------------------------------------------
 /** GLSL type-token prefixes that begin a declaration line (so we can tell a decl from an assignment). */
 const GLSL_TYPE_TOKEN = /^(?:float|int|uint|bool|vec[234]|ivec[234]|uvec[234]|bvec[234]|mat[234](?:x[234])?|[A-Z]\w*)\s+\w/;
 /**
@@ -28277,9 +28150,7 @@ function inferGlslType(expr, fragmentSrc) {
     }
     return 'unknown';
 }
-// ---------------------------------------------------------------------------
 // Coercion to vec4
-// ---------------------------------------------------------------------------
 /**
  * A GLSL expression that widens a value of `kind` to a `vec4` for the location-0 color output.
  *   float→vec4(v,0,0,1)   vec2→vec4(v,0,1)   vec3→vec4(v,1)   vec4→v
@@ -28492,9 +28363,7 @@ function buildProbeGLSL(fragmentSrc, target) {
  * point of view.  Only fs_main is patched to output a single vec4f showing the
  * chosen intermediate variable.
  */
-// ---------------------------------------------------------------------------
 // extractProbeTarget, parse a hovered WGSL line into a ProbeTarget
-// ---------------------------------------------------------------------------
 /**
  * Given the raw text of a single WGSL source line, return a ProbeTarget
  * describing what expression to probe and where to truncate the body,
@@ -28604,9 +28473,7 @@ function buildStructFieldMap(wgsl) {
     }
     return result;
 }
-// ---------------------------------------------------------------------------
 // Type inference helpers
-// ---------------------------------------------------------------------------
 /**
  * Remove one layer of balanced outer parentheses if they wrap the whole string.
  * `((a + b))` → `(a + b)` → caller will recurse again.
@@ -28856,9 +28723,7 @@ function coerceToVec4f(expr, kind) {
             return `(${expr})`;
     }
 }
-// ---------------------------------------------------------------------------
 // buildProbeWGSL, patch combined WGSL to output a single probe variable
-// ---------------------------------------------------------------------------
 /**
  * Patch the combined WGSL emitted by compile.ts so that:
  *  1. Everything up to and including the original vs_main is kept verbatim.
@@ -28873,21 +28738,15 @@ function coerceToVec4f(expr, kind) {
  * Returns the patched WGSL string, or null if patching fails.
  */
 function buildProbeWGSL(code, target) {
-    // -----------------------------------------------------------------------
     // 1. Locate @fragment entry-point.
-    // -----------------------------------------------------------------------
     const fragmentAttrRe = /(?:^|\n)(@fragment\s*\n)/;
     const fragmentAttrMatch = code.match(fragmentAttrRe);
     if (!fragmentAttrMatch || fragmentAttrMatch.index === undefined)
         return null;
     const fsStart = fragmentAttrMatch.index + (fragmentAttrMatch[0].length - fragmentAttrMatch[1].length);
-    // -----------------------------------------------------------------------
     // 2. Everything before @fragment is kept verbatim (preamble + vs_main).
-    // -----------------------------------------------------------------------
     const beforeFs = code.slice(0, fsStart).trimEnd();
-    // -----------------------------------------------------------------------
     // 3. Locate fs_main body start and capture original parameter list.
-    // -----------------------------------------------------------------------
     const fsSection = code.slice(fsStart);
     const fnHeaderMatch = fsSection.match(/fn\s+fs_main\s*\([^)]*\)\s*->(?:[^{]*)\{/);
     if (!fnHeaderMatch || fnHeaderMatch.index === undefined)
@@ -28898,10 +28757,8 @@ function buildProbeWGSL(code, target) {
     const bodyStart = fsStart + fnHeaderMatch.index + fnHeaderMatch[0].length;
     const rawBody = code.slice(bodyStart);
     const bodyLines = rawBody.split('\n');
-    // -----------------------------------------------------------------------
     // 4. Build var-decl map from `var name : type;` lines in the full body,
     //    and parse struct field maps from the full WGSL (for in.fieldName etc).
-    // -----------------------------------------------------------------------
     const varDecls = new Map();
     for (const bl of bodyLines) {
         const trimmed = bl.trim();
@@ -28957,14 +28814,11 @@ function buildProbeWGSL(code, target) {
             varDecls.set(`${paramName}.${fieldName}`, fieldType);
         }
     }
-    // -----------------------------------------------------------------------
     // 5. Infer the type of the probed expression and emit safe coercion.
     //    We do this before the walk so the injected return line is ready.
-    // -----------------------------------------------------------------------
     const kind = inferType(target.expr, rawBody, varDecls, structFields);
     const returnVec4 = coerceToVec4f(target.expr, kind);
     const injectedReturn = `    return ${returnVec4};`;
-    // -----------------------------------------------------------------------
     // 6. Walk body lines, truncating at the anchor.
     //
     //    We emit lines up to and including the anchor, inject our return
@@ -28980,7 +28834,6 @@ function buildProbeWGSL(code, target) {
     //      references `_out` (e.g. user selected `_out.diffuse`).
     //    - `return _out;` and other FragmentOutput returns are always dropped
     //, they appear at the end of the body, past our injected return.
-    // -----------------------------------------------------------------------
     const exprUsesOut = /\b_out\b/.test(target.expr);
     const keptLines = [];
     let found = false;
@@ -29035,19 +28888,13 @@ function buildProbeWGSL(code, target) {
     }
     if (!found)
         return null;
-    // -----------------------------------------------------------------------
     // 7. Assemble patched fs_main.
-    // -----------------------------------------------------------------------
     const probeFsBody = keptLines.join('\n');
     const probeFsMain = [`@fragment`, `fn fs_main(${fsParam}) -> @location(0) vec4f {`, probeFsBody, `}`].join('\n');
-    // -----------------------------------------------------------------------
     // 8. Final assembly: original preamble + vs_main, then patched fs_main.
-    // -----------------------------------------------------------------------
     return [beforeFs, '', probeFsMain].join('\n');
 }
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 function escapeRegex(s) {
     return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -29333,9 +29180,7 @@ class Tab {
  *  5. Hovering a probeable fragment-stage line shows a floating popover with
  *     a live 140×140 preview canvas next to the cursor.
  */
-// ---------------------------------------------------------------------------
 // WGSL Syntax Highlighting
-// ---------------------------------------------------------------------------
 /** Lightweight regex-based WGSL highlighter. Returns an HTML string. */
 function highlightWGSL(code) {
     // Escape HTML first so we can safely inject spans
@@ -29405,9 +29250,7 @@ class ShaderPanel {
     _renderObject = null;
     /** Inspector reference, set on first update() call. */
     _inspector = null;
-    // -----------------------------------------------------------------------
     // Probe popover, floats next to the cursor while hovering a probeable line
-    // -----------------------------------------------------------------------
     /** Floating popover element, appended to document.body. */
     _popover;
     _popoverLabel;
@@ -29425,7 +29268,7 @@ class ShaderPanel {
     constructor(mode = 'render') {
         const container = document.createElement('div');
         container.className = 'shader-panel';
-        // --- Toolbar ---
+        // Toolbar
         const toolbar = document.createElement('div');
         toolbar.className = 'shader-toolbar';
         const stageGroup = document.createElement('div');
@@ -29458,7 +29301,7 @@ class ShaderPanel {
         copyBtn.addEventListener('click', () => this._copyCode(copyBtn));
         toolbar.appendChild(stageGroup);
         toolbar.appendChild(copyBtn);
-        // --- Code area ---
+        // Code area
         const codeScroll = document.createElement('div');
         codeScroll.className = 'shader-code-scroll';
         const codeBlock = document.createElement('pre');
@@ -29481,7 +29324,7 @@ class ShaderPanel {
         codeScroll.appendChild(codeBlock);
         container.appendChild(toolbar);
         container.appendChild(codeScroll);
-        // --- Floating probe popover (appended to body, shared across all instances) ---
+        // Floating probe popover (appended to body, shared across all instances)
         const popover = document.createElement('div');
         popover.className = 'probe-popover';
         popover.style.display = 'none';
@@ -29502,9 +29345,7 @@ class ShaderPanel {
             this._selectStage('vertex');
         }
     }
-    // -----------------------------------------------------------------------
     // Public API
-    // -----------------------------------------------------------------------
     /**
      * Update the panel for the given mesh.
      * Finds the compiled RenderObject in the renderer's renderObjects set.
@@ -29568,9 +29409,7 @@ class ShaderPanel {
     get currentStage() {
         return this._currentStage;
     }
-    // -----------------------------------------------------------------------
     // Private, stage selection
-    // -----------------------------------------------------------------------
     _selectStage(stage) {
         this._currentStage = stage;
         this._lastRenderedCode = null;
@@ -29601,9 +29440,7 @@ class ShaderPanel {
             .join('');
         this._codeBlock.innerHTML = html;
     }
-    // -----------------------------------------------------------------------
     // Private, hover / probe
-    // -----------------------------------------------------------------------
     _onMouseLeave() {
         if (!this._selectionLocked) {
             this._hidePopover();
@@ -29851,9 +29688,7 @@ class ShaderPanel {
  *   update() diffs by ro.id, only adds/removes items on structural changes.
  *   The static detail panel is only rebuilt when _selectedRO changes.
  */
-// ---------------------------------------------------------------------------
 // DrawCalls Tab
-// ---------------------------------------------------------------------------
 class DrawCalls extends Tab {
     list;
     /** ro.id → RONode for every currently-displayed RenderObject */
@@ -29862,7 +29697,7 @@ class DrawCalls extends Tab {
     _passHeaders = new Map();
     /** Currently selected RO */
     _selectedRO = null;
-    // --- Detail panel ---
+    // Detail panel
     _detailPanel;
     _detailSubBtns = new Map();
     _shaderPane;
@@ -29872,13 +29707,13 @@ class DrawCalls extends Tab {
     _currentSubTab = 'shader';
     constructor() {
         super('Draw Calls');
-        // --- List (left column) ---
+        // List (left column)
         const list = new List('Draw Call');
         list.setGridStyle('1fr');
         const scrollWrapper = document.createElement('div');
         scrollWrapper.className = 'list-scroll-wrapper scene-hierarchy-list';
         scrollWrapper.appendChild(list.domElement);
-        // --- Detail panel (right column) ---
+        // Detail panel (right column)
         const detailPanel = document.createElement('div');
         detailPanel.className = 'dc-detail-panel';
         detailPanel.style.display = 'none';
@@ -29916,7 +29751,7 @@ class DrawCalls extends Tab {
         detailPanel.appendChild(pipelinePane);
         detailPanel.appendChild(bindingsPane);
         this._detailPanel = detailPanel;
-        // --- Root layout (list | detail) ---
+        // Root layout (list | detail)
         const layout = document.createElement('div');
         layout.className = 'scene-hierarchy-layout';
         layout.appendChild(scrollWrapper);
@@ -29926,9 +29761,7 @@ class DrawCalls extends Tab {
         // Activate initial sub-tab
         this._showDetailSubTab('shader');
     }
-    // -----------------------------------------------------------------------
     // Public API
-    // -----------------------------------------------------------------------
     /**
      * Called by Inspector._processFrame() every frame.
      * Only diffs by ro.id, does NOT repaint the detail panel unless the
@@ -29940,9 +29773,7 @@ class DrawCalls extends Tab {
      */
     update(inspector, renderer) {
         const liveROs = renderer._renderObjects.renderObjects;
-        // ------------------------------------------------------------------
         // 1. Build a snapshot: passId → RO[] (skip internal meshes)
-        // ------------------------------------------------------------------
         const passBuckets = new Map();
         for (const ro of liveROs) {
             if (_isInternalMesh(ro))
@@ -29955,9 +29786,7 @@ class DrawCalls extends Tab {
             }
             bucket.push(ro);
         }
-        // ------------------------------------------------------------------
         // 2. Remove stale pass headers (and their children are auto-removed)
-        // ------------------------------------------------------------------
         for (const [passId, headerItem] of this._passHeaders) {
             if (!passBuckets.has(passId)) {
                 this.list.remove(headerItem);
@@ -29974,9 +29803,7 @@ class DrawCalls extends Tab {
                 }
             }
         }
-        // ------------------------------------------------------------------
         // 3. Remove stale RO items that disappeared from their pass
-        // ------------------------------------------------------------------
         const liveIds = new Set();
         for (const bucket of passBuckets.values()) {
             for (const ro of bucket)
@@ -29994,9 +29821,7 @@ class DrawCalls extends Tab {
                 }
             }
         }
-        // ------------------------------------------------------------------
         // 4. Ensure pass header items exist and add new RO children
-        // ------------------------------------------------------------------
         for (const [passId, ros] of passBuckets) {
             // Ensure pass header exists in the List
             if (!this._passHeaders.has(passId)) {
@@ -30033,9 +29858,7 @@ class DrawCalls extends Tab {
                 });
             }
         }
-        // ------------------------------------------------------------------
         // 5. Refresh shader panel if a RO is currently selected
-        // ------------------------------------------------------------------
         if (this._selectedRO) {
             this._shaderPanel.updateFromRO(inspector, this._selectedRO);
         }
@@ -30058,9 +29881,7 @@ class DrawCalls extends Tab {
         this._detailPanel.style.display = 'flex';
         this._populateDetail(ro, inspector);
     }
-    // -----------------------------------------------------------------------
     // Detail panel population
-    // -----------------------------------------------------------------------
     _populateDetail(ro, inspector) {
         // Shader pane, delegate to ShaderPanel (reuses probe support)
         this._shaderPanel.updateFromRO(inspector, ro);
@@ -30096,9 +29917,7 @@ class DrawCalls extends Tab {
         }
     }
 }
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 function _isInternalMesh(ro) {
     // Skip gpucat-internal meshes (e.g. fullscreen quad used by post-processing)
     const name = ro.mesh.name ?? '';
@@ -30108,9 +29927,7 @@ function _roDisplayName(ro) {
     const meshName = ro.mesh.name || `Mesh #${ro.mesh.objectId}`;
     return meshName;
 }
-// ---------------------------------------------------------------------------
 // Pipeline table
-// ---------------------------------------------------------------------------
 function _buildPipelineTable(ro) {
     const container = document.createElement('div');
     container.className = 'dc-kv-table';
@@ -30142,13 +29959,11 @@ function _buildPipelineTable(ro) {
     }
     return container;
 }
-// ---------------------------------------------------------------------------
 // Bindings table (exported for reuse by ComputeCalls)
-// ---------------------------------------------------------------------------
 function buildBindingsTable(state) {
     const container = document.createElement('div');
     const { uniformGroups, textures, samplers, storage, vertexBufferGroups, varyings, builtinsUsed } = state;
-    // --- Vertex Buffer Groups ---
+    // Vertex Buffer Groups
     if (vertexBufferGroups.length > 0) {
         container.appendChild(sectionHeader('Vertex Buffers'));
         const table = document.createElement('div');
@@ -30175,7 +29990,7 @@ function buildBindingsTable(state) {
         }
         container.appendChild(table);
     }
-    // --- Varyings ---
+    // Varyings
     if (varyings.length > 0) {
         container.appendChild(sectionHeader('Varyings'));
         const table = document.createElement('div');
@@ -30192,7 +30007,7 @@ function buildBindingsTable(state) {
         }
         container.appendChild(table);
     }
-    // --- Builtins ---
+    // Builtins
     if (builtinsUsed.size > 0) {
         container.appendChild(sectionHeader('Builtins'));
         const table = document.createElement('div');
@@ -30202,7 +30017,7 @@ function buildBindingsTable(state) {
         }
         container.appendChild(table);
     }
-    // --- Uniform groups ---
+    // Uniform groups
     if (uniformGroups.length > 0) {
         container.appendChild(sectionHeader('Uniform Groups'));
         const table = document.createElement('div');
@@ -30226,7 +30041,7 @@ function buildBindingsTable(state) {
         }
         container.appendChild(table);
     }
-    // --- Textures ---
+    // Textures
     if (textures.length > 0) {
         container.appendChild(sectionHeader('Textures'));
         const table = document.createElement('div');
@@ -30236,7 +30051,7 @@ function buildBindingsTable(state) {
         }
         container.appendChild(table);
     }
-    // --- Samplers ---
+    // Samplers
     if (samplers.length > 0) {
         container.appendChild(sectionHeader('Samplers'));
         const table = document.createElement('div');
@@ -30246,7 +30061,7 @@ function buildBindingsTable(state) {
         }
         container.appendChild(table);
     }
-    // --- Storage ---
+    // Storage
     if (storage.length > 0) {
         container.appendChild(sectionHeader('Storage Buffers'));
         const table = document.createElement('div');
@@ -30270,9 +30085,7 @@ function buildBindingsTable(state) {
     }
     return container;
 }
-// ---------------------------------------------------------------------------
 // DOM helpers (exported for reuse by ComputeCalls)
-// ---------------------------------------------------------------------------
 function kvRow(key, value) {
     const row = document.createElement('div');
     row.className = 'dc-kv-row';
@@ -30304,16 +30117,14 @@ function sectionHeader(text) {
  *
  * Mirrors the structure of draw-calls.ts.
  */
-// ---------------------------------------------------------------------------
 // ComputeCalls Tab
-// ---------------------------------------------------------------------------
 class ComputeCalls extends Tab {
     list;
     /** node.id → ComputeNodeRecord for every currently-displayed ComputeNode */
     _nodeRecords = new Map();
     /** Currently selected ComputeNode */
     _selectedNode = null;
-    // --- Detail panel ---
+    // Detail panel
     _detailPanel;
     _detailSubBtns = new Map();
     _shaderPane;
@@ -30323,13 +30134,13 @@ class ComputeCalls extends Tab {
     _currentSubTab = 'shader';
     constructor() {
         super('Compute');
-        // --- List (left column) ---
+        // List (left column)
         const list = new List('Compute Node');
         list.setGridStyle('1fr');
         const scrollWrapper = document.createElement('div');
         scrollWrapper.className = 'list-scroll-wrapper scene-hierarchy-list';
         scrollWrapper.appendChild(list.domElement);
-        // --- Detail panel (right column) ---
+        // Detail panel (right column)
         const detailPanel = document.createElement('div');
         detailPanel.className = 'dc-detail-panel';
         detailPanel.style.display = 'none';
@@ -30367,7 +30178,7 @@ class ComputeCalls extends Tab {
         detailPanel.appendChild(shaderPane);
         detailPanel.appendChild(bindingsPane);
         this._detailPanel = detailPanel;
-        // --- Root layout (list | detail) ---
+        // Root layout (list | detail)
         const layout = document.createElement('div');
         layout.className = 'scene-hierarchy-layout';
         layout.appendChild(scrollWrapper);
@@ -30377,18 +30188,14 @@ class ComputeCalls extends Tab {
         // Activate initial sub-tab
         this._showDetailSubTab('shader');
     }
-    // -----------------------------------------------------------------------
     // Public API
-    // -----------------------------------------------------------------------
     /**
      * Called by Inspector._processFrame() every frame when compute passes exist.
      * Diffs by node.id, only adds/removes items on structural changes.
      */
     update(inspector, renderer) {
         const liveNodes = inspector.computeNodes;
-        // ------------------------------------------------------------------
         // 1. Remove stale node items
-        // ------------------------------------------------------------------
         for (const [id, record] of this._nodeRecords) {
             if (!liveNodes.has(id)) {
                 this.list.remove(record.item);
@@ -30399,9 +30206,7 @@ class ComputeCalls extends Tab {
                 }
             }
         }
-        // ------------------------------------------------------------------
         // 2. Add new node items
-        // ------------------------------------------------------------------
         for (const [id, node] of liveNodes) {
             if (this._nodeRecords.has(id))
                 continue;
@@ -30423,9 +30228,7 @@ class ComputeCalls extends Tab {
                 item,
             });
         }
-        // ------------------------------------------------------------------
         // 3. Refresh detail panel if a node is currently selected
-        // ------------------------------------------------------------------
         if (this._selectedNode && liveNodes.has(this._selectedNode.id)) {
             this._refreshShaderPanel(renderer);
         }
@@ -30448,9 +30251,7 @@ class ComputeCalls extends Tab {
         this._detailPanel.style.display = 'flex';
         this._populateDetail(node, inspector, renderer);
     }
-    // -----------------------------------------------------------------------
     // Detail panel population
-    // -----------------------------------------------------------------------
     _populateDetail(node, _inspector, renderer) {
         // Metadata pane, workgroup size
         this._metaPane.innerHTML = '';
@@ -30499,9 +30300,7 @@ class ComputeCalls extends Tab {
         }
     }
 }
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 function _nodeDisplayName(node) {
     if (node.name)
         return node.name;
@@ -32488,7 +32287,7 @@ class PerformanceTimeline extends Tab {
             ctx.fillText(text, x + 3, y + h - 5);
         }
     }
-    // --- Interaction ---
+    // Interaction
     _onMouseDown(e) {
         const rect = this._canvas.getBoundingClientRect();
         const x = e.clientX - rect.left;
@@ -32663,9 +32462,7 @@ class PerformanceTimeline extends Tab {
  *    "→ Draw Call" navigation button.
  *  - The tab auto-shows itself when scenes are present (mirrors Viewer pattern).
  */
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 /** Human-readable type label for an Object3D. */
 function typeLabel(obj) {
     if (obj.isMesh)
@@ -32706,9 +32503,7 @@ function makeKVRow(key, value) {
     row.appendChild(v);
     return row;
 }
-// ---------------------------------------------------------------------------
 // SceneHierarchy Tab
-// ---------------------------------------------------------------------------
 class SceneHierarchy extends Tab {
     list;
     /** objectId → HierarchyNode for every currently-displayed object */
@@ -32739,9 +32534,7 @@ class SceneHierarchy extends Tab {
         this.content.appendChild(layout);
         this.list = list;
     }
-    // -----------------------------------------------------------------------
     // Public API
-    // -----------------------------------------------------------------------
     /**
      * Called by Inspector._processFrame() whenever scenes are present.
      * Diffs the tree against the current DOM state and updates in-place.
@@ -32768,9 +32561,7 @@ class SceneHierarchy extends Tab {
             this._syncScene(inspector, sr);
         }
     }
-    // -----------------------------------------------------------------------
     // Tree diffing
-    // -----------------------------------------------------------------------
     _syncScene(inspector, sr) {
         // Ensure a root item exists for this pass
         let rootItem = this._sceneRoots.get(sr.passId);
@@ -32857,9 +32648,7 @@ class SceneHierarchy extends Tab {
             this._syncChildren(_inspector, child, hn.item, sr);
         }
     }
-    // -----------------------------------------------------------------------
     // Selection & detail panel
-    // -----------------------------------------------------------------------
     _onItemClick(obj, _sr, item) {
         // Clear previous selection highlight
         if (this._selectedMesh) {
@@ -32889,9 +32678,7 @@ class SceneHierarchy extends Tab {
         panel.innerHTML = '';
         const geo = mesh.geometry;
         const mat = mesh.material;
-        // ------------------------------------------------------------------
         // Geometry section
-        // ------------------------------------------------------------------
         panel.appendChild(makeSectionHeader('Geometry'));
         const table = document.createElement('div');
         table.className = 'dc-kv-table';
@@ -32926,9 +32713,7 @@ class SceneHierarchy extends Tab {
             table.appendChild(makeKVRow('bbox max', maxStr));
         }
         panel.appendChild(table);
-        // ------------------------------------------------------------------
         // Material section
-        // ------------------------------------------------------------------
         panel.appendChild(makeSectionHeader('Material'));
         const matTable = document.createElement('div');
         matTable.className = 'dc-kv-table';
@@ -32953,17 +32738,13 @@ class SceneHierarchy extends Tab {
             matTable.appendChild(makeKVRow('blend', 'none'));
         }
         panel.appendChild(matTable);
-        // ------------------------------------------------------------------
         // Instance section
-        // ------------------------------------------------------------------
         panel.appendChild(makeSectionHeader('Instance'));
         const instTable = document.createElement('div');
         instTable.className = 'dc-kv-table';
         instTable.appendChild(makeKVRow('count', String(mesh.count)));
         panel.appendChild(instTable);
-        // ------------------------------------------------------------------
         // Navigation button
-        // ------------------------------------------------------------------
         const navBtn = document.createElement('button');
         navBtn.className = 'dc-nav-link';
         navBtn.title = "Jump to this mesh's draw call";
@@ -32987,9 +32768,7 @@ class SceneHierarchy extends Tab {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Persistence helpers
-// ---------------------------------------------------------------------------
 function loadState() {
     try {
         const data = JSON.parse(localStorage.getItem('gpucat-inspector') || '{}');
@@ -33010,9 +32789,7 @@ function saveState(state) {
         console.error('Failed to save settings:', e);
     }
 }
-// ---------------------------------------------------------------------------
 // Settings tab
-// ---------------------------------------------------------------------------
 class Settings extends Parameters {
     constructor() {
         super({ name: 'Settings' });
@@ -33574,9 +33351,7 @@ class Timeline extends Tab {
  * triggering updateBefore() on PassNodes, which would cause a stack overflow
  * by recursively rendering the scene inside the inspector viewer.
  */
-// ---------------------------------------------------------------------------
 // Viewer Tab
-// ---------------------------------------------------------------------------
 class Viewer extends Tab {
     nodeList;
     nodes;
@@ -33600,9 +33375,7 @@ class Viewer extends Tab {
         this.nodeList = nodeList;
         this.nodes = nodes;
     }
-    // -----------------------------------------------------------------------
     // Public API, called by Inspector each frame
-    // -----------------------------------------------------------------------
     /**
      * Get or create a folder item for the given path name.
      */
@@ -33636,7 +33409,7 @@ class Viewer extends Tab {
         const renderer = inspector.getRenderer();
         if (!renderer)
             return;
-        // --- Remove items for nodes no longer in the list ---
+        // Remove items for nodes no longer in the list
         // Remove old items + clean up empty folders
         const previousDataList = [...this._currentDataList];
         for (const canvasData of previousDataList) {
@@ -33659,7 +33432,7 @@ class Viewer extends Tab {
             }
         }
         this._currentDataList = canvasDataList;
-        // --- Add / render each node ---
+        // Add / render each node
         // indexes tracks insertion order within each folder
         const indexes = {};
         for (const canvasData of canvasDataList) {
@@ -33696,9 +33469,7 @@ class Viewer extends Tab {
             renderer.restoreRendererState(savedState);
         }
     }
-    // -----------------------------------------------------------------------
     // Private helpers
-    // -----------------------------------------------------------------------
     _addNodeItem(canvasData) {
         let item = this._itemLibrary.get(canvasData.id);
         if (!item) {
@@ -33710,9 +33481,7 @@ class Viewer extends Tab {
         return item;
     }
 }
-// ---------------------------------------------------------------------------
 // Module-level helpers, used by Inspector.getCanvasDataByNode()
-// ---------------------------------------------------------------------------
 /**
  * Split a camelCase / PascalCase name into space-separated words.
  *
@@ -33747,39 +33516,39 @@ function splitPath(str) {
  */
 function nodeToVec4f(node) {
     const t = node.type.wgslType;
-    // ---- scalars ----
+    // scalars
     if (t === 'f32') {
         return wgsl(vec4f$1) `vec4f(${node}, ${node}, ${node}, 1.0)`;
     }
     if (t === 'i32' || t === 'u32' || t === 'bool') {
         return wgsl(vec4f$1) `vec4f(f32(${node}), f32(${node}), f32(${node}), 1.0)`;
     }
-    // ---- vec2 ----
+    // vec2
     if (t === 'vec2f') {
         return wgsl(vec4f$1) `vec4f((${node}).x, (${node}).y, 0.0, 1.0)`;
     }
     if (t === 'vec2i' || t === 'vec2u') {
         return wgsl(vec4f$1) `vec4f(f32((${node}).x), f32((${node}).y), 0.0, 1.0)`;
     }
-    // ---- vec3 ----
+    // vec3
     if (t === 'vec3f') {
         return wgsl(vec4f$1) `vec4f((${node}).xyz, 1.0)`;
     }
     if (t === 'vec3i' || t === 'vec3u') {
         return wgsl(vec4f$1) `vec4f(f32((${node}).x), f32((${node}).y), f32((${node}).z), 1.0)`;
     }
-    // ---- vec4 ----
+    // vec4
     if (t === 'vec4f') {
         return wgsl(vec4f$1) `vec4f((${node}).xyz, 1.0)`;
     }
     if (t === 'vec4i' || t === 'vec4u') {
         return wgsl(vec4f$1) `vec4f(f32((${node}).x), f32((${node}).y), f32((${node}).z), 1.0)`;
     }
-    // ---- matrices, show first column as RGB ----
+    // matrices, show first column as RGB
     if (t.startsWith('mat')) {
         return wgsl(vec4f$1) `vec4f(f32((${node})[0][0]), f32((${node})[0][1]), f32((${node})[0][2]), 1.0)`;
     }
-    // ---- texture / sampler / unknown, assume textureSample gives vec4f ----
+    // texture / sampler / unknown, assume textureSample gives vec4f
     return wgsl(vec4f$1) `vec4f((${node}).xyz, 1.0)`;
 }
 /**
@@ -36565,9 +36334,7 @@ class Inspector extends RendererInspector {
     get domElement() {
         return this.profiler.domElement;
     }
-    // -----------------------------------------------------------------------
     // Lifecycle
-    // -----------------------------------------------------------------------
     /**
      * Surface log messages in the Console tab AND devtools. Overrides the
      * no-op base. Callers route via `renderer.inspector?.log.warn('...')`.
@@ -36632,9 +36399,7 @@ class Inspector extends RendererInspector {
         // so a caller that `await`s dispose() knows all destroys have landed.
         await Promise.all([probeDrained, this.disposeTimestampGpu()]);
     }
-    // -----------------------------------------------------------------------
     // Timeline hooks, forward calls to timeline.onCall()
-    // -----------------------------------------------------------------------
     begin(frameId) {
         super.begin(frameId);
         if (this.timeline.isRecording) {
@@ -36721,9 +36486,7 @@ class Inspector extends RendererInspector {
         if (record)
             this._processFrame(record);
     }
-    // -----------------------------------------------------------------------
     // createParameters, expose dat.GUI-style groups via the Parameters tab
-    // -----------------------------------------------------------------------
     createParameters(name) {
         // Activate the mini-panel (top-right floating panel) without showing
         // the Parameters tab inside the main profiler panel.  showBuiltin()
@@ -36733,9 +36496,7 @@ class Inspector extends RendererInspector {
         this.parameters.showBuiltin();
         return this.parameters.createGroup(name);
     }
-    // -----------------------------------------------------------------------
     // Probe API, shader value live inspector
-    // -----------------------------------------------------------------------
     /**
      * Set the active probe to the given variable expression in the given mesh's
      * compiled WGSL.  Builds a new probe pipeline (patched WGSL + same bind
@@ -36922,18 +36683,14 @@ class Inspector extends RendererInspector {
         }
         return drained;
     }
-    // -----------------------------------------------------------------------
     // navigateToRO, jump to a RenderObject in the Draw Calls tab
-    // -----------------------------------------------------------------------
     navigateToRO(ro) {
         this.profiler.setActiveTab(this.drawCalls.id);
         if (!this.drawCalls.isVisible)
             this.drawCalls.show();
         this.drawCalls.selectRO(ro, this);
     }
-    // -----------------------------------------------------------------------
     // Private: per-frame update dispatch
-    // -----------------------------------------------------------------------
     _processFrame(record) {
         const now = performance.now();
         const deltaMs = now - (this._lastUpdateTime || now);
@@ -38895,13 +38652,9 @@ class Line extends Mesh {
  *
  * Functional pattern: state object + functions.
  */
-// ---------------------------------------------------------------------------
 // RenderContext ID counter
-// ---------------------------------------------------------------------------
 let renderContextIdCounter = 0;
-// ---------------------------------------------------------------------------
 // ComputeContext
-// ---------------------------------------------------------------------------
 let computeContextIdCounter = 0;
 /**
  * Create a new ComputeContext.
@@ -38963,9 +38716,7 @@ function createRenderContextsState() {
         defaultClearStencil: 0,
     };
 }
-// ---------------------------------------------------------------------------
 // Cache Key Computation
-// ---------------------------------------------------------------------------
 /**
  * Build the attachment state portion of the cache key.
  *
@@ -39046,9 +38797,7 @@ function getRenderContext(state, renderTarget, mrt, callDepth) {
  * - Opaque: sorted by material/pipeline key to minimize state changes
  * - Transparent: sorted back-to-front by view-space Z
  */
-// ---------------------------------------------------------------------------
 // Factories
-// ---------------------------------------------------------------------------
 /** ID counter for RenderItems. */
 let renderItemIdCounter = 0;
 /**
@@ -39073,9 +38822,7 @@ function createRenderListsState() {
         lists: new WeakMap(),
     };
 }
-// ---------------------------------------------------------------------------
 // RenderList Access
-// ---------------------------------------------------------------------------
 /**
  * Get or create a RenderList for the given object and camera.
  *
@@ -39096,9 +38843,7 @@ function getRenderList(state, object, camera) {
     }
     return list;
 }
-// ---------------------------------------------------------------------------
 // List Management
-// ---------------------------------------------------------------------------
 /**
  * Begin building a render list for a new frame.
  *
@@ -39158,9 +38903,7 @@ function pushRenderItem(list, mesh, geometry, material, groupOrder, z) {
         list.opaque.push(item);
     }
 }
-// ---------------------------------------------------------------------------
 // Sorting
-// ---------------------------------------------------------------------------
 /**
  * Sort the render list.
  *
@@ -39221,9 +38964,7 @@ function reversePainterSortStable(a, b) {
     // Finally by ID for stability
     return a.id - b.id;
 }
-// ---------------------------------------------------------------------------
 // Scene Collection
-// ---------------------------------------------------------------------------
 /** Frustum used for culling; rebuilt from VP every frame. */
 const _frustum = create();
 /** World-space AABB used when transforming a local bounding box. */
@@ -39289,7 +39030,7 @@ function isMeshVisible(mesh) {
         return false;
     if (!mesh.frustumCulled)
         return true;
-    // --- sphere test (preferred) ------------------------------------------
+    // sphere test (preferred)
     if (geom.boundingSphere !== undefined) {
         const ls = geom.boundingSphere;
         // Transform centre: ws_centre = wm * [cx, cy, cz, 1]
@@ -39306,13 +39047,13 @@ function isMeshVisible(mesh) {
         _worldSphere.radius = ls.radius * Math.max(sx, sy, sz);
         return intersectsSphere(_frustum, _worldSphere);
     }
-    // --- AABB test (fallback) -----------------------------------------------
+    // AABB test (fallback)
     if (geom.boundingBox !== undefined) {
         // Transform the local AABB by the world matrix to a world-space AABB.
         box3_exports.transformMat4(_worldBox, geom.boundingBox, wm);
         return intersectsBox3(_frustum, _worldBox);
     }
-    // --- no bounds, always draw -------------------------------------------
+    // no bounds, always draw
     return true;
 }
 /**
@@ -39655,9 +39396,7 @@ function glComponentType(gl, glType) {
             return gl.FLOAT;
     }
 }
-// -------------------------------------------------------------------------------------------------
 // Buffer upload.
-// -------------------------------------------------------------------------------------------------
 /**
  * Push a buffer's pending `updateRanges` as partial `bufferSubData` uploads (caller has
  * already bound `glBuffer` to `target`). Mirrors three.js `WebGLAttributes.updateBuffer`:
@@ -42163,9 +41902,7 @@ function establishPassBaseline(gl) {
     gl.stencilMask(0xff);
     gl.disable(gl.RASTERIZER_DISCARD);
 }
-// -------------------------------------------------------------------------------------------------
 // Enum → GL constant maps. Keyed by the WebGPU-vocabulary strings gpucat's Material uses.
-// -------------------------------------------------------------------------------------------------
 /** Map a WebGPU compare function to a GL depth/stencil func constant. */
 function compareFunc(gl, compare) {
     switch (compare) {
@@ -42261,9 +41998,7 @@ function stencilOp(gl, op) {
             return gl.KEEP;
     }
 }
-// -------------------------------------------------------------------------------------------------
 // State setters.
-// -------------------------------------------------------------------------------------------------
 /**
  * Apply depth test + compare. WebGL2 folds "no test" into disabling `DEPTH_TEST`; when the material
  * has `depthTest=false` we mirror WebGPU by keeping the buffer enabled with `depthFunc=ALWAYS` (so
@@ -43159,21 +42894,17 @@ class WebGLRenderer {
         }
         return this._canvasTarget.domElement;
     }
-    // -----------------------------------------------------------------------
     // WebGL2 device state — owned directly as fields. Assigned in init().
     // WebGL2 is immediate mode: no command encoder, no swapchain object.
-    // -----------------------------------------------------------------------
     /** The WebGL2 rendering context in use. Assigned in `init()`. @internal */
     gl = null;
     /** Bound `webglcontextlost` listener, registered in init() and removed in dispose(). @internal */
     _onContextLost = null;
     /** Bound `webglcontextrestored` listener, registered in init() and removed in dispose(). @internal */
     _onContextRestored = null;
-    // -----------------------------------------------------------------------
     // Device resource caches — created once in the constructor, immutable
     // references thereafter. GL handles inside are created lazily on first use
     // (they need the context, which init() acquires).
-    // -----------------------------------------------------------------------
     /** GLSL program cache (compile/link, keyed by source). @internal */
     _programs;
     /** Per-geometry GL buffers + VAOs. @internal */
@@ -44345,9 +44076,7 @@ function uploadRenderObjectResources(device, bindings, geometries, buffers, text
     updateRenderObject(bindings, geometries, device, buffers, textures, renderObjectGpu, renderObject, frame);
 }
 
-// ---------------------------------------------------------------------------
 // Canvas context — the renderer owns the WebGPU canvas context.
-// ---------------------------------------------------------------------------
 /**
  * Get (or lazily create + configure) the WebGPU canvas context for a canvas target. Safe to call
  * repeatedly; the context is cached per canvas target after first acquisition. The context is
@@ -44581,9 +44310,7 @@ function resolveAttachments(contexts, device, textures, sc, format, params) {
         return resolveRenderTargetAttachments(device, textures, renderTarget, clearColor, params);
     return resolveSwapchainAttachments(contexts, device, sc, format, clearColor, params);
 }
-// ---------------------------------------------------------------------------
 // Manual clear — a clear-only render pass honoring the clear flags.
-// ---------------------------------------------------------------------------
 /**
  * Manually clear the current framebuffer (color and/or depth and/or stencil). Resolves the
  * attachments for `params` with autoClear=true so they come back as 'clear', then overrides each
@@ -44604,9 +44331,7 @@ function clear(contexts, device, textures, sc, format, params, color, depth, ste
     encoder.beginRenderPass({ label: 'clear', colorAttachments, depthStencilAttachment: depthAttachment }).end();
     device.queue.submit([encoder.finish()]);
 }
-// ---------------------------------------------------------------------------
 // Render pass — attachment resolution + inner draw loop.
-// ---------------------------------------------------------------------------
 /**
  * Resolve attachments and run the whole inner draw loop into the current command stream (created by
  * the top-level frame, reused by nested renders). Calls neutral update helpers per object.
@@ -44778,9 +44503,7 @@ function draw(device, bindings, geometries, buffers, textures, renderObjectGpu, 
     if (inspector)
         inspector.finishRender(passId, nodes.nodeFrame.frameId);
 }
-// ---------------------------------------------------------------------------
 // Teardown — release every device resource the renderer owns.
-// ---------------------------------------------------------------------------
 /**
  * Release all device resources: the canvas context, swapchain textures, default placeholder
  * textures + samplers, mipmap state, pipeline caches, and (unless the device was pre-created) the
@@ -44817,11 +44540,9 @@ function disposeDevice(contexts, device, deviceProvided, textures, pipelines, bi
         device.destroy();
     }
 }
-// ---------------------------------------------------------------------------
 // Pass-command helpers, issue the real GPU encoder call AND the inspector hook
 // in one place so neither call sites nor the inspector interface accumulate
 // per-command boilerplate.
-// ---------------------------------------------------------------------------
 function passSetPipeline(pass, inspector, pipeline, label) {
     pass.setPipeline(pipeline);
     if (inspector)
@@ -44913,11 +44634,9 @@ class WebGPURenderer {
         // CanvasTarget's widened union narrows back to HTMLCanvasElement here.
         return this._canvasTarget.domElement;
     }
-    // -----------------------------------------------------------------------
     // WebGPU device state — owned directly as fields (previously the backend
     // factory's closure). Device handles are assigned in init(); caches are
     // created in the constructor and immutable thereafter.
-    // -----------------------------------------------------------------------
     /** The WebGPU GPU device in use. Assigned in `init()`. @internal */
     device = null;
     /** The WebGPU adapter in use. Assigned in `init()`. @internal */

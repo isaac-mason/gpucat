@@ -13,15 +13,11 @@ import type { RenderTarget } from '../../core/render-target';
 import type { MRTNode } from '../../nodes/lib/mrt';
 import type { BackendTexture } from './render-types';
 
-// ---------------------------------------------------------------------------
 // RenderContext ID counter
-// ---------------------------------------------------------------------------
 
 let renderContextIdCounter = 0;
 
-// ---------------------------------------------------------------------------
 // Types
-// ---------------------------------------------------------------------------
 
 /**
  * RGBA clear color value.
@@ -138,9 +134,7 @@ export type RenderContext = {
     readonly isRenderContext: true;
 };
 
-// ---------------------------------------------------------------------------
 // ComputeContext
-// ---------------------------------------------------------------------------
 
 let computeContextIdCounter = 0;
 
@@ -248,9 +242,7 @@ export function createRenderContextsState(): RenderContextsState {
     };
 }
 
-// ---------------------------------------------------------------------------
 // Cache Key Computation
-// ---------------------------------------------------------------------------
 
 /**
  * Build the attachment state portion of the cache key.

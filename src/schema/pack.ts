@@ -470,9 +470,7 @@ function arrayElementStrideOf(elementSchema: Any, memLayout: MemoryLayout): numb
     return baseStride;
 }
 
-// ---------------------------------------------------------------------------
 // Code Generation - Writers
-// ---------------------------------------------------------------------------
 
 /**
  * Emit write statements for a schema.
@@ -744,9 +742,7 @@ function emitMatrixWriteF16(ctx: LayoutContext, t: string, accessor: string): vo
     ctx.offset = off;
 }
 
-// ---------------------------------------------------------------------------
 // Code Generation - Readers
-// ---------------------------------------------------------------------------
 
 /**
  * Emit read expression for a schema. Returns a JS expression string.
@@ -945,9 +941,7 @@ function emitMatrixReadF16(ctx: LayoutContext, t: string): string {
     return `[${elements.join(',')}]`;
 }
 
-// ---------------------------------------------------------------------------
 // f16 conversion helpers (injected into generated code)
-// ---------------------------------------------------------------------------
 
 /**
  * Convert f32 to f16 bits.
@@ -1028,9 +1022,7 @@ function f16BitsToF32(bits: number): number {
     return f32[0]!;
 }
 
-// ---------------------------------------------------------------------------
 // Layout Compilation
-// ---------------------------------------------------------------------------
 
 function compileLayout<T>(schema: Any, memLayout: MemoryLayout): CompiledLayout<T> {
     // Generate writer

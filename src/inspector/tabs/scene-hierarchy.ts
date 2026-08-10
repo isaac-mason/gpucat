@@ -23,9 +23,7 @@ import { Item } from '../ui/item';
 import { List } from '../ui/list';
 import { Tab } from '../ui/tab';
 
-// ---------------------------------------------------------------------------
 // Internal node record, one per live Object3D in the tree
-// ---------------------------------------------------------------------------
 
 type HierarchyNode = {
     objectId: number;
@@ -37,9 +35,7 @@ type HierarchyNode = {
     sceneRecord: SceneRecord;
 };
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 /** Human-readable type label for an Object3D. */
 function typeLabel(obj: Object3D): string {
@@ -87,9 +83,7 @@ function makeKVRow(key: string, value: string): HTMLDivElement {
     return row;
 }
 
-// ---------------------------------------------------------------------------
 // SceneHierarchy Tab
-// ---------------------------------------------------------------------------
 
 export class SceneHierarchy extends Tab {
     readonly list: List;
@@ -134,9 +128,7 @@ export class SceneHierarchy extends Tab {
         this.list = list;
     }
 
-    // -----------------------------------------------------------------------
     // Public API
-    // -----------------------------------------------------------------------
 
     /**
      * Called by Inspector._processFrame() whenever scenes are present.
@@ -167,9 +159,7 @@ export class SceneHierarchy extends Tab {
         }
     }
 
-    // -----------------------------------------------------------------------
     // Tree diffing
-    // -----------------------------------------------------------------------
 
     private _syncScene(inspector: Inspector, sr: SceneRecord): void {
         // Ensure a root item exists for this pass
@@ -265,9 +255,7 @@ export class SceneHierarchy extends Tab {
         }
     }
 
-    // -----------------------------------------------------------------------
     // Selection & detail panel
-    // -----------------------------------------------------------------------
 
     private _onItemClick(obj: Object3D, _sr: SceneRecord, item: Item): void {
         // Clear previous selection highlight
@@ -301,9 +289,7 @@ export class SceneHierarchy extends Tab {
         const geo = mesh.geometry;
         const mat = mesh.material;
 
-        // ------------------------------------------------------------------
         // Geometry section
-        // ------------------------------------------------------------------
         panel.appendChild(makeSectionHeader('Geometry'));
 
         const table = document.createElement('div');
@@ -343,9 +329,7 @@ export class SceneHierarchy extends Tab {
 
         panel.appendChild(table);
 
-        // ------------------------------------------------------------------
         // Material section
-        // ------------------------------------------------------------------
         panel.appendChild(makeSectionHeader('Material'));
 
         const matTable = document.createElement('div');
@@ -374,9 +358,7 @@ export class SceneHierarchy extends Tab {
 
         panel.appendChild(matTable);
 
-        // ------------------------------------------------------------------
         // Instance section
-        // ------------------------------------------------------------------
         panel.appendChild(makeSectionHeader('Instance'));
 
         const instTable = document.createElement('div');
@@ -384,9 +366,7 @@ export class SceneHierarchy extends Tab {
         instTable.appendChild(makeKVRow('count', String(mesh.count)));
         panel.appendChild(instTable);
 
-        // ------------------------------------------------------------------
         // Navigation button
-        // ------------------------------------------------------------------
         const navBtn = document.createElement('button');
         navBtn.className = 'dc-nav-link';
         navBtn.title = "Jump to this mesh's draw call";

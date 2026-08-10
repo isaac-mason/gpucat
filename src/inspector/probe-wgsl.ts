@@ -7,9 +7,7 @@
  * chosen intermediate variable.
  */
 
-// ---------------------------------------------------------------------------
 // ProbeTarget, what to probe from a hovered line
-// ---------------------------------------------------------------------------
 
 export type ProbeTarget = {
     /**
@@ -31,9 +29,7 @@ export type ProbeTarget = {
     anchorKind: 'let_var' | 'assignment' | 'return';
 };
 
-// ---------------------------------------------------------------------------
 // extractProbeTarget, parse a hovered WGSL line into a ProbeTarget
-// ---------------------------------------------------------------------------
 
 /**
  * Given the raw text of a single WGSL source line, return a ProbeTarget
@@ -104,9 +100,7 @@ export function extractProbeVar(line: string): string | null {
     return extractProbeTarget(line)?.expr ?? null;
 }
 
-// ---------------------------------------------------------------------------
 // Type environment, struct field maps parsed from WGSL preamble
-// ---------------------------------------------------------------------------
 
 /**
  * Maps struct name → (field name → WGSL type string).
@@ -164,9 +158,7 @@ function buildStructFieldMap(wgsl: string): StructFieldMap {
     return result;
 }
 
-// ---------------------------------------------------------------------------
 // Type inference helpers
-// ---------------------------------------------------------------------------
 
 /**
  * Remove one layer of balanced outer parentheses if they wrap the whole string.
@@ -185,9 +177,7 @@ function stripOuterParens(s: string): string {
     return s.slice(1, -1).trim();
 }
 
-// ---------------------------------------------------------------------------
 // Type inference, figure out WGSL component type from an expression
-// ---------------------------------------------------------------------------
 
 type WgslVecKind = 'vec4f' | 'vec3f' | 'vec2f' | 'f32' | 'i32' | 'u32' | 'bool' | 'unknown';
 
@@ -417,9 +407,7 @@ function coerceToVec4f(expr: string, kind: WgslVecKind): string {
     }
 }
 
-// ---------------------------------------------------------------------------
 // buildProbeWGSL, patch combined WGSL to output a single probe variable
-// ---------------------------------------------------------------------------
 
 /**
  * Patch the combined WGSL emitted by compile.ts so that:
@@ -435,22 +423,16 @@ function coerceToVec4f(expr: string, kind: WgslVecKind): string {
  * Returns the patched WGSL string, or null if patching fails.
  */
 export function buildProbeWGSL(code: string, target: ProbeTarget): string | null {
-    // -----------------------------------------------------------------------
     // 1. Locate @fragment entry-point.
-    // -----------------------------------------------------------------------
     const fragmentAttrRe = /(?:^|\n)(@fragment\s*\n)/;
     const fragmentAttrMatch = code.match(fragmentAttrRe);
     if (!fragmentAttrMatch || fragmentAttrMatch.index === undefined) return null;
     const fsStart = fragmentAttrMatch.index + (fragmentAttrMatch[0].length - fragmentAttrMatch[1].length);
 
-    // -----------------------------------------------------------------------
     // 2. Everything before @fragment is kept verbatim (preamble + vs_main).
-    // -----------------------------------------------------------------------
     const beforeFs = code.slice(0, fsStart).trimEnd();
 
-    // -----------------------------------------------------------------------
     // 3. Locate fs_main body start and capture original parameter list.
-    // -----------------------------------------------------------------------
     const fsSection = code.slice(fsStart);
     const fnHeaderMatch = fsSection.match(/fn\s+fs_main\s*\([^)]*\)\s*->(?:[^{]*)\{/);
     if (!fnHeaderMatch || fnHeaderMatch.index === undefined) return null;
@@ -463,10 +445,8 @@ export function buildProbeWGSL(code: string, target: ProbeTarget): string | null
     const rawBody = code.slice(bodyStart);
     const bodyLines = rawBody.split('\n');
 
-    // -----------------------------------------------------------------------
     // 4. Build var-decl map from `var name : type;` lines in the full body,
     //    and parse struct field maps from the full WGSL (for in.fieldName etc).
-    // -----------------------------------------------------------------------
     const varDecls = new Map<string, string>();
     for (const bl of bodyLines) {
         const trimmed = bl.trim();
@@ -518,15 +498,12 @@ export function buildProbeWGSL(code: string, target: ProbeTarget): string | null
         }
     }
 
-    // -----------------------------------------------------------------------
     // 5. Infer the type of the probed expression and emit safe coercion.
     //    We do this before the walk so the injected return line is ready.
-    // -----------------------------------------------------------------------
     const kind = inferType(target.expr, rawBody, varDecls, structFields);
     const returnVec4 = coerceToVec4f(target.expr, kind);
     const injectedReturn = `    return ${returnVec4};`;
 
-    // -----------------------------------------------------------------------
     // 6. Walk body lines, truncating at the anchor.
     //
     //    We emit lines up to and including the anchor, inject our return
@@ -542,7 +519,6 @@ export function buildProbeWGSL(code: string, target: ProbeTarget): string | null
     //      references `_out` (e.g. user selected `_out.diffuse`).
     //    - `return _out;` and other FragmentOutput returns are always dropped
     //, they appear at the end of the body, past our injected return.
-    // -----------------------------------------------------------------------
     const exprUsesOut = /\b_out\b/.test(target.expr);
 
     const keptLines: string[] = [];
@@ -602,21 +578,15 @@ export function buildProbeWGSL(code: string, target: ProbeTarget): string | null
 
     if (!found) return null;
 
-    // -----------------------------------------------------------------------
     // 7. Assemble patched fs_main.
-    // -----------------------------------------------------------------------
     const probeFsBody = keptLines.join('\n');
     const probeFsMain = [`@fragment`, `fn fs_main(${fsParam}) -> @location(0) vec4f {`, probeFsBody, `}`].join('\n');
 
-    // -----------------------------------------------------------------------
     // 8. Final assembly: original preamble + vs_main, then patched fs_main.
-    // -----------------------------------------------------------------------
     return [beforeFs, '', probeFsMain].join('\n');
 }
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 function escapeRegex(s: string): string {
     return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

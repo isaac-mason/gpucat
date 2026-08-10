@@ -18,7 +18,6 @@ const _materialBlending = /*#__PURE__*/ new BlendMode('material');
  *
  * // Typically created via mrt() helper instead.
  */
-
 export class OutputStructNode extends Node<d.vec4f> {
     // 2-literal union (not bare NodeKind) so MRTNode can override to MRT while
     // keeping `kind === OutputStruct` narrowing clean for every other branch.

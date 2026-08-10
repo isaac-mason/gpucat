@@ -188,9 +188,7 @@ function intersect(object: Object3D, raycaster: Raycaster, intersects: Intersect
     }
 }
 
-// ============================================================================
 // Helpers for Mesh.raycast() - exported for use by Mesh
-// ============================================================================
 
 const _inverseMatrix: Mat4 = mat4.create();
 const _localRay: Ray = { origin: [0, 0, 0], direction: [0, 0, 0] };

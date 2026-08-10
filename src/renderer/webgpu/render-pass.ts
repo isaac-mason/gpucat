@@ -19,9 +19,7 @@ import * as RenderObjectGpu from './render-object-gpu';
 import * as RenderObjects from './render-objects';
 import * as Textures from './textures';
 
-// ---------------------------------------------------------------------------
 // Canvas context — the renderer owns the WebGPU canvas context.
-// ---------------------------------------------------------------------------
 
 /**
  * Get (or lazily create + configure) the WebGPU canvas context for a canvas target. Safe to call
@@ -81,9 +79,7 @@ export function releaseContext(contexts: WeakMap<CanvasTarget, GPUCanvasContext>
     }
 }
 
-// ---------------------------------------------------------------------------
 // Swapchain textures.
-// ---------------------------------------------------------------------------
 
 /**
  * Swapchain state owned by the renderer: the canvas target, sample count, depth format, and the
@@ -140,9 +136,7 @@ export function recreateSwapchainTextures(
     }
 }
 
-// ---------------------------------------------------------------------------
 // Attachment resolution — builds GPU color/depth attachments per target kind.
-// ---------------------------------------------------------------------------
 
 type ResolvedAttachments = {
     colorAttachments: GPURenderPassColorAttachment[];
@@ -356,9 +350,7 @@ function resolveAttachments(
     return resolveSwapchainAttachments(contexts, device, sc, format, clearColor, params);
 }
 
-// ---------------------------------------------------------------------------
 // Manual clear — a clear-only render pass honoring the clear flags.
-// ---------------------------------------------------------------------------
 
 /**
  * Manually clear the current framebuffer (color and/or depth and/or stencil). Resolves the
@@ -389,9 +381,7 @@ export function clear(
     device.queue.submit([encoder.finish()]);
 }
 
-// ---------------------------------------------------------------------------
 // Render pass — attachment resolution + inner draw loop.
-// ---------------------------------------------------------------------------
 
 /**
  * Resolve attachments and run the whole inner draw loop into the current command stream (created by
@@ -628,9 +618,7 @@ function draw(
     if (inspector) inspector.finishRender(passId, nodes.nodeFrame.frameId);
 }
 
-// ---------------------------------------------------------------------------
 // Teardown — release every device resource the renderer owns.
-// ---------------------------------------------------------------------------
 
 /**
  * Release all device resources: the canvas context, swapchain textures, default placeholder
@@ -690,11 +678,9 @@ type CurrentSets = {
     stencilRef: number | null;
 };
 
-// ---------------------------------------------------------------------------
 // Pass-command helpers, issue the real GPU encoder call AND the inspector hook
 // in one place so neither call sites nor the inspector interface accumulate
 // per-command boilerplate.
-// ---------------------------------------------------------------------------
 
 function passSetPipeline(
     pass: GPURenderPassEncoder,

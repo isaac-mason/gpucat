@@ -182,11 +182,9 @@ export class WebGPURenderer implements Renderer, RendererState {
         return this._canvasTarget.domElement as HTMLCanvasElement;
     }
 
-    // -----------------------------------------------------------------------
     // WebGPU device state — owned directly as fields (previously the backend
     // factory's closure). Device handles are assigned in init(); caches are
     // created in the constructor and immutable thereafter.
-    // -----------------------------------------------------------------------
 
     /** The WebGPU GPU device in use. Assigned in `init()`. @internal */
     device: GPUDevice = null!;

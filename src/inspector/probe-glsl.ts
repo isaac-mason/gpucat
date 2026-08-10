@@ -16,15 +16,11 @@
  * outputs are neutralised so only location 0 carries the probe result.
  */
 
-// ---------------------------------------------------------------------------
 // ProbeTarget, shared shape with the WGSL probe
-// ---------------------------------------------------------------------------
 
 import type { ProbeTarget } from './probe-wgsl';
 
-// ---------------------------------------------------------------------------
 // extractGlslProbeTarget, parse a hovered GLSL line into a ProbeTarget
-// ---------------------------------------------------------------------------
 
 /** GLSL type-token prefixes that begin a declaration line (so we can tell a decl from an assignment). */
 const GLSL_TYPE_TOKEN =
@@ -87,9 +83,7 @@ export function extractGlslProbeTarget(line: string): ProbeTarget | null {
     return null;
 }
 
-// ---------------------------------------------------------------------------
 // GLSL type inference, read the target's type from its declaration
-// ---------------------------------------------------------------------------
 
 /** The GLSL component kinds the coercion understands. `unknown` falls back to a pass-through. */
 export type GlslKind =
@@ -192,9 +186,7 @@ export function inferGlslType(expr: string, fragmentSrc: string): GlslKind {
     return 'unknown';
 }
 
-// ---------------------------------------------------------------------------
 // Coercion to vec4
-// ---------------------------------------------------------------------------
 
 /**
  * A GLSL expression that widens a value of `kind` to a `vec4` for the location-0 color output.
@@ -266,9 +258,7 @@ export function componentCount(kind: GlslKind): number {
     }
 }
 
-// ---------------------------------------------------------------------------
 // buildProbeGLSL, patch the fragment to output the probe value
-// ---------------------------------------------------------------------------
 
 export type ProbeGlslResult = {
     /** The patched fragment GLSL source. */

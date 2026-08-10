@@ -41,19 +41,13 @@ export interface OrbitControlsEvent {
 
 export type OrbitControlsEventListener = (event: OrbitControlsEvent) => void;
 
-// ---------------------------------------------------------------------------
-// Module-level scratch variables (avoid per-frame allocation)
-// ---------------------------------------------------------------------------
-
 const _v: Vec3 = [0, 0, 0];
 const _twoPI = 2 * Math.PI;
 const _EPS = 0.000001;
 const _TILT_LIMIT = Math.cos(70 * (Math.PI / 180));
 
-// ---------------------------------------------------------------------------
 // mat4 column extraction helpers (column-major, gl-matrix layout)
 // col 0: indices 0-3, col 1: 4-7, col 2: 8-11, col 3: 12-15
-// ---------------------------------------------------------------------------
 
 function mat4GetColumn(out: Vec3, m: ArrayLike<number>, col: 0 | 1 | 2): Vec3 {
     const base = col * 4;
@@ -63,9 +57,7 @@ function mat4GetColumn(out: Vec3, m: ArrayLike<number>, col: 0 | 1 | 2): Vec3 {
     return out;
 }
 
-// ---------------------------------------------------------------------------
 // OrbitControls
-// ---------------------------------------------------------------------------
 
 /**
  * OrbitControls
@@ -86,7 +78,7 @@ export class OrbitControls {
     /** Whether the controls are active. */
     enabled = true;
 
-    // ---- target / cursor --------------------------------------------------
+    // target / cursor
 
     /** The point the camera orbits around. */
     target: Vec3 = [0, 0, 0];
@@ -96,51 +88,51 @@ export class OrbitControls {
      */
     cursor: Vec3 = [0, 0, 0];
 
-    // ---- distance limits (perspective) ------------------------------------
+    // distance limits (perspective)
 
     minDistance = 0;
     maxDistance = Infinity;
 
-    // ---- zoom limits (orthographic) ----------------------------------------
+    // zoom limits (orthographic)
 
     minZoom = 0;
     maxZoom = Infinity;
 
-    // ---- target radius limits ---------------------------------------------
+    // target radius limits
 
     minTargetRadius = 0;
     maxTargetRadius = Infinity;
 
-    // ---- polar angle limits -----------------------------------------------
+    // polar angle limits
 
     /** Minimum polar angle (radians), default 0. */
     minPolarAngle = 0;
     /** Maximum polar angle (radians), default Math.PI. */
     maxPolarAngle = Math.PI;
 
-    // ---- azimuth limits ---------------------------------------------------
+    // azimuth limits
 
     minAzimuthAngle = -Infinity;
     maxAzimuthAngle = Infinity;
 
-    // ---- damping ----------------------------------------------------------
+    // damping
 
     enableDamping = false;
     dampingFactor = 0.05;
 
-    // ---- zoom -------------------------------------------------------------
+    // zoom
 
     enableZoom = true;
     zoomSpeed = 1.0;
     zoomToCursor = false;
 
-    // ---- rotate -----------------------------------------------------------
+    // rotate
 
     enableRotate = true;
     rotateSpeed = 1.0;
     keyRotateSpeed = 1.0;
 
-    // ---- pan --------------------------------------------------------------
+    // pan
 
     enablePan = true;
     panSpeed = 1.0;
@@ -148,13 +140,13 @@ export class OrbitControls {
     screenSpacePanning = true;
     keyPanSpeed = 7.0;
 
-    // ---- auto-rotate ------------------------------------------------------
+    // auto-rotate
 
     autoRotate = false;
     /** 2.0 ≈ 30 s per orbit at 60 fps */
     autoRotateSpeed = 2.0;
 
-    // ---- key bindings -----------------------------------------------------
+    // key bindings
 
     keys = {
         LEFT: 'ArrowLeft',
@@ -163,7 +155,7 @@ export class OrbitControls {
         BOTTOM: 'ArrowDown',
     };
 
-    // ---- mouse / touch action map ----------------------------------------
+    // mouse / touch action map
 
     mouseButtons: { LEFT: MouseAction; MIDDLE: MouseAction; RIGHT: MouseAction } = {
         LEFT: MOUSE.ROTATE,
@@ -176,13 +168,13 @@ export class OrbitControls {
         TWO: TOUCH.DOLLY_PAN,
     };
 
-    // ---- saved state (for reset()) ----------------------------------------
+    // saved state (for reset())
 
     target0: Vec3;
     position0: Vec3;
     zoom0: number;
 
-    // ---- internal state ---------------------------------------------------
+    // internal state
 
     state: StateValue = STATE.NONE;
 
@@ -278,9 +270,7 @@ export class OrbitControls {
         this.update();
     }
 
-    // -------------------------------------------------------------------------
     // EventEmitter surface
-    // -------------------------------------------------------------------------
 
     addEventListener(type: OrbitControlsEventType, listener: OrbitControlsEventListener): void {
         if (!this._listeners.has(type)) this._listeners.set(type, new Set());
@@ -300,9 +290,7 @@ export class OrbitControls {
         }
     }
 
-    // -------------------------------------------------------------------------
     // Cursor style
-    // -------------------------------------------------------------------------
 
     get cursorStyle(): 'auto' | 'grab' {
         return this._cursorStyle;
@@ -315,9 +303,7 @@ export class OrbitControls {
         }
     }
 
-    // -------------------------------------------------------------------------
     // Connect / disconnect / dispose
-    // -------------------------------------------------------------------------
 
     connect(element: HTMLElement): void {
         this.domElement = element;
@@ -367,9 +353,7 @@ export class OrbitControls {
         this.disconnect();
     }
 
-    // -------------------------------------------------------------------------
     // Getters
-    // -------------------------------------------------------------------------
 
     getPolarAngle(): number {
         return this._spherical[2];
@@ -383,9 +367,7 @@ export class OrbitControls {
         return vec3.distance(this.object.position, this.target);
     }
 
-    // -------------------------------------------------------------------------
     // Key event helpers
-    // -------------------------------------------------------------------------
 
     listenToKeyEvents(domElement: EventTarget): void {
         domElement.addEventListener('keydown', this._onKeyDown as EventListener);
@@ -402,9 +384,7 @@ export class OrbitControls {
         }
     }
 
-    // -------------------------------------------------------------------------
     // Save / reset state
-    // -------------------------------------------------------------------------
 
     saveState(): void {
         vec3.copy(this.target0, this.target);
@@ -427,9 +407,7 @@ export class OrbitControls {
         this.state = STATE.NONE;
     }
 
-    // -------------------------------------------------------------------------
     // Programmatic controls
-    // -------------------------------------------------------------------------
 
     pan(deltaX: number, deltaY: number): void {
         this._pan(deltaX, deltaY);
@@ -456,9 +434,7 @@ export class OrbitControls {
         this.update();
     }
 
-    // -------------------------------------------------------------------------
     // update(), call every frame when damping/autoRotate are enabled
-    // -------------------------------------------------------------------------
 
     update(deltaTime: number | null = null): boolean {
         const position = this.object.position;
@@ -635,9 +611,7 @@ export class OrbitControls {
         return false;
     }
 
-    // -------------------------------------------------------------------------
     // Private helpers
-    // -------------------------------------------------------------------------
 
     /** @internal */ _getAutoRotationAngle(deltaTime: number | null): number {
         if (deltaTime !== null) {
@@ -736,7 +710,7 @@ export class OrbitControls {
         return Math.max(this.minDistance, Math.min(this.maxDistance, dist));
     }
 
-    // ---- mouse event handlers -------------------------------------------
+    // mouse event handlers
 
     _handleMouseDownRotate(event: { clientX: number; clientY: number }): void {
         this._rotateStart[0] = event.clientX;
@@ -880,7 +854,7 @@ export class OrbitControls {
         }
     }
 
-    // ---- touch event handlers -------------------------------------------
+    // touch event handlers
 
     _handleTouchStartRotate(event: PointerEvent): void {
         if (this._pointers.length === 1) {
@@ -998,7 +972,7 @@ export class OrbitControls {
         if (this.enableRotate) this._handleTouchMoveRotate(event);
     }
 
-    // ---- pointer tracking -----------------------------------------------
+    // pointer tracking
 
     _addPointer(event: PointerEvent): void {
         this._pointers.push(event.pointerId);
@@ -1055,17 +1029,13 @@ export class OrbitControls {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Type guard
-// ---------------------------------------------------------------------------
 
 function _isPerspective(camera: Camera): camera is PerspectiveCamera {
     return typeof (camera as PerspectiveCamera).fov === 'number';
 }
 
-// ---------------------------------------------------------------------------
 // Module-level event handler functions (bound in constructor)
-// ---------------------------------------------------------------------------
 
 function _onPointerDown(this: OrbitControls, event: PointerEvent): void {
     if (!this.enabled) return;

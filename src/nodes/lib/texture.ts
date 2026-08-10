@@ -101,10 +101,6 @@ export class SamplerNode<D extends d.sampler | d.samplerComparison = d.sampler> 
     }
 }
 
-/* ────────────────────────────────────────────────────────────────────────────
- * TextureBindingNode
- * ──────────────────────────────────────────────────────────────────────────── */
-
 /**
  * TextureBindingNode - represents a module-scope texture handle binding.
  *
@@ -201,10 +197,6 @@ export class TextureBindingNode<D extends d.Texture = d.Texture> extends Node<D>
     }
 }
 
-/* ────────────────────────────────────────────────────────────────────────────
- * StorageTextureBindingNode
- * ──────────────────────────────────────────────────────────────────────────── */
-
 /**
  * StorageTextureBindingNode - a module-scope storage texture binding, i.e.
  * `var t : texture_storage_2d<rgba8unorm, write>`. Written via `textureStore`
@@ -282,10 +274,6 @@ export function storageTexture<D extends d.StorageTexture>(
     return node;
 }
 
-/* ────────────────────────────────────────────────────────────────────────────
- * TextureNode
- * ──────────────────────────────────────────────────────────────────────────── */
-
 /**
  * Sampling mode for texture operations.
  * Determines which WGSL function to emit.
@@ -344,10 +332,6 @@ export class TextureNode<D extends FlatSampledTexture = d.texture2d> extends Nod
      * Can be set explicitly for custom sampler sharing.
      */
     samplerNode: SamplerNode<d.sampler> | null = null;
-
-    /* ─────────────────────────────────────────────────────────────────────────
-     * Sampling mode properties
-     * ───────────────────────────────────────────────────────────────────────── */
 
     /** Current sampling mode */
     samplingMode: SamplingMode = 'sample';
@@ -410,10 +394,6 @@ export class TextureNode<D extends FlatSampledTexture = d.texture2d> extends Nod
 
         return cloned;
     }
-
-    /* ─────────────────────────────────────────────────────────────────────────
-     * Chainable sampling methods
-     * ───────────────────────────────────────────────────────────────────────── */
 
     /** Sample the texture at the given coordinates (vec2 for 2D, vec3 for 3D, f32 for 1D). */
     sample(uvNode: Node<d.TextureCoordOf<D>>): TextureNode<D> {
@@ -492,12 +472,6 @@ export class TextureNode<D extends FlatSampledTexture = d.texture2d> extends Nod
         return buildRecordAccessor(this.getBase(), schema, ensureU32(texel), storageRowWidth(this.getBase()));
     }
 }
-
-/* ───────────────────────────────────────────────────────────────────────────
- * Structured-texture read accessor — decodes struct fields from rgba32uint texels.
- * Built purely from existing node primitives (textureLoad + swizzle + bitcast + constructors);
- * no new NodeKind. Repeated texel reads across fields dedup via CSE.
- * ─────────────────────────────────────────────────────────────────────────── */
 
 /** Per-field accessor object returned by {@link TextureNode.load}/{@link TextureNode.loadAt}. */
 export type RecordAccessor<S extends d.StructSchema> = { readonly [K in keyof S]: FieldAccessor<S[K]> };
@@ -674,10 +648,6 @@ function buildRecordAccessor<S extends d.StructSchema>(
     }
     return acc as RecordAccessor<S>;
 }
-
-/* ────────────────────────────────────────────────────────────────────────────
- * Factory Functions
- * ──────────────────────────────────────────────────────────────────────────── */
 
 /**
  * High-level texture types that have _gpuSampler.
@@ -881,10 +851,6 @@ export const textureBinding = <D extends d.Texture>(
     return binding;
 };
 
-/* ────────────────────────────────────────────────────────────────────────────
- * CubeTextureNode
- * ──────────────────────────────────────────────────────────────────────────── */
-
 /**
  * Sampling mode for cube texture operations.
  * Cube textures do NOT support offset or load.
@@ -930,10 +896,6 @@ export class CubeTextureNode extends Node<d.vec4f> {
      */
     samplerNode: SamplerNode<d.sampler> | null = null;
 
-    /* ─────────────────────────────────────────────────────────────────────────
-     * Sampling mode properties
-     * ───────────────────────────────────────────────────────────────────────── */
-
     /** Current sampling mode */
     samplingMode: CubeSamplingMode = 'sample';
 
@@ -970,10 +932,6 @@ export class CubeTextureNode extends Node<d.vec4f> {
         cloned.gradNode = this.gradNode;
         return cloned;
     }
-
-    /* ─────────────────────────────────────────────────────────────────────────
-     * Chainable sampling methods
-     * ───────────────────────────────────────────────────────────────────────── */
 
     /** Sample the cube texture in the given direction */
     sample(directionNode: Node<d.vec3f>): CubeTextureNode {
@@ -1059,10 +1017,6 @@ export function cubeTexture(source: CubeTexture | GpuTexture<CubeSampledTexture>
     }
 }
 
-/* ────────────────────────────────────────────────────────────────────────────
- * DepthTextureNode
- * ──────────────────────────────────────────────────────────────────────────── */
-
 /**
  * Sampling mode for depth texture operations.
  * Depth textures do NOT support bias or grad.
@@ -1115,10 +1069,6 @@ export class DepthTextureNode extends Node<d.f32> {
      */
     samplerNode: SamplerNode<d.sampler> | null = null;
 
-    /* ─────────────────────────────────────────────────────────────────────────
-     * Sampling mode properties
-     * ───────────────────────────────────────────────────────────────────────── */
-
     /** Current sampling mode */
     samplingMode: DepthSamplingMode = 'sample';
 
@@ -1158,10 +1108,6 @@ export class DepthTextureNode extends Node<d.f32> {
         cloned.loadLevel = this.loadLevel;
         return cloned;
     }
-
-    /* ─────────────────────────────────────────────────────────────────────────
-     * Chainable sampling methods
-     * ───────────────────────────────────────────────────────────────────────── */
 
     /** Sample the depth texture at the given UV coordinates */
     sample(uvNode: Node<d.vec2f>): DepthTextureNode {
@@ -1275,10 +1221,6 @@ export function depthTexture(source: DepthTexture | GpuTexture<FlatDepthTexture>
     }
 }
 
-/* ────────────────────────────────────────────────────────────────────────────
- * ArrayTextureNode
- * ──────────────────────────────────────────────────────────────────────────── */
-
 /**
  * Sampling mode for array texture operations.
  * Array textures support all the same modes as 2D textures.
@@ -1331,10 +1273,6 @@ export class ArrayTextureNode extends Node<d.vec4f> {
      */
     samplerNode: SamplerNode<d.sampler> | null = null;
 
-    /* ─────────────────────────────────────────────────────────────────────────
-     * Sampling mode properties
-     * ───────────────────────────────────────────────────────────────────────── */
-
     /** Current sampling mode */
     samplingMode: ArraySamplingMode = 'sample';
 
@@ -1383,10 +1321,6 @@ export class ArrayTextureNode extends Node<d.vec4f> {
         cloned.loadLevel = this.loadLevel;
         return cloned;
     }
-
-    /* ─────────────────────────────────────────────────────────────────────────
-     * Chainable sampling methods
-     * ───────────────────────────────────────────────────────────────────────── */
 
     /** Set the array layer index */
     layer(layerNode: Node<d.i32>): ArrayTextureNode {
@@ -1504,14 +1438,6 @@ export function arrayTexture(
         return node;
     }
 }
-
-/* ────────────────────────────────────────────────────────────────────────────
- * WGSL-Mapped Free Functions
- *
- * These are direct 1:1 mappings to WGSL builtins for full control.
- * Use these when you need explicit control over texture/sampler pairing
- * or for comparison sampling.
- * ──────────────────────────────────────────────────────────────────────────── */
 
 // Type aliases for free function parameters
 type AnySamplerNode = SamplerNode<d.sampler>;

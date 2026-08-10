@@ -682,7 +682,7 @@ export class PerformanceTimeline extends Tab {
         }
     }
 
-    // --- Interaction ---
+    // Interaction
 
     private _onMouseDown(e: MouseEvent): void {
         const rect = this._canvas.getBoundingClientRect();

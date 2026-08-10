@@ -85,9 +85,7 @@ function glIndexType(gl: WebGL2RenderingContext, array: ArrayBufferView | null |
     );
 }
 
-// -------------------------------------------------------------------------------------------------
 // WGSL attribute type → GL vertex-attrib descriptor.
-// -------------------------------------------------------------------------------------------------
 
 /** GL type + component count + slot count + int-ness derived from a WGSL attribute type string. */
 export type AttribFormat = {
@@ -150,9 +148,7 @@ export function glComponentType(gl: WebGL2RenderingContext, glType: AttribFormat
     }
 }
 
-// -------------------------------------------------------------------------------------------------
 // Buffer upload.
-// -------------------------------------------------------------------------------------------------
 
 /**
  * Push a buffer's pending `updateRanges` as partial `bufferSubData` uploads (caller has
@@ -268,9 +264,7 @@ function ensureIndexBuffer(gl: WebGL2RenderingContext, gb: GeometryBuffers, inde
     return gb.indexBuffer;
 }
 
-// -------------------------------------------------------------------------------------------------
 // VAO construction.
-// -------------------------------------------------------------------------------------------------
 
 /**
  * Prepared draw resources for a geometry under a given program: the VAO to bind plus the index-buffer

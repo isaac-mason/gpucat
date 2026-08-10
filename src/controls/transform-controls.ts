@@ -14,16 +14,12 @@ import { uniform } from '../nodes/nodes';
 import { createVertexBuffer, createIndexBuffer } from '../core/gpu-buffer';
 import { OrthographicCamera } from '../camera/orthographic-camera';
 
-// ============================================================================
 // Types
-// ============================================================================
 
 export type TransformMode = 'translate' | 'rotate' | 'scale';
 export type TransformSpace = 'world' | 'local';
 
-// ============================================================================
 // Gizmo Material Factory
-// ============================================================================
 
 function createGizmoMaterial(options: {
     color: [number, number, number];
@@ -64,9 +60,7 @@ function createGizmoMaterial(options: {
     return mat;
 }
 
-// ============================================================================
 // Geometry Utilities
-// ============================================================================
 
 /**
  * Bakes a transform matrix into geometry vertex positions and normals.
@@ -138,9 +132,7 @@ function applyMatrix4ToGeometry(geometry: Geometry, matrix: Mat4): void {
     }
 }
 
-// ============================================================================
 // Raycaster helper, intersect including invisible objects
-// ============================================================================
 
 function intersectObjectWithRay(
     object: Object3D,
@@ -179,9 +171,7 @@ function intersectObjectRecursive(
     return intersects;
 }
 
-// ============================================================================
 // Reusable temp objects
-// ============================================================================
 
 const _raycaster = new Raycaster();
 
@@ -204,9 +194,7 @@ const _v1: Vec3 = [0, 0, 0];
 const _v2: Vec3 = [0, 0, 0];
 const _v3: Vec3 = [0, 0, 0];
 
-// ============================================================================
 // TransformControlsPlane
-// ============================================================================
 
 class TransformControlsPlane extends Mesh {
     // synced from controls via defineProperty
@@ -296,9 +284,7 @@ class TransformControlsPlane extends Mesh {
     }
 }
 
-// ============================================================================
 // GizmoMesh, Mesh with extra tag/name fields for gizmo logic
-// ============================================================================
 
 class GizmoMesh extends Mesh {
     tag: string | undefined;
@@ -322,9 +308,7 @@ class GizmoMesh extends Mesh {
     }
 }
 
-// ============================================================================
 // TransformControlsGizmo
-// ============================================================================
 
 class TransformControlsGizmo extends Object3D {
     gizmo: Record<TransformMode, Object3D> = {} as any;
@@ -392,7 +376,7 @@ class TransformControlsGizmo extends Object3D {
         type GizmoEntry = [Mesh, Vec3 | null, Vec3 | null, Vec3 | null, string?];
         type GizmoMap = Record<string, GizmoEntry[]>;
 
-        // --- Gizmo definitions ---
+        // Gizmo definitions
 
         const gizmoTranslate: GizmoMap = {
             X: [
@@ -544,7 +528,7 @@ class TransformControlsGizmo extends Object3D {
             ],
         };
 
-        // --- setupGizmo: bake transforms into geometry ---
+        // setupGizmo: bake transforms into geometry
 
         function setupGizmo(gizmoMap: GizmoMap): Object3D {
             const parent = new Object3D();
@@ -800,9 +784,7 @@ class TransformControlsGizmo extends Object3D {
     }
 }
 
-// ============================================================================
 // TransformControlsRoot
-// ============================================================================
 
 class TransformControlsRoot extends Object3D {
     controls: TransformControls;
@@ -871,9 +853,7 @@ class TransformControlsRoot extends Object3D {
     }
 }
 
-// ============================================================================
 // TransformControls
-// ============================================================================
 
 function getPointer(domElement: HTMLElement, event: PointerEvent): { x: number; y: number; button: number } {
     if (domElement.ownerDocument.pointerLockElement) {
@@ -1100,7 +1080,7 @@ export class TransformControls {
         this._root.dispose();
     }
 
-    // --- Pointer logic ---
+    // Pointer logic
 
     pointerHover(pointer: { x: number; y: number; button: number }): void {
         if (this.object === undefined || this.dragging === true) return;

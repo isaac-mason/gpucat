@@ -133,10 +133,8 @@ export class WebGLRenderer implements Renderer, RendererState {
         return this._canvasTarget.domElement;
     }
 
-    // -----------------------------------------------------------------------
     // WebGL2 device state — owned directly as fields. Assigned in init().
     // WebGL2 is immediate mode: no command encoder, no swapchain object.
-    // -----------------------------------------------------------------------
 
     /** The WebGL2 rendering context in use. Assigned in `init()`. @internal */
     gl: WebGL2RenderingContext | null = null;
@@ -146,11 +144,9 @@ export class WebGLRenderer implements Renderer, RendererState {
     /** Bound `webglcontextrestored` listener, registered in init() and removed in dispose(). @internal */
     private _onContextRestored: ((e: Event) => void) | null = null;
 
-    // -----------------------------------------------------------------------
     // Device resource caches — created once in the constructor, immutable
     // references thereafter. GL handles inside are created lazily on first use
     // (they need the context, which init() acquires).
-    // -----------------------------------------------------------------------
 
     /** GLSL program cache (compile/link, keyed by source). @internal */
     private readonly _programs: Programs.ProgramCache;

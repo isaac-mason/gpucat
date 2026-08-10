@@ -27,9 +27,7 @@ import { Item } from '../ui/item';
 import { List } from '../ui/list';
 import { Tab } from '../ui/tab';
 
-// ---------------------------------------------------------------------------
 // CanvasData, one entry per inspectable node (cached, never recreated)
-// ---------------------------------------------------------------------------
 
 export type CanvasData = {
     /** Stable ID (= node.id) */
@@ -49,9 +47,7 @@ export type CanvasData = {
     path?: string;
 };
 
-// ---------------------------------------------------------------------------
 // Viewer Tab
-// ---------------------------------------------------------------------------
 
 export class Viewer extends Tab {
     nodeList: List;
@@ -85,9 +81,7 @@ export class Viewer extends Tab {
         this.nodes = nodes;
     }
 
-    // -----------------------------------------------------------------------
     // Public API, called by Inspector each frame
-    // -----------------------------------------------------------------------
 
     /**
      * Get or create a folder item for the given path name.
@@ -125,7 +119,7 @@ export class Viewer extends Tab {
         const renderer = inspector.getRenderer();
         if (!renderer) return;
 
-        // --- Remove items for nodes no longer in the list ---
+        // Remove items for nodes no longer in the list
         // Remove old items + clean up empty folders
         const previousDataList = [...this._currentDataList];
         for (const canvasData of previousDataList) {
@@ -152,7 +146,7 @@ export class Viewer extends Tab {
 
         this._currentDataList = canvasDataList;
 
-        // --- Add / render each node ---
+        // Add / render each node
         // indexes tracks insertion order within each folder
         const indexes: Record<string, number> = {};
 
@@ -199,9 +193,7 @@ export class Viewer extends Tab {
         }
     }
 
-    // -----------------------------------------------------------------------
     // Private helpers
-    // -----------------------------------------------------------------------
 
     private _addNodeItem(canvasData: CanvasData): Item {
         let item = this._itemLibrary.get(canvasData.id);
@@ -217,9 +209,7 @@ export class Viewer extends Tab {
     }
 }
 
-// ---------------------------------------------------------------------------
 // Module-level helpers, used by Inspector.getCanvasDataByNode()
-// ---------------------------------------------------------------------------
 
 /**
  * Split a camelCase / PascalCase name into space-separated words.
@@ -257,7 +247,7 @@ export function splitPath(str: string): { path: string | undefined; name: string
 function nodeToVec4f(node: Node<d.Any>): Node<d.vec4f> {
     const t = node.type.wgslType;
 
-    // ---- scalars ----
+    // scalars
     if (t === 'f32') {
         return wgsl(d.vec4f)`vec4f(${node}, ${node}, ${node}, 1.0)`;
     }
@@ -265,7 +255,7 @@ function nodeToVec4f(node: Node<d.Any>): Node<d.vec4f> {
         return wgsl(d.vec4f)`vec4f(f32(${node}), f32(${node}), f32(${node}), 1.0)`;
     }
 
-    // ---- vec2 ----
+    // vec2
     if (t === 'vec2f') {
         return wgsl(d.vec4f)`vec4f((${node}).x, (${node}).y, 0.0, 1.0)`;
     }
@@ -273,7 +263,7 @@ function nodeToVec4f(node: Node<d.Any>): Node<d.vec4f> {
         return wgsl(d.vec4f)`vec4f(f32((${node}).x), f32((${node}).y), 0.0, 1.0)`;
     }
 
-    // ---- vec3 ----
+    // vec3
     if (t === 'vec3f') {
         return wgsl(d.vec4f)`vec4f((${node}).xyz, 1.0)`;
     }
@@ -281,7 +271,7 @@ function nodeToVec4f(node: Node<d.Any>): Node<d.vec4f> {
         return wgsl(d.vec4f)`vec4f(f32((${node}).x), f32((${node}).y), f32((${node}).z), 1.0)`;
     }
 
-    // ---- vec4 ----
+    // vec4
     if (t === 'vec4f') {
         return wgsl(d.vec4f)`vec4f((${node}).xyz, 1.0)`;
     }
@@ -289,12 +279,12 @@ function nodeToVec4f(node: Node<d.Any>): Node<d.vec4f> {
         return wgsl(d.vec4f)`vec4f(f32((${node}).x), f32((${node}).y), f32((${node}).z), 1.0)`;
     }
 
-    // ---- matrices, show first column as RGB ----
+    // matrices, show first column as RGB
     if (t.startsWith('mat')) {
         return wgsl(d.vec4f)`vec4f(f32((${node})[0][0]), f32((${node})[0][1]), f32((${node})[0][2]), 1.0)`;
     }
 
-    // ---- texture / sampler / unknown, assume textureSample gives vec4f ----
+    // texture / sampler / unknown, assume textureSample gives vec4f
     return wgsl(d.vec4f)`vec4f((${node}).xyz, 1.0)`;
 }
 

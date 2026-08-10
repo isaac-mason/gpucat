@@ -17,9 +17,7 @@ import { extractGlslProbeTarget } from '../probe-glsl';
 import { extractProbeTarget, type ProbeTarget } from '../probe-wgsl';
 import type { SceneRecord } from '../renderer-inspector';
 
-// ---------------------------------------------------------------------------
 // WGSL Syntax Highlighting
-// ---------------------------------------------------------------------------
 
 /** Lightweight regex-based WGSL highlighter. Returns an HTML string. */
 function highlightWGSL(code: string): string {
@@ -57,9 +55,7 @@ function highlightWGSL(code: string): string {
     );
 }
 
-// ---------------------------------------------------------------------------
 // Split WGSL into vertex / fragment sections
-// ---------------------------------------------------------------------------
 
 type ShaderStages = {
     vertex: string;
@@ -110,9 +106,7 @@ function splitStages(code: string): ShaderStages {
     };
 }
 
-// ---------------------------------------------------------------------------
 // ShaderPanel
-// ---------------------------------------------------------------------------
 
 type Stage = 'vertex' | 'fragment' | 'full' | 'compute';
 
@@ -139,9 +133,7 @@ export class ShaderPanel {
     /** Inspector reference, set on first update() call. */
     private _inspector: Inspector | null = null;
 
-    // -----------------------------------------------------------------------
     // Probe popover, floats next to the cursor while hovering a probeable line
-    // -----------------------------------------------------------------------
 
     /** Floating popover element, appended to document.body. */
     private _popover: HTMLDivElement;
@@ -165,7 +157,7 @@ export class ShaderPanel {
         const container = document.createElement('div');
         container.className = 'shader-panel';
 
-        // --- Toolbar ---
+        // Toolbar
         const toolbar = document.createElement('div');
         toolbar.className = 'shader-toolbar';
 
@@ -202,7 +194,7 @@ export class ShaderPanel {
         toolbar.appendChild(stageGroup);
         toolbar.appendChild(copyBtn);
 
-        // --- Code area ---
+        // Code area
         const codeScroll = document.createElement('div');
         codeScroll.className = 'shader-code-scroll';
 
@@ -231,7 +223,7 @@ export class ShaderPanel {
         container.appendChild(toolbar);
         container.appendChild(codeScroll);
 
-        // --- Floating probe popover (appended to body, shared across all instances) ---
+        // Floating probe popover (appended to body, shared across all instances)
         const popover = document.createElement('div');
         popover.className = 'probe-popover';
         popover.style.display = 'none';
@@ -259,9 +251,7 @@ export class ShaderPanel {
         }
     }
 
-    // -----------------------------------------------------------------------
     // Public API
-    // -----------------------------------------------------------------------
 
     /**
      * Update the panel for the given mesh.
@@ -336,9 +326,7 @@ export class ShaderPanel {
         return this._currentStage;
     }
 
-    // -----------------------------------------------------------------------
     // Private, stage selection
-    // -----------------------------------------------------------------------
 
     private _selectStage(stage: Stage): void {
         this._currentStage = stage;
@@ -377,9 +365,7 @@ export class ShaderPanel {
         this._codeBlock.innerHTML = html;
     }
 
-    // -----------------------------------------------------------------------
     // Private, hover / probe
-    // -----------------------------------------------------------------------
 
     private _onMouseLeave(): void {
         if (!this._selectionLocked) {

@@ -48,9 +48,7 @@ export class InspectorBase {
     /** Back-reference to the renderer. Set by renderer after init(). */
     renderer: InspectableRenderer | null = null;
 
-    // -----------------------------------------------------------------------
     // Performance markers (no-op in base class)
-    // -----------------------------------------------------------------------
 
     /** Performance marker API - no-op in base class, implemented in RendererInspector */
     perf = {
@@ -81,9 +79,7 @@ export class InspectorBase {
         },
     };
 
-    // -----------------------------------------------------------------------
     // Lifecycle
-    // -----------------------------------------------------------------------
 
     /**
      * Attach (renderer non-null) or detach (renderer null).
@@ -102,9 +98,7 @@ export class InspectorBase {
      */
     init(): void {}
 
-    // -----------------------------------------------------------------------
     // Frame hooks
-    // -----------------------------------------------------------------------
 
     /** Called at the very start of WebGPURenderer.render(), before any work. */
     begin(_frameId: number): void {}
@@ -112,9 +106,7 @@ export class InspectorBase {
     /** Called at the very end of WebGPURenderer.render(), after queue.submit(). */
     finish(_frameId: number): void {}
 
-    // -----------------------------------------------------------------------
     // Render pass hooks
-    // -----------------------------------------------------------------------
 
     /** Called before a PassNode scene render pass begins. */
     beginRender(_passId: string, _frameId: number): void {}
@@ -130,9 +122,7 @@ export class InspectorBase {
         return undefined;
     }
 
-    // -----------------------------------------------------------------------
     // Compute pass hooks
-    // -----------------------------------------------------------------------
 
     /** Called before a compute dispatch. */
     beginCompute(_node: ComputeNode, _frameId: number): void {}
@@ -140,9 +130,7 @@ export class InspectorBase {
     /** Called after a compute dispatch. */
     finishCompute(_nodeId: string, _frameId: number): void {}
 
-    // -----------------------------------------------------------------------
     // Scene hooks
-    // -----------------------------------------------------------------------
 
     /**
      * Called at the start of renderScene(), before the GPU pass begins.
@@ -157,9 +145,7 @@ export class InspectorBase {
         _frameId: number,
     ): void {}
 
-    // -----------------------------------------------------------------------
     // Node inspection
-    // -----------------------------------------------------------------------
 
     /**
      * Called when a node marked with .inspect() is encountered during rendering.
@@ -167,9 +153,7 @@ export class InspectorBase {
      */
     inspect(_node: InspectorNode<Any>): void {}
 
-    // -----------------------------------------------------------------------
     // Per-draw-call hooks (inside a render pass)
-    // -----------------------------------------------------------------------
 
     /**
      * Called whenever a new pipeline is bound (i.e. renderObject.pipeline changed).
@@ -214,9 +198,7 @@ export class InspectorBase {
      */
     drawIndexedIndirect(): void {}
 
-    // -----------------------------------------------------------------------
     // Per-dispatch hooks (inside a compute pass)
-    // -----------------------------------------------------------------------
 
     /**
      * Called for each dispatchWorkgroups() issued in a compute pass.

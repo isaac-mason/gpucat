@@ -82,9 +82,7 @@ export function establishPassBaseline(gl: WebGL2RenderingContext): void {
     gl.disable(gl.RASTERIZER_DISCARD);
 }
 
-// -------------------------------------------------------------------------------------------------
 // Enum → GL constant maps. Keyed by the WebGPU-vocabulary strings gpucat's Material uses.
-// -------------------------------------------------------------------------------------------------
 
 /** Map a WebGPU compare function to a GL depth/stencil func constant. */
 function compareFunc(gl: WebGL2RenderingContext, compare: GPUCompareFunction): number {
@@ -187,9 +185,7 @@ function stencilOp(gl: WebGL2RenderingContext, op: GPUStencilOperation): number 
     }
 }
 
-// -------------------------------------------------------------------------------------------------
 // State setters.
-// -------------------------------------------------------------------------------------------------
 
 /**
  * Apply depth test + compare. WebGL2 folds "no test" into disabling `DEPTH_TEST`; when the material
