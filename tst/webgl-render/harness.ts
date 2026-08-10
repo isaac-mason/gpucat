@@ -35,6 +35,7 @@ import {
     struct,
     Texture,
     texture,
+    textureDimensions,
     transformFeedback,
     u32,
     Uniform,
@@ -2494,6 +2495,68 @@ async function caseRenderTargetFlip(): Promise<CaseResult> {
     return { name: 'rtt-flip', pixel, expected: [255, 0, 0, 255] };
 }
 
+/**
+ * rt-load-orient: verifies the `.load()` (texelFetch) path applies the render-target V-flip at runtime,
+ * indexed the way makecat's CanvasTrait occlusion does — `texture(rt).load(vec2i(screenUV * dims))`.
+ * (makecat samples the DEPTH RT this way; SwiftShader can't sample depth textures, so this exercises the
+ * identical shared flip helper on a COLOR RT — the depth path routes through the same `textureFlip`.)
+ * Pass 1 writes two-tone into the RT (displayed TOP = RED, BOTTOM = GREEN). Pass 2 loads it by top-left
+ * screenUV; the displayed top must read RED — without the flip, the texelFetch reads the mirrored row (GREEN).
+ */
+async function caseRtLoadOrient(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    const rt = new RenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+
+    // Pass 1: two-tone into the RT — clip y > 0 (top) = RED, below = GREEN.
+    const g1 = createFullscreenTriangleGeometry();
+    const p1 = attribute('position', d.vec3f);
+    const vy = varying(p1.y, 'vyLoadOrient');
+    const twoTone = new Material({
+        vertex: vec4(p1, f32(1)),
+        fragment: select(vec4(0, 1, 0, 1), vec4(1, 0, 0, 1), vy.greaterThan(f32(0))),
+        depthTest: false,
+    });
+    const s1 = new Scene();
+    s1.add(new Mesh(g1, twoTone));
+    const cam1 = new PerspectiveCamera();
+    s1.updateWorldMatrix();
+    cam1.updateViewMatrix();
+    renderer.renderTarget = rt;
+    renderer.render(s1, cam1);
+    renderer.renderTarget = null;
+
+    // Pass 2: texelFetch the RT by top-left screenUV * dims (makecat's occlusion index) → output it.
+    renderer.clearColor = [0, 0, 0, 1];
+    const texNode = texture(rt.texture! as Texture);
+    const texel = vec2i(mul(screenUV, vec2f(textureDimensions(texNode.bindingNode))));
+    const g2 = createFullscreenTriangleGeometry();
+    const p2 = attribute('position', d.vec3f);
+    const showMat = new Material({
+        vertex: vec4(p2, f32(1)),
+        fragment: texNode.load(texel),
+        depthTest: false,
+    });
+    const s2 = new Scene();
+    s2.add(new Mesh(g2, showMat));
+    const cam2 = new PerspectiveCamera();
+    s2.updateWorldMatrix();
+    cam2.updateViewMatrix();
+    renderer.render(s2, cam2);
+
+    const gl = renderer.gl!;
+    const top = readAt(gl, CENTER, SIZE - 4); // displayed top → RED
+    const bottom = readAt(gl, CENTER, 3); //     displayed bottom → GREEN
+    renderer.dispose();
+    // Correct (un-mirrored): displayed top loads RED, bottom loads GREEN.
+    const ok = top[0] > 128 && top[1] < 128 && bottom[1] > 128 && bottom[0] < 128;
+    return {
+        name: 'rt-load-orient',
+        pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `top=[${top[0]},${top[1]}] bottom=[${bottom[0]},${bottom[1]}] (top must be RED; mirrored would swap)`,
+    };
+}
+
 /** Read the default framebuffer at (x,y). readPixels origin is bottom-left, so y=SIZE-4 is the
  *  DISPLAYED TOP and y=3 is the DISPLAYED BOTTOM. */
 function readAt(gl: WebGL2RenderingContext, x: number, y: number): [number, number, number, number] {
@@ -2764,6 +2827,7 @@ export async function run(): Promise<RunResult> {
             caseStorageAndTexture,
             caseInterleavedAttrs,
             caseRenderTargetFlip,
+            caseRtLoadOrient,
             caseIntegerTexture,
             caseStructTexture,
             caseStructTextureMat4,
