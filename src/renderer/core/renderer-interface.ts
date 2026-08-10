@@ -29,11 +29,4 @@ export interface Renderer {
     clearColor: [number, number, number, number];
     /** Attached inspector, or null. */
     inspector: InspectorBase | null;
-
-    /**
-     * Finalize a cube render target after all six faces have been captured (e.g. generate its
-     * mipmaps). Called by `CubeCamera.update()`. Backend-specific; a no-op when the target needs no
-     * post-capture work. Keeps `CubeCamera` backend-agnostic.
-     */
-    finalizeCubeCapture?(renderTarget: RenderTarget, mipLevel: number): void;
 }

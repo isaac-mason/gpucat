@@ -12,7 +12,6 @@
  * 4. Uploads image data if source.dataReady
  * 5. Updates version tracking (textureData.version = texture.version)
  */
-import type { CubeRenderTarget } from '../../core/cube-render-target';
 import type { GpuSampler } from '../../core/gpu-sampler';
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { RenderTarget } from '../../core/render-target';
@@ -76,7 +75,6 @@ export declare function createTextureCache(): TextureCache;
  * via updateTexture().
  */
 export declare function generateTextureMipmaps(cache: TextureCache, device: GPUDevice, texture: GpuTexture): void;
-export declare function finalizeCubeRenderTargetCapture(cache: TextureCache, device: GPUDevice, renderTarget: CubeRenderTarget, activeMipmapLevel: number): void;
 export declare function updateTexture(cache: TextureCache, device: GPUDevice, texture: GpuTexture): TextureData;
 /**
  * Get or create a sampler from Sampler settings.

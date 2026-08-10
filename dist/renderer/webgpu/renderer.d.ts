@@ -2,7 +2,6 @@ import type { Vec4 } from 'mathcat';
 import type { Camera } from '../../camera/camera';
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { Object3D } from '../../core/object3d';
-import type { CubeRenderTarget } from '../../core/cube-render-target';
 import type { RenderTarget } from '../../core/render-target';
 import type { InspectorBase } from '../../inspector/inspector-base';
 import type { Material } from '../../material/material';
@@ -278,8 +277,6 @@ export declare class WebGPURenderer implements Renderer, RendererState {
      * attachment (see the renderer `stencil` option / a target's `stencilBuffer`).
      */
     clear(color?: boolean, depth?: boolean, stencil?: boolean): void;
-    /** Finalize a cube render target after all six faces are captured (generate its mipmaps). */
-    finalizeCubeCapture(renderTarget: CubeRenderTarget, mipLevel: number): void;
     /**
      * Check if a GPU feature is available on the current device.
      *

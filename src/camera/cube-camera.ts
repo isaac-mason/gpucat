@@ -75,10 +75,16 @@ export class CubeCamera extends Object3D {
         const generateMipmaps = this.renderTarget.texture.generateMipmaps;
 
         this.renderTarget.activeMipmapLevel = this.activeMipmapLevel;
+        // Suppress mip generation while the first five faces render, then restore it just before the
+        // last face so the renderer's render-finish step fills the cube's mip chain exactly once, on
+        // the render that completes all six faces. Regenerating per face would be 6× redundant, and
+        // generating before every face is defined would build mips from incomplete data.
         this.renderTarget.texture.generateMipmaps = false;
         renderer.renderTarget = this.renderTarget;
 
         for (let face = 0; face < 6; face++) {
+            if (face === 5) this.renderTarget.texture.generateMipmaps = generateMipmaps;
+
             const camera = this.cameras[face];
             vec3.copy(camera.position, _worldPos);
             vec3.add(_target, _worldPos, DIRS[face]);
@@ -89,10 +95,6 @@ export class CubeCamera extends Object3D {
             this.renderTarget.activeFace = face;
             renderer.render(scene, camera);
         }
-
-        this.renderTarget.texture.generateMipmaps = generateMipmaps;
-        // Backend-specific post-capture work (e.g. cube mipmap generation); no-op if unimplemented.
-        renderer.finalizeCubeCapture?.(this.renderTarget, this.activeMipmapLevel);
 
         renderer.renderTarget = previous;
         this.renderTarget.activeFace = previousFace;

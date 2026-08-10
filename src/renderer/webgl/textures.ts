@@ -783,19 +783,21 @@ function allocateRenderTargetStorage(gl: WebGL2RenderingContext, texture: GpuTex
 }
 
 /**
- * Generate mipmaps for an already-allocated cube render-target texture (mirrors the WebGPU path's
- * `finalizeCubeRenderTargetCapture`): after all six faces are rendered, bind the cube texture and
- * `generateMipmap(TEXTURE_CUBE_MAP)` so a mipped environment map has its lower levels filled. Guards:
- * only when the texture wants mips, its format is mip-generatable, and it has an allocated GL texture.
+ * Generate mipmaps for an already-allocated render-target color texture once the render pass that
+ * writes it has finished. Binds the texture at its view-dimension target (2D, cube, or 2D-array — the
+ * storage was allocated with a full mip chain when `generateMipmaps` is set, see
+ * `allocateRenderTargetStorage`) and calls `gl.generateMipmap`, filling the lower levels. Called from
+ * the renderer's render-finish step for any render-target color texture whose `generateMipmaps` is
+ * true. Guards: only when the texture wants mips, its format is mip-generatable, and it has an
+ * allocated GL texture.
  */
-export function generateCubeMipmaps(gl: WebGL2RenderingContext, state: GlTexturesState, texture: GpuTexture): void {
+export function generateRenderTargetMipmaps(gl: WebGL2RenderingContext, state: GlTexturesState, texture: GpuTexture): void {
     if (!texture.generateMipmaps) return;
     if (!canGenerateMipmap(gl, texture.format)) return;
     const data = state.data.get(texture);
     if (!data || !data.allocated) return;
-    if (data.target !== gl.TEXTURE_CUBE_MAP) return;
-    gl.bindTexture(gl.TEXTURE_CUBE_MAP, data.texture);
-    gl.generateMipmap(gl.TEXTURE_CUBE_MAP);
+    gl.bindTexture(data.target, data.texture);
+    gl.generateMipmap(data.target);
 }
 
 /** Delete all GL textures (called on renderer dispose). */

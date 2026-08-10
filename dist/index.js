@@ -6156,9 +6156,15 @@ class CubeCamera extends Object3D {
         const previousMip = this.renderTarget.activeMipmapLevel;
         const generateMipmaps = this.renderTarget.texture.generateMipmaps;
         this.renderTarget.activeMipmapLevel = this.activeMipmapLevel;
+        // Suppress mip generation while the first five faces render, then restore it just before the
+        // last face so the renderer's render-finish step fills the cube's mip chain exactly once, on
+        // the render that completes all six faces. Regenerating per face would be 6× redundant, and
+        // generating before every face is defined would build mips from incomplete data.
         this.renderTarget.texture.generateMipmaps = false;
         renderer.renderTarget = this.renderTarget;
         for (let face = 0; face < 6; face++) {
+            if (face === 5)
+                this.renderTarget.texture.generateMipmaps = generateMipmaps;
             const camera = this.cameras[face];
             vec3_exports.copy(camera.position, _worldPos);
             vec3_exports.add(_target$1, _worldPos, DIRS[face]);
@@ -6168,9 +6174,6 @@ class CubeCamera extends Object3D {
             this.renderTarget.activeFace = face;
             renderer.render(scene, camera);
         }
-        this.renderTarget.texture.generateMipmaps = generateMipmaps;
-        // Backend-specific post-capture work (e.g. cube mipmap generation); no-op if unimplemented.
-        renderer.finalizeCubeCapture?.(this.renderTarget, this.activeMipmapLevel);
         renderer.renderTarget = previous;
         this.renderTarget.activeFace = previousFace;
         this.renderTarget.activeMipmapLevel = previousMip;
@@ -26880,13 +26883,6 @@ function generateTextureMipmaps(cache, device, texture) {
     const mipmapState = getMipmapState(cache, device);
     generateMipmaps(mipmapState, data.texture, isCube, isArray ? texture.depthOrArrayLayers : 0);
 }
-function finalizeCubeRenderTargetCapture(cache, device, renderTarget, activeMipmapLevel) {
-    if (!renderTarget.texture.generateMipmaps)
-        return;
-    if (activeMipmapLevel !== 0)
-        return;
-    generateTextureMipmaps(cache, device, renderTarget.texture._gpuTexture);
-}
 /**
  * Update a texture, checks source version and uploads if needed.
  * Returns the TextureData for the texture.
@@ -40848,12 +40844,15 @@ function allocateRenderTargetStorage(gl, texture, data) {
     data.allocH = h;
 }
 /**
- * Generate mipmaps for an already-allocated cube render-target texture (mirrors the WebGPU path's
- * `finalizeCubeRenderTargetCapture`): after all six faces are rendered, bind the cube texture and
- * `generateMipmap(TEXTURE_CUBE_MAP)` so a mipped environment map has its lower levels filled. Guards:
- * only when the texture wants mips, its format is mip-generatable, and it has an allocated GL texture.
+ * Generate mipmaps for an already-allocated render-target color texture once the render pass that
+ * writes it has finished. Binds the texture at its view-dimension target (2D, cube, or 2D-array — the
+ * storage was allocated with a full mip chain when `generateMipmaps` is set, see
+ * `allocateRenderTargetStorage`) and calls `gl.generateMipmap`, filling the lower levels. Called from
+ * the renderer's render-finish step for any render-target color texture whose `generateMipmaps` is
+ * true. Guards: only when the texture wants mips, its format is mip-generatable, and it has an
+ * allocated GL texture.
  */
-function generateCubeMipmaps(gl, state, texture) {
+function generateRenderTargetMipmaps(gl, state, texture) {
     if (!texture.generateMipmaps)
         return;
     if (!canGenerateMipmap(gl, texture.format))
@@ -40861,10 +40860,8 @@ function generateCubeMipmaps(gl, state, texture) {
     const data = state.data.get(texture);
     if (!data || !data.allocated)
         return;
-    if (data.target !== gl.TEXTURE_CUBE_MAP)
-        return;
-    gl.bindTexture(gl.TEXTURE_CUBE_MAP, data.texture);
-    gl.generateMipmap(gl.TEXTURE_CUBE_MAP);
+    gl.bindTexture(data.target, data.texture);
+    gl.generateMipmap(data.target);
 }
 /** Delete all GL textures (called on renderer dispose). */
 function disposeGlTextures(gl, state) {
@@ -43245,24 +43242,6 @@ class WebGLRenderer {
             clearStencilValue: this.clearStencilValue,
             swapchainStencil: this.stencil}, color, depth, stencil);
     }
-    /**
-     * Finalize a cube render target after all six faces are captured: generate the cube texture's
-     * mipmaps so a mipped environment map has its lower levels filled. Mirrors the WebGPU renderer's
-     * `finalizeCubeCapture` guards — only when the texture wants mips and the base mip level (0) is
-     * active. Called by `CubeCamera.update()`.
-     */
-    finalizeCubeCapture(renderTarget, mipLevel) {
-        if (this._isDeviceLost || !this._initialized || !this.gl)
-            return;
-        if (!renderTarget.isCubeRenderTarget)
-            return;
-        if (mipLevel !== 0)
-            return;
-        const cube = renderTarget;
-        if (!cube.texture.generateMipmaps)
-            return;
-        generateCubeMipmaps(this.gl, this._textures, cube.texture._gpuTexture);
-    }
     /** Minimal feature query. No optional WebGL2 features are surfaced yet. */
     hasFeature(_feature) {
         return false;
@@ -43377,6 +43356,16 @@ class WebGLRenderer {
             samplers: this._samplers,
             renderTargets: this._renderTargets,
         }, this._nodes, passCtx, preparedObjects, passParams, inspector);
+        // Render-finish: fill mip chains for any color attachment that wants them, now that this pass
+        // has written level 0. A CubeRenderTarget's six faces each render as their own top-level pass;
+        // CubeCamera keeps generateMipmaps off until the final face, so this fires once, on the render
+        // that completes the cube (regenerating per face would be 6× redundant).
+        if (renderTarget) {
+            for (const tex of renderTarget.textures) {
+                if (tex.generateMipmaps)
+                    generateRenderTargetMipmaps(this.gl, this._textures, tex._gpuTexture);
+            }
+        }
         // Optional: drain the GL error queue so a mistake surfaces (WebGL has no error scopes).
         const err = this.gl.getError();
         if (err !== this.gl.NO_ERROR)
@@ -45070,10 +45059,6 @@ class WebGPURenderer {
             clearStencilValue: this.clearStencilValue,
             swapchainStencil: this.stencil}, color, depth, stencil);
     }
-    /** Finalize a cube render target after all six faces are captured (generate its mipmaps). */
-    finalizeCubeCapture(renderTarget, mipLevel) {
-        finalizeCubeRenderTargetCapture(this.textures, this.device, renderTarget, mipLevel);
-    }
     /**
      * Check if a GPU feature is available on the current device.
      *
@@ -45330,6 +45315,17 @@ class WebGPURenderer {
         if (isTopLevel) {
             this.device.queue.submit([this._currentEncoder.finish()]);
             this._currentEncoder = null;
+            // Render-finish: fill mip chains for any color attachment that wants them, now that the
+            // pass encoder has been submitted (mip generation records + submits its own encoder, so it
+            // must run after this pass's work is queued). A CubeRenderTarget's six faces each render as
+            // their own top-level pass; CubeCamera keeps generateMipmaps off until the final face, so
+            // this fires once, on the render that completes the cube (per-face would be 6× redundant).
+            if (renderTarget) {
+                for (const tex of renderTarget.textures) {
+                    if (tex.generateMipmaps)
+                        generateTextureMipmaps(this.textures, this.device, tex._gpuTexture);
+                }
+            }
         }
         this.device.popErrorScope().then((err) => {
             const msg = err ? err.message : null;

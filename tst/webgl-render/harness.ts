@@ -965,10 +965,11 @@ async function caseMrtBlendUnsupported(): Promise<CaseResult> {
 }
 
 /**
- * cube-mips: render into every face of a CubeRenderTarget with generateMipmaps, then finalize the
- * capture (generates cube mipmaps) and sample the cube. All faces share one color, so the sampled
- * value equals the drawn color; this exercises the finalizeCubeCapture → generateMipmap(CUBE) path
- * (it must not throw and must leave a sampleable, correctly-colored cube).
+ * cube-mips: render into every face of a CubeRenderTarget with generateMipmaps, then sample the cube.
+ * All faces share one color, so the sampled value equals the drawn color; this exercises the
+ * render-finish → generateMipmap(CUBE) path (it must not throw and must leave a sampleable, correctly-
+ * colored cube). Mirrors CubeCamera's flag-flip: generateMipmaps is kept off until the final face so
+ * the mip chain is filled exactly once, on the render that completes all six faces.
  */
 async function caseCubeMips(): Promise<CaseResult> {
     const renderer = await newRenderer();
@@ -980,7 +981,10 @@ async function caseCubeMips(): Promise<CaseResult> {
     const savedClear = renderer.clearColor;
     renderer.renderTarget = rt;
     renderer.clearColor = [drawn[0], drawn[1], drawn[2], 1];
+    const wantMips = rt.texture.generateMipmaps;
+    rt.texture.generateMipmaps = false;
     for (let face = 0; face < 6; face++) {
+        if (face === 5) rt.texture.generateMipmaps = wantMips; // restore before the last face
         rt.activeFace = face;
         const scene = new Scene();
         const camera = new PerspectiveCamera();
@@ -988,8 +992,6 @@ async function caseCubeMips(): Promise<CaseResult> {
         camera.updateViewMatrix();
         renderer.render(scene, camera);
     }
-    // Generate the cube mipmaps from the captured faces (the fix under test).
-    renderer.finalizeCubeCapture?.(rt, 0);
     renderer.renderTarget = savedTarget;
     renderer.clearColor = savedClear;
 

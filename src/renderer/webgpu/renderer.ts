@@ -3,7 +3,6 @@ import type { Camera } from '../../camera/camera';
 import { CoordinateSystem } from '../../core/coordinate-system';
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { Object3D } from '../../core/object3d';
-import type { CubeRenderTarget } from '../../core/cube-render-target';
 import type { RenderTarget } from '../../core/render-target';
 import type { InspectorBase } from '../../inspector/inspector-base';
 import type { Material } from '../../material/material';
@@ -576,11 +575,6 @@ export class WebGPURenderer implements Renderer, RendererState {
         );
     }
 
-    /** Finalize a cube render target after all six faces are captured (generate its mipmaps). */
-    finalizeCubeCapture(renderTarget: CubeRenderTarget, mipLevel: number): void {
-        Textures.finalizeCubeRenderTargetCapture(this.textures, this.device, renderTarget, mipLevel);
-    }
-
     /**
      * Check if a GPU feature is available on the current device.
      *
@@ -952,6 +946,17 @@ export class WebGPURenderer implements Renderer, RendererState {
         if (isTopLevel) {
             this.device.queue.submit([this._currentEncoder!.finish()]);
             this._currentEncoder = null;
+
+            // Render-finish: fill mip chains for any color attachment that wants them, now that the
+            // pass encoder has been submitted (mip generation records + submits its own encoder, so it
+            // must run after this pass's work is queued). A CubeRenderTarget's six faces each render as
+            // their own top-level pass; CubeCamera keeps generateMipmaps off until the final face, so
+            // this fires once, on the render that completes the cube (per-face would be 6× redundant).
+            if (renderTarget) {
+                for (const tex of renderTarget.textures) {
+                    if (tex.generateMipmaps) Textures.generateTextureMipmaps(this.textures, this.device, tex._gpuTexture);
+                }
+            }
         }
 
         this.device.popErrorScope().then((err) => {

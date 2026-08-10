@@ -163,17 +163,6 @@ export function generateTextureMipmaps(cache: TextureCache, device: GPUDevice, t
     generateMipmaps(mipmapState, data.texture, isCube, isArray ? texture.depthOrArrayLayers : 0);
 }
 
-export function finalizeCubeRenderTargetCapture(
-    cache: TextureCache,
-    device: GPUDevice,
-    renderTarget: CubeRenderTarget,
-    activeMipmapLevel: number,
-): void {
-    if (!renderTarget.texture.generateMipmaps) return;
-    if (activeMipmapLevel !== 0) return;
-    generateTextureMipmaps(cache, device, renderTarget.texture._gpuTexture);
-}
-
 /**
  * Update a texture, checks source version and uploads if needed.
  * Returns the TextureData for the texture.
