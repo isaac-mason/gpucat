@@ -41,6 +41,11 @@ type GlFormat = {
  * sampler paired with one.
  */
 export declare function isIntegerTextureFormat(format: string): boolean;
+/**
+ * Whether a texture format is a depth (/stencil) format. Like integer formats, depth textures are NOT
+ * texture-filterable in WebGL2, so their default filter must be NEAREST or a non-comparison read returns 0.
+ */
+export declare function isDepthTextureFormat(format: string): boolean;
 /** Per-GpuTexture GL resources + version tracking (mirrors the WebGPU TextureData). */
 export type GlTextureData = {
     /** The GL texture object. */
