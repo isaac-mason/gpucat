@@ -26,7 +26,10 @@ import {
     mul,
     normalize,
     packArray,
+    pass,
     PerspectiveCamera,
+    RenderPipeline,
+    renderOutput,
     RenderTarget,
     Scene,
     screenCoordinate,
@@ -2619,6 +2622,61 @@ async function caseDepthLoadRead(): Promise<CaseResult> {
     };
 }
 
+/**
+ * pass-depth-sample: replicates makecat's FULL CanvasTrait machinery, not just a direct RenderTarget —
+ * a `pass()` renders a scene, its depth is taken via `getDepthTextureNode()`, and a `RenderPipeline`
+ * composite samples that pass-depth via `.load(screenUV * dims)` (the exact occlusion index). Proves the
+ * pass depth is written + sampleable through the display-node pipeline. Scene writes depth 0.2 to the top,
+ * 0.8 to the bottom; the composite reads it back — top must be near (dark), NONZERO, and not mirrored.
+ * A 0 here is the makecat "black canvas / occlusion mask" bug reproduced end to end.
+ */
+async function casePassDepthSample(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+
+    const scene = new Scene();
+    const camera = new PerspectiveCamera();
+    scene.add(camera);
+    const g = createFullscreenTriangleGeometry();
+    const p = attribute('position', d.vec3f);
+    const vy = varying(p.y, 'vyPassDepth');
+    const sceneMat = new Material({
+        vertex: vec4(p, f32(1)),
+        fragment: vec4(f32(0), f32(0), f32(0), f32(1)),
+        depth: select(f32(0.8), f32(0.2), vy.greaterThan(f32(0))),
+    });
+    scene.add(new Mesh(g, sceneMat));
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    // makecat's exact wiring: pass → getDepthTextureNode → composite samples depth via .load(). Note the
+    // composite ALSO references the pass COLOR (× 0) — a pass only renders when its output is referenced,
+    // and makecat's fxaa samples the scene color, so its scenePass renders and its depth is populated. Just
+    // sampling the depth wouldn't trigger the render (the RT would stay at its 1×1 init size).
+    const scenePass = pass(scene, camera);
+    const sceneDepth = scenePass.getDepthTextureNode();
+    const sceneColor = scenePass.getTextureNode();
+    const texel = vec2i(mul(screenUV, vec2f(textureDimensions(sceneDepth.bindingNode))));
+    const z = sceneDepth.load(texel);
+    const pipeline = new RenderPipeline(renderer, renderOutput(vec4(z, z, z, f32(1)).add(sceneColor.mul(f32(0)))));
+
+    renderer.clearColor = [1, 0, 1, 1]; // magenta clear so an empty/black result is unambiguous
+    pipeline.render();
+
+    const gl = renderer.gl!;
+    const top = readAt(gl, CENTER, SIZE - 4);
+    const bottom = readAt(gl, CENTER, 3);
+    pipeline.dispose();
+    renderer.dispose();
+    // Read works (nonzero) AND oriented (top near/dark, bottom far/light). 0 = the makecat pass-depth bug.
+    const ok = bottom[0] > top[0] && bottom[0] > 150 && top[0] > 30 && top[0] < 200;
+    return {
+        name: 'pass-depth-sample',
+        pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `top=${top[0]} bottom=${bottom[0]} (pass-depth via RenderPipeline; both 0 = makecat's bug reproduced)`,
+    };
+}
+
 /** Read the default framebuffer at (x,y). readPixels origin is bottom-left, so y=SIZE-4 is the
  *  DISPLAYED TOP and y=3 is the DISPLAYED BOTTOM. */
 function readAt(gl: WebGL2RenderingContext, x: number, y: number): [number, number, number, number] {
@@ -2891,6 +2949,7 @@ export async function run(): Promise<RunResult> {
             caseRenderTargetFlip,
             caseRtLoadOrient,
             caseDepthLoadRead,
+            casePassDepthSample,
             caseIntegerTexture,
             caseStructTexture,
             caseStructTextureMat4,
