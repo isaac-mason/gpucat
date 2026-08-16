@@ -1,4 +1,4 @@
-import { vec3, vec2, quat, spherical, type Vec3, type Vec2, type Quat, type Spherical } from 'mathcat';
+import { vec3, vec2, quat, spherical, type Vec3, type Vec2, type Quat, type Spherical } from 'math';
 import type { Camera } from '../camera/camera';
 import type { PerspectiveCamera } from '../camera/perspective-camera';
 

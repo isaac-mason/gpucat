@@ -1,4 +1,4 @@
-import { type Vec3, vec3 } from 'mathcat';
+import { type Vec3, vec3 } from 'math';
 import { Object3D } from '../core/object3d';
 import type { Geometry } from '../geometry/geometry';
 import type { Material } from '../material/material';

@@ -1,4 +1,4 @@
-import { vec3, quat, euler, type Vec3, type Quat } from 'mathcat';
+import { vec3, quat, euler, type Vec3, type Quat } from 'math';
 import type { Camera } from '../camera/camera';
 import { topic, type Topic } from '../utils/topic';
 

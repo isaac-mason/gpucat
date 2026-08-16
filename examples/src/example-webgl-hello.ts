@@ -23,7 +23,7 @@ import {
     vec4,
     WebGLRenderer,
 } from 'gpucat';
-import { quat } from 'mathcat';
+import { quat } from 'math';
 
 /* create the WebGL2 renderer, scene, camera */
 

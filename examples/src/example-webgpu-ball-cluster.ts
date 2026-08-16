@@ -6,7 +6,7 @@ import {
     WebGPURenderer, OrbitControls, createSphereGeometry, pass, renderOutput, RenderPipeline,
     unproject, Inspector, type Node,
 } from 'gpucat';
-import { vec3 as v3 } from 'mathcat';
+import { vec3 as v3 } from 'math';
 
 /*
  * GPU compute ball cluster.

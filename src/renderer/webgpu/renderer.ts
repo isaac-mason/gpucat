@@ -1,4 +1,4 @@
-import type { Vec4 } from 'mathcat';
+import type { Vec4 } from 'math';
 import type { Camera } from '../../camera/camera';
 import { CoordinateSystem } from '../../core/coordinate-system';
 import type { GpuBuffer } from '../../core/gpu-buffer';

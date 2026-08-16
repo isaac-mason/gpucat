@@ -6,7 +6,7 @@ import {
     WebGPURenderer, OrbitControls, Geometry, createVertexBuffer, createIndexBuffer,
     pass, renderOutput, fxaa, RenderPipeline, unproject, Inspector, type Node,
 } from 'gpucat';
-import { vec3 as v3 } from 'mathcat';
+import { vec3 as v3 } from 'math';
 
 /*
  * GPU compute bird flocking (boids).

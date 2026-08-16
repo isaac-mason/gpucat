@@ -1,4 +1,4 @@
-import { vec3, quat, mat4, euler, type Vec3, type Quat, type Mat4 } from 'mathcat';
+import { vec3, quat, mat4, euler, type Vec3, type Quat, type Mat4 } from 'math';
 import { Object3D } from '../core/object3d';
 import { Mesh } from '../objects/mesh';
 import { Geometry } from '../geometry/geometry';

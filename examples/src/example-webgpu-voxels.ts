@@ -40,7 +40,7 @@ import {
     WebGPURenderer,
     type Node,
 } from 'gpucat';
-import { simplex2d } from 'mathcat/noise';
+import { simplex2d } from 'math/noise';
 import { createOffsetAllocator, oaAllocate, oaFree, oaStorageReport, type OAHandle } from './offset-allocator';
 
 /*

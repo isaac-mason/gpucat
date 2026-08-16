@@ -24,7 +24,7 @@ import {
     RenderPipeline,
     renderOutput,
 } from 'gpucat';
-import { quat, type Euler } from 'mathcat';
+import { quat, type Euler } from 'math';
 
 async function main() {
     const renderer = new WebGPURenderer({ antialias: true });

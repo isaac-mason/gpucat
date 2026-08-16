@@ -26,7 +26,7 @@ import {
     wgslFn,
     RenderPipeline,
 } from 'gpucat';
-import { quat, type Euler } from 'mathcat';
+import { quat, type Euler } from 'math';
 
 /**
  * Encodes a normalized direction vector [-1,1] to RGB color [0,1].

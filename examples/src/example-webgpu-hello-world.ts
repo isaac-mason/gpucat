@@ -22,7 +22,7 @@ import {
     vec4,
     WebGPURenderer,
 } from 'gpucat';
-import { quat } from 'mathcat';
+import { quat } from 'math';
 
 /* create renderer, scene, camera */
 

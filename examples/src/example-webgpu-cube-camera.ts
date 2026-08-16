@@ -6,7 +6,7 @@ import {
     OrbitControls, WebGPURenderer, cubeTexture, CubeRenderTarget, CubeCamera,
     pass, renderOutput, RenderPipeline, readPixels,
 } from 'gpucat';
-import { quat } from 'mathcat';
+import { quat } from 'math';
 
 /*
  * Cube camera DEBUG scene.

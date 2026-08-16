@@ -30,7 +30,7 @@ import {
     vec4,
     WebGPURenderer,
 } from 'gpucat';
-import { quat } from 'mathcat';
+import { quat } from 'math';
 
 const renderer = new WebGPURenderer();
 await renderer.init();

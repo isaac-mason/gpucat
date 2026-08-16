@@ -39,7 +39,7 @@ import {
     vec4,
     WebGPURenderer,
 } from 'gpucat';
-import { type Euler, mat4, type Mat4, quat, type Vec3 } from 'mathcat';
+import { type Euler, mat4, type Mat4, quat, type Vec3 } from 'math';
 
 // ─── Renderer ───────────────────────────────────────────────────────────────
 

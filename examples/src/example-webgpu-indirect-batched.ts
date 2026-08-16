@@ -1,6 +1,6 @@
 import * as g from 'gpucat';
 import { d, packArray, packTo, layoutStrideOf, createVertexBuffer, createIndexBuffer, createIndirectBuffer } from 'gpucat';
-import { mat4, quat, vec3 } from 'mathcat';
+import { mat4, quat, vec3 } from 'math';
 
 const TOTAL = 120; // total instances
 const COLS  = 12;

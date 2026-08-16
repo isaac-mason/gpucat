@@ -20,7 +20,7 @@ import {
     vec4,
     WebGPURenderer,
 } from 'gpucat';
-import { quat, type Euler } from 'mathcat';
+import { quat, type Euler } from 'math';
 
 /**
  * FXAA Example

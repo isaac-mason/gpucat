@@ -4,7 +4,7 @@ import {
     Fn, Var, Loop, varying, vec3, vec4, Material, Mesh, modelNormalMatrix, modelWorldMatrix,
     Scene, PerspectiveCamera, OrbitControls, pass, renderOutput, RenderPipeline, WebGPURenderer,
 } from 'gpucat';
-import { quat } from 'mathcat';
+import { quat } from 'math';
 
 /*
  * Lights are not a built-in. gpucat ships no Light object and no shading model;

@@ -25,7 +25,7 @@ import {
     WebGLRenderer,
     type Node,
 } from 'gpucat';
-import { quat, type Euler } from 'mathcat';
+import { quat, type Euler } from 'math';
 
 /* build a checkerboard image on a 2D canvas */
 

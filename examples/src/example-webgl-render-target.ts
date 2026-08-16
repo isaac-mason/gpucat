@@ -22,7 +22,7 @@ import {
     vec4,
     WebGLRenderer,
 } from 'gpucat';
-import { quat, type Euler } from 'mathcat';
+import { quat, type Euler } from 'math';
 
 /* create the WebGL2 renderer */
 

@@ -1,4 +1,4 @@
-import { type Vec3, vec3 } from 'mathcat';
+import { type Vec3, vec3 } from 'math';
 import type { CubeRenderTarget } from '../core/cube-render-target';
 import { Object3D } from '../core/object3d';
 import type { Renderer } from '../renderer/core/renderer-interface';

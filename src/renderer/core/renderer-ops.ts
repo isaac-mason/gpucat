@@ -11,7 +11,7 @@
  * is called by the renderer's methods, not from this file.
  */
 
-import type { Vec4 } from 'mathcat';
+import type { Vec4 } from 'math';
 import type { Camera } from '../../camera/camera';
 import type { Object3D } from '../../core/object3d';
 import type { RenderTarget } from '../../core/render-target';

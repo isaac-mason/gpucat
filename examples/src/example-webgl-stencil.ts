@@ -28,7 +28,7 @@ import {
     vec4,
     WebGLRenderer,
 } from 'gpucat';
-import { quat } from 'mathcat';
+import { quat } from 'math';
 
 // `stencil: true` allocates a depth24plus-stencil8 depth buffer.
 const renderer = new WebGLRenderer({ stencil: true, antialias: true });

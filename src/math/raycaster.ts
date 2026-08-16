@@ -1,5 +1,5 @@
-import { vec3, mat4, type Vec3, type Mat4 } from 'mathcat';
-import type { Box3 } from 'mathcat/shapes';
+import { vec3, mat4, type Vec3, type Mat4 } from 'math';
+import type { Box3 } from 'math/shapes';
 import type { Object3D } from '../core/object3d';
 import { Camera, unproject } from '../camera/camera';
 

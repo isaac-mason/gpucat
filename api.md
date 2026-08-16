@@ -409,63 +409,63 @@ The full node DSL, grouped by category. Learn it with examples in the [guide](./
 </tr><tr>
 <td><a href="#mix"><code>mix</code></a></td><td><a href="#mod"><code>mod</code></a></td><td><a href="#modelnormalmatrix"><code>modelNormalMatrix</code></a></td><td><a href="#modelworldmatrix"><code>modelWorldMatrix</code></a></td>
 </tr><tr>
-<td><a href="#mrt"><code>mrt</code></a></td><td><a href="#mul"><code>mul</code></a></td><td><a href="#numerictype"><code>NumericType</code></a></td><td><a href="#normalize"><code>normalize</code></a></td>
+<td><a href="#mrt"><code>mrt</code></a></td><td><a href="#mul"><code>mul</code></a></td><td><a href="#ndcdepthtostorage"><code>ndcDepthToStorage</code></a></td><td><a href="#numerictype"><code>NumericType</code></a></td>
 </tr><tr>
-<td><a href="#notequal"><code>notEqual</code></a></td><td><a href="#numworkgroups"><code>numWorkgroups</code></a></td><td><a href="#outputcolorspace"><code>OutputColorSpace</code></a></td><td><a href="#or"><code>or</code></a></td>
+<td><a href="#normalize"><code>normalize</code></a></td><td><a href="#notequal"><code>notEqual</code></a></td><td><a href="#numworkgroups"><code>numWorkgroups</code></a></td><td><a href="#outputcolorspace"><code>OutputColorSpace</code></a></td>
 </tr><tr>
-<td><a href="#paramdesc"><code>ParamDesc</code></a></td><td><a href="#passnodeoptions"><code>PassNodeOptions</code></a></td><td><a href="#privatevar"><code>PrivateVar</code></a></td><td><a href="#pack2x16float"><code>pack2x16float</code></a></td>
+<td><a href="#or"><code>or</code></a></td><td><a href="#paramdesc"><code>ParamDesc</code></a></td><td><a href="#passnodeoptions"><code>PassNodeOptions</code></a></td><td><a href="#privatevar"><code>PrivateVar</code></a></td>
 </tr><tr>
-<td><a href="#pack2x16snorm"><code>pack2x16snorm</code></a></td><td><a href="#pack2x16unorm"><code>pack2x16unorm</code></a></td><td><a href="#pack4x8snorm"><code>pack4x8snorm</code></a></td><td><a href="#pack4x8unorm"><code>pack4x8unorm</code></a></td>
+<td><a href="#pack2x16float"><code>pack2x16float</code></a></td><td><a href="#pack2x16snorm"><code>pack2x16snorm</code></a></td><td><a href="#pack2x16unorm"><code>pack2x16unorm</code></a></td><td><a href="#pack4x8snorm"><code>pack4x8snorm</code></a></td>
 </tr><tr>
-<td><a href="#pass"><code>pass</code></a></td><td><a href="#positionclip"><code>positionClip</code></a></td><td><a href="#pow"><code>pow</code></a></td><td><a href="#renderoutputoptions"><code>RenderOutputOptions</code></a></td>
+<td><a href="#pack4x8unorm"><code>pack4x8unorm</code></a></td><td><a href="#pass"><code>pass</code></a></td><td><a href="#positionclip"><code>positionClip</code></a></td><td><a href="#pow"><code>pow</code></a></td>
 </tr><tr>
-<td><a href="#return"><code>Return</code></a></td><td><a href="#reinhardtonemapping"><code>reinhardToneMapping</code></a></td><td><a href="#renderoutput"><code>renderOutput</code></a></td><td><a href="#reversebits"><code>reverseBits</code></a></td>
+<td><a href="#renderoutputoptions"><code>RenderOutputOptions</code></a></td><td><a href="#return"><code>Return</code></a></td><td><a href="#reinhardtonemapping"><code>reinhardToneMapping</code></a></td><td><a href="#renderoutput"><code>renderOutput</code></a></td>
 </tr><tr>
-<td><a href="#rgb"><code>rgb</code></a></td><td><a href="#samplertype"><code>SamplerType</code></a></td><td><a href="#scalartype"><code>ScalarType</code></a></td><td><a href="#structdef"><code>StructDef</code></a></td>
+<td><a href="#reversebits"><code>reverseBits</code></a></td><td><a href="#rgb"><code>rgb</code></a></td><td><a href="#samplertype"><code>SamplerType</code></a></td><td><a href="#scalartype"><code>ScalarType</code></a></td>
 </tr><tr>
-<td><a href="#structinstance"><code>StructInstance</code></a></td><td><a href="#structmember"><code>StructMember</code></a></td><td><a href="#sampler"><code>sampler</code></a></td><td><a href="#screencoordinate"><code>screenCoordinate</code></a></td>
+<td><a href="#structdef"><code>StructDef</code></a></td><td><a href="#structinstance"><code>StructInstance</code></a></td><td><a href="#structmember"><code>StructMember</code></a></td><td><a href="#sampler"><code>sampler</code></a></td>
 </tr><tr>
-<td><a href="#screensize"><code>screenSize</code></a></td><td><a href="#screenuv"><code>screenUV</code></a></td><td><a href="#select"><code>select</code></a></td><td><a href="#shiftleft"><code>shiftLeft</code></a></td>
+<td><a href="#screencoordinate"><code>screenCoordinate</code></a></td><td><a href="#screensize"><code>screenSize</code></a></td><td><a href="#screenuv"><code>screenUV</code></a></td><td><a href="#select"><code>select</code></a></td>
 </tr><tr>
-<td><a href="#shiftright"><code>shiftRight</code></a></td><td><a href="#sign"><code>sign</code></a></td><td><a href="#sin"><code>sin</code></a></td><td><a href="#smoothstep"><code>smoothstep</code></a></td>
+<td><a href="#shiftleft"><code>shiftLeft</code></a></td><td><a href="#shiftright"><code>shiftRight</code></a></td><td><a href="#sign"><code>sign</code></a></td><td><a href="#sin"><code>sin</code></a></td>
 </tr><tr>
-<td><a href="#sqrt"><code>sqrt</code></a></td><td><a href="#srgbtransfereotf"><code>sRGBTransferEOTF</code></a></td><td><a href="#srgbtransferoetf"><code>sRGBTransferOETF</code></a></td><td><a href="#step"><code>step</code></a></td>
+<td><a href="#smoothstep"><code>smoothstep</code></a></td><td><a href="#sqrt"><code>sqrt</code></a></td><td><a href="#srgbtransfereotf"><code>sRGBTransferEOTF</code></a></td><td><a href="#srgbtransferoetf"><code>sRGBTransferOETF</code></a></td>
 </tr><tr>
-<td><a href="#storage"><code>storage</code></a></td><td><a href="#storagebarrier"><code>storageBarrier</code></a></td><td><a href="#storagetexture"><code>storageTexture</code></a></td><td><a href="#struct"><code>struct</code></a></td>
+<td><a href="#step"><code>step</code></a></td><td><a href="#storage"><code>storage</code></a></td><td><a href="#storagebarrier"><code>storageBarrier</code></a></td><td><a href="#storagetexture"><code>storageTexture</code></a></td>
 </tr><tr>
-<td><a href="#sub"><code>sub</code></a></td><td><a href="#texturetype"><code>TextureType</code></a></td><td><a href="#tonemappingmode"><code>ToneMappingMode</code></a></td><td><a href="#transformfeedbackcallback"><code>TransformFeedbackCallback</code></a></td>
+<td><a href="#struct"><code>struct</code></a></td><td><a href="#sub"><code>sub</code></a></td><td><a href="#texturetype"><code>TextureType</code></a></td><td><a href="#tonemappingmode"><code>ToneMappingMode</code></a></td>
 </tr><tr>
-<td><a href="#transformfeedbacklayout"><code>TransformFeedbackLayout</code></a></td><td><a href="#tan"><code>tan</code></a></td><td><a href="#texture"><code>texture</code></a></td><td><a href="#texturebarrier"><code>textureBarrier</code></a></td>
+<td><a href="#transformfeedbackcallback"><code>TransformFeedbackCallback</code></a></td><td><a href="#transformfeedbacklayout"><code>TransformFeedbackLayout</code></a></td><td><a href="#tan"><code>tan</code></a></td><td><a href="#texture"><code>texture</code></a></td>
 </tr><tr>
-<td><a href="#texturebinding"><code>textureBinding</code></a></td><td><a href="#texturedimensions"><code>textureDimensions</code></a></td><td><a href="#texturegather"><code>textureGather</code></a></td><td><a href="#texturegathercompare"><code>textureGatherCompare</code></a></td>
+<td><a href="#texturebarrier"><code>textureBarrier</code></a></td><td><a href="#texturebinding"><code>textureBinding</code></a></td><td><a href="#texturedimensions"><code>textureDimensions</code></a></td><td><a href="#texturegather"><code>textureGather</code></a></td>
 </tr><tr>
-<td><a href="#textureload"><code>textureLoad</code></a></td><td><a href="#texturenumlayers"><code>textureNumLayers</code></a></td><td><a href="#texturenumlevels"><code>textureNumLevels</code></a></td><td><a href="#texturesample"><code>textureSample</code></a></td>
+<td><a href="#texturegathercompare"><code>textureGatherCompare</code></a></td><td><a href="#textureload"><code>textureLoad</code></a></td><td><a href="#texturenumlayers"><code>textureNumLayers</code></a></td><td><a href="#texturenumlevels"><code>textureNumLevels</code></a></td>
 </tr><tr>
-<td><a href="#texturesamplebias"><code>textureSampleBias</code></a></td><td><a href="#texturesamplecompare"><code>textureSampleCompare</code></a></td><td><a href="#texturesamplecomparelevel"><code>textureSampleCompareLevel</code></a></td><td><a href="#texturesamplegrad"><code>textureSampleGrad</code></a></td>
+<td><a href="#texturesample"><code>textureSample</code></a></td><td><a href="#texturesamplebias"><code>textureSampleBias</code></a></td><td><a href="#texturesamplecompare"><code>textureSampleCompare</code></a></td><td><a href="#texturesamplecomparelevel"><code>textureSampleCompareLevel</code></a></td>
 </tr><tr>
-<td><a href="#texturesamplelevel"><code>textureSampleLevel</code></a></td><td><a href="#texturestore"><code>textureStore</code></a></td><td><a href="#transformfeedback"><code>transformFeedback</code></a></td><td><a href="#transpose"><code>transpose</code></a></td>
+<td><a href="#texturesamplegrad"><code>textureSampleGrad</code></a></td><td><a href="#texturesamplelevel"><code>textureSampleLevel</code></a></td><td><a href="#texturestore"><code>textureStore</code></a></td><td><a href="#transformfeedback"><code>transformFeedback</code></a></td>
 </tr><tr>
-<td><a href="#u32"><code>u32</code></a></td><td><a href="#uniform"><code>uniform</code></a></td><td><a href="#unpack2x16float"><code>unpack2x16float</code></a></td><td><a href="#unpack2x16snorm"><code>unpack2x16snorm</code></a></td>
+<td><a href="#transpose"><code>transpose</code></a></td><td><a href="#u32"><code>u32</code></a></td><td><a href="#uniform"><code>uniform</code></a></td><td><a href="#unpack2x16float"><code>unpack2x16float</code></a></td>
 </tr><tr>
-<td><a href="#unpack2x16unorm"><code>unpack2x16unorm</code></a></td><td><a href="#unpack4x8snorm"><code>unpack4x8snorm</code></a></td><td><a href="#unpack4x8unorm"><code>unpack4x8unorm</code></a></td><td><a href="#var"><code>Var</code></a></td>
+<td><a href="#unpack2x16snorm"><code>unpack2x16snorm</code></a></td><td><a href="#unpack2x16unorm"><code>unpack2x16unorm</code></a></td><td><a href="#unpack4x8snorm"><code>unpack4x8snorm</code></a></td><td><a href="#unpack4x8unorm"><code>unpack4x8unorm</code></a></td>
 </tr><tr>
-<td><a href="#vec2type"><code>Vec2Type</code></a></td><td><a href="#vec3type"><code>Vec3Type</code></a></td><td><a href="#vec4type"><code>Vec4Type</code></a></td><td><a href="#vectype"><code>VecType</code></a></td>
+<td><a href="#var"><code>Var</code></a></td><td><a href="#vec2type"><code>Vec2Type</code></a></td><td><a href="#vec3type"><code>Vec3Type</code></a></td><td><a href="#vec4type"><code>Vec4Type</code></a></td>
 </tr><tr>
-<td><a href="#varying"><code>varying</code></a></td><td><a href="#vec2"><code>vec2</code></a></td><td><a href="#vec2b"><code>vec2b</code></a></td><td><a href="#vec2f"><code>vec2f</code></a></td>
+<td><a href="#vectype"><code>VecType</code></a></td><td><a href="#varying"><code>varying</code></a></td><td><a href="#vec2"><code>vec2</code></a></td><td><a href="#vec2b"><code>vec2b</code></a></td>
 </tr><tr>
-<td><a href="#vec2h"><code>vec2h</code></a></td><td><a href="#vec2i"><code>vec2i</code></a></td><td><a href="#vec2u"><code>vec2u</code></a></td><td><a href="#vec3"><code>vec3</code></a></td>
+<td><a href="#vec2f"><code>vec2f</code></a></td><td><a href="#vec2h"><code>vec2h</code></a></td><td><a href="#vec2i"><code>vec2i</code></a></td><td><a href="#vec2u"><code>vec2u</code></a></td>
 </tr><tr>
-<td><a href="#vec3b"><code>vec3b</code></a></td><td><a href="#vec3f"><code>vec3f</code></a></td><td><a href="#vec3h"><code>vec3h</code></a></td><td><a href="#vec3i"><code>vec3i</code></a></td>
+<td><a href="#vec3"><code>vec3</code></a></td><td><a href="#vec3b"><code>vec3b</code></a></td><td><a href="#vec3f"><code>vec3f</code></a></td><td><a href="#vec3h"><code>vec3h</code></a></td>
 </tr><tr>
-<td><a href="#vec3u"><code>vec3u</code></a></td><td><a href="#vec4"><code>vec4</code></a></td><td><a href="#vec4b"><code>vec4b</code></a></td><td><a href="#vec4f"><code>vec4f</code></a></td>
+<td><a href="#vec3i"><code>vec3i</code></a></td><td><a href="#vec3u"><code>vec3u</code></a></td><td><a href="#vec4"><code>vec4</code></a></td><td><a href="#vec4b"><code>vec4b</code></a></td>
 </tr><tr>
-<td><a href="#vec4h"><code>vec4h</code></a></td><td><a href="#vec4i"><code>vec4i</code></a></td><td><a href="#vec4u"><code>vec4u</code></a></td><td><a href="#vertexindex"><code>vertexIndex</code></a></td>
+<td><a href="#vec4f"><code>vec4f</code></a></td><td><a href="#vec4h"><code>vec4h</code></a></td><td><a href="#vec4i"><code>vec4i</code></a></td><td><a href="#vec4u"><code>vec4u</code></a></td>
 </tr><tr>
-<td><a href="#wgslnodefunction"><code>WgslNodeFunction</code></a></td><td><a href="#wgslnodefunctioninput"><code>WgslNodeFunctionInput</code></a></td><td><a href="#wgsltype"><code>WgslType</code></a></td><td><a href="#while"><code>While</code></a></td>
+<td><a href="#vertexindex"><code>vertexIndex</code></a></td><td><a href="#wgslnodefunction"><code>WgslNodeFunction</code></a></td><td><a href="#wgslnodefunctioninput"><code>WgslNodeFunctionInput</code></a></td><td><a href="#wgsltype"><code>WgslType</code></a></td>
 </tr><tr>
-<td><a href="#workgroupvar"><code>WorkgroupVar</code></a></td><td><a href="#glsl"><code>glsl</code></a></td><td><a href="#glslfn"><code>glslFn</code></a></td><td><a href="#wgsl"><code>wgsl</code></a></td>
+<td><a href="#while"><code>While</code></a></td><td><a href="#workgroupvar"><code>WorkgroupVar</code></a></td><td><a href="#glsl"><code>glsl</code></a></td><td><a href="#glslfn"><code>glslFn</code></a></td>
 </tr><tr>
-<td><a href="#wgslfn"><code>wgslFn</code></a></td><td><a href="#workgroupbarrier"><code>workgroupBarrier</code></a></td><td><a href="#workgroupid"><code>workgroupId</code></a></td><td></td>
+<td><a href="#wgsl"><code>wgsl</code></a></td><td><a href="#wgslfn"><code>wgslFn</code></a></td><td><a href="#workgroupbarrier"><code>workgroupBarrier</code></a></td><td><a href="#workgroupid"><code>workgroupId</code></a></td>
 </tr></table>
 
 ### Renderer
@@ -2174,6 +2174,22 @@ export function mrt(outputNodes: Record<string, Node<d.Any>>): MRTNode;
 export const mul: <NA extends Node<Any>, NB extends Node<Any>>(a: NA, b: NB) => Node<MulResultDesc<NA["type"], NB["type"]>>;
 ```
 
+#### `ndcDepthToStorage`
+
+```ts
+/**
+ * Remap an NDC depth value (typically `clipPos.z / clipPos.w`) into the [0,1] range a depth texture
+ * stores, so shadow-map / depth-buffer comparisons are written ONCE and work on both backends. It is
+ * lowered per emitter — the node graph stays identical:
+ *   - WebGPU: NDC z is already [0,1] (ZO projection) → passthrough.
+ *   - WebGL:  NDC z is [-1,1] (NO projection)        → `z * 0.5 + 0.5`.
+ *
+ * This keeps the per-backend depth-range convention out of user graphs (the analog of three.js baking
+ * the remap into its shadow bias matrix rather than exposing it).
+ */
+export function ndcDepthToStorage(ndcZ: Node<d.f32>): Node<d.f32>;
+```
+
 #### `NumericType`
 
 ```ts
@@ -3446,6 +3462,14 @@ export type RenderTargetOptions = {
     stencilBuffer?: boolean;
     /** Caller-provided depth texture. Overrides `depthBuffer`/`depthFormat`. */
     depthTexture?: DepthTexture;
+    /**
+     * Whether the depth attachment will be sampled (read as a texture). Default false: the depth is a
+     * write-only attachment (a RENDERBUFFER on WebGL — more broadly FBO-complete, three.js parity), and
+     * `rt.depthTexture` is null. Set true (or provide an explicit `depthTexture`, or call
+     * `PassNode.getDepthTextureNode()`) to expose the depth as a sampleable texture — required to read
+     * it in a shader (e.g. a shadow map). Depth testing works either way; this only governs readability.
+     */
+    depthSampled?: boolean;
     /** MSAA sample count. Default: 1. */
     samples?: number;
     /** Number of color attachments (MRT). Default: 1. */
@@ -3484,8 +3508,24 @@ export class RenderTarget {
      * Each has a `.name` for MRT mapping; the first texture is also accessible via the `texture` getter.
      */
     textures: RenderTargetTexture[];
-    /** Depth texture, or null if no depth */
-    depthTexture: DepthTexture | null;
+    /**
+     * The depth attachment exposed for SAMPLING, or null when the depth isn't declared sampled.
+     * three.js-aligned: a render target's depth is readable as a texture only when you opt in
+     * (`depthSampled: true`, an explicit `depthTexture`, or `PassNode.getDepthTextureNode()`), mirroring
+     * three.js where the *presence* of `renderTarget.depthTexture` is the signal. The actual depth
+     * attachment for depth testing always exists (see {@link _depthAttachment}); returning null here
+     * makes sampling an undeclared depth fail loud (a null at wiring time) instead of silently reading
+     * an unwritten texture — which on the WebGL backend reads as ~1.0 everywhere, e.g. no shadows.
+     */
+    get depthTexture(): DepthTexture | null;
+    /**
+     * Whether the depth attachment is sampled. When false and the target owns an
+     * auto-allocated depth, the WebGL backend attaches a depth RENDERBUFFER instead
+     * of a texture (three.js parity, more broadly FBO-complete; depth-testing still
+     * works). Set true by `PassNode.getDepthTextureNode()` or the `depthSampled` option.
+     * WebGPU always allocates the attachment as a texture, so it is unaffected.
+     */
+    depthSampled: boolean;
     /**
      * Viewport for renders into this target as a `Vec4` [x, y, width, height] in the target's pixels
      * (top-left origin); null = full target. A render into a target uses the target's own viewport/scissor,
@@ -3610,9 +3650,9 @@ export class Object3D {
     scale: Vec3;
     parent: Object3D | null;
     children: Object3D[];
-    matrix: mat4.Mat4;
-    matrixWorld: mat4.Mat4;
-    normalMatrix: mat3.Mat3;
+    matrix: any;
+    matrixWorld: any;
+    normalMatrix: any;
     matrixVersion: number;
     add(child: Object3D): this;
     remove(child: Object3D): this;
@@ -3648,8 +3688,8 @@ export class Camera extends Object3D {
      * [0,1]); the renderer stamps its own convention on before rendering and rebuilds the projection.
      */
     coordinateSystem: CoordinateSystem;
-    projectionMatrix: mat4.Mat4;
-    matrixWorldInverse: mat4.Mat4;
+    projectionMatrix: any;
+    matrixWorldInverse: any;
     constructor();
     /** Recompute the projection matrix for the current `coordinateSystem`. Overridden by subclasses. */
     updateProjectionMatrix(): void;
@@ -3663,7 +3703,12 @@ export class Camera extends Object3D {
 ```ts
 /**
  * Unproject a point from NDC (normalized device coordinates) to world space.
- * NDC: x,y in [-1, 1], z in [0, 1] where 0 is near plane, 1 is far plane (WebGPU convention).
+ * NDC: x,y in [-1, 1], z in the CANONICAL [0, 1] near→far convention (WebGPU) — backend-agnostic.
+ *
+ * The camera's projection may use the WebGL NDC-z range [-1, 1] (perspectiveNO/orthoNO), so the
+ * canonical z is mapped into the camera's actual range before applying the inverse view-projection.
+ * This keeps callers (and the frustum-corner helpers in examples) backend-agnostic: pass z=0 for the
+ * near plane and z=1 for the far plane regardless of backend.
  */
 export function unproject(out: Vec3, ndc: Vec3, camera: Camera): Vec3;
 ```
@@ -6229,7 +6274,7 @@ export class Inspector extends RendererInspector {
      * Normally called automatically via `renderer.setInspector(null)`; expose
      * directly for callers that want explicit teardown.
      */
-    dispose(): void;
+    dispose(): Promise<void>;
     begin(frameId: number): void;
     beginRender(passId: string, frameId: number): void;
     finishRender(passId: string, frameId: number): void;
@@ -6257,8 +6302,9 @@ export class Inspector extends RendererInspector {
      * if patching / pipeline creation fails.
      */
     setProbe(target: ProbeTarget, sourceRO: RenderObject): HTMLElement | null;
-    /** Remove the active probe (WebGPU and WebGL). */
-    clearProbe(): void;
+    /** Remove the active probe (WebGPU and WebGL). Returns a promise that resolves
+     *  once the WebGPU probe's GPU resources are actually destroyed (drained first). */
+    clearProbe(): Promise<void>;
     navigateToRO(ro: RenderObject): void;
     /**
      * Build canvasData for each inspectable node and call viewer.update().

@@ -1,4 +1,4 @@
-import { mat4 } from 'mathcat';
+import { mat4 } from 'math';
 import { Camera } from './camera';
 import { CoordinateSystem } from '../core/coordinate-system';
 

@@ -29,7 +29,7 @@ import {
     WebGPURenderer,
     wgslFn,
 } from 'gpucat';
-import { quat } from 'mathcat';
+import { quat } from 'math';
 
 // gradient (Perlin-style) noise with analytical derivatives
 // returns vec4(noise, dNoise/dx, dNoise/dy, dNoise/dz)

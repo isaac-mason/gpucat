@@ -41,7 +41,7 @@ import {
     WebGPURenderer,
     renderOutput,
 } from 'gpucat';
-import { quat } from 'mathcat';
+import { quat } from 'math';
 
 async function main() {
     const renderer = new WebGPURenderer({ antialias: true });

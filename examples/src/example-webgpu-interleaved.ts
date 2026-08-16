@@ -42,7 +42,7 @@ import {
     renderOutput,
 } from 'gpucat';
 import { Geometry } from 'gpucat';
-import { quat } from 'mathcat';
+import { quat } from 'math';
 
 // ---------------------------------------------------------------------------
 // Build box geometry with fully interleaved position+normal+color buffer

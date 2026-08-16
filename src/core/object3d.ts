@@ -1,4 +1,4 @@
-import { mat4, mat3, quat, vec3, type Quat, type Vec3 } from 'mathcat';
+import { mat4, mat3, quat, vec3, type Quat, type Vec3 } from 'math';
 
 let objectIdCounter = 0;
 

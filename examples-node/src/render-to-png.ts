@@ -47,7 +47,7 @@ import {
     vec4,
     WebGPURenderer,
 } from 'gpucat';
-import { quat } from 'mathcat';
+import { quat } from 'math';
 import { PNG } from 'pngjs';
 import { create, globals } from 'webgpu';
 

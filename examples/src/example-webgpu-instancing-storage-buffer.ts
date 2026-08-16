@@ -1,6 +1,6 @@
 import * as g from 'gpucat';
 import { d, GpuBuffer } from 'gpucat'; 
-import { mat4, quat, vec3 } from 'mathcat';
+import { mat4, quat, vec3 } from 'math';
 
 const COLS = 7;
 const ROWS = 5;

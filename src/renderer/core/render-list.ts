@@ -12,7 +12,7 @@
  * - Transparent: sorted back-to-front by view-space Z
  */
 
-import { box3, type Box3, type Sphere } from 'mathcat/shapes';
+import { box3, type Box3, type Sphere } from 'math/shapes';
 import type { Camera } from '../../camera/camera';
 import type { Object3D } from '../../core/object3d';
 import type { Geometry } from '../../geometry/geometry';

@@ -24,7 +24,7 @@ import {
     vec4,
     WebGPURenderer,
 } from 'gpucat';
-import { plane3 } from 'mathcat/shapes';
+import { plane3 } from 'math/shapes';
 
 /* renderer, scene, camera */
 

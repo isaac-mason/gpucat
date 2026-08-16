@@ -8,9 +8,9 @@ importers:
 
   .:
     dependencies:
-      mathcat:
-        specifier: github:isaac-mason/mathcat#dev
-        version: github.com/isaac-mason/mathcat/c25a32156b50b228a9d846e0ec835396343b7a73
+      math:
+        specifier: canary
+        version: 1.0.0-canary-872f3be9-20260816
     devDependencies:
       '@biomejs/biome':
         specifier: ^2.4.6
@@ -82,9 +82,9 @@ importers:
       gpucat:
         specifier: workspace:*
         version: link:..
-      mathcat:
-        specifier: '*'
-        version: 0.0.11
+      math:
+        specifier: canary
+        version: 1.0.0-canary-872f3be9-20260816
       pngjs:
         specifier: ^7.0.0
         version: 7.0.0
@@ -2564,8 +2564,8 @@ packages:
       - supports-color
     dev: true
 
-  /mathcat@0.0.11:
-    resolution: {integrity: sha512-HIGDmqrjy6KE4LRH9uGLdYoVl+69idwtE5OjHILnNB4IL4RE2aVNagjLAWFKWH5xlcxNH9i+AoBgRKR4VdsyFw==}
+  /math@1.0.0-canary-872f3be9-20260816:
+    resolution: {integrity: sha512-VRuAlhGeSJVDAu18vs2o7FCTxVVP7wUMg3nLeS6XpTfAbezQgPsUgpfWbsAFpT5Gnpd1QKEDqNk9Gy2sKqvjew==}
     dev: false
 
   /mdn-data@2.27.1:
@@ -3837,9 +3837,3 @@ packages:
   /yallist@4.0.0:
     resolution: {integrity: sha512-3wdGidZyq5PB084XLES5TpOSRA3wjXAlIWMhum2kRcv/41Sn2emQ0dycQW4uZXLejwKvg6EsvbdlVL+FYEct7A==}
     dev: true
-
-  github.com/isaac-mason/mathcat/c25a32156b50b228a9d846e0ec835396343b7a73:
-    resolution: {tarball: https://codeload.github.com/isaac-mason/mathcat/tar.gz/c25a32156b50b228a9d846e0ec835396343b7a73}
-    name: mathcat
-    version: 0.0.14
-    dev: false

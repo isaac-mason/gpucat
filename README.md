@@ -314,6 +314,12 @@ Every screenshot links to its source in `examples/src`. Run them locally with `n
         Transform Feedback Particles (WebGL)
       </a>
     </td>
+    <td align="center">
+      <a href="https://isaac-mason.github.io/gpucat/#example-webgpu-inspector-toggle">
+        <img src="./examples/public/screenshots/example-webgpu-inspector-toggle.png" width="180" height="120" style="object-fit:cover;"/><br/>
+        Inspector Toggle
+      </a>
+    </td>
   </tr>
 </table>
 
@@ -353,7 +359,7 @@ import {
     vec4,
     WebGPURenderer,
 } from 'gpucat';
-import { quat } from 'mathcat';
+import { quat } from 'math';
 
 // renderer
 const renderer = new WebGPURenderer({ antialias: true });

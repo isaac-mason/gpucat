@@ -8,7 +8,7 @@
     },
     "dependencies": {
         "gpucat": "workspace:*",
-        "mathcat": "*",
+        "math": "canary",
         "pngjs": "^7.0.0",
         "webgpu": "^0.2.12"
     },

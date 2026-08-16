@@ -1,4 +1,4 @@
-import { vec4 } from 'mathcat';
+import { vec4 } from 'math';
 import { describe, expect, test } from 'vitest';
 import { CoordinateSystem, OrthographicCamera, PerspectiveCamera } from '../src/index';
 

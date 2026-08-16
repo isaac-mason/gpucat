@@ -40,7 +40,7 @@ import {
     WebGPURenderer,
     type Node,
 } from 'gpucat';
-import { quat, type Euler } from 'mathcat';
+import { quat, type Euler } from 'math';
 
 // 4x4 Bayer dither threshold — returns a value in [0,1) for the pixel coordinate
 const bayerThreshold = wgslFn(`

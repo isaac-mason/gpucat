@@ -1,4 +1,4 @@
-import { color, type ColorInput } from 'mathcat/color';
+import { color, type ColorInput } from 'math/color';
 import { vec3f } from './core';
 
 /**

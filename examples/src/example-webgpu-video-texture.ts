@@ -25,7 +25,7 @@ import {
     WebGPURenderer,
     type Node,
 } from 'gpucat';
-import { quat, type Euler } from 'mathcat';
+import { quat, type Euler } from 'math';
 
 /**
  * Video Texture Example

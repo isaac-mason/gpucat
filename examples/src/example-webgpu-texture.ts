@@ -25,7 +25,7 @@ import {
     WebGPURenderer,
     type Node,
 } from 'gpucat';
-import { quat, type Euler } from 'mathcat';
+import { quat, type Euler } from 'math';
 
 async function createCheckerboardTexture(size = 256, squares = 8): Promise<ImageBitmap> {
     const canvas = new OffscreenCanvas(size, size);
