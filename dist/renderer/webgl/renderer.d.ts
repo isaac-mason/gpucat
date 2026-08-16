@@ -11,7 +11,7 @@
  * default framebuffer, sets viewport/scissor, clears, and (in a later step) draws, all directly on the
  * context. Compute is unsupported.
  */
-import type { Vec4 } from 'mathcat';
+import type { Vec4 } from 'math';
 import type { Camera } from '../../camera/camera';
 import type { Object3D } from '../../core/object3d';
 import type { RenderTarget } from '../../core/render-target';
@@ -81,8 +81,14 @@ export declare class WebGLRenderer implements Renderer, RendererState {
     set inspector(next: InspectorBase | null);
     /** Install or remove the inspector. Equivalent to assigning `renderer.inspector`. */
     setInspector(next: InspectorBase | null): void;
-    /** The canvas dom element for the current canvas target (an `OffscreenCanvas` when headless). */
-    get domElement(): HTMLCanvasElement | OffscreenCanvas;
+    /** The canvas for the current target — an `OffscreenCanvas` in worker/headless mode. */
+    get canvas(): HTMLCanvasElement | OffscreenCanvas;
+    /**
+     * The canvas as a DOM element, for insertion into the page
+     * (`document.body.appendChild(renderer.domElement)`). Throws if the target is an `OffscreenCanvas`
+     * (worker/headless) — use {@link canvas} there.
+     */
+    get domElement(): HTMLCanvasElement;
     /** The WebGL2 rendering context in use. Assigned in `init()`. @internal */
     gl: WebGL2RenderingContext | null;
     /** Bound `webglcontextlost` listener, registered in init() and removed in dispose(). @internal */

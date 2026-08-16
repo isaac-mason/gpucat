@@ -1,16 +1,3 @@
-/**
- * renderer-ops.ts - backend-neutral renderer orchestration utilities.
- *
- * The device-free half of the render loop: the neutral `RendererState` record, the viewport/scissor
- * setters + resolution, frame-size helpers, the device-lost handler, and the neutral per-object
- * prepare loop (collect / getRenderObject / updateBefore). The concrete renderer class (WebGPURenderer
- * today, a future WebGL2Renderer) holds the state (same field names), structurally satisfies
- * `RendererState`, and sequences these utils together with its own device free functions.
- *
- * No graphics API leaks in here — every device operation lives in the concrete `webgpu/*` modules and
- * is called by the renderer's methods, not from this file.
- */
-
 import type { Vec4 } from 'math';
 import type { Camera } from '../../camera/camera';
 import type { Object3D } from '../../core/object3d';
@@ -19,14 +6,14 @@ import type { InspectorBase } from '../../inspector/inspector-base';
 import type { Material } from '../../material/material';
 import type { MRTNode } from '../../nodes/nodes';
 import type { CanvasTarget } from './canvas-target';
-import * as NodeManager from './node-manager';
 import type { NodeManagerState } from './node-manager';
+import * as NodeManager from './node-manager';
+import type * as RenderContextModule from './pass-context';
 import type { RenderContext } from './pass-context';
-import * as RenderContextModule from './pass-context';
-import type { RenderObject } from './render-object';
-import type { PreparedRenderObject } from './render-types';
 import * as RenderLists from './render-list';
+import type { RenderObject } from './render-object';
 import * as RenderObjects from './render-objects';
+import type { PreparedRenderObject } from './render-types';
 
 /**
  * Information about a device lost event handed to the renderer's device-lost handler. Kept neutral
@@ -107,36 +94,53 @@ export interface RendererState {
     _canvasTarget: CanvasTarget | null;
 }
 
-/** The canvas dom element for the current canvas target. Throws in headless mode. */
-export function domElement(r: RendererState): HTMLCanvasElement {
+/** True when the value is an `OffscreenCanvas` — a non-DOM canvas usable off the main thread. */
+function isOffscreenCanvas(c: HTMLCanvasElement | OffscreenCanvas): c is OffscreenCanvas {
+    // `OffscreenCanvas` may be undefined in older environments; guard before the `instanceof`.
+    return typeof OffscreenCanvas !== 'undefined' && c instanceof OffscreenCanvas;
+}
+
+/**
+ * The canvas for the current target — an `HTMLCanvasElement` on a page or an `OffscreenCanvas` in a
+ * worker/headless context. Throws only when there is no canvas at all (WebGPU headless mode).
+ */
+export function canvas(r: RendererState): HTMLCanvasElement | OffscreenCanvas {
     if (!r._canvasTarget) {
+        throw new Error('[Renderer] no canvas: renderer was created in headless mode. Render to a RenderTarget instead.');
+    }
+    return r._canvasTarget.canvas;
+}
+
+/**
+ * The canvas as a DOM element, for insertion into the page. Throws if the target is an `OffscreenCanvas`
+ * (headless/worker) — an OffscreenCanvas is not a DOM node; use {@link canvas} there.
+ */
+export function domElement(r: RendererState): HTMLCanvasElement {
+    const c = canvas(r);
+    if (isOffscreenCanvas(c)) {
         throw new Error(
-            '[WebGPURenderer] no canvas: renderer was created in headless mode. Render to a RenderTarget instead.',
+            '[Renderer] domElement is an OffscreenCanvas and is not a DOM element. Use `renderer.canvas` (and readRenderTargetPixels for output) in worker/headless contexts.',
         );
     }
-    // Presentation-path accessor; a headless WebGL renderer (OffscreenCanvas) renders to a RenderTarget
-    // and never reaches here, so the DOM-canvas type is the honest contract.
-    return r._canvasTarget.domElement as HTMLCanvasElement;
+    return c;
 }
 
 export function frameWidth(r: RendererState): number {
     if (r.renderTarget) return r.renderTarget.width;
-    if (r._canvasTarget) return domElement(r).width || 1;
+    if (r._canvasTarget) return canvas(r).width || 1;
     return 1;
 }
 
 export function frameHeight(r: RendererState): number {
     if (r.renderTarget) return r.renderTarget.height;
-    if (r._canvasTarget) return domElement(r).height || 1;
+    if (r._canvasTarget) return canvas(r).height || 1;
     return 1;
 }
 
 /** Decode + report a device-loss event: log, set the lost flag, fire the user callback. */
 export function handleDeviceLost(r: RendererState, info: DeviceLostInfo): void {
     console.error(
-        `[WebGPURenderer] WebGPU Device Lost:\n` +
-            `  Message: ${info.message}\n` +
-            `  Reason: ${info.reason ?? 'unknown'}`,
+        `[WebGPURenderer] WebGPU Device Lost:\n` + `  Message: ${info.message}\n` + `  Reason: ${info.reason ?? 'unknown'}`,
     );
 
     r._isDeviceLost = true;

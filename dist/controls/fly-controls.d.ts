@@ -1,4 +1,4 @@
-import { type Vec3, type Quat } from 'mathcat';
+import { type Vec3, type Quat } from 'math';
 import type { Camera } from '../camera/camera';
 import { type Topic } from '../utils/topic';
 /**

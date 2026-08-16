@@ -1,4 +1,4 @@
-import { type Vec3, type Quat } from 'mathcat';
+import { type Vec3, type Quat } from 'math';
 import { Object3D } from '../core/object3d';
 import { Camera } from '../camera/camera';
 import { Raycaster } from '../math/raycaster';

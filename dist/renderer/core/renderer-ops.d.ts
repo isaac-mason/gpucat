@@ -1,16 +1,4 @@
-/**
- * renderer-ops.ts - backend-neutral renderer orchestration utilities.
- *
- * The device-free half of the render loop: the neutral `RendererState` record, the viewport/scissor
- * setters + resolution, frame-size helpers, the device-lost handler, and the neutral per-object
- * prepare loop (collect / getRenderObject / updateBefore). The concrete renderer class (WebGPURenderer
- * today, a future WebGL2Renderer) holds the state (same field names), structurally satisfies
- * `RendererState`, and sequences these utils together with its own device free functions.
- *
- * No graphics API leaks in here — every device operation lives in the concrete `webgpu/*` modules and
- * is called by the renderer's methods, not from this file.
- */
-import type { Vec4 } from 'mathcat';
+import type { Vec4 } from 'math';
 import type { Camera } from '../../camera/camera';
 import type { Object3D } from '../../core/object3d';
 import type { RenderTarget } from '../../core/render-target';
@@ -19,12 +7,12 @@ import type { Material } from '../../material/material';
 import type { MRTNode } from '../../nodes/nodes';
 import type { CanvasTarget } from './canvas-target';
 import type { NodeManagerState } from './node-manager';
+import type * as RenderContextModule from './pass-context';
 import type { RenderContext } from './pass-context';
-import * as RenderContextModule from './pass-context';
-import type { RenderObject } from './render-object';
-import type { PreparedRenderObject } from './render-types';
 import * as RenderLists from './render-list';
+import type { RenderObject } from './render-object';
 import * as RenderObjects from './render-objects';
+import type { PreparedRenderObject } from './render-types';
 /**
  * Information about a device lost event handed to the renderer's device-lost handler. Kept neutral
  * (`api` names the backend, `reason` is a plain string) so no graphics-API type leaks into core.
@@ -96,7 +84,15 @@ export interface RendererState {
     /** Current canvas target; null in headless mode. */
     _canvasTarget: CanvasTarget | null;
 }
-/** The canvas dom element for the current canvas target. Throws in headless mode. */
+/**
+ * The canvas for the current target — an `HTMLCanvasElement` on a page or an `OffscreenCanvas` in a
+ * worker/headless context. Throws only when there is no canvas at all (WebGPU headless mode).
+ */
+export declare function canvas(r: RendererState): HTMLCanvasElement | OffscreenCanvas;
+/**
+ * The canvas as a DOM element, for insertion into the page. Throws if the target is an `OffscreenCanvas`
+ * (headless/worker) — an OffscreenCanvas is not a DOM node; use {@link canvas} there.
+ */
 export declare function domElement(r: RendererState): HTMLCanvasElement;
 export declare function frameWidth(r: RendererState): number;
 export declare function frameHeight(r: RendererState): number;

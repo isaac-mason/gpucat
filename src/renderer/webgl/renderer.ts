@@ -125,12 +125,18 @@ export class WebGLRenderer implements Renderer, RendererState {
         next?.setRenderer(this);
     }
 
-    /** The canvas dom element for the current canvas target (an `OffscreenCanvas` when headless). */
-    get domElement(): HTMLCanvasElement | OffscreenCanvas {
-        if (!this._canvasTarget) {
-            throw new Error('[WebGLRenderer] no canvas target.');
-        }
-        return this._canvasTarget.domElement;
+    /** The canvas for the current target — an `OffscreenCanvas` in worker/headless mode. */
+    get canvas(): HTMLCanvasElement | OffscreenCanvas {
+        return ops.canvas(this);
+    }
+
+    /**
+     * The canvas as a DOM element, for insertion into the page
+     * (`document.body.appendChild(renderer.domElement)`). Throws if the target is an `OffscreenCanvas`
+     * (worker/headless) — use {@link canvas} there.
+     */
+    get domElement(): HTMLCanvasElement {
+        return ops.domElement(this);
     }
 
     // WebGL2 device state — owned directly as fields. Assigned in init().
@@ -305,7 +311,7 @@ export class WebGLRenderer implements Renderer, RendererState {
         this._width = width || 1;
         this._height = height || 1;
 
-        this.gl = createContext(this.domElement, {
+        this.gl = createContext(this.canvas, {
             alpha: this._opts.alpha ?? false,
             depth: this._opts.depth ?? true,
             stencil: this.stencil,
@@ -325,7 +331,7 @@ export class WebGLRenderer implements Renderer, RendererState {
         // driver drops the context (GPU reset, tab backgrounding, `WEBGL_lose_context`). Preventing
         // the event's default keeps the context restorable. We flip `_isDeviceLost` (render() early-
         // returns while lost) and fire the same neutral `onDeviceLost` callback the WebGPU path uses.
-        const canvas = this.domElement;
+        const canvas = this.canvas;
         this._onContextLost = (e: Event): void => {
             e.preventDefault();
             this._isDeviceLost = true;
@@ -415,7 +421,7 @@ export class WebGLRenderer implements Renderer, RendererState {
         if (this._isDeviceLost || !this._initialized || !this.gl) return;
         if (!this.renderTarget) {
             if (!this._canvasTarget) return;
-            if (this.domElement.width === 0 || this.domElement.height === 0) return;
+            if (this.canvas.width === 0 || this.canvas.height === 0) return;
         }
         const [cr, cg, cb, ca] = this.clearColor;
         RenderPass.clear(
@@ -508,7 +514,7 @@ export class WebGLRenderer implements Renderer, RendererState {
             if (!this._canvasTarget) {
                 throw new Error('[WebGLRenderer] render() requires renderer.renderTarget or a canvas.');
             }
-            if (this.domElement.width === 0 || this.domElement.height === 0) return;
+            if (this.canvas.width === 0 || this.canvas.height === 0) return;
         }
 
         // Stamp this renderer's clip-space convention onto the camera; rebuild the projection if it changed.
@@ -539,8 +545,8 @@ export class WebGLRenderer implements Renderer, RendererState {
 
         const samples = renderTarget?.samples ?? this.samples;
         const primaryColorFormat = renderTarget?.textures[0]?.format ?? this.format;
-        const width = renderTarget ? renderTarget.width : this.domElement.width || 1;
-        const height = renderTarget ? renderTarget.height : this.domElement.height || 1;
+        const width = renderTarget ? renderTarget.width : this.canvas.width || 1;
+        const height = renderTarget ? renderTarget.height : this.canvas.height || 1;
         const [cr, cg, cb, ca] = this.clearColor;
 
         if (inspector) {
@@ -777,7 +783,7 @@ export class WebGLRenderer implements Renderer, RendererState {
     dispose(): void {
         // Remove the context-loss listeners first, so tearing down GL resources below never fires the
         // user's onDeviceLost callback.
-        const canvas = this._canvasTarget?.domElement;
+        const canvas = this._canvasTarget?.canvas;
         if (canvas) {
             if (this._onContextLost) canvas.removeEventListener('webglcontextlost', this._onContextLost, false);
             if (this._onContextRestored) canvas.removeEventListener('webglcontextrestored', this._onContextRestored, false);

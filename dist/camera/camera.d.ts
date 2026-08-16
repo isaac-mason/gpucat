@@ -1,4 +1,4 @@
-import { mat4, type Vec3 } from 'mathcat';
+import { mat4, type Vec3 } from 'math';
 import { Object3D } from '../core/object3d';
 import { CoordinateSystem } from '../core/coordinate-system';
 export declare class Camera extends Object3D {

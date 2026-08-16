@@ -1,5 +1,5 @@
-import { type Vec3, type Mat4 } from 'mathcat';
-import type { Box3 } from 'mathcat/shapes';
+import { type Vec3, type Mat4 } from 'math';
+import type { Box3 } from 'math/shapes';
 import type { Object3D } from '../core/object3d';
 import { Camera } from '../camera/camera';
 export type Ray = {

@@ -13,7 +13,7 @@ import * as Textures from './textures';
 /**
  * Get (or lazily create + configure) the WebGPU canvas context for a canvas target. Safe to call
  * repeatedly; the context is cached per canvas target after first acquisition. The context is
- * acquired from `canvasTarget.domElement.getContext('webgpu')` and configured against `device` with
+ * acquired from `canvasTarget.canvas.getContext('webgpu')` and configured against `device` with
  * the given `format` and alpha mode (defaults to the canvas target's `alphaMode`).
  */
 export declare function getContext(contexts: WeakMap<CanvasTarget, GPUCanvasContext>, device: GPUDevice, canvasTarget: CanvasTarget, format: GPUTextureFormat, alphaMode?: GPUCanvasAlphaMode): GPUCanvasContext;

@@ -170,16 +170,18 @@ export class WebGPURenderer implements Renderer, RendererState {
         next?.setRenderer(this); // attach signal, new sets up
     }
 
-    /** The canvas dom element for the current canvas target. Throws in headless mode. */
+    /** The canvas for the current target — an `OffscreenCanvas` in worker/headless mode. */
+    get canvas(): HTMLCanvasElement | OffscreenCanvas {
+        return ops.canvas(this);
+    }
+
+    /**
+     * The canvas as a DOM element, for insertion into the page
+     * (`document.body.appendChild(renderer.domElement)`). Throws if the target is an `OffscreenCanvas`
+     * (worker/headless) — use {@link canvas} there.
+     */
     get domElement(): HTMLCanvasElement {
-        if (!this._canvasTarget) {
-            throw new Error(
-                '[WebGPURenderer] no canvas: renderer was created in headless mode. Render to a RenderTarget instead.',
-            );
-        }
-        // WebGPURenderer only ever receives an HTMLCanvasElement (its `canvas` option), so the shared
-        // CanvasTarget's widened union narrows back to HTMLCanvasElement here.
-        return this._canvasTarget.domElement as HTMLCanvasElement;
+        return ops.domElement(this);
     }
 
     // WebGPU device state — owned directly as fields (previously the backend
@@ -385,8 +387,8 @@ export class WebGPURenderer implements Renderer, RendererState {
         if (this._initialized) return this;
 
         // Resolve the initial swapchain size from the canvas target (1×1 in headless mode).
-        const width = this._canvasTarget ? this.domElement.width || 1 : 1;
-        const height = this._canvasTarget ? this.domElement.height || 1 : 1;
+        const width = this._canvasTarget ? this.canvas.width || 1 : 1;
+        const height = this._canvasTarget ? this.canvas.height || 1 : 1;
         await this._initDevice(this._canvasTarget, width, height);
 
         this._initialized = true;
@@ -549,7 +551,7 @@ export class WebGPURenderer implements Renderer, RendererState {
         if (this._isDeviceLost || !this._initialized) return;
         if (!this.renderTarget) {
             if (!this._canvasTarget) return;
-            if (this.domElement.width === 0 || this.domElement.height === 0) return;
+            if (this.canvas.width === 0 || this.canvas.height === 0) return;
         }
         const [cr, cg, cb, ca] = this.clearColor;
         RenderPass.clear(
@@ -819,7 +821,7 @@ export class WebGPURenderer implements Renderer, RendererState {
                 throw new Error('[WebGPURenderer] render() in headless mode requires renderer.renderTarget to be set.');
             }
             // Skip swapchain renders when canvas has zero dimensions (e.g. minimized or hidden).
-            if (this.domElement.width === 0 || this.domElement.height === 0) return;
+            if (this.canvas.width === 0 || this.canvas.height === 0) return;
         }
 
         // Stamp this renderer's clip-space convention onto the camera; rebuild the projection if it changed.
@@ -858,8 +860,8 @@ export class WebGPURenderer implements Renderer, RendererState {
 
         const samples = renderTarget?.samples ?? this.samples;
         const primaryColorFormat = renderTarget?.textures[0]?.format ?? this.format;
-        const width = renderTarget ? renderTarget.width : this.domElement.width || 1;
-        const height = renderTarget ? renderTarget.height : this.domElement.height || 1;
+        const width = renderTarget ? renderTarget.width : this.canvas.width || 1;
+        const height = renderTarget ? renderTarget.height : this.canvas.height || 1;
         const [cr, cg, cb, ca] = this.clearColor;
 
         if (inspector) {

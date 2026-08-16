@@ -10,8 +10,8 @@ export type CanvasTargetOptions = {
  * owned by the backend, not by this class.
  */
 export declare class CanvasTarget {
-    /** The canvas element this target wraps. An `OffscreenCanvas` is accepted for headless/worker use. */
-    readonly domElement: HTMLCanvasElement | OffscreenCanvas;
+    /** The canvas this target wraps. An `OffscreenCanvas` is accepted for headless/worker use. */
+    readonly canvas: HTMLCanvasElement | OffscreenCanvas;
     /**
      * True when this is the renderer's default (main) canvas target.
      * Set by the renderer after construction; the inspector preview targets are not default.
@@ -51,7 +51,7 @@ export declare class CanvasTarget {
     };
     /**
      * Set the size of the canvas in logical pixels.
-     * Updates domElement.width/height (physical) and fires 'resize'.
+     * Updates canvas.width/height (physical) and fires 'resize'.
      */
     setSize(width: number, height: number, updateStyle?: boolean): void;
     /**

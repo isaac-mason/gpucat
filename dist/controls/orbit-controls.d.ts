@@ -1,4 +1,4 @@
-import { type Vec3, type Vec2, type Quat, type Spherical } from 'mathcat';
+import { type Vec3, type Vec2, type Quat, type Spherical } from 'math';
 import type { Camera } from '../camera/camera';
 declare const STATE: {
     readonly NONE: -1;

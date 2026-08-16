@@ -1,4 +1,4 @@
-import type { Vec4 } from 'mathcat';
+import type { Vec4 } from 'math';
 import type { Camera } from '../../camera/camera';
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { Object3D } from '../../core/object3d';
@@ -129,7 +129,13 @@ export declare class WebGPURenderer implements Renderer, RendererState {
      * drops listeners).
      */
     setInspector(next: InspectorBase | null): void;
-    /** The canvas dom element for the current canvas target. Throws in headless mode. */
+    /** The canvas for the current target — an `OffscreenCanvas` in worker/headless mode. */
+    get canvas(): HTMLCanvasElement | OffscreenCanvas;
+    /**
+     * The canvas as a DOM element, for insertion into the page
+     * (`document.body.appendChild(renderer.domElement)`). Throws if the target is an `OffscreenCanvas`
+     * (worker/headless) — use {@link canvas} there.
+     */
     get domElement(): HTMLCanvasElement;
     /** The WebGPU GPU device in use. Assigned in `init()`. @internal */
     device: GPUDevice;

@@ -1,4 +1,4 @@
-import type { Vec4 } from 'mathcat';
+import type { Vec4 } from 'math';
 import { Texture } from '../texture/texture';
 import { DepthTexture, type DepthTextureFormat } from '../texture/depth-texture';
 import type { CubeTexture } from '../texture/cube-texture';

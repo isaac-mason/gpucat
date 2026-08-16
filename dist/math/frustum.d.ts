@@ -1,5 +1,5 @@
-import { type Mat4 } from 'mathcat';
-import { type Box3, type Plane3, type Sphere } from 'mathcat/shapes';
+import { type Mat4 } from 'math';
+import { type Box3, type Plane3, type Sphere } from 'math/shapes';
 import { CoordinateSystem } from '../core/coordinate-system';
 export type Frustum = [Plane3, Plane3, Plane3, Plane3, Plane3, Plane3];
 export declare function create(): Frustum;

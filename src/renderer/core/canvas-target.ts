@@ -12,8 +12,8 @@ export type CanvasTargetOptions = {
  * owned by the backend, not by this class.
  */
 export class CanvasTarget {
-    /** The canvas element this target wraps. An `OffscreenCanvas` is accepted for headless/worker use. */
-    readonly domElement: HTMLCanvasElement | OffscreenCanvas;
+    /** The canvas this target wraps. An `OffscreenCanvas` is accepted for headless/worker use. */
+    readonly canvas: HTMLCanvasElement | OffscreenCanvas;
 
     /**
      * True when this is the renderer's default (main) canvas target.
@@ -35,7 +35,7 @@ export class CanvasTarget {
     readonly alphaMode: CanvasAlphaMode;
 
     constructor(canvas: HTMLCanvasElement | OffscreenCanvas, opts: CanvasTargetOptions = {}) {
-        this.domElement = canvas;
+        this.canvas = canvas;
         this._width = canvas.width;
         this._height = canvas.height;
         this.alphaMode = opts.alphaMode ?? 'opaque';
@@ -76,19 +76,19 @@ export class CanvasTarget {
 
     /**
      * Set the size of the canvas in logical pixels.
-     * Updates domElement.width/height (physical) and fires 'resize'.
+     * Updates canvas.width/height (physical) and fires 'resize'.
      */
     setSize(width: number, height: number, updateStyle: boolean = true): void {
         this._width = width;
         this._height = height;
 
-        this.domElement.width = Math.floor(width * this._pixelRatio);
-        this.domElement.height = Math.floor(height * this._pixelRatio);
+        this.canvas.width = Math.floor(width * this._pixelRatio);
+        this.canvas.height = Math.floor(height * this._pixelRatio);
 
         // An OffscreenCanvas has no `.style` (no DOM presentation); guard the CSS-size writes.
-        if (updateStyle && 'style' in this.domElement) {
-            this.domElement.style.width = `${width}px`;
-            this.domElement.style.height = `${height}px`;
+        if (updateStyle && 'style' in this.canvas) {
+            this.canvas.style.width = `${width}px`;
+            this.canvas.style.height = `${height}px`;
         }
     }
 
@@ -100,8 +100,8 @@ export class CanvasTarget {
         this._height = height;
         this._pixelRatio = pixelRatio;
 
-        this.domElement.width = Math.floor(width * pixelRatio);
-        this.domElement.height = Math.floor(height * pixelRatio);
+        this.canvas.width = Math.floor(width * pixelRatio);
+        this.canvas.height = Math.floor(height * pixelRatio);
 
         this.setSize(width, height, false);
     }

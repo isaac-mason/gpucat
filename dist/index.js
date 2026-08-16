@@ -18,7 +18,7 @@ const EPSILON = 1e-6;
 *
 * @param a value to round
 */
-function round$2(a) {
+function round$1(a) {
 	if (a >= 0) return Math.round(a);
 	return a % .5 === 0 ? Math.floor(a) : Math.round(a);
 }
@@ -31,7 +31,7 @@ function round$2(a) {
 * @param b The second number to test.
 * @returns True if the numbers are approximately equal, false otherwise.
 */
-function equals$7(a, b, epsilon = EPSILON) {
+function equals$4(a, b, epsilon = EPSILON) {
 	return Math.abs(a - b) <= epsilon * Math.max(1, Math.abs(a), Math.abs(b));
 }
 /**
@@ -43,7 +43,7 @@ function equals$7(a, b, epsilon = EPSILON) {
 * @param t
 * @returns
 */
-function lerp$5(v0, v1, t) {
+function lerp$2(v0, v1, t) {
 	return v0 * (1 - t) + v1 * t;
 }
 /**
@@ -53,637 +53,40 @@ const clamp$2 = (value, min, max) => {
 	return Math.max(min, Math.min(max, value));
 };
 
-//#region src/core/vec2.ts
-var vec2_exports = /* @__PURE__ */ __exportAll({
-	add: () => add$6,
-	addScalar: () => addScalar$2,
-	angle: () => angle$1,
-	ceil: () => ceil$2,
-	clone: () => clone$7,
-	copy: () => copy$7,
-	create: () => create$8,
-	cross: () => cross$2,
-	dist: () => dist$1,
-	distance: () => distance$1,
-	div: () => div$2,
-	divide: () => divide$1,
-	dot: () => dot$4,
-	equals: () => equals$4,
-	exactEquals: () => exactEquals$7,
-	finite: () => finite$1,
-	floor: () => floor$2,
-	fromBuffer: () => fromBuffer$2,
-	fromValues: () => fromValues$7,
-	inverse: () => inverse$1,
-	len: () => len$2,
-	length: () => length$4,
-	lerp: () => lerp$2,
-	max: () => max$3,
-	min: () => min$3,
-	mul: () => mul$5,
-	multiply: () => multiply$5,
-	negate: () => negate$3,
-	normalize: () => normalize$6,
-	rotate: () => rotate$2,
-	round: () => round$1,
-	scale: () => scale$6,
-	scaleAndAdd: () => scaleAndAdd$1,
-	set: () => set$7,
-	sqrDist: () => sqrDist$1,
-	sqrLen: () => sqrLen$2,
-	squaredDistance: () => squaredDistance$1,
-	squaredLength: () => squaredLength$3,
-	str: () => str$5,
-	sub: () => sub$4,
-	subtract: () => subtract$3,
-	subtractScalar: () => subtractScalar$1,
-	toBuffer: () => toBuffer$2,
-	transformMat2: () => transformMat2,
-	transformMat2d: () => transformMat2d,
-	transformMat3: () => transformMat3$1,
-	transformMat4: () => transformMat4$2,
-	zero: () => zero$3
-});
-/**
-* Creates a new, empty vec2
-*
-* @returns a new 2D vector
-*/
-function create$8() {
-	return [0, 0];
-}
-/**
-* Creates a new vec2 initialized with values from an existing vector
-*
-* @param a vector to clone
-* @returns a new 2D vector
-*/
-function clone$7(a) {
-	return [a[0], a[1]];
-}
-/**
-* Creates a new vec2 initialized with the given values
-*
-* @param x X component
-* @param y Y component
-* @returns a new 2D vector
-*/
-function fromValues$7(x, y) {
-	return [x, y];
-}
-/**
-* Copy the values from one vec2 to another
-*
-* @param out the receiving vector
-* @param a the source vector
-* @returns out
-*/
-function copy$7(out, a) {
-	out[0] = a[0];
-	out[1] = a[1];
-	return out;
-}
-/**
-* Set the components of a vec2 to the given values
-*
-* @param out the receiving vector
-* @param x X component
-* @param y Y component
-* @returns out
-*/
-function set$7(out, x, y) {
-	out[0] = x;
-	out[1] = y;
-	return out;
-}
-/**
-* Sets the components of a vec2 from a buffer
-* @param out the receiving vector
-* @param buffer the source buffer
-* @param startIndex the starting index in the buffer
-* @returns out
-*/
-function fromBuffer$2(out, buffer, startIndex) {
-	out[0] = buffer[startIndex];
-	out[1] = buffer[startIndex + 1];
-	return out;
-}
-/**
-* Writes the components of a vec2 to a buffer
-* @param outBuffer The output buffer
-* @param vec The source vector
-* @param startIndex The starting index in the buffer
-* @returns The output buffer
-*/
-function toBuffer$2(outBuffer, vec, startIndex) {
-	outBuffer[startIndex] = vec[0];
-	outBuffer[startIndex + 1] = vec[1];
-	return outBuffer;
-}
-/**
-* Adds two vec2's
-*
-* @param out the receiving vector
-* @param a the first operand
-* @param b the second operand
-* @returns out
-*/
-function add$6(out, a, b) {
-	out[0] = a[0] + b[0];
-	out[1] = a[1] + b[1];
-	return out;
-}
-/**
-* Adds a scalar value to all components of a vec2
-*
-* @param out the receiving vector
-* @param a the source vector
-* @param b the scalar value to add
-* @returns out
-*/
-function addScalar$2(out, a, b) {
-	out[0] = a[0] + b;
-	out[1] = a[1] + b;
-	return out;
-}
-/**
-* Subtracts vector b from vector a
-*
-* @param out the receiving vector
-* @param a the first operand
-* @param b the second operand
-* @returns out
-*/
-function subtract$3(out, a, b) {
-	out[0] = a[0] - b[0];
-	out[1] = a[1] - b[1];
-	return out;
-}
-/**
-* Subtracts a scalar value from all components of a vec2
-*
-* @param out the receiving vector
-* @param a the source vector
-* @param b the scalar value to subtract
-* @returns out
-*/
-function subtractScalar$1(out, a, b) {
-	out[0] = a[0] - b;
-	out[1] = a[1] - b;
-	return out;
-}
-/**
-* Multiplies two vec2's
-*
-* @param out the receiving vector
-* @param a the first operand
-* @param b the second operand
-* @returns out
-*/
-function multiply$5(out, a, b) {
-	out[0] = a[0] * b[0];
-	out[1] = a[1] * b[1];
-	return out;
-}
-/**
-* Divides two vec2's
-*
-* @param out the receiving vector
-* @param a the first operand
-* @param b the second operand
-* @returns out
-*/
-function divide$1(out, a, b) {
-	out[0] = a[0] / b[0];
-	out[1] = a[1] / b[1];
-	return out;
-}
-/**
-* Math.ceil the components of a vec2
-*
-* @param out the receiving vector
-* @param a vector to ceil
-* @returns out
-*/
-function ceil$2(out, a) {
-	out[0] = Math.ceil(a[0]);
-	out[1] = Math.ceil(a[1]);
-	return out;
-}
-/**
-* Math.floor the components of a vec2
-*
-* @param out the receiving vector
-* @param a vector to floor
-* @returns out
-*/
-function floor$2(out, a) {
-	out[0] = Math.floor(a[0]);
-	out[1] = Math.floor(a[1]);
-	return out;
-}
-/**
-* Returns the minimum of two vec2's
-*
-* @param out the receiving vector
-* @param a the first operand
-* @param b the second operand
-* @returns out
-*/
-function min$3(out, a, b) {
-	out[0] = Math.min(a[0], b[0]);
-	out[1] = Math.min(a[1], b[1]);
-	return out;
-}
-/**
-* Returns the maximum of two vec2's
-*
-* @param out the receiving vector
-* @param a the first operand
-* @param b the second operand
-* @returns out
-*/
-function max$3(out, a, b) {
-	out[0] = Math.max(a[0], b[0]);
-	out[1] = Math.max(a[1], b[1]);
-	return out;
-}
-/**
-* symmetric round the components of a vec2
-*
-* @param out the receiving vector
-* @param a vector to round
-* @returns out
-*/
-function round$1(out, a) {
-	out[0] = round$2(a[0]);
-	out[1] = round$2(a[1]);
-	return out;
-}
-/**
-* Scales a vec2 by a scalar number
-*
-* @param out the receiving vector
-* @param a the vector to scale
-* @param b amount to scale the vector by
-* @returns out
-*/
-function scale$6(out, a, b) {
-	out[0] = a[0] * b;
-	out[1] = a[1] * b;
-	return out;
-}
-/**
-* Adds two vec2's after scaling the second operand by a scalar value
-*
-* @param out the receiving vector
-* @param a the first operand
-* @param b the second operand
-* @param scale the amount to scale b by before adding
-* @returns out
-*/
-function scaleAndAdd$1(out, a, b, scale) {
-	out[0] = a[0] + b[0] * scale;
-	out[1] = a[1] + b[1] * scale;
-	return out;
-}
-/**
-* Calculates the euclidian distance between two vec2's
-*
-* @param a the first operand
-* @param b the second operand
-* @returns distance between a and b
-*/
-function distance$1(a, b) {
-	const x = b[0] - a[0];
-	const y = b[1] - a[1];
-	return Math.sqrt(x * x + y * y);
-}
-/**
-* Calculates the squared euclidian distance between two vec2's
-*
-* @param a the first operand
-* @param b the second operand
-* @returns squared distance between a and b
-*/
-function squaredDistance$1(a, b) {
-	const x = b[0] - a[0];
-	const y = b[1] - a[1];
-	return x * x + y * y;
-}
-/**
-* Calculates the length of a vec2
-*
-* @param a vector to calculate length of
-* @returns length of a
-*/
-function length$4(a) {
-	const x = a[0];
-	const y = a[1];
-	return Math.sqrt(x * x + y * y);
-}
-/**
-* Calculates the squared length of a vec2
-*
-* @param a vector to calculate squared length of
-* @returns squared length of a
-*/
-function squaredLength$3(a) {
-	const x = a[0];
-	const y = a[1];
-	return x * x + y * y;
-}
-/**
-* Negates the components of a vec2
-*
-* @param out the receiving vector
-* @param a vector to negate
-* @returns out
-*/
-function negate$3(out, a) {
-	out[0] = -a[0];
-	out[1] = -a[1];
-	return out;
-}
-/**
-* Returns the inverse of the components of a vec2
-*
-* @param out the receiving vector
-* @param a vector to invert
-* @returns out
-*/
-function inverse$1(out, a) {
-	out[0] = 1 / a[0];
-	out[1] = 1 / a[1];
-	return out;
-}
-/**
-* Normalize a vec2
-*
-* @param out the receiving vector
-* @param a vector to normalize
-* @returns out
-*/
-function normalize$6(out, a) {
-	const x = a[0];
-	const y = a[1];
-	let len = x * x + y * y;
-	if (len > 0) len = 1 / Math.sqrt(len);
-	out[0] = a[0] * len;
-	out[1] = a[1] * len;
-	return out;
-}
-/**
-* Calculates the dot product of two vec2's
-*
-* @param a the first operand
-* @param b the second operand
-* @returns dot product of a and b
-*/
-function dot$4(a, b) {
-	return a[0] * b[0] + a[1] * b[1];
-}
-/**
-* Computes the cross product of two vec2's
-* Note that the cross product must by definition produce a 3D vector
-*
-* @param out the receiving vector
-* @param a the first operand
-* @param b the second operand
-* @returns out
-*/
-function cross$2(out, a, b) {
-	const z = a[0] * b[1] - a[1] * b[0];
-	out[0] = out[1] = 0;
-	out[2] = z;
-	return out;
-}
-/**
-* Performs a linear interpolation between two vec2's
-*
-* @param out the receiving vector
-* @param a the first operand
-* @param b the second operand
-* @param t interpolation amount, in the range [0-1], between the two inputs
-* @returns out
-*/
-function lerp$2(out, a, b, t) {
-	const ax = a[0];
-	const ay = a[1];
-	out[0] = ax + t * (b[0] - ax);
-	out[1] = ay + t * (b[1] - ay);
-	return out;
-}
-/**
-* Transforms the vec2 with a mat2
-*
-* @param out the receiving vector
-* @param a the vector to transform
-* @param m matrix to transform with
-* @returns out
-*/
-function transformMat2(out, a, m) {
-	const x = a[0];
-	const y = a[1];
-	out[0] = m[0] * x + m[2] * y;
-	out[1] = m[1] * x + m[3] * y;
-	return out;
-}
-/**
-* Transforms the vec2 with a mat2d
-*
-* @param out the receiving vector
-* @param a the vector to transform
-* @param m matrix to transform with
-* @returns out
-*/
-function transformMat2d(out, a, m) {
-	const x = a[0];
-	const y = a[1];
-	out[0] = m[0] * x + m[2] * y + m[4];
-	out[1] = m[1] * x + m[3] * y + m[5];
-	return out;
-}
-/**
-* Transforms the vec2 with a mat3
-* 3rd vector component is implicitly '1'
-*
-* @param out the receiving vector
-* @param a the vector to transform
-* @param m matrix to transform with
-* @returns out
-*/
-function transformMat3$1(out, a, m) {
-	const x = a[0];
-	const y = a[1];
-	out[0] = m[0] * x + m[3] * y + m[6];
-	out[1] = m[1] * x + m[4] * y + m[7];
-	return out;
-}
-/**
-* Transforms the vec2 with a mat4
-* 3rd vector component is implicitly '0'
-* 4th vector component is implicitly '1'
-*
-* @param out the receiving vector
-* @param a the vector to transform
-* @param m matrix to transform with
-* @returns out
-*/
-function transformMat4$2(out, a, m) {
-	const x = a[0];
-	const y = a[1];
-	out[0] = m[0] * x + m[4] * y + m[12];
-	out[1] = m[1] * x + m[5] * y + m[13];
-	return out;
-}
-/**
-* Rotate a 2D vector
-* @param out The receiving vec2
-* @param a The vec2 point to rotate
-* @param b The origin of the rotation
-* @param rad The angle of rotation in radians
-* @returns out
-*/
-function rotate$2(out, a, b, rad) {
-	const p0 = a[0] - b[0];
-	const p1 = a[1] - b[1];
-	const sinC = Math.sin(rad);
-	const cosC = Math.cos(rad);
-	out[0] = p0 * cosC - p1 * sinC + b[0];
-	out[1] = p0 * sinC + p1 * cosC + b[1];
-	return out;
-}
-/**
-* Get the angle between two 2D vectors
-* @param a The first operand
-* @param b The second operand
-* @returns The angle in radians
-*/
-function angle$1(a, b) {
-	const x1 = a[0];
-	const y1 = a[1];
-	const x2 = b[0];
-	const y2 = b[1];
-	const mag = Math.sqrt((x1 * x1 + y1 * y1) * (x2 * x2 + y2 * y2));
-	const cosine = mag && (x1 * x2 + y1 * y2) / mag;
-	return Math.acos(Math.min(Math.max(cosine, -1), 1));
-}
-/**
-* Set the components of a vec2 to zero
-*
-* @param out the receiving vector
-* @returns out
-*/
-function zero$3(out) {
-	out[0] = 0;
-	out[1] = 0;
-	return out;
-}
-/**
-* Returns a string representation of a vector
-*
-* @param a vector to represent as a string
-* @returns string representation of the vector
-*/
-function str$5(a) {
-	return `vec2(${a[0]}, ${a[1]})`;
-}
-/**
-* Returns whether or not the vectors exactly have the same elements in the same position (when compared with ===)
-*
-* @param a The first vector.
-* @param b The second vector.
-* @returns True if the vectors are equal, false otherwise.
-*/
-function exactEquals$7(a, b) {
-	return a[0] === b[0] && a[1] === b[1];
-}
-/**
-* Returns whether or not the vectors have approximately the same elements in the same position.
-*
-* @param a The first vector.
-* @param b The second vector.
-* @returns True if the vectors are equal, false otherwise.
-*/
-function equals$4(a, b) {
-	const a0 = a[0];
-	const a1 = a[1];
-	const b0 = b[0];
-	const b1 = b[1];
-	return Math.abs(a0 - b0) <= 1e-6 * Math.max(1, Math.abs(a0), Math.abs(b0)) && Math.abs(a1 - b1) <= 1e-6 * Math.max(1, Math.abs(a1), Math.abs(b1));
-}
-/**
-* Returns whether or not the vector is finite
-* @param a vector to test
-* @returns whether or not the vector is finite
-*/
-function finite$1(a) {
-	return Number.isFinite(a[0]) && Number.isFinite(a[1]);
-}
-/**
-* Alias for {@link length}
-*/
-const len$2 = length$4;
-/**
-* Alias for {@link subtract}
-*/
-const sub$4 = subtract$3;
-/**
-* Alias for {@link multiply}
-*/
-const mul$5 = multiply$5;
-/**
-* Alias for {@link divide}
-*/
-const div$2 = divide$1;
-/**
-* Alias for {@link distance}
-*/
-const dist$1 = distance$1;
-/**
-* Alias for {@link squaredDistance}
-*/
-const sqrDist$1 = squaredDistance$1;
-/**
-* Alias for {@link squaredLength}
-*/
-const sqrLen$2 = squaredLength$3;
-
 //#region src/core/vec3.ts
 var vec3_exports = /* @__PURE__ */ __exportAll({
 	add: () => add$2,
-	addScalar: () => addScalar$1,
-	angle: () => angle,
+	addScalar: () => addScalar$2,
+	angle: () => angle$1,
 	bezier: () => bezier,
-	ceil: () => ceil$1,
+	ceil: () => ceil$2,
 	clone: () => clone$2$1,
 	copy: () => copy$2$1,
 	create: () => create$2$1,
-	cross: () => cross$1,
+	cross: () => cross$2,
 	dist: () => dist,
 	distance: () => distance,
-	div: () => div$1,
+	div: () => div$2,
 	divide: () => divide,
-	dot: () => dot$3,
+	dot: () => dot$4,
 	equals: () => equals$2$1,
 	exactEquals: () => exactEquals$2$1,
 	finite: () => finite,
-	floor: () => floor$1,
+	floor: () => floor$2,
 	fromBuffer: () => fromBuffer$1,
 	fromValues: () => fromValues$2,
 	hermite: () => hermite,
 	inverse: () => inverse,
 	isScaleInsideOut: () => isScaleInsideOut,
 	len: () => len,
-	length: () => length$3,
+	length: () => length$4,
 	lerp: () => lerp,
 	max: () => max$2,
 	min: () => min$2,
 	mul: () => mul$2,
 	multiply: () => multiply$2,
 	negate: () => negate$2,
-	normalize: () => normalize$5,
+	normalize: () => normalize$6,
 	perpendicular: () => perpendicular,
 	rotateX: () => rotateX$1$1,
 	rotateY: () => rotateY$1$1,
@@ -701,10 +104,10 @@ var vec3_exports = /* @__PURE__ */ __exportAll({
 	str: () => str$2,
 	sub: () => sub$2,
 	subtract: () => subtract$2,
-	subtractScalar: () => subtractScalar,
+	subtractScalar: () => subtractScalar$1,
 	toBuffer: () => toBuffer$1,
-	transformMat3: () => transformMat3,
-	transformMat4: () => transformMat4$1,
+	transformMat3: () => transformMat3$1,
+	transformMat4: () => transformMat4$2,
 	transformQuat: () => transformQuat,
 	zero: () => zero$2
 });
@@ -743,7 +146,7 @@ function clone$2$1(a) {
 * @param a vector to calculate length of
 * @returns length of a
 */
-function length$3(a) {
+function length$4(a) {
 	const x = a[0];
 	const y = a[1];
 	const z = a[2];
@@ -857,7 +260,7 @@ function add$2(out, a, b) {
 * @param b the scalar value to add
 * @returns out
 */
-function addScalar$1(out, a, b) {
+function addScalar$2(out, a, b) {
 	out[0] = a[0] + b;
 	out[1] = a[1] + b;
 	out[2] = a[2] + b;
@@ -885,7 +288,7 @@ function subtract$2(out, a, b) {
 * @param b the scalar value to subtract
 * @returns out
 */
-function subtractScalar(out, a, b) {
+function subtractScalar$1(out, a, b) {
 	out[0] = a[0] - b;
 	out[1] = a[1] - b;
 	out[2] = a[2] - b;
@@ -926,7 +329,7 @@ function divide(out, a, b) {
 * @param a vector to ceil
 * @returns out
 */
-function ceil$1(out, a) {
+function ceil$2(out, a) {
 	out[0] = Math.ceil(a[0]);
 	out[1] = Math.ceil(a[1]);
 	out[2] = Math.ceil(a[2]);
@@ -939,7 +342,7 @@ function ceil$1(out, a) {
 * @param a vector to floor
 * @returns out
 */
-function floor$1(out, a) {
+function floor$2(out, a) {
 	out[0] = Math.floor(a[0]);
 	out[1] = Math.floor(a[1]);
 	out[2] = Math.floor(a[2]);
@@ -981,9 +384,9 @@ function max$2(out, a, b) {
 * @returns out
 */
 function round(out, a) {
-	out[0] = round$2(a[0]);
-	out[1] = round$2(a[1]);
-	out[2] = round$2(a[2]);
+	out[0] = round$1(a[0]);
+	out[1] = round$1(a[1]);
+	out[2] = round$1(a[2]);
 	return out;
 }
 /**
@@ -1086,7 +489,7 @@ function inverse(out, a) {
 * @param a vector to normalize
 * @returns out
 */
-function normalize$5(out, a) {
+function normalize$6(out, a) {
 	const x = a[0];
 	const y = a[1];
 	const z = a[2];
@@ -1104,7 +507,7 @@ function normalize$5(out, a) {
 * @param b the second operand
 * @returns dot product of a and b
 */
-function dot$3(a, b) {
+function dot$4(a, b) {
 	return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
 }
 /**
@@ -1115,7 +518,7 @@ function dot$3(a, b) {
 * @param b the second operand
 * @returns out
 */
-function cross$1(out, a, b) {
+function cross$2(out, a, b) {
 	const ax = a[0];
 	const ay = a[1];
 	const az = a[2];
@@ -1177,7 +580,7 @@ function lerp(out, a, b, t) {
 * @returns out
 */
 function slerp$1(out, a, b, t) {
-	const angle = Math.acos(Math.min(Math.max(dot$3(a, b), -1), 1));
+	const angle = Math.acos(Math.min(Math.max(dot$4(a, b), -1), 1));
 	const sinTotal = Math.sin(angle);
 	const ratioA = Math.sin((1 - t) * angle) / sinTotal;
 	const ratioB = Math.sin(t * angle) / sinTotal;
@@ -1241,7 +644,7 @@ function bezier(out, a, b, c, d, t) {
 * @param m matrix to transform with
 * @returns out
 */
-function transformMat4$1(out, a, m) {
+function transformMat4$2(out, a, m) {
 	const x = a[0];
 	const y = a[1];
 	const z = a[2];
@@ -1260,7 +663,7 @@ function transformMat4$1(out, a, m) {
 * @param m the 3x3 matrix to transform with
 * @returns out
 */
-function transformMat3(out, a, m) {
+function transformMat3$1(out, a, m) {
 	const x = a[0];
 	const y = a[1];
 	const z = a[2];
@@ -1376,7 +779,7 @@ function rotateZ$1$1(out, a, b, rad) {
 * @param b The second operand
 * @returns The angle in radians
 */
-function angle(a, b) {
+function angle$1(a, b) {
 	const ax = a[0];
 	const ay = a[1];
 	const az = a[2];
@@ -1384,7 +787,7 @@ function angle(a, b) {
 	const by = b[1];
 	const bz = b[2];
 	const mag = Math.sqrt((ax * ax + ay * ay + az * az) * (bx * bx + by * by + bz * bz));
-	const cosine = mag && dot$3(a, b) / mag;
+	const cosine = mag && dot$4(a, b) / mag;
 	return Math.acos(Math.min(Math.max(cosine, -1), 1));
 }
 /**
@@ -1470,7 +873,7 @@ const mul$2 = multiply$2;
 /**
 * Alias for {@link divide}
 */
-const div$1 = divide;
+const div$2 = divide;
 /**
 * Alias for {@link distance}
 */
@@ -1482,7 +885,7 @@ const sqrDist = squaredDistance;
 /**
 * Alias for {@link length}
 */
-const len = length$3;
+const len = length$4;
 /**
 * Alias for {@link squaredLength}
 */
@@ -1548,7 +951,7 @@ var mat4_exports = /* @__PURE__ */ __exportAll({
 	targetTo: () => targetTo,
 	translate: () => translate$1,
 	transpose: () => transpose$1,
-	zero: () => zero$1
+	zero: () => zero$1$1
 });
 /**
 * Creates a new identity mat4
@@ -1740,7 +1143,7 @@ function identity$1(out) {
 * @param out the receiving matrix
 * @returns out
 */
-function zero$1(out) {
+function zero$1$1(out) {
 	out[0] = 0;
 	out[1] = 0;
 	out[2] = 0;
@@ -3711,11 +3114,11 @@ const sub$1$1 = subtract$1;
 //#endregion
 //#region src/core/mat3.ts
 var mat3_exports = /* @__PURE__ */ __exportAll({
-	add: () => add$5,
+	add: () => add$6,
 	adjoint: () => adjoint,
-	clone: () => clone$6,
-	copy: () => copy$6,
-	create: () => create$7,
+	clone: () => clone$7,
+	copy: () => copy$7,
+	create: () => create$8,
 	determinant: () => determinant,
 	equals: () => equals$3,
 	exactEquals: () => exactEquals$3,
@@ -3739,7 +3142,7 @@ var mat3_exports = /* @__PURE__ */ __exportAll({
 	scale: () => scale$3,
 	set: () => set$3,
 	str: () => str$3,
-	sub: () => sub$3,
+	sub: () => sub$4,
 	subtract: () => subtract,
 	translate: () => translate,
 	transpose: () => transpose$2,
@@ -3750,7 +3153,7 @@ var mat3_exports = /* @__PURE__ */ __exportAll({
 *
 * @returns a new 3x3 matrix
 */
-function create$7() {
+function create$8() {
 	return [
 		1,
 		0,
@@ -3788,8 +3191,8 @@ function fromMat4(out, a) {
 * @param a matrix to clone
 * @returns a new 3x3 matrix
 */
-function clone$6(a) {
-	const out = create$7();
+function clone$7(a) {
+	const out = create$8();
 	out[0] = a[0];
 	out[1] = a[1];
 	out[2] = a[2];
@@ -3808,7 +3211,7 @@ function clone$6(a) {
 * @param a the source matrix
 * @returns out
 */
-function copy$6(out, a) {
+function copy$7(out, a) {
 	out[0] = a[0];
 	out[1] = a[1];
 	out[2] = a[2];
@@ -3835,7 +3238,7 @@ function copy$6(out, a) {
 * @returns A new mat3
 */
 function fromValues$3(m00, m01, m02, m10, m11, m12, m20, m21, m22) {
-	const out = create$7();
+	const out = create$8();
 	out[0] = m00;
 	out[1] = m01;
 	out[2] = m02;
@@ -4366,7 +3769,7 @@ function frob(a) {
 * @param b the second operand
 * @returns out
 */
-function add$5(out, a, b) {
+function add$6(out, a, b) {
 	out[0] = a[0] + b[0];
 	out[1] = a[1] + b[1];
 	out[2] = a[2] + b[2];
@@ -4486,8 +3889,604 @@ const mul$4 = multiply$4;
 * Alias for {@link mat3.subtract}
 * @function
 */
-const sub$3 = subtract;
+const sub$4 = subtract;
 
+//#region src/core/vec2.ts
+var vec2_exports = /* @__PURE__ */ __exportAll({
+	add: () => add$5,
+	addScalar: () => addScalar$1,
+	angle: () => angle,
+	ceil: () => ceil$1,
+	clone: () => clone$6,
+	copy: () => copy$6,
+	create: () => create$7,
+	cross: () => cross$1,
+	dist: () => dist$1,
+	distance: () => distance$1,
+	div: () => div$1,
+	divide: () => divide$1,
+	dot: () => dot$3,
+	equals: () => equals$8,
+	exactEquals: () => exactEquals$7,
+	finite: () => finite$1,
+	floor: () => floor$1,
+	fromBuffer: () => fromBuffer$2,
+	fromValues: () => fromValues$7,
+	inverse: () => inverse$1,
+	len: () => len$3,
+	length: () => length$3,
+	lerp: () => lerp$5,
+	max: () => max$1$1,
+	min: () => min$1$1,
+	mul: () => mul$5,
+	multiply: () => multiply$5,
+	negate: () => negate$1$1,
+	normalize: () => normalize$4,
+	rotate: () => rotate$2,
+	round: () => round$2,
+	scale: () => scale$6,
+	scaleAndAdd: () => scaleAndAdd$1,
+	set: () => set$7,
+	sqrDist: () => sqrDist$1,
+	sqrLen: () => sqrLen$3,
+	squaredDistance: () => squaredDistance$1,
+	squaredLength: () => squaredLength$3,
+	str: () => str$6,
+	sub: () => sub$3,
+	subtract: () => subtract$3,
+	subtractScalar: () => subtractScalar,
+	toBuffer: () => toBuffer$2,
+	transformMat2: () => transformMat2,
+	transformMat2d: () => transformMat2d,
+	transformMat3: () => transformMat3,
+	transformMat4: () => transformMat4$1,
+	zero: () => zero$1
+});
+/**
+* Creates a new, empty vec2
+*
+* @returns a new 2D vector
+*/
+function create$7() {
+	return [0, 0];
+}
+/**
+* Creates a new vec2 initialized with values from an existing vector
+*
+* @param a vector to clone
+* @returns a new 2D vector
+*/
+function clone$6(a) {
+	return [a[0], a[1]];
+}
+/**
+* Creates a new vec2 initialized with the given values
+*
+* @param x X component
+* @param y Y component
+* @returns a new 2D vector
+*/
+function fromValues$7(x, y) {
+	return [x, y];
+}
+/**
+* Copy the values from one vec2 to another
+*
+* @param out the receiving vector
+* @param a the source vector
+* @returns out
+*/
+function copy$6(out, a) {
+	out[0] = a[0];
+	out[1] = a[1];
+	return out;
+}
+/**
+* Set the components of a vec2 to the given values
+*
+* @param out the receiving vector
+* @param x X component
+* @param y Y component
+* @returns out
+*/
+function set$7(out, x, y) {
+	out[0] = x;
+	out[1] = y;
+	return out;
+}
+/**
+* Sets the components of a vec2 from a buffer
+* @param out the receiving vector
+* @param buffer the source buffer
+* @param startIndex the starting index in the buffer
+* @returns out
+*/
+function fromBuffer$2(out, buffer, startIndex) {
+	out[0] = buffer[startIndex];
+	out[1] = buffer[startIndex + 1];
+	return out;
+}
+/**
+* Writes the components of a vec2 to a buffer
+* @param outBuffer The output buffer
+* @param vec The source vector
+* @param startIndex The starting index in the buffer
+* @returns The output buffer
+*/
+function toBuffer$2(outBuffer, vec, startIndex) {
+	outBuffer[startIndex] = vec[0];
+	outBuffer[startIndex + 1] = vec[1];
+	return outBuffer;
+}
+/**
+* Adds two vec2's
+*
+* @param out the receiving vector
+* @param a the first operand
+* @param b the second operand
+* @returns out
+*/
+function add$5(out, a, b) {
+	out[0] = a[0] + b[0];
+	out[1] = a[1] + b[1];
+	return out;
+}
+/**
+* Adds a scalar value to all components of a vec2
+*
+* @param out the receiving vector
+* @param a the source vector
+* @param b the scalar value to add
+* @returns out
+*/
+function addScalar$1(out, a, b) {
+	out[0] = a[0] + b;
+	out[1] = a[1] + b;
+	return out;
+}
+/**
+* Subtracts vector b from vector a
+*
+* @param out the receiving vector
+* @param a the first operand
+* @param b the second operand
+* @returns out
+*/
+function subtract$3(out, a, b) {
+	out[0] = a[0] - b[0];
+	out[1] = a[1] - b[1];
+	return out;
+}
+/**
+* Subtracts a scalar value from all components of a vec2
+*
+* @param out the receiving vector
+* @param a the source vector
+* @param b the scalar value to subtract
+* @returns out
+*/
+function subtractScalar(out, a, b) {
+	out[0] = a[0] - b;
+	out[1] = a[1] - b;
+	return out;
+}
+/**
+* Multiplies two vec2's
+*
+* @param out the receiving vector
+* @param a the first operand
+* @param b the second operand
+* @returns out
+*/
+function multiply$5(out, a, b) {
+	out[0] = a[0] * b[0];
+	out[1] = a[1] * b[1];
+	return out;
+}
+/**
+* Divides two vec2's
+*
+* @param out the receiving vector
+* @param a the first operand
+* @param b the second operand
+* @returns out
+*/
+function divide$1(out, a, b) {
+	out[0] = a[0] / b[0];
+	out[1] = a[1] / b[1];
+	return out;
+}
+/**
+* Math.ceil the components of a vec2
+*
+* @param out the receiving vector
+* @param a vector to ceil
+* @returns out
+*/
+function ceil$1(out, a) {
+	out[0] = Math.ceil(a[0]);
+	out[1] = Math.ceil(a[1]);
+	return out;
+}
+/**
+* Math.floor the components of a vec2
+*
+* @param out the receiving vector
+* @param a vector to floor
+* @returns out
+*/
+function floor$1(out, a) {
+	out[0] = Math.floor(a[0]);
+	out[1] = Math.floor(a[1]);
+	return out;
+}
+/**
+* Returns the minimum of two vec2's
+*
+* @param out the receiving vector
+* @param a the first operand
+* @param b the second operand
+* @returns out
+*/
+function min$1$1(out, a, b) {
+	out[0] = Math.min(a[0], b[0]);
+	out[1] = Math.min(a[1], b[1]);
+	return out;
+}
+/**
+* Returns the maximum of two vec2's
+*
+* @param out the receiving vector
+* @param a the first operand
+* @param b the second operand
+* @returns out
+*/
+function max$1$1(out, a, b) {
+	out[0] = Math.max(a[0], b[0]);
+	out[1] = Math.max(a[1], b[1]);
+	return out;
+}
+/**
+* symmetric round the components of a vec2
+*
+* @param out the receiving vector
+* @param a vector to round
+* @returns out
+*/
+function round$2(out, a) {
+	out[0] = round$1(a[0]);
+	out[1] = round$1(a[1]);
+	return out;
+}
+/**
+* Scales a vec2 by a scalar number
+*
+* @param out the receiving vector
+* @param a the vector to scale
+* @param b amount to scale the vector by
+* @returns out
+*/
+function scale$6(out, a, b) {
+	out[0] = a[0] * b;
+	out[1] = a[1] * b;
+	return out;
+}
+/**
+* Adds two vec2's after scaling the second operand by a scalar value
+*
+* @param out the receiving vector
+* @param a the first operand
+* @param b the second operand
+* @param scale the amount to scale b by before adding
+* @returns out
+*/
+function scaleAndAdd$1(out, a, b, scale) {
+	out[0] = a[0] + b[0] * scale;
+	out[1] = a[1] + b[1] * scale;
+	return out;
+}
+/**
+* Calculates the euclidian distance between two vec2's
+*
+* @param a the first operand
+* @param b the second operand
+* @returns distance between a and b
+*/
+function distance$1(a, b) {
+	const x = b[0] - a[0];
+	const y = b[1] - a[1];
+	return Math.sqrt(x * x + y * y);
+}
+/**
+* Calculates the squared euclidian distance between two vec2's
+*
+* @param a the first operand
+* @param b the second operand
+* @returns squared distance between a and b
+*/
+function squaredDistance$1(a, b) {
+	const x = b[0] - a[0];
+	const y = b[1] - a[1];
+	return x * x + y * y;
+}
+/**
+* Calculates the length of a vec2
+*
+* @param a vector to calculate length of
+* @returns length of a
+*/
+function length$3(a) {
+	const x = a[0];
+	const y = a[1];
+	return Math.sqrt(x * x + y * y);
+}
+/**
+* Calculates the squared length of a vec2
+*
+* @param a vector to calculate squared length of
+* @returns squared length of a
+*/
+function squaredLength$3(a) {
+	const x = a[0];
+	const y = a[1];
+	return x * x + y * y;
+}
+/**
+* Negates the components of a vec2
+*
+* @param out the receiving vector
+* @param a vector to negate
+* @returns out
+*/
+function negate$1$1(out, a) {
+	out[0] = -a[0];
+	out[1] = -a[1];
+	return out;
+}
+/**
+* Returns the inverse of the components of a vec2
+*
+* @param out the receiving vector
+* @param a vector to invert
+* @returns out
+*/
+function inverse$1(out, a) {
+	out[0] = 1 / a[0];
+	out[1] = 1 / a[1];
+	return out;
+}
+/**
+* Normalize a vec2
+*
+* @param out the receiving vector
+* @param a vector to normalize
+* @returns out
+*/
+function normalize$4(out, a) {
+	const x = a[0];
+	const y = a[1];
+	let len = x * x + y * y;
+	if (len > 0) len = 1 / Math.sqrt(len);
+	out[0] = a[0] * len;
+	out[1] = a[1] * len;
+	return out;
+}
+/**
+* Calculates the dot product of two vec2's
+*
+* @param a the first operand
+* @param b the second operand
+* @returns dot product of a and b
+*/
+function dot$3(a, b) {
+	return a[0] * b[0] + a[1] * b[1];
+}
+/**
+* Computes the cross product of two vec2's
+* Note that the cross product must by definition produce a 3D vector
+*
+* @param out the receiving vector
+* @param a the first operand
+* @param b the second operand
+* @returns out
+*/
+function cross$1(out, a, b) {
+	const z = a[0] * b[1] - a[1] * b[0];
+	out[0] = out[1] = 0;
+	out[2] = z;
+	return out;
+}
+/**
+* Performs a linear interpolation between two vec2's
+*
+* @param out the receiving vector
+* @param a the first operand
+* @param b the second operand
+* @param t interpolation amount, in the range [0-1], between the two inputs
+* @returns out
+*/
+function lerp$5(out, a, b, t) {
+	const ax = a[0];
+	const ay = a[1];
+	out[0] = ax + t * (b[0] - ax);
+	out[1] = ay + t * (b[1] - ay);
+	return out;
+}
+/**
+* Transforms the vec2 with a mat2
+*
+* @param out the receiving vector
+* @param a the vector to transform
+* @param m matrix to transform with
+* @returns out
+*/
+function transformMat2(out, a, m) {
+	const x = a[0];
+	const y = a[1];
+	out[0] = m[0] * x + m[2] * y;
+	out[1] = m[1] * x + m[3] * y;
+	return out;
+}
+/**
+* Transforms the vec2 with a mat2d
+*
+* @param out the receiving vector
+* @param a the vector to transform
+* @param m matrix to transform with
+* @returns out
+*/
+function transformMat2d(out, a, m) {
+	const x = a[0];
+	const y = a[1];
+	out[0] = m[0] * x + m[2] * y + m[4];
+	out[1] = m[1] * x + m[3] * y + m[5];
+	return out;
+}
+/**
+* Transforms the vec2 with a mat3
+* 3rd vector component is implicitly '1'
+*
+* @param out the receiving vector
+* @param a the vector to transform
+* @param m matrix to transform with
+* @returns out
+*/
+function transformMat3(out, a, m) {
+	const x = a[0];
+	const y = a[1];
+	out[0] = m[0] * x + m[3] * y + m[6];
+	out[1] = m[1] * x + m[4] * y + m[7];
+	return out;
+}
+/**
+* Transforms the vec2 with a mat4
+* 3rd vector component is implicitly '0'
+* 4th vector component is implicitly '1'
+*
+* @param out the receiving vector
+* @param a the vector to transform
+* @param m matrix to transform with
+* @returns out
+*/
+function transformMat4$1(out, a, m) {
+	const x = a[0];
+	const y = a[1];
+	out[0] = m[0] * x + m[4] * y + m[12];
+	out[1] = m[1] * x + m[5] * y + m[13];
+	return out;
+}
+/**
+* Rotate a 2D vector
+* @param out The receiving vec2
+* @param a The vec2 point to rotate
+* @param b The origin of the rotation
+* @param rad The angle of rotation in radians
+* @returns out
+*/
+function rotate$2(out, a, b, rad) {
+	const p0 = a[0] - b[0];
+	const p1 = a[1] - b[1];
+	const sinC = Math.sin(rad);
+	const cosC = Math.cos(rad);
+	out[0] = p0 * cosC - p1 * sinC + b[0];
+	out[1] = p0 * sinC + p1 * cosC + b[1];
+	return out;
+}
+/**
+* Get the angle between two 2D vectors
+* @param a The first operand
+* @param b The second operand
+* @returns The angle in radians
+*/
+function angle(a, b) {
+	const x1 = a[0];
+	const y1 = a[1];
+	const x2 = b[0];
+	const y2 = b[1];
+	const mag = Math.sqrt((x1 * x1 + y1 * y1) * (x2 * x2 + y2 * y2));
+	const cosine = mag && (x1 * x2 + y1 * y2) / mag;
+	return Math.acos(Math.min(Math.max(cosine, -1), 1));
+}
+/**
+* Set the components of a vec2 to zero
+*
+* @param out the receiving vector
+* @returns out
+*/
+function zero$1(out) {
+	out[0] = 0;
+	out[1] = 0;
+	return out;
+}
+/**
+* Returns a string representation of a vector
+*
+* @param a vector to represent as a string
+* @returns string representation of the vector
+*/
+function str$6(a) {
+	return `vec2(${a[0]}, ${a[1]})`;
+}
+/**
+* Returns whether or not the vectors exactly have the same elements in the same position (when compared with ===)
+*
+* @param a The first vector.
+* @param b The second vector.
+* @returns True if the vectors are equal, false otherwise.
+*/
+function exactEquals$7(a, b) {
+	return a[0] === b[0] && a[1] === b[1];
+}
+/**
+* Returns whether or not the vectors have approximately the same elements in the same position.
+*
+* @param a The first vector.
+* @param b The second vector.
+* @returns True if the vectors are equal, false otherwise.
+*/
+function equals$8(a, b) {
+	const a0 = a[0];
+	const a1 = a[1];
+	const b0 = b[0];
+	const b1 = b[1];
+	return Math.abs(a0 - b0) <= 1e-6 * Math.max(1, Math.abs(a0), Math.abs(b0)) && Math.abs(a1 - b1) <= 1e-6 * Math.max(1, Math.abs(a1), Math.abs(b1));
+}
+/**
+* Returns whether or not the vector is finite
+* @param a vector to test
+* @returns whether or not the vector is finite
+*/
+function finite$1(a) {
+	return Number.isFinite(a[0]) && Number.isFinite(a[1]);
+}
+/**
+* Alias for {@link length}
+*/
+const len$3 = length$3;
+/**
+* Alias for {@link subtract}
+*/
+const sub$3 = subtract$3;
+/**
+* Alias for {@link multiply}
+*/
+const mul$5 = multiply$5;
+/**
+* Alias for {@link divide}
+*/
+const div$1 = divide$1;
+/**
+* Alias for {@link distance}
+*/
+const dist$1 = distance$1;
+/**
+* Alias for {@link squaredDistance}
+*/
+const sqrDist$1 = squaredDistance$1;
+/**
+* Alias for {@link squaredLength}
+*/
+const sqrLen$3 = squaredLength$3;
 /**
 * Creates a new, empty vec4
 *
@@ -5123,7 +5122,7 @@ function fromMat3(out, m) {
 * @returns out
 */
 function fromMat4$1(out, m) {
-	const m3 = create$7();
+	const m3 = create$8();
 	fromMat4(m3, m);
 	return fromMat3(out, m3);
 }
@@ -5360,11 +5359,11 @@ const rotationTo = /* @__PURE__ */ (() => {
 	const xUnitVec3 = fromValues$2(1, 0, 0);
 	const yUnitVec3 = fromValues$2(0, 1, 0);
 	return (out, a, b) => {
-		const dot = dot$3(a, b);
+		const dot = dot$4(a, b);
 		if (dot < -0.999999) {
-			cross$1(tmpvec3, xUnitVec3, a);
-			if (length$3(tmpvec3) < 1e-6) cross$1(tmpvec3, yUnitVec3, a);
-			normalize$5(tmpvec3, tmpvec3);
+			cross$2(tmpvec3, xUnitVec3, a);
+			if (length$4(tmpvec3) < 1e-6) cross$2(tmpvec3, yUnitVec3, a);
+			normalize$6(tmpvec3, tmpvec3);
 			setAxisAngle(out, tmpvec3, Math.PI);
 			return out;
 		}
@@ -5375,7 +5374,7 @@ const rotationTo = /* @__PURE__ */ (() => {
 			out[3] = 1;
 			return out;
 		}
-		cross$1(tmpvec3, a, b);
+		cross$2(tmpvec3, a, b);
 		out[0] = tmpvec3[0];
 		out[1] = tmpvec3[1];
 		out[2] = tmpvec3[2];
@@ -5415,7 +5414,7 @@ const sqlerp = /* @__PURE__ */ (() => {
 * @returns out
 */
 const setAxes = /* @__PURE__ */ (() => {
-	const matr = create$7();
+	const matr = create$8();
 	return (out, view, right, up) => {
 		matr[0] = right[0];
 		matr[3] = right[1];
@@ -5648,7 +5647,7 @@ var spherical_exports = /* @__PURE__ */ __exportAll({
 	fromVec3: () => fromVec3,
 	lerp: () => lerp$1$1,
 	makeSafe: () => makeSafe,
-	normalize: () => normalize$4,
+	normalize: () => normalize$5,
 	scale: () => scale$1,
 	set: () => set,
 	setFromVec3: () => setFromVec3,
@@ -5677,15 +5676,11 @@ function create$3() {
 * @returns a new Spherical
 */
 function fromValues(r, theta, phi) {
-	const out = [
-		0,
-		0,
-		0
+	return [
+		r,
+		theta,
+		phi
 	];
-	out[0] = r;
-	out[1] = theta;
-	out[2] = phi;
-	return out;
 }
 /**
 * Creates a new Spherical initialized with values from an existing one
@@ -5694,15 +5689,11 @@ function fromValues(r, theta, phi) {
 * @returns a new Spherical
 */
 function clone$3(a) {
-	const out = [
-		0,
-		0,
-		0
+	return [
+		a[0],
+		a[1],
+		a[2]
 	];
-	out[0] = a[0];
-	out[1] = a[1];
-	out[2] = a[2];
-	return out;
 }
 /**
 * Copies values from one Spherical to another
@@ -5739,7 +5730,7 @@ function set(out, r, theta, phi) {
 * @param a the source Spherical
 * @returns out
 */
-function normalize$4(out, a) {
+function normalize$5(out, a) {
 	out[0] = 1;
 	out[1] = a[1];
 	out[2] = a[2];
@@ -5759,11 +5750,11 @@ function scale$1(out, a, s) {
 	out[2] = a[2];
 	return out;
 }
+const TAU = Math.PI * 2;
 /**
 * Wraps an angle (in radians) into the range [-π, π].
 */
 function wrapAngle(a) {
-	const TAU = Math.PI * 2;
 	return a - TAU * Math.floor((a + Math.PI) / TAU);
 }
 /**
@@ -5777,7 +5768,7 @@ function wrapAngle(a) {
 * @returns out
 */
 function lerp$1$1(out, a, b, t) {
-	out[0] = lerp$5(a[0], b[0], t);
+	out[0] = lerp$2(a[0], b[0], t);
 	out[1] = a[1] + wrapAngle(b[1] - a[1]) * t;
 	out[2] = a[2] + wrapAngle(b[2] - a[2]) * t;
 	return out;
@@ -5834,10 +5825,10 @@ function toVec3(out, a) {
 	const r = a[0];
 	const theta = a[1];
 	const phi = a[2];
-	const sinPhi = Math.sin(phi);
-	out[0] = r * sinPhi * Math.sin(theta);
+	const rSinPhi = r * Math.sin(phi);
+	out[0] = rSinPhi * Math.sin(theta);
 	out[1] = r * Math.cos(phi);
-	out[2] = r * sinPhi * Math.cos(theta);
+	out[2] = rSinPhi * Math.cos(theta);
 	return out;
 }
 /**
@@ -5869,9 +5860,9 @@ function toVec2(out, a) {
 	const r = a[0];
 	const theta = a[1];
 	const phi = a[2];
-	const sinPhi = Math.sin(phi);
-	out[0] = r * sinPhi * Math.sin(theta);
-	out[1] = r * sinPhi * Math.cos(theta);
+	const rSinPhi = r * Math.sin(phi);
+	out[0] = rSinPhi * Math.sin(theta);
+	out[1] = rSinPhi * Math.cos(theta);
 	return out;
 }
 /**
@@ -5883,7 +5874,7 @@ function toVec2(out, a) {
 * @returns true if approximately equal
 */
 function equals$1$1(a, b) {
-	return equals$7(a[0], b[0]) && equals$7(a[1], b[1]) && equals$7(a[2], b[2]);
+	return equals$4(a[0], b[0]) && equals$4(a[1], b[1]) && equals$4(a[2], b[2]);
 }
 /**
 * Returns true if two Spherical coordinates are exactly equal (===).
@@ -5919,7 +5910,9 @@ function angleTo(a, b) {
 	const phiA = a[2];
 	const phiB = b[2];
 	const dTheta = b[1] - a[1];
-	const hav = Math.sin((phiB - phiA) / 2) ** 2 + Math.sin(phiA) * Math.sin(phiB) * Math.sin(dTheta / 2) ** 2;
+	const sHalfPhi = Math.sin((phiB - phiA) / 2);
+	const sHalfTheta = Math.sin(dTheta / 2);
+	const hav = sHalfPhi * sHalfPhi + Math.sin(phiA) * Math.sin(phiB) * sHalfTheta * sHalfTheta;
 	return 2 * Math.asin(Math.sqrt(Math.max(0, Math.min(1, hav))));
 }
 
@@ -13620,7 +13613,7 @@ function parse(input) {
 	}
 	const hex = CSS_COLORS[s];
 	if (hex !== void 0) return parseHex6(`#${hex.toString(16).padStart(6, "0")}`);
-	console.warn(`[mathcat] color: unrecognised color input: "${input}"`);
+	console.warn(`[math] color: unrecognised color input: "${input}"`);
 	return null;
 }
 function parseHex3(hex) {
@@ -26198,8 +26191,8 @@ class QuadMesh extends Mesh {
  * owned by the backend, not by this class.
  */
 class CanvasTarget {
-    /** The canvas element this target wraps. An `OffscreenCanvas` is accepted for headless/worker use. */
-    domElement;
+    /** The canvas this target wraps. An `OffscreenCanvas` is accepted for headless/worker use. */
+    canvas;
     /**
      * True when this is the renderer's default (main) canvas target.
      * Set by the renderer after construction; the inspector preview targets are not default.
@@ -26215,7 +26208,7 @@ class CanvasTarget {
     /** Alpha compositing mode for the canvas. */
     alphaMode;
     constructor(canvas, opts = {}) {
-        this.domElement = canvas;
+        this.canvas = canvas;
         this._width = canvas.width;
         this._height = canvas.height;
         this.alphaMode = opts.alphaMode ?? 'opaque';
@@ -26252,17 +26245,17 @@ class CanvasTarget {
     }
     /**
      * Set the size of the canvas in logical pixels.
-     * Updates domElement.width/height (physical) and fires 'resize'.
+     * Updates canvas.width/height (physical) and fires 'resize'.
      */
     setSize(width, height, updateStyle = true) {
         this._width = width;
         this._height = height;
-        this.domElement.width = Math.floor(width * this._pixelRatio);
-        this.domElement.height = Math.floor(height * this._pixelRatio);
+        this.canvas.width = Math.floor(width * this._pixelRatio);
+        this.canvas.height = Math.floor(height * this._pixelRatio);
         // An OffscreenCanvas has no `.style` (no DOM presentation); guard the CSS-size writes.
-        if (updateStyle && 'style' in this.domElement) {
-            this.domElement.style.width = `${width}px`;
-            this.domElement.style.height = `${height}px`;
+        if (updateStyle && 'style' in this.canvas) {
+            this.canvas.style.width = `${width}px`;
+            this.canvas.style.height = `${height}px`;
         }
     }
     /**
@@ -26272,8 +26265,8 @@ class CanvasTarget {
         this._width = width;
         this._height = height;
         this._pixelRatio = pixelRatio;
-        this.domElement.width = Math.floor(width * pixelRatio);
-        this.domElement.height = Math.floor(height * pixelRatio);
+        this.canvas.width = Math.floor(width * pixelRatio);
+        this.canvas.height = Math.floor(height * pixelRatio);
         this.setSize(width, height, false);
     }
     /**
@@ -33473,7 +33466,8 @@ class Viewer extends Tab {
     _addNodeItem(canvasData) {
         let item = this._itemLibrary.get(canvasData.id);
         if (!item) {
-            const domElement = canvasData.canvasTarget.domElement;
+            // Inspector previews are always real on-page canvases (never an OffscreenCanvas).
+            const domElement = canvasData.canvasTarget.canvas;
             item = new Item(domElement, canvasData.name);
             item.itemRow.children[1].style.justifyContent = 'flex-start';
             this._itemLibrary.set(canvasData.id, item);
@@ -36371,10 +36365,10 @@ class Inspector extends RendererInspector {
         // that don't mount the WebGPURenderer's implicit canvas (e.g. engines
         // rendering to per-room canvases via render targets) should append
         // `inspector.domElement` to the DOM themselves.
-        // The inspector is a DOM tool, so the renderer's canvas here is always a real HTMLCanvasElement
-        // (never the OffscreenCanvas of a headless WebGL renderer).
-        const rendererCanvas = renderer.domElement;
-        if (this.domElement.parentElement === null && rendererCanvas.parentElement) {
+        // The inspector is a DOM tool; a worker/headless renderer draws to an OffscreenCanvas (no DOM
+        // parent), so read `canvas` (not `domElement`, which throws there) and skip self-attach.
+        const rendererCanvas = renderer.canvas;
+        if (this.domElement.parentElement === null && 'parentElement' in rendererCanvas && rendererCanvas.parentElement) {
             rendererCanvas.parentElement.appendChild(this.domElement);
         }
     }
@@ -37516,7 +37510,7 @@ function intersectsTriangle3(box, a, b, c) {
 	_axesCross[26] = 0;
 	if (!_satForAxes(_axesCross, 9)) return false;
 	if (!_satForAxes(_axesBoxFaces, 3)) return false;
-	cross$1(_triangleNormal, _f0, _f1);
+	cross$2(_triangleNormal, _f0, _f1);
 	_axisTriangle[0] = _triangleNormal[0];
 	_axisTriangle[1] = _triangleNormal[1];
 	_axisTriangle[2] = _triangleNormal[2];
@@ -37620,7 +37614,7 @@ function fromNormalAndConstant(out, normal, constant) {
 */
 function fromNormalAndPoint(out, normal, point) {
 	copy$2$1(out.normal, normal);
-	out.constant = -dot$3(normal, point);
+	out.constant = -dot$4(normal, point);
 	return out;
 }
 /**
@@ -37684,7 +37678,7 @@ function copy$1(out, plane) {
 * @returns The normalized plane
 */
 function normalize(out, plane) {
-	const invMagnitude = 1 / length$3(plane.normal);
+	const invMagnitude = 1 / length$4(plane.normal);
 	scale$2(out.normal, plane.normal, invMagnitude);
 	out.constant = plane.constant * invMagnitude;
 	return out;
@@ -37719,7 +37713,7 @@ function offset(out, plane, distance) {
 * @returns The signed distance (positive = in direction of normal)
 */
 function distanceToPoint(plane, point) {
-	return dot$3(plane.normal, point) + plane.constant;
+	return dot$4(plane.normal, point) + plane.constant;
 }
 /**
 * Projects a point onto the plane
@@ -39076,46 +39070,49 @@ function computeViewZ(mesh, camera) {
     return vm[2] * wx + vm[6] * wy + vm[10] * wz + vm[14];
 }
 
+/** True when the value is an `OffscreenCanvas` — a non-DOM canvas usable off the main thread. */
+function isOffscreenCanvas(c) {
+    // `OffscreenCanvas` may be undefined in older environments; guard before the `instanceof`.
+    return typeof OffscreenCanvas !== 'undefined' && c instanceof OffscreenCanvas;
+}
 /**
- * renderer-ops.ts - backend-neutral renderer orchestration utilities.
- *
- * The device-free half of the render loop: the neutral `RendererState` record, the viewport/scissor
- * setters + resolution, frame-size helpers, the device-lost handler, and the neutral per-object
- * prepare loop (collect / getRenderObject / updateBefore). The concrete renderer class (WebGPURenderer
- * today, a future WebGL2Renderer) holds the state (same field names), structurally satisfies
- * `RendererState`, and sequences these utils together with its own device free functions.
- *
- * No graphics API leaks in here — every device operation lives in the concrete `webgpu/*` modules and
- * is called by the renderer's methods, not from this file.
+ * The canvas for the current target — an `HTMLCanvasElement` on a page or an `OffscreenCanvas` in a
+ * worker/headless context. Throws only when there is no canvas at all (WebGPU headless mode).
  */
-/** The canvas dom element for the current canvas target. Throws in headless mode. */
-function domElement(r) {
+function canvas(r) {
     if (!r._canvasTarget) {
-        throw new Error('[WebGPURenderer] no canvas: renderer was created in headless mode. Render to a RenderTarget instead.');
+        throw new Error('[Renderer] no canvas: renderer was created in headless mode. Render to a RenderTarget instead.');
     }
-    // Presentation-path accessor; a headless WebGL renderer (OffscreenCanvas) renders to a RenderTarget
-    // and never reaches here, so the DOM-canvas type is the honest contract.
-    return r._canvasTarget.domElement;
+    return r._canvasTarget.canvas;
+}
+/**
+ * The canvas as a DOM element, for insertion into the page. Throws if the target is an `OffscreenCanvas`
+ * (headless/worker) — an OffscreenCanvas is not a DOM node; use {@link canvas} there.
+ */
+function domElement(r) {
+    const c = canvas(r);
+    if (isOffscreenCanvas(c)) {
+        throw new Error('[Renderer] domElement is an OffscreenCanvas and is not a DOM element. Use `renderer.canvas` (and readRenderTargetPixels for output) in worker/headless contexts.');
+    }
+    return c;
 }
 function frameWidth(r) {
     if (r.renderTarget)
         return r.renderTarget.width;
     if (r._canvasTarget)
-        return domElement(r).width || 1;
+        return canvas(r).width || 1;
     return 1;
 }
 function frameHeight(r) {
     if (r.renderTarget)
         return r.renderTarget.height;
     if (r._canvasTarget)
-        return domElement(r).height || 1;
+        return canvas(r).height || 1;
     return 1;
 }
 /** Decode + report a device-loss event: log, set the lost flag, fire the user callback. */
 function handleDeviceLost(r, info) {
-    console.error(`[WebGPURenderer] WebGPU Device Lost:\n` +
-        `  Message: ${info.message}\n` +
-        `  Reason: ${info.reason ?? 'unknown'}`);
+    console.error(`[WebGPURenderer] WebGPU Device Lost:\n` + `  Message: ${info.message}\n` + `  Reason: ${info.reason ?? 'unknown'}`);
     r._isDeviceLost = true;
     r.onDeviceLost?.(info);
 }
@@ -42887,12 +42884,17 @@ class WebGLRenderer {
         this._inspector = next;
         next?.setRenderer(this);
     }
-    /** The canvas dom element for the current canvas target (an `OffscreenCanvas` when headless). */
+    /** The canvas for the current target — an `OffscreenCanvas` in worker/headless mode. */
+    get canvas() {
+        return canvas(this);
+    }
+    /**
+     * The canvas as a DOM element, for insertion into the page
+     * (`document.body.appendChild(renderer.domElement)`). Throws if the target is an `OffscreenCanvas`
+     * (worker/headless) — use {@link canvas} there.
+     */
     get domElement() {
-        if (!this._canvasTarget) {
-            throw new Error('[WebGLRenderer] no canvas target.');
-        }
-        return this._canvasTarget.domElement;
+        return domElement(this);
     }
     // WebGL2 device state — owned directly as fields. Assigned in init().
     // WebGL2 is immediate mode: no command encoder, no swapchain object.
@@ -43031,7 +43033,7 @@ class WebGLRenderer {
         const { width, height } = this._canvasTarget.getDrawingBufferSize();
         this._width = width || 1;
         this._height = height || 1;
-        this.gl = createContext(this.domElement, {
+        this.gl = createContext(this.canvas, {
             alpha: this._opts.alpha ?? false,
             depth: this._opts.depth ?? true,
             stencil: this.stencil,
@@ -43049,7 +43051,7 @@ class WebGLRenderer {
         // driver drops the context (GPU reset, tab backgrounding, `WEBGL_lose_context`). Preventing
         // the event's default keeps the context restorable. We flip `_isDeviceLost` (render() early-
         // returns while lost) and fire the same neutral `onDeviceLost` callback the WebGPU path uses.
-        const canvas = this.domElement;
+        const canvas = this.canvas;
         this._onContextLost = (e) => {
             e.preventDefault();
             this._isDeviceLost = true;
@@ -43125,7 +43127,7 @@ class WebGLRenderer {
         if (!this.renderTarget) {
             if (!this._canvasTarget)
                 return;
-            if (this.domElement.width === 0 || this.domElement.height === 0)
+            if (this.canvas.width === 0 || this.canvas.height === 0)
                 return;
         }
         const [cr, cg, cb, ca] = this.clearColor;
@@ -43191,7 +43193,7 @@ class WebGLRenderer {
             if (!this._canvasTarget) {
                 throw new Error('[WebGLRenderer] render() requires renderer.renderTarget or a canvas.');
             }
-            if (this.domElement.width === 0 || this.domElement.height === 0)
+            if (this.canvas.width === 0 || this.canvas.height === 0)
                 return;
         }
         // Stamp this renderer's clip-space convention onto the camera; rebuild the projection if it changed.
@@ -43220,8 +43222,8 @@ class WebGLRenderer {
         }
         const samples = renderTarget?.samples ?? this.samples;
         const primaryColorFormat = renderTarget?.textures[0]?.format ?? this.format;
-        const width = renderTarget ? renderTarget.width : this.domElement.width || 1;
-        const height = renderTarget ? renderTarget.height : this.domElement.height || 1;
+        const width = renderTarget ? renderTarget.width : this.canvas.width || 1;
+        const height = renderTarget ? renderTarget.height : this.canvas.height || 1;
         const [cr, cg, cb, ca] = this.clearColor;
         if (inspector) {
             inspector.beginRenderScene(passId, scene, samples, primaryColorFormat, frame.frameId);
@@ -43391,7 +43393,7 @@ class WebGLRenderer {
     dispose() {
         // Remove the context-loss listeners first, so tearing down GL resources below never fires the
         // user's onDeviceLost callback.
-        const canvas = this._canvasTarget?.domElement;
+        const canvas = this._canvasTarget?.canvas;
         if (canvas) {
             if (this._onContextLost)
                 canvas.removeEventListener('webglcontextlost', this._onContextLost, false);
@@ -44080,13 +44082,13 @@ function uploadRenderObjectResources(device, bindings, geometries, buffers, text
 /**
  * Get (or lazily create + configure) the WebGPU canvas context for a canvas target. Safe to call
  * repeatedly; the context is cached per canvas target after first acquisition. The context is
- * acquired from `canvasTarget.domElement.getContext('webgpu')` and configured against `device` with
+ * acquired from `canvasTarget.canvas.getContext('webgpu')` and configured against `device` with
  * the given `format` and alpha mode (defaults to the canvas target's `alphaMode`).
  */
 function getContext(contexts, device, canvasTarget, format, alphaMode) {
     let ctx = contexts.get(canvasTarget);
     if (!ctx) {
-        const acquired = canvasTarget.domElement.getContext('webgpu');
+        const acquired = canvasTarget.canvas.getContext('webgpu');
         if (!acquired) {
             throw new Error('[WebGPURenderer] Failed to get WebGPU context from canvas.');
         }
@@ -44625,14 +44627,17 @@ class WebGPURenderer {
         this._inspector = next;
         next?.setRenderer(this); // attach signal, new sets up
     }
-    /** The canvas dom element for the current canvas target. Throws in headless mode. */
+    /** The canvas for the current target — an `OffscreenCanvas` in worker/headless mode. */
+    get canvas() {
+        return canvas(this);
+    }
+    /**
+     * The canvas as a DOM element, for insertion into the page
+     * (`document.body.appendChild(renderer.domElement)`). Throws if the target is an `OffscreenCanvas`
+     * (worker/headless) — use {@link canvas} there.
+     */
     get domElement() {
-        if (!this._canvasTarget) {
-            throw new Error('[WebGPURenderer] no canvas: renderer was created in headless mode. Render to a RenderTarget instead.');
-        }
-        // WebGPURenderer only ever receives an HTMLCanvasElement (its `canvas` option), so the shared
-        // CanvasTarget's widened union narrows back to HTMLCanvasElement here.
-        return this._canvasTarget.domElement;
+        return domElement(this);
     }
     // WebGPU device state — owned directly as fields (previously the backend
     // factory's closure). Device handles are assigned in init(); caches are
@@ -44805,8 +44810,8 @@ class WebGPURenderer {
         if (this._initialized)
             return this;
         // Resolve the initial swapchain size from the canvas target (1×1 in headless mode).
-        const width = this._canvasTarget ? this.domElement.width || 1 : 1;
-        const height = this._canvasTarget ? this.domElement.height || 1 : 1;
+        const width = this._canvasTarget ? this.canvas.width || 1 : 1;
+        const height = this._canvasTarget ? this.canvas.height || 1 : 1;
         await this._initDevice(this._canvasTarget, width, height);
         this._initialized = true;
         return this;
@@ -44937,7 +44942,7 @@ class WebGPURenderer {
         if (!this.renderTarget) {
             if (!this._canvasTarget)
                 return;
-            if (this.domElement.width === 0 || this.domElement.height === 0)
+            if (this.canvas.width === 0 || this.canvas.height === 0)
                 return;
         }
         const [cr, cg, cb, ca] = this.clearColor;
@@ -45123,7 +45128,7 @@ class WebGPURenderer {
                 throw new Error('[WebGPURenderer] render() in headless mode requires renderer.renderTarget to be set.');
             }
             // Skip swapchain renders when canvas has zero dimensions (e.g. minimized or hidden).
-            if (this.domElement.width === 0 || this.domElement.height === 0)
+            if (this.canvas.width === 0 || this.canvas.height === 0)
                 return;
         }
         // Stamp this renderer's clip-space convention onto the camera; rebuild the projection if it changed.
@@ -45160,8 +45165,8 @@ class WebGPURenderer {
             this._currentEncoder = this.device.createCommandEncoder();
         const samples = renderTarget?.samples ?? this.samples;
         const primaryColorFormat = renderTarget?.textures[0]?.format ?? this.format;
-        const width = renderTarget ? renderTarget.width : this.domElement.width || 1;
-        const height = renderTarget ? renderTarget.height : this.domElement.height || 1;
+        const width = renderTarget ? renderTarget.width : this.canvas.width || 1;
+        const height = renderTarget ? renderTarget.height : this.canvas.height || 1;
         const [cr, cg, cb, ca] = this.clearColor;
         if (inspector) {
             inspector.beginRenderScene(passId, scene, samples, primaryColorFormat, frame.frameId);
