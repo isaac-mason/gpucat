@@ -27,14 +27,7 @@ const tick = (ok) => (ok ? `${GREEN}✓${RESET}` : `${RED}✗${RESET}`);
 // Firefox-breakers but are unrelated to the uniform-layout hardening — tracked here as expected
 // failures so this gate stays green for LAYOUT regressions while the debt is visible. Fix these and
 // remove them from the set (the runner fails if a listed case starts passing, to force pruning).
-const KNOWN_NAGA_FAILURES = new Set([
-    'struct',
-    'mixed-kind binary operands (int/uint/float coercion)',
-    'integer-vector select (componentwise ternary)',
-    'vertex-stage texture sample (implicit LOD → textureLod)',
-    'shadow compare (sampler2DShadow, implicit + explicit LOD)',
-    'CSE hoisted across block boundary (param-dependent)',
-]);
+const KNOWN_NAGA_FAILURES = new Set();
 
 function hasNaga() {
     try {

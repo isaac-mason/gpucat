@@ -1365,13 +1365,12 @@ function generateTextureCall(ctx: GlslBuildContext, node: CallNode<d.Any>): stri
             return `texture(${name}, vec3(${coords}, ${depthRef}))`;
         }
         case 'textureSampleCompareLevel': {
-            // (t, s, coords, depthRef, level [, offset]) → shadow sample at an explicit LOD. Depth level
-            // is i32; GLSL textureLod takes a float lod.
+            // (t, s, coords, depthRef [, offset]) → shadow sample at base level (WGSL has no LOD arg for
+            // comparison sampling), so GLSL samples at lod 0.
             const coords = f.uv(generateExpr(ctx, rawArgs[2]));
             const depthRef = generateExpr(ctx, rawArgs[3]);
-            const level = `float(${generateExpr(ctx, rawArgs[4])})`;
-            if (rawArgs.length > 5) return `textureLodOffset(${name}, vec3(${coords}, ${depthRef}), ${level}, ${constOffset(5)})`;
-            return `textureLod(${name}, vec3(${coords}, ${depthRef}), ${level})`;
+            if (rawArgs.length > 4) return `textureLodOffset(${name}, vec3(${coords}, ${depthRef}), 0.0, ${constOffset(4)})`;
+            return `textureLod(${name}, vec3(${coords}, ${depthRef}), 0.0)`;
         }
         case 'textureGather':
         case 'textureGatherCompare': {

@@ -1450,6 +1450,29 @@ export function vec4DescOf(desc: Any): Vec4 {
     return VEC4_DESC[elem?.wgslType ?? 'f32'] ?? vec4f;
 }
 
+/**
+ * Numeric conversion target that PRESERVES the operand's vector length: converting a `vec3i` to float
+ * yields `vec3f`, not scalar `f32`. Used by `.toF32()/.toI32()/.toU32()/.toF16()` so the emitted
+ * constructor matches (`vec3f(...)`, not the illegal `f32(vec3i)`). `targetScalar` is the WGSL scalar
+ * kind ('f32' | 'i32' | 'u32' | 'f16'). Non-numeric/length-less descriptors fall back to the scalar.
+ */
+export function numericDescOf(desc: Any, targetScalar: 'f32' | 'i32' | 'u32' | 'f16'): Any {
+    const len = (desc as { len?: number }).len ?? 1;
+    if (len === 2) return VEC2_DESC[targetScalar];
+    if (len === 3) return VEC3_DESC[targetScalar];
+    if (len === 4) return VEC4_DESC[targetScalar];
+    return SCALAR_DESC[targetScalar];
+}
+
+/** Numeric conversion target type preserving length (see {@link numericDescOf}). */
+export type NumericDescOf<D extends Any, K extends f32 | i32 | u32 | f16> = D extends { len: 2 }
+    ? Vec2DescOf<K>
+    : D extends { len: 3 }
+      ? Vec3DescOf<K>
+      : D extends { len: 4 }
+        ? Vec4DescOf<K>
+        : K;
+
 const MAT_COLUMN_DESC: Record<string, Vec> = {
     mat2x2f: vec2f,
     mat3x2f: vec2f,

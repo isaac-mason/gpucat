@@ -1218,6 +1218,14 @@ function discover(roots: Node<d.Any>[]): Discovery {
         visit(root);
     }
 
+    // Register struct defs for EVERY discovered node's type, not only those reached through storage or
+    // uniform bindings. A struct used purely via a local construct() (a value, never bound) still needs
+    // its `struct` declared — otherwise the WGSL emitter references an undeclared type and naga rejects
+    // it. registerStructDef is keyed by name, so re-registering a binding's struct is a no-op.
+    for (const node of nodeIdToNode.values()) {
+        walkTypeForStructs(node.type, registerStructDef);
+    }
+
     return {
         nodeIdToNode,
         nodeIdToUsages,

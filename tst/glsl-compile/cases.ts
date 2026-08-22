@@ -695,7 +695,7 @@ export const cases: Case[] = [
             const depth = depthTexture(dtex, new GpuSampler({ compare: 'less' }));
             const cmp = comparisonSampler(new GpuSampler({ compare: 'less' }), 'less');
             const a = textureSampleCompare(depth.bindingNode, cmp, vec2f(0.5, 0.5), f32(0.5));
-            const b = textureSampleCompareLevel(depth.bindingNode, cmp, vec2f(0.5, 0.5), f32(0.5), i32(0));
+            const b = textureSampleCompareLevel(depth.bindingNode, cmp, vec2f(0.5, 0.5), f32(0.5));
             return {
                 vertex: vec4(attribute('position', d.vec3f), f32(1)),
                 fragment: vec4(vec3(a.add(b)), f32(1)),

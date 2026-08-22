@@ -1519,18 +1519,20 @@ export function textureSampleCompare(
 }
 
 /**
- * textureSampleCompareLevel - Compare-sample a depth texture at a specific level.
- * Works in any shader stage. Requires sampler_comparison.
+ * textureSampleCompareLevel - Compare-sample a depth texture at mip level 0.
+ * Works in any shader stage (unlike textureSampleCompare, which is fragment-only). Requires
+ * sampler_comparison. WGSL's textureSampleCompareLevel always samples at the base level and takes NO
+ * level argument — arbitrary-LOD comparison sampling is not expressible in WGSL — so this takes only an
+ * optional const `offset`.
  */
 export function textureSampleCompareLevel(
     t: TextureBindingNode<FlatDepthTexture>,
     s: AnyComparisonSamplerNode,
     coords: Node<d.vec2f>,
     depthRef: Node<d.f32>,
-    level: Node<d.i32>,
     offset?: Node<d.vec2i>,
 ): CallNode<d.f32> {
-    const args: Node<Any>[] = offset ? [t, s, coords, depthRef, level, offset] : [t, s, coords, depthRef, level];
+    const args: Node<Any>[] = offset ? [t, s, coords, depthRef, offset] : [t, s, coords, depthRef];
     return new CallNode(d.f32, 'textureSampleCompareLevel', args);
 }
 

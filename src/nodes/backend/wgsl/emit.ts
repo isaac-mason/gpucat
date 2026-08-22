@@ -98,6 +98,13 @@ export type BuildContext = {
     nodeVars: Map<number, string>;
     varCounter: number;
 
+    // CSE hoisting: when >= 0, a function-scope-stable CSE temp is spliced into `code` at this index
+    // (the body top) instead of pushed at first use — so a temp used across a block boundary is in
+    // scope for every use. -1 disables hoisting (main shader bodies). See {@link isHoistStable}.
+    hoistIndex: number;
+    topScopeParamIds: Set<number>;
+    hoistStableMemo: Map<number, boolean>;
+
     // Indentation level for nested control flow (1 = function body, 2 = first nested block, etc.)
     indentLevel: number;
 
@@ -174,6 +181,9 @@ export function createContext(stage: ShaderStage, isRender: boolean, discovery: 
         structs: new Map(),
         nodeVars: new Map(),
         varCounter: 0,
+        hoistIndex: -1,
+        topScopeParamIds: new Set(),
+        hoistStableMemo: new Map(),
         indentLevel: 1,
         code: [],
         graphNodes: new Map(),
@@ -209,6 +219,50 @@ export function collectVaryings(roots: Node<d.Any>[], ctx: BuildContext): void {
     for (const root of roots) {
         visit(root);
     }
+}
+
+// Leaf node kinds that are IMMUTABLE and available for the whole function/stage: constants, uniforms,
+// stage inputs. Deliberately excludes mutable/order-sensitive state (private/workgroup vars, storage,
+// textures) — reading those and hoisting across a barrier or write would change results.
+const HOIST_LEAF_KINDS = new Set<NodeKind>([
+    NodeKind.Literal,
+    NodeKind.Uniform,
+    NodeKind.Builtin,
+    NodeKind.ComputeIndex,
+    NodeKind.Attribute,
+]);
+// Pure, side-effect-free operator kinds whose stability follows from their operands. Deliberately
+// excludes Call (may be a side-effecting builtin — atomicAdd, textureStore) and Index (a storage read),
+// which must not be reordered.
+const HOIST_TRANSPARENT_KINDS = new Set<NodeKind>([
+    NodeKind.BinaryOp,
+    NodeKind.Construct,
+    NodeKind.Field,
+    NodeKind.Array,
+    NodeKind.Conditional,
+    NodeKind.Struct,
+]);
+
+/**
+ * Whether a node's value is stable at the function-body top: built ONLY from immutable, side-effect-free
+ * inputs — constants, uniforms, stage inputs, and THIS function's params — via pure arithmetic. Loop
+ * variables are ParameterNodes too, but are block-scoped, so they're excluded by id (only the fn's own
+ * param ids are passed in). Used to decide if a CSE temp used across a block boundary can be hoisted to
+ * the body top — fixing the out-of-scope `_vN` bug — without moving a block-scoped binding, a mutable
+ * read, or a side effect. Conservative: anything not clearly pure resolves to false (stays at first use).
+ */
+function isHoistStable(node: AnyNode, paramIds: Set<number>, memo: Map<number, boolean>): boolean {
+    const cached = memo.get(node.id);
+    if (cached !== undefined) return cached;
+    memo.set(node.id, false); // break cycles conservatively
+    let result: boolean;
+    if (node.kind === NodeKind.Parameter) result = paramIds.has(node.id);
+    else if (HOIST_LEAF_KINDS.has(node.kind)) result = true;
+    else if (HOIST_TRANSPARENT_KINDS.has(node.kind))
+        result = getChildren(node).every((c) => isHoistStable(c as AnyNode, paramIds, memo));
+    else result = false;
+    memo.set(node.id, result);
+    return result;
 }
 
 /* expression generation */
@@ -254,8 +308,7 @@ function generateExpr(ctx: BuildContext, rawNode: Node<d.Any>): string {
     } else if (node.kind === NodeKind.Varying) {
         expr = generateVarying(ctx, node);
     } else if (node.kind === NodeKind.BinaryOp) {
-        const left = generateExpr(ctx, node.left);
-        const right = generateExpr(ctx, node.right);
+        const [left, right] = coerceBinaryOperands(node, generateExpr(ctx, node.left), generateExpr(ctx, node.right));
         expr = `(${left} ${node.op} ${right})`;
     } else if (node.kind === NodeKind.Call) {
         expr = generateCall(ctx, node);
@@ -345,7 +398,21 @@ function generateExpr(ctx: BuildContext, rawNode: Node<d.Any>): string {
     if (usage > 1 && !ctx.nodeVars.has(node.id) && !isTrivialExpr(node) && !isNonCopyable(node)) {
         const varName = `_v${ctx.varCounter++}`;
         const keyword = ctx.mutatedNodes.has(node.id) ? 'var' : 'let';
-        ctx.code.push(`    ${keyword} ${varName} = ${expr};`);
+        const line = `    ${keyword} ${varName} = ${expr};`;
+        // A pure temp used more than once may be used across a block boundary (e.g. inside an if AND
+        // after it). Declaring it at first use would leave it out of scope for the later use, so if it's
+        // stable at body top, splice it there. Only immutable (`let`) values built from function-scope
+        // inputs qualify; anything touching a loop var or a block-local `let`/`var` stays at first use.
+        if (
+            ctx.hoistIndex >= 0 &&
+            keyword === 'let' &&
+            isHoistStable(node, ctx.topScopeParamIds, ctx.hoistStableMemo)
+        ) {
+            ctx.code.splice(ctx.hoistIndex, 0, line);
+            ctx.hoistIndex++;
+        } else {
+            ctx.code.push(line);
+        }
         ctx.nodeVars.set(node.id, varName);
 
         // record CSE info for graph
@@ -565,7 +632,11 @@ function generateTexture(ctx: BuildContext, node: TextureNode): string {
         return `textureSampleLevel(${name}, ${samplerName}, ${uvExpr}, ${level}${offsetSuffix})`;
     }
 
-    // textureSample (default)
+    // textureSample (default). Implicit-LOD sampling needs fragment-stage derivatives and is forbidden
+    // in the vertex stage, so sample at the base level there.
+    if (ctx.stage === 'vertex') {
+        return `textureSampleLevel(${name}, ${samplerName}, ${uvExpr}, 0.0${offsetSuffix})`;
+    }
     return `textureSample(${name}, ${samplerName}, ${uvExpr}${offsetSuffix})`;
 }
 
@@ -625,7 +696,10 @@ function generateCubeTexture(ctx: BuildContext, node: CubeTextureNode): string {
         return `textureSampleLevel(${name}, ${samplerName}, ${sampleDir}, ${level})`;
     }
 
-    // textureSample (default)
+    // textureSample (default). Implicit LOD is vertex-forbidden — sample at base level there.
+    if (ctx.stage === 'vertex') {
+        return `textureSampleLevel(${name}, ${samplerName}, ${sampleDir}, 0.0)`;
+    }
     return `textureSample(${name}, ${samplerName}, ${sampleDir})`;
 }
 
@@ -668,7 +742,11 @@ function generateDepthTexture(ctx: BuildContext, node: DepthTextureNode): string
         return `textureSampleLevel(${name}, ${samplerName}, ${uvExpr}, ${level}${offsetSuffix})`;
     }
 
-    // textureSample (default), returns f32
+    // textureSample (default), returns f32. Implicit LOD is vertex-forbidden — sample base level (i32
+    // level for depth textures) there.
+    if (ctx.stage === 'vertex') {
+        return `textureSampleLevel(${name}, ${samplerName}, ${uvExpr}, 0${offsetSuffix})`;
+    }
     return `textureSample(${name}, ${samplerName}, ${uvExpr}${offsetSuffix})`;
 }
 
@@ -733,7 +811,10 @@ function generateArrayTexture(ctx: BuildContext, node: ArrayTextureNode): string
         return `textureSampleLevel(${name}, ${samplerName}, ${uvExpr}, ${layerExpr}, ${level}${offsetSuffix})`;
     }
 
-    // textureSample(t, s, coords, array_index [, offset])
+    // textureSample(t, s, coords, array_index [, offset]). Implicit LOD is vertex-forbidden — base level.
+    if (ctx.stage === 'vertex') {
+        return `textureSampleLevel(${name}, ${samplerName}, ${uvExpr}, ${layerExpr}, 0.0${offsetSuffix})`;
+    }
     return `textureSample(${name}, ${samplerName}, ${uvExpr}, ${layerExpr}${offsetSuffix})`;
 }
 
@@ -1053,8 +1134,11 @@ function generateModuleScopeInitExpr(rawNode: Node<d.Any>): string {
         const args = node.args.map((a) => generateModuleScopeInitExpr(a));
         return `${node.type.wgslType}(${args.join(', ')})`;
     } else if (node.kind === NodeKind.BinaryOp) {
-        const left = generateModuleScopeInitExpr(node.left);
-        const right = generateModuleScopeInitExpr(node.right);
+        const [left, right] = coerceBinaryOperands(
+            node,
+            generateModuleScopeInitExpr(node.left),
+            generateModuleScopeInitExpr(node.right),
+        );
         return `(${left} ${node.op} ${right})`;
     } else if (node.kind === NodeKind.Call) {
         // Only const-evaluable built-in functions are allowed
@@ -1394,6 +1478,11 @@ export function emitDslFunctions(ctx: BuildContext): string {
             fnCtx.nodeVars.set(p.id, p.paramName ?? `p${p.paramIndex}`);
         }
 
+        // Enable CSE hoisting to this body's top (params are the top-scope stable inputs).
+        fnCtx.topScopeParamIds = new Set(traced.params.map((p) => p.id));
+        fnCtx.hoistIndex = fnCtx.code.length;
+        fnCtx.hoistStableMemo = new Map();
+
         // generate statements from body
         for (const stmt of traced.body.body) {
             generateStmt(fnCtx, stmt);
@@ -1412,6 +1501,35 @@ export function emitDslFunctions(ctx: BuildContext): string {
     }
 
     return lines.join('\n');
+}
+
+/**
+ * Coerce a binary op's operands to a common scalar kind. WGSL forbids mixing scalar kinds in an operator
+ * (`5u + 3i` is an error), so wrap the operand whose kind differs from the target in a length-preserving
+ * conversion constructor (`u32(x)` / `vec3f(x)` …). Target = the op's result kind for arithmetic, or the
+ * promoted operand kind for comparisons (which produce bool). Bool operands (logical ops) are left alone.
+ */
+function coerceBinaryOperands(
+    node: { left: Node<d.Any>; right: Node<d.Any>; type: d.Any },
+    left: string,
+    right: string,
+): [string, string] {
+    const lk = (node.left.type as { scalar?: string }).scalar;
+    const rk = (node.right.type as { scalar?: string }).scalar;
+    if (!lk || !rk || lk === rk || lk === 'bool' || rk === 'bool') return [left, right];
+
+    const resultKind = (node.type as { scalar?: string }).scalar;
+    let target: string | undefined;
+    if (resultKind && resultKind !== 'bool') target = resultKind;
+    else if (lk === 'f32' || rk === 'f32') target = 'f32';
+    else if (lk === 'f16' || rk === 'f16') target = 'f16';
+    else if (lk === 'u32' || rk === 'u32') target = 'u32';
+    else target = 'i32';
+    if (target !== 'f32' && target !== 'f16' && target !== 'u32' && target !== 'i32') return [left, right];
+
+    const conv = (kind: string, operandType: d.Any, expr: string) =>
+        kind === target ? expr : `${d.numericDescOf(operandType, target as 'f32' | 'f16' | 'u32' | 'i32').wgslType}(${expr})`;
+    return [conv(lk, node.left.type, left), conv(rk, node.right.type, right)];
 }
 
 /**
@@ -1648,6 +1766,11 @@ export function generateFragmentShader(
 export function generateComputeShader(node: ComputeNode, traced: ReturnType<FnNode<d.Any>['trace']>, ctx: BuildContext): string {
     const lines: string[] = [];
     const fn = node.fn;
+
+    // Enable CSE hoisting to this body's top (see the DSL-function path).
+    ctx.topScopeParamIds = new Set(traced.params.map((p) => p.id));
+    ctx.hoistIndex = ctx.code.length;
+    ctx.hoistStableMemo = new Map();
 
     // generate statements from body
     for (const stmt of traced.body.body) {

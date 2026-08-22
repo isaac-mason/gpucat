@@ -4,6 +4,7 @@ import type {
     ArithResultDesc,
     CompareResultDesc,
     MulResultDesc,
+    NumericDescOf,
     StructField,
     StructKeys,
     Vec2DescOf,
@@ -371,17 +372,23 @@ export class Node<D extends Any> {
     }
 
     // ── Type conversions ──────────────────────────────────────────────────────
-    toF32(): Node<d.f32> {
-        return new CallNode(d.f32, 'f32', [this]);
+    // Length-preserving: converting a vecN keeps N (a vec3i → vec3f via `vec3f(...)`), so we never emit
+    // the illegal scalar cast `f32(vec3i)`. Scalars convert with the scalar constructor as before.
+    toF32(): Node<NumericDescOf<D, d.f32>> {
+        const t = d.numericDescOf(this.type, 'f32');
+        return new CallNode(t, t.wgslType, [this]) as unknown as Node<NumericDescOf<D, d.f32>>;
     }
-    toF16(): Node<d.f16> {
-        return new CallNode(d.f16, 'f16', [this]);
+    toF16(): Node<NumericDescOf<D, d.f16>> {
+        const t = d.numericDescOf(this.type, 'f16');
+        return new CallNode(t, t.wgslType, [this]) as unknown as Node<NumericDescOf<D, d.f16>>;
     }
-    toU32(): Node<d.u32> {
-        return new CallNode(d.u32, 'u32', [this]);
+    toU32(): Node<NumericDescOf<D, d.u32>> {
+        const t = d.numericDescOf(this.type, 'u32');
+        return new CallNode(t, t.wgslType, [this]) as unknown as Node<NumericDescOf<D, d.u32>>;
     }
-    toI32(): Node<d.i32> {
-        return new CallNode(d.i32, 'i32', [this]);
+    toI32(): Node<NumericDescOf<D, d.i32>> {
+        const t = d.numericDescOf(this.type, 'i32');
+        return new CallNode(t, t.wgslType, [this]) as unknown as Node<NumericDescOf<D, d.i32>>;
     }
 
     // ── Field access ──────────────────────────────────────────────────────────
@@ -1578,10 +1585,24 @@ export function fields<S extends d.StructSchema>(node: Node<d.StructDesc<S>>): S
     return result as StructInstance<S>;
 }
 
-export const toF32 = <D extends Any>(node: Node<D>): Node<d.f32> => new CallNode(d.f32, 'f32', [node]);
-export const toF16 = <D extends Any>(node: Node<D>): Node<d.f16> => new CallNode(d.f16, 'f16', [node]);
-export const toU32 = <D extends Any>(node: Node<D>): Node<d.u32> => new CallNode(d.u32, 'u32', [node]);
-export const toI32 = <D extends Any>(node: Node<D>): Node<d.i32> => new CallNode(d.i32, 'i32', [node]);
+// Length-preserving numeric conversions (see the method forms above): a vecN converts to vecN, not a
+// scalar, so `vec3i.toF32()` emits `vec3f(...)` rather than the illegal `f32(vec3i)`.
+export const toF32 = <D extends Any>(node: Node<D>): Node<NumericDescOf<D, d.f32>> => {
+    const t = d.numericDescOf(node.type, 'f32');
+    return new CallNode(t, t.wgslType, [node]) as unknown as Node<NumericDescOf<D, d.f32>>;
+};
+export const toF16 = <D extends Any>(node: Node<D>): Node<NumericDescOf<D, d.f16>> => {
+    const t = d.numericDescOf(node.type, 'f16');
+    return new CallNode(t, t.wgslType, [node]) as unknown as Node<NumericDescOf<D, d.f16>>;
+};
+export const toU32 = <D extends Any>(node: Node<D>): Node<NumericDescOf<D, d.u32>> => {
+    const t = d.numericDescOf(node.type, 'u32');
+    return new CallNode(t, t.wgslType, [node]) as unknown as Node<NumericDescOf<D, d.u32>>;
+};
+export const toI32 = <D extends Any>(node: Node<D>): Node<NumericDescOf<D, d.i32>> => {
+    const t = d.numericDescOf(node.type, 'i32');
+    return new CallNode(t, t.wgslType, [node]) as unknown as Node<NumericDescOf<D, d.i32>>;
+};
 
 /** Reinterpret a u32 or i32 bit pattern as f32. WGSL: `bitcast<f32>(x)`. */
 export const bitcastF32 = (node: Node<d.u32 | d.i32>): Node<d.f32> => new CallNode(d.f32, 'bitcast<f32>', [node]);
