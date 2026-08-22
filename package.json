@@ -29,6 +29,7 @@
         "lint": "biome lint --write src/. tst/.",
         "test": "vitest tst",
         "test:glsl": "node tst/glsl-compile/run.mjs",
+        "test:wgsl": "node tst/wgsl-validate/run.mjs",
         "test:webgl": "node tst/webgl-render/run.mjs",
         "docs": "(cd docs && node ./build.js)"
     },

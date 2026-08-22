@@ -52,6 +52,13 @@ export class VaryingNode<D extends Any> extends Node<D> {
      * Set the WGSL @interpolate qualifier for this varying.
      */
     setInterpolation(type: InterpolationType, sampling?: InterpolationSampling): this {
+        // Enforce the WGSL vocabulary (perspective/linear/flat) — the canonical grammar that the GLSL
+        // emitter maps FROM. A GLSL term like 'smooth' would pass straight through to invalid WGSL.
+        if (type !== 'perspective' && type !== 'linear' && type !== 'flat') {
+            throw new Error(
+                `[gpucat] setInterpolation type must be 'perspective' | 'linear' | 'flat' (WGSL), got '${type}'`,
+            );
+        }
         this.interpolationType = type;
         this.interpolationSampling = sampling ?? null;
         return this;

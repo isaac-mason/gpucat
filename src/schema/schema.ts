@@ -1061,6 +1061,24 @@ export type ArrayElement<D extends Any> = D extends { type: 'array'; element: in
       ? E
       : never;
 
+/**
+ * Wrap a struct field with an explicit byte alignment (emits WGSL `@align(n)`). This is the one lever
+ * an author uses to make a struct valid in the uniform address space — e.g. force a member that follows
+ * a nested struct/array onto a 16-byte boundary. It is the SAME type, only more-aligned: it renders as
+ * the wrapped type and `alignOf` takes `max(natural, n)`. Used everywhere the struct is bound, so a
+ * struct designed for a uniform keeps one layout across storage and uniform (no per-binding variants).
+ *
+ * @example struct('Frame', { time: EnvTime, config: d.align(16, EnvConfig) })
+ */
+export function align<D extends Any>(alignment: number, type: D): D {
+    return { ...type, customAlign: alignment };
+}
+
+/** Read the explicit `d.align` override on a schema, if any. */
+export function getCustomAlign(schema: Any): number | undefined {
+    return (schema as { customAlign?: number }).customAlign;
+}
+
 export const samplerDesc = (): sampler => ({
     type: 'sampler',
     wgslType: 'sampler',

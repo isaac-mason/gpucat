@@ -786,7 +786,7 @@ export const cases: Case[] = [
         // path (distinct from flat/perspective).
         name: 'centroid varying (vertex out + fragment in match)',
         build: () => {
-            const centroidVarying = varying(attribute('position', d.vec3f)).setInterpolation('smooth', 'centroid');
+            const centroidVarying = varying(attribute('position', d.vec3f)).setInterpolation('perspective', 'centroid');
             return {
                 vertex: vec4(centroidVarying, f32(1)),
                 fragment: vec4(centroidVarying, f32(1)),

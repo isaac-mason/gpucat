@@ -8,6 +8,7 @@
  */
 
 import { layoutAlignOf, layoutSizeOf } from '../../../schema/pack';
+import { assertUniformLayoutConformant } from '../../../schema/validate-layout';
 import type { StructSchema } from '../../../schema/schema';
 import * as d from '../../../schema/schema';
 import type {
@@ -1161,11 +1162,15 @@ export function emitAllBindings(ctx: BuildContext): {
     const storageTextureEntries: StorageTextureEntry[] = [];
     const samplerEntries: SamplerEntry[] = [];
 
-    // emit struct definitions required by storage bindings (topological order)
+    // emit struct definitions (topological order). A field wrapped in `d.align(n, ...)` emits `@align(n)`
+    // so the author can make a struct valid in a uniform (e.g. push a member after a nested struct onto
+    // a 16-byte boundary). One decl serves every address space; the layout validator enforces validity.
     for (const [_typeName, def] of ctx.structDefs) {
         lines.push(`struct ${def.wgslType} {`);
         for (const member of def.members) {
-            lines.push(`    ${member.name}: ${member.type.wgslType},`);
+            const customAlign = d.getCustomAlign(member.type);
+            const attr = customAlign !== undefined ? `@align(${customAlign}) ` : '';
+            lines.push(`    ${attr}${member.name}: ${member.type.wgslType},`);
         }
         lines.push(`}`);
         lines.push('');
@@ -1193,17 +1198,21 @@ export function emitAllBindings(ctx: BuildContext): {
                 ? [...bindGroup.uniforms].sort((a, b) => a.id - b.id)
                 : bindGroup.uniforms;
 
+            // This block wrapper is gpucat's, not the user's, so gpucat owns its uniform-address-space
+            // layout: a struct/array member (and any member following one) starts on a 16-byte boundary,
+            // pinned with @align/@size so every driver matches the packer. Member *internal* layout is
+            // std430 (the one WGSL layout) — a user makes a nested struct uniform-valid with d.align.
+            let prevAggregate = false;
             for (const u of orderedUniforms) {
-                // Uniform member offsets/sizes come from pack.ts — the single memory-layout
-                // authority — using the WGSL uniform address-space rules the driver lays the
-                // `var<uniform>` struct out with. (Mirrors the GLSL emitter's std140 use.)
-                const align = layoutAlignOf(u.type, 'wgsl-uniform');
+                const isAggregate = d.isStructDesc(u.type) || d.isSizedArrayDesc(u.type) || d.isArrayDesc(u.type);
+                let align = layoutAlignOf(u.type, 'wgsl-uniform');
+                if (isAggregate || prevAggregate) align = Math.max(align, 16);
                 const size = layoutSizeOf(u.type, 'wgsl-uniform');
 
                 // align offset
                 offset = Math.ceil(offset / align) * align;
 
-                lines.push(`    ${u.name}: ${u.type.wgslType},`);
+                lines.push(`    @align(${align}) @size(${size}) ${u.name}: ${u.type.wgslType},`);
                 members.push({
                     uniformId: u.name,
                     schema: u.type,
@@ -1213,6 +1222,7 @@ export function emitAllBindings(ctx: BuildContext): {
                 });
 
                 offset += size;
+                prevAggregate = isAggregate;
             }
 
             lines.push(`}`);
@@ -1221,13 +1231,14 @@ export function emitAllBindings(ctx: BuildContext): {
             );
             lines.push('');
 
-            // Compute struct alignment (max alignment of all members)
-            let structAlign = 4;
-            for (const u of bindGroup.uniforms) {
-                structAlign = Math.max(structAlign, layoutAlignOf(u.type, 'wgsl-uniform'));
-            }
-            // Round up totalBytes to struct alignment
-            const totalBytes = Math.ceil(offset / structAlign) * structAlign;
+            // A uniform block is a 16-aligned struct (like std140/three.js, which pads every UBO to
+            // a 16-byte chunk), so its size rounds up to at least 16 — a block of only small members
+            // (e.g. a single vec2f) must still allocate a 16-byte buffer.
+            const totalBytes = Math.ceil(offset / 16) * 16;
+
+            // Fail a non-conformant layout at emit time on every browser, rather than only at runtime
+            // on naga (Firefox). Backstops the pack.ts uniform-layout rules.
+            assertUniformLayoutConformant(`Uniforms_${groupName}`, members, totalBytes, 'wgsl-uniform');
 
             uniformBlocks.push({
                 groupName,
@@ -1403,6 +1414,19 @@ export function emitDslFunctions(ctx: BuildContext): string {
     return lines.join('\n');
 }
 
+/**
+ * WGSL `@interpolate(...)` attribute for a varying (leading space), or '' for the default. Integer
+ * varyings are forced to `flat` even when unset — WGSL requires it for integer I/O (naga rejects a
+ * non-flat integer varying) — mirroring the GLSL backend's `glslVaryingQualifier`.
+ */
+function varyingInterpolateAttr(node: VaryingNode<d.Any>): string {
+    const scalarKind = (node.type as { scalar?: string }).scalar;
+    const isInteger = scalarKind === 'i32' || scalarKind === 'u32';
+    const type = node.interpolationType ?? (isInteger ? 'flat' : null);
+    if (!type) return '';
+    return node.interpolationSampling ? ` @interpolate(${type}, ${node.interpolationSampling})` : ` @interpolate(${type})`;
+}
+
 /* vertex shader generation */
 
 export function generateVertexShader(slots: CompileSlots, ctx: BuildContext): string {
@@ -1437,15 +1461,7 @@ export function generateVertexShader(slots: CompileSlots, ctx: BuildContext): st
     lines.push('    @builtin(position) position: vec4f,');
     let varyingLoc = 0;
     for (const [name, { node }] of ctx.varyings) {
-        let interp = '';
-        if (node.interpolationType) {
-            interp = ` @interpolate(${node.interpolationType}`;
-            if (node.interpolationSampling) {
-                interp += `, ${node.interpolationSampling}`;
-            }
-            interp += ')';
-        }
-        lines.push(`    @location(${varyingLoc})${interp} ${name}: ${node.type.wgslType},`);
+        lines.push(`    @location(${varyingLoc})${varyingInterpolateAttr(node)} ${name}: ${node.type.wgslType},`);
         varyingLoc++;
     }
     lines.push('}');
@@ -1508,15 +1524,7 @@ export function generateFragmentShader(
         }
         let varyingLoc = 0;
         for (const [name, { node }] of ctx.varyings) {
-            let interp = '';
-            if (node.interpolationType) {
-                interp = ` @interpolate(${node.interpolationType}`;
-                if (node.interpolationSampling) {
-                    interp += `, ${node.interpolationSampling}`;
-                }
-                interp += ')';
-            }
-            lines.push(`    @location(${varyingLoc})${interp} ${name}: ${node.type.wgslType},`);
+            lines.push(`    @location(${varyingLoc})${varyingInterpolateAttr(node)} ${name}: ${node.type.wgslType},`);
             varyingLoc++;
         }
         lines.push('}');

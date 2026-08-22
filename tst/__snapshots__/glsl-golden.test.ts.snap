@@ -455,7 +455,7 @@ void main() {
           "size": 8,
         },
       ],
-      "totalBytes": 8,
+      "totalBytes": 16,
     },
   ],
   "varyings": [],

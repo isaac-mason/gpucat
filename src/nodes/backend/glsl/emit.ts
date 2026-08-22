@@ -16,6 +16,7 @@
  */
 
 import { layoutAlignOf, layoutSizeOf, layoutStrideOf, structFieldLayout } from '../../../schema/pack';
+import { assertSchemaUniformValid, assertUniformLayoutConformant } from '../../../schema/validate-layout';
 import type { StructSchema } from '../../../schema/schema';
 import * as d from '../../../schema/schema';
 import type { CompileSlots, Discovery, SamplerEntry, TextureEntry, UniformGroupBlock, UniformMember } from '../../builder';
@@ -1758,7 +1759,11 @@ export function emitGlslUniformBlocks(ctx: GlslBuildContext): { glsl: string; un
 
         const members: UniformMember[] = [];
         let offset = 0;
-        let structAlign = 4;
+        // A std140 uniform block is itself a struct, so its base alignment is at least a vec4 (16).
+        // The whole block size must round up to 16 or GL reports a larger UNIFORM_BLOCK_DATA_SIZE
+        // than the buffer we allocate (e.g. a `{ vec2f }` block: member align 8, but GL wants 16),
+        // producing "Buffer for uniform block is smaller than UNIFORM_BLOCK_DATA_SIZE".
+        let structAlign = 16;
         // A shared group backs one buffer reused across materials (cached by its uniform set),
         // so its layout must be deterministic for a given set no matter the per-material traversal
         // order. Order by stable node id (mirrors the WGSL emit and three.js). Non-shared groups
@@ -1776,12 +1781,21 @@ export function emitGlslUniformBlocks(ctx: GlslBuildContext): { glsl: string; un
             members.push({ uniformId: u.name, schema: u.type, offset, size, node: u });
             offset += size;
             structAlign = Math.max(structAlign, align);
+
+            // Validate the member's schema against the STRICTER WGSL uniform rules, not just std140's
+            // (which auto-rounds and would mask a WebGPU-breaking layout). This makes a WebGL-only build
+            // fail with an actionable d.align message rather than shipping something naga rejects.
+            assertSchemaUniformValid(`Uniforms_${groupName}.${u.name}`, u.type);
         }
 
         lines.push(`} uniforms_${groupName};`);
         lines.push('');
 
         const totalBytes = Math.ceil(offset / structAlign) * structAlign;
+
+        // Same conformance check as the WGSL path: a std140 block that under-sizes or misaligns a member
+        // (e.g. the vec2f block that triggered "Buffer smaller than UNIFORM_BLOCK_DATA_SIZE") fails here.
+        assertUniformLayoutConformant(`Uniforms_${groupName}`, members, totalBytes, 'std140');
 
         uniformBlocks.push({
             groupName,

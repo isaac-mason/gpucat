@@ -44,6 +44,12 @@ jobs:
       - name: Run tests
         run: pnpm test
 
+      - name: Install naga-cli
+        run: cargo install naga-cli
+
+      - name: Validate emitted WGSL with naga (Firefox's validator)
+        run: pnpm run test:wgsl
+
   deploy:
     environment:
       name: github-pages

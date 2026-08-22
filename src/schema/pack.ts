@@ -9,31 +9,36 @@ import {
     isAtomicDesc,
     isBitsDesc,
     isPackedDesc,
+    getCustomAlign,
 } from './schema';
 
 /**
- * A GPU buffer memory-layout standard. gpucat targets exactly three, one per (address space ×
- * shading language) combination it actually uses:
+ * A GPU buffer memory-layout standard. gpucat targets:
  *
- * - `std430`: WGSL storage-buffer layout (packs tightest).
- * - `wgsl-uniform`: WGSL uniform-buffer layout (like std430 but struct/array elements round to 16).
- * - `std140`: GLSL uniform-buffer layout (like wgsl-uniform, but also pads EVERY matrix
- *                    column to a vec4, including 2-row matrices).
+ * - `std430`: WGSL layout (packs tightest). Used for BOTH storage and uniform on the WebGPU backend —
+ *              a struct has ONE layout regardless of address space (see the hardening plan). Uniform
+ *              validity (a member after a struct/array on a 16-byte boundary, etc.) is the author's
+ *              responsibility via `d.align`, enforced by the layout validator; the synthetic UBO block
+ *              wrapper the WGSL emitter generates applies the block-level 16-alignment itself.
+ * - `wgsl-uniform`: alias of `std430` (retained as a name for the WGSL uniform data path). It no longer
+ *              auto-rounds struct/array elements to 16 — that would give a shared struct two divergent
+ *              layouts; the author pins alignment with `d.align` instead.
+ * - `std140`: GLSL uniform-buffer layout (WebGL). Rounds struct/array elements to 16 (inherent to
+ *              std140) AND pads every matrix column to a vec4, including 2-row matrices.
  *
- * (WGSL uniform ≠ std140: they differ only in that mat2 column stride. There is no GLSL storage
- * layout because WebGL2 has no storage buffers, so the fourth combination doesn't exist.)
+ * There is no GLSL storage layout because WebGL2 has no storage buffers.
  *
- * The three collapse to two orthogonal rules; see {@link roundsElementsTo16} and
- * {@link matColumnsAlwaysVec4}.
+ * See {@link roundsElementsTo16} and {@link matColumnsAlwaysVec4}.
  */
 export type MemoryLayout = 'std430' | 'wgsl-uniform' | 'std140';
 
 /**
- * Whether structs and array elements round their stride up to 16 bytes. True for both uniform
- * layouts (`wgsl-uniform`, `std140`); false for `std430`, which packs tightest.
+ * Whether structs and array elements round their stride up to 16 bytes. True only for GLSL `std140`
+ * (inherent to that standard). WGSL layouts (`std430`, `wgsl-uniform`) pack tightest and rely on
+ * `d.align` for any 16-rounding a uniform needs — see {@link MemoryLayout}.
  */
 function roundsElementsTo16(memLayout: MemoryLayout): boolean {
-    return memLayout !== 'std430';
+    return memLayout === 'std140';
 }
 
 /**
@@ -300,30 +305,35 @@ function roundUp(n: number, align: number): number {
 }
 
 /**
- * Get alignment for a schema in the given memory layout.
- * Uniform layouts have stricter rules: array elements round up to 16 (both uniform layouts),
- * and std140 additionally rounds STRUCT alignment up to 16. WGSL uniform keeps a nested struct
- * at its natural alignment (max member alignment) — Dawn lays a `struct{f32,f32}`-then-struct
- * member out at offset 8, not 16, so rounding structs to 16 for wgsl-uniform misaligns every
- * member after a sub-16-aligned nested struct.
+ * Alignment for a schema, honoring an explicit `d.align` override (`max(natural, custom)`). This is the
+ * single lever that makes a struct valid in the uniform address space; a d.align'd member's higher
+ * alignment applies in every layout, so one schema keeps one layout across storage and uniform.
  */
 function alignOf(schema: Any, memLayout: MemoryLayout): number {
-    if (roundsElementsTo16(memLayout)) {
-        // Array elements are 16-aligned in every uniform layout (WGSL uniform + std140).
-        if (isSizedArrayDesc(schema) || isArrayDesc(schema)) {
-            return roundUp(alignOf(schema.element, memLayout), 16);
+    const natural = naturalAlignOf(schema, memLayout);
+    const custom = getCustomAlign(schema);
+    return custom !== undefined ? Math.max(natural, custom) : natural;
+}
+
+/**
+ * Natural (layout-standard) alignment, ignoring any `d.align` override. Only GLSL std140 rounds struct
+ * and array-element alignment up to 16; WGSL layouts pack tight and rely on `d.align` for uniform
+ * 16-rounding (see {@link MemoryLayout}). std140 additionally aligns every f32 matrix to 16.
+ */
+function naturalAlignOf(schema: Any, memLayout: MemoryLayout): number {
+    // A struct/array's alignment is the max of its members' alignments (custom-aware, so a d.align'd
+    // field raises the whole struct's alignment — and thus its rounded size). std140 additionally
+    // rounds that up to 16; WGSL layouts keep it tight.
+    if (isSizedArrayDesc(schema) || isArrayDesc(schema)) {
+        const elementAlign = alignOf(schema.element, memLayout);
+        return roundsElementsTo16(memLayout) ? roundUp(elementAlign, 16) : elementAlign;
+    }
+    if (isStructDesc(schema)) {
+        let maxAlign = 4;
+        for (const field of Object.values(schema.fields)) {
+            maxAlign = Math.max(maxAlign, alignOf(field, memLayout));
         }
-        if (isStructDesc(schema)) {
-            // A struct's alignment is the max of its members' alignments IN THIS layout — so a
-            // struct containing a 16-aligned array/vec4 member is itself 16-aligned. std140
-            // additionally rounds the whole struct up to 16; WGSL uniform does not (Dawn keeps a
-            // `struct{f32,f32}` at natural align 4, verified against a real device).
-            let maxAlign = 4;
-            for (const field of Object.values(schema.fields)) {
-                maxAlign = Math.max(maxAlign, alignOf(field, memLayout));
-            }
-            return memLayout === 'std140' ? roundUp(maxAlign, 16) : maxAlign;
-        }
+        return roundsElementsTo16(memLayout) ? roundUp(maxAlign, 16) : maxAlign;
     }
     // std140: all f32 matrices align to 16 (columns padded to vec4), including 2-row matrices.
     // (f16 matrices aren't part of GLSL std140; they keep their std430 alignment.)

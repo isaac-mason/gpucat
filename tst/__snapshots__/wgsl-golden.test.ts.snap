@@ -279,7 +279,7 @@ exports[`golden WGSL — render path > conditional + inline wgsl in fragment 1`]
   ],
   "code": "// Bindings (uniforms, storage, textures, samplers)
 struct Uniforms_render {
-    screenSize: vec2f,
+    @align(8) @size(8) screenSize: vec2f,
 }
 @group(0) @binding(0) var<uniform> uniforms_render: Uniforms_render;
 
@@ -323,14 +323,14 @@ exports[`golden WGSL — render path > lit mesh: attributes, camera/model unifor
   "builtins": [],
   "code": "// Bindings (uniforms, storage, textures, samplers)
 struct Uniforms_render {
-    cameraProjectionMatrix: mat4x4f,
-    cameraViewMatrix: mat4x4f,
+    @align(16) @size(64) cameraProjectionMatrix: mat4x4f,
+    @align(16) @size(64) cameraViewMatrix: mat4x4f,
 }
 @group(0) @binding(0) var<uniform> uniforms_render: Uniforms_render;
 
 struct Uniforms_object {
-    modelWorldMatrix: mat4x4f,
-    modelNormalMatrix: mat3x3f,
+    @align(16) @size(64) modelWorldMatrix: mat4x4f,
+    @align(16) @size(48) modelNormalMatrix: mat3x3f,
 }
 @group(1) @binding(0) var<uniform> uniforms_object: Uniforms_object;
 
@@ -384,7 +384,7 @@ exports[`golden WGSL — render path > textured: sampled texture binding + sampl
   ],
   "code": "// Bindings (uniforms, storage, textures, samplers)
 struct Uniforms_render {
-    screenSize: vec2f,
+    @align(8) @size(8) screenSize: vec2f,
 }
 @group(0) @binding(0) var<uniform> uniforms_render: Uniforms_render;
 
