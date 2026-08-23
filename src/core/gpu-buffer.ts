@@ -278,16 +278,16 @@ export class GpuBuffer<T extends Any = Any> {
      * else this throws rather than silently misaligning.
      */
     packAtIndex<D extends Any>(schema: D, index: number, value: Infer<D>): this {
-        const arr = this.array;
-        if (arr == null) {
+        const array = this.array;
+        if (array == null) {
             throw new Error('[GpuBuffer] packAtIndex(): buffer has no CPU `array` to write into (its data was released after upload).');
         }
         const strideBytes = layoutStrideOf(schema, 'std430');
-        const elementStride = arr.byteLength / this.count;
+        const elementStride = array.byteLength / this.count;
         if (strideBytes !== elementStride) {
             throw new Error(
                 `[GpuBuffer] packAtIndex(): schema std430 stride ${strideBytes}B does not match the buffer's element stride ` +
-                    `${elementStride}B (${this.count} elements over ${arr.byteLength}B) — pass the element schema whose layout matches the buffer.`,
+                    `${elementStride}B (${this.count} elements over ${array.byteLength}B) — pass the element schema whose layout matches the buffer.`,
             );
         }
         return this.packAtByte(schema, index * strideBytes, value);
@@ -301,11 +301,11 @@ export class GpuBuffer<T extends Any = Any> {
      * components; a subsequent `needsUpdate = true` (full re-upload) supersedes queued ranges.
      */
     packAtByte<D extends Any>(schema: D, byteOffset: number, value: Infer<D>): this {
-        const arr = this.array;
-        if (arr == null) {
+        const array = this.array;
+        if (array == null) {
             throw new Error('[GpuBuffer] packAtByte(): buffer has no CPU `array` to write into (its data was released after upload).');
         }
-        const bytesPerComponent = arr.BYTES_PER_ELEMENT;
+        const bytesPerComponent = array.BYTES_PER_ELEMENT;
         if (byteOffset % bytesPerComponent !== 0) {
             throw new Error(
                 `[GpuBuffer] packAtByte(): byteOffset ${byteOffset} is not a multiple of the array's ${bytesPerComponent}-byte component size.`,
@@ -313,7 +313,7 @@ export class GpuBuffer<T extends Any = Any> {
         }
         const componentOffset = byteOffset / bytesPerComponent;
         const componentCount = layoutStrideOf(schema, 'std430') / bytesPerComponent;
-        packTo(schema, arr, byteOffset, value, 'std430');
+        packTo(schema, array, byteOffset, value, 'std430');
         this.addUpdateRange(componentOffset, componentCount);
         this.needsUpdate = true;
         return this;
@@ -326,22 +326,22 @@ export class GpuBuffer<T extends Any = Any> {
      * ELEMENT type; `values.length` must not exceed the buffer's element `count`.
      */
     pack<D extends Any>(schema: D, values: Infer<D>[]): this {
-        const arr = this.array;
-        if (arr == null) {
+        const array = this.array;
+        if (array == null) {
             throw new Error('[GpuBuffer] pack(): buffer has no CPU `array` to write into (its data was released after upload).');
         }
         if (values.length > this.count) {
             throw new Error(`[GpuBuffer] pack(): ${values.length} values exceed the buffer's ${this.count}-element capacity.`);
         }
         const strideBytes = layoutStrideOf(schema, 'std430');
-        const elementStride = arr.byteLength / this.count;
+        const elementStride = array.byteLength / this.count;
         if (strideBytes !== elementStride) {
             throw new Error(
                 `[GpuBuffer] pack(): schema std430 stride ${strideBytes}B does not match the buffer's element stride ` +
-                    `${elementStride}B (${this.count} elements over ${arr.byteLength}B) — pass the element schema whose layout matches the buffer.`,
+                    `${elementStride}B (${this.count} elements over ${array.byteLength}B) — pass the element schema whose layout matches the buffer.`,
             );
         }
-        const view = new DataView(arr.buffer, arr.byteOffset, arr.byteLength);
+        const view = new DataView(array.buffer, array.byteOffset, array.byteLength);
         for (let i = 0; i < values.length; i++) {
             packToView(schema, view, i * strideBytes, values[i], 'std430');
         }

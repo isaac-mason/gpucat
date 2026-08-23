@@ -164,7 +164,7 @@ export class DataTexture {
      * {@link createStructTexture}.
      */
     packAtIndex<S extends d.StructSchema>(schema: StructDef<S>, index: number, value: StructValue<S>): this {
-        const { texelStride } = structFieldLayout(schema as unknown as d.StructDesc);
+        const { texelStride } = structFieldLayout(schema);
         return this.packAtTexel(schema, index * texelStride, value);
     }
 
@@ -173,13 +173,13 @@ export class DataTexture {
      * {@link packAtIndex} (a texel is this texture's native addressing unit).
      */
     packAtTexel<S extends d.StructSchema>(schema: StructDef<S>, texel: number, value: StructValue<S>): this {
-        const { texelStride } = structFieldLayout(schema as unknown as d.StructDesc);
+        const { texelStride } = structFieldLayout(schema);
         // Auto-grow (height only — width is fixed, so a shader compiled against `load(schema, i)` keeps
         // addressing correctly after the texture grows) before writing past the current allocation.
         this._ensureTexels(texel + texelStride);
         const data = this.data;
         if (!data) throw new Error('[DataTexture] packAtTexel(): texture has no backing data array.');
-        packTo(schema as unknown as d.Any, data, texel * 16, value as never, 'std430');
+        packTo(schema, data, texel * 16, value as never, 'std430');
         // Partial upload of just this record's texels. If `_ensureTexels` grew the texture it already
         // set `needsUpdate` (full), which takes priority over this range — a grow is one full re-upload.
         this.addUpdateRange(texel, texelStride);
@@ -193,13 +193,13 @@ export class DataTexture {
      * {@link GpuBuffer.pack}.
      */
     pack<S extends d.StructSchema>(schema: StructDef<S>, values: StructValue<S>[]): this {
-        const { texelStride } = structFieldLayout(schema as unknown as d.StructDesc);
+        const { texelStride } = structFieldLayout(schema);
         this._ensureTexels(values.length * texelStride);
         const data = this.data;
         if (!data) throw new Error('[DataTexture] pack(): texture has no backing data array.');
         const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
         for (let i = 0; i < values.length; i++) {
-            packToView(schema as unknown as d.Any, view, i * texelStride * 16, values[i] as never, 'std430');
+            packToView(schema, view, i * texelStride * 16, values[i] as never, 'std430');
         }
         // A whole-array write is one full re-upload — supersedes any queued partial ranges.
         this.needsUpdate = true;
@@ -294,7 +294,7 @@ export function createStructTexture<S extends d.StructSchema>(
     capacity: number,
     options: TextureOptions = {},
 ): DataTexture {
-    const { texelStride } = structFieldLayout(schema as unknown as d.StructDesc);
+    const { texelStride } = structFieldLayout(schema);
     const totalTexels = Math.max(1, capacity * texelStride);
     // 2-D wrap so huge capacities fit under max texture dimension; the load accessor maps each
     // texel index to (x, y) with this same width, so records may straddle a row boundary safely.
