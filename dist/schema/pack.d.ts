@@ -1,18 +1,21 @@
 import { type Any, type Infer, type StructDesc } from './schema';
 /**
- * A GPU buffer memory-layout standard. gpucat targets exactly three, one per (address space ×
- * shading language) combination it actually uses:
+ * A GPU buffer memory-layout standard. gpucat targets:
  *
- * - `std430`: WGSL storage-buffer layout (packs tightest).
- * - `wgsl-uniform`: WGSL uniform-buffer layout (like std430 but struct/array elements round to 16).
- * - `std140`: GLSL uniform-buffer layout (like wgsl-uniform, but also pads EVERY matrix
- *                    column to a vec4, including 2-row matrices).
+ * - `std430`: WGSL layout (packs tightest). Used for BOTH storage and uniform on the WebGPU backend —
+ *              a struct has ONE layout regardless of address space (see the hardening plan). Uniform
+ *              validity (a member after a struct/array on a 16-byte boundary, etc.) is the author's
+ *              responsibility via `d.align`, enforced by the layout validator; the synthetic UBO block
+ *              wrapper the WGSL emitter generates applies the block-level 16-alignment itself.
+ * - `wgsl-uniform`: alias of `std430` (retained as a name for the WGSL uniform data path). It no longer
+ *              auto-rounds struct/array elements to 16 — that would give a shared struct two divergent
+ *              layouts; the author pins alignment with `d.align` instead.
+ * - `std140`: GLSL uniform-buffer layout (WebGL). Rounds struct/array elements to 16 (inherent to
+ *              std140) AND pads every matrix column to a vec4, including 2-row matrices.
  *
- * (WGSL uniform ≠ std140: they differ only in that mat2 column stride. There is no GLSL storage
- * layout because WebGL2 has no storage buffers, so the fourth combination doesn't exist.)
+ * There is no GLSL storage layout because WebGL2 has no storage buffers.
  *
- * The three collapse to two orthogonal rules; see {@link roundsElementsTo16} and
- * {@link matColumnsAlwaysVec4}.
+ * See {@link roundsElementsTo16} and {@link matColumnsAlwaysVec4}.
  */
 export type MemoryLayout = 'std430' | 'wgsl-uniform' | 'std140';
 export type CompiledLayout<T = unknown> = {

@@ -8663,6 +8663,22 @@ function array$1(element) {
 function sizedArray(element, length) {
     return { type: 'sized-array', wgslType: `array<${element.wgslType}, ${length}>`, element, length };
 }
+/**
+ * Wrap a struct field with an explicit byte alignment (emits WGSL `@align(n)`). This is the one lever
+ * an author uses to make a struct valid in the uniform address space — e.g. force a member that follows
+ * a nested struct/array onto a 16-byte boundary. It is the SAME type, only more-aligned: it renders as
+ * the wrapped type and `alignOf` takes `max(natural, n)`. Used everywhere the struct is bound, so a
+ * struct designed for a uniform keeps one layout across storage and uniform (no per-binding variants).
+ *
+ * @example struct('Frame', { time: EnvTime, config: d.align(16, EnvConfig) })
+ */
+function align(alignment, type) {
+    return { ...type, customAlign: alignment };
+}
+/** Read the explicit `d.align` override on a schema, if any. */
+function getCustomAlign(schema) {
+    return schema.customAlign;
+}
 const samplerDesc = () => ({
     type: 'sampler',
     wgslType: 'sampler',
@@ -8960,6 +8976,22 @@ function vec4DescOf(desc) {
     const elem = VEC_ELEMENT_DESC[desc.wgslType] ?? SCALAR_DESC[desc.wgslType];
     return VEC4_DESC[elem?.wgslType ?? 'f32'] ?? vec4f$1;
 }
+/**
+ * Numeric conversion target that PRESERVES the operand's vector length: converting a `vec3i` to float
+ * yields `vec3f`, not scalar `f32`. Used by `.toF32()/.toI32()/.toU32()/.toF16()` so the emitted
+ * constructor matches (`vec3f(...)`, not the illegal `f32(vec3i)`). `targetScalar` is the WGSL scalar
+ * kind ('f32' | 'i32' | 'u32' | 'f16'). Non-numeric/length-less descriptors fall back to the scalar.
+ */
+function numericDescOf(desc, targetScalar) {
+    const len = desc.len ?? 1;
+    if (len === 2)
+        return VEC2_DESC[targetScalar];
+    if (len === 3)
+        return VEC3_DESC[targetScalar];
+    if (len === 4)
+        return VEC4_DESC[targetScalar];
+    return SCALAR_DESC[targetScalar];
+}
 const MAT_COLUMN_DESC = {
     mat2x2f: vec2f$1,
     mat3x2f: vec2f$1,
@@ -9044,6 +9076,7 @@ var schema = /*#__PURE__*/Object.freeze({
 	STORAGE_FORMATS: STORAGE_FORMATS,
 	Void: Void,
 	WgslFn: WgslFn,
+	align: align,
 	arithResultDesc: arithResultDesc,
 	array: array$1,
 	atomic: atomic,
@@ -9054,6 +9087,7 @@ var schema = /*#__PURE__*/Object.freeze({
 	descFromWgslType: descFromWgslType,
 	f16: f16$1,
 	f32: f32$1,
+	getCustomAlign: getCustomAlign,
 	half2x16: half2x16,
 	i32: i32$1,
 	isAnyTextureDesc: isAnyTextureDesc,
@@ -9095,6 +9129,7 @@ var schema = /*#__PURE__*/Object.freeze({
 	mat4x4h: mat4x4h$1,
 	matColumnDesc: matColumnDesc,
 	mulResultDesc: mulResultDesc,
+	numericDescOf: numericDescOf,
 	roundUp: roundUp$1,
 	sampleResultOf: sampleResultOf,
 	sampler: sampler$1,
@@ -9153,11 +9188,12 @@ var schema = /*#__PURE__*/Object.freeze({
 });
 
 /**
- * Whether structs and array elements round their stride up to 16 bytes. True for both uniform
- * layouts (`wgsl-uniform`, `std140`); false for `std430`, which packs tightest.
+ * Whether structs and array elements round their stride up to 16 bytes. True only for GLSL `std140`
+ * (inherent to that standard). WGSL layouts (`std430`, `wgsl-uniform`) pack tightest and rely on
+ * `d.align` for any 16-rounding a uniform needs — see {@link MemoryLayout}.
  */
 function roundsElementsTo16(memLayout) {
-    return memLayout !== 'std430';
+    return memLayout === 'std140';
 }
 /**
  * Whether every matrix column is padded to a vec4 (16-byte stride), even for 2-row matrices. True
@@ -9323,30 +9359,34 @@ function roundUp(n, align) {
     return Math.ceil(n / align) * align;
 }
 /**
- * Get alignment for a schema in the given memory layout.
- * Uniform layouts have stricter rules: array elements round up to 16 (both uniform layouts),
- * and std140 additionally rounds STRUCT alignment up to 16. WGSL uniform keeps a nested struct
- * at its natural alignment (max member alignment) — Dawn lays a `struct{f32,f32}`-then-struct
- * member out at offset 8, not 16, so rounding structs to 16 for wgsl-uniform misaligns every
- * member after a sub-16-aligned nested struct.
+ * Alignment for a schema, honoring an explicit `d.align` override (`max(natural, custom)`). This is the
+ * single lever that makes a struct valid in the uniform address space; a d.align'd member's higher
+ * alignment applies in every layout, so one schema keeps one layout across storage and uniform.
  */
 function alignOf(schema, memLayout) {
-    if (roundsElementsTo16(memLayout)) {
-        // Array elements are 16-aligned in every uniform layout (WGSL uniform + std140).
-        if (isSizedArrayDesc(schema) || isArrayDesc(schema)) {
-            return roundUp(alignOf(schema.element, memLayout), 16);
+    const natural = naturalAlignOf(schema, memLayout);
+    const custom = getCustomAlign(schema);
+    return custom !== undefined ? Math.max(natural, custom) : natural;
+}
+/**
+ * Natural (layout-standard) alignment, ignoring any `d.align` override. Only GLSL std140 rounds struct
+ * and array-element alignment up to 16; WGSL layouts pack tight and rely on `d.align` for uniform
+ * 16-rounding (see {@link MemoryLayout}). std140 additionally aligns every f32 matrix to 16.
+ */
+function naturalAlignOf(schema, memLayout) {
+    // A struct/array's alignment is the max of its members' alignments (custom-aware, so a d.align'd
+    // field raises the whole struct's alignment — and thus its rounded size). std140 additionally
+    // rounds that up to 16; WGSL layouts keep it tight.
+    if (isSizedArrayDesc(schema) || isArrayDesc(schema)) {
+        const elementAlign = alignOf(schema.element, memLayout);
+        return roundsElementsTo16(memLayout) ? roundUp(elementAlign, 16) : elementAlign;
+    }
+    if (isStructDesc(schema)) {
+        let maxAlign = 4;
+        for (const field of Object.values(schema.fields)) {
+            maxAlign = Math.max(maxAlign, alignOf(field, memLayout));
         }
-        if (isStructDesc(schema)) {
-            // A struct's alignment is the max of its members' alignments IN THIS layout — so a
-            // struct containing a 16-aligned array/vec4 member is itself 16-aligned. std140
-            // additionally rounds the whole struct up to 16; WGSL uniform does not (Dawn keeps a
-            // `struct{f32,f32}` at natural align 4, verified against a real device).
-            let maxAlign = 4;
-            for (const field of Object.values(schema.fields)) {
-                maxAlign = Math.max(maxAlign, alignOf(field, memLayout));
-            }
-            return memLayout === 'std140' ? roundUp(maxAlign, 16) : maxAlign;
-        }
+        return roundsElementsTo16(memLayout) ? roundUp(maxAlign, 16) : maxAlign;
     }
     // std140: all f32 matrices align to 16 (columns padded to vec4), including 2-row matrices.
     // (f16 matrices aren't part of GLSL std140; they keep their std430 alignment.)
@@ -10256,15 +10296,15 @@ class GpuBuffer {
      * else this throws rather than silently misaligning.
      */
     packAtIndex(schema, index, value) {
-        const arr = this.array;
-        if (arr == null) {
+        const array = this.array;
+        if (array == null) {
             throw new Error('[GpuBuffer] packAtIndex(): buffer has no CPU `array` to write into (its data was released after upload).');
         }
         const strideBytes = layoutStrideOf(schema, 'std430');
-        const elementStride = arr.byteLength / this.count;
+        const elementStride = array.byteLength / this.count;
         if (strideBytes !== elementStride) {
             throw new Error(`[GpuBuffer] packAtIndex(): schema std430 stride ${strideBytes}B does not match the buffer's element stride ` +
-                `${elementStride}B (${this.count} elements over ${arr.byteLength}B) — pass the element schema whose layout matches the buffer.`);
+                `${elementStride}B (${this.count} elements over ${array.byteLength}B) — pass the element schema whose layout matches the buffer.`);
         }
         return this.packAtByte(schema, index * strideBytes, value);
     }
@@ -10276,17 +10316,17 @@ class GpuBuffer {
      * components; a subsequent `needsUpdate = true` (full re-upload) supersedes queued ranges.
      */
     packAtByte(schema, byteOffset, value) {
-        const arr = this.array;
-        if (arr == null) {
+        const array = this.array;
+        if (array == null) {
             throw new Error('[GpuBuffer] packAtByte(): buffer has no CPU `array` to write into (its data was released after upload).');
         }
-        const bytesPerComponent = arr.BYTES_PER_ELEMENT;
+        const bytesPerComponent = array.BYTES_PER_ELEMENT;
         if (byteOffset % bytesPerComponent !== 0) {
             throw new Error(`[GpuBuffer] packAtByte(): byteOffset ${byteOffset} is not a multiple of the array's ${bytesPerComponent}-byte component size.`);
         }
         const componentOffset = byteOffset / bytesPerComponent;
         const componentCount = layoutStrideOf(schema, 'std430') / bytesPerComponent;
-        packTo(schema, arr, byteOffset, value, 'std430');
+        packTo(schema, array, byteOffset, value, 'std430');
         this.addUpdateRange(componentOffset, componentCount);
         this.needsUpdate = true;
         return this;
@@ -10298,20 +10338,20 @@ class GpuBuffer {
      * ELEMENT type; `values.length` must not exceed the buffer's element `count`.
      */
     pack(schema, values) {
-        const arr = this.array;
-        if (arr == null) {
+        const array = this.array;
+        if (array == null) {
             throw new Error('[GpuBuffer] pack(): buffer has no CPU `array` to write into (its data was released after upload).');
         }
         if (values.length > this.count) {
             throw new Error(`[GpuBuffer] pack(): ${values.length} values exceed the buffer's ${this.count}-element capacity.`);
         }
         const strideBytes = layoutStrideOf(schema, 'std430');
-        const elementStride = arr.byteLength / this.count;
+        const elementStride = array.byteLength / this.count;
         if (strideBytes !== elementStride) {
             throw new Error(`[GpuBuffer] pack(): schema std430 stride ${strideBytes}B does not match the buffer's element stride ` +
-                `${elementStride}B (${this.count} elements over ${arr.byteLength}B) — pass the element schema whose layout matches the buffer.`);
+                `${elementStride}B (${this.count} elements over ${array.byteLength}B) — pass the element schema whose layout matches the buffer.`);
         }
-        const view = new DataView(arr.buffer, arr.byteOffset, arr.byteLength);
+        const view = new DataView(array.buffer, array.byteOffset, array.byteLength);
         for (let i = 0; i < values.length; i++) {
             packToView(schema, view, i * strideBytes, values[i], 'std430');
         }
@@ -11215,17 +11255,23 @@ class Node {
         return this;
     }
     // ── Type conversions ──────────────────────────────────────────────────────
+    // Length-preserving: converting a vecN keeps N (a vec3i → vec3f via `vec3f(...)`), so we never emit
+    // the illegal scalar cast `f32(vec3i)`. Scalars convert with the scalar constructor as before.
     toF32() {
-        return new CallNode(f32$1, 'f32', [this]);
+        const t = numericDescOf(this.type, 'f32');
+        return new CallNode(t, t.wgslType, [this]);
     }
     toF16() {
-        return new CallNode(f16$1, 'f16', [this]);
+        const t = numericDescOf(this.type, 'f16');
+        return new CallNode(t, t.wgslType, [this]);
     }
     toU32() {
-        return new CallNode(u32$1, 'u32', [this]);
+        const t = numericDescOf(this.type, 'u32');
+        return new CallNode(t, t.wgslType, [this]);
     }
     toI32() {
-        return new CallNode(i32$1, 'i32', [this]);
+        const t = numericDescOf(this.type, 'i32');
+        return new CallNode(t, t.wgslType, [this]);
     }
     // ── Field access ──────────────────────────────────────────────────────────
     field(name) {
@@ -14763,6 +14809,11 @@ class VaryingNode extends Node {
      * Set the WGSL @interpolate qualifier for this varying.
      */
     setInterpolation(type, sampling) {
+        // Enforce the WGSL vocabulary (perspective/linear/flat) — the canonical grammar that the GLSL
+        // emitter maps FROM. A GLSL term like 'smooth' would pass straight through to invalid WGSL.
+        if (type !== 'perspective' && type !== 'linear' && type !== 'flat') {
+            throw new Error(`[gpucat] setInterpolation type must be 'perspective' | 'linear' | 'flat' (WGSL), got '${type}'`);
+        }
         this.interpolationType = type;
         this.interpolationSampling = sampling ?? null;
         return this;
@@ -15797,11 +15848,14 @@ function textureSampleCompare(t, s, coords, depthRef, offset) {
     return new CallNode(f32$1, 'textureSampleCompare', args);
 }
 /**
- * textureSampleCompareLevel - Compare-sample a depth texture at a specific level.
- * Works in any shader stage. Requires sampler_comparison.
+ * textureSampleCompareLevel - Compare-sample a depth texture at mip level 0.
+ * Works in any shader stage (unlike textureSampleCompare, which is fragment-only). Requires
+ * sampler_comparison. WGSL's textureSampleCompareLevel always samples at the base level and takes NO
+ * level argument — arbitrary-LOD comparison sampling is not expressible in WGSL — so this takes only an
+ * optional const `offset`.
  */
-function textureSampleCompareLevel(t, s, coords, depthRef, level, offset) {
-    const args = offset ? [t, s, coords, depthRef, level, offset] : [t, s, coords, depthRef, level];
+function textureSampleCompareLevel(t, s, coords, depthRef, offset) {
+    const args = offset ? [t, s, coords, depthRef, offset] : [t, s, coords, depthRef];
     return new CallNode(f32$1, 'textureSampleCompareLevel', args);
 }
 function textureLoad(t, coords, levelOrLayer) {
@@ -19234,6 +19288,100 @@ function alignTo4(n) {
 }
 
 /**
+ * Uniform-buffer layout conformance check.
+ *
+ * The WGSL uniform address space (and GLSL std140) impose rules beyond plain alignment: a member that
+ * follows a struct or array must start on a 16-byte boundary, array element strides are multiples of 16,
+ * and the block itself is a multiple of 16. Chrome's Tint tolerates violations; Firefox's naga rejects
+ * them, invalidating the pipeline. This validator asserts those rules against the ACTUAL offsets the
+ * emitter produced, so a regression in {@link ./pack} (e.g. a nested struct reverting to natural
+ * alignment) fails at emit time on every browser instead of only at runtime on Firefox.
+ *
+ * It is intentionally a constraint checker, not a second layout engine: a bad offset from pack.ts still
+ * shows up here as a violated constraint, without duplicating the offset math.
+ */
+function isAggregate(schema) {
+    return isStructDesc(schema) || isSizedArrayDesc(schema) || isArrayDesc(schema);
+}
+/**
+ * Assert a uniform block's layout is conformant for `memLayout`. No-op for `std430` (storage buffers,
+ * which pack tightly and have no 16-byte constraints). Throws with a precise location on the first
+ * violation.
+ */
+function assertUniformLayoutConformant(blockName, members, totalBytes, memLayout) {
+    if (memLayout === 'std430')
+        return;
+    const fail = makeFail(blockName, memLayout);
+    // Top-level members, in offset order.
+    let prevAggregate = false;
+    for (const m of members) {
+        const path = `${blockName}.${m.uniformId}`;
+        checkOffset(m.schema, m.offset, prevAggregate, path, memLayout, fail);
+        checkNested(m.schema, m.offset, path, memLayout, fail);
+        prevAggregate = isAggregate(m.schema);
+    }
+    // The block is itself a 16-aligned struct.
+    if (totalBytes % 16 !== 0) {
+        fail(blockName, `block size ${totalBytes} is not a multiple of 16`);
+    }
+}
+/**
+ * Assert a struct's OWN layout is valid in the WGSL uniform address space, independent of the active
+ * backend and of the synthetic block wrapper. Call this for every uniform-bound struct so a build that
+ * only compiles GLSL (WebGL) still catches a layout that would break WebGPU/naga — WGSL's rules are the
+ * strict superset, and std140 satisfies them inherently, so validating against WGSL covers both.
+ * The actionable failure names the member and suggests the `d.align` fix.
+ */
+function assertSchemaUniformValid(label, schema) {
+    if (!isStructDesc(schema) && !isSizedArrayDesc(schema) && !isArrayDesc(schema))
+        return;
+    checkNested(schema, 0, label, 'wgsl-uniform', makeFail(label, 'wgsl-uniform'));
+}
+function makeFail(blockName, memLayout) {
+    return (path, detail) => {
+        throw new Error(`[gpucat] non-conformant ${memLayout} layout in '${blockName}' at ${path}: ${detail}`);
+    };
+}
+/** Assert one member/field sits at a legal offset. */
+function checkOffset(schema, offset, prevAggregate, path, memLayout, fail) {
+    const align = layoutAlignOf(schema, memLayout);
+    if (offset % align !== 0) {
+        fail(path, `offset ${offset} is not a multiple of its ${align}-byte alignment`);
+    }
+    // A member following a struct or array must start on a 16-byte boundary. This is the exact shape of
+    // the Firefox break: a member packed at its natural offset after a nested struct/array.
+    if (prevAggregate && offset % 16 !== 0) {
+        fail(path, `offset ${offset} follows a struct/array member and must be a multiple of 16 in a uniform. ` +
+            `Wrap it with d.align(16, ...) or reorder so it does not follow an aggregate`);
+    }
+}
+/** Recurse into a struct's fields or an array's element, asserting the same rules internally. */
+function checkNested(schema, baseOffset, path, memLayout, fail) {
+    if (isStructDesc(schema)) {
+        const { fields } = structFieldLayout(schema, memLayout);
+        let prevAggregate = false;
+        for (const f of fields) {
+            const abs = baseOffset + f.byteOffset;
+            const fieldPath = `${path}.${f.name}`;
+            checkOffset(f.type, abs, prevAggregate, fieldPath, memLayout, fail);
+            checkNested(f.type, abs, fieldPath, memLayout, fail);
+            prevAggregate = isAggregate(f.type);
+        }
+        return;
+    }
+    if (isSizedArrayDesc(schema)) {
+        const length = schema.length;
+        const stride = length > 0 ? layoutSizeOf(schema, memLayout) / length : 0;
+        if (stride % 16 !== 0) {
+            fail(`${path}[]`, `array element stride ${stride} is not a multiple of 16 in a uniform. ` +
+                `Use d.align(16, element) or a vec4-based element`);
+        }
+        // Element offsets repeat every stride, so validating the first element covers all of them.
+        checkNested(schema.element, baseOffset, `${path}[0]`, memLayout, fail);
+    }
+}
+
+/**
  * graph.ts — backend-neutral node-graph utilities shared by discovery and every emitter.
  *
  * Pure structural analysis of the DSL node graph: the AnyNode discriminated union, child
@@ -20626,14 +20774,13 @@ function generateTextureCall(ctx, node) {
             return `texture(${name}, vec3(${coords}, ${depthRef}))`;
         }
         case 'textureSampleCompareLevel': {
-            // (t, s, coords, depthRef, level [, offset]) → shadow sample at an explicit LOD. Depth level
-            // is i32; GLSL textureLod takes a float lod.
+            // (t, s, coords, depthRef [, offset]) → shadow sample at base level (WGSL has no LOD arg for
+            // comparison sampling), so GLSL samples at lod 0.
             const coords = f.uv(generateExpr$1(ctx, rawArgs[2]));
             const depthRef = generateExpr$1(ctx, rawArgs[3]);
-            const level = `float(${generateExpr$1(ctx, rawArgs[4])})`;
-            if (rawArgs.length > 5)
-                return `textureLodOffset(${name}, vec3(${coords}, ${depthRef}), ${level}, ${constOffset(5)})`;
-            return `textureLod(${name}, vec3(${coords}, ${depthRef}), ${level})`;
+            if (rawArgs.length > 4)
+                return `textureLodOffset(${name}, vec3(${coords}, ${depthRef}), 0.0, ${constOffset(4)})`;
+            return `textureLod(${name}, vec3(${coords}, ${depthRef}), 0.0)`;
         }
         case 'textureGather':
         case 'textureGatherCompare': {
@@ -20992,7 +21139,11 @@ function emitGlslUniformBlocks(ctx) {
         lines.push(`layout(std140) uniform Uniforms_${groupName} {`);
         const members = [];
         let offset = 0;
-        let structAlign = 4;
+        // A std140 uniform block is itself a struct, so its base alignment is at least a vec4 (16).
+        // The whole block size must round up to 16 or GL reports a larger UNIFORM_BLOCK_DATA_SIZE
+        // than the buffer we allocate (e.g. a `{ vec2f }` block: member align 8, but GL wants 16),
+        // producing "Buffer for uniform block is smaller than UNIFORM_BLOCK_DATA_SIZE".
+        let structAlign = 16;
         // A shared group backs one buffer reused across materials (cached by its uniform set),
         // so its layout must be deterministic for a given set no matter the per-material traversal
         // order. Order by stable node id (mirrors the WGSL emit and three.js). Non-shared groups
@@ -21010,10 +21161,17 @@ function emitGlslUniformBlocks(ctx) {
             members.push({ uniformId: u.name, schema: u.type, offset, size, node: u });
             offset += size;
             structAlign = Math.max(structAlign, align);
+            // Validate the member's schema against the STRICTER WGSL uniform rules, not just std140's
+            // (which auto-rounds and would mask a WebGPU-breaking layout). This makes a WebGL-only build
+            // fail with an actionable d.align message rather than shipping something naga rejects.
+            assertSchemaUniformValid(`Uniforms_${groupName}.${u.name}`, u.type);
         }
         lines.push(`} uniforms_${groupName};`);
         lines.push('');
         const totalBytes = Math.ceil(offset / structAlign) * structAlign;
+        // Same conformance check as the WGSL path: a std140 block that under-sizes or misaligns a member
+        // (e.g. the vec2f block that triggered "Buffer smaller than UNIFORM_BLOCK_DATA_SIZE") fails here.
+        assertUniformLayoutConformant(`Uniforms_${groupName}`, members, totalBytes, 'std140');
         uniformBlocks.push({
             groupName,
             groupIndex,
@@ -21931,6 +22089,9 @@ function createContext$1(stage, isRender, discovery) {
         structs: new Map(),
         nodeVars: new Map(),
         varCounter: 0,
+        hoistIndex: -1,
+        topScopeParamIds: new Set(),
+        hoistStableMemo: new Map(),
         indentLevel: 1,
         code: [],
         graphNodes: new Map(),
@@ -21962,6 +22123,52 @@ function collectVaryings(roots, ctx) {
     for (const root of roots) {
         visit(root);
     }
+}
+// Leaf node kinds that are IMMUTABLE and available for the whole function/stage: constants, uniforms,
+// stage inputs. Deliberately excludes mutable/order-sensitive state (private/workgroup vars, storage,
+// textures) — reading those and hoisting across a barrier or write would change results.
+const HOIST_LEAF_KINDS = new Set([
+    NodeKind.Literal,
+    NodeKind.Uniform,
+    NodeKind.Builtin,
+    NodeKind.ComputeIndex,
+    NodeKind.Attribute,
+]);
+// Pure, side-effect-free operator kinds whose stability follows from their operands. Deliberately
+// excludes Call (may be a side-effecting builtin — atomicAdd, textureStore) and Index (a storage read),
+// which must not be reordered.
+const HOIST_TRANSPARENT_KINDS = new Set([
+    NodeKind.BinaryOp,
+    NodeKind.Construct,
+    NodeKind.Field,
+    NodeKind.Array,
+    NodeKind.Conditional,
+    NodeKind.Struct,
+]);
+/**
+ * Whether a node's value is stable at the function-body top: built ONLY from immutable, side-effect-free
+ * inputs — constants, uniforms, stage inputs, and THIS function's params — via pure arithmetic. Loop
+ * variables are ParameterNodes too, but are block-scoped, so they're excluded by id (only the fn's own
+ * param ids are passed in). Used to decide if a CSE temp used across a block boundary can be hoisted to
+ * the body top — fixing the out-of-scope `_vN` bug — without moving a block-scoped binding, a mutable
+ * read, or a side effect. Conservative: anything not clearly pure resolves to false (stays at first use).
+ */
+function isHoistStable(node, paramIds, memo) {
+    const cached = memo.get(node.id);
+    if (cached !== undefined)
+        return cached;
+    memo.set(node.id, false); // break cycles conservatively
+    let result;
+    if (node.kind === NodeKind.Parameter)
+        result = paramIds.has(node.id);
+    else if (HOIST_LEAF_KINDS.has(node.kind))
+        result = true;
+    else if (HOIST_TRANSPARENT_KINDS.has(node.kind))
+        result = getChildren(node).every((c) => isHoistStable(c, paramIds, memo));
+    else
+        result = false;
+    memo.set(node.id, result);
+    return result;
 }
 /* expression generation */
 function generateExpr(ctx, rawNode) {
@@ -22015,8 +22222,7 @@ function generateExpr(ctx, rawNode) {
         expr = generateVarying(ctx, node);
     }
     else if (node.kind === NodeKind.BinaryOp) {
-        const left = generateExpr(ctx, node.left);
-        const right = generateExpr(ctx, node.right);
+        const [left, right] = coerceBinaryOperands(node, generateExpr(ctx, node.left), generateExpr(ctx, node.right));
         expr = `(${left} ${node.op} ${right})`;
     }
     else if (node.kind === NodeKind.Call) {
@@ -22118,7 +22324,20 @@ function generateExpr(ctx, rawNode) {
     if (usage > 1 && !ctx.nodeVars.has(node.id) && !isTrivialExpr(node) && !isNonCopyable(node)) {
         const varName = `_v${ctx.varCounter++}`;
         const keyword = ctx.mutatedNodes.has(node.id) ? 'var' : 'let';
-        ctx.code.push(`    ${keyword} ${varName} = ${expr};`);
+        const line = `    ${keyword} ${varName} = ${expr};`;
+        // A pure temp used more than once may be used across a block boundary (e.g. inside an if AND
+        // after it). Declaring it at first use would leave it out of scope for the later use, so if it's
+        // stable at body top, splice it there. Only immutable (`let`) values built from function-scope
+        // inputs qualify; anything touching a loop var or a block-local `let`/`var` stays at first use.
+        if (ctx.hoistIndex >= 0 &&
+            keyword === 'let' &&
+            isHoistStable(node, ctx.topScopeParamIds, ctx.hoistStableMemo)) {
+            ctx.code.splice(ctx.hoistIndex, 0, line);
+            ctx.hoistIndex++;
+        }
+        else {
+            ctx.code.push(line);
+        }
         ctx.nodeVars.set(node.id, varName);
         // record CSE info for graph
         const info = ctx.graphInfo.get(node.id);
@@ -22311,7 +22530,11 @@ function generateTexture(ctx, node) {
         const level = generateExpr(ctx, node.levelNode);
         return `textureSampleLevel(${name}, ${samplerName}, ${uvExpr}, ${level}${offsetSuffix})`;
     }
-    // textureSample (default)
+    // textureSample (default). Implicit-LOD sampling needs fragment-stage derivatives and is forbidden
+    // in the vertex stage, so sample at the base level there.
+    if (ctx.stage === 'vertex') {
+        return `textureSampleLevel(${name}, ${samplerName}, ${uvExpr}, 0.0${offsetSuffix})`;
+    }
     return `textureSample(${name}, ${samplerName}, ${uvExpr}${offsetSuffix})`;
 }
 function generateCubeTexture(ctx, node) {
@@ -22361,7 +22584,10 @@ function generateCubeTexture(ctx, node) {
         const level = generateExpr(ctx, node.levelNode);
         return `textureSampleLevel(${name}, ${samplerName}, ${sampleDir}, ${level})`;
     }
-    // textureSample (default)
+    // textureSample (default). Implicit LOD is vertex-forbidden — sample at base level there.
+    if (ctx.stage === 'vertex') {
+        return `textureSampleLevel(${name}, ${samplerName}, ${sampleDir}, 0.0)`;
+    }
     return `textureSample(${name}, ${samplerName}, ${sampleDir})`;
 }
 function generateDepthTexture(ctx, node) {
@@ -22396,7 +22622,11 @@ function generateDepthTexture(ctx, node) {
         const level = generateExpr(ctx, node.levelNode);
         return `textureSampleLevel(${name}, ${samplerName}, ${uvExpr}, ${level}${offsetSuffix})`;
     }
-    // textureSample (default), returns f32
+    // textureSample (default), returns f32. Implicit LOD is vertex-forbidden — sample base level (i32
+    // level for depth textures) there.
+    if (ctx.stage === 'vertex') {
+        return `textureSampleLevel(${name}, ${samplerName}, ${uvExpr}, 0${offsetSuffix})`;
+    }
     return `textureSample(${name}, ${samplerName}, ${uvExpr}${offsetSuffix})`;
 }
 function generateArrayTexture(ctx, node) {
@@ -22450,7 +22680,10 @@ function generateArrayTexture(ctx, node) {
         const level = generateExpr(ctx, node.levelNode);
         return `textureSampleLevel(${name}, ${samplerName}, ${uvExpr}, ${layerExpr}, ${level}${offsetSuffix})`;
     }
-    // textureSample(t, s, coords, array_index [, offset])
+    // textureSample(t, s, coords, array_index [, offset]). Implicit LOD is vertex-forbidden — base level.
+    if (ctx.stage === 'vertex') {
+        return `textureSampleLevel(${name}, ${samplerName}, ${uvExpr}, ${layerExpr}, 0.0${offsetSuffix})`;
+    }
     return `textureSample(${name}, ${samplerName}, ${uvExpr}, ${layerExpr}${offsetSuffix})`;
 }
 function generateSampler(ctx, node) {
@@ -22740,8 +22973,7 @@ function generateModuleScopeInitExpr(rawNode) {
         return `${node.type.wgslType}(${args.join(', ')})`;
     }
     else if (node.kind === NodeKind.BinaryOp) {
-        const left = generateModuleScopeInitExpr(node.left);
-        const right = generateModuleScopeInitExpr(node.right);
+        const [left, right] = coerceBinaryOperands(node, generateModuleScopeInitExpr(node.left), generateModuleScopeInitExpr(node.right));
         return `(${left} ${node.op} ${right})`;
     }
     else if (node.kind === NodeKind.Call) {
@@ -22817,11 +23049,15 @@ function emitAllBindings(ctx) {
     const textureEntries = [];
     const storageTextureEntries = [];
     const samplerEntries = [];
-    // emit struct definitions required by storage bindings (topological order)
+    // emit struct definitions (topological order). A field wrapped in `d.align(n, ...)` emits `@align(n)`
+    // so the author can make a struct valid in a uniform (e.g. push a member after a nested struct onto
+    // a 16-byte boundary). One decl serves every address space; the layout validator enforces validity.
     for (const [_typeName, def] of ctx.structDefs) {
         lines.push(`struct ${def.wgslType} {`);
         for (const member of def.members) {
-            lines.push(`    ${member.name}: ${member.type.wgslType},`);
+            const customAlign = getCustomAlign(member.type);
+            const attr = customAlign !== undefined ? `@align(${customAlign}) ` : '';
+            lines.push(`    ${attr}${member.name}: ${member.type.wgslType},`);
         }
         lines.push(`}`);
         lines.push('');
@@ -22844,15 +23080,20 @@ function emitAllBindings(ctx) {
             const orderedUniforms = bindGroup.group.shared
                 ? [...bindGroup.uniforms].sort((a, b) => a.id - b.id)
                 : bindGroup.uniforms;
+            // This block wrapper is gpucat's, not the user's, so gpucat owns its uniform-address-space
+            // layout: a struct/array member (and any member following one) starts on a 16-byte boundary,
+            // pinned with @align/@size so every driver matches the packer. Member *internal* layout is
+            // std430 (the one WGSL layout) — a user makes a nested struct uniform-valid with d.align.
+            let prevAggregate = false;
             for (const u of orderedUniforms) {
-                // Uniform member offsets/sizes come from pack.ts — the single memory-layout
-                // authority — using the WGSL uniform address-space rules the driver lays the
-                // `var<uniform>` struct out with. (Mirrors the GLSL emitter's std140 use.)
-                const align = layoutAlignOf(u.type, 'wgsl-uniform');
+                const isAggregate = isStructDesc(u.type) || isSizedArrayDesc(u.type) || isArrayDesc(u.type);
+                let align = layoutAlignOf(u.type, 'wgsl-uniform');
+                if (isAggregate || prevAggregate)
+                    align = Math.max(align, 16);
                 const size = layoutSizeOf(u.type, 'wgsl-uniform');
                 // align offset
                 offset = Math.ceil(offset / align) * align;
-                lines.push(`    ${u.name}: ${u.type.wgslType},`);
+                lines.push(`    @align(${align}) @size(${size}) ${u.name}: ${u.type.wgslType},`);
                 members.push({
                     uniformId: u.name,
                     schema: u.type,
@@ -22861,17 +23102,18 @@ function emitAllBindings(ctx) {
                     node: u,
                 });
                 offset += size;
+                prevAggregate = isAggregate;
             }
             lines.push(`}`);
             lines.push(`@group(${groupIndex}) @binding(${bindingIndex}) var<uniform> uniforms_${groupName}: Uniforms_${groupName};`);
             lines.push('');
-            // Compute struct alignment (max alignment of all members)
-            let structAlign = 4;
-            for (const u of bindGroup.uniforms) {
-                structAlign = Math.max(structAlign, layoutAlignOf(u.type, 'wgsl-uniform'));
-            }
-            // Round up totalBytes to struct alignment
-            const totalBytes = Math.ceil(offset / structAlign) * structAlign;
+            // A uniform block is a 16-aligned struct (like std140/three.js, which pads every UBO to
+            // a 16-byte chunk), so its size rounds up to at least 16 — a block of only small members
+            // (e.g. a single vec2f) must still allocate a 16-byte buffer.
+            const totalBytes = Math.ceil(offset / 16) * 16;
+            // Fail a non-conformant layout at emit time on every browser, rather than only at runtime
+            // on naga (Firefox). Backstops the pack.ts uniform-layout rules.
+            assertUniformLayoutConformant(`Uniforms_${groupName}`, members, totalBytes, 'wgsl-uniform');
             uniformBlocks.push({
                 groupName,
                 groupIndex,
@@ -23004,6 +23246,10 @@ function emitDslFunctions(ctx) {
         for (const p of traced.params) {
             fnCtx.nodeVars.set(p.id, p.paramName ?? `p${p.paramIndex}`);
         }
+        // Enable CSE hoisting to this body's top (params are the top-scope stable inputs).
+        fnCtx.topScopeParamIds = new Set(traced.params.map((p) => p.id));
+        fnCtx.hoistIndex = fnCtx.code.length;
+        fnCtx.hoistStableMemo = new Map();
         // generate statements from body
         for (const stmt of traced.body.body) {
             generateStmt(fnCtx, stmt);
@@ -23019,6 +23265,47 @@ function emitDslFunctions(ctx) {
         lines.push('');
     }
     return lines.join('\n');
+}
+/**
+ * Coerce a binary op's operands to a common scalar kind. WGSL forbids mixing scalar kinds in an operator
+ * (`5u + 3i` is an error), so wrap the operand whose kind differs from the target in a length-preserving
+ * conversion constructor (`u32(x)` / `vec3f(x)` …). Target = the op's result kind for arithmetic, or the
+ * promoted operand kind for comparisons (which produce bool). Bool operands (logical ops) are left alone.
+ */
+function coerceBinaryOperands(node, left, right) {
+    const lk = node.left.type.scalar;
+    const rk = node.right.type.scalar;
+    if (!lk || !rk || lk === rk || lk === 'bool' || rk === 'bool')
+        return [left, right];
+    const resultKind = node.type.scalar;
+    let target;
+    if (resultKind && resultKind !== 'bool')
+        target = resultKind;
+    else if (lk === 'f32' || rk === 'f32')
+        target = 'f32';
+    else if (lk === 'f16' || rk === 'f16')
+        target = 'f16';
+    else if (lk === 'u32' || rk === 'u32')
+        target = 'u32';
+    else
+        target = 'i32';
+    if (target !== 'f32' && target !== 'f16' && target !== 'u32' && target !== 'i32')
+        return [left, right];
+    const conv = (kind, operandType, expr) => kind === target ? expr : `${numericDescOf(operandType, target).wgslType}(${expr})`;
+    return [conv(lk, node.left.type, left), conv(rk, node.right.type, right)];
+}
+/**
+ * WGSL `@interpolate(...)` attribute for a varying (leading space), or '' for the default. Integer
+ * varyings are forced to `flat` even when unset — WGSL requires it for integer I/O (naga rejects a
+ * non-flat integer varying) — mirroring the GLSL backend's `glslVaryingQualifier`.
+ */
+function varyingInterpolateAttr(node) {
+    const scalarKind = node.type.scalar;
+    const isInteger = scalarKind === 'i32' || scalarKind === 'u32';
+    const type = node.interpolationType ?? (isInteger ? 'flat' : null);
+    if (!type)
+        return '';
+    return node.interpolationSampling ? ` @interpolate(${type}, ${node.interpolationSampling})` : ` @interpolate(${type})`;
 }
 /* vertex shader generation */
 function generateVertexShader(slots, ctx) {
@@ -23049,15 +23336,7 @@ function generateVertexShader(slots, ctx) {
     lines.push('    @builtin(position) position: vec4f,');
     let varyingLoc = 0;
     for (const [name, { node }] of ctx.varyings) {
-        let interp = '';
-        if (node.interpolationType) {
-            interp = ` @interpolate(${node.interpolationType}`;
-            if (node.interpolationSampling) {
-                interp += `, ${node.interpolationSampling}`;
-            }
-            interp += ')';
-        }
-        lines.push(`    @location(${varyingLoc})${interp} ${name}: ${node.type.wgslType},`);
+        lines.push(`    @location(${varyingLoc})${varyingInterpolateAttr(node)} ${name}: ${node.type.wgslType},`);
         varyingLoc++;
     }
     lines.push('}');
@@ -23105,15 +23384,7 @@ function generateFragmentShader(fragmentNode, ctx, varyings, depthNode = null) {
         }
         let varyingLoc = 0;
         for (const [name, { node }] of ctx.varyings) {
-            let interp = '';
-            if (node.interpolationType) {
-                interp = ` @interpolate(${node.interpolationType}`;
-                if (node.interpolationSampling) {
-                    interp += `, ${node.interpolationSampling}`;
-                }
-                interp += ')';
-            }
-            lines.push(`    @location(${varyingLoc})${interp} ${name}: ${node.type.wgslType},`);
+            lines.push(`    @location(${varyingLoc})${varyingInterpolateAttr(node)} ${name}: ${node.type.wgslType},`);
             varyingLoc++;
         }
         lines.push('}');
@@ -23234,6 +23505,10 @@ function generateFragmentShader(fragmentNode, ctx, varyings, depthNode = null) {
 function generateComputeShader(node, traced, ctx) {
     const lines = [];
     const fn = node.fn;
+    // Enable CSE hoisting to this body's top (see the DSL-function path).
+    ctx.topScopeParamIds = new Set(traced.params.map((p) => p.id));
+    ctx.hoistIndex = ctx.code.length;
+    ctx.hoistStableMemo = new Map();
     // generate statements from body
     for (const stmt of traced.body.body) {
         generateStmt(ctx, stmt);
@@ -24098,6 +24373,13 @@ function discover(roots) {
     }
     for (const root of roots) {
         visit(root);
+    }
+    // Register struct defs for EVERY discovered node's type, not only those reached through storage or
+    // uniform bindings. A struct used purely via a local construct() (a value, never bound) still needs
+    // its `struct` declared — otherwise the WGSL emitter references an undeclared type and naga rejects
+    // it. registerStructDef is keyed by name, so re-registering a binding's struct is a no-op.
+    for (const node of nodeIdToNode.values()) {
+        walkTypeForStructs(node.type, registerStructDef);
     }
     return {
         nodeIdToNode,

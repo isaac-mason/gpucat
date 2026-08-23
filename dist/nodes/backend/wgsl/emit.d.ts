@@ -50,6 +50,9 @@ export type BuildContext = {
     mutatedNodes: Set<number>;
     nodeVars: Map<number, string>;
     varCounter: number;
+    hoistIndex: number;
+    topScopeParamIds: Set<number>;
+    hoistStableMemo: Map<number, boolean>;
     indentLevel: number;
     code: string[];
     fnDefs: Map<string, {

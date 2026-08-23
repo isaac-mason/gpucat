@@ -1,5 +1,5 @@
 import type { NodeFrame } from '../../renderer/core/node-frame';
-import type { Any, ArithResultDesc, CompareResultDesc, MulResultDesc, StructField, StructKeys, Vec2DescOf, Vec3DescOf, Vec4DescOf, VecElementDesc, WgslType } from '../../schema/schema';
+import type { Any, ArithResultDesc, CompareResultDesc, MulResultDesc, NumericDescOf, StructField, StructKeys, Vec2DescOf, Vec3DescOf, Vec4DescOf, VecElementDesc, WgslType } from '../../schema/schema';
 import * as d from '../../schema/schema';
 export type { WgslType } from '../../schema/schema';
 export type ScalarType = 'f32' | 'i32' | 'u32' | 'bool' | 'f16';
@@ -127,10 +127,10 @@ export declare class Node<D extends Any> {
     onAfterObject(callback: (frame: NodeFrame) => unknown): this;
     onAfterFrame(callback: (frame: NodeFrame) => unknown): this;
     before(node: Node<Any>): this;
-    toF32(): Node<d.f32>;
-    toF16(): Node<d.f16>;
-    toU32(): Node<d.u32>;
-    toI32(): Node<d.i32>;
+    toF32(): Node<NumericDescOf<D, d.f32>>;
+    toF16(): Node<NumericDescOf<D, d.f16>>;
+    toU32(): Node<NumericDescOf<D, d.u32>>;
+    toI32(): Node<NumericDescOf<D, d.i32>>;
     field<K extends StructKeys<D>>(name: K): Node<StructField<D, K>>;
     fields(): Fields<d.StructSchemaOf<D>>;
     greaterThan(b: Node<D>): Node<CompareResultDesc<D>>;
@@ -593,10 +593,10 @@ export type Fields<S extends d.StructSchema> = StructInstance<S>;
  */
 export declare function fields<S extends d.StructSchema>(node: Node<StructDef<S>>): Fields<S>;
 export declare function fields<S extends d.StructSchema>(node: Node<d.StructDesc<S>>): Fields<S>;
-export declare const toF32: <D extends Any>(node: Node<D>) => Node<d.f32>;
-export declare const toF16: <D extends Any>(node: Node<D>) => Node<d.f16>;
-export declare const toU32: <D extends Any>(node: Node<D>) => Node<d.u32>;
-export declare const toI32: <D extends Any>(node: Node<D>) => Node<d.i32>;
+export declare const toF32: <D extends Any>(node: Node<D>) => Node<NumericDescOf<D, d.f32>>;
+export declare const toF16: <D extends Any>(node: Node<D>) => Node<NumericDescOf<D, d.f16>>;
+export declare const toU32: <D extends Any>(node: Node<D>) => Node<NumericDescOf<D, d.u32>>;
+export declare const toI32: <D extends Any>(node: Node<D>) => Node<NumericDescOf<D, d.i32>>;
 /** Reinterpret a u32 or i32 bit pattern as f32. WGSL: `bitcast<f32>(x)`. */
 export declare const bitcastF32: (node: Node<d.u32 | d.i32>) => Node<d.f32>;
 /** Reinterpret an f32 or i32 bit pattern as u32. WGSL: `bitcast<u32>(x)`. */

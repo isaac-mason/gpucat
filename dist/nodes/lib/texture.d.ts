@@ -651,10 +651,13 @@ export declare function textureSampleGrad<D extends FlatSampledTexture>(t: Textu
  */
 export declare function textureSampleCompare(t: TextureBindingNode<FlatDepthTexture>, s: AnyComparisonSamplerNode, coords: Node<d.vec2f>, depthRef: Node<d.f32>, offset?: Node<d.vec2i>): CallNode<d.f32>;
 /**
- * textureSampleCompareLevel - Compare-sample a depth texture at a specific level.
- * Works in any shader stage. Requires sampler_comparison.
+ * textureSampleCompareLevel - Compare-sample a depth texture at mip level 0.
+ * Works in any shader stage (unlike textureSampleCompare, which is fragment-only). Requires
+ * sampler_comparison. WGSL's textureSampleCompareLevel always samples at the base level and takes NO
+ * level argument — arbitrary-LOD comparison sampling is not expressible in WGSL — so this takes only an
+ * optional const `offset`.
  */
-export declare function textureSampleCompareLevel(t: TextureBindingNode<FlatDepthTexture>, s: AnyComparisonSamplerNode, coords: Node<d.vec2f>, depthRef: Node<d.f32>, level: Node<d.i32>, offset?: Node<d.vec2i>): CallNode<d.f32>;
+export declare function textureSampleCompareLevel(t: TextureBindingNode<FlatDepthTexture>, s: AnyComparisonSamplerNode, coords: Node<d.vec2f>, depthRef: Node<d.f32>, offset?: Node<d.vec2i>): CallNode<d.f32>;
 /** Integer coordinate node accepted by storage textureStore/textureLoad. */
 export type StorageCoord = Node<d.u32> | Node<d.i32> | Node<d.vec2u> | Node<d.vec2i> | Node<d.vec3u> | Node<d.vec3i>;
 /** vec4 value node accepted by storage textureStore. */

@@ -759,6 +759,18 @@ export type ArrayElement<D extends Any> = D extends {
     type: 'sized-array';
     element: infer E extends Any;
 } ? E : never;
+/**
+ * Wrap a struct field with an explicit byte alignment (emits WGSL `@align(n)`). This is the one lever
+ * an author uses to make a struct valid in the uniform address space — e.g. force a member that follows
+ * a nested struct/array onto a 16-byte boundary. It is the SAME type, only more-aligned: it renders as
+ * the wrapped type and `alignOf` takes `max(natural, n)`. Used everywhere the struct is bound, so a
+ * struct designed for a uniform keeps one layout across storage and uniform (no per-binding variants).
+ *
+ * @example struct('Frame', { time: EnvTime, config: d.align(16, EnvConfig) })
+ */
+export declare function align<D extends Any>(alignment: number, type: D): D;
+/** Read the explicit `d.align` override on a schema, if any. */
+export declare function getCustomAlign(schema: Any): number | undefined;
 export declare const samplerDesc: () => sampler;
 export declare const samplerComparisonDesc: () => samplerComparison;
 export type Infer<D extends Any> = D extends {
@@ -814,6 +826,21 @@ export declare function vecElementDescOrSelf(desc: Any): Any;
 export declare function vec2DescOf(desc: Any): Vec2;
 export declare function vec3DescOf(desc: Any): Vec3;
 export declare function vec4DescOf(desc: Any): Vec4;
+/**
+ * Numeric conversion target that PRESERVES the operand's vector length: converting a `vec3i` to float
+ * yields `vec3f`, not scalar `f32`. Used by `.toF32()/.toI32()/.toU32()/.toF16()` so the emitted
+ * constructor matches (`vec3f(...)`, not the illegal `f32(vec3i)`). `targetScalar` is the WGSL scalar
+ * kind ('f32' | 'i32' | 'u32' | 'f16'). Non-numeric/length-less descriptors fall back to the scalar.
+ */
+export declare function numericDescOf(desc: Any, targetScalar: 'f32' | 'i32' | 'u32' | 'f16'): Any;
+/** Numeric conversion target type preserving length (see {@link numericDescOf}). */
+export type NumericDescOf<D extends Any, K extends f32 | i32 | u32 | f16> = D extends {
+    len: 2;
+} ? Vec2DescOf<K> : D extends {
+    len: 3;
+} ? Vec3DescOf<K> : D extends {
+    len: 4;
+} ? Vec4DescOf<K> : K;
 export declare function matColumnDesc(desc: Mat): Vec;
 export declare function mulResultDesc(a: Any, b: Any): Any;
 export declare function arithResultDesc(a: Any, b: Any): Any;
