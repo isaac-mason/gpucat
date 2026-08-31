@@ -1,5 +1,6 @@
 import { Source, type SourceData } from './source';
 import { GpuTexture } from '../core/gpu-texture';
+import type { TextureRectInit, TextureRegionInit } from '../core/texture-region';
 import { GpuSampler } from '../core/gpu-sampler';
 import * as d from '../schema/schema';
 
@@ -174,6 +175,24 @@ export class CubeTexture {
 
     set needsUpdate(v: boolean) {
         if (v) this._gpuTexture.needsUpdate = true;
+    }
+
+    /**
+     * Queue a partial upload of one box of texels, without forcing a full re-upload. Omitted fields
+     * default to the full extent at the origin.
+     */
+    addUpdateRegion(region: TextureRegionInit): this {
+        this._gpuTexture.addUpdateRegion(region);
+        return this;
+    }
+
+    /**
+     * Queue a partial upload of a single face, optionally only a sub-rect of it. Face order is
+     * +X, -X, +Y, -Y, +Z, -Z; the index is this texture's vocabulary for the region's `z` axis, and it
+     * means the same face on both backends.
+     */
+    addUpdateFace(face: number, rect: TextureRectInit = {}): this {
+        return this.addUpdateRegion({ ...rect, z: face, depth: 1 });
     }
 
     clone(): CubeTexture {

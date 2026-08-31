@@ -1,5 +1,6 @@
 import type { StructDef } from '../nodes/lib/core';
 import { GpuTexture } from '../core/gpu-texture';
+import { type TextureRegionInit } from '../core/texture-region';
 import { GpuSampler } from '../core/gpu-sampler';
 import { Source, type DataTextureImage } from './source';
 import * as d from '../schema/schema';
@@ -104,6 +105,11 @@ export declare class DataTexture {
      * {@link packAtIndex} / {@link packAtTexel}; call directly if you mutate `.data` by hand. A
      * subsequent `needsUpdate = true` (full re-upload) supersedes any queued ranges.
      */
+    /**
+     * Queue a partial upload of one box of texels, without forcing a full re-upload. The general form of
+     * {@link addUpdateRange}: use this when you know the rectangle, that when you know the record run.
+     */
+    addUpdateRegion(region: TextureRegionInit): this;
     addUpdateRange(startTexel: number, countTexels: number): this;
     /**
      * Ensure the backing `rgba32uint` array holds at least `requiredTexels` texels, growing HEIGHT

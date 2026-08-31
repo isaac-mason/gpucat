@@ -75,6 +75,10 @@ export declare function createTextureCache(): TextureCache;
  * via updateTexture().
  */
 export declare function generateTextureMipmaps(cache: TextureCache, device: GPUDevice, texture: GpuTexture): void;
+/**
+ * Update a texture, checks source version and uploads if needed.
+ * Returns the TextureData for the texture.
+ */
 export declare function updateTexture(cache: TextureCache, device: GPUDevice, texture: GpuTexture): TextureData;
 /**
  * Get or create a sampler from Sampler settings.

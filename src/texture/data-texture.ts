@@ -1,5 +1,6 @@
 import type { StructDef } from '../nodes/lib/core';
 import { GpuTexture } from '../core/gpu-texture';
+import { regionsFromLinearRun, type TextureRegionInit } from '../core/texture-region';
 import { GpuSampler } from '../core/gpu-sampler';
 import { packTo, packToView, structFieldLayout } from '../schema/pack';
 import { Source, type DataTextureImage } from './source';
@@ -212,8 +213,22 @@ export class DataTexture {
      * {@link packAtIndex} / {@link packAtTexel}; call directly if you mutate `.data` by hand. A
      * subsequent `needsUpdate = true` (full re-upload) supersedes any queued ranges.
      */
+    /**
+     * Queue a partial upload of one box of texels, without forcing a full re-upload. The general form of
+     * {@link addUpdateRange}: use this when you know the rectangle, that when you know the record run.
+     */
+    addUpdateRegion(region: TextureRegionInit): this {
+        this._gpuTexture.addUpdateRegion(region);
+        if (this._gpuTexture.source) this._gpuTexture.source.needsUpdate = true;
+        return this;
+    }
+
     addUpdateRange(startTexel: number, countTexels: number): this {
-        this._gpuTexture.addUpdateRange(startTexel, countTexels);
+        // Exact, not row-rounded: a run inside one row becomes a single 1-row box, so a small record in
+        // a wide texture no longer dirties the whole row. A row-crossing run becomes at most three.
+        for (const region of regionsFromLinearRun(startTexel, countTexels, this.width)) {
+            this._gpuTexture.addUpdateRegion(region);
+        }
         if (this._gpuTexture.source) this._gpuTexture.source.needsUpdate = true;
         return this;
     }

@@ -16,10 +16,11 @@
 import type { CubeRenderTarget } from '../../core/cube-render-target';
 import type { GpuSampler } from '../../core/gpu-sampler';
 import type { GpuTexture } from '../../core/gpu-texture';
+import type { TextureRegion } from '../../core/texture-region';
+import { hasTypedPartialSource, supportsPartialUpload, withinPartialBudget } from '../core/partial-upload';
 import type { RenderTarget } from '../../core/render-target';
 import type { Source } from '../../texture/source';
 import { createMipmapState, generateMipmaps, type MipmapState } from './mipmap-utils';
-import { collapseUpdateRanges } from '../core/update-ranges';
 
 /** Data stored per Texture in the cache */
 export type TextureData = {
@@ -167,23 +168,60 @@ export function generateTextureMipmaps(cache: TextureCache, device: GPUDevice, t
  * Update a texture, checks source version and uploads if needed.
  * Returns the TextureData for the texture.
  */
-/** Partial upload: `writeTexture` only rows `[y0, y0+rows)` of a 2D typed-array source. */
-function uploadPartialTextureData(device: GPUDevice, texture: GpuTexture, data: TextureData, span: { y0: number; rows: number }): void {
-    const source = texture.source;
-    if (!source || !source.data || !isTypedArrayData(source.data)) return;
-    const view = source.data.data;
-    const width = texture.width;
-    const bytesPerPixel = getBytesPerPixel(texture.format);
-    const bytesPerRow = width * bytesPerPixel;
-    const { y0, rows } = span;
+function uploadPartialRegion(device: GPUDevice, texture: GpuTexture, data: TextureData, r: TextureRegion): void {
+    const bpp = getBytesPerPixel(texture.format);
+
+    // Level 0 with per-layer/face sources: each layer owns its own buffer. `z` indexes
+    // `texture.sources`, which is the face for a cube and the layer for an array.
+    if (r.level === 0 && texture.sources.length > 0) {
+        const bytesPerRow = texture.width * bpp;
+        for (let i = 0; i < r.depth; i++) {
+            const layer = r.z + i;
+            const source = texture.sources[layer];
+            if (!source?.dataReady || !source.data || !isTypedArrayData(source.data)) continue;
+            const view = (source.data as { data: ArrayBufferView }).data;
+            device.queue.writeTexture(
+                { texture: data.texture, mipLevel: 0, origin: { x: r.x, y: r.y, z: layer } },
+                view.buffer,
+                {
+                    // Full-stride rows plus a start offset: the sub-rect is read straight out of the
+                    // packed buffer, with no tightly-packed staging copy.
+                    offset: view.byteOffset + r.y * bytesPerRow + r.x * bpp,
+                    bytesPerRow,
+                    rowsPerImage: texture.height,
+                },
+                [r.width, r.height, 1],
+            );
+        }
+        return;
+    }
+
+    // Packed source: level 0 uses `source`, higher levels their explicit mip (also packed, all layers).
+    const source = r.level === 0 ? texture.source : texture.mipmaps[r.level - 1];
+    if (!source || !source.dataReady || !source.data || !isTypedArrayData(source.data)) return;
+    const view = (source.data as { data: ArrayBufferView }).data;
+    const levelWidth = r.level === 0 ? texture.width : Math.max(1, source.width);
+    const levelHeight = r.level === 0 ? texture.height : Math.max(1, source.height);
+    const bytesPerRow = levelWidth * bpp;
+
+    // `rowsPerImage` is the level's FULL height, which is what keeps the inter-layer stride right, so a
+    // multi-layer region lands in one write even when it covers only some rows of each layer.
     device.queue.writeTexture(
-        { texture: data.texture, origin: { x: 0, y: y0, z: 0 } },
+        { texture: data.texture, mipLevel: r.level, origin: { x: r.x, y: r.y, z: r.z } },
         view.buffer,
-        { offset: view.byteOffset + y0 * bytesPerRow, bytesPerRow, rowsPerImage: rows },
-        [width, rows],
+        {
+            offset: view.byteOffset + (r.z * levelHeight + r.y) * bytesPerRow + r.x * bpp,
+            bytesPerRow,
+            rowsPerImage: levelHeight,
+        },
+        [r.width, r.height, r.depth],
     );
 }
 
+/**
+ * Update a texture, checks source version and uploads if needed.
+ * Returns the TextureData for the texture.
+ */
 export function updateTexture(cache: TextureCache, device: GPUDevice, texture: GpuTexture): TextureData {
     let data = cache.textureMap.get(texture);
 
@@ -192,25 +230,39 @@ export function updateTexture(cache: TextureCache, device: GPUDevice, texture: G
         return data;
     }
 
-    // Partial upload: an in-place `packAtIndex`/`addUpdateRange` queued dirty texel ranges (no full flag, no
-    // resize) → `writeTexture` only the covering rows instead of the whole texture. A full flag
-    // (`needsUpdate`/grow) or size change takes priority; `> ½` dirty falls through to a full upload.
+    // Partial upload: an in-place `packAtIndex`/`addUpdateRegion` queued dirty boxes (no full flag, no
+    // resize) → `writeTexture` only those instead of the whole texture. A full flag (`needsUpdate`/grow)
+    // or size change takes priority; `> ½` dirty falls through to a full upload.
+    //
+    // Regions are honoured exactly, sub-rect and mip level included: a full-stride `bytesPerRow` plus a
+    // start offset reads the box straight out of the packed source, with no staging copy.
     if (
         data?.initialized &&
         !data.isDefaultTexture &&
         !texture.needsFullUpload &&
-        texture.updateRanges.length > 0 &&
-        texture.viewDimension === '2d' &&
+        texture.updateRegions.length > 0 &&
+        supportsPartialUpload(texture) &&
         !texture.type.type.startsWith('texture_storage_') &&
         data.texture.width === texture.width &&
         data.texture.height === texture.height &&
-        isSourceReady(texture.source) &&
-        isTypedArrayData(texture.source?.data ?? null)
+        data.texture.depthOrArrayLayers === texture.depthOrArrayLayers &&
+        hasTypedPartialSource(texture)
     ) {
-        const span = collapseUpdateRanges(texture.updateRanges, texture.width);
-        if (span && span.rowCount <= texture.height / 2) {
-            uploadPartialTextureData(device, texture, data, { y0: span.rowStart, rows: span.rowCount });
-            texture.updateRanges.length = 0;
+        if (withinPartialBudget(texture, texture.updateRegions)) {
+            for (const r of texture.updateRegions) uploadPartialRegion(device, texture, data, r);
+            // Auto-generated mips go stale the moment level 0 moves. (An explicit chain instead gets
+            // per-level regions derived at `addUpdateRegion` time, so it is already covered above.)
+            if (texture.mipmaps.length === 0 && texture.generateMipmaps && data.texture.mipLevelCount > 1) {
+                const isCubeTex = texture.viewDimension === 'cube' || texture.viewDimension === 'cube-array';
+                const isArrayTex = texture.viewDimension === '2d-array';
+                generateMipmaps(
+                    getMipmapState(cache, device),
+                    data.texture,
+                    isCubeTex,
+                    isArrayTex ? texture.depthOrArrayLayers : 0,
+                );
+            }
+            texture.updateRegions.length = 0;
             data.version = texture.version;
             return data;
         }
@@ -322,8 +374,8 @@ export function updateTexture(cache: TextureCache, device: GPUDevice, texture: G
         generateMipmaps(mipmapState, data.texture, isCube, isArray ? texture.depthOrArrayLayers : 0);
     }
 
-    // A full (re)upload supersedes any queued partial ranges and clears the full flag.
-    texture.updateRanges.length = 0;
+    // A full (re)upload supersedes any queued partial regions and clears the full flag.
+    texture.updateRegions.length = 0;
     texture.needsFullUpload = false;
 
     // Update texture version

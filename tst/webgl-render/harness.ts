@@ -1,4 +1,6 @@
 import {
+    ArrayTexture,
+    arrayTexture,
     attribute,
     cameraProjectionMatrix,
     cameraViewMatrix,
@@ -833,6 +835,241 @@ async function caseCubemap(): Promise<CaseResult> {
     renderer.dispose();
     const [r, g, b] = faceColors[4];
     return { name: 'cubemap', pixel, expected: [u8(r), u8(g), u8(b), 255] };
+}
+
+/**
+ * array-layer-partial: upload a 2-layer array texture in full, then rewrite ONE layer's bytes in place
+ * and queue only that layer via `addUpdateRegion({ z, depth: 1 })`. Sampling that layer must show the
+ * new color, and the untouched layer must keep its old one. Proves the partial path writes the layer it
+ * was asked for (and only that one) into already-immutable `texStorage3D` storage without re-allocating.
+ */
+async function caseArrayLayerPartial(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+
+    // Two 1x1 layers, packed contiguously: layer 0 red, layer 1 green.
+    const packed = new Uint8Array([255, 0, 0, 255, 0, 255, 0, 255]);
+    const arrayTex = new ArrayTexture(packed, 1, 1, 2, {
+        format: 'rgba8unorm',
+        magFilter: 'nearest',
+        minFilter: 'nearest',
+        generateMipmaps: false,
+    });
+    arrayTex.needsUpdate = true;
+
+    const material = new Material({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        fragment: arrayTexture(arrayTex, i32(1)), // sample layer 1
+        depthTest: false,
+    });
+    const scene = new Scene();
+    scene.add(new Mesh(createFullscreenTriangleGeometry(), material));
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    // First render performs the full upload and establishes the immutable storage.
+    renderer.render(scene, camera);
+
+    // Rewrite layer 1 to blue in place, and queue ONLY that layer.
+    packed[4] = 0;
+    packed[5] = 0;
+    packed[6] = 255;
+    arrayTex._gpuTexture.addUpdateRegion({ z: 1, depth: 1 });
+
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'array-layer-partial', pixel, expected: [0, 0, 255, 255] };
+}
+
+/**
+ * array-layer-partial-untouched: the sibling assertion. Same setup, but sample layer 0 after queueing a
+ * partial update of layer 1 only. Layer 0 must be untouched, so a `z` that leaked into the wrong layer
+ * (or a widened write that swallowed its neighbour) shows up here.
+ */
+async function caseArrayLayerPartialUntouched(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+
+    const packed = new Uint8Array([255, 0, 0, 255, 0, 255, 0, 255]);
+    const arrayTex = new ArrayTexture(packed, 1, 1, 2, {
+        format: 'rgba8unorm',
+        magFilter: 'nearest',
+        minFilter: 'nearest',
+        generateMipmaps: false,
+    });
+    arrayTex.needsUpdate = true;
+
+    const material = new Material({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        fragment: arrayTexture(arrayTex, i32(0)), // sample layer 0
+        depthTest: false,
+    });
+    const scene = new Scene();
+    scene.add(new Mesh(createFullscreenTriangleGeometry(), material));
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    renderer.render(scene, camera);
+
+    // Rewrite layer 1 only; layer 0 must not move.
+    packed[4] = 0;
+    packed[5] = 0;
+    packed[6] = 255;
+    arrayTex._gpuTexture.addUpdateRegion({ z: 1, depth: 1 });
+
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'array-layer-partial-untouched', pixel, expected: [255, 0, 0, 255] };
+}
+
+/**
+ * subrect-partial: a 2x2 texture uploaded in full, then ONE texel rewritten in place and queued as a
+ * 1x1 region. Sampling that texel must show the new color and its row-neighbour must not, so a write
+ * that widened to the whole row (or ignored `x`) fails here. This is the WebGL2 unpack window
+ * (UNPACK_ROW_LENGTH / SKIP_PIXELS / SKIP_ROWS) reading one box out of a packed buffer in place.
+ */
+async function caseSubrectPartial(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+
+    // 2x2 rgba8: (0,0) red, (1,0) green, (0,1) blue, (1,1) yellow.
+    const texels = new Uint8Array([
+        255, 0, 0, 255,
+        0, 255, 0, 255,
+        0, 0, 255, 255,
+        255, 255, 0, 255,
+    ]);
+    const tex = new DataTexture(texels, 2, 2, {
+        format: 'rgba8unorm',
+        magFilter: 'nearest',
+        minFilter: 'nearest',
+        generateMipmaps: false,
+    });
+    tex.needsUpdate = true;
+
+    // Sample texel (1,0) exactly: uv (0.75, 0.25).
+    const material = new Material({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        fragment: texture(tex).sample(vec2f(0.75, 0.25)),
+        depthTest: false,
+    });
+    const scene = new Scene();
+    scene.add(new Mesh(createFullscreenTriangleGeometry(), material));
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    renderer.render(scene, camera);
+
+    // Rewrite ONLY texel (1,0) to magenta, and queue exactly that 1x1 box.
+    texels[4] = 255;
+    texels[5] = 0;
+    texels[6] = 255;
+    tex._gpuTexture.addUpdateRegion({ x: 1, y: 0, width: 1, height: 1 });
+
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'subrect-partial', pixel, expected: [255, 0, 255, 255] };
+}
+
+/**
+ * subrect-partial-neighbour: the sibling assertion. Same 1x1 update of texel (1,0), but sample texel
+ * (0,0). It must be untouched, so a region that ignored `x` and rewrote the whole row shows up here.
+ */
+async function caseSubrectPartialNeighbour(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+
+    const texels = new Uint8Array([
+        255, 0, 0, 255,
+        0, 255, 0, 255,
+        0, 0, 255, 255,
+        255, 255, 0, 255,
+    ]);
+    const tex = new DataTexture(texels, 2, 2, {
+        format: 'rgba8unorm',
+        magFilter: 'nearest',
+        minFilter: 'nearest',
+        generateMipmaps: false,
+    });
+    tex.needsUpdate = true;
+
+    // Sample texel (0,0): uv (0.25, 0.25).
+    const material = new Material({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        fragment: texture(tex).sample(vec2f(0.25, 0.25)),
+        depthTest: false,
+    });
+    const scene = new Scene();
+    scene.add(new Mesh(createFullscreenTriangleGeometry(), material));
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    renderer.render(scene, camera);
+
+    texels[4] = 255;
+    texels[5] = 0;
+    texels[6] = 255;
+    tex._gpuTexture.addUpdateRegion({ x: 1, y: 0, width: 1, height: 1 });
+
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'subrect-partial-neighbour', pixel, expected: [255, 0, 0, 255] };
+}
+
+/**
+ * cube-face-partial: same idea across `z` on a cube, where WebGL spells a face as its own bind target
+ * rather than a z offset. Rewrite the +Z face (index 4) in place, queue `{ z: 4, depth: 1 }`, and sample
+ * toward +Z. Proves `z` means the same face index the WebGPU backend passes as `origin.z`.
+ */
+async function caseCubeFacePartial(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+
+    const faceData = [
+        new Uint8Array([230, 26, 26, 255]),
+        new Uint8Array([26, 153, 153, 255]),
+        new Uint8Array([26, 204, 51, 255]),
+        new Uint8Array([153, 51, 179, 255]),
+        new Uint8Array([51, 128, 230, 255]), // +Z, the one we rewrite
+        new Uint8Array([230, 204, 26, 255]),
+    ];
+    const cubeTex = new CubeTexture(
+        faceData.map((data) => ({ data, width: 1, height: 1 })),
+        { format: 'rgba8unorm', magFilter: 'nearest', minFilter: 'nearest', generateMipmaps: false },
+    );
+    cubeTex.needsUpdate = true;
+
+    const material = new Material({
+        vertex: vec4(attribute('position', d.vec3f), f32(1)),
+        fragment: cubeTexture(cubeTex).sample(vec3(0, 0, 1)),
+        depthTest: false,
+    });
+    const scene = new Scene();
+    scene.add(new Mesh(createFullscreenTriangleGeometry(), material));
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    renderer.render(scene, camera);
+
+    // Rewrite the +Z face in place to magenta, and queue only that face.
+    faceData[4][0] = 255;
+    faceData[4][1] = 0;
+    faceData[4][2] = 255;
+    cubeTex._gpuTexture.addUpdateRegion({ z: 4, depth: 1 });
+
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'cube-face-partial', pixel, expected: [255, 0, 255, 255] };
 }
 
 /**
@@ -3062,6 +3299,11 @@ export async function run(): Promise<RunResult> {
             caseMrt4Rgba16fLazy,
             caseRtResizeRealloc,
             caseCubemap,
+            caseArrayLayerPartial,
+            caseArrayLayerPartialUntouched,
+            caseCubeFacePartial,
+            caseSubrectPartial,
+            caseSubrectPartialNeighbour,
             caseInstanced,
             caseBatchedDrawsGreen,
             caseBatchedDrawsRed,

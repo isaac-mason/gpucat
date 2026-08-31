@@ -1,6 +1,7 @@
 import * as d from '../schema/schema';
 import { Source, type SourceData } from '../texture/source';
 import type { RenderTarget } from './render-target';
+import { addRegion, deriveMipRegion, normalizeRegion, type TextureRegion, type TextureRegionInit } from './texture-region';
 
 /** GPU texture dimension from schema type */
 export type DimensionOf<D extends d.Texture> = D extends d.texture1d | d.textureStorage1d
@@ -184,33 +185,54 @@ export class GpuTexture<D extends d.Texture = d.Texture> {
     /** Version number, incremented when needsUpdate is set */
     version = 0;
 
-    /** Mark texture as needing a FULL re-upload. Takes priority over {@link updateRanges}. */
+    /** Mark texture as needing a FULL re-upload. Takes priority over {@link updateRegions}. */
     set needsUpdate(_: true) {
         this.version++;
         this.needsFullUpload = true;
     }
 
-    /** Track which layers need updating (for 2D array textures) */
-    readonly layerUpdates: Set<number> = new Set();
-
     /**
-     * Pending partial-upload regions as TEXEL ranges `{start, count}` into `source.data`, for 2D
-     * source-backed textures. When non-empty at upload and {@link needsFullUpload} is not set, the renderer
-     * uploads only the covering rows (`texSubImage2D` / `writeTexture`) instead of the whole texture.
-     * Mirrors {@link layerUpdates}. Populated via {@link addUpdateRange}; cleared by the renderer after
-     * upload. Overridden by a full upload (needsUpdate / resize).
+     * Pending partial-upload regions: boxes of texels into `source.data`. When non-empty at upload and
+     * {@link needsFullUpload} is not set, the renderer uploads only these instead of the whole texture
+     * (`texSubImage2D` / `writeTexture`). Populated via {@link addUpdateRegion}; cleared by the renderer
+     * after upload. Overridden by a full upload (needsUpdate / resize).
+     *
+     * Regions are merged exactly on insert, never bounding-boxed, so a merge can never pick up a texel
+     * that was clean. Currently only 2D source-backed textures take the partial path; array, cube and 3D
+     * textures always take the full-upload path.
      */
-    readonly updateRanges: { start: number; count: number }[] = [];
+    readonly updateRegions: TextureRegion[] = [];
 
     /**
      * When true, the next upload re-specifies the whole texture (set by `needsUpdate`, a resize, or the
-     * first upload) and takes priority over {@link updateRanges}. The renderer resets it after uploading.
+     * first upload) and takes priority over {@link updateRegions}. The renderer resets it after uploading.
      */
     needsFullUpload = false;
 
-    /** Queue a partial (texel-range) update and trigger a re-upload, WITHOUT forcing a full upload. */
-    addUpdateRange(start: number, count: number): void {
-        this.updateRanges.push({ start, count });
+    /**
+     * Queue a partial update of one box of texels and trigger a re-upload, WITHOUT forcing a full one.
+     * Omitted fields default to the full extent at the origin, so `{ z: 7, depth: 1 }` is "layer 7" and
+     * `{ x, y, width, height }` is a sub-rect. `z` addresses array layers, cube faces and 3D slices
+     * alike.
+     */
+    addUpdateRegion(region: TextureRegionInit): void {
+        const base = normalizeRegion(region, {
+            width: this.width,
+            height: this.height,
+            depth: this.depthOrArrayLayers,
+        });
+        addRegion(this.updateRegions, base);
+
+        // A write to level 0 leaves an explicit mip chain stale. Derive the matching box at every
+        // supplied level so callers cannot forget, since forgetting is silent corruption rather than a
+        // visible failure. Auto-generated mips need no derivation, the renderer regenerates them.
+        if (base.level === 0 && this.mipmaps.length > 0) {
+            for (let level = 1; level <= this.mipmaps.length; level++) {
+                const levelWidth = Math.max(1, this.width >> level);
+                const levelHeight = Math.max(1, this.height >> level);
+                addRegion(this.updateRegions, deriveMipRegion(base, level, levelWidth, levelHeight));
+            }
+        }
         this.version++;
     }
 

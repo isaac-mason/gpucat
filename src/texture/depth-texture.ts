@@ -9,6 +9,9 @@ export type DepthTextureFormat = 'depth16unorm' | 'depth24plus' | 'depth24plus-s
  * Used as the depth attachment in RenderTarget, or for shadow mapping.
  *
  * Defaults to comparison sampler for shadow mapping convenience.
+ *
+ * No region API, deliberately: this is a render-target attachment whose contents are written by the
+ * GPU, so there is no CPU-side source for a partial upload to read from.
  */
 export class DepthTexture {
     readonly isDepthTexture = true;

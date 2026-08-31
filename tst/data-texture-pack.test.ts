@@ -30,7 +30,7 @@ describe('DataTexture.pack — bulk whole-array write', () => {
         const tex = createStructTexture(Rec, 3);
         // Pre-dirty a partial range to prove pack() supersedes it with a full upload.
         tex.packAtIndex(Rec, 0, { color: [0, 0, 0, 0], id: 0 });
-        expect(tex._gpuTexture.updateRanges.length).toBeGreaterThan(0);
+        expect(tex._gpuTexture.updateRegions.length).toBeGreaterThan(0);
 
         const v0 = tex.version;
         // f32-exact values (dyadic rationals) so the rgba32uint round-trip is bit-exact.

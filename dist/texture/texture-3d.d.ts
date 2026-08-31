@@ -1,4 +1,5 @@
 import { GpuTexture } from '../core/gpu-texture';
+import type { TextureRegionInit } from '../core/texture-region';
 import { GpuSampler } from '../core/gpu-sampler';
 import { Source, type DataTextureImage } from './source';
 import * as d from '../schema/schema';
@@ -80,6 +81,11 @@ export declare class Data3DTexture {
     get version(): number;
     /** Set to `true` to trigger a GPU upload on the next render. */
     set needsUpdate(value: boolean);
+    /**
+     * Queue a partial upload of one box of texels, without forcing a full re-upload. `z`/`depth` address
+     * slices of the volume directly, so there is no separate slice helper.
+     */
+    addUpdateRegion(region: TextureRegionInit): this;
     /** Creates a clone of this texture. */
     clone(): Data3DTexture;
     /** Disposes of the texture and its GPU resources. */

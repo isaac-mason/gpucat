@@ -1,5 +1,6 @@
 import { GpuSampler } from '../core/gpu-sampler';
 import { GpuTexture } from '../core/gpu-texture';
+import type { TextureRegionInit } from '../core/texture-region';
 import * as d from '../schema/schema';
 import { Source, type SourceData } from './source';
 /** Wrap modes matching WebGPU GPUAddressMode */
@@ -107,6 +108,16 @@ export declare class Texture<out T extends SourceData = SourceData> {
     get version(): number;
     /** Set to `true` to trigger a GPU upload on the next render. */
     set needsUpdate(value: boolean);
+    /**
+     * Queue a partial upload of one box of texels, without forcing a full re-upload. Omitted fields
+     * default to the full extent at the origin.
+     *
+     * NOTE: a texture backed by a DOM source (image, canvas, video) has no addressable rows in a packed
+     * buffer, so the renderer serves the region with a full upload rather than a partial one. The write
+     * still lands, it just is not cheaper. Sub-rect upload from a DOM source needs a separate
+     * `copyExternalImageToTexture` / `TexImageSource` path in both backends.
+     */
+    addUpdateRegion(region: TextureRegionInit): this;
     /** Renderer-set callback to destroy GPU resources. */
     /**
      * Creates a clone of this texture.

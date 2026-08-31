@@ -14052,6 +14052,210 @@ class Source {
     }
 }
 
+/*
+ *the one dirty-region representation for textures, plus the exact
+ * merge rules the renderer relies on.
+ *
+ * A *range* is 1D and belongs to buffers (see GpuBuffer); a *region* is a box and belongs to
+ * textures. Keeping the two words distinct is deliberate: modelling 2D/3D dirty state as a linear
+ * run is what forced every earlier partial-upload path to round out to whole rows.
+ *
+ * `z` addresses array layers, cube faces and 3D slices - one axis, the same meaning on both
+ * backends, matching `writeTexture`'s `origin.z` and `texSubImage3D`'s `zoffset`.
+ */
+/**
+ * Pending regions past this point stop being tracked exactly: the list is coalesced to one bounding
+ * box per `(level, z, depth)` plane. Bounds both memory and per-add merge cost regardless of access
+ * pattern.
+ */
+const REGION_CAP = 16;
+/** Fill omitted fields from `extent`, clamp to it, and return a whole region. */
+function normalizeRegion(init, extent) {
+    const x = Math.max(0, init.x ?? 0);
+    const y = Math.max(0, init.y ?? 0);
+    const z = Math.max(0, init.z ?? 0);
+    return {
+        x,
+        y,
+        z,
+        width: Math.max(0, Math.min(init.width ?? extent.width, extent.width - x)),
+        height: Math.max(0, Math.min(init.height ?? extent.height, extent.height - y)),
+        depth: Math.max(0, Math.min(init.depth ?? extent.depth, extent.depth - z)),
+        level: Math.max(0, init.level ?? 0),
+    };
+}
+/** Texels covered by `r`. */
+function regionTexelCount(r) {
+    return r.width * r.height * r.depth;
+}
+function isEmpty(r) {
+    return r.width <= 0 || r.height <= 0 || r.depth <= 0;
+}
+function contains(a, b) {
+    return (a.x <= b.x &&
+        a.x + a.width >= b.x + b.width &&
+        a.y <= b.y &&
+        a.y + a.height >= b.y + b.height &&
+        a.z <= b.z &&
+        a.z + a.depth >= b.z + b.depth);
+}
+/** Merge along one axis, or null when the two are disjoint with a gap on it. */
+function mergeAxis(a, b, origin, size) {
+    const a0 = a[origin];
+    const a1 = a0 + a[size];
+    const b0 = b[origin];
+    const b1 = b0 + b[size];
+    // Touching counts as mergeable (b0 === a1); only a real gap blocks the merge.
+    if (b0 > a1 || a0 > b1)
+        return null;
+    const lo = Math.min(a0, b0);
+    const hi = Math.max(a1, b1);
+    return { ...a, [origin]: lo, [size]: hi - lo };
+}
+/**
+ * Merge two regions iff their union is ITSELF a box: same level, and either one contains the other,
+ * or they agree exactly on two of the three axis intervals and touch/overlap on the third. Returns
+ * null otherwise. Never returns a bounding box - a merge must not pick up a texel that was clean.
+ */
+function tryMergeRegions(a, b) {
+    if (a.level !== b.level)
+        return null;
+    if (contains(a, b))
+        return a;
+    if (contains(b, a))
+        return b;
+    const xEq = a.x === b.x && a.width === b.width;
+    const yEq = a.y === b.y && a.height === b.height;
+    const zEq = a.z === b.z && a.depth === b.depth;
+    if ((xEq ? 1 : 0) + (yEq ? 1 : 0) + (zEq ? 1 : 0) < 2)
+        return null;
+    if (!xEq)
+        return mergeAxis(a, b, 'x', 'width');
+    if (!yEq)
+        return mergeAxis(a, b, 'y', 'height');
+    if (!zEq)
+        return mergeAxis(a, b, 'z', 'depth');
+    return a; // all three equal - identical regions
+}
+/** After `list[i]` grew, absorb any other entries it can now merge with. */
+function cascade(list, i) {
+    for (let j = list.length - 1; j >= 0; j--) {
+        if (j === i)
+            continue;
+        const merged = tryMergeRegions(list[i], list[j]);
+        if (!merged)
+            continue;
+        list[i] = merged;
+        list.splice(j, 1);
+        if (j < i)
+            i--;
+    }
+}
+/** Coalesce to one bounding box per `(level, z, depth)` plane. The cap's escape hatch. */
+function coalesceToPlanes(list) {
+    const byPlane = new Map();
+    for (const r of list) {
+        const key = `${r.level}:${r.z}:${r.depth}`;
+        const seen = byPlane.get(key);
+        if (!seen) {
+            byPlane.set(key, { ...r });
+            continue;
+        }
+        const x1 = Math.max(seen.x + seen.width, r.x + r.width);
+        const y1 = Math.max(seen.y + seen.height, r.y + r.height);
+        seen.x = Math.min(seen.x, r.x);
+        seen.y = Math.min(seen.y, r.y);
+        seen.width = x1 - seen.x;
+        seen.height = y1 - seen.y;
+    }
+    list.length = 0;
+    for (const r of byPlane.values())
+        list.push(r);
+}
+/**
+ * Queue `region` into `list`, merging exactly where possible.
+ *
+ * Insertion is cheap by construction: the most recently added region is tried first, so a sequential
+ * write loop (`for (i...) packAtIndex(i)`) merges in O(1) and never scans. Past `cap` pending regions
+ * the list is coalesced per plane, bounding both memory and per-add cost.
+ */
+function addRegion(list, region, cap = REGION_CAP) {
+    if (isEmpty(region))
+        return;
+    const n = list.length;
+    if (n > 0) {
+        const merged = tryMergeRegions(list[n - 1], region);
+        if (merged) {
+            list[n - 1] = merged;
+            cascade(list, n - 1);
+            return;
+        }
+    }
+    for (let i = 0; i < n - 1; i++) {
+        const merged = tryMergeRegions(list[i], region);
+        if (merged) {
+            list[i] = merged;
+            cascade(list, i);
+            return;
+        }
+    }
+    list.push(region);
+    if (list.length > cap)
+        coalesceToPlanes(list);
+}
+/**
+ * Convert a linear run of `count` texels from `start` into regions, exactly. A run inside one row is
+ * a single 1-row box; a run that crosses a row boundary becomes at most three (head partial row,
+ * full-row middle, tail partial row). This is what keeps a small record in a wide texture from
+ * dirtying the whole row.
+ */
+function regionsFromLinearRun(start, count, width) {
+    if (count <= 0 || width <= 0)
+        return [];
+    const out = [];
+    const push = (x, y, w, h) => {
+        out.push({ x, y, z: 0, width: w, height: h, depth: 1, level: 0 });
+    };
+    const end = start + count;
+    const y0 = Math.floor(start / width);
+    const x0 = start % width;
+    const yLast = Math.floor((end - 1) / width);
+    if (y0 === yLast) {
+        push(x0, y0, count, 1);
+        return out;
+    }
+    let midStart = y0;
+    let midEnd = yLast + 1;
+    if (x0 > 0) {
+        push(x0, y0, width - x0, 1);
+        midStart = y0 + 1;
+    }
+    const xEnd = ((end - 1) % width) + 1;
+    if (xEnd < width) {
+        push(0, yLast, xEnd, 1);
+        midEnd = yLast;
+    }
+    if (midEnd > midStart)
+        push(0, midStart, width, midEnd - midStart);
+    return out;
+}
+/**
+ * Derive the region covering the same texels at mip `level`, halving per level. Origins floor and
+ * extents ceil so the derived box always covers the footprint of the original rather than shaving a
+ * texel off its edge, then clamp to the level's own size.
+ *
+ * This is what lets a write to level 0 patch an explicit mip chain automatically. Without it a partial
+ * upload leaves every other level stale, which is silent corruption rather than a visible failure.
+ */
+function deriveMipRegion(r, level, levelWidth, levelHeight) {
+    const s = 1 << level;
+    const x0 = Math.min(Math.floor(r.x / s), Math.max(0, levelWidth - 1));
+    const y0 = Math.min(Math.floor(r.y / s), Math.max(0, levelHeight - 1));
+    const x1 = Math.min(levelWidth, Math.max(x0 + 1, Math.ceil((r.x + r.width) / s)));
+    const y1 = Math.min(levelHeight, Math.max(y0 + 1, Math.ceil((r.y + r.height) / s)));
+    return { x: x0, y: y0, z: r.z, width: x1 - x0, height: y1 - y0, depth: r.depth, level };
+}
+
 /**
  * GPUTextureUsage flag bits, spec-fixed numeric values. Used instead of the global
  * `GPUTextureUsage` so texture construction works in headless/Node (no WebGPU global).
@@ -14109,29 +14313,50 @@ class GpuTexture {
     // ─────────────────────────────────────────────────────────────────────────
     /** Version number, incremented when needsUpdate is set */
     version = 0;
-    /** Mark texture as needing a FULL re-upload. Takes priority over {@link updateRanges}. */
+    /** Mark texture as needing a FULL re-upload. Takes priority over {@link updateRegions}. */
     set needsUpdate(_) {
         this.version++;
         this.needsFullUpload = true;
     }
-    /** Track which layers need updating (for 2D array textures) */
-    layerUpdates = new Set();
     /**
-     * Pending partial-upload regions as TEXEL ranges `{start, count}` into `source.data`, for 2D
-     * source-backed textures. When non-empty at upload and {@link needsFullUpload} is not set, the renderer
-     * uploads only the covering rows (`texSubImage2D` / `writeTexture`) instead of the whole texture.
-     * Mirrors {@link layerUpdates}. Populated via {@link addUpdateRange}; cleared by the renderer after
-     * upload. Overridden by a full upload (needsUpdate / resize).
+     * Pending partial-upload regions: boxes of texels into `source.data`. When non-empty at upload and
+     * {@link needsFullUpload} is not set, the renderer uploads only these instead of the whole texture
+     * (`texSubImage2D` / `writeTexture`). Populated via {@link addUpdateRegion}; cleared by the renderer
+     * after upload. Overridden by a full upload (needsUpdate / resize).
+     *
+     * Regions are merged exactly on insert, never bounding-boxed, so a merge can never pick up a texel
+     * that was clean. Currently only 2D source-backed textures take the partial path; array, cube and 3D
+     * textures always take the full-upload path.
      */
-    updateRanges = [];
+    updateRegions = [];
     /**
      * When true, the next upload re-specifies the whole texture (set by `needsUpdate`, a resize, or the
-     * first upload) and takes priority over {@link updateRanges}. The renderer resets it after uploading.
+     * first upload) and takes priority over {@link updateRegions}. The renderer resets it after uploading.
      */
     needsFullUpload = false;
-    /** Queue a partial (texel-range) update and trigger a re-upload, WITHOUT forcing a full upload. */
-    addUpdateRange(start, count) {
-        this.updateRanges.push({ start, count });
+    /**
+     * Queue a partial update of one box of texels and trigger a re-upload, WITHOUT forcing a full one.
+     * Omitted fields default to the full extent at the origin, so `{ z: 7, depth: 1 }` is "layer 7" and
+     * `{ x, y, width, height }` is a sub-rect. `z` addresses array layers, cube faces and 3D slices
+     * alike.
+     */
+    addUpdateRegion(region) {
+        const base = normalizeRegion(region, {
+            width: this.width,
+            height: this.height,
+            depth: this.depthOrArrayLayers,
+        });
+        addRegion(this.updateRegions, base);
+        // A write to level 0 leaves an explicit mip chain stale. Derive the matching box at every
+        // supplied level so callers cannot forget, since forgetting is silent corruption rather than a
+        // visible failure. Auto-generated mips need no derivation, the renderer regenerates them.
+        if (base.level === 0 && this.mipmaps.length > 0) {
+            for (let level = 1; level <= this.mipmaps.length; level++) {
+                const levelWidth = Math.max(1, this.width >> level);
+                const levelHeight = Math.max(1, this.height >> level);
+                addRegion(this.updateRegions, deriveMipRegion(base, level, levelWidth, levelHeight));
+            }
+        }
         this.version++;
     }
     // ─────────────────────────────────────────────────────────────────────────
@@ -14487,6 +14712,21 @@ class Texture {
             this.onUpdate?.(this);
         }
     }
+    /**
+     * Queue a partial upload of one box of texels, without forcing a full re-upload. Omitted fields
+     * default to the full extent at the origin.
+     *
+     * NOTE: a texture backed by a DOM source (image, canvas, video) has no addressable rows in a packed
+     * buffer, so the renderer serves the region with a full upload rather than a partial one. The write
+     * still lands, it just is not cheaper. Sub-rect upload from a DOM source needs a separate
+     * `copyExternalImageToTexture` / `TexImageSource` path in both backends.
+     */
+    addUpdateRegion(region) {
+        this._gpuTexture.addUpdateRegion(region);
+        if (this._gpuTexture.source)
+            this._gpuTexture.source.needsUpdate = true;
+        return this;
+    }
     /** Renderer-set callback to destroy GPU resources. */
     // TODO: did we ever need it?
     // get _onDispose(): (() => void) | null { return this._gpuTexture._onDispose; }
@@ -14526,6 +14766,9 @@ class Texture {
  * Used as the depth attachment in RenderTarget, or for shadow mapping.
  *
  * Defaults to comparison sampler for shadow mapping convenience.
+ *
+ * No region API, deliberately: this is a render-target attachment whose contents are written by the
+ * GPU, so there is no CPU-side source for a partial upload to read from.
  */
 class DepthTexture {
     isDepthTexture = true;
@@ -18466,6 +18709,22 @@ class CubeTexture {
     set needsUpdate(v) {
         if (v)
             this._gpuTexture.needsUpdate = true;
+    }
+    /**
+     * Queue a partial upload of one box of texels, without forcing a full re-upload. Omitted fields
+     * default to the full extent at the origin.
+     */
+    addUpdateRegion(region) {
+        this._gpuTexture.addUpdateRegion(region);
+        return this;
+    }
+    /**
+     * Queue a partial upload of a single face, optionally only a sub-rect of it. Face order is
+     * +X, -X, +Y, -Y, +Z, -Z; the index is this texture's vocabulary for the region's `z` axis, and it
+     * means the same face on both backends.
+     */
+    addUpdateFace(face, rect = {}) {
+        return this.addUpdateRegion({ ...rect, z: face, depth: 1 });
     }
     clone() {
         const tex = new CubeTexture(this.images, {
@@ -26603,6 +26862,58 @@ function peekRenderObjectGpu(cache, renderObject) {
     return cache.data.get(renderObject);
 }
 
+/*
+ * The backend-neutral half of the partial-texture-upload decision: which textures may take it, and
+ * whether the pending regions are still worth uploading piecemeal.
+ *
+ * Both backends call these, deliberately. A region means the same thing on WebGPU and WebGL2 or it is
+ * not an API, so the rule that decides it lives in exactly one place and cannot drift between them.
+ */
+/**
+ * View dimensions that take the partial path. `z` addresses array layers and cube faces alike, so both
+ * qualify; 3D volumes and 1D do not yet.
+ */
+function supportsPartialUpload(texture) {
+    const dim = texture.viewDimension;
+    return dim === '2d' || dim === '2d-array' || dim === 'cube' || dim === 'cube-array';
+}
+function isTypedSourceData(data) {
+    if (!data || typeof data !== 'object')
+        return false;
+    return ArrayBuffer.isView(data.data);
+}
+/**
+ * Whether every source the partial path would read is typed-array backed.
+ *
+ * The unpack window addresses rows inside a packed buffer, which a DOM element source (image, canvas,
+ * video) does not have. Those must fall through to a full upload: skipping them instead would drop the
+ * write silently, which is the failure mode this whole model exists to remove.
+ */
+function hasTypedPartialSource(texture) {
+    const ok = (source) => !!source && source.dataReady !== false && isTypedSourceData(source.data);
+    if (texture.mipmaps.length > 0 && !texture.mipmaps.every(ok))
+        return false;
+    if (texture.sources.length > 0)
+        return texture.sources.every(ok);
+    return ok(texture.source);
+}
+/** Texels the emitters will actually move for `regions`. Both backends honour a region exactly. */
+function dirtyTexelCount(regions) {
+    let n = 0;
+    for (const r of regions)
+        n += regionTexelCount(r);
+    return n;
+}
+/**
+ * Whether the pending regions are worth a partial upload. Past half the texture, fewer and simpler
+ * calls win: fall through to one full upload.
+ */
+function withinPartialBudget(texture, regions) {
+    const total = texture.width * texture.height * texture.depthOrArrayLayers;
+    const dirty = dirtyTexelCount(regions);
+    return dirty > 0 && dirty <= total / 2;
+}
+
 /**
  * Mipmap generation utilities using direct WebGPU pipelines.
  *
@@ -26985,36 +27296,6 @@ function disposeMipmapState(state) {
 }
 
 /**
- * update-ranges.ts (renderer core) — backend-neutral collapse of pending dirty ranges into a covering
- * row span for a partial 2D upload. Shared by the WebGPU + WebGL texture paths and the WebGL
- * storage-buffer-as-texture path, so the min/max-row math lives in exactly one place.
- */
-/**
- * Collapse dirty {@link LinearRange}s into a single covering row span. `unitsPerRow` is the grid width
- * expressed in the ranges' own unit — texels/row for a texture's texel ranges, or components/row
- * (`width · channels`) for a buffer reinterpreted as a texel grid. Row-granular: the span is just the
- * min/max row touched, so there's no same-row/straddle bookkeeping. Returns `null` when no range is
- * non-empty. Callers apply their own clamp and `> ½ dirty → full` fallback (both backend-specific).
- */
-function collapseUpdateRanges(ranges, unitsPerRow) {
-    let min = Number.POSITIVE_INFINITY;
-    let max = Number.NEGATIVE_INFINITY;
-    for (const r of ranges) {
-        if (r.count <= 0)
-            continue;
-        if (r.start < min)
-            min = r.start;
-        if (r.start + r.count - 1 > max)
-            max = r.start + r.count - 1;
-    }
-    if (!Number.isFinite(min))
-        return null;
-    const rowStart = Math.floor(min / unitsPerRow);
-    const rowEnd = Math.floor(max / unitsPerRow);
-    return { rowStart, rowCount: rowEnd - rowStart + 1 };
-}
-
-/**
  * textures.ts, GPUTexture/GPUSampler cache and upload helpers.
  *
  * Uses WeakMap-based caching keyed by GpuTexture object.
@@ -27098,41 +27379,81 @@ function generateTextureMipmaps(cache, device, texture) {
  * Update a texture, checks source version and uploads if needed.
  * Returns the TextureData for the texture.
  */
-/** Partial upload: `writeTexture` only rows `[y0, y0+rows)` of a 2D typed-array source. */
-function uploadPartialTextureData(device, texture, data, span) {
-    const source = texture.source;
-    if (!source || !source.data || !isTypedArrayData(source.data))
+function uploadPartialRegion$1(device, texture, data, r) {
+    const bpp = getBytesPerPixel(texture.format);
+    // Level 0 with per-layer/face sources: each layer owns its own buffer. `z` indexes
+    // `texture.sources`, which is the face for a cube and the layer for an array.
+    if (r.level === 0 && texture.sources.length > 0) {
+        const bytesPerRow = texture.width * bpp;
+        for (let i = 0; i < r.depth; i++) {
+            const layer = r.z + i;
+            const source = texture.sources[layer];
+            if (!source?.dataReady || !source.data || !isTypedArrayData(source.data))
+                continue;
+            const view = source.data.data;
+            device.queue.writeTexture({ texture: data.texture, mipLevel: 0, origin: { x: r.x, y: r.y, z: layer } }, view.buffer, {
+                // Full-stride rows plus a start offset: the sub-rect is read straight out of the
+                // packed buffer, with no tightly-packed staging copy.
+                offset: view.byteOffset + r.y * bytesPerRow + r.x * bpp,
+                bytesPerRow,
+                rowsPerImage: texture.height,
+            }, [r.width, r.height, 1]);
+        }
+        return;
+    }
+    // Packed source: level 0 uses `source`, higher levels their explicit mip (also packed, all layers).
+    const source = r.level === 0 ? texture.source : texture.mipmaps[r.level - 1];
+    if (!source || !source.dataReady || !source.data || !isTypedArrayData(source.data))
         return;
     const view = source.data.data;
-    const width = texture.width;
-    const bytesPerPixel = getBytesPerPixel(texture.format);
-    const bytesPerRow = width * bytesPerPixel;
-    const { y0, rows } = span;
-    device.queue.writeTexture({ texture: data.texture, origin: { x: 0, y: y0, z: 0 } }, view.buffer, { offset: view.byteOffset + y0 * bytesPerRow, bytesPerRow, rowsPerImage: rows }, [width, rows]);
+    const levelWidth = r.level === 0 ? texture.width : Math.max(1, source.width);
+    const levelHeight = r.level === 0 ? texture.height : Math.max(1, source.height);
+    const bytesPerRow = levelWidth * bpp;
+    // `rowsPerImage` is the level's FULL height, which is what keeps the inter-layer stride right, so a
+    // multi-layer region lands in one write even when it covers only some rows of each layer.
+    device.queue.writeTexture({ texture: data.texture, mipLevel: r.level, origin: { x: r.x, y: r.y, z: r.z } }, view.buffer, {
+        offset: view.byteOffset + (r.z * levelHeight + r.y) * bytesPerRow + r.x * bpp,
+        bytesPerRow,
+        rowsPerImage: levelHeight,
+    }, [r.width, r.height, r.depth]);
 }
+/**
+ * Update a texture, checks source version and uploads if needed.
+ * Returns the TextureData for the texture.
+ */
 function updateTexture$1(cache, device, texture) {
     let data = cache.textureMap.get(texture);
     // Skip if already initialized and texture version matches
     if (data?.initialized && data.version === texture.version) {
         return data;
     }
-    // Partial upload: an in-place `packAtIndex`/`addUpdateRange` queued dirty texel ranges (no full flag, no
-    // resize) → `writeTexture` only the covering rows instead of the whole texture. A full flag
-    // (`needsUpdate`/grow) or size change takes priority; `> ½` dirty falls through to a full upload.
+    // Partial upload: an in-place `packAtIndex`/`addUpdateRegion` queued dirty boxes (no full flag, no
+    // resize) → `writeTexture` only those instead of the whole texture. A full flag (`needsUpdate`/grow)
+    // or size change takes priority; `> ½` dirty falls through to a full upload.
+    //
+    // Regions are honoured exactly, sub-rect and mip level included: a full-stride `bytesPerRow` plus a
+    // start offset reads the box straight out of the packed source, with no staging copy.
     if (data?.initialized &&
         !data.isDefaultTexture &&
         !texture.needsFullUpload &&
-        texture.updateRanges.length > 0 &&
-        texture.viewDimension === '2d' &&
+        texture.updateRegions.length > 0 &&
+        supportsPartialUpload(texture) &&
         !texture.type.type.startsWith('texture_storage_') &&
         data.texture.width === texture.width &&
         data.texture.height === texture.height &&
-        isSourceReady(texture.source) &&
-        isTypedArrayData(texture.source?.data ?? null)) {
-        const span = collapseUpdateRanges(texture.updateRanges, texture.width);
-        if (span && span.rowCount <= texture.height / 2) {
-            uploadPartialTextureData(device, texture, data, { y0: span.rowStart, rows: span.rowCount });
-            texture.updateRanges.length = 0;
+        data.texture.depthOrArrayLayers === texture.depthOrArrayLayers &&
+        hasTypedPartialSource(texture)) {
+        if (withinPartialBudget(texture, texture.updateRegions)) {
+            for (const r of texture.updateRegions)
+                uploadPartialRegion$1(device, texture, data, r);
+            // Auto-generated mips go stale the moment level 0 moves. (An explicit chain instead gets
+            // per-level regions derived at `addUpdateRegion` time, so it is already covered above.)
+            if (texture.mipmaps.length === 0 && texture.generateMipmaps && data.texture.mipLevelCount > 1) {
+                const isCubeTex = texture.viewDimension === 'cube' || texture.viewDimension === 'cube-array';
+                const isArrayTex = texture.viewDimension === '2d-array';
+                generateMipmaps(getMipmapState(cache, device), data.texture, isCubeTex, isArrayTex ? texture.depthOrArrayLayers : 0);
+            }
+            texture.updateRegions.length = 0;
             data.version = texture.version;
             return data;
         }
@@ -27237,8 +27558,8 @@ function updateTexture$1(cache, device, texture) {
         const mipmapState = getMipmapState(cache, device);
         generateMipmaps(mipmapState, data.texture, isCube, isArray ? texture.depthOrArrayLayers : 0);
     }
-    // A full (re)upload supersedes any queued partial ranges and clears the full flag.
-    texture.updateRanges.length = 0;
+    // A full (re)upload supersedes any queued partial regions and clears the full flag.
+    texture.updateRegions.length = 0;
     texture.needsFullUpload = false;
     // Update texture version
     data.version = texture.version;
@@ -40276,6 +40597,36 @@ function getGlSamplersStats(state) {
 }
 
 /**
+ * update-ranges.ts (renderer core) — backend-neutral collapse of pending dirty ranges into a covering
+ * row span for a partial 2D upload. Shared by the WebGPU + WebGL texture paths and the WebGL
+ * storage-buffer-as-texture path, so the min/max-row math lives in exactly one place.
+ */
+/**
+ * Collapse dirty {@link LinearRange}s into a single covering row span. `unitsPerRow` is the grid width
+ * expressed in the ranges' own unit — texels/row for a texture's texel ranges, or components/row
+ * (`width · channels`) for a buffer reinterpreted as a texel grid. Row-granular: the span is just the
+ * min/max row touched, so there's no same-row/straddle bookkeeping. Returns `null` when no range is
+ * non-empty. Callers apply their own clamp and `> ½ dirty → full` fallback (both backend-specific).
+ */
+function collapseUpdateRanges(ranges, unitsPerRow) {
+    let min = Number.POSITIVE_INFINITY;
+    let max = Number.NEGATIVE_INFINITY;
+    for (const r of ranges) {
+        if (r.count <= 0)
+            continue;
+        if (r.start < min)
+            min = r.start;
+        if (r.start + r.count - 1 > max)
+            max = r.start + r.count - 1;
+    }
+    if (!Number.isFinite(min))
+        return null;
+    const rowStart = Math.floor(min / unitsPerRow);
+    const rowEnd = Math.floor(max / unitsPerRow);
+    return { rowStart, rowCount: rowEnd - rowStart + 1 };
+}
+
+/**
  * textures.ts (webgl) - per-GpuTexture GL texture cache + upload, the GL sibling of
  * `webgpu/textures.ts`.
  *
@@ -40634,6 +40985,7 @@ function ensureGlTexture(gl, state, texture) {
             generation: 0,
             allocated: false,
             allocW: 0,
+            allocD: 0,
             allocH: 0,
         };
         state.data.set(texture, data);
@@ -40695,23 +41047,91 @@ function upload2D(gl, texture, data) {
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
 }
-/** Upload only the dirty rows `[y0, y0+rows)` of a 2D source-backed texture via `texSubImage2D`. */
-function uploadPartial2D(gl, texture, data, span) {
-    const source = texture.source;
-    if (!source || !source.data)
+/**
+ * Point the unpack window at a sub-rect of a full-width packed buffer.
+ *
+ * `UNPACK_ROW_LENGTH` / `SKIP_PIXELS` / `SKIP_ROWS` (and the 3D pair `IMAGE_HEIGHT` / `SKIP_IMAGES`) let
+ * GL read a box out of the middle of a packed array with no staging copy. They are WebGL2-only, which is
+ * why WebGL1-era engines stage a tight copy instead. Row length is in PIXELS, so this stays correct
+ * whatever the component count.
+ */
+function setUnpackWindow(gl, rowLength, imageHeight, skipPixels, skipRows, skipImages) {
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, rowLength);
+    gl.pixelStorei(gl.UNPACK_IMAGE_HEIGHT, imageHeight);
+    gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, skipPixels);
+    gl.pixelStorei(gl.UNPACK_SKIP_ROWS, skipRows);
+    gl.pixelStorei(gl.UNPACK_SKIP_IMAGES, skipImages);
+}
+/**
+ * Restore the unpack window to the GL defaults. These are global state, so leaving a skip set silently
+ * corrupts every later upload in the frame. Reset rather than save/restore: `getParameter` is a
+ * round-trip, and nothing here depends on a non-default window.
+ */
+function resetUnpackWindow(gl) {
+    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
+    gl.pixelStorei(gl.UNPACK_IMAGE_HEIGHT, 0);
+    gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0);
+    gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 0);
+    gl.pixelStorei(gl.UNPACK_SKIP_IMAGES, 0);
+}
+/**
+ * Upload one dirty region into the existing GL texture, honouring `x`/`width`, `z` and `level` exactly.
+ *
+ * This never re-enters `texStorage3D`: array storage is immutable, so the partial path writes into the
+ * allocation the full upload already established.
+ */
+function uploadPartialRegion(gl, texture, data, r) {
+    const { format, type } = data.fmt;
+    const dim = texture.viewDimension;
+    // Level 0 reads `source` / `sources`; a higher level reads its explicit mip, which is always packed
+    // across layers.
+    const packed = r.level === 0 ? texture.source : texture.mipmaps[r.level - 1];
+    const levelWidth = r.level === 0 ? texture.width : Math.max(1, packed?.width ?? 1);
+    const levelHeight = r.level === 0 ? texture.height : Math.max(1, packed?.height ?? 1);
+    if (dim === 'cube' || dim === 'cube-array') {
+        if (r.level !== 0)
+            return; // explicit cube mips take the full path
+        setUnpackWindow(gl, levelWidth, 0, r.x, r.y, 0);
+        for (let i = 0; i < r.depth; i++) {
+            const face = r.z + i;
+            const typed = typedArrayOf(texture.sources[face]?.data);
+            if (!typed)
+                continue;
+            // A face is a distinct GL bind target here rather than a z offset, but `z` still means the
+            // same face index the WebGPU backend passes as `origin.z`. Same meaning, different spelling.
+            const target = gl.TEXTURE_CUBE_MAP_POSITIVE_X + face;
+            gl.texSubImage2D(target, r.level, r.x, r.y, r.width, r.height, format, type, typed);
+        }
         return;
-    const typed = typedArrayOf(source.data);
+    }
+    if (dim === '2d-array') {
+        // Per-layer sources: one call per layer, each reading from its own buffer.
+        if (r.level === 0 && texture.sources.length > 0) {
+            setUnpackWindow(gl, levelWidth, 0, r.x, r.y, 0);
+            for (let i = 0; i < r.depth; i++) {
+                const layer = r.z + i;
+                const typed = typedArrayOf(texture.sources[layer]?.data);
+                if (!typed)
+                    continue;
+                gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, r.level, r.x, r.y, layer, r.width, r.height, 1, format, type, typed);
+            }
+            return;
+        }
+        // Packed across layers: SKIP_IMAGES + IMAGE_HEIGHT carry the layer stride, so the whole region
+        // goes in one call whatever rows it covers.
+        const typed = typedArrayOf(packed?.data);
+        if (!typed)
+            return;
+        setUnpackWindow(gl, levelWidth, levelHeight, r.x, r.y, r.z);
+        gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, r.level, r.x, r.y, r.z, r.width, r.height, r.depth, format, type, typed);
+        return;
+    }
+    const typed = typedArrayOf(packed?.data);
     if (!typed)
         return;
-    const { format, type } = data.fmt;
-    const width = texture.width;
-    // Components per texel, derived from the array so this is format-agnostic (rgba32uint = 4, r32uint = 1).
-    const comps = Math.round(typed.length / (width * texture.height));
-    const { y0, rows } = span;
-    const start = y0 * width * comps;
-    const sub = typed.subarray(start, start + rows * width * comps);
-    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y0, width, rows, format, type, sub);
+    setUnpackWindow(gl, levelWidth, 0, r.x, r.y, 0);
+    gl.texSubImage2D(gl.TEXTURE_2D, r.level, r.x, r.y, r.width, r.height, format, type, typed);
 }
 /** Upload the 6 cube faces (face order +X,-X,+Y,-Y,+Z,-Z) at level 0. */
 function uploadCube(gl, texture, data) {
@@ -40856,22 +41276,36 @@ function updateTexture(gl, state, texture) {
     const data = ensureGlTexture(gl, state, texture);
     if (data.allocated && data.version === texture.version)
         return data;
-    // Partial upload: an in-place `packAtIndex`/`addUpdateRange` queued dirty texel ranges (no full re-upload
-    // and no resize) → re-specify only the covering rows via `texSubImage2D` on the existing GL texture,
-    // skipping the delete + full `texImage2D` below. A full flag (`needsUpdate`/grow) or a size change
-    // takes priority. `> ½` the texture dirty → fall through to a full upload (fewer, simpler calls).
+    // Partial upload: an in-place `packAtIndex`/`addUpdateRegion` queued dirty boxes (no full re-upload
+    // and no resize) → re-specify only those via `texSubImage2D` on the existing GL texture, skipping the
+    // delete + full `texImage2D` below. A full flag (`needsUpdate`/grow) or a size change takes priority.
+    // `> ½` the texture dirty → fall through to a full upload (fewer, simpler calls).
+    //
+    // Regions are honoured exactly, sub-rect and mip level included, via the WebGL2 unpack window
+    // (UNPACK_ROW_LENGTH / SKIP_PIXELS / SKIP_ROWS) reading the box out of the packed source in place.
     if (data.allocated &&
         !texture.needsFullUpload &&
-        texture.updateRanges.length > 0 &&
-        texture.viewDimension === '2d' &&
+        texture.updateRegions.length > 0 &&
+        supportsPartialUpload(texture) &&
+        hasTypedPartialSource(texture) &&
         !texture.isRenderTargetTexture &&
         data.allocW === texture.width &&
-        data.allocH === texture.height) {
-        const span = collapseUpdateRanges(texture.updateRanges, texture.width);
-        if (span && span.rowCount <= texture.height / 2) {
+        data.allocH === texture.height &&
+        data.allocD === texture.depthOrArrayLayers) {
+        if (withinPartialBudget(texture, texture.updateRegions)) {
             gl.bindTexture(data.target, data.texture);
-            uploadPartial2D(gl, texture, data, { y0: span.rowStart, rows: span.rowCount });
-            texture.updateRanges.length = 0;
+            for (const r of texture.updateRegions)
+                uploadPartialRegion(gl, texture, data, r);
+            resetUnpackWindow(gl);
+            // Auto-generated mips go stale the moment level 0 moves. (An explicit chain instead gets
+            // per-level regions derived at `addUpdateRegion` time, so it is already covered above.)
+            if (texture.mipmaps.length === 0 &&
+                texture.generateMipmaps &&
+                !data.fmt.isDepth &&
+                canGenerateMipmap(gl, texture.format)) {
+                gl.generateMipmap(data.target);
+            }
+            texture.updateRegions.length = 0;
             data.version = texture.version;
             return data;
         }
@@ -40924,12 +41358,13 @@ function updateTexture(gl, state, texture) {
         canGenerateMipmap(gl, texture.format)) {
         gl.generateMipmap(data.target);
     }
-    // A full (re)upload supersedes any queued partial ranges and clears the full flag. Record the
+    // A full (re)upload supersedes any queued partial regions and clears the full flag. Record the
     // allocated size so later in-place stores can take the partial `texSubImage2D` path above.
-    texture.updateRanges.length = 0;
+    texture.updateRegions.length = 0;
     texture.needsFullUpload = false;
     data.allocW = texture.width;
     data.allocH = texture.height;
+    data.allocD = texture.depthOrArrayLayers;
     data.version = texture.version;
     data.generation++;
     data.allocated = true;
@@ -45722,17 +46157,20 @@ class ArrayTexture {
             }
         }
     }
-    /** Track which layers have been modified (forwards to GpuTexture). */
-    get layerUpdates() {
-        return this._gpuTexture.layerUpdates;
+    /**
+     * Queue a partial upload of one box of texels, without forcing a full re-upload. Omitted fields
+     * default to the full extent at the origin.
+     */
+    addUpdateRegion(region) {
+        this._gpuTexture.addUpdateRegion(region);
+        return this;
     }
-    /** Mark a specific layer as needing update. On next upload, only this layer will be transferred. */
-    addLayerUpdate(layerIndex) {
-        this._gpuTexture.layerUpdates.add(layerIndex);
-    }
-    /** Clear the layer update tracking, called by the renderer after upload. */
-    clearLayerUpdates() {
-        this._gpuTexture.layerUpdates.clear();
+    /**
+     * Queue a partial upload of a single layer, optionally only a sub-rect of it. The layer index is
+     * this texture's own vocabulary for the region's `z` axis.
+     */
+    addUpdateLayer(layerIndex, rect = {}) {
+        return this.addUpdateRegion({ ...rect, z: layerIndex, depth: 1 });
     }
     /** Creates a clone of this texture. */
     clone() {
@@ -45941,8 +46379,22 @@ class DataTexture {
      * {@link packAtIndex} / {@link packAtTexel}; call directly if you mutate `.data` by hand. A
      * subsequent `needsUpdate = true` (full re-upload) supersedes any queued ranges.
      */
+    /**
+     * Queue a partial upload of one box of texels, without forcing a full re-upload. The general form of
+     * {@link addUpdateRange}: use this when you know the rectangle, that when you know the record run.
+     */
+    addUpdateRegion(region) {
+        this._gpuTexture.addUpdateRegion(region);
+        if (this._gpuTexture.source)
+            this._gpuTexture.source.needsUpdate = true;
+        return this;
+    }
     addUpdateRange(startTexel, countTexels) {
-        this._gpuTexture.addUpdateRange(startTexel, countTexels);
+        // Exact, not row-rounded: a run inside one row becomes a single 1-row box, so a small record in
+        // a wide texture no longer dirties the whole row. A row-crossing run becomes at most three.
+        for (const region of regionsFromLinearRun(startTexel, countTexels, this.width)) {
+            this._gpuTexture.addUpdateRegion(region);
+        }
         if (this._gpuTexture.source)
             this._gpuTexture.source.needsUpdate = true;
         return this;
@@ -46027,5 +46479,5 @@ function createStructTexture(schema, capacity, options = {}) {
     });
 }
 
-export { ArrayTexture, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, FlyControls, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, Raycaster, RenderPipeline, RenderTarget, Return, Scene, Source, TOUCH, Texture, TransformControls, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WebGLRenderer, WebGPURenderer, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, ceil, clamp$1 as clamp, color_exports as color, comparisonSampler, compile, compileCompute, compileGlsl, compileTransformFeedback, compute, computeIndex, cond, cos, countLeadingZeros, countOneBits, countTrailingZeros, createBoxGeometry, createCylinderGeometry, createFullscreenTriangleGeometry, createIndexBuffer, createIndirectBuffer, createOctahedronGeometry, createPlaneGeometry, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createStructTexture, createTorusGeometry, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frameGroup, frustum, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, globalId, glsl, glslFn, greaterThan, greaterThanEqual, i32, index, instanceIndex, inverseSqrt, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max$1 as max, min$1 as min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, ndcDepthToStorage, normalize$1 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, pass, positionClip, pow, readPixels, reinhardToneMapping, renderGroup, renderOutput, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub$1 as sub, tan, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgsl, wgslFn, workgroupBarrier, workgroupId };
+export { ArrayTexture, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, FlyControls, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, REGION_CAP, Raycaster, RenderPipeline, RenderTarget, Return, Scene, Source, TOUCH, Texture, TransformControls, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WebGLRenderer, WebGPURenderer, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, ceil, clamp$1 as clamp, color_exports as color, comparisonSampler, compile, compileCompute, compileGlsl, compileTransformFeedback, compute, computeIndex, cond, cos, countLeadingZeros, countOneBits, countTrailingZeros, createBoxGeometry, createCylinderGeometry, createFullscreenTriangleGeometry, createIndexBuffer, createIndirectBuffer, createOctahedronGeometry, createPlaneGeometry, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createStructTexture, createTorusGeometry, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frameGroup, frustum, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, globalId, glsl, glslFn, greaterThan, greaterThanEqual, i32, index, instanceIndex, inverseSqrt, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max$1 as max, min$1 as min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, ndcDepthToStorage, normalize$1 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, pass, positionClip, pow, readPixels, regionsFromLinearRun, reinhardToneMapping, renderGroup, renderOutput, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub$1 as sub, tan, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgsl, wgslFn, workgroupBarrier, workgroupId };
 //# sourceMappingURL=index.js.map

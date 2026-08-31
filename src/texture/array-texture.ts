@@ -1,5 +1,6 @@
 import { GpuSampler } from '../core/gpu-sampler';
 import { GpuTexture } from '../core/gpu-texture';
+import type { TextureRectInit, TextureRegionInit } from '../core/texture-region';
 import * as d from '../schema/schema';
 import { type DataTextureImage, Source } from './source';
 import type { FilterMode, MipmapFilterMode, TextureOptions, WrapMode } from './texture';
@@ -203,19 +204,21 @@ export class ArrayTexture {
         }
     }
 
-    /** Track which layers have been modified (forwards to GpuTexture). */
-    get layerUpdates(): Set<number> {
-        return this._gpuTexture.layerUpdates;
+    /**
+     * Queue a partial upload of one box of texels, without forcing a full re-upload. Omitted fields
+     * default to the full extent at the origin.
+     */
+    addUpdateRegion(region: TextureRegionInit): this {
+        this._gpuTexture.addUpdateRegion(region);
+        return this;
     }
 
-    /** Mark a specific layer as needing update. On next upload, only this layer will be transferred. */
-    addLayerUpdate(layerIndex: number): void {
-        this._gpuTexture.layerUpdates.add(layerIndex);
-    }
-
-    /** Clear the layer update tracking, called by the renderer after upload. */
-    clearLayerUpdates(): void {
-        this._gpuTexture.layerUpdates.clear();
+    /**
+     * Queue a partial upload of a single layer, optionally only a sub-rect of it. The layer index is
+     * this texture's own vocabulary for the region's `z` axis.
+     */
+    addUpdateLayer(layerIndex: number, rect: TextureRectInit = {}): this {
+        return this.addUpdateRegion({ ...rect, z: layerIndex, depth: 1 });
     }
 
     /** Creates a clone of this texture. */

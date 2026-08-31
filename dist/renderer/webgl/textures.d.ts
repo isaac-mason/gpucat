@@ -64,6 +64,8 @@ export type GlTextureData = {
      *  or failed — surfaced in the incomplete-framebuffer diagnostic. 0 until first allocation. */
     allocW: number;
     allocH: number;
+    /** GL-allocated layer/face count. Guards the partial path against a layer-count change. */
+    allocD: number;
 };
 /**
  * GL texture backing a read-only storage `GpuBuffer` reinterpreted as rgba32uint (the WebGL `storage()`

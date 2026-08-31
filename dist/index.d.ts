@@ -13,6 +13,7 @@ export * from './core/cube-render-target';
 export * from './core/gpu-buffer';
 export { GpuSampler, type GpuSamplerOptions } from './core/gpu-sampler';
 export { createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, type DimensionOf, GpuTexture, type GpuTextureOptions, type ViewDimensionOf, } from './core/gpu-texture';
+export { REGION_CAP, regionsFromLinearRun, type RegionExtent, type TextureRectInit, type TextureRegion, type TextureRegionInit, } from './core/texture-region';
 export * from './core/object3d';
 export * from './core/render-target';
 export * from './core/uniform';

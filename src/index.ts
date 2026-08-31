@@ -30,6 +30,14 @@ export {
     type GpuTextureOptions,
     type ViewDimensionOf,
 } from './core/gpu-texture';
+export {
+    REGION_CAP,
+    regionsFromLinearRun,
+    type RegionExtent,
+    type TextureRectInit,
+    type TextureRegion,
+    type TextureRegionInit,
+} from './core/texture-region';
 export * from './core/object3d';
 export * from './core/render-target';
 export * from './core/uniform';

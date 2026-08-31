@@ -23,6 +23,8 @@
 
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { GpuTexture } from '../../core/gpu-texture';
+import type { TextureRegion } from '../../core/texture-region';
+import { hasTypedPartialSource, supportsPartialUpload, withinPartialBudget } from '../core/partial-upload';
 import type { ResolvedStorageBufferTexture } from '../../nodes/lib/texture';
 import { collapseUpdateRanges } from '../core/update-ranges';
 
@@ -256,6 +258,8 @@ export type GlTextureData = {
      *  or failed — surfaced in the incomplete-framebuffer diagnostic. 0 until first allocation. */
     allocW: number;
     allocH: number;
+    /** GL-allocated layer/face count. Guards the partial path against a layer-count change. */
+    allocD: number;
 };
 
 /**
@@ -459,6 +463,7 @@ function ensureGlTexture(gl: WebGL2RenderingContext, state: GlTexturesState, tex
             generation: 0,
             allocated: false,
             allocW: 0,
+            allocD: 0,
             allocH: 0,
         };
         state.data.set(texture, data);
@@ -526,26 +531,105 @@ function upload2D(gl: WebGL2RenderingContext, texture: GpuTexture, data: GlTextu
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
 }
 
-/** Upload only the dirty rows `[y0, y0+rows)` of a 2D source-backed texture via `texSubImage2D`. */
-function uploadPartial2D(
+/**
+ * Point the unpack window at a sub-rect of a full-width packed buffer.
+ *
+ * `UNPACK_ROW_LENGTH` / `SKIP_PIXELS` / `SKIP_ROWS` (and the 3D pair `IMAGE_HEIGHT` / `SKIP_IMAGES`) let
+ * GL read a box out of the middle of a packed array with no staging copy. They are WebGL2-only, which is
+ * why WebGL1-era engines stage a tight copy instead. Row length is in PIXELS, so this stays correct
+ * whatever the component count.
+ */
+function setUnpackWindow(
     gl: WebGL2RenderingContext,
-    texture: GpuTexture,
-    data: GlTextureData,
-    span: { y0: number; rows: number },
+    rowLength: number,
+    imageHeight: number,
+    skipPixels: number,
+    skipRows: number,
+    skipImages: number,
 ): void {
-    const source = texture.source;
-    if (!source || !source.data) return;
-    const typed = typedArrayOf(source.data) as Uint32Array | null;
-    if (!typed) return;
-    const { format, type } = data.fmt;
-    const width = texture.width;
-    // Components per texel, derived from the array so this is format-agnostic (rgba32uint = 4, r32uint = 1).
-    const comps = Math.round(typed.length / (width * texture.height));
-    const { y0, rows } = span;
-    const start = y0 * width * comps;
-    const sub = typed.subarray(start, start + rows * width * comps);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, y0, width, rows, format, type, sub as ArrayBufferView);
+    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, rowLength);
+    gl.pixelStorei(gl.UNPACK_IMAGE_HEIGHT, imageHeight);
+    gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, skipPixels);
+    gl.pixelStorei(gl.UNPACK_SKIP_ROWS, skipRows);
+    gl.pixelStorei(gl.UNPACK_SKIP_IMAGES, skipImages);
+}
+
+/**
+ * Restore the unpack window to the GL defaults. These are global state, so leaving a skip set silently
+ * corrupts every later upload in the frame. Reset rather than save/restore: `getParameter` is a
+ * round-trip, and nothing here depends on a non-default window.
+ */
+function resetUnpackWindow(gl: WebGL2RenderingContext): void {
+    gl.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
+    gl.pixelStorei(gl.UNPACK_IMAGE_HEIGHT, 0);
+    gl.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0);
+    gl.pixelStorei(gl.UNPACK_SKIP_ROWS, 0);
+    gl.pixelStorei(gl.UNPACK_SKIP_IMAGES, 0);
+}
+
+/**
+ * Upload one dirty region into the existing GL texture, honouring `x`/`width`, `z` and `level` exactly.
+ *
+ * This never re-enters `texStorage3D`: array storage is immutable, so the partial path writes into the
+ * allocation the full upload already established.
+ */
+function uploadPartialRegion(gl: WebGL2RenderingContext, texture: GpuTexture, data: GlTextureData, r: TextureRegion): void {
+    const { format, type } = data.fmt;
+    const dim = texture.viewDimension;
+
+    // Level 0 reads `source` / `sources`; a higher level reads its explicit mip, which is always packed
+    // across layers.
+    const packed = r.level === 0 ? texture.source : texture.mipmaps[r.level - 1];
+    const levelWidth = r.level === 0 ? texture.width : Math.max(1, packed?.width ?? 1);
+    const levelHeight = r.level === 0 ? texture.height : Math.max(1, packed?.height ?? 1);
+
+    if (dim === 'cube' || dim === 'cube-array') {
+        if (r.level !== 0) return; // explicit cube mips take the full path
+        setUnpackWindow(gl, levelWidth, 0, r.x, r.y, 0);
+        for (let i = 0; i < r.depth; i++) {
+            const face = r.z + i;
+            const typed = typedArrayOf(texture.sources[face]?.data);
+            if (!typed) continue;
+            // A face is a distinct GL bind target here rather than a z offset, but `z` still means the
+            // same face index the WebGPU backend passes as `origin.z`. Same meaning, different spelling.
+            const target = gl.TEXTURE_CUBE_MAP_POSITIVE_X + face;
+            gl.texSubImage2D(target, r.level, r.x, r.y, r.width, r.height, format, type, typed as ArrayBufferView);
+        }
+        return;
+    }
+
+    if (dim === '2d-array') {
+        // Per-layer sources: one call per layer, each reading from its own buffer.
+        if (r.level === 0 && texture.sources.length > 0) {
+            setUnpackWindow(gl, levelWidth, 0, r.x, r.y, 0);
+            for (let i = 0; i < r.depth; i++) {
+                const layer = r.z + i;
+                const typed = typedArrayOf(texture.sources[layer]?.data);
+                if (!typed) continue;
+                gl.texSubImage3D(
+                    gl.TEXTURE_2D_ARRAY, r.level, r.x, r.y, layer, r.width, r.height, 1, format, type,
+                    typed as ArrayBufferView,
+                );
+            }
+            return;
+        }
+        // Packed across layers: SKIP_IMAGES + IMAGE_HEIGHT carry the layer stride, so the whole region
+        // goes in one call whatever rows it covers.
+        const typed = typedArrayOf(packed?.data);
+        if (!typed) return;
+        setUnpackWindow(gl, levelWidth, levelHeight, r.x, r.y, r.z);
+        gl.texSubImage3D(
+            gl.TEXTURE_2D_ARRAY, r.level, r.x, r.y, r.z, r.width, r.height, r.depth, format, type,
+            typed as ArrayBufferView,
+        );
+        return;
+    }
+
+    const typed = typedArrayOf(packed?.data);
+    if (!typed) return;
+    setUnpackWindow(gl, levelWidth, 0, r.x, r.y, 0);
+    gl.texSubImage2D(gl.TEXTURE_2D, r.level, r.x, r.y, r.width, r.height, format, type, typed as ArrayBufferView);
 }
 
 /** Upload the 6 cube faces (face order +X,-X,+Y,-Y,+Z,-Z) at level 0. */
@@ -705,24 +789,39 @@ export function updateTexture(gl: WebGL2RenderingContext, state: GlTexturesState
 
     if (data.allocated && data.version === texture.version) return data;
 
-    // Partial upload: an in-place `packAtIndex`/`addUpdateRange` queued dirty texel ranges (no full re-upload
-    // and no resize) → re-specify only the covering rows via `texSubImage2D` on the existing GL texture,
-    // skipping the delete + full `texImage2D` below. A full flag (`needsUpdate`/grow) or a size change
-    // takes priority. `> ½` the texture dirty → fall through to a full upload (fewer, simpler calls).
+    // Partial upload: an in-place `packAtIndex`/`addUpdateRegion` queued dirty boxes (no full re-upload
+    // and no resize) → re-specify only those via `texSubImage2D` on the existing GL texture, skipping the
+    // delete + full `texImage2D` below. A full flag (`needsUpdate`/grow) or a size change takes priority.
+    // `> ½` the texture dirty → fall through to a full upload (fewer, simpler calls).
+    //
+    // Regions are honoured exactly, sub-rect and mip level included, via the WebGL2 unpack window
+    // (UNPACK_ROW_LENGTH / SKIP_PIXELS / SKIP_ROWS) reading the box out of the packed source in place.
     if (
         data.allocated &&
         !texture.needsFullUpload &&
-        texture.updateRanges.length > 0 &&
-        texture.viewDimension === '2d' &&
+        texture.updateRegions.length > 0 &&
+        supportsPartialUpload(texture) &&
+        hasTypedPartialSource(texture) &&
         !texture.isRenderTargetTexture &&
         data.allocW === texture.width &&
-        data.allocH === texture.height
+        data.allocH === texture.height &&
+        data.allocD === texture.depthOrArrayLayers
     ) {
-        const span = collapseUpdateRanges(texture.updateRanges, texture.width);
-        if (span && span.rowCount <= texture.height / 2) {
+        if (withinPartialBudget(texture, texture.updateRegions)) {
             gl.bindTexture(data.target, data.texture);
-            uploadPartial2D(gl, texture, data, { y0: span.rowStart, rows: span.rowCount });
-            texture.updateRanges.length = 0;
+            for (const r of texture.updateRegions) uploadPartialRegion(gl, texture, data, r);
+            resetUnpackWindow(gl);
+            // Auto-generated mips go stale the moment level 0 moves. (An explicit chain instead gets
+            // per-level regions derived at `addUpdateRegion` time, so it is already covered above.)
+            if (
+                texture.mipmaps.length === 0 &&
+                texture.generateMipmaps &&
+                !data.fmt.isDepth &&
+                canGenerateMipmap(gl, texture.format)
+            ) {
+                gl.generateMipmap(data.target);
+            }
+            texture.updateRegions.length = 0;
             data.version = texture.version;
             return data;
         }
@@ -778,12 +877,13 @@ export function updateTexture(gl: WebGL2RenderingContext, state: GlTexturesState
         gl.generateMipmap(data.target);
     }
 
-    // A full (re)upload supersedes any queued partial ranges and clears the full flag. Record the
+    // A full (re)upload supersedes any queued partial regions and clears the full flag. Record the
     // allocated size so later in-place stores can take the partial `texSubImage2D` path above.
-    texture.updateRanges.length = 0;
+    texture.updateRegions.length = 0;
     texture.needsFullUpload = false;
     data.allocW = texture.width;
     data.allocH = texture.height;
+    data.allocD = texture.depthOrArrayLayers;
     data.version = texture.version;
     data.generation++;
     data.allocated = true;
