@@ -955,7 +955,7 @@ const world = mul(rec.transform, localPosition);
 
 `load(schema, i)` reads record `i` and returns an accessor. Its fields (`rec.transform`, `rec.tint`) are typed nodes, and only the fields you read emit texture loads. On the CPU, `packAtIndex(schema, i, value)` writes one record, `pack(schema, values)` fills the whole texture in one upload, and `packAtByte` and `packAtTexel` address by raw offset. On WebGL2 this compiles to an integer texture and `texelFetch`, so it runs on both backends. The same `pack*` methods exist on [`GpuBuffer`](./api.md#gpubuffer) for filling a storage buffer.
 
-The texture holds plain typed bytes, so you can split data across several textures by update frequency. A per-frame `transform` texture then re-uploads only its dirty rows, which `packAtIndex` tracks, while a static `material` texture stays put. Instancing, batched draws, and gsplat all build on this.
+The texture holds plain typed bytes, so you can split data across several textures by update frequency. A per-frame `transform` texture then re-uploads only the texels it touched, which `packAtIndex` tracks for you (see [Partial updates](#partial-updates)), while a static `material` texture stays put. Instancing, batched draws, and gsplat all build on this.
 
 ### Packed encodings
 
@@ -1256,6 +1256,39 @@ videoTexture.needsUpdate = true;                    // re-copy the current frame
     </td>
   </tr>
 </table>
+
+### Partial updates
+
+Setting `needsUpdate` re-uploads the whole texture. When you have only changed part of one, queue the
+part instead. `addUpdateRegion` marks a box of texels dirty and the renderer uploads just that box:
+
+```ts
+tex.addUpdateRegion({ x: 64, y: 32, width: 16, height: 16 });  // a sub-rect
+atlas.addUpdateLayer(7);                                       // one layer of an ArrayTexture
+env.addUpdateFace(4);                                          // one face of a CubeTexture
+```
+
+Omitted fields default to the full extent, so `{ y: 4, height: 2 }` is "rows 4 and 5, all of them".
+`addUpdateLayer` and `addUpdateFace` are the same call in each texture's own vocabulary: a layer and a
+face are both the region's `z` axis, and mean the same thing on WebGPU and WebGL2. A `DataTexture` also
+takes `addUpdateRange(startTexel, countTexels)` when you think in record runs rather than rectangles.
+
+You often do not have to call any of them. `packAtIndex` and the other `pack*` writers queue the exact
+region they touched, so structured data is already tracked.
+
+What the renderer guarantees:
+
+- **Queued regions merge exactly, never into a bounding box.** Writing records 5 and 900 stays two
+  small uploads rather than becoming one span covering everything between.
+- **`needsUpdate` wins.** A full re-upload supersedes anything queued.
+- **Past half the texture, it stops bothering** and does one full upload instead, because fewer larger
+  calls beat many small ones at that point.
+- **Mip chains stay correct.** A generated chain is regenerated after the write; an explicit one has the
+  matching box of every level queued for you, so a partial write cannot leave a level stale.
+
+Partial upload reads rows out of your typed array in place, so it needs a typed-array source. A texture
+backed by an image, canvas, or video has no such rows: the region is still honoured, but by a full
+upload rather than a cheaper one.
 
 ### Storage textures
 
