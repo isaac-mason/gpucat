@@ -13427,8 +13427,23 @@ function extractValue(node) {
 const cameraProjectionMatrix = /*@__PURE__*/ new UniformNode(new Uniform(mat4x4f$1, undefined, renderGroup), 'cameraProjectionMatrix').onRenderUpdate((frame) => frame.camera.projectionMatrix);
 /** View (world-to-camera) matrix. In renderGroup. */
 const cameraViewMatrix = /*@__PURE__*/ new UniformNode(new Uniform(mat4x4f$1, undefined, renderGroup), 'cameraViewMatrix').onRenderUpdate((frame) => frame.camera.matrixWorldInverse);
-/** Camera world-space position. In renderGroup. */
-const cameraPosition = /*@__PURE__*/ new UniformNode(new Uniform(vec3f$1, undefined, renderGroup), 'cameraPosition').onRenderUpdate((frame) => frame.camera.position);
+/**
+ * Camera world-space position. In renderGroup.
+ *
+ * Read out of `matrixWorld` rather than off the camera's `position` property.
+ * Those are the same value only while the camera is unparented; the moment it is
+ * a child of anything — a rig, a vehicle, a player node — `position` is relative
+ * to that parent and this uniform would report the wrong place, silently, while
+ * `cameraViewMatrix` (built from `matrixWorldInverse`) kept working. A shader
+ * mixing the two would then disagree with itself.
+ *
+ * This is also what three.js does for its equivalent uniform:
+ * `self.value.setFromMatrixPosition( camera.matrixWorld )`.
+ *
+ * Written into a module scratch, so a per-frame read allocates nothing.
+ */
+const _cameraWorldPosition = /*@__PURE__*/ vec3_exports.create();
+const cameraPosition = /*@__PURE__*/ new UniformNode(new Uniform(vec3f$1, undefined, renderGroup), 'cameraPosition').onRenderUpdate((frame) => frame.camera.getWorldPosition(_cameraWorldPosition));
 /** Camera near plane distance. In renderGroup. */
 const cameraNear = /*@__PURE__*/ new UniformNode(new Uniform(f32$1, undefined, renderGroup), 'cameraNear').onRenderUpdate((frame) => frame.camera.near);
 /** Camera far plane distance. In renderGroup. */
