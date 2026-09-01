@@ -2501,6 +2501,68 @@ async function caseStoragePadDynamic(): Promise<CaseResult> {
 }
 
 /**
+ * storage-partial-spans: a MAX+8 element storage buffer (a 2-row texel grid) dirtied in two places at
+ * once — one lone element early in row 0, and a 4-element run straddling the row 0 / row 1 boundary.
+ * The spans stay separate (a single covering span over them would be the whole buffer), and the
+ * straddling one decomposes into a head piece in row 0 plus a tail piece in row 1. Frame 2 samples one
+ * element from each piece — the lone span, the straddle's head, the straddle's tail — so a dropped
+ * span or an off-by-one in the row split leaves a channel at its stale frame-1 value.
+ */
+async function caseStoragePartialSpans(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+    const MAX = renderer.gl!.getParameter(renderer.gl!.MAX_TEXTURE_SIZE) as number;
+
+    const Instance = struct('Instance', { color: d.vec4f });
+    const N = MAX + 8;
+    const LONE = 3; // row 0, far from the boundary
+    const HEAD = MAX - 2; // last two texels of row 0
+    const TAIL = MAX + 1; // second texel of row 1
+    const data = new Float32Array(N * 4);
+    // Frame-1 values (overwritten before frame 2; a channel keeping one means its span never landed).
+    for (const i of [LONE, HEAD, TAIL]) data[i * 4 + 3] = 1;
+
+    const buf = new GpuBuffer(d.array(Instance), { data, usage: 'storage' });
+    const store = storage(buf);
+
+    const geometry = createFullscreenTriangleGeometry();
+    const position = attribute('position', d.vec3f);
+    const material = new Material({
+        vertex: vec4(position, f32(1)),
+        fragment: vec4(
+            store.element(u32(LONE)).fields().color.r,
+            store.element(u32(TAIL)).fields().color.g,
+            store.element(u32(HEAD)).fields().color.b,
+            f32(1),
+        ),
+        depthTest: false,
+    });
+    const mesh = new Mesh(geometry, material);
+    const scene = new Scene();
+    scene.add(mesh);
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    renderer.render(scene, camera); // frame 1: full upload (allocates the grid).
+
+    const R = 0.9;
+    const G = 0.6;
+    const B = 0.3;
+    buf.packAtIndex(Instance, LONE, { color: [R, 0, 0, 1] }); // span 1: one texel in row 0.
+    // span 2: MAX-2 .. MAX+1, four adjacent elements merged into one row-straddling span.
+    buf.packAtIndex(Instance, HEAD, { color: [0, 0, B, 1] });
+    buf.packAtIndex(Instance, MAX - 1, { color: [0, 0, 0, 1] });
+    buf.packAtIndex(Instance, MAX, { color: [0, 0, 0, 1] });
+    buf.packAtIndex(Instance, TAIL, { color: [0, G, 0, 1] });
+
+    renderer.render(scene, camera); // frame 2: two partial uploads, three texSubImage2D pieces.
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    return { name: 'storage-partial-spans', pixel, expected: [u8(R), u8(G), u8(B), 255] };
+}
+
+/**
  * readback-orientation: render a two-tone image (red where clip-space y > 0, green below) into an
  * rgba8unorm RenderTarget, then assert `readRenderTargetPixels` returns red in the TOP rows and green
  * in the BOTTOM rows. This proves the row-flip: GL reads bottom-to-top, and the readback must return
@@ -3284,6 +3346,7 @@ export async function run(): Promise<RunResult> {
             caseStorageStore,
             caseStoragePad,
             caseStoragePadDynamic,
+            caseStoragePartialSpans,
             caseRenderToTexture,
             caseReadbackOrientation,
             caseHeadlessOffscreen,

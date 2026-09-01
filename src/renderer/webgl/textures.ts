@@ -26,7 +26,7 @@ import type { GpuTexture } from '../../core/gpu-texture';
 import type { TextureRegion } from '../../core/texture-region';
 import { hasTypedPartialSource, supportsPartialUpload, withinPartialBudget } from '../core/partial-upload';
 import type { ResolvedStorageBufferTexture } from '../../nodes/lib/texture';
-import { collapseUpdateRanges } from '../core/update-ranges';
+import { mergeUpdateRanges } from '../core/update-ranges';
 
 /** GL format triple for a color/depth texture: the sized internal format + upload format + type. */
 type GlFormat = {
@@ -294,38 +294,60 @@ export function createGlTexturesState(): GlTexturesState {
 }
 
 /**
- * Upload texel rows `[rowFrom, rowTo]` (inclusive) of a storage buffer reinterpreted as a `width`-wide
- * grid of `bytesPerTexel`-byte texels (`glFormat` = RED/RG/RGBA_INTEGER to match), sourcing a ZERO-COPY
- * `Uint32Array` view over the buffer's own bytes. The grid may be taller than the buffer's exact byte
- * count (`width` need not divide `totalTexels`): the first `fullRows` rows are fully backed, and a padded
- * last row (`remainder` texels < `width`, at `y = fullRows`) is uploaded narrower so the view never reads
- * past the buffer. Padding texels stay zeroed and are never addressed by the shader (valid texel indices
- * only reach `totalTexels - 1`).
+ * Upload texels `[texelStart, texelStart + texelCount)` of a storage buffer reinterpreted as a
+ * `width`-wide grid of `bytesPerTexel`-byte texels (`glFormat` = RED/RG/RGBA_INTEGER to match),
+ * sourcing ZERO-COPY `Uint32Array` views over the buffer's own bytes.
+ *
+ * A linear span is not a rectangle, so it decomposes into at most three uploads: the partial head row,
+ * the block of whole rows, and the partial tail row. Head and tail are one row tall, so their row
+ * stride is never read; the block's rows are exactly `width` texels and contiguous, which is the unpack
+ * default. That keeps every piece expressible as a plain `texSubImage2D` over a subarray view, with no
+ * `UNPACK_ROW_LENGTH`/`SKIP_*` window to set and restore (three.js `WebGLTextures` needs that window
+ * only because it hands GL the whole source array rather than a view of the span).
+ *
+ * The caller clamps the span to the texels the buffer actually backs, so the grid's padded tail (the
+ * last row when `width` doesn't divide the texel count) is never addressed — those texels stay zeroed,
+ * and valid shader indices only reach `totalTexels - 1`.
  */
-function uploadStorageRows(
+function uploadStorageSpan(
     gl: WebGL2RenderingContext,
     arr: ArrayBufferView,
     width: number,
-    fullRows: number,
-    remainder: number,
-    rowFrom: number,
-    rowTo: number,
+    texelStart: number,
+    texelCount: number,
     bytesPerTexel: number,
     glFormat: number,
 ): void {
     const comps = bytesPerTexel / 4; // u32 lanes per texel (r32uint = 1, rg32uint = 2, rgba32uint = 4)
+    const base = arr.byteOffset;
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    // Full rows within the requested range.
-    const fullTo = Math.min(rowTo, fullRows - 1);
-    if (fullTo >= rowFrom) {
-        const count = fullTo - rowFrom + 1;
-        const view = new Uint32Array(arr.buffer, arr.byteOffset + rowFrom * width * bytesPerTexel, count * width * comps);
-        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, rowFrom, width, count, glFormat, gl.UNSIGNED_INT, view);
+
+    let texel = texelStart;
+    let remaining = texelCount;
+
+    // Head: the partial row the span starts in (skipped when it starts row-aligned).
+    const headX = texel % width;
+    if (headX !== 0 && remaining > 0) {
+        const count = Math.min(width - headX, remaining);
+        const view = new Uint32Array(arr.buffer, base + texel * bytesPerTexel, count * comps);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, headX, (texel - headX) / width, count, 1, glFormat, gl.UNSIGNED_INT, view);
+        texel += count;
+        remaining -= count;
     }
-    // The short last row (if any) when it falls in the requested range — uploaded `remainder` texels wide.
-    if (remainder > 0 && rowFrom <= fullRows && rowTo >= fullRows) {
-        const view = new Uint32Array(arr.buffer, arr.byteOffset + fullRows * width * bytesPerTexel, remainder * comps);
-        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, fullRows, remainder, 1, glFormat, gl.UNSIGNED_INT, view);
+
+    // Block: every whole row the span covers, in one call.
+    const rows = Math.floor(remaining / width);
+    if (rows > 0) {
+        const view = new Uint32Array(arr.buffer, base + texel * bytesPerTexel, rows * width * comps);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, texel / width, width, rows, glFormat, gl.UNSIGNED_INT, view);
+        texel += rows * width;
+        remaining -= rows * width;
+    }
+
+    // Tail: the partial row the span ends in.
+    if (remaining > 0) {
+        const view = new Uint32Array(arr.buffer, base + texel * bytesPerTexel, remaining * comps);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, texel / width, remaining, 1, glFormat, gl.UNSIGNED_INT, view);
     }
 }
 
@@ -341,10 +363,10 @@ function storageTexelFormat(gl: WebGL2RenderingContext, bytesPerTexel: number): 
  * rgba32uint texture, and return it bound-ready. The pixel data is a ZERO-COPY `Uint32Array` view over
  * the buffer's own `ArrayBuffer` — the same bytes seen as `width × height` u32 texels — so nothing is
  * duplicated on the CPU. The grid width is `min(totalTexels, MAX_TEXTURE_SIZE)` (chosen at compile) so
- * `width` need not divide the texel count: the last row is padded and uploaded narrower (see
- * {@link uploadStorageRows}). Cached per `GpuBuffer`; re-synced when `buffer.version` moves or ranges are
- * queued — a row-granular partial upload for `packAtIndex`/`addUpdateRange` writes, a full upload for a
- * bare version bump, or a full re-allocation if the texel grid grew. The caller binds it.
+ * `width` need not divide the texel count: the last row is padded and never addressed (see
+ * {@link uploadStorageSpan}). Cached per `GpuBuffer`; re-synced when `buffer.version` moves or ranges are
+ * queued — one upload run per merged dirty span for `packAtIndex`/`addUpdateRange` writes, a full upload
+ * for a bare version bump, or a full re-allocation if the texel grid grew. The caller binds it.
  */
 export function updateStorageBufferTexture(
     gl: WebGL2RenderingContext,
@@ -373,11 +395,9 @@ export function updateStorageBufferTexture(
         );
     }
 
-    // The buffer is a whole number of texels (guarded at compile). `width` may not divide it: `fullRows`
-    // rows are fully backed and a `remainder`-wide last row is padded up to `width`.
+    // The buffer is a whole number of texels (guarded at compile). `width` may not divide it, so the
+    // grid's last row is partly padding; uploads clamp to `totalTexels` and never touch it.
     const totalTexels = arr.byteLength / bytesPerTexel;
-    const fullRows = Math.floor(totalTexels / width);
-    const remainder = totalTexels - fullRows * width;
 
     let data = state.bufferData.get(buffer);
     if (!data) {
@@ -389,7 +409,7 @@ export function updateStorageBufferTexture(
         gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, width, height, 0, glFormat, gl.UNSIGNED_INT, null);
         // Integer textures are never filterable — NEAREST, clamp; sampled only via texelFetch.
         setDefaultMinFilter(gl, gl.TEXTURE_2D, false, true);
-        uploadStorageRows(gl, arr, width, fullRows, remainder, 0, height - 1, bytesPerTexel, glFormat);
+        uploadStorageSpan(gl, arr, width, 0, totalTexels, bytesPerTexel, glFormat);
         data = { texture, version: buffer.version, width, height };
         state.bufferData.set(buffer, data);
         return texture;
@@ -405,22 +425,29 @@ export function updateStorageBufferTexture(
     if (sizeChanged) {
         // Grow/shrink → re-specify the whole mutable texture at the new size (queued ranges are moot).
         gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, width, height, 0, glFormat, gl.UNSIGNED_INT, null);
-        uploadStorageRows(gl, arr, width, fullRows, remainder, 0, height - 1, bytesPerTexel, glFormat);
+        uploadStorageSpan(gl, arr, width, 0, totalTexels, bytesPerTexel, glFormat);
         data.width = width;
         data.height = height;
     } else {
-        // Same size: prefer a row-granular partial upload when `packAtIndex`/`addUpdateRange` queued
-        // dirty ranges. `updateRanges` are flat COMPONENT indices, so the grid width in that unit is
-        // width·comps (u32 lanes per texel: r32uint 1, rg32uint 2, rgba32uint 4); clamp the span to
-        // `[0, height)`. A bare version bump (no ranges) or a span covering more than half the rows →
-        // full. `uploadStorageRows` handles the padded last row inside whatever span it's given.
-        const raw = buffer.updateRanges.length > 0 ? collapseUpdateRanges(buffer.updateRanges, width * comps) : null;
-        const y0 = raw ? Math.max(0, raw.rowStart) : 0;
-        const y1 = raw ? Math.min(height - 1, raw.rowStart + raw.rowCount - 1) : -1;
-        if (raw && y1 >= y0 && y1 - y0 + 1 <= height / 2) {
-            uploadStorageRows(gl, arr, width, fullRows, remainder, y0, y1, bytesPerTexel, glFormat);
+        // Same size: upload each merged dirty span when `packAtIndex`/`addUpdateRange` queued ranges.
+        // `updateRanges` are flat COMPONENT indices, so each widens to the texels it touches (u32 lanes
+        // per texel: r32uint 1, rg32uint 2, rgba32uint 4), clamped to the texels the buffer backs. The
+        // spans are kept SEPARATE rather than hulled together: a streaming arena dirties a handful of
+        // small, far-apart regions per frame, and one covering span over those is the whole buffer.
+        // A bare version bump, or more dirty texels than half the buffer, takes one full upload instead.
+        const ranges = buffer.updateRanges;
+        mergeUpdateRanges(ranges);
+        let dirtyTexels = 0;
+        for (const r of ranges) dirtyTexels += Math.ceil((r.start + r.count) / comps) - Math.floor(r.start / comps);
+
+        if (dirtyTexels > 0 && dirtyTexels <= totalTexels / 2) {
+            for (const r of ranges) {
+                const from = Math.floor(r.start / comps);
+                const to = Math.min(totalTexels, Math.ceil((r.start + r.count) / comps));
+                if (to > from) uploadStorageSpan(gl, arr, width, from, to - from, bytesPerTexel, glFormat);
+            }
         } else {
-            uploadStorageRows(gl, arr, width, fullRows, remainder, 0, height - 1, bytesPerTexel, glFormat);
+            uploadStorageSpan(gl, arr, width, 0, totalTexels, bytesPerTexel, glFormat);
         }
     }
     buffer.clearUpdateRanges();

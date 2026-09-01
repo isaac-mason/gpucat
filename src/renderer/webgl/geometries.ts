@@ -20,6 +20,7 @@
 import type { GpuBuffer, GpuTypedArray } from '../../core/gpu-buffer';
 import type { Geometry } from '../../geometry/geometry';
 import type { NodeBuilderState } from '../core/node-builder-state';
+import { mergeUpdateRanges } from '../core/update-ranges';
 
 /** Per-geometry GL resources: the attribute/index GL buffers and their last-uploaded versions. */
 type GeometryBuffers = {
@@ -153,27 +154,13 @@ export function glComponentType(gl: WebGL2RenderingContext, glType: AttribFormat
 /**
  * Push a buffer's pending `updateRanges` as partial `bufferSubData` uploads (caller has
  * already bound `glBuffer` to `target`). Mirrors three.js `WebGLAttributes.updateBuffer`:
- * sort + merge adjacent/overlapping ranges IN PLACE to cut GL command overhead, then one
- * `bufferSubData` per merged span. Ranges are flat array-element (component) indices; the
- * `srcOffset`/`length` args below are element counts (WebGL2 typed-array overload). Clears
- * the ranges once applied.
+ * {@link mergeUpdateRanges} to cut GL command overhead, then one `bufferSubData` per merged
+ * span. Ranges are flat array-element (component) indices; the `srcOffset`/`length` args below
+ * are element counts (WebGL2 typed-array overload). Clears the ranges once applied.
  */
 function uploadDirtyRanges(gl: WebGL2RenderingContext, target: GLenum, array: GpuTypedArray, buffer: GpuBuffer): void {
     const ranges = buffer.updateRanges;
-    ranges.sort((a, b) => a.start - b.start);
-    let mergeIndex = 0;
-    for (let i = 1; i < ranges.length; i++) {
-        const prev = ranges[mergeIndex]!;
-        const r = ranges[i]!;
-        // +1 so exactly-adjacent ranges merge (safe over positive integer indices).
-        if (r.start <= prev.start + prev.count + 1) {
-            prev.count = Math.max(prev.count, r.start + r.count - prev.start);
-        } else {
-            mergeIndex++;
-            ranges[mergeIndex] = r;
-        }
-    }
-    ranges.length = mergeIndex + 1;
+    mergeUpdateRanges(ranges);
     const bpe = array.BYTES_PER_ELEMENT;
     for (let i = 0; i < ranges.length; i++) {
         const r = ranges[i]!;
