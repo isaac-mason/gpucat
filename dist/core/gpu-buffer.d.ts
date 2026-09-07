@@ -99,7 +99,7 @@ export declare class GpuBuffer<T extends Any = Any> {
      * into `this.array` and queuing a partial re-upload (`addUpdateRange` + version bump). The common
      * CPU-side write, parallel to {@link DataTexture.packAtIndex}: on WebGPU the renderer `writeBuffer`s
      * just this range; on WebGL2 (where a read-only storage buffer is reinterpreted as an rgba32uint
-     * texture) it `texSubImage2D`s just the covering rows.
+     * texture) it `texSubImage2D`s just the texels this range touches.
      *
      * `schema` is the ELEMENT type: `d.mat4x4f` for an `array<mat4x4f>` buffer, or the struct for
      * `array<Struct>`. Its std430 stride must match the buffer's element stride (byteLength / count),

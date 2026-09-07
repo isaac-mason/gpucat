@@ -1,23 +1,18 @@
 /**
- * update-ranges.ts (renderer core) — backend-neutral collapse of pending dirty ranges into a covering
- * row span for a partial 2D upload. Shared by the WebGPU + WebGL texture paths and the WebGL
- * storage-buffer-as-texture path, so the min/max-row math lives in exactly one place.
+ * update-ranges.ts (renderer core) — backend-neutral merge of a buffer's pending dirty ranges into
+ * the minimal set of spans worth uploading. Shared by the WebGL attribute path (one `bufferSubData`
+ * per span) and the WebGL storage-buffer-as-texture path (one `texSubImage2D` run per span), so the
+ * merge lives in exactly one place and cannot drift between them.
  */
-/** A pending dirty range in some linear unit (texels for a texture, components for a buffer). */
-export type LinearRange = {
-    start: number;
-    count: number;
-};
-/** Whole rows `[rowStart, rowStart + rowCount)` of a 2D grid. */
-export type RowSpan = {
-    rowStart: number;
-    rowCount: number;
-};
+import type { UpdateRange } from '../../core/gpu-buffer';
 /**
- * Collapse dirty {@link LinearRange}s into a single covering row span. `unitsPerRow` is the grid width
- * expressed in the ranges' own unit — texels/row for a texture's texel ranges, or components/row
- * (`width · channels`) for a buffer reinterpreted as a texel grid. Row-granular: the span is just the
- * min/max row touched, so there's no same-row/straddle bookkeeping. Returns `null` when no range is
- * non-empty. Callers apply their own clamp and `> ½ dirty → full` fallback (both backend-specific).
+ * Sort and merge adjacent/overlapping dirty ranges IN PLACE, trimming the array to the survivors.
+ * Mirrors three.js `WebGLAttributes.updateBuffer`: fewer, larger uploads cut GL command overhead,
+ * which is the empirical win for callers queueing many small ranges per frame. Merging in place
+ * keeps the hot path allocation-free; it is safe because callers clear the ranges once uploaded.
+ *
+ * Ranges are flat indices in whatever unit the caller queued them in (array components, for a
+ * `GpuBuffer`), and the merge is unit-agnostic — a caller uploading into a 2D grid converts the
+ * surviving spans to its own geometry afterwards.
  */
-export declare function collapseUpdateRanges(ranges: readonly LinearRange[], unitsPerRow: number): RowSpan | null;
+export declare function mergeUpdateRanges(ranges: UpdateRange[]): void;
