@@ -2,6 +2,7 @@ import type { GpuBuffer, GpuTypedArray } from '../../core/gpu-buffer';
 import type { Geometry } from '../../geometry/geometry';
 import type { StorageNode } from '../../nodes/nodes';
 import type { Any } from '../../schema/schema';
+import type { RendererInfo } from '../core/info';
 type CacheEntry = {
     buf: GPUBuffer;
     version: number;
@@ -14,12 +15,16 @@ export type BufferCache = {
     /** Mutable stats counters (approximate, tracks allocations, not deallocations) */
     bufferCount: number;
     rawCount: number;
+    /** Where upload volume is tallied. Held by reference rather than counted locally so the
+     *  frame boundary that zeroes it stays in ONE place (the renderer), and so every reader
+     *  sees the same numbers — see `renderer/core/info.ts`. */
+    info: RendererInfo;
 };
 export type BufferCacheStats = {
     bufferCount: number;
     rawCount: number;
 };
-export declare function createBufferCache(): BufferCache;
+export declare function createBufferCache(info: RendererInfo): BufferCache;
 /**
  * Ensure a GpuBuffer is uploaded to the GPU, creating the GPUBuffer on first
  * use and re-uploading when the version advances or updateRanges are pending.

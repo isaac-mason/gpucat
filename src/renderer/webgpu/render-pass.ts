@@ -1,6 +1,7 @@
 import type { CubeRenderTarget } from '../../core/cube-render-target';
 import { getIndexFormat } from '../../core/gpu-buffer';
 import type { RenderTarget } from '../../core/render-target';
+import type { RendererInfo } from '../core/info';
 import type { InspectorBase } from '../../inspector/inspector-base';
 import type { IndexedMeshDraw, NonIndexedMeshDraw } from '../../objects/mesh';
 import type { CanvasTarget } from '../core/canvas-target';
@@ -403,6 +404,7 @@ export function executeRenderPass(
     prepared: PreparedRenderObject[],
     params: RenderPassParams,
     inspector: InspectorBase | null,
+    info: RendererInfo,
 ): void {
     const { colorAttachments, depthAttachment } = resolveAttachments(contexts, device, textures, sc, format, params);
     draw(
@@ -420,6 +422,7 @@ export function executeRenderPass(
         depthAttachment,
         params.passId,
         inspector,
+        info,
     );
 }
 
@@ -439,6 +442,7 @@ function draw(
     depthAttachment: GPURenderPassDepthStencilAttachment | undefined,
     passId: string,
     inspector: InspectorBase | null,
+    info: RendererInfo,
 ): void {
     const timestampWrites = inspector ? inspector.getTimestampWrites(passId) : undefined;
     const gpuPass = encoder.beginRenderPass({
@@ -571,7 +575,7 @@ function draw(
                 // (native — instance_index is base-inclusive on WebGPU).
                 for (const d of mesh.draws as IndexedMeshDraw[]) {
                     if (d.instanceCount <= 0) continue;
-                    passDrawIndexed(gpuPass, inspector, d.indexCount, d.instanceCount, d.firstIndex, d.firstInstance, d.baseVertex ?? 0);
+                    passDrawIndexed(gpuPass, inspector, info, d.indexCount, d.instanceCount, d.firstIndex, d.firstInstance, d.baseVertex ?? 0);
                 }
             } else if (geometry.indirect) {
                 const indirect = geometry.indirect;
@@ -580,18 +584,18 @@ function draw(
                 const baseOffset = geometry.indirectOffset;
                 const drawCount = geometry.indirectDrawCount ?? indirect.count;
                 for (let d = 0; d < drawCount; d++) {
-                    passDrawIndexedIndirect(gpuPass, inspector, indBuf, baseOffset + d * byteStride);
+                    passDrawIndexedIndirect(gpuPass, inspector, info, indBuf, baseOffset + d * byteStride);
                 }
             } else {
                 const indexCount = Math.min(geometry.drawRange.count, geometry.index.array!.length);
-                passDrawIndexed(gpuPass, inspector, indexCount, mesh.count, geometry.drawRange.start);
+                passDrawIndexed(gpuPass, inspector, info, indexCount, mesh.count, geometry.drawRange.start);
             }
         } else {
             if (mesh.draws !== undefined) {
                 // Batched non-indexed: one instanced draw per entry, each carrying its own firstInstance.
                 for (const d of mesh.draws as NonIndexedMeshDraw[]) {
                     if (d.instanceCount <= 0) continue;
-                    passDraw(gpuPass, inspector, d.vertexCount, d.instanceCount, d.firstVertex, d.firstInstance);
+                    passDraw(gpuPass, inspector, info, d.vertexCount, d.instanceCount, d.firstVertex, d.firstInstance);
                 }
             } else if (geometry.indirect) {
                 const indirect = geometry.indirect;
@@ -600,10 +604,10 @@ function draw(
                 const baseOffset = geometry.indirectOffset;
                 const drawCount = geometry.indirectDrawCount ?? indirect.count;
                 for (let d = 0; d < drawCount; d++) {
-                    passDrawIndirect(gpuPass, inspector, indBuf, baseOffset + d * byteStride);
+                    passDrawIndirect(gpuPass, inspector, info, indBuf, baseOffset + d * byteStride);
                 }
             } else {
-                passDraw(gpuPass, inspector, geometry.drawRange.count, mesh.count, geometry.drawRange.start);
+                passDraw(gpuPass, inspector, info, geometry.drawRange.count, mesh.count, geometry.drawRange.start);
             }
         }
 
@@ -721,18 +725,22 @@ function passSetIndexBuffer(
 function passDraw(
     pass: GPURenderPassEncoder,
     inspector: InspectorBase | null,
+    info: RendererInfo,
     vertexCount: number,
     instanceCount: number,
     firstVertex: number,
     firstInstance = 0,
 ): void {
     pass.draw(vertexCount, instanceCount, firstVertex, firstInstance);
+    info.render.drawCalls++;
+    info.render.triangles += (instanceCount * vertexCount) / 3;
     if (inspector) inspector.draw(vertexCount, instanceCount);
 }
 
 function passDrawIndexed(
     pass: GPURenderPassEncoder,
     inspector: InspectorBase | null,
+    info: RendererInfo,
     indexCount: number,
     instanceCount: number,
     firstIndex: number,
@@ -740,25 +748,33 @@ function passDrawIndexed(
     baseVertex = 0,
 ): void {
     pass.drawIndexed(indexCount, instanceCount, firstIndex, baseVertex, firstInstance);
+    info.render.drawCalls++;
+    info.render.triangles += (instanceCount * indexCount) / 3;
     if (inspector) inspector.drawIndexed(indexCount, instanceCount);
 }
 
+// Indirect draws count the CALL but not the triangles: the vertex/instance counts live in a GPU
+// buffer the CPU never reads back, so `info.render.triangles` is a floor rather than a guess.
 function passDrawIndirect(
     pass: GPURenderPassEncoder,
     inspector: InspectorBase | null,
+    info: RendererInfo,
     indirectBuffer: GPUBuffer,
     indirectOffset: number,
 ): void {
     pass.drawIndirect(indirectBuffer, indirectOffset);
+    info.render.drawCalls++;
     if (inspector) inspector.drawIndirect();
 }
 
 function passDrawIndexedIndirect(
     pass: GPURenderPassEncoder,
     inspector: InspectorBase | null,
+    info: RendererInfo,
     indirectBuffer: GPUBuffer,
     indirectOffset: number,
 ): void {
     pass.drawIndexedIndirect(indirectBuffer, indirectOffset);
+    info.render.drawCalls++;
     if (inspector) inspector.drawIndexedIndirect();
 }

@@ -10,6 +10,7 @@ import type { Scene } from '../../scene/scene';
 import type * as d from '../../schema/schema';
 import type { DepthTextureFormat } from '../../texture/depth-texture';
 import { CanvasTarget } from '../core/canvas-target';
+import * as Info from '../core/info';
 import * as NodeManager from '../core/node-manager';
 import * as RenderContext from '../core/pass-context';
 import * as RenderLists from '../core/render-list';
@@ -143,6 +144,13 @@ export declare class WebGPURenderer implements Renderer, RendererState {
     adapter: GPUAdapter;
     /** The primary color/attachment format of the swapchain. Assigned in `init()`. @internal */
     format: GPUTextureFormat;
+    /**
+     * Per-frame render statistics — draw calls, triangles, buffer upload volume, resident object
+     * counts. Frame-scoped fields are zeroed by the renderer at its own frame boundary, so any
+     * number of readers (a host debug panel, the Inspector) can read them without disturbing each
+     * other. Nothing needs to be called from outside; see `renderer/core/info.ts`.
+     */
+    readonly info: Info.RendererInfo;
     /** @internal */
     readonly buffers: Buffers.BufferCache;
     /** @internal */
@@ -343,6 +351,16 @@ export declare class WebGPURenderer implements Renderer, RendererState {
      *
      * @throws if the renderer has not been initialised.
      */
+    /**
+     * Frame boundary for `info`: zero the per-frame counters and re-snapshot the resident object
+     * counts. Called from the depth-guarded top-level entry of `render()`/`compute()`, so nested
+     * renders share the frame rather than clearing it mid-flight.
+     *
+     * `memory` is read live off the caches rather than mirrored by increment/decrement at every
+     * create/dispose site: the pipeline maps know their own size exactly, which mirrored counters
+     * would only approximate.
+     */
+    private _beginInfoFrame;
     compute(entries: ComputeDispatch[]): void;
     /**
      * Render a scene from a camera's perspective.

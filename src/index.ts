@@ -329,6 +329,14 @@ export {
 } from './objects/line';
 export { type IndexedMeshDraw, Mesh, type MeshDraw, type NonIndexedMeshDraw } from './objects/mesh';
 export { type CanvasAlphaMode, CanvasTarget, type CanvasTargetOptions } from './renderer/core/canvas-target';
+export {
+    type BufferInfo,
+    type ComputeInfo,
+    type MemoryInfo,
+    type RendererInfo,
+    type RenderInfo,
+    resetRendererInfo,
+} from './renderer/core/info';
 export { WebGLRenderer, type WebGLRendererOptions } from './renderer/webgl/renderer';
 export { readPixels } from './renderer/webgpu/read-pixels';
 export { RenderPipeline } from './renderer/core/render-pipeline';

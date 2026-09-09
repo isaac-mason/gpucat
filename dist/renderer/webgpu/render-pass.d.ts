@@ -1,3 +1,4 @@
+import type { RendererInfo } from '../core/info';
 import type { InspectorBase } from '../../inspector/inspector-base';
 import type { CanvasTarget } from '../core/canvas-target';
 import type { NodeManagerState } from '../core/node-manager';
@@ -65,7 +66,7 @@ export declare function clear(contexts: WeakMap<CanvasTarget, GPUCanvasContext>,
  * Resolve attachments and run the whole inner draw loop into the current command stream (created by
  * the top-level frame, reused by nested renders). Calls neutral update helpers per object.
  */
-export declare function executeRenderPass(contexts: WeakMap<CanvasTarget, GPUCanvasContext>, device: GPUDevice, bindings: Bindings.BindingsState, geometries: Geometries.GeometriesState, buffers: Buffers.BufferCache, textures: Textures.TextureCache, renderObjectGpu: RenderObjectGpu.RenderObjectGpuCache, sc: SwapchainState, format: GPUTextureFormat, encoder: GPUCommandEncoder, nodes: NodeManagerState, passCtx: RenderContext, prepared: PreparedRenderObject[], params: RenderPassParams, inspector: InspectorBase | null): void;
+export declare function executeRenderPass(contexts: WeakMap<CanvasTarget, GPUCanvasContext>, device: GPUDevice, bindings: Bindings.BindingsState, geometries: Geometries.GeometriesState, buffers: Buffers.BufferCache, textures: Textures.TextureCache, renderObjectGpu: RenderObjectGpu.RenderObjectGpuCache, sc: SwapchainState, format: GPUTextureFormat, encoder: GPUCommandEncoder, nodes: NodeManagerState, passCtx: RenderContext, prepared: PreparedRenderObject[], params: RenderPassParams, inspector: InspectorBase | null, info: RendererInfo): void;
 /**
  * Release all device resources: the canvas context, swapchain textures, default placeholder
  * textures + samplers, mipmap state, pipeline caches, and (unless the device was pre-created) the

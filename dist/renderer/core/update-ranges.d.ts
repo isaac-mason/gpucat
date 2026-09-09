@@ -1,8 +1,14 @@
 /**
  * update-ranges.ts (renderer core) — backend-neutral merge of a buffer's pending dirty ranges into
  * the minimal set of spans worth uploading. Shared by the WebGL attribute path (one `bufferSubData`
- * per span) and the WebGL storage-buffer-as-texture path (one `texSubImage2D` run per span), so the
- * merge lives in exactly one place and cannot drift between them.
+ * per span), the WebGL storage-buffer-as-texture path (one `texSubImage2D` run per span) and the
+ * WebGPU buffer path (one `writeBuffer` per span), so the merge lives in exactly one place and
+ * cannot drift between them.
+ *
+ * three.js merges on WebGL only (`WebGLAttributes.updateBuffer`); its WebGPU backend walks the raw
+ * ranges. gpucat merges on both: the per-call cost that motivates it on WebGL is a staging-buffer
+ * copy on WebGPU rather than a GL command, but it is still per-call, and sharing one helper is the
+ * whole reason this module exists.
  */
 import type { UpdateRange } from '../../core/gpu-buffer';
 /**

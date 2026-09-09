@@ -13,6 +13,7 @@ import type { DepthTextureFormat } from '../../texture/depth-texture';
 import { yieldToMain } from '../../utils/yield-to-main';
 import { CanvasTarget } from '../core/canvas-target';
 import { GPUFeatureName } from '../core/gpu-constants';
+import * as Info from '../core/info';
 import * as NodeManager from '../core/node-manager';
 import * as RenderContext from '../core/pass-context';
 import type { BackendComputeEntry, RenderPassParams } from '../core/render-types';
@@ -195,6 +196,14 @@ export class WebGPURenderer implements Renderer, RendererState {
     /** The primary color/attachment format of the swapchain. Assigned in `init()`. @internal */
     format: GPUTextureFormat = null!;
 
+    /**
+     * Per-frame render statistics — draw calls, triangles, buffer upload volume, resident object
+     * counts. Frame-scoped fields are zeroed by the renderer at its own frame boundary, so any
+     * number of readers (a host debug panel, the Inspector) can read them without disturbing each
+     * other. Nothing needs to be called from outside; see `renderer/core/info.ts`.
+     */
+    readonly info: Info.RendererInfo = Info.createRendererInfo();
+
     /** @internal */
     readonly buffers: Buffers.BufferCache;
     /** @internal */
@@ -334,7 +343,7 @@ export class WebGPURenderer implements Renderer, RendererState {
 
         // Device resource caches — created once here, immutable references thereafter. The bind group
         // layout cache is shared by the pipelines and bindings layers (both receive this instance).
-        this.buffers = Buffers.createBufferCache();
+        this.buffers = Buffers.createBufferCache(this.info);
         this.textures = Textures.createTextureCache();
         this.bindGroupLayoutCache = createBindGroupLayoutCache();
         this.pipelines = Pipelines.createPipelinesState(this.bindGroupLayoutCache);
@@ -759,6 +768,25 @@ export class WebGPURenderer implements Renderer, RendererState {
      *
      * @throws if the renderer has not been initialised.
      */
+    /**
+     * Frame boundary for `info`: zero the per-frame counters and re-snapshot the resident object
+     * counts. Called from the depth-guarded top-level entry of `render()`/`compute()`, so nested
+     * renders share the frame rather than clearing it mid-flight.
+     *
+     * `memory` is read live off the caches rather than mirrored by increment/decrement at every
+     * create/dispose site: the pipeline maps know their own size exactly, which mirrored counters
+     * would only approximate.
+     */
+    private _beginInfoFrame(): void {
+        const info = this.info;
+        Info.beginInfoFrame(info);
+        info.memory.buffers = this.buffers.bufferCount;
+        info.memory.rawBuffers = this.buffers.rawCount;
+        info.memory.renderPipelines = this.pipelines.renderPipelines.size;
+        info.memory.computePipelines = this.pipelines.computePipelines.size;
+        info.memory.bindGroupLayouts = this.bindGroupLayoutCache.cache.size;
+    }
+
     compute(entries: ComputeDispatch[]): void {
         if (this._isDeviceLost) return;
 
@@ -770,13 +798,16 @@ export class WebGPURenderer implements Renderer, RendererState {
 
         const frame = this._nodes.nodeFrame;
         const inspector = this.inspector;
-        // Top-level entry: advance the frame id and open the inspector frame
-        // (one top-level render()/compute() call == one frame).
+        // Top-level entry: advance the frame id, zero the per-frame stats and open the inspector
+        // frame (one top-level render()/compute() call == one frame).
         if (this._renderCallDepth === 0) {
             frame.frameId++;
+            this._beginInfoFrame();
             if (inspector) inspector.begin(frame.frameId);
         }
         this._renderCallDepth++;
+        this.info.compute.calls++;
+        this.info.compute.frameCalls++;
 
         frame.renderer = this;
         frame.width = ops.frameWidth(this);
@@ -832,14 +863,17 @@ export class WebGPURenderer implements Renderer, RendererState {
 
         const frame = this._nodes.nodeFrame;
         const inspector = this.inspector;
-        // Top-level entry: advance the frame id and open the inspector frame.
-        // A "frame" is one top-level render()/compute() call; nested renders (PassNode)
-        // run at depth > 0 and share the same frameId.
+        // Top-level entry: advance the frame id, zero the per-frame stats and open the inspector
+        // frame. A "frame" is one top-level render()/compute() call; nested renders (PassNode)
+        // run at depth > 0 and share the same frameId — and the same stats bucket.
         if (this._renderCallDepth === 0) {
             frame.frameId++;
+            this._beginInfoFrame();
             if (inspector) inspector.begin(frame.frameId);
         }
         this._renderCallDepth++;
+        this.info.render.calls++;
+        this.info.render.frameCalls++;
         // Each render() gets a fresh, globally-unique renderId so RENDER-scope updates
         // run once per render call. Nested renders restore the parent's id on exit.
         const previousRenderId = frame.beginRender();
@@ -941,6 +975,7 @@ export class WebGPURenderer implements Renderer, RendererState {
             preparedObjects,
             passParams,
             inspector,
+            this.info,
         );
 
         if (isTopLevel) {

@@ -2,6 +2,8 @@ import type { GpuBuffer, GpuTypedArray } from '../../core/gpu-buffer';
 import type { Geometry } from '../../geometry/geometry';
 import type { StorageNode } from '../../nodes/nodes';
 import type { Any } from '../../schema/schema';
+import type { RendererInfo } from '../core/info';
+import { mergeUpdateRanges } from '../core/update-ranges';
 
 type CacheEntry = { buf: GPUBuffer; version: number };
 
@@ -15,6 +17,11 @@ export type BufferCache = {
     /** Mutable stats counters (approximate, tracks allocations, not deallocations) */
     bufferCount: number;
     rawCount: number;
+
+    /** Where upload volume is tallied. Held by reference rather than counted locally so the
+     *  frame boundary that zeroes it stays in ONE place (the renderer), and so every reader
+     *  sees the same numbers — see `renderer/core/info.ts`. */
+    info: RendererInfo;
 };
 
 export type BufferCacheStats = {
@@ -22,12 +29,13 @@ export type BufferCacheStats = {
     rawCount: number;
 };
 
-export function createBufferCache(): BufferCache {
+export function createBufferCache(info: RendererInfo): BufferCache {
     return {
         bufferMap: new WeakMap(),
         rawMap: new WeakMap(),
         bufferCount: 0,
         rawCount: 0,
+        info,
     };
 }
 
@@ -95,7 +103,17 @@ export function ensureUploaded(cache: BufferCache, device: GPUDevice, buffer: Gp
         if (!entry) cache.bufferCount++;
 
         device.queue.writeBuffer(buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
+        cache.info.buffers.writeBytes += arr.byteLength;
+        cache.info.buffers.writeCalls++;
         cache.bufferMap.set(buffer, { buf, version: buffer.version });
+
+        // The create path just uploaded everything, so any ranges queued before the first
+        // upload are already covered; drop them so the next frame does not replay them as a
+        // redundant partial write. three.js has no equivalent clear because its WebGL update
+        // gates on `data.version < attribute.version` BEFORE it looks at ranges — a pre-create
+        // range can never fire there. We check `updateRanges.length` first, unconditionally,
+        // so we have to clear here. The WebGL resize branch already does.
+        buffer.clearUpdateRanges();
 
         setupDispose(cache, buffer);
         buffer.onUpload?.();
@@ -106,18 +124,25 @@ export function ensureUploaded(cache: BufferCache, device: GPUDevice, buffer: Gp
     const { buf } = entry;
 
     if (buffer.updateRanges.length > 0) {
-        // Partial upload, ranges are flat component indices; convert to bytes.
+        // Partial upload, ranges are flat component indices; convert to bytes. Merge first
+        // so a caller queueing many small ranges pays a few large writes instead of many
+        // small ones — same reasoning (and same helper) as the WebGL attribute path.
+        mergeUpdateRanges(buffer.updateRanges);
         const bytesPerComponent = arr.BYTES_PER_ELEMENT;
         for (const { start, count } of buffer.updateRanges) {
             const byteOffset = start * bytesPerComponent;
             const byteCount = count * bytesPerComponent;
             device.queue.writeBuffer(buf, byteOffset, arr.buffer as ArrayBuffer, arr.byteOffset + byteOffset, byteCount);
+            cache.info.buffers.writeBytes += byteCount;
+            cache.info.buffers.writeCalls++;
         }
         buffer.clearUpdateRanges();
         entry.version = buffer.version;
     } else if (buffer.version !== entry.version) {
         // Full re-upload.
         device.queue.writeBuffer(buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
+        cache.info.buffers.writeBytes += arr.byteLength;
+        cache.info.buffers.writeCalls++;
         entry.version = buffer.version;
     }
 
@@ -204,6 +229,8 @@ export function uploadRaw(
     }
 
     device.queue.writeBuffer(buf, 0, data.buffer as ArrayBuffer, data.byteOffset, data.byteLength);
+    cache.info.buffers.writeBytes += data.byteLength;
+    cache.info.buffers.writeCalls++;
     return { buffer: buf, created };
 }
 

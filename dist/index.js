@@ -15073,12 +15073,55 @@ function getRenderObjectsStats(state) {
     };
 }
 
-function createBufferCache() {
+/**
+ * update-ranges.ts (renderer core) — backend-neutral merge of a buffer's pending dirty ranges into
+ * the minimal set of spans worth uploading. Shared by the WebGL attribute path (one `bufferSubData`
+ * per span), the WebGL storage-buffer-as-texture path (one `texSubImage2D` run per span) and the
+ * WebGPU buffer path (one `writeBuffer` per span), so the merge lives in exactly one place and
+ * cannot drift between them.
+ *
+ * three.js merges on WebGL only (`WebGLAttributes.updateBuffer`); its WebGPU backend walks the raw
+ * ranges. gpucat merges on both: the per-call cost that motivates it on WebGL is a staging-buffer
+ * copy on WebGPU rather than a GL command, but it is still per-call, and sharing one helper is the
+ * whole reason this module exists.
+ */
+/**
+ * Sort and merge adjacent/overlapping dirty ranges IN PLACE, trimming the array to the survivors.
+ * Mirrors three.js `WebGLAttributes.updateBuffer`: fewer, larger uploads cut GL command overhead,
+ * which is the empirical win for callers queueing many small ranges per frame. Merging in place
+ * keeps the hot path allocation-free; it is safe because callers clear the ranges once uploaded.
+ *
+ * Ranges are flat indices in whatever unit the caller queued them in (array components, for a
+ * `GpuBuffer`), and the merge is unit-agnostic — a caller uploading into a 2D grid converts the
+ * surviving spans to its own geometry afterwards.
+ */
+function mergeUpdateRanges(ranges) {
+    if (ranges.length === 0)
+        return;
+    ranges.sort((a, b) => a.start - b.start);
+    let mergeIndex = 0;
+    for (let i = 1; i < ranges.length; i++) {
+        const prev = ranges[mergeIndex];
+        const r = ranges[i];
+        // +1 so exactly-adjacent ranges merge (safe over positive integer indices).
+        if (r.start <= prev.start + prev.count + 1) {
+            prev.count = Math.max(prev.count, r.start + r.count - prev.start);
+        }
+        else {
+            mergeIndex++;
+            ranges[mergeIndex] = r;
+        }
+    }
+    ranges.length = mergeIndex + 1;
+}
+
+function createBufferCache(info) {
     return {
         bufferMap: new WeakMap(),
         rawMap: new WeakMap(),
         bufferCount: 0,
         rawCount: 0,
+        info,
     };
 }
 /**
@@ -15141,19 +15184,33 @@ function ensureUploaded(cache, device, buffer) {
         if (!entry)
             cache.bufferCount++;
         device.queue.writeBuffer(buf, 0, arr.buffer, arr.byteOffset, arr.byteLength);
+        cache.info.buffers.writeBytes += arr.byteLength;
+        cache.info.buffers.writeCalls++;
         cache.bufferMap.set(buffer, { buf, version: buffer.version });
+        // The create path just uploaded everything, so any ranges queued before the first
+        // upload are already covered; drop them so the next frame does not replay them as a
+        // redundant partial write. three.js has no equivalent clear because its WebGL update
+        // gates on `data.version < attribute.version` BEFORE it looks at ranges — a pre-create
+        // range can never fire there. We check `updateRanges.length` first, unconditionally,
+        // so we have to clear here. The WebGL resize branch already does.
+        buffer.clearUpdateRanges();
         setupDispose$1(cache, buffer);
         buffer.onUpload?.();
         return buf;
     }
     const { buf } = entry;
     if (buffer.updateRanges.length > 0) {
-        // Partial upload, ranges are flat component indices; convert to bytes.
+        // Partial upload, ranges are flat component indices; convert to bytes. Merge first
+        // so a caller queueing many small ranges pays a few large writes instead of many
+        // small ones — same reasoning (and same helper) as the WebGL attribute path.
+        mergeUpdateRanges(buffer.updateRanges);
         const bytesPerComponent = arr.BYTES_PER_ELEMENT;
         for (const { start, count } of buffer.updateRanges) {
             const byteOffset = start * bytesPerComponent;
             const byteCount = count * bytesPerComponent;
             device.queue.writeBuffer(buf, byteOffset, arr.buffer, arr.byteOffset + byteOffset, byteCount);
+            cache.info.buffers.writeBytes += byteCount;
+            cache.info.buffers.writeCalls++;
         }
         buffer.clearUpdateRanges();
         entry.version = buffer.version;
@@ -15161,6 +15218,8 @@ function ensureUploaded(cache, device, buffer) {
     else if (buffer.version !== entry.version) {
         // Full re-upload.
         device.queue.writeBuffer(buf, 0, arr.buffer, arr.byteOffset, arr.byteLength);
+        cache.info.buffers.writeBytes += arr.byteLength;
+        cache.info.buffers.writeCalls++;
         entry.version = buffer.version;
     }
     return buf;
@@ -15217,6 +15276,8 @@ function uploadRaw(cache, device, key, data, usage) {
         }
     }
     device.queue.writeBuffer(buf, 0, data.buffer, data.byteOffset, data.byteLength);
+    cache.info.buffers.writeBytes += data.byteLength;
+    cache.info.buffers.writeCalls++;
     return { buffer: buf, created };
 }
 /**
@@ -34172,6 +34233,65 @@ class Line extends Mesh {
 }
 
 /**
+ * info.ts (renderer core) — per-frame render statistics, the backend-neutral counterpart to
+ * three.js `renderer.info`.
+ *
+ * WHO RESETS. three.js resets from its own rAF loop (`Animation.js`, gated on `info.autoReset`);
+ * PlayCanvas has no reset at all and instead DRAINS each counter as it is read
+ * (`framework/stats.js`: `stats.drawCalls.total = device._drawCallsPerFrame; device._drawCallsPerFrame = 0`).
+ * Neither ports here. gpucat owns no loop to reset from, and drain-on-read only works with exactly
+ * one reader — we have two independent ones, the host's debug panel and gpucat's own Inspector, and
+ * whichever read first would zero the other's numbers.
+ *
+ * So the PRODUCER resets, at the frame boundary the renderer already keeps: the depth-guarded
+ * `_renderCallDepth === 0` block that bumps `frameId` and opens the Inspector's frame. Nested
+ * renders (PassNode) and render-to-target passes run at depth > 0 and share the frame, exactly as
+ * they already share a `frameId`. Nothing has to be called from outside, so nothing can be
+ * forgotten, and any number of readers can read the same numbers without disturbing each other.
+ *
+ * Counters are therefore LAST COMPLETE FRAME while a frame is in flight, which is what a panel
+ * wants anyway. `calls` is the one cumulative figure (session totals, free to keep); everything
+ * else is per-frame. `memory` is a snapshot refreshed at the same boundary.
+ */
+function createRendererInfo() {
+    return {
+        render: { calls: 0, frameCalls: 0, drawCalls: 0, triangles: 0 },
+        compute: { calls: 0, frameCalls: 0 },
+        buffers: { writeCalls: 0, writeBytes: 0 },
+        memory: {
+            buffers: 0,
+            rawBuffers: 0,
+            renderPipelines: 0,
+            computePipelines: 0,
+            bindGroupLayouts: 0,
+        },
+    };
+}
+/**
+ * Zero the per-frame counters. Called by the renderer at its top-level frame boundary, never by
+ * the host — see the module header. Cumulative `calls` and the `memory` snapshot survive.
+ */
+function beginInfoFrame(info) {
+    info.render.frameCalls = 0;
+    info.render.drawCalls = 0;
+    info.render.triangles = 0;
+    info.compute.frameCalls = 0;
+    info.buffers.writeCalls = 0;
+    info.buffers.writeBytes = 0;
+}
+/** Full reset, including the cumulative call counts and the memory snapshot. */
+function resetRendererInfo(info) {
+    beginInfoFrame(info);
+    info.render.calls = 0;
+    info.compute.calls = 0;
+    info.memory.buffers = 0;
+    info.memory.rawBuffers = 0;
+    info.memory.renderPipelines = 0;
+    info.memory.computePipelines = 0;
+    info.memory.bindGroupLayouts = 0;
+}
+
+/**
  * pass-context.ts, GPU pass configuration and caching.
  *
  * Contains context types for both render and compute passes:
@@ -34824,42 +34944,6 @@ function createContext(canvas, attrs) {
     // some drivers) → returns null → inspector leaves gpuMs null (CPU-only timing).
     gl.getExtension('EXT_disjoint_timer_query_webgl2');
     return gl;
-}
-
-/**
- * update-ranges.ts (renderer core) — backend-neutral merge of a buffer's pending dirty ranges into
- * the minimal set of spans worth uploading. Shared by the WebGL attribute path (one `bufferSubData`
- * per span) and the WebGL storage-buffer-as-texture path (one `texSubImage2D` run per span), so the
- * merge lives in exactly one place and cannot drift between them.
- */
-/**
- * Sort and merge adjacent/overlapping dirty ranges IN PLACE, trimming the array to the survivors.
- * Mirrors three.js `WebGLAttributes.updateBuffer`: fewer, larger uploads cut GL command overhead,
- * which is the empirical win for callers queueing many small ranges per frame. Merging in place
- * keeps the hot path allocation-free; it is safe because callers clear the ranges once uploaded.
- *
- * Ranges are flat indices in whatever unit the caller queued them in (array components, for a
- * `GpuBuffer`), and the merge is unit-agnostic — a caller uploading into a 2D grid converts the
- * surviving spans to its own geometry afterwards.
- */
-function mergeUpdateRanges(ranges) {
-    if (ranges.length === 0)
-        return;
-    ranges.sort((a, b) => a.start - b.start);
-    let mergeIndex = 0;
-    for (let i = 1; i < ranges.length; i++) {
-        const prev = ranges[mergeIndex];
-        const r = ranges[i];
-        // +1 so exactly-adjacent ranges merge (safe over positive integer indices).
-        if (r.start <= prev.start + prev.count + 1) {
-            prev.count = Math.max(prev.count, r.start + r.count - prev.start);
-        }
-        else {
-            mergeIndex++;
-            ranges[mergeIndex] = r;
-        }
-    }
-    ranges.length = mergeIndex + 1;
 }
 
 /**
@@ -40003,12 +40087,12 @@ function clear(contexts, device, textures, sc, format, params, color, depth, ste
  * Resolve attachments and run the whole inner draw loop into the current command stream (created by
  * the top-level frame, reused by nested renders). Calls neutral update helpers per object.
  */
-function executeRenderPass(contexts, device, bindings, geometries, buffers, textures, renderObjectGpu, sc, format, encoder, nodes, passCtx, prepared, params, inspector) {
+function executeRenderPass(contexts, device, bindings, geometries, buffers, textures, renderObjectGpu, sc, format, encoder, nodes, passCtx, prepared, params, inspector, info) {
     const { colorAttachments, depthAttachment } = resolveAttachments(contexts, device, textures, sc, format, params);
-    draw(device, bindings, geometries, buffers, textures, renderObjectGpu, encoder, nodes, passCtx, prepared, colorAttachments, depthAttachment, params.passId, inspector);
+    draw(device, bindings, geometries, buffers, textures, renderObjectGpu, encoder, nodes, passCtx, prepared, colorAttachments, depthAttachment, params.passId, inspector, info);
 }
 /** Begin the GPU render pass, issue all draw calls, and end the pass. */
-function draw(device, bindings, geometries, buffers, textures, renderObjectGpu, encoder, nodes, passCtx, preparedObjects, colorAttachments, depthAttachment, passId, inspector) {
+function draw(device, bindings, geometries, buffers, textures, renderObjectGpu, encoder, nodes, passCtx, preparedObjects, colorAttachments, depthAttachment, passId, inspector, info) {
     const timestampWrites = inspector ? inspector.getTimestampWrites(passId) : undefined;
     const gpuPass = encoder.beginRenderPass({
         label: passId,
@@ -40117,7 +40201,7 @@ function draw(device, bindings, geometries, buffers, textures, renderObjectGpu, 
                 for (const d of mesh.draws) {
                     if (d.instanceCount <= 0)
                         continue;
-                    passDrawIndexed(gpuPass, inspector, d.indexCount, d.instanceCount, d.firstIndex, d.firstInstance, d.baseVertex ?? 0);
+                    passDrawIndexed(gpuPass, inspector, info, d.indexCount, d.instanceCount, d.firstIndex, d.firstInstance, d.baseVertex ?? 0);
                 }
             }
             else if (geometry.indirect) {
@@ -40127,12 +40211,12 @@ function draw(device, bindings, geometries, buffers, textures, renderObjectGpu, 
                 const baseOffset = geometry.indirectOffset;
                 const drawCount = geometry.indirectDrawCount ?? indirect.count;
                 for (let d = 0; d < drawCount; d++) {
-                    passDrawIndexedIndirect(gpuPass, inspector, indBuf, baseOffset + d * byteStride);
+                    passDrawIndexedIndirect(gpuPass, inspector, info, indBuf, baseOffset + d * byteStride);
                 }
             }
             else {
                 const indexCount = Math.min(geometry.drawRange.count, geometry.index.array.length);
-                passDrawIndexed(gpuPass, inspector, indexCount, mesh.count, geometry.drawRange.start);
+                passDrawIndexed(gpuPass, inspector, info, indexCount, mesh.count, geometry.drawRange.start);
             }
         }
         else {
@@ -40141,7 +40225,7 @@ function draw(device, bindings, geometries, buffers, textures, renderObjectGpu, 
                 for (const d of mesh.draws) {
                     if (d.instanceCount <= 0)
                         continue;
-                    passDraw(gpuPass, inspector, d.vertexCount, d.instanceCount, d.firstVertex, d.firstInstance);
+                    passDraw(gpuPass, inspector, info, d.vertexCount, d.instanceCount, d.firstVertex, d.firstInstance);
                 }
             }
             else if (geometry.indirect) {
@@ -40151,11 +40235,11 @@ function draw(device, bindings, geometries, buffers, textures, renderObjectGpu, 
                 const baseOffset = geometry.indirectOffset;
                 const drawCount = geometry.indirectDrawCount ?? indirect.count;
                 for (let d = 0; d < drawCount; d++) {
-                    passDrawIndirect(gpuPass, inspector, indBuf, baseOffset + d * byteStride);
+                    passDrawIndirect(gpuPass, inspector, info, indBuf, baseOffset + d * byteStride);
                 }
             }
             else {
-                passDraw(gpuPass, inspector, geometry.drawRange.count, mesh.count, geometry.drawRange.start);
+                passDraw(gpuPass, inspector, info, geometry.drawRange.count, mesh.count, geometry.drawRange.start);
             }
         }
         if (inspector)
@@ -40230,23 +40314,31 @@ function passSetIndexBuffer(pass, inspector, buffer, format) {
     if (inspector)
         inspector.setIndexBuffer();
 }
-function passDraw(pass, inspector, vertexCount, instanceCount, firstVertex, firstInstance = 0) {
+function passDraw(pass, inspector, info, vertexCount, instanceCount, firstVertex, firstInstance = 0) {
     pass.draw(vertexCount, instanceCount, firstVertex, firstInstance);
+    info.render.drawCalls++;
+    info.render.triangles += (instanceCount * vertexCount) / 3;
     if (inspector)
         inspector.draw(vertexCount, instanceCount);
 }
-function passDrawIndexed(pass, inspector, indexCount, instanceCount, firstIndex, firstInstance = 0, baseVertex = 0) {
+function passDrawIndexed(pass, inspector, info, indexCount, instanceCount, firstIndex, firstInstance = 0, baseVertex = 0) {
     pass.drawIndexed(indexCount, instanceCount, firstIndex, baseVertex, firstInstance);
+    info.render.drawCalls++;
+    info.render.triangles += (instanceCount * indexCount) / 3;
     if (inspector)
         inspector.drawIndexed(indexCount, instanceCount);
 }
-function passDrawIndirect(pass, inspector, indirectBuffer, indirectOffset) {
+// Indirect draws count the CALL but not the triangles: the vertex/instance counts live in a GPU
+// buffer the CPU never reads back, so `info.render.triangles` is a floor rather than a guess.
+function passDrawIndirect(pass, inspector, info, indirectBuffer, indirectOffset) {
     pass.drawIndirect(indirectBuffer, indirectOffset);
+    info.render.drawCalls++;
     if (inspector)
         inspector.drawIndirect();
 }
-function passDrawIndexedIndirect(pass, inspector, indirectBuffer, indirectOffset) {
+function passDrawIndexedIndirect(pass, inspector, info, indirectBuffer, indirectOffset) {
     pass.drawIndexedIndirect(indirectBuffer, indirectOffset);
+    info.render.drawCalls++;
     if (inspector)
         inspector.drawIndexedIndirect();
 }
@@ -40313,6 +40405,13 @@ class WebGPURenderer {
     adapter = null;
     /** The primary color/attachment format of the swapchain. Assigned in `init()`. @internal */
     format = null;
+    /**
+     * Per-frame render statistics — draw calls, triangles, buffer upload volume, resident object
+     * counts. Frame-scoped fields are zeroed by the renderer at its own frame boundary, so any
+     * number of readers (a host debug panel, the Inspector) can read them without disturbing each
+     * other. Nothing needs to be called from outside; see `renderer/core/info.ts`.
+     */
+    info = createRendererInfo();
     /** @internal */
     buffers;
     /** @internal */
@@ -40425,7 +40524,7 @@ class WebGPURenderer {
         this.stencil = formatHasStencil(swapchainDepthFormat);
         // Device resource caches — created once here, immutable references thereafter. The bind group
         // layout cache is shared by the pipelines and bindings layers (both receive this instance).
-        this.buffers = createBufferCache();
+        this.buffers = createBufferCache(this.info);
         this.textures = createTextureCache();
         this.bindGroupLayoutCache = createBindGroupLayoutCache();
         this.pipelines = createPipelinesState(this.bindGroupLayoutCache);
@@ -40745,6 +40844,24 @@ class WebGPURenderer {
      *
      * @throws if the renderer has not been initialised.
      */
+    /**
+     * Frame boundary for `info`: zero the per-frame counters and re-snapshot the resident object
+     * counts. Called from the depth-guarded top-level entry of `render()`/`compute()`, so nested
+     * renders share the frame rather than clearing it mid-flight.
+     *
+     * `memory` is read live off the caches rather than mirrored by increment/decrement at every
+     * create/dispose site: the pipeline maps know their own size exactly, which mirrored counters
+     * would only approximate.
+     */
+    _beginInfoFrame() {
+        const info = this.info;
+        beginInfoFrame(info);
+        info.memory.buffers = this.buffers.bufferCount;
+        info.memory.rawBuffers = this.buffers.rawCount;
+        info.memory.renderPipelines = this.pipelines.renderPipelines.size;
+        info.memory.computePipelines = this.pipelines.computePipelines.size;
+        info.memory.bindGroupLayouts = this.bindGroupLayoutCache.cache.size;
+    }
     compute(entries) {
         if (this._isDeviceLost)
             return;
@@ -40755,14 +40872,17 @@ class WebGPURenderer {
             return;
         const frame = this._nodes.nodeFrame;
         const inspector = this.inspector;
-        // Top-level entry: advance the frame id and open the inspector frame
-        // (one top-level render()/compute() call == one frame).
+        // Top-level entry: advance the frame id, zero the per-frame stats and open the inspector
+        // frame (one top-level render()/compute() call == one frame).
         if (this._renderCallDepth === 0) {
             frame.frameId++;
+            this._beginInfoFrame();
             if (inspector)
                 inspector.begin(frame.frameId);
         }
         this._renderCallDepth++;
+        this.info.compute.calls++;
+        this.info.compute.frameCalls++;
         frame.renderer = this;
         frame.width = frameWidth(this);
         frame.height = frameHeight(this);
@@ -40803,15 +40923,18 @@ class WebGPURenderer {
         }
         const frame = this._nodes.nodeFrame;
         const inspector = this.inspector;
-        // Top-level entry: advance the frame id and open the inspector frame.
-        // A "frame" is one top-level render()/compute() call; nested renders (PassNode)
-        // run at depth > 0 and share the same frameId.
+        // Top-level entry: advance the frame id, zero the per-frame stats and open the inspector
+        // frame. A "frame" is one top-level render()/compute() call; nested renders (PassNode)
+        // run at depth > 0 and share the same frameId — and the same stats bucket.
         if (this._renderCallDepth === 0) {
             frame.frameId++;
+            this._beginInfoFrame();
             if (inspector)
                 inspector.begin(frame.frameId);
         }
         this._renderCallDepth++;
+        this.info.render.calls++;
+        this.info.render.frameCalls++;
         // Each render() gets a fresh, globally-unique renderId so RENDER-scope updates
         // run once per render call. Nested renders restore the parent's id on exit.
         const previousRenderId = frame.beginRender();
@@ -40871,7 +40994,7 @@ class WebGPURenderer {
             swapchainStencil: this.stencil,
             passId,
         };
-        executeRenderPass(this.canvasContexts, this.device, this.bindings, this.geometries, this.buffers, this.textures, this.renderObjectGpu, this.swapchain, this.format, this._currentEncoder, this._nodes, passCtx, preparedObjects, passParams, inspector);
+        executeRenderPass(this.canvasContexts, this.device, this.bindings, this.geometries, this.buffers, this.textures, this.renderObjectGpu, this.swapchain, this.format, this._currentEncoder, this._nodes, passCtx, preparedObjects, passParams, inspector, this.info);
         if (isTopLevel) {
             this.device.queue.submit([this._currentEncoder.finish()]);
             this._currentEncoder = null;
@@ -41427,5 +41550,5 @@ function createStructTexture(schema, capacity, options = {}) {
     });
 }
 
-export { ArrayTexture, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, FlyControls, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, REGION_CAP, Raycaster, RenderPipeline, RenderTarget, Return, Scene, Source, TOUCH, Texture, TransformControls, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WebGLRenderer, WebGPURenderer, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, ceil, clamp$1 as clamp, color, comparisonSampler, compile, compileCompute, compileGlsl, compileTransformFeedback, compute, computeIndex, cond, cos, countLeadingZeros, countOneBits, countTrailingZeros, createBoxGeometry, createCylinderGeometry, createFullscreenTriangleGeometry, createIndexBuffer, createIndirectBuffer, createOctahedronGeometry, createPlaneGeometry, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createStructTexture, createTorusGeometry, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frameGroup, frustum, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, globalId, glsl, glslFn, greaterThan, greaterThanEqual, i32, index, instanceIndex, inverseSqrt, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, ndcDepthToStorage, normalize$1 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, pass, positionClip, pow, readPixels, regionsFromLinearRun, reinhardToneMapping, renderGroup, renderOutput, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub$1 as sub, tan, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgsl, wgslFn, workgroupBarrier, workgroupId };
+export { ArrayTexture, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, FlyControls, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, REGION_CAP, Raycaster, RenderPipeline, RenderTarget, Return, Scene, Source, TOUCH, Texture, TransformControls, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WebGLRenderer, WebGPURenderer, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, ceil, clamp$1 as clamp, color, comparisonSampler, compile, compileCompute, compileGlsl, compileTransformFeedback, compute, computeIndex, cond, cos, countLeadingZeros, countOneBits, countTrailingZeros, createBoxGeometry, createCylinderGeometry, createFullscreenTriangleGeometry, createIndexBuffer, createIndirectBuffer, createOctahedronGeometry, createPlaneGeometry, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createStructTexture, createTorusGeometry, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frameGroup, frustum, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, globalId, glsl, glslFn, greaterThan, greaterThanEqual, i32, index, instanceIndex, inverseSqrt, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, ndcDepthToStorage, normalize$1 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, pass, positionClip, pow, readPixels, regionsFromLinearRun, reinhardToneMapping, renderGroup, renderOutput, resetRendererInfo, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub$1 as sub, tan, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexIndex, wgsl, wgslFn, workgroupBarrier, workgroupId };
 //# sourceMappingURL=index.js.map
