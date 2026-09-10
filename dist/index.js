@@ -24271,7 +24271,16 @@ function rebuildGPUBindGroup(device, bufferCache, textureCache, bindGroup, data,
                 // Get GPU texture from cache
                 const texData = getTextureData(textureCache, gpuTexture);
                 if (texData) {
-                    const view = texData.texture.createView({ dimension: gpuTexture.viewDimension });
+                    // A combined depth-stencil texture carries two aspects, and a view
+                    // may only ever expose ONE of them to a binding. Leaving the default
+                    // ('all') is a validation error the moment a pass allocates a stencil
+                    // alongside a depth that something also samples. Sampling is always
+                    // the depth aspect here: the stencil aspect would need a
+                    // `texture_2d<u32>` binding, which nothing declares.
+                    const view = texData.texture.createView({
+                        dimension: gpuTexture.viewDimension,
+                        ...(formatHasStencil(texData.texture.format) ? { aspect: 'depth-only' } : {}),
+                    });
                     entries.push({ binding: binding.entry.binding, resource: view });
                 }
                 break;

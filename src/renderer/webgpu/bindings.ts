@@ -19,6 +19,7 @@ import { getBindings as getRenderObjectBindings } from '../core/render-object';
 import { type BindGroupLayoutCache, getBindGroupLayout, samplerBindingType, textureBindingLayout } from './bind-group-layout';
 import type { BufferCache } from './buffers';
 import { ensureUploaded, getRaw, getUploaded, resolveStorageBuffer, uploadRaw } from './buffers';
+import { formatHasStencil } from './pipelines';
 import type { RenderObjectGpuCache } from './render-object-gpu';
 import { clearRenderObjectGpu, getRenderObjectGpu } from './render-object-gpu';
 import type { TextureCache } from './textures';
@@ -294,11 +295,7 @@ function initBindGroup(state: BindingsState, bindGroup: BindGroup, device: GPUDe
 }
 
 /** Build bind group layout entries for a BindGroup. */
-function buildLayoutEntries(
-    bindGroup: BindGroup,
-    visibility: GPUShaderStageFlags,
-    device: GPUDevice,
-): GPUBindGroupLayoutEntry[] {
+function buildLayoutEntries(bindGroup: BindGroup, visibility: GPUShaderStageFlags, device: GPUDevice): GPUBindGroupLayoutEntry[] {
     const float32Filterable = device.features.has('float32-filterable');
     const entries: GPUBindGroupLayoutEntry[] = [];
 
@@ -660,7 +657,16 @@ function rebuildGPUBindGroup(
                 // Get GPU texture from cache
                 const texData = getTextureData(textureCache, gpuTexture);
                 if (texData) {
-                    const view = texData.texture.createView({ dimension: gpuTexture.viewDimension });
+                    // A combined depth-stencil texture carries two aspects, and a view
+                    // may only ever expose ONE of them to a binding. Leaving the default
+                    // ('all') is a validation error the moment a pass allocates a stencil
+                    // alongside a depth that something also samples. Sampling is always
+                    // the depth aspect here: the stencil aspect would need a
+                    // `texture_2d<u32>` binding, which nothing declares.
+                    const view = texData.texture.createView({
+                        dimension: gpuTexture.viewDimension,
+                        ...(formatHasStencil(texData.texture.format) ? { aspect: 'depth-only' as const } : {}),
+                    });
                     entries.push({ binding: binding.entry.binding, resource: view });
                 }
                 break;
