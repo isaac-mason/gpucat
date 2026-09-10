@@ -3,7 +3,7 @@ import { RenderTarget } from '../../../core/render-target';
 import type { NodeFrame } from '../../../renderer/core/node-frame';
 import type { Scene } from '../../../scene/scene';
 import * as d from '../../../schema/schema';
-import type { DepthTexture } from '../../../texture/depth-texture';
+import type { DepthTexture, DepthTextureFormat } from '../../../texture/depth-texture';
 import { Texture } from '../../../texture/texture';
 import { Node, NodeKind } from '../core';
 import type { MRTNode } from '../mrt';
@@ -13,6 +13,20 @@ export type PassNodeOptions = {
     clearColor?: [number, number, number, number];
     /** GPUTextureFormat for the color render target. Defaults to 'rgba16float'. */
     colorFormat?: GPUTextureFormat;
+    /**
+     * Format for the depth attachment. Defaults to 'depth24plus'. Takes precedence
+     * over `stencilBuffer`, so pass this when you want a specific depth precision
+     * alongside a stencil aspect (e.g. 'depth32float-stencil8'). Mirrors
+     * `RenderTargetOptions.depthFormat`.
+     */
+    depthFormat?: DepthTextureFormat;
+    /**
+     * Allocate a stencil aspect on the depth attachment ('depth24plus-stencil8'),
+     * so materials drawn in this pass can use `stencilTest` / `stencilRef` and the
+     * stencil ops. Default false; ignored when `depthFormat` is given. The pass
+     * clears stencil to 0 each render.
+     */
+    stencilBuffer?: boolean;
     /** Number of MSAA samples. Defaults to 1 (no MSAA). */
     samples?: number;
     /**

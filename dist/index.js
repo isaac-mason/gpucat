@@ -11943,7 +11943,11 @@ class PassNode extends Node {
         this.clearColor = options.clearColor ?? [0, 0, 0, 1];
         const renderTarget = new RenderTarget(this._width * this._pixelRatio, this._height * this._pixelRatio, {
             colorFormat: options.colorFormat ?? 'rgba16float',
-            depthFormat: 'depth24plus',
+            // forwarded rather than resolved here: RenderTarget already owns the
+            // depthFormat-beats-stencilBuffer precedence, and duplicating it is how
+            // the two drift apart.
+            depthFormat: options.depthFormat,
+            stencilBuffer: options.stencilBuffer,
             samples: options.samples ?? 1,
             count: 1,
         });
