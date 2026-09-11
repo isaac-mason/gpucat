@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       math:
-        specifier: canary
-        version: 1.0.0-canary-5e895055-20260907
+        specifier: ^0.1.0
+        version: 0.1.0
     devDependencies:
       '@biomejs/biome':
         specifier: ^2.4.6
@@ -83,8 +83,8 @@ importers:
         specifier: workspace:*
         version: link:..
       math:
-        specifier: canary
-        version: 1.0.0-canary-5e895055-20260907
+        specifier: ^0.1.0
+        version: 0.1.0
       pngjs:
         specifier: ^7.0.0
         version: 7.0.0
@@ -2564,8 +2564,8 @@ packages:
       - supports-color
     dev: true
 
-  /math@1.0.0-canary-5e895055-20260907:
-    resolution: {integrity: sha512-+Ry7UH0dj/f+Eb4Uh/ViREz7w6+Q1SDQTmtL4fWTISHjJbsX87xsiO8g39ui0Oab/2pid8zTV2D80pR7vQ9Ntw==}
+  /math@0.1.0:
+    resolution: {integrity: sha512-hq5KkLblFiR8OO8ZYqPK02mBqrXuxJ6hwvhL3ZM9OFkAR82/20n4H768SWl4yVVrufh8VijEm42D4V9N8hDa2g==}
     dev: false
 
   /mdn-data@2.27.1:
