@@ -1,6 +1,7 @@
 import type { CompileResult, CompileSlots, UpdateNode } from '../../nodes/builder';
 import { compileCompute } from '../../nodes/builder';
-import type { ComputeNode } from '../../nodes/nodes';
+import type { MRTNode } from '../../nodes/lib/mrt';
+import { type ComputeNode, NodeKind } from '../../nodes/nodes';
 import type { BindingContext, NodeBuilderState } from './node-builder-state';
 import { createNodeBuilderState, createNodeBuilderStateForCompute } from './node-builder-state';
 import { createNodeFrame, type NodeFrame } from './node-frame';
@@ -89,6 +90,27 @@ export function compileNodeState(
     compile: (slots: CompileSlots) => CompileResult,
 ): { nodeState: NodeBuilderState; compileResult: CompileResult } {
     const material = renderObject.material;
+
+    // RESOLVE THIS MATERIAL'S MRT BEFORE CODEGEN. An MRTNode names its outputs, but
+    // the @location index each one lands at is a property of the render target it is
+    // drawn into, so it cannot be known until here. `resolveOutputs` turns the name
+    // dictionary into the ordered `members` array the emitter reads, and drops any
+    // name the target has no attachment for - which is what lets one material be
+    // written once and still compile down to a single output when the pass it lands
+    // in declares no extra attachments.
+    //
+    // The renderer also resolves the PASS-level MRT node, but that is a different
+    // object whenever a material brings its own outputs, and only the node actually
+    // being compiled has its `members` read. Resolving here, per material, per
+    // compile, mirrors three.js, which does the same work inside `MRTNode.setup()`
+    // against `builder.renderer.getRenderTarget()`.
+    const fragmentNode = material.fragment;
+    if (fragmentNode !== undefined && fragmentNode.kind === NodeKind.MRT) {
+        const renderTarget = renderObject.renderContext.renderTarget;
+        if (renderTarget !== null) {
+            (fragmentNode as MRTNode).resolveOutputs((name: string) => renderTarget.getTextureIndex(name));
+        }
+    }
 
     // compile the material's node graph
     const compileResult: CompileResult = compile({
