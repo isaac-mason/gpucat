@@ -1627,35 +1627,27 @@ export function generateFragmentShader(
     const hasColor = fragmentNode != null;
     const hasDepth = depthNode != null;
 
-    // generate color expression (skip for a depth-only fragment stage)
-    const fragmentExpr = hasColor ? generateExpr(ctx, fragmentNode) : '';
-
-    // check if we have any fragment inputs (varyings or builtins)
-    const hasFragCoord = ctx.builtins.has('position');
-    const hasInputs = ctx.varyings.size > 0 || hasFragCoord;
-
-    // emit input struct only if we have inputs (WGSL structs must have at least one member)
-    if (hasInputs) {
-        lines.push('struct FragmentInput {');
-        if (hasFragCoord) {
-            lines.push('    @builtin(position) position: vec4f,');
-        }
-        let varyingLoc = 0;
-        for (const [name, { node }] of ctx.varyings) {
-            lines.push(`    @location(${varyingLoc})${varyingInterpolateAttr(node)} ${name}: ${node.type.wgslType},`);
-            varyingLoc++;
-        }
-        lines.push('}');
-        lines.push('');
-    }
-
     // check for MRT
     const isMRT = hasColor && fragmentNode.kind === NodeKind.MRT;
     const mrtNode = isMRT ? (fragmentNode as MRTNode) : null;
 
-    // Pre-generate all MRT output expressions NOW so that CSE let-declarations
-    // are pushed into ctx.code before we emit the function body.
-    // (For non-MRT, colorExpr above already did this.)
+    // GENERATE EVERY OUTPUT EXPRESSION BEFORE THE INPUT STRUCT IS EMITTED.
+    // `ctx.builtins` and `ctx.varyings` are populated as a SIDE EFFECT of walking an
+    // expression, so FragmentInput can only be written once everything that might
+    // reference `@builtin(position)` or a varying has been walked.
+    //
+    // An MRT node's members are not reached by generating the node itself, so while
+    // these were generated further down the function, a member using `fragCoord`
+    // registered the position builtin too late: the struct had already been emitted
+    // without it, and the body then referenced `input.position` against it. Tint
+    // reports that as `struct member position not found`.
+    //
+    // Pre-generating also keeps the CSE let-declarations in `ctx.code` ahead of the
+    // body, which is what the original ordering was reaching for. Relative order
+    // between the color, MRT and depth walks is unchanged, so non-MRT output is
+    // byte-identical.
+    const fragmentExpr = hasColor && !isMRT ? generateExpr(ctx, fragmentNode) : '';
+
     let mrtExprs: { name: string; expr: string }[] | null = null;
     if (isMRT && mrtNode) {
         mrtExprs = [];
@@ -1675,8 +1667,26 @@ export function generateFragmentShader(
         }
     }
 
-    // Pre-generate the depth expression (frag_depth override) before the body, same reason as above.
     const depthExpr = hasDepth ? generateExpr(ctx, depthNode) : '';
+
+    // check if we have any fragment inputs (varyings or builtins)
+    const hasFragCoord = ctx.builtins.has('position');
+    const hasInputs = ctx.varyings.size > 0 || hasFragCoord;
+
+    // emit input struct only if we have inputs (WGSL structs must have at least one member)
+    if (hasInputs) {
+        lines.push('struct FragmentInput {');
+        if (hasFragCoord) {
+            lines.push('    @builtin(position) position: vec4f,');
+        }
+        let varyingLoc = 0;
+        for (const [name, { node }] of ctx.varyings) {
+            lines.push(`    @location(${varyingLoc})${varyingInterpolateAttr(node)} ${name}: ${node.type.wgslType},`);
+            varyingLoc++;
+        }
+        lines.push('}');
+        lines.push('');
+    }
 
     // When a frag_depth override is present, the fragment output can no longer be a bare
     // `-> @location(0) vec4f`: a @builtin(frag_depth) must ride alongside the color output(s) in a
