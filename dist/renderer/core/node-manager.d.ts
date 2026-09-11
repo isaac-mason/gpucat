@@ -1,5 +1,5 @@
 import type { CompileResult, CompileSlots } from '../../nodes/builder';
-import type { ComputeNode } from '../../nodes/nodes';
+import { type ComputeNode } from '../../nodes/nodes';
 import type { BindingContext, NodeBuilderState } from './node-builder-state';
 import { type NodeFrame } from './node-frame';
 import type { RenderObject } from './render-object';
