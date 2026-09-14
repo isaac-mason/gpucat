@@ -189,25 +189,9 @@ export class GpuBuffer<T extends Any = Any> {
     /** How this buffer's lifecycle is managed */
     readonly lifecycle: BufferLifecycle;
 
-    private readonly _label: string | undefined;
-    private _labelCache: string | undefined;
-
-    /**
-     * What this buffer reports itself as in the per-frame upload breakdown.
-     *
-     * Falls back to `usage:byteLength` when unlabelled, so every buffer lands in a
-     * meaningful row without any call site having to opt in - and the fallback is
-     * derived once, since `byteLength` only changes on a resize, which mints a new
-     * cache entry anyway.
-     */
-    get label(): string {
-        if (this._label !== undefined) return this._label;
-        if (this._labelCache === undefined) {
-            const usage = [...this.usage].sort().join('+');
-            this._labelCache = `${usage}:${this.array?.byteLength ?? 0}`;
-        }
-        return this._labelCache;
-    }
+    /** Name this buffer reports in the per-frame upload breakdown, when the caller set one.
+     *  Undefined otherwise: the upload site supplies a name, since identity is call-site knowledge. */
+    readonly label: string | undefined;
 
     /** Usage count for REF_COUNTED buffers. When this hits 0, GPU resources are disposed. */
     _usages: number = 0;
@@ -242,7 +226,7 @@ export class GpuBuffer<T extends Any = Any> {
     constructor(schema: T, options: GpuBufferOptions<T> = {}) {
         this.schema = schema;
         this.usage = normalizeUsage(options.usage);
-        this._label = options.label;
+        this.label = options.label;
         this.lifecycle = options.lifecycle ?? BufferLifecycle.MANUAL;
 
         // Derive itemSize from schema
