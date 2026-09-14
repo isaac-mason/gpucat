@@ -1,4 +1,4 @@
-import type { GpuBuffer, GpuTypedArray } from '../../core/gpu-buffer';
+import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { Geometry } from '../../geometry/geometry';
 import type { StorageNode } from '../../nodes/nodes';
 import type { Any } from '../../schema/schema';
@@ -32,7 +32,10 @@ export declare function createBufferCache(info: RendererInfo): BufferCache;
  * This is the single upload function for all GpuBuffer types (vertex, index,
  * storage, indirect). GPU usage flags are derived from `buffer.usage`.
  */
-export declare function ensureUploaded(cache: BufferCache, device: GPUDevice, buffer: GpuBuffer): GPUBuffer;
+/** `name` identifies the buffer in the per-frame upload breakdown. Required, not optional: every
+ *  call site knows what it is binding, and a name is call-site knowledge - the same buffer can be
+ *  bound under different attribute names, so it cannot live on the buffer. */
+export declare function ensureUploaded(cache: BufferCache, device: GPUDevice, buffer: GpuBuffer, name: string): GPUBuffer;
 /**
  * Return the GPUBuffer for an already-uploaded GpuBuffer, or undefined
  * if it has not been uploaded yet.
@@ -60,7 +63,23 @@ export type UploadRawResult = {
  * Always writes `data` to the buffer (caller decides when to call this).
  * Returns both the buffer and whether it was newly created/resized.
  */
-export declare function uploadRaw(cache: BufferCache, device: GPUDevice, key: object, data: GpuTypedArray, usage: GPUBufferUsageFlags): UploadRawResult;
+/** identity for a raw write, supplied by callers that have it (uniform blocks do). */
+export type RawWriteDetail = {
+    material?: string;
+    updateType?: string;
+    changedBytes?: number;
+};
+/**
+ * Upload one packed uniform block, identified by an arbitrary key.
+ *
+ * The one case with no `GpuBuffer` to gate on: a block is a byte blob packed from many uniform nodes
+ * through a compile-time layout, double-buffered so the binding can diff it, with no version of its
+ * own. Change detection is the caller's (`packAndCompare`), so this writes unconditionally.
+ *
+ * `ArrayBuffer`, not a typed array, so anything carrying a version cannot be passed here - those go
+ * through `ensureUploaded`.
+ */
+export declare function uploadUniformBlock(cache: BufferCache, device: GPUDevice, key: object, data: ArrayBuffer, detail?: RawWriteDetail): UploadRawResult;
 /**
  * Get a previously created raw buffer, or undefined.
  * Does NOT upload, use uploadRaw for that.

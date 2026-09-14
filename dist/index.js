@@ -5899,25 +5899,9 @@ class GpuBuffer {
     usage;
     /** How this buffer's lifecycle is managed */
     lifecycle;
-    _label;
-    _labelCache;
-    /**
-     * What this buffer reports itself as in the per-frame upload breakdown.
-     *
-     * Falls back to `usage:byteLength` when unlabelled, so every buffer lands in a
-     * meaningful row without any call site having to opt in - and the fallback is
-     * derived once, since `byteLength` only changes on a resize, which mints a new
-     * cache entry anyway.
-     */
-    get label() {
-        if (this._label !== undefined)
-            return this._label;
-        if (this._labelCache === undefined) {
-            const usage = [...this.usage].sort().join('+');
-            this._labelCache = `${usage}:${this.array?.byteLength ?? 0}`;
-        }
-        return this._labelCache;
-    }
+    /** Name this buffer reports in the per-frame upload breakdown, when the caller set one.
+     *  Undefined otherwise: the upload site supplies a name, since identity is call-site knowledge. */
+    label;
     /** Usage count for REF_COUNTED buffers. When this hits 0, GPU resources are disposed. */
     _usages = 0;
     /** CPU-side typed array. Can be set to null after onUpload releases memory. */
@@ -5941,7 +5925,7 @@ class GpuBuffer {
     constructor(schema, options = {}) {
         this.schema = schema;
         this.usage = normalizeUsage(options.usage);
-        this._label = options.label;
+        this.label = options.label;
         this.lifecycle = options.lifecycle ?? BufferLifecycle.MANUAL;
         // Derive itemSize from schema
         this.itemSize = schemaItemSize(schema);
@@ -15122,7 +15106,7 @@ function createRendererInfo() {
     return {
         render: { calls: 0, frameCalls: 0, drawCalls: 0, triangles: 0 },
         compute: { calls: 0, frameCalls: 0 },
-        buffers: { writeCalls: 0, writeBytes: 0, byLabel: new Map() },
+        buffers: { writeCalls: 0, writeBytes: 0, writes: [], detailedWrites: false, writeCount: 0 },
         memory: {
             buffers: 0,
             rawBuffers: 0,
@@ -15143,29 +15127,33 @@ function beginInfoFrame(info) {
     info.compute.frameCalls = 0;
     info.buffers.writeCalls = 0;
     info.buffers.writeBytes = 0;
-    // zero in place; see `byLabel` on why entries are kept rather than cleared.
-    for (const entry of info.buffers.byLabel.values()) {
-        entry.bytes = 0;
-        entry.calls = 0;
-        entry.full = 0;
-    }
+    // the records array is POOLED: reset the live count and reuse the entries rather
+    // than reallocating a few hundred objects every frame.
+    info.buffers.writeCount = 0;
 }
 /**
  * Attribute one `writeBuffer` to a label, updating both the totals and the
  * breakdown. Every write site goes through here so the two can never disagree.
  */
-function recordBufferWrite(info, label, bytes, full) {
-    info.buffers.writeBytes += bytes;
-    info.buffers.writeCalls++;
-    let entry = info.buffers.byLabel.get(label);
+function recordBufferWrite(info, bytes, usage, full, label, material, updateType, changedBytes) {
+    const buffers = info.buffers;
+    buffers.writeBytes += bytes;
+    buffers.writeCalls++;
+    if (!buffers.detailedWrites)
+        return;
+    let entry = buffers.writes[buffers.writeCount];
     if (entry === undefined) {
-        entry = { bytes: 0, calls: 0, full: 0 };
-        info.buffers.byLabel.set(label, entry);
+        entry = { bytes: 0, usage: '', full: false, label: undefined, material: undefined, updateType: undefined, changedBytes: undefined };
+        buffers.writes[buffers.writeCount] = entry;
     }
-    entry.bytes += bytes;
-    entry.calls++;
-    if (full)
-        entry.full++;
+    entry.bytes = bytes;
+    entry.usage = usage;
+    entry.full = full;
+    entry.label = label;
+    entry.material = material;
+    entry.updateType = updateType;
+    entry.changedBytes = changedBytes;
+    buffers.writeCount++;
 }
 /** Full reset, including the cumulative call counts and the memory snapshot. */
 function resetRendererInfo(info) {
@@ -15221,6 +15209,64 @@ function mergeUpdateRanges(ranges) {
     ranges.length = mergeIndex + 1;
 }
 
+/*
+ * buffer-upload.ts (renderer core) — the backend-neutral decision of HOW a buffer reaches the GPU.
+ *
+ * Both backends call this and execute what comes back, so the rule cannot differ between them.
+ * Same reasoning as `update-ranges.ts` and `partial-upload.ts`.
+ *
+ * Nothing device-shaped belongs here: WebGPU aligns allocations to 4 bytes and WebGL does not, so
+ * this says "allocate" and the backend decides the size.
+ */
+/** What a backend should do to bring one buffer up to date. */
+var BufferUpload;
+(function (BufferUpload) {
+    /** already current; no GPU work. */
+    BufferUpload[BufferUpload["Skip"] = 0] = "Skip";
+    /** no GPU buffer yet, or the data outgrew it: (re)allocate, then write the whole array. */
+    BufferUpload[BufferUpload["Allocate"] = 1] = "Allocate";
+    /** write only `buffer.updateRanges`, which `planBufferUpload` has already merged. */
+    BufferUpload[BufferUpload["Partial"] = 2] = "Partial";
+    /** the version moved with no ranges queued: rewrite the whole array in place. */
+    BufferUpload[BufferUpload["Full"] = 3] = "Full";
+})(BufferUpload || (BufferUpload = {}));
+/**
+ * Decide how `buffer` reaches the GPU, and merge its pending ranges in place.
+ *
+ * Precedence:
+ *
+ *   1. ALLOCATE, keyed off SIZE rather than version, so growing an arena without bumping the version
+ *      still uploads correctly instead of writing partially into a buffer too small to hold it.
+ *   2. PARTIAL over FULL: queued ranges are the streaming path and need no version bump, so a caller
+ *      doing both gets the cheaper write. Merging here means both backends write identical spans.
+ *   3. FULL for a version bump with nothing queued. Correct, but re-sends the whole allocation.
+ *
+ * `capacityBytes` and `lastVersion` describe what the backend holds, and are ignored when `exists` is
+ * false. Merging mutates `buffer.updateRanges` in place, keeping the hot path allocation-free.
+ */
+function planBufferUpload(buffer, exists, capacityBytes, lastVersion) {
+    const array = buffer.array;
+    // CPU data was released after upload: whatever is on the GPU is all there is.
+    if (array === null || array === undefined)
+        return BufferUpload.Skip;
+    if (!exists || capacityBytes < array.byteLength)
+        return BufferUpload.Allocate;
+    if (buffer.updateRanges.length > 0) {
+        mergeUpdateRanges(buffer.updateRanges);
+        return BufferUpload.Partial;
+    }
+    return buffer.version !== lastVersion ? BufferUpload.Full : BufferUpload.Skip;
+}
+
+/** the one usage worth reporting, most specific first. A buffer often carries several
+ *  flags (`storage` + `vertex`), and the specific one is what identifies it. */
+function primaryUsage(buffer) {
+    for (const candidate of ['storage', 'index', 'vertex', 'uniform', 'indirect']) {
+        if (buffer.usage.has(candidate))
+            return candidate;
+    }
+    return 'other';
+}
 function createBufferCache(info) {
     return {
         bufferMap: new WeakMap(),
@@ -15268,65 +15314,55 @@ function deriveGPUUsage(buffer) {
  * This is the single upload function for all GpuBuffer types (vertex, index,
  * storage, indirect). GPU usage flags are derived from `buffer.usage`.
  */
-function ensureUploaded(cache, device, buffer) {
-    const arr = buffer.array;
-    // CPU memory was released, return existing GPU buffer.
-    if (!arr) {
-        const entry = cache.bufferMap.get(buffer);
+/** `name` identifies the buffer in the per-frame upload breakdown. Required, not optional: every
+ *  call site knows what it is binding, and a name is call-site knowledge - the same buffer can be
+ *  bound under different attribute names, so it cannot live on the buffer. */
+function ensureUploaded(cache, device, buffer, name) {
+    const entry = cache.bufferMap.get(buffer);
+    const plan = planBufferUpload(buffer, entry !== undefined, entry?.buf.size ?? 0, entry?.version ?? -1);
+    if (plan === BufferUpload.Skip) {
         if (!entry) {
             throw new Error('[gpucat] ensureUploaded: buffer.array is null but GPU buffer was never created');
         }
         return entry.buf;
     }
-    const byteLength = alignTo4(arr.byteLength);
-    const entry = cache.bufferMap.get(buffer);
-    // Create buffer if it doesn't exist or is too small.
-    if (!entry || entry.buf.size < byteLength) {
+    // non-null past the plan: Skip is the only outcome for a released array.
+    const arr = buffer.array;
+    const usage = primaryUsage(buffer);
+    const label = buffer.label ?? name;
+    if (plan === BufferUpload.Allocate) {
         entry?.buf.destroy();
-        const buf = device.createBuffer({
-            size: byteLength,
-            usage: deriveGPUUsage(buffer),
-        });
+        // 4-byte alignment is a device requirement, so the size is decided here, not in the plan.
+        const buf = device.createBuffer({ size: alignTo4(arr.byteLength), usage: deriveGPUUsage(buffer) });
         if (!entry)
             cache.bufferCount++;
         device.queue.writeBuffer(buf, 0, arr.buffer, arr.byteOffset, arr.byteLength);
-        // creation: the whole buffer by definition, so it counts as a full write.
-        recordBufferWrite(cache.info, buffer.label, arr.byteLength, true);
+        recordBufferWrite(cache.info, arr.byteLength, usage, true, label);
         cache.bufferMap.set(buffer, { buf, version: buffer.version });
-        // The create path just uploaded everything, so any ranges queued before the first
-        // upload are already covered; drop them so the next frame does not replay them as a
-        // redundant partial write. three.js has no equivalent clear because its WebGL update
-        // gates on `data.version < attribute.version` BEFORE it looks at ranges — a pre-create
-        // range can never fire there. We check `updateRanges.length` first, unconditionally,
-        // so we have to clear here. The WebGL resize branch already does.
+        // the allocate path wrote everything, so pending ranges are already covered; dropping them
+        // stops the next frame replaying them as a redundant partial write.
         buffer.clearUpdateRanges();
         setupDispose$1(cache, buffer);
         buffer.onUpload?.();
         return buf;
     }
     const { buf } = entry;
-    if (buffer.updateRanges.length > 0) {
-        // Partial upload, ranges are flat component indices; convert to bytes. Merge first
-        // so a caller queueing many small ranges pays a few large writes instead of many
-        // small ones — same reasoning (and same helper) as the WebGL attribute path.
-        mergeUpdateRanges(buffer.updateRanges);
+    if (plan === BufferUpload.Partial) {
+        // Ranges are flat component indices and arrive already merged.
         const bytesPerComponent = arr.BYTES_PER_ELEMENT;
         for (const { start, count } of buffer.updateRanges) {
             const byteOffset = start * bytesPerComponent;
             const byteCount = count * bytesPerComponent;
             device.queue.writeBuffer(buf, byteOffset, arr.buffer, arr.byteOffset + byteOffset, byteCount);
-            recordBufferWrite(cache.info, buffer.label, byteCount, false);
+            recordBufferWrite(cache.info, byteCount, usage, false, label);
         }
         buffer.clearUpdateRanges();
-        entry.version = buffer.version;
     }
-    else if (buffer.version !== entry.version) {
-        // Full re-upload: `needsUpdate` bumped the version with no range queued, so the
-        // whole allocation goes up. Flagged, because at size this is usually a mistake.
+    else {
         device.queue.writeBuffer(buf, 0, arr.buffer, arr.byteOffset, arr.byteLength);
-        recordBufferWrite(cache.info, buffer.label, arr.byteLength, true);
-        entry.version = buffer.version;
+        recordBufferWrite(cache.info, arr.byteLength, usage, true, label);
     }
+    entry.version = buffer.version;
     return buf;
 }
 /**
@@ -15362,28 +15398,35 @@ function resolveStorageBuffer(node, geometry, buffers) {
     }
 }
 /**
- * Get or create a uniform/storage GPUBuffer identified by a JS object key.
- * Always writes `data` to the buffer (caller decides when to call this).
- * Returns both the buffer and whether it was newly created/resized.
+ * Upload one packed uniform block, identified by an arbitrary key.
+ *
+ * The one case with no `GpuBuffer` to gate on: a block is a byte blob packed from many uniform nodes
+ * through a compile-time layout, double-buffered so the binding can diff it, with no version of its
+ * own. Change detection is the caller's (`packAndCompare`), so this writes unconditionally.
+ *
+ * `ArrayBuffer`, not a typed array, so anything carrying a version cannot be passed here - those go
+ * through `ensureUploaded`.
  */
-function uploadRaw(cache, device, key, data, usage) {
+function uploadUniformBlock(cache, device, key, data, detail) {
     let buf = cache.rawMap.get(key);
     const byteLength = alignTo4(data.byteLength);
     const isNew = !buf;
     let created = false;
     if (!buf || buf.size < byteLength) {
         buf?.destroy();
-        buf = device.createBuffer({ size: byteLength, usage });
+        buf = device.createBuffer({ size: byteLength, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
         cache.rawMap.set(key, buf);
         created = true;
         if (isNew) {
             cache.rawCount++;
         }
     }
-    // raw path: no GpuBuffer, so no label to take - these are the per-object and
-    // per-group uniform blocks, grouped by size.
-    device.queue.writeBuffer(buf, 0, data.buffer, data.byteOffset, data.byteLength);
-    recordBufferWrite(cache.info, `uniform:${data.byteLength}`, data.byteLength, true);
+    // raw path: no GpuBuffer, so no label. `full` is FALSE on purpose - this path has
+    // no concept of ranges, so it always writes everything, and flagging it would make
+    // the "full re-upload" signal tautological exactly where it matters most. Identity
+    // comes from `detail`, which the uniform-binding caller fills in.
+    device.queue.writeBuffer(buf, 0, data, 0, data.byteLength);
+    recordBufferWrite(cache.info, data.byteLength, 'uniform', false, undefined, detail?.material, detail?.updateType, detail?.changedBytes);
     return { buffer: buf, created };
 }
 /**
@@ -24232,7 +24275,8 @@ function updateUniformBinding(bufferCache, device, binding, frame, data, materia
         binding.scratchBuffer = new ArrayBuffer(requiredBytes);
     }
     // Pack into scratch buffer, then compare with current
-    const changed = packAndCompare(block, binding.currentBuffer, binding.scratchBuffer, material);
+    const changedBytes = packAndCompare(block, binding.currentBuffer, binding.scratchBuffer, material);
+    const changed = changedBytes > 0;
     const uploaded = !!getRaw(bufferCache, binding.bufferKey);
     if (changed || !uploaded) {
         if (changed) {
@@ -24241,9 +24285,11 @@ function updateUniformBinding(bufferCache, device, binding, frame, data, materia
             binding.currentBuffer = binding.scratchBuffer;
             binding.scratchBuffer = temp;
         }
-        const U = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
-        const f32View = new Float32Array(binding.currentBuffer);
-        const result = uploadRaw(bufferCache, device, binding.bufferKey, f32View, U);
+        const result = uploadUniformBlock(bufferCache, device, binding.bufferKey, binding.currentBuffer, {
+            material: material?.name,
+            updateType: block.group?.updateType,
+            changedBytes,
+        });
         // Only rebuild bind group if buffer was created/resized (not just written to)
         if (result.created) {
             data.needsUpdate = true;
@@ -24255,6 +24301,8 @@ function updateUniformBinding(bufferCache, device, binding, frame, data, materia
  * Uses compiled layout for correct WGSL alignment.
  * Returns true if any values changed.
  */
+/** packs the block into `scratchBuffer` and returns how many BYTES differ from
+ *  `currentBuffer`. Zero means nothing changed. */
 function packAndCompare(block, currentBuffer, scratchBuffer, material) {
     const view = new DataView(scratchBuffer);
     // Pack each uniform member using compiled layout
@@ -24271,16 +24319,19 @@ function packAndCompare(block, currentBuffer, scratchBuffer, material) {
         // Cast needed: UniformValue is broader than Infer<schema> but matches at runtime
         packToView(m.schema, view, m.offset, value, 'wgsl-uniform');
     }
-    // Compare buffers byte-by-byte using typed arrays
+    // Compare word by word, COUNTING rather than early-returning. The count is what
+    // separates "a few bytes of a large block moved" - a per-frame value dragging a
+    // static payload up with it, fixable by splitting the block - from "the block
+    // genuinely changed". Same single pass either way; only the exit differs.
     const current = new Uint32Array(currentBuffer);
     const scratch = new Uint32Array(scratchBuffer);
     const len = current.length;
+    let changedWords = 0;
     for (let i = 0; i < len; i++) {
-        if (current[i] !== scratch[i]) {
-            return true;
-        }
+        if (current[i] !== scratch[i])
+            changedWords++;
     }
-    return false;
+    return changedWords * 4;
 }
 /** Update a texture binding. */
 function updateTextureBinding(textureCache, device, binding, data) {
@@ -24369,7 +24420,7 @@ function updateStorageBinding(bufferCache, device, binding, data, geometry, buff
         data.needsUpdate = true;
     }
     // Flush pending data to GPU (version check / partial ranges handled inside)
-    ensureUploaded(bufferCache, device, buffer);
+    ensureUploaded(bufferCache, device, buffer, 'storage');
 }
 /** Rebuild the GPU bind group for a BindGroup */
 function rebuildGPUBindGroup(device, bufferCache, textureCache, bindGroup, data, geometry, buffers) {
@@ -33368,7 +33419,7 @@ class Inspector extends RendererInspector {
                 // Geometry-based group - resolve buffer by name
                 const bufAttr = geometry.buffers.get(group.name);
                 if (bufAttr) {
-                    const gpuBuf = ensureUploaded(bufferCache, renderer.device, bufAttr);
+                    const gpuBuf = ensureUploaded(bufferCache, renderer.device, bufAttr, group.name);
                     pass.setVertexBuffer(slot, gpuBuf);
                 }
             }
@@ -33380,7 +33431,7 @@ class Inspector extends RendererInspector {
                 }
                 const arr = gpuBuffer.array;
                 if (arr) {
-                    const gpuBuf = uploadRaw(bufferCache, renderer.device, gpuBuffer, arr, GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST).buffer;
+                    const gpuBuf = ensureUploaded(bufferCache, renderer.device, gpuBuffer, group.name ?? 'vertex');
                     pass.setVertexBuffer(slot, gpuBuf);
                 }
             }
@@ -33390,7 +33441,7 @@ class Inspector extends RendererInspector {
         // indirect draw support.  The indirect GPU buffer was already written by
         // the compute pass this frame; getUploaded() does a non-uploading lookup.
         if (geometry.index) {
-            const idxBuf = ensureUploaded(bufferCache, renderer.device, geometry.index);
+            const idxBuf = ensureUploaded(bufferCache, renderer.device, geometry.index, 'index');
             pass.setIndexBuffer(idxBuf, getIndexFormat(geometry.index.array));
             if (geometry.indirect) {
                 const indBuf = getUploaded(bufferCache, geometry.indirect);
@@ -35151,24 +35202,16 @@ function uploadDirtyRanges(gl, target, array, buffer) {
     }
     buffer.clearUpdateRanges();
 }
-// Upload model, mirroring the WebGPU backend (`webgpu/buffers.ts` ensureUploaded) so both
-// backends share ONE mental model. Precedence per (re)upload:
-//   1. RESIZE guard — no GL buffer yet, or the array grew past the last upload: `bufferData`
-//      to (re)allocate at the new size (a full upload). This is the growable-arena path three.js
-//      lacks (it forbids resize); gpucat keys it off a size compare, NOT the version, so a grow
-//      that forgets to bump the version is still safe.
-//   2. PARTIAL — `addUpdateRange` spans pending (no version bump needed — the common streaming
-//      path): merged `bufferSubData` (see `uploadDirtyRanges`).
-//   3. FULL — version advanced with no ranges: `bufferSubData(…, 0, array)` (size is unchanged
-//      here, guaranteed by the resize guard above), matching three.js `WebGLAttributes`.
 /** Upload (creating/growing/patching as needed) an attribute buffer, returning its GL buffer. */
 function ensureAttributeBuffer(gl, gb, name, buffer) {
     const array = buffer.array;
     if (!array)
         throw new Error(`[WebGLRenderer] attribute buffer '${name}' has null array.`);
     let glBuffer = gb.attributeBuffers.get(name);
-    const lastSize = gb.attributeSizes.get(name) ?? -1;
-    if (!glBuffer || lastSize < array.byteLength) {
+    const plan = planBufferUpload(buffer, glBuffer !== undefined, gb.attributeSizes.get(name) ?? -1, gb.attributeVersions.get(name) ?? -1);
+    if (plan === BufferUpload.Skip && glBuffer)
+        return glBuffer;
+    if (plan === BufferUpload.Allocate) {
         if (!glBuffer) {
             const created = gl.createBuffer();
             if (!created)
@@ -35183,16 +35226,14 @@ function ensureAttributeBuffer(gl, gb, name, buffer) {
         buffer.clearUpdateRanges();
         return glBuffer;
     }
-    if (buffer.updateRanges.length > 0) {
-        gl.bindBuffer(gl.ARRAY_BUFFER, glBuffer);
+    gl.bindBuffer(gl.ARRAY_BUFFER, glBuffer);
+    if (plan === BufferUpload.Partial) {
         uploadDirtyRanges(gl, gl.ARRAY_BUFFER, array, buffer);
-        gb.attributeVersions.set(name, buffer.version);
     }
-    else if (gb.attributeVersions.get(name) !== buffer.version) {
-        gl.bindBuffer(gl.ARRAY_BUFFER, glBuffer);
+    else {
         gl.bufferSubData(gl.ARRAY_BUFFER, 0, array);
-        gb.attributeVersions.set(name, buffer.version);
     }
+    gb.attributeVersions.set(name, buffer.version);
     return glBuffer;
 }
 /** Upload (creating/growing/patching as needed) the index buffer, returning its GL buffer. */
@@ -35200,7 +35241,10 @@ function ensureIndexBuffer(gl, gb, index) {
     const array = index.array;
     if (!array)
         throw new Error('[WebGLRenderer] index buffer has null array.');
-    if (!gb.indexBuffer || gb.indexSize < array.byteLength) {
+    const plan = planBufferUpload(index, gb.indexBuffer !== null, gb.indexSize, gb.indexVersion);
+    if (plan === BufferUpload.Skip && gb.indexBuffer)
+        return gb.indexBuffer;
+    if (plan === BufferUpload.Allocate) {
         if (!gb.indexBuffer) {
             const created = gl.createBuffer();
             if (!created)
@@ -35214,16 +35258,14 @@ function ensureIndexBuffer(gl, gb, index) {
         index.clearUpdateRanges();
         return gb.indexBuffer;
     }
-    if (index.updateRanges.length > 0) {
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gb.indexBuffer);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gb.indexBuffer);
+    if (plan === BufferUpload.Partial) {
         uploadDirtyRanges(gl, gl.ELEMENT_ARRAY_BUFFER, array, index);
-        gb.indexVersion = index.version;
     }
-    else if (gb.indexVersion !== index.version) {
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gb.indexBuffer);
+    else {
         gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, array);
-        gb.indexVersion = index.version;
     }
+    gb.indexVersion = index.version;
     return gb.indexBuffer;
 }
 /**
@@ -39510,7 +39552,7 @@ function dispatchCompute(device, bindings, buffers, textures, pipelines, nodes, 
             computePass.setBindGroup(i, gpuBindGroups[i]);
         }
         if (entry.indirect) {
-            const gpuBuf = ensureUploaded(buffers, device, entry.indirect);
+            const gpuBuf = ensureUploaded(buffers, device, entry.indirect, 'indirect');
             computeDispatchWorkgroupsIndirect(computePass, inspector, gpuBuf, entry.indirectOffset ?? 0);
         }
         else {
@@ -39593,7 +39635,7 @@ function updateBuffer(state, bufferCache, device, buffer, type) {
     switch (type) {
         case 'vertex':
         case 'indirect':
-            ensureUploaded(bufferCache, device, buffer);
+            ensureUploaded(bufferCache, device, buffer, type);
             break;
         // Note: 'index' type uses updateIndex() instead
     }
@@ -39610,7 +39652,7 @@ function updateIndex(state, bufferCache, device, index) {
     }
     // Mark as updated for this frame
     state.bufferCall.set(index, callId);
-    ensureUploaded(bufferCache, device, index);
+    ensureUploaded(bufferCache, device, index, 'index');
 }
 /**
  * Delete a buffer from the deduplication tracking.
@@ -39882,14 +39924,14 @@ function uploadRenderObjectResources(device, bindings, geometries, buffers, text
         // upload storage buffers
         for (const s of nodeState.storage) {
             const buffer = resolveStorageBuffer(s.node, geometry, null);
-            ensureUploaded(buffers, device, buffer);
+            ensureUploaded(buffers, device, buffer, 'storage');
         }
         // upload vertex buffers
         for (const attrEntry of nodeState.attributes) {
             if (attrEntry.kind === 'geometry') {
                 const bufAttr = geometry.buffers.get(attrEntry.name);
                 if (bufAttr) {
-                    ensureUploaded(buffers, device, bufAttr);
+                    ensureUploaded(buffers, device, bufAttr, attrEntry.name);
                 }
             }
             else {
@@ -39899,13 +39941,14 @@ function uploadRenderObjectResources(device, bindings, geometries, buffers, text
                 }
                 const arr = gpuBuffer.array;
                 if (arr) {
-                    uploadRaw(buffers, device, attrEntry.node, arr, GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST);
+                    // node-owned attribute buffers are GpuBuffers too, so same gated path.
+                    ensureUploaded(buffers, device, gpuBuffer, attrEntry.shaderName);
                 }
             }
         }
         // upload index buffer if present
         if (geometry.index) {
-            ensureUploaded(buffers, device, geometry.index);
+            ensureUploaded(buffers, device, geometry.index, 'index');
         }
     }
     // upload uniforms and rebuild bind groups
@@ -40255,7 +40298,7 @@ function draw(device, bindings, geometries, buffers, textures, renderObjectGpu, 
                     slot++;
                     continue;
                 }
-                gpuBuf = ensureUploaded(buffers, device, bufAttr);
+                gpuBuf = ensureUploaded(buffers, device, bufAttr, group.name);
             }
             else {
                 // Direct buffer group
@@ -40267,7 +40310,7 @@ function draw(device, bindings, geometries, buffers, textures, renderObjectGpu, 
                 if (!arr) {
                     throw new Error(`[gpucat] VertexBufferGroup buffer array is null`);
                 }
-                gpuBuf = uploadRaw(buffers, device, gpuBuffer, arr, GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST).buffer;
+                gpuBuf = ensureUploaded(buffers, device, gpuBuffer, group.name ?? 'vertex');
             }
             if (currentSets.attributes[slot] !== gpuBuf) {
                 passSetVertexBuffer(gpuPass, inspector, slot, gpuBuf);
@@ -40276,7 +40319,7 @@ function draw(device, bindings, geometries, buffers, textures, renderObjectGpu, 
             slot++;
         }
         if (geometry.index) {
-            const idxBuf = ensureUploaded(buffers, device, geometry.index);
+            const idxBuf = ensureUploaded(buffers, device, geometry.index, 'index');
             if (currentSets.index !== idxBuf) {
                 passSetIndexBuffer(gpuPass, inspector, idxBuf, getIndexFormat(geometry.index.array));
                 currentSets.index = idxBuf;
@@ -40292,7 +40335,7 @@ function draw(device, bindings, geometries, buffers, textures, renderObjectGpu, 
             }
             else if (geometry.indirect) {
                 const indirect = geometry.indirect;
-                const indBuf = ensureUploaded(buffers, device, indirect);
+                const indBuf = ensureUploaded(buffers, device, indirect, 'indirect');
                 const byteStride = indirect.itemSize * 4;
                 const baseOffset = geometry.indirectOffset;
                 const drawCount = geometry.indirectDrawCount ?? indirect.count;
@@ -40316,7 +40359,7 @@ function draw(device, bindings, geometries, buffers, textures, renderObjectGpu, 
             }
             else if (geometry.indirect) {
                 const indirect = geometry.indirect;
-                const indBuf = ensureUploaded(buffers, device, indirect);
+                const indBuf = ensureUploaded(buffers, device, indirect, 'indirect');
                 const byteStride = indirect.itemSize * 4;
                 const baseOffset = geometry.indirectOffset;
                 const drawCount = geometry.indirectDrawCount ?? indirect.count;

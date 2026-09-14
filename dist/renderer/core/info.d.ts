@@ -52,26 +52,52 @@ export type BufferInfo = {
      */
     writeBytes: number;
     /**
-     * Per-buffer breakdown of this frame's writes, keyed by `GpuBuffer.label`.
+     * Per-write records for this frame, when `detailedWrites` is on. Raw and
+     * ungrouped ON PURPOSE: which axis is useful - material, usage, update scope -
+     * is a presentation question, and baking one in here means every new question
+     * costs a renderer change. Consumers group as they see fit.
      *
-     * `writeBytes` alone says how much went up but not what sent it, which is the
-     * only question worth asking once the number looks wrong. `full` is the field
-     * that earns its place: a buffer marked `needsUpdate` with NO queued range
-     * re-uploads its entire allocation, and a big buffer doing that every frame is
-     * indistinguishable from legitimate range writes in the totals.
-     *
-     * Entries persist across frames and are zeroed rather than deleted, so a label
-     * that stops uploading reads 0 instead of vanishing from the listing - and the
-     * map does not churn on the hot path.
+     * Off by default; collecting these allocates nothing while disabled, and the
+     * array is pooled so enabling it does not churn either.
      */
-    byLabel: Map<string, BufferWriteInfo>;
+    writes: BufferWrite[];
+    /** collect `writes`. Leave off outside a profiler / debug view. */
+    detailedWrites: boolean;
+    /** live length of `writes`; the array is pooled, so entries past this are stale. */
+    writeCount: number;
 };
-/** one label's share of a frame's buffer writes. */
-export type BufferWriteInfo = {
+/**
+ * One `writeBuffer`, with whatever identity the call site genuinely has.
+ *
+ * The optional fields are NOT laziness: identity is asymmetric at this layer. A
+ * uniform block belongs to a material, and sometimes to one object. A vertex buffer
+ * belongs to a GEOMETRY and is shared by every draw using it, so "which material
+ * wrote it" has no single answer - and inventing one would mislead exactly for the
+ * shared buffers you would most want to attribute.
+ */
+export type BufferWrite = {
     bytes: number;
-    calls: number;
-    /** writes that re-sent the WHOLE buffer rather than a queued range. */
-    full: number;
+    /** 'vertex' | 'index' | 'uniform' | 'storage' | ... */
+    usage: string;
+    /** the whole allocation went up, not a queued range. */
+    full: boolean;
+    /** explicit `GpuBuffer.label`, when the caller set one. */
+    label: string | undefined;
+    /** uniform blocks only: the material whose block this is. */
+    material: string | undefined;
+    /**
+     * uniform blocks only: how often this block is re-evaluated - 'frame', 'render'
+     * or 'object'. An 'object'-scoped block writes once PER MESH, which is usually
+     * the explanation for a write count that tracks scene population.
+     */
+    updateType: string | undefined;
+    /**
+     * uniform blocks only: bytes that actually differed from last frame. A 64 kB
+     * block where four bytes moved is a completely different problem from one where
+     * half of it did - the first is a small per-frame value dragging a large static
+     * payload up with it, and splitting the block fixes it.
+     */
+    changedBytes: number | undefined;
 };
 /**
  * Resident GPU objects — a snapshot, not a rate, refreshed at the frame boundary. These should sit
@@ -100,6 +126,6 @@ export declare function beginInfoFrame(info: RendererInfo): void;
  * Attribute one `writeBuffer` to a label, updating both the totals and the
  * breakdown. Every write site goes through here so the two can never disagree.
  */
-export declare function recordBufferWrite(info: RendererInfo, label: string, bytes: number, full: boolean): void;
+export declare function recordBufferWrite(info: RendererInfo, bytes: number, usage: string, full: boolean, label?: string, material?: string, updateType?: string, changedBytes?: number): void;
 /** Full reset, including the cumulative call counts and the memory snapshot. */
 export declare function resetRendererInfo(info: RendererInfo): void;

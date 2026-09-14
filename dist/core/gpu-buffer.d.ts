@@ -75,17 +75,9 @@ export declare class GpuBuffer<T extends Any = Any> {
     readonly usage: Set<BufferUsage>;
     /** How this buffer's lifecycle is managed */
     readonly lifecycle: BufferLifecycle;
-    private readonly _label;
-    private _labelCache;
-    /**
-     * What this buffer reports itself as in the per-frame upload breakdown.
-     *
-     * Falls back to `usage:byteLength` when unlabelled, so every buffer lands in a
-     * meaningful row without any call site having to opt in - and the fallback is
-     * derived once, since `byteLength` only changes on a resize, which mints a new
-     * cache entry anyway.
-     */
-    get label(): string;
+    /** Name this buffer reports in the per-frame upload breakdown, when the caller set one.
+     *  Undefined otherwise: the upload site supplies a name, since identity is call-site knowledge. */
+    readonly label: string | undefined;
     /** Usage count for REF_COUNTED buffers. When this hits 0, GPU resources are disposed. */
     _usages: number;
     /** CPU-side typed array. Can be set to null after onUpload releases memory. */
