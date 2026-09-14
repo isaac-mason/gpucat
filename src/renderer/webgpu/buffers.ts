@@ -3,6 +3,7 @@ import type { Geometry } from '../../geometry/geometry';
 import type { StorageNode } from '../../nodes/nodes';
 import type { Any } from '../../schema/schema';
 import type { RendererInfo } from '../core/info';
+import { recordBufferWrite } from '../core/info';
 import { mergeUpdateRanges } from '../core/update-ranges';
 
 type CacheEntry = { buf: GPUBuffer; version: number };
@@ -103,8 +104,8 @@ export function ensureUploaded(cache: BufferCache, device: GPUDevice, buffer: Gp
         if (!entry) cache.bufferCount++;
 
         device.queue.writeBuffer(buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
-        cache.info.buffers.writeBytes += arr.byteLength;
-        cache.info.buffers.writeCalls++;
+        // creation: the whole buffer by definition, so it counts as a full write.
+        recordBufferWrite(cache.info, buffer.label, arr.byteLength, true);
         cache.bufferMap.set(buffer, { buf, version: buffer.version });
 
         // The create path just uploaded everything, so any ranges queued before the first
@@ -133,16 +134,15 @@ export function ensureUploaded(cache: BufferCache, device: GPUDevice, buffer: Gp
             const byteOffset = start * bytesPerComponent;
             const byteCount = count * bytesPerComponent;
             device.queue.writeBuffer(buf, byteOffset, arr.buffer as ArrayBuffer, arr.byteOffset + byteOffset, byteCount);
-            cache.info.buffers.writeBytes += byteCount;
-            cache.info.buffers.writeCalls++;
+            recordBufferWrite(cache.info, buffer.label, byteCount, false);
         }
         buffer.clearUpdateRanges();
         entry.version = buffer.version;
     } else if (buffer.version !== entry.version) {
-        // Full re-upload.
+        // Full re-upload: `needsUpdate` bumped the version with no range queued, so the
+        // whole allocation goes up. Flagged, because at size this is usually a mistake.
         device.queue.writeBuffer(buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
-        cache.info.buffers.writeBytes += arr.byteLength;
-        cache.info.buffers.writeCalls++;
+        recordBufferWrite(cache.info, buffer.label, arr.byteLength, true);
         entry.version = buffer.version;
     }
 
@@ -228,9 +228,10 @@ export function uploadRaw(
         }
     }
 
+    // raw path: no GpuBuffer, so no label to take - these are the per-object and
+    // per-group uniform blocks, grouped by size.
     device.queue.writeBuffer(buf, 0, data.buffer as ArrayBuffer, data.byteOffset, data.byteLength);
-    cache.info.buffers.writeBytes += data.byteLength;
-    cache.info.buffers.writeCalls++;
+    recordBufferWrite(cache.info, `uniform:${data.byteLength}`, data.byteLength, true);
     return { buffer: buf, created };
 }
 

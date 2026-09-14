@@ -5899,6 +5899,25 @@ class GpuBuffer {
     usage;
     /** How this buffer's lifecycle is managed */
     lifecycle;
+    _label;
+    _labelCache;
+    /**
+     * What this buffer reports itself as in the per-frame upload breakdown.
+     *
+     * Falls back to `usage:byteLength` when unlabelled, so every buffer lands in a
+     * meaningful row without any call site having to opt in - and the fallback is
+     * derived once, since `byteLength` only changes on a resize, which mints a new
+     * cache entry anyway.
+     */
+    get label() {
+        if (this._label !== undefined)
+            return this._label;
+        if (this._labelCache === undefined) {
+            const usage = [...this.usage].sort().join('+');
+            this._labelCache = `${usage}:${this.array?.byteLength ?? 0}`;
+        }
+        return this._labelCache;
+    }
     /** Usage count for REF_COUNTED buffers. When this hits 0, GPU resources are disposed. */
     _usages = 0;
     /** CPU-side typed array. Can be set to null after onUpload releases memory. */
@@ -5922,6 +5941,7 @@ class GpuBuffer {
     constructor(schema, options = {}) {
         this.schema = schema;
         this.usage = normalizeUsage(options.usage);
+        this._label = options.label;
         this.lifecycle = options.lifecycle ?? BufferLifecycle.MANUAL;
         // Derive itemSize from schema
         this.itemSize = schemaItemSize(schema);
@@ -15078,6 +15098,88 @@ function getRenderObjectsStats(state) {
 }
 
 /**
+ * info.ts (renderer core) — per-frame render statistics, the backend-neutral counterpart to
+ * three.js `renderer.info`.
+ *
+ * WHO RESETS. three.js resets from its own rAF loop (`Animation.js`, gated on `info.autoReset`);
+ * PlayCanvas has no reset at all and instead DRAINS each counter as it is read
+ * (`framework/stats.js`: `stats.drawCalls.total = device._drawCallsPerFrame; device._drawCallsPerFrame = 0`).
+ * Neither ports here. gpucat owns no loop to reset from, and drain-on-read only works with exactly
+ * one reader — we have two independent ones, the host's debug panel and gpucat's own Inspector, and
+ * whichever read first would zero the other's numbers.
+ *
+ * So the PRODUCER resets, at the frame boundary the renderer already keeps: the depth-guarded
+ * `_renderCallDepth === 0` block that bumps `frameId` and opens the Inspector's frame. Nested
+ * renders (PassNode) and render-to-target passes run at depth > 0 and share the frame, exactly as
+ * they already share a `frameId`. Nothing has to be called from outside, so nothing can be
+ * forgotten, and any number of readers can read the same numbers without disturbing each other.
+ *
+ * Counters are therefore LAST COMPLETE FRAME while a frame is in flight, which is what a panel
+ * wants anyway. `calls` is the one cumulative figure (session totals, free to keep); everything
+ * else is per-frame. `memory` is a snapshot refreshed at the same boundary.
+ */
+function createRendererInfo() {
+    return {
+        render: { calls: 0, frameCalls: 0, drawCalls: 0, triangles: 0 },
+        compute: { calls: 0, frameCalls: 0 },
+        buffers: { writeCalls: 0, writeBytes: 0, byLabel: new Map() },
+        memory: {
+            buffers: 0,
+            rawBuffers: 0,
+            renderPipelines: 0,
+            computePipelines: 0,
+            bindGroupLayouts: 0,
+        },
+    };
+}
+/**
+ * Zero the per-frame counters. Called by the renderer at its top-level frame boundary, never by
+ * the host — see the module header. Cumulative `calls` and the `memory` snapshot survive.
+ */
+function beginInfoFrame(info) {
+    info.render.frameCalls = 0;
+    info.render.drawCalls = 0;
+    info.render.triangles = 0;
+    info.compute.frameCalls = 0;
+    info.buffers.writeCalls = 0;
+    info.buffers.writeBytes = 0;
+    // zero in place; see `byLabel` on why entries are kept rather than cleared.
+    for (const entry of info.buffers.byLabel.values()) {
+        entry.bytes = 0;
+        entry.calls = 0;
+        entry.full = 0;
+    }
+}
+/**
+ * Attribute one `writeBuffer` to a label, updating both the totals and the
+ * breakdown. Every write site goes through here so the two can never disagree.
+ */
+function recordBufferWrite(info, label, bytes, full) {
+    info.buffers.writeBytes += bytes;
+    info.buffers.writeCalls++;
+    let entry = info.buffers.byLabel.get(label);
+    if (entry === undefined) {
+        entry = { bytes: 0, calls: 0, full: 0 };
+        info.buffers.byLabel.set(label, entry);
+    }
+    entry.bytes += bytes;
+    entry.calls++;
+    if (full)
+        entry.full++;
+}
+/** Full reset, including the cumulative call counts and the memory snapshot. */
+function resetRendererInfo(info) {
+    beginInfoFrame(info);
+    info.render.calls = 0;
+    info.compute.calls = 0;
+    info.memory.buffers = 0;
+    info.memory.rawBuffers = 0;
+    info.memory.renderPipelines = 0;
+    info.memory.computePipelines = 0;
+    info.memory.bindGroupLayouts = 0;
+}
+
+/**
  * update-ranges.ts (renderer core) — backend-neutral merge of a buffer's pending dirty ranges into
  * the minimal set of spans worth uploading. Shared by the WebGL attribute path (one `bufferSubData`
  * per span), the WebGL storage-buffer-as-texture path (one `texSubImage2D` run per span) and the
@@ -15188,8 +15290,8 @@ function ensureUploaded(cache, device, buffer) {
         if (!entry)
             cache.bufferCount++;
         device.queue.writeBuffer(buf, 0, arr.buffer, arr.byteOffset, arr.byteLength);
-        cache.info.buffers.writeBytes += arr.byteLength;
-        cache.info.buffers.writeCalls++;
+        // creation: the whole buffer by definition, so it counts as a full write.
+        recordBufferWrite(cache.info, buffer.label, arr.byteLength, true);
         cache.bufferMap.set(buffer, { buf, version: buffer.version });
         // The create path just uploaded everything, so any ranges queued before the first
         // upload are already covered; drop them so the next frame does not replay them as a
@@ -15213,17 +15315,16 @@ function ensureUploaded(cache, device, buffer) {
             const byteOffset = start * bytesPerComponent;
             const byteCount = count * bytesPerComponent;
             device.queue.writeBuffer(buf, byteOffset, arr.buffer, arr.byteOffset + byteOffset, byteCount);
-            cache.info.buffers.writeBytes += byteCount;
-            cache.info.buffers.writeCalls++;
+            recordBufferWrite(cache.info, buffer.label, byteCount, false);
         }
         buffer.clearUpdateRanges();
         entry.version = buffer.version;
     }
     else if (buffer.version !== entry.version) {
-        // Full re-upload.
+        // Full re-upload: `needsUpdate` bumped the version with no range queued, so the
+        // whole allocation goes up. Flagged, because at size this is usually a mistake.
         device.queue.writeBuffer(buf, 0, arr.buffer, arr.byteOffset, arr.byteLength);
-        cache.info.buffers.writeBytes += arr.byteLength;
-        cache.info.buffers.writeCalls++;
+        recordBufferWrite(cache.info, buffer.label, arr.byteLength, true);
         entry.version = buffer.version;
     }
     return buf;
@@ -15279,9 +15380,10 @@ function uploadRaw(cache, device, key, data, usage) {
             cache.rawCount++;
         }
     }
+    // raw path: no GpuBuffer, so no label to take - these are the per-object and
+    // per-group uniform blocks, grouped by size.
     device.queue.writeBuffer(buf, 0, data.buffer, data.byteOffset, data.byteLength);
-    cache.info.buffers.writeBytes += data.byteLength;
-    cache.info.buffers.writeCalls++;
+    recordBufferWrite(cache.info, `uniform:${data.byteLength}`, data.byteLength, true);
     return { buffer: buf, created };
 }
 /**
@@ -34273,65 +34375,6 @@ class Line extends Mesh {
     raycast(raycaster, intersects) {
         raycastLine(this, this.material, this.geometry, raycaster, this.threshold, intersects);
     }
-}
-
-/**
- * info.ts (renderer core) — per-frame render statistics, the backend-neutral counterpart to
- * three.js `renderer.info`.
- *
- * WHO RESETS. three.js resets from its own rAF loop (`Animation.js`, gated on `info.autoReset`);
- * PlayCanvas has no reset at all and instead DRAINS each counter as it is read
- * (`framework/stats.js`: `stats.drawCalls.total = device._drawCallsPerFrame; device._drawCallsPerFrame = 0`).
- * Neither ports here. gpucat owns no loop to reset from, and drain-on-read only works with exactly
- * one reader — we have two independent ones, the host's debug panel and gpucat's own Inspector, and
- * whichever read first would zero the other's numbers.
- *
- * So the PRODUCER resets, at the frame boundary the renderer already keeps: the depth-guarded
- * `_renderCallDepth === 0` block that bumps `frameId` and opens the Inspector's frame. Nested
- * renders (PassNode) and render-to-target passes run at depth > 0 and share the frame, exactly as
- * they already share a `frameId`. Nothing has to be called from outside, so nothing can be
- * forgotten, and any number of readers can read the same numbers without disturbing each other.
- *
- * Counters are therefore LAST COMPLETE FRAME while a frame is in flight, which is what a panel
- * wants anyway. `calls` is the one cumulative figure (session totals, free to keep); everything
- * else is per-frame. `memory` is a snapshot refreshed at the same boundary.
- */
-function createRendererInfo() {
-    return {
-        render: { calls: 0, frameCalls: 0, drawCalls: 0, triangles: 0 },
-        compute: { calls: 0, frameCalls: 0 },
-        buffers: { writeCalls: 0, writeBytes: 0 },
-        memory: {
-            buffers: 0,
-            rawBuffers: 0,
-            renderPipelines: 0,
-            computePipelines: 0,
-            bindGroupLayouts: 0,
-        },
-    };
-}
-/**
- * Zero the per-frame counters. Called by the renderer at its top-level frame boundary, never by
- * the host — see the module header. Cumulative `calls` and the `memory` snapshot survive.
- */
-function beginInfoFrame(info) {
-    info.render.frameCalls = 0;
-    info.render.drawCalls = 0;
-    info.render.triangles = 0;
-    info.compute.frameCalls = 0;
-    info.buffers.writeCalls = 0;
-    info.buffers.writeBytes = 0;
-}
-/** Full reset, including the cumulative call counts and the memory snapshot. */
-function resetRendererInfo(info) {
-    beginInfoFrame(info);
-    info.render.calls = 0;
-    info.compute.calls = 0;
-    info.memory.buffers = 0;
-    info.memory.rawBuffers = 0;
-    info.memory.renderPipelines = 0;
-    info.memory.computePipelines = 0;
-    info.memory.bindGroupLayouts = 0;
 }
 
 /**

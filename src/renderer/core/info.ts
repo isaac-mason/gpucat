@@ -54,6 +54,28 @@ export type BufferInfo = {
      * caller queueing many tiny ranges (calls spike, bytes flat).
      */
     writeBytes: number;
+    /**
+     * Per-buffer breakdown of this frame's writes, keyed by `GpuBuffer.label`.
+     *
+     * `writeBytes` alone says how much went up but not what sent it, which is the
+     * only question worth asking once the number looks wrong. `full` is the field
+     * that earns its place: a buffer marked `needsUpdate` with NO queued range
+     * re-uploads its entire allocation, and a big buffer doing that every frame is
+     * indistinguishable from legitimate range writes in the totals.
+     *
+     * Entries persist across frames and are zeroed rather than deleted, so a label
+     * that stops uploading reads 0 instead of vanishing from the listing - and the
+     * map does not churn on the hot path.
+     */
+    byLabel: Map<string, BufferWriteInfo>;
+};
+
+/** one label's share of a frame's buffer writes. */
+export type BufferWriteInfo = {
+    bytes: number;
+    calls: number;
+    /** writes that re-sent the WHOLE buffer rather than a queued range. */
+    full: number;
 };
 
 /**
@@ -79,7 +101,7 @@ export function createRendererInfo(): RendererInfo {
     return {
         render: { calls: 0, frameCalls: 0, drawCalls: 0, triangles: 0 },
         compute: { calls: 0, frameCalls: 0 },
-        buffers: { writeCalls: 0, writeBytes: 0 },
+        buffers: { writeCalls: 0, writeBytes: 0, byLabel: new Map() },
         memory: {
             buffers: 0,
             rawBuffers: 0,
@@ -101,6 +123,29 @@ export function beginInfoFrame(info: RendererInfo): void {
     info.compute.frameCalls = 0;
     info.buffers.writeCalls = 0;
     info.buffers.writeBytes = 0;
+    // zero in place; see `byLabel` on why entries are kept rather than cleared.
+    for (const entry of info.buffers.byLabel.values()) {
+        entry.bytes = 0;
+        entry.calls = 0;
+        entry.full = 0;
+    }
+}
+
+/**
+ * Attribute one `writeBuffer` to a label, updating both the totals and the
+ * breakdown. Every write site goes through here so the two can never disagree.
+ */
+export function recordBufferWrite(info: RendererInfo, label: string, bytes: number, full: boolean): void {
+    info.buffers.writeBytes += bytes;
+    info.buffers.writeCalls++;
+    let entry = info.buffers.byLabel.get(label);
+    if (entry === undefined) {
+        entry = { bytes: 0, calls: 0, full: 0 };
+        info.buffers.byLabel.set(label, entry);
+    }
+    entry.bytes += bytes;
+    entry.calls++;
+    if (full) entry.full++;
 }
 
 /** Full reset, including the cumulative call counts and the memory snapshot. */

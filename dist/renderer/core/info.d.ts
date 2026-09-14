@@ -51,6 +51,27 @@ export type BufferInfo = {
      * caller queueing many tiny ranges (calls spike, bytes flat).
      */
     writeBytes: number;
+    /**
+     * Per-buffer breakdown of this frame's writes, keyed by `GpuBuffer.label`.
+     *
+     * `writeBytes` alone says how much went up but not what sent it, which is the
+     * only question worth asking once the number looks wrong. `full` is the field
+     * that earns its place: a buffer marked `needsUpdate` with NO queued range
+     * re-uploads its entire allocation, and a big buffer doing that every frame is
+     * indistinguishable from legitimate range writes in the totals.
+     *
+     * Entries persist across frames and are zeroed rather than deleted, so a label
+     * that stops uploading reads 0 instead of vanishing from the listing - and the
+     * map does not churn on the hot path.
+     */
+    byLabel: Map<string, BufferWriteInfo>;
+};
+/** one label's share of a frame's buffer writes. */
+export type BufferWriteInfo = {
+    bytes: number;
+    calls: number;
+    /** writes that re-sent the WHOLE buffer rather than a queued range. */
+    full: number;
 };
 /**
  * Resident GPU objects — a snapshot, not a rate, refreshed at the frame boundary. These should sit
@@ -75,5 +96,10 @@ export declare function createRendererInfo(): RendererInfo;
  * the host — see the module header. Cumulative `calls` and the `memory` snapshot survive.
  */
 export declare function beginInfoFrame(info: RendererInfo): void;
+/**
+ * Attribute one `writeBuffer` to a label, updating both the totals and the
+ * breakdown. Every write site goes through here so the two can never disagree.
+ */
+export declare function recordBufferWrite(info: RendererInfo, label: string, bytes: number, full: boolean): void;
 /** Full reset, including the cumulative call counts and the memory snapshot. */
 export declare function resetRendererInfo(info: RendererInfo): void;

@@ -39,6 +39,14 @@ export type GpuBufferOptions<T extends Any = Any> = {
     usage?: BufferUsage | BufferUsage[];
     /** How this buffer's lifecycle is managed. Defaults to MANUAL. */
     lifecycle?: BufferLifecycle;
+    /**
+     * Name this buffer reports itself under in `RendererInfo.buffers.byLabel`, the
+     * per-frame upload breakdown. Optional: an unlabelled buffer falls back to
+     * `usage:byteLength`, which is already distinguishing enough to find the big
+     * ones (a multi-megabyte `storage` is unmistakable), so labels are worth adding
+     * only where several buffers would otherwise collide in one row.
+     */
+    label?: string;
 };
 /**
  * Unified buffer class for vertex attributes, storage buffers, index buffers, etc.
@@ -67,6 +75,17 @@ export declare class GpuBuffer<T extends Any = Any> {
     readonly usage: Set<BufferUsage>;
     /** How this buffer's lifecycle is managed */
     readonly lifecycle: BufferLifecycle;
+    private readonly _label;
+    private _labelCache;
+    /**
+     * What this buffer reports itself as in the per-frame upload breakdown.
+     *
+     * Falls back to `usage:byteLength` when unlabelled, so every buffer lands in a
+     * meaningful row without any call site having to opt in - and the fallback is
+     * derived once, since `byteLength` only changes on a resize, which mints a new
+     * cache entry anyway.
+     */
+    get label(): string;
     /** Usage count for REF_COUNTED buffers. When this hits 0, GPU resources are disposed. */
     _usages: number;
     /** CPU-side typed array. Can be set to null after onUpload releases memory. */

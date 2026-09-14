@@ -128,6 +128,14 @@ export type GpuBufferOptions<T extends Any = Any> = {
     usage?: BufferUsage | BufferUsage[];
     /** How this buffer's lifecycle is managed. Defaults to MANUAL. */
     lifecycle?: BufferLifecycle;
+    /**
+     * Name this buffer reports itself under in `RendererInfo.buffers.byLabel`, the
+     * per-frame upload breakdown. Optional: an unlabelled buffer falls back to
+     * `usage:byteLength`, which is already distinguishing enough to find the big
+     * ones (a multi-megabyte `storage` is unmistakable), so labels are worth adding
+     * only where several buffers would otherwise collide in one row.
+     */
+    label?: string;
 };
 
 function normalizeUsage(usage?: BufferUsage | BufferUsage[]): Set<BufferUsage> {
@@ -181,6 +189,26 @@ export class GpuBuffer<T extends Any = Any> {
     /** How this buffer's lifecycle is managed */
     readonly lifecycle: BufferLifecycle;
 
+    private readonly _label: string | undefined;
+    private _labelCache: string | undefined;
+
+    /**
+     * What this buffer reports itself as in the per-frame upload breakdown.
+     *
+     * Falls back to `usage:byteLength` when unlabelled, so every buffer lands in a
+     * meaningful row without any call site having to opt in - and the fallback is
+     * derived once, since `byteLength` only changes on a resize, which mints a new
+     * cache entry anyway.
+     */
+    get label(): string {
+        if (this._label !== undefined) return this._label;
+        if (this._labelCache === undefined) {
+            const usage = [...this.usage].sort().join('+');
+            this._labelCache = `${usage}:${this.array?.byteLength ?? 0}`;
+        }
+        return this._labelCache;
+    }
+
     /** Usage count for REF_COUNTED buffers. When this hits 0, GPU resources are disposed. */
     _usages: number = 0;
 
@@ -214,6 +242,7 @@ export class GpuBuffer<T extends Any = Any> {
     constructor(schema: T, options: GpuBufferOptions<T> = {}) {
         this.schema = schema;
         this.usage = normalizeUsage(options.usage);
+        this._label = options.label;
         this.lifecycle = options.lifecycle ?? BufferLifecycle.MANUAL;
 
         // Derive itemSize from schema
