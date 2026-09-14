@@ -18,7 +18,7 @@ import type { RenderObject } from '../core/render-object';
 import { getBindings as getRenderObjectBindings } from '../core/render-object';
 import { type BindGroupLayoutCache, getBindGroupLayout, samplerBindingType, textureBindingLayout } from './bind-group-layout';
 import type { BufferCache } from './buffers';
-import { ensureUploaded, getRaw, getUploaded, resolveStorageBuffer, uploadRaw } from './buffers';
+import { ensureUploaded, getRaw, getUploaded, resolveStorageBuffer, uploadUniformBlock } from './buffers';
 import { formatHasStencil } from './pipelines';
 import type { RenderObjectGpuCache } from './render-object-gpu';
 import { clearRenderObjectGpu, getRenderObjectGpu } from './render-object-gpu';
@@ -439,7 +439,8 @@ function updateUniformBinding(
     }
 
     // Pack into scratch buffer, then compare with current
-    const changed = packAndCompare(block, binding.currentBuffer, binding.scratchBuffer!, material);
+    const changedBytes = packAndCompare(block, binding.currentBuffer, binding.scratchBuffer!, material);
+    const changed = changedBytes > 0;
     const uploaded = !!getRaw(bufferCache, binding.bufferKey);
 
     if (changed || !uploaded) {
@@ -450,9 +451,11 @@ function updateUniformBinding(
             binding.scratchBuffer = temp;
         }
 
-        const U = GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST;
-        const f32View = new Float32Array(binding.currentBuffer);
-        const result = uploadRaw(bufferCache, device, binding.bufferKey, f32View, U);
+        const result = uploadUniformBlock(bufferCache, device, binding.bufferKey, binding.currentBuffer, {
+            material: material?.name,
+            updateType: block.group?.updateType,
+            changedBytes,
+        });
 
         // Only rebuild bind group if buffer was created/resized (not just written to)
         if (result.created) {
@@ -466,12 +469,14 @@ function updateUniformBinding(
  * Uses compiled layout for correct WGSL alignment.
  * Returns true if any values changed.
  */
+/** packs the block into `scratchBuffer` and returns how many BYTES differ from
+ *  `currentBuffer`. Zero means nothing changed. */
 function packAndCompare(
     block: UniformGroupBlock,
     currentBuffer: ArrayBuffer,
     scratchBuffer: ArrayBuffer,
     material: Material | null,
-): boolean {
+): number {
     const view = new DataView(scratchBuffer);
 
     // Pack each uniform member using compiled layout
@@ -489,16 +494,18 @@ function packAndCompare(
         packToView(m.schema, view, m.offset, value as never, 'wgsl-uniform');
     }
 
-    // Compare buffers byte-by-byte using typed arrays
+    // Compare word by word, COUNTING rather than early-returning. The count is what
+    // separates "a few bytes of a large block moved" - a per-frame value dragging a
+    // static payload up with it, fixable by splitting the block - from "the block
+    // genuinely changed". Same single pass either way; only the exit differs.
     const current = new Uint32Array(currentBuffer);
     const scratch = new Uint32Array(scratchBuffer);
     const len = current.length;
+    let changedWords = 0;
     for (let i = 0; i < len; i++) {
-        if (current[i] !== scratch[i]) {
-            return true;
-        }
+        if (current[i] !== scratch[i]) changedWords++;
     }
-    return false;
+    return changedWords * 4;
 }
 
 /** Update a texture binding. */
@@ -611,7 +618,7 @@ function updateStorageBinding(
     }
 
     // Flush pending data to GPU (version check / partial ranges handled inside)
-    ensureUploaded(bufferCache, device, buffer);
+    ensureUploaded(bufferCache, device, buffer, 'storage');
 }
 
 /** Rebuild the GPU bind group for a BindGroup */

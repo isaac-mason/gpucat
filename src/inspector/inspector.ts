@@ -818,7 +818,7 @@ export class Inspector extends RendererInspector {
                 // Geometry-based group - resolve buffer by name
                 const bufAttr = geometry.buffers.get(group.name);
                 if (bufAttr) {
-                    const gpuBuf = Buffers.ensureUploaded(bufferCache, renderer.device, bufAttr);
+                    const gpuBuf = Buffers.ensureUploaded(bufferCache, renderer.device, bufAttr, group.name);
                     pass.setVertexBuffer(slot, gpuBuf);
                 }
             } else {
@@ -829,13 +829,7 @@ export class Inspector extends RendererInspector {
                 }
                 const arr = gpuBuffer.array;
                 if (arr) {
-                    const gpuBuf = Buffers.uploadRaw(
-                        bufferCache,
-                        renderer.device,
-                        gpuBuffer,
-                        arr,
-                        GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-                    ).buffer;
+                    const gpuBuf = Buffers.ensureUploaded(bufferCache, renderer.device, gpuBuffer, group.name ?? 'vertex');
                     pass.setVertexBuffer(slot, gpuBuf);
                 }
             }
@@ -846,7 +840,7 @@ export class Inspector extends RendererInspector {
         // indirect draw support.  The indirect GPU buffer was already written by
         // the compute pass this frame; getUploaded() does a non-uploading lookup.
         if (geometry.index) {
-            const idxBuf = Buffers.ensureUploaded(bufferCache, renderer.device, geometry.index);
+            const idxBuf = Buffers.ensureUploaded(bufferCache, renderer.device, geometry.index, 'index');
             pass.setIndexBuffer(idxBuf, getIndexFormat(geometry.index.array)!);
             if (geometry.indirect) {
                 const indBuf = Buffers.getUploaded(bufferCache, geometry.indirect);

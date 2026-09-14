@@ -112,7 +112,7 @@ export function dispatchCompute(
         }
 
         if (entry.indirect) {
-            const gpuBuf = Buffers.ensureUploaded(buffers, device, entry.indirect);
+            const gpuBuf = Buffers.ensureUploaded(buffers, device, entry.indirect, 'indirect');
             computeDispatchWorkgroupsIndirect(computePass, inspector, gpuBuf, entry.indirectOffset ?? 0);
         } else {
             const [dx, dy, dz] = entry.dispatch!;

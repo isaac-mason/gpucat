@@ -538,7 +538,7 @@ function draw(
                     slot++;
                     continue;
                 }
-                gpuBuf = Buffers.ensureUploaded(buffers, device, bufAttr);
+                gpuBuf = Buffers.ensureUploaded(buffers, device, bufAttr, group.name);
             } else {
                 // Direct buffer group
                 const gpuBuffer = group.buffer;
@@ -549,13 +549,7 @@ function draw(
                 if (!arr) {
                     throw new Error(`[gpucat] VertexBufferGroup buffer array is null`);
                 }
-                gpuBuf = Buffers.uploadRaw(
-                    buffers,
-                    device,
-                    gpuBuffer,
-                    arr,
-                    GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-                ).buffer;
+                gpuBuf = Buffers.ensureUploaded(buffers, device, gpuBuffer, group.name ?? 'vertex');
             }
             if (currentSets.attributes[slot] !== gpuBuf) {
                 passSetVertexBuffer(gpuPass, inspector, slot, gpuBuf);
@@ -565,7 +559,7 @@ function draw(
         }
 
         if (geometry.index) {
-            const idxBuf = Buffers.ensureUploaded(buffers, device, geometry.index);
+            const idxBuf = Buffers.ensureUploaded(buffers, device, geometry.index, 'index');
             if (currentSets.index !== idxBuf) {
                 passSetIndexBuffer(gpuPass, inspector, idxBuf, getIndexFormat(geometry.index.array)!);
                 currentSets.index = idxBuf;
@@ -579,7 +573,7 @@ function draw(
                 }
             } else if (geometry.indirect) {
                 const indirect = geometry.indirect;
-                const indBuf = Buffers.ensureUploaded(buffers, device, indirect);
+                const indBuf = Buffers.ensureUploaded(buffers, device, indirect, 'indirect');
                 const byteStride = indirect.itemSize * 4;
                 const baseOffset = geometry.indirectOffset;
                 const drawCount = geometry.indirectDrawCount ?? indirect.count;
@@ -599,7 +593,7 @@ function draw(
                 }
             } else if (geometry.indirect) {
                 const indirect = geometry.indirect;
-                const indBuf = Buffers.ensureUploaded(buffers, device, indirect);
+                const indBuf = Buffers.ensureUploaded(buffers, device, indirect, 'indirect');
                 const byteStride = indirect.itemSize * 4;
                 const baseOffset = geometry.indirectOffset;
                 const drawCount = geometry.indirectDrawCount ?? indirect.count;

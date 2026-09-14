@@ -111,7 +111,7 @@ export function uploadRenderObjectResources(
         // upload storage buffers
         for (const s of nodeState.storage) {
             const buffer = Buffers.resolveStorageBuffer(s.node, geometry, null);
-            Buffers.ensureUploaded(buffers, device, buffer);
+            Buffers.ensureUploaded(buffers, device, buffer, 'storage');
         }
 
         // upload vertex buffers
@@ -119,7 +119,7 @@ export function uploadRenderObjectResources(
             if (attrEntry.kind === 'geometry') {
                 const bufAttr = geometry.buffers.get(attrEntry.name!);
                 if (bufAttr) {
-                    Buffers.ensureUploaded(buffers, device, bufAttr);
+                    Buffers.ensureUploaded(buffers, device, bufAttr, attrEntry.name!);
                 }
             } else {
                 const gpuBuffer = attrEntry.node.buffer;
@@ -128,20 +128,15 @@ export function uploadRenderObjectResources(
                 }
                 const arr = gpuBuffer.array;
                 if (arr) {
-                    Buffers.uploadRaw(
-                        buffers,
-                        device,
-                        attrEntry.node,
-                        arr,
-                        GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-                    );
+                    // node-owned attribute buffers are GpuBuffers too, so same gated path.
+                    Buffers.ensureUploaded(buffers, device, gpuBuffer, attrEntry.shaderName);
                 }
             }
         }
 
         // upload index buffer if present
         if (geometry.index) {
-            Buffers.ensureUploaded(buffers, device, geometry.index);
+            Buffers.ensureUploaded(buffers, device, geometry.index, 'index');
         }
     }
 

@@ -1,10 +1,19 @@
-import type { GpuBuffer, GpuTypedArray } from '../../core/gpu-buffer';
+import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { Geometry } from '../../geometry/geometry';
 import type { StorageNode } from '../../nodes/nodes';
 import type { Any } from '../../schema/schema';
 import type { RendererInfo } from '../core/info';
 import { recordBufferWrite } from '../core/info';
-import { mergeUpdateRanges } from '../core/update-ranges';
+
+/** the one usage worth reporting, most specific first. A buffer often carries several
+ *  flags (`storage` + `vertex`), and the specific one is what identifies it. */
+function primaryUsage(buffer: { usage: Set<string> }): string {
+    for (const candidate of ['storage', 'index', 'vertex', 'uniform', 'indirect']) {
+        if (buffer.usage.has(candidate)) return candidate;
+    }
+    return 'other';
+}
+import { BufferUpload, planBufferUpload } from '../core/buffer-upload';
 
 type CacheEntry = { buf: GPUBuffer; version: number };
 
@@ -77,75 +86,60 @@ function deriveGPUUsage(buffer: GpuBuffer): GPUBufferUsageFlags {
  * This is the single upload function for all GpuBuffer types (vertex, index,
  * storage, indirect). GPU usage flags are derived from `buffer.usage`.
  */
-export function ensureUploaded(cache: BufferCache, device: GPUDevice, buffer: GpuBuffer): GPUBuffer {
-    const arr = buffer.array;
+/** `name` identifies the buffer in the per-frame upload breakdown. Required, not optional: every
+ *  call site knows what it is binding, and a name is call-site knowledge - the same buffer can be
+ *  bound under different attribute names, so it cannot live on the buffer. */
+export function ensureUploaded(cache: BufferCache, device: GPUDevice, buffer: GpuBuffer, name: string): GPUBuffer {
+    const entry = cache.bufferMap.get(buffer);
+    const plan = planBufferUpload(buffer, entry !== undefined, entry?.buf.size ?? 0, entry?.version ?? -1);
 
-    // CPU memory was released, return existing GPU buffer.
-    if (!arr) {
-        const entry = cache.bufferMap.get(buffer);
+    if (plan === BufferUpload.Skip) {
         if (!entry) {
             throw new Error('[gpucat] ensureUploaded: buffer.array is null but GPU buffer was never created');
         }
         return entry.buf;
     }
 
-    const byteLength = alignTo4(arr.byteLength);
-    const entry = cache.bufferMap.get(buffer);
+    // non-null past the plan: Skip is the only outcome for a released array.
+    const arr = buffer.array!;
+    const usage = primaryUsage(buffer);
+    const label = buffer.label ?? name;
 
-    // Create buffer if it doesn't exist or is too small.
-    if (!entry || entry.buf.size < byteLength) {
+    if (plan === BufferUpload.Allocate) {
         entry?.buf.destroy();
-
-        const buf = device.createBuffer({
-            size: byteLength,
-            usage: deriveGPUUsage(buffer),
-        });
-
+        // 4-byte alignment is a device requirement, so the size is decided here, not in the plan.
+        const buf = device.createBuffer({ size: alignTo4(arr.byteLength), usage: deriveGPUUsage(buffer) });
         if (!entry) cache.bufferCount++;
 
         device.queue.writeBuffer(buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
-        // creation: the whole buffer by definition, so it counts as a full write.
-        recordBufferWrite(cache.info, buffer.label, arr.byteLength, true);
+        recordBufferWrite(cache.info, arr.byteLength, usage, true, label);
         cache.bufferMap.set(buffer, { buf, version: buffer.version });
 
-        // The create path just uploaded everything, so any ranges queued before the first
-        // upload are already covered; drop them so the next frame does not replay them as a
-        // redundant partial write. three.js has no equivalent clear because its WebGL update
-        // gates on `data.version < attribute.version` BEFORE it looks at ranges — a pre-create
-        // range can never fire there. We check `updateRanges.length` first, unconditionally,
-        // so we have to clear here. The WebGL resize branch already does.
+        // the allocate path wrote everything, so pending ranges are already covered; dropping them
+        // stops the next frame replaying them as a redundant partial write.
         buffer.clearUpdateRanges();
-
         setupDispose(cache, buffer);
         buffer.onUpload?.();
-
         return buf;
     }
 
-    const { buf } = entry;
+    const { buf } = entry!;
 
-    if (buffer.updateRanges.length > 0) {
-        // Partial upload, ranges are flat component indices; convert to bytes. Merge first
-        // so a caller queueing many small ranges pays a few large writes instead of many
-        // small ones — same reasoning (and same helper) as the WebGL attribute path.
-        mergeUpdateRanges(buffer.updateRanges);
+    if (plan === BufferUpload.Partial) {
+        // Ranges are flat component indices and arrive already merged.
         const bytesPerComponent = arr.BYTES_PER_ELEMENT;
         for (const { start, count } of buffer.updateRanges) {
             const byteOffset = start * bytesPerComponent;
             const byteCount = count * bytesPerComponent;
             device.queue.writeBuffer(buf, byteOffset, arr.buffer as ArrayBuffer, arr.byteOffset + byteOffset, byteCount);
-            recordBufferWrite(cache.info, buffer.label, byteCount, false);
+            recordBufferWrite(cache.info, byteCount, usage, false, label);
         }
         buffer.clearUpdateRanges();
-        entry.version = buffer.version;
-    } else if (buffer.version !== entry.version) {
-        // Full re-upload: `needsUpdate` bumped the version with no range queued, so the
-        // whole allocation goes up. Flagged, because at size this is usually a mistake.
+    } else {
         device.queue.writeBuffer(buf, 0, arr.buffer as ArrayBuffer, arr.byteOffset, arr.byteLength);
-        recordBufferWrite(cache.info, buffer.label, arr.byteLength, true);
-        entry.version = buffer.version;
+        recordBufferWrite(cache.info, arr.byteLength, usage, true, label);
     }
-
+    entry!.version = buffer.version;
     return buf;
 }
 
@@ -206,12 +200,29 @@ export type UploadRawResult = {
  * Always writes `data` to the buffer (caller decides when to call this).
  * Returns both the buffer and whether it was newly created/resized.
  */
-export function uploadRaw(
+/** identity for a raw write, supplied by callers that have it (uniform blocks do). */
+export type RawWriteDetail = {
+    material?: string;
+    updateType?: string;
+    changedBytes?: number;
+};
+
+/**
+ * Upload one packed uniform block, identified by an arbitrary key.
+ *
+ * The one case with no `GpuBuffer` to gate on: a block is a byte blob packed from many uniform nodes
+ * through a compile-time layout, double-buffered so the binding can diff it, with no version of its
+ * own. Change detection is the caller's (`packAndCompare`), so this writes unconditionally.
+ *
+ * `ArrayBuffer`, not a typed array, so anything carrying a version cannot be passed here - those go
+ * through `ensureUploaded`.
+ */
+export function uploadUniformBlock(
     cache: BufferCache,
     device: GPUDevice,
     key: object,
-    data: GpuTypedArray,
-    usage: GPUBufferUsageFlags,
+    data: ArrayBuffer,
+    detail?: RawWriteDetail,
 ): UploadRawResult {
     let buf = cache.rawMap.get(key);
     const byteLength = alignTo4(data.byteLength);
@@ -220,7 +231,7 @@ export function uploadRaw(
 
     if (!buf || buf.size < byteLength) {
         buf?.destroy();
-        buf = device.createBuffer({ size: byteLength, usage });
+        buf = device.createBuffer({ size: byteLength, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
         cache.rawMap.set(key, buf);
         created = true;
         if (isNew) {
@@ -228,10 +239,21 @@ export function uploadRaw(
         }
     }
 
-    // raw path: no GpuBuffer, so no label to take - these are the per-object and
-    // per-group uniform blocks, grouped by size.
-    device.queue.writeBuffer(buf, 0, data.buffer as ArrayBuffer, data.byteOffset, data.byteLength);
-    recordBufferWrite(cache.info, `uniform:${data.byteLength}`, data.byteLength, true);
+    // raw path: no GpuBuffer, so no label. `full` is FALSE on purpose - this path has
+    // no concept of ranges, so it always writes everything, and flagging it would make
+    // the "full re-upload" signal tautological exactly where it matters most. Identity
+    // comes from `detail`, which the uniform-binding caller fills in.
+    device.queue.writeBuffer(buf, 0, data, 0, data.byteLength);
+    recordBufferWrite(
+        cache.info,
+        data.byteLength,
+        'uniform',
+        false,
+        undefined,
+        detail?.material,
+        detail?.updateType,
+        detail?.changedBytes,
+    );
     return { buffer: buf, created };
 }
 

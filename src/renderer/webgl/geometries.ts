@@ -20,6 +20,7 @@
 import type { GpuBuffer, GpuTypedArray } from '../../core/gpu-buffer';
 import type { Geometry } from '../../geometry/geometry';
 import type { NodeBuilderState } from '../core/node-builder-state';
+import { BufferUpload, planBufferUpload } from '../core/buffer-upload';
 import { mergeUpdateRanges } from '../core/update-ranges';
 
 /** Per-geometry GL resources: the attribute/index GL buffers and their last-uploaded versions. */
@@ -169,17 +170,6 @@ function uploadDirtyRanges(gl: WebGL2RenderingContext, target: GLenum, array: Gp
     buffer.clearUpdateRanges();
 }
 
-// Upload model, mirroring the WebGPU backend (`webgpu/buffers.ts` ensureUploaded) so both
-// backends share ONE mental model. Precedence per (re)upload:
-//   1. RESIZE guard — no GL buffer yet, or the array grew past the last upload: `bufferData`
-//      to (re)allocate at the new size (a full upload). This is the growable-arena path three.js
-//      lacks (it forbids resize); gpucat keys it off a size compare, NOT the version, so a grow
-//      that forgets to bump the version is still safe.
-//   2. PARTIAL — `addUpdateRange` spans pending (no version bump needed — the common streaming
-//      path): merged `bufferSubData` (see `uploadDirtyRanges`).
-//   3. FULL — version advanced with no ranges: `bufferSubData(…, 0, array)` (size is unchanged
-//      here, guaranteed by the resize guard above), matching three.js `WebGLAttributes`.
-
 /** Upload (creating/growing/patching as needed) an attribute buffer, returning its GL buffer. */
 function ensureAttributeBuffer(
     gl: WebGL2RenderingContext,
@@ -190,9 +180,10 @@ function ensureAttributeBuffer(
     const array = buffer.array;
     if (!array) throw new Error(`[WebGLRenderer] attribute buffer '${name}' has null array.`);
     let glBuffer = gb.attributeBuffers.get(name);
-    const lastSize = gb.attributeSizes.get(name) ?? -1;
+    const plan = planBufferUpload(buffer, glBuffer !== undefined, gb.attributeSizes.get(name) ?? -1, gb.attributeVersions.get(name) ?? -1);
+    if (plan === BufferUpload.Skip && glBuffer) return glBuffer;
 
-    if (!glBuffer || lastSize < array.byteLength) {
+    if (plan === BufferUpload.Allocate) {
         if (!glBuffer) {
             const created = gl.createBuffer();
             if (!created) throw new Error('[WebGLRenderer] gl.createBuffer returned null.');
@@ -207,25 +198,24 @@ function ensureAttributeBuffer(
         return glBuffer;
     }
 
-    if (buffer.updateRanges.length > 0) {
-        gl.bindBuffer(gl.ARRAY_BUFFER, glBuffer);
+    gl.bindBuffer(gl.ARRAY_BUFFER, glBuffer!);
+    if (plan === BufferUpload.Partial) {
         uploadDirtyRanges(gl, gl.ARRAY_BUFFER, array, buffer);
-        gb.attributeVersions.set(name, buffer.version);
-    } else if (gb.attributeVersions.get(name) !== buffer.version) {
-        gl.bindBuffer(gl.ARRAY_BUFFER, glBuffer);
+    } else {
         gl.bufferSubData(gl.ARRAY_BUFFER, 0, array);
-        gb.attributeVersions.set(name, buffer.version);
     }
-
-    return glBuffer;
+    gb.attributeVersions.set(name, buffer.version);
+    return glBuffer!;
 }
 
 /** Upload (creating/growing/patching as needed) the index buffer, returning its GL buffer. */
 function ensureIndexBuffer(gl: WebGL2RenderingContext, gb: GeometryBuffers, index: GpuBuffer): WebGLBuffer {
     const array = index.array;
     if (!array) throw new Error('[WebGLRenderer] index buffer has null array.');
+    const plan = planBufferUpload(index, gb.indexBuffer !== null, gb.indexSize, gb.indexVersion);
+    if (plan === BufferUpload.Skip && gb.indexBuffer) return gb.indexBuffer;
 
-    if (!gb.indexBuffer || gb.indexSize < array.byteLength) {
+    if (plan === BufferUpload.Allocate) {
         if (!gb.indexBuffer) {
             const created = gl.createBuffer();
             if (!created) throw new Error('[WebGLRenderer] gl.createBuffer returned null (index).');
@@ -239,16 +229,14 @@ function ensureIndexBuffer(gl: WebGL2RenderingContext, gb: GeometryBuffers, inde
         return gb.indexBuffer;
     }
 
-    if (index.updateRanges.length > 0) {
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gb.indexBuffer);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gb.indexBuffer!);
+    if (plan === BufferUpload.Partial) {
         uploadDirtyRanges(gl, gl.ELEMENT_ARRAY_BUFFER, array, index);
-        gb.indexVersion = index.version;
-    } else if (gb.indexVersion !== index.version) {
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gb.indexBuffer);
+    } else {
         gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, array);
-        gb.indexVersion = index.version;
     }
-    return gb.indexBuffer;
+    gb.indexVersion = index.version;
+    return gb.indexBuffer!;
 }
 
 // VAO construction.

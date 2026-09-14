@@ -105,7 +105,7 @@ export function updateBuffer(
     switch (type) {
         case 'vertex':
         case 'indirect':
-            Buffers.ensureUploaded(bufferCache, device, buffer);
+            Buffers.ensureUploaded(bufferCache, device, buffer, type);
             break;
         // Note: 'index' type uses updateIndex() instead
     }
@@ -126,7 +126,7 @@ export function updateIndex(state: GeometriesState, bufferCache: BufferCache, de
     // Mark as updated for this frame
     state.bufferCall.set(index, callId);
 
-    Buffers.ensureUploaded(bufferCache, device, index);
+    Buffers.ensureUploaded(bufferCache, device, index, 'index');
 }
 
 /**
