@@ -111,7 +111,7 @@ export function uploadRenderObjectResources(
         // upload storage buffers
         for (const s of nodeState.storage) {
             const buffer = Buffers.resolveStorageBuffer(s.node, geometry, null);
-            Buffers.ensureUploaded(buffers, device, buffer, 'storage');
+            Buffers.ensureUploaded(buffers, device, buffer, s.name);
         }
 
         // upload vertex buffers

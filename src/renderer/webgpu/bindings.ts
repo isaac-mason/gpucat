@@ -618,7 +618,7 @@ function updateStorageBinding(
     }
 
     // Flush pending data to GPU (version check / partial ranges handled inside)
-    ensureUploaded(bufferCache, device, buffer, 'storage');
+    ensureUploaded(bufferCache, device, buffer, binding.entry.name);
 }
 
 /** Rebuild the GPU bind group for a BindGroup */

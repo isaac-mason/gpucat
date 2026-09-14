@@ -24420,7 +24420,7 @@ function updateStorageBinding(bufferCache, device, binding, data, geometry, buff
         data.needsUpdate = true;
     }
     // Flush pending data to GPU (version check / partial ranges handled inside)
-    ensureUploaded(bufferCache, device, buffer, 'storage');
+    ensureUploaded(bufferCache, device, buffer, binding.entry.name);
 }
 /** Rebuild the GPU bind group for a BindGroup */
 function rebuildGPUBindGroup(device, bufferCache, textureCache, bindGroup, data, geometry, buffers) {
@@ -39924,7 +39924,7 @@ function uploadRenderObjectResources(device, bindings, geometries, buffers, text
         // upload storage buffers
         for (const s of nodeState.storage) {
             const buffer = resolveStorageBuffer(s.node, geometry, null);
-            ensureUploaded(buffers, device, buffer, 'storage');
+            ensureUploaded(buffers, device, buffer, s.name);
         }
         // upload vertex buffers
         for (const attrEntry of nodeState.attributes) {
