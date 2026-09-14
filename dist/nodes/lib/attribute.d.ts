@@ -12,6 +12,14 @@ export type AttributeOptions = {
     offset?: number;
     /** Whether this is per-instance data (stepMode: 'instance'). */
     instanced?: boolean;
+    /**
+     * Name this attribute's buffer reports in the per-frame upload breakdown.
+     *
+     * Only meaningful for `attribute(data, schema, options)`, which mints a buffer internally and
+     * so has no name of its own - a named geometry buffer or a caller-owned `GpuBuffer` already
+     * carries one. Without it those buffers report as a bare usage and cannot be told apart.
+     */
+    label?: string;
 };
 /**
  * AttributeNode, a vertex attribute that reads from either:

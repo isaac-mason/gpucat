@@ -8919,6 +8919,7 @@ function attribute(nameOrBufferOrData, schemaOrOptions, maybeOptions) {
     const buffer = new GpuBuffer(schema, {
         data: data,
         usage: 'vertex',
+        label: options.label,
     });
     return new AttributeNode(schema, buffer, options);
 }
