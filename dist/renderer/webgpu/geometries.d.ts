@@ -56,7 +56,7 @@ export declare function incrementCallId(state: GeometriesState): void;
  *
  * Version tracking is delegated to buffers.ts, we only track per-frame deduplication here.
  */
-export declare function updateBuffer(state: GeometriesState, bufferCache: BufferCache, device: GPUDevice, buffer: GpuBuffer<Any>, type: BufferType): void;
+export declare function updateBuffer(state: GeometriesState, bufferCache: BufferCache, device: GPUDevice, buffer: GpuBuffer<Any>, type: BufferType, name: string): void;
 /**
  * Update an index buffer, uploading to GPU if needed.
  */

@@ -88,6 +88,7 @@ export function updateBuffer(
     device: GPUDevice,
     buffer: GpuBuffer<Any>,
     type: BufferType,
+    name: string,
 ): void {
     const callId = state.currentCallId;
 
@@ -105,7 +106,7 @@ export function updateBuffer(
     switch (type) {
         case 'vertex':
         case 'indirect':
-            Buffers.ensureUploaded(bufferCache, device, buffer, type);
+            Buffers.ensureUploaded(bufferCache, device, buffer, name);
             break;
         // Note: 'index' type uses updateIndex() instead
     }
@@ -168,9 +169,9 @@ export function initGeometry(state: GeometriesState, bufferCache: BufferCache, d
     }
 
     // upload all vertex buffers
-    for (const [_name, buffer] of geometry.buffers) {
+    for (const [name, buffer] of geometry.buffers) {
         if (buffer.usage.has('vertex')) {
-            updateBuffer(state, bufferCache, device, buffer, 'vertex');
+            updateBuffer(state, bufferCache, device, buffer, 'vertex', name);
             state.memory.buffers++;
         }
     }
@@ -183,7 +184,7 @@ export function initGeometry(state: GeometriesState, bufferCache: BufferCache, d
 
     // upload indirect buffer if present
     if (geometry.indirect) {
-        updateBuffer(state, bufferCache, device, geometry.indirect, 'indirect');
+        updateBuffer(state, bufferCache, device, geometry.indirect, 'indirect', 'indirect');
         state.memory.indirectBuffers++;
     }
 
@@ -220,9 +221,9 @@ export function updateForRender(
     }
 
     // Update all vertex buffers (buffers.ts handles version checking)
-    for (const [_name, buffer] of geometry.buffers) {
+    for (const [name, buffer] of geometry.buffers) {
         if (buffer.usage.has('vertex')) {
-            updateBuffer(state, bufferCache, device, buffer, 'vertex');
+            updateBuffer(state, bufferCache, device, buffer, 'vertex', name);
         }
     }
 
@@ -233,7 +234,7 @@ export function updateForRender(
 
     // Update indirect buffer if present
     if (geometry.indirect) {
-        updateBuffer(state, bufferCache, device, geometry.indirect, 'indirect');
+        updateBuffer(state, bufferCache, device, geometry.indirect, 'indirect', 'indirect');
     }
 }
 

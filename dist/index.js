@@ -39621,7 +39621,7 @@ function incrementCallId(state) {
  *
  * Version tracking is delegated to buffers.ts, we only track per-frame deduplication here.
  */
-function updateBuffer(state, bufferCache, device, buffer, type) {
+function updateBuffer(state, bufferCache, device, buffer, type, name) {
     const callId = state.currentCallId;
     // Check if already updated this frame
     const lastCallId = state.bufferCall.get(buffer);
@@ -39635,7 +39635,7 @@ function updateBuffer(state, bufferCache, device, buffer, type) {
     switch (type) {
         case 'vertex':
         case 'indirect':
-            ensureUploaded(bufferCache, device, buffer, type);
+            ensureUploaded(bufferCache, device, buffer, name);
             break;
         // Note: 'index' type uses updateIndex() instead
     }
@@ -39681,9 +39681,9 @@ function initGeometry(state, bufferCache, device, geometry) {
         state.memory.geometries++;
     }
     // upload all vertex buffers
-    for (const [_name, buffer] of geometry.buffers) {
+    for (const [name, buffer] of geometry.buffers) {
         if (buffer.usage.has('vertex')) {
-            updateBuffer(state, bufferCache, device, buffer, 'vertex');
+            updateBuffer(state, bufferCache, device, buffer, 'vertex', name);
             state.memory.buffers++;
         }
     }
@@ -39694,7 +39694,7 @@ function initGeometry(state, bufferCache, device, geometry) {
     }
     // upload indirect buffer if present
     if (geometry.indirect) {
-        updateBuffer(state, bufferCache, device, geometry.indirect, 'indirect');
+        updateBuffer(state, bufferCache, device, geometry.indirect, 'indirect', 'indirect');
         state.memory.indirectBuffers++;
     }
     data.initialized = true;
@@ -39721,9 +39721,9 @@ function updateForRender(state, bufferCache, device, renderObject) {
         return; // initGeometry already uploads everything
     }
     // Update all vertex buffers (buffers.ts handles version checking)
-    for (const [_name, buffer] of geometry.buffers) {
+    for (const [name, buffer] of geometry.buffers) {
         if (buffer.usage.has('vertex')) {
-            updateBuffer(state, bufferCache, device, buffer, 'vertex');
+            updateBuffer(state, bufferCache, device, buffer, 'vertex', name);
         }
     }
     // Update index buffer if present
@@ -39732,7 +39732,7 @@ function updateForRender(state, bufferCache, device, renderObject) {
     }
     // Update indirect buffer if present
     if (geometry.indirect) {
-        updateBuffer(state, bufferCache, device, geometry.indirect, 'indirect');
+        updateBuffer(state, bufferCache, device, geometry.indirect, 'indirect', 'indirect');
     }
 }
 /**
