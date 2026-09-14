@@ -6134,11 +6134,12 @@ function createVertexBuffer(schema, data) {
  * @example
  * const particles = createStorageBuffer(d.array(Particle, 1000), new Float32Array(1000 * particleStride));
  */
-function createStorageBuffer(schema, data) {
+function createStorageBuffer(schema, data, label) {
     return new GpuBuffer(schema, {
         data,
         usage: 'storage',
         lifecycle: BufferLifecycle.MANUAL,
+        label,
     });
 }
 /**

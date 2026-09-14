@@ -451,11 +451,12 @@ export function createVertexBuffer<T extends Any>(schema: T, data: TypedArrayFor
  * @example
  * const particles = createStorageBuffer(d.array(Particle, 1000), new Float32Array(1000 * particleStride));
  */
-export function createStorageBuffer<T extends Any>(schema: T, data: TypedArrayFor<T>): GpuBuffer<T> {
+export function createStorageBuffer<T extends Any>(schema: T, data: TypedArrayFor<T>, label?: string): GpuBuffer<T> {
     return new GpuBuffer(schema, {
         data,
         usage: 'storage',
         lifecycle: BufferLifecycle.MANUAL,
+        label,
     });
 }
 

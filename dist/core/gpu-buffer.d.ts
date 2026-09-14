@@ -174,7 +174,7 @@ export declare function createVertexBuffer<T extends Any>(schema: T, data: Typed
  * @example
  * const particles = createStorageBuffer(d.array(Particle, 1000), new Float32Array(1000 * particleStride));
  */
-export declare function createStorageBuffer<T extends Any>(schema: T, data: TypedArrayFor<T>): GpuBuffer<T>;
+export declare function createStorageBuffer<T extends Any>(schema: T, data: TypedArrayFor<T>, label?: string): GpuBuffer<T>;
 /**
  * Create a uniform buffer with sensible defaults.
  * - usage: 'uniform'
