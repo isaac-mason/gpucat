@@ -482,13 +482,13 @@ export class WebGPURenderer implements Renderer, RendererState {
     /** Resize the swapchain to the given physical-pixel size, recreating depth/msaa if the size changed. @internal */
     private _resize(width: number, height: number): void {
         if (!this.swapchain.canvasTarget) return;
+        // Safari drops the canvas context's configuration on every backing-store resize (the
+        // width/height write feeding this call) even when the computed size is unchanged, so
+        // reconfigure unconditionally rather than gating it on the depth-texture size check below.
+        RenderPass.reconfigureContext(this.canvasContexts, this.device, this.swapchain.canvasTarget, this.format);
         const depth = this.swapchain.depthTexture;
         if (depth && depth.width === width && depth.height === height) return;
         RenderPass.recreateSwapchainTextures(this.device, this.swapchain, this.format, width, height);
-        // Safari drops the canvas context's configuration on the backing-store resize that just
-        // occurred (the width/height write feeding this call), so re-configure before the next
-        // getCurrentTexture. Runs only on an actual size change (past the early return above).
-        RenderPass.reconfigureContext(this.canvasContexts, this.device, this.swapchain.canvasTarget, this.format);
     }
 
     /** set the device pixel ratio. call before setSize(). Throws in headless mode. */
