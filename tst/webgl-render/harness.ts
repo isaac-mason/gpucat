@@ -144,6 +144,47 @@ async function caseSolid(): Promise<CaseResult> {
     return { name: 'solid', pixel, expected: [u8(0.9), u8(0.3), u8(0.6), 255] };
 }
 
+/**
+ * A transparent material that declares NO explicit `blend` must still blend, against the default
+ * straight-alpha over. Regression guard: the WebGL backend used to read `material.blend` directly and
+ * disable GL blending when it was unset, drawing every such material fully opaque while WebGPU (which
+ * defaults the blend state) blended it. Half-alpha green over opaque red must land halfway.
+ */
+async function caseTransparentDefaultBlend(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+
+    const geometry = createFullscreenTriangleGeometry();
+    const position = attribute('position', d.vec3f);
+
+    const opaque = new Mesh(
+        geometry,
+        new Material({ vertex: vec4(position, f32(1)), fragment: vec4(1, 0, 0, 1), depthTest: false }),
+    );
+    const blended = new Mesh(
+        geometry,
+        new Material({
+            vertex: vec4(position, f32(1)),
+            fragment: vec4(0, 1, 0, 0.5),
+            depthTest: false,
+            transparent: true,
+        }),
+    );
+
+    const scene = new Scene();
+    scene.add(opaque);
+    scene.add(blended);
+    const camera = new PerspectiveCamera();
+    scene.updateWorldMatrix();
+    camera.updateViewMatrix();
+
+    renderer.render(scene, camera);
+    const pixel = readCenter(renderer.gl!);
+    renderer.dispose();
+    // 0.5*green over 0.5*red. Unblended (the old bug) would read [0, 255, 0, 255].
+    return { name: 'transparent-default-blend', pixel, expected: [u8(0.5), u8(0.5), 0, 255] };
+}
+
 /** uniform: fullscreen triangle whose fragment reads a vec4 uniform → tests std140 UBO. */
 async function caseUniform(): Promise<CaseResult> {
     const renderer = await newRenderer();
@@ -3368,6 +3409,7 @@ export async function run(): Promise<RunResult> {
             caseSubrectPartial,
             caseSubrectPartialNeighbour,
             caseInstanced,
+            caseTransparentDefaultBlend,
             caseBatchedDrawsGreen,
             caseBatchedDrawsRed,
             caseBatchedDrawsNonIndexed,

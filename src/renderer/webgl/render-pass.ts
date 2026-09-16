@@ -25,6 +25,7 @@ import * as Geometries from './geometries';
 import { getRenderObjectGl, type RenderObjectGlCache } from './render-object-gl';
 import { bindRenderTargetFramebuffer, resolveActiveRenderTarget, type GlRenderTargetsState } from './render-target';
 import type { GlSamplersState } from './samplers';
+import * as RenderState from '../core/render-state';
 import { applyMaterialState, createGlStateCache, establishPassBaseline } from './state';
 import { bindTextures } from './texture-bindings';
 import type { GlTexturesState } from './textures';
@@ -140,33 +141,59 @@ export type DrawCaches = {
 };
 
 /**
- * Detect an MRT that requests *differing* blend modes across its color targets. WebGL2 applies one
- * global blend state to all draw buffers (no per-attachment blend), so a single uniform blend across
- * all targets is fine, but distinct per-target blends can't be honored — throw rather than silently
- * blending every attachment the same. Mirrors the WebGPU pipeline's per-target `mrt.getBlendMode`.
+ * How the pass's single GL blend state is chosen.
+ *
+ * WebGL2 applies one global blend state to all draw buffers (there is no per-attachment blend), so an
+ * MRT whose targets resolve to different blends cannot be honored. `targetName` is the target the
+ * global state follows; the others are proven to resolve identically, either unconditionally or
+ * (`opaqueOnly`) for as long as the material is opaque.
  */
-function assertUniformMrtBlend(passCtx: RenderContext): void {
+type PassBlend = {
+    targetName: string | null;
+    opaqueOnly: boolean;
+};
+
+/**
+ * Resolve how blending works for this pass, throwing on an MRT WebGL2 cannot express.
+ *
+ * Targets fall into three categories (see `core/render-state`): 'material' inherits the material's
+ * blend, 'no' disables blending for that attachment, and any explicit mode resolves the same way for
+ * every material. All-'material', all-'no' and all-one-explicit-mode are uniform unconditionally. A
+ * mix of 'material' and 'no' (the default MRT shape: a blended `output` plus unblended aux targets)
+ * agrees only while the material is opaque, which the draw loop rechecks per material. Anything else
+ * genuinely differs and throws.
+ */
+function planPassBlend(passCtx: RenderContext): PassBlend {
     const mrt = passCtx.mrt;
     const textures = passCtx.renderTarget?.textures;
-    if (!mrt || !textures || textures.length < 2) return;
+    if (!mrt || !textures || textures.length === 0) return { targetName: null, opaqueOnly: false };
 
-    // Reduce each target's blend to a comparable key. 'material' (inherit the material's global blend)
-    // and 'no' (the default for aux targets) are framework defaults, NOT an explicit per-attachment
-    // request — an MRT declares `output: material` + aux targets `no` by default, which is the normal
-    // opaque case and must not trip this guard. Collapse both to one key; only genuinely-differing
-    // CUSTOM per-target blend specs (which WebGL2's single global blend state can't honor) throw.
-    const keyOf = (name: string): string => {
-        const b = mrt.getBlendMode(name);
-        if (b.blending === 'material' || b.blending === 'no') return 'default';
-        return `${b.blending}:${b.blendSrc},${b.blendDst},${b.blendEquation},${b.blendSrcAlpha},${b.blendDstAlpha},${b.blendEquationAlpha}`;
-    };
+    const names = textures.map((t) => t.name ?? '');
+    const targetName = names[0] ?? '';
+    if (textures.length < 2) return { targetName, opaqueOnly: false };
 
-    const first = keyOf(textures[0]?.name ?? '');
-    for (let i = 1; i < textures.length; i++) {
-        if (keyOf(textures[i]?.name ?? '') !== first) {
-            throw new Error('[WebGLRenderer] per-attachment blend modes are not supported on the WebGL2 backend.');
+    let sawMaterial = false;
+    let sawNo = false;
+    let explicitKey: string | null = null;
+    for (const name of names) {
+        const mode = mrt.getBlendMode(name);
+        if (mode.blending === 'material') {
+            sawMaterial = true;
+        } else if (mode.blending === 'no') {
+            sawNo = true;
+        } else {
+            const key = RenderState.blendStateKey(RenderState.blendModeState(mode));
+            if (explicitKey !== null && explicitKey !== key) {
+                throw new Error('[WebGLRenderer] per-attachment blend modes are not supported on the WebGL2 backend.');
+            }
+            explicitKey = key;
         }
     }
+    if (explicitKey !== null && (sawMaterial || sawNo)) {
+        throw new Error('[WebGLRenderer] per-attachment blend modes are not supported on the WebGL2 backend.');
+    }
+
+    return { targetName, opaqueOnly: sawMaterial && sawNo };
 }
 
 /**
@@ -183,7 +210,7 @@ export function executeRenderPass(
     inspector: InspectorBase | null,
 ): void {
     // Reject an MRT that asks for differing per-attachment blends (WebGL2 has one global blend state).
-    assertUniformMrtBlend(passCtx);
+    const passBlend = planPassBlend(passCtx);
 
     const { hasStencil: targetStencil } = bindFramebuffer(gl, caches, params);
     applyViewportScissor(gl, passCtx);
@@ -275,7 +302,12 @@ export function executeRenderPass(
         }
 
         // Fixed-function GL state from the material (depth/cull/blend/colorMask/stencil).
-        applyMaterialState(gl, stateCache, material, hasStencil);
+        // A mixed 'material'/'no' MRT only agrees across attachments while the material is opaque.
+        if (passBlend.opaqueOnly && material.transparent) {
+            throw new Error('[WebGLRenderer] per-attachment blend modes are not supported on the WebGL2 backend.');
+        }
+        const blend = RenderState.resolveTargetBlend(material, passCtx.mrt, passBlend.targetName);
+        applyMaterialState(gl, stateCache, material, hasStencil, blend);
 
         // Draw. Topology is a triangle list (the GLSL render path targets triangles).
         // `u_drawBase` feeds instanceIndex's base-inclusive lowering (`u_drawBase + gl_InstanceID`).

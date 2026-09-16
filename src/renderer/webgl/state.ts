@@ -13,6 +13,7 @@
  */
 
 import type { Material } from '../../material/material';
+import * as RenderState from '../core/render-state';
 
 /**
  * Last-applied GL fixed-function state, so the draw loop can skip redundant calls. Reset at the
@@ -228,12 +229,13 @@ function setCullState(gl: WebGL2RenderingContext, cache: GlStateCache, material:
 }
 
 /**
- * Apply blending. gpucat blends only when `material.transparent` and a `material.blend` state is set
- * (matching how the WebGPU pipeline attaches a blend state). Otherwise blending is disabled.
+ * Apply an already-resolved blend state. WHICH blend a material gets is decided by
+ * `core/render-state`, shared with the WebGPU pipeline so the two backends cannot disagree about what
+ * `transparent` means; this function only translates the result into GL calls. `undefined` is
+ * no-blend.
  */
-function setBlendState(gl: WebGL2RenderingContext, cache: GlStateCache, material: Material): void {
-    const blend = material.transparent ? material.blend : undefined;
-    const key = blend ? JSON.stringify(blend) : 'none';
+function setBlendState(gl: WebGL2RenderingContext, cache: GlStateCache, blend: GPUBlendState | undefined): void {
+    const key = RenderState.blendStateKey(blend);
     if (cache.blendKey === key) return;
     cache.blendKey = key;
 
@@ -355,17 +357,21 @@ function setStencilState(gl: WebGL2RenderingContext, cache: GlStateCache, materi
 /**
  * Apply the whole fixed-function GL state for a material in one call: depth, cull, blend, color mask,
  * and (when the framebuffer supports it) stencil. Redundant sub-states are skipped via `cache`.
+ *
+ * `blend` is the pass's already-resolved blend state (see `core/render-state`), passed in rather than
+ * derived here because resolving it needs the pass's MRT context, which is not on the material.
  */
 export function applyMaterialState(
     gl: WebGL2RenderingContext,
     cache: GlStateCache,
     material: Material,
     hasStencil: boolean,
+    blend: GPUBlendState | undefined,
 ): void {
     setDepthState(gl, cache, material);
     setDepthBiasState(gl, cache, material);
     setCullState(gl, cache, material);
-    setBlendState(gl, cache, material);
+    setBlendState(gl, cache, blend);
     setAlphaToCoverageState(gl, cache, material);
     setColorWriteState(gl, cache, material);
     setStencilState(gl, cache, material, hasStencil);

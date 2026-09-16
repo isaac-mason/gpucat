@@ -1,5 +1,4 @@
 import type { Geometry } from '../../geometry/geometry';
-import type { BlendMode } from '../../material/blend-mode';
 import type { Material } from '../../material/material';
 import type { MRTNode } from '../../nodes/lib/mrt';
 import { type ComputeNode, type Node, NodeKind, type OutputStructNode } from '../../nodes/nodes';
@@ -9,6 +8,7 @@ import type { NodeManagerState } from '../core/node-manager';
 import * as NodeManager from '../core/node-manager';
 import type { ComputeContext } from '../core/pass-context';
 import type { RenderObject } from '../core/render-object';
+import * as RenderState from '../core/render-state';
 import { type BindGroupLayoutCache, buildComputeBindGroupLayouts } from './bind-group-layout';
 
 export type ComputePipelineEntry = {
@@ -242,31 +242,17 @@ function buildRenderPipelineDescriptor(
         }
     });
 
-    // Material-level blend (applied to attachments tagged 'material' or non-MRT pipelines).
-    const materialBlending: GPUBlendState | undefined = material.transparent
-        ? (material.blend ?? getDefaultBlendState())
-        : undefined;
-
-    // Build color targets (supports MRT). Empty for depth-only pipelines.
+    // Build color targets (supports MRT). Empty for depth-only pipelines. The blend each target gets
+    // is decided by `core/render-state`, shared with the WebGL backend so the two cannot drift.
     const targetCount = getTargetCount(material.fragment);
     const textures = renderContext.renderTarget?.textures ?? null;
     const mrt: MRTNode | null = renderContext.mrt;
     const colorTargets: GPUColorTargetState[] = [];
     for (let i = 0; i < targetCount; i++) {
-        let blend: GPUBlendState | undefined;
-        if (mrt !== null && textures !== null) {
-            const blendMode = mrt.getBlendMode(textures[i]?.name ?? '');
-            if (blendMode.blending === 'material') {
-                blend = materialBlending;
-            } else if (blendMode.blending !== 'no') {
-                blend = _getBlending(blendMode);
-            }
-        } else {
-            blend = materialBlending;
-        }
+        const targetName = mrt !== null && textures !== null ? (textures[i]?.name ?? '') : null;
         colorTargets.push({
             format: colorFormats[i] ?? colorFormats[0],
-            blend,
+            blend: RenderState.resolveTargetBlend(material, mrt, targetName),
             writeMask: material.colorWrite ? GPUColorWrite.ALL : 0,
         });
     }
@@ -641,69 +627,4 @@ function wgslTypeItemSize(type: string): number {
         default:
             return 4;
     }
-}
-
-/**
- * Get default blend state for transparent materials.
- */
-function getDefaultBlendState(): GPUBlendState {
-    return {
-        color: {
-            srcFactor: 'src-alpha',
-            dstFactor: 'one-minus-src-alpha',
-            operation: 'add',
-        },
-        alpha: {
-            srcFactor: 'one',
-            dstFactor: 'one-minus-src-alpha',
-            operation: 'add',
-        },
-    };
-}
-
-// (srcRGB, dstRGB, srcAlpha, dstAlpha) → GPUBlendState with 'add' for both ops.
-const _add = (srcRGB: GPUBlendFactor, dstRGB: GPUBlendFactor, srcA: GPUBlendFactor, dstA: GPUBlendFactor): GPUBlendState => ({
-    color: { srcFactor: srcRGB, dstFactor: dstRGB, operation: 'add' },
-    alpha: { srcFactor: srcA, dstFactor: dstA, operation: 'add' },
-});
-
-/**
- * Translate a BlendMode into a GPUBlendState for pipeline creation. Only runs on pipeline
- * cache miss, so the state is built on demand rather than precomputed.
- *
- * subtractive/multiply are only defined for premultiplied alpha; the non-premultiplied
- * combinations are unsupported and rejected.
- */
-function _getBlending(blendMode: BlendMode): GPUBlendState {
-    const { blending, premultiplyAlpha: pm } = blendMode;
-
-    if (blending === 'custom') {
-        const { blendSrc, blendDst, blendEquation } = blendMode;
-        return {
-            color: { srcFactor: blendSrc, dstFactor: blendDst, operation: blendEquation },
-            alpha: {
-                srcFactor: blendMode.blendSrcAlpha ?? blendSrc,
-                dstFactor: blendMode.blendDstAlpha ?? blendDst,
-                operation: blendMode.blendEquationAlpha ?? blendEquation,
-            },
-        };
-    }
-
-    switch (blending) {
-        case 'normal':
-            return pm
-                ? _add('one', 'one-minus-src-alpha', 'one', 'one-minus-src-alpha')
-                : _add('src-alpha', 'one-minus-src-alpha', 'one', 'one-minus-src-alpha');
-        case 'additive':
-            return pm ? _add('one', 'one', 'one', 'one') : _add('src-alpha', 'one', 'one', 'one');
-        case 'subtractive':
-            if (pm) return _add('zero', 'one-minus-src', 'zero', 'one');
-            break;
-        case 'multiply':
-            if (pm) return _add('dst', 'one-minus-src-alpha', 'zero', 'one');
-            break;
-    }
-
-    console.error(`[pipelines] ${blending} blending requires premultiplyAlpha=true.`);
-    return getDefaultBlendState();
 }
