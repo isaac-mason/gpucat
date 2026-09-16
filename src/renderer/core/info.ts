@@ -114,6 +114,16 @@ export type MemoryInfo = {
     geometries: number;
     /** Textures resident on the device. */
     textures: number;
+    /**
+     * Estimated bytes those textures occupy. An estimate on purpose (see `core/texture-size.ts`):
+     * a budget figure for finding the expensive textures, not an allocator's answer.
+     */
+    texturesSize: number;
+    /**
+     * Estimated texture bytes broken down by `GPUTextureFormat`. The format vocabulary is the same on
+     * both backends, so this row set is comparable across them, unlike `backend` below.
+     */
+    texturesByFormat: Record<string, number>;
     /** Samplers resident on the device. */
     samplers: number;
     /**
@@ -142,7 +152,16 @@ export function createRendererInfo(): RendererInfo {
         render: { calls: 0, frameCalls: 0, drawCalls: 0, triangles: 0 },
         compute: { calls: 0, frameCalls: 0 },
         buffers: { writeCalls: 0, writeBytes: 0, writes: [], detailedWrites: false, writeCount: 0 },
-        memory: { buffers: 0, geometries: 0, textures: 0, samplers: 0, programs: 0, backend: {} },
+        memory: {
+            buffers: 0,
+            geometries: 0,
+            textures: 0,
+            texturesSize: 0,
+            texturesByFormat: {},
+            samplers: 0,
+            programs: 0,
+            backend: {},
+        },
     };
 }
 
@@ -207,6 +226,80 @@ export function recordBufferWrite(
     buffers.writeCount++;
 }
 
+/**
+ * Running texture tally a backend keeps alongside its cache.
+ *
+ * Incremented at create/replace/destroy rather than read live at the frame boundary like the other
+ * memory counters, because both backends key their texture caches by object in a WeakMap and a WeakMap
+ * cannot be enumerated. Shared so the two cannot disagree about what counts or how it is bucketed.
+ */
+export type TextureTally = {
+    count: number;
+    bytes: number;
+    /** bytes per `GPUTextureFormat`. */
+    byFormat: Map<string, number>;
+};
+
+/**
+ * What one cache entry currently contributes to the tally. Held ON the entry so a resize can subtract
+ * exactly what it added, rather than recomputing a size the texture no longer has. `format: null`
+ * means this entry contributes nothing yet.
+ */
+export type TextureTallyEntry = { format: string | null; bytes: number };
+
+export function createTextureTally(): TextureTally {
+    return { count: 0, bytes: 0, byFormat: new Map() };
+}
+
+export function createTextureTallyEntry(): TextureTallyEntry {
+    return { format: null, bytes: 0 };
+}
+
+function subtract(tally: TextureTally, format: string, bytes: number): void {
+    tally.bytes -= bytes;
+    const remaining = (tally.byFormat.get(format) ?? 0) - bytes;
+    if (remaining > 0) tally.byFormat.set(format, remaining);
+    else tally.byFormat.delete(format);
+}
+
+/**
+ * Set what an entry contributes, replacing whatever it contributed before. First call for an entry
+ * counts a new texture; later calls (a resize or format change) move bytes without moving the count.
+ */
+export function tallySetTexture(tally: TextureTally, entry: TextureTallyEntry, format: string, bytes: number): void {
+    if (entry.format === null) tally.count++;
+    else subtract(tally, entry.format, entry.bytes);
+
+    entry.format = format;
+    entry.bytes = bytes;
+    tally.bytes += bytes;
+    tally.byFormat.set(format, (tally.byFormat.get(format) ?? 0) + bytes);
+}
+
+/** Drop an entry's contribution entirely. Idempotent: clearing an uncounted entry does nothing. */
+export function tallyClearTexture(tally: TextureTally, entry: TextureTallyEntry): void {
+    if (entry.format === null) return;
+    tally.count--;
+    subtract(tally, entry.format, entry.bytes);
+    entry.format = null;
+    entry.bytes = 0;
+}
+
+export function resetTextureTally(tally: TextureTally): void {
+    tally.count = 0;
+    tally.bytes = 0;
+    tally.byFormat.clear();
+}
+
+/** Copy a backend's tally into the neutral snapshot. Called from the renderer's frame boundary. */
+export function readTextureTally(tally: TextureTally, memory: MemoryInfo): void {
+    memory.textures = tally.count;
+    memory.texturesSize = tally.bytes;
+    const byFormat: Record<string, number> = {};
+    for (const [format, bytes] of tally.byFormat) byFormat[format] = bytes;
+    memory.texturesByFormat = byFormat;
+}
+
 /** Full reset, including the cumulative call counts and the memory snapshot. */
 export function resetRendererInfo(info: RendererInfo): void {
     beginInfoFrame(info);
@@ -215,6 +308,8 @@ export function resetRendererInfo(info: RendererInfo): void {
     info.memory.buffers = 0;
     info.memory.geometries = 0;
     info.memory.textures = 0;
+    info.memory.texturesSize = 0;
+    info.memory.texturesByFormat = {};
     info.memory.samplers = 0;
     info.memory.programs = 0;
     info.memory.backend = {};

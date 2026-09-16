@@ -110,6 +110,16 @@ export type MemoryInfo = {
     geometries: number;
     /** Textures resident on the device. */
     textures: number;
+    /**
+     * Estimated bytes those textures occupy. An estimate on purpose (see `core/texture-size.ts`):
+     * a budget figure for finding the expensive textures, not an allocator's answer.
+     */
+    texturesSize: number;
+    /**
+     * Estimated texture bytes broken down by `GPUTextureFormat`. The format vocabulary is the same on
+     * both backends, so this row set is comparable across them, unlike `backend` below.
+     */
+    texturesByFormat: Record<string, number>;
     /** Samplers resident on the device. */
     samplers: number;
     /**
@@ -149,5 +159,39 @@ export declare function primaryBufferUsage(buffer: {
  * breakdown. Every write site goes through here so the two can never disagree.
  */
 export declare function recordBufferWrite(info: RendererInfo, bytes: number, usage: string, full: boolean, label?: string, material?: string, updateType?: string, changedBytes?: number): void;
+/**
+ * Running texture tally a backend keeps alongside its cache.
+ *
+ * Incremented at create/replace/destroy rather than read live at the frame boundary like the other
+ * memory counters, because both backends key their texture caches by object in a WeakMap and a WeakMap
+ * cannot be enumerated. Shared so the two cannot disagree about what counts or how it is bucketed.
+ */
+export type TextureTally = {
+    count: number;
+    bytes: number;
+    /** bytes per `GPUTextureFormat`. */
+    byFormat: Map<string, number>;
+};
+/**
+ * What one cache entry currently contributes to the tally. Held ON the entry so a resize can subtract
+ * exactly what it added, rather than recomputing a size the texture no longer has. `format: null`
+ * means this entry contributes nothing yet.
+ */
+export type TextureTallyEntry = {
+    format: string | null;
+    bytes: number;
+};
+export declare function createTextureTally(): TextureTally;
+export declare function createTextureTallyEntry(): TextureTallyEntry;
+/**
+ * Set what an entry contributes, replacing whatever it contributed before. First call for an entry
+ * counts a new texture; later calls (a resize or format change) move bytes without moving the count.
+ */
+export declare function tallySetTexture(tally: TextureTally, entry: TextureTallyEntry, format: string, bytes: number): void;
+/** Drop an entry's contribution entirely. Idempotent: clearing an uncounted entry does nothing. */
+export declare function tallyClearTexture(tally: TextureTally, entry: TextureTallyEntry): void;
+export declare function resetTextureTally(tally: TextureTally): void;
+/** Copy a backend's tally into the neutral snapshot. Called from the renderer's frame boundary. */
+export declare function readTextureTally(tally: TextureTally, memory: MemoryInfo): void;
 /** Full reset, including the cumulative call counts and the memory snapshot. */
 export declare function resetRendererInfo(info: RendererInfo): void;

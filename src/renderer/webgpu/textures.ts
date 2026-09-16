@@ -18,6 +18,15 @@ import type { GpuSampler } from '../../core/gpu-sampler';
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { TextureRegion } from '../../core/texture-region';
 import { hasTypedPartialSource, supportsPartialUpload, withinPartialBudget } from '../core/partial-upload';
+import {
+    createTextureTally,
+    createTextureTallyEntry,
+    type TextureTally,
+    type TextureTallyEntry,
+    tallyClearTexture,
+    tallySetTexture,
+} from '../core/info';
+import { bytesPerTexel, gpuTextureBytes } from '../core/texture-size';
 import type { RenderTarget } from '../../core/render-target';
 import type { Source } from '../../texture/source';
 import { createMipmapState, generateMipmaps, type MipmapState } from './mipmap-utils';
@@ -34,6 +43,8 @@ export type TextureData = {
     initialized: boolean;
     /** Whether this is a default placeholder texture */
     isDefaultTexture: boolean;
+    /** What this entry currently contributes to `TextureCache.tally`. */
+    tally: TextureTallyEntry;
     /**
      * Cached default render-attachment view (render target color/depth).
      * Lazily created by the renderer and cleared whenever `texture` is swapped
@@ -71,7 +82,7 @@ export type TextureCache = {
     mipmapState: MipmapState | null;
 
     /** Stats counters */
-    textureCount: number;
+    tally: TextureTally;
     samplerCount: number;
 };
 
@@ -116,7 +127,7 @@ export function createTextureCache(): TextureCache {
         samplerCache: new Map(),
         defaultTextures: new Map(),
         mipmapState: null,
-        textureCount: 0,
+        tally: createTextureTally(),
         samplerCount: 0,
     };
 }
@@ -134,6 +145,9 @@ function setupDispose(cache: TextureCache, texture: GpuTexture): void {
             data.texture.destroy();
             data.msaaTexture?.destroy();
         }
+        // Stop counting it whether or not it owned its GPU texture; a default-texture entry
+        // contributes nothing, so clearing is a no-op there.
+        if (data) tallyClearTexture(cache.tally, data.tally);
     };
 }
 
@@ -169,7 +183,7 @@ export function generateTextureMipmaps(cache: TextureCache, device: GPUDevice, t
  * Returns the TextureData for the texture.
  */
 function uploadPartialRegion(device: GPUDevice, texture: GpuTexture, data: TextureData, r: TextureRegion): void {
-    const bpp = getBytesPerPixel(texture.format);
+    const bpp = bytesPerTexel(texture.format);
 
     // Level 0 with per-layer/face sources: each layer owns its own buffer. `z` indexes
     // `texture.sources`, which is the face for a cube and the layer for an array.
@@ -288,9 +302,10 @@ export function updateTexture(cache: TextureCache, device: GPUDevice, texture: G
                 generation: texture.version,
                 initialized: true,
                 isDefaultTexture: false,
+                tally: createTextureTallyEntry(),
             };
             cache.textureMap.set(texture, data);
-            cache.textureCount++;
+            tallySetTexture(cache.tally, data.tally, texture.format, gpuTextureBytes(texture));
             setupDispose(cache, texture);
         } else {
             // Recreate at the new size: destroy the old GPU texture, swap in the new one,
@@ -323,6 +338,8 @@ export function updateTexture(cache: TextureCache, device: GPUDevice, texture: G
                 generation: 0,
                 initialized: true,
                 isDefaultTexture: true,
+                // Never tallied: the placeholder is one shared 1x1 texture, not this texture's storage.
+                tally: createTextureTallyEntry(),
             };
             cache.textureMap.set(texture, data);
         }
@@ -343,20 +360,23 @@ export function updateTexture(cache: TextureCache, device: GPUDevice, texture: G
                 generation: texture.version,
                 initialized: true,
                 isDefaultTexture: false,
+                tally: createTextureTallyEntry(),
             };
             cache.textureMap.set(texture, data);
-            cache.textureCount++;
+            tallySetTexture(cache.tally, data.tally, texture.format, gpuTextureBytes(texture));
         } else if (data.isDefaultTexture) {
             // Was default, now real, update generation
             data.texture = gpuTextureResource;
             data.generation = texture.version;
             data.isDefaultTexture = false;
-            cache.textureCount++;
+            tallySetTexture(cache.tally, data.tally, texture.format, gpuTextureBytes(texture));
         } else {
             // Resize (grow): destroy the old GPU texture and swap in the new (larger) one.
             data.texture.destroy();
             data.texture = gpuTextureResource;
             data.generation = texture.version;
+            // Re-tally rather than re-count: the entry already counts as one texture, but its bytes moved.
+            tallySetTexture(cache.tally, data.tally, texture.format, gpuTextureBytes(texture));
         }
 
         // Set up disposal callback to destroy the GPU texture
@@ -477,7 +497,7 @@ function uploadTextureData(device: GPUDevice, texture: GpuTexture, data: Texture
 
     // Check if it's typed array data (DataTexture pattern)
     if (isTypedArrayData(sourceData)) {
-        const bytesPerPixel = getBytesPerPixel(texture.format);
+        const bytesPerPixel = bytesPerTexel(texture.format);
         const view = sourceData.data;
         device.queue.writeTexture(
             { texture: data.texture },
@@ -564,7 +584,7 @@ function uploadCubeTextureData(device: GPUDevice, texture: GpuTexture, data: Tex
 function uploadArrayTextureData(device: GPUDevice, texture: GpuTexture, data: TextureData): void {
     const width = texture.width;
     const height = texture.height;
-    const bytesPerPixel = getBytesPerPixel(texture.format);
+    const bytesPerPixel = bytesPerTexel(texture.format);
     const layerCount = texture.depthOrArrayLayers;
 
     // Mode 1: Per-layer sources array
@@ -635,7 +655,7 @@ function uploadArrayTextureData(device: GPUDevice, texture: GpuTexture, data: Te
  * not yet ready are skipped (their level keeps whatever was there).
  */
 function uploadExplicitMips(device: GPUDevice, texture: GpuTexture, data: TextureData): void {
-    const bytesPerPixel = getBytesPerPixel(texture.format);
+    const bytesPerPixel = bytesPerTexel(texture.format);
 
     for (let i = 0; i < texture.mipmaps.length; i++) {
         const source = texture.mipmaps[i];
@@ -671,53 +691,6 @@ function uploadExplicitMips(device: GPUDevice, texture: GpuTexture, data: Textur
     }
 }
 
-/**
- * Get bytes per pixel for a format (simplified, handles common formats).
- */
-function getBytesPerPixel(format: GPUTextureFormat): number {
-    switch (format) {
-        case 'r8unorm':
-        case 'r8snorm':
-        case 'r8uint':
-        case 'r8sint':
-            return 1;
-        case 'r16uint':
-        case 'r16sint':
-        case 'r16float':
-        case 'rg8unorm':
-        case 'rg8snorm':
-        case 'rg8uint':
-        case 'rg8sint':
-            return 2;
-        case 'r32uint':
-        case 'r32sint':
-        case 'r32float':
-        case 'rg16uint':
-        case 'rg16sint':
-        case 'rg16float':
-        case 'rgba8unorm':
-        case 'rgba8unorm-srgb':
-        case 'rgba8snorm':
-        case 'rgba8uint':
-        case 'rgba8sint':
-        case 'bgra8unorm':
-        case 'bgra8unorm-srgb':
-            return 4;
-        case 'rg32uint':
-        case 'rg32sint':
-        case 'rg32float':
-        case 'rgba16uint':
-        case 'rgba16sint':
-        case 'rgba16float':
-            return 8;
-        case 'rgba32uint':
-        case 'rgba32sint':
-        case 'rgba32float':
-            return 16;
-        default:
-            return 4; // Fallback
-    }
-}
 
 /**
  * Get or create a 1x1 default placeholder texture.
@@ -733,7 +706,7 @@ function getDefaultTexture(cache: TextureCache, device: GPUDevice, format: GPUTe
     });
 
     // Write white pixel (or neutral value for non-color formats)
-    const bytesPerPixel = getBytesPerPixel(format);
+    const bytesPerPixel = bytesPerTexel(format);
     const data = new Uint8Array(bytesPerPixel);
     data.fill(255); // White / max value
 
@@ -782,7 +755,7 @@ export function getSampler(cache: TextureCache, device: GPUDevice, gpuSampler: G
 
 export function getTextureCacheStats(cache: TextureCache): TextureCacheStats {
     return {
-        textureCount: cache.textureCount,
+        textureCount: cache.tally.count,
         samplerCount: cache.samplerCount,
     };
 }
@@ -851,6 +824,8 @@ export function setRenderTargetTexture(
         existing.version = texture.version;
         existing.initialized = true;
         existing.isDefaultTexture = false;
+        // Resize swaps the GPU texture under the same entry: same count, different bytes.
+        tallySetTexture(cache.tally, existing.tally, texture.format, gpuTextureBytes(texture));
     } else {
         // First time - create new entry
         cache.textureMap.set(texture, {
@@ -860,8 +835,10 @@ export function setRenderTargetTexture(
             generation: 1,
             initialized: true,
             isDefaultTexture: false,
+            tally: createTextureTallyEntry(),
         });
-        cache.textureCount++;
+        const entry = cache.textureMap.get(texture)!;
+        tallySetTexture(cache.tally, entry.tally, texture.format, gpuTextureBytes(texture));
     }
 
     texture.disposed = false;
@@ -877,8 +854,8 @@ export function removeRenderTargetTexture(cache: TextureCache, texture: GpuTextu
     const data = cache.textureMap.get(texture);
     if (data) {
         // Don't destroy - caller handles that
+        tallyClearTexture(cache.tally, data.tally);
         cache.textureMap.delete(texture);
-        cache.textureCount--;
     }
 }
 

@@ -24,7 +24,16 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { TextureRegion } from '../../core/texture-region';
+import {
+    createTextureTally,
+    createTextureTallyEntry,
+    resetTextureTally,
+    type TextureTally,
+    type TextureTallyEntry,
+    tallySetTexture,
+} from '../core/info';
 import { hasTypedPartialSource, supportsPartialUpload, withinPartialBudget } from '../core/partial-upload';
+import { gpuTextureBytes } from '../core/texture-size';
 import type { ResolvedStorageBufferTexture } from '../../nodes/lib/texture';
 import { mergeUpdateRanges } from '../core/update-ranges';
 
@@ -260,6 +269,8 @@ export type GlTextureData = {
     allocH: number;
     /** GL-allocated layer/face count. Guards the partial path against a layer-count change. */
     allocD: number;
+    /** What this entry currently contributes to `TextureCache.tally`. */
+    tally: TextureTallyEntry;
 };
 
 /**
@@ -282,6 +293,10 @@ export type TextureCache = {
     /** Storage-buffer-backed GL textures, keyed by the `GpuBuffer` (WebGL storage() read-lowering). */
     bufferData: WeakMap<GpuBuffer, GlBufferTextureData>;
     all: Set<WebGLTexture>;
+    /** Texture count + estimated bytes, kept here because `data` is a WeakMap and cannot be walked.
+     *  Entries are added and re-sized but never removed: this backend frees GL textures only in
+     *  `disposeTextureCache`, so the tally tracks the cache exactly as `all.size` always has. */
+    tally: TextureTally;
     /** Cached `gl.MAX_TEXTURE_SIZE`, read once on first storage-buffer upload (validates the texel grid). */
     maxTextureSize?: number;
     /** Cached `gl.MAX_COMBINED_TEXTURE_IMAGE_UNITS`, read once (guards the flat texture-unit assignment). */
@@ -290,7 +305,7 @@ export type TextureCache = {
 
 /** Create an empty textures state. */
 export function createTextureCache(): TextureCache {
-    return { data: new WeakMap(), bufferData: new WeakMap(), all: new Set() };
+    return { data: new WeakMap(), bufferData: new WeakMap(), all: new Set(), tally: createTextureTally() };
 }
 
 /**
@@ -488,6 +503,7 @@ function ensureGlTexture(gl: WebGL2RenderingContext, state: TextureCache, textur
             fmt: glFormat(gl, texture.format),
             version: -1,
             generation: 0,
+            tally: createTextureTallyEntry(),
             allocated: false,
             allocW: 0,
             allocD: 0,
@@ -914,6 +930,8 @@ export function updateTexture(gl: WebGL2RenderingContext, state: TextureCache, t
     data.version = texture.version;
     data.generation++;
     data.allocated = true;
+    // After allocation, so a resize re-tallies the new size against the same entry.
+    tallySetTexture(state.tally, data.tally, texture.format, gpuTextureBytes(texture));
     return data;
 }
 
@@ -966,9 +984,10 @@ export function generateTextureMipmaps(gl: WebGL2RenderingContext, state: Textur
 export function disposeTextureCache(gl: WebGL2RenderingContext, state: TextureCache): void {
     for (const tex of state.all) gl.deleteTexture(tex);
     state.all.clear();
+    resetTextureTally(state.tally);
 }
 
 /** Number of GL textures currently allocated. */
 export function getTextureCacheStats(state: TextureCache): { textureCount: number } {
-    return { textureCount: state.all.size };
+    return { textureCount: state.tally.count };
 }

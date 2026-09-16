@@ -14,6 +14,7 @@
  */
 import type { GpuSampler } from '../../core/gpu-sampler';
 import type { GpuTexture } from '../../core/gpu-texture';
+import { type TextureTally, type TextureTallyEntry } from '../core/info';
 import type { RenderTarget } from '../../core/render-target';
 import { type MipmapState } from './mipmap-utils';
 /** Data stored per Texture in the cache */
@@ -28,6 +29,8 @@ export type TextureData = {
     initialized: boolean;
     /** Whether this is a default placeholder texture */
     isDefaultTexture: boolean;
+    /** What this entry currently contributes to `TextureCache.tally`. */
+    tally: TextureTallyEntry;
     /**
      * Cached default render-attachment view (render target color/depth).
      * Lazily created by the renderer and cleared whenever `texture` is swapped
@@ -59,7 +62,7 @@ export type TextureCache = {
     /** Mipmap generation state (created lazily on first use) */
     mipmapState: MipmapState | null;
     /** Stats counters */
-    textureCount: number;
+    tally: TextureTally;
     samplerCount: number;
 };
 export type TextureCacheStats = {

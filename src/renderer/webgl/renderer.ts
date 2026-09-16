@@ -476,7 +476,8 @@ export class WebGLRenderer implements Renderer, RendererState {
         const renderTargets = RenderTargets.getGlRenderTargetsStats(this._renderTargets);
         info.memory.buffers = geometries.buffers + geometries.indexBuffers + Uniforms.getUniformsStats(this._uniforms).uboCount;
         info.memory.geometries = geometries.geometries;
-        info.memory.textures = Textures.getTextureCacheStats(this._textures).textureCount;
+        // count + bytes + per-format breakdown, straight from the cache's running tally.
+        Info.readTextureTally(this._textures.tally, info.memory);
         info.memory.samplers = Samplers.getGlSamplersStats(this._samplers).samplerCount;
         info.memory.programs = Programs.getProgramCacheStats(this._programs).programCount;
         info.memory.backend.framebuffers = renderTargets.fboCount;

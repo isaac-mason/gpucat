@@ -112,7 +112,7 @@ function add$3(out, a, b) {
  * @param b the second operand
  * @returns out
  */
-function subtract(out, a, b) {
+function subtract$1(out, a, b) {
     out[0] = a[0] - b[0];
     out[1] = a[1] - b[1];
     out[2] = a[2] - b[2];
@@ -2566,7 +2566,7 @@ class OrbitControls {
     update(deltaTime = null) {
         const position = this.object.position;
         // offset = position - target, rotated to Y-up space
-        subtract(_v, position, this.target);
+        subtract$1(_v, position, this.target);
         transformQuat(_v, _v, this._quat);
         setFromVec3(this._spherical, _v);
         if (this.autoRotate && this.state === STATE.NONE) {
@@ -2613,7 +2613,7 @@ class OrbitControls {
             add$3(this.target, this.target, this._panOffset);
         }
         // Clamp target distance from cursor
-        subtract(this.target, this.target, this.cursor);
+        subtract$1(this.target, this.target, this.cursor);
         const tLen = length$1(this.target);
         const tLenClamped = Math.max(this.minTargetRadius, Math.min(this.maxTargetRadius, tLen));
         if (tLen > 0) {
@@ -2751,7 +2751,7 @@ class OrbitControls {
         const cam = this.object;
         if (_isPerspective(this.object) && element) {
             const position = this.object.position;
-            subtract(_v, position, this.target);
+            subtract$1(_v, position, this.target);
             let targetDistance = length$1(_v);
             // fov is in radians
             targetDistance *= Math.tan(cam.fov / 2);
@@ -2782,7 +2782,7 @@ class OrbitControls {
         // Dolly direction: un-project the mouse position through the camera.
         // We approximate by setting dollyDirection to normalized (offset from camera to target)
         // adjusted by mouse NDC.
-        subtract(this._dollyDirection, this.target, this.object.position);
+        subtract$1(this._dollyDirection, this.target, this.object.position);
         normalize$4(this._dollyDirection, this._dollyDirection);
     }
     /** @internal */ _clampDistance(dist) {
@@ -3436,7 +3436,7 @@ class Raycaster {
         else {
             getTranslation(this.ray.origin, camera.matrixWorld);
             unproject(_target, [coords[0], coords[1], 1], camera);
-            subtract(_direction, _target, this.ray.origin);
+            subtract$1(_direction, _target, this.ray.origin);
             normalize$4(this.ray.direction, _direction);
         }
         this.near = camera.near;
@@ -3518,8 +3518,8 @@ function checkTriangleIntersection(object, raycaster, localRay, matrixWorld, a, 
     if (distance$1 < raycaster.near || distance$1 > raycaster.far)
         return;
     // Compute face normal
-    subtract(_edge1, _vB, _vA);
-    subtract(_edge2, _vC, _vA);
+    subtract$1(_edge1, _vB, _vA);
+    subtract$1(_edge2, _vC, _vA);
     cross$1(_faceNormal, _edge1, _edge2);
     normalize$4(_faceNormal, _faceNormal);
     const intersection = {
@@ -3549,9 +3549,9 @@ function computeBarycentricUV(point, vA, vB, vC, ia, ib, ic, uvs) {
     const v0 = [0, 0, 0];
     const v1 = [0, 0, 0];
     const v2 = [0, 0, 0];
-    subtract(v0, vC, vA);
-    subtract(v1, vB, vA);
-    subtract(v2, point, vA);
+    subtract$1(v0, vC, vA);
+    subtract$1(v1, vB, vA);
+    subtract$1(v2, point, vA);
     const dot00 = dot$1(v0, v0);
     const dot01 = dot$1(v0, v1);
     const dot02 = dot$1(v0, v2);
@@ -3616,7 +3616,7 @@ class Mesh extends Object3D {
             const worldRadius = sphere.radius * Math.max(sx, sy, sz);
             // quick sphere-ray distance test
             const rayToCenter = [0, 0, 0];
-            subtract(rayToCenter, _worldSphereCenter, raycaster.ray.origin);
+            subtract$1(rayToCenter, _worldSphereCenter, raycaster.ray.origin);
             const tca = dot$1(rayToCenter, raycaster.ray.direction);
             const d2 = dot$1(rayToCenter, rayToCenter) - tca * tca;
             if (d2 > worldRadius * worldRadius)
@@ -13842,7 +13842,7 @@ class TransformControlsRoot extends Object3D {
             negate$1(controls.eye, controls.eye);
         }
         else {
-            subtract(controls.eye, controls.cameraPosition, controls.worldPosition);
+            subtract$1(controls.eye, controls.cameraPosition, controls.worldPosition);
             normalize$4(controls.eye, controls.eye);
         }
         super.updateWorldMatrix();
@@ -14086,7 +14086,7 @@ class TransformControls {
                 copy$4(this._quaternionStart, this.object.quaternion);
                 copy$6(this._scaleStart, this.object.scale);
                 decompose(this.worldQuaternionStart, this.worldPositionStart, this._worldScaleStart, this.object.matrixWorld);
-                subtract(this.pointStart, planeIntersect.point, this.worldPositionStart);
+                subtract$1(this.pointStart, planeIntersect.point, this.worldPositionStart);
             }
             this.dragging = true;
             this._syncState();
@@ -14112,9 +14112,9 @@ class TransformControls {
         if (!planeIntersect) {
             return;
         }
-        subtract(this.pointEnd, planeIntersect.point, this.worldPositionStart);
+        subtract$1(this.pointEnd, planeIntersect.point, this.worldPositionStart);
         if (mode === 'translate') {
-            subtract(this._offset, this.pointEnd, this.pointStart);
+            subtract$1(this._offset, this.pointEnd, this.pointStart);
             if (space === 'local' && axis !== 'XYZ') {
                 transformQuat(this._offset, this._offset, this._worldQuaternionInv);
             }
@@ -14160,7 +14160,7 @@ class TransformControls {
                         object.position[2] = Math.round(object.position[2] / snap) * snap;
                     if (object.parent) {
                         getTranslation(_tempVec, object.parent.matrixWorld);
-                        subtract(object.position, object.position, _tempVec);
+                        subtract$1(object.position, object.position, _tempVec);
                     }
                 }
             }
@@ -14201,7 +14201,7 @@ class TransformControls {
             }
         }
         else if (mode === 'rotate') {
-            subtract(this._offset, this.pointEnd, this.pointStart);
+            subtract$1(this._offset, this.pointEnd, this.pointStart);
             getTranslation(_tempVec, this.camera.matrixWorld);
             const ROTATION_SPEED = 20 / distance(this.worldPosition, _tempVec);
             let _inPlaneRotation = false;
@@ -15109,7 +15109,16 @@ function createRendererInfo() {
         render: { calls: 0, frameCalls: 0, drawCalls: 0, triangles: 0 },
         compute: { calls: 0, frameCalls: 0 },
         buffers: { writeCalls: 0, writeBytes: 0, writes: [], detailedWrites: false, writeCount: 0 },
-        memory: { buffers: 0, geometries: 0, textures: 0, samplers: 0, programs: 0, backend: {} },
+        memory: {
+            buffers: 0,
+            geometries: 0,
+            textures: 0,
+            texturesSize: 0,
+            texturesByFormat: {},
+            samplers: 0,
+            programs: 0,
+            backend: {},
+        },
     };
 }
 /**
@@ -15162,6 +15171,57 @@ function recordBufferWrite(info, bytes, usage, full, label, material, updateType
     entry.changedBytes = changedBytes;
     buffers.writeCount++;
 }
+function createTextureTally() {
+    return { count: 0, bytes: 0, byFormat: new Map() };
+}
+function createTextureTallyEntry() {
+    return { format: null, bytes: 0 };
+}
+function subtract(tally, format, bytes) {
+    tally.bytes -= bytes;
+    const remaining = (tally.byFormat.get(format) ?? 0) - bytes;
+    if (remaining > 0)
+        tally.byFormat.set(format, remaining);
+    else
+        tally.byFormat.delete(format);
+}
+/**
+ * Set what an entry contributes, replacing whatever it contributed before. First call for an entry
+ * counts a new texture; later calls (a resize or format change) move bytes without moving the count.
+ */
+function tallySetTexture(tally, entry, format, bytes) {
+    if (entry.format === null)
+        tally.count++;
+    else
+        subtract(tally, entry.format, entry.bytes);
+    entry.format = format;
+    entry.bytes = bytes;
+    tally.bytes += bytes;
+    tally.byFormat.set(format, (tally.byFormat.get(format) ?? 0) + bytes);
+}
+/** Drop an entry's contribution entirely. Idempotent: clearing an uncounted entry does nothing. */
+function tallyClearTexture(tally, entry) {
+    if (entry.format === null)
+        return;
+    tally.count--;
+    subtract(tally, entry.format, entry.bytes);
+    entry.format = null;
+    entry.bytes = 0;
+}
+function resetTextureTally(tally) {
+    tally.count = 0;
+    tally.bytes = 0;
+    tally.byFormat.clear();
+}
+/** Copy a backend's tally into the neutral snapshot. Called from the renderer's frame boundary. */
+function readTextureTally(tally, memory) {
+    memory.textures = tally.count;
+    memory.texturesSize = tally.bytes;
+    const byFormat = {};
+    for (const [format, bytes] of tally.byFormat)
+        byFormat[format] = bytes;
+    memory.texturesByFormat = byFormat;
+}
 /** Full reset, including the cumulative call counts and the memory snapshot. */
 function resetRendererInfo(info) {
     beginInfoFrame(info);
@@ -15170,6 +15230,8 @@ function resetRendererInfo(info) {
     info.memory.buffers = 0;
     info.memory.geometries = 0;
     info.memory.textures = 0;
+    info.memory.texturesSize = 0;
+    info.memory.texturesByFormat = {};
     info.memory.samplers = 0;
     info.memory.programs = 0;
     info.memory.backend = {};
@@ -22870,6 +22932,81 @@ function withinPartialBudget(texture, regions) {
 }
 
 /**
+ * texture-size.ts (renderer core) — how many bytes a texture occupies, decided in one place.
+ *
+ * Both backends call this. The format vocabulary is WebGPU's `GPUTextureFormat` either way (the WebGL
+ * backend translates it at bind time, it does not carry a second vocabulary), so the byte size of a
+ * format is a fact about gpucat's own descriptor, not about a device. Same reasoning as
+ * `update-ranges.ts`, `partial-upload.ts`, `buffer-upload.ts` and `render-state.ts`.
+ *
+ * Deliberately an ESTIMATE, in the same spirit as three.js `Info._getTextureMemorySize`: it is a
+ * budget figure for a debug panel, not an allocator. Drivers pad rows, pick their own internal
+ * layouts, and may keep a staging copy, so treat the number as "which textures are the expensive
+ * ones" rather than as the exact resident footprint.
+ */
+/** Bytes per texel for the uncompressed formats gpucat uses. Unknown formats fall back to 4. */
+function bytesPerTexel(format) {
+    switch (format) {
+        case 'r8unorm':
+        case 'r8snorm':
+        case 'r8uint':
+        case 'r8sint':
+            return 1;
+        case 'r16uint':
+        case 'r16sint':
+        case 'r16float':
+        case 'rg8unorm':
+        case 'rg8snorm':
+        case 'rg8uint':
+        case 'rg8sint':
+            return 2;
+        case 'r32uint':
+        case 'r32sint':
+        case 'r32float':
+        case 'rg16uint':
+        case 'rg16sint':
+        case 'rg16float':
+        case 'rgba8unorm':
+        case 'rgba8unorm-srgb':
+        case 'rgba8snorm':
+        case 'rgba8uint':
+        case 'rgba8sint':
+        case 'bgra8unorm':
+        case 'bgra8unorm-srgb':
+            return 4;
+        case 'rg32uint':
+        case 'rg32sint':
+        case 'rg32float':
+        case 'rgba16uint':
+        case 'rgba16sint':
+        case 'rgba16float':
+            return 8;
+        case 'rgba32uint':
+        case 'rgba32sint':
+        case 'rgba32float':
+            return 16;
+        default:
+            return 4;
+    }
+}
+/**
+ * Estimated bytes for a whole texture: every array layer / cube face, summed over the mip chain.
+ * Each mip halves both dimensions with a floor of 1, which is the allocation rule both APIs follow.
+ */
+function gpuTextureBytes(texture) {
+    const perTexel = bytesPerTexel(texture.format);
+    const layers = Math.max(1, texture.depthOrArrayLayers);
+    const mips = Math.max(1, texture.mipLevelCount);
+    let bytes = 0;
+    for (let level = 0; level < mips; level++) {
+        const width = Math.max(1, texture.width >> level);
+        const height = Math.max(1, texture.height >> level);
+        bytes += width * height * perTexel;
+    }
+    return bytes * layers;
+}
+
+/**
  * Mipmap generation utilities using direct WebGPU pipelines.
  *
  * Uses render passes to downsample each mip level from the previous one.
@@ -23286,7 +23423,7 @@ function createTextureCache$1() {
         samplerCache: new Map(),
         defaultTextures: new Map(),
         mipmapState: null,
-        textureCount: 0,
+        tally: createTextureTally(),
         samplerCount: 0,
     };
 }
@@ -23303,6 +23440,10 @@ function setupDispose(cache, texture) {
             data.texture.destroy();
             data.msaaTexture?.destroy();
         }
+        // Stop counting it whether or not it owned its GPU texture; a default-texture entry
+        // contributes nothing, so clearing is a no-op there.
+        if (data)
+            tallyClearTexture(cache.tally, data.tally);
     };
 }
 /**
@@ -23335,7 +23476,7 @@ function generateTextureMipmaps$1(cache, device, texture) {
  * Returns the TextureData for the texture.
  */
 function uploadPartialRegion$1(device, texture, data, r) {
-    const bpp = getBytesPerPixel(texture.format);
+    const bpp = bytesPerTexel(texture.format);
     // Level 0 with per-layer/face sources: each layer owns its own buffer. `z` indexes
     // `texture.sources`, which is the face for a cube and the layer for an array.
     if (r.level === 0 && texture.sources.length > 0) {
@@ -23432,9 +23573,10 @@ function updateTexture$1(cache, device, texture) {
                 generation: texture.version,
                 initialized: true,
                 isDefaultTexture: false,
+                tally: createTextureTallyEntry(),
             };
             cache.textureMap.set(texture, data);
-            cache.textureCount++;
+            tallySetTexture(cache.tally, data.tally, texture.format, gpuTextureBytes(texture));
             setupDispose(cache, texture);
         }
         else {
@@ -23466,6 +23608,8 @@ function updateTexture$1(cache, device, texture) {
                 generation: 0,
                 initialized: true,
                 isDefaultTexture: true,
+                // Never tallied: the placeholder is one shared 1x1 texture, not this texture's storage.
+                tally: createTextureTallyEntry(),
             };
             cache.textureMap.set(texture, data);
         }
@@ -23483,22 +23627,25 @@ function updateTexture$1(cache, device, texture) {
                 generation: texture.version,
                 initialized: true,
                 isDefaultTexture: false,
+                tally: createTextureTallyEntry(),
             };
             cache.textureMap.set(texture, data);
-            cache.textureCount++;
+            tallySetTexture(cache.tally, data.tally, texture.format, gpuTextureBytes(texture));
         }
         else if (data.isDefaultTexture) {
             // Was default, now real, update generation
             data.texture = gpuTextureResource;
             data.generation = texture.version;
             data.isDefaultTexture = false;
-            cache.textureCount++;
+            tallySetTexture(cache.tally, data.tally, texture.format, gpuTextureBytes(texture));
         }
         else {
             // Resize (grow): destroy the old GPU texture and swap in the new (larger) one.
             data.texture.destroy();
             data.texture = gpuTextureResource;
             data.generation = texture.version;
+            // Re-tally rather than re-count: the entry already counts as one texture, but its bytes moved.
+            tallySetTexture(cache.tally, data.tally, texture.format, gpuTextureBytes(texture));
         }
         // Set up disposal callback to destroy the GPU texture
         setupDispose(cache, texture);
@@ -23609,7 +23756,7 @@ function uploadTextureData(device, texture, data) {
     const height = texture.height;
     // Check if it's typed array data (DataTexture pattern)
     if (isTypedArrayData(sourceData)) {
-        const bytesPerPixel = getBytesPerPixel(texture.format);
+        const bytesPerPixel = bytesPerTexel(texture.format);
         const view = sourceData.data;
         device.queue.writeTexture({ texture: data.texture }, view.buffer, { offset: view.byteOffset, bytesPerRow: width * bytesPerPixel, rowsPerImage: height }, [width, height]);
     }
@@ -23677,7 +23824,7 @@ function uploadCubeTextureData(device, texture, data) {
 function uploadArrayTextureData(device, texture, data) {
     const width = texture.width;
     const height = texture.height;
-    const bytesPerPixel = getBytesPerPixel(texture.format);
+    const bytesPerPixel = bytesPerTexel(texture.format);
     const layerCount = texture.depthOrArrayLayers;
     // Mode 1: Per-layer sources array
     if (texture.sources.length > 0) {
@@ -23731,7 +23878,7 @@ function uploadArrayTextureData(device, texture, data) {
  * not yet ready are skipped (their level keeps whatever was there).
  */
 function uploadExplicitMips$1(device, texture, data) {
-    const bytesPerPixel = getBytesPerPixel(texture.format);
+    const bytesPerPixel = bytesPerTexel(texture.format);
     for (let i = 0; i < texture.mipmaps.length; i++) {
         const source = texture.mipmaps[i];
         if (!source.dataReady)
@@ -23757,53 +23904,6 @@ function uploadExplicitMips$1(device, texture, data) {
     }
 }
 /**
- * Get bytes per pixel for a format (simplified, handles common formats).
- */
-function getBytesPerPixel(format) {
-    switch (format) {
-        case 'r8unorm':
-        case 'r8snorm':
-        case 'r8uint':
-        case 'r8sint':
-            return 1;
-        case 'r16uint':
-        case 'r16sint':
-        case 'r16float':
-        case 'rg8unorm':
-        case 'rg8snorm':
-        case 'rg8uint':
-        case 'rg8sint':
-            return 2;
-        case 'r32uint':
-        case 'r32sint':
-        case 'r32float':
-        case 'rg16uint':
-        case 'rg16sint':
-        case 'rg16float':
-        case 'rgba8unorm':
-        case 'rgba8unorm-srgb':
-        case 'rgba8snorm':
-        case 'rgba8uint':
-        case 'rgba8sint':
-        case 'bgra8unorm':
-        case 'bgra8unorm-srgb':
-            return 4;
-        case 'rg32uint':
-        case 'rg32sint':
-        case 'rg32float':
-        case 'rgba16uint':
-        case 'rgba16sint':
-        case 'rgba16float':
-            return 8;
-        case 'rgba32uint':
-        case 'rgba32sint':
-        case 'rgba32float':
-            return 16;
-        default:
-            return 4; // Fallback
-    }
-}
-/**
  * Get or create a 1x1 default placeholder texture.
  */
 function getDefaultTexture(cache, device, format) {
@@ -23816,7 +23916,7 @@ function getDefaultTexture(cache, device, format) {
         usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
     });
     // Write white pixel (or neutral value for non-color formats)
-    const bytesPerPixel = getBytesPerPixel(format);
+    const bytesPerPixel = bytesPerTexel(format);
     const data = new Uint8Array(bytesPerPixel);
     data.fill(255); // White / max value
     device.queue.writeTexture({ texture: tex }, data, { bytesPerRow: bytesPerPixel }, [1, 1]);
@@ -23854,9 +23954,9 @@ function getSampler(cache, device, gpuSampler) {
     cache.samplerCount++;
     return sampler;
 }
-function getTextureCacheStats$1(cache) {
+function getTextureCacheStats(cache) {
     return {
-        textureCount: cache.textureCount,
+        textureCount: cache.tally.count,
         samplerCount: cache.samplerCount,
     };
 }
@@ -23916,6 +24016,8 @@ function setRenderTargetTexture(cache, texture, gpuTextureResource, msaaTexture 
         existing.version = texture.version;
         existing.initialized = true;
         existing.isDefaultTexture = false;
+        // Resize swaps the GPU texture under the same entry: same count, different bytes.
+        tallySetTexture(cache.tally, existing.tally, texture.format, gpuTextureBytes(texture));
     }
     else {
         // First time - create new entry
@@ -23926,8 +24028,10 @@ function setRenderTargetTexture(cache, texture, gpuTextureResource, msaaTexture 
             generation: 1,
             initialized: true,
             isDefaultTexture: false,
+            tally: createTextureTallyEntry(),
         });
-        cache.textureCount++;
+        const entry = cache.textureMap.get(texture);
+        tallySetTexture(cache.tally, entry.tally, texture.format, gpuTextureBytes(texture));
     }
     texture.disposed = false;
     setupDispose(cache, texture);
@@ -36000,7 +36104,7 @@ function glTarget(gl, texture) {
 }
 /** Create an empty textures state. */
 function createTextureCache() {
-    return { data: new WeakMap(), bufferData: new WeakMap(), all: new Set() };
+    return { data: new WeakMap(), bufferData: new WeakMap(), all: new Set(), tally: createTextureTally() };
 }
 /**
  * Upload texels `[texelStart, texelStart + texelCount)` of a storage buffer reinterpreted as a
@@ -36176,6 +36280,7 @@ function ensureGlTexture(gl, state, texture) {
             fmt: glFormat(gl, texture.format),
             version: -1,
             generation: 0,
+            tally: createTextureTallyEntry(),
             allocated: false,
             allocW: 0,
             allocD: 0,
@@ -36561,6 +36666,8 @@ function updateTexture(gl, state, texture) {
     data.version = texture.version;
     data.generation++;
     data.allocated = true;
+    // After allocation, so a resize re-tallies the new size against the same entry.
+    tallySetTexture(state.tally, data.tally, texture.format, gpuTextureBytes(texture));
     return data;
 }
 /**
@@ -36616,10 +36723,7 @@ function disposeTextureCache(gl, state) {
     for (const tex of state.all)
         gl.deleteTexture(tex);
     state.all.clear();
-}
-/** Number of GL textures currently allocated. */
-function getTextureCacheStats(state) {
-    return { textureCount: state.all.size };
+    resetTextureTally(state.tally);
 }
 
 /**
@@ -39131,7 +39235,8 @@ class WebGLRenderer {
         const renderTargets = getGlRenderTargetsStats(this._renderTargets);
         info.memory.buffers = geometries.buffers + geometries.indexBuffers + getUniformsStats(this._uniforms).uboCount;
         info.memory.geometries = geometries.geometries;
-        info.memory.textures = getTextureCacheStats(this._textures).textureCount;
+        // count + bytes + per-format breakdown, straight from the cache's running tally.
+        readTextureTally(this._textures.tally, info.memory);
         info.memory.samplers = getGlSamplersStats(this._samplers).samplerCount;
         info.memory.programs = getProgramCacheStats(this._programs).programCount;
         info.memory.backend.framebuffers = renderTargets.fboCount;
@@ -41100,12 +41205,13 @@ class WebGPURenderer {
         const info = this.info;
         beginInfoFrame(info);
         const geometries = getGeometriesStats(this.geometries);
-        const textures = getTextureCacheStats$1(this.textures);
+        const textures = getTextureCacheStats(this.textures);
         const renderPipelines = this.pipelines.renderPipelines.size;
         const computePipelines = this.pipelines.computePipelines.size;
         info.memory.buffers = this.buffers.bufferCount;
         info.memory.geometries = geometries.geometries;
-        info.memory.textures = textures.textureCount;
+        // count + bytes + per-format breakdown, straight from the cache's running tally.
+        readTextureTally(this.textures.tally, info.memory);
         info.memory.samplers = textures.samplerCount;
         info.memory.programs = renderPipelines + computePipelines;
         // Split back out for anyone debugging WebGPU specifically; the neutral `programs` above is
