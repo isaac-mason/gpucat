@@ -3,6 +3,7 @@ import type { Object3D } from '../../core/object3d';
 import type { RenderTarget } from '../../core/render-target';
 import type { InspectorBase } from '../../inspector/inspector-base';
 import type { MRTNode } from '../../nodes/nodes';
+import type { RendererInfo } from './info';
 
 /**
  * Backend-neutral renderer contract — the surface the node graph (via NodeFrame) needs, with no
@@ -29,4 +30,12 @@ export interface Renderer {
     clearColor: [number, number, number, number];
     /** Attached inspector, or null. */
     inspector: InspectorBase | null;
+
+    /**
+     * Per-frame draw/upload statistics and the resident-object snapshot. On the contract ON PURPOSE:
+     * a backend that does not feed it is a compile error rather than a silently empty debug panel,
+     * which is exactly how the WebGL backend went without one. The producer resets at its own frame
+     * boundary, so any number of readers can share it. See `core/info.ts`.
+     */
+    readonly info: RendererInfo;
 }

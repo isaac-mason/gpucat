@@ -21,7 +21,8 @@ import * as Geometries from './geometries';
 import { type RenderObjectGlCache } from './render-object-gl';
 import { type GlRenderTargetsState } from './render-target';
 import type { GlSamplersState } from './samplers';
-import type { GlTexturesState } from './textures';
+import type { RendererInfo } from '../core/info';
+import type { TextureCache } from './textures';
 import * as Uniforms from './uniforms';
 /**
  * Manually clear the current framebuffer (color and/or depth and/or stencil), ignoring autoClear and
@@ -33,7 +34,7 @@ export type DrawCaches = {
     geometries: Geometries.GeometriesState;
     uniforms: Uniforms.UniformsState;
     renderObjectGl: RenderObjectGlCache;
-    textures: GlTexturesState;
+    textures: TextureCache;
     samplers: GlSamplersState;
     renderTargets: GlRenderTargetsState;
 };
@@ -41,4 +42,4 @@ export type DrawCaches = {
  * Run the whole render pass immediately: bind the framebuffer, apply viewport/scissor, clear on
  * autoClear, then draw the prepared objects.
  */
-export declare function executeRenderPass(gl: WebGL2RenderingContext, caches: DrawCaches, nodes: NodeManagerState, passCtx: RenderContext, prepared: PreparedRenderObject[], params: RenderPassParams, inspector: InspectorBase | null): void;
+export declare function executeRenderPass(gl: WebGL2RenderingContext, caches: DrawCaches, nodes: NodeManagerState, passCtx: RenderContext, prepared: PreparedRenderObject[], params: RenderPassParams, inspector: InspectorBase | null, info: RendererInfo): void;

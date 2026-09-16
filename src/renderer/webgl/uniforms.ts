@@ -25,6 +25,7 @@ import type { Material } from '../../material/material';
 import type { UniformGroupBlock } from '../../nodes/builder';
 import { packToView } from '../../schema/pack';
 import type { UniformBinding } from '../core/bind-group';
+import { type RendererInfo, recordBufferWrite } from '../core/info';
 import type { NodeFrame } from '../core/node-frame';
 import { invokeUniformGroupCallbacks } from '../webgpu/bindings';
 
@@ -87,13 +88,26 @@ function packGroup(block: UniformGroupBlock, view: DataView, material: Material 
 }
 
 /** True if two ArrayBuffers of equal length differ in any 32-bit word. */
-function bytesDiffer(a: ArrayBuffer, b: ArrayBuffer): boolean {
+/**
+ * Bytes differing between two equally-sized packed blocks, or 0 when identical. Counted at 32-bit word
+ * granularity because that is the comparison unit, matching the WebGPU backend's `packAndCompare`.
+ * A count rather than a boolean so the upload can be attributed: a 64 kB block where four bytes moved
+ * is a different problem from one where half of it did.
+ */
+function changedByteCount(a: ArrayBuffer, b: ArrayBuffer): number {
     const av = new Uint32Array(a);
     const bv = new Uint32Array(b);
+    let changed = 0;
     for (let i = 0; i < av.length; i++) {
-        if (av[i] !== bv[i]) return true;
+        if (av[i] !== bv[i]) changed += 4;
     }
-    return false;
+    return changed;
+}
+
+/** Attribute one UBO upload. `full` is false: this path writes whole blocks, so flagging it would
+ *  make the full-re-upload signal tautological. Identity is the material + the block's update scope. */
+function recordUniformWrite(info: RendererInfo, block: UniformGroupBlock, material: Material | null, changedBytes: number): void {
+    recordBufferWrite(info, block.totalBytes, 'uniform', false, undefined, material?.name, block.group?.updateType, changedBytes);
 }
 
 /**
@@ -112,6 +126,7 @@ export function updateAndBindUniformGroup(
     frame: NodeFrame,
     bindingPoint: number,
     material: Material | null,
+    info: RendererInfo,
 ): void {
     const block = binding.block;
 
@@ -139,7 +154,8 @@ export function updateAndBindUniformGroup(
         const scratch = new ArrayBuffer(block.totalBytes);
         packGroup(block, new DataView(scratch), material);
 
-        if (!data.uploaded || bytesDiffer(scratch, data.staging)) {
+        const changedBytes = data.uploaded ? changedByteCount(scratch, data.staging) : block.totalBytes;
+        if (changedBytes > 0) {
             data.staging = scratch;
             gl.bindBuffer(gl.UNIFORM_BUFFER, data.ubo);
             if (!data.uploaded) {
@@ -148,6 +164,7 @@ export function updateAndBindUniformGroup(
             } else {
                 gl.bufferSubData(gl.UNIFORM_BUFFER, 0, scratch);
             }
+            recordUniformWrite(info, block, material, changedBytes);
         }
     } else if (!data.uploaded) {
         // First time we see a skipped-shared group (already updated by another object this render):
@@ -156,6 +173,7 @@ export function updateAndBindUniformGroup(
         gl.bindBuffer(gl.UNIFORM_BUFFER, data.ubo);
         gl.bufferData(gl.UNIFORM_BUFFER, data.staging, gl.DYNAMIC_DRAW);
         data.uploaded = true;
+        recordUniformWrite(info, block, material, block.totalBytes);
     }
 
     // Bind the group's UBO to its program binding point.
@@ -197,6 +215,7 @@ export function updateAndBindStandaloneUniformGroup(
     block: UniformGroupBlock,
     frame: NodeFrame,
     bindingPoint: number,
+    info: RendererInfo,
 ): void {
     // Let any update callbacks (onFrame/onRender) assign node values; direct `.value` sets need nothing.
     invokeUniformGroupCallbacks(block, frame);
@@ -207,7 +226,8 @@ export function updateAndBindStandaloneUniformGroup(
     const scratch = new ArrayBuffer(block.totalBytes);
     packGroup(block, new DataView(scratch), null);
 
-    if (!data.uploaded || bytesDiffer(scratch, data.staging)) {
+    const changedBytes = data.uploaded ? changedByteCount(scratch, data.staging) : block.totalBytes;
+    if (changedBytes > 0) {
         data.staging = scratch;
         gl.bindBuffer(gl.UNIFORM_BUFFER, data.ubo);
         if (!data.uploaded) {
@@ -216,6 +236,7 @@ export function updateAndBindStandaloneUniformGroup(
         } else {
             gl.bufferSubData(gl.UNIFORM_BUFFER, 0, scratch);
         }
+        recordUniformWrite(info, block, null, changedBytes);
     }
 
     gl.bindBufferBase(gl.UNIFORM_BUFFER, bindingPoint, data.ubo);

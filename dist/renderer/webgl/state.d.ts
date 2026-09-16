@@ -61,5 +61,8 @@ export declare function establishPassBaseline(gl: WebGL2RenderingContext): void;
 /**
  * Apply the whole fixed-function GL state for a material in one call: depth, cull, blend, color mask,
  * and (when the framebuffer supports it) stencil. Redundant sub-states are skipped via `cache`.
+ *
+ * `blend` is the pass's already-resolved blend state (see `core/render-state`), passed in rather than
+ * derived here because resolving it needs the pass's MRT context, which is not on the material.
  */
-export declare function applyMaterialState(gl: WebGL2RenderingContext, cache: GlStateCache, material: Material, hasStencil: boolean): void;
+export declare function applyMaterialState(gl: WebGL2RenderingContext, cache: GlStateCache, material: Material, hasStencil: boolean, blend: GPUBlendState | undefined): void;

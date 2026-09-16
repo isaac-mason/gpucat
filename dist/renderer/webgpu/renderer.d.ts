@@ -326,6 +326,12 @@ export declare class WebGPURenderer implements Renderer, RendererState {
     /** restore renderer state previously saved with `saveRendererState()` */
     restoreRendererState(state: ReturnType<WebGPURenderer['saveRendererState']>): void;
     /**
+     * Read a RenderTarget color attachment back as tightly-packed, top-to-bottom RGBA8. `attachmentIndex`
+     * selects an MRT attachment, `layer` a cube face. Same name and shape as the WebGL backend's, so a
+     * host reads pixels without knowing which renderer it holds.
+     */
+    readPixels(renderTarget: RenderTarget, attachmentIndex?: number, layer?: number): Promise<Uint8Array>;
+    /**
      * Encode and submit a batch of compute dispatches. Must be called **inside** a
      * `requestAnimationFrame` callback, before `renderPipeline.render()`, so the
      * compute work is submitted alongside the render pass.

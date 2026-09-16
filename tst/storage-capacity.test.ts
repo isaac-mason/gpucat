@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { attribute, compileGlsl, d, f32, GpuBuffer, storage, struct, u32, vec4 } from '../src/index';
 import type { ResolvedStorageBufferTexture } from '../src/nodes/lib/texture';
-import { createGlTexturesState, updateStorageBufferTexture } from '../src/renderer/webgl/textures';
+import { createTextureCache, updateStorageBufferTexture } from '../src/renderer/webgl/textures';
 
 // Storage capacity: the storage() WebGL read-lowering reinterprets a read-only buffer as an rgba32uint
 // texture. The texel-grid width = min(totalTexels, maxTextureSize) and height = ceil is RENDERER-side
@@ -73,7 +73,7 @@ describe('storage() lowering — runtime textureSize addressing (size- + binding
 
 describe('storage() lowering — renderer validates the grid against MAX_TEXTURE_SIZE', () => {
     test('a grid exceeding MAX_TEXTURE_SIZE throws a clear error at upload', () => {
-        const state = createGlTexturesState();
+        const state = createTextureCache();
         state.maxTextureSize = 4; // pre-seed the cap so no GL call is needed before the guard fires.
         const buf = new GpuBuffer(d.array(Instance), { data: new Float32Array(25 * 4), usage: 'storage' });
         const source: ResolvedStorageBufferTexture = { buffer: buf, width: 5, height: 5, bytesPerTexel: 16 };

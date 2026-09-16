@@ -30,7 +30,7 @@
 
 import type { RenderTarget } from '../../core/render-target';
 import type { CubeRenderTarget } from '../../core/cube-render-target';
-import { getGlTextureData, updateTexture, type GlTexturesState } from './textures';
+import { getTextureData, updateTexture, type TextureCache } from './textures';
 
 /** Per-RenderTarget GL framebuffer + the color-texture generations it was built against. */
 type FboData = {
@@ -146,7 +146,7 @@ function isCube(rt: RenderTarget): rt is CubeRenderTarget {
 export function bindRenderTargetFramebuffer(
     gl: WebGL2RenderingContext,
     state: GlRenderTargetsState,
-    textures: GlTexturesState,
+    textures: TextureCache,
     renderTarget: RenderTarget,
 ): { hasStencil: boolean } {
     // Ensure each color texture's GL storage exists at the current size/format.
@@ -198,8 +198,8 @@ export function bindRenderTargetFramebuffer(
 }
 
 /** Attach the cube target's `activeFace` as the FBO's `COLOR_ATTACHMENT0`. */
-function attachCubeFace(gl: WebGL2RenderingContext, textures: GlTexturesState, renderTarget: CubeRenderTarget, fboData: FboData): void {
-    const data = getGlTextureData(textures, renderTarget.texture._gpuTexture);
+function attachCubeFace(gl: WebGL2RenderingContext, textures: TextureCache, renderTarget: CubeRenderTarget, fboData: FboData): void {
+    const data = getTextureData(textures, renderTarget.texture._gpuTexture);
     if (!data) return;
     gl.bindFramebuffer(gl.FRAMEBUFFER, fboData.fbo);
     const faceTarget = gl.TEXTURE_CUBE_MAP_POSITIVE_X + renderTarget.activeFace;
@@ -218,7 +218,7 @@ function attachCubeFace(gl: WebGL2RenderingContext, textures: GlTexturesState, r
 function rebuildFbo(
     gl: WebGL2RenderingContext,
     state: GlRenderTargetsState,
-    textures: GlTexturesState,
+    textures: TextureCache,
     renderTarget: RenderTarget,
     existing: FboData | undefined,
     colorGenerations: number[],
@@ -240,7 +240,7 @@ function rebuildFbo(
     // Color attachments.
     const drawBuffers: number[] = [];
     renderTarget.textures.forEach((tex, i) => {
-        const data = getGlTextureData(textures, tex._gpuTexture);
+        const data = getTextureData(textures, tex._gpuTexture);
         if (!data) return;
         ensureColorRenderable(gl, tex.format);
         const attachment = gl.COLOR_ATTACHMENT0 + i;
@@ -275,7 +275,7 @@ function rebuildFbo(
     if (renderTarget._depthAttachment && renderTarget.depthSampled) {
         // Sampleable depth texture (e.g. shadow maps, depth-of-field, scene-depth occlusion).
         freeDepthRenderbuffer();
-        const data = getGlTextureData(textures, renderTarget._depthAttachment._gpuTexture);
+        const data = getTextureData(textures, renderTarget._depthAttachment._gpuTexture);
         if (data) {
             const stencil = depthFormatHasStencil(renderTarget._depthAttachment.format);
             const attachment = stencil ? gl.DEPTH_STENCIL_ATTACHMENT : gl.DEPTH_ATTACHMENT;
@@ -316,10 +316,10 @@ function rebuildFbo(
         // an attachment has no/stale storage — an allocW×allocH that lags the logical size, or 0×0).
         const describe = (
             label: string,
-            tex: { _gpuTexture: Parameters<typeof getGlTextureData>[1]; format: string } | null | undefined,
+            tex: { _gpuTexture: Parameters<typeof getTextureData>[1]; format: string } | null | undefined,
         ) => {
             if (!tex) return `${label}: (none)`;
-            const d = getGlTextureData(textures, tex._gpuTexture);
+            const d = getTextureData(textures, tex._gpuTexture);
             const gl_ = d ? `${d.allocW}x${d.allocH} allocated=${d.allocated}` : 'no GL texture';
             return `${label}: format=${tex.format} logical=${tex._gpuTexture.width}x${tex._gpuTexture.height} gl=${gl_}`;
         };
@@ -389,7 +389,7 @@ function rebuildFbo(
 function buildMsaaFbo(
     gl: WebGL2RenderingContext,
     state: GlRenderTargetsState,
-    textures: GlTexturesState,
+    textures: TextureCache,
     renderTarget: RenderTarget,
 ): MsaaData | null {
     const w = renderTarget.width;
@@ -407,7 +407,7 @@ function buildMsaaFbo(
     const drawBuffers: number[] = [];
     for (let i = 0; i < renderTarget.textures.length; i++) {
         const tex = renderTarget.textures[i];
-        const data = getGlTextureData(textures, tex._gpuTexture);
+        const data = getTextureData(textures, tex._gpuTexture);
         if (!data) continue;
         const internalFormat = data.fmt.internalFormat;
         const maxSamples = gl.getInternalformatParameter(gl.RENDERBUFFER, internalFormat, gl.SAMPLES) as Int32Array | null;
@@ -441,7 +441,7 @@ function buildMsaaFbo(
     // Multisample depth renderbuffer, matching the target's depth format.
     let depthRenderbuffer: WebGLRenderbuffer | null = null;
     if (renderTarget._depthAttachment) {
-        const depthData = getGlTextureData(textures, renderTarget._depthAttachment._gpuTexture);
+        const depthData = getTextureData(textures, renderTarget._depthAttachment._gpuTexture);
         if (depthData) {
             const rb = gl.createRenderbuffer();
             if (rb) {

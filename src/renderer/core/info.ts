@@ -108,11 +108,26 @@ export type BufferWrite = {
  * flat once a scene settles; a count that climbs frame over frame is a leak rather than a workload.
  */
 export type MemoryInfo = {
+    /** Device buffers resident: vertex, index, uniform and storage. */
     buffers: number;
-    rawBuffers: number;
-    renderPipelines: number;
-    computePipelines: number;
-    bindGroupLayouts: number;
+    /** Geometries holding at least one uploaded buffer. */
+    geometries: number;
+    /** Textures resident on the device. */
+    textures: number;
+    /** Samplers resident on the device. */
+    samplers: number;
+    /**
+     * Compiled shader variants resident: a linked GL program on WebGL, a render or compute pipeline on
+     * WebGPU. Deliberately one number, because "how many shader permutations am I holding" means the
+     * same thing on both backends even though the object holding them does not.
+     */
+    programs: number;
+    /**
+     * Counts with no cross-backend meaning, keyed in the reporting backend's own vocabulary
+     * (`bindGroupLayouts` on WebGPU, `renderbuffers` on WebGL). Read these as a leak check within one
+     * backend, never as a comparison between them: the key set differs by design.
+     */
+    backend: Record<string, number>;
 };
 
 export type RendererInfo = {
@@ -127,13 +142,7 @@ export function createRendererInfo(): RendererInfo {
         render: { calls: 0, frameCalls: 0, drawCalls: 0, triangles: 0 },
         compute: { calls: 0, frameCalls: 0 },
         buffers: { writeCalls: 0, writeBytes: 0, writes: [], detailedWrites: false, writeCount: 0 },
-        memory: {
-            buffers: 0,
-            rawBuffers: 0,
-            renderPipelines: 0,
-            computePipelines: 0,
-            bindGroupLayouts: 0,
-        },
+        memory: { buffers: 0, geometries: 0, textures: 0, samplers: 0, programs: 0, backend: {} },
     };
 }
 
@@ -151,6 +160,17 @@ export function beginInfoFrame(info: RendererInfo): void {
     // the records array is POOLED: reset the live count and reuse the entries rather
     // than reallocating a few hundred objects every frame.
     info.buffers.writeCount = 0;
+}
+
+/**
+ * The single usage a buffer is attributed under, when it declares several. Shared by both backends so
+ * a vertex buffer is never filed as 'storage' on one and 'vertex' on the other.
+ */
+export function primaryBufferUsage(buffer: { usage: Set<string> }): string {
+    for (const candidate of ['storage', 'index', 'vertex', 'uniform', 'indirect']) {
+        if (buffer.usage.has(candidate)) return candidate;
+    }
+    return 'other';
 }
 
 /**
@@ -193,8 +213,9 @@ export function resetRendererInfo(info: RendererInfo): void {
     info.render.calls = 0;
     info.compute.calls = 0;
     info.memory.buffers = 0;
-    info.memory.rawBuffers = 0;
-    info.memory.renderPipelines = 0;
-    info.memory.computePipelines = 0;
-    info.memory.bindGroupLayouts = 0;
+    info.memory.geometries = 0;
+    info.memory.textures = 0;
+    info.memory.samplers = 0;
+    info.memory.programs = 0;
+    info.memory.backend = {};
 }

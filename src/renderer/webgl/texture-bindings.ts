@@ -18,7 +18,7 @@ import type { ResolvedStorageBufferTexture, StorageBufferTextureSource } from '.
 import { getBindings, type RenderObject } from '../core/render-object';
 import type { ProgramInfo } from './programs';
 import { type GlSamplersState, getGlSampler } from './samplers';
-import { type GlTexturesState, getGlTextureData, isIntegerTextureFormat, updateStorageBufferTexture, updateTexture } from './textures';
+import { type TextureCache, getTextureData, isIntegerTextureFormat, updateStorageBufferTexture, updateTexture } from './textures';
 
 /** The combined-sampler uniform name for a texture id (mirrors the GLSL emitter's `samplerUniformName`). */
 function samplerUniformName(textureId: string): string {
@@ -119,7 +119,7 @@ function getFlipLocation(gl: WebGL2RenderingContext, programInfo: ProgramInfo, n
  */
 function resolveStorageSource(
     gl: WebGL2RenderingContext,
-    textures: GlTexturesState,
+    textures: TextureCache,
     renderObject: RenderObject,
     source: StorageBufferTextureSource,
 ): ResolvedStorageBufferTexture {
@@ -153,7 +153,7 @@ function resolveStorageSource(
 
 export function bindTextures(
     gl: WebGL2RenderingContext,
-    textures: GlTexturesState,
+    textures: TextureCache,
     samplers: GlSamplersState,
     renderObject: RenderObject,
     programInfo: ProgramInfo,
@@ -220,7 +220,7 @@ export function bindTextures(
 
             // Upload / allocate the GL texture (version-gated). Render-target textures are allocated
             // by the FBO path; if never seen, updateTexture allocates them here as a safe fallback.
-            let texData = getGlTextureData(textures, gpuTexture);
+            let texData = getTextureData(textures, gpuTexture);
             if (!gpuTexture.isRenderTargetTexture) {
                 texData = updateTexture(gl, textures, gpuTexture);
             } else if (!texData) {
@@ -272,7 +272,7 @@ export function bindTextures(
  */
 export function bindStandaloneTextures(
     gl: WebGL2RenderingContext,
-    textures: GlTexturesState,
+    textures: TextureCache,
     samplers: GlSamplersState,
     textureEntries: readonly TextureEntry[],
     samplerEntries: readonly SamplerEntry[],
@@ -288,7 +288,7 @@ export function bindStandaloneTextures(
             );
         }
 
-        let texData = getGlTextureData(textures, gpuTexture);
+        let texData = getTextureData(textures, gpuTexture);
         if (!gpuTexture.isRenderTargetTexture) {
             texData = updateTexture(gl, textures, gpuTexture);
         } else if (!texData) {

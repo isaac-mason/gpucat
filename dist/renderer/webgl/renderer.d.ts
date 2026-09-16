@@ -19,6 +19,7 @@ import type { InspectorBase } from '../../inspector/inspector-base';
 import type { Material } from '../../material/material';
 import type { MRTNode } from '../../nodes/nodes';
 import { CanvasTarget } from '../core/canvas-target';
+import * as Info from '../core/info';
 import * as NodeManager from '../core/node-manager';
 import * as RenderContext from '../core/pass-context';
 import type { RenderObject } from '../core/render-object';
@@ -71,6 +72,9 @@ export type WebGLRendererOptions = {
 export declare class WebGLRenderer implements Renderer, RendererState {
     /** Which graphics backend this renderer drives. Runtime discriminant for feature-detection. */
     readonly backend: "webgl";
+    /** Per-frame draw/upload stats + the resident-object snapshot. Reset at this renderer's own frame
+     *  boundary, never from outside; see `renderer/core/info.ts`. */
+    readonly info: Info.RendererInfo;
     /** @internal */
     _initialized: boolean;
     /** @internal */
@@ -195,20 +199,16 @@ export declare class WebGLRenderer implements Renderer, RendererState {
     /** Minimal feature query. No optional WebGL2 features are surfaced yet. */
     hasFeature(_feature: string): boolean;
     /**
-     * Snapshot of GL device-resource counts for the Inspector's Memory tab. Reads the private GL
-     * caches directly (they're not exposed as public fields). Geometry VAOs and per-RenderObject GL
-     * payloads live in WeakMaps (not enumerable) so aren't counted; render-object count comes from the
-     * neutral `_renderObjects` set (see the Memory tab). Bytes aren't tracked per resource yet, so this
-     * is counts-only for now. @internal
+     * Snapshot the resident-object counts into `info.memory` at the frame boundary. Read live off the
+     * private GL caches rather than mirrored at every create/dispose site, matching the WebGPU backend.
+     * Geometry VAOs and per-RenderObject GL payloads live in WeakMaps (not enumerable) so aren't
+     * counted; the render-object count comes from the neutral `_renderObjects` set.
+     *
+     * The named fields are the backend-neutral ones. GL-only counts (framebuffers, renderbuffers) go in
+     * `memory.backend` under GL's own vocabulary rather than being forced into a WebGPU-shaped field,
+     * and `programs` is GL's linked-program count, the analogue of WebGPU's pipelines.
      */
-    getMemoryStats(): {
-        programCount: number;
-        uboCount: number;
-        textureCount: number;
-        samplerCount: number;
-        fboCount: number;
-        renderbufferCount: number;
-    };
+    private _beginInfoFrame;
     saveRendererState(): {
         renderTarget: RenderTarget | null;
         mrt: MRTNode | null;
@@ -284,7 +284,7 @@ export declare class WebGLRenderer implements Renderer, RendererState {
      * `rgba8unorm-srgb` color format. This method is WebGLRenderer-only; it enables headless/offline
      * readback (e.g. icon baking) with no canvas presentation.
      */
-    readRenderTargetPixels(renderTarget: RenderTarget, attachmentIndex?: number, layer?: number): Promise<Uint8Array>;
+    readPixels(renderTarget: RenderTarget, attachmentIndex?: number, layer?: number): Promise<Uint8Array>;
     /**
      * Dispose the renderer: free all GL resources (textures, buffers, programs, FBOs) and detach the
      * context-loss listeners. After calling dispose(), this renderer instance cannot be used again.

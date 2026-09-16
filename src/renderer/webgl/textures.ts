@@ -277,7 +277,7 @@ export type GlBufferTextureData = {
 };
 
 /** Textures state: per-GpuTexture GL data, keyed by GpuTexture identity, plus a disposal set. */
-export type GlTexturesState = {
+export type TextureCache = {
     data: WeakMap<GpuTexture, GlTextureData>;
     /** Storage-buffer-backed GL textures, keyed by the `GpuBuffer` (WebGL storage() read-lowering). */
     bufferData: WeakMap<GpuBuffer, GlBufferTextureData>;
@@ -289,7 +289,7 @@ export type GlTexturesState = {
 };
 
 /** Create an empty textures state. */
-export function createGlTexturesState(): GlTexturesState {
+export function createTextureCache(): TextureCache {
     return { data: new WeakMap(), bufferData: new WeakMap(), all: new Set() };
 }
 
@@ -370,7 +370,7 @@ function storageTexelFormat(gl: WebGL2RenderingContext, bytesPerTexel: number): 
  */
 export function updateStorageBufferTexture(
     gl: WebGL2RenderingContext,
-    state: GlTexturesState,
+    state: TextureCache,
     source: ResolvedStorageBufferTexture,
 ): WebGLTexture {
     const { buffer, width, height, bytesPerTexel } = source;
@@ -456,7 +456,7 @@ export function updateStorageBufferTexture(
 }
 
 /** Get the cached GlTextureData for a GpuTexture (or null if never seen). */
-export function getGlTextureData(state: GlTexturesState, texture: GpuTexture): GlTextureData | null {
+export function getTextureData(state: TextureCache, texture: GpuTexture): GlTextureData | null {
     return state.data.get(texture) ?? null;
 }
 
@@ -476,7 +476,7 @@ function setDefaultMinFilter(gl: WebGL2RenderingContext, target: number, generat
 }
 
 /** Create (and cache) the GL texture object for a GpuTexture, without uploading. */
-function ensureGlTexture(gl: WebGL2RenderingContext, state: GlTexturesState, texture: GpuTexture): GlTextureData {
+function ensureGlTexture(gl: WebGL2RenderingContext, state: TextureCache, texture: GpuTexture): GlTextureData {
     let data = state.data.get(texture);
     if (!data) {
         const glTexture = gl.createTexture();
@@ -811,7 +811,7 @@ function uploadExplicitMips(gl: WebGL2RenderingContext, texture: GpuTexture, dat
  * here at the current size and their pixels are filled by an FBO render — so this only creates +
  * allocates them (via `texImage2D`/`texStorage` with a null/absent source), never uploads.
  */
-export function updateTexture(gl: WebGL2RenderingContext, state: GlTexturesState, texture: GpuTexture): GlTextureData {
+export function updateTexture(gl: WebGL2RenderingContext, state: TextureCache, texture: GpuTexture): GlTextureData {
     const data = ensureGlTexture(gl, state, texture);
 
     if (data.allocated && data.version === texture.version) return data;
@@ -953,7 +953,7 @@ function allocateRenderTargetStorage(gl: WebGL2RenderingContext, texture: GpuTex
  * true. Guards: only when the texture wants mips, its format is mip-generatable, and it has an
  * allocated GL texture.
  */
-export function generateRenderTargetMipmaps(gl: WebGL2RenderingContext, state: GlTexturesState, texture: GpuTexture): void {
+export function generateTextureMipmaps(gl: WebGL2RenderingContext, state: TextureCache, texture: GpuTexture): void {
     if (!texture.generateMipmaps) return;
     if (!canGenerateMipmap(gl, texture.format)) return;
     const data = state.data.get(texture);
@@ -963,12 +963,12 @@ export function generateRenderTargetMipmaps(gl: WebGL2RenderingContext, state: G
 }
 
 /** Delete all GL textures (called on renderer dispose). */
-export function disposeGlTextures(gl: WebGL2RenderingContext, state: GlTexturesState): void {
+export function disposeTextureCache(gl: WebGL2RenderingContext, state: TextureCache): void {
     for (const tex of state.all) gl.deleteTexture(tex);
     state.all.clear();
 }
 
 /** Number of GL textures currently allocated. */
-export function getGlTexturesStats(state: GlTexturesState): { textureCount: number } {
+export function getTextureCacheStats(state: TextureCache): { textureCount: number } {
     return { textureCount: state.all.size };
 }

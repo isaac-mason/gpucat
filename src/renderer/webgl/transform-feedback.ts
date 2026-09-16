@@ -35,8 +35,9 @@ import { attribFormat, glComponentType } from './geometries';
 import { createTransformFeedbackProgram } from './programs';
 import type { ProgramInfo } from './programs';
 import type { GlSamplersState } from './samplers';
-import type { GlTexturesState } from './textures';
+import type { TextureCache } from './textures';
 import { bindStandaloneTextures } from './texture-bindings';
+import type { RendererInfo } from '../core/info';
 import { updateAndBindStandaloneUniformGroup, type UniformsState } from './uniforms';
 
 /** Per-node cached compile + link. */
@@ -196,8 +197,9 @@ export function runTransformFeedback(
     precision: 'highp' | 'mediump' | 'lowp' | undefined,
     frame: NodeFrame,
     uniforms: UniformsState,
-    textures: GlTexturesState,
+    textures: TextureCache,
     samplers: GlSamplersState,
+    info: RendererInfo,
 ): void {
     const { inputs, outputs, count, instanceCount } = opts;
 
@@ -235,7 +237,7 @@ export function runTransformFeedback(
         if (group.members.length === 0) continue;
         const bindingPoint = programInfo.uboBindingPoints.get(group.groupName);
         if (bindingPoint === undefined) continue;
-        updateAndBindStandaloneUniformGroup(gl, uniforms, group, frame, bindingPoint);
+        updateAndBindStandaloneUniformGroup(gl, uniforms, group, frame, bindingPoint, info);
     }
 
     // Bind any DataTextures the kernel samples via textureLoad() (explicit neighbour gather — the user

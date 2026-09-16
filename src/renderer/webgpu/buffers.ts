@@ -3,16 +3,10 @@ import type { Geometry } from '../../geometry/geometry';
 import type { StorageNode } from '../../nodes/nodes';
 import type { Any } from '../../schema/schema';
 import type { RendererInfo } from '../core/info';
-import { recordBufferWrite } from '../core/info';
+import { primaryBufferUsage, recordBufferWrite } from '../core/info';
 
 /** the one usage worth reporting, most specific first. A buffer often carries several
  *  flags (`storage` + `vertex`), and the specific one is what identifies it. */
-function primaryUsage(buffer: { usage: Set<string> }): string {
-    for (const candidate of ['storage', 'index', 'vertex', 'uniform', 'indirect']) {
-        if (buffer.usage.has(candidate)) return candidate;
-    }
-    return 'other';
-}
 import { BufferUpload, planBufferUpload } from '../core/buffer-upload';
 
 type CacheEntry = { buf: GPUBuffer; version: number };
@@ -102,7 +96,7 @@ export function ensureUploaded(cache: BufferCache, device: GPUDevice, buffer: Gp
 
     // non-null past the plan: Skip is the only outcome for a released array.
     const arr = buffer.array!;
-    const usage = primaryUsage(buffer);
+    const usage = primaryBufferUsage(buffer);
     const label = buffer.label ?? name;
 
     if (plan === BufferUpload.Allocate) {

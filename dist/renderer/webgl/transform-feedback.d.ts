@@ -28,7 +28,8 @@ import type { TransformFeedbackNode } from '../../nodes/lib/transform-feedback';
 import type { NodeFrame } from '../core/node-frame';
 import type { ProgramInfo } from './programs';
 import type { GlSamplersState } from './samplers';
-import type { GlTexturesState } from './textures';
+import type { TextureCache } from './textures';
+import type { RendererInfo } from '../core/info';
 import { type UniformsState } from './uniforms';
 /** Per-node cached compile + link. */
 type TfNodeCache = {
@@ -69,7 +70,7 @@ export type TransformFeedbackRunOptions = {
  * Execute one transform-feedback dispatch: bind the kernel's input `GpuBuffer`s as attributes, its
  * output `GpuBuffer`s as the captured-varying targets, and run the kernel under `RASTERIZER_DISCARD`.
  */
-export declare function runTransformFeedback(gl: WebGL2RenderingContext, state: TransformFeedbackState, node: TransformFeedbackNode, opts: TransformFeedbackRunOptions, precision: 'highp' | 'mediump' | 'lowp' | undefined, frame: NodeFrame, uniforms: UniformsState, textures: GlTexturesState, samplers: GlSamplersState): void;
+export declare function runTransformFeedback(gl: WebGL2RenderingContext, state: TransformFeedbackState, node: TransformFeedbackNode, opts: TransformFeedbackRunOptions, precision: 'highp' | 'mediump' | 'lowp' | undefined, frame: NodeFrame, uniforms: UniformsState, textures: TextureCache, samplers: GlSamplersState, info: RendererInfo): void;
 /**
  * Get the plain GL buffer backing a GpuBuffer within this transform-feedback state, if one exists.
  * Used by the test harness (and Phase 3 `readBufferAsync`) to read back a TF output buffer. Returns

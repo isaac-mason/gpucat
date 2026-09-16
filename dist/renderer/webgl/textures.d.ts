@@ -81,7 +81,7 @@ export type GlBufferTextureData = {
     height: number;
 };
 /** Textures state: per-GpuTexture GL data, keyed by GpuTexture identity, plus a disposal set. */
-export type GlTexturesState = {
+export type TextureCache = {
     data: WeakMap<GpuTexture, GlTextureData>;
     /** Storage-buffer-backed GL textures, keyed by the `GpuBuffer` (WebGL storage() read-lowering). */
     bufferData: WeakMap<GpuBuffer, GlBufferTextureData>;
@@ -92,7 +92,7 @@ export type GlTexturesState = {
     maxTextureUnits?: number;
 };
 /** Create an empty textures state. */
-export declare function createGlTexturesState(): GlTexturesState;
+export declare function createTextureCache(): TextureCache;
 /**
  * Resolve (create/upload/re-sync) the GL texture for a read-only storage `GpuBuffer` bound AS an
  * rgba32uint texture, and return it bound-ready. The pixel data is a ZERO-COPY `Uint32Array` view over
@@ -103,9 +103,9 @@ export declare function createGlTexturesState(): GlTexturesState;
  * queued — one upload run per merged dirty span for `packAtIndex`/`addUpdateRange` writes, a full upload
  * for a bare version bump, or a full re-allocation if the texel grid grew. The caller binds it.
  */
-export declare function updateStorageBufferTexture(gl: WebGL2RenderingContext, state: GlTexturesState, source: ResolvedStorageBufferTexture): WebGLTexture;
+export declare function updateStorageBufferTexture(gl: WebGL2RenderingContext, state: TextureCache, source: ResolvedStorageBufferTexture): WebGLTexture;
 /** Get the cached GlTextureData for a GpuTexture (or null if never seen). */
-export declare function getGlTextureData(state: GlTexturesState, texture: GpuTexture): GlTextureData | null;
+export declare function getTextureData(state: TextureCache, texture: GpuTexture): GlTextureData | null;
 /**
  * Ensure a GpuTexture's GL texture exists, is allocated at its current size/format, and (for
  * source-backed textures) has its data uploaded. Version-gated: a no-op once `data.version` matches
@@ -115,7 +115,7 @@ export declare function getGlTextureData(state: GlTexturesState, texture: GpuTex
  * here at the current size and their pixels are filled by an FBO render — so this only creates +
  * allocates them (via `texImage2D`/`texStorage` with a null/absent source), never uploads.
  */
-export declare function updateTexture(gl: WebGL2RenderingContext, state: GlTexturesState, texture: GpuTexture): GlTextureData;
+export declare function updateTexture(gl: WebGL2RenderingContext, state: TextureCache, texture: GpuTexture): GlTextureData;
 /**
  * Generate mipmaps for an already-allocated render-target color texture once the render pass that
  * writes it has finished. Binds the texture at its view-dimension target (2D, cube, or 2D-array — the
@@ -125,11 +125,11 @@ export declare function updateTexture(gl: WebGL2RenderingContext, state: GlTextu
  * true. Guards: only when the texture wants mips, its format is mip-generatable, and it has an
  * allocated GL texture.
  */
-export declare function generateRenderTargetMipmaps(gl: WebGL2RenderingContext, state: GlTexturesState, texture: GpuTexture): void;
+export declare function generateTextureMipmaps(gl: WebGL2RenderingContext, state: TextureCache, texture: GpuTexture): void;
 /** Delete all GL textures (called on renderer dispose). */
-export declare function disposeGlTextures(gl: WebGL2RenderingContext, state: GlTexturesState): void;
+export declare function disposeTextureCache(gl: WebGL2RenderingContext, state: TextureCache): void;
 /** Number of GL textures currently allocated. */
-export declare function getGlTexturesStats(state: GlTexturesState): {
+export declare function getTextureCacheStats(state: TextureCache): {
     textureCount: number;
 };
 export {};

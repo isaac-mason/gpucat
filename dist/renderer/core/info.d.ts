@@ -104,11 +104,26 @@ export type BufferWrite = {
  * flat once a scene settles; a count that climbs frame over frame is a leak rather than a workload.
  */
 export type MemoryInfo = {
+    /** Device buffers resident: vertex, index, uniform and storage. */
     buffers: number;
-    rawBuffers: number;
-    renderPipelines: number;
-    computePipelines: number;
-    bindGroupLayouts: number;
+    /** Geometries holding at least one uploaded buffer. */
+    geometries: number;
+    /** Textures resident on the device. */
+    textures: number;
+    /** Samplers resident on the device. */
+    samplers: number;
+    /**
+     * Compiled shader variants resident: a linked GL program on WebGL, a render or compute pipeline on
+     * WebGPU. Deliberately one number, because "how many shader permutations am I holding" means the
+     * same thing on both backends even though the object holding them does not.
+     */
+    programs: number;
+    /**
+     * Counts with no cross-backend meaning, keyed in the reporting backend's own vocabulary
+     * (`bindGroupLayouts` on WebGPU, `renderbuffers` on WebGL). Read these as a leak check within one
+     * backend, never as a comparison between them: the key set differs by design.
+     */
+    backend: Record<string, number>;
 };
 export type RendererInfo = {
     render: RenderInfo;
@@ -122,6 +137,13 @@ export declare function createRendererInfo(): RendererInfo;
  * the host — see the module header. Cumulative `calls` and the `memory` snapshot survive.
  */
 export declare function beginInfoFrame(info: RendererInfo): void;
+/**
+ * The single usage a buffer is attributed under, when it declares several. Shared by both backends so
+ * a vertex buffer is never filed as 'storage' on one and 'vertex' on the other.
+ */
+export declare function primaryBufferUsage(buffer: {
+    usage: Set<string>;
+}): string;
 /**
  * Attribute one `writeBuffer` to a label, updating both the totals and the
  * breakdown. Every write site goes through here so the two can never disagree.

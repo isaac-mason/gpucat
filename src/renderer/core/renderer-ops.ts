@@ -119,7 +119,7 @@ export function domElement(r: RendererState): HTMLCanvasElement {
     const c = canvas(r);
     if (isOffscreenCanvas(c)) {
         throw new Error(
-            '[Renderer] domElement is an OffscreenCanvas and is not a DOM element. Use `renderer.canvas` (and readRenderTargetPixels for output) in worker/headless contexts.',
+            '[Renderer] domElement is an OffscreenCanvas and is not a DOM element. Use `renderer.canvas` (and readPixels for output) in worker/headless contexts.',
         );
     }
     return c;

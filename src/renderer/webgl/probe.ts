@@ -15,6 +15,7 @@
  */
 
 import type { Geometry } from '../../geometry/geometry';
+import type { RendererInfo } from '../core/info';
 import type { NodeFrame } from '../core/node-frame';
 import { getBindings, type RenderObject } from '../core/render-object';
 import { FRAGMENT_STAGE_MARKER } from './constants';
@@ -22,16 +23,18 @@ import * as Geometries from './geometries';
 import type { ProgramInfo } from './programs';
 import type { GlSamplersState } from './samplers';
 import { bindTextures } from './texture-bindings';
-import type { GlTexturesState } from './textures';
+import type { TextureCache } from './textures';
 import * as Uniforms from './uniforms';
 
 /** The device caches + node frame the probe render needs (a subset of the renderer's caches). */
 export type ProbeCaches = {
     geometries: Geometries.GeometriesState;
     uniforms: Uniforms.UniformsState;
-    textures: GlTexturesState;
+    textures: TextureCache;
     samplers: GlSamplersState;
     frame: NodeFrame;
+    /** The renderer's stats handle; the probe reuses the real upload paths, so its writes are counted. */
+    info: RendererInfo;
 };
 
 /** A cached probe program: the linked GL program + its UBO binding points, plus the 1×1 readback FBO. */
@@ -226,7 +229,7 @@ export function renderProbe(
             if (binding.kind !== 'uniform') continue;
             const bindingPoint = p.uboBindingPoints.get(binding.block.groupName);
             if (bindingPoint === undefined) continue;
-            Uniforms.updateAndBindUniformGroup(gl, caches.uniforms, binding, caches.frame, bindingPoint, ro.material);
+            Uniforms.updateAndBindUniformGroup(gl, caches.uniforms, binding, caches.frame, bindingPoint, ro.material, caches.info);
         }
     }
 
@@ -234,7 +237,7 @@ export function renderProbe(
     bindTextures(gl, caches.textures, caches.samplers, ro, programInfo);
 
     // Geometry VAO (uploads buffers + builds/reuses the VAO for this program).
-    const drawInfo = Geometries.prepareGeometry(gl, caches.geometries, geometry, nodeState, p.program);
+    const drawInfo = Geometries.prepareGeometry(gl, caches.geometries, geometry, nodeState, p.program, caches.info);
     gl.bindVertexArray(drawInfo.vao);
 
     // Draw (triangle list, instance count = mesh.count), mirroring the render-pass draw selection.

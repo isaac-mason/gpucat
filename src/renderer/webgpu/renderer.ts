@@ -30,6 +30,7 @@ import * as Geometries from './geometries';
 import { DEPTH_FORMAT, DEPTH_STENCIL_FORMAT, formatHasStencil } from './pipelines';
 import * as Pipelines from './pipelines';
 import * as Prepare from './prepare';
+import * as ReadPixels from './read-pixels';
 import * as RenderObjectGpu from './render-object-gpu';
 import * as RenderPass from './render-pass';
 import * as Textures from './textures';
@@ -743,6 +744,18 @@ export class WebGPURenderer implements Renderer, RendererState {
     }
 
     /**
+     * Read a RenderTarget color attachment back as tightly-packed, top-to-bottom RGBA8. `attachmentIndex`
+     * selects an MRT attachment, `layer` a cube face. Same name and shape as the WebGL backend's, so a
+     * host reads pixels without knowing which renderer it holds.
+     */
+    readPixels(renderTarget: RenderTarget, attachmentIndex = 0, layer = 0): Promise<Uint8Array> {
+        if (!this._initialized) {
+            return Promise.reject(new Error('[WebGPURenderer] readPixels() called before init(). Await renderer.init() first.'));
+        }
+        return ReadPixels.readPixels(this, renderTarget, attachmentIndex, layer);
+    }
+
+    /**
      * Encode and submit a batch of compute dispatches. Must be called **inside** a
      * `requestAnimationFrame` callback, before `renderPipeline.render()`, so the
      * compute work is submitted alongside the render pass.
@@ -780,11 +793,21 @@ export class WebGPURenderer implements Renderer, RendererState {
     private _beginInfoFrame(): void {
         const info = this.info;
         Info.beginInfoFrame(info);
+        const geometries = Geometries.getGeometriesStats(this.geometries);
+        const textures = Textures.getTextureCacheStats(this.textures);
+        const renderPipelines = this.pipelines.renderPipelines.size;
+        const computePipelines = this.pipelines.computePipelines.size;
         info.memory.buffers = this.buffers.bufferCount;
-        info.memory.rawBuffers = this.buffers.rawCount;
-        info.memory.renderPipelines = this.pipelines.renderPipelines.size;
-        info.memory.computePipelines = this.pipelines.computePipelines.size;
-        info.memory.bindGroupLayouts = this.bindGroupLayoutCache.cache.size;
+        info.memory.geometries = geometries.geometries;
+        info.memory.textures = textures.textureCount;
+        info.memory.samplers = textures.samplerCount;
+        info.memory.programs = renderPipelines + computePipelines;
+        // Split back out for anyone debugging WebGPU specifically; the neutral `programs` above is
+        // their sum because WebGL has no equivalent split.
+        info.memory.backend.rawBuffers = this.buffers.rawCount;
+        info.memory.backend.renderPipelines = renderPipelines;
+        info.memory.backend.computePipelines = computePipelines;
+        info.memory.backend.bindGroupLayouts = this.bindGroupLayoutCache.cache.size;
     }
 
     compute(entries: ComputeDispatch[]): void {

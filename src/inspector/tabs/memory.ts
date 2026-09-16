@@ -1,6 +1,4 @@
 import { getRenderObjectsStats } from '../../renderer/core/render-objects';
-import { getBufferCacheStats } from '../../renderer/webgpu/buffers';
-import * as pipelinesModule from '../../renderer/webgpu/pipelines';
 import type { InspectorBase } from '../inspector-base';
 import { Graph } from '../ui/graph';
 import { Item } from '../ui/item';
@@ -9,19 +7,29 @@ import { Tab } from '../ui/tab';
 import { createValueSpan, setText } from '../ui/utils';
 
 /**
- * Memory tab — device-resource counts for the attached renderer. The stat rows are backend-specific
- * (WebGPU caches buffers/pipelines; WebGL caches programs/UBOs/textures/…), so they're built lazily on
- * the first update once the renderer's backend is known, and reused thereafter. The graph tracks a
- * single "total resource count" line for whichever backend is attached.
+ * Memory tab — resident-resource counts for the attached renderer, read from `renderer.info.memory`.
+ *
+ * Backend-neutral: the named rows mean the same thing on both backends, so there is no branch here.
+ * Counts a backend reports in its own vocabulary arrive in `memory.backend` and are appended as extra
+ * rows; the row set is rebuilt when those keys change (they appear as the caches populate). The graph
+ * tracks a single total-resource line.
  */
+const NEUTRAL_ROWS = ['Buffers', 'Geometries', 'Textures', 'Samplers', 'Programs'];
+
+/** `renderPipelines` -> `Render Pipelines`. Backend bag keys are camelCase by convention. */
+function humanizeKey(key: string): string {
+    const spaced = key.replace(/([a-z0-9])([A-Z])/g, '$1 $2');
+    return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
 export class Memory extends Tab {
     graph: Graph;
     private _memoryList: List;
     private _memoryStats: Item | null = null;
-    /** Value spans for the current backend's rows, keyed by row label. */
+    /** Value spans for the current rows, keyed by row label. */
     private _rows: Map<string, HTMLElement> = new Map();
-    /** Backend the current rows were built for; rebuilt if the attached renderer changes backend. */
-    private _builtBackend: 'webgpu' | 'webgl' | null = null;
+    /** Signature of the rows currently built, so backend-specific keys appearing later rebuild them. */
+    private _builtKey: string | null = null;
 
     constructor(options: { name?: string; allowDetach?: boolean } = {}) {
         super('Memory', options);
@@ -49,25 +57,22 @@ export class Memory extends Tab {
         this._memoryList = memoryList;
     }
 
-    /** (Re)build the stat rows for the given backend. Rows differ per backend. */
-    private _buildRows(backend: 'webgpu' | 'webgl'): void {
-        if (this._builtBackend === backend && this._memoryStats) return;
+    /** Neutral rows plus one per backend-specific key. Rebuilt only when that key set changes. */
+    private _buildRows(backendKeys: string[]): void {
+        const key = backendKeys.join(',');
+        if (this._builtKey === key && this._memoryStats) return;
 
-        // Clear any previous rows (backend switch on the same tab instance).
-        this._memoryList.domElement
-            .querySelectorAll('.list-item-wrapper')
-            .forEach((el) => el.remove());
+        // Clear any previous rows (the backend bag gained a key, or the renderer changed).
+        for (const el of Array.from(this._memoryList.domElement.querySelectorAll('.list-item-wrapper'))) {
+            el.remove();
+        }
         this._rows.clear();
 
         const memoryStats = new Item('Renderer Info', '');
         (memoryStats.domElement.firstChild as HTMLElement).classList.add('no-hover');
         this._memoryList.add(memoryStats);
 
-        const labels =
-            backend === 'webgpu'
-                ? ['GPU Buffers', 'Raw Buffers', 'Render Pipelines', 'Compute Pipelines']
-                : ['Programs', 'Uniform Buffers', 'Textures', 'Samplers', 'Framebuffers', 'Render Objects'];
-
+        const labels = [...NEUTRAL_ROWS, 'Render Objects', ...backendKeys.map(humanizeKey)];
         for (const label of labels) {
             const span = createValueSpan();
             memoryStats.add(new Item(label, span));
@@ -75,21 +80,14 @@ export class Memory extends Tab {
         }
 
         this._memoryStats = memoryStats;
-        this._builtBackend = backend;
+        this._builtKey = key;
     }
 
     updateGraph(inspector: InspectorBase): void {
         const renderer = inspector.getRenderer();
         if (!renderer) return;
-        let total: number;
-        if (renderer.backend === 'webgpu') {
-            const bs = getBufferCacheStats(renderer.buffers);
-            total = bs.bufferCount + bs.rawCount;
-        } else {
-            const s = renderer.getMemoryStats();
-            total = s.programCount + s.uboCount + s.textureCount + s.samplerCount + s.fboCount;
-        }
-        this.graph.addPoint('total', total);
+        const m = renderer.info.memory;
+        this.graph.addPoint('total', m.buffers + m.geometries + m.textures + m.samplers + m.programs);
         if (this.graph.limit === 0) this.graph.limit = 1;
         this.graph.update();
     }
@@ -98,29 +96,17 @@ export class Memory extends Tab {
         const renderer = inspector.getRenderer();
         if (!renderer) return;
 
-        this._buildRows(renderer.backend);
+        const m = renderer.info.memory;
+        const backendKeys = Object.keys(m.backend).sort();
+        this._buildRows(backendKeys);
 
-        if (renderer.backend === 'webgpu') {
-            const bs = getBufferCacheStats(renderer.buffers);
-            const ps = pipelinesModule.getStats(renderer.pipelines);
-            const ros = getRenderObjectsStats(renderer._renderObjects);
-            this._set('GPU Buffers', bs.bufferCount.toString());
-            this._set('Raw Buffers', bs.rawCount.toString());
-            this._set('Render Pipelines', `${ps.renderCount} render, ${ros.total} objects`);
-            this._set('Compute Pipelines', `${ps.computeCount} compute`);
-        } else {
-            const s = renderer.getMemoryStats();
-            const ros = getRenderObjectsStats(renderer._renderObjects);
-            this._set('Programs', s.programCount.toString());
-            this._set('Uniform Buffers', s.uboCount.toString());
-            this._set('Textures', s.textureCount.toString());
-            this._set('Samplers', s.samplerCount.toString());
-            this._set(
-                'Framebuffers',
-                s.renderbufferCount > 0 ? `${s.fboCount} (+${s.renderbufferCount} rb)` : s.fboCount.toString(),
-            );
-            this._set('Render Objects', ros.total.toString());
-        }
+        this._set('Buffers', m.buffers.toString());
+        this._set('Geometries', m.geometries.toString());
+        this._set('Textures', m.textures.toString());
+        this._set('Samplers', m.samplers.toString());
+        this._set('Programs', m.programs.toString());
+        this._set('Render Objects', getRenderObjectsStats(renderer._renderObjects).total.toString());
+        for (const k of backendKeys) this._set(humanizeKey(k), String(m.backend[k] ?? 0));
     }
 
     private _set(label: string, value: string): void {

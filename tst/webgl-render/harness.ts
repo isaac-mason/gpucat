@@ -2605,7 +2605,7 @@ async function caseStoragePartialSpans(): Promise<CaseResult> {
 
 /**
  * readback-orientation: render a two-tone image (red where clip-space y > 0, green below) into an
- * rgba8unorm RenderTarget, then assert `readRenderTargetPixels` returns red in the TOP rows and green
+ * rgba8unorm RenderTarget, then assert `readPixels` returns red in the TOP rows and green
  * in the BOTTOM rows. This proves the row-flip: GL reads bottom-to-top, and the readback must return
  * top-to-bottom to match the WebGPU `readPixels` contract (output row 0 = clip +Y = top of image).
  */
@@ -2632,7 +2632,7 @@ async function caseReadbackOrientation(): Promise<CaseResult> {
     renderer.render(scene, camera);
     renderer.renderTarget = saved;
 
-    const px = await renderer.readRenderTargetPixels(rt);
+    const px = await renderer.readPixels(rt);
     const at = (x: number, y: number): [number, number, number, number] => {
         const i = (y * SIZE + x) * 4;
         return [px[i], px[i + 1], px[i + 2], px[i + 3]];
@@ -2680,7 +2680,7 @@ async function caseHeadlessOffscreen(): Promise<CaseResult> {
     renderer.render(scene, camera);
     renderer.renderTarget = saved;
 
-    const px = await renderer.readRenderTargetPixels(rt);
+    const px = await renderer.readPixels(rt);
     const i = (CENTER * SIZE + CENTER) * 4;
     const pixel: [number, number, number, number] = [px[i], px[i + 1], px[i + 2], px[i + 3]];
     renderer.dispose();

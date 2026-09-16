@@ -7,14 +7,14 @@
  *
  * GL `readPixels` returns rows bottom-to-top (GL's origin is lower-left), so the rows are flipped to
  * top-to-bottom to match the WebGPU convention. The public entry is the
- * `WebGLRenderer.readRenderTargetPixels` method; this is the free-function impl it delegates to
+ * `WebGLRenderer.readPixels` method; this is the free-function impl it delegates to
  * (mirroring `readBufferAsync`).
  */
 
 import type { CubeRenderTarget } from '../../core/cube-render-target';
 import type { RenderTarget } from '../../core/render-target';
 import { resolveActiveRenderTarget, type GlRenderTargetsState } from './render-target';
-import { getGlTextureData, type GlTexturesState } from './textures';
+import { getTextureData, type TextureCache } from './textures';
 
 /**
  * Read a RenderTarget color attachment back to a tightly-packed, top-to-bottom RGBA8 `Uint8Array`
@@ -23,22 +23,22 @@ import { getGlTextureData, type GlTexturesState } from './textures';
  * selects an MRT color attachment; `layer` selects a cube face (0..5). Throws if the target has not
  * been rendered to yet.
  */
-export function readRenderTargetPixels(
+export function readPixels(
     gl: WebGL2RenderingContext,
     state: GlRenderTargetsState,
-    textures: GlTexturesState,
+    textures: TextureCache,
     renderTarget: RenderTarget,
     attachmentIndex = 0,
     layer = 0,
 ): Uint8Array {
     const tex = renderTarget.textures[attachmentIndex];
     if (!tex) {
-        throw new Error(`[readRenderTargetPixels] no color attachment at index ${attachmentIndex}.`);
+        throw new Error(`[readPixels] no color attachment at index ${attachmentIndex}.`);
     }
     const fmt = tex.format;
     if (fmt !== 'rgba8unorm' && fmt !== 'rgba8unorm-srgb') {
         throw new Error(
-            `[readRenderTargetPixels] unsupported attachment format '${fmt}' at index ${attachmentIndex}; ` +
+            `[readPixels] unsupported attachment format '${fmt}' at index ${attachmentIndex}; ` +
                 `the WebGL2 backend reads back only rgba8unorm / rgba8unorm-srgb targets ` +
                 `(render through an rgba8unorm RenderTarget first).`,
         );
@@ -46,7 +46,7 @@ export function readRenderTargetPixels(
 
     const fboData = state.data.get(renderTarget);
     if (!fboData) {
-        throw new Error('[readRenderTargetPixels] render target has not been rendered to yet; render() into it first.');
+        throw new Error('[readPixels] render target has not been rendered to yet; render() into it first.');
     }
 
     // MSAA target: resolve the multisample result into the texture FBO before reading it.
@@ -60,9 +60,9 @@ export function readRenderTargetPixels(
     if (renderTarget.isCubeRenderTarget === true) {
         // Cube target: point the read FBO's color attachment at the requested face.
         const cube = renderTarget as CubeRenderTarget;
-        const data = getGlTextureData(textures, cube.texture._gpuTexture);
+        const data = getTextureData(textures, cube.texture._gpuTexture);
         if (!data) {
-            throw new Error('[readRenderTargetPixels] cube render target has no GL texture; render() into it first.');
+            throw new Error('[readPixels] cube render target has no GL texture; render() into it first.');
         }
         gl.bindFramebuffer(gl.READ_FRAMEBUFFER, fboData.fbo);
         gl.framebufferTexture2D(

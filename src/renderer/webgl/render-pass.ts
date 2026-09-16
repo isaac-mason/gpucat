@@ -25,10 +25,11 @@ import * as Geometries from './geometries';
 import { getRenderObjectGl, type RenderObjectGlCache } from './render-object-gl';
 import { bindRenderTargetFramebuffer, resolveActiveRenderTarget, type GlRenderTargetsState } from './render-target';
 import type { GlSamplersState } from './samplers';
+import type { RendererInfo } from '../core/info';
 import * as RenderState from '../core/render-state';
 import { applyMaterialState, createGlStateCache, establishPassBaseline } from './state';
 import { bindTextures } from './texture-bindings';
-import type { GlTexturesState } from './textures';
+import type { TextureCache } from './textures';
 import * as Uniforms from './uniforms';
 
 /**
@@ -135,10 +136,19 @@ export type DrawCaches = {
     geometries: Geometries.GeometriesState;
     uniforms: Uniforms.UniformsState;
     renderObjectGl: RenderObjectGlCache;
-    textures: GlTexturesState;
+    textures: TextureCache;
     samplers: GlSamplersState;
     renderTargets: GlRenderTargetsState;
 };
+
+/**
+ * Count one draw into `info`. Triangles come from the CPU-known vertex/index count, so like the WebGPU
+ * backend this is a floor rather than a guess; nothing here reads a count back off the GPU.
+ */
+function countDraw(info: RendererInfo, elementCount: number, instanceCount: number): void {
+    info.render.drawCalls++;
+    info.render.triangles += (instanceCount * elementCount) / 3;
+}
 
 /**
  * How the pass's single GL blend state is chosen.
@@ -208,6 +218,7 @@ export function executeRenderPass(
     prepared: PreparedRenderObject[],
     params: RenderPassParams,
     inspector: InspectorBase | null,
+    info: RendererInfo,
 ): void {
     // Reject an MRT that asks for differing per-attachment blends (WebGL2 has one global blend state).
     const passBlend = planPassBlend(passCtx);
@@ -277,7 +288,7 @@ export function executeRenderPass(
                 if (binding.kind !== 'uniform') continue;
                 const bindingPoint = programInfo.uboBindingPoints.get(binding.block.groupName);
                 if (bindingPoint === undefined) continue; // block optimized out / unused
-                Uniforms.updateAndBindUniformGroup(gl, caches.uniforms, binding, frame, bindingPoint, material);
+                Uniforms.updateAndBindUniformGroup(gl, caches.uniforms, binding, frame, bindingPoint, material, info);
             }
             if (inspector) inspector.setBindGroup(bindGroupIndex, mesh.name || '');
             bindGroupIndex++;
@@ -289,7 +300,7 @@ export function executeRenderPass(
         // Geometry VAO (uploads buffers + builds/reuses the VAO for this program).
         // `prepareGeometry` detaches the VAO to upload buffers safely (see its note), so the GL VAO
         // is unbound on return — always rebind the resolved one here rather than deduping the GL call.
-        const drawInfo = Geometries.prepareGeometry(gl, caches.geometries, geometry, nodeState, programInfo.program);
+        const drawInfo = Geometries.prepareGeometry(gl, caches.geometries, geometry, nodeState, programInfo.program, info);
         gl.bindVertexArray(drawInfo.vao);
         if (currentVao !== drawInfo.vao) {
             currentVao = drawInfo.vao;
@@ -326,6 +337,7 @@ export function executeRenderPass(
                     if (drawBaseLoc !== null) gl.uniform1ui(drawBaseLoc, d.firstInstance);
                     gl.drawElementsInstanced(gl.TRIANGLES, d.indexCount, drawInfo.indexType, d.firstIndex * bytesPerIndex, d.instanceCount);
                     if (inspector) inspector.drawIndexed(d.indexCount, d.instanceCount);
+                    countDraw(info, d.indexCount, d.instanceCount);
                 }
             } else {
                 for (const d of mesh.draws as NonIndexedMeshDraw[]) {
@@ -333,6 +345,7 @@ export function executeRenderPass(
                     if (drawBaseLoc !== null) gl.uniform1ui(drawBaseLoc, d.firstInstance);
                     gl.drawArraysInstanced(gl.TRIANGLES, d.firstVertex, d.vertexCount, d.instanceCount);
                     if (inspector) inspector.draw(d.vertexCount, d.instanceCount);
+                    countDraw(info, d.vertexCount, d.instanceCount);
                 }
             }
         } else {
@@ -353,6 +366,7 @@ export function executeRenderPass(
                 const bytesPerIndex = drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
                 gl.drawElementsInstanced(gl.TRIANGLES, count, drawInfo.indexType, start * bytesPerIndex, instances);
                 if (inspector) inspector.drawIndexed(count, instances);
+                countDraw(info, count, instances);
             } else {
                 const position = geometry.buffers.get('position');
                 // Vertices remaining after `start`; clamp drawRange.count to it so a non-zero start
@@ -364,6 +378,7 @@ export function executeRenderPass(
                         : Math.min(geometry.drawRange.count, available);
                 gl.drawArraysInstanced(gl.TRIANGLES, start, vertexCount, instances);
                 if (inspector) inspector.draw(vertexCount, instances);
+                countDraw(info, vertexCount, instances);
             }
         }
 

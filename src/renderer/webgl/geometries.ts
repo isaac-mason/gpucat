@@ -19,8 +19,9 @@
 
 import type { GpuBuffer, GpuTypedArray } from '../../core/gpu-buffer';
 import type { Geometry } from '../../geometry/geometry';
-import type { NodeBuilderState } from '../core/node-builder-state';
 import { BufferUpload, planBufferUpload } from '../core/buffer-upload';
+import { primaryBufferUsage, type RendererInfo, recordBufferWrite } from '../core/info';
+import type { NodeBuilderState } from '../core/node-builder-state';
 import { mergeUpdateRanges } from '../core/update-ranges';
 
 /** Per-geometry GL resources: the attribute/index GL buffers and their last-uploaded versions. */
@@ -47,11 +48,18 @@ export type GeometriesState = {
     data: WeakMap<Geometry, GeometryBuffers>;
     /** Cached `gl.MAX_VERTEX_ATTRIBS`, read once (guards attribute-location assignment). */
     maxVertexAttribs?: number;
+    /** Resident-object tally for `renderer.info.memory`. `data` is a WeakMap, so it cannot be counted. */
+    memory: { geometries: number; buffers: number; indexBuffers: number };
 };
 
 /** Create an empty geometries state. */
 export function createGeometriesState(): GeometriesState {
-    return { data: new WeakMap() };
+    return { data: new WeakMap(), memory: { geometries: 0, buffers: 0, indexBuffers: 0 } };
+}
+
+/** Resident geometry resources. Mirrors `webgpu/geometries.ts` `getGeometriesStats`. */
+export function getGeometriesStats(state: GeometriesState): { geometries: number; buffers: number; indexBuffers: number } {
+    return { ...state.memory };
 }
 
 function getGeometryBuffers(state: GeometriesState, geometry: Geometry): GeometryBuffers {
@@ -67,6 +75,7 @@ function getGeometryBuffers(state: GeometriesState, geometry: Geometry): Geometr
             vaos: new Map(),
         };
         state.data.set(geometry, gb);
+        state.memory.geometries++;
     }
     return gb;
 }
@@ -159,13 +168,22 @@ export function glComponentType(gl: WebGL2RenderingContext, glType: AttribFormat
  * span. Ranges are flat array-element (component) indices; the `srcOffset`/`length` args below
  * are element counts (WebGL2 typed-array overload). Clears the ranges once applied.
  */
-function uploadDirtyRanges(gl: WebGL2RenderingContext, target: GLenum, array: GpuTypedArray, buffer: GpuBuffer): void {
+function uploadDirtyRanges(
+    gl: WebGL2RenderingContext,
+    target: GLenum,
+    array: GpuTypedArray,
+    buffer: GpuBuffer,
+    info: RendererInfo,
+    label: string,
+): void {
     const ranges = buffer.updateRanges;
     mergeUpdateRanges(ranges);
     const bpe = array.BYTES_PER_ELEMENT;
+    const usage = primaryBufferUsage(buffer);
     for (let i = 0; i < ranges.length; i++) {
         const r = ranges[i]!;
         gl.bufferSubData(target, r.start * bpe, array, r.start, r.count);
+        recordBufferWrite(info, r.count * bpe, usage, false, label);
     }
     buffer.clearUpdateRanges();
 }
@@ -173,12 +191,15 @@ function uploadDirtyRanges(gl: WebGL2RenderingContext, target: GLenum, array: Gp
 /** Upload (creating/growing/patching as needed) an attribute buffer, returning its GL buffer. */
 function ensureAttributeBuffer(
     gl: WebGL2RenderingContext,
+    state: GeometriesState,
     gb: GeometryBuffers,
     name: string,
     buffer: GpuBuffer,
+    info: RendererInfo,
 ): WebGLBuffer {
     const array = buffer.array;
     if (!array) throw new Error(`[WebGLRenderer] attribute buffer '${name}' has null array.`);
+    const label = buffer.label ?? name;
     let glBuffer = gb.attributeBuffers.get(name);
     const plan = planBufferUpload(buffer, glBuffer !== undefined, gb.attributeSizes.get(name) ?? -1, gb.attributeVersions.get(name) ?? -1);
     if (plan === BufferUpload.Skip && glBuffer) return glBuffer;
@@ -189,29 +210,40 @@ function ensureAttributeBuffer(
             if (!created) throw new Error('[WebGLRenderer] gl.createBuffer returned null.');
             glBuffer = created;
             gb.attributeBuffers.set(name, glBuffer);
+            state.memory.buffers++;
         }
         gl.bindBuffer(gl.ARRAY_BUFFER, glBuffer);
         gl.bufferData(gl.ARRAY_BUFFER, array, gl.STATIC_DRAW);
+        recordBufferWrite(info, array.byteLength, primaryBufferUsage(buffer), true, label);
         gb.attributeSizes.set(name, array.byteLength);
         gb.attributeVersions.set(name, buffer.version);
+        // the allocate path wrote everything, so pending ranges are already covered.
         buffer.clearUpdateRanges();
         return glBuffer;
     }
 
     gl.bindBuffer(gl.ARRAY_BUFFER, glBuffer!);
     if (plan === BufferUpload.Partial) {
-        uploadDirtyRanges(gl, gl.ARRAY_BUFFER, array, buffer);
+        uploadDirtyRanges(gl, gl.ARRAY_BUFFER, array, buffer, info, label);
     } else {
         gl.bufferSubData(gl.ARRAY_BUFFER, 0, array);
+        recordBufferWrite(info, array.byteLength, primaryBufferUsage(buffer), true, label);
     }
     gb.attributeVersions.set(name, buffer.version);
     return glBuffer!;
 }
 
 /** Upload (creating/growing/patching as needed) the index buffer, returning its GL buffer. */
-function ensureIndexBuffer(gl: WebGL2RenderingContext, gb: GeometryBuffers, index: GpuBuffer): WebGLBuffer {
+function ensureIndexBuffer(
+    gl: WebGL2RenderingContext,
+    state: GeometriesState,
+    gb: GeometryBuffers,
+    index: GpuBuffer,
+    info: RendererInfo,
+): WebGLBuffer {
     const array = index.array;
     if (!array) throw new Error('[WebGLRenderer] index buffer has null array.');
+    const label = index.label ?? 'index';
     const plan = planBufferUpload(index, gb.indexBuffer !== null, gb.indexSize, gb.indexVersion);
     if (plan === BufferUpload.Skip && gb.indexBuffer) return gb.indexBuffer;
 
@@ -220,9 +252,11 @@ function ensureIndexBuffer(gl: WebGL2RenderingContext, gb: GeometryBuffers, inde
             const created = gl.createBuffer();
             if (!created) throw new Error('[WebGLRenderer] gl.createBuffer returned null (index).');
             gb.indexBuffer = created;
+            state.memory.indexBuffers++;
         }
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gb.indexBuffer);
         gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, array, gl.STATIC_DRAW);
+        recordBufferWrite(info, array.byteLength, primaryBufferUsage(index), true, label);
         gb.indexSize = array.byteLength;
         gb.indexVersion = index.version;
         index.clearUpdateRanges();
@@ -231,9 +265,10 @@ function ensureIndexBuffer(gl: WebGL2RenderingContext, gb: GeometryBuffers, inde
 
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gb.indexBuffer!);
     if (plan === BufferUpload.Partial) {
-        uploadDirtyRanges(gl, gl.ELEMENT_ARRAY_BUFFER, array, index);
+        uploadDirtyRanges(gl, gl.ELEMENT_ARRAY_BUFFER, array, index, info, label);
     } else {
         gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, array);
+        recordBufferWrite(info, array.byteLength, primaryBufferUsage(index), true, label);
     }
     gb.indexVersion = index.version;
     return gb.indexBuffer!;
@@ -261,6 +296,7 @@ export function prepareGeometry(
     geometry: Geometry,
     nodeState: NodeBuilderState,
     program: WebGLProgram,
+    info: RendererInfo,
 ): GeometryDrawInfo {
     const gb = getGeometryBuffers(state, geometry);
 
@@ -275,18 +311,18 @@ export function prepareGeometry(
     for (const group of nodeState.vertexBufferGroups) {
         if (group.name !== null) {
             const buffer = geometry.buffers.get(group.name);
-            if (buffer) ensureAttributeBuffer(gl, gb, group.name, buffer);
+            if (buffer) ensureAttributeBuffer(gl, state, gb, group.name, buffer, info);
         } else if (group.buffer) {
             // Direct (non-geometry) buffer: key it by a synthetic name derived from its identity.
             const key = `__direct_${group.attributes[0]?.shaderLocation ?? 0}`;
-            ensureAttributeBuffer(gl, gb, key, group.buffer);
+            ensureAttributeBuffer(gl, state, gb, key, group.buffer, info);
         }
     }
 
     // Upload the index buffer if present.
     let indexType: number | null = null;
     if (geometry.index) {
-        ensureIndexBuffer(gl, gb, geometry.index);
+        ensureIndexBuffer(gl, state, gb, geometry.index, info);
         indexType = glIndexType(gl, geometry.index.array);
     }
 

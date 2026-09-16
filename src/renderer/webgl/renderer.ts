@@ -21,6 +21,7 @@ import type { InspectorBase } from '../../inspector/inspector-base';
 import type { Material } from '../../material/material';
 import type { MRTNode } from '../../nodes/nodes';
 import { CanvasTarget } from '../core/canvas-target';
+import * as Info from '../core/info';
 import * as NodeManager from '../core/node-manager';
 import * as RenderContext from '../core/pass-context';
 import type { RenderObject } from '../core/render-object';
@@ -101,6 +102,10 @@ export class WebGLRenderer implements Renderer, RendererState {
     /** Which graphics backend this renderer drives. Runtime discriminant for feature-detection. */
     readonly backend = 'webgl' as const;
 
+    /** Per-frame draw/upload stats + the resident-object snapshot. Reset at this renderer's own frame
+     *  boundary, never from outside; see `renderer/core/info.ts`. */
+    readonly info: Info.RendererInfo = Info.createRendererInfo();
+
     /** @internal */
     _initialized = false;
 
@@ -163,7 +168,7 @@ export class WebGLRenderer implements Renderer, RendererState {
     /** Per-RenderObject GL device payload (linked program). @internal */
     private readonly _renderObjectGl: RenderObjectGlCache;
     /** Per-GpuTexture GL texture cache (upload + allocation). @internal */
-    private readonly _textures: Textures.GlTexturesState;
+    private readonly _textures: Textures.TextureCache;
     /** Per-GpuSampler GL sampler-object cache. @internal */
     private readonly _samplers: Samplers.GlSamplersState;
     /** Per-RenderTarget GL framebuffer (FBO) cache. @internal */
@@ -293,7 +298,7 @@ export class WebGLRenderer implements Renderer, RendererState {
         this._geometries = Geometries.createGeometriesState();
         this._uniforms = Uniforms.createUniformsState();
         this._renderObjectGl = createRenderObjectGlCache();
-        this._textures = Textures.createGlTexturesState();
+        this._textures = Textures.createTextureCache();
         this._samplers = Samplers.createGlSamplersState();
         this._renderTargets = RenderTargets.createGlRenderTargetsState();
         this._transformFeedback = TransformFeedback.createTransformFeedbackState();
@@ -455,27 +460,27 @@ export class WebGLRenderer implements Renderer, RendererState {
     }
 
     /**
-     * Snapshot of GL device-resource counts for the Inspector's Memory tab. Reads the private GL
-     * caches directly (they're not exposed as public fields). Geometry VAOs and per-RenderObject GL
-     * payloads live in WeakMaps (not enumerable) so aren't counted; render-object count comes from the
-     * neutral `_renderObjects` set (see the Memory tab). Bytes aren't tracked per resource yet, so this
-     * is counts-only for now. @internal
+     * Snapshot the resident-object counts into `info.memory` at the frame boundary. Read live off the
+     * private GL caches rather than mirrored at every create/dispose site, matching the WebGPU backend.
+     * Geometry VAOs and per-RenderObject GL payloads live in WeakMaps (not enumerable) so aren't
+     * counted; the render-object count comes from the neutral `_renderObjects` set.
+     *
+     * The named fields are the backend-neutral ones. GL-only counts (framebuffers, renderbuffers) go in
+     * `memory.backend` under GL's own vocabulary rather than being forced into a WebGPU-shaped field,
+     * and `programs` is GL's linked-program count, the analogue of WebGPU's pipelines.
      */
-    getMemoryStats(): {
-        programCount: number;
-        uboCount: number;
-        textureCount: number;
-        samplerCount: number;
-        fboCount: number;
-        renderbufferCount: number;
-    } {
-        return {
-            ...Programs.getProgramCacheStats(this._programs),
-            ...Uniforms.getUniformsStats(this._uniforms),
-            ...Textures.getGlTexturesStats(this._textures),
-            ...Samplers.getGlSamplersStats(this._samplers),
-            ...RenderTargets.getGlRenderTargetsStats(this._renderTargets),
-        };
+    private _beginInfoFrame(): void {
+        const info = this.info;
+        Info.beginInfoFrame(info);
+        const geometries = Geometries.getGeometriesStats(this._geometries);
+        const renderTargets = RenderTargets.getGlRenderTargetsStats(this._renderTargets);
+        info.memory.buffers = geometries.buffers + geometries.indexBuffers + Uniforms.getUniformsStats(this._uniforms).uboCount;
+        info.memory.geometries = geometries.geometries;
+        info.memory.textures = Textures.getTextureCacheStats(this._textures).textureCount;
+        info.memory.samplers = Samplers.getGlSamplersStats(this._samplers).samplerCount;
+        info.memory.programs = Programs.getProgramCacheStats(this._programs).programCount;
+        info.memory.backend.framebuffers = renderTargets.fboCount;
+        info.memory.backend.renderbuffers = renderTargets.renderbufferCount;
     }
 
     saveRendererState(): {
@@ -529,9 +534,12 @@ export class WebGLRenderer implements Renderer, RendererState {
         // Top-level entry: advance the frame id and open the inspector frame.
         if (this._renderCallDepth === 0) {
             frame.frameId++;
+            this._beginInfoFrame();
             if (inspector) inspector.begin(frame.frameId);
         }
         this._renderCallDepth++;
+        this.info.render.calls++;
+        this.info.render.frameCalls++;
         // Each render() gets a fresh, globally-unique renderId. Nested renders restore the parent's.
         const previousRenderId = frame.beginRender();
         if (inspector) inspector.perf.start('render');
@@ -612,6 +620,7 @@ export class WebGLRenderer implements Renderer, RendererState {
             preparedObjects,
             passParams,
             inspector,
+            this.info,
         );
 
         // Render-finish: fill mip chains for any color attachment that wants them, now that this pass
@@ -620,7 +629,7 @@ export class WebGLRenderer implements Renderer, RendererState {
         // that completes the cube (regenerating per face would be 6× redundant).
         if (renderTarget) {
             for (const tex of renderTarget.textures) {
-                if (tex.generateMipmaps) Textures.generateRenderTargetMipmaps(this.gl, this._textures, tex._gpuTexture);
+                if (tex.generateMipmaps) Textures.generateTextureMipmaps(this.gl, this._textures, tex._gpuTexture);
             }
         }
 
@@ -669,6 +678,7 @@ export class WebGLRenderer implements Renderer, RendererState {
                 textures: this._textures,
                 samplers: this._samplers,
                 frame: this._nodes.nodeFrame,
+                info: this.info,
             },
             ro,
             patchedFragment,
@@ -716,6 +726,7 @@ export class WebGLRenderer implements Renderer, RendererState {
             this._uniforms,
             this._textures,
             this._samplers,
+            this.info,
         );
     }
 
@@ -759,14 +770,14 @@ export class WebGLRenderer implements Renderer, RendererState {
      * `rgba8unorm-srgb` color format. This method is WebGLRenderer-only; it enables headless/offline
      * readback (e.g. icon baking) with no canvas presentation.
      */
-    readRenderTargetPixels(renderTarget: RenderTarget, attachmentIndex = 0, layer = 0): Promise<Uint8Array> {
+    readPixels(renderTarget: RenderTarget, attachmentIndex = 0, layer = 0): Promise<Uint8Array> {
         if (!this._initialized || !this.gl) {
             return Promise.reject(
-                new Error('[WebGLRenderer] readRenderTargetPixels() called before init(). Await renderer.init() first.'),
+                new Error('[WebGLRenderer] readPixels() called before init(). Await renderer.init() first.'),
             );
         }
         return Promise.resolve(
-            ReadPixels.readRenderTargetPixels(this.gl, this._renderTargets, this._textures, renderTarget, attachmentIndex, layer),
+            ReadPixels.readPixels(this.gl, this._renderTargets, this._textures, renderTarget, attachmentIndex, layer),
         );
     }
 
@@ -800,7 +811,7 @@ export class WebGLRenderer implements Renderer, RendererState {
             Probe.disposeProbeState(this.gl, this._probe);
             Programs.disposePrograms(this.gl, this._programs);
             Uniforms.disposeUniforms(this.gl, this._uniforms);
-            Textures.disposeGlTextures(this.gl, this._textures);
+            Textures.disposeTextureCache(this.gl, this._textures);
             Samplers.disposeGlSamplers(this.gl, this._samplers);
             RenderTargets.disposeGlRenderTargets(this.gl, this._renderTargets);
             TransformFeedback.disposeTransformFeedback(this.gl, this._transformFeedback);
