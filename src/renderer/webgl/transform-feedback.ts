@@ -34,7 +34,7 @@ import type { NodeFrame } from '../core/node-frame';
 import { attribFormat, glComponentType } from './geometries';
 import { createTransformFeedbackProgram } from './programs';
 import type { ProgramInfo } from './programs';
-import type { GlSamplersState } from './samplers';
+import type { SamplerCache } from './samplers';
 import type { TextureCache } from './textures';
 import { bindStandaloneTextures } from './texture-bindings';
 import type { RendererInfo } from '../core/info';
@@ -198,7 +198,7 @@ export function runTransformFeedback(
     frame: NodeFrame,
     uniforms: UniformsState,
     textures: TextureCache,
-    samplers: GlSamplersState,
+    samplers: SamplerCache,
     info: RendererInfo,
 ): void {
     const { inputs, outputs, count, instanceCount } = opts;

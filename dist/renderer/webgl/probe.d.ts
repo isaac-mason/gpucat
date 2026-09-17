@@ -17,7 +17,7 @@ import type { RendererInfo } from '../core/info';
 import type { NodeFrame } from '../core/node-frame';
 import { type RenderObject } from '../core/render-object';
 import * as Geometries from './geometries';
-import type { GlSamplersState } from './samplers';
+import type { SamplerCache } from './samplers';
 import type { TextureCache } from './textures';
 import * as Uniforms from './uniforms';
 /** The device caches + node frame the probe render needs (a subset of the renderer's caches). */
@@ -25,7 +25,7 @@ export type ProbeCaches = {
     geometries: Geometries.GeometriesState;
     uniforms: Uniforms.UniformsState;
     textures: TextureCache;
-    samplers: GlSamplersState;
+    samplers: SamplerCache;
     frame: NodeFrame;
     /** The renderer's stats handle; the probe reuses the real upload paths, so its writes are counted. */
     info: RendererInfo;

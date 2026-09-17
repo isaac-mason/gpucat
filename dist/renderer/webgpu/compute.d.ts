@@ -6,6 +6,7 @@ import type { BackendComputeEntry } from '../core/render-types';
 import * as Bindings from './bindings';
 import * as Buffers from './buffers';
 import * as Pipelines from './pipelines';
+import * as Samplers from './samplers';
 import * as Textures from './textures';
 /**
  * Pre-compile a compute pipeline for the renderer's `compileCompute()`: build (or fetch) the compute
@@ -19,4 +20,4 @@ export declare function compileComputePipeline(device: GPUDevice, pipelines: Pip
  * a local encoder rather than the render-frame encoder, so it never interferes with an in-flight
  * render.
  */
-export declare function dispatchCompute(device: GPUDevice, bindings: Bindings.BindingsState, buffers: Buffers.BufferCache, textures: Textures.TextureCache, pipelines: Pipelines.PipelinesState, nodes: NodeManagerState, computeContext: ComputeContext, entries: BackendComputeEntry[], inspector: InspectorBase | null): void;
+export declare function dispatchCompute(device: GPUDevice, bindings: Bindings.BindingsState, buffers: Buffers.BufferCache, textures: Textures.TextureCache, samplers: Samplers.SamplerCache, pipelines: Pipelines.PipelinesState, nodes: NodeManagerState, computeContext: ComputeContext, entries: BackendComputeEntry[], inspector: InspectorBase | null): void;

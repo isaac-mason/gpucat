@@ -17,7 +17,7 @@ import type { SamplerEntry, TextureEntry } from '../../nodes/builder';
 import type { ResolvedStorageBufferTexture, StorageBufferTextureSource } from '../../nodes/lib/texture';
 import { getBindings, type RenderObject } from '../core/render-object';
 import type { ProgramInfo } from './programs';
-import { type GlSamplersState, getGlSampler } from './samplers';
+import { type SamplerCache, getSampler } from './samplers';
 import { type TextureCache, getTextureData, isIntegerTextureFormat, updateStorageBufferTexture, updateTexture } from './textures';
 
 /** The combined-sampler uniform name for a texture id (mirrors the GLSL emitter's `samplerUniformName`). */
@@ -154,7 +154,7 @@ function resolveStorageSource(
 export function bindTextures(
     gl: WebGL2RenderingContext,
     textures: TextureCache,
-    samplers: GlSamplersState,
+    samplers: SamplerCache,
     renderObject: RenderObject,
     programInfo: ProgramInfo,
 ): void {
@@ -239,7 +239,7 @@ export function bindTextures(
             assertIntegerNotFiltered(gpuTexture.format, gpuSampler);
             if (gpuSampler) {
                 const hasMips = gpuTexture.generateMipmaps;
-                const glSampler = getGlSampler(gl, samplers, gpuSampler, hasMips);
+                const glSampler = getSampler(gl, samplers, gpuSampler, hasMips);
                 gl.bindSampler(unit, glSampler);
             } else {
                 // No paired sampler (bare texture handle): clear any stale sampler on the unit so the
@@ -273,7 +273,7 @@ export function bindTextures(
 export function bindStandaloneTextures(
     gl: WebGL2RenderingContext,
     textures: TextureCache,
-    samplers: GlSamplersState,
+    samplers: SamplerCache,
     textureEntries: readonly TextureEntry[],
     samplerEntries: readonly SamplerEntry[],
     programInfo: ProgramInfo,
@@ -304,7 +304,7 @@ export function bindStandaloneTextures(
         assertIntegerNotFiltered(gpuTexture.format, gpuSampler);
         if (gpuSampler) {
             const hasMips = gpuTexture.generateMipmaps;
-            const glSampler = getGlSampler(gl, samplers, gpuSampler, hasMips);
+            const glSampler = getSampler(gl, samplers, gpuSampler, hasMips);
             gl.bindSampler(unit, glSampler);
         } else {
             gl.bindSampler(unit, null);

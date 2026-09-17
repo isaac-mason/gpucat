@@ -170,7 +170,7 @@ export class WebGLRenderer implements Renderer, RendererState {
     /** Per-GpuTexture GL texture cache (upload + allocation). @internal */
     private readonly _textures: Textures.TextureCache;
     /** Per-GpuSampler GL sampler-object cache. @internal */
-    private readonly _samplers: Samplers.GlSamplersState;
+    private readonly _samplers: Samplers.SamplerCache;
     /** Per-RenderTarget GL framebuffer (FBO) cache. @internal */
     private readonly _renderTargets: RenderTargets.GlRenderTargetsState;
 
@@ -299,7 +299,7 @@ export class WebGLRenderer implements Renderer, RendererState {
         this._uniforms = Uniforms.createUniformsState();
         this._renderObjectGl = createRenderObjectGlCache();
         this._textures = Textures.createTextureCache();
-        this._samplers = Samplers.createGlSamplersState();
+        this._samplers = Samplers.createSamplerCache();
         this._renderTargets = RenderTargets.createGlRenderTargetsState();
         this._transformFeedback = TransformFeedback.createTransformFeedbackState();
     }
@@ -478,7 +478,7 @@ export class WebGLRenderer implements Renderer, RendererState {
         info.memory.geometries = geometries.geometries;
         // count + bytes + per-format breakdown, straight from the cache's running tally.
         Info.readTextureTally(this._textures.tally, info.memory);
-        info.memory.samplers = Samplers.getGlSamplersStats(this._samplers).samplerCount;
+        info.memory.samplers = Samplers.getSamplerCacheStats(this._samplers).samplerCount;
         info.memory.programs = Programs.getProgramCacheStats(this._programs).programCount;
         info.memory.backend.framebuffers = renderTargets.fboCount;
         info.memory.backend.renderbuffers = renderTargets.renderbufferCount;
@@ -813,7 +813,7 @@ export class WebGLRenderer implements Renderer, RendererState {
             Programs.disposePrograms(this.gl, this._programs);
             Uniforms.disposeUniforms(this.gl, this._uniforms);
             Textures.disposeTextureCache(this.gl, this._textures);
-            Samplers.disposeGlSamplers(this.gl, this._samplers);
+            Samplers.disposeSamplerCache(this.gl, this._samplers);
             RenderTargets.disposeGlRenderTargets(this.gl, this._renderTargets);
             TransformFeedback.disposeTransformFeedback(this.gl, this._transformFeedback);
             // Per-geometry GL resources are freed via the geometries WeakMap on GC, or per-geometry

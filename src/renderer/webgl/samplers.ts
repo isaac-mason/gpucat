@@ -62,7 +62,7 @@ function glCompareFunc(gl: WebGL2RenderingContext, compare: GPUCompareFunction):
 }
 
 /** Sampler state: GL sampler objects keyed by GpuSampler settingsKey, plus a disposal set. */
-export type GlSamplersState = {
+export type SamplerCache = {
     cache: Map<string, WebGLSampler>;
     all: Set<WebGLSampler>;
     /**
@@ -73,7 +73,7 @@ export type GlSamplersState = {
 };
 
 /** Create an empty samplers state. */
-export function createGlSamplersState(): GlSamplersState {
+export function createSamplerCache(): SamplerCache {
     return { cache: new Map(), all: new Set(), maxAnisotropy: null };
 }
 
@@ -81,7 +81,7 @@ export function createGlSamplersState(): GlSamplersState {
  * The driver's max anisotropy level (queried once). Returns 0 when EXT_texture_filter_anisotropic is
  * absent — anisotropy is then unavailable and skipped (a quality-only hint, so the result stays correct).
  */
-function getMaxAnisotropy(gl: WebGL2RenderingContext, state: GlSamplersState): number {
+function getMaxAnisotropy(gl: WebGL2RenderingContext, state: SamplerCache): number {
     if (state.maxAnisotropy === null) {
         const ext = gl.getExtension('EXT_texture_filter_anisotropic');
         state.maxAnisotropy = ext ? (gl.getParameter(ext.MAX_TEXTURE_MAX_ANISOTROPY_EXT) as number) : 0;
@@ -97,9 +97,9 @@ function getMaxAnisotropy(gl: WebGL2RenderingContext, state: GlSamplersState): n
  * incomplete). Two GL samplers can therefore back one GpuSampler (one mipmapped, one not), so the
  * cache key folds `hasMips` in.
  */
-export function getGlSampler(
+export function getSampler(
     gl: WebGL2RenderingContext,
-    state: GlSamplersState,
+    state: SamplerCache,
     gpuSampler: GpuSampler,
     hasMips: boolean,
 ): WebGLSampler {
@@ -142,13 +142,13 @@ export function getGlSampler(
 }
 
 /** Delete all GL sampler objects (called on renderer dispose). */
-export function disposeGlSamplers(gl: WebGL2RenderingContext, state: GlSamplersState): void {
+export function disposeSamplerCache(gl: WebGL2RenderingContext, state: SamplerCache): void {
     for (const s of state.all) gl.deleteSampler(s);
     state.all.clear();
     state.cache.clear();
 }
 
 /** Number of GL sampler objects currently cached. */
-export function getGlSamplersStats(state: GlSamplersState): { samplerCount: number } {
+export function getSamplerCacheStats(state: SamplerCache): { samplerCount: number } {
     return { samplerCount: state.all.size };
 }

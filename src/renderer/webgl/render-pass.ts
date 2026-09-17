@@ -24,7 +24,7 @@ import type { PreparedRenderObject, RenderPassParams } from '../core/render-type
 import * as Geometries from './geometries';
 import { getRenderObjectGl, type RenderObjectGlCache } from './render-object-gl';
 import { bindRenderTargetFramebuffer, resolveActiveRenderTarget, type GlRenderTargetsState } from './render-target';
-import type { GlSamplersState } from './samplers';
+import type { SamplerCache } from './samplers';
 import type { RendererInfo } from '../core/info';
 import * as RenderState from '../core/render-state';
 import { applyMaterialState, createGlStateCache, establishPassBaseline } from './state';
@@ -137,7 +137,7 @@ export type DrawCaches = {
     uniforms: Uniforms.UniformsState;
     renderObjectGl: RenderObjectGlCache;
     textures: TextureCache;
-    samplers: GlSamplersState;
+    samplers: SamplerCache;
     renderTargets: GlRenderTargetsState;
 };
 

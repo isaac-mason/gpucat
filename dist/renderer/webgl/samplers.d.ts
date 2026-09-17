@@ -14,7 +14,7 @@
  */
 import type { GpuSampler } from '../../core/gpu-sampler';
 /** Sampler state: GL sampler objects keyed by GpuSampler settingsKey, plus a disposal set. */
-export type GlSamplersState = {
+export type SamplerCache = {
     cache: Map<string, WebGLSampler>;
     all: Set<WebGLSampler>;
     /**
@@ -24,7 +24,7 @@ export type GlSamplersState = {
     maxAnisotropy: number | null;
 };
 /** Create an empty samplers state. */
-export declare function createGlSamplersState(): GlSamplersState;
+export declare function createSamplerCache(): SamplerCache;
 /**
  * Get (or create + cache) the GL sampler object for a GpuSampler, keyed by its settingsKey.
  *
@@ -33,10 +33,10 @@ export declare function createGlSamplersState(): GlSamplersState;
  * incomplete). Two GL samplers can therefore back one GpuSampler (one mipmapped, one not), so the
  * cache key folds `hasMips` in.
  */
-export declare function getGlSampler(gl: WebGL2RenderingContext, state: GlSamplersState, gpuSampler: GpuSampler, hasMips: boolean): WebGLSampler;
+export declare function getSampler(gl: WebGL2RenderingContext, state: SamplerCache, gpuSampler: GpuSampler, hasMips: boolean): WebGLSampler;
 /** Delete all GL sampler objects (called on renderer dispose). */
-export declare function disposeGlSamplers(gl: WebGL2RenderingContext, state: GlSamplersState): void;
+export declare function disposeSamplerCache(gl: WebGL2RenderingContext, state: SamplerCache): void;
 /** Number of GL sampler objects currently cached. */
-export declare function getGlSamplersStats(state: GlSamplersState): {
+export declare function getSamplerCacheStats(state: SamplerCache): {
     samplerCount: number;
 };

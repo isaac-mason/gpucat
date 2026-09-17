@@ -29,6 +29,7 @@ import * as Compute from './compute';
 import * as Geometries from './geometries';
 import { DEPTH_FORMAT, DEPTH_STENCIL_FORMAT, formatHasStencil } from './pipelines';
 import * as Pipelines from './pipelines';
+import * as Samplers from './samplers';
 import * as Prepare from './prepare';
 import * as ReadPixels from './read-pixels';
 import * as RenderObjectGpu from './render-object-gpu';
@@ -209,6 +210,7 @@ export class WebGPURenderer implements Renderer, RendererState {
     readonly buffers: Buffers.BufferCache;
     /** @internal */
     readonly textures: Textures.TextureCache;
+    readonly samplers: Samplers.SamplerCache;
     /** @internal */
     readonly pipelines: Pipelines.PipelinesState;
     /** @internal */
@@ -346,6 +348,7 @@ export class WebGPURenderer implements Renderer, RendererState {
         // layout cache is shared by the pipelines and bindings layers (both receive this instance).
         this.buffers = Buffers.createBufferCache(this.info);
         this.textures = Textures.createTextureCache();
+        this.samplers = Samplers.createSamplerCache();
         this.bindGroupLayoutCache = createBindGroupLayoutCache();
         this.pipelines = Pipelines.createPipelinesState(this.bindGroupLayoutCache);
         this.bindings = Bindings.createBindingsState(this.bindGroupLayoutCache);
@@ -692,6 +695,7 @@ export class WebGPURenderer implements Renderer, RendererState {
                 this.geometries,
                 this.buffers,
                 this.textures,
+                this.samplers,
                 this.renderObjectGpu,
                 renderObject,
                 geometry,
@@ -794,14 +798,14 @@ export class WebGPURenderer implements Renderer, RendererState {
         const info = this.info;
         Info.beginInfoFrame(info);
         const geometries = Geometries.getGeometriesStats(this.geometries);
-        const textures = Textures.getTextureCacheStats(this.textures);
+        const samplers = Samplers.getSamplerCacheStats(this.samplers);
         const renderPipelines = this.pipelines.renderPipelines.size;
         const computePipelines = this.pipelines.computePipelines.size;
         info.memory.buffers = this.buffers.bufferCount;
         info.memory.geometries = geometries.geometries;
         // count + bytes + per-format breakdown, straight from the cache's running tally.
         Info.readTextureTally(this.textures.tally, info.memory);
-        info.memory.samplers = textures.samplerCount;
+        info.memory.samplers = samplers.samplerCount;
         info.memory.programs = renderPipelines + computePipelines;
         // Split back out for anyone debugging WebGPU specifically; the neutral `programs` above is
         // their sum because WebGL has no equivalent split.
@@ -846,6 +850,7 @@ export class WebGPURenderer implements Renderer, RendererState {
             this.bindings,
             this.buffers,
             this.textures,
+            this.samplers,
             this.pipelines,
             this._nodes,
             this._computeContext,
@@ -990,6 +995,7 @@ export class WebGPURenderer implements Renderer, RendererState {
             this.geometries,
             this.buffers,
             this.textures,
+            this.samplers,
             this.renderObjectGpu,
             this.swapchain,
             this.format,
@@ -1060,6 +1066,7 @@ export class WebGPURenderer implements Renderer, RendererState {
             this.device,
             this._deviceProvided,
             this.textures,
+            this.samplers,
             this.pipelines,
             this.bindGroupLayoutCache,
             this.swapchain,

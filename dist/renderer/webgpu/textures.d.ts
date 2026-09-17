@@ -1,9 +1,9 @@
 /**
- * textures.ts, GPUTexture/GPUSampler cache and upload helpers.
+ * textures.ts (webgpu), `GPUTexture` cache and upload helpers. Samplers are their own resource module
+ * (`samplers.ts`), mirroring `webgl/`.
  *
  * Uses WeakMap-based caching keyed by GpuTexture object.
  * Tracks texture.version for cache invalidation.
- * Samplers are shared/cached by parameter key for efficiency.
  *
  * Flow:
  * 1. `updateTexture()` is called during binding updates (before draw)
@@ -12,7 +12,6 @@
  * 4. Uploads image data if source.dataReady
  * 5. Updates version tracking (textureData.version = texture.version)
  */
-import type { GpuSampler } from '../../core/gpu-sampler';
 import type { GpuTexture } from '../../core/gpu-texture';
 import { type TextureTally, type TextureTallyEntry } from '../core/info';
 import type { RenderTarget } from '../../core/render-target';
@@ -46,28 +45,19 @@ export type TextureData = {
     /** Cached view of `msaaTexture` (see `view`). */
     msaaView?: GPUTextureView | null;
 };
-/** Data stored per sampler configuration */
-type SamplerData = {
-    sampler: GPUSampler;
-    usedTimes: number;
-};
-/** Cache for textures and samplers */
+/** Cache for textures. Samplers live in `samplers.ts`, their own resource module. */
 export type TextureCache = {
     /** Texture data keyed by GpuTexture object */
     textureMap: WeakMap<GpuTexture, TextureData>;
-    /** Sampler cache keyed by parameter string */
-    samplerCache: Map<string, SamplerData>;
     /** Default placeholder textures by format */
     defaultTextures: Map<GPUTextureFormat, GPUTexture>;
     /** Mipmap generation state (created lazily on first use) */
     mipmapState: MipmapState | null;
     /** Stats counters */
     tally: TextureTally;
-    samplerCount: number;
 };
 export type TextureCacheStats = {
     textureCount: number;
-    samplerCount: number;
 };
 export declare function createSwapchainDepthTexture(device: GPUDevice, width: number, height: number, sampleCount: number, format?: GPUTextureFormat): GPUTexture;
 export declare function createSwapchainMsaaTexture(device: GPUDevice, width: number, height: number, format: GPUTextureFormat, sampleCount: number): GPUTexture;
@@ -83,10 +73,6 @@ export declare function generateTextureMipmaps(cache: TextureCache, device: GPUD
  * Returns the TextureData for the texture.
  */
 export declare function updateTexture(cache: TextureCache, device: GPUDevice, texture: GpuTexture): TextureData;
-/**
- * Get or create a sampler from Sampler settings.
- */
-export declare function getSampler(cache: TextureCache, device: GPUDevice, gpuSampler: GpuSampler): GPUSampler;
 export declare function getTextureCacheStats(cache: TextureCache): TextureCacheStats;
 /**
  * Get cached TextureData for a GpuTexture.
@@ -120,4 +106,3 @@ export declare function setRenderTargetTexture(cache: TextureCache, texture: Gpu
  */
 export declare function removeRenderTargetTexture(cache: TextureCache, texture: GpuTexture): void;
 export declare function ensureRenderTargetTexturesAllocated(cache: TextureCache, device: GPUDevice, renderTarget: RenderTarget): void;
-export {};

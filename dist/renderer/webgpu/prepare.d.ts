@@ -14,6 +14,7 @@ import * as Buffers from './buffers';
 import * as Geometries from './geometries';
 import type * as Pipelines from './pipelines';
 import * as RenderObjectGpu from './render-object-gpu';
+import * as Samplers from './samplers';
 import type * as Textures from './textures';
 /**
  * Compile the node graph and build the pipeline / bind group layouts / geometry for one render
@@ -31,4 +32,4 @@ export declare function compileRenderObject(device: GPUDevice, geometries: Geome
  * Pre-warm upload half of `compile()`: upload storage/vertex/index buffers for a render object,
  * then (re)build its bind groups against the pre-warm frame.
  */
-export declare function uploadRenderObjectResources(device: GPUDevice, bindings: Bindings.BindingsState, geometries: Geometries.GeometriesState, buffers: Buffers.BufferCache, textures: Textures.TextureCache, renderObjectGpu: RenderObjectGpu.RenderObjectGpuCache, renderObject: RenderObject, geometry: Geometry, frame: NodeFrame): void;
+export declare function uploadRenderObjectResources(device: GPUDevice, bindings: Bindings.BindingsState, geometries: Geometries.GeometriesState, buffers: Buffers.BufferCache, textures: Textures.TextureCache, samplers: Samplers.SamplerCache, renderObjectGpu: RenderObjectGpu.RenderObjectGpuCache, renderObject: RenderObject, geometry: Geometry, frame: NodeFrame): void;

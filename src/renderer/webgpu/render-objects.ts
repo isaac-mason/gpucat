@@ -22,6 +22,7 @@ import { updateForRender as updateGeometry } from './geometries';
 import * as pipelines from './pipelines';
 import type { RenderObjectGpuCache } from './render-object-gpu';
 import { getRenderObjectGpu } from './render-object-gpu';
+import type { SamplerCache } from './samplers';
 import type { TextureCache } from './textures';
 
 // Re-export the neutral RenderObject cache so existing webgpu-side imports keep working.
@@ -118,12 +119,22 @@ export function updateRenderObject(
     device: GPUDevice,
     bufferCache: BufferCache,
     textureCache: TextureCache,
+    samplerCache: SamplerCache,
     renderObjectGpuCache: RenderObjectGpuCache,
     renderObject: RenderObject,
     frame: NodeFrame,
 ): void {
     // Update bindings (uniforms, bind groups)
-    updateRenderBindings(bindingsState, renderObject, frame, device, bufferCache, textureCache, renderObjectGpuCache);
+    updateRenderBindings(
+        bindingsState,
+        renderObject,
+        frame,
+        device,
+        bufferCache,
+        textureCache,
+        samplerCache,
+        renderObjectGpuCache,
+    );
 
     // Update geometry if needed
     updateGeometry(geometriesState, bufferCache, device, renderObject);

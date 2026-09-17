@@ -16,6 +16,7 @@ import * as Buffers from './buffers';
 import * as Geometries from './geometries';
 import type * as Pipelines from './pipelines';
 import * as RenderObjectGpu from './render-object-gpu';
+import * as Samplers from './samplers';
 import * as RenderObjects from './render-objects';
 import type * as Textures from './textures';
 
@@ -100,6 +101,7 @@ export function uploadRenderObjectResources(
     geometries: Geometries.GeometriesState,
     buffers: Buffers.BufferCache,
     textures: Textures.TextureCache,
+    samplers: Samplers.SamplerCache,
     renderObjectGpu: RenderObjectGpu.RenderObjectGpuCache,
     renderObject: RenderObject,
     geometry: Geometry,
@@ -148,6 +150,7 @@ export function uploadRenderObjectResources(
         device,
         buffers,
         textures,
+        samplers,
         renderObjectGpu,
         renderObject,
         frame,

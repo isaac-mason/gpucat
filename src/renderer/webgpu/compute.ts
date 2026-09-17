@@ -9,6 +9,7 @@ import type { BackendComputeEntry } from '../core/render-types';
 import * as Bindings from './bindings';
 import * as Buffers from './buffers';
 import * as Pipelines from './pipelines';
+import * as Samplers from './samplers';
 import * as Textures from './textures';
 
 /**
@@ -48,6 +49,7 @@ export function dispatchCompute(
     bindings: Bindings.BindingsState,
     buffers: Buffers.BufferCache,
     textures: Textures.TextureCache,
+    samplers: Samplers.SamplerCache,
     pipelines: Pipelines.PipelinesState,
     nodes: NodeManagerState,
     computeContext: ComputeContext,
@@ -92,6 +94,7 @@ export function dispatchCompute(
             device,
             buffers,
             textures,
+            samplers,
             entryBuffers,
         );
 

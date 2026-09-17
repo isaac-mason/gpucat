@@ -22879,6 +22879,70 @@ function peekRenderObjectGpu(cache, renderObject) {
     return cache.data.get(renderObject);
 }
 
+/**
+ * samplers.ts (webgpu) - per-GpuSampler `GPUSampler` cache, the WebGPU sibling of `webgl/samplers.ts`.
+ *
+ * Value-keyed by `GpuSampler.settingsKey`, so identical sampler settings share one `GPUSampler`. The
+ * WebGL sibling keys on `settingsKey` PLUS whether the paired texture has mips, because a GL sampler
+ * carries the mipmapped-vs-base min-filter choice and a mipmapped min-filter against a non-mipmapped
+ * texture reads as incomplete. WebGPU has no such coupling, so one entry per settings key is enough:
+ * that is an earned signature difference, not drift.
+ *
+ * Samplers are not disposed individually. They are shared by settings rather than owned by any one
+ * `GpuSampler`, so there is nothing to hang a per-object release on; the whole cache goes at renderer
+ * teardown.
+ */
+function createSamplerCache$1() {
+    return { cache: new Map() };
+}
+/**
+ * Get (or create) the `GPUSampler` for a `GpuSampler`'s settings.
+ *
+ * WebGPU rejects `maxAnisotropy > 1` unless all three filters are 'linear'; rather than throw, the
+ * anisotropy is dropped, since it is a quality hint and the sampler still filters correctly without
+ * it. The WebGL sibling makes the same call for the same reason when the anisotropy extension is
+ * missing.
+ */
+function getSampler$1(device, state, gpuSampler) {
+    const key = gpuSampler.settingsKey;
+    const existing = state.cache.get(key);
+    if (existing) {
+        existing.usedTimes++;
+        return existing.sampler;
+    }
+    let { minFilter, magFilter, mipmapFilter, maxAnisotropy } = gpuSampler;
+    if (maxAnisotropy > 1 && (minFilter !== 'linear' || magFilter !== 'linear' || mipmapFilter !== 'linear')) {
+        maxAnisotropy = 1;
+    }
+    const sampler = device.createSampler({
+        magFilter,
+        minFilter,
+        mipmapFilter,
+        addressModeU: gpuSampler.addressModeU,
+        addressModeV: gpuSampler.addressModeV,
+        addressModeW: gpuSampler.addressModeW,
+        maxAnisotropy,
+        compare: gpuSampler.compare,
+    });
+    state.cache.set(key, { sampler, usedTimes: 1 });
+    return sampler;
+}
+/**
+ * The already-created sampler for a settings key, or null. For bind-group rebuilds, which bind what
+ * `getSampler` put in the cache and must not create one as a side effect.
+ */
+function peekSampler(state, settingsKey) {
+    return state.cache.get(settingsKey)?.sampler ?? null;
+}
+/** Drop every cached sampler (called on renderer dispose). `GPUSampler` has no explicit destroy. */
+function disposeSamplerCache$1(state) {
+    state.cache.clear();
+}
+/** Number of distinct sampler configurations currently cached. */
+function getSamplerCacheStats$1(state) {
+    return { samplerCount: state.cache.size };
+}
+
 /*
  * The backend-neutral half of the partial-texture-upload decision: which textures may take it, and
  * whether the pending regions are still worth uploading piecemeal.
@@ -23388,11 +23452,11 @@ function disposeMipmapState(state) {
 }
 
 /**
- * textures.ts, GPUTexture/GPUSampler cache and upload helpers.
+ * textures.ts (webgpu), `GPUTexture` cache and upload helpers. Samplers are their own resource module
+ * (`samplers.ts`), mirroring `webgl/`.
  *
  * Uses WeakMap-based caching keyed by GpuTexture object.
  * Tracks texture.version for cache invalidation.
- * Samplers are shared/cached by parameter key for efficiency.
  *
  * Flow:
  * 1. `updateTexture()` is called during binding updates (before draw)
@@ -23420,11 +23484,9 @@ function createSwapchainMsaaTexture(device, width, height, format, sampleCount) 
 function createTextureCache$1() {
     return {
         textureMap: new WeakMap(),
-        samplerCache: new Map(),
         defaultTextures: new Map(),
         mipmapState: null,
         tally: createTextureTally(),
-        samplerCount: 0,
     };
 }
 /**
@@ -23924,43 +23986,6 @@ function getDefaultTexture(cache, device, format) {
     return tex;
 }
 /**
- * Get or create a sampler from Sampler settings.
- */
-function getSampler(cache, device, gpuSampler) {
-    const key = gpuSampler.settingsKey;
-    const data = cache.samplerCache.get(key);
-    if (data) {
-        data.usedTimes++;
-        return data.sampler;
-    }
-    // WebGPU constraint: anisotropy > 1 requires all filters to be 'linear'
-    let { minFilter, magFilter, mipmapFilter, maxAnisotropy } = gpuSampler;
-    if (maxAnisotropy > 1) {
-        if (minFilter !== 'linear' || magFilter !== 'linear' || mipmapFilter !== 'linear') {
-            maxAnisotropy = 1;
-        }
-    }
-    const sampler = device.createSampler({
-        magFilter,
-        minFilter,
-        mipmapFilter,
-        addressModeU: gpuSampler.addressModeU,
-        addressModeV: gpuSampler.addressModeV,
-        addressModeW: gpuSampler.addressModeW,
-        maxAnisotropy,
-        compare: gpuSampler.compare,
-    });
-    cache.samplerCache.set(key, { sampler, usedTimes: 1 });
-    cache.samplerCount++;
-    return sampler;
-}
-function getTextureCacheStats(cache) {
-    return {
-        textureCount: cache.tally.count,
-        samplerCount: cache.samplerCount,
-    };
-}
-/**
  * Get cached TextureData for a GpuTexture.
  * Returns null if not in cache (call updateTexture first).
  */
@@ -24206,7 +24231,7 @@ function getData(state, bindGroup) {
     return data;
 }
 /** Update all bindings for a RenderObject. */
-function updateRenderBindings(state, renderObject, frame, device, bufferCache, textureCache, renderObjectGpuCache) {
+function updateRenderBindings(state, renderObject, frame, device, bufferCache, textureCache, samplerCache, renderObjectGpuCache) {
     const nodeState = renderObject.nodeBuilderState;
     if (!nodeState)
         return;
@@ -24219,9 +24244,9 @@ function updateRenderBindings(state, renderObject, frame, device, bufferCache, t
         initBindGroup(state, bindGroup, device, GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT);
         // Update uniforms and check if bind group needs rebuild
         const data = getData(state, bindGroup);
-        updateRenderBindGroup(data, bindGroup, renderObject, frame, device, bufferCache, textureCache);
+        updateRenderBindGroup(data, bindGroup, renderObject, frame, device, bufferCache, textureCache, samplerCache);
         if (data.needsUpdate || !data.bindGroup) {
-            rebuildGPUBindGroup(device, bufferCache, textureCache, bindGroup, data, renderObject.geometry, null);
+            rebuildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, renderObject.geometry, null);
             data.needsUpdate = false;
         }
         if (data.bindGroup) {
@@ -24232,17 +24257,17 @@ function updateRenderBindings(state, renderObject, frame, device, bufferCache, t
     getRenderObjectGpu(renderObjectGpuCache, renderObject).bindGroups = gpuBindGroups;
 }
 /** Update all bindings for a compute pass and return GPUBindGroups. */
-function updateComputeBindings(state, nodeBuilderState, frame, device, bufferCache, textureCache, buffers) {
+function updateComputeBindings(state, nodeBuilderState, frame, device, bufferCache, textureCache, samplerCache, buffers) {
     const gpuBindGroups = [];
     for (const bindGroup of nodeBuilderState.bindings) {
         // Initialize bind group layout if needed
         initBindGroup(state, bindGroup, device, GPUShaderStage.COMPUTE);
         // Update bindings
         const data = getData(state, bindGroup);
-        updateComputeBindGroup(data, bufferCache, textureCache, device, bindGroup, frame, buffers);
+        updateComputeBindGroup(data, bufferCache, textureCache, samplerCache, device, bindGroup, frame, buffers);
         // Rebuild GPU bind group if needed
         if (data.needsUpdate || !data.bindGroup) {
-            rebuildGPUBindGroup(device, bufferCache, textureCache, bindGroup, data, null, buffers);
+            rebuildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, null, buffers);
             data.needsUpdate = false;
         }
         if (data.bindGroup) {
@@ -24349,7 +24374,7 @@ function buildLayoutEntries(bindGroup, visibility, device) {
     return entries;
 }
 /** Update a BindGroup (uniforms, textures, etc.).  Called every frame */
-function updateRenderBindGroup(data, bindGroup, renderObject, frame, device, bufferCache, textureCache) {
+function updateRenderBindGroup(data, bindGroup, renderObject, frame, device, bufferCache, textureCache, samplerCache) {
     for (const binding of bindGroup.bindings) {
         switch (binding.kind) {
             case 'uniform':
@@ -24362,7 +24387,7 @@ function updateRenderBindGroup(data, bindGroup, renderObject, frame, device, buf
                 updateStorageTextureBinding(textureCache, device, binding, data);
                 break;
             case 'sampler':
-                updateSamplerBinding(textureCache, device, binding, data);
+                updateSamplerBinding(samplerCache, device, binding, data);
                 break;
             case 'storage':
                 updateStorageBinding(bufferCache, device, binding, data, renderObject.geometry, null);
@@ -24529,11 +24554,11 @@ function updateStorageTextureBinding(textureCache, device, binding, data) {
     }
 }
 /** Update a sampler binding. */
-function updateSamplerBinding(textureCache, device, binding, data) {
+function updateSamplerBinding(samplerCache, device, binding, data) {
     const samplerNode = binding.entry.samplerNode;
     const gpuSampler = samplerNode.value;
     // Create/get sampler from GpuSampler settings (this caches by settingsKey)
-    getSampler(textureCache, device, gpuSampler);
+    getSampler$1(device, samplerCache, gpuSampler);
     // Check for sampler changes using settingsKey
     const samplerKey = gpuSampler.settingsKey;
     if (binding.samplerKey !== samplerKey) {
@@ -24554,7 +24579,7 @@ function updateStorageBinding(bufferCache, device, binding, data, geometry, buff
     ensureUploaded(bufferCache, device, buffer, binding.entry.name);
 }
 /** Rebuild the GPU bind group for a BindGroup */
-function rebuildGPUBindGroup(device, bufferCache, textureCache, bindGroup, data, geometry, buffers) {
+function rebuildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, geometry, buffers) {
     if (!data.bindGroupLayout)
         return;
     const entries = [];
@@ -24621,9 +24646,9 @@ function rebuildGPUBindGroup(device, bufferCache, textureCache, bindGroup, data,
                 if (!gpuSampler)
                     break;
                 // Get GPU sampler from cache using settingsKey
-                const samplerData = textureCache.samplerCache.get(gpuSampler.settingsKey);
-                if (samplerData) {
-                    entries.push({ binding: binding.entry.binding, resource: samplerData.sampler });
+                const sampler = peekSampler(samplerCache, gpuSampler.settingsKey);
+                if (sampler) {
+                    entries.push({ binding: binding.entry.binding, resource: sampler });
                 }
                 break;
             }
@@ -24653,7 +24678,7 @@ function invokeUniformGroupCallbacks(block, frame) {
     }
 }
 /** Update a compute BindGroup (uniforms, textures, samplers, storage). */
-function updateComputeBindGroup(data, bufferCache, textureCache, device, bindGroup, frame, buffers) {
+function updateComputeBindGroup(data, bufferCache, textureCache, samplerCache, device, bindGroup, frame, buffers) {
     for (const binding of bindGroup.bindings) {
         switch (binding.kind) {
             case 'uniform':
@@ -24669,7 +24694,7 @@ function updateComputeBindGroup(data, bufferCache, textureCache, device, bindGro
                 updateStorageTextureBinding(textureCache, device, binding, data);
                 break;
             case 'sampler':
-                updateSamplerBinding(textureCache, device, binding, data);
+                updateSamplerBinding(samplerCache, device, binding, data);
                 break;
         }
     }
@@ -35852,7 +35877,7 @@ function glCompareFunc(gl, compare) {
     }
 }
 /** Create an empty samplers state. */
-function createGlSamplersState() {
+function createSamplerCache() {
     return { cache: new Map(), all: new Set(), maxAnisotropy: null };
 }
 /**
@@ -35874,7 +35899,7 @@ function getMaxAnisotropy(gl, state) {
  * incomplete). Two GL samplers can therefore back one GpuSampler (one mipmapped, one not), so the
  * cache key folds `hasMips` in.
  */
-function getGlSampler(gl, state, gpuSampler, hasMips) {
+function getSampler(gl, state, gpuSampler, hasMips) {
     const key = `${gpuSampler.settingsKey}|mips=${hasMips}`;
     const existing = state.cache.get(key);
     if (existing)
@@ -35910,14 +35935,14 @@ function getGlSampler(gl, state, gpuSampler, hasMips) {
     return sampler;
 }
 /** Delete all GL sampler objects (called on renderer dispose). */
-function disposeGlSamplers(gl, state) {
+function disposeSamplerCache(gl, state) {
     for (const s of state.all)
         gl.deleteSampler(s);
     state.all.clear();
     state.cache.clear();
 }
 /** Number of GL sampler objects currently cached. */
-function getGlSamplersStats(state) {
+function getSamplerCacheStats(state) {
     return { samplerCount: state.all.size };
 }
 
@@ -37005,7 +37030,7 @@ function bindTextures(gl, textures, samplers, renderObject, programInfo) {
             assertIntegerNotFiltered(gpuTexture.format, gpuSampler);
             if (gpuSampler) {
                 const hasMips = gpuTexture.generateMipmaps;
-                const glSampler = getGlSampler(gl, samplers, gpuSampler, hasMips);
+                const glSampler = getSampler(gl, samplers, gpuSampler, hasMips);
                 gl.bindSampler(unit, glSampler);
             }
             else {
@@ -37060,7 +37085,7 @@ function bindStandaloneTextures(gl, textures, samplers, textureEntries, samplerE
         assertIntegerNotFiltered(gpuTexture.format, gpuSampler);
         if (gpuSampler) {
             const hasMips = gpuTexture.generateMipmaps;
-            const glSampler = getGlSampler(gl, samplers, gpuSampler, hasMips);
+            const glSampler = getSampler(gl, samplers, gpuSampler, hasMips);
             gl.bindSampler(unit, glSampler);
         }
         else {
@@ -39168,7 +39193,7 @@ class WebGLRenderer {
         this._uniforms = createUniformsState();
         this._renderObjectGl = createRenderObjectGlCache();
         this._textures = createTextureCache();
-        this._samplers = createGlSamplersState();
+        this._samplers = createSamplerCache();
         this._renderTargets = createGlRenderTargetsState();
         this._transformFeedback = createTransformFeedbackState();
     }
@@ -39318,7 +39343,7 @@ class WebGLRenderer {
         info.memory.geometries = geometries.geometries;
         // count + bytes + per-format breakdown, straight from the cache's running tally.
         readTextureTally(this._textures.tally, info.memory);
-        info.memory.samplers = getGlSamplersStats(this._samplers).samplerCount;
+        info.memory.samplers = getSamplerCacheStats(this._samplers).samplerCount;
         info.memory.programs = getProgramCacheStats(this._programs).programCount;
         info.memory.backend.framebuffers = renderTargets.fboCount;
         info.memory.backend.renderbuffers = renderTargets.renderbufferCount;
@@ -39573,7 +39598,7 @@ class WebGLRenderer {
             disposePrograms(this.gl, this._programs);
             disposeUniforms(this.gl, this._uniforms);
             disposeTextureCache(this.gl, this._textures);
-            disposeGlSamplers(this.gl, this._samplers);
+            disposeSamplerCache(this.gl, this._samplers);
             disposeGlRenderTargets(this.gl, this._renderTargets);
             disposeTransformFeedback(this.gl, this._transformFeedback);
             // Per-geometry GL resources are freed via the geometries WeakMap on GC, or per-geometry
@@ -39793,7 +39818,7 @@ function compileComputePipeline(device, pipelines, nodes, computeNode, computeCo
  * a local encoder rather than the render-frame encoder, so it never interferes with an in-flight
  * render.
  */
-function dispatchCompute(device, bindings, buffers, textures, pipelines, nodes, computeContext, entries, inspector) {
+function dispatchCompute(device, bindings, buffers, textures, samplers, pipelines, nodes, computeContext, entries, inspector) {
     const frame = nodes.nodeFrame;
     const encoder = device.createCommandEncoder();
     // Storage textures written this batch that want their mips regenerated after submit.
@@ -39822,7 +39847,7 @@ function dispatchCompute(device, bindings, buffers, textures, pipelines, nodes, 
         if (inspector)
             inspector.perf.end('updateForCompute');
         // Update all bindings and get GPUBindGroups
-        const gpuBindGroups = updateComputeBindings(bindings, nodeBuilderState, frame, device, buffers, textures, entryBuffers);
+        const gpuBindGroups = updateComputeBindings(bindings, nodeBuilderState, frame, device, buffers, textures, samplers, entryBuffers);
         // Notify inspector before creating pass (so timestamp writes are available)
         let timestampWrites;
         if (inspector) {
@@ -40112,9 +40137,9 @@ function initRenderObject(nodes, geometriesState, bindingsState, pipelinesState,
  * - Update uniform buffers
  * - Rebuild bind groups if needed
  */
-function updateRenderObject(bindingsState, geometriesState, device, bufferCache, textureCache, renderObjectGpuCache, renderObject, frame) {
+function updateRenderObject(bindingsState, geometriesState, device, bufferCache, textureCache, samplerCache, renderObjectGpuCache, renderObject, frame) {
     // Update bindings (uniforms, bind groups)
-    updateRenderBindings(bindingsState, renderObject, frame, device, bufferCache, textureCache, renderObjectGpuCache);
+    updateRenderBindings(bindingsState, renderObject, frame, device, bufferCache, textureCache, samplerCache, renderObjectGpuCache);
     // Update geometry if needed
     updateForRender(geometriesState, bufferCache, device, renderObject);
 }
@@ -40207,7 +40232,7 @@ function compileRenderObject(device, geometries, bindings, pipelines, buffers, r
  * Pre-warm upload half of `compile()`: upload storage/vertex/index buffers for a render object,
  * then (re)build its bind groups against the pre-warm frame.
  */
-function uploadRenderObjectResources(device, bindings, geometries, buffers, textures, renderObjectGpu, renderObject, geometry, frame) {
+function uploadRenderObjectResources(device, bindings, geometries, buffers, textures, samplers, renderObjectGpu, renderObject, geometry, frame) {
     const nodeState = renderObject.nodeBuilderState;
     if (nodeState) {
         // upload storage buffers
@@ -40242,7 +40267,7 @@ function uploadRenderObjectResources(device, bindings, geometries, buffers, text
     }
     // upload uniforms and rebuild bind groups
     // (must be after texture upload so bind groups can reference GPU resources)
-    updateRenderObject(bindings, geometries, device, buffers, textures, renderObjectGpu, renderObject, frame);
+    updateRenderObject(bindings, geometries, device, buffers, textures, samplers, renderObjectGpu, renderObject, frame);
 }
 
 // Canvas context — the renderer owns the WebGPU canvas context.
@@ -40505,12 +40530,12 @@ function clear(contexts, device, textures, sc, format, params, color, depth, ste
  * Resolve attachments and run the whole inner draw loop into the current command stream (created by
  * the top-level frame, reused by nested renders). Calls neutral update helpers per object.
  */
-function executeRenderPass(contexts, device, bindings, geometries, buffers, textures, renderObjectGpu, sc, format, encoder, nodes, passCtx, prepared, params, inspector, info) {
+function executeRenderPass(contexts, device, bindings, geometries, buffers, textures, samplers, renderObjectGpu, sc, format, encoder, nodes, passCtx, prepared, params, inspector, info) {
     const { colorAttachments, depthAttachment } = resolveAttachments(contexts, device, textures, sc, format, params);
-    draw(device, bindings, geometries, buffers, textures, renderObjectGpu, encoder, nodes, passCtx, prepared, colorAttachments, depthAttachment, params.passId, inspector, info);
+    draw(device, bindings, geometries, buffers, textures, samplers, renderObjectGpu, encoder, nodes, passCtx, prepared, colorAttachments, depthAttachment, params.passId, inspector, info);
 }
 /** Begin the GPU render pass, issue all draw calls, and end the pass. */
-function draw(device, bindings, geometries, buffers, textures, renderObjectGpu, encoder, nodes, passCtx, preparedObjects, colorAttachments, depthAttachment, passId, inspector, info) {
+function draw(device, bindings, geometries, buffers, textures, samplers, renderObjectGpu, encoder, nodes, passCtx, preparedObjects, colorAttachments, depthAttachment, passId, inspector, info) {
     const timestampWrites = inspector ? inspector.getTimestampWrites(passId) : undefined;
     const gpuPass = encoder.beginRenderPass({
         label: passId,
@@ -40552,7 +40577,7 @@ function draw(device, bindings, geometries, buffers, textures, renderObjectGpu, 
         updateForRender$1(nodes, renderObject);
         if (inspector)
             inspector.perf.start('updateForRender');
-        updateRenderObject(bindings, geometries, device, buffers, textures, renderObjectGpu, renderObject, frame);
+        updateRenderObject(bindings, geometries, device, buffers, textures, samplers, renderObjectGpu, renderObject, frame);
         if (inspector)
             inspector.perf.end('updateForRender');
         const gpu = getRenderObjectGpu(renderObjectGpu, renderObject);
@@ -40678,7 +40703,7 @@ function draw(device, bindings, geometries, buffers, textures, renderObjectGpu, 
  * textures + samplers, mipmap state, pipeline caches, and (unless the device was pre-created) the
  * device itself. After this the renderer is unusable.
  */
-function disposeDevice(contexts, device, deviceProvided, textures, pipelines, bindGroupLayoutCache, sc) {
+function disposeDevice(contexts, device, deviceProvided, textures, samplers, pipelines, bindGroupLayoutCache, sc) {
     // Unconfigure and release the swapchain canvas context (no-op in headless mode).
     if (sc.canvasTarget)
         releaseContext(contexts, sc.canvasTarget);
@@ -40694,7 +40719,7 @@ function disposeDevice(contexts, device, deviceProvided, textures, pipelines, bi
         tex.destroy();
     }
     textures.defaultTextures.clear();
-    textures.samplerCache.clear();
+    disposeSamplerCache$1(samplers);
     // Dispose mipmap generation state
     if (textures.mipmapState) {
         disposeMipmapState(textures.mipmapState);
@@ -40834,6 +40859,7 @@ class WebGPURenderer {
     buffers;
     /** @internal */
     textures;
+    samplers;
     /** @internal */
     pipelines;
     /** @internal */
@@ -40944,6 +40970,7 @@ class WebGPURenderer {
         // layout cache is shared by the pipelines and bindings layers (both receive this instance).
         this.buffers = createBufferCache(this.info);
         this.textures = createTextureCache$1();
+        this.samplers = createSamplerCache$1();
         this.bindGroupLayoutCache = createBindGroupLayoutCache();
         this.pipelines = createPipelinesState(this.bindGroupLayoutCache);
         this.bindings = createBindingsState(this.bindGroupLayoutCache);
@@ -41199,7 +41226,7 @@ class WebGPURenderer {
             preWarmFrame.material = renderObject.material;
             preWarmFrame.width = width;
             preWarmFrame.height = height;
-            uploadRenderObjectResources(this.device, this.bindings, this.geometries, this.buffers, this.textures, this.renderObjectGpu, renderObject, geometry, preWarmFrame);
+            uploadRenderObjectResources(this.device, this.bindings, this.geometries, this.buffers, this.textures, this.samplers, this.renderObjectGpu, renderObject, geometry, preWarmFrame);
             // yield to main thread between objects to keep animations smooth
             await yieldToMain();
         }
@@ -41286,14 +41313,14 @@ class WebGPURenderer {
         const info = this.info;
         beginInfoFrame(info);
         const geometries = getGeometriesStats(this.geometries);
-        const textures = getTextureCacheStats(this.textures);
+        const samplers = getSamplerCacheStats$1(this.samplers);
         const renderPipelines = this.pipelines.renderPipelines.size;
         const computePipelines = this.pipelines.computePipelines.size;
         info.memory.buffers = this.buffers.bufferCount;
         info.memory.geometries = geometries.geometries;
         // count + bytes + per-format breakdown, straight from the cache's running tally.
         readTextureTally(this.textures.tally, info.memory);
-        info.memory.samplers = textures.samplerCount;
+        info.memory.samplers = samplers.samplerCount;
         info.memory.programs = renderPipelines + computePipelines;
         // Split back out for anyone debugging WebGPU specifically; the neutral `programs` above is
         // their sum because WebGL has no equivalent split.
@@ -41330,7 +41357,7 @@ class WebGPURenderer {
             inspector.perf.start('compute');
         // Device work (per-entry pipeline/bindings/pass/dispatch + post-submit mip regen) owns its own
         // command stream (a local encoder), independent of the render frame.
-        dispatchCompute(this.device, this.bindings, this.buffers, this.textures, this.pipelines, this._nodes, this._computeContext, entries, inspector);
+        dispatchCompute(this.device, this.bindings, this.buffers, this.textures, this.samplers, this.pipelines, this._nodes, this._computeContext, entries, inspector);
         if (inspector)
             inspector.perf.end('compute');
         // Top-level call complete (encoder submitted): close the inspector frame.
@@ -41434,7 +41461,7 @@ class WebGPURenderer {
             swapchainStencil: this.stencil,
             passId,
         };
-        executeRenderPass(this.canvasContexts, this.device, this.bindings, this.geometries, this.buffers, this.textures, this.renderObjectGpu, this.swapchain, this.format, this._currentEncoder, this._nodes, passCtx, preparedObjects, passParams, inspector, this.info);
+        executeRenderPass(this.canvasContexts, this.device, this.bindings, this.geometries, this.buffers, this.textures, this.samplers, this.renderObjectGpu, this.swapchain, this.format, this._currentEncoder, this._nodes, passCtx, preparedObjects, passParams, inspector, this.info);
         if (isTopLevel) {
             this.device.queue.submit([this._currentEncoder.finish()]);
             this._currentEncoder = null;
@@ -41485,7 +41512,7 @@ class WebGPURenderer {
         this._nodes.computeStates.clear();
         // Release all device resources: unconfigure the canvas context, then destroy swapchain
         // textures, caches, and the device (unless pre-created).
-        disposeDevice(this.canvasContexts, this.device, this._deviceProvided, this.textures, this.pipelines, this.bindGroupLayoutCache, this.swapchain);
+        disposeDevice(this.canvasContexts, this.device, this._deviceProvided, this.textures, this.samplers, this.pipelines, this.bindGroupLayoutCache, this.swapchain);
         // Dispose the canvas target (device-side context already released above).
         if (this._canvasTarget)
             this._canvasTarget.dispose();

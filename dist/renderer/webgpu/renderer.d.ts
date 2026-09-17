@@ -22,6 +22,7 @@ import * as Bindings from './bindings';
 import * as Buffers from './buffers';
 import * as Geometries from './geometries';
 import * as Pipelines from './pipelines';
+import * as Samplers from './samplers';
 import * as RenderObjectGpu from './render-object-gpu';
 import * as RenderPass from './render-pass';
 import * as Textures from './textures';
@@ -155,6 +156,7 @@ export declare class WebGPURenderer implements Renderer, RendererState {
     readonly buffers: Buffers.BufferCache;
     /** @internal */
     readonly textures: Textures.TextureCache;
+    readonly samplers: Samplers.SamplerCache;
     /** @internal */
     readonly pipelines: Pipelines.PipelinesState;
     /** @internal */

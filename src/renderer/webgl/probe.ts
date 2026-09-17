@@ -21,7 +21,7 @@ import { getBindings, type RenderObject } from '../core/render-object';
 import { FRAGMENT_STAGE_MARKER } from './constants';
 import * as Geometries from './geometries';
 import type { ProgramInfo } from './programs';
-import type { GlSamplersState } from './samplers';
+import type { SamplerCache } from './samplers';
 import { bindTextures } from './texture-bindings';
 import type { TextureCache } from './textures';
 import * as Uniforms from './uniforms';
@@ -31,7 +31,7 @@ export type ProbeCaches = {
     geometries: Geometries.GeometriesState;
     uniforms: Uniforms.UniformsState;
     textures: TextureCache;
-    samplers: GlSamplersState;
+    samplers: SamplerCache;
     frame: NodeFrame;
     /** The renderer's stats handle; the probe reuses the real upload paths, so its writes are counted. */
     info: RendererInfo;

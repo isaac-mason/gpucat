@@ -16,6 +16,7 @@ import type { BufferCache } from './buffers';
 import type { GeometriesState } from './geometries';
 import * as pipelines from './pipelines';
 import type { RenderObjectGpuCache } from './render-object-gpu';
+import type { SamplerCache } from './samplers';
 import type { TextureCache } from './textures';
 export type { RenderObjectsState } from '../core/render-objects';
 export { createRenderObjectsState, disposeAllRenderObjects, disposeRenderObjectsForMaterial, disposeRenderObjectsForMesh, getRenderObject, getRenderObjectsStats, } from '../core/render-objects';
@@ -42,7 +43,7 @@ export declare function initRenderObject(nodes: NodeManagerState, geometriesStat
  * - Update uniform buffers
  * - Rebuild bind groups if needed
  */
-export declare function updateRenderObject(bindingsState: BindingsState, geometriesState: GeometriesState, device: GPUDevice, bufferCache: BufferCache, textureCache: TextureCache, renderObjectGpuCache: RenderObjectGpuCache, renderObject: RenderObject, frame: NodeFrame): void;
+export declare function updateRenderObject(bindingsState: BindingsState, geometriesState: GeometriesState, device: GPUDevice, bufferCache: BufferCache, textureCache: TextureCache, samplerCache: SamplerCache, renderObjectGpuCache: RenderObjectGpuCache, renderObject: RenderObject, frame: NodeFrame): void;
 /**
  * Initialize a RenderObject for pre-warming with async pipeline compilation.
  *

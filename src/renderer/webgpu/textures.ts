@@ -1,9 +1,9 @@
 /**
- * textures.ts, GPUTexture/GPUSampler cache and upload helpers.
+ * textures.ts (webgpu), `GPUTexture` cache and upload helpers. Samplers are their own resource module
+ * (`samplers.ts`), mirroring `webgl/`.
  *
  * Uses WeakMap-based caching keyed by GpuTexture object.
  * Tracks texture.version for cache invalidation.
- * Samplers are shared/cached by parameter key for efficiency.
  *
  * Flow:
  * 1. `updateTexture()` is called during binding updates (before draw)
@@ -14,7 +14,6 @@
  */
 
 import type { CubeRenderTarget } from '../../core/cube-render-target';
-import type { GpuSampler } from '../../core/gpu-sampler';
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { TextureRegion } from '../../core/texture-region';
 import { hasTypedPartialSource, supportsPartialUpload, withinPartialBudget } from '../core/partial-upload';
@@ -61,19 +60,10 @@ export type TextureData = {
     msaaView?: GPUTextureView | null;
 };
 
-/** Data stored per sampler configuration */
-type SamplerData = {
-    sampler: GPUSampler;
-    usedTimes: number;
-};
-
-/** Cache for textures and samplers */
+/** Cache for textures. Samplers live in `samplers.ts`, their own resource module. */
 export type TextureCache = {
     /** Texture data keyed by GpuTexture object */
     textureMap: WeakMap<GpuTexture, TextureData>;
-
-    /** Sampler cache keyed by parameter string */
-    samplerCache: Map<string, SamplerData>;
 
     /** Default placeholder textures by format */
     defaultTextures: Map<GPUTextureFormat, GPUTexture>;
@@ -83,12 +73,10 @@ export type TextureCache = {
 
     /** Stats counters */
     tally: TextureTally;
-    samplerCount: number;
 };
 
 export type TextureCacheStats = {
     textureCount: number;
-    samplerCount: number;
 };
 
 export function createSwapchainDepthTexture(
@@ -124,11 +112,9 @@ export function createSwapchainMsaaTexture(
 export function createTextureCache(): TextureCache {
     return {
         textureMap: new WeakMap(),
-        samplerCache: new Map(),
         defaultTextures: new Map(),
         mipmapState: null,
         tally: createTextureTally(),
-        samplerCount: 0,
     };
 }
 
@@ -716,48 +702,8 @@ function getDefaultTexture(cache: TextureCache, device: GPUDevice, format: GPUTe
     return tex;
 }
 
-/**
- * Get or create a sampler from Sampler settings.
- */
-export function getSampler(cache: TextureCache, device: GPUDevice, gpuSampler: GpuSampler): GPUSampler {
-    const key = gpuSampler.settingsKey;
-
-    const data = cache.samplerCache.get(key);
-    if (data) {
-        data.usedTimes++;
-        return data.sampler;
-    }
-
-    // WebGPU constraint: anisotropy > 1 requires all filters to be 'linear'
-    let { minFilter, magFilter, mipmapFilter, maxAnisotropy } = gpuSampler;
-    if (maxAnisotropy > 1) {
-        if (minFilter !== 'linear' || magFilter !== 'linear' || mipmapFilter !== 'linear') {
-            maxAnisotropy = 1;
-        }
-    }
-
-    const sampler = device.createSampler({
-        magFilter,
-        minFilter,
-        mipmapFilter,
-        addressModeU: gpuSampler.addressModeU,
-        addressModeV: gpuSampler.addressModeV,
-        addressModeW: gpuSampler.addressModeW,
-        maxAnisotropy,
-        compare: gpuSampler.compare,
-    });
-
-    cache.samplerCache.set(key, { sampler, usedTimes: 1 });
-    cache.samplerCount++;
-
-    return sampler;
-}
-
 export function getTextureCacheStats(cache: TextureCache): TextureCacheStats {
-    return {
-        textureCount: cache.tally.count,
-        samplerCount: cache.samplerCount,
-    };
+    return { textureCount: cache.tally.count };
 }
 
 /**

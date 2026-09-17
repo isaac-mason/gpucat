@@ -22,8 +22,9 @@ import { ensureUploaded, getRaw, getUploaded, resolveStorageBuffer, uploadUnifor
 import { formatHasStencil } from './pipelines';
 import type { RenderObjectGpuCache } from './render-object-gpu';
 import { clearRenderObjectGpu, getRenderObjectGpu } from './render-object-gpu';
+import { getSampler, peekSampler, type SamplerCache } from './samplers';
 import type { TextureCache } from './textures';
-import { ensureRenderTargetTexturesAllocated, getSampler, getTextureData, updateTexture } from './textures';
+import { ensureRenderTargetTexturesAllocated, getTextureData, updateTexture } from './textures';
 
 /**
  * Per-BindGroup data (GPU resources).
@@ -118,6 +119,7 @@ export function updateRenderBindings(
     device: GPUDevice,
     bufferCache: BufferCache,
     textureCache: TextureCache,
+    samplerCache: SamplerCache,
     renderObjectGpuCache: RenderObjectGpuCache,
 ): void {
     const nodeState = renderObject.nodeBuilderState;
@@ -135,9 +137,9 @@ export function updateRenderBindings(
 
         // Update uniforms and check if bind group needs rebuild
         const data = getData(state, bindGroup);
-        updateRenderBindGroup(data, bindGroup, renderObject, frame, device, bufferCache, textureCache);
+        updateRenderBindGroup(data, bindGroup, renderObject, frame, device, bufferCache, textureCache, samplerCache);
         if (data.needsUpdate || !data.bindGroup) {
-            rebuildGPUBindGroup(device, bufferCache, textureCache, bindGroup, data, renderObject.geometry, null);
+            rebuildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, renderObject.geometry, null);
             data.needsUpdate = false;
         }
 
@@ -158,6 +160,7 @@ export function updateComputeBindings(
     device: GPUDevice,
     bufferCache: BufferCache,
     textureCache: TextureCache,
+    samplerCache: SamplerCache,
     buffers: Record<string, GpuBuffer<Any>> | null,
 ): GPUBindGroup[] {
     const gpuBindGroups: GPUBindGroup[] = [];
@@ -168,11 +171,11 @@ export function updateComputeBindings(
 
         // Update bindings
         const data = getData(state, bindGroup);
-        updateComputeBindGroup(data, bufferCache, textureCache, device, bindGroup, frame, buffers);
+        updateComputeBindGroup(data, bufferCache, textureCache, samplerCache, device, bindGroup, frame, buffers);
 
         // Rebuild GPU bind group if needed
         if (data.needsUpdate || !data.bindGroup) {
-            rebuildGPUBindGroup(device, bufferCache, textureCache, bindGroup, data, null, buffers);
+            rebuildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, null, buffers);
             data.needsUpdate = false;
         }
 
@@ -368,6 +371,7 @@ function updateRenderBindGroup(
     device: GPUDevice,
     bufferCache: BufferCache,
     textureCache: TextureCache,
+    samplerCache: SamplerCache,
 ): void {
     for (const binding of bindGroup.bindings) {
         switch (binding.kind) {
@@ -384,7 +388,7 @@ function updateRenderBindGroup(
                 break;
 
             case 'sampler':
-                updateSamplerBinding(textureCache, device, binding, data);
+                updateSamplerBinding(samplerCache, device, binding, data);
                 break;
 
             case 'storage':
@@ -584,12 +588,12 @@ function updateStorageTextureBinding(
 }
 
 /** Update a sampler binding. */
-function updateSamplerBinding(textureCache: TextureCache, device: GPUDevice, binding: SamplerBinding, data: BindGroupData): void {
+function updateSamplerBinding(samplerCache: SamplerCache, device: GPUDevice, binding: SamplerBinding, data: BindGroupData): void {
     const samplerNode = binding.entry.samplerNode;
     const gpuSampler = samplerNode.value;
 
     // Create/get sampler from GpuSampler settings (this caches by settingsKey)
-    getSampler(textureCache, device, gpuSampler);
+    getSampler(device, samplerCache, gpuSampler);
 
     // Check for sampler changes using settingsKey
     const samplerKey = gpuSampler.settingsKey;
@@ -626,6 +630,7 @@ function rebuildGPUBindGroup(
     device: GPUDevice,
     bufferCache: BufferCache,
     textureCache: TextureCache,
+    samplerCache: SamplerCache,
     bindGroup: BindGroup,
     data: BindGroupData,
     geometry: Geometry | null,
@@ -702,9 +707,9 @@ function rebuildGPUBindGroup(
                 if (!gpuSampler) break;
 
                 // Get GPU sampler from cache using settingsKey
-                const samplerData = textureCache.samplerCache.get(gpuSampler.settingsKey);
-                if (samplerData) {
-                    entries.push({ binding: binding.entry.binding, resource: samplerData.sampler });
+                const sampler = peekSampler(samplerCache, gpuSampler.settingsKey);
+                if (sampler) {
+                    entries.push({ binding: binding.entry.binding, resource: sampler });
                 }
                 break;
             }
@@ -742,6 +747,7 @@ function updateComputeBindGroup(
     data: BindGroupData,
     bufferCache: BufferCache,
     textureCache: TextureCache,
+    samplerCache: SamplerCache,
     device: GPUDevice,
     bindGroup: BindGroup,
     frame: NodeFrame,
@@ -766,7 +772,7 @@ function updateComputeBindGroup(
                 break;
 
             case 'sampler':
-                updateSamplerBinding(textureCache, device, binding, data);
+                updateSamplerBinding(samplerCache, device, binding, data);
                 break;
         }
     }

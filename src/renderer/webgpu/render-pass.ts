@@ -18,6 +18,7 @@ import { DEPTH_FORMAT, formatHasStencil } from './pipelines';
 import type * as Pipelines from './pipelines';
 import * as RenderObjectGpu from './render-object-gpu';
 import * as RenderObjects from './render-objects';
+import * as Samplers from './samplers';
 import * as Textures from './textures';
 
 // Canvas context — the renderer owns the WebGPU canvas context.
@@ -395,6 +396,7 @@ export function executeRenderPass(
     geometries: Geometries.GeometriesState,
     buffers: Buffers.BufferCache,
     textures: Textures.TextureCache,
+    samplers: Samplers.SamplerCache,
     renderObjectGpu: RenderObjectGpu.RenderObjectGpuCache,
     sc: SwapchainState,
     format: GPUTextureFormat,
@@ -413,6 +415,7 @@ export function executeRenderPass(
         geometries,
         buffers,
         textures,
+        samplers,
         renderObjectGpu,
         encoder,
         nodes,
@@ -433,6 +436,7 @@ function draw(
     geometries: Geometries.GeometriesState,
     buffers: Buffers.BufferCache,
     textures: Textures.TextureCache,
+    samplers: Samplers.SamplerCache,
     renderObjectGpu: RenderObjectGpu.RenderObjectGpuCache,
     encoder: GPUCommandEncoder,
     nodes: NodeManagerState,
@@ -496,6 +500,7 @@ function draw(
             device,
             buffers,
             textures,
+            samplers,
             renderObjectGpu,
             renderObject,
             frame,
@@ -628,6 +633,7 @@ export function disposeDevice(
     device: GPUDevice | null,
     deviceProvided: boolean,
     textures: Textures.TextureCache,
+    samplers: Samplers.SamplerCache,
     pipelines: Pipelines.PipelinesState,
     bindGroupLayoutCache: BindGroupLayoutCache,
     sc: SwapchainState,
@@ -648,7 +654,7 @@ export function disposeDevice(
         tex.destroy();
     }
     textures.defaultTextures.clear();
-    textures.samplerCache.clear();
+    Samplers.disposeSamplerCache(samplers);
 
     // Dispose mipmap generation state
     if (textures.mipmapState) {

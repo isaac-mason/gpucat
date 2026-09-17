@@ -8,6 +8,7 @@ import type { RenderObject } from '../core/render-object';
 import { type BindGroupLayoutCache } from './bind-group-layout';
 import type { BufferCache } from './buffers';
 import type { RenderObjectGpuCache } from './render-object-gpu';
+import { type SamplerCache } from './samplers';
 import type { TextureCache } from './textures';
 /**
  * Per-BindGroup data (GPU resources).
@@ -41,9 +42,9 @@ export type BindingsState = {
  */
 export declare function createBindingsState(layoutCache: BindGroupLayoutCache): BindingsState;
 /** Update all bindings for a RenderObject. */
-export declare function updateRenderBindings(state: BindingsState, renderObject: RenderObject, frame: NodeFrame, device: GPUDevice, bufferCache: BufferCache, textureCache: TextureCache, renderObjectGpuCache: RenderObjectGpuCache): void;
+export declare function updateRenderBindings(state: BindingsState, renderObject: RenderObject, frame: NodeFrame, device: GPUDevice, bufferCache: BufferCache, textureCache: TextureCache, samplerCache: SamplerCache, renderObjectGpuCache: RenderObjectGpuCache): void;
 /** Update all bindings for a compute pass and return GPUBindGroups. */
-export declare function updateComputeBindings(state: BindingsState, nodeBuilderState: NodeBuilderState, frame: NodeFrame, device: GPUDevice, bufferCache: BufferCache, textureCache: TextureCache, buffers: Record<string, GpuBuffer<Any>> | null): GPUBindGroup[];
+export declare function updateComputeBindings(state: BindingsState, nodeBuilderState: NodeBuilderState, frame: NodeFrame, device: GPUDevice, bufferCache: BufferCache, textureCache: TextureCache, samplerCache: SamplerCache, buffers: Record<string, GpuBuffer<Any>> | null): GPUBindGroup[];
 /** Initialize bindings for a RenderObject. */
 export declare function initRenderBindings(state: BindingsState, renderObject: RenderObject, device: GPUDevice): void;
 /** Get the bind group layouts for a RenderObject. Used for pipeline creation. */

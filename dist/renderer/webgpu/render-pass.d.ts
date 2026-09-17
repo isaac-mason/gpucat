@@ -10,6 +10,7 @@ import * as Buffers from './buffers';
 import * as Geometries from './geometries';
 import type * as Pipelines from './pipelines';
 import * as RenderObjectGpu from './render-object-gpu';
+import * as Samplers from './samplers';
 import * as Textures from './textures';
 /**
  * Get (or lazily create + configure) the WebGPU canvas context for a canvas target. Safe to call
@@ -66,10 +67,10 @@ export declare function clear(contexts: WeakMap<CanvasTarget, GPUCanvasContext>,
  * Resolve attachments and run the whole inner draw loop into the current command stream (created by
  * the top-level frame, reused by nested renders). Calls neutral update helpers per object.
  */
-export declare function executeRenderPass(contexts: WeakMap<CanvasTarget, GPUCanvasContext>, device: GPUDevice, bindings: Bindings.BindingsState, geometries: Geometries.GeometriesState, buffers: Buffers.BufferCache, textures: Textures.TextureCache, renderObjectGpu: RenderObjectGpu.RenderObjectGpuCache, sc: SwapchainState, format: GPUTextureFormat, encoder: GPUCommandEncoder, nodes: NodeManagerState, passCtx: RenderContext, prepared: PreparedRenderObject[], params: RenderPassParams, inspector: InspectorBase | null, info: RendererInfo): void;
+export declare function executeRenderPass(contexts: WeakMap<CanvasTarget, GPUCanvasContext>, device: GPUDevice, bindings: Bindings.BindingsState, geometries: Geometries.GeometriesState, buffers: Buffers.BufferCache, textures: Textures.TextureCache, samplers: Samplers.SamplerCache, renderObjectGpu: RenderObjectGpu.RenderObjectGpuCache, sc: SwapchainState, format: GPUTextureFormat, encoder: GPUCommandEncoder, nodes: NodeManagerState, passCtx: RenderContext, prepared: PreparedRenderObject[], params: RenderPassParams, inspector: InspectorBase | null, info: RendererInfo): void;
 /**
  * Release all device resources: the canvas context, swapchain textures, default placeholder
  * textures + samplers, mipmap state, pipeline caches, and (unless the device was pre-created) the
  * device itself. After this the renderer is unusable.
  */
-export declare function disposeDevice(contexts: WeakMap<CanvasTarget, GPUCanvasContext>, device: GPUDevice | null, deviceProvided: boolean, textures: Textures.TextureCache, pipelines: Pipelines.PipelinesState, bindGroupLayoutCache: BindGroupLayoutCache, sc: SwapchainState): void;
+export declare function disposeDevice(contexts: WeakMap<CanvasTarget, GPUCanvasContext>, device: GPUDevice | null, deviceProvided: boolean, textures: Textures.TextureCache, samplers: Samplers.SamplerCache, pipelines: Pipelines.PipelinesState, bindGroupLayoutCache: BindGroupLayoutCache, sc: SwapchainState): void;
