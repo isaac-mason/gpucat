@@ -15349,7 +15349,7 @@ function planBufferUpload(buffer, exists, capacityBytes, lastVersion) {
     return buffer.version !== lastVersion ? BufferUpload.Full : BufferUpload.Skip;
 }
 
-function createBufferCache(info) {
+function createBufferCache$1(info) {
     return {
         bufferMap: new WeakMap(),
         rawMap: new WeakMap(),
@@ -15399,7 +15399,7 @@ function deriveGPUUsage(buffer) {
 /** `name` identifies the buffer in the per-frame upload breakdown. Required, not optional: every
  *  call site knows what it is binding, and a name is call-site knowledge - the same buffer can be
  *  bound under different attribute names, so it cannot live on the buffer. */
-function ensureUploaded(cache, device, buffer, name) {
+function ensureUploaded$1(cache, device, buffer, name) {
     const entry = cache.bufferMap.get(buffer);
     const plan = planBufferUpload(buffer, entry !== undefined, entry?.buf.size ?? 0, entry?.version ?? -1);
     if (plan === BufferUpload.Skip) {
@@ -15453,7 +15453,7 @@ function ensureUploaded(cache, device, buffer, name) {
  *
  * This is a pure lookup, no data transfer occurs.
  */
-function getUploaded(cache, buffer) {
+function getUploaded$1(cache, buffer) {
     return cache.bufferMap.get(buffer)?.buf;
 }
 /**
@@ -15489,7 +15489,7 @@ function resolveStorageBuffer(node, geometry, buffers) {
  * `ArrayBuffer`, not a typed array, so anything carrying a version cannot be passed here - those go
  * through `ensureUploaded`.
  */
-function uploadUniformBlock(cache, device, key, data, detail) {
+function uploadUniformBlock$1(cache, device, key, data, detail) {
     let buf = cache.rawMap.get(key);
     const byteLength = alignTo4(data.byteLength);
     const isNew = !buf;
@@ -15515,14 +15515,14 @@ function uploadUniformBlock(cache, device, key, data, detail) {
  * Get a previously created raw buffer, or undefined.
  * Does NOT upload, use uploadRaw for that.
  */
-function getRaw(cache, key) {
+function getRaw$1(cache, key) {
     return cache.rawMap.get(key);
 }
 // Stats
 /**
  * Returns approximate buffer counts tracked by this cache.
  */
-function getBufferCacheStats(cache) {
+function getBufferCacheStats$1(cache) {
     return {
         bufferCount: cache.bufferCount,
         rawCount: cache.rawCount,
@@ -22362,7 +22362,7 @@ class RendererInspector extends InspectorBase {
             cpuMs,
             gpuMs: null,
             timeline: [...this._rootTimeline],
-            bufferStats: renderer.backend === 'webgpu' ? getBufferCacheStats(renderer.buffers) : { bufferCount: 0, rawCount: 0 },
+            bufferStats: renderer.backend === 'webgpu' ? getBufferCacheStats$1(renderer.buffers) : { bufferCount: 0, rawCount: 0 },
             pipelineStats: renderer.backend === 'webgpu'
                 ? getStats(renderer.pipelines)
                 : { renderCount: 0, computeCount: 0, bindGroupLayoutCount: 0 },
@@ -24450,7 +24450,7 @@ function updateUniformBinding(bufferCache, device, binding, frame, data, materia
     // Pack into scratch buffer, then compare with current
     const changedBytes = packAndCompare(block, binding.currentBuffer, binding.scratchBuffer, material);
     const changed = changedBytes > 0;
-    const uploaded = !!getRaw(bufferCache, binding.bufferKey);
+    const uploaded = !!getRaw$1(bufferCache, binding.bufferKey);
     if (changed || !uploaded) {
         if (changed) {
             // Swap buffers: scratch becomes current
@@ -24458,7 +24458,7 @@ function updateUniformBinding(bufferCache, device, binding, frame, data, materia
             binding.currentBuffer = binding.scratchBuffer;
             binding.scratchBuffer = temp;
         }
-        const result = uploadUniformBlock(bufferCache, device, binding.bufferKey, binding.currentBuffer, {
+        const result = uploadUniformBlock$1(bufferCache, device, binding.bufferKey, binding.currentBuffer, {
             material: material?.name,
             updateType: block.group?.updateType,
             changedBytes,
@@ -24593,7 +24593,7 @@ function updateStorageBinding(bufferCache, device, binding, data, geometry, buff
         data.needsUpdate = true;
     }
     // Flush pending data to GPU (version check / partial ranges handled inside)
-    ensureUploaded(bufferCache, device, buffer, binding.entry.name);
+    ensureUploaded$1(bufferCache, device, buffer, binding.entry.name);
 }
 /** Rebuild the GPU bind group for a BindGroup */
 function rebuildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, geometry, buffers) {
@@ -24604,7 +24604,7 @@ function rebuildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bi
         switch (binding.kind) {
             case 'uniform': {
                 if (binding.bufferKey) {
-                    const buffer = getRaw(bufferCache, binding.bufferKey);
+                    const buffer = getRaw$1(bufferCache, binding.bufferKey);
                     if (buffer) {
                         entries.push({ binding: binding.block.binding, resource: { buffer } });
                     }
@@ -24613,7 +24613,7 @@ function rebuildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bi
             }
             case 'storage': {
                 const buffer = resolveStorageBuffer(binding.entry.node, geometry, buffers);
-                const buf = getUploaded(bufferCache, buffer);
+                const buf = getUploaded$1(bufferCache, buffer);
                 if (buf) {
                     entries.push({ binding: binding.entry.binding, resource: { buffer: buf } });
                 }
@@ -33568,7 +33568,7 @@ class Inspector extends RendererInspector {
                 // Geometry-based group - resolve buffer by name
                 const bufAttr = geometry.buffers.get(group.name);
                 if (bufAttr) {
-                    const gpuBuf = ensureUploaded(bufferCache, renderer.device, bufAttr, group.name);
+                    const gpuBuf = ensureUploaded$1(bufferCache, renderer.device, bufAttr, group.name);
                     pass.setVertexBuffer(slot, gpuBuf);
                 }
             }
@@ -33580,7 +33580,7 @@ class Inspector extends RendererInspector {
                 }
                 const arr = gpuBuffer.array;
                 if (arr) {
-                    const gpuBuf = ensureUploaded(bufferCache, renderer.device, gpuBuffer, group.name ?? 'vertex');
+                    const gpuBuf = ensureUploaded$1(bufferCache, renderer.device, gpuBuffer, group.name ?? 'vertex');
                     pass.setVertexBuffer(slot, gpuBuf);
                 }
             }
@@ -33590,10 +33590,10 @@ class Inspector extends RendererInspector {
         // indirect draw support.  The indirect GPU buffer was already written by
         // the compute pass this frame; getUploaded() does a non-uploading lookup.
         if (geometry.index) {
-            const idxBuf = ensureUploaded(bufferCache, renderer.device, geometry.index, 'index');
+            const idxBuf = ensureUploaded$1(bufferCache, renderer.device, geometry.index, 'index');
             pass.setIndexBuffer(idxBuf, getIndexFormat(geometry.index.array));
             if (geometry.indirect) {
-                const indBuf = getUploaded(bufferCache, geometry.indirect);
+                const indBuf = getUploaded$1(bufferCache, geometry.indirect);
                 if (indBuf) {
                     const byteStride = geometry.indirect.itemSize * 4;
                     for (let d = 0; d < geometry.indirect.count; d++) {
@@ -33607,7 +33607,7 @@ class Inspector extends RendererInspector {
         }
         else {
             if (geometry.indirect) {
-                const indBuf = getUploaded(bufferCache, geometry.indirect);
+                const indBuf = getUploaded$1(bufferCache, geometry.indirect);
                 if (indBuf) {
                     const byteStride = geometry.indirect.itemSize * 4;
                     for (let d = 0; d < geometry.indirect.count; d++) {
@@ -35233,6 +35233,182 @@ function createContext(canvas, attrs) {
 }
 
 /**
+ * buffers.ts (webgl) - `GpuBuffer -> WebGLBuffer` cache, the GL sibling of `webgpu/buffers.ts`.
+ *
+ * Two maps, matching WebGPU's, because there are two genuinely different cases:
+ *
+ *  - `bufferMap` keys by `GpuBuffer` identity, for anything a GpuBuffer backs: vertex attributes,
+ *    indices, transform-feedback IO. One GpuBuffer therefore means exactly one GL buffer, no matter
+ *    how many geometries or passes reach it. `webgl/renderer.ts` `readBufferAsync` has always
+ *    documented that invariant; before this module there was nothing to enforce it.
+ *  - `rawMap` keys by an arbitrary object, for device buffers with no GpuBuffer behind them. Uniform
+ *    blocks are the only case: a block is a byte blob packed from many uniform nodes through a
+ *    compile-time layout, with no version of its own, so change detection belongs to the caller.
+ *
+ * Owning the mapping is also what makes release possible. A `GpuBuffer` that reaches the device
+ * through a geometry used to be freed only when that geometry was, because no module knew the
+ * mapping existed.
+ *
+ * GL buffers are typeless; the bind target passed here only says how to reach the buffer for this
+ * upload. It matters because `ELEMENT_ARRAY_BUFFER` bindings are captured into whatever VAO is bound,
+ * so callers must upload with VAO 0 bound (see `prepareGeometry`).
+ */
+function createBufferCache(info) {
+    return { bufferMap: new WeakMap(), rawMap: new WeakMap(), all: new Set(), bufferCount: 0, rawCount: 0, info };
+}
+/**
+ * GL usage hint from the buffer's declared usage, the analogue of WebGPU's `deriveGPUUsage`.
+ *
+ * A hint only, never correctness: GL is free to ignore it. Transform-feedback outputs are the case
+ * worth getting right, since they are GPU-written and GPU-consumed; a `*_READ` hint there makes the
+ * driver stage through host memory on every capture.
+ */
+function glUsageHint(gl, buffer) {
+    if (buffer.usage.has('indirect'))
+        return gl.DYNAMIC_COPY;
+    if (buffer.usage.has('storage'))
+        return gl.DYNAMIC_COPY;
+    if (buffer.usage.has('uniform'))
+        return gl.DYNAMIC_DRAW;
+    return gl.STATIC_DRAW;
+}
+/**
+ * Release a buffer's GL object when its `GpuBuffer` is disposed.
+ *
+ * Chained, not assigned: the storage-texture path in `textures.ts` also hangs a callback on a
+ * buffer's dispose, and whichever registers second must not drop the first.
+ */
+function setupBufferDispose(gl, cache, buffer) {
+    const previous = buffer._onDispose;
+    buffer._onDispose = () => {
+        previous?.();
+        const entry = cache.bufferMap.get(buffer);
+        if (!entry)
+            return;
+        gl.deleteBuffer(entry.glBuffer);
+        cache.all.delete(entry.glBuffer);
+        cache.bufferCount--;
+        cache.bufferMap.delete(buffer);
+    };
+}
+/** Push the buffer's pending `updateRanges` as partial `bufferSubData` uploads, one per merged span. */
+function uploadDirtyRanges(gl, cache, target, array, buffer, label) {
+    const ranges = buffer.updateRanges;
+    mergeUpdateRanges(ranges);
+    const bytesPerElement = array.BYTES_PER_ELEMENT;
+    const usage = primaryBufferUsage(buffer);
+    for (let i = 0; i < ranges.length; i++) {
+        const r = ranges[i];
+        gl.bufferSubData(target, r.start * bytesPerElement, array, r.start, r.count);
+        recordBufferWrite(cache.info, r.count * bytesPerElement, usage, false, label);
+    }
+    buffer.clearUpdateRanges();
+}
+/**
+ * Get (or create) the GL buffer for a `GpuBuffer`, uploading whatever changed since last time.
+ *
+ * `target` is the bind target to upload through; `name` is a fallback label for the upload breakdown
+ * when the buffer carries none. The allocate / partial / full decision is `core/buffer-upload.ts`'s,
+ * shared with the WebGPU backend so the rule cannot drift.
+ *
+ * `usageHint` overrides the hint derived from `buffer.usage`, for the caller that knows better than
+ * the declared usage does. Transform feedback is the case: its outputs are GPU-written and
+ * GPU-consumed, so they want `DYNAMIC_COPY` whatever they are declared as. WebGPU needs no such
+ * escape hatch, because its usage flags are correctness rather than an advisory hint.
+ */
+function ensureUploaded(gl, cache, buffer, target, name, usageHint) {
+    const array = buffer.array;
+    if (!array)
+        throw new Error(`[WebGLRenderer] buffer '${buffer.label ?? name}' has no CPU array to upload.`);
+    const label = buffer.label ?? name;
+    let entry = cache.bufferMap.get(buffer);
+    const plan = planBufferUpload(buffer, entry !== undefined, entry?.byteLength ?? -1, entry?.version ?? -1);
+    if (plan === BufferUpload.Skip && entry)
+        return entry.glBuffer;
+    if (plan === BufferUpload.Allocate) {
+        if (!entry) {
+            const created = gl.createBuffer();
+            if (!created)
+                throw new Error('[WebGLRenderer] gl.createBuffer returned null.');
+            entry = { glBuffer: created, version: -1, byteLength: -1 };
+            cache.bufferMap.set(buffer, entry);
+            cache.all.add(created);
+            cache.bufferCount++;
+            setupBufferDispose(gl, cache, buffer);
+        }
+        gl.bindBuffer(target, entry.glBuffer);
+        gl.bufferData(target, array, usageHint ?? glUsageHint(gl, buffer));
+        recordBufferWrite(cache.info, array.byteLength, primaryBufferUsage(buffer), true, label);
+        entry.byteLength = array.byteLength;
+        entry.version = buffer.version;
+        // the allocate path wrote everything, so pending ranges are already covered.
+        buffer.clearUpdateRanges();
+        return entry.glBuffer;
+    }
+    gl.bindBuffer(target, entry.glBuffer);
+    if (plan === BufferUpload.Partial) {
+        uploadDirtyRanges(gl, cache, target, array, buffer, label);
+    }
+    else {
+        gl.bufferSubData(target, 0, array);
+        recordBufferWrite(cache.info, array.byteLength, primaryBufferUsage(buffer), true, label);
+    }
+    entry.version = buffer.version;
+    return entry.glBuffer;
+}
+/** The GL buffer already created for a `GpuBuffer`, or undefined. Never uploads. */
+function getUploaded(cache, buffer) {
+    return cache.bufferMap.get(buffer)?.glBuffer;
+}
+/**
+ * Upload one packed uniform block, identified by an arbitrary key.
+ *
+ * The one case with no `GpuBuffer` to gate on, so this writes unconditionally and change detection
+ * stays with the caller. `full` is recorded as false: this path has no concept of ranges and always
+ * writes everything, so flagging it would make the full-re-upload signal tautological.
+ */
+function uploadUniformBlock(gl, cache, key, data, detail) {
+    let entry = cache.rawMap.get(key);
+    let created = false;
+    if (!entry || entry.byteLength !== data.byteLength) {
+        if (!entry) {
+            const glBuffer = gl.createBuffer();
+            if (!glBuffer)
+                throw new Error('[WebGLRenderer] gl.createBuffer returned null (uniform block).');
+            entry = { glBuffer, byteLength: data.byteLength };
+            cache.rawMap.set(key, entry);
+            cache.all.add(glBuffer);
+            cache.rawCount++;
+        }
+        entry.byteLength = data.byteLength;
+        gl.bindBuffer(gl.UNIFORM_BUFFER, entry.glBuffer);
+        gl.bufferData(gl.UNIFORM_BUFFER, data, gl.DYNAMIC_DRAW);
+        created = true;
+    }
+    else {
+        gl.bindBuffer(gl.UNIFORM_BUFFER, entry.glBuffer);
+        gl.bufferSubData(gl.UNIFORM_BUFFER, 0, data);
+    }
+    recordBufferWrite(cache.info, data.byteLength, 'uniform', false, undefined, detail?.material, detail?.updateType, detail?.changedBytes);
+    return { glBuffer: entry.glBuffer, created };
+}
+/** The GL buffer for a raw key, or undefined. Never uploads. */
+function getRaw(cache, key) {
+    return cache.rawMap.get(key)?.glBuffer;
+}
+/** Delete every GL buffer this cache holds (called on renderer dispose). */
+function disposeBufferCache(gl, cache) {
+    for (const glBuffer of cache.all)
+        gl.deleteBuffer(glBuffer);
+    cache.all.clear();
+    cache.bufferCount = 0;
+    cache.rawCount = 0;
+}
+function getBufferCacheStats(cache) {
+    return { bufferCount: cache.bufferCount, rawCount: cache.rawCount };
+}
+
+/**
  * geometries.ts (webgl) - GL buffer uploads + VAO construction, per-Geometry cached.
  *
  * Mirrors `webgpu/geometries.ts` semantics (per-geometry init/upload, version tracking, drawRange)
@@ -35252,30 +35428,24 @@ function createContext(canvas, attrs) {
  */
 /** Create an empty geometries state. */
 function createGeometriesState$1() {
-    return { data: new WeakMap(), memory: { geometries: 0, buffers: 0, indexBuffers: 0 } };
+    return { data: new WeakMap(), memory: { geometries: 0 } };
 }
-/** Resident geometry resources. Mirrors `webgpu/geometries.ts` `getGeometriesStats`. */
+/** Resident geometry count. Mirrors `webgpu/geometries.ts` `getGeometriesStats`. */
 function getGeometriesStats$1(state) {
     return { ...state.memory };
+}
+/** The `GpuBuffer` a compiled vertex-buffer group reads from: a named geometry buffer, or a direct one. */
+function groupBuffer(geometry, group) {
+    return group.name !== null ? geometry.buffers.get(group.name) : (group.buffer ?? undefined);
 }
 function getGeometryBuffers(gl, state, geometry) {
     let gb = state.data.get(geometry);
     if (!gb) {
-        gb = {
-            attributeBuffers: new Map(),
-            attributeVersions: new Map(),
-            attributeSizes: new Map(),
-            indexBuffer: null,
-            indexVersion: -1,
-            indexSize: -1,
-            vaos: new Map(),
-        };
+        gb = { vaos: new Map() };
         state.data.set(geometry, gb);
         state.memory.geometries++;
-        // Release the GL buffers and VAOs when the Geometry goes away. The WebGPU backend has always
-        // done this (`webgpu/geometries.ts`); here `disposeGeometry` existed but nothing ever called it,
-        // so a disposed batch kept its vertex/index buffers and every cached VAO alive until the
-        // renderer itself was torn down.
+        // Release the VAOs when the Geometry goes away. The buffers release themselves through
+        // `buffers.ts`, which owns them and may be sharing them with another geometry.
         geometry._onDispose = () => {
             disposeGeometry$1(gl, state, geometry);
         };
@@ -35345,106 +35515,11 @@ function glComponentType(gl, glType) {
             return gl.FLOAT;
     }
 }
-// Buffer upload.
-/**
- * Push a buffer's pending `updateRanges` as partial `bufferSubData` uploads (caller has
- * already bound `glBuffer` to `target`). Mirrors three.js `WebGLAttributes.updateBuffer`:
- * {@link mergeUpdateRanges} to cut GL command overhead, then one `bufferSubData` per merged
- * span. Ranges are flat array-element (component) indices; the `srcOffset`/`length` args below
- * are element counts (WebGL2 typed-array overload). Clears the ranges once applied.
- */
-function uploadDirtyRanges(gl, target, array, buffer, info, label) {
-    const ranges = buffer.updateRanges;
-    mergeUpdateRanges(ranges);
-    const bpe = array.BYTES_PER_ELEMENT;
-    const usage = primaryBufferUsage(buffer);
-    for (let i = 0; i < ranges.length; i++) {
-        const r = ranges[i];
-        gl.bufferSubData(target, r.start * bpe, array, r.start, r.count);
-        recordBufferWrite(info, r.count * bpe, usage, false, label);
-    }
-    buffer.clearUpdateRanges();
-}
-/** Upload (creating/growing/patching as needed) an attribute buffer, returning its GL buffer. */
-function ensureAttributeBuffer(gl, state, gb, name, buffer, info) {
-    const array = buffer.array;
-    if (!array)
-        throw new Error(`[WebGLRenderer] attribute buffer '${name}' has null array.`);
-    const label = buffer.label ?? name;
-    let glBuffer = gb.attributeBuffers.get(name);
-    const plan = planBufferUpload(buffer, glBuffer !== undefined, gb.attributeSizes.get(name) ?? -1, gb.attributeVersions.get(name) ?? -1);
-    if (plan === BufferUpload.Skip && glBuffer)
-        return glBuffer;
-    if (plan === BufferUpload.Allocate) {
-        if (!glBuffer) {
-            const created = gl.createBuffer();
-            if (!created)
-                throw new Error('[WebGLRenderer] gl.createBuffer returned null.');
-            glBuffer = created;
-            gb.attributeBuffers.set(name, glBuffer);
-            state.memory.buffers++;
-        }
-        gl.bindBuffer(gl.ARRAY_BUFFER, glBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, array, gl.STATIC_DRAW);
-        recordBufferWrite(info, array.byteLength, primaryBufferUsage(buffer), true, label);
-        gb.attributeSizes.set(name, array.byteLength);
-        gb.attributeVersions.set(name, buffer.version);
-        // the allocate path wrote everything, so pending ranges are already covered.
-        buffer.clearUpdateRanges();
-        return glBuffer;
-    }
-    gl.bindBuffer(gl.ARRAY_BUFFER, glBuffer);
-    if (plan === BufferUpload.Partial) {
-        uploadDirtyRanges(gl, gl.ARRAY_BUFFER, array, buffer, info, label);
-    }
-    else {
-        gl.bufferSubData(gl.ARRAY_BUFFER, 0, array);
-        recordBufferWrite(info, array.byteLength, primaryBufferUsage(buffer), true, label);
-    }
-    gb.attributeVersions.set(name, buffer.version);
-    return glBuffer;
-}
-/** Upload (creating/growing/patching as needed) the index buffer, returning its GL buffer. */
-function ensureIndexBuffer(gl, state, gb, index, info) {
-    const array = index.array;
-    if (!array)
-        throw new Error('[WebGLRenderer] index buffer has null array.');
-    const label = index.label ?? 'index';
-    const plan = planBufferUpload(index, gb.indexBuffer !== null, gb.indexSize, gb.indexVersion);
-    if (plan === BufferUpload.Skip && gb.indexBuffer)
-        return gb.indexBuffer;
-    if (plan === BufferUpload.Allocate) {
-        if (!gb.indexBuffer) {
-            const created = gl.createBuffer();
-            if (!created)
-                throw new Error('[WebGLRenderer] gl.createBuffer returned null (index).');
-            gb.indexBuffer = created;
-            state.memory.indexBuffers++;
-        }
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gb.indexBuffer);
-        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, array, gl.STATIC_DRAW);
-        recordBufferWrite(info, array.byteLength, primaryBufferUsage(index), true, label);
-        gb.indexSize = array.byteLength;
-        gb.indexVersion = index.version;
-        index.clearUpdateRanges();
-        return gb.indexBuffer;
-    }
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gb.indexBuffer);
-    if (plan === BufferUpload.Partial) {
-        uploadDirtyRanges(gl, gl.ELEMENT_ARRAY_BUFFER, array, index, info, label);
-    }
-    else {
-        gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, array);
-        recordBufferWrite(info, array.byteLength, primaryBufferUsage(index), true, label);
-    }
-    gb.indexVersion = index.version;
-    return gb.indexBuffer;
-}
 /**
  * Ensure the geometry's GL buffers are uploaded and its VAO (for `program`) is built, returning the
  * draw resources. Re-uploads buffers whose version changed. The VAO is cached per (geometry, program).
  */
-function prepareGeometry(gl, state, geometry, nodeState, program, info) {
+function prepareGeometry(gl, state, buffers, geometry, nodeState, program) {
     const gb = getGeometryBuffers(gl, state, geometry);
     // Detach any currently-bound VAO before uploading. An index upload binds ELEMENT_ARRAY_BUFFER,
     // which is captured as VAO state — doing that while a *previous* object's cached VAO is still
@@ -35452,23 +35527,16 @@ function prepareGeometry(gl, state, geometry, nodeState, program, info) {
     // draw would run against the wrong (possibly smaller) buffer. Uploads must land on the default
     // VAO 0. The caller (the draw loop) rebinds the resolved VAO after this returns.
     gl.bindVertexArray(null);
-    // Upload all attribute buffers referenced by the compiled vertex buffer groups (+ any re-uploads).
+    // Upload every buffer the compiled vertex-buffer groups read from (+ any re-uploads).
     for (const group of nodeState.vertexBufferGroups) {
-        if (group.name !== null) {
-            const buffer = geometry.buffers.get(group.name);
-            if (buffer)
-                ensureAttributeBuffer(gl, state, gb, group.name, buffer, info);
-        }
-        else if (group.buffer) {
-            // Direct (non-geometry) buffer: key it by a synthetic name derived from its identity.
-            const key = `__direct_${group.attributes[0]?.shaderLocation ?? 0}`;
-            ensureAttributeBuffer(gl, state, gb, key, group.buffer, info);
-        }
+        const buffer = groupBuffer(geometry, group);
+        if (buffer)
+            ensureUploaded(gl, buffers, buffer, gl.ARRAY_BUFFER, group.name ?? 'attribute');
     }
     // Upload the index buffer if present.
     let indexType = null;
     if (geometry.index) {
-        ensureIndexBuffer(gl, state, gb, geometry.index, info);
+        ensureUploaded(gl, buffers, geometry.index, gl.ELEMENT_ARRAY_BUFFER, 'index');
         indexType = glIndexType(gl, geometry.index.array);
     }
     // Build (or reuse) the VAO for this program.
@@ -35481,15 +35549,8 @@ function prepareGeometry(gl, state, geometry, nodeState, program, info) {
         gb.vaos.set(program, vao);
         gl.bindVertexArray(vao);
         for (const group of nodeState.vertexBufferGroups) {
-            // Resolve the GL buffer for this group.
-            let glBuffer;
-            if (group.name !== null) {
-                glBuffer = gb.attributeBuffers.get(group.name);
-            }
-            else if (group.buffer) {
-                const key = `__direct_${group.attributes[0]?.shaderLocation ?? 0}`;
-                glBuffer = gb.attributeBuffers.get(key);
-            }
+            const buffer = groupBuffer(geometry, group);
+            const glBuffer = buffer ? getUploaded(buffers, buffer) : undefined;
             if (!glBuffer)
                 continue;
             gl.bindBuffer(gl.ARRAY_BUFFER, glBuffer);
@@ -35526,8 +35587,9 @@ function prepareGeometry(gl, state, geometry, nodeState, program, info) {
             }
         }
         // Bind the index buffer inside the VAO so it is captured as element-array state.
-        if (gb.indexBuffer) {
-            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gb.indexBuffer);
+        const glIndex = geometry.index ? getUploaded(buffers, geometry.index) : undefined;
+        if (glIndex) {
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, glIndex);
         }
         gl.bindVertexArray(null);
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
@@ -35535,21 +35597,19 @@ function prepareGeometry(gl, state, geometry, nodeState, program, info) {
     }
     return { vao, indexType };
 }
-/** Dispose all GL resources owned by the geometries state for a single geometry. */
+/**
+ * Dispose the GL resources this module owns for one geometry: its VAOs.
+ *
+ * Not its buffers. `buffers.ts` owns those, keyed by `GpuBuffer`, and another geometry may still be
+ * drawing from the same one; each buffer releases itself when its own `GpuBuffer` is disposed.
+ */
 function disposeGeometry$1(gl, state, geometry) {
     const gb = state.data.get(geometry);
     if (!gb)
         return;
-    for (const buf of gb.attributeBuffers.values())
-        gl.deleteBuffer(buf);
-    if (gb.indexBuffer)
-        gl.deleteBuffer(gb.indexBuffer);
     for (const vao of gb.vaos.values())
         gl.deleteVertexArray(vao);
     state.memory.geometries--;
-    state.memory.buffers -= gb.attributeBuffers.size;
-    if (gb.indexBuffer)
-        state.memory.indexBuffers--;
     state.data.delete(geometry);
 }
 
@@ -37147,19 +37207,14 @@ function findSamplerForUnit(bindGroups, unit) {
  * keyed by the `UniformBinding` object, which lives on the RenderObject's cloned bind groups — so
  * shared groups (camera) share one entry and per-object groups get their own, exactly as WebGPU.
  */
-/** Create an empty uniforms state. */
+/** Create an empty bindings state. */
 function createBindingsState() {
-    return { data: new WeakMap(), standalone: new WeakMap(), all: new Set() };
+    return { data: new WeakMap(), standalone: new WeakMap() };
 }
-function getUboData(gl, state, binding, byteLength) {
+function getUboData(state, binding, byteLength) {
     let data = state.data.get(binding);
     if (!data || data.staging.byteLength !== byteLength) {
-        const ubo = data?.ubo ?? gl.createBuffer();
-        if (!ubo)
-            throw new Error('[WebGLRenderer] gl.createBuffer returned null (UBO).');
-        if (!data)
-            state.all.add(ubo);
-        data = { ubo, staging: new ArrayBuffer(byteLength), uploaded: false };
+        data = { staging: new ArrayBuffer(byteLength), uploaded: false };
         state.data.set(binding, data);
     }
     return data;
@@ -37200,10 +37255,9 @@ function changedByteCount(a, b) {
     }
     return changed;
 }
-/** Attribute one UBO upload. `full` is false: this path writes whole blocks, so flagging it would
- *  make the full-re-upload signal tautological. Identity is the material + the block's update scope. */
-function recordUniformWrite(info, block, material, changedBytes) {
-    recordBufferWrite(info, block.totalBytes, 'uniform', false, undefined, material?.name, block.group?.updateType, changedBytes);
+/** Identity for a uniform-block upload: the material it belongs to and the block's update scope. */
+function uniformDetail(block, material, changedBytes) {
+    return { material: material?.name, updateType: block.group?.updateType, changedBytes };
 }
 /**
  * Update a single uniform BindGroup for the current draw and bind its UBO to `bindingPoint`.
@@ -37214,7 +37268,7 @@ function recordUniformWrite(info, block, material, changedBytes) {
  *
  * @param bindingPoint the GL uniform-buffer binding point this group's block was bound to (from the program)
  */
-function updateAndBindUniformGroup(gl, state, binding, frame, bindingPoint, material, info) {
+function updateAndBindUniformGroup(gl, state, buffers, binding, frame, bindingPoint, material) {
     const block = binding.block;
     // Update-type gate (identical to webgpu/bindings.ts updateUniformBinding).
     let skipCallbacks = false;
@@ -37234,7 +37288,10 @@ function updateAndBindUniformGroup(gl, state, binding, frame, bindingPoint, mate
         }
         // 'object' / 'none' always process.
     }
-    const data = getUboData(gl, state, binding, block.totalBytes);
+    const data = getUboData(state, binding, block.totalBytes);
+    // Lazily claim the neutral key slot; `webgpu/bindings.ts` does the same, so both backends key a
+    // uniform block's device buffer the same way.
+    binding.bufferKey ??= {};
     if (!skipCallbacks) {
         // Invoke each member node's update callback (assigns node.value, respects updateType).
         invokeUniformGroupCallbacks(block, frame);
@@ -37244,38 +37301,26 @@ function updateAndBindUniformGroup(gl, state, binding, frame, bindingPoint, mate
         const changedBytes = data.uploaded ? changedByteCount(scratch, data.staging) : block.totalBytes;
         if (changedBytes > 0) {
             data.staging = scratch;
-            gl.bindBuffer(gl.UNIFORM_BUFFER, data.ubo);
-            if (!data.uploaded) {
-                gl.bufferData(gl.UNIFORM_BUFFER, scratch, gl.DYNAMIC_DRAW);
-                data.uploaded = true;
-            }
-            else {
-                gl.bufferSubData(gl.UNIFORM_BUFFER, 0, scratch);
-            }
-            recordUniformWrite(info, block, material, changedBytes);
+            uploadUniformBlock(gl, buffers, binding.bufferKey, scratch, uniformDetail(block, material, changedBytes));
+            data.uploaded = true;
         }
     }
     else if (!data.uploaded) {
         // First time we see a skipped-shared group (already updated by another object this render):
         // still needs its bytes on the GPU. Pack + upload once.
         packGroup(block, new DataView(data.staging), material);
-        gl.bindBuffer(gl.UNIFORM_BUFFER, data.ubo);
-        gl.bufferData(gl.UNIFORM_BUFFER, data.staging, gl.DYNAMIC_DRAW);
+        uploadUniformBlock(gl, buffers, binding.bufferKey, data.staging, uniformDetail(block, material, block.totalBytes));
         data.uploaded = true;
-        recordUniformWrite(info, block, material, block.totalBytes);
     }
     // Bind the group's UBO to its program binding point.
-    gl.bindBufferBase(gl.UNIFORM_BUFFER, bindingPoint, data.ubo);
+    const ubo = getRaw(buffers, binding.bufferKey);
+    if (ubo)
+        gl.bindBufferBase(gl.UNIFORM_BUFFER, bindingPoint, ubo);
 }
-function getStandaloneUboData(gl, state, block, byteLength) {
+function getStandaloneUboData(state, block, byteLength) {
     let data = state.standalone.get(block);
     if (!data || data.staging.byteLength !== byteLength) {
-        const ubo = data?.ubo ?? gl.createBuffer();
-        if (!ubo)
-            throw new Error('[WebGLRenderer] gl.createBuffer returned null (standalone UBO).');
-        if (!data)
-            state.all.add(ubo);
-        data = { ubo, staging: new ArrayBuffer(byteLength), uploaded: false };
+        data = { staging: new ArrayBuffer(byteLength), uploaded: false };
         state.standalone.set(block, data);
     }
     return data;
@@ -37292,37 +37337,23 @@ function getStandaloneUboData(gl, state, block, byteLength) {
  *
  * @param bindingPoint the GL uniform-buffer binding point this group's block was bound to (from the program)
  */
-function updateAndBindStandaloneUniformGroup(gl, state, block, frame, bindingPoint, info) {
+function updateAndBindStandaloneUniformGroup(gl, state, buffers, block, frame, bindingPoint) {
     // Let any update callbacks (onFrame/onRender) assign node values; direct `.value` sets need nothing.
     invokeUniformGroupCallbacks(block, frame);
-    const data = getStandaloneUboData(gl, state, block, block.totalBytes);
+    const data = getStandaloneUboData(state, block, block.totalBytes);
     // Re-pack every dispatch: standalone-kernel uniforms change per frame and there is no dedup key.
     const scratch = new ArrayBuffer(block.totalBytes);
     packGroup(block, new DataView(scratch), null);
     const changedBytes = data.uploaded ? changedByteCount(scratch, data.staging) : block.totalBytes;
     if (changedBytes > 0) {
         data.staging = scratch;
-        gl.bindBuffer(gl.UNIFORM_BUFFER, data.ubo);
-        if (!data.uploaded) {
-            gl.bufferData(gl.UNIFORM_BUFFER, scratch, gl.DYNAMIC_DRAW);
-            data.uploaded = true;
-        }
-        else {
-            gl.bufferSubData(gl.UNIFORM_BUFFER, 0, scratch);
-        }
-        recordUniformWrite(info, block, null, changedBytes);
+        // The block itself is the key: a standalone kernel has no BindGroup to hang one on.
+        uploadUniformBlock(gl, buffers, block, scratch, uniformDetail(block, null, changedBytes));
+        data.uploaded = true;
     }
-    gl.bindBufferBase(gl.UNIFORM_BUFFER, bindingPoint, data.ubo);
-}
-/** Delete all GL UBOs (called on renderer dispose). */
-function disposeBindingsState(gl, state) {
-    for (const ubo of state.all)
-        gl.deleteBuffer(ubo);
-    state.all.clear();
-}
-/** Number of GL UBOs currently allocated. */
-function getBindingsStats(state) {
-    return { uboCount: state.all.size };
+    const ubo = getRaw(buffers, block);
+    if (ubo)
+        gl.bindBufferBase(gl.UNIFORM_BUFFER, bindingPoint, ubo);
 }
 
 /**
@@ -37496,13 +37527,13 @@ function renderProbe(gl, state, caches, ro, patchedFragment) {
             const bindingPoint = p.uboBindingPoints.get(binding.block.groupName);
             if (bindingPoint === undefined)
                 continue;
-            updateAndBindUniformGroup(gl, caches.uniforms, binding, caches.frame, bindingPoint, ro.material, caches.info);
+            updateAndBindUniformGroup(gl, caches.uniforms, caches.buffers, binding, caches.frame, bindingPoint, ro.material);
         }
     }
     // Textures + samplers → GL units + combined-sampler uniforms.
     bindTextures(gl, caches.textures, caches.samplers, ro, programInfo);
     // Geometry VAO (uploads buffers + builds/reuses the VAO for this program).
-    const drawInfo = prepareGeometry(gl, caches.geometries, geometry, nodeState, p.program, caches.info);
+    const drawInfo = prepareGeometry(gl, caches.geometries, caches.buffers, geometry, nodeState, p.program);
     gl.bindVertexArray(drawInfo.vao);
     // Draw (triangle list, instance count = mesh.count), mirroring the render-pass draw selection.
     const instances = mesh.count;
@@ -38515,7 +38546,7 @@ function executeRenderPass$1(gl, caches, nodes, passCtx, prepared, params, inspe
                 const bindingPoint = programInfo.uboBindingPoints.get(binding.block.groupName);
                 if (bindingPoint === undefined)
                     continue; // block optimized out / unused
-                updateAndBindUniformGroup(gl, caches.uniforms, binding, frame, bindingPoint, material, info);
+                updateAndBindUniformGroup(gl, caches.uniforms, caches.buffers, binding, frame, bindingPoint, material);
             }
             if (inspector)
                 inspector.setBindGroup(bindGroupIndex, mesh.name || '');
@@ -38526,7 +38557,7 @@ function executeRenderPass$1(gl, caches, nodes, passCtx, prepared, params, inspe
         // Geometry VAO (uploads buffers + builds/reuses the VAO for this program).
         // `prepareGeometry` detaches the VAO to upload buffers safely (see its note), so the GL VAO
         // is unbound on return — always rebind the resolved one here rather than deduping the GL call.
-        const drawInfo = prepareGeometry(gl, caches.geometries, geometry, nodeState, programInfo.program, info);
+        const drawInfo = prepareGeometry(gl, caches.geometries, caches.buffers, geometry, nodeState, programInfo.program);
         gl.bindVertexArray(drawInfo.vao);
         if (currentVao !== drawInfo.vao) {
             currentVao = drawInfo.vao;
@@ -38719,60 +38750,37 @@ function readPixels$1(gl, state, textures, renderTarget, attachmentIndex = 0, la
 function createTransformFeedbackState() {
     return {
         nodes: new WeakMap(),
-        buffers: new WeakMap(),
         tf: null,
         allPrograms: new Set(),
         allVaos: new Set(),
-        allBuffers: new Set(),
     };
 }
 /**
- * Ensure a plain GL buffer exists for an I/O GpuBuffer, uploading (or re-uploading on version change)
- * its CPU array. Output buffers may legitimately have a null array (e.g. allocated by `count`); the
- * caller allocates GL storage sized to the array either way. An input buffer must have data.
+ * The GL buffer for one transform-feedback input or output, uploaded if its version moved.
+ *
+ * The buffer itself belongs to `buffers.ts`, keyed by `GpuBuffer`, so a buffer captured here and then
+ * drawn as a vertex attribute is one GL buffer rather than two. What stays here is the TF-specific
+ * part: the usage hint and the error messages.
+ *
+ * Outputs are GPU-written (TF capture) and GPU-consumed (copied to a staging buffer in
+ * `readBufferAsync`, then fed back as attributes), so they want DYNAMIC_COPY rather than a `*_READ`
+ * hint: READ makes the driver keep a readback shadow copy for a `getBufferSubData` that never comes,
+ * discarded on every re-write (perf-warning spam). Inputs feed straight in as attributes.
  */
-function ensureIoBuffer(gl, state, buffer, role, name) {
-    let entry = state.buffers.get(buffer);
-    if (!entry) {
-        const glBuffer = gl.createBuffer();
-        if (!glBuffer)
-            throw new Error('[WebGLRenderer] gl.createBuffer returned null (transform-feedback IO).');
-        entry = { glBuffer, version: -1 };
-        state.buffers.set(buffer, entry);
-        state.allBuffers.add(glBuffer);
-        // Invalidate this cache entry when the GpuBuffer is disposed.
-        const prevDispose = buffer._onDispose;
-        buffer._onDispose = () => {
-            prevDispose?.();
-            const e = state.buffers.get(buffer);
-            if (e) {
-                gl.deleteBuffer(e.glBuffer);
-                state.allBuffers.delete(e.glBuffer);
-                state.buffers.delete(buffer);
-            }
-        };
+function ensureIo(gl, buffers, buffer, role, name) {
+    if (!buffer.array) {
+        throw new Error(role === 'output'
+            ? `[WebGLRenderer] transform-feedback output buffer '${name}' has a null array; ` +
+                `allocate it with { count } or { data } so its size is known.`
+            : `[WebGLRenderer] transform-feedback input buffer '${name}' has a null array.`);
     }
-    if (entry.version !== buffer.version) {
-        const array = buffer.array;
-        gl.bindBuffer(gl.ARRAY_BUFFER, entry.glBuffer);
-        if (array) {
-            // Outputs are GPU-written (TF capture) and GPU-consumed (copied to a staging buffer in
-            // readBufferAsync, then fed back as attributes) → DYNAMIC_COPY, not *_READ. A READ hint makes
-            // the driver keep a readback shadow copy for a getBufferSubData that never comes, discarded on
-            // every re-write (perf-warning spam). Inputs are fed straight in as attributes → STATIC_DRAW.
-            gl.bufferData(gl.ARRAY_BUFFER, array, role === 'output' ? gl.DYNAMIC_COPY : gl.STATIC_DRAW);
-        }
-        else if (role === 'output') {
-            throw new Error(`[WebGLRenderer] transform-feedback output buffer '${name}' has a null array; ` +
-                `allocate it with { count } or { data } so its size is known.`);
-        }
-        else {
-            throw new Error(`[WebGLRenderer] transform-feedback input buffer '${name}' has a null array.`);
-        }
-        gl.bindBuffer(gl.ARRAY_BUFFER, null);
-        entry.version = buffer.version;
-    }
-    return entry.glBuffer;
+    const hint = role === 'output' ? gl.DYNAMIC_COPY : gl.STATIC_DRAW;
+    const glBuffer = ensureUploaded(gl, buffers, buffer, gl.ARRAY_BUFFER, name, hint);
+    // Leave ARRAY_BUFFER clear. `ensureUploaded` binds through it and does not restore, and an output
+    // is about to be bound to TRANSFORM_FEEDBACK_BUFFER: a buffer bound to both at once is invalid,
+    // and the capture silently produces nothing. Inputs rebind explicitly before each attrib pointer.
+    gl.bindBuffer(gl.ARRAY_BUFFER, null);
+    return glBuffer;
 }
 /** Get (or compile + link + build-VAO-slot for) the per-node cache. */
 function getNodeCache(gl, state, node, precision) {
@@ -38807,7 +38815,7 @@ function getNodeCache(gl, state, node, precision) {
  * Execute one transform-feedback dispatch: bind the kernel's input `GpuBuffer`s as attributes, its
  * output `GpuBuffer`s as the captured-varying targets, and run the kernel under `RASTERIZER_DISCARD`.
  */
-function runTransformFeedback(gl, state, node, opts, precision, frame, uniforms, textures, samplers, info) {
+function runTransformFeedback(gl, state, node, opts, precision, frame, uniforms, textures, samplers, buffers) {
     const { inputs, outputs, count, instanceCount } = opts;
     // Alias guard: a buffer used as an output can't also be an input (a TF-bound buffer must not be
     // read as an attribute in the same dispatch). Ping-pong with distinct buffers instead.
@@ -38839,7 +38847,7 @@ function runTransformFeedback(gl, state, node, opts, precision, frame, uniforms,
         const bindingPoint = programInfo.uboBindingPoints.get(group.groupName);
         if (bindingPoint === undefined)
             continue;
-        updateAndBindStandaloneUniformGroup(gl, uniforms, group, frame, bindingPoint, info);
+        updateAndBindStandaloneUniformGroup(gl, uniforms, buffers, group, frame, bindingPoint);
     }
     // Bind any DataTextures the kernel samples via textureLoad() (explicit neighbour gather — the user
     // binds the DataTexture on the texture node; no hidden mirror). Runs in the vertex stage under TF.
@@ -38852,7 +38860,7 @@ function runTransformFeedback(gl, state, node, opts, precision, frame, uniforms,
     gl.bindVertexArray(vao);
     for (const attr of compiled.inputAttributes) {
         const key = attr.name.startsWith('a_') ? attr.name.slice(2) : attr.name;
-        const glBuffer = ensureIoBuffer(gl, state, inputs[key], 'input', key);
+        const glBuffer = ensureIo(gl, buffers, inputs[key], 'input', key);
         const fmt = attribFormat(attr.type);
         const compType = glComponentType(gl, fmt.glType);
         const columnBytes = fmt.size * 4;
@@ -38888,7 +38896,7 @@ function runTransformFeedback(gl, state, node, opts, precision, frame, uniforms,
         if (!outGpuBuffer) {
             throw new Error(`[WebGLRenderer] transform-feedback kernel output '${key}' has no bound buffer.`);
         }
-        const glOut = ensureIoBuffer(gl, state, outGpuBuffer, 'output', key);
+        const glOut = ensureIo(gl, buffers, outGpuBuffer, 'output', key);
         gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, i, glOut);
     }
     // Dispatch under RASTERIZER_DISCARD.
@@ -38915,8 +38923,8 @@ function runTransformFeedback(gl, state, node, opts, precision, frame, uniforms,
  * Used by the test harness (and Phase 3 `readBufferAsync`) to read back a TF output buffer. Returns
  * null if the buffer was never bound. @internal
  */
-function getGlBufferFor(state, buffer) {
-    return state.buffers.get(buffer)?.glBuffer ?? null;
+function getGlBufferFor(buffers, buffer) {
+    return getUploaded(buffers, buffer) ?? null;
 }
 /**
  * Poll a fence to completion WITHOUT blocking the thread. Returns a promise that resolves once the GPU
@@ -38966,8 +38974,8 @@ function clientWaitAsync(gl, sync, maxPolls = 4000) {
  * bindings are unwound. One GpuBuffer = one GL buffer, so there is no dual-buffer coherence to reason
  * about. See llm/webgl-transform-feedback-plan.md, Phase 3.
  */
-async function readBufferAsync(gl, state, buffer) {
-    const src = state.buffers.get(buffer)?.glBuffer ?? null;
+async function readBufferAsync(gl, buffers, buffer) {
+    const src = getUploaded(buffers, buffer) ?? null;
     if (!src) {
         throw new Error('[WebGLRenderer] readBufferAsync: no GL buffer backs this GpuBuffer — it was never used by a ' +
             'transformFeedback() call (nothing to read back).');
@@ -39012,16 +39020,12 @@ function disposeTransformFeedback(gl, state) {
         gl.deleteProgram(program);
     for (const vao of state.allVaos)
         gl.deleteVertexArray(vao);
-    for (const buf of state.allBuffers)
-        gl.deleteBuffer(buf);
     if (state.tf)
         gl.deleteTransformFeedback(state.tf);
     state.allPrograms.clear();
     state.allVaos.clear();
-    state.allBuffers.clear();
     state.tf = null;
     state.nodes = new WeakMap();
-    state.buffers = new WeakMap();
 }
 
 /**
@@ -39095,6 +39099,7 @@ class WebGLRenderer {
     _programs;
     /** Per-geometry GL buffers + VAOs. @internal */
     _geometries;
+    _buffers;
     /** Per-uniform-group std140 UBO cache. @internal */
     _uniforms;
     /** Per-RenderObject GL device payload (linked program). @internal */
@@ -39199,6 +39204,7 @@ class WebGLRenderer {
         // Device resource caches — GL handles inside are created lazily once init() has the context.
         this._programs = createProgramCache();
         this._geometries = createGeometriesState$1();
+        this._buffers = createBufferCache(this.info);
         this._uniforms = createBindingsState();
         this._renderObjectGl = createRenderObjectGlCache();
         this._textures = createTextureCache();
@@ -39317,6 +39323,7 @@ class WebGLRenderer {
         const [cr, cg, cb, ca] = this.clearColor;
         clear$1(this.gl, {
             geometries: this._geometries,
+            buffers: this._buffers,
             uniforms: this._uniforms,
             renderObjectGl: this._renderObjectGl,
             textures: this._textures,
@@ -39348,7 +39355,8 @@ class WebGLRenderer {
         beginInfoFrame(info);
         const geometries = getGeometriesStats$1(this._geometries);
         const renderTargets = getGlRenderTargetsStats(this._renderTargets);
-        info.memory.buffers = geometries.buffers + geometries.indexBuffers + getBindingsStats(this._uniforms).uboCount;
+        const buffers = getBufferCacheStats(this._buffers);
+        info.memory.buffers = buffers.bufferCount + buffers.rawCount;
         info.memory.geometries = geometries.geometries;
         // count + bytes + per-format breakdown, straight from the cache's running tally.
         readTextureTally(this._textures.tally, info.memory);
@@ -39448,6 +39456,7 @@ class WebGLRenderer {
             swapchainStencil: this.stencil};
         executeRenderPass$1(this.gl, {
             geometries: this._geometries,
+            buffers: this._buffers,
             uniforms: this._uniforms,
             renderObjectGl: this._renderObjectGl,
             textures: this._textures,
@@ -39502,6 +39511,7 @@ class WebGLRenderer {
             return null;
         return renderProbe(this.gl, this._probe, {
             geometries: this._geometries,
+            buffers: this._buffers,
             uniforms: this._uniforms,
             textures: this._textures,
             samplers: this._samplers,
@@ -39532,7 +39542,7 @@ class WebGLRenderer {
         if (!this._initialized || !this.gl) {
             throw new Error('[WebGLRenderer] transformFeedback() called before init(). Await renderer.init() first.');
         }
-        runTransformFeedback(this.gl, this._transformFeedback, node, opts, this._opts.precision, this._nodes.nodeFrame, this._uniforms, this._textures, this._samplers, this.info);
+        runTransformFeedback(this.gl, this._transformFeedback, node, opts, this._opts.precision, this._nodes.nodeFrame, this._uniforms, this._textures, this._samplers, this._buffers);
     }
     /**
      * The plain GL buffer backing a GpuBuffer within the transform-feedback state, or null if the
@@ -39540,7 +39550,7 @@ class WebGLRenderer {
      * `readBufferAsync`) to read a TF output buffer back. @internal
      */
     getTransformFeedbackGlBuffer(buffer) {
-        return getGlBufferFor(this._transformFeedback, buffer);
+        return getGlBufferFor(this._buffers, buffer);
     }
     /**
      * Honest native CPU readback of a GpuBuffer (e.g. a transform-feedback output) into a typed array.
@@ -39558,7 +39568,7 @@ class WebGLRenderer {
         if (!this._initialized || !this.gl) {
             return Promise.reject(new Error('[WebGLRenderer] readBufferAsync() called before init(). Await renderer.init() first.'));
         }
-        return readBufferAsync(this.gl, this._transformFeedback, buffer);
+        return readBufferAsync(this.gl, this._buffers, buffer);
     }
     /**
      * Read a `RenderTarget`'s color attachment back to a tightly-packed, top-to-bottom RGBA8
@@ -39605,13 +39615,14 @@ class WebGLRenderer {
         if (this.gl) {
             disposeProbeState(this.gl, this._probe);
             disposePrograms(this.gl, this._programs);
-            disposeBindingsState(this.gl, this._uniforms);
             disposeTextureCache(this.gl, this._textures);
             disposeSamplerCache(this.gl, this._samplers);
             disposeGlRenderTargets(this.gl, this._renderTargets);
             disposeTransformFeedback(this.gl, this._transformFeedback);
-            // Per-geometry GL resources are freed via the geometries WeakMap on GC, or per-geometry
-            // disposeGeometry.
+            // Every GL buffer this renderer made: vertex, index and uniform-block. Individually they
+            // are released when their GpuBuffer is disposed; this is the teardown sweep.
+            disposeBufferCache(this.gl, this._buffers);
+            // Per-geometry VAOs are freed by disposeGeometry when the Geometry goes away.
         }
         if (this._canvasTarget)
             this._canvasTarget.dispose();
@@ -39871,7 +39882,7 @@ function dispatchCompute(device, bindings, buffers, textures, samplers, pipeline
             computePass.setBindGroup(i, gpuBindGroups[i]);
         }
         if (entry.indirect) {
-            const gpuBuf = ensureUploaded(buffers, device, entry.indirect, 'indirect');
+            const gpuBuf = ensureUploaded$1(buffers, device, entry.indirect, 'indirect');
             computeDispatchWorkgroupsIndirect(computePass, inspector, gpuBuf, entry.indirectOffset ?? 0);
         }
         else {
@@ -39954,7 +39965,7 @@ function updateBuffer(state, bufferCache, device, buffer, type, name) {
     switch (type) {
         case 'vertex':
         case 'indirect':
-            ensureUploaded(bufferCache, device, buffer, name);
+            ensureUploaded$1(bufferCache, device, buffer, name);
             break;
         // Note: 'index' type uses updateIndex() instead
     }
@@ -39971,7 +39982,7 @@ function updateIndex(state, bufferCache, device, index) {
     }
     // Mark as updated for this frame
     state.bufferCall.set(index, callId);
-    ensureUploaded(bufferCache, device, index, 'index');
+    ensureUploaded$1(bufferCache, device, index, 'index');
 }
 /**
  * Delete a buffer from the deduplication tracking.
@@ -40247,14 +40258,14 @@ function uploadRenderObjectResources(device, bindings, geometries, buffers, text
         // upload storage buffers
         for (const s of nodeState.storage) {
             const buffer = resolveStorageBuffer(s.node, geometry, null);
-            ensureUploaded(buffers, device, buffer, s.name);
+            ensureUploaded$1(buffers, device, buffer, s.name);
         }
         // upload vertex buffers
         for (const attrEntry of nodeState.attributes) {
             if (attrEntry.kind === 'geometry') {
                 const bufAttr = geometry.buffers.get(attrEntry.name);
                 if (bufAttr) {
-                    ensureUploaded(buffers, device, bufAttr, attrEntry.name);
+                    ensureUploaded$1(buffers, device, bufAttr, attrEntry.name);
                 }
             }
             else {
@@ -40265,13 +40276,13 @@ function uploadRenderObjectResources(device, bindings, geometries, buffers, text
                 const arr = gpuBuffer.array;
                 if (arr) {
                     // node-owned attribute buffers are GpuBuffers too, so same gated path.
-                    ensureUploaded(buffers, device, gpuBuffer, attrEntry.shaderName);
+                    ensureUploaded$1(buffers, device, gpuBuffer, attrEntry.shaderName);
                 }
             }
         }
         // upload index buffer if present
         if (geometry.index) {
-            ensureUploaded(buffers, device, geometry.index, 'index');
+            ensureUploaded$1(buffers, device, geometry.index, 'index');
         }
     }
     // upload uniforms and rebuild bind groups
@@ -40641,7 +40652,7 @@ function draw(device, bindings, geometries, buffers, textures, samplers, renderO
                     slot++;
                     continue;
                 }
-                gpuBuf = ensureUploaded(buffers, device, bufAttr, group.name);
+                gpuBuf = ensureUploaded$1(buffers, device, bufAttr, group.name);
             }
             else {
                 // Direct buffer group
@@ -40653,7 +40664,7 @@ function draw(device, bindings, geometries, buffers, textures, samplers, renderO
                 if (!arr) {
                     throw new Error(`[gpucat] VertexBufferGroup buffer array is null`);
                 }
-                gpuBuf = ensureUploaded(buffers, device, gpuBuffer, group.name ?? 'vertex');
+                gpuBuf = ensureUploaded$1(buffers, device, gpuBuffer, group.name ?? 'vertex');
             }
             if (currentSets.attributes[slot] !== gpuBuf) {
                 passSetVertexBuffer(gpuPass, inspector, slot, gpuBuf);
@@ -40662,7 +40673,7 @@ function draw(device, bindings, geometries, buffers, textures, samplers, renderO
             slot++;
         }
         if (geometry.index) {
-            const idxBuf = ensureUploaded(buffers, device, geometry.index, 'index');
+            const idxBuf = ensureUploaded$1(buffers, device, geometry.index, 'index');
             if (currentSets.index !== idxBuf) {
                 passSetIndexBuffer(gpuPass, inspector, idxBuf, getIndexFormat(geometry.index.array));
                 currentSets.index = idxBuf;
@@ -40678,7 +40689,7 @@ function draw(device, bindings, geometries, buffers, textures, samplers, renderO
             }
             else if (geometry.indirect) {
                 const indirect = geometry.indirect;
-                const indBuf = ensureUploaded(buffers, device, indirect, 'indirect');
+                const indBuf = ensureUploaded$1(buffers, device, indirect, 'indirect');
                 const byteStride = indirect.itemSize * 4;
                 const baseOffset = geometry.indirectOffset;
                 const drawCount = geometry.indirectDrawCount ?? indirect.count;
@@ -40702,7 +40713,7 @@ function draw(device, bindings, geometries, buffers, textures, samplers, renderO
             }
             else if (geometry.indirect) {
                 const indirect = geometry.indirect;
-                const indBuf = ensureUploaded(buffers, device, indirect, 'indirect');
+                const indBuf = ensureUploaded$1(buffers, device, indirect, 'indirect');
                 const byteStride = indirect.itemSize * 4;
                 const baseOffset = geometry.indirectOffset;
                 const drawCount = geometry.indirectDrawCount ?? indirect.count;
@@ -40997,7 +41008,7 @@ class WebGPURenderer {
         this.stencil = formatHasStencil(swapchainDepthFormat);
         // Device resource caches — created once here, immutable references thereafter. The bind group
         // layout cache is shared by the pipelines and bindings layers (both receive this instance).
-        this.buffers = createBufferCache(this.info);
+        this.buffers = createBufferCache$1(this.info);
         this.textures = createTextureCache$1();
         this.samplers = createSamplerCache$1();
         this.bindGroupLayoutCache = createBindGroupLayoutCache();

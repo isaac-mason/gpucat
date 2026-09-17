@@ -29,8 +29,8 @@ import type { NodeFrame } from '../core/node-frame';
 import type { ProgramInfo } from './programs';
 import type { SamplerCache } from './samplers';
 import type { TextureCache } from './textures';
-import type { RendererInfo } from '../core/info';
 import { type BindingsState } from './bindings';
+import * as Buffers from './buffers';
 /** Per-node cached compile + link. */
 type TfNodeCache = {
     compiled: TransformFeedbackGlslResult;
@@ -42,17 +42,11 @@ type TfNodeCache = {
 export type TransformFeedbackState = {
     /** Per-node compiled + linked resources. Invalidated via the node's dispose hook. */
     nodes: WeakMap<TransformFeedbackNode, TfNodeCache>;
-    /** Plain GL buffer per I/O GpuBuffer (re-uploaded on version change). */
-    buffers: WeakMap<GpuBuffer, {
-        glBuffer: WebGLBuffer;
-        version: number;
-    }>;
     /** The shared WebGLTransformFeedback object (one is enough — TF is serial). */
     tf: WebGLTransformFeedback | null;
     /** All node programs + VAOs created, for disposal. */
     allPrograms: Set<WebGLProgram>;
     allVaos: Set<WebGLVertexArrayObject>;
-    allBuffers: Set<WebGLBuffer>;
 };
 export declare function createTransformFeedbackState(): TransformFeedbackState;
 /** Options for a single transform-feedback dispatch. */
@@ -70,13 +64,13 @@ export type TransformFeedbackRunOptions = {
  * Execute one transform-feedback dispatch: bind the kernel's input `GpuBuffer`s as attributes, its
  * output `GpuBuffer`s as the captured-varying targets, and run the kernel under `RASTERIZER_DISCARD`.
  */
-export declare function runTransformFeedback(gl: WebGL2RenderingContext, state: TransformFeedbackState, node: TransformFeedbackNode, opts: TransformFeedbackRunOptions, precision: 'highp' | 'mediump' | 'lowp' | undefined, frame: NodeFrame, uniforms: BindingsState, textures: TextureCache, samplers: SamplerCache, info: RendererInfo): void;
+export declare function runTransformFeedback(gl: WebGL2RenderingContext, state: TransformFeedbackState, node: TransformFeedbackNode, opts: TransformFeedbackRunOptions, precision: 'highp' | 'mediump' | 'lowp' | undefined, frame: NodeFrame, uniforms: BindingsState, textures: TextureCache, samplers: SamplerCache, buffers: Buffers.BufferCache): void;
 /**
  * Get the plain GL buffer backing a GpuBuffer within this transform-feedback state, if one exists.
  * Used by the test harness (and Phase 3 `readBufferAsync`) to read back a TF output buffer. Returns
  * null if the buffer was never bound. @internal
  */
-export declare function getGlBufferFor(state: TransformFeedbackState, buffer: GpuBuffer): WebGLBuffer | null;
+export declare function getGlBufferFor(buffers: Buffers.BufferCache, buffer: GpuBuffer): WebGLBuffer | null;
 /**
  * Honest native CPU readback of a GpuBuffer's current GL buffer (e.g. a transform-feedback output).
  *
@@ -87,7 +81,7 @@ export declare function getGlBufferFor(state: TransformFeedbackState, buffer: Gp
  * bindings are unwound. One GpuBuffer = one GL buffer, so there is no dual-buffer coherence to reason
  * about. See llm/webgl-transform-feedback-plan.md, Phase 3.
  */
-export declare function readBufferAsync(gl: WebGL2RenderingContext, state: TransformFeedbackState, buffer: GpuBuffer): Promise<Float32Array | Int32Array | Uint32Array>;
+export declare function readBufferAsync(gl: WebGL2RenderingContext, buffers: Buffers.BufferCache, buffer: GpuBuffer): Promise<Float32Array | Int32Array | Uint32Array>;
 /** Release all GL resources owned by the transform-feedback state (called on renderer dispose). */
 export declare function disposeTransformFeedback(gl: WebGL2RenderingContext, state: TransformFeedbackState): void;
 export {};

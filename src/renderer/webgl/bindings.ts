@@ -31,20 +31,25 @@ import type { Material } from '../../material/material';
 import type { UniformGroupBlock } from '../../nodes/builder';
 import { packToView } from '../../schema/pack';
 import { invokeUniformGroupCallbacks, type UniformBinding } from '../core/bind-group';
-import { type RendererInfo, recordBufferWrite } from '../core/info';
 import type { NodeFrame } from '../core/node-frame';
+import * as Buffers from './buffers';
 
 /** Per-uniform-BindGroup GL resources + change-tracking state. */
 type UboData = {
     /** The GL uniform buffer object. */
-    ubo: WebGLBuffer;
     /** CPU staging buffer (std140-packed). Compared against the last upload to skip redundant writes. */
     staging: ArrayBuffer;
     /** Whether the UBO has ever been uploaded. */
     uploaded: boolean;
 };
 
-/** Uniforms state: per-UniformBinding GL UBO data. */
+/**
+ * Bindings state: the CPU half of a uniform binding.
+ *
+ * The UBOs themselves belong to `buffers.ts`, keyed through the neutral `UniformBinding.bufferKey`
+ * slot, exactly as `webgpu/bindings.ts` routes its uniform blocks through `webgpu/buffers.ts`. What
+ * stays here is the staging copy and the change detection that decides whether an upload is needed.
+ */
 export type BindingsState = {
     data: WeakMap<UniformBinding, UboData>;
     /**
@@ -53,22 +58,17 @@ export type BindingsState = {
      * itself rather than a `UniformBinding`.
      */
     standalone: WeakMap<UniformGroupBlock, UboData>;
-    /** All created UBOs, for disposal. */
-    all: Set<WebGLBuffer>;
 };
 
-/** Create an empty uniforms state. */
+/** Create an empty bindings state. */
 export function createBindingsState(): BindingsState {
-    return { data: new WeakMap(), standalone: new WeakMap(), all: new Set() };
+    return { data: new WeakMap(), standalone: new WeakMap() };
 }
 
-function getUboData(gl: WebGL2RenderingContext, state: BindingsState, binding: UniformBinding, byteLength: number): UboData {
+function getUboData(state: BindingsState, binding: UniformBinding, byteLength: number): UboData {
     let data = state.data.get(binding);
     if (!data || data.staging.byteLength !== byteLength) {
-        const ubo = data?.ubo ?? gl.createBuffer();
-        if (!ubo) throw new Error('[WebGLRenderer] gl.createBuffer returned null (UBO).');
-        if (!data) state.all.add(ubo);
-        data = { ubo, staging: new ArrayBuffer(byteLength), uploaded: false };
+        data = { staging: new ArrayBuffer(byteLength), uploaded: false };
         state.data.set(binding, data);
     }
     return data;
@@ -109,10 +109,9 @@ function changedByteCount(a: ArrayBuffer, b: ArrayBuffer): number {
     return changed;
 }
 
-/** Attribute one UBO upload. `full` is false: this path writes whole blocks, so flagging it would
- *  make the full-re-upload signal tautological. Identity is the material + the block's update scope. */
-function recordUniformWrite(info: RendererInfo, block: UniformGroupBlock, material: Material | null, changedBytes: number): void {
-    recordBufferWrite(info, block.totalBytes, 'uniform', false, undefined, material?.name, block.group?.updateType, changedBytes);
+/** Identity for a uniform-block upload: the material it belongs to and the block's update scope. */
+function uniformDetail(block: UniformGroupBlock, material: Material | null, changedBytes: number): Buffers.RawWriteDetail {
+    return { material: material?.name, updateType: block.group?.updateType, changedBytes };
 }
 
 /**
@@ -127,11 +126,11 @@ function recordUniformWrite(info: RendererInfo, block: UniformGroupBlock, materi
 export function updateAndBindUniformGroup(
     gl: WebGL2RenderingContext,
     state: BindingsState,
+    buffers: Buffers.BufferCache,
     binding: UniformBinding,
     frame: NodeFrame,
     bindingPoint: number,
     material: Material | null,
-    info: RendererInfo,
 ): void {
     const block = binding.block;
 
@@ -149,7 +148,10 @@ export function updateAndBindUniformGroup(
         // 'object' / 'none' always process.
     }
 
-    const data = getUboData(gl, state, binding, block.totalBytes);
+    const data = getUboData(state, binding, block.totalBytes);
+    // Lazily claim the neutral key slot; `webgpu/bindings.ts` does the same, so both backends key a
+    // uniform block's device buffer the same way.
+    binding.bufferKey ??= {};
 
     if (!skipCallbacks) {
         // Invoke each member node's update callback (assigns node.value, respects updateType).
@@ -162,41 +164,32 @@ export function updateAndBindUniformGroup(
         const changedBytes = data.uploaded ? changedByteCount(scratch, data.staging) : block.totalBytes;
         if (changedBytes > 0) {
             data.staging = scratch;
-            gl.bindBuffer(gl.UNIFORM_BUFFER, data.ubo);
-            if (!data.uploaded) {
-                gl.bufferData(gl.UNIFORM_BUFFER, scratch, gl.DYNAMIC_DRAW);
-                data.uploaded = true;
-            } else {
-                gl.bufferSubData(gl.UNIFORM_BUFFER, 0, scratch);
-            }
-            recordUniformWrite(info, block, material, changedBytes);
+            Buffers.uploadUniformBlock(gl, buffers, binding.bufferKey, scratch, uniformDetail(block, material, changedBytes));
+            data.uploaded = true;
         }
     } else if (!data.uploaded) {
         // First time we see a skipped-shared group (already updated by another object this render):
         // still needs its bytes on the GPU. Pack + upload once.
         packGroup(block, new DataView(data.staging), material);
-        gl.bindBuffer(gl.UNIFORM_BUFFER, data.ubo);
-        gl.bufferData(gl.UNIFORM_BUFFER, data.staging, gl.DYNAMIC_DRAW);
+        Buffers.uploadUniformBlock(
+            gl,
+            buffers,
+            binding.bufferKey,
+            data.staging,
+            uniformDetail(block, material, block.totalBytes),
+        );
         data.uploaded = true;
-        recordUniformWrite(info, block, material, block.totalBytes);
     }
 
     // Bind the group's UBO to its program binding point.
-    gl.bindBufferBase(gl.UNIFORM_BUFFER, bindingPoint, data.ubo);
+    const ubo = Buffers.getRaw(buffers, binding.bufferKey);
+    if (ubo) gl.bindBufferBase(gl.UNIFORM_BUFFER, bindingPoint, ubo);
 }
 
-function getStandaloneUboData(
-    gl: WebGL2RenderingContext,
-    state: BindingsState,
-    block: UniformGroupBlock,
-    byteLength: number,
-): UboData {
+function getStandaloneUboData(state: BindingsState, block: UniformGroupBlock, byteLength: number): UboData {
     let data = state.standalone.get(block);
     if (!data || data.staging.byteLength !== byteLength) {
-        const ubo = data?.ubo ?? gl.createBuffer();
-        if (!ubo) throw new Error('[WebGLRenderer] gl.createBuffer returned null (standalone UBO).');
-        if (!data) state.all.add(ubo);
-        data = { ubo, staging: new ArrayBuffer(byteLength), uploaded: false };
+        data = { staging: new ArrayBuffer(byteLength), uploaded: false };
         state.standalone.set(block, data);
     }
     return data;
@@ -217,15 +210,15 @@ function getStandaloneUboData(
 export function updateAndBindStandaloneUniformGroup(
     gl: WebGL2RenderingContext,
     state: BindingsState,
+    buffers: Buffers.BufferCache,
     block: UniformGroupBlock,
     frame: NodeFrame,
     bindingPoint: number,
-    info: RendererInfo,
 ): void {
     // Let any update callbacks (onFrame/onRender) assign node values; direct `.value` sets need nothing.
     invokeUniformGroupCallbacks(block, frame);
 
-    const data = getStandaloneUboData(gl, state, block, block.totalBytes);
+    const data = getStandaloneUboData(state, block, block.totalBytes);
 
     // Re-pack every dispatch: standalone-kernel uniforms change per frame and there is no dedup key.
     const scratch = new ArrayBuffer(block.totalBytes);
@@ -234,26 +227,11 @@ export function updateAndBindStandaloneUniformGroup(
     const changedBytes = data.uploaded ? changedByteCount(scratch, data.staging) : block.totalBytes;
     if (changedBytes > 0) {
         data.staging = scratch;
-        gl.bindBuffer(gl.UNIFORM_BUFFER, data.ubo);
-        if (!data.uploaded) {
-            gl.bufferData(gl.UNIFORM_BUFFER, scratch, gl.DYNAMIC_DRAW);
-            data.uploaded = true;
-        } else {
-            gl.bufferSubData(gl.UNIFORM_BUFFER, 0, scratch);
-        }
-        recordUniformWrite(info, block, null, changedBytes);
+        // The block itself is the key: a standalone kernel has no BindGroup to hang one on.
+        Buffers.uploadUniformBlock(gl, buffers, block, scratch, uniformDetail(block, null, changedBytes));
+        data.uploaded = true;
     }
 
-    gl.bindBufferBase(gl.UNIFORM_BUFFER, bindingPoint, data.ubo);
-}
-
-/** Delete all GL UBOs (called on renderer dispose). */
-export function disposeBindingsState(gl: WebGL2RenderingContext, state: BindingsState): void {
-    for (const ubo of state.all) gl.deleteBuffer(ubo);
-    state.all.clear();
-}
-
-/** Number of GL UBOs currently allocated. */
-export function getBindingsStats(state: BindingsState): { uboCount: number } {
-    return { uboCount: state.all.size };
+    const ubo = Buffers.getRaw(buffers, block);
+    if (ubo) gl.bindBufferBase(gl.UNIFORM_BUFFER, bindingPoint, ubo);
 }

@@ -121,6 +121,11 @@ function uploadDirtyRanges(
  * `target` is the bind target to upload through; `name` is a fallback label for the upload breakdown
  * when the buffer carries none. The allocate / partial / full decision is `core/buffer-upload.ts`'s,
  * shared with the WebGPU backend so the rule cannot drift.
+ *
+ * `usageHint` overrides the hint derived from `buffer.usage`, for the caller that knows better than
+ * the declared usage does. Transform feedback is the case: its outputs are GPU-written and
+ * GPU-consumed, so they want `DYNAMIC_COPY` whatever they are declared as. WebGPU needs no such
+ * escape hatch, because its usage flags are correctness rather than an advisory hint.
  */
 export function ensureUploaded(
     gl: WebGL2RenderingContext,
@@ -128,6 +133,7 @@ export function ensureUploaded(
     buffer: GpuBuffer,
     target: GLenum,
     name: string,
+    usageHint?: number,
 ): WebGLBuffer {
     const array = buffer.array;
     if (!array) throw new Error(`[WebGLRenderer] buffer '${buffer.label ?? name}' has no CPU array to upload.`);
@@ -148,7 +154,7 @@ export function ensureUploaded(
             setupBufferDispose(gl, cache, buffer);
         }
         gl.bindBuffer(target, entry.glBuffer);
-        gl.bufferData(target, array, glUsageHint(gl, buffer));
+        gl.bufferData(target, array, usageHint ?? glUsageHint(gl, buffer));
         recordBufferWrite(cache.info, array.byteLength, primaryBufferUsage(buffer), true, label);
         entry.byteLength = array.byteLength;
         entry.version = buffer.version;

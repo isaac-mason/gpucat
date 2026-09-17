@@ -17,45 +17,29 @@
  * the VAO is cached per `(Geometry, program)` pair.
  */
 import type { Geometry } from '../../geometry/geometry';
-import { type RendererInfo } from '../core/info';
 import type { NodeBuilderState } from '../core/node-builder-state';
-/** Per-geometry GL resources: the attribute/index GL buffers and their last-uploaded versions. */
+import * as Buffers from './buffers';
+/** Per-geometry GL resources. Only VAOs: the buffers themselves belong to `buffers.ts`, keyed by
+ *  `GpuBuffer`, so two geometries sharing one buffer share its GL object rather than each uploading. */
 type GeometryBuffers = {
-    /** GL buffer per attribute-buffer name (ARRAY_BUFFER). */
-    attributeBuffers: Map<string, WebGLBuffer>;
-    /** Last-uploaded version per attribute-buffer name (for needsUpdate/version tracking). */
-    attributeVersions: Map<string, number>;
-    /** Last-uploaded byte size per attribute-buffer name. Drives the resize guard (recreate
-     *  the GL buffer when the array grows), mirroring the WebGPU backend's `buf.size < byteLength`. */
-    attributeSizes: Map<string, number>;
-    /** GL index buffer (ELEMENT_ARRAY_BUFFER), or null for non-indexed geometry. */
-    indexBuffer: WebGLBuffer | null;
-    /** Last-uploaded index buffer version. */
-    indexVersion: number;
-    /** Last-uploaded index buffer byte size (resize guard, as above). */
-    indexSize: number;
     /** VAOs keyed by program identity (a geometry may be drawn by several materials). */
     vaos: Map<WebGLProgram, WebGLVertexArrayObject>;
 };
-/** Geometries state: per-geometry GL resources, keyed by geometry identity. */
+/** Geometries state: per-geometry VAOs, keyed by geometry identity. */
 export type GeometriesState = {
     data: WeakMap<Geometry, GeometryBuffers>;
     /** Cached `gl.MAX_VERTEX_ATTRIBS`, read once (guards attribute-location assignment). */
     maxVertexAttribs?: number;
-    /** Resident-object tally for `renderer.info.memory`. `data` is a WeakMap, so it cannot be counted. */
+    /** Resident-geometry tally for `renderer.info.memory`. `data` is a WeakMap, so it cannot be counted. */
     memory: {
         geometries: number;
-        buffers: number;
-        indexBuffers: number;
     };
 };
 /** Create an empty geometries state. */
 export declare function createGeometriesState(): GeometriesState;
-/** Resident geometry resources. Mirrors `webgpu/geometries.ts` `getGeometriesStats`. */
+/** Resident geometry count. Mirrors `webgpu/geometries.ts` `getGeometriesStats`. */
 export declare function getGeometriesStats(state: GeometriesState): {
     geometries: number;
-    buffers: number;
-    indexBuffers: number;
 };
 /** GL type + component count + slot count + int-ness derived from a WGSL attribute type string. */
 export type AttribFormat = {
@@ -84,7 +68,12 @@ export type GeometryDrawInfo = {
  * Ensure the geometry's GL buffers are uploaded and its VAO (for `program`) is built, returning the
  * draw resources. Re-uploads buffers whose version changed. The VAO is cached per (geometry, program).
  */
-export declare function prepareGeometry(gl: WebGL2RenderingContext, state: GeometriesState, geometry: Geometry, nodeState: NodeBuilderState, program: WebGLProgram, info: RendererInfo): GeometryDrawInfo;
-/** Dispose all GL resources owned by the geometries state for a single geometry. */
+export declare function prepareGeometry(gl: WebGL2RenderingContext, state: GeometriesState, buffers: Buffers.BufferCache, geometry: Geometry, nodeState: NodeBuilderState, program: WebGLProgram): GeometryDrawInfo;
+/**
+ * Dispose the GL resources this module owns for one geometry: its VAOs.
+ *
+ * Not its buffers. `buffers.ts` owns those, keyed by `GpuBuffer`, and another geometry may still be
+ * drawing from the same one; each buffer releases itself when its own `GpuBuffer` is disposed.
+ */
 export declare function disposeGeometry(gl: WebGL2RenderingContext, state: GeometriesState, geometry: Geometry): void;
 export {};

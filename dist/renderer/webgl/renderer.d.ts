@@ -103,6 +103,7 @@ export declare class WebGLRenderer implements Renderer, RendererState {
     private readonly _programs;
     /** Per-geometry GL buffers + VAOs. @internal */
     private readonly _geometries;
+    private readonly _buffers;
     /** Per-uniform-group std140 UBO cache. @internal */
     private readonly _uniforms;
     /** Per-RenderObject GL device payload (linked program). @internal */

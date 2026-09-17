@@ -290,7 +290,7 @@ export function executeRenderPass(
                 if (binding.kind !== 'uniform') continue;
                 const bindingPoint = programInfo.uboBindingPoints.get(binding.block.groupName);
                 if (bindingPoint === undefined) continue; // block optimized out / unused
-                Bindings.updateAndBindUniformGroup(gl, caches.uniforms, binding, frame, bindingPoint, material, info);
+                Bindings.updateAndBindUniformGroup(gl, caches.uniforms, caches.buffers, binding, frame, bindingPoint, material);
             }
             if (inspector) inspector.setBindGroup(bindGroupIndex, mesh.name || '');
             bindGroupIndex++;

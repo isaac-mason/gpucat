@@ -29,18 +29,23 @@
 import type { Material } from '../../material/material';
 import type { UniformGroupBlock } from '../../nodes/builder';
 import { type UniformBinding } from '../core/bind-group';
-import { type RendererInfo } from '../core/info';
 import type { NodeFrame } from '../core/node-frame';
+import * as Buffers from './buffers';
 /** Per-uniform-BindGroup GL resources + change-tracking state. */
 type UboData = {
     /** The GL uniform buffer object. */
-    ubo: WebGLBuffer;
     /** CPU staging buffer (std140-packed). Compared against the last upload to skip redundant writes. */
     staging: ArrayBuffer;
     /** Whether the UBO has ever been uploaded. */
     uploaded: boolean;
 };
-/** Uniforms state: per-UniformBinding GL UBO data. */
+/**
+ * Bindings state: the CPU half of a uniform binding.
+ *
+ * The UBOs themselves belong to `buffers.ts`, keyed through the neutral `UniformBinding.bufferKey`
+ * slot, exactly as `webgpu/bindings.ts` routes its uniform blocks through `webgpu/buffers.ts`. What
+ * stays here is the staging copy and the change detection that decides whether an upload is needed.
+ */
 export type BindingsState = {
     data: WeakMap<UniformBinding, UboData>;
     /**
@@ -49,10 +54,8 @@ export type BindingsState = {
      * itself rather than a `UniformBinding`.
      */
     standalone: WeakMap<UniformGroupBlock, UboData>;
-    /** All created UBOs, for disposal. */
-    all: Set<WebGLBuffer>;
 };
-/** Create an empty uniforms state. */
+/** Create an empty bindings state. */
 export declare function createBindingsState(): BindingsState;
 /**
  * Update a single uniform BindGroup for the current draw and bind its UBO to `bindingPoint`.
@@ -63,7 +66,7 @@ export declare function createBindingsState(): BindingsState;
  *
  * @param bindingPoint the GL uniform-buffer binding point this group's block was bound to (from the program)
  */
-export declare function updateAndBindUniformGroup(gl: WebGL2RenderingContext, state: BindingsState, binding: UniformBinding, frame: NodeFrame, bindingPoint: number, material: Material | null, info: RendererInfo): void;
+export declare function updateAndBindUniformGroup(gl: WebGL2RenderingContext, state: BindingsState, buffers: Buffers.BufferCache, binding: UniformBinding, frame: NodeFrame, bindingPoint: number, material: Material | null): void;
 /**
  * Update + bind a STANDALONE kernel's uniform group (transform-feedback) to `bindingPoint`.
  *
@@ -76,11 +79,5 @@ export declare function updateAndBindUniformGroup(gl: WebGL2RenderingContext, st
  *
  * @param bindingPoint the GL uniform-buffer binding point this group's block was bound to (from the program)
  */
-export declare function updateAndBindStandaloneUniformGroup(gl: WebGL2RenderingContext, state: BindingsState, block: UniformGroupBlock, frame: NodeFrame, bindingPoint: number, info: RendererInfo): void;
-/** Delete all GL UBOs (called on renderer dispose). */
-export declare function disposeBindingsState(gl: WebGL2RenderingContext, state: BindingsState): void;
-/** Number of GL UBOs currently allocated. */
-export declare function getBindingsStats(state: BindingsState): {
-    uboCount: number;
-};
+export declare function updateAndBindStandaloneUniformGroup(gl: WebGL2RenderingContext, state: BindingsState, buffers: Buffers.BufferCache, block: UniformGroupBlock, frame: NodeFrame, bindingPoint: number): void;
 export {};

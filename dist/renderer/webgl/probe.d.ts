@@ -16,6 +16,7 @@
 import type { RendererInfo } from '../core/info';
 import type { NodeFrame } from '../core/node-frame';
 import { type RenderObject } from '../core/render-object';
+import * as Buffers from './buffers';
 import * as Geometries from './geometries';
 import type { SamplerCache } from './samplers';
 import type { TextureCache } from './textures';
@@ -23,6 +24,7 @@ import * as Bindings from './bindings';
 /** The device caches + node frame the probe render needs (a subset of the renderer's caches). */
 export type ProbeCaches = {
     geometries: Geometries.GeometriesState;
+    buffers: Buffers.BufferCache;
     uniforms: Bindings.BindingsState;
     textures: TextureCache;
     samplers: SamplerCache;

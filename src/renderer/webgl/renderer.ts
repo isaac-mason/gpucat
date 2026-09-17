@@ -734,7 +734,7 @@ export class WebGLRenderer implements Renderer, RendererState {
             this._uniforms,
             this._textures,
             this._samplers,
-            this.info,
+            this._buffers,
         );
     }
 
@@ -744,7 +744,7 @@ export class WebGLRenderer implements Renderer, RendererState {
      * `readBufferAsync`) to read a TF output buffer back. @internal
      */
     getTransformFeedbackGlBuffer(buffer: GpuBuffer): WebGLBuffer | null {
-        return TransformFeedback.getGlBufferFor(this._transformFeedback, buffer);
+        return TransformFeedback.getGlBufferFor(this._buffers, buffer);
     }
 
     /**
@@ -765,7 +765,7 @@ export class WebGLRenderer implements Renderer, RendererState {
                 new Error('[WebGLRenderer] readBufferAsync() called before init(). Await renderer.init() first.'),
             );
         }
-        return TransformFeedback.readBufferAsync(this.gl, this._transformFeedback, buffer);
+        return TransformFeedback.readBufferAsync(this.gl, this._buffers, buffer);
     }
 
     /**
@@ -780,9 +780,7 @@ export class WebGLRenderer implements Renderer, RendererState {
      */
     readPixels(renderTarget: RenderTarget, attachmentIndex = 0, layer = 0): Promise<Uint8Array> {
         if (!this._initialized || !this.gl) {
-            return Promise.reject(
-                new Error('[WebGLRenderer] readPixels() called before init(). Await renderer.init() first.'),
-            );
+            return Promise.reject(new Error('[WebGLRenderer] readPixels() called before init(). Await renderer.init() first.'));
         }
         return Promise.resolve(
             ReadPixels.readPixels(this.gl, this._renderTargets, this._textures, renderTarget, attachmentIndex, layer),
@@ -818,13 +816,14 @@ export class WebGLRenderer implements Renderer, RendererState {
         if (this.gl) {
             Probe.disposeProbeState(this.gl, this._probe);
             Programs.disposePrograms(this.gl, this._programs);
-            Bindings.disposeBindingsState(this.gl, this._uniforms);
             Textures.disposeTextureCache(this.gl, this._textures);
             Samplers.disposeSamplerCache(this.gl, this._samplers);
             RenderTargets.disposeGlRenderTargets(this.gl, this._renderTargets);
             TransformFeedback.disposeTransformFeedback(this.gl, this._transformFeedback);
-            // Per-geometry GL resources are freed via the geometries WeakMap on GC, or per-geometry
-            // disposeGeometry.
+            // Every GL buffer this renderer made: vertex, index and uniform-block. Individually they
+            // are released when their GpuBuffer is disposed; this is the teardown sweep.
+            Buffers.disposeBufferCache(this.gl, this._buffers);
+            // Per-geometry VAOs are freed by disposeGeometry when the Geometry goes away.
         }
 
         if (this._canvasTarget) this._canvasTarget.dispose();

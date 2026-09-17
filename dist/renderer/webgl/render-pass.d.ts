@@ -17,6 +17,7 @@ import type { InspectorBase } from '../../inspector/inspector-base';
 import type { NodeManagerState } from '../core/node-manager';
 import type { RenderContext } from '../core/pass-context';
 import type { PreparedRenderObject, RenderPassParams } from '../core/render-types';
+import * as Buffers from './buffers';
 import * as Geometries from './geometries';
 import { type RenderObjectGlCache } from './render-object-gl';
 import { type GlRenderTargetsState } from './render-target';
@@ -32,6 +33,7 @@ export declare function clear(gl: WebGL2RenderingContext, caches: DrawCaches, pa
 /** Caches the draw loop needs, bundled so `executeRenderPass` keeps a small signature. */
 export type DrawCaches = {
     geometries: Geometries.GeometriesState;
+    buffers: Buffers.BufferCache;
     uniforms: Bindings.BindingsState;
     renderObjectGl: RenderObjectGlCache;
     textures: TextureCache;

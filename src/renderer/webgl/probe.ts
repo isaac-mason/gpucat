@@ -231,7 +231,7 @@ export function renderProbe(
             if (binding.kind !== 'uniform') continue;
             const bindingPoint = p.uboBindingPoints.get(binding.block.groupName);
             if (bindingPoint === undefined) continue;
-            Bindings.updateAndBindUniformGroup(gl, caches.uniforms, binding, caches.frame, bindingPoint, ro.material, caches.info);
+            Bindings.updateAndBindUniformGroup(gl, caches.uniforms, caches.buffers, binding, caches.frame, bindingPoint, ro.material);
         }
     }
 
