@@ -30,6 +30,7 @@ import {
     resetTextureTally,
     type TextureTally,
     type TextureTallyEntry,
+    tallyClearTexture,
     tallySetTexture,
 } from '../core/info';
 import { hasTypedPartialSource, supportsPartialUpload, withinPartialBudget } from '../core/partial-upload';
@@ -280,6 +281,8 @@ export type GlTextureData = {
  */
 export type GlBufferTextureData = {
     texture: WebGLTexture;
+    /** What this entry currently contributes to `TextureCache.tally`. */
+    tally: TextureTallyEntry;
     /** `buffer.version` at last upload — the re-upload gate. */
     version: number;
     /** GL-allocated texel dimensions (a grow re-allocates rather than sub-uploading). */
@@ -373,6 +376,54 @@ function storageTexelFormat(gl: WebGL2RenderingContext, bytesPerTexel: number): 
     return { internalFormat: gl.RGBA32UI, glFormat: gl.RGBA_INTEGER };
 }
 
+/** The u32 texture format a storage() read-lowering allocates, by texel width. */
+function storageTexelFormatName(bytesPerTexel: number): string {
+    if (bytesPerTexel === 4) return 'r32uint';
+    if (bytesPerTexel === 8) return 'rg32uint';
+    return 'rgba32uint';
+}
+
+/**
+ * Release a storage() read-lowering texture when its `GpuBuffer` is disposed.
+ *
+ * Chained rather than assigned: `transform-feedback.ts` also hangs a callback on a buffer's dispose,
+ * and whichever registers second must not drop the first.
+ */
+function setupStorageTextureDispose(gl: WebGL2RenderingContext, state: TextureCache, buffer: GpuBuffer): void {
+    const previous = buffer._onDispose;
+    buffer._onDispose = (): void => {
+        previous?.();
+        const data = state.bufferData.get(buffer);
+        if (!data) return;
+        gl.deleteTexture(data.texture);
+        state.all.delete(data.texture);
+        tallyClearTexture(state.tally, data.tally);
+        state.bufferData.delete(buffer);
+    };
+}
+
+/**
+ * Release a texture's GL object when its `GpuTexture` is disposed.
+ *
+ * The WebGPU backend has always done this (`webgpu/textures.ts` setupDispose); this backend did not,
+ * so every disposed atlas, render target and baked icon target kept its GL texture alive until the
+ * whole renderer went away. `RenderTarget.dispose()` calls straight through to `GpuTexture.dispose()`,
+ * so a repeated bake-and-discard (prefab icons) leaked one texture per bake.
+ *
+ * A resize does NOT come through here: `updateTexture` deletes and re-mints the GL object in place.
+ */
+function setupTextureDispose(gl: WebGL2RenderingContext, state: TextureCache, texture: GpuTexture): void {
+    if (texture._onDispose) return;
+    texture._onDispose = (): void => {
+        const data = state.data.get(texture);
+        if (!data) return;
+        gl.deleteTexture(data.texture);
+        state.all.delete(data.texture);
+        tallyClearTexture(state.tally, data.tally);
+        state.data.delete(texture);
+    };
+}
+
 /**
  * Resolve (create/upload/re-sync) the GL texture for a read-only storage `GpuBuffer` bound AS an
  * rgba32uint texture, and return it bound-ready. The pixel data is a ZERO-COPY `Uint32Array` view over
@@ -425,7 +476,11 @@ export function updateStorageBufferTexture(
         // Integer textures are never filterable — NEAREST, clamp; sampled only via texelFetch.
         setDefaultMinFilter(gl, gl.TEXTURE_2D, false, true);
         uploadStorageSpan(gl, arr, width, 0, totalTexels, bytesPerTexel, glFormat);
-        data = { texture, version: buffer.version, width, height };
+        data = { texture, tally: createTextureTallyEntry(), version: buffer.version, width, height };
+        // A storage() read-lowering IS a resident texture, so it counts like any other. Bucketed under
+        // the u32 format it actually is; WebGPU reads the buffer directly and has no counterpart row.
+        tallySetTexture(state.tally, data.tally, storageTexelFormatName(bytesPerTexel), width * height * bytesPerTexel);
+        setupStorageTextureDispose(gl, state, buffer);
         state.bufferData.set(buffer, data);
         return texture;
     }
@@ -443,6 +498,8 @@ export function updateStorageBufferTexture(
         uploadStorageSpan(gl, arr, width, 0, totalTexels, bytesPerTexel, glFormat);
         data.width = width;
         data.height = height;
+        // Same entry, new size: move the bytes without moving the count.
+        tallySetTexture(state.tally, data.tally, storageTexelFormatName(bytesPerTexel), width * height * bytesPerTexel);
     } else {
         // Same size: upload each merged dirty span when `packAtIndex`/`addUpdateRange` queued ranges.
         // `updateRanges` are flat COMPONENT indices, so each widens to the texels it touches (u32 lanes
@@ -497,6 +554,7 @@ function ensureGlTexture(gl: WebGL2RenderingContext, state: TextureCache, textur
         const glTexture = gl.createTexture();
         if (!glTexture) throw new Error('[WebGLRenderer] gl.createTexture returned null.');
         state.all.add(glTexture);
+        setupTextureDispose(gl, state, texture);
         data = {
             texture: glTexture,
             target: glTarget(gl, texture),

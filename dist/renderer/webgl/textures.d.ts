@@ -77,6 +77,8 @@ export type GlTextureData = {
  */
 export type GlBufferTextureData = {
     texture: WebGLTexture;
+    /** What this entry currently contributes to `TextureCache.tally`. */
+    tally: TextureTallyEntry;
     /** `buffer.version` at last upload — the re-upload gate. */
     version: number;
     /** GL-allocated texel dimensions (a grow re-allocates rather than sub-uploading). */

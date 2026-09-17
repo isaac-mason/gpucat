@@ -185,6 +185,88 @@ async function caseTransparentDefaultBlend(): Promise<CaseResult> {
     return { name: 'transparent-default-blend', pixel, expected: [u8(0.5), u8(0.5), 0, 255] };
 }
 
+/**
+ * Disposing a texture or a geometry must release its GL objects.
+ *
+ * Regression guard: this backend never registered a `_onDispose` for either, so a disposed atlas,
+ * render target or baked icon target kept its GL texture alive until the whole renderer went away,
+ * and a disposed batch kept its vertex/index buffers and cached VAOs. The WebGPU backend has always
+ * released both. Bake-and-discard (prefab icons) hit this once per bake.
+ *
+ * Measured through `renderer.info.memory`, which snapshots at the frame boundary, so each count is
+ * read after a render rather than immediately after the dispose call.
+ */
+async function caseDisposeReleasesResources(): Promise<CaseResult> {
+    const renderer = await newRenderer();
+    renderer.clearColor = [0, 0, 0, 1];
+
+    const position = attribute('position', d.vec3f);
+    const camera = new PerspectiveCamera();
+    camera.updateViewMatrix();
+
+    const drawOnce = (scene: Scene): void => {
+        scene.updateWorldMatrix();
+        renderer.render(scene, camera);
+    };
+
+    // Baseline: one throwaway render so the renderer's own resources are resident and counted.
+    const warmScene = new Scene();
+    warmScene.add(
+        new Mesh(
+            createFullscreenTriangleGeometry(),
+            new Material({ vertex: vec4(position, f32(1)), fragment: vec4(1, 1, 1, 1), depthTest: false }),
+        ),
+    );
+    drawOnce(warmScene);
+    drawOnce(warmScene);
+    const baseTextures = renderer.info.memory.textures;
+    const baseGeometries = renderer.info.memory.geometries;
+
+    // Render into three targets, each with its own geometry, then throw all of it away.
+    const targets: RenderTarget[] = [];
+    const geometries: Geometry[] = [];
+    for (let i = 0; i < 3; i++) {
+        const target = new RenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+        const geometry = createFullscreenTriangleGeometry();
+        const scene = new Scene();
+        scene.add(
+            new Mesh(
+                geometry,
+                new Material({ vertex: vec4(position, f32(1)), fragment: vec4(0, 1, 0, 1), depthTest: false }),
+            ),
+        );
+        renderer.renderTarget = target;
+        drawOnce(scene);
+        renderer.renderTarget = null;
+        targets.push(target);
+        geometries.push(geometry);
+    }
+
+    drawOnce(warmScene);
+    const peakTextures = renderer.info.memory.textures;
+    const peakGeometries = renderer.info.memory.geometries;
+
+    for (const target of targets) target.dispose();
+    for (const geometry of geometries) geometry.dispose();
+
+    // One more frame so the boundary re-snapshots after the disposals.
+    drawOnce(warmScene);
+    const afterTextures = renderer.info.memory.textures;
+    const afterGeometries = renderer.info.memory.geometries;
+    renderer.dispose();
+
+    // Peak must actually have grown, or the test proves nothing about the release.
+    const grew = peakTextures > baseTextures && peakGeometries > baseGeometries;
+    const released = afterTextures === baseTextures && afterGeometries === baseGeometries;
+    const ok = grew && released;
+    return {
+        name: 'dispose-releases',
+        pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
+        expected: [0, 255, 0, 255],
+        note: `textures ${baseTextures}->${peakTextures}->${afterTextures}, geometries ${baseGeometries}->${peakGeometries}->${afterGeometries}`,
+    };
+}
+
 /** uniform: fullscreen triangle whose fragment reads a vec4 uniform → tests std140 UBO. */
 async function caseUniform(): Promise<CaseResult> {
     const renderer = await newRenderer();
@@ -3410,6 +3492,7 @@ export async function run(): Promise<RunResult> {
             caseSubrectPartialNeighbour,
             caseInstanced,
             caseTransparentDefaultBlend,
+            caseDisposeReleasesResources,
             caseBatchedDrawsGreen,
             caseBatchedDrawsRed,
             caseBatchedDrawsNonIndexed,

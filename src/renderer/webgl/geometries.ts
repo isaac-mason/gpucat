@@ -62,7 +62,7 @@ export function getGeometriesStats(state: GeometriesState): { geometries: number
     return { ...state.memory };
 }
 
-function getGeometryBuffers(state: GeometriesState, geometry: Geometry): GeometryBuffers {
+function getGeometryBuffers(gl: WebGL2RenderingContext, state: GeometriesState, geometry: Geometry): GeometryBuffers {
     let gb = state.data.get(geometry);
     if (!gb) {
         gb = {
@@ -76,6 +76,13 @@ function getGeometryBuffers(state: GeometriesState, geometry: Geometry): Geometr
         };
         state.data.set(geometry, gb);
         state.memory.geometries++;
+        // Release the GL buffers and VAOs when the Geometry goes away. The WebGPU backend has always
+        // done this (`webgpu/geometries.ts`); here `disposeGeometry` existed but nothing ever called it,
+        // so a disposed batch kept its vertex/index buffers and every cached VAO alive until the
+        // renderer itself was torn down.
+        geometry._onDispose = () => {
+            disposeGeometry(gl, state, geometry);
+        };
     }
     return gb;
 }
@@ -298,7 +305,7 @@ export function prepareGeometry(
     program: WebGLProgram,
     info: RendererInfo,
 ): GeometryDrawInfo {
-    const gb = getGeometryBuffers(state, geometry);
+    const gb = getGeometryBuffers(gl, state, geometry);
 
     // Detach any currently-bound VAO before uploading. An index upload binds ELEMENT_ARRAY_BUFFER,
     // which is captured as VAO state — doing that while a *previous* object's cached VAO is still
@@ -403,5 +410,8 @@ export function disposeGeometry(gl: WebGL2RenderingContext, state: GeometriesSta
     for (const buf of gb.attributeBuffers.values()) gl.deleteBuffer(buf);
     if (gb.indexBuffer) gl.deleteBuffer(gb.indexBuffer);
     for (const vao of gb.vaos.values()) gl.deleteVertexArray(vao);
+    state.memory.geometries--;
+    state.memory.buffers -= gb.attributeBuffers.size;
+    if (gb.indexBuffer) state.memory.indexBuffers--;
     state.data.delete(geometry);
 }

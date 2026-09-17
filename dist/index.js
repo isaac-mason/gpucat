@@ -35230,7 +35230,7 @@ function createGeometriesState$1() {
 function getGeometriesStats$1(state) {
     return { ...state.memory };
 }
-function getGeometryBuffers(state, geometry) {
+function getGeometryBuffers(gl, state, geometry) {
     let gb = state.data.get(geometry);
     if (!gb) {
         gb = {
@@ -35244,6 +35244,13 @@ function getGeometryBuffers(state, geometry) {
         };
         state.data.set(geometry, gb);
         state.memory.geometries++;
+        // Release the GL buffers and VAOs when the Geometry goes away. The WebGPU backend has always
+        // done this (`webgpu/geometries.ts`); here `disposeGeometry` existed but nothing ever called it,
+        // so a disposed batch kept its vertex/index buffers and every cached VAO alive until the
+        // renderer itself was torn down.
+        geometry._onDispose = () => {
+            disposeGeometry$1(gl, state, geometry);
+        };
     }
     return gb;
 }
@@ -35410,7 +35417,7 @@ function ensureIndexBuffer(gl, state, gb, index, info) {
  * draw resources. Re-uploads buffers whose version changed. The VAO is cached per (geometry, program).
  */
 function prepareGeometry(gl, state, geometry, nodeState, program, info) {
-    const gb = getGeometryBuffers(state, geometry);
+    const gb = getGeometryBuffers(gl, state, geometry);
     // Detach any currently-bound VAO before uploading. An index upload binds ELEMENT_ARRAY_BUFFER,
     // which is captured as VAO state — doing that while a *previous* object's cached VAO is still
     // bound would rewrite that VAO's element binding to this geometry's index buffer, so its next
@@ -35499,6 +35506,23 @@ function prepareGeometry(gl, state, geometry, nodeState, program, info) {
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
     }
     return { vao, indexType };
+}
+/** Dispose all GL resources owned by the geometries state for a single geometry. */
+function disposeGeometry$1(gl, state, geometry) {
+    const gb = state.data.get(geometry);
+    if (!gb)
+        return;
+    for (const buf of gb.attributeBuffers.values())
+        gl.deleteBuffer(buf);
+    if (gb.indexBuffer)
+        gl.deleteBuffer(gb.indexBuffer);
+    for (const vao of gb.vaos.values())
+        gl.deleteVertexArray(vao);
+    state.memory.geometries--;
+    state.memory.buffers -= gb.attributeBuffers.size;
+    if (gb.indexBuffer)
+        state.memory.indexBuffers--;
+    state.data.delete(geometry);
 }
 
 /**
@@ -36159,6 +36183,56 @@ function storageTexelFormat(gl, bytesPerTexel) {
         return { internalFormat: gl.RG32UI, glFormat: gl.RG_INTEGER };
     return { internalFormat: gl.RGBA32UI, glFormat: gl.RGBA_INTEGER };
 }
+/** The u32 texture format a storage() read-lowering allocates, by texel width. */
+function storageTexelFormatName(bytesPerTexel) {
+    if (bytesPerTexel === 4)
+        return 'r32uint';
+    if (bytesPerTexel === 8)
+        return 'rg32uint';
+    return 'rgba32uint';
+}
+/**
+ * Release a storage() read-lowering texture when its `GpuBuffer` is disposed.
+ *
+ * Chained rather than assigned: `transform-feedback.ts` also hangs a callback on a buffer's dispose,
+ * and whichever registers second must not drop the first.
+ */
+function setupStorageTextureDispose(gl, state, buffer) {
+    const previous = buffer._onDispose;
+    buffer._onDispose = () => {
+        previous?.();
+        const data = state.bufferData.get(buffer);
+        if (!data)
+            return;
+        gl.deleteTexture(data.texture);
+        state.all.delete(data.texture);
+        tallyClearTexture(state.tally, data.tally);
+        state.bufferData.delete(buffer);
+    };
+}
+/**
+ * Release a texture's GL object when its `GpuTexture` is disposed.
+ *
+ * The WebGPU backend has always done this (`webgpu/textures.ts` setupDispose); this backend did not,
+ * so every disposed atlas, render target and baked icon target kept its GL texture alive until the
+ * whole renderer went away. `RenderTarget.dispose()` calls straight through to `GpuTexture.dispose()`,
+ * so a repeated bake-and-discard (prefab icons) leaked one texture per bake.
+ *
+ * A resize does NOT come through here: `updateTexture` deletes and re-mints the GL object in place.
+ */
+function setupTextureDispose(gl, state, texture) {
+    if (texture._onDispose)
+        return;
+    texture._onDispose = () => {
+        const data = state.data.get(texture);
+        if (!data)
+            return;
+        gl.deleteTexture(data.texture);
+        state.all.delete(data.texture);
+        tallyClearTexture(state.tally, data.tally);
+        state.data.delete(texture);
+    };
+}
 /**
  * Resolve (create/upload/re-sync) the GL texture for a read-only storage `GpuBuffer` bound AS an
  * rgba32uint texture, and return it bound-ready. The pixel data is a ZERO-COPY `Uint32Array` view over
@@ -36203,7 +36277,11 @@ function updateStorageBufferTexture(gl, state, source) {
         // Integer textures are never filterable — NEAREST, clamp; sampled only via texelFetch.
         setDefaultMinFilter(gl, gl.TEXTURE_2D, false, true);
         uploadStorageSpan(gl, arr, width, 0, totalTexels, bytesPerTexel, glFormat);
-        data = { texture, version: buffer.version, width, height };
+        data = { texture, tally: createTextureTallyEntry(), version: buffer.version, width, height };
+        // A storage() read-lowering IS a resident texture, so it counts like any other. Bucketed under
+        // the u32 format it actually is; WebGPU reads the buffer directly and has no counterpart row.
+        tallySetTexture(state.tally, data.tally, storageTexelFormatName(bytesPerTexel), width * height * bytesPerTexel);
+        setupStorageTextureDispose(gl, state, buffer);
         state.bufferData.set(buffer, data);
         return texture;
     }
@@ -36219,6 +36297,8 @@ function updateStorageBufferTexture(gl, state, source) {
         uploadStorageSpan(gl, arr, width, 0, totalTexels, bytesPerTexel, glFormat);
         data.width = width;
         data.height = height;
+        // Same entry, new size: move the bytes without moving the count.
+        tallySetTexture(state.tally, data.tally, storageTexelFormatName(bytesPerTexel), width * height * bytesPerTexel);
     }
     else {
         // Same size: upload each merged dirty span when `packAtIndex`/`addUpdateRange` queued ranges.
@@ -36274,6 +36354,7 @@ function ensureGlTexture(gl, state, texture) {
         if (!glTexture)
             throw new Error('[WebGLRenderer] gl.createTexture returned null.');
         state.all.add(glTexture);
+        setupTextureDispose(gl, state, texture);
         data = {
             texture: glTexture,
             target: glTarget(gl, texture),
