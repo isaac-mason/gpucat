@@ -19,14 +19,15 @@ import { hasTypedPartialSource, supportsPartialUpload, withinPartialBudget } fro
 import {
     createTextureTally,
     createTextureTallyEntry,
+    resetTextureTally,
     type TextureTally,
     type TextureTallyEntry,
     tallyClearTexture,
     tallySetTexture,
 } from '../core/info';
-import { bytesPerTexel, gpuTextureBytes } from '../core/texture-size';
+import { bytesPerTexel, gpuTextureBytes, mipLevelCountFor } from '../core/texture-size';
 import type { Source } from '../../texture/source';
-import { createMipmapState, generateMipmaps, type MipmapState } from './mipmap-utils';
+import { createMipmapState, disposeMipmapState, generateMipmaps, type MipmapState } from './mipmap-utils';
 
 /** Data stored per Texture in the cache */
 export type TextureData = {
@@ -399,12 +400,7 @@ function areArraySourcesReady(texture: GpuTexture): boolean {
 function createGPUTexture(device: GPUDevice, texture: GpuTexture): GPUTexture {
     // Calculate mip level count. Explicit user mipmaps win (level 0 + supplied levels);
     // otherwise derive the full chain when auto-generating, else the descriptor's count.
-    const mipLevelCount =
-        texture.mipmaps.length > 0
-            ? texture.mipmaps.length + 1
-            : texture.generateMipmaps
-              ? Math.floor(Math.log2(Math.max(texture.width, texture.height))) + 1
-              : texture.mipLevelCount;
+    const mipLevelCount = mipLevelCountFor(texture);
 
     // RENDER_ATTACHMENT is forced on so render-pass mipmap generation works. But NOT for single-mip
     // storage textures: some storage formats (e.g. rgba8snorm) aren't renderable, so force-adding it
@@ -668,6 +664,25 @@ function getDefaultTexture(cache: TextureCache, device: GPUDevice, format: GPUTe
 
     cache.defaultTextures.set(format, tex);
     return tex;
+}
+
+/**
+ * Tear down the cache (called on renderer dispose).
+ *
+ * `device.destroy()` releases the GPU objects, so this is about JS state: the placeholder textures and
+ * mipmap pipelines are destroyed explicitly because they are shared and not owned by any GpuTexture,
+ * and the map is REPLACED rather than emptied so a `GpuTexture` outliving its renderer cannot find a
+ * stale entry and destroy through a dead device. The WebGL sibling does the same for the same reason.
+ */
+export function disposeTextureCache(cache: TextureCache): void {
+    for (const tex of cache.defaultTextures.values()) tex.destroy();
+    cache.defaultTextures.clear();
+    if (cache.mipmapState) {
+        disposeMipmapState(cache.mipmapState);
+        cache.mipmapState = null;
+    }
+    cache.textureMap = new WeakMap();
+    resetTextureTally(cache.tally);
 }
 
 export function getTextureCacheStats(cache: TextureCache): TextureCacheStats {

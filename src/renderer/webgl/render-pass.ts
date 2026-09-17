@@ -26,6 +26,7 @@ import * as Geometries from './geometries';
 import { getRenderObjectGl, type RenderObjectGlCache } from './render-object-gl';
 import { bindRenderTargetFramebuffer, resolveActiveRenderTarget, type GlRenderTargetsState } from './render-target';
 import type { SamplerCache } from './samplers';
+import { resolveIndexedDrawRange, resolveVertexDrawRange } from '../core/draw-range';
 import type { RendererInfo } from '../core/info';
 import * as RenderState from '../core/render-state';
 import { applyMaterialState, createGlStateCache, establishPassBaseline } from './state';
@@ -356,31 +357,20 @@ export function executeRenderPass(
             // firstInstance into instanceIndex here.
             if (drawBaseLoc !== null) gl.uniform1ui(drawBaseLoc, 0);
             const instances = mesh.count;
-            const start = geometry.drawRange.start;
 
             if (geometry.index && drawInfo.indexType !== null) {
-                const indexArray = geometry.index.array!;
-                // Clamp against the indices REMAINING after `start`, not the whole buffer — otherwise a
-                // non-zero drawRange.start reads past the end of the index buffer (GL: insufficient buffer).
-                const count = Math.min(geometry.drawRange.count, indexArray.length - start);
+                const { first, count } = resolveIndexedDrawRange(geometry);
                 // firstIndex is a byte offset for drawElements; each index is 1 (uint8), 2 (uint16) or
                 // 4 (uint32) bytes.
                 const bytesPerIndex = drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
-                gl.drawElementsInstanced(gl.TRIANGLES, count, drawInfo.indexType, start * bytesPerIndex, instances);
+                gl.drawElementsInstanced(gl.TRIANGLES, count, drawInfo.indexType, first * bytesPerIndex, instances);
                 if (inspector) inspector.drawIndexed(count, instances);
                 countDraw(info, count, instances);
             } else {
-                const position = geometry.buffers.get('position');
-                // Vertices remaining after `start`; clamp drawRange.count to it so a non-zero start
-                // can't over-read the vertex buffer.
-                const available = (position?.count ?? geometry.drawRange.count) - start;
-                const vertexCount =
-                    geometry.drawRange.count === Infinity
-                        ? (position?.count ?? 3) - start
-                        : Math.min(geometry.drawRange.count, available);
-                gl.drawArraysInstanced(gl.TRIANGLES, start, vertexCount, instances);
-                if (inspector) inspector.draw(vertexCount, instances);
-                countDraw(info, vertexCount, instances);
+                const { first, count } = resolveVertexDrawRange(geometry);
+                gl.drawArraysInstanced(gl.TRIANGLES, first, count, instances);
+                if (inspector) inspector.draw(count, instances);
+                countDraw(info, count, instances);
             }
         }
 

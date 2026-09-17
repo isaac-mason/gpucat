@@ -123,15 +123,15 @@ export type MemoryInfo = {
     /** Samplers resident on the device. */
     samplers: number;
     /**
-     * Compiled shader variants resident: a linked GL program on WebGL, a render or compute pipeline on
-     * WebGPU. Deliberately one number, because "how many shader permutations am I holding" means the
-     * same thing on both backends even though the object holding them does not.
-     */
-    programs: number;
-    /**
-     * Counts with no cross-backend meaning, keyed in the reporting backend's own vocabulary
-     * (`bindGroupLayouts` on WebGPU, `renderbuffers` on WebGL). Read these as a leak check within one
-     * backend, never as a comparison between them: the key set differs by design.
+     * Counts with no cross-backend meaning, keyed in the reporting backend's own vocabulary. Read
+     * these as a leak check within one backend, never as a comparison between them: the key set
+     * differs by design.
+     *
+     * Compiled shader variants live here rather than above, and that is not squeamishness. A GL
+     * program is keyed on its source alone, because GL applies blend/depth/cull state live; a WebGPU
+     * pipeline bakes that state in and is keyed on all of it. The same scene can honestly be 10
+     * programs and 40 pipelines with identical workload, so one number would invite a comparison that
+     * means nothing.
      */
     backend: Record<string, number>;
 };

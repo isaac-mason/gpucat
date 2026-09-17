@@ -60,14 +60,37 @@ export function bytesPerTexel(format: GPUTextureFormat): number {
     }
 }
 
+/** Levels in a full mip chain down to 1x1, for a texture of this size. */
+export function fullMipChainLength(width: number, height: number): number {
+    return Math.floor(Math.log2(Math.max(width, height))) + 1;
+}
+
+/**
+ * Mip levels a texture actually allocates.
+ *
+ * Explicit user mip images win (level 0 plus the supplied levels), else the full chain when
+ * auto-generating, else the descriptor's own count floored at 1. Shared because the answer decides
+ * both how much storage a backend allocates and how many levels the size estimate sums, and those two
+ * must not disagree.
+ */
+export function mipLevelCountFor(texture: GpuTexture): number {
+    if (texture.mipmaps.length > 0) return texture.mipmaps.length + 1;
+    if (texture.generateMipmaps) return fullMipChainLength(texture.width, texture.height);
+    return Math.max(1, texture.mipLevelCount);
+}
+
 /**
  * Estimated bytes for a whole texture: every array layer / cube face, summed over the mip chain.
  * Each mip halves both dimensions with a floor of 1, which is the allocation rule both APIs follow.
+ *
+ * The chain length comes from `mipLevelCountFor`, not the raw `mipLevelCount`: an auto-mipmapped
+ * texture allocates a full chain while its descriptor still reads 1, and summing the descriptor would
+ * undercount every atlas by a third.
  */
 export function gpuTextureBytes(texture: GpuTexture): number {
     const perTexel = bytesPerTexel(texture.format);
     const layers = Math.max(1, texture.depthOrArrayLayers);
-    const mips = Math.max(1, texture.mipLevelCount);
+    const mips = mipLevelCountFor(texture);
 
     let bytes = 0;
     for (let level = 0; level < mips; level++) {

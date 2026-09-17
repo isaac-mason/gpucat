@@ -207,3 +207,8 @@ export function buildComputeBindGroupLayouts(
 
     return layouts;
 }
+
+/** Drop every cached layout (called on renderer dispose; `device.destroy()` frees the GPU side). */
+export function disposeBindGroupLayoutCache(cache: BindGroupLayoutCache): void {
+    cache.cache.clear();
+}

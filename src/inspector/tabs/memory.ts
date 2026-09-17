@@ -14,7 +14,7 @@ import { createValueSpan, setText } from '../ui/utils';
  * rows; the row set is rebuilt when those keys change (they appear as the caches populate). The graph
  * tracks a single total-resource line.
  */
-const NEUTRAL_ROWS = ['Buffers', 'Geometries', 'Textures', 'Samplers', 'Programs'];
+const NEUTRAL_ROWS = ['Buffers', 'Geometries', 'Textures', 'Samplers'];
 
 /** `renderPipelines` -> `Render Pipelines`. Backend bag keys are camelCase by convention. */
 function humanizeKey(key: string): string {
@@ -87,7 +87,7 @@ export class Memory extends Tab {
         const renderer = inspector.getRenderer();
         if (!renderer) return;
         const m = renderer.info.memory;
-        this.graph.addPoint('total', m.buffers + m.geometries + m.textures + m.samplers + m.programs);
+        this.graph.addPoint('total', m.buffers + m.geometries + m.textures + m.samplers);
         if (this.graph.limit === 0) this.graph.limit = 1;
         this.graph.update();
     }
@@ -104,7 +104,6 @@ export class Memory extends Tab {
         this._set('Geometries', m.geometries.toString());
         this._set('Textures', m.textures.toString());
         this._set('Samplers', m.samplers.toString());
-        this._set('Programs', m.programs.toString());
         this._set('Render Objects', getRenderObjectsStats(renderer._renderObjects).total.toString());
         for (const k of backendKeys) this._set(humanizeKey(k), String(m.backend[k] ?? 0));
     }

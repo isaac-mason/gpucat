@@ -484,7 +484,9 @@ export class WebGLRenderer implements Renderer, RendererState {
         // count + bytes + per-format breakdown, straight from the cache's running tally.
         Info.readTextureTally(this._textures.tally, info.memory);
         info.memory.samplers = Samplers.getSamplerCacheStats(this._samplers).samplerCount;
-        info.memory.programs = Programs.getProgramCacheStats(this._programs).programCount;
+        // GL's shader-variant count. Backend-specific: it is keyed on source, so it does not compare
+        // with WebGPU's pipeline count, which is keyed on source plus fixed-function state.
+        info.memory.backend.programs = Programs.getProgramCacheStats(this._programs).programCount;
         info.memory.backend.framebuffers = renderTargets.fboCount;
         info.memory.backend.renderbuffers = renderTargets.renderbufferCount;
     }

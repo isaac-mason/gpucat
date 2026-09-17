@@ -1,6 +1,7 @@
 import type { CubeRenderTarget } from '../../core/cube-render-target';
 import { getIndexFormat } from '../../core/gpu-buffer';
 import type { RenderTarget } from '../../core/render-target';
+import { resolveIndexedDrawRange, resolveVertexDrawRange } from '../core/draw-range';
 import type { RendererInfo } from '../core/info';
 import type { InspectorBase } from '../../inspector/inspector-base';
 import type { IndexedMeshDraw, NonIndexedMeshDraw } from '../../objects/mesh';
@@ -9,13 +10,12 @@ import type { NodeManagerState } from '../core/node-manager';
 import * as NodeManager from '../core/node-manager';
 import type { RenderContext } from '../core/pass-context';
 import type { PreparedRenderObject, RenderPassParams } from '../core/render-types';
-import type { BindGroupLayoutCache } from './bind-group-layout';
+import { type BindGroupLayoutCache, disposeBindGroupLayoutCache } from './bind-group-layout';
 import * as Bindings from './bindings';
 import * as Buffers from './buffers';
 import * as Geometries from './geometries';
-import { disposeMipmapState } from './mipmap-utils';
 import { DEPTH_FORMAT, formatHasStencil } from './pipelines';
-import type * as Pipelines from './pipelines';
+import * as Pipelines from './pipelines';
 import * as RenderObjectGpu from './render-object-gpu';
 import * as RenderObjects from './render-objects';
 import * as RenderTargets from './render-target';
@@ -621,8 +621,8 @@ function draw(
                     passDrawIndexedIndirect(gpuPass, inspector, info, indBuf, baseOffset + d * byteStride);
                 }
             } else {
-                const indexCount = Math.min(geometry.drawRange.count, geometry.index.array!.length);
-                passDrawIndexed(gpuPass, inspector, info, indexCount, mesh.count, geometry.drawRange.start);
+                const { first, count } = resolveIndexedDrawRange(geometry);
+                passDrawIndexed(gpuPass, inspector, info, count, mesh.count, first);
             }
         } else {
             if (mesh.draws !== undefined) {
@@ -641,7 +641,8 @@ function draw(
                     passDrawIndirect(gpuPass, inspector, info, indBuf, baseOffset + d * byteStride);
                 }
             } else {
-                passDraw(gpuPass, inspector, info, geometry.drawRange.count, mesh.count, geometry.drawRange.start);
+                const { first, count } = resolveVertexDrawRange(geometry);
+                passDraw(gpuPass, inspector, info, count, mesh.count, first);
             }
         }
 
@@ -669,6 +670,7 @@ export function disposeDevice(
     deviceProvided: boolean,
     textures: Textures.TextureCache,
     samplers: Samplers.SamplerCache,
+    buffers: Buffers.BufferCache,
     pipelines: Pipelines.PipelinesState,
     bindGroupLayoutCache: BindGroupLayoutCache,
     sc: SwapchainState,
@@ -684,23 +686,13 @@ export function disposeDevice(
     sc.msaaTexture = null;
     sc.msaaTextureView = null;
 
-    // Destroy default placeholder textures
-    for (const tex of textures.defaultTextures.values()) {
-        tex.destroy();
-    }
-    textures.defaultTextures.clear();
+    // Each cache tears itself down: whoever owns a cache owns its teardown, so this function sequences
+    // them rather than reaching into their internals.
+    Textures.disposeTextureCache(textures);
     Samplers.disposeSamplerCache(samplers);
-
-    // Dispose mipmap generation state
-    if (textures.mipmapState) {
-        disposeMipmapState(textures.mipmapState);
-        textures.mipmapState = null;
-    }
-
-    // Clear pipeline caches + the shared bind group layout cache (backing both pipelines + bindings)
-    pipelines.renderPipelines.clear();
-    pipelines.computePipelines.clear();
-    bindGroupLayoutCache.cache.clear();
+    Buffers.disposeBufferCache(buffers);
+    Pipelines.disposePipelines(pipelines);
+    disposeBindGroupLayoutCache(bindGroupLayoutCache);
 
     // Destroy the device unless it was externally provided
     if (!deviceProvided && device) {

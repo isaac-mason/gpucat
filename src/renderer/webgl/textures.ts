@@ -34,7 +34,7 @@ import {
     tallySetTexture,
 } from '../core/info';
 import { hasTypedPartialSource, supportsPartialUpload, withinPartialBudget } from '../core/partial-upload';
-import { gpuTextureBytes } from '../core/texture-size';
+import { gpuTextureBytes, mipLevelCountFor } from '../core/texture-size';
 import type { ResolvedStorageBufferTexture } from '../../nodes/lib/texture';
 import { mergeUpdateRanges } from '../core/update-ranges';
 
@@ -572,21 +572,6 @@ function ensureGlTexture(gl: WebGL2RenderingContext, state: TextureCache, textur
     return data;
 }
 
-/**
- * Number of mip levels to allocate for a texture. Explicit user mip images win (level 0 + supplied
- * levels); else the full chain when auto-generating; else the descriptor's explicit `mipLevelCount`
- * (mirrors the WebGPU path's `createGPUTexture` mip-count logic).
- */
-function mipLevelCount(texture: GpuTexture): number {
-    if (texture.mipmaps.length > 0) {
-        return texture.mipmaps.length + 1;
-    }
-    if (texture.generateMipmaps) {
-        return Math.floor(Math.log2(Math.max(texture.width, texture.height))) + 1;
-    }
-    return Math.max(1, texture.mipLevelCount);
-}
-
 /** Extract a raw typed-array view from a DataTexture-style source, or null. */
 function typedArrayOf(sourceData: unknown): ArrayBufferView | null {
     if (sourceData && typeof sourceData === 'object' && 'data' in sourceData) {
@@ -763,7 +748,7 @@ function uploadArray(gl: WebGL2RenderingContext, texture: GpuTexture, data: GlTe
     const w = texture.width;
     const h = texture.height;
     const layers = texture.depthOrArrayLayers;
-    const levels = mipLevelCount(texture);
+    const levels = mipLevelCountFor(texture);
 
     // 2D-array must be allocated via texStorage3D then filled per-layer with texSubImage3D.
     gl.texStorage3D(gl.TEXTURE_2D_ARRAY, levels, internalFormat, w, h, layers);
@@ -807,7 +792,7 @@ function upload3D(gl: WebGL2RenderingContext, texture: GpuTexture, data: GlTextu
     const w = texture.width;
     const h = texture.height;
     const depth = texture.depthOrArrayLayers;
-    const levels = mipLevelCount(texture);
+    const levels = mipLevelCountFor(texture);
 
     if (texture.mipmaps.length > 0) {
         // Per-level 3D mip upload isn't wired here; texStorage3D + a single level-0 fill is the
@@ -1002,7 +987,7 @@ export function updateTexture(gl: WebGL2RenderingContext, state: TextureCache, t
 function allocateRenderTargetStorage(gl: WebGL2RenderingContext, texture: GpuTexture, data: GlTextureData): void {
     const w = texture.width;
     const h = texture.height;
-    const levels = mipLevelCount(texture);
+    const levels = mipLevelCountFor(texture);
     if (data.target === gl.TEXTURE_CUBE_MAP) {
         // Immutable storage allocates all 6 faces at once; each face is then attachable to an FBO
         // via framebufferTexture2D(TEXTURE_CUBE_MAP_POSITIVE_X + face, ...) (see render-target.ts).

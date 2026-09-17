@@ -86,6 +86,14 @@ export declare function uploadUniformBlock(cache: BufferCache, device: GPUDevice
  */
 export declare function getRaw(cache: BufferCache, key: object): GPUBuffer | undefined;
 /**
+ * Tear down the cache (called on renderer dispose).
+ *
+ * `device.destroy()` releases the GPU buffers, so this resets JS state: the maps are REPLACED rather
+ * than emptied so a `GpuBuffer` outliving its renderer cannot find a stale entry and destroy through a
+ * dead device. The WebGL sibling does the same.
+ */
+export declare function disposeBufferCache(cache: BufferCache): void;
+/**
  * Returns approximate buffer counts tracked by this cache.
  */
 export declare function getBufferCacheStats(cache: BufferCache): BufferCacheStats;

@@ -4,11 +4,11 @@ import type { CanvasTarget } from '../core/canvas-target';
 import type { NodeManagerState } from '../core/node-manager';
 import type { RenderContext } from '../core/pass-context';
 import type { PreparedRenderObject, RenderPassParams } from '../core/render-types';
-import type { BindGroupLayoutCache } from './bind-group-layout';
+import { type BindGroupLayoutCache } from './bind-group-layout';
 import * as Bindings from './bindings';
 import * as Buffers from './buffers';
 import * as Geometries from './geometries';
-import type * as Pipelines from './pipelines';
+import * as Pipelines from './pipelines';
 import * as RenderObjectGpu from './render-object-gpu';
 import * as Samplers from './samplers';
 import * as Textures from './textures';
@@ -79,4 +79,4 @@ export declare function executeRenderPass(contexts: WeakMap<CanvasTarget, GPUCan
  * textures + samplers, mipmap state, pipeline caches, and (unless the device was pre-created) the
  * device itself. After this the renderer is unusable.
  */
-export declare function disposeDevice(contexts: WeakMap<CanvasTarget, GPUCanvasContext>, device: GPUDevice | null, deviceProvided: boolean, textures: Textures.TextureCache, samplers: Samplers.SamplerCache, pipelines: Pipelines.PipelinesState, bindGroupLayoutCache: BindGroupLayoutCache, sc: SwapchainState): void;
+export declare function disposeDevice(contexts: WeakMap<CanvasTarget, GPUCanvasContext>, device: GPUDevice | null, deviceProvided: boolean, textures: Textures.TextureCache, samplers: Samplers.SamplerCache, buffers: Buffers.BufferCache, pipelines: Pipelines.PipelinesState, bindGroupLayoutCache: BindGroupLayoutCache, sc: SwapchainState): void;

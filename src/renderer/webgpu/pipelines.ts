@@ -449,6 +449,12 @@ function getCachedPipelineKey(
     return key;
 }
 
+/** Drop every cached pipeline (called on renderer dispose; `device.destroy()` frees the GPU side). */
+export function disposePipelines(state: PipelinesState): void {
+    state.renderPipelines.clear();
+    state.computePipelines.clear();
+}
+
 /**
  * Stable cache key for a material + MSAA sample count + color format + optional depth format.
  */

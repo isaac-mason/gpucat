@@ -259,6 +259,20 @@ export function getRaw(cache: BufferCache, key: object): GPUBuffer | undefined {
     return cache.rawMap.get(key);
 }
 
+/**
+ * Tear down the cache (called on renderer dispose).
+ *
+ * `device.destroy()` releases the GPU buffers, so this resets JS state: the maps are REPLACED rather
+ * than emptied so a `GpuBuffer` outliving its renderer cannot find a stale entry and destroy through a
+ * dead device. The WebGL sibling does the same.
+ */
+export function disposeBufferCache(cache: BufferCache): void {
+    cache.bufferMap = new WeakMap();
+    cache.rawMap = new WeakMap();
+    cache.bufferCount = 0;
+    cache.rawCount = 0;
+}
+
 // Stats
 
 /**

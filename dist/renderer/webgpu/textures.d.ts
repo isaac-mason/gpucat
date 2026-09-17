@@ -75,6 +75,15 @@ export declare function generateTextureMipmaps(cache: TextureCache, device: GPUD
  * Returns the TextureData for the texture.
  */
 export declare function updateTexture(cache: TextureCache, device: GPUDevice, texture: GpuTexture): TextureData;
+/**
+ * Tear down the cache (called on renderer dispose).
+ *
+ * `device.destroy()` releases the GPU objects, so this is about JS state: the placeholder textures and
+ * mipmap pipelines are destroyed explicitly because they are shared and not owned by any GpuTexture,
+ * and the map is REPLACED rather than emptied so a `GpuTexture` outliving its renderer cannot find a
+ * stale entry and destroy through a dead device. The WebGL sibling does the same for the same reason.
+ */
+export declare function disposeTextureCache(cache: TextureCache): void;
 export declare function getTextureCacheStats(cache: TextureCache): TextureCacheStats;
 /**
  * Get cached TextureData for a GpuTexture.

@@ -806,9 +806,6 @@ export class WebGPURenderer implements Renderer, RendererState {
         // count + bytes + per-format breakdown, straight from the cache's running tally.
         Info.readTextureTally(this.textures.tally, info.memory);
         info.memory.samplers = samplers.samplerCount;
-        info.memory.programs = renderPipelines + computePipelines;
-        // Split back out for anyone debugging WebGPU specifically; the neutral counters above are
-        // sums, because WebGL has no equivalent split.
         info.memory.backend.rawBuffers = this.buffers.rawCount;
         info.memory.backend.renderPipelines = renderPipelines;
         info.memory.backend.computePipelines = computePipelines;
@@ -1067,6 +1064,7 @@ export class WebGPURenderer implements Renderer, RendererState {
             this._deviceProvided,
             this.textures,
             this.samplers,
+            this.buffers,
             this.pipelines,
             this.bindGroupLayoutCache,
             this.swapchain,

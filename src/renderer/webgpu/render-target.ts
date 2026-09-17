@@ -14,7 +14,7 @@ import type { CubeRenderTarget } from '../../core/cube-render-target';
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { RenderTarget } from '../../core/render-target';
 import { createTextureTallyEntry, tallyClearTexture, tallySetTexture } from '../core/info';
-import { gpuTextureBytes } from '../core/texture-size';
+import { fullMipChainLength, gpuTextureBytes } from '../core/texture-size';
 import { setupTextureDispose, type TextureCache, type TextureData } from './textures';
 
 /**
@@ -235,7 +235,7 @@ export function ensureRenderTargetTexturesAllocated(cache: TextureCache, device:
 }
 
 function ensureCubeRenderTargetTexturesAllocated(cache: TextureCache, device: GPUDevice, renderTarget: CubeRenderTarget): void {
-    const cubeMipCount = renderTarget.texture.generateMipmaps ? Math.floor(Math.log2(renderTarget.size)) + 1 : 1;
+    const cubeMipCount = renderTarget.texture.generateMipmaps ? fullMipChainLength(renderTarget.size, renderTarget.size) : 1;
 
     const cubeReady = hasRenderTargetTextureAllocation(
         cache,

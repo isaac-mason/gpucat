@@ -20,6 +20,8 @@ function texture(o: Partial<Parameters<typeof gpuTextureBytes>[0]> = {}) {
         depthOrArrayLayers: 1,
         format: 'rgba8unorm' as GPUTextureFormat,
         mipLevelCount: 1,
+        mipmaps: [],
+        generateMipmaps: false,
         ...o,
     } as Parameters<typeof gpuTextureBytes>[0];
 }
@@ -47,6 +49,21 @@ describe('byte estimation', () => {
     test('a mip chain adds the halved levels, flooring at 1x1', () => {
         // 4x4 rgba8: 64 + 16 + 4 = 84 across three levels.
         expect(gpuTextureBytes(texture({ width: 4, height: 4, mipLevelCount: 3 }))).toBe(84);
+    });
+
+    test('an auto-mipmapped texture is sized over the chain it will actually allocate', () => {
+        // Its descriptor still reads mipLevelCount 1, but the backend allocates the full chain.
+        // Summing the descriptor would undercount every atlas by about a third.
+        const flat = gpuTextureBytes(texture({ width: 4, height: 4 }));
+        const chained = gpuTextureBytes(texture({ width: 4, height: 4, generateMipmaps: true }));
+        expect(flat).toBe(64);
+        expect(chained).toBe(84);
+    });
+
+    test('explicit mip images win over the auto chain', () => {
+        // level 0 plus the supplied levels: 16x16 + 8x8, not the full chain to 1x1.
+        const bytes = gpuTextureBytes(texture({ width: 16, height: 16, mipmaps: [{}], generateMipmaps: true }));
+        expect(bytes).toBe((16 * 16 + 8 * 8) * 4);
     });
 
     test('a non-square texture floors each dimension independently', () => {

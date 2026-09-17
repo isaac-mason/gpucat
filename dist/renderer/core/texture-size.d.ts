@@ -14,8 +14,23 @@
 import type { GpuTexture } from '../../core/gpu-texture';
 /** Bytes per texel for the uncompressed formats gpucat uses. Unknown formats fall back to 4. */
 export declare function bytesPerTexel(format: GPUTextureFormat): number;
+/** Levels in a full mip chain down to 1x1, for a texture of this size. */
+export declare function fullMipChainLength(width: number, height: number): number;
+/**
+ * Mip levels a texture actually allocates.
+ *
+ * Explicit user mip images win (level 0 plus the supplied levels), else the full chain when
+ * auto-generating, else the descriptor's own count floored at 1. Shared because the answer decides
+ * both how much storage a backend allocates and how many levels the size estimate sums, and those two
+ * must not disagree.
+ */
+export declare function mipLevelCountFor(texture: GpuTexture): number;
 /**
  * Estimated bytes for a whole texture: every array layer / cube face, summed over the mip chain.
  * Each mip halves both dimensions with a floor of 1, which is the allocation rule both APIs follow.
+ *
+ * The chain length comes from `mipLevelCountFor`, not the raw `mipLevelCount`: an auto-mipmapped
+ * texture allocates a full chain while its descriptor still reads 1, and summing the descriptor would
+ * undercount every atlas by a third.
  */
 export declare function gpuTextureBytes(texture: GpuTexture): number;

@@ -123,6 +123,8 @@ export declare function isComputeReady(state: PipelinesState, node: ComputeNode)
  * @returns The compute pipeline entry, or null if not compiled yet
  */
 export declare function lookupCompute(state: PipelinesState, node: ComputeNode): ComputePipelineEntry | null;
+/** Drop every cached pipeline (called on renderer dispose; `device.destroy()` frees the GPU side). */
+export declare function disposePipelines(state: PipelinesState): void;
 /**
  * Stable cache key for a material + MSAA sample count + color format + optional depth format.
  */

@@ -15137,7 +15137,6 @@ function createRendererInfo() {
             texturesSize: 0,
             texturesByFormat: {},
             samplers: 0,
-            programs: 0,
             backend: {},
         },
     };
@@ -15254,7 +15253,6 @@ function resetRendererInfo(info) {
     info.memory.texturesSize = 0;
     info.memory.texturesByFormat = {};
     info.memory.samplers = 0;
-    info.memory.programs = 0;
     info.memory.backend = {};
 }
 
@@ -15517,6 +15515,19 @@ function uploadUniformBlock$1(cache, device, key, data, detail) {
  */
 function getRaw$1(cache, key) {
     return cache.rawMap.get(key);
+}
+/**
+ * Tear down the cache (called on renderer dispose).
+ *
+ * `device.destroy()` releases the GPU buffers, so this resets JS state: the maps are REPLACED rather
+ * than emptied so a `GpuBuffer` outliving its renderer cannot find a stale entry and destroy through a
+ * dead device. The WebGL sibling does the same.
+ */
+function disposeBufferCache$1(cache) {
+    cache.bufferMap = new WeakMap();
+    cache.rawMap = new WeakMap();
+    cache.bufferCount = 0;
+    cache.rawCount = 0;
 }
 // Stats
 /**
@@ -21361,6 +21372,10 @@ function buildComputeBindGroupLayouts(device, bindings, layoutCache) {
     }
     return layouts;
 }
+/** Drop every cached layout (called on renderer dispose; `device.destroy()` frees the GPU side). */
+function disposeBindGroupLayoutCache(cache) {
+    cache.cache.clear();
+}
 
 const DEPTH_FORMAT = 'depth24plus';
 /** Depth format carrying a stencil aspect. Used when a target requests a stencil buffer. */
@@ -21667,6 +21682,11 @@ function getCachedPipelineKey(renderObject, samples, colorFormats, depthFormat) 
     renderObject._cachedPipelineKey = key;
     renderObject._pipelineKeyVersion = currentVersion;
     return key;
+}
+/** Drop every cached pipeline (called on renderer dispose; `device.destroy()` frees the GPU side). */
+function disposePipelines(state) {
+    state.renderPipelines.clear();
+    state.computePipelines.clear();
 }
 /**
  * Stable cache key for a material + MSAA sample count + color format + optional depth format.
@@ -22958,14 +22978,37 @@ function bytesPerTexel(format) {
             return 4;
     }
 }
+/** Levels in a full mip chain down to 1x1, for a texture of this size. */
+function fullMipChainLength(width, height) {
+    return Math.floor(Math.log2(Math.max(width, height))) + 1;
+}
+/**
+ * Mip levels a texture actually allocates.
+ *
+ * Explicit user mip images win (level 0 plus the supplied levels), else the full chain when
+ * auto-generating, else the descriptor's own count floored at 1. Shared because the answer decides
+ * both how much storage a backend allocates and how many levels the size estimate sums, and those two
+ * must not disagree.
+ */
+function mipLevelCountFor(texture) {
+    if (texture.mipmaps.length > 0)
+        return texture.mipmaps.length + 1;
+    if (texture.generateMipmaps)
+        return fullMipChainLength(texture.width, texture.height);
+    return Math.max(1, texture.mipLevelCount);
+}
 /**
  * Estimated bytes for a whole texture: every array layer / cube face, summed over the mip chain.
  * Each mip halves both dimensions with a floor of 1, which is the allocation rule both APIs follow.
+ *
+ * The chain length comes from `mipLevelCountFor`, not the raw `mipLevelCount`: an auto-mipmapped
+ * texture allocates a full chain while its descriptor still reads 1, and summing the descriptor would
+ * undercount every atlas by a third.
  */
 function gpuTextureBytes(texture) {
     const perTexel = bytesPerTexel(texture.format);
     const layers = Math.max(1, texture.depthOrArrayLayers);
-    const mips = Math.max(1, texture.mipLevelCount);
+    const mips = mipLevelCountFor(texture);
     let bytes = 0;
     for (let level = 0; level < mips; level++) {
         const width = Math.max(1, texture.width >> level);
@@ -23716,11 +23759,7 @@ function areArraySourcesReady(texture) {
 function createGPUTexture(device, texture) {
     // Calculate mip level count. Explicit user mipmaps win (level 0 + supplied levels);
     // otherwise derive the full chain when auto-generating, else the descriptor's count.
-    const mipLevelCount = texture.mipmaps.length > 0
-        ? texture.mipmaps.length + 1
-        : texture.generateMipmaps
-            ? Math.floor(Math.log2(Math.max(texture.width, texture.height))) + 1
-            : texture.mipLevelCount;
+    const mipLevelCount = mipLevelCountFor(texture);
     // RENDER_ATTACHMENT is forced on so render-pass mipmap generation works. But NOT for single-mip
     // storage textures: some storage formats (e.g. rgba8snorm) aren't renderable, so force-adding it
     // would fail createTexture — and a storage texture with no mips never needs render-pass mip-gen.
@@ -23927,6 +23966,25 @@ function getDefaultTexture(cache, device, format) {
     return tex;
 }
 /**
+ * Tear down the cache (called on renderer dispose).
+ *
+ * `device.destroy()` releases the GPU objects, so this is about JS state: the placeholder textures and
+ * mipmap pipelines are destroyed explicitly because they are shared and not owned by any GpuTexture,
+ * and the map is REPLACED rather than emptied so a `GpuTexture` outliving its renderer cannot find a
+ * stale entry and destroy through a dead device. The WebGL sibling does the same for the same reason.
+ */
+function disposeTextureCache$1(cache) {
+    for (const tex of cache.defaultTextures.values())
+        tex.destroy();
+    cache.defaultTextures.clear();
+    if (cache.mipmapState) {
+        disposeMipmapState(cache.mipmapState);
+        cache.mipmapState = null;
+    }
+    cache.textureMap = new WeakMap();
+    resetTextureTally(cache.tally);
+}
+/**
  * Get cached TextureData for a GpuTexture.
  * Returns null if not in cache (call updateTexture first).
  */
@@ -24104,7 +24162,7 @@ function ensureRenderTargetTexturesAllocated(cache, device, renderTarget) {
     }
 }
 function ensureCubeRenderTargetTexturesAllocated(cache, device, renderTarget) {
-    const cubeMipCount = renderTarget.texture.generateMipmaps ? Math.floor(Math.log2(renderTarget.size)) + 1 : 1;
+    const cubeMipCount = renderTarget.texture.generateMipmaps ? fullMipChainLength(renderTarget.size, renderTarget.size) : 1;
     const cubeReady = hasRenderTargetTextureAllocation(cache, renderTarget.texture._gpuTexture, renderTarget.size, renderTarget.size, renderTarget.texture.format, 1, cubeMipCount);
     const depthReady = !renderTarget._depthAttachment ||
         hasRenderTargetTextureAllocation(cache, renderTarget._depthAttachment._gpuTexture, renderTarget.size, renderTarget.size, renderTarget._depthAttachment.format, 1, 1);
@@ -27257,7 +27315,7 @@ function setText(element, text) {
  * rows; the row set is rebuilt when those keys change (they appear as the caches populate). The graph
  * tracks a single total-resource line.
  */
-const NEUTRAL_ROWS = ['Buffers', 'Geometries', 'Textures', 'Samplers', 'Programs'];
+const NEUTRAL_ROWS = ['Buffers', 'Geometries', 'Textures', 'Samplers'];
 /** `renderPipelines` -> `Render Pipelines`. Backend bag keys are camelCase by convention. */
 function humanizeKey(key) {
     const spaced = key.replace(/([a-z0-9])([A-Z])/g, '$1 $2');
@@ -27318,7 +27376,7 @@ class Memory extends Tab {
         if (!renderer)
             return;
         const m = renderer.info.memory;
-        this.graph.addPoint('total', m.buffers + m.geometries + m.textures + m.samplers + m.programs);
+        this.graph.addPoint('total', m.buffers + m.geometries + m.textures + m.samplers);
         if (this.graph.limit === 0)
             this.graph.limit = 1;
         this.graph.update();
@@ -27334,7 +27392,6 @@ class Memory extends Tab {
         this._set('Geometries', m.geometries.toString());
         this._set('Textures', m.textures.toString());
         this._set('Samplers', m.samplers.toString());
-        this._set('Programs', m.programs.toString());
         this._set('Render Objects', getRenderObjectsStats(renderer._renderObjects).total.toString());
         for (const k of backendKeys)
             this._set(humanizeKey(k), String(m.backend[k] ?? 0));
@@ -36467,20 +36524,6 @@ function ensureGlTexture(gl, state, texture) {
     }
     return data;
 }
-/**
- * Number of mip levels to allocate for a texture. Explicit user mip images win (level 0 + supplied
- * levels); else the full chain when auto-generating; else the descriptor's explicit `mipLevelCount`
- * (mirrors the WebGPU path's `createGPUTexture` mip-count logic).
- */
-function mipLevelCount(texture) {
-    if (texture.mipmaps.length > 0) {
-        return texture.mipmaps.length + 1;
-    }
-    if (texture.generateMipmaps) {
-        return Math.floor(Math.log2(Math.max(texture.width, texture.height))) + 1;
-    }
-    return Math.max(1, texture.mipLevelCount);
-}
 /** Extract a raw typed-array view from a DataTexture-style source, or null. */
 function typedArrayOf(sourceData) {
     if (sourceData && typeof sourceData === 'object' && 'data' in sourceData) {
@@ -36640,7 +36683,7 @@ function uploadArray(gl, texture, data) {
     const w = texture.width;
     const h = texture.height;
     const layers = texture.depthOrArrayLayers;
-    const levels = mipLevelCount(texture);
+    const levels = mipLevelCountFor(texture);
     // 2D-array must be allocated via texStorage3D then filled per-layer with texSubImage3D.
     gl.texStorage3D(gl.TEXTURE_2D_ARRAY, levels, internalFormat, w, h, layers);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
@@ -36671,7 +36714,7 @@ function upload3D(gl, texture, data) {
     const w = texture.width;
     const h = texture.height;
     const depth = texture.depthOrArrayLayers;
-    const levels = mipLevelCount(texture);
+    const levels = mipLevelCountFor(texture);
     if (texture.mipmaps.length > 0) {
         // Per-level 3D mip upload isn't wired here; texStorage3D + a single level-0 fill is the
         // supported path. (No current caller supplies explicit 3D mips.)
@@ -36856,7 +36899,7 @@ function updateTexture(gl, state, texture) {
 function allocateRenderTargetStorage(gl, texture, data) {
     const w = texture.width;
     const h = texture.height;
-    const levels = mipLevelCount(texture);
+    const levels = mipLevelCountFor(texture);
     if (data.target === gl.TEXTURE_CUBE_MAP) {
         // Immutable storage allocates all 6 faces at once; each face is then attachable to an FBO
         // via framebufferTexture2D(TEXTURE_CUBE_MAP_POSITIVE_X + face, ...) (see render-target.ts).
@@ -38027,6 +38070,43 @@ function getGlRenderTargetsStats(state) {
 }
 
 /**
+ * draw-range.ts (renderer core) — resolving a geometry's `drawRange` into the concrete first/count a
+ * draw call takes.
+ *
+ * Both backends call this. The clamping is arithmetic over neutral geometry fields with no device in
+ * it, and it had already drifted: the WebGL path clamped against the elements REMAINING after `start`
+ * while the WebGPU path clamped against the whole buffer, so a non-zero `drawRange.start` could run
+ * past the end. Same reasoning as `update-ranges.ts`, `buffer-upload.ts` and `render-state.ts`.
+ *
+ * `drawRange` defaults to `{ start: 0, count: Infinity }`, meaning "all of it", so resolving is not
+ * optional: handing `Infinity` to a draw call is not a clamp the API does for you.
+ */
+/**
+ * The index range to draw. Clamped against the indices remaining after `start`, not the whole buffer:
+ * clamping against the whole buffer lets `start + count` overrun it, which reads garbage on WebGPU and
+ * is an "insufficient buffer" validation error on WebGL.
+ */
+function resolveIndexedDrawRange(geometry) {
+    const first = geometry.drawRange.start;
+    const total = geometry.index?.array?.length ?? 0;
+    const remaining = Math.max(0, total - first);
+    return { first, count: Math.min(geometry.drawRange.count, remaining) };
+}
+/**
+ * The vertex range to draw, sized from the `position` attribute, which is the only buffer every
+ * non-indexed geometry is guaranteed to have. A geometry with no position and no explicit count has
+ * nothing to size against; 3 (one triangle) is the historical fallback rather than a meaningful
+ * answer, and is kept so behaviour does not change.
+ */
+function resolveVertexDrawRange(geometry) {
+    const first = geometry.drawRange.start;
+    const positionCount = geometry.buffers.get('position')?.count;
+    const total = positionCount ?? (geometry.drawRange.count === Infinity ? 3 : geometry.drawRange.count);
+    const remaining = Math.max(0, total - first);
+    return { first, count: Math.min(geometry.drawRange.count, remaining) };
+}
+
+/**
  * state.ts (webgl) - GL pipeline-state helpers, driven by gpucat material fields.
  *
  * These are the immediate-mode equivalents of a WebGPU pipeline's fixed-function state: depth
@@ -38626,32 +38706,22 @@ function executeRenderPass$1(gl, caches, nodes, passCtx, prepared, params, inspe
             if (drawBaseLoc !== null)
                 gl.uniform1ui(drawBaseLoc, 0);
             const instances = mesh.count;
-            const start = geometry.drawRange.start;
             if (geometry.index && drawInfo.indexType !== null) {
-                const indexArray = geometry.index.array;
-                // Clamp against the indices REMAINING after `start`, not the whole buffer — otherwise a
-                // non-zero drawRange.start reads past the end of the index buffer (GL: insufficient buffer).
-                const count = Math.min(geometry.drawRange.count, indexArray.length - start);
+                const { first, count } = resolveIndexedDrawRange(geometry);
                 // firstIndex is a byte offset for drawElements; each index is 1 (uint8), 2 (uint16) or
                 // 4 (uint32) bytes.
                 const bytesPerIndex = drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
-                gl.drawElementsInstanced(gl.TRIANGLES, count, drawInfo.indexType, start * bytesPerIndex, instances);
+                gl.drawElementsInstanced(gl.TRIANGLES, count, drawInfo.indexType, first * bytesPerIndex, instances);
                 if (inspector)
                     inspector.drawIndexed(count, instances);
                 countDraw(info, count, instances);
             }
             else {
-                const position = geometry.buffers.get('position');
-                // Vertices remaining after `start`; clamp drawRange.count to it so a non-zero start
-                // can't over-read the vertex buffer.
-                const available = (position?.count ?? geometry.drawRange.count) - start;
-                const vertexCount = geometry.drawRange.count === Infinity
-                    ? (position?.count ?? 3) - start
-                    : Math.min(geometry.drawRange.count, available);
-                gl.drawArraysInstanced(gl.TRIANGLES, start, vertexCount, instances);
+                const { first, count } = resolveVertexDrawRange(geometry);
+                gl.drawArraysInstanced(gl.TRIANGLES, first, count, instances);
                 if (inspector)
-                    inspector.draw(vertexCount, instances);
-                countDraw(info, vertexCount, instances);
+                    inspector.draw(count, instances);
+                countDraw(info, count, instances);
             }
         }
         updateAfter(nodes, renderObject);
@@ -39369,7 +39439,9 @@ class WebGLRenderer {
         // count + bytes + per-format breakdown, straight from the cache's running tally.
         readTextureTally(this._textures.tally, info.memory);
         info.memory.samplers = getSamplerCacheStats(this._samplers).samplerCount;
-        info.memory.programs = getProgramCacheStats(this._programs).programCount;
+        // GL's shader-variant count. Backend-specific: it is keyed on source, so it does not compare
+        // with WebGPU's pipeline count, which is keyed on source plus fixed-function state.
+        info.memory.backend.programs = getProgramCacheStats(this._programs).programCount;
         info.memory.backend.framebuffers = renderTargets.fboCount;
         info.memory.backend.renderbuffers = renderTargets.renderbufferCount;
     }
@@ -40705,8 +40777,8 @@ function draw(device, bindings, geometries, buffers, textures, samplers, renderO
                 }
             }
             else {
-                const indexCount = Math.min(geometry.drawRange.count, geometry.index.array.length);
-                passDrawIndexed(gpuPass, inspector, info, indexCount, mesh.count, geometry.drawRange.start);
+                const { first, count } = resolveIndexedDrawRange(geometry);
+                passDrawIndexed(gpuPass, inspector, info, count, mesh.count, first);
             }
         }
         else {
@@ -40729,7 +40801,8 @@ function draw(device, bindings, geometries, buffers, textures, samplers, renderO
                 }
             }
             else {
-                passDraw(gpuPass, inspector, info, geometry.drawRange.count, mesh.count, geometry.drawRange.start);
+                const { first, count } = resolveVertexDrawRange(geometry);
+                passDraw(gpuPass, inspector, info, count, mesh.count, first);
             }
         }
         if (inspector)
@@ -40750,7 +40823,7 @@ function draw(device, bindings, geometries, buffers, textures, samplers, renderO
  * textures + samplers, mipmap state, pipeline caches, and (unless the device was pre-created) the
  * device itself. After this the renderer is unusable.
  */
-function disposeDevice(contexts, device, deviceProvided, textures, samplers, pipelines, bindGroupLayoutCache, sc) {
+function disposeDevice(contexts, device, deviceProvided, textures, samplers, buffers, pipelines, bindGroupLayoutCache, sc) {
     // Unconfigure and release the swapchain canvas context (no-op in headless mode).
     if (sc.canvasTarget)
         releaseContext(contexts, sc.canvasTarget);
@@ -40761,21 +40834,13 @@ function disposeDevice(contexts, device, deviceProvided, textures, samplers, pip
     sc.depthTextureView = null;
     sc.msaaTexture = null;
     sc.msaaTextureView = null;
-    // Destroy default placeholder textures
-    for (const tex of textures.defaultTextures.values()) {
-        tex.destroy();
-    }
-    textures.defaultTextures.clear();
+    // Each cache tears itself down: whoever owns a cache owns its teardown, so this function sequences
+    // them rather than reaching into their internals.
+    disposeTextureCache$1(textures);
     disposeSamplerCache$1(samplers);
-    // Dispose mipmap generation state
-    if (textures.mipmapState) {
-        disposeMipmapState(textures.mipmapState);
-        textures.mipmapState = null;
-    }
-    // Clear pipeline caches + the shared bind group layout cache (backing both pipelines + bindings)
-    pipelines.renderPipelines.clear();
-    pipelines.computePipelines.clear();
-    bindGroupLayoutCache.cache.clear();
+    disposeBufferCache$1(buffers);
+    disposePipelines(pipelines);
+    disposeBindGroupLayoutCache(bindGroupLayoutCache);
     // Destroy the device unless it was externally provided
     if (!deviceProvided && device) {
         device.destroy();
@@ -41368,9 +41433,6 @@ class WebGPURenderer {
         // count + bytes + per-format breakdown, straight from the cache's running tally.
         readTextureTally(this.textures.tally, info.memory);
         info.memory.samplers = samplers.samplerCount;
-        info.memory.programs = renderPipelines + computePipelines;
-        // Split back out for anyone debugging WebGPU specifically; the neutral counters above are
-        // sums, because WebGL has no equivalent split.
         info.memory.backend.rawBuffers = this.buffers.rawCount;
         info.memory.backend.renderPipelines = renderPipelines;
         info.memory.backend.computePipelines = computePipelines;
@@ -41559,7 +41621,7 @@ class WebGPURenderer {
         this._nodes.computeStates.clear();
         // Release all device resources: unconfigure the canvas context, then destroy swapchain
         // textures, caches, and the device (unless pre-created).
-        disposeDevice(this.canvasContexts, this.device, this._deviceProvided, this.textures, this.samplers, this.pipelines, this.bindGroupLayoutCache, this.swapchain);
+        disposeDevice(this.canvasContexts, this.device, this._deviceProvided, this.textures, this.samplers, this.buffers, this.pipelines, this.bindGroupLayoutCache, this.swapchain);
         // Dispose the canvas target (device-side context already released above).
         if (this._canvasTarget)
             this._canvasTarget.dispose();
