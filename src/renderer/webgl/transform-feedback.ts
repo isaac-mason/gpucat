@@ -38,7 +38,7 @@ import type { SamplerCache } from './samplers';
 import type { TextureCache } from './textures';
 import { bindStandaloneTextures } from './texture-bindings';
 import type { RendererInfo } from '../core/info';
-import { updateAndBindStandaloneUniformGroup, type UniformsState } from './uniforms';
+import { updateAndBindStandaloneUniformGroup, type BindingsState } from './bindings';
 
 /** Per-node cached compile + link. */
 type TfNodeCache = {
@@ -196,7 +196,7 @@ export function runTransformFeedback(
     opts: TransformFeedbackRunOptions,
     precision: 'highp' | 'mediump' | 'lowp' | undefined,
     frame: NodeFrame,
-    uniforms: UniformsState,
+    uniforms: BindingsState,
     textures: TextureCache,
     samplers: SamplerCache,
     info: RendererInfo,

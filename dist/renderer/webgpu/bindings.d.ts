@@ -1,5 +1,4 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
-import type { UniformGroupBlock } from '../../nodes/builder';
 import type { Any } from '../../schema/schema';
 import type { BindGroup } from '../core/bind-group';
 import type { NodeBuilderState } from '../core/node-builder-state';
@@ -57,5 +56,3 @@ export declare function getRenderBindGroups(state: BindingsState, renderObject: 
 export declare function deleteRenderBindings(_state: BindingsState, renderObject: RenderObject, renderObjectGpuCache: RenderObjectGpuCache): void;
 /** Mark a RenderObject's bindings as needing rebuild. */
 export declare function invalidateRenderBindings(state: BindingsState, renderObject: RenderObject): void;
-/** Invoke update callbacks on uniform nodes in a group. */
-export declare function invokeUniformGroupCallbacks(block: UniformGroupBlock, frame: NodeFrame): void;

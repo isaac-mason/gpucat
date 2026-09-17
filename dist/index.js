@@ -14610,6 +14610,27 @@ function cloneBindGroup(source) {
         isBindGroup: true,
     };
 }
+/**
+ * Run the update callbacks for a uniform group's members.
+ *
+ * Neutral on purpose: it walks the group's members and defers to `NodeFrame.updateNode`, which owns
+ * the FRAME/RENDER/OBJECT dedup. No device is touched, so both backends call this rather than each
+ * keeping its own walk. It lived in `webgpu/bindings.ts` and was imported across the backend boundary
+ * by `webgl/`, the only such import in the tree.
+ */
+function invokeUniformGroupCallbacks(block, frame) {
+    for (const m of block.members) {
+        const node = m.node;
+        if (node.update) {
+            // Use NodeFrame's updateNode which respects updateType and deduplicates:
+            // - FRAME: runs once per frameId
+            // - RENDER: runs once per renderId
+            // - OBJECT: runs every time (per mesh)
+            // The callback itself assigns node.value and bumps node.version (see UniformNode.onUpdate)
+            frame.updateNode(node);
+        }
+    }
+}
 
 /**
  * Global cache for shared BindGroups.
@@ -24180,7 +24201,7 @@ function getSamplerCacheStats$1(state) {
  * Create a new Bindings state. The shared bind group layout cache is owned by the backend and passed
  * in so the bindings and pipelines layers hit a single value-keyed layout cache.
  */
-function createBindingsState(layoutCache) {
+function createBindingsState$1(layoutCache) {
     return {
         layoutCache,
         data: new WeakMap(),
@@ -24657,20 +24678,6 @@ function rebuildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bi
             layout: data.bindGroupLayout,
             entries,
         });
-    }
-}
-/** Invoke update callbacks on uniform nodes in a group. */
-function invokeUniformGroupCallbacks(block, frame) {
-    for (const m of block.members) {
-        const node = m.node;
-        if (node.update) {
-            // Use NodeFrame's updateNode which respects updateType and deduplicates:
-            // - FRAME: runs once per frameId
-            // - RENDER: runs once per renderId
-            // - OBJECT: runs every time (per mesh)
-            // The callback itself assigns node.value and bumps node.version (see UniformNode.onUpdate)
-            frame.updateNode(node);
-        }
     }
 }
 /** Update a compute BindGroup (uniforms, textures, samplers, storage). */
@@ -37113,7 +37120,13 @@ function findSamplerForUnit(bindGroups, unit) {
 }
 
 /**
- * uniforms.ts (webgl) - std140 UBO path. The GL sibling of `webgpu/bindings.ts`'s uniform handling.
+ * bindings.ts (webgl) - std140 UBO path, the GL sibling of `webgpu/bindings.ts`.
+ *
+ * Same resource (a `BindGroup` from `core/bind-group.ts`), same filename, different mechanism. WebGPU
+ * builds a `GPUBindGroup` object that is created, cached, invalidated and bound as a unit, so its
+ * surface is init/get/delete/invalidate. WebGL2 has no bind-group object at all: uniform buffers are
+ * bound to numbered binding points per draw, so the surface is update-and-bind. Those names are not
+ * drift; aligning them would misdescribe both.
  *
  * gpucat's GLSL emitter declares every uniform group as `layout(std140) uniform Uniforms_<group> {…}
  * uniforms_<group>;`, so uniform values MUST be delivered through uniform buffer objects
@@ -37121,10 +37134,10 @@ function findSamplerForUnit(bindGroups, unit) {
  * UBO per uniform BindGroup and writes the group's member values at the std140 byte offsets the
  * emitter already computed (`UniformGroupBlock.members[].offset`, `.totalBytes`).
  *
- * The value sourcing + update lifecycle is a faithful port of `webgpu/bindings.ts`:
+ * The value sourcing + update lifecycle matches `webgpu/bindings.ts`:
  *   - the RENDER/FRAME/OBJECT update gating (`block.group.updateType` + frameId/renderId dedup),
- *   - invoking each member node's `update` callback through the `NodeFrame` (which assigns
- *     `node.value` and respects updateType),
+ *   - invoking each member node's `update` callback through `invokeUniformGroupCallbacks`, which both
+ *     backends share from `core/bind-group.ts`,
  *   - reading each member's value from `m.node.uniform.value`, falling back to the material's named
  *     uniforms, then packing it with `packToView(schema, view, offset, value, 'std140')`.
  * We deliberately reuse that value logic rather than the reference renderer's per-name loose-uniform
@@ -37135,7 +37148,7 @@ function findSamplerForUnit(bindGroups, unit) {
  * shared groups (camera) share one entry and per-object groups get their own, exactly as WebGPU.
  */
 /** Create an empty uniforms state. */
-function createUniformsState() {
+function createBindingsState() {
     return { data: new WeakMap(), standalone: new WeakMap(), all: new Set() };
 }
 function getUboData(gl, state, binding, byteLength) {
@@ -37302,13 +37315,13 @@ function updateAndBindStandaloneUniformGroup(gl, state, block, frame, bindingPoi
     gl.bindBufferBase(gl.UNIFORM_BUFFER, bindingPoint, data.ubo);
 }
 /** Delete all GL UBOs (called on renderer dispose). */
-function disposeUniforms(gl, state) {
+function disposeBindingsState(gl, state) {
     for (const ubo of state.all)
         gl.deleteBuffer(ubo);
     state.all.clear();
 }
 /** Number of GL UBOs currently allocated. */
-function getUniformsStats(state) {
+function getBindingsStats(state) {
     return { uboCount: state.all.size };
 }
 
@@ -39186,7 +39199,7 @@ class WebGLRenderer {
         // Device resource caches — GL handles inside are created lazily once init() has the context.
         this._programs = createProgramCache();
         this._geometries = createGeometriesState$1();
-        this._uniforms = createUniformsState();
+        this._uniforms = createBindingsState();
         this._renderObjectGl = createRenderObjectGlCache();
         this._textures = createTextureCache();
         this._samplers = createSamplerCache();
@@ -39335,7 +39348,7 @@ class WebGLRenderer {
         beginInfoFrame(info);
         const geometries = getGeometriesStats$1(this._geometries);
         const renderTargets = getGlRenderTargetsStats(this._renderTargets);
-        info.memory.buffers = geometries.buffers + geometries.indexBuffers + getUniformsStats(this._uniforms).uboCount;
+        info.memory.buffers = geometries.buffers + geometries.indexBuffers + getBindingsStats(this._uniforms).uboCount;
         info.memory.geometries = geometries.geometries;
         // count + bytes + per-format breakdown, straight from the cache's running tally.
         readTextureTally(this._textures.tally, info.memory);
@@ -39592,7 +39605,7 @@ class WebGLRenderer {
         if (this.gl) {
             disposeProbeState(this.gl, this._probe);
             disposePrograms(this.gl, this._programs);
-            disposeUniforms(this.gl, this._uniforms);
+            disposeBindingsState(this.gl, this._uniforms);
             disposeTextureCache(this.gl, this._textures);
             disposeSamplerCache(this.gl, this._samplers);
             disposeGlRenderTargets(this.gl, this._renderTargets);
@@ -40989,7 +41002,7 @@ class WebGPURenderer {
         this.samplers = createSamplerCache$1();
         this.bindGroupLayoutCache = createBindGroupLayoutCache();
         this.pipelines = createPipelinesState(this.bindGroupLayoutCache);
-        this.bindings = createBindingsState(this.bindGroupLayoutCache);
+        this.bindings = createBindingsState$1(this.bindGroupLayoutCache);
         this.geometries = createGeometriesState();
         this.renderObjectGpu = createRenderObjectGpuCache();
         this.swapchain = createSwapchainState(samples, swapchainDepthFormat);

@@ -1,5 +1,11 @@
 /**
- * uniforms.ts (webgl) - std140 UBO path. The GL sibling of `webgpu/bindings.ts`'s uniform handling.
+ * bindings.ts (webgl) - std140 UBO path, the GL sibling of `webgpu/bindings.ts`.
+ *
+ * Same resource (a `BindGroup` from `core/bind-group.ts`), same filename, different mechanism. WebGPU
+ * builds a `GPUBindGroup` object that is created, cached, invalidated and bound as a unit, so its
+ * surface is init/get/delete/invalidate. WebGL2 has no bind-group object at all: uniform buffers are
+ * bound to numbered binding points per draw, so the surface is update-and-bind. Those names are not
+ * drift; aligning them would misdescribe both.
  *
  * gpucat's GLSL emitter declares every uniform group as `layout(std140) uniform Uniforms_<group> {…}
  * uniforms_<group>;`, so uniform values MUST be delivered through uniform buffer objects
@@ -7,10 +13,10 @@
  * UBO per uniform BindGroup and writes the group's member values at the std140 byte offsets the
  * emitter already computed (`UniformGroupBlock.members[].offset`, `.totalBytes`).
  *
- * The value sourcing + update lifecycle is a faithful port of `webgpu/bindings.ts`:
+ * The value sourcing + update lifecycle matches `webgpu/bindings.ts`:
  *   - the RENDER/FRAME/OBJECT update gating (`block.group.updateType` + frameId/renderId dedup),
- *   - invoking each member node's `update` callback through the `NodeFrame` (which assigns
- *     `node.value` and respects updateType),
+ *   - invoking each member node's `update` callback through `invokeUniformGroupCallbacks`, which both
+ *     backends share from `core/bind-group.ts`,
  *   - reading each member's value from `m.node.uniform.value`, falling back to the material's named
  *     uniforms, then packing it with `packToView(schema, view, offset, value, 'std140')`.
  * We deliberately reuse that value logic rather than the reference renderer's per-name loose-uniform
@@ -24,10 +30,9 @@
 import type { Material } from '../../material/material';
 import type { UniformGroupBlock } from '../../nodes/builder';
 import { packToView } from '../../schema/pack';
-import type { UniformBinding } from '../core/bind-group';
+import { invokeUniformGroupCallbacks, type UniformBinding } from '../core/bind-group';
 import { type RendererInfo, recordBufferWrite } from '../core/info';
 import type { NodeFrame } from '../core/node-frame';
-import { invokeUniformGroupCallbacks } from '../webgpu/bindings';
 
 /** Per-uniform-BindGroup GL resources + change-tracking state. */
 type UboData = {
@@ -40,7 +45,7 @@ type UboData = {
 };
 
 /** Uniforms state: per-UniformBinding GL UBO data. */
-export type UniformsState = {
+export type BindingsState = {
     data: WeakMap<UniformBinding, UboData>;
     /**
      * Per-standalone-UniformGroupBlock GL UBO data. Standalone kernels (transform feedback) have no
@@ -53,11 +58,11 @@ export type UniformsState = {
 };
 
 /** Create an empty uniforms state. */
-export function createUniformsState(): UniformsState {
+export function createBindingsState(): BindingsState {
     return { data: new WeakMap(), standalone: new WeakMap(), all: new Set() };
 }
 
-function getUboData(gl: WebGL2RenderingContext, state: UniformsState, binding: UniformBinding, byteLength: number): UboData {
+function getUboData(gl: WebGL2RenderingContext, state: BindingsState, binding: UniformBinding, byteLength: number): UboData {
     let data = state.data.get(binding);
     if (!data || data.staging.byteLength !== byteLength) {
         const ubo = data?.ubo ?? gl.createBuffer();
@@ -121,7 +126,7 @@ function recordUniformWrite(info: RendererInfo, block: UniformGroupBlock, materi
  */
 export function updateAndBindUniformGroup(
     gl: WebGL2RenderingContext,
-    state: UniformsState,
+    state: BindingsState,
     binding: UniformBinding,
     frame: NodeFrame,
     bindingPoint: number,
@@ -182,7 +187,7 @@ export function updateAndBindUniformGroup(
 
 function getStandaloneUboData(
     gl: WebGL2RenderingContext,
-    state: UniformsState,
+    state: BindingsState,
     block: UniformGroupBlock,
     byteLength: number,
 ): UboData {
@@ -211,7 +216,7 @@ function getStandaloneUboData(
  */
 export function updateAndBindStandaloneUniformGroup(
     gl: WebGL2RenderingContext,
-    state: UniformsState,
+    state: BindingsState,
     block: UniformGroupBlock,
     frame: NodeFrame,
     bindingPoint: number,
@@ -243,12 +248,12 @@ export function updateAndBindStandaloneUniformGroup(
 }
 
 /** Delete all GL UBOs (called on renderer dispose). */
-export function disposeUniforms(gl: WebGL2RenderingContext, state: UniformsState): void {
+export function disposeBindingsState(gl: WebGL2RenderingContext, state: BindingsState): void {
     for (const ubo of state.all) gl.deleteBuffer(ubo);
     state.all.clear();
 }
 
 /** Number of GL UBOs currently allocated. */
-export function getUniformsStats(state: UniformsState): { uboCount: number } {
+export function getBindingsStats(state: BindingsState): { uboCount: number } {
     return { uboCount: state.all.size };
 }

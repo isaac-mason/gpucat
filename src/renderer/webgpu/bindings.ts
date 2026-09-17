@@ -12,6 +12,7 @@ import type {
     TextureBinding,
     UniformBinding,
 } from '../core/bind-group';
+import { invokeUniformGroupCallbacks } from '../core/bind-group';
 import type { NodeBuilderState } from '../core/node-builder-state';
 import type { NodeFrame } from '../core/node-frame';
 import type { RenderObject } from '../core/render-object';
@@ -725,21 +726,6 @@ function rebuildGPUBindGroup(
             layout: data.bindGroupLayout,
             entries,
         });
-    }
-}
-
-/** Invoke update callbacks on uniform nodes in a group. */
-export function invokeUniformGroupCallbacks(block: UniformGroupBlock, frame: NodeFrame): void {
-    for (const m of block.members) {
-        const node = m.node;
-        if (node.update) {
-            // Use NodeFrame's updateNode which respects updateType and deduplicates:
-            // - FRAME: runs once per frameId
-            // - RENDER: runs once per renderId
-            // - OBJECT: runs every time (per mesh)
-            // The callback itself assigns node.value and bumps node.version (see UniformNode.onUpdate)
-            frame.updateNode(node as unknown as Parameters<typeof frame.updateNode>[0]);
-        }
     }
 }
 

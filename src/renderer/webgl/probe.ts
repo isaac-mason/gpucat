@@ -24,12 +24,12 @@ import type { ProgramInfo } from './programs';
 import type { SamplerCache } from './samplers';
 import { bindTextures } from './texture-bindings';
 import type { TextureCache } from './textures';
-import * as Uniforms from './uniforms';
+import * as Bindings from './bindings';
 
 /** The device caches + node frame the probe render needs (a subset of the renderer's caches). */
 export type ProbeCaches = {
     geometries: Geometries.GeometriesState;
-    uniforms: Uniforms.UniformsState;
+    uniforms: Bindings.BindingsState;
     textures: TextureCache;
     samplers: SamplerCache;
     frame: NodeFrame;
@@ -229,7 +229,7 @@ export function renderProbe(
             if (binding.kind !== 'uniform') continue;
             const bindingPoint = p.uboBindingPoints.get(binding.block.groupName);
             if (bindingPoint === undefined) continue;
-            Uniforms.updateAndBindUniformGroup(gl, caches.uniforms, binding, caches.frame, bindingPoint, ro.material, caches.info);
+            Bindings.updateAndBindUniformGroup(gl, caches.uniforms, binding, caches.frame, bindingPoint, ro.material, caches.info);
         }
     }
 

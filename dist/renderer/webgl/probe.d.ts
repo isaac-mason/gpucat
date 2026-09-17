@@ -19,11 +19,11 @@ import { type RenderObject } from '../core/render-object';
 import * as Geometries from './geometries';
 import type { SamplerCache } from './samplers';
 import type { TextureCache } from './textures';
-import * as Uniforms from './uniforms';
+import * as Bindings from './bindings';
 /** The device caches + node frame the probe render needs (a subset of the renderer's caches). */
 export type ProbeCaches = {
     geometries: Geometries.GeometriesState;
-    uniforms: Uniforms.UniformsState;
+    uniforms: Bindings.BindingsState;
     textures: TextureCache;
     samplers: SamplerCache;
     frame: NodeFrame;

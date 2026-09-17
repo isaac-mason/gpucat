@@ -23,7 +23,7 @@ import { type GlRenderTargetsState } from './render-target';
 import type { SamplerCache } from './samplers';
 import type { RendererInfo } from '../core/info';
 import type { TextureCache } from './textures';
-import * as Uniforms from './uniforms';
+import * as Bindings from './bindings';
 /**
  * Manually clear the current framebuffer (color and/or depth and/or stencil), ignoring autoClear and
  * viewport/scissor. The scissor test is disabled so the whole framebuffer clears.
@@ -32,7 +32,7 @@ export declare function clear(gl: WebGL2RenderingContext, caches: DrawCaches, pa
 /** Caches the draw loop needs, bundled so `executeRenderPass` keeps a small signature. */
 export type DrawCaches = {
     geometries: Geometries.GeometriesState;
-    uniforms: Uniforms.UniformsState;
+    uniforms: Bindings.BindingsState;
     renderObjectGl: RenderObjectGlCache;
     textures: TextureCache;
     samplers: SamplerCache;

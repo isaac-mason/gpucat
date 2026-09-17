@@ -43,7 +43,7 @@ import * as Samplers from './samplers';
 import * as ReadPixels from './read-pixels';
 import * as Textures from './textures';
 import * as TransformFeedback from './transform-feedback';
-import * as Uniforms from './uniforms';
+import * as Bindings from './bindings';
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { TransformFeedbackNode } from '../../nodes/lib/transform-feedback';
 
@@ -164,7 +164,7 @@ export class WebGLRenderer implements Renderer, RendererState {
     /** Per-geometry GL buffers + VAOs. @internal */
     private readonly _geometries: Geometries.GeometriesState;
     /** Per-uniform-group std140 UBO cache. @internal */
-    private readonly _uniforms: Uniforms.UniformsState;
+    private readonly _uniforms: Bindings.BindingsState;
     /** Per-RenderObject GL device payload (linked program). @internal */
     private readonly _renderObjectGl: RenderObjectGlCache;
     /** Per-GpuTexture GL texture cache (upload + allocation). @internal */
@@ -296,7 +296,7 @@ export class WebGLRenderer implements Renderer, RendererState {
         // Device resource caches — GL handles inside are created lazily once init() has the context.
         this._programs = Programs.createProgramCache();
         this._geometries = Geometries.createGeometriesState();
-        this._uniforms = Uniforms.createUniformsState();
+        this._uniforms = Bindings.createBindingsState();
         this._renderObjectGl = createRenderObjectGlCache();
         this._textures = Textures.createTextureCache();
         this._samplers = Samplers.createSamplerCache();
@@ -474,7 +474,7 @@ export class WebGLRenderer implements Renderer, RendererState {
         Info.beginInfoFrame(info);
         const geometries = Geometries.getGeometriesStats(this._geometries);
         const renderTargets = RenderTargets.getGlRenderTargetsStats(this._renderTargets);
-        info.memory.buffers = geometries.buffers + geometries.indexBuffers + Uniforms.getUniformsStats(this._uniforms).uboCount;
+        info.memory.buffers = geometries.buffers + geometries.indexBuffers + Bindings.getBindingsStats(this._uniforms).uboCount;
         info.memory.geometries = geometries.geometries;
         // count + bytes + per-format breakdown, straight from the cache's running tally.
         Info.readTextureTally(this._textures.tally, info.memory);
@@ -811,7 +811,7 @@ export class WebGLRenderer implements Renderer, RendererState {
         if (this.gl) {
             Probe.disposeProbeState(this.gl, this._probe);
             Programs.disposePrograms(this.gl, this._programs);
-            Uniforms.disposeUniforms(this.gl, this._uniforms);
+            Bindings.disposeBindingsState(this.gl, this._uniforms);
             Textures.disposeTextureCache(this.gl, this._textures);
             Samplers.disposeSamplerCache(this.gl, this._samplers);
             RenderTargets.disposeGlRenderTargets(this.gl, this._renderTargets);

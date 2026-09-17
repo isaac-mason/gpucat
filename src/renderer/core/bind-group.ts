@@ -1,6 +1,7 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { SamplerEntry, StorageEntry, StorageTextureEntry, TextureEntry, UniformGroupBlock } from '../../nodes/builder';
+import type { NodeFrame } from './node-frame';
 
 let bindGroupIdCounter = 0;
 
@@ -218,4 +219,26 @@ export function cloneBindGroup(source: BindGroup): BindGroup {
         bindings: clonedBindings,
         isBindGroup: true,
     };
+}
+
+/**
+ * Run the update callbacks for a uniform group's members.
+ *
+ * Neutral on purpose: it walks the group's members and defers to `NodeFrame.updateNode`, which owns
+ * the FRAME/RENDER/OBJECT dedup. No device is touched, so both backends call this rather than each
+ * keeping its own walk. It lived in `webgpu/bindings.ts` and was imported across the backend boundary
+ * by `webgl/`, the only such import in the tree.
+ */
+export function invokeUniformGroupCallbacks(block: UniformGroupBlock, frame: NodeFrame): void {
+    for (const m of block.members) {
+        const node = m.node;
+        if (node.update) {
+            // Use NodeFrame's updateNode which respects updateType and deduplicates:
+            // - FRAME: runs once per frameId
+            // - RENDER: runs once per renderId
+            // - OBJECT: runs every time (per mesh)
+            // The callback itself assigns node.value and bumps node.version (see UniformNode.onUpdate)
+            frame.updateNode(node as unknown as Parameters<typeof frame.updateNode>[0]);
+        }
+    }
 }

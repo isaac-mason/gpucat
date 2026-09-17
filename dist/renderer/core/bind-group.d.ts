@@ -1,6 +1,7 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { GpuTexture } from '../../core/gpu-texture';
 import type { SamplerEntry, StorageEntry, StorageTextureEntry, TextureEntry, UniformGroupBlock } from '../../nodes/builder';
+import type { NodeFrame } from './node-frame';
 /**
  * A single binding within a BindGroup.
  * Can be a uniform buffer, storage buffer, texture, or sampler.
@@ -98,3 +99,12 @@ export declare function createResourceBindGroup(name: string, groupIndex: number
  * Used for non-shared groups that need per-RenderObject instances.
  */
 export declare function cloneBindGroup(source: BindGroup): BindGroup;
+/**
+ * Run the update callbacks for a uniform group's members.
+ *
+ * Neutral on purpose: it walks the group's members and defers to `NodeFrame.updateNode`, which owns
+ * the FRAME/RENDER/OBJECT dedup. No device is touched, so both backends call this rather than each
+ * keeping its own walk. It lived in `webgpu/bindings.ts` and was imported across the backend boundary
+ * by `webgl/`, the only such import in the tree.
+ */
+export declare function invokeUniformGroupCallbacks(block: UniformGroupBlock, frame: NodeFrame): void;

@@ -30,7 +30,7 @@ import * as RenderState from '../core/render-state';
 import { applyMaterialState, createGlStateCache, establishPassBaseline } from './state';
 import { bindTextures } from './texture-bindings';
 import type { TextureCache } from './textures';
-import * as Uniforms from './uniforms';
+import * as Bindings from './bindings';
 
 /**
  * Bind the target framebuffer for a pass: the render target's FBO (allocating + attaching its color
@@ -134,7 +134,7 @@ export function clear(
 /** Caches the draw loop needs, bundled so `executeRenderPass` keeps a small signature. */
 export type DrawCaches = {
     geometries: Geometries.GeometriesState;
-    uniforms: Uniforms.UniformsState;
+    uniforms: Bindings.BindingsState;
     renderObjectGl: RenderObjectGlCache;
     textures: TextureCache;
     samplers: SamplerCache;
@@ -288,7 +288,7 @@ export function executeRenderPass(
                 if (binding.kind !== 'uniform') continue;
                 const bindingPoint = programInfo.uboBindingPoints.get(binding.block.groupName);
                 if (bindingPoint === undefined) continue; // block optimized out / unused
-                Uniforms.updateAndBindUniformGroup(gl, caches.uniforms, binding, frame, bindingPoint, material, info);
+                Bindings.updateAndBindUniformGroup(gl, caches.uniforms, binding, frame, bindingPoint, material, info);
             }
             if (inspector) inspector.setBindGroup(bindGroupIndex, mesh.name || '');
             bindGroupIndex++;
