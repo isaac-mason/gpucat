@@ -18,6 +18,7 @@ import { DEPTH_FORMAT, formatHasStencil } from './pipelines';
 import type * as Pipelines from './pipelines';
 import * as RenderObjectGpu from './render-object-gpu';
 import * as RenderObjects from './render-objects';
+import * as RenderTargets from './render-target';
 import * as Samplers from './samplers';
 import * as Textures from './textures';
 
@@ -100,6 +101,40 @@ export type SwapchainState = {
     msaaTextureView: GPUTextureView | null;
 };
 
+/**
+ * The swapchain's own depth and MSAA attachments. These belong to the swapchain, not to any
+ * `RenderTarget`, so they live beside `SwapchainState` rather than in `render-target.ts`.
+ */
+export function createSwapchainDepthTexture(
+    device: GPUDevice,
+    width: number,
+    height: number,
+    sampleCount: number,
+    format: GPUTextureFormat = 'depth24plus',
+): GPUTexture {
+    return device.createTexture({
+        size: [width, height],
+        format,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        sampleCount,
+    });
+}
+
+export function createSwapchainMsaaTexture(
+    device: GPUDevice,
+    width: number,
+    height: number,
+    format: GPUTextureFormat,
+    sampleCount: number,
+): GPUTexture {
+    return device.createTexture({
+        size: [width, height],
+        format,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        sampleCount,
+    });
+}
+
 /** Create the initial (empty) swapchain state for the given sample count + depth format. */
 export function createSwapchainState(samples: number, depthFormat: GPUTextureFormat): SwapchainState {
     return {
@@ -128,12 +163,12 @@ export function recreateSwapchainTextures(
     const sampleCount = sc.samples > 1 ? sc.samples : 1;
 
     sc.depthTexture?.destroy();
-    sc.depthTexture = Textures.createSwapchainDepthTexture(device, width, height, sampleCount, sc.depthFormat);
+    sc.depthTexture = createSwapchainDepthTexture(device, width, height, sampleCount, sc.depthFormat);
     sc.depthTextureView = sc.depthTexture.createView();
 
     if (sc.samples > 1) {
         sc.msaaTexture?.destroy();
-        sc.msaaTexture = Textures.createSwapchainMsaaTexture(device, width, height, format, sc.samples);
+        sc.msaaTexture = createSwapchainMsaaTexture(device, width, height, format, sc.samples);
         sc.msaaTextureView = sc.msaaTexture.createView();
     }
 }
@@ -171,7 +206,7 @@ function resolveRenderTargetAttachments(
     clearColor: GPUColorDict,
     params: RenderPassParams,
 ): ResolvedAttachments {
-    Textures.ensureRenderTargetTexturesAllocated(textures, device, renderTarget);
+    RenderTargets.ensureRenderTargetTexturesAllocated(textures, device, renderTarget);
 
     // autoClear=false preserves prior contents so several viewport/scissor views can composite
     // into one render target (e.g. a grid of previews + one FXAA pass). MSAA can't 'load' a
@@ -185,18 +220,18 @@ function resolveRenderTargetAttachments(
         }
         // MSAA: render into the multisampled texture and resolve into the sampled
         // single-sample texture. Otherwise render directly into the single texture.
-        const msaaView = Textures.getRenderTargetMsaaView(textureData);
+        const msaaView = RenderTargets.getRenderTargetMsaaView(textureData);
         colorAttachments.push(
             msaaView
                 ? {
                       view: msaaView,
-                      resolveTarget: Textures.getRenderTargetView(textureData),
+                      resolveTarget: RenderTargets.getRenderTargetView(textureData),
                       clearValue: clearColor,
                       loadOp: 'clear',
                       storeOp: 'store',
                   }
                 : {
-                      view: Textures.getRenderTargetView(textureData),
+                      view: RenderTargets.getRenderTargetView(textureData),
                       clearValue: clearColor,
                       loadOp,
                       storeOp: 'store',
@@ -209,7 +244,7 @@ function resolveRenderTargetAttachments(
         const depthTextureData = Textures.getTextureData(textures, renderTarget._depthAttachment._gpuTexture);
         if (depthTextureData) {
             depthAttachment = {
-                view: Textures.getRenderTargetView(depthTextureData),
+                view: RenderTargets.getRenderTargetView(depthTextureData),
                 depthClearValue: 1.0,
                 depthLoadOp: loadOp,
                 depthStoreOp: 'store',
@@ -289,7 +324,7 @@ function resolveCubeAttachments(
     renderTarget: CubeRenderTarget,
     clearColor: GPUColorDict,
 ): ResolvedAttachments {
-    Textures.ensureRenderTargetTexturesAllocated(textures, device, renderTarget);
+    RenderTargets.ensureRenderTargetTexturesAllocated(textures, device, renderTarget);
 
     const cubeData = Textures.getTextureData(textures, renderTarget.texture._gpuTexture);
     if (!cubeData) {
@@ -317,7 +352,7 @@ function resolveCubeAttachments(
         const depthData = Textures.getTextureData(textures, renderTarget._depthAttachment._gpuTexture);
         if (depthData) {
             depthAttachment = {
-                view: Textures.getRenderTargetView(depthData),
+                view: RenderTargets.getRenderTargetView(depthData),
                 depthClearValue: 1.0,
                 depthLoadOp: 'clear',
                 depthStoreOp: 'store',

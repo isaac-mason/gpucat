@@ -1,11 +1,7 @@
 import { expect, test } from 'vitest';
 import { RenderTarget } from '../src/index';
-import {
-    createTextureCache,
-    ensureRenderTargetTexturesAllocated,
-    getRenderTargetMsaaView,
-    getTextureData,
-} from '../src/renderer/webgpu/textures';
+import { ensureRenderTargetTexturesAllocated, getRenderTargetMsaaView } from '../src/renderer/webgpu/render-target';
+import { createTextureCache, getTextureData } from '../src/renderer/webgpu/textures';
 import { installWebGPUPolyfills } from './stub-gpu';
 
 // RenderTarget construction + allocation reference GPUTextureUsage (a browser global).

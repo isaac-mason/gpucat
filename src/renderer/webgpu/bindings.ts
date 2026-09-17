@@ -22,9 +22,10 @@ import { ensureUploaded, getRaw, getUploaded, resolveStorageBuffer, uploadUnifor
 import { formatHasStencil } from './pipelines';
 import type { RenderObjectGpuCache } from './render-object-gpu';
 import { clearRenderObjectGpu, getRenderObjectGpu } from './render-object-gpu';
+import { ensureRenderTargetTexturesAllocated } from './render-target';
 import { getSampler, peekSampler, type SamplerCache } from './samplers';
 import type { TextureCache } from './textures';
-import { ensureRenderTargetTexturesAllocated, getTextureData, updateTexture } from './textures';
+import { getTextureData, updateTexture } from './textures';
 
 /**
  * Per-BindGroup data (GPU resources).

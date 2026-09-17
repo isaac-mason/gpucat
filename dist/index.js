@@ -15341,7 +15341,7 @@ function createBufferCache(info) {
  * Set up the _onDispose callback on a GpuBuffer to destroy its GPU buffer.
  * Only sets the callback once (idempotent).
  */
-function setupDispose$1(cache, buffer) {
+function setupDispose(cache, buffer) {
     if (buffer._onDispose)
         return;
     buffer._onDispose = () => {
@@ -15403,7 +15403,7 @@ function ensureUploaded(cache, device, buffer, name) {
         // the allocate path wrote everything, so pending ranges are already covered; dropping them
         // stops the next frame replaying them as a redundant partial write.
         buffer.clearUpdateRanges();
-        setupDispose$1(cache, buffer);
+        setupDispose(cache, buffer);
         buffer.onUpload?.();
         return buf;
     }
@@ -22880,122 +22880,6 @@ function peekRenderObjectGpu(cache, renderObject) {
 }
 
 /**
- * samplers.ts (webgpu) - per-GpuSampler `GPUSampler` cache, the WebGPU sibling of `webgl/samplers.ts`.
- *
- * Value-keyed by `GpuSampler.settingsKey`, so identical sampler settings share one `GPUSampler`. The
- * WebGL sibling keys on `settingsKey` PLUS whether the paired texture has mips, because a GL sampler
- * carries the mipmapped-vs-base min-filter choice and a mipmapped min-filter against a non-mipmapped
- * texture reads as incomplete. WebGPU has no such coupling, so one entry per settings key is enough:
- * that is an earned signature difference, not drift.
- *
- * Samplers are not disposed individually. They are shared by settings rather than owned by any one
- * `GpuSampler`, so there is nothing to hang a per-object release on; the whole cache goes at renderer
- * teardown.
- */
-function createSamplerCache$1() {
-    return { cache: new Map() };
-}
-/**
- * Get (or create) the `GPUSampler` for a `GpuSampler`'s settings.
- *
- * WebGPU rejects `maxAnisotropy > 1` unless all three filters are 'linear'; rather than throw, the
- * anisotropy is dropped, since it is a quality hint and the sampler still filters correctly without
- * it. The WebGL sibling makes the same call for the same reason when the anisotropy extension is
- * missing.
- */
-function getSampler$1(device, state, gpuSampler) {
-    const key = gpuSampler.settingsKey;
-    const existing = state.cache.get(key);
-    if (existing) {
-        existing.usedTimes++;
-        return existing.sampler;
-    }
-    let { minFilter, magFilter, mipmapFilter, maxAnisotropy } = gpuSampler;
-    if (maxAnisotropy > 1 && (minFilter !== 'linear' || magFilter !== 'linear' || mipmapFilter !== 'linear')) {
-        maxAnisotropy = 1;
-    }
-    const sampler = device.createSampler({
-        magFilter,
-        minFilter,
-        mipmapFilter,
-        addressModeU: gpuSampler.addressModeU,
-        addressModeV: gpuSampler.addressModeV,
-        addressModeW: gpuSampler.addressModeW,
-        maxAnisotropy,
-        compare: gpuSampler.compare,
-    });
-    state.cache.set(key, { sampler, usedTimes: 1 });
-    return sampler;
-}
-/**
- * The already-created sampler for a settings key, or null. For bind-group rebuilds, which bind what
- * `getSampler` put in the cache and must not create one as a side effect.
- */
-function peekSampler(state, settingsKey) {
-    return state.cache.get(settingsKey)?.sampler ?? null;
-}
-/** Drop every cached sampler (called on renderer dispose). `GPUSampler` has no explicit destroy. */
-function disposeSamplerCache$1(state) {
-    state.cache.clear();
-}
-/** Number of distinct sampler configurations currently cached. */
-function getSamplerCacheStats$1(state) {
-    return { samplerCount: state.cache.size };
-}
-
-/*
- * The backend-neutral half of the partial-texture-upload decision: which textures may take it, and
- * whether the pending regions are still worth uploading piecemeal.
- *
- * Both backends call these, deliberately. A region means the same thing on WebGPU and WebGL2 or it is
- * not an API, so the rule that decides it lives in exactly one place and cannot drift between them.
- */
-/**
- * View dimensions that take the partial path. `z` addresses array layers and cube faces alike, so both
- * qualify; 3D volumes and 1D do not yet.
- */
-function supportsPartialUpload(texture) {
-    const dim = texture.viewDimension;
-    return dim === '2d' || dim === '2d-array' || dim === 'cube' || dim === 'cube-array';
-}
-function isTypedSourceData(data) {
-    if (!data || typeof data !== 'object')
-        return false;
-    return ArrayBuffer.isView(data.data);
-}
-/**
- * Whether every source the partial path would read is typed-array backed.
- *
- * The unpack window addresses rows inside a packed buffer, which a DOM element source (image, canvas,
- * video) does not have. Those must fall through to a full upload: skipping them instead would drop the
- * write silently, which is the failure mode this whole model exists to remove.
- */
-function hasTypedPartialSource(texture) {
-    const ok = (source) => !!source && source.dataReady !== false && isTypedSourceData(source.data);
-    if (texture.mipmaps.length > 0 && !texture.mipmaps.every(ok))
-        return false;
-    if (texture.sources.length > 0)
-        return texture.sources.every(ok);
-    return ok(texture.source);
-}
-/** Texels the emitters will actually move for `regions`. Both backends honour a region exactly. */
-function dirtyTexelCount(regions) {
-    let n = 0;
-    for (const r of regions)
-        n += regionTexelCount(r);
-    return n;
-}
-/**
- * Whether the pending regions are worth a partial upload. Past half the texture, fewer and simpler
- * calls win: fall through to one full upload.
- */
-function withinPartialBudget(texture, regions) {
-    const total = texture.width * texture.height * texture.depthOrArrayLayers;
-    const dirty = dirtyTexelCount(regions);
-    return dirty > 0 && dirty <= total / 2;
-}
-
-/**
  * texture-size.ts (renderer core) — how many bytes a texture occupies, decided in one place.
  *
  * Both backends call this. The format vocabulary is WebGPU's `GPUTextureFormat` either way (the WebGL
@@ -23068,6 +22952,58 @@ function gpuTextureBytes(texture) {
         bytes += width * height * perTexel;
     }
     return bytes * layers;
+}
+
+/*
+ * The backend-neutral half of the partial-texture-upload decision: which textures may take it, and
+ * whether the pending regions are still worth uploading piecemeal.
+ *
+ * Both backends call these, deliberately. A region means the same thing on WebGPU and WebGL2 or it is
+ * not an API, so the rule that decides it lives in exactly one place and cannot drift between them.
+ */
+/**
+ * View dimensions that take the partial path. `z` addresses array layers and cube faces alike, so both
+ * qualify; 3D volumes and 1D do not yet.
+ */
+function supportsPartialUpload(texture) {
+    const dim = texture.viewDimension;
+    return dim === '2d' || dim === '2d-array' || dim === 'cube' || dim === 'cube-array';
+}
+function isTypedSourceData(data) {
+    if (!data || typeof data !== 'object')
+        return false;
+    return ArrayBuffer.isView(data.data);
+}
+/**
+ * Whether every source the partial path would read is typed-array backed.
+ *
+ * The unpack window addresses rows inside a packed buffer, which a DOM element source (image, canvas,
+ * video) does not have. Those must fall through to a full upload: skipping them instead would drop the
+ * write silently, which is the failure mode this whole model exists to remove.
+ */
+function hasTypedPartialSource(texture) {
+    const ok = (source) => !!source && source.dataReady !== false && isTypedSourceData(source.data);
+    if (texture.mipmaps.length > 0 && !texture.mipmaps.every(ok))
+        return false;
+    if (texture.sources.length > 0)
+        return texture.sources.every(ok);
+    return ok(texture.source);
+}
+/** Texels the emitters will actually move for `regions`. Both backends honour a region exactly. */
+function dirtyTexelCount(regions) {
+    let n = 0;
+    for (const r of regions)
+        n += regionTexelCount(r);
+    return n;
+}
+/**
+ * Whether the pending regions are worth a partial upload. Past half the texture, fewer and simpler
+ * calls win: fall through to one full upload.
+ */
+function withinPartialBudget(texture, regions) {
+    const total = texture.width * texture.height * texture.depthOrArrayLayers;
+    const dirty = dirtyTexelCount(regions);
+    return dirty > 0 && dirty <= total / 2;
 }
 
 /**
@@ -23465,22 +23401,6 @@ function disposeMipmapState(state) {
  * 4. Uploads image data if source.dataReady
  * 5. Updates version tracking (textureData.version = texture.version)
  */
-function createSwapchainDepthTexture(device, width, height, sampleCount, format = 'depth24plus') {
-    return device.createTexture({
-        size: [width, height],
-        format,
-        usage: GPUTextureUsage.RENDER_ATTACHMENT,
-        sampleCount,
-    });
-}
-function createSwapchainMsaaTexture(device, width, height, format, sampleCount) {
-    return device.createTexture({
-        size: [width, height],
-        format,
-        usage: GPUTextureUsage.RENDER_ATTACHMENT,
-        sampleCount,
-    });
-}
 function createTextureCache$1() {
     return {
         textureMap: new WeakMap(),
@@ -23493,7 +23413,7 @@ function createTextureCache$1() {
  * Set up the _onDispose callback on a GpuTexture to destroy its GPU texture.
  * Only sets the callback once (idempotent).
  */
-function setupDispose(cache, texture) {
+function setupTextureDispose$1(cache, texture) {
     if (texture._onDispose)
         return;
     texture._onDispose = () => {
@@ -23639,7 +23559,7 @@ function updateTexture$1(cache, device, texture) {
             };
             cache.textureMap.set(texture, data);
             tallySetTexture(cache.tally, data.tally, texture.format, gpuTextureBytes(texture));
-            setupDispose(cache, texture);
+            setupTextureDispose$1(cache, texture);
         }
         else {
             // Recreate at the new size: destroy the old GPU texture, swap in the new one,
@@ -23710,7 +23630,7 @@ function updateTexture$1(cache, device, texture) {
             tallySetTexture(cache.tally, data.tally, texture.format, gpuTextureBytes(texture));
         }
         // Set up disposal callback to destroy the GPU texture
-        setupDispose(cache, texture);
+        setupTextureDispose$1(cache, texture);
     }
     // Upload image data
     uploadTextureData(device, texture, data);
@@ -23992,6 +23912,18 @@ function getDefaultTexture(cache, device, format) {
 function getTextureData$1(cache, texture) {
     return cache.textureMap.get(texture) ?? null;
 }
+
+/**
+ * render-target.ts (webgpu) - `RenderTarget` attachment allocation and views, the WebGPU sibling of
+ * `webgl/render-target.ts`.
+ *
+ * The two differ in what there is to own, and that difference is the API's, not a decomposition
+ * choice: GL needs real framebuffer objects and renderbuffers, so its module carries a cache of them.
+ * WebGPU has no framebuffer object at all - a render target IS its textures plus the views bound as
+ * attachments - so this module owns no state and operates on the texture cache. What it does own is
+ * the knowledge of RenderTarget semantics: when an attachment has to be reallocated, how an MSAA
+ * sibling is paired with its resolve target, and how a cube target's six faces are allocated.
+ */
 /**
  * Default render-attachment view for a render-target color/depth texture.
  * Cached on the TextureData and recreated only when the GPU texture is swapped
@@ -24059,7 +23991,7 @@ function setRenderTargetTexture(cache, texture, gpuTextureResource, msaaTexture 
         tallySetTexture(cache.tally, entry.tally, texture.format, gpuTextureBytes(texture));
     }
     texture.disposed = false;
-    setupDispose(cache, texture);
+    setupTextureDispose$1(cache, texture);
 }
 function hasRenderTargetTextureAllocation(cache, texture, width, height, format, sampleCount, mipLevelCount) {
     // A disposed wrapper's cache entry still points at a destroyed GPUTexture whose
@@ -24178,6 +24110,70 @@ function ensureCubeRenderTargetTexturesAllocated(cache, device, renderTarget) {
         });
         setRenderTargetTexture(cache, renderTarget._depthAttachment._gpuTexture, depthTex);
     }
+}
+
+/**
+ * samplers.ts (webgpu) - per-GpuSampler `GPUSampler` cache, the WebGPU sibling of `webgl/samplers.ts`.
+ *
+ * Value-keyed by `GpuSampler.settingsKey`, so identical sampler settings share one `GPUSampler`. The
+ * WebGL sibling keys on `settingsKey` PLUS whether the paired texture has mips, because a GL sampler
+ * carries the mipmapped-vs-base min-filter choice and a mipmapped min-filter against a non-mipmapped
+ * texture reads as incomplete. WebGPU has no such coupling, so one entry per settings key is enough:
+ * that is an earned signature difference, not drift.
+ *
+ * Samplers are not disposed individually. They are shared by settings rather than owned by any one
+ * `GpuSampler`, so there is nothing to hang a per-object release on; the whole cache goes at renderer
+ * teardown.
+ */
+function createSamplerCache$1() {
+    return { cache: new Map() };
+}
+/**
+ * Get (or create) the `GPUSampler` for a `GpuSampler`'s settings.
+ *
+ * WebGPU rejects `maxAnisotropy > 1` unless all three filters are 'linear'; rather than throw, the
+ * anisotropy is dropped, since it is a quality hint and the sampler still filters correctly without
+ * it. The WebGL sibling makes the same call for the same reason when the anisotropy extension is
+ * missing.
+ */
+function getSampler$1(device, state, gpuSampler) {
+    const key = gpuSampler.settingsKey;
+    const existing = state.cache.get(key);
+    if (existing) {
+        existing.usedTimes++;
+        return existing.sampler;
+    }
+    let { minFilter, magFilter, mipmapFilter, maxAnisotropy } = gpuSampler;
+    if (maxAnisotropy > 1 && (minFilter !== 'linear' || magFilter !== 'linear' || mipmapFilter !== 'linear')) {
+        maxAnisotropy = 1;
+    }
+    const sampler = device.createSampler({
+        magFilter,
+        minFilter,
+        mipmapFilter,
+        addressModeU: gpuSampler.addressModeU,
+        addressModeV: gpuSampler.addressModeV,
+        addressModeW: gpuSampler.addressModeW,
+        maxAnisotropy,
+        compare: gpuSampler.compare,
+    });
+    state.cache.set(key, { sampler, usedTimes: 1 });
+    return sampler;
+}
+/**
+ * The already-created sampler for a settings key, or null. For bind-group rebuilds, which bind what
+ * `getSampler` put in the cache and must not create one as a side effect.
+ */
+function peekSampler(state, settingsKey) {
+    return state.cache.get(settingsKey)?.sampler ?? null;
+}
+/** Drop every cached sampler (called on renderer dispose). `GPUSampler` has no explicit destroy. */
+function disposeSamplerCache$1(state) {
+    state.cache.clear();
+}
+/** Number of distinct sampler configurations currently cached. */
+function getSamplerCacheStats$1(state) {
+    return { samplerCount: state.cache.size };
 }
 
 /**
@@ -40314,6 +40310,26 @@ function releaseContext(contexts, canvasTarget) {
         ctx.unconfigure();
         contexts.delete(canvasTarget);
     }
+}
+/**
+ * The swapchain's own depth and MSAA attachments. These belong to the swapchain, not to any
+ * `RenderTarget`, so they live beside `SwapchainState` rather than in `render-target.ts`.
+ */
+function createSwapchainDepthTexture(device, width, height, sampleCount, format = 'depth24plus') {
+    return device.createTexture({
+        size: [width, height],
+        format,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        sampleCount,
+    });
+}
+function createSwapchainMsaaTexture(device, width, height, format, sampleCount) {
+    return device.createTexture({
+        size: [width, height],
+        format,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        sampleCount,
+    });
 }
 /** Create the initial (empty) swapchain state for the given sample count + depth format. */
 function createSwapchainState(samples, depthFormat) {

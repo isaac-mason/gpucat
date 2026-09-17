@@ -14,7 +14,6 @@
  */
 import type { GpuTexture } from '../../core/gpu-texture';
 import { type TextureTally, type TextureTallyEntry } from '../core/info';
-import type { RenderTarget } from '../../core/render-target';
 import { type MipmapState } from './mipmap-utils';
 /** Data stored per Texture in the cache */
 export type TextureData = {
@@ -59,9 +58,12 @@ export type TextureCache = {
 export type TextureCacheStats = {
     textureCount: number;
 };
-export declare function createSwapchainDepthTexture(device: GPUDevice, width: number, height: number, sampleCount: number, format?: GPUTextureFormat): GPUTexture;
-export declare function createSwapchainMsaaTexture(device: GPUDevice, width: number, height: number, format: GPUTextureFormat, sampleCount: number): GPUTexture;
 export declare function createTextureCache(): TextureCache;
+/**
+ * Set up the _onDispose callback on a GpuTexture to destroy its GPU texture.
+ * Only sets the callback once (idempotent).
+ */
+export declare function setupTextureDispose(cache: TextureCache, texture: GpuTexture): void;
 /**
  * Generate mipmaps for an already-allocated GPU texture tracked in the cache.
  * Used for render-target textures (e.g. CubeRenderTarget) that are not uploaded
@@ -79,30 +81,3 @@ export declare function getTextureCacheStats(cache: TextureCache): TextureCacheS
  * Returns null if not in cache (call updateTexture first).
  */
 export declare function getTextureData(cache: TextureCache, texture: GpuTexture): TextureData | null;
-/**
- * Default render-attachment view for a render-target color/depth texture.
- * Cached on the TextureData and recreated only when the GPU texture is swapped
- * (setRenderTargetTexture clears it), so attachment resolution doesn't allocate
- * a fresh GPUTextureView every frame.
- */
-export declare function getRenderTargetView(data: TextureData): GPUTextureView;
-/**
- * Cached view of the multisampled color texture for an MSAA render target.
- * Returns null when the target is not multisampled.
- */
-export declare function getRenderTargetMsaaView(data: TextureData): GPUTextureView | null;
-/**
- * Set the GPU texture resource for a render target texture.
- * Called by the renderer when creating/resizing render targets.
- *
- * Unlike regular textures which upload source data, render target textures
- * have their GPUTexture created externally and registered here.
- */
-export declare function setRenderTargetTexture(cache: TextureCache, texture: GpuTexture, gpuTextureResource: GPUTexture, msaaTexture?: GPUTexture | null): void;
-/**
- * Remove a render target texture from the cache.
- * Called when render target is disposed/resized.
- * Does NOT destroy the GPUTexture - caller is responsible for that.
- */
-export declare function removeRenderTargetTexture(cache: TextureCache, texture: GpuTexture): void;
-export declare function ensureRenderTargetTexturesAllocated(cache: TextureCache, device: GPUDevice, renderTarget: RenderTarget): void;

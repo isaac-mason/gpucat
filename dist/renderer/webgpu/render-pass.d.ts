@@ -49,6 +49,12 @@ export type SwapchainState = {
     msaaTexture: GPUTexture | null;
     msaaTextureView: GPUTextureView | null;
 };
+/**
+ * The swapchain's own depth and MSAA attachments. These belong to the swapchain, not to any
+ * `RenderTarget`, so they live beside `SwapchainState` rather than in `render-target.ts`.
+ */
+export declare function createSwapchainDepthTexture(device: GPUDevice, width: number, height: number, sampleCount: number, format?: GPUTextureFormat): GPUTexture;
+export declare function createSwapchainMsaaTexture(device: GPUDevice, width: number, height: number, format: GPUTextureFormat, sampleCount: number): GPUTexture;
 /** Create the initial (empty) swapchain state for the given sample count + depth format. */
 export declare function createSwapchainState(samples: number, depthFormat: GPUTextureFormat): SwapchainState;
 /**
