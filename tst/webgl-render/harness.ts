@@ -221,12 +221,15 @@ async function caseDisposeReleasesResources(): Promise<CaseResult> {
     drawOnce(warmScene);
     const baseTextures = renderer.info.memory.textures;
     const baseGeometries = renderer.info.memory.geometries;
+    const baseBuffers = renderer.info.memory.buffers;
 
     // Render into three targets, each with its own geometry, then throw all of it away.
     const targets: RenderTarget[] = [];
     const geometries: Geometry[] = [];
     for (let i = 0; i < 3; i++) {
         const target = new RenderTarget(SIZE, SIZE, { colorFormat: 'rgba8unorm', depthBuffer: true });
+        // its own geometry AND its own buffers: two geometries sharing a GpuBuffer now share one GL
+        // buffer, so reusing one here would leave the buffer count flat and prove nothing.
         const geometry = createFullscreenTriangleGeometry();
         const scene = new Scene();
         scene.add(
@@ -245,6 +248,7 @@ async function caseDisposeReleasesResources(): Promise<CaseResult> {
     drawOnce(warmScene);
     const peakTextures = renderer.info.memory.textures;
     const peakGeometries = renderer.info.memory.geometries;
+    const peakBuffers = renderer.info.memory.buffers;
 
     for (const target of targets) target.dispose();
     for (const geometry of geometries) geometry.dispose();
@@ -253,17 +257,21 @@ async function caseDisposeReleasesResources(): Promise<CaseResult> {
     drawOnce(warmScene);
     const afterTextures = renderer.info.memory.textures;
     const afterGeometries = renderer.info.memory.geometries;
+    const afterBuffers = renderer.info.memory.buffers;
     renderer.dispose();
 
     // Peak must actually have grown, or the test proves nothing about the release.
-    const grew = peakTextures > baseTextures && peakGeometries > baseGeometries;
-    const released = afterTextures === baseTextures && afterGeometries === baseGeometries;
+    const grew = peakTextures > baseTextures && peakGeometries > baseGeometries && peakBuffers > baseBuffers;
+    const released = afterTextures === baseTextures && afterGeometries === baseGeometries && afterBuffers === baseBuffers;
     const ok = grew && released;
     return {
         name: 'dispose-releases',
         pixel: ok ? [0, 255, 0, 255] : [255, 0, 0, 255],
         expected: [0, 255, 0, 255],
-        note: `textures ${baseTextures}->${peakTextures}->${afterTextures}, geometries ${baseGeometries}->${peakGeometries}->${afterGeometries}`,
+        note:
+            `textures ${baseTextures}->${peakTextures}->${afterTextures}, ` +
+            `geometries ${baseGeometries}->${peakGeometries}->${afterGeometries}, ` +
+            `buffers ${baseBuffers}->${peakBuffers}->${afterBuffers}`,
     };
 }
 

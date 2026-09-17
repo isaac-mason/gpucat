@@ -32,6 +32,7 @@ import type { Renderer } from '../core/renderer-interface';
 import * as ops from '../core/renderer-ops';
 import type { DeviceLostInfo, RendererState } from '../core/renderer-ops';
 import { createContext } from './context';
+import * as Buffers from './buffers';
 import * as Geometries from './geometries';
 import * as Prepare from './prepare';
 import * as Programs from './programs';
@@ -163,6 +164,7 @@ export class WebGLRenderer implements Renderer, RendererState {
     private readonly _programs: Programs.ProgramCache;
     /** Per-geometry GL buffers + VAOs. @internal */
     private readonly _geometries: Geometries.GeometriesState;
+    private readonly _buffers: Buffers.BufferCache;
     /** Per-uniform-group std140 UBO cache. @internal */
     private readonly _uniforms: Bindings.BindingsState;
     /** Per-RenderObject GL device payload (linked program). @internal */
@@ -296,6 +298,7 @@ export class WebGLRenderer implements Renderer, RendererState {
         // Device resource caches — GL handles inside are created lazily once init() has the context.
         this._programs = Programs.createProgramCache();
         this._geometries = Geometries.createGeometriesState();
+        this._buffers = Buffers.createBufferCache(this.info);
         this._uniforms = Bindings.createBindingsState();
         this._renderObjectGl = createRenderObjectGlCache();
         this._textures = Textures.createTextureCache();
@@ -433,6 +436,7 @@ export class WebGLRenderer implements Renderer, RendererState {
             this.gl,
             {
                 geometries: this._geometries,
+                buffers: this._buffers,
                 uniforms: this._uniforms,
                 renderObjectGl: this._renderObjectGl,
                 textures: this._textures,
@@ -474,7 +478,8 @@ export class WebGLRenderer implements Renderer, RendererState {
         Info.beginInfoFrame(info);
         const geometries = Geometries.getGeometriesStats(this._geometries);
         const renderTargets = RenderTargets.getGlRenderTargetsStats(this._renderTargets);
-        info.memory.buffers = geometries.buffers + geometries.indexBuffers + Bindings.getBindingsStats(this._uniforms).uboCount;
+        const buffers = Buffers.getBufferCacheStats(this._buffers);
+        info.memory.buffers = buffers.bufferCount + buffers.rawCount;
         info.memory.geometries = geometries.geometries;
         // count + bytes + per-format breakdown, straight from the cache's running tally.
         Info.readTextureTally(this._textures.tally, info.memory);
@@ -610,6 +615,7 @@ export class WebGLRenderer implements Renderer, RendererState {
             this.gl,
             {
                 geometries: this._geometries,
+                buffers: this._buffers,
                 uniforms: this._uniforms,
                 renderObjectGl: this._renderObjectGl,
                 textures: this._textures,
@@ -675,6 +681,7 @@ export class WebGLRenderer implements Renderer, RendererState {
             this._probe,
             {
                 geometries: this._geometries,
+                buffers: this._buffers,
                 uniforms: this._uniforms,
                 textures: this._textures,
                 samplers: this._samplers,

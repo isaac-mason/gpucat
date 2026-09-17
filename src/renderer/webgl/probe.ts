@@ -19,6 +19,7 @@ import type { RendererInfo } from '../core/info';
 import type { NodeFrame } from '../core/node-frame';
 import { getBindings, type RenderObject } from '../core/render-object';
 import { FRAGMENT_STAGE_MARKER } from './constants';
+import * as Buffers from './buffers';
 import * as Geometries from './geometries';
 import type { ProgramInfo } from './programs';
 import type { SamplerCache } from './samplers';
@@ -29,6 +30,7 @@ import * as Bindings from './bindings';
 /** The device caches + node frame the probe render needs (a subset of the renderer's caches). */
 export type ProbeCaches = {
     geometries: Geometries.GeometriesState;
+    buffers: Buffers.BufferCache;
     uniforms: Bindings.BindingsState;
     textures: TextureCache;
     samplers: SamplerCache;
@@ -237,7 +239,7 @@ export function renderProbe(
     bindTextures(gl, caches.textures, caches.samplers, ro, programInfo);
 
     // Geometry VAO (uploads buffers + builds/reuses the VAO for this program).
-    const drawInfo = Geometries.prepareGeometry(gl, caches.geometries, geometry, nodeState, p.program, caches.info);
+    const drawInfo = Geometries.prepareGeometry(gl, caches.geometries, caches.buffers, geometry, nodeState, p.program);
     gl.bindVertexArray(drawInfo.vao);
 
     // Draw (triangle list, instance count = mesh.count), mirroring the render-pass draw selection.

@@ -21,6 +21,7 @@ import * as NodeManager from '../core/node-manager';
 import type { RenderContext } from '../core/pass-context';
 import { getBindings } from '../core/render-object';
 import type { PreparedRenderObject, RenderPassParams } from '../core/render-types';
+import * as Buffers from './buffers';
 import * as Geometries from './geometries';
 import { getRenderObjectGl, type RenderObjectGlCache } from './render-object-gl';
 import { bindRenderTargetFramebuffer, resolveActiveRenderTarget, type GlRenderTargetsState } from './render-target';
@@ -134,6 +135,7 @@ export function clear(
 /** Caches the draw loop needs, bundled so `executeRenderPass` keeps a small signature. */
 export type DrawCaches = {
     geometries: Geometries.GeometriesState;
+    buffers: Buffers.BufferCache;
     uniforms: Bindings.BindingsState;
     renderObjectGl: RenderObjectGlCache;
     textures: TextureCache;
@@ -300,7 +302,7 @@ export function executeRenderPass(
         // Geometry VAO (uploads buffers + builds/reuses the VAO for this program).
         // `prepareGeometry` detaches the VAO to upload buffers safely (see its note), so the GL VAO
         // is unbound on return — always rebind the resolved one here rather than deduping the GL call.
-        const drawInfo = Geometries.prepareGeometry(gl, caches.geometries, geometry, nodeState, programInfo.program, info);
+        const drawInfo = Geometries.prepareGeometry(gl, caches.geometries, caches.buffers, geometry, nodeState, programInfo.program);
         gl.bindVertexArray(drawInfo.vao);
         if (currentVao !== drawInfo.vao) {
             currentVao = drawInfo.vao;

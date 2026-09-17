@@ -17,69 +17,50 @@
  * the VAO is cached per `(Geometry, program)` pair.
  */
 
-import type { GpuBuffer, GpuTypedArray } from '../../core/gpu-buffer';
+import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { Geometry } from '../../geometry/geometry';
-import { BufferUpload, planBufferUpload } from '../core/buffer-upload';
-import { primaryBufferUsage, type RendererInfo, recordBufferWrite } from '../core/info';
 import type { NodeBuilderState } from '../core/node-builder-state';
-import { mergeUpdateRanges } from '../core/update-ranges';
+import * as Buffers from './buffers';
 
-/** Per-geometry GL resources: the attribute/index GL buffers and their last-uploaded versions. */
+/** Per-geometry GL resources. Only VAOs: the buffers themselves belong to `buffers.ts`, keyed by
+ *  `GpuBuffer`, so two geometries sharing one buffer share its GL object rather than each uploading. */
 type GeometryBuffers = {
-    /** GL buffer per attribute-buffer name (ARRAY_BUFFER). */
-    attributeBuffers: Map<string, WebGLBuffer>;
-    /** Last-uploaded version per attribute-buffer name (for needsUpdate/version tracking). */
-    attributeVersions: Map<string, number>;
-    /** Last-uploaded byte size per attribute-buffer name. Drives the resize guard (recreate
-     *  the GL buffer when the array grows), mirroring the WebGPU backend's `buf.size < byteLength`. */
-    attributeSizes: Map<string, number>;
-    /** GL index buffer (ELEMENT_ARRAY_BUFFER), or null for non-indexed geometry. */
-    indexBuffer: WebGLBuffer | null;
-    /** Last-uploaded index buffer version. */
-    indexVersion: number;
-    /** Last-uploaded index buffer byte size (resize guard, as above). */
-    indexSize: number;
     /** VAOs keyed by program identity (a geometry may be drawn by several materials). */
     vaos: Map<WebGLProgram, WebGLVertexArrayObject>;
 };
 
-/** Geometries state: per-geometry GL resources, keyed by geometry identity. */
+/** Geometries state: per-geometry VAOs, keyed by geometry identity. */
 export type GeometriesState = {
     data: WeakMap<Geometry, GeometryBuffers>;
     /** Cached `gl.MAX_VERTEX_ATTRIBS`, read once (guards attribute-location assignment). */
     maxVertexAttribs?: number;
-    /** Resident-object tally for `renderer.info.memory`. `data` is a WeakMap, so it cannot be counted. */
-    memory: { geometries: number; buffers: number; indexBuffers: number };
+    /** Resident-geometry tally for `renderer.info.memory`. `data` is a WeakMap, so it cannot be counted. */
+    memory: { geometries: number };
 };
 
 /** Create an empty geometries state. */
 export function createGeometriesState(): GeometriesState {
-    return { data: new WeakMap(), memory: { geometries: 0, buffers: 0, indexBuffers: 0 } };
+    return { data: new WeakMap(), memory: { geometries: 0 } };
 }
 
-/** Resident geometry resources. Mirrors `webgpu/geometries.ts` `getGeometriesStats`. */
-export function getGeometriesStats(state: GeometriesState): { geometries: number; buffers: number; indexBuffers: number } {
+/** Resident geometry count. Mirrors `webgpu/geometries.ts` `getGeometriesStats`. */
+export function getGeometriesStats(state: GeometriesState): { geometries: number } {
     return { ...state.memory };
+}
+
+/** The `GpuBuffer` a compiled vertex-buffer group reads from: a named geometry buffer, or a direct one. */
+function groupBuffer(geometry: Geometry, group: NodeBuilderState['vertexBufferGroups'][number]): GpuBuffer | undefined {
+    return group.name !== null ? geometry.buffers.get(group.name) : (group.buffer ?? undefined);
 }
 
 function getGeometryBuffers(gl: WebGL2RenderingContext, state: GeometriesState, geometry: Geometry): GeometryBuffers {
     let gb = state.data.get(geometry);
     if (!gb) {
-        gb = {
-            attributeBuffers: new Map(),
-            attributeVersions: new Map(),
-            attributeSizes: new Map(),
-            indexBuffer: null,
-            indexVersion: -1,
-            indexSize: -1,
-            vaos: new Map(),
-        };
+        gb = { vaos: new Map() };
         state.data.set(geometry, gb);
         state.memory.geometries++;
-        // Release the GL buffers and VAOs when the Geometry goes away. The WebGPU backend has always
-        // done this (`webgpu/geometries.ts`); here `disposeGeometry` existed but nothing ever called it,
-        // so a disposed batch kept its vertex/index buffers and every cached VAO alive until the
-        // renderer itself was torn down.
+        // Release the VAOs when the Geometry goes away. The buffers release themselves through
+        // `buffers.ts`, which owns them and may be sharing them with another geometry.
         geometry._onDispose = () => {
             disposeGeometry(gl, state, geometry);
         };
@@ -168,119 +149,6 @@ export function glComponentType(gl: WebGL2RenderingContext, glType: AttribFormat
 
 // Buffer upload.
 
-/**
- * Push a buffer's pending `updateRanges` as partial `bufferSubData` uploads (caller has
- * already bound `glBuffer` to `target`). Mirrors three.js `WebGLAttributes.updateBuffer`:
- * {@link mergeUpdateRanges} to cut GL command overhead, then one `bufferSubData` per merged
- * span. Ranges are flat array-element (component) indices; the `srcOffset`/`length` args below
- * are element counts (WebGL2 typed-array overload). Clears the ranges once applied.
- */
-function uploadDirtyRanges(
-    gl: WebGL2RenderingContext,
-    target: GLenum,
-    array: GpuTypedArray,
-    buffer: GpuBuffer,
-    info: RendererInfo,
-    label: string,
-): void {
-    const ranges = buffer.updateRanges;
-    mergeUpdateRanges(ranges);
-    const bpe = array.BYTES_PER_ELEMENT;
-    const usage = primaryBufferUsage(buffer);
-    for (let i = 0; i < ranges.length; i++) {
-        const r = ranges[i]!;
-        gl.bufferSubData(target, r.start * bpe, array, r.start, r.count);
-        recordBufferWrite(info, r.count * bpe, usage, false, label);
-    }
-    buffer.clearUpdateRanges();
-}
-
-/** Upload (creating/growing/patching as needed) an attribute buffer, returning its GL buffer. */
-function ensureAttributeBuffer(
-    gl: WebGL2RenderingContext,
-    state: GeometriesState,
-    gb: GeometryBuffers,
-    name: string,
-    buffer: GpuBuffer,
-    info: RendererInfo,
-): WebGLBuffer {
-    const array = buffer.array;
-    if (!array) throw new Error(`[WebGLRenderer] attribute buffer '${name}' has null array.`);
-    const label = buffer.label ?? name;
-    let glBuffer = gb.attributeBuffers.get(name);
-    const plan = planBufferUpload(buffer, glBuffer !== undefined, gb.attributeSizes.get(name) ?? -1, gb.attributeVersions.get(name) ?? -1);
-    if (plan === BufferUpload.Skip && glBuffer) return glBuffer;
-
-    if (plan === BufferUpload.Allocate) {
-        if (!glBuffer) {
-            const created = gl.createBuffer();
-            if (!created) throw new Error('[WebGLRenderer] gl.createBuffer returned null.');
-            glBuffer = created;
-            gb.attributeBuffers.set(name, glBuffer);
-            state.memory.buffers++;
-        }
-        gl.bindBuffer(gl.ARRAY_BUFFER, glBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, array, gl.STATIC_DRAW);
-        recordBufferWrite(info, array.byteLength, primaryBufferUsage(buffer), true, label);
-        gb.attributeSizes.set(name, array.byteLength);
-        gb.attributeVersions.set(name, buffer.version);
-        // the allocate path wrote everything, so pending ranges are already covered.
-        buffer.clearUpdateRanges();
-        return glBuffer;
-    }
-
-    gl.bindBuffer(gl.ARRAY_BUFFER, glBuffer!);
-    if (plan === BufferUpload.Partial) {
-        uploadDirtyRanges(gl, gl.ARRAY_BUFFER, array, buffer, info, label);
-    } else {
-        gl.bufferSubData(gl.ARRAY_BUFFER, 0, array);
-        recordBufferWrite(info, array.byteLength, primaryBufferUsage(buffer), true, label);
-    }
-    gb.attributeVersions.set(name, buffer.version);
-    return glBuffer!;
-}
-
-/** Upload (creating/growing/patching as needed) the index buffer, returning its GL buffer. */
-function ensureIndexBuffer(
-    gl: WebGL2RenderingContext,
-    state: GeometriesState,
-    gb: GeometryBuffers,
-    index: GpuBuffer,
-    info: RendererInfo,
-): WebGLBuffer {
-    const array = index.array;
-    if (!array) throw new Error('[WebGLRenderer] index buffer has null array.');
-    const label = index.label ?? 'index';
-    const plan = planBufferUpload(index, gb.indexBuffer !== null, gb.indexSize, gb.indexVersion);
-    if (plan === BufferUpload.Skip && gb.indexBuffer) return gb.indexBuffer;
-
-    if (plan === BufferUpload.Allocate) {
-        if (!gb.indexBuffer) {
-            const created = gl.createBuffer();
-            if (!created) throw new Error('[WebGLRenderer] gl.createBuffer returned null (index).');
-            gb.indexBuffer = created;
-            state.memory.indexBuffers++;
-        }
-        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gb.indexBuffer);
-        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, array, gl.STATIC_DRAW);
-        recordBufferWrite(info, array.byteLength, primaryBufferUsage(index), true, label);
-        gb.indexSize = array.byteLength;
-        gb.indexVersion = index.version;
-        index.clearUpdateRanges();
-        return gb.indexBuffer;
-    }
-
-    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gb.indexBuffer!);
-    if (plan === BufferUpload.Partial) {
-        uploadDirtyRanges(gl, gl.ELEMENT_ARRAY_BUFFER, array, index, info, label);
-    } else {
-        gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, 0, array);
-        recordBufferWrite(info, array.byteLength, primaryBufferUsage(index), true, label);
-    }
-    gb.indexVersion = index.version;
-    return gb.indexBuffer!;
-}
-
 // VAO construction.
 
 /**
@@ -300,10 +168,10 @@ export type GeometryDrawInfo = {
 export function prepareGeometry(
     gl: WebGL2RenderingContext,
     state: GeometriesState,
+    buffers: Buffers.BufferCache,
     geometry: Geometry,
     nodeState: NodeBuilderState,
     program: WebGLProgram,
-    info: RendererInfo,
 ): GeometryDrawInfo {
     const gb = getGeometryBuffers(gl, state, geometry);
 
@@ -314,22 +182,16 @@ export function prepareGeometry(
     // VAO 0. The caller (the draw loop) rebinds the resolved VAO after this returns.
     gl.bindVertexArray(null);
 
-    // Upload all attribute buffers referenced by the compiled vertex buffer groups (+ any re-uploads).
+    // Upload every buffer the compiled vertex-buffer groups read from (+ any re-uploads).
     for (const group of nodeState.vertexBufferGroups) {
-        if (group.name !== null) {
-            const buffer = geometry.buffers.get(group.name);
-            if (buffer) ensureAttributeBuffer(gl, state, gb, group.name, buffer, info);
-        } else if (group.buffer) {
-            // Direct (non-geometry) buffer: key it by a synthetic name derived from its identity.
-            const key = `__direct_${group.attributes[0]?.shaderLocation ?? 0}`;
-            ensureAttributeBuffer(gl, state, gb, key, group.buffer, info);
-        }
+        const buffer = groupBuffer(geometry, group);
+        if (buffer) Buffers.ensureUploaded(gl, buffers, buffer, gl.ARRAY_BUFFER, group.name ?? 'attribute');
     }
 
     // Upload the index buffer if present.
     let indexType: number | null = null;
     if (geometry.index) {
-        ensureIndexBuffer(gl, state, gb, geometry.index, info);
+        Buffers.ensureUploaded(gl, buffers, geometry.index, gl.ELEMENT_ARRAY_BUFFER, 'index');
         indexType = glIndexType(gl, geometry.index.array);
     }
 
@@ -344,14 +206,8 @@ export function prepareGeometry(
         gl.bindVertexArray(vao);
 
         for (const group of nodeState.vertexBufferGroups) {
-            // Resolve the GL buffer for this group.
-            let glBuffer: WebGLBuffer | undefined;
-            if (group.name !== null) {
-                glBuffer = gb.attributeBuffers.get(group.name);
-            } else if (group.buffer) {
-                const key = `__direct_${group.attributes[0]?.shaderLocation ?? 0}`;
-                glBuffer = gb.attributeBuffers.get(key);
-            }
+            const buffer = groupBuffer(geometry, group);
+            const glBuffer = buffer ? Buffers.getUploaded(buffers, buffer) : undefined;
             if (!glBuffer) continue;
 
             gl.bindBuffer(gl.ARRAY_BUFFER, glBuffer);
@@ -391,8 +247,9 @@ export function prepareGeometry(
         }
 
         // Bind the index buffer inside the VAO so it is captured as element-array state.
-        if (gb.indexBuffer) {
-            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gb.indexBuffer);
+        const glIndex = geometry.index ? Buffers.getUploaded(buffers, geometry.index) : undefined;
+        if (glIndex) {
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, glIndex);
         }
 
         gl.bindVertexArray(null);
@@ -403,15 +260,16 @@ export function prepareGeometry(
     return { vao, indexType };
 }
 
-/** Dispose all GL resources owned by the geometries state for a single geometry. */
+/**
+ * Dispose the GL resources this module owns for one geometry: its VAOs.
+ *
+ * Not its buffers. `buffers.ts` owns those, keyed by `GpuBuffer`, and another geometry may still be
+ * drawing from the same one; each buffer releases itself when its own `GpuBuffer` is disposed.
+ */
 export function disposeGeometry(gl: WebGL2RenderingContext, state: GeometriesState, geometry: Geometry): void {
     const gb = state.data.get(geometry);
     if (!gb) return;
-    for (const buf of gb.attributeBuffers.values()) gl.deleteBuffer(buf);
-    if (gb.indexBuffer) gl.deleteBuffer(gb.indexBuffer);
     for (const vao of gb.vaos.values()) gl.deleteVertexArray(vao);
     state.memory.geometries--;
-    state.memory.buffers -= gb.attributeBuffers.size;
-    if (gb.indexBuffer) state.memory.indexBuffers--;
     state.data.delete(geometry);
 }
