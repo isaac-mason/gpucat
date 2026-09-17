@@ -13,7 +13,6 @@
  * Nothing here touches WebGPU. The patched-program cache is keyed by the patched fragment source so
  * hovering the same expression across frames reuses one program.
  */
-import type { RendererInfo } from '../core/info';
 import type { NodeFrame } from '../core/node-frame';
 import { type RenderObject } from '../core/render-object';
 import * as Buffers from './buffers';
@@ -29,8 +28,6 @@ export type ProbeCaches = {
     textures: TextureCache;
     samplers: SamplerCache;
     frame: NodeFrame;
-    /** The renderer's stats handle; the probe reuses the real upload paths, so its writes are counted. */
-    info: RendererInfo;
 };
 /** A cached probe program: the linked GL program + its UBO binding points, plus the 1×1 readback FBO. */
 type ProbeGl = {

@@ -15,7 +15,6 @@
  */
 
 import type { Geometry } from '../../geometry/geometry';
-import type { RendererInfo } from '../core/info';
 import type { NodeFrame } from '../core/node-frame';
 import { getBindings, type RenderObject } from '../core/render-object';
 import { FRAGMENT_STAGE_MARKER } from './constants';
@@ -35,8 +34,6 @@ export type ProbeCaches = {
     textures: TextureCache;
     samplers: SamplerCache;
     frame: NodeFrame;
-    /** The renderer's stats handle; the probe reuses the real upload paths, so its writes are counted. */
-    info: RendererInfo;
 };
 
 /** A cached probe program: the linked GL program + its UBO binding points, plus the 1×1 readback FBO. */

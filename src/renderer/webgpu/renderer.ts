@@ -801,14 +801,14 @@ export class WebGPURenderer implements Renderer, RendererState {
         const samplers = Samplers.getSamplerCacheStats(this.samplers);
         const renderPipelines = this.pipelines.renderPipelines.size;
         const computePipelines = this.pipelines.computePipelines.size;
-        info.memory.buffers = this.buffers.bufferCount;
+        info.memory.buffers = this.buffers.bufferCount + this.buffers.rawCount;
         info.memory.geometries = geometries.geometries;
         // count + bytes + per-format breakdown, straight from the cache's running tally.
         Info.readTextureTally(this.textures.tally, info.memory);
         info.memory.samplers = samplers.samplerCount;
         info.memory.programs = renderPipelines + computePipelines;
-        // Split back out for anyone debugging WebGPU specifically; the neutral `programs` above is
-        // their sum because WebGL has no equivalent split.
+        // Split back out for anyone debugging WebGPU specifically; the neutral counters above are
+        // sums, because WebGL has no equivalent split.
         info.memory.backend.rawBuffers = this.buffers.rawCount;
         info.memory.backend.renderPipelines = renderPipelines;
         info.memory.backend.computePipelines = computePipelines;

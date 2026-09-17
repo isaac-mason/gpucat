@@ -35396,11 +35396,19 @@ function uploadUniformBlock(gl, cache, key, data, detail) {
 function getRaw(cache, key) {
     return cache.rawMap.get(key)?.glBuffer;
 }
-/** Delete every GL buffer this cache holds (called on renderer dispose). */
+/**
+ * Delete every GL buffer this cache holds (called on renderer dispose).
+ *
+ * The maps are replaced, not just emptied: a `GpuBuffer` outliving its renderer still carries the
+ * dispose callback installed here, and finding a stale entry would double-delete and decrement a
+ * count that teardown had already zeroed. A fresh map makes that callback a no-op.
+ */
 function disposeBufferCache(gl, cache) {
     for (const glBuffer of cache.all)
         gl.deleteBuffer(glBuffer);
     cache.all.clear();
+    cache.bufferMap = new WeakMap();
+    cache.rawMap = new WeakMap();
     cache.bufferCount = 0;
     cache.rawCount = 0;
 }
@@ -39516,7 +39524,6 @@ class WebGLRenderer {
             textures: this._textures,
             samplers: this._samplers,
             frame: this._nodes.nodeFrame,
-            info: this.info,
         }, ro, patchedFragment);
     }
     /** Release the shader-probe GL resources. @internal */
@@ -41356,14 +41363,14 @@ class WebGPURenderer {
         const samplers = getSamplerCacheStats$1(this.samplers);
         const renderPipelines = this.pipelines.renderPipelines.size;
         const computePipelines = this.pipelines.computePipelines.size;
-        info.memory.buffers = this.buffers.bufferCount;
+        info.memory.buffers = this.buffers.bufferCount + this.buffers.rawCount;
         info.memory.geometries = geometries.geometries;
         // count + bytes + per-format breakdown, straight from the cache's running tally.
         readTextureTally(this.textures.tally, info.memory);
         info.memory.samplers = samplers.samplerCount;
         info.memory.programs = renderPipelines + computePipelines;
-        // Split back out for anyone debugging WebGPU specifically; the neutral `programs` above is
-        // their sum because WebGL has no equivalent split.
+        // Split back out for anyone debugging WebGPU specifically; the neutral counters above are
+        // sums, because WebGL has no equivalent split.
         info.memory.backend.rawBuffers = this.buffers.rawCount;
         info.memory.backend.renderPipelines = renderPipelines;
         info.memory.backend.computePipelines = computePipelines;

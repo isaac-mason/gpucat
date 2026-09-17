@@ -94,7 +94,13 @@ export type RawWriteDetail = {
 export declare function uploadUniformBlock(gl: WebGL2RenderingContext, cache: BufferCache, key: object, data: ArrayBuffer, detail?: RawWriteDetail): UploadRawResult;
 /** The GL buffer for a raw key, or undefined. Never uploads. */
 export declare function getRaw(cache: BufferCache, key: object): WebGLBuffer | undefined;
-/** Delete every GL buffer this cache holds (called on renderer dispose). */
+/**
+ * Delete every GL buffer this cache holds (called on renderer dispose).
+ *
+ * The maps are replaced, not just emptied: a `GpuBuffer` outliving its renderer still carries the
+ * dispose callback installed here, and finding a stale entry would double-delete and decrement a
+ * count that teardown had already zeroed. A fresh map makes that callback a no-op.
+ */
 export declare function disposeBufferCache(gl: WebGL2RenderingContext, cache: BufferCache): void;
 export declare function getBufferCacheStats(cache: BufferCache): BufferCacheStats;
 export {};

@@ -245,10 +245,18 @@ export function getRaw(cache: BufferCache, key: object): WebGLBuffer | undefined
     return cache.rawMap.get(key)?.glBuffer;
 }
 
-/** Delete every GL buffer this cache holds (called on renderer dispose). */
+/**
+ * Delete every GL buffer this cache holds (called on renderer dispose).
+ *
+ * The maps are replaced, not just emptied: a `GpuBuffer` outliving its renderer still carries the
+ * dispose callback installed here, and finding a stale entry would double-delete and decrement a
+ * count that teardown had already zeroed. A fresh map makes that callback a no-op.
+ */
 export function disposeBufferCache(gl: WebGL2RenderingContext, cache: BufferCache): void {
     for (const glBuffer of cache.all) gl.deleteBuffer(glBuffer);
     cache.all.clear();
+    cache.bufferMap = new WeakMap();
+    cache.rawMap = new WeakMap();
     cache.bufferCount = 0;
     cache.rawCount = 0;
 }

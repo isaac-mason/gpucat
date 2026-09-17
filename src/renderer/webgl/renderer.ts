@@ -686,7 +686,6 @@ export class WebGLRenderer implements Renderer, RendererState {
                 textures: this._textures,
                 samplers: this._samplers,
                 frame: this._nodes.nodeFrame,
-                info: this.info,
             },
             ro,
             patchedFragment,
