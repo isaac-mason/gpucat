@@ -276,8 +276,7 @@ function setBlendState(gl: WebGL2RenderingContext, cache: GlStateCache, blend: G
 /**
  * Apply polygon offset (depth bias) from `material.depthBias` / `material.depthBiasSlopeScale`.
  * WebGL's `gl.polygonOffset(factor, units)` maps to WebGPU's (depthBiasSlopeScale, depthBias): factor
- * scales the fragment's depth slope, units is the constant bias. `depthBiasClamp` has no WebGL2
- * equivalent (there is no way to clamp the resulting offset) so it is ignored.
+ * scales the fragment's depth slope, units is the constant bias.
  */
 function setDepthBiasState(gl: WebGL2RenderingContext, cache: GlStateCache, material: Material): void {
     const factor = material.depthBiasSlopeScale;
@@ -388,6 +387,14 @@ export function applyMaterialState(
     hasStencil: boolean,
     blend: GPUBlendState | undefined,
 ): void {
+    // Before any GL call: this is a material the backend cannot honour, not a state it failed to set.
+    if (material.depthBiasClamp !== 0) {
+        throw new Error(
+            '[webgl] depthBiasClamp has no WebGL2 equivalent, so this material would bias differently ' +
+                'on the two backends. Leave it at 0, or branch on `renderer.api`.',
+        );
+    }
+
     setDepthState(gl, cache, material);
     setDepthBiasState(gl, cache, material);
     setCullState(gl, cache, material);
