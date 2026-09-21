@@ -180,9 +180,14 @@ export function encodeTransformFeedbackPass(
     renderer.info.compute.frameCalls++;
     renderer.inspector?.perf.start(label);
 
+    const inspector = renderer.inspector;
     try {
         for (let i = 0; i < count; i++) {
             const record = records[i]!;
+            // Per node, as `encodeDispatches` marks each compute node; the timeline has no entry kind
+            // for a kernel that is not a compute pass, so this is the timing it can have.
+            const marker = `transform-feedback: ${record.node.name ?? record.node.id}`;
+            inspector?.perf.start(marker);
             TransformFeedback.runTransformFeedback(
                 backend.gl!,
                 backend,
@@ -192,9 +197,10 @@ export function encodeTransformFeedbackPass(
                 backend._opts.precision,
                 renderer._nodes.nodeFrame,
             );
+            inspector?.perf.end(marker);
         }
     } finally {
-        renderer.inspector?.perf.end(label);
+        inspector?.perf.end(label);
     }
 }
 
