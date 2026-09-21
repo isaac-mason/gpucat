@@ -219,6 +219,7 @@ export class WebGLBackend implements DeviceBackend {
     }
 
     /** WebGL2 has no async link, so this only moves the stall off the first frame and onto load. */
+    /** @internal */
     async compileObjects(objects: RenderObject[], _params: RenderPassParams): Promise<void> {
         const opts = { precision: this._opts.precision, maxTextureSize: this._maxTextureSize };
         for (const renderObject of objects) {

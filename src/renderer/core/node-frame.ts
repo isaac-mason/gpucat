@@ -93,17 +93,17 @@ export class NodeFrame {
      * Used to control Node.update() calls.
      * Maps nodes to their last update frame/render IDs.
      */
-    readonly updateMap: WeakMap<UpdateNode, UpdateMaps> = new WeakMap();
+    /** @internal */ readonly updateMap: WeakMap<UpdateNode, UpdateMaps> = new WeakMap();
 
     /**
      * Used to control Node.updateBefore() calls.
      */
-    readonly updateBeforeMap: WeakMap<UpdateBeforeNode, UpdateMaps> = new WeakMap();
+    /** @internal */ readonly updateBeforeMap: WeakMap<UpdateBeforeNode, UpdateMaps> = new WeakMap();
 
     /**
      * Used to control Node.updateAfter() calls.
      */
-    readonly updateAfterMap: WeakMap<UpdateAfterNode, UpdateMaps> = new WeakMap();
+    /** @internal */ readonly updateAfterMap: WeakMap<UpdateAfterNode, UpdateMaps> = new WeakMap();
 
     // Methods
 

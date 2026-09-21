@@ -76,7 +76,7 @@ export class WebGPUBackend implements DeviceBackend {
     /** Value-keyed, shared by pipelines and bindings so one entry shape yields one layout. @internal */
     bindGroupLayoutCache: BindGroupLayoutCache = createBindGroupLayoutCache();
     /** @internal */ textures: Textures.TextureCache = Textures.createTextureCache();
-    samplers: Samplers.SamplerCache = Samplers.createSamplerCache();
+    /** @internal */ samplers: Samplers.SamplerCache = Samplers.createSamplerCache();
     /** @internal */ pipelines: Pipelines.PipelinesState = Pipelines.createPipelinesState(this.bindGroupLayoutCache);
     /** @internal */ bindings: Bindings.BindingsState = Bindings.createBindingsState(this.bindGroupLayoutCache);
     /** @internal */ renderObjectGpu: RenderObjectGpu.RenderObjectGpuCache = RenderObjectGpu.createRenderObjectGpuCache();
@@ -192,6 +192,7 @@ export class WebGPUBackend implements DeviceBackend {
     }
 
     /** Phase 1 compiles every pipeline in parallel; phase 2's uploads are per drawable, not per material. */
+    /** @internal */
     async compileObjects(objects: RenderObject[], params: RenderPassParams): Promise<void> {
         const nodes = this.renderer._nodes;
         const pipelinePromises: Promise<void>[] = [];
