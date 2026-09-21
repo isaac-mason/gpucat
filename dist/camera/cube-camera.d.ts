@@ -1,6 +1,6 @@
 import type { CubeRenderTarget } from '../core/cube-render-target';
 import { Object3D } from '../core/object3d';
-import type { Renderer } from '../renderer/core/renderer';
+import type { Frame } from '../renderer/core/frame';
 import { PerspectiveCamera } from './perspective-camera';
 /**
  * A camera that renders its surroundings into the six faces of a
@@ -22,6 +22,8 @@ export declare class CubeCamera extends Object3D {
     /** Active mip level written by update(). */
     activeMipmapLevel: number;
     constructor(near: number, far: number, renderTarget: CubeRenderTarget);
-    /** Records six passes, one per face, on a frame of its own. */
-    update(renderer: Renderer, scene: Object3D): void;
+    /** Records six passes, one per face, on the caller's frame, so the cube and what samples it share a submit. */
+    update(f: Frame, scene: Object3D): void;
 }
+/** The factory form; pair it with `createCubeRenderTarget` for the target it draws into. */
+export declare function createCubeCamera(near: number, far: number, renderTarget: CubeRenderTarget): CubeCamera;

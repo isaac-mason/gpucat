@@ -154,3 +154,13 @@ export declare class Line extends Mesh {
     constructor(geometry: LineGeometry, material: LineMaterial);
     raycast(raycaster: Raycaster, intersects: Intersection[]): void;
 }
+/** The factory form, matching `createGeometry` and the other resource constructors. */
+export declare function createLineGeometry(points: Float32Array | number[], closed?: boolean, maxPoints?: number): LineGeometry;
+/** The factory form, matching `createLineGeometry`. */
+export declare function createLineSegmentsGeometry(points: Float32Array | number[], maxPoints?: number): LineSegmentsGeometry;
+/** The factory form, matching `createMaterial`. */
+export declare function createLineMaterial(opts?: LineMaterialOptions): LineMaterial;
+/** The factory form, matching `createMesh`. */
+export declare function createLine(geometry: LineGeometry, material: LineMaterial): Line;
+/** The factory form, matching `createMesh`. */
+export declare function createLineSegments(geometry: LineSegmentsGeometry, material: LineMaterial): LineSegments;

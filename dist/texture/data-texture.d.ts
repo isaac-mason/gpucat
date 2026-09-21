@@ -1,10 +1,10 @@
-import type { StructDef } from '../nodes/lib/core';
+import { GpuSampler } from '../core/gpu-sampler';
 import { GpuTexture } from '../core/gpu-texture';
 import { type TextureRegionInit } from '../core/texture-region';
-import { GpuSampler } from '../core/gpu-sampler';
-import { Source, type DataTextureImage } from './source';
+import type { StructDef } from '../nodes/lib/core';
 import * as d from '../schema/schema';
-import type { WrapMode, FilterMode, MipmapFilterMode, TextureOptions } from './texture';
+import { type DataTextureImage, Source } from './source';
+import type { FilterMode, MipmapFilterMode, TextureOptions, WrapMode } from './texture';
 /** Valid typed array types for DataTexture */
 export type DataTextureData = Uint8Array | Uint8ClampedArray | Uint16Array | Uint32Array | Float32Array;
 /** JS value shape for writing a struct record: each field mapped to its inferred value type. */
@@ -135,3 +135,5 @@ export declare class DataTexture {
  * std430, one record every `texelStride` texels (16 B each).
  */
 export declare function createStructTexture<S extends d.StructSchema>(schema: StructDef<S>, capacity: number, options?: TextureOptions): DataTexture;
+/** The factory form, matching `createStructTexture` and the other texture constructors. */
+export declare function createDataTexture(data: DataTextureData | null, width: number, height: number, options?: TextureOptions): DataTexture;

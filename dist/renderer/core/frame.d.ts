@@ -1,6 +1,6 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { Object3D } from '../../core/object3d';
-import type { RenderTarget } from '../../core/render-target';
+import { type RenderTarget } from '../../core/render-target';
 import type { Material } from '../../material/material';
 import type { ComputeNode } from '../../nodes/lib/core';
 import type { MRTNode } from '../../nodes/lib/mrt';
@@ -47,7 +47,7 @@ export type DrawOptions = {
     /** Draws the mesh with this material instead of its own, for this submission alone. */
     material?: Material;
 };
-/** One recorded draw. `kind` is the seam a bundle entry joins at; see `PLAN-render-bundles.md`. */
+/** One recorded draw. `kind` discriminates it from a bundle entry in the same pass array. */
 export type DrawRecord = {
     kind: 'draw';
     mesh: Mesh;
@@ -87,12 +87,18 @@ export type DispatchIndirectOptions = DispatchOptions & {
     offset?: number;
 };
 /** Exactly one of `counts` and `indirect` is set, which `dispatch` and `dispatchIndirect` guarantee. */
+/** Exactly one of `counts` and `indirect`, as a union rather than a comment the reader has to trust. */
 export type DispatchRecord = DispatchOptions & {
     node: ComputeNode;
-    counts?: [number, number, number];
-    indirect?: GpuBuffer<Any>;
+} & ({
+    counts: [number, number, number];
+    indirect?: undefined;
+    indirectOffset?: undefined;
+} | {
+    counts?: undefined;
+    indirect: GpuBuffer<Any>;
     indirectOffset?: number;
-};
+});
 /**
  * Encoding a pass is atomic: preparing its draws evaluates the node graph, which may open and close
  * further passes, so no GPU pass may be open across it. Both encoders read `records[0..count)`.
@@ -182,6 +188,8 @@ export type Frame = {
     closed: boolean;
     /** Render targets this frame encoded into, so `submit` can see one disposed since. */
     targets: RenderTarget[];
+    /** True once this frame object has carried a submitted frame, so a reopen can be told from a first use. */
+    everSubmitted: boolean;
     /** Memoised by the `done` getter, so asking twice waits once and never asking waits not at all. */
     completion: Promise<void> | null;
     pass(desc: PassDesc): Pass;

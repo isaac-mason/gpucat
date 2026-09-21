@@ -152,3 +152,5 @@ export declare class Inspector extends RendererInspector {
      */
     private _renderGlProbe;
 }
+/** The factory form; attach it by assigning to `renderer.inspector`. */
+export declare function createInspector(): Inspector;

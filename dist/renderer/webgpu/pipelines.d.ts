@@ -40,8 +40,6 @@ export type PipelinesState = {
      */
     canvasFormat: GPUTextureFormat;
 };
-/** Whether a depth format includes a stencil aspect (depth24plus-stencil8, depth32float-stencil8, stencil8). */
-export declare function formatHasStencil(format: GPUTextureFormat): boolean;
 /**
  * Create a pipelines state. The shared bind group layout cache is owned by the backend and passed
  * in so the pipelines and bindings layers hit a single value-keyed layout cache.
@@ -115,6 +113,10 @@ export declare function buildVertexBufferLayouts(geometry: Geometry, nodeState: 
  * Get bytes per element for a vertex format.
  */
 export declare function getBytesPerElement(format: GPUVertexFormat): number;
+/**
+ * Convert WGSL type to GPU vertex format.
+ */
+export declare function wgslTypeToVertexFormat(type: string): GPUVertexFormat;
 /**
  * Get the item size (number of components) for a WGSL type.
  */

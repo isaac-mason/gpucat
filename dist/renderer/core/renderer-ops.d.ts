@@ -50,11 +50,11 @@ export declare function handleDeviceLost(r: RendererState, info: DeviceLostInfo)
  * The RenderObjects a pre-warm has to build, resolved through the same context a pass resolves, so the
  * program or pipeline warmed here is the one the pass then looks up rather than a second cache entry.
  */
-export declare function compileTargets(r: RendererState, drawables: Mesh[], target: Target, camera: View): {
+export declare function compileTargets(r: RendererState, drawables: readonly Mesh[], target: Target, camera: View): {
     context: RenderContext;
     objects: RenderObject[];
 };
-/** The recorded-draw counterpart to {@link prepareRenderObjects}: no render list, no scene walk. */
+/** Prepares what a pass recorded by hand: no render list, no scene walk, no sort. */
 export declare function prepareRecordedDraws(r: RendererState, records: readonly PassEntry[], count: number, camera: View, passCtx: RenderContext, 
 /** Null unless an inspector is attached; only annotates each object for the draw-calls tab. */
 inspectorLabel: string | null, prepare: (nodes: NodeManagerState, renderObject: RenderObject) => boolean, out: PreparedRenderObject[], outOpts: (DrawOptions | null)[], 

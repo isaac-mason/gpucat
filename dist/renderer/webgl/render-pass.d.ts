@@ -18,7 +18,7 @@ import type { RendererInfo } from '../core/info';
 import type { NodeManagerState } from '../core/node-manager';
 import type { RenderContext } from '../core/pass-context';
 import type { PreparedRenderObject, RenderPassParams } from '../core/render-types';
-import type { BackendState } from './backend-state';
+import type { WebGLBackend } from './webgl-backend';
 /**
  * How the pass's single GL blend state is chosen.
  *
@@ -33,13 +33,13 @@ type PassBlend = {
 };
 /**
  * Run the whole render pass immediately: bind the framebuffer, apply viewport/scissor, clear on
- * autoClear, then draw the prepared objects.
+ * clearsColor, then draw the prepared objects.
  */
 export type PassScope = {
     passBlend: PassBlend;
 };
-export declare function beginPass(gl: WebGL2RenderingContext, caches: BackendState, passCtx: RenderContext, params: RenderPassParams): PassScope;
+export declare function beginPass(caches: WebGLBackend, passCtx: RenderContext, params: RenderPassParams): PassScope;
 /** Unbinds the VAO so later buffer mutations cannot record into it, then resolves an MSAA target. */
-export declare function endPass(gl: WebGL2RenderingContext, caches: BackendState): void;
-export declare function encodeDraws(gl: WebGL2RenderingContext, caches: BackendState, nodes: NodeManagerState, passCtx: RenderContext, prepared: readonly PreparedRenderObject[], preparedOpts: readonly (DrawOptions | null)[], count: number, inspector: InspectorBase | null, info: RendererInfo, { passBlend }: PassScope): void;
+export declare function endPass(caches: WebGLBackend): void;
+export declare function encodeDraws(gl: WebGL2RenderingContext, caches: WebGLBackend, nodes: NodeManagerState, passCtx: RenderContext, params: RenderPassParams, prepared: readonly PreparedRenderObject[], preparedOpts: readonly (DrawOptions | null)[], count: number, inspector: InspectorBase | null, info: RendererInfo, { passBlend }: PassScope): void;
 export {};

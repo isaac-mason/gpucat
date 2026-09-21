@@ -18,7 +18,7 @@
  */
 import type { Geometry } from '../../geometry/geometry';
 import type { NodeBuilderState } from '../core/node-builder-state';
-import * as Buffers from './buffers';
+import type { WebGLBackend } from './webgl-backend';
 /** Per-geometry GL resources. Only VAOs: the buffers themselves belong to `buffers.ts`, keyed by
  *  `GpuBuffer`, so two geometries sharing one buffer share its GL object rather than each uploading. */
 type GeometryBuffers = {
@@ -70,7 +70,7 @@ export type GeometryDrawInfo = {
  * Ensure the geometry's GL buffers are uploaded and its VAO (for `program`) is built, returning the
  * draw resources. Re-uploads buffers whose version changed. The VAO is cached per (geometry, program).
  */
-export declare function prepareGeometry(gl: WebGL2RenderingContext, state: GeometriesState, buffers: Buffers.BufferCache, geometry: Geometry, nodeState: NodeBuilderState, program: WebGLProgram, label?: string): GeometryDrawInfo;
+export declare function prepareGeometry(gl: WebGL2RenderingContext, b: WebGLBackend, geometry: Geometry, nodeState: NodeBuilderState, program: WebGLProgram, label?: string): GeometryDrawInfo;
 /**
  * Dispose the GL resources this module owns for one geometry: its VAOs.
  *

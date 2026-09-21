@@ -1,7 +1,7 @@
 import { type CompileGlslOptions } from '../../nodes/builder';
 import { type NodeManagerState } from '../core/node-manager';
 import { type RenderObject } from '../core/render-object';
-import type { BackendState } from './backend-state';
+import type { WebGLBackend } from './webgl-backend';
 /**
  * Compile the GLSL program + prepare the RenderObject for drawing. Returns whether it is drawable.
  *
@@ -15,4 +15,4 @@ import type { BackendState } from './backend-state';
  */
 /** Everything an object needs once: GLSL, bind groups, a linked program. VAOs and UBO uploads
  *  depend on per-object frame state, so they stay in the draw loop. */
-export declare function prepareRenderObject(gl: WebGL2RenderingContext, b: BackendState, nodes: NodeManagerState, renderObject: RenderObject, glslOptions?: CompileGlslOptions): boolean;
+export declare function prepareRenderObject(gl: WebGL2RenderingContext, b: WebGLBackend, nodes: NodeManagerState, renderObject: RenderObject, glslOptions?: CompileGlslOptions): boolean;

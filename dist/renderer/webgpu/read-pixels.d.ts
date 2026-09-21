@@ -13,4 +13,4 @@ import type { WebGPUBackend } from './webgpu-backend';
  * For a layered attachment (e.g. a CubeRenderTarget's cube texture), pass `layer`
  * to read a specific array layer / cube face (0..5 = +X,-X,+Y,-Y,+Z,-Z).
  */
-export declare function readPixels(backend: WebGPUBackend, renderTarget: RenderTarget, attachmentIndex?: number, layer?: number): Promise<Uint8Array>;
+export declare function readPixels(backend: WebGPUBackend, renderTarget: RenderTarget, attachmentIndex?: number, layer?: number, mipLevel?: number): Promise<Uint8Array>;

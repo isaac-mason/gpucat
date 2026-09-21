@@ -4,8 +4,8 @@ import type { DrawOptions } from '../core/frame';
 import type { RendererInfo } from '../core/info';
 import type { NodeManagerState } from '../core/node-manager';
 import type { RenderContext } from '../core/pass-context';
-import type { PreparedRenderObject, PreparedSegment, RenderPassParams } from '../core/render-types';
-import type { BackendState } from './backend-state';
+import { type PreparedRenderObject, type PreparedSegment, type RenderPassParams } from '../core/render-types';
+import type { WebGPUBackend } from './webgpu-backend';
 /**
  * Get (or lazily create + configure) the WebGPU canvas context for a canvas target. Safe to call
  * repeatedly; the context is cached per canvas target after first acquisition. The context is
@@ -70,12 +70,8 @@ type ResolvedAttachments = {
     colorAttachments: GPURenderPassColorAttachment[];
     depthAttachment: GPURenderPassDepthStencilAttachment | undefined;
 };
-/**
- * Build GPU color and depth attachments, dispatching on the target kind. Shared by `executeRenderPass`
- * and `clear()` (which then overrides the load ops for the manual clear).
- */
-export declare function resolveAttachments(b: BackendState, params: RenderPassParams): ResolvedAttachments;
-/** Begin the GPU render pass, issue all draw calls, and end the pass. */
+/** Build GPU color and depth attachments, dispatching on the target kind. */
+export declare function resolveAttachments(b: WebGPUBackend, params: RenderPassParams): ResolvedAttachments;
 /** What the draw loop needs: a bundle encoder offers the same surface as a pass encoder. */
 export type DrawEncoder = GPURenderPassEncoder | GPURenderBundleEncoder;
 export type PassScope = {
@@ -87,15 +83,27 @@ export type DrawScope = {
     gpuPass: DrawEncoder;
     currentSets: CurrentSets;
 };
-export declare function beginPass(encoder: GPUCommandEncoder, passCtx: RenderContext, colorAttachments: GPURenderPassColorAttachment[], depthAttachment: GPURenderPassDepthStencilAttachment | undefined, passId: string, inspector: InspectorBase | null): PassScope;
+export declare function beginPass(b: WebGPUBackend, params: RenderPassParams): PassScope;
 export declare function endPass(scope: PassScope): void;
-export declare function encodeDraws(b: BackendState, nodes: NodeManagerState, passCtx: RenderContext, preparedObjects: readonly PreparedRenderObject[], preparedOpts: readonly (DrawOptions | null)[], count: number, inspector: InspectorBase | null, info: RendererInfo, scope: PassScope, segments: readonly PreparedSegment[]): void;
+/** Everything a draw needs that is fixed for the whole pass, so only a range and an encoder vary. */
+export type EncodeContext = {
+    b: WebGPUBackend;
+    nodes: NodeManagerState;
+    passCtx: RenderContext;
+    params: RenderPassParams;
+    preparedObjects: readonly PreparedRenderObject[];
+    preparedOpts: readonly (DrawOptions | null)[];
+    inspector: InspectorBase | null;
+    info: RendererInfo;
+};
+export declare function encodeDraws(ctx: EncodeContext, count: number, scope: PassScope, segments: readonly PreparedSegment[]): void;
 /**
  * Release all device resources: the canvas context, swapchain textures, default placeholder
  * textures + samplers, mipmap state, pipeline caches, and (unless the device was pre-created) the
  * device itself. After this the renderer is unusable.
  */
-export declare function disposeDevice(b: BackendState, deviceProvided: boolean): void;
+/** The per-canvas attachments this module allocated; the caches are each module's own to tear down. */
+export declare function disposeSwapchain(b: WebGPUBackend): void;
 type CurrentSets = {
     bindingGroups: number[];
     attributes: (GPUBuffer | null)[];

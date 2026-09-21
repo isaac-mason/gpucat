@@ -5,6 +5,8 @@ export type ReadOptions = {
     attachment?: number;
     /** Array layer, or cube face: 0..5 = +X, -X, +Y, -Y, +Z, -Z. */
     layer?: number;
+    /** Mip level to read; only a cube target has any but the base. */
+    mipLevel?: number;
 };
 /**
  * Reads a colour attachment back as tightly-packed, top-to-bottom RGBA8. Call it after the frame that

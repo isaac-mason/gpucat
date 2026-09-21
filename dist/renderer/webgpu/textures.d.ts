@@ -66,7 +66,7 @@ export declare function setupTextureDispose(cache: TextureCache, texture: GpuTex
  * Used for render-target textures (e.g. CubeRenderTarget) that are not uploaded
  * via updateTexture().
  */
-export declare function generateTextureMipmaps(cache: TextureCache, device: GPUDevice, texture: GpuTexture): void;
+export declare function generateTextureMipmaps(cache: TextureCache, device: GPUDevice, texture: GpuTexture, encoder?: GPUCommandEncoder): void;
 /**
  * Update a texture, checks source version and uploads if needed.
  * Returns the TextureData for the texture.

@@ -101,3 +101,5 @@ export declare class ArrayTexture {
     /** Disposes of the texture and its GPU resources. */
     dispose(): void;
 }
+/** The factory form, matching `createDataTexture` and the other texture constructors. */
+export declare function createArrayTexture(data?: DataTextureImage['data'], width?: number, height?: number, depth?: number, options?: TextureOptions): ArrayTexture;

@@ -40,3 +40,5 @@ export declare class Source<out T = SourceData> {
     /** returns the depth of the source data (for 3D textures), or 0 */
     get depth(): number;
 }
+/** The factory form; a `Source` is the uploadable image data a texture points at. */
+export declare function createSource<T extends SourceData = SourceData>(data: T): Source<T>;

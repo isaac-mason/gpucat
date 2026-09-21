@@ -97,4 +97,6 @@ export declare class NodeFrame {
  * Create a new NodeFrame instance.
  */
 export declare function createNodeFrame(): NodeFrame;
+/** What every pass and the pre-warm both point the node frame at before evaluating a graph. */
+export declare function aimNodeFrame(renderer: Renderer<DeviceBackend>, camera: View | null, width: number, height: number): void;
 export {};

@@ -1,4 +1,4 @@
-import { type Vec3, type Quat } from 'math';
+import { type Quat, type Vec3 } from 'math';
 import type { Camera } from '../camera/camera';
 import { type Topic } from '../utils/topic';
 /**
@@ -57,3 +57,5 @@ export declare class FlyControls {
     /** Extract yaw and pitch from the current camera quaternion. */
     _extractYawPitch(): void;
 }
+/** The factory form, matching `createOrbitControls` and `createTransformControls`. */
+export declare function createFlyControls(object: Camera, domElement?: HTMLElement | null): FlyControls;

@@ -1,15 +1,13 @@
 import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { RenderTarget } from '../../core/render-target';
 import type { ComputeNode } from '../../nodes/lib/core';
-import type { TransformFeedbackNode } from '../../nodes/lib/transform-feedback';
 import type { CanvasTarget } from '../core/canvas-target';
 import type { DeviceBackend } from '../core/device-backend';
-import type { ComputePassDesc, DispatchRecord, PassDesc, PassEntry, TransformFeedbackPassDesc, TransformFeedbackRecord } from '../core/frame';
+import type { PassDesc, PassEntry, TransformFeedbackPassDesc, TransformFeedbackRecord } from '../core/frame';
 import * as Info from '../core/info';
-import type { RenderContext } from '../core/pass-context';
 import type { RenderObject } from '../core/render-object';
+import { type RenderPassParams } from '../core/render-types';
 import type { Renderer } from '../core/renderer';
-import type { BackendState } from './backend-state';
 import * as Bindings from './bindings';
 import * as Buffers from './buffers';
 import * as Geometries from './geometries';
@@ -18,6 +16,7 @@ import { type RenderObjectGlCache } from './render-object-gl';
 import * as RenderTargets from './render-target';
 import * as Samplers from './samplers';
 import * as Textures from './textures';
+import * as TransformFeedback from './transform-feedback';
 export type WebGLBackendOptions = {
     /** The device, not just a target: a WebGL2 context IS this canvas's context, and its `samples`/`depthFormat` become context attributes. */
     target: CanvasTarget;
@@ -38,7 +37,7 @@ export type WebGLBackendOptions = {
     precision?: 'highp' | 'mediump' | 'lowp';
 };
 /** WebGL2's device half. Immediate mode: no command encoder and no swapchain, so a pass encodes as it ends. */
-export declare class WebGLBackend implements DeviceBackend, BackendState {
+export declare class WebGLBackend implements DeviceBackend {
     readonly name: "webgl";
     /** A WebGL2 context belongs to one canvas for its lifetime, and this is it. */
     get deviceCanvasTarget(): CanvasTarget;
@@ -68,7 +67,7 @@ export declare class WebGLBackend implements DeviceBackend, BackendState {
     /** Per-RenderTarget GL framebuffer (FBO) cache. @internal */
     renderTargets: RenderTargets.GlRenderTargetsState;
     /** Transform-feedback runtime state (per-node program/VAO + I/O buffer cache). @internal */
-    private _transformFeedback;
+    /** @internal */ _transformFeedback: TransformFeedback.TransformFeedbackState;
     /** Inspector shader-probe state (one active patched program + 1×1 readback FBO). @internal */
     private readonly _probe;
     /** The primary color/attachment format. Fixed at 'rgba8unorm' for the default framebuffer. @internal */
@@ -88,18 +87,19 @@ export declare class WebGLBackend implements DeviceBackend, BackendState {
     init(renderer: Renderer<DeviceBackend>): Promise<void>;
     beginFrame(): void;
     encodePass(desc: PassDesc, records: readonly PassEntry[], count: number): void;
-    encodeComputePass(_desc: ComputePassDesc, _records: readonly DispatchRecord[], _count: number): never;
-    encodeTransformFeedbackPass(_desc: TransformFeedbackPassDesc, records: readonly TransformFeedbackRecord[], count: number): void;
+    /** Unreachable: `frame.compute()` rejects this backend by name before a dispatch can be recorded. */
+    encodeComputePass(): never;
+    encodeTransformFeedbackPass(desc: TransformFeedbackPassDesc, records: readonly TransformFeedbackRecord[], count: number): void;
     submitFrame(): void;
     discardFrame(): void;
     /** WebGL2 has no async link, so this only moves the stall off the first frame and onto load. */
-    compileObjects(objects: RenderObject[], _context: RenderContext): Promise<void>;
+    compileObjects(objects: RenderObject[], _params: RenderPassParams): Promise<void>;
     /**
      * GL-only counts go under `memory.backend` in GL's own vocabulary rather than a WebGPU-shaped field.
      * VAOs and per-RenderObject payloads are absent because WeakMaps cannot be counted.
      */
     readMemoryStats(memory: Info.MemoryInfo): void;
-    compileCompute(_nodes: ComputeNode[]): Promise<void>;
+    compileCompute(_nodes: readonly ComputeNode[]): Promise<void>;
     /**
      * Inspector shader probe: re-render `ro` with a PATCHED fragment shader into a 1×1 FBO and read
      * back the pixel. Drives the Inspector's live-value probe on the WebGL backend — the GL analogue
@@ -128,15 +128,9 @@ export declare class WebGLBackend implements DeviceBackend, BackendState {
      *
      * @throws if an output buffer is also used as an input (ping-pong requires distinct buffers).
      */
-    transformFeedback(node: TransformFeedbackNode, opts: {
-        inputs: Record<string, GpuBuffer>;
-        outputs: Record<string, GpuBuffer>;
-        count: number;
-        instanceCount?: number;
-    }): void;
     /**
      * The plain GL buffer backing a GpuBuffer within the transform-feedback state, or null if the
-     * buffer was never bound by a `transformFeedback()` call. Used by tests (and Phase 3
+     * buffer was never bound by a transform-feedback pass. Used by tests (and Phase 3
      * `readBufferAsync`) to read a TF output buffer back. @internal
      */
     getTransformFeedbackGlBuffer(buffer: GpuBuffer): WebGLBuffer | null;
@@ -144,20 +138,16 @@ export declare class WebGLBackend implements DeviceBackend, BackendState {
      * Honest native CPU readback of a GpuBuffer (e.g. a transform-feedback output) into a typed array.
      *
      * The fence is polled across event-loop ticks rather than spun on: a synchronous busy-loop never
-     * signals on a single-threaded GL backend. The buffer must have been through `transformFeedback()`,
-     * which is what allocates its GL buffer.
+     * signals on a single-threaded GL backend. The buffer must have been through a transform-feedback
+     * pass, which is what allocates its GL buffer.
      */
     readBufferAsync(buffer: GpuBuffer): Promise<Float32Array | Int32Array | Uint32Array>;
-    /**
-     * Rows come back top-to-bottom to match WebGPU byte-for-byte, which means flipping what GL reads.
-     * The target must carry an `rgba8unorm` or `rgba8unorm-srgb` colour format.
-     */
     /**
      * WebGL2 has no queue to ask, so this fences the command stream and polls across event-loop ticks.
      * A synchronous spin never signals on a single-threaded backend, which `readBufferAsync` found first.
      */
     awaitCompletion(): Promise<void>;
-    readPixels(renderTarget: RenderTarget, attachmentIndex?: number, layer?: number): Promise<Uint8Array>;
+    readPixels(renderTarget: RenderTarget, attachmentIndex?: number, layer?: number, mipLevel?: number): Promise<Uint8Array>;
     /**
      * Deliberately does not call `WEBGL_lose_context.loseContext()`: a context is per-canvas, so forcing
      * loss poisons the canvas and the next renderer built on it gets the still-lost context back from

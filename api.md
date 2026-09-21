@@ -481,11 +481,11 @@ Drive the GPU: create a renderer, build pipelines, render to the canvas or a tar
 <table><tr>
 <td><a href="#renderer"><code>Renderer</code></a></td><td><a href="#init"><code>init</code></a></td><td><a href="#backendname"><code>BackendName</code></a></td><td><a href="#rect"><code>Rect</code></a></td>
 </tr><tr>
-<td><a href="#passdesc"><code>PassDesc</code></a></td><td><a href="#drawopts"><code>DrawOpts</code></a></td><td><a href="#drawrecord"><code>DrawRecord</code></a></td><td><a href="#renderbundle"><code>RenderBundle</code></a></td>
+<td><a href="#passdesc"><code>PassDesc</code></a></td><td><a href="#drawoptions"><code>DrawOptions</code></a></td><td><a href="#drawrecord"><code>DrawRecord</code></a></td><td><a href="#renderbundle"><code>RenderBundle</code></a></td>
 </tr><tr>
-<td><a href="#bundlerecord"><code>BundleRecord</code></a></td><td><a href="#passentry"><code>PassEntry</code></a></td><td><a href="#computepassdesc"><code>ComputePassDesc</code></a></td><td><a href="#dispatchopts"><code>DispatchOpts</code></a></td>
+<td><a href="#bundlerecord"><code>BundleRecord</code></a></td><td><a href="#passentry"><code>PassEntry</code></a></td><td><a href="#computepassdesc"><code>ComputePassDesc</code></a></td><td><a href="#dispatchoptions"><code>DispatchOptions</code></a></td>
 </tr><tr>
-<td><a href="#dispatchindirectopts"><code>DispatchIndirectOpts</code></a></td><td><a href="#dispatchrecord"><code>DispatchRecord</code></a></td><td><a href="#framebackend"><code>FrameBackend</code></a></td><td><a href="#pass"><code>Pass</code></a></td>
+<td><a href="#dispatchindirectoptions"><code>DispatchIndirectOptions</code></a></td><td><a href="#dispatchrecord"><code>DispatchRecord</code></a></td><td><a href="#framebackend"><code>FrameBackend</code></a></td><td><a href="#pass"><code>Pass</code></a></td>
 </tr><tr>
 <td><a href="#computepass"><code>ComputePass</code></a></td><td><a href="#transformfeedbackpassdesc"><code>TransformFeedbackPassDesc</code></a></td><td><a href="#transformfeedbackdispatch"><code>TransformFeedbackDispatch</code></a></td><td><a href="#transformfeedbackrecord"><code>TransformFeedbackRecord</code></a></td>
 </tr><tr>
@@ -499,11 +499,11 @@ Drive the GPU: create a renderer, build pipelines, render to the canvas or a tar
 <table><tr>
 <td><a href="#canvasalphamode"><code>CanvasAlphaMode</code></a></td><td><a href="#canvastargetoptions"><code>CanvasTargetOptions</code></a></td><td><a href="#canvasresizeevent"><code>CanvasResizeEvent</code></a></td><td><a href="#canvastarget"><code>CanvasTarget</code></a></td>
 </tr><tr>
-<td><a href="#createcanvastarget"><code>createCanvasTarget</code></a></td><td><a href="#readopts"><code>ReadOpts</code></a></td><td><a href="#read"><code>read</code></a></td><td><a href="#rendertargetoptions"><code>RenderTargetOptions</code></a></td>
+<td><a href="#createcanvastarget"><code>createCanvasTarget</code></a></td><td><a href="#readoptions"><code>ReadOptions</code></a></td><td><a href="#read"><code>read</code></a></td><td><a href="#rendertargetoptions"><code>RenderTargetOptions</code></a></td>
 </tr><tr>
-<td><a href="#rendertargettexture"><code>RenderTargetTexture</code></a></td><td><a href="#rendertarget"><code>RenderTarget</code></a></td><td><a href="#createrendertarget"><code>createRenderTarget</code></a></td><td><a href="#cuberendertargetoptions"><code>CubeRenderTargetOptions</code></a></td>
+<td><a href="#rendertargettexture"><code>RenderTargetTexture</code></a></td><td><a href="#rendertarget"><code>RenderTarget</code></a></td><td><a href="#createrendertarget"><code>createRenderTarget</code></a></td><td><a href="#deadattachment"><code>deadAttachment</code></a></td>
 </tr><tr>
-<td><a href="#cuberendertarget"><code>CubeRenderTarget</code></a></td><td><a href="#createcuberendertarget"><code>createCubeRenderTarget</code></a></td><td></td><td></td>
+<td><a href="#cuberendertargetoptions"><code>CubeRenderTargetOptions</code></a></td><td><a href="#cuberendertarget"><code>CubeRenderTarget</code></a></td><td><a href="#createcuberendertarget"><code>createCubeRenderTarget</code></a></td><td></td>
 </tr></table>
 
 ### Scene & objects
@@ -519,9 +519,11 @@ The scene graph, cameras, and the objects you put in it.
 **Cameras**
 
 <table><tr>
-<td><a href="#camera"><code>Camera</code></a></td><td><a href="#unproject"><code>unproject</code></a></td><td><a href="#perspectivecamera"><code>PerspectiveCamera</code></a></td><td><a href="#viewoffset"><code>ViewOffset</code></a></td>
+<td><a href="#camera"><code>Camera</code></a></td><td><a href="#unproject"><code>unproject</code></a></td><td><a href="#perspectivecamera"><code>PerspectiveCamera</code></a></td><td><a href="#createperspectivecamera"><code>createPerspectiveCamera</code></a></td>
 </tr><tr>
-<td><a href="#orthographiccamera"><code>OrthographicCamera</code></a></td><td><a href="#cubecamera"><code>CubeCamera</code></a></td><td></td><td></td>
+<td><a href="#viewoffset"><code>ViewOffset</code></a></td><td><a href="#orthographiccamera"><code>OrthographicCamera</code></a></td><td><a href="#createorthographiccamera"><code>createOrthographicCamera</code></a></td><td><a href="#cubecamera"><code>CubeCamera</code></a></td>
+</tr><tr>
+<td><a href="#createcubecamera"><code>createCubeCamera</code></a></td><td></td><td></td><td></td>
 </tr></table>
 
 **Objects**
@@ -531,7 +533,9 @@ The scene graph, cameras, and the objects you put in it.
 </tr><tr>
 <td><a href="#createmesh"><code>createMesh</code></a></td><td><a href="#linegeometry"><code>LineGeometry</code></a></td><td><a href="#linesegmentsgeometry"><code>LineSegmentsGeometry</code></a></td><td><a href="#linematerialoptions"><code>LineMaterialOptions</code></a></td>
 </tr><tr>
-<td><a href="#linematerial"><code>LineMaterial</code></a></td><td><a href="#linesegments"><code>LineSegments</code></a></td><td><a href="#line"><code>Line</code></a></td><td></td>
+<td><a href="#linematerial"><code>LineMaterial</code></a></td><td><a href="#linesegments"><code>LineSegments</code></a></td><td><a href="#line"><code>Line</code></a></td><td><a href="#createlinegeometry"><code>createLineGeometry</code></a></td>
+</tr><tr>
+<td><a href="#createlinesegmentsgeometry"><code>createLineSegmentsGeometry</code></a></td><td><a href="#createlinematerial"><code>createLineMaterial</code></a></td><td><a href="#createline"><code>createLine</code></a></td><td><a href="#createlinesegments"><code>createLineSegments</code></a></td>
 </tr></table>
 
 **Geometry**
@@ -562,6 +566,8 @@ Declarative, data-oriented resources: buffers, uniforms, materials, and textures
 <td><a href="#uniformupdatetype"><code>UniformUpdateType</code></a></td><td><a href="#uniformgroup"><code>UniformGroup</code></a></td><td><a href="#uniformgroup-2"><code>uniformGroup</code></a></td><td><a href="#shareduniformgroup"><code>sharedUniformGroup</code></a></td>
 </tr><tr>
 <td><a href="#framegroup"><code>frameGroup</code></a></td><td><a href="#rendergroup"><code>renderGroup</code></a></td><td><a href="#objectgroup"><code>objectGroup</code></a></td><td><a href="#uniform-2"><code>Uniform</code></a></td>
+</tr><tr>
+<td><a href="#createuniform"><code>createUniform</code></a></td><td></td><td></td><td></td>
 </tr></table>
 
 **Materials**
@@ -575,15 +581,19 @@ Declarative, data-oriented resources: buffers, uniforms, materials, and textures
 <table><tr>
 <td><a href="#wrapmode"><code>WrapMode</code></a></td><td><a href="#filtermode"><code>FilterMode</code></a></td><td><a href="#mipmapfiltermode"><code>MipmapFilterMode</code></a></td><td><a href="#textureoptions"><code>TextureOptions</code></a></td>
 </tr><tr>
-<td><a href="#texture-2"><code>Texture</code></a></td><td><a href="#imagesize"><code>ImageSize</code></a></td><td><a href="#datatextureimage"><code>DataTextureImage</code></a></td><td><a href="#sourcedata"><code>SourceData</code></a></td>
+<td><a href="#texture-2"><code>Texture</code></a></td><td><a href="#createtexture"><code>createTexture</code></a></td><td><a href="#imagesize"><code>ImageSize</code></a></td><td><a href="#datatextureimage"><code>DataTextureImage</code></a></td>
 </tr><tr>
-<td><a href="#source"><code>Source</code></a></td><td><a href="#canvastexture"><code>CanvasTexture</code></a></td><td><a href="#cubetexturemapping"><code>CubeTextureMapping</code></a></td><td><a href="#cubetextureoptions"><code>CubeTextureOptions</code></a></td>
+<td><a href="#sourcedata"><code>SourceData</code></a></td><td><a href="#source"><code>Source</code></a></td><td><a href="#createsource"><code>createSource</code></a></td><td><a href="#canvastexture"><code>CanvasTexture</code></a></td>
 </tr><tr>
-<td><a href="#cubetexture-2"><code>CubeTexture</code></a></td><td><a href="#depthtextureformat"><code>DepthTextureFormat</code></a></td><td><a href="#depthtexture-2"><code>DepthTexture</code></a></td><td><a href="#arraytextureimage"><code>ArrayTextureImage</code></a></td>
+<td><a href="#createcanvastexture"><code>createCanvasTexture</code></a></td><td><a href="#cubetexturemapping"><code>CubeTextureMapping</code></a></td><td><a href="#cubetextureoptions"><code>CubeTextureOptions</code></a></td><td><a href="#cubetexture-2"><code>CubeTexture</code></a></td>
 </tr><tr>
-<td><a href="#arraytexture-2"><code>ArrayTexture</code></a></td><td><a href="#datatexturedata"><code>DataTextureData</code></a></td><td><a href="#structvalue"><code>StructValue</code></a></td><td><a href="#datatexture"><code>DataTexture</code></a></td>
+<td><a href="#createcubetexture"><code>createCubeTexture</code></a></td><td><a href="#depthtextureformat"><code>DepthTextureFormat</code></a></td><td><a href="#depthtexture-2"><code>DepthTexture</code></a></td><td><a href="#createdepthtexture"><code>createDepthTexture</code></a></td>
 </tr><tr>
-<td><a href="#createstructtexture"><code>createStructTexture</code></a></td><td></td><td></td><td></td>
+<td><a href="#arraytextureimage"><code>ArrayTextureImage</code></a></td><td><a href="#arraytexture-2"><code>ArrayTexture</code></a></td><td><a href="#createarraytexture"><code>createArrayTexture</code></a></td><td><a href="#datatexturedata"><code>DataTextureData</code></a></td>
+</tr><tr>
+<td><a href="#structvalue"><code>StructValue</code></a></td><td><a href="#datatexture"><code>DataTexture</code></a></td><td><a href="#createstructtexture"><code>createStructTexture</code></a></td><td><a href="#createdatatexture"><code>createDataTexture</code></a></td>
+</tr><tr>
+<td><a href="#texture3dimage"><code>Texture3DImage</code></a></td><td><a href="#data3dtexture"><code>Data3DTexture</code></a></td><td><a href="#createdata3dtexture"><code>createData3DTexture</code></a></td><td></td>
 </tr></table>
 
 ### Compilation
@@ -633,13 +643,15 @@ WGSL type descriptors (imported as `d`) and std430 buffer packing.
 </tr><tr>
 <td><a href="#orbitcontrolseventtype-2"><code>OrbitControlsEventType</code></a></td><td><a href="#orbitcontrolsevent-2"><code>OrbitControlsEvent</code></a></td><td><a href="#orbitcontrolseventlistener-2"><code>OrbitControlsEventListener</code></a></td><td><a href="#orbitcontrols"><code>OrbitControls</code></a></td>
 </tr><tr>
-<td><a href="#flycontrols"><code>FlyControls</code></a></td><td><a href="#transformmode"><code>TransformMode</code></a></td><td><a href="#transformspace"><code>TransformSpace</code></a></td><td><a href="#transformcontrols"><code>TransformControls</code></a></td>
+<td><a href="#createorbitcontrols"><code>createOrbitControls</code></a></td><td><a href="#flycontrols"><code>FlyControls</code></a></td><td><a href="#createflycontrols"><code>createFlyControls</code></a></td><td><a href="#transformmode"><code>TransformMode</code></a></td>
+</tr><tr>
+<td><a href="#transformspace"><code>TransformSpace</code></a></td><td><a href="#transformcontrols"><code>TransformControls</code></a></td><td><a href="#createtransformcontrols"><code>createTransformControls</code></a></td><td></td>
 </tr></table>
 
 **Inspector**
 
 <table><tr>
-<td><a href="#inspector"><code>Inspector</code></a></td>
+<td><a href="#inspector"><code>Inspector</code></a></td><td><a href="#createinspector"><code>createInspector</code></a></td>
 </tr></table>
 
 ### Math & utils
@@ -653,7 +665,7 @@ WGSL type descriptors (imported as `d`) and std430 buffer packing.
 </tr><tr>
 <td><a href="#raytriangleintersection"><code>rayTriangleIntersection</code></a></td><td><a href="#rayintersectsbox3"><code>rayIntersectsBox3</code></a></td><td><a href="#intersection"><code>Intersection</code></a></td><td><a href="#raycaster"><code>Raycaster</code></a></td>
 </tr><tr>
-<td><a href="#transformraytolocalspace"><code>transformRayToLocalSpace</code></a></td><td><a href="#checktriangleintersection"><code>checkTriangleIntersection</code></a></td><td></td><td></td>
+<td><a href="#transformraytolocalspace"><code>transformRayToLocalSpace</code></a></td><td><a href="#checktriangleintersection"><code>checkTriangleIntersection</code></a></td><td><a href="#createraycaster"><code>createRaycaster</code></a></td><td></td>
 </tr></table>
 
 
@@ -2888,10 +2900,10 @@ export function targetDepth(target: RenderTarget): DepthTextureNode;
 
 ```ts
 /**
- * Create a texture node for sampling a 2D texture.
+ * Create a texture node for sampling a flat (non-cube) texture.
  *
  * Accepts either:
- * - A high-level Texture object (auto-creates sampler from texture settings)
+ * - A high-level Texture, DataTexture or Data3DTexture (auto-creates sampler from texture settings)
  * - A GpuTexture + GpuSampler pair (low-level)
  *
  * @example
@@ -2911,6 +2923,7 @@ export function targetDepth(target: RenderTarget): DepthTextureNode;
  */
 export function texture(tex: Texture): TextureNode<d.texture2d>;
 export function texture(dataTex: DataTexture): TextureNode<d.texture2d>;
+export function texture(tex3d: Data3DTexture): TextureNode<d.texture3d>;
 export function texture<D extends FlatSampledTexture>(gpuTex: GpuTexture<D>, gpuSampler: GpuSampler): TextureNode<D>;
 export function texture<S extends d.StorageTexture>(storageTex: GpuTexture<S>, gpuSampler: GpuSampler): TextureNode<StorageSampledOf<S>>;
 ```
@@ -3659,10 +3672,10 @@ export type PassDesc = {
 };
 ```
 
-#### `DrawOpts`
+#### `DrawOptions`
 
 ```ts
-export type DrawOpts = {
+export type DrawOptions = {
     instances?: number;
     range?: {
         start: number;
@@ -3677,12 +3690,12 @@ export type DrawOpts = {
 #### `DrawRecord`
 
 ```ts
-/** One recorded draw. `kind` is the seam a bundle entry joins at; see `PLAN-render-bundles.md`. */
+/** One recorded draw. `kind` discriminates it from a bundle entry in the same pass array. */
 export type DrawRecord = {
     kind: 'draw';
     mesh: Mesh;
     material: Material;
-    opts: DrawOpts | null;
+    opts: DrawOptions | null;
 };
 ```
 
@@ -3731,19 +3744,19 @@ export type ComputePassDesc = {
 };
 ```
 
-#### `DispatchOpts`
+#### `DispatchOptions`
 
 ```ts
-export type DispatchOpts = {
+export type DispatchOptions = {
     /** Rebinds the node's named `storage()` refs for this dispatch alone, so no pipeline is recompiled. */
     buffers?: Record<string, GpuBuffer<Any>>;
 };
 ```
 
-#### `DispatchIndirectOpts`
+#### `DispatchIndirectOptions`
 
 ```ts
-export type DispatchIndirectOpts = DispatchOpts & {
+export type DispatchIndirectOptions = DispatchOptions & {
     offset?: number;
 };
 ```
@@ -3752,7 +3765,7 @@ export type DispatchIndirectOpts = DispatchOpts & {
 
 ```ts
 /** Exactly one of `counts` and `indirect` is set, which `dispatch` and `dispatchIndirect` guarantee. */
-export type DispatchRecord = DispatchOpts & {
+export type DispatchRecord = DispatchOptions & {
     node: ComputeNode;
     counts?: [number, number, number];
     indirect?: GpuBuffer<Any>;
@@ -3796,7 +3809,7 @@ export type Pass = {
     count: number;
     ended: boolean;
     /** Draws unconditionally: `mesh.visible` gates the scene walk, not a draw you recorded yourself. */
-    draw(mesh: Mesh, opts?: DrawOpts): void;
+    draw(mesh: Mesh, opts?: DrawOptions): void;
     /** Replays a bundle here, keeping its order against the draws around it. */
     execute(bundle: RenderBundle): void;
     /** Walks a tree here: frustum culled, `visible` honoured, opaque before transparent. */
@@ -3815,9 +3828,9 @@ export type ComputePass = {
     records: DispatchRecord[];
     count: number;
     ended: boolean;
-    dispatch(node: ComputeNode, counts: [number, number, number], opts?: DispatchOpts): void;
+    dispatch(node: ComputeNode, counts: [number, number, number], opts?: DispatchOptions): void;
     /** `indirect` needs `'indirect'` usage, and is typically written by an earlier compute pass. */
-    dispatchIndirect(node: ComputeNode, indirect: GpuBuffer<Any>, opts?: DispatchIndirectOpts): void;
+    dispatchIndirect(node: ComputeNode, indirect: GpuBuffer<Any>, opts?: DispatchIndirectOptions): void;
     end(): void;
 };
 ```
@@ -3892,6 +3905,8 @@ export type Frame = {
     closed: boolean;
     /** Render targets this frame encoded into, so `submit` can see one disposed since. */
     targets: RenderTarget[];
+    /** True once this frame object has carried a submitted frame, so a reopen can be told from a first use. */
+    everSubmitted: boolean;
     /** Memoised by the `done` getter, so asking twice waits once and never asking waits not at all. */
     completion: Promise<void> | null;
     pass(desc: PassDesc): Pass;
@@ -4067,14 +4082,16 @@ export class CanvasTarget {
 export function createCanvasTarget(canvas: HTMLCanvasElement | OffscreenCanvas, opts?: CanvasTargetOptions): CanvasTarget;
 ```
 
-#### `ReadOpts`
+#### `ReadOptions`
 
 ```ts
-export type ReadOpts = {
+export type ReadOptions = {
     /** Which MRT colour attachment to read. Defaults to the first. */
     attachment?: number;
     /** Array layer, or cube face: 0..5 = +X, -X, +Y, -Y, +Z, -Z. */
     layer?: number;
+    /** Mip level to read; only a cube target has any but the base. */
+    mipLevel?: number;
 };
 ```
 
@@ -4085,7 +4102,7 @@ export type ReadOpts = {
  * Reads a colour attachment back as tightly-packed, top-to-bottom RGBA8. Call it after the frame that
  * wrote the target has been submitted; reading with one open throws rather than returning stale pixels.
  */
-export function read(renderer: Renderer, target: RenderTarget, opts?: ReadOpts): Promise<Uint8Array>;
+export function read(renderer: Renderer, target: RenderTarget, opts?: ReadOptions): Promise<Uint8Array>;
 ```
 
 #### `RenderTargetOptions`
@@ -4208,6 +4225,13 @@ export class RenderTarget {
 export function createRenderTarget(width: number, height: number, opts?: RenderTargetOptions): RenderTarget;
 ```
 
+#### `deadAttachment`
+
+```ts
+/** The name of the first attachment whose texture is disposed, or null. Depth counts: a submit dies on either. */
+export function deadAttachment(rt: RenderTarget): string | null;
+```
+
 #### `CubeRenderTargetOptions`
 
 ```ts
@@ -4248,16 +4272,12 @@ export type CubeRenderTargetOptions = {
  *
  * Extends `RenderTarget`: the inherited 2D color texture carries the face format
  * for pipeline creation, and the inherited 2D depth texture is reused across all
- * six faces. The renderer attaches the cube face selected by `activeFace`.
+ * six faces. Each pass names the face and level it writes.
  */
 export class CubeRenderTarget extends RenderTarget {
     readonly isCubeRenderTarget = true;
     /** Face size in pixels (width = height). */
     size: number;
-    /** Which cube face the next `render()` targets: 0..5 = +X, -X, +Y, -Y, +Z, -Z. */
-    activeFace: number;
-    /** Which mip level the next `render()` targets. */
-    activeMipmapLevel: number;
     constructor(size: number, opts?: CubeRenderTargetOptions);
     get texture(): CubeTexture;
     /** Resize all six faces (and the shared depth). */
@@ -4390,6 +4410,13 @@ export class PerspectiveCamera extends Camera {
 }
 ```
 
+#### `createPerspectiveCamera`
+
+```ts
+/** The factory form, matching `createOrthographicCamera` and the other object constructors. */
+export function createPerspectiveCamera(fov?: number, aspect?: number, near?: number, far?: number): PerspectiveCamera;
+```
+
 #### `ViewOffset`
 
 ```ts
@@ -4456,6 +4483,13 @@ export class OrthographicCamera extends Camera {
 }
 ```
 
+#### `createOrthographicCamera`
+
+```ts
+/** The factory form, matching `createPerspectiveCamera` and the other object constructors. */
+export function createOrthographicCamera(left?: number, right?: number, top?: number, bottom?: number, near?: number, far?: number): OrthographicCamera;
+```
+
 #### `CubeCamera`
 
 ```ts
@@ -4479,9 +4513,16 @@ export class CubeCamera extends Object3D {
     /** Active mip level written by update(). */
     activeMipmapLevel: number;
     constructor(near: number, far: number, renderTarget: CubeRenderTarget);
-    /** Records six passes, one per face, on a frame of its own. */
-    update(renderer: Renderer, scene: Object3D): void;
+    /** Records six passes, one per face, on the caller's frame, so the cube and what samples it share a submit. */
+    update(f: Frame, scene: Object3D): void;
 }
+```
+
+#### `createCubeCamera`
+
+```ts
+/** The factory form; pair it with `createCubeRenderTarget` for the target it draws into. */
+export function createCubeCamera(near: number, far: number, renderTarget: CubeRenderTarget): CubeCamera;
 ```
 
 #### `IndexedMeshDraw`
@@ -4735,6 +4776,41 @@ export class Line extends Mesh {
     constructor(geometry: LineGeometry, material: LineMaterial);
     raycast(raycaster: Raycaster, intersects: Intersection[]): void;
 }
+```
+
+#### `createLineGeometry`
+
+```ts
+/** The factory form, matching `createGeometry` and the other resource constructors. */
+export function createLineGeometry(points: Float32Array | number[], closed?: boolean, maxPoints?: number): LineGeometry;
+```
+
+#### `createLineSegmentsGeometry`
+
+```ts
+/** The factory form, matching `createLineGeometry`. */
+export function createLineSegmentsGeometry(points: Float32Array | number[], maxPoints?: number): LineSegmentsGeometry;
+```
+
+#### `createLineMaterial`
+
+```ts
+/** The factory form, matching `createMaterial`. */
+export function createLineMaterial(opts?: LineMaterialOptions): LineMaterial;
+```
+
+#### `createLine`
+
+```ts
+/** The factory form, matching `createMesh`. */
+export function createLine(geometry: LineGeometry, material: LineMaterial): Line;
+```
+
+#### `createLineSegments`
+
+```ts
+/** The factory form, matching `createMesh`. */
+export function createLineSegments(geometry: LineSegmentsGeometry, material: LineMaterial): LineSegments;
 ```
 
 #### `DrawRange`
@@ -5348,6 +5424,13 @@ export class Uniform<T extends Any = Any> {
 }
 ```
 
+#### `createUniform`
+
+```ts
+/** The factory form, matching `uniformGroup` and the other value constructors. */
+export function createUniform<T extends Any>(schema: T, initialValue?: UniformValue<T>, group?: UniformGroup): Uniform<T>;
+```
+
 #### `StencilFaceOverride`
 
 ```ts
@@ -5668,6 +5751,13 @@ export class Texture<out T extends SourceData = SourceData> {
 }
 ```
 
+#### `createTexture`
+
+```ts
+/** The factory form, matching `createDataTexture` and the other texture constructors. */
+export function createTexture<T extends SourceData = SourceData>(image: T | Source<T> | null, options?: TextureOptions): Texture<T>;
+```
+
 #### `ImageSize`
 
 ```ts
@@ -5730,6 +5820,13 @@ export class Source<out T = SourceData> {
 }
 ```
 
+#### `createSource`
+
+```ts
+/** The factory form; a `Source` is the uploadable image data a texture points at. */
+export function createSource<T extends SourceData = SourceData>(data: T): Source<T>;
+```
+
 #### `CanvasTexture`
 
 ```ts
@@ -5741,6 +5838,13 @@ export class CanvasTexture extends Texture<HTMLCanvasElement | OffscreenCanvas> 
     readonly isCanvasTexture = true;
     constructor(canvas: HTMLCanvasElement | OffscreenCanvas);
 }
+```
+
+#### `createCanvasTexture`
+
+```ts
+/** The factory form; the canvas is re-uploaded whenever `needsUpdate` is set. */
+export function createCanvasTexture(canvas: HTMLCanvasElement | OffscreenCanvas): CanvasTexture;
 ```
 
 #### `CubeTextureMapping`
@@ -5850,6 +5954,13 @@ export class CubeTexture {
 }
 ```
 
+#### `createCubeTexture`
+
+```ts
+/** The factory form; pass no faces (and `options.size`) for a render-only cube. */
+export function createCubeTexture(faces?: [SourceData, SourceData, SourceData, SourceData, SourceData, SourceData] | SourceData[], options?: CubeTextureOptions): CubeTexture;
+```
+
 #### `DepthTextureFormat`
 
 ```ts
@@ -5895,6 +6006,13 @@ export class DepthTexture {
     clone(): DepthTexture;
     dispose(): void;
 }
+```
+
+#### `createDepthTexture`
+
+```ts
+/** The factory form; the contents are written by the GPU, so there is no data argument. */
+export function createDepthTexture(width: number, height: number, format?: DepthTextureFormat): DepthTexture;
 ```
 
 #### `ArrayTextureImage`
@@ -5998,6 +6116,13 @@ export class ArrayTexture {
     /** Disposes of the texture and its GPU resources. */
     dispose(): void;
 }
+```
+
+#### `createArrayTexture`
+
+```ts
+/** The factory form, matching `createDataTexture` and the other texture constructors. */
+export function createArrayTexture(data?: DataTextureImage['data'], width?: number, height?: number, depth?: number, options?: TextureOptions): ArrayTexture;
 ```
 
 #### `DataTextureData`
@@ -6130,6 +6255,113 @@ export class DataTexture {
  * std430, one record every `texelStride` texels (16 B each).
  */
 export function createStructTexture<S extends d.StructSchema>(schema: StructDef<S>, capacity: number, options?: TextureOptions): DataTexture;
+```
+
+#### `createDataTexture`
+
+```ts
+/** The factory form, matching `createStructTexture` and the other texture constructors. */
+export function createDataTexture(data: DataTextureData | null, width: number, height: number, options?: TextureOptions): DataTexture;
+```
+
+#### `Texture3DImage`
+
+```ts
+/** Data format for 3D textures - typed array with width, height, and depth */
+export type Texture3DImage = DataTextureImage & {
+    depth: number;
+};
+```
+
+#### `Data3DTexture`
+
+```ts
+/**
+ * A 3D (volume) texture.
+ *
+ * Sampled using vec3 UVW coordinates. Useful for:
+ * - Volume rendering (medical imaging, clouds, fog)
+ * - 3D LUTs (color grading)
+ * - Signed distance fields
+ */
+export class Data3DTexture {
+    /** Type flag for runtime checking */
+    readonly is3DTexture = true;
+    /** Optional name for debugging */
+    name: string;
+    /**
+     * Constructs a new Data3DTexture.
+     *
+     * @param data - Optional raw data for voxels
+     * @param width - Width of the texture
+     * @param height - Height of the texture
+     * @param depth - Depth of the texture
+     * @param options - Texture options
+     */
+    constructor(data?: DataTextureImage['data'], width?: number, height?: number, depth?: number, options?: TextureOptions);
+    /** Unique numeric ID */
+    get id(): number;
+    /** Returns the width of the texture. */
+    get width(): number;
+    /** Returns the height of the texture. */
+    get height(): number;
+    /** Depth of the 3D texture */
+    get depth(): number;
+    /** The data source for this texture. */
+    get source(): Source<Texture3DImage> | null;
+    /** Convenience getter for the source data. */
+    get image(): Texture3DImage | null;
+    /** Horizontal wrap mode (U direction). */
+    get wrapS(): WrapMode;
+    set wrapS(v: WrapMode);
+    /** Vertical wrap mode (V direction). */
+    get wrapT(): WrapMode;
+    set wrapT(v: WrapMode);
+    /** Magnification filter. */
+    get magFilter(): FilterMode;
+    set magFilter(v: FilterMode);
+    /** Minification filter. */
+    get minFilter(): FilterMode;
+    set minFilter(v: FilterMode);
+    /** Mipmap filter mode. */
+    get mipmapFilter(): MipmapFilterMode;
+    set mipmapFilter(v: MipmapFilterMode);
+    /** Anisotropic filtering level. */
+    get anisotropy(): number;
+    set anisotropy(v: number);
+    /** WebGPU texture format. */
+    get format(): GPUTextureFormat;
+    set format(v: GPUTextureFormat);
+    /** Whether to auto-generate mipmaps. */
+    get generateMipmaps(): boolean;
+    set generateMipmaps(v: boolean);
+    /** Whether to flip the image vertically when uploading. */
+    get flipY(): boolean;
+    set flipY(v: boolean);
+    /** Whether to premultiply alpha. */
+    get premultiplyAlpha(): boolean;
+    set premultiplyAlpha(v: boolean);
+    /** Version for dirty tracking. */
+    get version(): number;
+    /** Set to `true` to trigger a GPU upload on the next render. */
+    set needsUpdate(value: boolean);
+    /**
+     * Queue a partial upload of one box of texels, without forcing a full re-upload. `z`/`depth` address
+     * slices of the volume directly, so there is no separate slice helper.
+     */
+    addUpdateRegion(region: TextureRegionInit): this;
+    /** Creates a clone of this texture. */
+    clone(): Data3DTexture;
+    /** Disposes of the texture and its GPU resources. */
+    dispose(): void;
+}
+```
+
+#### `createData3DTexture`
+
+```ts
+/** The factory form, matching `createArrayTexture` and the other texture constructors. */
+export function createData3DTexture(data?: DataTextureImage['data'], width?: number, height?: number, depth?: number, options?: TextureOptions): Data3DTexture;
 ```
 
 ## Compilation
@@ -6855,6 +7087,13 @@ export class OrbitControls {
 }
 ```
 
+#### `createOrbitControls`
+
+```ts
+/** The factory form, matching `createFlyControls` and `createTransformControls`. */
+export function createOrbitControls(object: Camera, domElement?: HTMLElement | null): OrbitControls;
+```
+
 #### `FlyControls`
 
 ```ts
@@ -6892,6 +7131,13 @@ export class FlyControls {
      */
     update(delta: number): void;
 }
+```
+
+#### `createFlyControls`
+
+```ts
+/** The factory form, matching `createOrbitControls` and `createTransformControls`. */
+export function createFlyControls(object: Camera, domElement?: HTMLElement | null): FlyControls;
 ```
 
 #### `TransformMode`
@@ -6989,6 +7235,13 @@ export class TransformControls {
 }
 ```
 
+#### `createTransformControls`
+
+```ts
+/** The factory form, matching `createOrbitControls` and `createFlyControls`. */
+export function createTransformControls(camera: Camera, domElement?: HTMLElement): TransformControls;
+```
+
 #### `Inspector`
 
 ```ts
@@ -7034,6 +7287,13 @@ export class Inspector extends RendererInspector {
      *  once the WebGPU probe's GPU resources are actually destroyed (drained first). */
     clearProbe(): Promise<void>;
 }
+```
+
+#### `createInspector`
+
+```ts
+/** The factory form; attach it by assigning to `renderer.inspector`. */
+export function createInspector(): Inspector;
 ```
 
 ## Math & utils
@@ -7162,6 +7422,13 @@ export function transformRayToLocalSpace(raycaster: Raycaster, matrixWorld: Mat4
  * Positions are in local space, ray should be in local space.
  */
 export function checkTriangleIntersection(object: Object3D, raycaster: Raycaster, localRay: Ray, matrixWorld: Mat4, a: number, b: number, c: number, positions: Float32Array, indices: Uint16Array | Uint32Array | null, uvs: Float32Array | null, intersects: Intersection[], faceIndex: number): void;
+```
+
+#### `createRaycaster`
+
+```ts
+/** The factory form; set the ray later with `set` or `setFromCamera`. */
+export function createRaycaster(origin?: Vec3, direction?: Vec3, near?: number, far?: number): Raycaster;
 ```
 
 

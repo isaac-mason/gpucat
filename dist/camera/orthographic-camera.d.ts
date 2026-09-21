@@ -55,3 +55,5 @@ export declare class OrthographicCamera extends Camera {
     /** Recompute the projection matrix from current frustum planes, zoom, and view offset. */
     updateProjectionMatrix(): void;
 }
+/** The factory form, matching `createPerspectiveCamera` and the other object constructors. */
+export declare function createOrthographicCamera(left?: number, right?: number, top?: number, bottom?: number, near?: number, far?: number): OrthographicCamera;

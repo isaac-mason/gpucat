@@ -1,8 +1,8 @@
-import { Source, type SourceData } from './source';
+import { GpuSampler } from '../core/gpu-sampler';
 import { GpuTexture } from '../core/gpu-texture';
 import type { TextureRectInit, TextureRegionInit } from '../core/texture-region';
-import { GpuSampler } from '../core/gpu-sampler';
 import * as d from '../schema/schema';
+import { Source, type SourceData } from './source';
 /**
  * Cube texture mapping modes.
  * Determines which vector to use for cube texture sampling.
@@ -99,3 +99,5 @@ export declare class CubeTexture {
     clone(): CubeTexture;
     dispose(): void;
 }
+/** The factory form; pass no faces (and `options.size`) for a render-only cube. */
+export declare function createCubeTexture(faces?: [SourceData, SourceData, SourceData, SourceData, SourceData, SourceData] | SourceData[], options?: CubeTextureOptions): CubeTexture;

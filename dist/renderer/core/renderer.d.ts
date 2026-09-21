@@ -40,8 +40,6 @@ export declare class Renderer<B extends DeviceBackend = DeviceBackend> implement
     get inspector(): InspectorBase | null;
     set inspector(next: InspectorBase | null);
     init(): Promise<this>;
-    /** The renderer's one reusable frame, reopened. */
-    /** Pre-warm the drawables a pass will look up, resolved through the context that pass resolves. */
     dispose(): void;
     /** @internal */
     _beginInfoFrame(): void;

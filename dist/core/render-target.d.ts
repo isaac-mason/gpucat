@@ -108,3 +108,5 @@ export declare class RenderTarget {
 }
 /** Holds no device: the backend allocates the textures on first use. */
 export declare function createRenderTarget(width: number, height: number, opts?: RenderTargetOptions): RenderTarget;
+/** The name of the first attachment whose texture is disposed, or null. Depth counts: a submit dies on either. */
+export declare function deadAttachment(rt: RenderTarget): string | null;

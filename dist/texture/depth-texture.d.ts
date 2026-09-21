@@ -1,5 +1,5 @@
-import { GpuTexture } from '../core/gpu-texture';
 import { GpuSampler } from '../core/gpu-sampler';
+import { GpuTexture } from '../core/gpu-texture';
 import * as d from '../schema/schema';
 export type DepthTextureFormat = 'depth16unorm' | 'depth24plus' | 'depth24plus-stencil8' | 'depth32float' | 'depth32float-stencil8';
 /**
@@ -42,3 +42,5 @@ export declare class DepthTexture {
     clone(): DepthTexture;
     dispose(): void;
 }
+/** The factory form; the contents are written by the GPU, so there is no data argument. */
+export declare function createDepthTexture(width: number, height: number, format?: DepthTextureFormat): DepthTexture;

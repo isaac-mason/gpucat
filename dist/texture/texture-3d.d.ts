@@ -1,9 +1,9 @@
+import { GpuSampler } from '../core/gpu-sampler';
 import { GpuTexture } from '../core/gpu-texture';
 import type { TextureRegionInit } from '../core/texture-region';
-import { GpuSampler } from '../core/gpu-sampler';
-import { Source, type DataTextureImage } from './source';
 import * as d from '../schema/schema';
-import type { WrapMode, FilterMode, MipmapFilterMode, TextureOptions } from './texture';
+import { type DataTextureImage, Source } from './source';
+import type { FilterMode, MipmapFilterMode, TextureOptions, WrapMode } from './texture';
 /** Data format for 3D textures - typed array with width, height, and depth */
 export type Texture3DImage = DataTextureImage & {
     depth: number;
@@ -91,3 +91,5 @@ export declare class Data3DTexture {
     /** Disposes of the texture and its GPU resources. */
     dispose(): void;
 }
+/** The factory form, matching `createArrayTexture` and the other texture constructors. */
+export declare function createData3DTexture(data?: DataTextureImage['data'], width?: number, height?: number, depth?: number, options?: TextureOptions): Data3DTexture;

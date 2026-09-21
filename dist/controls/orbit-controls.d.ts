@@ -1,4 +1,4 @@
-import { type Vec3, type Vec2, type Quat, type Spherical } from 'math';
+import { type Quat, type Spherical, type Vec2, type Vec3 } from 'math';
 import type { Camera } from '../camera/camera';
 declare const STATE: {
     readonly NONE: -1;
@@ -222,4 +222,6 @@ export declare class OrbitControls {
         deltaY: number;
     };
 }
+/** The factory form, matching `createFlyControls` and `createTransformControls`. */
+export declare function createOrbitControls(object: Camera, domElement?: HTMLElement | null): OrbitControls;
 export {};

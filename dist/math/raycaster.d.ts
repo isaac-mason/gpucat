@@ -1,7 +1,7 @@
-import { type Vec3, type Mat4 } from 'math';
+import { type Mat4, type Vec3 } from 'math';
 import type { Box3 } from 'math/shapes';
+import { type Camera } from '../camera/camera';
 import type { Object3D } from '../core/object3d';
-import { Camera } from '../camera/camera';
 export type Ray = {
     origin: Vec3;
     direction: Vec3;
@@ -51,3 +51,5 @@ export declare function transformRayToLocalSpace(raycaster: Raycaster, matrixWor
  * Positions are in local space, ray should be in local space.
  */
 export declare function checkTriangleIntersection(object: Object3D, raycaster: Raycaster, localRay: Ray, matrixWorld: Mat4, a: number, b: number, c: number, positions: Float32Array, indices: Uint16Array | Uint32Array | null, uvs: Float32Array | null, intersects: Intersection[], faceIndex: number): void;
+/** The factory form; set the ray later with `set` or `setFromCamera`. */
+export declare function createRaycaster(origin?: Vec3, direction?: Vec3, near?: number, far?: number): Raycaster;

@@ -27,7 +27,7 @@
  * un-antialiased result) with a one-time warning.
  */
 import type { RenderTarget } from '../../core/render-target';
-import { type TextureCache } from './textures';
+import type { WebGLBackend } from './webgl-backend';
 /** Per-RenderTarget GL framebuffer + the color-texture generations it was built against. */
 type FboData = {
     /** The GL framebuffer object (the resolve/texture FBO — its color attachments are the target's textures). */
@@ -49,6 +49,7 @@ type FboData = {
     height: number;
     /** For a cube target: which face the color attachment currently points at (-1 = not a cube / unset). */
     attachedFace: number;
+    attachedMip: number;
     /** MSAA render FBO (multisample renderbuffers). Non-null only for a supported `samples > 1` target. */
     msaa: MsaaData | null;
 };
@@ -83,7 +84,7 @@ export declare function createGlRenderTargetsState(): GlRenderTargetsState;
  * into the texture FBO at pass end by `resolveActiveRenderTarget`. For a cube target the selected
  * `activeFace` is attached as the color attachment (re-attached cheaply when the face changes).
  */
-export declare function bindRenderTargetFramebuffer(gl: WebGL2RenderingContext, state: GlRenderTargetsState, textures: TextureCache, renderTarget: RenderTarget): {
+export declare function bindRenderTargetFramebuffer(gl: WebGL2RenderingContext, b: WebGLBackend, renderTarget: RenderTarget, layer: number, mipLevel: number): {
     hasStencil: boolean;
 };
 /**

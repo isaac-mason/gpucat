@@ -73,3 +73,5 @@ export declare class Uniform<T extends Any = Any> {
     /** A typed array is adopted by reference, so writing through it keeps updating this uniform. */
     set value(next: UniformValue<T> | null);
 }
+/** The factory form, matching `uniformGroup` and the other value constructors. */
+export declare function createUniform<T extends Any>(schema: T, initialValue?: UniformValue<T>, group?: UniformGroup): Uniform<T>;

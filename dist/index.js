@@ -2202,815 +2202,6 @@ function unproject(out, ndc, camera) {
     return out;
 }
 
-/**
- * Transform a bounding box by a 4x4 matrix.
- * Uses Arvo's trick — transform the center, build new half-extents from
- * |M| · extents — which is ~4× fewer ops than transforming all 8 corners.
- * Reference: Jim Arvo, "Transforming Axis-Aligned Bounding Boxes",
- * Graphics Gems I (1990).
- * https://github.com/erich666/GraphicsGems/blob/master/gems/TransBox.c
- * Assumes mat is affine (no perspective), which is always true for AABB
- * transforms in practice.
- * Safe under aliasing (out and box may be the same array): all six box
- * components are read into locals before out is written.
- * @param out - The output Box3
- * @param box - The input Box3
- * @param mat - The 4x4 transformation matrix
- * @returns The transformed Box3
- */
-function transformMat4(out, box, mat) {
-    const bMinX = box[0];
-    const bMinY = box[1];
-    const bMinZ = box[2];
-    const bMaxX = box[3];
-    const bMaxY = box[4];
-    const bMaxZ = box[5];
-    // empty input → empty output (preserve sentinel rather than producing
-    // a bogus transformed box from negative extents)
-    if (bMinX > bMaxX || bMinY > bMaxY || bMinZ > bMaxZ) {
-        out[0] = Number.POSITIVE_INFINITY;
-        out[1] = Number.POSITIVE_INFINITY;
-        out[2] = Number.POSITIVE_INFINITY;
-        out[3] = Number.NEGATIVE_INFINITY;
-        out[4] = Number.NEGATIVE_INFINITY;
-        out[5] = Number.NEGATIVE_INFINITY;
-        return out;
-    }
-    const cx = (bMinX + bMaxX) * 0.5;
-    const cy = (bMinY + bMaxY) * 0.5;
-    const cz = (bMinZ + bMaxZ) * 0.5;
-    const ex = (bMaxX - bMinX) * 0.5;
-    const ey = (bMaxY - bMinY) * 0.5;
-    const ez = (bMaxZ - bMinZ) * 0.5;
-    const m0 = mat[0], m1 = mat[1], m2 = mat[2];
-    const m4 = mat[4], m5 = mat[5], m6 = mat[6];
-    const m8 = mat[8], m9 = mat[9], m10 = mat[10];
-    const tcx = m0 * cx + m4 * cy + m8 * cz + mat[12];
-    const tcy = m1 * cx + m5 * cy + m9 * cz + mat[13];
-    const tcz = m2 * cx + m6 * cy + m10 * cz + mat[14];
-    const tex = Math.abs(m0) * ex + Math.abs(m4) * ey + Math.abs(m8) * ez;
-    const tey = Math.abs(m1) * ex + Math.abs(m5) * ey + Math.abs(m9) * ez;
-    const tez = Math.abs(m2) * ex + Math.abs(m6) * ey + Math.abs(m10) * ez;
-    out[0] = tcx - tex;
-    out[1] = tcy - tey;
-    out[2] = tcz - tez;
-    out[3] = tcx + tex;
-    out[4] = tcy + tey;
-    out[5] = tcz + tez;
-    return out;
-}
-
-/**
- * Creates a new plane with normal (0, 1, 0) and constant 0
- * @returns A new plane
- */
-function create$1() {
-    return { normal: [0, 1, 0], constant: 0 };
-}
-/**
- * Clones a plane
- * @param plane - The plane to clone
- * @returns A new plane
- */
-function clone$1(plane) {
-    return {
-        normal: clone$2(plane.normal),
-        constant: plane.constant,
-    };
-}
-/**
- * Copies one plane to another
- * @param out - The output plane
- * @param plane - The source plane
- * @returns The output plane
- */
-function copy$1(out, plane) {
-    copy$5(out.normal, plane.normal);
-    out.constant = plane.constant;
-    return out;
-}
-/**
- * Normalizes a plane (ensures the normal vector is unit length)
- * @param out - The output plane
- * @param plane - The input plane
- * @returns The normalized plane
- */
-function normalize$1(out, plane) {
-    const invMagnitude = 1.0 / length$1(plane.normal);
-    scale(out.normal, plane.normal, invMagnitude);
-    out.constant = plane.constant * invMagnitude;
-    return out;
-}
-/**
- * Calculates the signed distance from a point to the plane
- * @param plane - The plane
- * @param point - The point
- * @returns The signed distance (positive = in direction of normal)
- */
-function distanceToPoint(plane, point) {
-    return dot$1(plane.normal, point) + plane.constant;
-}
-
-function create() {
-    return [
-        create$1(),
-        create$1(),
-        create$1(),
-        create$1(),
-        create$1(),
-        create$1(),
-    ];
-}
-function clone(f) {
-    return [
-        clone$1(f[0]),
-        clone$1(f[1]),
-        clone$1(f[2]),
-        clone$1(f[3]),
-        clone$1(f[4]),
-        clone$1(f[5]),
-    ];
-}
-function copy(out, f) {
-    copy$1(out[0], f[0]);
-    copy$1(out[1], f[1]);
-    copy$1(out[2], f[2]);
-    copy$1(out[3], f[3]);
-    copy$1(out[4], f[4]);
-    copy$1(out[5], f[5]);
-    return out;
-}
-function setFromViewProjectionMatrix(out, proj, view, coordinateSystem = CoordinateSystem.WEBGPU) {
-    const vp = create$3();
-    multiply(vp, proj, view);
-    const m = vp;
-    setPlane(out[0], m[0] + m[3], m[4] + m[7], m[8] + m[11], m[12] + m[15]);
-    setPlane(out[1], -m[0] + m[3], -m[4] + m[7], -m[8] + m[11], -m[12] + m[15]);
-    setPlane(out[2], m[1] + m[3], m[5] + m[7], m[9] + m[11], m[13] + m[15]);
-    setPlane(out[3], -m[1] + m[3], -m[5] + m[7], -m[9] + m[11], -m[13] + m[15]);
-    // Near plane depends on the clip-space depth convention: WebGPU (z=0 at near) uses row2 alone;
-    // WebGL (z=-1 at near) uses row2 + row3. Far plane (row3 - row2) is identical for both.
-    if (coordinateSystem === CoordinateSystem.WEBGL) {
-        setPlane(out[4], m[2] + m[3], m[6] + m[7], m[10] + m[11], m[14] + m[15]);
-    }
-    else {
-        setPlane(out[4], m[2], m[6], m[10], m[14]);
-    }
-    setPlane(out[5], -m[2] + m[3], -m[6] + m[7], -m[10] + m[11], -m[14] + m[15]);
-    for (let i = 0; i < 6; i++) {
-        normalize$1(out[i], out[i]);
-    }
-    return out;
-}
-function intersectsSphere(f, s) {
-    const { center, radius } = s;
-    for (let i = 0; i < 6; i++) {
-        if (distanceToPoint(f[i], center) < -radius) {
-            return false;
-        }
-    }
-    return true;
-}
-function intersectsBox3(f, box) {
-    const [minX, minY, minZ, maxX, maxY, maxZ] = box;
-    for (let i = 0; i < 6; i++) {
-        const p = f[i];
-        const nx = p.normal[0];
-        const ny = p.normal[1];
-        const nz = p.normal[2];
-        const px = nx >= 0 ? maxX : minX;
-        const py = ny >= 0 ? maxY : minY;
-        const pz = nz >= 0 ? maxZ : minZ;
-        if (nx * px + ny * py + nz * pz + p.constant < 0) {
-            return false;
-        }
-    }
-    return true;
-}
-function setPlane(out, nx, ny, nz, d) {
-    out.normal[0] = nx;
-    out.normal[1] = ny;
-    out.normal[2] = nz;
-    out.constant = d;
-}
-
-var frustum = /*#__PURE__*/Object.freeze({
-    __proto__: null,
-    clone: clone,
-    copy: copy,
-    create: create,
-    intersectsBox3: intersectsBox3,
-    intersectsSphere: intersectsSphere,
-    setFromViewProjectionMatrix: setFromViewProjectionMatrix
-});
-
-/**
- * render-list.ts - Sorted render item list with object pooling and scene collection.
- *
- * - Object pooling for RenderItems (avoids GC pressure)
- * - Sorted opaque and transparent lists
- * - Cached per scene/camera using nested WeakMaps
- * - Frustum culling integration
- * - Scene graph traversal
- *
- * RenderList collects meshes from a scene graph and sorts them for rendering:
- * - Opaque: sorted by material/pipeline key to minimize state changes
- * - Transparent: sorted back-to-front by view-space Z
- */
-// Factories
-/** ID counter for RenderItems. */
-let renderItemIdCounter = 0;
-/**
- * Create a new RenderList.
- */
-function createRenderList() {
-    return {
-        object: null,
-        camera: null,
-        renderItems: [],
-        renderItemsIndex: 0,
-        opaque: [],
-        transparent: [],
-    };
-}
-/**
- * Create a new RenderLists state.
- */
-function createRenderListsState() {
-    return {
-        lists: new WeakMap(),
-    };
-}
-// RenderList Access
-/**
- * Get or create a RenderList for the given object and camera.
- *
- * @param state - The RenderLists state
- * @param object - The object to render (Scene, Mesh, or any Object3D)
- * @param camera - The camera to render from
- */
-function getRenderList(state, object, camera) {
-    let cameraMap = state.lists.get(object);
-    if (!cameraMap) {
-        cameraMap = new WeakMap();
-        state.lists.set(object, cameraMap);
-    }
-    let list = cameraMap.get(camera);
-    if (!list) {
-        list = createRenderList();
-        cameraMap.set(camera, list);
-    }
-    return list;
-}
-// List Management
-/**
- * Begin building a render list for a new frame.
- *
- * This resets the pool index but keeps pooled items for reuse.
- */
-function beginRenderList(list, object, camera) {
-    list.object = object;
-    list.camera = camera;
-    list.renderItemsIndex = 0;
-    list.opaque.length = 0;
-    list.transparent.length = 0;
-}
-/**
- * Get a RenderItem from the pool (or create a new one).
- */
-function getNextRenderItem(list) {
-    const index = list.renderItemsIndex;
-    let item = list.renderItems[index];
-    if (item === undefined) {
-        item = {
-            id: renderItemIdCounter++,
-            mesh: null,
-            geometry: null,
-            material: null,
-            groupOrder: 0,
-            renderOrder: 0,
-            z: 0,
-        };
-        list.renderItems.push(item);
-    }
-    list.renderItemsIndex++;
-    return item;
-}
-/**
- * Push a mesh into the render list.
- *
- * @param list - The RenderList
- * @param mesh - The mesh to add
- * @param geometry - The mesh's geometry
- * @param material - The mesh's material
- * @param groupOrder - Group order for layer-based sorting
- * @param z - View-space Z for transparent sorting
- */
-function pushRenderItem(list, mesh, geometry, material, groupOrder, z) {
-    const item = getNextRenderItem(list);
-    item.mesh = mesh;
-    item.geometry = geometry;
-    item.material = material;
-    item.groupOrder = groupOrder;
-    item.renderOrder = mesh.renderOrder;
-    item.z = z;
-    if (material.transparent) {
-        list.transparent.push(item);
-    }
-    else {
-        list.opaque.push(item);
-    }
-}
-// Sorting
-/**
- * Sort the render list.
- *
- * @param list - The RenderList to sort
- * @param customOpaqueSort - Optional custom sort for opaque items
- * @param customTransparentSort - Optional custom sort for transparent items
- */
-function sortRenderList(list, customOpaqueSort, customTransparentSort) {
-    if (list.opaque.length > 1) {
-        list.opaque.sort(painterSortStable);
-    }
-    if (list.transparent.length > 1) {
-        list.transparent.sort(reversePainterSortStable);
-    }
-}
-/**
- * Default sort for opaque items.
- *
- * Sort priority:
- * 1. groupOrder (render layers)
- * 2. renderOrder (manual ordering)
- * 3. Z (front-to-back for early-z rejection)
- * 4. ID (stability)
- *
- * Note: we do NOT sort by material/pipeline. Pipeline switching is
- * minimized at draw time by tracking the active pipeline in setPipeline().
- */
-function painterSortStable(a, b) {
-    if (a.groupOrder !== b.groupOrder) {
-        return a.groupOrder - b.groupOrder;
-    }
-    if (a.renderOrder !== b.renderOrder) {
-        return a.renderOrder - b.renderOrder;
-    }
-    if (a.z !== b.z) {
-        return a.z - b.z;
-    }
-    return a.id - b.id;
-}
-/**
- * Default sort for transparent items (back-to-front).
- *
- * "Reverse painter sort stable" - sorts back-to-front for proper alpha blending.
- */
-function reversePainterSortStable(a, b) {
-    // Sort by groupOrder first (render layers)
-    if (a.groupOrder !== b.groupOrder) {
-        return a.groupOrder - b.groupOrder;
-    }
-    // Then by renderOrder
-    if (a.renderOrder !== b.renderOrder) {
-        return a.renderOrder - b.renderOrder;
-    }
-    // Then by Z (back-to-front for transparent = larger Z first)
-    if (a.z !== b.z) {
-        return b.z - a.z;
-    }
-    // Finally by ID for stability
-    return a.id - b.id;
-}
-// Scene Collection
-/** Frustum used for culling; rebuilt from VP every frame. */
-const _frustum = create();
-/** World-space AABB used when transforming a local bounding box. */
-const _worldBox = [0, 0, 0, 0, 0, 0];
-/** World-space sphere used when transforming a local bounding sphere. */
-const _worldSphere = { center: [0, 0, 0], radius: 0 };
-/**
- * Collect all visible meshes from a scene into a RenderList.
- *
- * This walks the object graph, performs frustum culling, and populates
- * the RenderList with opaque and transparent items.
- *
- * @param state - The RenderLists state
- * @param object - The object to collect from (Scene, Mesh, or any Object3D)
- * @param camera - The camera for frustum culling and Z sorting
- * @returns The populated and sorted RenderList
- */
-function collectRenderList(state, object, camera) {
-    const list = getRenderList(state, object, camera);
-    // Begin new frame
-    beginRenderList(list, object, camera);
-    // Build frustum from camera matrices
-    setFromViewProjectionMatrix(_frustum, camera.projectionMatrix, camera.matrixWorldInverse, camera.coordinateSystem);
-    // Walk object and collect visible meshes
-    walkObject(list, object, camera);
-    sortRenderList(list);
-    return list;
-}
-/**
- * Walk the scene graph and collect visible meshes.
- */
-function walkObject(list, obj, camera) {
-    if (!obj.visible)
-        return;
-    if (obj.isMesh) {
-        const mesh = obj;
-        if (isMeshVisible(mesh)) {
-            const material = mesh.material;
-            const z = computeViewZ(mesh, camera);
-            pushRenderItem(list, mesh, mesh.geometry, material, 0, // groupOrder - could be mesh.renderOrder or layer
-            z);
-        }
-    }
-    // Recurse into children
-    for (const child of obj.children) {
-        walkObject(list, child, camera);
-    }
-}
-/**
- * Test whether a mesh should be included in the draw list.
- *
- * Uses frustum culling with bounding volumes:
- * 1. boundingSphere, cheapest test (6 dot-products)
- * 2. boundingBox, more precise but slightly more work
- * 3. no bounds, always visible (safe fallback)
- */
-function isMeshVisible(mesh) {
-    const geom = mesh.geometry;
-    const wm = mesh.matrixWorld;
-    // Skip disposed geometries
-    if (geom.disposed)
-        return false;
-    if (!mesh.frustumCulled)
-        return true;
-    // sphere test (preferred)
-    if (geom.boundingSphere !== undefined) {
-        const ls = geom.boundingSphere;
-        // Transform centre: ws_centre = wm * [cx, cy, cz, 1]
-        const cx = ls.center[0];
-        const cy = ls.center[1];
-        const cz = ls.center[2];
-        _worldSphere.center[0] = wm[0] * cx + wm[4] * cy + wm[8] * cz + wm[12];
-        _worldSphere.center[1] = wm[1] * cx + wm[5] * cy + wm[9] * cz + wm[13];
-        _worldSphere.center[2] = wm[2] * cx + wm[6] * cy + wm[10] * cz + wm[14];
-        // Scale the radius by the largest axis scale extracted from the world matrix.
-        const sx = Math.sqrt(wm[0] * wm[0] + wm[1] * wm[1] + wm[2] * wm[2]);
-        const sy = Math.sqrt(wm[4] * wm[4] + wm[5] * wm[5] + wm[6] * wm[6]);
-        const sz = Math.sqrt(wm[8] * wm[8] + wm[9] * wm[9] + wm[10] * wm[10]);
-        _worldSphere.radius = ls.radius * Math.max(sx, sy, sz);
-        return intersectsSphere(_frustum, _worldSphere);
-    }
-    // AABB test (fallback)
-    if (geom.boundingBox !== undefined) {
-        // Transform the local AABB by the world matrix to a world-space AABB.
-        transformMat4(_worldBox, geom.boundingBox, wm);
-        return intersectsBox3(_frustum, _worldBox);
-    }
-    // no bounds, always draw
-    return true;
-}
-/**
- * Compute the view-space Z of a mesh for transparent sorting.
- *
- * Uses the mesh world-position (column 12, 13, 14 of matrixWorld)
- * and the camera view matrix.
- *
- * Returns the view-space Z coordinate (negative = in front of camera in a
- * right-handed system; we sort from largest (furthest) to smallest).
- */
-function computeViewZ(mesh, camera) {
-    const wm = mesh.matrixWorld;
-    const vm = camera.matrixWorldInverse;
-    // World position of mesh origin
-    const wx = wm[12];
-    const wy = wm[13];
-    const wz = wm[14];
-    // Transform world position by view matrix (only z row needed)
-    return vm[2] * wx + vm[6] * wy + vm[10] * wz + vm[14];
-}
-
-function isRenderTarget(target) {
-    return target.isRenderTarget === true;
-}
-/** A `CanvasTarget` renders to the swapchain, which every backend addresses as a null render target. */
-function renderTargetOf(target) {
-    return isRenderTarget(target) ? target : null;
-}
-
-/** Frustum culled, in render order, opaque before transparent, drawn through the public `pass.draw`. */
-function drawScene(renderer, pass, scene, camera) {
-    // The scene tab's input, reported here so a pass recorded by hand correctly has no tree.
-    if (renderer.inspector !== null) {
-        const target = pass.desc.target;
-        const colorFormat = isRenderTarget(target) ? (target.textures[0]?.format ?? '') : target.colorFormat;
-        renderer.inspector.beginRenderScene(pass.desc.label ?? 'render', scene, target.samples, colorFormat);
-    }
-    const list = collectRenderList(renderer._renderLists, scene, camera);
-    drawItems(pass, list.opaque);
-    drawItems(pass, list.transparent);
-}
-function drawItems(pass, items) {
-    for (const item of items) {
-        if (item.mesh === null || item.material === null || item.geometry === null)
-            continue;
-        pass.draw(item.mesh);
-    }
-}
-
-function createFrame(backend) {
-    const frame = {
-        backend,
-        renderer: null,
-        pool: [],
-        poolIndex: 0,
-        computePool: [],
-        computePoolIndex: 0,
-        transformFeedbackPool: [],
-        transformFeedbackPoolIndex: 0,
-        open: null,
-        targets: [],
-        completion: null,
-        closed: true,
-        pass: (desc) => openRenderPass(frame, desc),
-        compute: (desc) => openComputePass(frame, desc ?? {}),
-        transformFeedback: (desc) => openTransformFeedbackPass(frame, desc ?? {}),
-        submit: () => submitFrame$2(frame),
-        abandon: () => abandonFrame(frame),
-        get done() {
-            if (!frame.closed)
-                throw new Error('[frame] done read before submit(); there is no work to wait on yet');
-            frame.completion ??= frame.backend.awaitCompletion();
-            return frame.completion;
-        },
-    };
-    return frame;
-}
-/** True between `gpu.frame()` and `frame.submit()`, when recorded work has not reached the queue yet. */
-function isFrameOpen(frame) {
-    return frame !== null && !frame.closed;
-}
-function passLabel(pass) {
-    return pass.desc.label ?? pass.kind;
-}
-/**
- * Opens the renderer's frame for recording. A free function because every other operation on a
- * renderer is one; `Frame` and `Pass` keep their verbs because they are the recording context, not
- * the device handle.
- *
- * One `Frame` per renderer for its lifetime, so a steady-state frame allocates nothing.
- */
-function frame(renderer) {
-    renderer._assertInitialized('frame');
-    renderer._frameState ??= createFrame(renderer.backend);
-    renderer._frameState.renderer = renderer;
-    beginFrame$2(renderer._frameState);
-    return renderer._frameState;
-}
-function beginFrame$2(frame) {
-    if (!frame.closed) {
-        // Recovery rather than a throw, so a frame a throw escaped from does not wedge the renderer.
-        // Silent recovery would hide a missing submit() forever, which is the failure this reports.
-        const dropped = frame.open === null ? '' : `, with "${passLabel(frame.open)}" still open`;
-        console.warn(`[frame] the previous frame was never submitted${dropped}; dropping its work`);
-        abandonFrame(frame);
-    }
-    frame.closed = false;
-    frame.poolIndex = 0;
-    frame.computePoolIndex = 0;
-    frame.transformFeedbackPoolIndex = 0;
-    frame.targets.length = 0;
-    frame.completion = null; // the reused frame object must not hand out the last frame's promise
-    frame.backend.beginFrame();
-}
-/** Runs before a pool slot is claimed, so a rejected open leaves the pool untouched. */
-function assertCanOpen(frame, verb) {
-    if (frame.closed)
-        throw new Error(`[frame] ${verb} after the frame was closed`);
-    if (frame.open !== null) {
-        throw new Error(`[frame] ${verb} while "${passLabel(frame.open)}" is still open; end it first`);
-    }
-}
-/** A WebGL2 context belongs to one canvas for its lifetime, so a pass naming another would draw nowhere visible. */
-function assertTargetReachable(frame, desc) {
-    const deviceCanvas = frame.backend.deviceCanvasTarget;
-    if (deviceCanvas === null || isRenderTarget(desc.target) || desc.target === deviceCanvas)
-        return;
-    throw new Error('[frame] this pass names a canvas the device was not created on; a WebGL2 context cannot present ' +
-        'to a second canvas. Use one pass per viewport on the device canvas, or a renderer per canvas.');
-}
-function openRenderPass(frame, desc) {
-    assertCanOpen(frame, 'frame.pass()');
-    assertTargetReachable(frame, desc);
-    let pass = frame.pool[frame.poolIndex];
-    if (pass === undefined) {
-        pass = createRenderPass(frame, desc);
-        frame.pool.push(pass);
-    }
-    else {
-        pass.desc = desc;
-        pass.count = 0;
-        pass.ended = false;
-    }
-    frame.poolIndex++;
-    frame.open = pass;
-    return pass;
-}
-function createRenderPass(frame, desc) {
-    const pass = {
-        kind: 'render',
-        desc,
-        records: [],
-        count: 0,
-        ended: false,
-        draw: (mesh, opts) => recordDraw(pass, mesh, opts),
-        execute: (bundle) => recordBundle(pass, bundle),
-        scene: (root, camera) => recordScene(frame, pass, root, camera),
-        end: () => endPass$2(frame, pass),
-    };
-    return pass;
-}
-function recordScene(frame, pass, root, camera) {
-    if (frame.renderer === null)
-        throw new Error('[pass] scene() needs a frame opened with frame(renderer).');
-    const view = camera ?? pass.desc.camera;
-    if (view === undefined)
-        throw new Error('[pass] scene() needs a camera, on the pass desc or as its second argument.');
-    drawScene(frame.renderer, pass, root, view);
-}
-function openComputePass(frame, desc) {
-    assertCanOpen(frame, 'frame.compute()');
-    if (frame.backend.name === 'webgl') {
-        throw new Error('[frame] compute passes need the webgpu backend; WebGL2 has no compute shaders');
-    }
-    let pass = frame.computePool[frame.computePoolIndex];
-    if (pass === undefined) {
-        pass = createComputePass(frame, desc);
-        frame.computePool.push(pass);
-    }
-    else {
-        pass.desc = desc;
-        pass.count = 0;
-        pass.ended = false;
-    }
-    frame.computePoolIndex++;
-    frame.open = pass;
-    return pass;
-}
-function openTransformFeedbackPass(frame, desc) {
-    assertCanOpen(frame, 'frame.transformFeedback()');
-    if (frame.backend.name === 'webgpu') {
-        throw new Error('[frame] transform feedback is WebGL2-only; use frame.compute() on the webgpu backend');
-    }
-    let pass = frame.transformFeedbackPool[frame.transformFeedbackPoolIndex];
-    if (pass === undefined) {
-        pass = createTransformFeedbackPass(frame, desc);
-        frame.transformFeedbackPool.push(pass);
-    }
-    else {
-        pass.desc = desc;
-        pass.count = 0;
-        pass.ended = false;
-    }
-    frame.transformFeedbackPoolIndex++;
-    frame.open = pass;
-    return pass;
-}
-function createTransformFeedbackPass(frame, desc) {
-    const pass = {
-        kind: 'transform-feedback',
-        desc,
-        records: [],
-        count: 0,
-        ended: false,
-        dispatch: (node, opts) => recordTransformFeedback(pass, node, opts),
-        end: () => endPass$2(frame, pass),
-    };
-    return pass;
-}
-function recordTransformFeedback(pass, node, opts) {
-    if (pass.ended)
-        throw new Error(`[pass ${passLabel(pass)}] dispatch after end()`);
-    const existing = pass.records[pass.count];
-    if (existing === undefined) {
-        pass.records.push({ node, ...opts });
-    }
-    else {
-        existing.node = node;
-        existing.inputs = opts.inputs;
-        existing.outputs = opts.outputs;
-        existing.count = opts.count;
-        existing.instanceCount = opts.instanceCount;
-    }
-    pass.count++;
-}
-function createComputePass(frame, desc) {
-    const pass = {
-        kind: 'compute',
-        desc,
-        records: [],
-        count: 0,
-        ended: false,
-        dispatch: (node, counts, opts) => recordDispatch(pass, node, counts, undefined, 0, opts?.buffers),
-        dispatchIndirect: (node, indirect, opts) => recordDispatch(pass, node, undefined, indirect, opts?.offset ?? 0, opts?.buffers),
-        end: () => endPass$2(frame, pass),
-    };
-    return pass;
-}
-function recordDispatch(pass, node, counts, indirect, indirectOffset, buffers) {
-    if (pass.ended)
-        throw new Error(`[pass ${passLabel(pass)}] dispatch after end()`);
-    const existing = pass.records[pass.count];
-    if (existing === undefined) {
-        pass.records.push({ node, counts, indirect, indirectOffset, buffers });
-    }
-    else {
-        existing.node = node;
-        existing.counts = counts;
-        existing.indirect = indirect;
-        existing.indirectOffset = indirectOffset;
-        existing.buffers = buffers;
-    }
-    pass.count++;
-}
-function recordDraw(pass, mesh, opts) {
-    if (pass.ended)
-        throw new Error(`[pass ${passLabel(pass)}] draw after end()`);
-    const record = pass.records[pass.count];
-    const material = opts?.material ?? mesh.material;
-    // A pooled slot that last held a bundle has no draw fields to overwrite, so it is replaced whole.
-    if (record === undefined || record.kind !== 'draw') {
-        pass.records[pass.count] = { kind: 'draw', mesh, material, opts: opts ?? null };
-    }
-    else {
-        record.mesh = mesh;
-        record.material = material;
-        record.opts = opts ?? null;
-    }
-    pass.count++;
-}
-function recordBundle(pass, bundle) {
-    if (pass.ended)
-        throw new Error(`[pass ${passLabel(pass)}] execute after end()`);
-    if (bundle.disposed)
-        throw new Error(`[bundle ${bundle.label}] execute after dispose()`);
-    const record = pass.records[pass.count];
-    if (record === undefined || record.kind !== 'bundle') {
-        pass.records[pass.count] = { kind: 'bundle', bundle };
-    }
-    else {
-        record.bundle = bundle;
-    }
-    pass.count++;
-}
-function endPass$2(frame, pass) {
-    if (pass.ended)
-        throw new Error(`[pass ${passLabel(pass)}] end() called twice`);
-    pass.ended = true;
-    frame.open = null; // cleared first: encoding evaluates the graph, which may open a nested pass
-    if (pass.kind === 'compute') {
-        frame.backend.encodeComputePass(pass.desc, pass.records, pass.count);
-    }
-    else if (pass.kind === 'transform-feedback') {
-        frame.backend.encodeTransformFeedbackPass(pass.desc, pass.records, pass.count);
-    }
-    else {
-        const target = pass.desc.target;
-        if (isRenderTarget(target))
-            frame.targets.push(target);
-        frame.backend.encodePass(pass.desc, pass.records, pass.count);
-    }
-}
-function submitFrame$2(frame) {
-    if (frame.closed)
-        throw new Error('[frame] submit() called twice');
-    if (frame.open !== null) {
-        throw new Error(`[frame] submit() while "${passLabel(frame.open)}" is still open; end it first`);
-    }
-    // A target disposed between its pass and this submit reaches the driver as "destroyed texture used
-    // in a submit", asynchronously and with no way back to the pass that named it. Swapping rooms
-    // mid-frame is the case that does this; `abandon()` is the answer, not a disposal race.
-    for (const target of frame.targets) {
-        const dead = target.textures.find((tex) => tex._gpuTexture.disposed);
-        if (dead !== undefined) {
-            throw new Error(`[frame] '${dead.name}' was disposed after its pass recorded into it; abandon() the frame instead of disposing mid-frame.`);
-        }
-    }
-    frame.closed = true;
-    frame.backend.submitFrame();
-}
-/** A recorded-but-unencoded pass is dropped with the frame; atomic encoding leaves no GPU pass open. */
-function abandonFrame(frame) {
-    if (frame.closed)
-        return;
-    frame.open = null;
-    frame.closed = true;
-    frame.backend.discardFrame();
-}
-
 class PerspectiveCamera extends Camera {
     isPerspectiveCamera = true;
     fov;
@@ -3034,6 +2225,10 @@ class PerspectiveCamera extends Camera {
             perspectiveZO(this.projectionMatrix, this.fov, this.aspect, this.near, this.far);
         }
     }
+}
+/** The factory form, matching `createOrthographicCamera` and the other object constructors. */
+function createPerspectiveCamera(fov, aspect, near, far) {
+    return new PerspectiveCamera(fov, aspect, near, far);
 }
 
 /*
@@ -3087,18 +2282,15 @@ class CubeCamera extends Object3D {
             this.cameras.push(new PerspectiveCamera(-Math.PI / 2, 1, near, far));
         }
     }
-    /** Records six passes, one per face, on a frame of its own. */
-    update(renderer, scene) {
+    /** Records six passes, one per face, on the caller's frame, so the cube and what samples it share a submit. */
+    update(f, scene) {
         if (this.parent === null)
             this.updateWorldMatrix();
         this.getWorldPosition(_worldPos);
-        const previousFace = this.renderTarget.activeFace;
-        const previousMip = this.renderTarget.activeMipmapLevel;
         const generateMipmaps = this.renderTarget.texture.generateMipmaps;
         // Mips fill once, on the face that completes the cube: earlier faces are not defined yet,
         // and regenerating per face would be 6x redundant.
         this.renderTarget.texture.generateMipmaps = false;
-        const f = frame(renderer);
         for (let face = 0; face < 6; face++) {
             if (face === 5)
                 this.renderTarget.texture.generateMipmaps = generateMipmaps;
@@ -3115,13 +2307,14 @@ class CubeCamera extends Object3D {
                 mipLevel: this.activeMipmapLevel,
                 label: 'cube-camera',
             });
-            drawScene(renderer, pass, scene, camera);
+            pass.scene(scene, camera);
             pass.end();
         }
-        f.submit();
-        this.renderTarget.activeFace = previousFace;
-        this.renderTarget.activeMipmapLevel = previousMip;
     }
+}
+/** The factory form; pair it with `createCubeRenderTarget` for the target it draws into. */
+function createCubeCamera(near, far, renderTarget) {
+    return new CubeCamera(near, far, renderTarget);
 }
 
 /**
@@ -3228,6 +2421,10 @@ class OrthographicCamera extends Camera {
             orthoZO(this.projectionMatrix, left, right, bottom, top, this.near, this.far);
         }
     }
+}
+/** The factory form, matching `createPerspectiveCamera` and the other object constructors. */
+function createOrthographicCamera(left, right, top, bottom, near, far) {
+    return new OrthographicCamera(left, right, top, bottom, near, far);
 }
 
 const topic = () => {
@@ -3505,6 +2702,10 @@ function onWheel(event) {
     else if (event.deltaY > 0) {
         this.movementSpeed = Math.max(this.minSpeed, this.movementSpeed / this.speedScrollFactor);
     }
+}
+/** The factory form, matching `createOrbitControls` and `createTransformControls`. */
+function createFlyControls(object, domElement = null) {
+    return new FlyControls(object, domElement);
 }
 
 const STATE = {
@@ -3971,7 +3172,7 @@ class OrbitControls {
     // Private helpers
     /** @internal */ _getAutoRotationAngle(deltaTime) {
         if (deltaTime !== null) {
-            return ((_twoPI / 60) * this.autoRotateSpeed) * deltaTime;
+            return (_twoPI / 60) * this.autoRotateSpeed * deltaTime;
         }
         return (_twoPI / 60 / 60) * this.autoRotateSpeed;
     }
@@ -4063,10 +3264,8 @@ class OrbitControls {
     _handleMouseMoveRotate(event) {
         this._rotateEnd[0] = event.clientX;
         this._rotateEnd[1] = event.clientY;
-        this._rotateDelta[0] =
-            (this._rotateEnd[0] - this._rotateStart[0]) * this.rotateSpeed;
-        this._rotateDelta[1] =
-            (this._rotateEnd[1] - this._rotateStart[1]) * this.rotateSpeed;
+        this._rotateDelta[0] = (this._rotateEnd[0] - this._rotateStart[0]) * this.rotateSpeed;
+        this._rotateDelta[1] = (this._rotateEnd[1] - this._rotateStart[1]) * this.rotateSpeed;
         const element = this.domElement;
         const height = element ? element.clientHeight : 1;
         this._rotateLeft((_twoPI * this._rotateDelta[0]) / height);
@@ -4219,10 +3418,8 @@ class OrbitControls {
             this._rotateEnd[0] = 0.5 * (event.pageX + pos[0]);
             this._rotateEnd[1] = 0.5 * (event.pageY + pos[1]);
         }
-        this._rotateDelta[0] =
-            (this._rotateEnd[0] - this._rotateStart[0]) * this.rotateSpeed;
-        this._rotateDelta[1] =
-            (this._rotateEnd[1] - this._rotateStart[1]) * this.rotateSpeed;
+        this._rotateDelta[0] = (this._rotateEnd[0] - this._rotateStart[0]) * this.rotateSpeed;
+        this._rotateDelta[1] = (this._rotateEnd[1] - this._rotateStart[1]) * this.rotateSpeed;
         const h = this.domElement ? this.domElement.clientHeight : 1;
         this._rotateLeft((_twoPI * this._rotateDelta[0]) / h);
         this._rotateUp((_twoPI * this._rotateDelta[1]) / h);
@@ -4574,6 +3771,10 @@ function _interceptControlUp(event) {
             capture: true,
         });
     }
+}
+/** The factory form, matching `createFlyControls` and `createTransformControls`. */
+function createOrbitControls(object, domElement = null) {
+    return new OrbitControls(object, domElement);
 }
 
 /**
@@ -6865,6 +6066,10 @@ class Uniform {
         this._value = packed;
     }
 }
+/** The factory form, matching `uniformGroup` and the other value constructors. */
+function createUniform(schema, initialValue, group) {
+    return new Uniform(schema, initialValue, group);
+}
 
 class Geometry {
     /** Buffers mapped by name. Can be vertex attributes, storage buffers, or any buffer type. @see setBuffer() @see removeBuffer() */
@@ -7519,16 +6724,9 @@ function createTorusGeometry(radius = 1, tube = 0.4, radialSegments = 12, tubula
  */
 function createOctahedronGeometry(radius = 1, detail = 0) {
     // base octahedron vertices
-    const baseVertices = [
-        1, 0, 0, -1, 0, 0,
-        0, 1, 0, 0, -1, 0,
-        0, 0, 1, 0, 0, -1,
-    ];
+    const baseVertices = [1, 0, 0, -1, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 1, 0, 0, -1];
     // base octahedron faces (indices into baseVertices, CCW from outside)
-    const baseFaces = [
-        0, 2, 4, 0, 4, 3, 0, 3, 5, 0, 5, 2,
-        1, 4, 2, 1, 3, 4, 1, 5, 3, 1, 2, 5,
-    ];
+    const baseFaces = [0, 2, 4, 0, 4, 3, 0, 3, 5, 0, 5, 2, 1, 4, 2, 1, 3, 4, 1, 5, 3, 1, 2, 5];
     // subdivide
     let verts = baseVertices.slice();
     let faces = baseFaces.slice();
@@ -7767,15 +6965,17 @@ function rayTriangleIntersection(origin, direction, a, b, c, backfaceCulling) {
     const diffy = origin[1] - a[1];
     const diffz = origin[2] - a[2];
     // barycentric coord b1
-    const DdQxE2 = sign * (direction[0] * (diffy * e2z - diffz * e2y) +
-        direction[1] * (diffz * e2x - diffx * e2z) +
-        direction[2] * (diffx * e2y - diffy * e2x));
+    const DdQxE2 = sign *
+        (direction[0] * (diffy * e2z - diffz * e2y) +
+            direction[1] * (diffz * e2x - diffx * e2z) +
+            direction[2] * (diffx * e2y - diffy * e2x));
     if (DdQxE2 < 0)
         return null;
     // barycentric coord b2
-    const DdE1xQ = sign * (direction[0] * (e1y * diffz - e1z * diffy) +
-        direction[1] * (e1z * diffx - e1x * diffz) +
-        direction[2] * (e1x * diffy - e1y * diffx));
+    const DdE1xQ = sign *
+        (direction[0] * (e1y * diffz - e1z * diffy) +
+            direction[1] * (e1z * diffx - e1x * diffz) +
+            direction[2] * (e1x * diffy - e1y * diffx));
     if (DdE1xQ < 0)
         return null;
     if (DdQxE2 + DdE1xQ > DdN)
@@ -7825,7 +7025,6 @@ function rayIntersectsBox3(origin, direction, aabb, maxT) {
     }
     return true;
 }
-// Reusable temp objects
 const _target = [0, 0, 0];
 const _direction = [0, 0, 0];
 class Raycaster {
@@ -7992,10 +7191,11 @@ function computeBarycentricUV(point, vA, vB, vC, ia, ib, ic, uvs) {
     const uvB_v = uvs[ib * 2 + 1];
     const uvC_u = uvs[ic * 2];
     const uvC_v = uvs[ic * 2 + 1];
-    return [
-        w * uvA_u + v * uvB_u + u * uvC_u,
-        w * uvA_v + v * uvB_v + u * uvC_v,
-    ];
+    return [w * uvA_u + v * uvB_u + u * uvC_u, w * uvA_v + v * uvB_v + u * uvC_v];
+}
+/** The factory form; set the ray later with `set` or `setFromCamera`. */
+function createRaycaster(origin, direction, near, far) {
+    return new Raycaster(origin, direction, near, far);
 }
 
 // ─── Node id utilities ────────────────────────────────────────────────────────
@@ -8260,7 +7460,7 @@ class Node {
         return negate(this);
     }
     normalize() {
-        return normalize(this);
+        return normalize$1(this);
     }
     length() {
         return length(this);
@@ -9465,7 +8665,7 @@ const div = (a, b) => new BinaryOpNode('/', arithResultDesc(a.type, b.type), a, 
 const mul = (a, b) => new BinaryOpNode('*', mulResultDesc(a.type, b.type), a, b);
 const dot = (a, b) => new CallNode(f32$1, 'dot', [a, b]);
 const cross = (a, b) => new CallNode(a.type, 'cross', [a, b]);
-const normalize = (a) => new CallNode(a.type, 'normalize', [a]);
+const normalize$1 = (a) => new CallNode(a.type, 'normalize', [a]);
 const length = (a) => new CallNode(f32$1, 'length', [a]);
 /** Pack two f32s as halves into a u32. Lower 16 bits = v.x, upper = v.y. WGSL: `pack2x16float`. */
 const pack2x16float = (v) => new CallNode(u32$1, 'pack2x16float', [v]);
@@ -9914,7 +9114,17 @@ function struct(name, fields) {
         const args = members.map((m) => fieldNodes[m.name]);
         return new ConstructNode(def, args);
     }
-    const def = { type: 'struct', wgslType: name, glslType: name, name, fields, members, node, nestedDefs, construct };
+    const def = {
+        type: 'struct',
+        wgslType: name,
+        glslType: name,
+        name,
+        fields,
+        members,
+        node,
+        nestedDefs,
+        construct,
+    };
     return def;
 }
 class StructNode extends Node {
@@ -10401,6 +9611,67 @@ function rgb(input) {
     return vec3f(c[0], c[1], c[2]);
 }
 
+let _samplerId = 0;
+/**
+ * Declarative sampler settings.
+ *
+ * Does NOT hold the GPU resource - that's managed by the renderer's cache.
+ * The settingsKey is used for deduplication (multiple GpuSampler instances
+ * with the same settings share one GPUSampler).
+ */
+class GpuSampler {
+    isGpuSampler = true;
+    id = _samplerId++;
+    minFilter;
+    magFilter;
+    mipmapFilter;
+    addressModeU;
+    addressModeV;
+    addressModeW;
+    maxAnisotropy;
+    lodMinClamp;
+    lodMaxClamp;
+    /** For comparison samplers (shadow mapping) */
+    compare;
+    /** Renderer-set callback to clean up cache entry */
+    _onDispose = null;
+    disposed = false;
+    constructor(options = {}) {
+        this.minFilter = options.minFilter ?? 'linear';
+        this.magFilter = options.magFilter ?? 'linear';
+        this.mipmapFilter = options.mipmapFilter ?? 'linear';
+        this.addressModeU = options.addressModeU ?? 'clamp-to-edge';
+        this.addressModeV = options.addressModeV ?? 'clamp-to-edge';
+        this.addressModeW = options.addressModeW ?? 'clamp-to-edge';
+        this.maxAnisotropy = options.maxAnisotropy ?? 1;
+        this.lodMinClamp = options.lodMinClamp ?? 0;
+        this.lodMaxClamp = options.lodMaxClamp ?? 32;
+        this.compare = options.compare;
+    }
+    /** Is this a comparison sampler? */
+    get isComparison() {
+        return this.compare !== undefined;
+    }
+    /** Settings key for deduplication */
+    get settingsKey() {
+        const base = `${this.minFilter}-${this.magFilter}-${this.mipmapFilter}-` +
+            `${this.addressModeU}-${this.addressModeV}-${this.addressModeW}-` +
+            `${this.maxAnisotropy}-${this.lodMinClamp}-${this.lodMaxClamp}`;
+        return this.compare ? `${base}-cmp-${this.compare}` : base;
+    }
+    dispose() {
+        if (this.disposed)
+            return;
+        this.disposed = true;
+        this._onDispose?.();
+        this._onDispose = null;
+    }
+}
+/** The factory form; the sampler is settings only, the device resource is the renderer's. */
+function createSampler(options = {}) {
+    return new GpuSampler(options);
+}
+
 let _sourceId = 0;
 /**
  * Represents the data source of a texture.
@@ -10472,6 +9743,10 @@ class Source {
         }
         return 0;
     }
+}
+/** The factory form; a `Source` is the uploadable image data a texture points at. */
+function createSource(data) {
+    return new Source(data);
 }
 
 /*
@@ -10943,63 +10218,6 @@ function createStorageTexture1d(width, format) {
     return new GpuTexture(textureStorage1d(format), { width });
 }
 
-let _samplerId = 0;
-/**
- * Declarative sampler settings.
- *
- * Does NOT hold the GPU resource - that's managed by the renderer's cache.
- * The settingsKey is used for deduplication (multiple GpuSampler instances
- * with the same settings share one GPUSampler).
- */
-class GpuSampler {
-    isGpuSampler = true;
-    id = _samplerId++;
-    minFilter;
-    magFilter;
-    mipmapFilter;
-    addressModeU;
-    addressModeV;
-    addressModeW;
-    maxAnisotropy;
-    lodMinClamp;
-    lodMaxClamp;
-    /** For comparison samplers (shadow mapping) */
-    compare;
-    /** Renderer-set callback to clean up cache entry */
-    _onDispose = null;
-    disposed = false;
-    constructor(options = {}) {
-        this.minFilter = options.minFilter ?? 'linear';
-        this.magFilter = options.magFilter ?? 'linear';
-        this.mipmapFilter = options.mipmapFilter ?? 'linear';
-        this.addressModeU = options.addressModeU ?? 'clamp-to-edge';
-        this.addressModeV = options.addressModeV ?? 'clamp-to-edge';
-        this.addressModeW = options.addressModeW ?? 'clamp-to-edge';
-        this.maxAnisotropy = options.maxAnisotropy ?? 1;
-        this.lodMinClamp = options.lodMinClamp ?? 0;
-        this.lodMaxClamp = options.lodMaxClamp ?? 32;
-        this.compare = options.compare;
-    }
-    /** Is this a comparison sampler? */
-    get isComparison() {
-        return this.compare !== undefined;
-    }
-    /** Settings key for deduplication */
-    get settingsKey() {
-        const base = `${this.minFilter}-${this.magFilter}-${this.mipmapFilter}-` +
-            `${this.addressModeU}-${this.addressModeV}-${this.addressModeW}-` +
-            `${this.maxAnisotropy}-${this.lodMinClamp}-${this.lodMaxClamp}`;
-        return this.compare ? `${base}-cmp-${this.compare}` : base;
-    }
-    dispose() {
-        if (this.disposed)
-            return;
-        this.disposed = true;
-        this._onDispose?.();
-        this._onDispose = null;
-    }
-}
-
 /**
  * A texture for storing depth information.
  * Used as the depth attachment in RenderTarget, or for shadow mapping.
@@ -11040,14 +10258,28 @@ class DepthTexture {
             minFilter: 'linear',
         });
     }
-    get id() { return this._gpuTexture.id; }
-    get width() { return this._gpuTexture.width; }
-    get height() { return this._gpuTexture.height; }
-    get format() { return this._gpuTexture.format; }
-    get compareFunction() { return this._gpuSampler.compare; }
-    set compareFunction(v) { this._gpuSampler.compare = v; }
+    get id() {
+        return this._gpuTexture.id;
+    }
+    get width() {
+        return this._gpuTexture.width;
+    }
+    get height() {
+        return this._gpuTexture.height;
+    }
+    get format() {
+        return this._gpuTexture.format;
+    }
+    get compareFunction() {
+        return this._gpuSampler.compare;
+    }
+    set compareFunction(v) {
+        this._gpuSampler.compare = v;
+    }
     /** Version for dirty tracking. */
-    get version() { return this._gpuTexture.version; }
+    get version() {
+        return this._gpuTexture.version;
+    }
     /** Mark as needing re-upload. */
     set needsUpdate(v) {
         if (v)
@@ -11071,6 +10303,10 @@ class DepthTexture {
         this._gpuTexture.dispose();
         this._gpuSampler.dispose();
     }
+}
+/** The factory form; the contents are written by the GPU, so there is no data argument. */
+function createDepthTexture(width, height, format) {
+    return new DepthTexture(width, height, format);
 }
 
 /**
@@ -11312,6 +10548,10 @@ class Texture {
         this._gpuSampler.dispose();
     }
 }
+/** The factory form, matching `createDataTexture` and the other texture constructors. */
+function createTexture(image, options = {}) {
+    return new Texture(image, options);
+}
 
 /**
  * A render target is a buffer where the video card draws pixels for a scene
@@ -11478,6 +10718,526 @@ function createRenderTargetTexture(_renderTarget, width, height, format) {
 /** Holds no device: the backend allocates the textures on first use. */
 function createRenderTarget(width, height, opts = {}) {
     return new RenderTarget(width, height, opts);
+}
+/** The name of the first attachment whose texture is disposed, or null. Depth counts: a submit dies on either. */
+function deadAttachment(rt) {
+    for (const tex of rt.textures) {
+        if (tex._gpuTexture.disposed)
+            return tex.name;
+    }
+    return rt._depthAttachment?._gpuTexture.disposed === true ? 'depth' : null;
+}
+
+/**
+ * Transform a bounding box by a 4x4 matrix.
+ * Uses Arvo's trick — transform the center, build new half-extents from
+ * |M| · extents — which is ~4× fewer ops than transforming all 8 corners.
+ * Reference: Jim Arvo, "Transforming Axis-Aligned Bounding Boxes",
+ * Graphics Gems I (1990).
+ * https://github.com/erich666/GraphicsGems/blob/master/gems/TransBox.c
+ * Assumes mat is affine (no perspective), which is always true for AABB
+ * transforms in practice.
+ * Safe under aliasing (out and box may be the same array): all six box
+ * components are read into locals before out is written.
+ * @param out - The output Box3
+ * @param box - The input Box3
+ * @param mat - The 4x4 transformation matrix
+ * @returns The transformed Box3
+ */
+function transformMat4(out, box, mat) {
+    const bMinX = box[0];
+    const bMinY = box[1];
+    const bMinZ = box[2];
+    const bMaxX = box[3];
+    const bMaxY = box[4];
+    const bMaxZ = box[5];
+    // empty input → empty output (preserve sentinel rather than producing
+    // a bogus transformed box from negative extents)
+    if (bMinX > bMaxX || bMinY > bMaxY || bMinZ > bMaxZ) {
+        out[0] = Number.POSITIVE_INFINITY;
+        out[1] = Number.POSITIVE_INFINITY;
+        out[2] = Number.POSITIVE_INFINITY;
+        out[3] = Number.NEGATIVE_INFINITY;
+        out[4] = Number.NEGATIVE_INFINITY;
+        out[5] = Number.NEGATIVE_INFINITY;
+        return out;
+    }
+    const cx = (bMinX + bMaxX) * 0.5;
+    const cy = (bMinY + bMaxY) * 0.5;
+    const cz = (bMinZ + bMaxZ) * 0.5;
+    const ex = (bMaxX - bMinX) * 0.5;
+    const ey = (bMaxY - bMinY) * 0.5;
+    const ez = (bMaxZ - bMinZ) * 0.5;
+    const m0 = mat[0], m1 = mat[1], m2 = mat[2];
+    const m4 = mat[4], m5 = mat[5], m6 = mat[6];
+    const m8 = mat[8], m9 = mat[9], m10 = mat[10];
+    const tcx = m0 * cx + m4 * cy + m8 * cz + mat[12];
+    const tcy = m1 * cx + m5 * cy + m9 * cz + mat[13];
+    const tcz = m2 * cx + m6 * cy + m10 * cz + mat[14];
+    const tex = Math.abs(m0) * ex + Math.abs(m4) * ey + Math.abs(m8) * ez;
+    const tey = Math.abs(m1) * ex + Math.abs(m5) * ey + Math.abs(m9) * ez;
+    const tez = Math.abs(m2) * ex + Math.abs(m6) * ey + Math.abs(m10) * ez;
+    out[0] = tcx - tex;
+    out[1] = tcy - tey;
+    out[2] = tcz - tez;
+    out[3] = tcx + tex;
+    out[4] = tcy + tey;
+    out[5] = tcz + tez;
+    return out;
+}
+
+/**
+ * Creates a new plane with normal (0, 1, 0) and constant 0
+ * @returns A new plane
+ */
+function create$1() {
+    return { normal: [0, 1, 0], constant: 0 };
+}
+/**
+ * Clones a plane
+ * @param plane - The plane to clone
+ * @returns A new plane
+ */
+function clone$1(plane) {
+    return {
+        normal: clone$2(plane.normal),
+        constant: plane.constant,
+    };
+}
+/**
+ * Copies one plane to another
+ * @param out - The output plane
+ * @param plane - The source plane
+ * @returns The output plane
+ */
+function copy$1(out, plane) {
+    copy$5(out.normal, plane.normal);
+    out.constant = plane.constant;
+    return out;
+}
+/**
+ * Normalizes a plane (ensures the normal vector is unit length)
+ * @param out - The output plane
+ * @param plane - The input plane
+ * @returns The normalized plane
+ */
+function normalize(out, plane) {
+    const invMagnitude = 1.0 / length$1(plane.normal);
+    scale(out.normal, plane.normal, invMagnitude);
+    out.constant = plane.constant * invMagnitude;
+    return out;
+}
+/**
+ * Calculates the signed distance from a point to the plane
+ * @param plane - The plane
+ * @param point - The point
+ * @returns The signed distance (positive = in direction of normal)
+ */
+function distanceToPoint(plane, point) {
+    return dot$1(plane.normal, point) + plane.constant;
+}
+
+function create() {
+    return [create$1(), create$1(), create$1(), create$1(), create$1(), create$1()];
+}
+function clone(f) {
+    return [
+        clone$1(f[0]),
+        clone$1(f[1]),
+        clone$1(f[2]),
+        clone$1(f[3]),
+        clone$1(f[4]),
+        clone$1(f[5]),
+    ];
+}
+function copy(out, f) {
+    copy$1(out[0], f[0]);
+    copy$1(out[1], f[1]);
+    copy$1(out[2], f[2]);
+    copy$1(out[3], f[3]);
+    copy$1(out[4], f[4]);
+    copy$1(out[5], f[5]);
+    return out;
+}
+function setFromViewProjectionMatrix(out, proj, view, coordinateSystem = CoordinateSystem.WEBGPU) {
+    const vp = create$3();
+    multiply(vp, proj, view);
+    const m = vp;
+    setPlane(out[0], m[0] + m[3], m[4] + m[7], m[8] + m[11], m[12] + m[15]);
+    setPlane(out[1], -m[0] + m[3], -m[4] + m[7], -m[8] + m[11], -m[12] + m[15]);
+    setPlane(out[2], m[1] + m[3], m[5] + m[7], m[9] + m[11], m[13] + m[15]);
+    setPlane(out[3], -m[1] + m[3], -m[5] + m[7], -m[9] + m[11], -m[13] + m[15]);
+    // Near plane depends on the clip-space depth convention: WebGPU (z=0 at near) uses row2 alone;
+    // WebGL (z=-1 at near) uses row2 + row3. Far plane (row3 - row2) is identical for both.
+    if (coordinateSystem === CoordinateSystem.WEBGL) {
+        setPlane(out[4], m[2] + m[3], m[6] + m[7], m[10] + m[11], m[14] + m[15]);
+    }
+    else {
+        setPlane(out[4], m[2], m[6], m[10], m[14]);
+    }
+    setPlane(out[5], -m[2] + m[3], -m[6] + m[7], -m[10] + m[11], -m[14] + m[15]);
+    for (let i = 0; i < 6; i++) {
+        normalize(out[i], out[i]);
+    }
+    return out;
+}
+function intersectsSphere(f, s) {
+    const { center, radius } = s;
+    for (let i = 0; i < 6; i++) {
+        if (distanceToPoint(f[i], center) < -radius) {
+            return false;
+        }
+    }
+    return true;
+}
+function intersectsBox3(f, box) {
+    const [minX, minY, minZ, maxX, maxY, maxZ] = box;
+    for (let i = 0; i < 6; i++) {
+        const p = f[i];
+        const nx = p.normal[0];
+        const ny = p.normal[1];
+        const nz = p.normal[2];
+        const px = nx >= 0 ? maxX : minX;
+        const py = ny >= 0 ? maxY : minY;
+        const pz = nz >= 0 ? maxZ : minZ;
+        if (nx * px + ny * py + nz * pz + p.constant < 0) {
+            return false;
+        }
+    }
+    return true;
+}
+function setPlane(out, nx, ny, nz, d) {
+    out.normal[0] = nx;
+    out.normal[1] = ny;
+    out.normal[2] = nz;
+    out.constant = d;
+}
+
+var frustum = /*#__PURE__*/Object.freeze({
+    __proto__: null,
+    clone: clone,
+    copy: copy,
+    create: create,
+    intersectsBox3: intersectsBox3,
+    intersectsSphere: intersectsSphere,
+    setFromViewProjectionMatrix: setFromViewProjectionMatrix
+});
+
+/**
+ * render-list.ts - Sorted render item list with object pooling and scene collection.
+ *
+ * - Object pooling for RenderItems (avoids GC pressure)
+ * - Sorted opaque and transparent lists
+ * - Cached per scene/camera using nested WeakMaps
+ * - Frustum culling integration
+ * - Scene graph traversal
+ *
+ * RenderList collects meshes from a scene graph and sorts them for rendering:
+ * - Opaque: sorted by material/pipeline key to minimize state changes
+ * - Transparent: sorted back-to-front by view-space Z
+ */
+// Factories
+/** ID counter for RenderItems. */
+let renderItemIdCounter = 0;
+/**
+ * Create a new RenderList.
+ */
+function createRenderList() {
+    return {
+        object: null,
+        camera: null,
+        renderItems: [],
+        renderItemsIndex: 0,
+        opaque: [],
+        transparent: [],
+    };
+}
+/**
+ * Create a new RenderLists state.
+ */
+function createRenderListsState() {
+    return {
+        lists: new WeakMap(),
+    };
+}
+// RenderList Access
+/**
+ * Get or create a RenderList for the given object and camera.
+ *
+ * @param state - The RenderLists state
+ * @param object - The object to render (Scene, Mesh, or any Object3D)
+ * @param camera - The camera to render from
+ */
+function getRenderList(state, object, camera) {
+    let cameraMap = state.lists.get(object);
+    if (!cameraMap) {
+        cameraMap = new WeakMap();
+        state.lists.set(object, cameraMap);
+    }
+    let list = cameraMap.get(camera);
+    if (!list) {
+        list = createRenderList();
+        cameraMap.set(camera, list);
+    }
+    return list;
+}
+// List Management
+/**
+ * Begin building a render list for a new frame.
+ *
+ * This resets the pool index but keeps pooled items for reuse.
+ */
+function beginRenderList(list, object, camera) {
+    list.object = object;
+    list.camera = camera;
+    list.renderItemsIndex = 0;
+    list.opaque.length = 0;
+    list.transparent.length = 0;
+}
+/**
+ * Get a RenderItem from the pool (or create a new one).
+ */
+function getNextRenderItem(list) {
+    const index = list.renderItemsIndex;
+    let item = list.renderItems[index];
+    if (item === undefined) {
+        item = {
+            id: renderItemIdCounter++,
+            mesh: null,
+            geometry: null,
+            material: null,
+            groupOrder: 0,
+            renderOrder: 0,
+            z: 0,
+        };
+        list.renderItems.push(item);
+    }
+    list.renderItemsIndex++;
+    return item;
+}
+/**
+ * Push a mesh into the render list.
+ *
+ * @param list - The RenderList
+ * @param mesh - The mesh to add
+ * @param geometry - The mesh's geometry
+ * @param material - The mesh's material
+ * @param groupOrder - Group order for layer-based sorting
+ * @param z - View-space Z for transparent sorting
+ */
+function pushRenderItem(list, mesh, geometry, material, groupOrder, z) {
+    const item = getNextRenderItem(list);
+    item.mesh = mesh;
+    item.geometry = geometry;
+    item.material = material;
+    item.groupOrder = groupOrder;
+    item.renderOrder = mesh.renderOrder;
+    item.z = z;
+    if (material.transparent) {
+        list.transparent.push(item);
+    }
+    else {
+        list.opaque.push(item);
+    }
+}
+// Sorting
+/**
+ * Sort the render list.
+ *
+ * @param list - The RenderList to sort
+ * @param customOpaqueSort - Optional custom sort for opaque items
+ * @param customTransparentSort - Optional custom sort for transparent items
+ */
+function sortRenderList(list, customOpaqueSort, customTransparentSort) {
+    if (list.opaque.length > 1) {
+        list.opaque.sort(painterSortStable);
+    }
+    if (list.transparent.length > 1) {
+        list.transparent.sort(reversePainterSortStable);
+    }
+}
+/**
+ * Default sort for opaque items.
+ *
+ * Sort priority:
+ * 1. groupOrder (render layers)
+ * 2. renderOrder (manual ordering)
+ * 3. Z (front-to-back for early-z rejection)
+ * 4. ID (stability)
+ *
+ * Note: we do NOT sort by material/pipeline. Pipeline switching is
+ * minimized at draw time by tracking the active pipeline in setPipeline().
+ */
+function painterSortStable(a, b) {
+    if (a.groupOrder !== b.groupOrder) {
+        return a.groupOrder - b.groupOrder;
+    }
+    if (a.renderOrder !== b.renderOrder) {
+        return a.renderOrder - b.renderOrder;
+    }
+    if (a.z !== b.z) {
+        return a.z - b.z;
+    }
+    return a.id - b.id;
+}
+/**
+ * Default sort for transparent items (back-to-front).
+ *
+ * "Reverse painter sort stable" - sorts back-to-front for proper alpha blending.
+ */
+function reversePainterSortStable(a, b) {
+    // Sort by groupOrder first (render layers)
+    if (a.groupOrder !== b.groupOrder) {
+        return a.groupOrder - b.groupOrder;
+    }
+    // Then by renderOrder
+    if (a.renderOrder !== b.renderOrder) {
+        return a.renderOrder - b.renderOrder;
+    }
+    // Then by Z (back-to-front for transparent = larger Z first)
+    if (a.z !== b.z) {
+        return b.z - a.z;
+    }
+    // Finally by ID for stability
+    return a.id - b.id;
+}
+// Scene Collection
+/** Frustum used for culling; rebuilt from VP every frame. */
+const _frustum = create();
+/** World-space AABB used when transforming a local bounding box. */
+const _worldBox = [0, 0, 0, 0, 0, 0];
+/** World-space sphere used when transforming a local bounding sphere. */
+const _worldSphere = { center: [0, 0, 0], radius: 0 };
+/**
+ * Collect all visible meshes from a scene into a RenderList.
+ *
+ * This walks the object graph, performs frustum culling, and populates
+ * the RenderList with opaque and transparent items.
+ *
+ * @param state - The RenderLists state
+ * @param object - The object to collect from (Scene, Mesh, or any Object3D)
+ * @param camera - The camera for frustum culling and Z sorting
+ * @returns The populated and sorted RenderList
+ */
+function collectRenderList(state, object, camera) {
+    const list = getRenderList(state, object, camera);
+    // Begin new frame
+    beginRenderList(list, object, camera);
+    // Build frustum from camera matrices
+    setFromViewProjectionMatrix(_frustum, camera.projectionMatrix, camera.matrixWorldInverse, camera.coordinateSystem);
+    // Walk object and collect visible meshes
+    walkObject(list, object, camera);
+    sortRenderList(list);
+    return list;
+}
+/**
+ * Walk the scene graph and collect visible meshes.
+ */
+function walkObject(list, obj, camera) {
+    if (!obj.visible)
+        return;
+    if (obj.isMesh) {
+        const mesh = obj;
+        if (isMeshVisible(mesh)) {
+            const material = mesh.material;
+            const z = computeViewZ(mesh, camera);
+            pushRenderItem(list, mesh, mesh.geometry, material, 0, // groupOrder - could be mesh.renderOrder or layer
+            z);
+        }
+    }
+    // Recurse into children
+    for (const child of obj.children) {
+        walkObject(list, child, camera);
+    }
+}
+/**
+ * Test whether a mesh should be included in the draw list.
+ *
+ * Uses frustum culling with bounding volumes:
+ * 1. boundingSphere, cheapest test (6 dot-products)
+ * 2. boundingBox, more precise but slightly more work
+ * 3. no bounds, always visible (safe fallback)
+ */
+function isMeshVisible(mesh) {
+    const geom = mesh.geometry;
+    const wm = mesh.matrixWorld;
+    // Skip disposed geometries
+    if (geom.disposed)
+        return false;
+    if (!mesh.frustumCulled)
+        return true;
+    // sphere test (preferred)
+    if (geom.boundingSphere !== undefined) {
+        const ls = geom.boundingSphere;
+        // Transform centre: ws_centre = wm * [cx, cy, cz, 1]
+        const cx = ls.center[0];
+        const cy = ls.center[1];
+        const cz = ls.center[2];
+        _worldSphere.center[0] = wm[0] * cx + wm[4] * cy + wm[8] * cz + wm[12];
+        _worldSphere.center[1] = wm[1] * cx + wm[5] * cy + wm[9] * cz + wm[13];
+        _worldSphere.center[2] = wm[2] * cx + wm[6] * cy + wm[10] * cz + wm[14];
+        // Scale the radius by the largest axis scale extracted from the world matrix.
+        const sx = Math.sqrt(wm[0] * wm[0] + wm[1] * wm[1] + wm[2] * wm[2]);
+        const sy = Math.sqrt(wm[4] * wm[4] + wm[5] * wm[5] + wm[6] * wm[6]);
+        const sz = Math.sqrt(wm[8] * wm[8] + wm[9] * wm[9] + wm[10] * wm[10]);
+        _worldSphere.radius = ls.radius * Math.max(sx, sy, sz);
+        return intersectsSphere(_frustum, _worldSphere);
+    }
+    // AABB test (fallback)
+    if (geom.boundingBox !== undefined) {
+        // Transform the local AABB by the world matrix to a world-space AABB.
+        transformMat4(_worldBox, geom.boundingBox, wm);
+        return intersectsBox3(_frustum, _worldBox);
+    }
+    // no bounds, always draw
+    return true;
+}
+/**
+ * Compute the view-space Z of a mesh for transparent sorting.
+ *
+ * Uses the mesh world-position (column 12, 13, 14 of matrixWorld)
+ * and the camera view matrix.
+ *
+ * Returns the view-space Z coordinate (negative = in front of camera in a
+ * right-handed system; we sort from largest (furthest) to smallest).
+ */
+function computeViewZ(mesh, camera) {
+    const wm = mesh.matrixWorld;
+    const vm = camera.matrixWorldInverse;
+    // World position of mesh origin
+    const wx = wm[12];
+    const wy = wm[13];
+    const wz = wm[14];
+    // Transform world position by view matrix (only z row needed)
+    return vm[2] * wx + vm[6] * wy + vm[10] * wz + vm[14];
+}
+
+function isRenderTarget(target) {
+    return target.isRenderTarget === true;
+}
+/** A `CanvasTarget` renders to the swapchain, which every backend addresses as a null render target. */
+function renderTargetOf(target) {
+    return isRenderTarget(target) ? target : null;
+}
+
+/** Frustum culled, in render order, opaque before transparent, drawn through the public `pass.draw`. */
+function drawScene(renderer, pass, scene, camera) {
+    // The scene tab's input, reported here so a pass recorded by hand correctly has no tree.
+    if (renderer.inspector !== null) {
+        const target = pass.desc.target;
+        const colorFormat = isRenderTarget(target) ? (target.textures[0]?.format ?? '') : target.colorFormat;
+        renderer.inspector.beginRenderScene(pass.desc.label ?? 'render', scene, target.samples, colorFormat);
+    }
+    const list = collectRenderList(renderer._renderLists, scene, camera);
+    drawItems(pass, list.opaque);
+    drawItems(pass, list.transparent);
+}
+function drawItems(pass, items) {
+    for (const item of items) {
+        if (item.mesh === null || item.material === null || item.geometry === null)
+            continue;
+        pass.draw(item.mesh);
+    }
 }
 
 /**
@@ -12077,10 +11837,11 @@ function texture(source, gpuSampler) {
         return node;
     }
     else {
-        // A high-level Texture or DataTexture — both expose `_gpuTexture` / `_gpuSampler` / `id`. The
-        // GpuTexture's descriptor carries the sampled type (a DataTexture backed by an integer format
-        // reports `texture2d<u32>`/`texture2d<i32>`, so the emitter declares usampler2D/isampler2D and
-        // `.load()` returns uvec4/ivec4) — so DataTexture rides this same branch, no cast needed.
+        // A high-level Texture, DataTexture or Data3DTexture — all expose `_gpuTexture` / `_gpuSampler` /
+        // `id`. The GpuTexture's descriptor carries the sampled type (a DataTexture backed by an integer
+        // format reports `texture2d<u32>`/`texture2d<i32>`, so the emitter declares usampler2D/isampler2D
+        // and `.load()` returns uvec4/ivec4; a Data3DTexture reports `texture3d<f32>`) — so all three ride
+        // this same branch, no cast needed.
         const gpuTex = source._gpuTexture;
         const desc = gpuTex.type;
         const binding = new TextureBindingNode(desc, `t${source.id}`);
@@ -15131,6 +14892,10 @@ class TransformControls {
         this._plane.cameraQuaternion = this.cameraQuaternion;
     }
 }
+/** The factory form, matching `createOrbitControls` and `createFlyControls`. */
+function createTransformControls(camera, domElement) {
+    return new TransformControls(camera, domElement);
+}
 
 /**
  * texture-size.ts (renderer core) — how many bytes a texture occupies, decided in one place.
@@ -15145,8 +14910,8 @@ class TransformControls {
  * layouts, and may keep a staging copy, so treat the number as "which textures are the expensive
  * ones" rather than as the exact resident footprint.
  */
-/** Bytes per texel for the uncompressed formats gpucat uses. Unknown formats fall back to 4. */
-function bytesPerTexel(format) {
+/** The uncompressed formats gpucat uses; anything else, including every compressed and depth format. */
+function knownBytesPerTexel(format) {
     switch (format) {
         case 'r8unorm':
         case 'r8snorm':
@@ -15187,8 +14952,20 @@ function bytesPerTexel(format) {
         case 'rgba32float':
             return 16;
         default:
-            return 4;
+            return undefined;
     }
+}
+/** A texel stride, for the row and offset arithmetic that has to be exact. */
+function bytesPerTexel(format) {
+    const bytes = knownBytesPerTexel(format);
+    if (bytes === undefined) {
+        throw new Error(`[gpucat] no texel stride known for '${format}'; add it rather than reading at a guessed one.`);
+    }
+    return bytes;
+}
+/** The debug panel's figure, which wants a number more than it wants to be right. */
+function estimatedBytesPerTexel(format) {
+    return knownBytesPerTexel(format) ?? 4;
 }
 /** Levels in a full mip chain down to 1x1, for a texture of this size. */
 function fullMipChainLength(width, height) {
@@ -15218,7 +14995,7 @@ function mipLevelCountFor(texture) {
  * undercount every atlas by a third.
  */
 function gpuTextureBytes(texture) {
-    const perTexel = bytesPerTexel(texture.format);
+    const perTexel = estimatedBytesPerTexel(texture.format);
     const layers = Math.max(1, texture.depthOrArrayLayers);
     const mips = mipLevelCountFor(texture);
     let bytes = 0;
@@ -15272,7 +15049,7 @@ class CubeTexture {
         }
         this._gpuTexture = new GpuTexture(textureCube(), {
             size,
-            faces: faces.map(f => f instanceof Source ? f : new Source(f)),
+            faces: faces.map((f) => (f instanceof Source ? f : new Source(f))),
             format: options.format,
             generateMipmaps: options.generateMipmaps ?? true,
             flipY: options.flipY ?? false,
@@ -15292,18 +15069,28 @@ class CubeTexture {
         this.mapping = options.mapping ?? 'reflection';
     }
     // ─── Convenience getters/setters ───
-    get id() { return this._gpuTexture.id; }
-    get width() { return this._gpuTexture.width; }
-    get height() { return this._gpuTexture.height; }
-    get size() { return this._gpuTexture.size; }
+    get id() {
+        return this._gpuTexture.id;
+    }
+    get width() {
+        return this._gpuTexture.width;
+    }
+    get height() {
+        return this._gpuTexture.height;
+    }
+    get size() {
+        return this._gpuTexture.size;
+    }
     /** Check if all 6 faces are present and ready */
-    get isComplete() { return this._gpuTexture.isComplete; }
+    get isComplete() {
+        return this._gpuTexture.isComplete;
+    }
     /** The 6 face images as SourceData */
     get images() {
-        return this._gpuTexture.sources.map(s => s.data);
+        return this._gpuTexture.sources.map((s) => s.data);
     }
     set images(value) {
-        this._gpuTexture.sources = value.map(img => img instanceof Source ? img : new Source(img));
+        this._gpuTexture.sources = value.map((img) => (img instanceof Source ? img : new Source(img)));
         // Update size from first face
         if (value.length > 0) {
             const first = this._gpuTexture.sources[0];
@@ -15318,27 +15105,69 @@ class CubeTexture {
     get imageSources() {
         return this._gpuTexture.sources;
     }
-    get wrapS() { return this._gpuSampler.addressModeU; }
-    set wrapS(v) { this._gpuSampler.addressModeU = v; }
-    get wrapT() { return this._gpuSampler.addressModeV; }
-    set wrapT(v) { this._gpuSampler.addressModeV = v; }
-    get magFilter() { return this._gpuSampler.magFilter; }
-    set magFilter(v) { this._gpuSampler.magFilter = v; }
-    get minFilter() { return this._gpuSampler.minFilter; }
-    set minFilter(v) { this._gpuSampler.minFilter = v; }
-    get mipmapFilter() { return this._gpuSampler.mipmapFilter; }
-    set mipmapFilter(v) { this._gpuSampler.mipmapFilter = v; }
-    get anisotropy() { return this._gpuSampler.maxAnisotropy; }
-    set anisotropy(v) { this._gpuSampler.maxAnisotropy = v; }
-    get format() { return this._gpuTexture.format; }
-    set format(v) { this._gpuTexture.format = v; }
-    get generateMipmaps() { return this._gpuTexture.generateMipmaps; }
-    set generateMipmaps(v) { this._gpuTexture.generateMipmaps = v; }
-    get flipY() { return this._gpuTexture.flipY; }
-    set flipY(v) { this._gpuTexture.flipY = v; }
-    get premultiplyAlpha() { return this._gpuTexture.premultiplyAlpha; }
-    set premultiplyAlpha(v) { this._gpuTexture.premultiplyAlpha = v; }
-    get version() { return this._gpuTexture.version; }
+    get wrapS() {
+        return this._gpuSampler.addressModeU;
+    }
+    set wrapS(v) {
+        this._gpuSampler.addressModeU = v;
+    }
+    get wrapT() {
+        return this._gpuSampler.addressModeV;
+    }
+    set wrapT(v) {
+        this._gpuSampler.addressModeV = v;
+    }
+    get magFilter() {
+        return this._gpuSampler.magFilter;
+    }
+    set magFilter(v) {
+        this._gpuSampler.magFilter = v;
+    }
+    get minFilter() {
+        return this._gpuSampler.minFilter;
+    }
+    set minFilter(v) {
+        this._gpuSampler.minFilter = v;
+    }
+    get mipmapFilter() {
+        return this._gpuSampler.mipmapFilter;
+    }
+    set mipmapFilter(v) {
+        this._gpuSampler.mipmapFilter = v;
+    }
+    get anisotropy() {
+        return this._gpuSampler.maxAnisotropy;
+    }
+    set anisotropy(v) {
+        this._gpuSampler.maxAnisotropy = v;
+    }
+    get format() {
+        return this._gpuTexture.format;
+    }
+    set format(v) {
+        this._gpuTexture.format = v;
+    }
+    get generateMipmaps() {
+        return this._gpuTexture.generateMipmaps;
+    }
+    set generateMipmaps(v) {
+        this._gpuTexture.generateMipmaps = v;
+    }
+    get flipY() {
+        return this._gpuTexture.flipY;
+    }
+    set flipY(v) {
+        this._gpuTexture.flipY = v;
+    }
+    get premultiplyAlpha() {
+        return this._gpuTexture.premultiplyAlpha;
+    }
+    set premultiplyAlpha(v) {
+        this._gpuTexture.premultiplyAlpha = v;
+    }
+    get version() {
+        return this._gpuTexture.version;
+    }
     set needsUpdate(v) {
         if (v)
             this._gpuTexture.needsUpdate = true;
@@ -15379,6 +15208,10 @@ class CubeTexture {
         this._gpuSampler.dispose();
     }
 }
+/** The factory form; pass no faces (and `options.size`) for a render-only cube. */
+function createCubeTexture(faces = [], options = {}) {
+    return new CubeTexture(faces, options);
+}
 
 /**
  * A render target whose color attachment is a cube texture. Render each of the
@@ -15390,16 +15223,12 @@ class CubeTexture {
  *
  * Extends `RenderTarget`: the inherited 2D color texture carries the face format
  * for pipeline creation, and the inherited 2D depth texture is reused across all
- * six faces. The renderer attaches the cube face selected by `activeFace`.
+ * six faces. Each pass names the face and level it writes.
  */
 class CubeRenderTarget extends RenderTarget {
     isCubeRenderTarget = true;
     /** Face size in pixels (width = height). */
     size;
-    /** Which cube face the next `render()` targets: 0..5 = +X, -X, +Y, -Y, +Z, -Z. */
-    activeFace = 0;
-    /** Which mip level the next `render()` targets. */
-    activeMipmapLevel = 0;
     /** The cube texture rendered into and sampled by materials. */
     _texture;
     constructor(size, opts = {}) {
@@ -16951,6 +16780,35 @@ function computeRenderObjectCacheKey(material, geometry, renderContext, maxTextu
     return parts.join('|');
 }
 
+/** Whether a depth format carries a stencil aspect. `stencil8` is stencil-only and still counts. */
+function formatHasStencil(format) {
+    return format !== undefined && format.includes('stencil');
+}
+/** A pass's own struct, filled in place by `resolvePassParams` so a steady-state frame allocates none. */
+function createPassParams() {
+    return {
+        renderTarget: null,
+        canvasTarget: null,
+        clearColor: { r: 0, g: 0, b: 0, a: 1 },
+        clearsColor: true,
+        clearsDepth: true,
+        clearDepthValue: 1,
+        clearsStencil: true,
+        clearStencilValue: 0,
+        swapchainStencil: false,
+        passId: 'render',
+        width: 0,
+        height: 0,
+        camera: null,
+        viewport: false,
+        viewportValue: { x: 0, y: 0, width: 0, height: 0, minDepth: 0, maxDepth: 1 },
+        scissor: false,
+        scissorValue: { x: 0, y: 0, width: 0, height: 0 },
+        layer: 0,
+        mipLevel: 0,
+    };
+}
+
 /**
  * The bind-group-layout sample type for a sampled texture's actual format. A `texture_2d<f32>`
  * declaration is format-agnostic in WGSL, but the layout's `sampleType` must match the bound
@@ -17596,6 +17454,1812 @@ function getBufferCacheStats$1(cache) {
 }
 function alignTo4(n) {
     return Math.ceil(n / 4) * 4;
+}
+
+/**
+ * render-object-gpu.ts - WebGPU-owned per-draw device payload for RenderObjects.
+ *
+ * RenderObject (in core/) is backend-neutral and must not reference raw WebGPU
+ * types. The per-draw GPU handles (pipeline, bind groups, resolved attribute
+ * buffers) live here instead, keyed by RenderObject identity in a WeakMap -
+ * mirroring how GpuBuffer/GpuTexture keep their GPU handles in renderer-side
+ * caches (see buffers.ts BufferCache).
+ *
+ * The cache is a per-renderer instance (held on WebGPUBackend as
+ * `_renderObjectGpu`), not a module-global.
+ */
+/** Create a new RenderObjectGpu cache. */
+function createRenderObjectGpuCache() {
+    return {
+        data: new WeakMap(),
+    };
+}
+/** Create an empty device payload. */
+function createRenderObjectGpu() {
+    return {
+        pipeline: null,
+        bindGroups: null,
+    };
+}
+/**
+ * Get the WebGPU device payload for a RenderObject, lazily creating the entry.
+ */
+function getRenderObjectGpu(cache, renderObject) {
+    let gpu = cache.data.get(renderObject);
+    if (!gpu) {
+        gpu = createRenderObjectGpu();
+        cache.data.set(renderObject, gpu);
+    }
+    return gpu;
+}
+/**
+ * Peek at the WebGPU device payload for a RenderObject without creating it.
+ * Returns undefined if the RenderObject has no entry yet.
+ */
+function peekRenderObjectGpu(cache, renderObject) {
+    return cache.data.get(renderObject);
+}
+
+/*
+ * The backend-neutral half of the partial-texture-upload decision: which textures may take it, and
+ * whether the pending regions are still worth uploading piecemeal.
+ *
+ * Both backends call these, deliberately. A region means the same thing on WebGPU and WebGL2 or it is
+ * not an API, so the rule that decides it lives in exactly one place and cannot drift between them.
+ */
+/**
+ * View dimensions that take the partial path. `z` addresses array layers and cube faces alike, so both
+ * qualify; 3D volumes and 1D do not yet.
+ */
+function supportsPartialUpload(texture) {
+    const dim = texture.viewDimension;
+    return dim === '2d' || dim === '2d-array' || dim === 'cube' || dim === 'cube-array';
+}
+function isTypedSourceData(data) {
+    if (!data || typeof data !== 'object')
+        return false;
+    return ArrayBuffer.isView(data.data);
+}
+/**
+ * Whether every source the partial path would read is typed-array backed.
+ *
+ * The unpack window addresses rows inside a packed buffer, which a DOM element source (image, canvas,
+ * video) does not have. Those must fall through to a full upload: skipping them instead would drop the
+ * write silently, which is the failure mode this whole model exists to remove.
+ */
+function hasTypedPartialSource(texture) {
+    const ok = (source) => !!source && source.dataReady !== false && isTypedSourceData(source.data);
+    if (texture.mipmaps.length > 0 && !texture.mipmaps.every(ok))
+        return false;
+    if (texture.sources.length > 0)
+        return texture.sources.every(ok);
+    return ok(texture.source);
+}
+/** Texels the emitters will actually move for `regions`. Both backends honour a region exactly. */
+function dirtyTexelCount(regions) {
+    let n = 0;
+    for (const r of regions)
+        n += regionTexelCount(r);
+    return n;
+}
+/**
+ * Whether the pending regions are worth a partial upload. Past half the texture, fewer and simpler
+ * calls win: fall through to one full upload.
+ */
+function withinPartialBudget(texture, regions) {
+    const total = texture.width * texture.height * texture.depthOrArrayLayers;
+    const dirty = dirtyTexelCount(regions);
+    return dirty > 0 && dirty <= total / 2;
+}
+
+/**
+ * Mipmap generation utilities using direct WebGPU pipelines.
+ *
+ * Uses render passes to downsample each mip level from the previous one.
+ * Pipelines are cached per texture format for efficiency.
+ */
+// WGSL shader for mipmap generation - fullscreen triangle with texture sampling
+const MIPMAP_SHADER = /* wgsl */ `
+struct Varys {
+    @builtin(position) position: vec4f,
+    @location(0) uv: vec2f,
+}
+
+@group(0) @binding(0) var imgSampler: sampler;
+@group(0) @binding(1) var img: texture_2d<f32>;
+
+@vertex
+fn vs_main(@builtin(vertex_index) vertexIndex: u32) -> Varys {
+    // Fullscreen triangle: vertices at (-1,-1), (3,-1), (-1,3)
+    var pos = array<vec2f, 3>(
+        vec2f(-1.0, -1.0),
+        vec2f(3.0, -1.0),
+        vec2f(-1.0, 3.0)
+    );
+
+    var out: Varys;
+    out.position = vec4f(pos[vertexIndex], 0.0, 1.0);
+    // UV: map clip space to texture space
+    // Clip Y=-1 (bottom) -> V=1, Clip Y=+1 (top) -> V=0
+    out.uv = pos[vertexIndex] * vec2f(0.5, -0.5) + vec2f(0.5, 0.5);
+    return out;
+}
+
+@fragment
+fn fs_main(v: Varys) -> @location(0) vec4f {
+    return textureSample(img, imgSampler, v.uv);
+}
+`;
+// Shader for cube texture mipmap generation (samples from cube, renders to 2D face)
+const MIPMAP_CUBE_SHADER = /* wgsl */ `
+struct Varys {
+    @builtin(position) position: vec4f,
+    @location(0) uv: vec2f,
+    @location(1) @interpolate(flat) face: u32,
+}
+
+@group(0) @binding(0) var imgSampler: sampler;
+@group(0) @binding(1) var img: texture_cube<f32>;
+@group(0) @binding(2) var<uniform> faceIndex: u32;
+
+// Face direction matrices - convert 2D UV to 3D cube direction
+// Each row: [right.x, up.x, forward.x], [right.y, up.y, forward.y], [right.z, up.z, forward.z]
+const FACE_DIRS = array<mat3x3f, 6>(
+    mat3x3f(vec3f( 0,  0, -1), vec3f( 0, -1,  0), vec3f( 1,  0,  0)),  // +X
+    mat3x3f(vec3f( 0,  0,  1), vec3f( 0, -1,  0), vec3f(-1,  0,  0)),  // -X
+    mat3x3f(vec3f( 1,  0,  0), vec3f( 0,  0,  1), vec3f( 0,  1,  0)),  // +Y
+    mat3x3f(vec3f( 1,  0,  0), vec3f( 0,  0, -1), vec3f( 0, -1,  0)),  // -Y
+    mat3x3f(vec3f( 1,  0,  0), vec3f( 0, -1,  0), vec3f( 0,  0,  1)),  // +Z
+    mat3x3f(vec3f(-1,  0,  0), vec3f( 0, -1,  0), vec3f( 0,  0, -1)),  // -Z
+);
+
+@vertex
+fn vs_main(@builtin(vertex_index) vertexIndex: u32) -> Varys {
+    var pos = array<vec2f, 3>(
+        vec2f(-1.0, -1.0),
+        vec2f(3.0, -1.0),
+        vec2f(-1.0, 3.0)
+    );
+
+    var out: Varys;
+    out.position = vec4f(pos[vertexIndex], 0.0, 1.0);
+    out.uv = pos[vertexIndex] * vec2f(0.5, -0.5) + vec2f(0.5, 0.5);
+    out.face = faceIndex;
+    return out;
+}
+
+@fragment
+fn fs_cube(v: Varys) -> @location(0) vec4f {
+    // Convert UV to direction using face matrix
+    let uv = v.uv * 2.0 - 1.0;
+    let dir = FACE_DIRS[v.face] * vec3f(uv, 1.0);
+    return textureSample(img, imgSampler, normalize(dir));
+}
+`;
+/**
+ * Create mipmap generation state for a device.
+ */
+function createMipmapState(device) {
+    const sampler = device.createSampler({
+        minFilter: 'linear',
+        magFilter: 'linear',
+    });
+    const shaderModule2D = device.createShaderModule({
+        label: 'mipmap-2d',
+        code: MIPMAP_SHADER,
+    });
+    const shaderModuleCube = device.createShaderModule({
+        label: 'mipmap-cube',
+        code: MIPMAP_CUBE_SHADER,
+    });
+    // Uniform buffer for face index (cube maps)
+    const faceIndexBuffer = device.createBuffer({
+        label: 'mipmap-face-index',
+        size: 4,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    return {
+        device,
+        sampler,
+        pipelines2D: new Map(),
+        pipelinesCube: new Map(),
+        shaderModule2D,
+        shaderModuleCube,
+        faceIndexBuffer,
+    };
+}
+/**
+ * Get or create a render pipeline for 2D mipmap generation.
+ */
+function getPipeline2D(state, format) {
+    let pipeline = state.pipelines2D.get(format);
+    if (pipeline)
+        return pipeline;
+    pipeline = state.device.createRenderPipeline({
+        label: `mipmap-2d-${format}`,
+        layout: 'auto',
+        vertex: {
+            module: state.shaderModule2D,
+            entryPoint: 'vs_main',
+        },
+        fragment: {
+            module: state.shaderModule2D,
+            entryPoint: 'fs_main',
+            targets: [{ format }],
+        },
+        primitive: {
+            topology: 'triangle-list',
+        },
+    });
+    state.pipelines2D.set(format, pipeline);
+    return pipeline;
+}
+/**
+ * Get or create a render pipeline for cube mipmap generation.
+ */
+function getPipelineCube(state, format) {
+    let pipeline = state.pipelinesCube.get(format);
+    if (pipeline)
+        return pipeline;
+    pipeline = state.device.createRenderPipeline({
+        label: `mipmap-cube-${format}`,
+        layout: 'auto',
+        vertex: {
+            module: state.shaderModuleCube,
+            entryPoint: 'vs_main',
+        },
+        fragment: {
+            module: state.shaderModuleCube,
+            entryPoint: 'fs_cube',
+            targets: [{ format }],
+        },
+        primitive: {
+            topology: 'triangle-list',
+        },
+    });
+    state.pipelinesCube.set(format, pipeline);
+    return pipeline;
+}
+/**
+ * Generate mipmaps for a 2D texture.
+ *
+ * @param state - Mipmap generation state
+ * @param texture - The GPU texture to generate mipmaps for
+ * @param encoder - Optional command encoder (creates one if not provided)
+ */
+function generateMipmaps2D(state, texture, encoder) {
+    const { device, sampler } = state;
+    const format = texture.format;
+    const mipLevelCount = texture.mipLevelCount;
+    if (mipLevelCount <= 1)
+        return;
+    const pipeline = getPipeline2D(state, format);
+    const ownEncoder = !encoder;
+    encoder = encoder ?? device.createCommandEncoder({ label: 'mipmap-encoder' });
+    // Generate each mip level from the previous one
+    for (let mipLevel = 1; mipLevel < mipLevelCount; mipLevel++) {
+        // Create view of source mip (level - 1)
+        const srcView = texture.createView({
+            baseMipLevel: mipLevel - 1,
+            mipLevelCount: 1,
+        });
+        // Create view of destination mip
+        const dstView = texture.createView({
+            baseMipLevel: mipLevel,
+            mipLevelCount: 1,
+        });
+        // Create bind group for this mip level
+        const bindGroup = device.createBindGroup({
+            layout: pipeline.getBindGroupLayout(0),
+            entries: [
+                { binding: 0, resource: sampler },
+                { binding: 1, resource: srcView },
+            ],
+        });
+        // Render pass to generate this mip level
+        const pass = encoder.beginRenderPass({
+            colorAttachments: [
+                {
+                    view: dstView,
+                    loadOp: 'clear',
+                    storeOp: 'store',
+                },
+            ],
+        });
+        pass.setPipeline(pipeline);
+        pass.setBindGroup(0, bindGroup);
+        pass.draw(3);
+        pass.end();
+    }
+    if (ownEncoder) {
+        device.queue.submit([encoder.finish()]);
+    }
+}
+/**
+ * Generate mipmaps for a cube texture.
+ *
+ * @param state - Mipmap generation state
+ * @param texture - The GPU cube texture to generate mipmaps for
+ * @param encoder - Optional command encoder (creates one if not provided)
+ */
+function generateMipmapsCube(state, texture, encoder) {
+    const { device, sampler, faceIndexBuffer } = state;
+    const format = texture.format;
+    const mipLevelCount = texture.mipLevelCount;
+    if (mipLevelCount <= 1)
+        return;
+    const pipeline = getPipelineCube(state, format);
+    const ownEncoder = !encoder;
+    encoder = encoder ?? device.createCommandEncoder({ label: 'mipmap-cube-encoder' });
+    // Generate each mip level from the previous one
+    for (let mipLevel = 1; mipLevel < mipLevelCount; mipLevel++) {
+        // Create cube view of source mip (level - 1)
+        const srcView = texture.createView({
+            dimension: 'cube',
+            baseMipLevel: mipLevel - 1,
+            mipLevelCount: 1,
+        });
+        // Process each face
+        for (let face = 0; face < 6; face++) {
+            // Update face index uniform
+            device.queue.writeBuffer(faceIndexBuffer, 0, new Uint32Array([face]));
+            // Create 2D view of destination face at this mip level
+            const dstView = texture.createView({
+                dimension: '2d',
+                baseMipLevel: mipLevel,
+                mipLevelCount: 1,
+                baseArrayLayer: face,
+                arrayLayerCount: 1,
+            });
+            // Create bind group for this face
+            const bindGroup = device.createBindGroup({
+                layout: pipeline.getBindGroupLayout(0),
+                entries: [
+                    { binding: 0, resource: sampler },
+                    { binding: 1, resource: srcView },
+                    { binding: 2, resource: { buffer: faceIndexBuffer } },
+                ],
+            });
+            // Render pass to generate this face's mip level
+            const pass = encoder.beginRenderPass({
+                colorAttachments: [
+                    {
+                        view: dstView,
+                        loadOp: 'clear',
+                        storeOp: 'store',
+                    },
+                ],
+            });
+            pass.setPipeline(pipeline);
+            pass.setBindGroup(0, bindGroup);
+            pass.draw(3);
+            pass.end();
+        }
+    }
+    if (ownEncoder) {
+        device.queue.submit([encoder.finish()]);
+    }
+}
+/**
+ * Generate mipmaps for a 2D array texture.
+ *
+ * Each layer is mipmapped independently using the same 2D pipeline.
+ * For each mip level, iterates all layers: creates a 2D source view of layer L
+ * at mip N-1 and a 2D destination view of layer L at mip N, then renders a
+ * fullscreen downsample pass.
+ *
+ * @param state - Mipmap generation state
+ * @param texture - The GPU array texture to generate mipmaps for
+ * @param layerCount - Number of array layers
+ * @param encoder - Optional command encoder (creates one if not provided)
+ */
+function generateMipmapsArray(state, texture, layerCount, encoder) {
+    const { device, sampler } = state;
+    const format = texture.format;
+    const mipLevelCount = texture.mipLevelCount;
+    if (mipLevelCount <= 1)
+        return;
+    const pipeline = getPipeline2D(state, format);
+    const ownEncoder = !encoder;
+    encoder = encoder ?? device.createCommandEncoder({ label: 'mipmap-array-encoder' });
+    for (let mipLevel = 1; mipLevel < mipLevelCount; mipLevel++) {
+        for (let layer = 0; layer < layerCount; layer++) {
+            const srcView = texture.createView({
+                dimension: '2d',
+                baseMipLevel: mipLevel - 1,
+                mipLevelCount: 1,
+                baseArrayLayer: layer,
+                arrayLayerCount: 1,
+            });
+            const dstView = texture.createView({
+                dimension: '2d',
+                baseMipLevel: mipLevel,
+                mipLevelCount: 1,
+                baseArrayLayer: layer,
+                arrayLayerCount: 1,
+            });
+            const bindGroup = device.createBindGroup({
+                layout: pipeline.getBindGroupLayout(0),
+                entries: [
+                    { binding: 0, resource: sampler },
+                    { binding: 1, resource: srcView },
+                ],
+            });
+            const pass = encoder.beginRenderPass({
+                colorAttachments: [
+                    {
+                        view: dstView,
+                        loadOp: 'clear',
+                        storeOp: 'store',
+                    },
+                ],
+            });
+            pass.setPipeline(pipeline);
+            pass.setBindGroup(0, bindGroup);
+            pass.draw(3);
+            pass.end();
+        }
+    }
+    if (ownEncoder) {
+        device.queue.submit([encoder.finish()]);
+    }
+}
+/**
+ * Generate mipmaps for a texture (auto-detects 2D vs cube vs array).
+ *
+ * @param state - Mipmap generation state
+ * @param texture - The GPU texture to generate mipmaps for
+ * @param isCube - Whether this is a cube texture
+ * @param arrayLayerCount - Number of array layers (>1 triggers array path)
+ * @param encoder - Optional command encoder
+ */
+function generateMipmaps(state, texture, isCube = false, arrayLayerCount = 0, encoder) {
+    // A 3d view cannot be a render-pass attachment, so the downsample-by-draw the other paths use has
+    // no 3d form. Said here, where the volume's own settings are still the visible cause.
+    if (texture.dimension === '3d') {
+        throw new Error('[mipmaps] a 3D texture cannot generate mipmaps; build it with `generateMipmaps: false`.');
+    }
+    if (isCube) {
+        generateMipmapsCube(state, texture, encoder);
+    }
+    else if (arrayLayerCount > 1) {
+        generateMipmapsArray(state, texture, arrayLayerCount, encoder);
+    }
+    else {
+        generateMipmaps2D(state, texture, encoder);
+    }
+}
+/**
+ * Dispose mipmap generation state.
+ */
+function disposeMipmapState(state) {
+    state.faceIndexBuffer.destroy();
+    state.pipelines2D.clear();
+    state.pipelinesCube.clear();
+}
+
+/**
+ * textures.ts (webgpu), `GPUTexture` cache and upload helpers. Samplers are their own resource module
+ * (`samplers.ts`), mirroring `webgl/`.
+ *
+ * Uses WeakMap-based caching keyed by GpuTexture object.
+ * Tracks texture.version for cache invalidation.
+ *
+ * Flow:
+ * 1. `updateTexture()` is called during binding updates (before draw)
+ * 2. Checks texture.version, skips if already up to date
+ * 3. Creates GPU texture if needed
+ * 4. Uploads image data if source.dataReady
+ * 5. Updates version tracking (textureData.version = texture.version)
+ */
+function createTextureCache$1() {
+    return {
+        textureMap: new WeakMap(),
+        defaultTextures: new Map(),
+        mipmapState: null,
+        tally: createTextureTally(),
+    };
+}
+/**
+ * Set up the _onDispose callback on a GpuTexture to destroy its GPU texture.
+ * Only sets the callback once (idempotent).
+ */
+function setupTextureDispose$1(cache, texture) {
+    if (texture._onDispose)
+        return;
+    texture._onDispose = () => {
+        const data = cache.textureMap.get(texture);
+        if (data && !data.isDefaultTexture) {
+            data.texture.destroy();
+            data.msaaTexture?.destroy();
+        }
+        // Stop counting it whether or not it owned its GPU texture; a default-texture entry
+        // contributes nothing, so clearing is a no-op there.
+        if (data)
+            tallyClearTexture(cache.tally, data.tally);
+    };
+}
+/**
+ * Get or create mipmap generation state (lazy initialization).
+ */
+function getMipmapState(cache, device) {
+    if (!cache.mipmapState) {
+        cache.mipmapState = createMipmapState(device);
+    }
+    return cache.mipmapState;
+}
+/**
+ * Generate mipmaps for an already-allocated GPU texture tracked in the cache.
+ * Used for render-target textures (e.g. CubeRenderTarget) that are not uploaded
+ * via updateTexture().
+ */
+function generateTextureMipmaps$1(cache, device, texture, encoder) {
+    const data = cache.textureMap.get(texture);
+    if (!data || data.isDefaultTexture)
+        return;
+    if (data.texture.mipLevelCount <= 1)
+        return;
+    const isCube = texture.viewDimension === 'cube' || texture.viewDimension === 'cube-array';
+    const isArray = texture.viewDimension === '2d-array';
+    const mipmapState = getMipmapState(cache, device);
+    generateMipmaps(mipmapState, data.texture, isCube, isArray ? texture.depthOrArrayLayers : 0, encoder);
+}
+/**
+ * Update a texture, checks source version and uploads if needed.
+ * Returns the TextureData for the texture.
+ */
+function uploadPartialRegion$1(device, texture, data, r) {
+    const bpp = bytesPerTexel(texture.format);
+    // Level 0 with per-layer/face sources: each layer owns its own buffer. `z` indexes
+    // `texture.sources`, which is the face for a cube and the layer for an array.
+    if (r.level === 0 && texture.sources.length > 0) {
+        const bytesPerRow = texture.width * bpp;
+        for (let i = 0; i < r.depth; i++) {
+            const layer = r.z + i;
+            const source = texture.sources[layer];
+            if (!source?.dataReady || !source.data || !isTypedArrayData(source.data))
+                continue;
+            const view = source.data.data;
+            device.queue.writeTexture({ texture: data.texture, mipLevel: 0, origin: { x: r.x, y: r.y, z: layer } }, view.buffer, {
+                // Full-stride rows plus a start offset: the sub-rect is read straight out of the
+                // packed buffer, with no tightly-packed staging copy.
+                offset: view.byteOffset + r.y * bytesPerRow + r.x * bpp,
+                bytesPerRow,
+                rowsPerImage: texture.height,
+            }, [r.width, r.height, 1]);
+        }
+        return;
+    }
+    // Packed source: level 0 uses `source`, higher levels their explicit mip (also packed, all layers).
+    const source = r.level === 0 ? texture.source : texture.mipmaps[r.level - 1];
+    if (!source || !source.dataReady || !source.data || !isTypedArrayData(source.data))
+        return;
+    const view = source.data.data;
+    const levelWidth = r.level === 0 ? texture.width : Math.max(1, source.width);
+    const levelHeight = r.level === 0 ? texture.height : Math.max(1, source.height);
+    const bytesPerRow = levelWidth * bpp;
+    // `rowsPerImage` is the level's FULL height, which is what keeps the inter-layer stride right, so a
+    // multi-layer region lands in one write even when it covers only some rows of each layer.
+    device.queue.writeTexture({ texture: data.texture, mipLevel: r.level, origin: { x: r.x, y: r.y, z: r.z } }, view.buffer, {
+        offset: view.byteOffset + (r.z * levelHeight + r.y) * bytesPerRow + r.x * bpp,
+        bytesPerRow,
+        rowsPerImage: levelHeight,
+    }, [r.width, r.height, r.depth]);
+}
+/**
+ * Update a texture, checks source version and uploads if needed.
+ * Returns the TextureData for the texture.
+ */
+function updateTexture$1(cache, device, texture) {
+    let data = cache.textureMap.get(texture);
+    // Skip if already initialized and texture version matches
+    if (data?.initialized && data.version === texture.version) {
+        return data;
+    }
+    // Partial upload: an in-place `packAtIndex`/`addUpdateRegion` queued dirty boxes (no full flag, no
+    // resize) → `writeTexture` only those instead of the whole texture. A full flag (`needsUpdate`/grow)
+    // or size change takes priority; `> ½` dirty falls through to a full upload.
+    //
+    // Regions are honoured exactly, sub-rect and mip level included: a full-stride `bytesPerRow` plus a
+    // start offset reads the box straight out of the packed source, with no staging copy.
+    if (data?.initialized &&
+        !data.isDefaultTexture &&
+        !texture.needsFullUpload &&
+        texture.updateRegions.length > 0 &&
+        supportsPartialUpload(texture) &&
+        !texture.type.type.startsWith('texture_storage_') &&
+        data.texture.width === texture.width &&
+        data.texture.height === texture.height &&
+        data.texture.depthOrArrayLayers === texture.depthOrArrayLayers &&
+        hasTypedPartialSource(texture)) {
+        if (withinPartialBudget(texture, texture.updateRegions)) {
+            for (const r of texture.updateRegions)
+                uploadPartialRegion$1(device, texture, data, r);
+            // Auto-generated mips go stale the moment level 0 moves. (An explicit chain instead gets
+            // per-level regions derived at `addUpdateRegion` time, so it is already covered above.)
+            if (texture.mipmaps.length === 0 && texture.generateMipmaps && data.texture.mipLevelCount > 1) {
+                const isCubeTex = texture.viewDimension === 'cube' || texture.viewDimension === 'cube-array';
+                const isArrayTex = texture.viewDimension === '2d-array';
+                generateMipmaps(getMipmapState(cache, device), data.texture, isCubeTex, isArrayTex ? texture.depthOrArrayLayers : 0);
+            }
+            texture.updateRegions.length = 0;
+            data.version = texture.version;
+            return data;
+        }
+    }
+    const isCube = texture.viewDimension === 'cube' || texture.viewDimension === 'cube-array';
+    const isArray = texture.viewDimension === '2d-array';
+    const isStorage = texture.type.type.startsWith('texture_storage_');
+    // Storage textures have no source data — their contents are written by a compute
+    // pass via textureStore. Create the real GPU texture (with STORAGE_BINDING usage) and
+    // skip the source-upload path entirely; never fall back to the default texture.
+    // A version bump (e.g. resize via needsUpdate) recreates the GPU texture at the new size.
+    if (isStorage) {
+        if (data && data.version === texture.version) {
+            return data;
+        }
+        const gpuTextureResource = createGPUTexture(device, texture);
+        if (!data) {
+            data = {
+                texture: gpuTextureResource,
+                version: texture.version,
+                generation: texture.version,
+                initialized: true,
+                isDefaultTexture: false,
+                tally: createTextureTallyEntry(),
+            };
+            cache.textureMap.set(texture, data);
+            tallySetTexture(cache.tally, data.tally, texture.format, gpuTextureBytes(texture));
+            setupTextureDispose$1(cache, texture);
+        }
+        else {
+            // Recreate at the new size: destroy the old GPU texture, swap in the new one,
+            // and bump generation so dependent bind groups rebuild with the fresh view.
+            data.texture.destroy();
+            data.texture = gpuTextureResource;
+            data.version = texture.version;
+            data.generation = texture.version;
+        }
+        return data;
+    }
+    // Check if source data is ready
+    // For cube textures, check all face sources
+    // For array textures, check all layer sources
+    // For regular textures, check the single source
+    const notReady = isCube
+        ? !areCubeSourcesReady(texture)
+        : isArray
+            ? !areArraySourcesReady(texture)
+            : !isSourceReady(texture.source);
+    if (notReady) {
+        if (!data) {
+            const format = texture.format;
+            const defaultTex = getDefaultTexture(cache, device, format);
+            data = {
+                texture: defaultTex,
+                version: 0,
+                generation: 0,
+                initialized: true,
+                isDefaultTexture: true,
+                // Never tallied: the placeholder is one shared 1x1 texture, not this texture's storage.
+                tally: createTextureTallyEntry(),
+            };
+            cache.textureMap.set(texture, data);
+        }
+        return data;
+    }
+    // First time, was using default, or resized (grow) → (re)create the real GPU texture at the current
+    // size. WebGPU textures are immutable-size, so a grow must destroy + recreate before the full upload.
+    const sizeChanged = !!data && !data.isDefaultTexture && (data.texture.width !== texture.width || data.texture.height !== texture.height);
+    if (!data || data.isDefaultTexture || sizeChanged) {
+        const gpuTextureResource = createGPUTexture(device, texture);
+        if (!data) {
+            data = {
+                texture: gpuTextureResource,
+                version: texture.version,
+                generation: texture.version,
+                initialized: true,
+                isDefaultTexture: false,
+                tally: createTextureTallyEntry(),
+            };
+            cache.textureMap.set(texture, data);
+            tallySetTexture(cache.tally, data.tally, texture.format, gpuTextureBytes(texture));
+        }
+        else if (data.isDefaultTexture) {
+            // Was default, now real, update generation
+            data.texture = gpuTextureResource;
+            data.generation = texture.version;
+            data.isDefaultTexture = false;
+            tallySetTexture(cache.tally, data.tally, texture.format, gpuTextureBytes(texture));
+        }
+        else {
+            // Resize (grow): destroy the old GPU texture and swap in the new (larger) one.
+            data.texture.destroy();
+            data.texture = gpuTextureResource;
+            data.generation = texture.version;
+            // Re-tally rather than re-count: the entry already counts as one texture, but its bytes moved.
+            tallySetTexture(cache.tally, data.tally, texture.format, gpuTextureBytes(texture));
+        }
+        // Set up disposal callback to destroy the GPU texture
+        setupTextureDispose$1(cache, texture);
+    }
+    // Upload image data
+    uploadTextureData(device, texture, data);
+    // Mip levels: user-supplied explicit mips take precedence over render-pass generation.
+    if (texture.mipmaps.length > 0) {
+        uploadExplicitMips$1(device, texture, data);
+    }
+    else if (texture.generateMipmaps && data.texture.mipLevelCount > 1) {
+        const mipmapState = getMipmapState(cache, device);
+        generateMipmaps(mipmapState, data.texture, isCube, isArray ? texture.depthOrArrayLayers : 0);
+    }
+    // A full (re)upload supersedes any queued partial regions and clears the full flag.
+    texture.updateRegions.length = 0;
+    texture.needsFullUpload = false;
+    // Update texture version
+    data.version = texture.version;
+    data.initialized = true;
+    return data;
+}
+/** Check if a single source is ready */
+function isSourceReady(source) {
+    if (!source)
+        return false;
+    if (!source.dataReady)
+        return false;
+    const data = source.data;
+    if (!data)
+        return false;
+    // Check for incomplete HTMLImageElement
+    if (data.complete === false)
+        return false;
+    return true;
+}
+/** Check if all cube face sources are ready (6 faces) */
+function areCubeSourcesReady(texture) {
+    if (texture.sources.length < 6)
+        return false;
+    for (let i = 0; i < 6; i++) {
+        if (!isSourceReady(texture.sources[i]))
+            return false;
+    }
+    return true;
+}
+/** Check if array texture source is ready (packed source or per-layer sources) */
+function areArraySourcesReady(texture) {
+    // Packed source mode: single source contains all layers
+    if (texture.source) {
+        return isSourceReady(texture.source);
+    }
+    // Per-layer sources mode
+    if (texture.sources.length < texture.depthOrArrayLayers)
+        return false;
+    for (let i = 0; i < texture.depthOrArrayLayers; i++) {
+        if (!isSourceReady(texture.sources[i]))
+            return false;
+    }
+    return true;
+}
+/**
+ * Create a GPUTexture for a GpuTexture.
+ */
+function createGPUTexture(device, texture) {
+    // Calculate mip level count. Explicit user mipmaps win (level 0 + supplied levels);
+    // otherwise derive the full chain when auto-generating, else the descriptor's count.
+    const mipLevelCount = mipLevelCountFor(texture);
+    // RENDER_ATTACHMENT is forced on so render-pass mipmap generation works. But NOT for single-mip
+    // storage textures: some storage formats (e.g. rgba8snorm) aren't renderable, so force-adding it
+    // would fail createTexture — and a storage texture with no mips never needs render-pass mip-gen.
+    const isStorage = texture.type.type.startsWith('texture_storage_');
+    const usage = !isStorage || mipLevelCount > 1 ? texture.usage | GPUTextureUsage.RENDER_ATTACHMENT : texture.usage;
+    const gpuTexture = device.createTexture({
+        dimension: texture.dimension,
+        size: [texture.width, texture.height, texture.depthOrArrayLayers],
+        format: texture.format,
+        usage,
+        mipLevelCount,
+        sampleCount: texture.sampleCount,
+    });
+    return gpuTexture;
+}
+/**
+ * Upload image data to a GPU texture.
+ * Routes to the appropriate upload function based on viewDimension.
+ */
+function uploadTextureData(device, texture, data) {
+    const viewDim = texture.viewDimension;
+    if (viewDim === 'cube' || viewDim === 'cube-array') {
+        uploadCubeTextureData(device, texture, data);
+        return;
+    }
+    if (viewDim === '2d-array') {
+        uploadArrayTextureData(device, texture, data);
+        return;
+    }
+    // Regular 2D texture - use primary source
+    const source = texture.source;
+    if (!source || !source.data)
+        return;
+    const sourceData = source.data;
+    const width = texture.width;
+    const height = texture.height;
+    // Cube and array dimensions routed away above, so this is 1 for 1d/2d and the volume's slice count
+    // for 3d, where every slice lives in the one packed source and must reach the device in this write.
+    const depth = texture.depthOrArrayLayers;
+    // Check if it's typed array data (DataTexture pattern)
+    if (isTypedArrayData(sourceData)) {
+        const bytesPerPixel = bytesPerTexel(texture.format);
+        const view = sourceData.data;
+        device.queue.writeTexture({ texture: data.texture }, view.buffer, { offset: view.byteOffset, bytesPerRow: width * bytesPerPixel, rowsPerImage: height }, [width, height, depth]);
+    }
+    else if (isExternalImage$1(sourceData)) {
+        // HTMLImageElement, ImageBitmap, Canvas, Video, etc.
+        device.queue.copyExternalImageToTexture({ source: sourceData, flipY: texture.flipY }, { texture: data.texture, premultipliedAlpha: texture.premultiplyAlpha }, [width, height]);
+    }
+}
+/** Check if source data is a typed array (from DataTextureImage) */
+function isTypedArrayData(data) {
+    if (!data || typeof data !== 'object')
+        return false;
+    const d = data;
+    return d.data !== undefined && ArrayBuffer.isView(d.data);
+}
+/** Check if source data is an external image (copyable to GPU) */
+function isExternalImage$1(data) {
+    if (!data || typeof data !== 'object')
+        return false;
+    // Check for known browser types
+    return ((typeof ImageBitmap !== 'undefined' && data instanceof ImageBitmap) ||
+        (typeof HTMLImageElement !== 'undefined' && data instanceof HTMLImageElement) ||
+        (typeof HTMLCanvasElement !== 'undefined' && data instanceof HTMLCanvasElement) ||
+        (typeof OffscreenCanvas !== 'undefined' && data instanceof OffscreenCanvas) ||
+        (typeof HTMLVideoElement !== 'undefined' && data instanceof HTMLVideoElement) ||
+        (typeof VideoFrame !== 'undefined' && data instanceof VideoFrame) ||
+        (typeof ImageData !== 'undefined' && data instanceof ImageData));
+}
+/**
+ * Upload cube texture data, copies each of the 6 face images to the
+ * corresponding array layer of the GPU texture.
+ *
+ * Face order: +X, -X, +Y, -Y, +Z, -Z (matches sources array).
+ */
+function uploadCubeTextureData(device, texture, data) {
+    const sources = texture.sources;
+    if (sources.length < 6)
+        return;
+    const width = texture.width;
+    const height = texture.height;
+    for (let faceIndex = 0; faceIndex < 6; faceIndex++) {
+        const source = sources[faceIndex];
+        if (!source.dataReady)
+            continue;
+        const faceData = source.data;
+        if (!faceData)
+            continue;
+        if (isExternalImage$1(faceData)) {
+            device.queue.copyExternalImageToTexture({ source: faceData, flipY: texture.flipY }, {
+                texture: data.texture,
+                premultipliedAlpha: texture.premultiplyAlpha,
+                origin: { x: 0, y: 0, z: faceIndex },
+            }, [width, height]);
+        }
+        else if (isTypedArrayData(faceData)) {
+            const view = faceData.data;
+            const bytesPerRow = width * bytesPerTexel(texture.format);
+            device.queue.writeTexture({ texture: data.texture, origin: { x: 0, y: 0, z: faceIndex } }, view.buffer, { offset: view.byteOffset, bytesPerRow, rowsPerImage: height }, [width, height]);
+        }
+    }
+}
+/**
+ * Upload array texture data, copies each layer's data to the corresponding
+ * array layer of the GPU texture.
+ *
+ * Supports two modes:
+ * 1. Per-layer sources: texture.sources contains one Source per layer
+ * 2. Packed source: texture.source contains all layers packed sequentially
+ */
+function uploadArrayTextureData(device, texture, data) {
+    const width = texture.width;
+    const height = texture.height;
+    const bytesPerPixel = bytesPerTexel(texture.format);
+    const layerCount = texture.depthOrArrayLayers;
+    // Mode 1: Per-layer sources array
+    if (texture.sources.length > 0) {
+        for (let layer = 0; layer < texture.sources.length && layer < layerCount; layer++) {
+            const source = texture.sources[layer];
+            if (!source.dataReady)
+                continue;
+            const layerData = source.data;
+            if (!layerData)
+                continue;
+            if (isTypedArrayData(layerData)) {
+                const srcData = layerData.data;
+                device.queue.writeTexture({ texture: data.texture, origin: { x: 0, y: 0, z: layer } }, srcData.buffer, {
+                    offset: srcData.byteOffset,
+                    bytesPerRow: width * bytesPerPixel,
+                    rowsPerImage: height,
+                }, [width, height]);
+            }
+            else if (isExternalImage$1(layerData)) {
+                device.queue.copyExternalImageToTexture({ source: layerData, flipY: texture.flipY }, {
+                    texture: data.texture,
+                    premultipliedAlpha: texture.premultiplyAlpha,
+                    origin: { x: 0, y: 0, z: layer },
+                }, [width, height]);
+            }
+        }
+        return;
+    }
+    // Mode 2: Single packed source with all layers
+    const source = texture.source;
+    if (!source || !source.dataReady)
+        return;
+    const sourceData = source.data;
+    if (!sourceData || !isTypedArrayData(sourceData))
+        return;
+    const srcData = sourceData.data;
+    // Upload all layers in one call
+    device.queue.writeTexture({ texture: data.texture }, srcData.buffer, {
+        offset: srcData.byteOffset,
+        bytesPerRow: width * bytesPerPixel,
+        rowsPerImage: height,
+    }, [width, height, layerCount]);
+}
+/**
+ * Upload user-supplied explicit mip levels (texture.mipmaps), one per level
+ * starting at level 1 (level 0 is the primary source, already uploaded).
+ *
+ * Each mip Source carries its own dimensions. For array/cube textures the data
+ * is packed across all layers (depth = layer count), uploaded in a single
+ * writeTexture per level; for 2D it's a single image. Sources with no data or
+ * not yet ready are skipped (their level keeps whatever was there).
+ */
+function uploadExplicitMips$1(device, texture, data) {
+    const bytesPerPixel = bytesPerTexel(texture.format);
+    for (let i = 0; i < texture.mipmaps.length; i++) {
+        const source = texture.mipmaps[i];
+        if (!source.dataReady)
+            continue;
+        const img = source.data;
+        if (!img)
+            continue;
+        const mipLevel = i + 1;
+        const width = source.width;
+        const height = source.height;
+        const layers = Math.max(source.depth, 1);
+        if (isTypedArrayData(img)) {
+            const srcData = img.data;
+            device.queue.writeTexture({ texture: data.texture, mipLevel }, srcData.buffer, {
+                offset: srcData.byteOffset,
+                bytesPerRow: width * bytesPerPixel,
+                rowsPerImage: height,
+            }, [width, height, layers]);
+        }
+        else if (isExternalImage$1(img)) {
+            device.queue.copyExternalImageToTexture({ source: img, flipY: texture.flipY }, { texture: data.texture, premultipliedAlpha: texture.premultiplyAlpha, mipLevel }, [width, height]);
+        }
+    }
+}
+/**
+ * Get or create a 1x1 default placeholder texture.
+ */
+function getDefaultTexture(cache, device, format) {
+    let tex = cache.defaultTextures.get(format);
+    if (tex)
+        return tex;
+    tex = device.createTexture({
+        size: [1, 1],
+        format,
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
+    // Write white pixel (or neutral value for non-color formats)
+    const bytesPerPixel = bytesPerTexel(format);
+    const data = new Uint8Array(bytesPerPixel);
+    data.fill(255); // White / max value
+    device.queue.writeTexture({ texture: tex }, data, { bytesPerRow: bytesPerPixel }, [1, 1]);
+    cache.defaultTextures.set(format, tex);
+    return tex;
+}
+/**
+ * Tear down the cache (called on renderer dispose).
+ *
+ * `device.destroy()` releases the GPU objects, so this is about JS state: the placeholder textures and
+ * mipmap pipelines are destroyed explicitly because they are shared and not owned by any GpuTexture,
+ * and the map is REPLACED rather than emptied so a `GpuTexture` outliving its renderer cannot find a
+ * stale entry and destroy through a dead device. The WebGL sibling does the same for the same reason.
+ */
+function disposeTextureCache$1(cache) {
+    for (const tex of cache.defaultTextures.values())
+        tex.destroy();
+    cache.defaultTextures.clear();
+    if (cache.mipmapState) {
+        disposeMipmapState(cache.mipmapState);
+        cache.mipmapState = null;
+    }
+    cache.textureMap = new WeakMap();
+    resetTextureTally(cache.tally);
+}
+/**
+ * Get cached TextureData for a GpuTexture.
+ * Returns null if not in cache (call updateTexture first).
+ */
+function getTextureData$1(cache, texture) {
+    return cache.textureMap.get(texture) ?? null;
+}
+
+/**
+ * render-target.ts (webgpu) - `RenderTarget` attachment allocation and views, the WebGPU sibling of
+ * `webgl/render-target.ts`.
+ *
+ * The two differ in what there is to own, and that difference is the API's, not a decomposition
+ * choice: GL needs real framebuffer objects and renderbuffers, so its module carries a cache of them.
+ * WebGPU has no framebuffer object at all - a render target IS its textures plus the views bound as
+ * attachments - so this module owns no state and operates on the texture cache. What it does own is
+ * the knowledge of RenderTarget semantics: when an attachment has to be reallocated, how an MSAA
+ * sibling is paired with its resolve target, and how a cube target's six faces are allocated.
+ */
+/**
+ * Default render-attachment view for a render-target color/depth texture.
+ * Cached on the TextureData and recreated only when the GPU texture is swapped
+ * (setRenderTargetTexture clears it), so attachment resolution doesn't allocate
+ * a fresh GPUTextureView every frame.
+ */
+function getRenderTargetView(data) {
+    if (!data.view) {
+        data.view = data.texture.createView();
+    }
+    return data.view;
+}
+/**
+ * Cached view of the multisampled color texture for an MSAA render target.
+ * Returns null when the target is not multisampled.
+ */
+function getRenderTargetMsaaView(data) {
+    if (!data.msaaTexture)
+        return null;
+    if (!data.msaaView) {
+        data.msaaView = data.msaaTexture.createView();
+    }
+    return data.msaaView;
+}
+/**
+ * Set the GPU texture resource for a render target texture.
+ * Called by the renderer when creating/resizing render targets.
+ *
+ * Unlike regular textures which upload source data, render target textures
+ * have their GPUTexture created externally and registered here.
+ */
+function setRenderTargetTexture(cache, texture, gpuTextureResource, msaaTexture = null) {
+    const existing = cache.textureMap.get(texture);
+    if (existing) {
+        if (existing.texture !== gpuTextureResource && !existing.isDefaultTexture) {
+            existing.texture.destroy();
+        }
+        if (existing.msaaTexture && existing.msaaTexture !== msaaTexture) {
+            existing.msaaTexture.destroy();
+        }
+        // Update existing entry with new GPU texture (e.g., after resize)
+        existing.texture = gpuTextureResource;
+        existing.msaaTexture = msaaTexture;
+        existing.view = null; // cached attachment views belong to the old textures
+        existing.msaaView = null;
+        existing.generation++;
+        existing.version = texture.version;
+        existing.initialized = true;
+        existing.isDefaultTexture = false;
+        // Resize swaps the GPU texture under the same entry: same count, different bytes.
+        tallySetTexture(cache.tally, existing.tally, texture.format, gpuTextureBytes(texture));
+    }
+    else {
+        // First time - create new entry
+        cache.textureMap.set(texture, {
+            texture: gpuTextureResource,
+            msaaTexture,
+            version: texture.version,
+            generation: 1,
+            initialized: true,
+            isDefaultTexture: false,
+            tally: createTextureTallyEntry(),
+        });
+        const entry = cache.textureMap.get(texture);
+        tallySetTexture(cache.tally, entry.tally, texture.format, gpuTextureBytes(texture));
+    }
+    texture.disposed = false;
+    setupTextureDispose$1(cache, texture);
+}
+function hasRenderTargetTextureAllocation(cache, texture, width, height, format, sampleCount, mipLevelCount) {
+    // A disposed wrapper's cache entry still points at a destroyed GPUTexture whose
+    // .width/.height/etc. read back stale-but-present; force reallocation so we never
+    // build an attachment/view from a destroyed texture (dispose-then-reuse path).
+    if (texture.disposed)
+        return false;
+    const data = cache.textureMap.get(texture);
+    if (!data || data.isDefaultTexture)
+        return false;
+    const gpu = data.texture;
+    return (gpu.width === width &&
+        gpu.height === height &&
+        gpu.format === format &&
+        gpu.sampleCount === sampleCount &&
+        gpu.mipLevelCount === mipLevelCount);
+}
+/**
+ * Check the multisampled sibling of a render-target color texture matches the
+ * desired sample count: present and sized correctly when `sampleCount > 1`,
+ * absent when the target is single-sample.
+ */
+function hasMatchingMsaaAllocation(cache, texture, width, height, format, sampleCount) {
+    const msaa = cache.textureMap.get(texture)?.msaaTexture;
+    if (sampleCount <= 1)
+        return !msaa;
+    return !!msaa && msaa.width === width && msaa.height === height && msaa.format === format && msaa.sampleCount === sampleCount;
+}
+function ensureRenderTargetTexturesAllocated(cache, device, renderTarget) {
+    if (renderTarget.isCubeRenderTarget) {
+        ensureCubeRenderTargetTexturesAllocated(cache, device, renderTarget);
+        return;
+    }
+    const { width, height } = renderTarget;
+    const sampleCount = renderTarget.samples > 1 ? renderTarget.samples : 1;
+    // Color attachments are sampled by shaders, so the cached `texture` is always the
+    // single-sample resolve target; MSAA adds a multisampled sibling rendered into and
+    // resolved from. Depth is kept at the pass sample count (all attachments must match).
+    // NB: don't seed this from `textures.length === 0` — a depth-only target (count: 0)
+    // has no color textures yet is fully allocated via its depth texture; seeding true
+    // there would reallocate the depth every frame and destroy the one just rendered into.
+    let needsAllocation = false;
+    for (const tex of renderTarget.textures) {
+        if (!hasRenderTargetTextureAllocation(cache, tex._gpuTexture, width, height, tex.format, 1, 1) ||
+            !hasMatchingMsaaAllocation(cache, tex._gpuTexture, width, height, tex.format, sampleCount)) {
+            needsAllocation = true;
+            break;
+        }
+    }
+    if (!needsAllocation && renderTarget._depthAttachment) {
+        needsAllocation = !hasRenderTargetTextureAllocation(cache, renderTarget._depthAttachment._gpuTexture, width, height, renderTarget._depthAttachment.format, sampleCount, 1);
+    }
+    if (!needsAllocation)
+        return;
+    // Don't release (delete) the cache entries here: setRenderTargetTexture()
+    // destroys the old GPU texture and bumps `generation` monotonically, which is
+    // what bind-group change detection relies on to rebuild views. Deleting the
+    // entry first would reset generation back to 1, so a bind group sampling this
+    // target would keep a view of the destroyed texture (-> "destroyed texture
+    // used in a submit").
+    for (const tex of renderTarget.textures) {
+        const resolveTexture = device.createTexture({
+            size: [width, height],
+            format: tex.format,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
+            sampleCount: 1,
+        });
+        // RENDER_ATTACHMENT-only multisampled texture; it is rendered into and resolved
+        // into resolveTexture, never sampled, so it needs no TEXTURE_BINDING/COPY_SRC.
+        const msaaTexture = sampleCount > 1
+            ? device.createTexture({
+                size: [width, height],
+                format: tex.format,
+                usage: GPUTextureUsage.RENDER_ATTACHMENT,
+                sampleCount,
+                mipLevelCount: 1,
+            })
+            : null;
+        setRenderTargetTexture(cache, tex._gpuTexture, resolveTexture, msaaTexture);
+    }
+    if (renderTarget._depthAttachment) {
+        const gpuDepthTexture = device.createTexture({
+            size: [width, height],
+            format: renderTarget._depthAttachment.format,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+            sampleCount,
+        });
+        setRenderTargetTexture(cache, renderTarget._depthAttachment._gpuTexture, gpuDepthTexture);
+    }
+}
+function ensureCubeRenderTargetTexturesAllocated(cache, device, renderTarget) {
+    // `mipLevelCountFor`, not the live `generateMipmaps`: `CubeCamera` flips that off mid-render, and
+    // asking for one level while the texture holds a chain reallocates it under the open frame.
+    const cubeMipCount = mipLevelCountFor(renderTarget.texture._gpuTexture);
+    const cubeReady = hasRenderTargetTextureAllocation(cache, renderTarget.texture._gpuTexture, renderTarget.size, renderTarget.size, renderTarget.texture.format, 1, cubeMipCount);
+    const depthReady = !renderTarget._depthAttachment ||
+        hasRenderTargetTextureAllocation(cache, renderTarget._depthAttachment._gpuTexture, renderTarget.size, renderTarget.size, renderTarget._depthAttachment.format, 1, 1);
+    if (cubeReady && depthReady)
+        return;
+    // See note in ensureRenderTargetTexturesAllocated: let setRenderTargetTexture()
+    // destroy the old GPU texture and bump generation rather than releasing the
+    // cache entry, so bind groups sampling this target are rebuilt on realloc.
+    const colorTex = device.createTexture({
+        dimension: '2d',
+        size: [renderTarget.size, renderTarget.size, 6],
+        format: renderTarget.texture.format,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
+        mipLevelCount: cubeMipCount,
+        sampleCount: 1,
+    });
+    setRenderTargetTexture(cache, renderTarget.texture._gpuTexture, colorTex);
+    if (renderTarget._depthAttachment) {
+        const depthTex = device.createTexture({
+            size: [renderTarget.size, renderTarget.size],
+            format: renderTarget._depthAttachment.format,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+            sampleCount: 1,
+        });
+        setRenderTargetTexture(cache, renderTarget._depthAttachment._gpuTexture, depthTex);
+    }
+}
+
+/**
+ * samplers.ts (webgpu) - per-GpuSampler `GPUSampler` cache, the WebGPU sibling of `webgl/samplers.ts`.
+ *
+ * Value-keyed by `GpuSampler.settingsKey`, so identical sampler settings share one `GPUSampler`. The
+ * WebGL sibling keys on `settingsKey` PLUS whether the paired texture has mips, because a GL sampler
+ * carries the mipmapped-vs-base min-filter choice and a mipmapped min-filter against a non-mipmapped
+ * texture reads as incomplete. WebGPU has no such coupling, so one entry per settings key is enough:
+ * that is an earned signature difference, not drift.
+ *
+ * Samplers are not disposed individually. They are shared by settings rather than owned by any one
+ * `GpuSampler`, so there is nothing to hang a per-object release on; the whole cache goes at renderer
+ * teardown.
+ */
+function createSamplerCache$1() {
+    return { cache: new Map() };
+}
+/**
+ * Get (or create) the `GPUSampler` for a `GpuSampler`'s settings.
+ *
+ * WebGPU rejects `maxAnisotropy > 1` unless all three filters are 'linear'; rather than throw, the
+ * anisotropy is dropped, since it is a quality hint and the sampler still filters correctly without
+ * it. The WebGL sibling makes the same call for the same reason when the anisotropy extension is
+ * missing.
+ */
+function getSampler$1(device, state, gpuSampler) {
+    const key = gpuSampler.settingsKey;
+    const existing = state.cache.get(key);
+    if (existing) {
+        existing.usedTimes++;
+        return existing.sampler;
+    }
+    let { minFilter, magFilter, mipmapFilter, maxAnisotropy } = gpuSampler;
+    if (maxAnisotropy > 1 && (minFilter !== 'linear' || magFilter !== 'linear' || mipmapFilter !== 'linear')) {
+        maxAnisotropy = 1;
+    }
+    const sampler = device.createSampler({
+        magFilter,
+        minFilter,
+        mipmapFilter,
+        addressModeU: gpuSampler.addressModeU,
+        addressModeV: gpuSampler.addressModeV,
+        addressModeW: gpuSampler.addressModeW,
+        maxAnisotropy,
+        compare: gpuSampler.compare,
+    });
+    state.cache.set(key, { sampler, usedTimes: 1 });
+    return sampler;
+}
+/**
+ * The already-created sampler for a settings key, or null. For bind-group rebuilds, which bind what
+ * `getSampler` put in the cache and must not create one as a side effect.
+ */
+function peekSampler(state, settingsKey) {
+    return state.cache.get(settingsKey)?.sampler ?? null;
+}
+/** Drop every cached sampler (called on renderer dispose). `GPUSampler` has no explicit destroy. */
+function disposeSamplerCache$1(state) {
+    state.cache.clear();
+}
+/** Number of distinct sampler configurations currently cached. */
+function getSamplerCacheStats$1(state) {
+    return { samplerCount: state.cache.size };
+}
+
+/**
+ * Create a new Bindings state. The shared bind group layout cache is owned by the backend and passed
+ * in so the bindings and pipelines layers hit a single value-keyed layout cache.
+ */
+function createBindingsState$1(layoutCache) {
+    return {
+        layoutCache,
+        data: new WeakMap(),
+        bindGroupRebuilds: 0,
+    };
+}
+/** Map a storage texture WGSL dimension tag to a GPU view dimension. */
+function storageViewDimension(dim) {
+    switch (dim) {
+        case '1d':
+            return '1d';
+        case '2d_array':
+            return '2d-array';
+        case '3d':
+            return '3d';
+        default:
+            return '2d';
+    }
+}
+/** Map a WGSL storage access keyword to the bind-group-layout access enum. */
+function storageLayoutAccess(access) {
+    switch (access) {
+        case 'write':
+            return 'write-only';
+        case 'read_write':
+            return 'read-write';
+        default:
+            return 'read-only';
+    }
+}
+/**
+ * Get or create BindGroupData for a BindGroup.
+ * This is the DataMap pattern - auto-creates data on first access.
+ */
+function getData(state, bindGroup) {
+    let data = state.data.get(bindGroup);
+    if (!data) {
+        data = {
+            bindGroup: null,
+            bindGroupLayout: null,
+            needsUpdate: true,
+        };
+        state.data.set(bindGroup, data);
+    }
+    return data;
+}
+/** Update all bindings for a RenderObject. */
+function updateRenderBindings(b, renderObject, frame) {
+    const { bindings: state, device, buffers: bufferCache } = b;
+    const { textures: textureCache, samplers: samplerCache, renderObjectGpu: renderObjectGpuCache } = b;
+    const nodeState = renderObject.nodeBuilderState;
+    if (!nodeState)
+        return;
+    // Get BindGroups for this RenderObject (shared groups reused, non-shared cloned)
+    const bindGroups = getBindings(renderObject);
+    // Update each BindGroup
+    const gpuBindGroups = [];
+    for (const bindGroup of bindGroups) {
+        // Initialize bind group layout if needed
+        initBindGroup(state, bindGroup, device, GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT);
+        // Update uniforms and check if bind group needs rebuild
+        const data = getData(state, bindGroup);
+        updateRenderBindGroup(data, bindGroup, renderObject, frame, device, bufferCache, textureCache, samplerCache);
+        if (data.needsUpdate || !data.bindGroup) {
+            rebuildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, renderObject.geometry, null);
+            data.needsUpdate = false;
+            state.bindGroupRebuilds++;
+        }
+        if (data.bindGroup) {
+            gpuBindGroups.push(data.bindGroup);
+        }
+    }
+    // Store on the WebGPU device side table for this RenderObject
+    getRenderObjectGpu(renderObjectGpuCache, renderObject).bindGroups = gpuBindGroups;
+}
+/** Update all bindings for a compute pass and return GPUBindGroups. */
+function updateComputeBindings(b, nodeBuilderState, frame, buffers) {
+    const { bindings: state, device, buffers: bufferCache, textures: textureCache, samplers: samplerCache } = b;
+    const gpuBindGroups = [];
+    for (const bindGroup of nodeBuilderState.bindings) {
+        // Initialize bind group layout if needed
+        initBindGroup(state, bindGroup, device, GPUShaderStage.COMPUTE);
+        // Update bindings
+        const data = getData(state, bindGroup);
+        updateComputeBindGroup(data, bufferCache, textureCache, samplerCache, device, bindGroup, frame, buffers);
+        // Rebuild GPU bind group if needed
+        if (data.needsUpdate || !data.bindGroup) {
+            rebuildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, null, buffers);
+            data.needsUpdate = false;
+        }
+        if (data.bindGroup) {
+            gpuBindGroups.push(data.bindGroup);
+        }
+    }
+    return gpuBindGroups;
+}
+/** Initialize bindings for a RenderObject. */
+function initRenderBindings(state, renderObject, device) {
+    const nodeState = renderObject.nodeBuilderState;
+    if (!nodeState)
+        return;
+    // Get BindGroups for this RenderObject
+    const bindGroups = getBindings(renderObject);
+    // Initialize each BindGroup
+    for (const bindGroup of bindGroups) {
+        initBindGroup(state, bindGroup, device, GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT);
+    }
+}
+/** Get the bind group layouts for a RenderObject. Used for pipeline creation. */
+function getRenderBindGroupLayouts(state, renderObject) {
+    const nodeState = renderObject.nodeBuilderState;
+    if (!nodeState)
+        return [];
+    // Get BindGroups for this RenderObject
+    const bindGroups = getBindings(renderObject);
+    // Build layouts array - array index matches @group(N) since groups are sorted
+    const layouts = [];
+    for (const bindGroup of bindGroups) {
+        const data = getData(state, bindGroup);
+        if (data.bindGroupLayout) {
+            layouts.push(data.bindGroupLayout);
+        }
+    }
+    return layouts;
+}
+/** Initialize a BindGroup (create layout). Called once per BindGroup. */
+function initBindGroup(state, bindGroup, device, visibility) {
+    const data = getData(state, bindGroup);
+    // already initialized
+    if (data.bindGroupLayout)
+        return;
+    // build bind group layout entries
+    const entries = buildLayoutEntries(bindGroup, visibility, device);
+    // get or create the layout
+    data.bindGroupLayout = getBindGroupLayout(state.layoutCache, device, entries);
+}
+/** Build bind group layout entries for a BindGroup. */
+function buildLayoutEntries(bindGroup, visibility, device) {
+    const float32Filterable = device.features.has('float32-filterable');
+    const entries = [];
+    for (const binding of bindGroup.bindings) {
+        switch (binding.kind) {
+            case 'uniform':
+                entries.push({
+                    binding: binding.block.binding,
+                    visibility,
+                    buffer: { type: 'uniform' },
+                });
+                break;
+            case 'storage':
+                entries.push({
+                    binding: binding.entry.binding,
+                    visibility,
+                    buffer: {
+                        type: binding.entry.access === 'read_write' ? 'storage' : 'read-only-storage',
+                    },
+                });
+                break;
+            case 'texture': {
+                entries.push({
+                    binding: binding.entry.binding,
+                    visibility,
+                    texture: textureBindingLayout(binding.entry, float32Filterable),
+                });
+                break;
+            }
+            case 'storageTexture': {
+                entries.push({
+                    binding: binding.entry.binding,
+                    visibility,
+                    storageTexture: {
+                        access: storageLayoutAccess(binding.entry.access),
+                        format: binding.entry.format,
+                        viewDimension: storageViewDimension(binding.entry.dim),
+                    },
+                });
+                break;
+            }
+            case 'sampler':
+                entries.push({
+                    binding: binding.entry.binding,
+                    visibility,
+                    sampler: {
+                        type: samplerBindingType(binding.entry),
+                    },
+                });
+                break;
+        }
+    }
+    // Sort by binding index
+    entries.sort((a, b) => a.binding - b.binding);
+    return entries;
+}
+/** Update a BindGroup (uniforms, textures, etc.).  Called every frame */
+function updateRenderBindGroup(data, bindGroup, renderObject, frame, device, bufferCache, textureCache, samplerCache) {
+    for (const binding of bindGroup.bindings) {
+        switch (binding.kind) {
+            case 'uniform':
+                updateUniformBinding(bufferCache, device, binding, frame, data, renderObject.material);
+                break;
+            case 'texture':
+                updateTextureBinding(textureCache, device, binding, data);
+                break;
+            case 'storageTexture':
+                updateStorageTextureBinding(textureCache, device, binding, data);
+                break;
+            case 'sampler':
+                updateSamplerBinding(samplerCache, device, binding, data);
+                break;
+            case 'storage':
+                updateStorageBinding(bufferCache, device, binding, data, renderObject.geometry, null);
+                break;
+        }
+    }
+}
+/** Update a uniform binding */
+function updateUniformBinding(bufferCache, device, binding, frame, data, material = null) {
+    const block = binding.block;
+    // Deduplication gate: skip if this binding was already processed at the current frame/render ID.
+    // Based on group.updateType:
+    //   'frame'  - check frameId (once per animation frame)
+    //   'render' - check renderId (once per render() call)
+    //   'object' - always process (content changes per-mesh)
+    //   'none'   - always process
+    if (block.group.shared) {
+        const updateType = block.group.updateType;
+        if (updateType === 'frame') {
+            if (binding.lastFrameId === frame.frameId)
+                return;
+            binding.lastFrameId = frame.frameId;
+        }
+        else if (updateType === 'render') {
+            if (binding.lastRenderId === frame.renderId)
+                return;
+            binding.lastRenderId = frame.renderId;
+        }
+        // 'object' and 'none' always process
+    }
+    // invoke update callbacks with the NodeFrame
+    invokeUniformGroupCallbacks(block, frame);
+    // create buffer key if needed
+    if (!binding.bufferKey) {
+        binding.bufferKey = {};
+    }
+    // Ensure we have preallocated double buffers
+    const requiredBytes = block.totalBytes;
+    if (!binding.currentBuffer || binding.currentBuffer.byteLength !== requiredBytes) {
+        binding.currentBuffer = new ArrayBuffer(requiredBytes);
+        binding.scratchBuffer = new ArrayBuffer(requiredBytes);
+    }
+    // Pack into scratch buffer, then compare with current
+    const changedBytes = packAndCompare(block, binding.currentBuffer, binding.scratchBuffer, material);
+    const changed = changedBytes > 0;
+    const uploaded = !!getRaw$1(bufferCache, binding.bufferKey);
+    if (changed || !uploaded) {
+        if (changed) {
+            // Swap buffers: scratch becomes current
+            const temp = binding.currentBuffer;
+            binding.currentBuffer = binding.scratchBuffer;
+            binding.scratchBuffer = temp;
+        }
+        const result = uploadUniformBlock$1(bufferCache, device, binding.bufferKey, binding.currentBuffer, {
+            material: material?.name,
+            updateType: block.group?.updateType,
+            changedBytes,
+        });
+        // Only rebuild bind group if buffer was created/resized (not just written to)
+        if (result.created) {
+            data.needsUpdate = true;
+        }
+    }
+}
+/**
+ * Pack uniforms into scratch buffer and compare against current buffer.
+ * Uses compiled layout for correct WGSL alignment.
+ * Returns true if any values changed.
+ */
+/** packs the block into `scratchBuffer` and returns how many BYTES differ from
+ *  `currentBuffer`. Zero means nothing changed. */
+function packAndCompare(block, currentBuffer, scratchBuffer, material) {
+    const view = new DataView(scratchBuffer);
+    // Pack each uniform member using compiled layout
+    for (const m of block.members) {
+        let value = m.node.uniform.value;
+        if (value === null && material) {
+            const matUniform = material.uniforms.get(m.node.name);
+            if (matUniform) {
+                value = matUniform.value;
+            }
+        }
+        if (value === null || value === undefined)
+            continue;
+        packToView(m.schema, view, m.offset, value, 'wgsl-uniform');
+    }
+    // Compare word by word, COUNTING rather than early-returning. The count is what
+    // separates "a few bytes of a large block moved" - a per-frame value dragging a
+    // static payload up with it, fixable by splitting the block - from "the block
+    // genuinely changed". Same single pass either way; only the exit differs.
+    const current = new Uint32Array(currentBuffer);
+    const scratch = new Uint32Array(scratchBuffer);
+    const len = current.length;
+    let changedWords = 0;
+    for (let i = 0; i < len; i++) {
+        if (current[i] !== scratch[i])
+            changedWords++;
+    }
+    return changedWords * 4;
+}
+/** Update a texture binding. */
+function updateTextureBinding(textureCache, device, binding, data) {
+    const textureNode = binding.entry.node;
+    const gpuTexture = textureNode.value;
+    if (gpuTexture === null)
+        return;
+    // Texture SWAP: the node was rebound to a different GpuTexture (e.g. an atlas
+    // reload allocating a fresh texture, or a placeholder->real swap). Generation
+    // only tracks in-place uploads to one texture, so a swap to a fresh texture
+    // (whose generation can coincide with the stale one) would slip through and
+    // leave the bind group pointing at the old — now disposed — texture, faulting
+    // the next submit. Mirror updateStorageBinding's lastBuffer identity check.
+    if (gpuTexture !== binding.lastTexture) {
+        binding.lastTexture = gpuTexture;
+        data.needsUpdate = true;
+    }
+    // For render target textures, the GPU resource is set externally via setRenderTargetTexture().
+    // For regular textures, updateTexture() handles upload.
+    // Both cases: check generation to detect changes.
+    if (!gpuTexture.isRenderTargetTexture) {
+        // Regular texture - upload source data
+        const texData = updateTexture$1(textureCache, device, gpuTexture);
+        if (binding.generation !== texData.generation) {
+            binding.generation = texData.generation;
+            data.needsUpdate = true;
+        }
+    }
+    else {
+        // Render target texture - the GPU resource is created/resized by the owning
+        // render target's pass. If that pass hasn't run this frame (e.g. the target
+        // was resized between renders), lazily (re)allocate it here so we never sample
+        // a stale or destroyed texture. ensure...Allocated is idempotent and bumps
+        // generation on realloc, which the check below turns into a bind-group rebuild.
+        if (gpuTexture.renderTarget) {
+            ensureRenderTargetTexturesAllocated(textureCache, device, gpuTexture.renderTarget);
+        }
+        const texData = getTextureData$1(textureCache, gpuTexture);
+        if (texData) {
+            if (binding.generation !== texData.generation) {
+                binding.generation = texData.generation;
+                data.needsUpdate = true;
+            }
+        }
+    }
+}
+/** Update a storage texture binding: ensure GPU texture exists, detect changes. */
+function updateStorageTextureBinding(textureCache, device, binding, data) {
+    const gpuTexture = binding.entry.node.value;
+    if (gpuTexture === null)
+        return;
+    // Swap detection: same rationale as updateTextureBinding — a rebound node
+    // pointing at a fresh GpuTexture must rebuild the bind group.
+    if (gpuTexture !== binding.lastTexture) {
+        binding.lastTexture = gpuTexture;
+        data.needsUpdate = true;
+    }
+    // Storage textures hold no source data; updateTexture just ensures the GPU
+    // texture exists and returns its cache entry (with a generation counter).
+    const texData = updateTexture$1(textureCache, device, gpuTexture);
+    if (binding.generation !== texData.generation) {
+        binding.generation = texData.generation;
+        data.needsUpdate = true;
+    }
+}
+/** Update a sampler binding. */
+function updateSamplerBinding(samplerCache, device, binding, data) {
+    const samplerNode = binding.entry.samplerNode;
+    const gpuSampler = samplerNode.value;
+    // Create/get sampler from GpuSampler settings (this caches by settingsKey)
+    getSampler$1(device, samplerCache, gpuSampler);
+    // Check for sampler changes using settingsKey
+    const samplerKey = gpuSampler.settingsKey;
+    if (binding.samplerKey !== samplerKey) {
+        binding.samplerKey = samplerKey;
+        data.needsUpdate = true;
+    }
+}
+/** Update a storage binding - detect buffer swaps and flush data to GPU. */
+function updateStorageBinding(bufferCache, device, binding, data, geometry, buffers) {
+    const node = binding.entry.node;
+    const buffer = resolveStorageBuffer(node, geometry, buffers);
+    // If buffer identity changed, need to rebuild bind group
+    if (buffer !== binding.lastBuffer) {
+        binding.lastBuffer = buffer;
+        data.needsUpdate = true;
+    }
+    // Flush pending data to GPU (version check / partial ranges handled inside)
+    ensureUploaded$1(bufferCache, device, buffer, binding.entry.name);
+}
+/** Rebuild the GPU bind group for a BindGroup */
+function rebuildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, geometry, buffers) {
+    if (!data.bindGroupLayout)
+        return;
+    const entries = [];
+    for (const binding of bindGroup.bindings) {
+        switch (binding.kind) {
+            case 'uniform': {
+                if (binding.bufferKey) {
+                    const buffer = getRaw$1(bufferCache, binding.bufferKey);
+                    if (buffer) {
+                        entries.push({ binding: binding.block.binding, resource: { buffer } });
+                    }
+                }
+                break;
+            }
+            case 'storage': {
+                const buffer = resolveStorageBuffer(binding.entry.node, geometry, buffers);
+                const buf = getUploaded$1(bufferCache, buffer);
+                if (buf) {
+                    entries.push({ binding: binding.entry.binding, resource: { buffer: buf } });
+                }
+                break;
+            }
+            case 'texture': {
+                const textureNode = binding.entry.node;
+                const gpuTexture = textureNode.value;
+                if (!gpuTexture)
+                    break;
+                // Get GPU texture from cache
+                const texData = getTextureData$1(textureCache, gpuTexture);
+                if (texData) {
+                    // A combined depth-stencil texture carries two aspects, and a view
+                    // may only ever expose ONE of them to a binding. Leaving the default
+                    // ('all') is a validation error the moment a pass allocates a stencil
+                    // alongside a depth that something also samples. Sampling is always
+                    // the depth aspect here: the stencil aspect would need a
+                    // `texture_2d<u32>` binding, which nothing declares.
+                    const view = texData.texture.createView({
+                        dimension: gpuTexture.viewDimension,
+                        ...(formatHasStencil(texData.texture.format) ? { aspect: 'depth-only' } : {}),
+                    });
+                    entries.push({ binding: binding.entry.binding, resource: view });
+                }
+                break;
+            }
+            case 'storageTexture': {
+                const gpuTexture = binding.entry.node.value;
+                if (!gpuTexture)
+                    break;
+                const texData = getTextureData$1(textureCache, gpuTexture);
+                if (texData) {
+                    // Storage views target a single mip level at the node's chosen baseMipLevel.
+                    const view = texData.texture.createView({
+                        dimension: storageViewDimension(binding.entry.dim),
+                        baseMipLevel: binding.entry.node.mipLevel,
+                        mipLevelCount: 1,
+                    });
+                    entries.push({ binding: binding.entry.binding, resource: view });
+                }
+                break;
+            }
+            case 'sampler': {
+                const samplerNode = binding.entry.samplerNode;
+                const gpuSampler = samplerNode.value;
+                if (!gpuSampler)
+                    break;
+                // Get GPU sampler from cache using settingsKey
+                const sampler = peekSampler(samplerCache, gpuSampler.settingsKey);
+                if (sampler) {
+                    entries.push({ binding: binding.entry.binding, resource: sampler });
+                }
+                break;
+            }
+        }
+    }
+    // Sort entries by binding
+    entries.sort((a, b) => a.binding - b.binding);
+    if (entries.length > 0) {
+        data.bindGroup = device.createBindGroup({
+            layout: data.bindGroupLayout,
+            entries,
+        });
+    }
+}
+/** Update a compute BindGroup (uniforms, textures, samplers, storage). */
+function updateComputeBindGroup(data, bufferCache, textureCache, samplerCache, device, bindGroup, frame, buffers) {
+    for (const binding of bindGroup.bindings) {
+        switch (binding.kind) {
+            case 'uniform':
+                updateUniformBinding(bufferCache, device, binding, frame, data);
+                break;
+            case 'storage':
+                updateStorageBinding(bufferCache, device, binding, data, null, buffers);
+                break;
+            case 'texture':
+                updateTextureBinding(textureCache, device, binding, data);
+                break;
+            case 'storageTexture':
+                updateStorageTextureBinding(textureCache, device, binding, data);
+                break;
+            case 'sampler':
+                updateSamplerBinding(samplerCache, device, binding, data);
+                break;
+        }
+    }
 }
 
 /**
@@ -19590,7 +21254,9 @@ function emitGlslTextures(ctx) {
         _flipYd: 'vec2 _flipYd(bool f, vec2 g) { return f ? vec2(g.x, -g.y) : g; }', // grad Y sign under flip
     };
     // Fixed key order for deterministic output regardless of reference order.
-    const flipHelpers = ['_flipY2f', '_flipY2i', '_flipYd'].filter((fn) => ctx.flipHelperFns.has(fn)).map((fn) => flipHelperDefs[fn]);
+    const flipHelpers = ['_flipY2f', '_flipY2i', '_flipYd']
+        .filter((fn) => ctx.flipHelperFns.has(fn))
+        .map((fn) => flipHelperDefs[fn]);
     return { glsl: [...precisionDefaults, ...lines, ...flipHelpers].join('\n'), textures, samplers };
 }
 /* statement generation
@@ -20642,9 +22308,7 @@ function generateExpr(ctx, rawNode) {
         // after it). Declaring it at first use would leave it out of scope for the later use, so if it's
         // stable at body top, splice it there. Only immutable (`let`) values built from function-scope
         // inputs qualify; anything touching a loop var or a block-local `let`/`var` stays at first use.
-        if (ctx.hoistIndex >= 0 &&
-            keyword === 'let' &&
-            isHoistStable(node, ctx.topScopeParamIds, ctx.hoistStableMemo)) {
+        if (ctx.hoistIndex >= 0 && keyword === 'let' && isHoistStable(node, ctx.topScopeParamIds, ctx.hoistStableMemo)) {
             ctx.code.splice(ctx.hoistIndex, 0, line);
             ctx.hoistIndex++;
         }
@@ -22906,6 +24570,14 @@ class NodeFrame {
 function createNodeFrame() {
     return new NodeFrame();
 }
+/** What every pass and the pre-warm both point the node frame at before evaluating a graph. */
+function aimNodeFrame(renderer, camera, width, height) {
+    const frame = renderer._nodes.nodeFrame;
+    frame.renderer = renderer;
+    frame.camera = camera;
+    frame.width = width;
+    frame.height = height;
+}
 
 /** create a new NodeManager state */
 function createNodeManagerState() {
@@ -23192,8 +24864,8 @@ function blendModeState(blendMode) {
                 return add('dst', 'one-minus-src-alpha', 'zero', 'one');
             break;
     }
-    console.error(`[render-state] ${blending} blending requires premultiplyAlpha=true.`);
-    return defaultBlendState();
+    throw new Error(`[render-state] '${blending}' blending has no straight-alpha form; set premultiplyAlpha, or the ` +
+        'material blends normally and the difference only shows in the pixels.');
 }
 /**
  * The material's own blend, before any MRT target overrides it. `undefined` means "do not blend":
@@ -23229,10 +24901,6 @@ function blendStateKey(blend) {
     return blend ? JSON.stringify(blend) : 'none';
 }
 
-/** Whether a depth format includes a stencil aspect (depth24plus-stencil8, depth32float-stencil8, stencil8). */
-function formatHasStencil(format) {
-    return format.includes('stencil');
-}
 /**
  * Build a per-face stencil state from a material. Back faces default to the front-face ops unless the
  * material sets `stencilBack`, in which case its provided fields override (missing ones fall back to front).
@@ -23362,9 +25030,14 @@ function buildRenderPipelineDescriptor(device, renderObject, nodeState, bindGrou
     const mrt = renderContext.mrt;
     const colorTargets = [];
     for (let i = 0; i < targetCount; i++) {
-        const targetName = mrt !== null && textures !== null ? (textures[i]?.name ?? '') : null;
+        const format = colorFormats[i];
+        if (format === undefined) {
+            throw new Error(`[webgpu] the fragment writes ${targetCount} colour output(s) and this pass's target has ` +
+                `${colorFormats.length}; output ${i} has no attachment to take its format from.`);
+        }
+        const targetName = mrt !== null && textures !== null ? textures[i].name : null;
         colorTargets.push({
-            format: colorFormats[i] ?? colorFormats[0],
+            format,
             blend: resolveTargetBlend(material, mrt, targetName),
             writeMask: material.colorWrite ? GPUColorWrite.ALL : 0,
         });
@@ -23587,7 +25260,7 @@ function resolveVertexGroupStride(group, geometry) {
     if (group.name !== null) {
         const buffer = geometry.buffers.get(group.name);
         if (!buffer)
-            return null;
+            throw new Error(`[pipeline] the shader reads vertex buffer '${group.name}' and the geometry has none.`);
         if (!buffer.format) {
             throw new Error(`[pipeline] vertex buffer '${group.name}' has no vertex format: its usage must include 'vertex', and WebGPU has no format for ${buffer.array?.constructor.name ?? 'this array'} at itemSize ${buffer.itemSize}.`);
         }
@@ -23599,8 +25272,7 @@ function resolveVertexGroupStride(group, geometry) {
 function vertexLayoutKey(geometry, nodeState) {
     let key = '';
     for (const group of nodeState.vertexBufferGroups) {
-        const stride = resolveVertexGroupStride(group, geometry);
-        key += stride === null ? 'skip|' : `${stride}:${group.instanced ? 'i' : 'v'}|`;
+        key += `${resolveVertexGroupStride(group, geometry)}:${group.instanced ? 'i' : 'v'}|`;
     }
     return key;
 }
@@ -23622,11 +25294,8 @@ function buildVertexBufferLayouts(geometry, nodeState, label = 'geometry') {
                 shaderLocation: attr.shaderLocation,
             });
         }
-        const arrayStride = resolveVertexGroupStride(group, geometry);
-        if (arrayStride === null)
-            continue;
         layouts.push({
-            arrayStride,
+            arrayStride: resolveVertexGroupStride(group, geometry),
             stepMode: group.instanced ? 'instance' : 'vertex',
             attributes: gpuAttributes,
         });
@@ -23694,7 +25363,7 @@ function wgslTypeToVertexFormat(type) {
         case 'vec4u':
             return 'uint32x4';
         default:
-            return 'float32x4';
+            throw new Error(`[webgpu] no vertex format for WGSL type '${type}'; add it rather than reading it as vec4f.`);
     }
 }
 /**
@@ -23720,1804 +25389,6 @@ function wgslTypeItemSize(type) {
             return 4;
         default:
             throw new Error(`[pipeline] no component count for attribute type '${type}'; its vertex stride cannot be derived.`);
-    }
-}
-
-/**
- * render-object-gpu.ts - WebGPU-owned per-draw device payload for RenderObjects.
- *
- * RenderObject (in core/) is backend-neutral and must not reference raw WebGPU
- * types. The per-draw GPU handles (pipeline, bind groups, resolved attribute
- * buffers) live here instead, keyed by RenderObject identity in a WeakMap -
- * mirroring how GpuBuffer/GpuTexture keep their GPU handles in renderer-side
- * caches (see buffers.ts BufferCache).
- *
- * The cache is a per-renderer instance (held on WebGPUBackend as
- * `_renderObjectGpu`), not a module-global.
- */
-/** Create a new RenderObjectGpu cache. */
-function createRenderObjectGpuCache() {
-    return {
-        data: new WeakMap(),
-    };
-}
-/** Create an empty device payload. */
-function createRenderObjectGpu() {
-    return {
-        pipeline: null,
-        bindGroups: null,
-    };
-}
-/**
- * Get the WebGPU device payload for a RenderObject, lazily creating the entry.
- */
-function getRenderObjectGpu(cache, renderObject) {
-    let gpu = cache.data.get(renderObject);
-    if (!gpu) {
-        gpu = createRenderObjectGpu();
-        cache.data.set(renderObject, gpu);
-    }
-    return gpu;
-}
-/**
- * Peek at the WebGPU device payload for a RenderObject without creating it.
- * Returns undefined if the RenderObject has no entry yet.
- */
-function peekRenderObjectGpu(cache, renderObject) {
-    return cache.data.get(renderObject);
-}
-
-/*
- * The backend-neutral half of the partial-texture-upload decision: which textures may take it, and
- * whether the pending regions are still worth uploading piecemeal.
- *
- * Both backends call these, deliberately. A region means the same thing on WebGPU and WebGL2 or it is
- * not an API, so the rule that decides it lives in exactly one place and cannot drift between them.
- */
-/**
- * View dimensions that take the partial path. `z` addresses array layers and cube faces alike, so both
- * qualify; 3D volumes and 1D do not yet.
- */
-function supportsPartialUpload(texture) {
-    const dim = texture.viewDimension;
-    return dim === '2d' || dim === '2d-array' || dim === 'cube' || dim === 'cube-array';
-}
-function isTypedSourceData(data) {
-    if (!data || typeof data !== 'object')
-        return false;
-    return ArrayBuffer.isView(data.data);
-}
-/**
- * Whether every source the partial path would read is typed-array backed.
- *
- * The unpack window addresses rows inside a packed buffer, which a DOM element source (image, canvas,
- * video) does not have. Those must fall through to a full upload: skipping them instead would drop the
- * write silently, which is the failure mode this whole model exists to remove.
- */
-function hasTypedPartialSource(texture) {
-    const ok = (source) => !!source && source.dataReady !== false && isTypedSourceData(source.data);
-    if (texture.mipmaps.length > 0 && !texture.mipmaps.every(ok))
-        return false;
-    if (texture.sources.length > 0)
-        return texture.sources.every(ok);
-    return ok(texture.source);
-}
-/** Texels the emitters will actually move for `regions`. Both backends honour a region exactly. */
-function dirtyTexelCount(regions) {
-    let n = 0;
-    for (const r of regions)
-        n += regionTexelCount(r);
-    return n;
-}
-/**
- * Whether the pending regions are worth a partial upload. Past half the texture, fewer and simpler
- * calls win: fall through to one full upload.
- */
-function withinPartialBudget(texture, regions) {
-    const total = texture.width * texture.height * texture.depthOrArrayLayers;
-    const dirty = dirtyTexelCount(regions);
-    return dirty > 0 && dirty <= total / 2;
-}
-
-/**
- * Mipmap generation utilities using direct WebGPU pipelines.
- *
- * Uses render passes to downsample each mip level from the previous one.
- * Pipelines are cached per texture format for efficiency.
- */
-// WGSL shader for mipmap generation - fullscreen triangle with texture sampling
-const MIPMAP_SHADER = /* wgsl */ `
-struct Varys {
-    @builtin(position) position: vec4f,
-    @location(0) uv: vec2f,
-}
-
-@group(0) @binding(0) var imgSampler: sampler;
-@group(0) @binding(1) var img: texture_2d<f32>;
-
-@vertex
-fn vs_main(@builtin(vertex_index) vertexIndex: u32) -> Varys {
-    // Fullscreen triangle: vertices at (-1,-1), (3,-1), (-1,3)
-    var pos = array<vec2f, 3>(
-        vec2f(-1.0, -1.0),
-        vec2f(3.0, -1.0),
-        vec2f(-1.0, 3.0)
-    );
-
-    var out: Varys;
-    out.position = vec4f(pos[vertexIndex], 0.0, 1.0);
-    // UV: map clip space to texture space
-    // Clip Y=-1 (bottom) -> V=1, Clip Y=+1 (top) -> V=0
-    out.uv = pos[vertexIndex] * vec2f(0.5, -0.5) + vec2f(0.5, 0.5);
-    return out;
-}
-
-@fragment
-fn fs_main(v: Varys) -> @location(0) vec4f {
-    return textureSample(img, imgSampler, v.uv);
-}
-`;
-// Shader for cube texture mipmap generation (samples from cube, renders to 2D face)
-const MIPMAP_CUBE_SHADER = /* wgsl */ `
-struct Varys {
-    @builtin(position) position: vec4f,
-    @location(0) uv: vec2f,
-    @location(1) @interpolate(flat) face: u32,
-}
-
-@group(0) @binding(0) var imgSampler: sampler;
-@group(0) @binding(1) var img: texture_cube<f32>;
-@group(0) @binding(2) var<uniform> faceIndex: u32;
-
-// Face direction matrices - convert 2D UV to 3D cube direction
-// Each row: [right.x, up.x, forward.x], [right.y, up.y, forward.y], [right.z, up.z, forward.z]
-const FACE_DIRS = array<mat3x3f, 6>(
-    mat3x3f(vec3f( 0,  0, -1), vec3f( 0, -1,  0), vec3f( 1,  0,  0)),  // +X
-    mat3x3f(vec3f( 0,  0,  1), vec3f( 0, -1,  0), vec3f(-1,  0,  0)),  // -X
-    mat3x3f(vec3f( 1,  0,  0), vec3f( 0,  0,  1), vec3f( 0,  1,  0)),  // +Y
-    mat3x3f(vec3f( 1,  0,  0), vec3f( 0,  0, -1), vec3f( 0, -1,  0)),  // -Y
-    mat3x3f(vec3f( 1,  0,  0), vec3f( 0, -1,  0), vec3f( 0,  0,  1)),  // +Z
-    mat3x3f(vec3f(-1,  0,  0), vec3f( 0, -1,  0), vec3f( 0,  0, -1)),  // -Z
-);
-
-@vertex
-fn vs_main(@builtin(vertex_index) vertexIndex: u32) -> Varys {
-    var pos = array<vec2f, 3>(
-        vec2f(-1.0, -1.0),
-        vec2f(3.0, -1.0),
-        vec2f(-1.0, 3.0)
-    );
-
-    var out: Varys;
-    out.position = vec4f(pos[vertexIndex], 0.0, 1.0);
-    out.uv = pos[vertexIndex] * vec2f(0.5, -0.5) + vec2f(0.5, 0.5);
-    out.face = faceIndex;
-    return out;
-}
-
-@fragment
-fn fs_cube(v: Varys) -> @location(0) vec4f {
-    // Convert UV to direction using face matrix
-    let uv = v.uv * 2.0 - 1.0;
-    let dir = FACE_DIRS[v.face] * vec3f(uv, 1.0);
-    return textureSample(img, imgSampler, normalize(dir));
-}
-`;
-/**
- * Create mipmap generation state for a device.
- */
-function createMipmapState(device) {
-    const sampler = device.createSampler({
-        minFilter: 'linear',
-        magFilter: 'linear',
-    });
-    const shaderModule2D = device.createShaderModule({
-        label: 'mipmap-2d',
-        code: MIPMAP_SHADER,
-    });
-    const shaderModuleCube = device.createShaderModule({
-        label: 'mipmap-cube',
-        code: MIPMAP_CUBE_SHADER,
-    });
-    // Uniform buffer for face index (cube maps)
-    const faceIndexBuffer = device.createBuffer({
-        label: 'mipmap-face-index',
-        size: 4,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    return {
-        device,
-        sampler,
-        pipelines2D: new Map(),
-        pipelinesCube: new Map(),
-        shaderModule2D,
-        shaderModuleCube,
-        faceIndexBuffer,
-    };
-}
-/**
- * Get or create a render pipeline for 2D mipmap generation.
- */
-function getPipeline2D(state, format) {
-    let pipeline = state.pipelines2D.get(format);
-    if (pipeline)
-        return pipeline;
-    pipeline = state.device.createRenderPipeline({
-        label: `mipmap-2d-${format}`,
-        layout: 'auto',
-        vertex: {
-            module: state.shaderModule2D,
-            entryPoint: 'vs_main',
-        },
-        fragment: {
-            module: state.shaderModule2D,
-            entryPoint: 'fs_main',
-            targets: [{ format }],
-        },
-        primitive: {
-            topology: 'triangle-list',
-        },
-    });
-    state.pipelines2D.set(format, pipeline);
-    return pipeline;
-}
-/**
- * Get or create a render pipeline for cube mipmap generation.
- */
-function getPipelineCube(state, format) {
-    let pipeline = state.pipelinesCube.get(format);
-    if (pipeline)
-        return pipeline;
-    pipeline = state.device.createRenderPipeline({
-        label: `mipmap-cube-${format}`,
-        layout: 'auto',
-        vertex: {
-            module: state.shaderModuleCube,
-            entryPoint: 'vs_main',
-        },
-        fragment: {
-            module: state.shaderModuleCube,
-            entryPoint: 'fs_cube',
-            targets: [{ format }],
-        },
-        primitive: {
-            topology: 'triangle-list',
-        },
-    });
-    state.pipelinesCube.set(format, pipeline);
-    return pipeline;
-}
-/**
- * Generate mipmaps for a 2D texture.
- *
- * @param state - Mipmap generation state
- * @param texture - The GPU texture to generate mipmaps for
- * @param encoder - Optional command encoder (creates one if not provided)
- */
-function generateMipmaps2D(state, texture, encoder) {
-    const { device, sampler } = state;
-    const format = texture.format;
-    const mipLevelCount = texture.mipLevelCount;
-    if (mipLevelCount <= 1)
-        return;
-    const pipeline = getPipeline2D(state, format);
-    const ownEncoder = !encoder;
-    encoder = encoder ?? device.createCommandEncoder({ label: 'mipmap-encoder' });
-    // Generate each mip level from the previous one
-    for (let mipLevel = 1; mipLevel < mipLevelCount; mipLevel++) {
-        // Create view of source mip (level - 1)
-        const srcView = texture.createView({
-            baseMipLevel: mipLevel - 1,
-            mipLevelCount: 1,
-        });
-        // Create view of destination mip
-        const dstView = texture.createView({
-            baseMipLevel: mipLevel,
-            mipLevelCount: 1,
-        });
-        // Create bind group for this mip level
-        const bindGroup = device.createBindGroup({
-            layout: pipeline.getBindGroupLayout(0),
-            entries: [
-                { binding: 0, resource: sampler },
-                { binding: 1, resource: srcView },
-            ],
-        });
-        // Render pass to generate this mip level
-        const pass = encoder.beginRenderPass({
-            colorAttachments: [
-                {
-                    view: dstView,
-                    loadOp: 'clear',
-                    storeOp: 'store',
-                },
-            ],
-        });
-        pass.setPipeline(pipeline);
-        pass.setBindGroup(0, bindGroup);
-        pass.draw(3);
-        pass.end();
-    }
-    if (ownEncoder) {
-        device.queue.submit([encoder.finish()]);
-    }
-}
-/**
- * Generate mipmaps for a cube texture.
- *
- * @param state - Mipmap generation state
- * @param texture - The GPU cube texture to generate mipmaps for
- * @param encoder - Optional command encoder (creates one if not provided)
- */
-function generateMipmapsCube(state, texture, encoder) {
-    const { device, sampler, faceIndexBuffer } = state;
-    const format = texture.format;
-    const mipLevelCount = texture.mipLevelCount;
-    if (mipLevelCount <= 1)
-        return;
-    const pipeline = getPipelineCube(state, format);
-    const ownEncoder = !encoder;
-    encoder = encoder ?? device.createCommandEncoder({ label: 'mipmap-cube-encoder' });
-    // Generate each mip level from the previous one
-    for (let mipLevel = 1; mipLevel < mipLevelCount; mipLevel++) {
-        // Create cube view of source mip (level - 1)
-        const srcView = texture.createView({
-            dimension: 'cube',
-            baseMipLevel: mipLevel - 1,
-            mipLevelCount: 1,
-        });
-        // Process each face
-        for (let face = 0; face < 6; face++) {
-            // Update face index uniform
-            device.queue.writeBuffer(faceIndexBuffer, 0, new Uint32Array([face]));
-            // Create 2D view of destination face at this mip level
-            const dstView = texture.createView({
-                dimension: '2d',
-                baseMipLevel: mipLevel,
-                mipLevelCount: 1,
-                baseArrayLayer: face,
-                arrayLayerCount: 1,
-            });
-            // Create bind group for this face
-            const bindGroup = device.createBindGroup({
-                layout: pipeline.getBindGroupLayout(0),
-                entries: [
-                    { binding: 0, resource: sampler },
-                    { binding: 1, resource: srcView },
-                    { binding: 2, resource: { buffer: faceIndexBuffer } },
-                ],
-            });
-            // Render pass to generate this face's mip level
-            const pass = encoder.beginRenderPass({
-                colorAttachments: [
-                    {
-                        view: dstView,
-                        loadOp: 'clear',
-                        storeOp: 'store',
-                    },
-                ],
-            });
-            pass.setPipeline(pipeline);
-            pass.setBindGroup(0, bindGroup);
-            pass.draw(3);
-            pass.end();
-        }
-    }
-    if (ownEncoder) {
-        device.queue.submit([encoder.finish()]);
-    }
-}
-/**
- * Generate mipmaps for a 2D array texture.
- *
- * Each layer is mipmapped independently using the same 2D pipeline.
- * For each mip level, iterates all layers: creates a 2D source view of layer L
- * at mip N-1 and a 2D destination view of layer L at mip N, then renders a
- * fullscreen downsample pass.
- *
- * @param state - Mipmap generation state
- * @param texture - The GPU array texture to generate mipmaps for
- * @param layerCount - Number of array layers
- * @param encoder - Optional command encoder (creates one if not provided)
- */
-function generateMipmapsArray(state, texture, layerCount, encoder) {
-    const { device, sampler } = state;
-    const format = texture.format;
-    const mipLevelCount = texture.mipLevelCount;
-    if (mipLevelCount <= 1)
-        return;
-    const pipeline = getPipeline2D(state, format);
-    const ownEncoder = !encoder;
-    encoder = encoder ?? device.createCommandEncoder({ label: 'mipmap-array-encoder' });
-    for (let mipLevel = 1; mipLevel < mipLevelCount; mipLevel++) {
-        for (let layer = 0; layer < layerCount; layer++) {
-            const srcView = texture.createView({
-                dimension: '2d',
-                baseMipLevel: mipLevel - 1,
-                mipLevelCount: 1,
-                baseArrayLayer: layer,
-                arrayLayerCount: 1,
-            });
-            const dstView = texture.createView({
-                dimension: '2d',
-                baseMipLevel: mipLevel,
-                mipLevelCount: 1,
-                baseArrayLayer: layer,
-                arrayLayerCount: 1,
-            });
-            const bindGroup = device.createBindGroup({
-                layout: pipeline.getBindGroupLayout(0),
-                entries: [
-                    { binding: 0, resource: sampler },
-                    { binding: 1, resource: srcView },
-                ],
-            });
-            const pass = encoder.beginRenderPass({
-                colorAttachments: [
-                    {
-                        view: dstView,
-                        loadOp: 'clear',
-                        storeOp: 'store',
-                    },
-                ],
-            });
-            pass.setPipeline(pipeline);
-            pass.setBindGroup(0, bindGroup);
-            pass.draw(3);
-            pass.end();
-        }
-    }
-    if (ownEncoder) {
-        device.queue.submit([encoder.finish()]);
-    }
-}
-/**
- * Generate mipmaps for a texture (auto-detects 2D vs cube vs array).
- *
- * @param state - Mipmap generation state
- * @param texture - The GPU texture to generate mipmaps for
- * @param isCube - Whether this is a cube texture
- * @param arrayLayerCount - Number of array layers (>1 triggers array path)
- * @param encoder - Optional command encoder
- */
-function generateMipmaps(state, texture, isCube = false, arrayLayerCount = 0, encoder) {
-    if (isCube) {
-        generateMipmapsCube(state, texture, encoder);
-    }
-    else if (arrayLayerCount > 1) {
-        generateMipmapsArray(state, texture, arrayLayerCount, encoder);
-    }
-    else {
-        generateMipmaps2D(state, texture, encoder);
-    }
-}
-/**
- * Dispose mipmap generation state.
- */
-function disposeMipmapState(state) {
-    state.faceIndexBuffer.destroy();
-    state.pipelines2D.clear();
-    state.pipelinesCube.clear();
-}
-
-/**
- * textures.ts (webgpu), `GPUTexture` cache and upload helpers. Samplers are their own resource module
- * (`samplers.ts`), mirroring `webgl/`.
- *
- * Uses WeakMap-based caching keyed by GpuTexture object.
- * Tracks texture.version for cache invalidation.
- *
- * Flow:
- * 1. `updateTexture()` is called during binding updates (before draw)
- * 2. Checks texture.version, skips if already up to date
- * 3. Creates GPU texture if needed
- * 4. Uploads image data if source.dataReady
- * 5. Updates version tracking (textureData.version = texture.version)
- */
-function createTextureCache$1() {
-    return {
-        textureMap: new WeakMap(),
-        defaultTextures: new Map(),
-        mipmapState: null,
-        tally: createTextureTally(),
-    };
-}
-/**
- * Set up the _onDispose callback on a GpuTexture to destroy its GPU texture.
- * Only sets the callback once (idempotent).
- */
-function setupTextureDispose$1(cache, texture) {
-    if (texture._onDispose)
-        return;
-    texture._onDispose = () => {
-        const data = cache.textureMap.get(texture);
-        if (data && !data.isDefaultTexture) {
-            data.texture.destroy();
-            data.msaaTexture?.destroy();
-        }
-        // Stop counting it whether or not it owned its GPU texture; a default-texture entry
-        // contributes nothing, so clearing is a no-op there.
-        if (data)
-            tallyClearTexture(cache.tally, data.tally);
-    };
-}
-/**
- * Get or create mipmap generation state (lazy initialization).
- */
-function getMipmapState(cache, device) {
-    if (!cache.mipmapState) {
-        cache.mipmapState = createMipmapState(device);
-    }
-    return cache.mipmapState;
-}
-/**
- * Generate mipmaps for an already-allocated GPU texture tracked in the cache.
- * Used for render-target textures (e.g. CubeRenderTarget) that are not uploaded
- * via updateTexture().
- */
-function generateTextureMipmaps$1(cache, device, texture) {
-    const data = cache.textureMap.get(texture);
-    if (!data || data.isDefaultTexture)
-        return;
-    if (data.texture.mipLevelCount <= 1)
-        return;
-    const isCube = texture.viewDimension === 'cube' || texture.viewDimension === 'cube-array';
-    const isArray = texture.viewDimension === '2d-array';
-    const mipmapState = getMipmapState(cache, device);
-    generateMipmaps(mipmapState, data.texture, isCube, isArray ? texture.depthOrArrayLayers : 0);
-}
-/**
- * Update a texture, checks source version and uploads if needed.
- * Returns the TextureData for the texture.
- */
-function uploadPartialRegion$1(device, texture, data, r) {
-    const bpp = bytesPerTexel(texture.format);
-    // Level 0 with per-layer/face sources: each layer owns its own buffer. `z` indexes
-    // `texture.sources`, which is the face for a cube and the layer for an array.
-    if (r.level === 0 && texture.sources.length > 0) {
-        const bytesPerRow = texture.width * bpp;
-        for (let i = 0; i < r.depth; i++) {
-            const layer = r.z + i;
-            const source = texture.sources[layer];
-            if (!source?.dataReady || !source.data || !isTypedArrayData(source.data))
-                continue;
-            const view = source.data.data;
-            device.queue.writeTexture({ texture: data.texture, mipLevel: 0, origin: { x: r.x, y: r.y, z: layer } }, view.buffer, {
-                // Full-stride rows plus a start offset: the sub-rect is read straight out of the
-                // packed buffer, with no tightly-packed staging copy.
-                offset: view.byteOffset + r.y * bytesPerRow + r.x * bpp,
-                bytesPerRow,
-                rowsPerImage: texture.height,
-            }, [r.width, r.height, 1]);
-        }
-        return;
-    }
-    // Packed source: level 0 uses `source`, higher levels their explicit mip (also packed, all layers).
-    const source = r.level === 0 ? texture.source : texture.mipmaps[r.level - 1];
-    if (!source || !source.dataReady || !source.data || !isTypedArrayData(source.data))
-        return;
-    const view = source.data.data;
-    const levelWidth = r.level === 0 ? texture.width : Math.max(1, source.width);
-    const levelHeight = r.level === 0 ? texture.height : Math.max(1, source.height);
-    const bytesPerRow = levelWidth * bpp;
-    // `rowsPerImage` is the level's FULL height, which is what keeps the inter-layer stride right, so a
-    // multi-layer region lands in one write even when it covers only some rows of each layer.
-    device.queue.writeTexture({ texture: data.texture, mipLevel: r.level, origin: { x: r.x, y: r.y, z: r.z } }, view.buffer, {
-        offset: view.byteOffset + (r.z * levelHeight + r.y) * bytesPerRow + r.x * bpp,
-        bytesPerRow,
-        rowsPerImage: levelHeight,
-    }, [r.width, r.height, r.depth]);
-}
-/**
- * Update a texture, checks source version and uploads if needed.
- * Returns the TextureData for the texture.
- */
-function updateTexture$1(cache, device, texture) {
-    let data = cache.textureMap.get(texture);
-    // Skip if already initialized and texture version matches
-    if (data?.initialized && data.version === texture.version) {
-        return data;
-    }
-    // Partial upload: an in-place `packAtIndex`/`addUpdateRegion` queued dirty boxes (no full flag, no
-    // resize) → `writeTexture` only those instead of the whole texture. A full flag (`needsUpdate`/grow)
-    // or size change takes priority; `> ½` dirty falls through to a full upload.
-    //
-    // Regions are honoured exactly, sub-rect and mip level included: a full-stride `bytesPerRow` plus a
-    // start offset reads the box straight out of the packed source, with no staging copy.
-    if (data?.initialized &&
-        !data.isDefaultTexture &&
-        !texture.needsFullUpload &&
-        texture.updateRegions.length > 0 &&
-        supportsPartialUpload(texture) &&
-        !texture.type.type.startsWith('texture_storage_') &&
-        data.texture.width === texture.width &&
-        data.texture.height === texture.height &&
-        data.texture.depthOrArrayLayers === texture.depthOrArrayLayers &&
-        hasTypedPartialSource(texture)) {
-        if (withinPartialBudget(texture, texture.updateRegions)) {
-            for (const r of texture.updateRegions)
-                uploadPartialRegion$1(device, texture, data, r);
-            // Auto-generated mips go stale the moment level 0 moves. (An explicit chain instead gets
-            // per-level regions derived at `addUpdateRegion` time, so it is already covered above.)
-            if (texture.mipmaps.length === 0 && texture.generateMipmaps && data.texture.mipLevelCount > 1) {
-                const isCubeTex = texture.viewDimension === 'cube' || texture.viewDimension === 'cube-array';
-                const isArrayTex = texture.viewDimension === '2d-array';
-                generateMipmaps(getMipmapState(cache, device), data.texture, isCubeTex, isArrayTex ? texture.depthOrArrayLayers : 0);
-            }
-            texture.updateRegions.length = 0;
-            data.version = texture.version;
-            return data;
-        }
-    }
-    const isCube = texture.viewDimension === 'cube' || texture.viewDimension === 'cube-array';
-    const isArray = texture.viewDimension === '2d-array';
-    const isStorage = texture.type.type.startsWith('texture_storage_');
-    // Storage textures have no source data — their contents are written by a compute
-    // pass via textureStore. Create the real GPU texture (with STORAGE_BINDING usage) and
-    // skip the source-upload path entirely; never fall back to the default texture.
-    // A version bump (e.g. resize via needsUpdate) recreates the GPU texture at the new size.
-    if (isStorage) {
-        if (data && data.version === texture.version) {
-            return data;
-        }
-        const gpuTextureResource = createGPUTexture(device, texture);
-        if (!data) {
-            data = {
-                texture: gpuTextureResource,
-                version: texture.version,
-                generation: texture.version,
-                initialized: true,
-                isDefaultTexture: false,
-                tally: createTextureTallyEntry(),
-            };
-            cache.textureMap.set(texture, data);
-            tallySetTexture(cache.tally, data.tally, texture.format, gpuTextureBytes(texture));
-            setupTextureDispose$1(cache, texture);
-        }
-        else {
-            // Recreate at the new size: destroy the old GPU texture, swap in the new one,
-            // and bump generation so dependent bind groups rebuild with the fresh view.
-            data.texture.destroy();
-            data.texture = gpuTextureResource;
-            data.version = texture.version;
-            data.generation = texture.version;
-        }
-        return data;
-    }
-    // Check if source data is ready
-    // For cube textures, check all face sources
-    // For array textures, check all layer sources
-    // For regular textures, check the single source
-    const notReady = isCube
-        ? !areCubeSourcesReady(texture)
-        : isArray
-            ? !areArraySourcesReady(texture)
-            : !isSourceReady(texture.source);
-    if (notReady) {
-        if (!data) {
-            const format = texture.format;
-            const defaultTex = getDefaultTexture(cache, device, format);
-            data = {
-                texture: defaultTex,
-                version: 0,
-                generation: 0,
-                initialized: true,
-                isDefaultTexture: true,
-                // Never tallied: the placeholder is one shared 1x1 texture, not this texture's storage.
-                tally: createTextureTallyEntry(),
-            };
-            cache.textureMap.set(texture, data);
-        }
-        return data;
-    }
-    // First time, was using default, or resized (grow) → (re)create the real GPU texture at the current
-    // size. WebGPU textures are immutable-size, so a grow must destroy + recreate before the full upload.
-    const sizeChanged = !!data && !data.isDefaultTexture && (data.texture.width !== texture.width || data.texture.height !== texture.height);
-    if (!data || data.isDefaultTexture || sizeChanged) {
-        const gpuTextureResource = createGPUTexture(device, texture);
-        if (!data) {
-            data = {
-                texture: gpuTextureResource,
-                version: texture.version,
-                generation: texture.version,
-                initialized: true,
-                isDefaultTexture: false,
-                tally: createTextureTallyEntry(),
-            };
-            cache.textureMap.set(texture, data);
-            tallySetTexture(cache.tally, data.tally, texture.format, gpuTextureBytes(texture));
-        }
-        else if (data.isDefaultTexture) {
-            // Was default, now real, update generation
-            data.texture = gpuTextureResource;
-            data.generation = texture.version;
-            data.isDefaultTexture = false;
-            tallySetTexture(cache.tally, data.tally, texture.format, gpuTextureBytes(texture));
-        }
-        else {
-            // Resize (grow): destroy the old GPU texture and swap in the new (larger) one.
-            data.texture.destroy();
-            data.texture = gpuTextureResource;
-            data.generation = texture.version;
-            // Re-tally rather than re-count: the entry already counts as one texture, but its bytes moved.
-            tallySetTexture(cache.tally, data.tally, texture.format, gpuTextureBytes(texture));
-        }
-        // Set up disposal callback to destroy the GPU texture
-        setupTextureDispose$1(cache, texture);
-    }
-    // Upload image data
-    uploadTextureData(device, texture, data);
-    // Mip levels: user-supplied explicit mips take precedence over render-pass generation.
-    if (texture.mipmaps.length > 0) {
-        uploadExplicitMips$1(device, texture, data);
-    }
-    else if (texture.generateMipmaps && data.texture.mipLevelCount > 1) {
-        const mipmapState = getMipmapState(cache, device);
-        generateMipmaps(mipmapState, data.texture, isCube, isArray ? texture.depthOrArrayLayers : 0);
-    }
-    // A full (re)upload supersedes any queued partial regions and clears the full flag.
-    texture.updateRegions.length = 0;
-    texture.needsFullUpload = false;
-    // Update texture version
-    data.version = texture.version;
-    data.initialized = true;
-    return data;
-}
-/** Check if a single source is ready */
-function isSourceReady(source) {
-    if (!source)
-        return false;
-    if (!source.dataReady)
-        return false;
-    const data = source.data;
-    if (!data)
-        return false;
-    // Check for incomplete HTMLImageElement
-    if (data.complete === false)
-        return false;
-    return true;
-}
-/** Check if all cube face sources are ready (6 faces) */
-function areCubeSourcesReady(texture) {
-    if (texture.sources.length < 6)
-        return false;
-    for (let i = 0; i < 6; i++) {
-        if (!isSourceReady(texture.sources[i]))
-            return false;
-    }
-    return true;
-}
-/** Check if array texture source is ready (packed source or per-layer sources) */
-function areArraySourcesReady(texture) {
-    // Packed source mode: single source contains all layers
-    if (texture.source) {
-        return isSourceReady(texture.source);
-    }
-    // Per-layer sources mode
-    if (texture.sources.length < texture.depthOrArrayLayers)
-        return false;
-    for (let i = 0; i < texture.depthOrArrayLayers; i++) {
-        if (!isSourceReady(texture.sources[i]))
-            return false;
-    }
-    return true;
-}
-/**
- * Create a GPUTexture for a GpuTexture.
- */
-function createGPUTexture(device, texture) {
-    // Calculate mip level count. Explicit user mipmaps win (level 0 + supplied levels);
-    // otherwise derive the full chain when auto-generating, else the descriptor's count.
-    const mipLevelCount = mipLevelCountFor(texture);
-    // RENDER_ATTACHMENT is forced on so render-pass mipmap generation works. But NOT for single-mip
-    // storage textures: some storage formats (e.g. rgba8snorm) aren't renderable, so force-adding it
-    // would fail createTexture — and a storage texture with no mips never needs render-pass mip-gen.
-    const isStorage = texture.type.type.startsWith('texture_storage_');
-    const usage = !isStorage || mipLevelCount > 1 ? texture.usage | GPUTextureUsage.RENDER_ATTACHMENT : texture.usage;
-    const gpuTexture = device.createTexture({
-        dimension: texture.dimension,
-        size: [texture.width, texture.height, texture.depthOrArrayLayers],
-        format: texture.format,
-        usage,
-        mipLevelCount,
-        sampleCount: texture.sampleCount,
-    });
-    return gpuTexture;
-}
-/**
- * Upload image data to a GPU texture.
- * Routes to the appropriate upload function based on viewDimension.
- */
-function uploadTextureData(device, texture, data) {
-    const viewDim = texture.viewDimension;
-    if (viewDim === 'cube' || viewDim === 'cube-array') {
-        uploadCubeTextureData(device, texture, data);
-        return;
-    }
-    if (viewDim === '2d-array') {
-        uploadArrayTextureData(device, texture, data);
-        return;
-    }
-    // Regular 2D texture - use primary source
-    const source = texture.source;
-    if (!source || !source.data)
-        return;
-    const sourceData = source.data;
-    const width = texture.width;
-    const height = texture.height;
-    // Check if it's typed array data (DataTexture pattern)
-    if (isTypedArrayData(sourceData)) {
-        const bytesPerPixel = bytesPerTexel(texture.format);
-        const view = sourceData.data;
-        device.queue.writeTexture({ texture: data.texture }, view.buffer, { offset: view.byteOffset, bytesPerRow: width * bytesPerPixel, rowsPerImage: height }, [width, height]);
-    }
-    else if (isExternalImage$1(sourceData)) {
-        // HTMLImageElement, ImageBitmap, Canvas, Video, etc.
-        device.queue.copyExternalImageToTexture({ source: sourceData, flipY: texture.flipY }, { texture: data.texture, premultipliedAlpha: texture.premultiplyAlpha }, [width, height]);
-    }
-}
-/** Check if source data is a typed array (from DataTextureImage) */
-function isTypedArrayData(data) {
-    if (!data || typeof data !== 'object')
-        return false;
-    const d = data;
-    return d.data !== undefined && ArrayBuffer.isView(d.data);
-}
-/** Check if source data is an external image (copyable to GPU) */
-function isExternalImage$1(data) {
-    if (!data || typeof data !== 'object')
-        return false;
-    // Check for known browser types
-    return ((typeof ImageBitmap !== 'undefined' && data instanceof ImageBitmap) ||
-        (typeof HTMLImageElement !== 'undefined' && data instanceof HTMLImageElement) ||
-        (typeof HTMLCanvasElement !== 'undefined' && data instanceof HTMLCanvasElement) ||
-        (typeof OffscreenCanvas !== 'undefined' && data instanceof OffscreenCanvas) ||
-        (typeof HTMLVideoElement !== 'undefined' && data instanceof HTMLVideoElement) ||
-        (typeof VideoFrame !== 'undefined' && data instanceof VideoFrame) ||
-        (typeof ImageData !== 'undefined' && data instanceof ImageData));
-}
-/**
- * Upload cube texture data, copies each of the 6 face images to the
- * corresponding array layer of the GPU texture.
- *
- * Face order: +X, -X, +Y, -Y, +Z, -Z (matches sources array).
- */
-function uploadCubeTextureData(device, texture, data) {
-    const sources = texture.sources;
-    if (sources.length < 6)
-        return;
-    const width = texture.width;
-    const height = texture.height;
-    for (let faceIndex = 0; faceIndex < 6; faceIndex++) {
-        const source = sources[faceIndex];
-        if (!source.dataReady)
-            continue;
-        const faceData = source.data;
-        if (!faceData)
-            continue;
-        if (isExternalImage$1(faceData)) {
-            device.queue.copyExternalImageToTexture({ source: faceData, flipY: texture.flipY }, {
-                texture: data.texture,
-                premultipliedAlpha: texture.premultiplyAlpha,
-                origin: { x: 0, y: 0, z: faceIndex },
-            }, [width, height]);
-        }
-        else if (isTypedArrayData(faceData)) {
-            const view = faceData.data;
-            const bytesPerRow = width * bytesPerTexel(texture.format);
-            device.queue.writeTexture({ texture: data.texture, origin: { x: 0, y: 0, z: faceIndex } }, view.buffer, { offset: view.byteOffset, bytesPerRow, rowsPerImage: height }, [width, height]);
-        }
-    }
-}
-/**
- * Upload array texture data, copies each layer's data to the corresponding
- * array layer of the GPU texture.
- *
- * Supports two modes:
- * 1. Per-layer sources: texture.sources contains one Source per layer
- * 2. Packed source: texture.source contains all layers packed sequentially
- */
-function uploadArrayTextureData(device, texture, data) {
-    const width = texture.width;
-    const height = texture.height;
-    const bytesPerPixel = bytesPerTexel(texture.format);
-    const layerCount = texture.depthOrArrayLayers;
-    // Mode 1: Per-layer sources array
-    if (texture.sources.length > 0) {
-        for (let layer = 0; layer < texture.sources.length && layer < layerCount; layer++) {
-            const source = texture.sources[layer];
-            if (!source.dataReady)
-                continue;
-            const layerData = source.data;
-            if (!layerData)
-                continue;
-            if (isTypedArrayData(layerData)) {
-                const srcData = layerData.data;
-                device.queue.writeTexture({ texture: data.texture, origin: { x: 0, y: 0, z: layer } }, srcData.buffer, {
-                    offset: srcData.byteOffset,
-                    bytesPerRow: width * bytesPerPixel,
-                    rowsPerImage: height,
-                }, [width, height]);
-            }
-            else if (isExternalImage$1(layerData)) {
-                device.queue.copyExternalImageToTexture({ source: layerData, flipY: texture.flipY }, {
-                    texture: data.texture,
-                    premultipliedAlpha: texture.premultiplyAlpha,
-                    origin: { x: 0, y: 0, z: layer },
-                }, [width, height]);
-            }
-        }
-        return;
-    }
-    // Mode 2: Single packed source with all layers
-    const source = texture.source;
-    if (!source || !source.dataReady)
-        return;
-    const sourceData = source.data;
-    if (!sourceData || !isTypedArrayData(sourceData))
-        return;
-    const srcData = sourceData.data;
-    // Upload all layers in one call
-    device.queue.writeTexture({ texture: data.texture }, srcData.buffer, {
-        offset: srcData.byteOffset,
-        bytesPerRow: width * bytesPerPixel,
-        rowsPerImage: height,
-    }, [width, height, layerCount]);
-}
-/**
- * Upload user-supplied explicit mip levels (texture.mipmaps), one per level
- * starting at level 1 (level 0 is the primary source, already uploaded).
- *
- * Each mip Source carries its own dimensions. For array/cube textures the data
- * is packed across all layers (depth = layer count), uploaded in a single
- * writeTexture per level; for 2D it's a single image. Sources with no data or
- * not yet ready are skipped (their level keeps whatever was there).
- */
-function uploadExplicitMips$1(device, texture, data) {
-    const bytesPerPixel = bytesPerTexel(texture.format);
-    for (let i = 0; i < texture.mipmaps.length; i++) {
-        const source = texture.mipmaps[i];
-        if (!source.dataReady)
-            continue;
-        const img = source.data;
-        if (!img)
-            continue;
-        const mipLevel = i + 1;
-        const width = source.width;
-        const height = source.height;
-        const layers = Math.max(source.depth, 1);
-        if (isTypedArrayData(img)) {
-            const srcData = img.data;
-            device.queue.writeTexture({ texture: data.texture, mipLevel }, srcData.buffer, {
-                offset: srcData.byteOffset,
-                bytesPerRow: width * bytesPerPixel,
-                rowsPerImage: height,
-            }, [width, height, layers]);
-        }
-        else if (isExternalImage$1(img)) {
-            device.queue.copyExternalImageToTexture({ source: img, flipY: texture.flipY }, { texture: data.texture, premultipliedAlpha: texture.premultiplyAlpha, mipLevel }, [width, height]);
-        }
-    }
-}
-/**
- * Get or create a 1x1 default placeholder texture.
- */
-function getDefaultTexture(cache, device, format) {
-    let tex = cache.defaultTextures.get(format);
-    if (tex)
-        return tex;
-    tex = device.createTexture({
-        size: [1, 1],
-        format,
-        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
-    });
-    // Write white pixel (or neutral value for non-color formats)
-    const bytesPerPixel = bytesPerTexel(format);
-    const data = new Uint8Array(bytesPerPixel);
-    data.fill(255); // White / max value
-    device.queue.writeTexture({ texture: tex }, data, { bytesPerRow: bytesPerPixel }, [1, 1]);
-    cache.defaultTextures.set(format, tex);
-    return tex;
-}
-/**
- * Tear down the cache (called on renderer dispose).
- *
- * `device.destroy()` releases the GPU objects, so this is about JS state: the placeholder textures and
- * mipmap pipelines are destroyed explicitly because they are shared and not owned by any GpuTexture,
- * and the map is REPLACED rather than emptied so a `GpuTexture` outliving its renderer cannot find a
- * stale entry and destroy through a dead device. The WebGL sibling does the same for the same reason.
- */
-function disposeTextureCache$1(cache) {
-    for (const tex of cache.defaultTextures.values())
-        tex.destroy();
-    cache.defaultTextures.clear();
-    if (cache.mipmapState) {
-        disposeMipmapState(cache.mipmapState);
-        cache.mipmapState = null;
-    }
-    cache.textureMap = new WeakMap();
-    resetTextureTally(cache.tally);
-}
-/**
- * Get cached TextureData for a GpuTexture.
- * Returns null if not in cache (call updateTexture first).
- */
-function getTextureData$1(cache, texture) {
-    return cache.textureMap.get(texture) ?? null;
-}
-
-/**
- * render-target.ts (webgpu) - `RenderTarget` attachment allocation and views, the WebGPU sibling of
- * `webgl/render-target.ts`.
- *
- * The two differ in what there is to own, and that difference is the API's, not a decomposition
- * choice: GL needs real framebuffer objects and renderbuffers, so its module carries a cache of them.
- * WebGPU has no framebuffer object at all - a render target IS its textures plus the views bound as
- * attachments - so this module owns no state and operates on the texture cache. What it does own is
- * the knowledge of RenderTarget semantics: when an attachment has to be reallocated, how an MSAA
- * sibling is paired with its resolve target, and how a cube target's six faces are allocated.
- */
-/**
- * Default render-attachment view for a render-target color/depth texture.
- * Cached on the TextureData and recreated only when the GPU texture is swapped
- * (setRenderTargetTexture clears it), so attachment resolution doesn't allocate
- * a fresh GPUTextureView every frame.
- */
-function getRenderTargetView(data) {
-    if (!data.view) {
-        data.view = data.texture.createView();
-    }
-    return data.view;
-}
-/**
- * Cached view of the multisampled color texture for an MSAA render target.
- * Returns null when the target is not multisampled.
- */
-function getRenderTargetMsaaView(data) {
-    if (!data.msaaTexture)
-        return null;
-    if (!data.msaaView) {
-        data.msaaView = data.msaaTexture.createView();
-    }
-    return data.msaaView;
-}
-/**
- * Set the GPU texture resource for a render target texture.
- * Called by the renderer when creating/resizing render targets.
- *
- * Unlike regular textures which upload source data, render target textures
- * have their GPUTexture created externally and registered here.
- */
-function setRenderTargetTexture(cache, texture, gpuTextureResource, msaaTexture = null) {
-    const existing = cache.textureMap.get(texture);
-    if (existing) {
-        if (existing.texture !== gpuTextureResource && !existing.isDefaultTexture) {
-            existing.texture.destroy();
-        }
-        if (existing.msaaTexture && existing.msaaTexture !== msaaTexture) {
-            existing.msaaTexture.destroy();
-        }
-        // Update existing entry with new GPU texture (e.g., after resize)
-        existing.texture = gpuTextureResource;
-        existing.msaaTexture = msaaTexture;
-        existing.view = null; // cached attachment views belong to the old textures
-        existing.msaaView = null;
-        existing.generation++;
-        existing.version = texture.version;
-        existing.initialized = true;
-        existing.isDefaultTexture = false;
-        // Resize swaps the GPU texture under the same entry: same count, different bytes.
-        tallySetTexture(cache.tally, existing.tally, texture.format, gpuTextureBytes(texture));
-    }
-    else {
-        // First time - create new entry
-        cache.textureMap.set(texture, {
-            texture: gpuTextureResource,
-            msaaTexture,
-            version: texture.version,
-            generation: 1,
-            initialized: true,
-            isDefaultTexture: false,
-            tally: createTextureTallyEntry(),
-        });
-        const entry = cache.textureMap.get(texture);
-        tallySetTexture(cache.tally, entry.tally, texture.format, gpuTextureBytes(texture));
-    }
-    texture.disposed = false;
-    setupTextureDispose$1(cache, texture);
-}
-function hasRenderTargetTextureAllocation(cache, texture, width, height, format, sampleCount, mipLevelCount) {
-    // A disposed wrapper's cache entry still points at a destroyed GPUTexture whose
-    // .width/.height/etc. read back stale-but-present; force reallocation so we never
-    // build an attachment/view from a destroyed texture (dispose-then-reuse path).
-    if (texture.disposed)
-        return false;
-    const data = cache.textureMap.get(texture);
-    if (!data || data.isDefaultTexture)
-        return false;
-    const gpu = data.texture;
-    return (gpu.width === width &&
-        gpu.height === height &&
-        gpu.format === format &&
-        gpu.sampleCount === sampleCount &&
-        gpu.mipLevelCount === mipLevelCount);
-}
-/**
- * Check the multisampled sibling of a render-target color texture matches the
- * desired sample count: present and sized correctly when `sampleCount > 1`,
- * absent when the target is single-sample.
- */
-function hasMatchingMsaaAllocation(cache, texture, width, height, format, sampleCount) {
-    const msaa = cache.textureMap.get(texture)?.msaaTexture;
-    if (sampleCount <= 1)
-        return !msaa;
-    return !!msaa && msaa.width === width && msaa.height === height && msaa.format === format && msaa.sampleCount === sampleCount;
-}
-function ensureRenderTargetTexturesAllocated(cache, device, renderTarget) {
-    if (renderTarget.isCubeRenderTarget) {
-        ensureCubeRenderTargetTexturesAllocated(cache, device, renderTarget);
-        return;
-    }
-    const { width, height } = renderTarget;
-    const sampleCount = renderTarget.samples > 1 ? renderTarget.samples : 1;
-    // Color attachments are sampled by shaders, so the cached `texture` is always the
-    // single-sample resolve target; MSAA adds a multisampled sibling rendered into and
-    // resolved from. Depth is kept at the pass sample count (all attachments must match).
-    // NB: don't seed this from `textures.length === 0` — a depth-only target (count: 0)
-    // has no color textures yet is fully allocated via its depth texture; seeding true
-    // there would reallocate the depth every frame and destroy the one just rendered into.
-    let needsAllocation = false;
-    for (const tex of renderTarget.textures) {
-        if (!hasRenderTargetTextureAllocation(cache, tex._gpuTexture, width, height, tex.format, 1, 1) ||
-            !hasMatchingMsaaAllocation(cache, tex._gpuTexture, width, height, tex.format, sampleCount)) {
-            needsAllocation = true;
-            break;
-        }
-    }
-    if (!needsAllocation && renderTarget._depthAttachment) {
-        needsAllocation = !hasRenderTargetTextureAllocation(cache, renderTarget._depthAttachment._gpuTexture, width, height, renderTarget._depthAttachment.format, sampleCount, 1);
-    }
-    if (!needsAllocation)
-        return;
-    // Don't release (delete) the cache entries here: setRenderTargetTexture()
-    // destroys the old GPU texture and bumps `generation` monotonically, which is
-    // what bind-group change detection relies on to rebuild views. Deleting the
-    // entry first would reset generation back to 1, so a bind group sampling this
-    // target would keep a view of the destroyed texture (-> "destroyed texture
-    // used in a submit").
-    for (const tex of renderTarget.textures) {
-        const resolveTexture = device.createTexture({
-            size: [width, height],
-            format: tex.format,
-            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
-            sampleCount: 1,
-        });
-        // RENDER_ATTACHMENT-only multisampled texture; it is rendered into and resolved
-        // into resolveTexture, never sampled, so it needs no TEXTURE_BINDING/COPY_SRC.
-        const msaaTexture = sampleCount > 1
-            ? device.createTexture({
-                size: [width, height],
-                format: tex.format,
-                usage: GPUTextureUsage.RENDER_ATTACHMENT,
-                sampleCount,
-                mipLevelCount: 1,
-            })
-            : null;
-        setRenderTargetTexture(cache, tex._gpuTexture, resolveTexture, msaaTexture);
-    }
-    if (renderTarget._depthAttachment) {
-        const gpuDepthTexture = device.createTexture({
-            size: [width, height],
-            format: renderTarget._depthAttachment.format,
-            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-            sampleCount,
-        });
-        setRenderTargetTexture(cache, renderTarget._depthAttachment._gpuTexture, gpuDepthTexture);
-    }
-}
-function ensureCubeRenderTargetTexturesAllocated(cache, device, renderTarget) {
-    // `mipLevelCountFor`, not the live `generateMipmaps`: `CubeCamera` flips that off mid-render, and
-    // asking for one level while the texture holds a chain reallocates it under the open frame.
-    const cubeMipCount = mipLevelCountFor(renderTarget.texture._gpuTexture);
-    const cubeReady = hasRenderTargetTextureAllocation(cache, renderTarget.texture._gpuTexture, renderTarget.size, renderTarget.size, renderTarget.texture.format, 1, cubeMipCount);
-    const depthReady = !renderTarget._depthAttachment ||
-        hasRenderTargetTextureAllocation(cache, renderTarget._depthAttachment._gpuTexture, renderTarget.size, renderTarget.size, renderTarget._depthAttachment.format, 1, 1);
-    if (cubeReady && depthReady)
-        return;
-    // See note in ensureRenderTargetTexturesAllocated: let setRenderTargetTexture()
-    // destroy the old GPU texture and bump generation rather than releasing the
-    // cache entry, so bind groups sampling this target are rebuilt on realloc.
-    const colorTex = device.createTexture({
-        dimension: '2d',
-        size: [renderTarget.size, renderTarget.size, 6],
-        format: renderTarget.texture.format,
-        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC,
-        mipLevelCount: cubeMipCount,
-        sampleCount: 1,
-    });
-    setRenderTargetTexture(cache, renderTarget.texture._gpuTexture, colorTex);
-    if (renderTarget._depthAttachment) {
-        const depthTex = device.createTexture({
-            size: [renderTarget.size, renderTarget.size],
-            format: renderTarget._depthAttachment.format,
-            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-            sampleCount: 1,
-        });
-        setRenderTargetTexture(cache, renderTarget._depthAttachment._gpuTexture, depthTex);
-    }
-}
-
-/**
- * samplers.ts (webgpu) - per-GpuSampler `GPUSampler` cache, the WebGPU sibling of `webgl/samplers.ts`.
- *
- * Value-keyed by `GpuSampler.settingsKey`, so identical sampler settings share one `GPUSampler`. The
- * WebGL sibling keys on `settingsKey` PLUS whether the paired texture has mips, because a GL sampler
- * carries the mipmapped-vs-base min-filter choice and a mipmapped min-filter against a non-mipmapped
- * texture reads as incomplete. WebGPU has no such coupling, so one entry per settings key is enough:
- * that is an earned signature difference, not drift.
- *
- * Samplers are not disposed individually. They are shared by settings rather than owned by any one
- * `GpuSampler`, so there is nothing to hang a per-object release on; the whole cache goes at renderer
- * teardown.
- */
-function createSamplerCache$1() {
-    return { cache: new Map() };
-}
-/**
- * Get (or create) the `GPUSampler` for a `GpuSampler`'s settings.
- *
- * WebGPU rejects `maxAnisotropy > 1` unless all three filters are 'linear'; rather than throw, the
- * anisotropy is dropped, since it is a quality hint and the sampler still filters correctly without
- * it. The WebGL sibling makes the same call for the same reason when the anisotropy extension is
- * missing.
- */
-function getSampler$1(device, state, gpuSampler) {
-    const key = gpuSampler.settingsKey;
-    const existing = state.cache.get(key);
-    if (existing) {
-        existing.usedTimes++;
-        return existing.sampler;
-    }
-    let { minFilter, magFilter, mipmapFilter, maxAnisotropy } = gpuSampler;
-    if (maxAnisotropy > 1 && (minFilter !== 'linear' || magFilter !== 'linear' || mipmapFilter !== 'linear')) {
-        maxAnisotropy = 1;
-    }
-    const sampler = device.createSampler({
-        magFilter,
-        minFilter,
-        mipmapFilter,
-        addressModeU: gpuSampler.addressModeU,
-        addressModeV: gpuSampler.addressModeV,
-        addressModeW: gpuSampler.addressModeW,
-        maxAnisotropy,
-        compare: gpuSampler.compare,
-    });
-    state.cache.set(key, { sampler, usedTimes: 1 });
-    return sampler;
-}
-/**
- * The already-created sampler for a settings key, or null. For bind-group rebuilds, which bind what
- * `getSampler` put in the cache and must not create one as a side effect.
- */
-function peekSampler(state, settingsKey) {
-    return state.cache.get(settingsKey)?.sampler ?? null;
-}
-/** Drop every cached sampler (called on renderer dispose). `GPUSampler` has no explicit destroy. */
-function disposeSamplerCache$1(state) {
-    state.cache.clear();
-}
-/** Number of distinct sampler configurations currently cached. */
-function getSamplerCacheStats$1(state) {
-    return { samplerCount: state.cache.size };
-}
-
-/**
- * Create a new Bindings state. The shared bind group layout cache is owned by the backend and passed
- * in so the bindings and pipelines layers hit a single value-keyed layout cache.
- */
-function createBindingsState$1(layoutCache) {
-    return {
-        layoutCache,
-        data: new WeakMap(),
-        bindGroupRebuilds: 0,
-    };
-}
-/** Map a storage texture WGSL dimension tag to a GPU view dimension. */
-function storageViewDimension(dim) {
-    switch (dim) {
-        case '1d':
-            return '1d';
-        case '2d_array':
-            return '2d-array';
-        case '3d':
-            return '3d';
-        default:
-            return '2d';
-    }
-}
-/** Map a WGSL storage access keyword to the bind-group-layout access enum. */
-function storageLayoutAccess(access) {
-    switch (access) {
-        case 'write':
-            return 'write-only';
-        case 'read_write':
-            return 'read-write';
-        default:
-            return 'read-only';
-    }
-}
-/**
- * Get or create BindGroupData for a BindGroup.
- * This is the DataMap pattern - auto-creates data on first access.
- */
-function getData(state, bindGroup) {
-    let data = state.data.get(bindGroup);
-    if (!data) {
-        data = {
-            bindGroup: null,
-            bindGroupLayout: null,
-            needsUpdate: true,
-        };
-        state.data.set(bindGroup, data);
-    }
-    return data;
-}
-/** Update all bindings for a RenderObject. */
-function updateRenderBindings(b, renderObject, frame) {
-    const { bindings: state, device, buffers: bufferCache } = b;
-    const { textures: textureCache, samplers: samplerCache, renderObjectGpu: renderObjectGpuCache } = b;
-    const nodeState = renderObject.nodeBuilderState;
-    if (!nodeState)
-        return;
-    // Get BindGroups for this RenderObject (shared groups reused, non-shared cloned)
-    const bindGroups = getBindings(renderObject);
-    // Update each BindGroup
-    const gpuBindGroups = [];
-    for (const bindGroup of bindGroups) {
-        // Initialize bind group layout if needed
-        initBindGroup(state, bindGroup, device, GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT);
-        // Update uniforms and check if bind group needs rebuild
-        const data = getData(state, bindGroup);
-        updateRenderBindGroup(data, bindGroup, renderObject, frame, device, bufferCache, textureCache, samplerCache);
-        if (data.needsUpdate || !data.bindGroup) {
-            rebuildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, renderObject.geometry, null);
-            data.needsUpdate = false;
-            state.bindGroupRebuilds++;
-        }
-        if (data.bindGroup) {
-            gpuBindGroups.push(data.bindGroup);
-        }
-    }
-    // Store on the WebGPU device side table for this RenderObject
-    getRenderObjectGpu(renderObjectGpuCache, renderObject).bindGroups = gpuBindGroups;
-}
-/** Update all bindings for a compute pass and return GPUBindGroups. */
-function updateComputeBindings(b, nodeBuilderState, frame, buffers) {
-    const { bindings: state, device, buffers: bufferCache, textures: textureCache, samplers: samplerCache } = b;
-    const gpuBindGroups = [];
-    for (const bindGroup of nodeBuilderState.bindings) {
-        // Initialize bind group layout if needed
-        initBindGroup(state, bindGroup, device, GPUShaderStage.COMPUTE);
-        // Update bindings
-        const data = getData(state, bindGroup);
-        updateComputeBindGroup(data, bufferCache, textureCache, samplerCache, device, bindGroup, frame, buffers);
-        // Rebuild GPU bind group if needed
-        if (data.needsUpdate || !data.bindGroup) {
-            rebuildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, null, buffers);
-            data.needsUpdate = false;
-        }
-        if (data.bindGroup) {
-            gpuBindGroups.push(data.bindGroup);
-        }
-    }
-    return gpuBindGroups;
-}
-/** Initialize bindings for a RenderObject. */
-function initRenderBindings(state, renderObject, device) {
-    const nodeState = renderObject.nodeBuilderState;
-    if (!nodeState)
-        return;
-    // Get BindGroups for this RenderObject
-    const bindGroups = getBindings(renderObject);
-    // Initialize each BindGroup
-    for (const bindGroup of bindGroups) {
-        initBindGroup(state, bindGroup, device, GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT);
-    }
-}
-/** Get the bind group layouts for a RenderObject. Used for pipeline creation. */
-function getRenderBindGroupLayouts(state, renderObject) {
-    const nodeState = renderObject.nodeBuilderState;
-    if (!nodeState)
-        return [];
-    // Get BindGroups for this RenderObject
-    const bindGroups = getBindings(renderObject);
-    // Build layouts array - array index matches @group(N) since groups are sorted
-    const layouts = [];
-    for (const bindGroup of bindGroups) {
-        const data = getData(state, bindGroup);
-        if (data.bindGroupLayout) {
-            layouts.push(data.bindGroupLayout);
-        }
-    }
-    return layouts;
-}
-/** Initialize a BindGroup (create layout). Called once per BindGroup. */
-function initBindGroup(state, bindGroup, device, visibility) {
-    const data = getData(state, bindGroup);
-    // already initialized
-    if (data.bindGroupLayout)
-        return;
-    // build bind group layout entries
-    const entries = buildLayoutEntries(bindGroup, visibility, device);
-    // get or create the layout
-    data.bindGroupLayout = getBindGroupLayout(state.layoutCache, device, entries);
-}
-/** Build bind group layout entries for a BindGroup. */
-function buildLayoutEntries(bindGroup, visibility, device) {
-    const float32Filterable = device.features.has('float32-filterable');
-    const entries = [];
-    for (const binding of bindGroup.bindings) {
-        switch (binding.kind) {
-            case 'uniform':
-                entries.push({
-                    binding: binding.block.binding,
-                    visibility,
-                    buffer: { type: 'uniform' },
-                });
-                break;
-            case 'storage':
-                entries.push({
-                    binding: binding.entry.binding,
-                    visibility,
-                    buffer: {
-                        type: binding.entry.access === 'read_write' ? 'storage' : 'read-only-storage',
-                    },
-                });
-                break;
-            case 'texture': {
-                entries.push({
-                    binding: binding.entry.binding,
-                    visibility,
-                    texture: textureBindingLayout(binding.entry, float32Filterable),
-                });
-                break;
-            }
-            case 'storageTexture': {
-                entries.push({
-                    binding: binding.entry.binding,
-                    visibility,
-                    storageTexture: {
-                        access: storageLayoutAccess(binding.entry.access),
-                        format: binding.entry.format,
-                        viewDimension: storageViewDimension(binding.entry.dim),
-                    },
-                });
-                break;
-            }
-            case 'sampler':
-                entries.push({
-                    binding: binding.entry.binding,
-                    visibility,
-                    sampler: {
-                        type: samplerBindingType(binding.entry),
-                    },
-                });
-                break;
-        }
-    }
-    // Sort by binding index
-    entries.sort((a, b) => a.binding - b.binding);
-    return entries;
-}
-/** Update a BindGroup (uniforms, textures, etc.).  Called every frame */
-function updateRenderBindGroup(data, bindGroup, renderObject, frame, device, bufferCache, textureCache, samplerCache) {
-    for (const binding of bindGroup.bindings) {
-        switch (binding.kind) {
-            case 'uniform':
-                updateUniformBinding(bufferCache, device, binding, frame, data, renderObject.material);
-                break;
-            case 'texture':
-                updateTextureBinding(textureCache, device, binding, data);
-                break;
-            case 'storageTexture':
-                updateStorageTextureBinding(textureCache, device, binding, data);
-                break;
-            case 'sampler':
-                updateSamplerBinding(samplerCache, device, binding, data);
-                break;
-            case 'storage':
-                updateStorageBinding(bufferCache, device, binding, data, renderObject.geometry, null);
-                break;
-        }
-    }
-}
-/** Update a uniform binding */
-function updateUniformBinding(bufferCache, device, binding, frame, data, material = null) {
-    const block = binding.block;
-    // Deduplication gate: skip if this binding was already processed at the current frame/render ID.
-    // Based on group.updateType:
-    //   'frame'  - check frameId (once per animation frame)
-    //   'render' - check renderId (once per render() call)
-    //   'object' - always process (content changes per-mesh)
-    //   'none'   - always process
-    if (block.group.shared) {
-        const updateType = block.group.updateType;
-        if (updateType === 'frame') {
-            if (binding.lastFrameId === frame.frameId)
-                return;
-            binding.lastFrameId = frame.frameId;
-        }
-        else if (updateType === 'render') {
-            if (binding.lastRenderId === frame.renderId)
-                return;
-            binding.lastRenderId = frame.renderId;
-        }
-        // 'object' and 'none' always process
-    }
-    // invoke update callbacks with the NodeFrame
-    invokeUniformGroupCallbacks(block, frame);
-    // create buffer key if needed
-    if (!binding.bufferKey) {
-        binding.bufferKey = {};
-    }
-    // Ensure we have preallocated double buffers
-    const requiredBytes = block.totalBytes;
-    if (!binding.currentBuffer || binding.currentBuffer.byteLength !== requiredBytes) {
-        binding.currentBuffer = new ArrayBuffer(requiredBytes);
-        binding.scratchBuffer = new ArrayBuffer(requiredBytes);
-    }
-    // Pack into scratch buffer, then compare with current
-    const changedBytes = packAndCompare(block, binding.currentBuffer, binding.scratchBuffer, material);
-    const changed = changedBytes > 0;
-    const uploaded = !!getRaw$1(bufferCache, binding.bufferKey);
-    if (changed || !uploaded) {
-        if (changed) {
-            // Swap buffers: scratch becomes current
-            const temp = binding.currentBuffer;
-            binding.currentBuffer = binding.scratchBuffer;
-            binding.scratchBuffer = temp;
-        }
-        const result = uploadUniformBlock$1(bufferCache, device, binding.bufferKey, binding.currentBuffer, {
-            material: material?.name,
-            updateType: block.group?.updateType,
-            changedBytes,
-        });
-        // Only rebuild bind group if buffer was created/resized (not just written to)
-        if (result.created) {
-            data.needsUpdate = true;
-        }
-    }
-}
-/**
- * Pack uniforms into scratch buffer and compare against current buffer.
- * Uses compiled layout for correct WGSL alignment.
- * Returns true if any values changed.
- */
-/** packs the block into `scratchBuffer` and returns how many BYTES differ from
- *  `currentBuffer`. Zero means nothing changed. */
-function packAndCompare(block, currentBuffer, scratchBuffer, material) {
-    const view = new DataView(scratchBuffer);
-    // Pack each uniform member using compiled layout
-    for (const m of block.members) {
-        let value = m.node.uniform.value;
-        if (value === null && material) {
-            const matUniform = material.uniforms.get(m.node.name);
-            if (matUniform) {
-                value = matUniform.value;
-            }
-        }
-        if (value === null || value === undefined)
-            continue;
-        packToView(m.schema, view, m.offset, value, 'wgsl-uniform');
-    }
-    // Compare word by word, COUNTING rather than early-returning. The count is what
-    // separates "a few bytes of a large block moved" - a per-frame value dragging a
-    // static payload up with it, fixable by splitting the block - from "the block
-    // genuinely changed". Same single pass either way; only the exit differs.
-    const current = new Uint32Array(currentBuffer);
-    const scratch = new Uint32Array(scratchBuffer);
-    const len = current.length;
-    let changedWords = 0;
-    for (let i = 0; i < len; i++) {
-        if (current[i] !== scratch[i])
-            changedWords++;
-    }
-    return changedWords * 4;
-}
-/** Update a texture binding. */
-function updateTextureBinding(textureCache, device, binding, data) {
-    const textureNode = binding.entry.node;
-    const gpuTexture = textureNode.value;
-    if (gpuTexture === null)
-        return;
-    // Texture SWAP: the node was rebound to a different GpuTexture (e.g. an atlas
-    // reload allocating a fresh texture, or a placeholder->real swap). Generation
-    // only tracks in-place uploads to one texture, so a swap to a fresh texture
-    // (whose generation can coincide with the stale one) would slip through and
-    // leave the bind group pointing at the old — now disposed — texture, faulting
-    // the next submit. Mirror updateStorageBinding's lastBuffer identity check.
-    if (gpuTexture !== binding.lastTexture) {
-        binding.lastTexture = gpuTexture;
-        data.needsUpdate = true;
-    }
-    // For render target textures, the GPU resource is set externally via setRenderTargetTexture().
-    // For regular textures, updateTexture() handles upload.
-    // Both cases: check generation to detect changes.
-    if (!gpuTexture.isRenderTargetTexture) {
-        // Regular texture - upload source data
-        const texData = updateTexture$1(textureCache, device, gpuTexture);
-        if (binding.generation !== texData.generation) {
-            binding.generation = texData.generation;
-            data.needsUpdate = true;
-        }
-    }
-    else {
-        // Render target texture - the GPU resource is created/resized by the owning
-        // render target's pass. If that pass hasn't run this frame (e.g. the target
-        // was resized between renders), lazily (re)allocate it here so we never sample
-        // a stale or destroyed texture. ensure...Allocated is idempotent and bumps
-        // generation on realloc, which the check below turns into a bind-group rebuild.
-        if (gpuTexture.renderTarget) {
-            ensureRenderTargetTexturesAllocated(textureCache, device, gpuTexture.renderTarget);
-        }
-        const texData = getTextureData$1(textureCache, gpuTexture);
-        if (texData) {
-            if (binding.generation !== texData.generation) {
-                binding.generation = texData.generation;
-                data.needsUpdate = true;
-            }
-        }
-    }
-}
-/** Update a storage texture binding: ensure GPU texture exists, detect changes. */
-function updateStorageTextureBinding(textureCache, device, binding, data) {
-    const gpuTexture = binding.entry.node.value;
-    if (gpuTexture === null)
-        return;
-    // Swap detection: same rationale as updateTextureBinding — a rebound node
-    // pointing at a fresh GpuTexture must rebuild the bind group.
-    if (gpuTexture !== binding.lastTexture) {
-        binding.lastTexture = gpuTexture;
-        data.needsUpdate = true;
-    }
-    // Storage textures hold no source data; updateTexture just ensures the GPU
-    // texture exists and returns its cache entry (with a generation counter).
-    const texData = updateTexture$1(textureCache, device, gpuTexture);
-    if (binding.generation !== texData.generation) {
-        binding.generation = texData.generation;
-        data.needsUpdate = true;
-    }
-}
-/** Update a sampler binding. */
-function updateSamplerBinding(samplerCache, device, binding, data) {
-    const samplerNode = binding.entry.samplerNode;
-    const gpuSampler = samplerNode.value;
-    // Create/get sampler from GpuSampler settings (this caches by settingsKey)
-    getSampler$1(device, samplerCache, gpuSampler);
-    // Check for sampler changes using settingsKey
-    const samplerKey = gpuSampler.settingsKey;
-    if (binding.samplerKey !== samplerKey) {
-        binding.samplerKey = samplerKey;
-        data.needsUpdate = true;
-    }
-}
-/** Update a storage binding - detect buffer swaps and flush data to GPU. */
-function updateStorageBinding(bufferCache, device, binding, data, geometry, buffers) {
-    const node = binding.entry.node;
-    const buffer = resolveStorageBuffer(node, geometry, buffers);
-    // If buffer identity changed, need to rebuild bind group
-    if (buffer !== binding.lastBuffer) {
-        binding.lastBuffer = buffer;
-        data.needsUpdate = true;
-    }
-    // Flush pending data to GPU (version check / partial ranges handled inside)
-    ensureUploaded$1(bufferCache, device, buffer, binding.entry.name);
-}
-/** Rebuild the GPU bind group for a BindGroup */
-function rebuildGPUBindGroup(device, bufferCache, textureCache, samplerCache, bindGroup, data, geometry, buffers) {
-    if (!data.bindGroupLayout)
-        return;
-    const entries = [];
-    for (const binding of bindGroup.bindings) {
-        switch (binding.kind) {
-            case 'uniform': {
-                if (binding.bufferKey) {
-                    const buffer = getRaw$1(bufferCache, binding.bufferKey);
-                    if (buffer) {
-                        entries.push({ binding: binding.block.binding, resource: { buffer } });
-                    }
-                }
-                break;
-            }
-            case 'storage': {
-                const buffer = resolveStorageBuffer(binding.entry.node, geometry, buffers);
-                const buf = getUploaded$1(bufferCache, buffer);
-                if (buf) {
-                    entries.push({ binding: binding.entry.binding, resource: { buffer: buf } });
-                }
-                break;
-            }
-            case 'texture': {
-                const textureNode = binding.entry.node;
-                const gpuTexture = textureNode.value;
-                if (!gpuTexture)
-                    break;
-                // Get GPU texture from cache
-                const texData = getTextureData$1(textureCache, gpuTexture);
-                if (texData) {
-                    // A combined depth-stencil texture carries two aspects, and a view
-                    // may only ever expose ONE of them to a binding. Leaving the default
-                    // ('all') is a validation error the moment a pass allocates a stencil
-                    // alongside a depth that something also samples. Sampling is always
-                    // the depth aspect here: the stencil aspect would need a
-                    // `texture_2d<u32>` binding, which nothing declares.
-                    const view = texData.texture.createView({
-                        dimension: gpuTexture.viewDimension,
-                        ...(formatHasStencil(texData.texture.format) ? { aspect: 'depth-only' } : {}),
-                    });
-                    entries.push({ binding: binding.entry.binding, resource: view });
-                }
-                break;
-            }
-            case 'storageTexture': {
-                const gpuTexture = binding.entry.node.value;
-                if (!gpuTexture)
-                    break;
-                const texData = getTextureData$1(textureCache, gpuTexture);
-                if (texData) {
-                    // Storage views target a single mip level at the node's chosen baseMipLevel.
-                    const view = texData.texture.createView({
-                        dimension: storageViewDimension(binding.entry.dim),
-                        baseMipLevel: binding.entry.node.mipLevel,
-                        mipLevelCount: 1,
-                    });
-                    entries.push({ binding: binding.entry.binding, resource: view });
-                }
-                break;
-            }
-            case 'sampler': {
-                const samplerNode = binding.entry.samplerNode;
-                const gpuSampler = samplerNode.value;
-                if (!gpuSampler)
-                    break;
-                // Get GPU sampler from cache using settingsKey
-                const sampler = peekSampler(samplerCache, gpuSampler.settingsKey);
-                if (sampler) {
-                    entries.push({ binding: binding.entry.binding, resource: sampler });
-                }
-                break;
-            }
-        }
-    }
-    // Sort entries by binding
-    entries.sort((a, b) => a.binding - b.binding);
-    if (entries.length > 0) {
-        data.bindGroup = device.createBindGroup({
-            layout: data.bindGroupLayout,
-            entries,
-        });
-    }
-}
-/** Update a compute BindGroup (uniforms, textures, samplers, storage). */
-function updateComputeBindGroup(data, bufferCache, textureCache, samplerCache, device, bindGroup, frame, buffers) {
-    for (const binding of bindGroup.bindings) {
-        switch (binding.kind) {
-            case 'uniform':
-                updateUniformBinding(bufferCache, device, binding, frame, data);
-                break;
-            case 'storage':
-                updateStorageBinding(bufferCache, device, binding, data, null, buffers);
-                break;
-            case 'texture':
-                updateTextureBinding(textureCache, device, binding, data);
-                break;
-            case 'storageTexture':
-                updateStorageTextureBinding(textureCache, device, binding, data);
-                break;
-            case 'sampler':
-                updateSamplerBinding(samplerCache, device, binding, data);
-                break;
-        }
     }
 }
 
@@ -25811,7 +25682,8 @@ function buildProbeGLSL(fragmentSrc, target) {
         // `return`/`assignment` anchor the assignment line IS where we inject; for a `let_var` anchor
         // we inject after the declaration and stop, so we never reach these anyway.
         const isFragColorAssign = /^fragColor\s*=/.test(trimmed);
-        const isMrtOutAssign = /^\w+\s*=\s*/.test(trimmed) && !/^(?:float|int|uint|bool|vec[234]|ivec[234]|uvec[234]|bvec[234]|mat[234])/.test(trimmed);
+        const isMrtOutAssign = /^\w+\s*=\s*/.test(trimmed) &&
+            !/^(?:float|int|uint|bool|vec[234]|ivec[234]|uvec[234]|bvec[234]|mat[234])/.test(trimmed);
         switch (target.anchorKind) {
             case 'return': {
                 // GLSL main() has no `return <expr>` for the color; the "return" anchor from the WGSL
@@ -30946,6 +30818,307 @@ class Timeline extends Tab {
     }
 }
 
+function createFrame(backend) {
+    const frame = {
+        backend,
+        renderer: null,
+        pool: [],
+        poolIndex: 0,
+        computePool: [],
+        computePoolIndex: 0,
+        transformFeedbackPool: [],
+        transformFeedbackPoolIndex: 0,
+        open: null,
+        targets: [],
+        completion: null,
+        everSubmitted: false,
+        closed: true,
+        pass: (desc) => openRenderPass(frame, desc),
+        compute: (desc) => openComputePass(frame, desc ?? {}),
+        transformFeedback: (desc) => openTransformFeedbackPass(frame, desc ?? {}),
+        submit: () => submitFrame$2(frame),
+        abandon: () => abandonFrame(frame),
+        get done() {
+            if (!frame.closed) {
+                throw new Error(frame.everSubmitted
+                    ? '[frame] done is readable between submit() and the next frame(); this one has been reopened.'
+                    : '[frame] done read before submit(); there is no work to wait on yet');
+            }
+            frame.completion ??= frame.backend.awaitCompletion();
+            return frame.completion;
+        },
+    };
+    return frame;
+}
+/** True between `gpu.frame()` and `frame.submit()`, when recorded work has not reached the queue yet. */
+function isFrameOpen(frame) {
+    return frame !== null && !frame.closed;
+}
+function passLabel(pass) {
+    return pass.desc.label ?? pass.kind;
+}
+/**
+ * Opens the renderer's frame for recording. A free function because every other operation on a
+ * renderer is one; `Frame` and `Pass` keep their verbs because they are the recording context, not
+ * the device handle.
+ *
+ * One `Frame` per renderer for its lifetime, so a steady-state frame allocates nothing.
+ */
+function frame(renderer) {
+    renderer._assertInitialized('frame');
+    renderer._frameState ??= createFrame(renderer.backend);
+    renderer._frameState.renderer = renderer;
+    beginFrame$2(renderer._frameState);
+    return renderer._frameState;
+}
+function beginFrame$2(frame) {
+    if (!frame.closed) {
+        // Recovery rather than a throw, so a frame a throw escaped from does not wedge the renderer.
+        // Silent recovery would hide a missing submit() forever, which is the failure this reports.
+        const dropped = frame.open === null ? '' : `, with "${passLabel(frame.open)}" still open`;
+        console.warn(`[frame] the previous frame was never submitted${dropped}; dropping its work`);
+        abandonFrame(frame);
+    }
+    frame.closed = false;
+    frame.poolIndex = 0;
+    frame.computePoolIndex = 0;
+    frame.transformFeedbackPoolIndex = 0;
+    frame.targets.length = 0;
+    frame.completion = null; // the reused frame object must not hand out the last frame's promise
+    frame.backend.beginFrame();
+}
+/** Runs before a pool slot is claimed, so a rejected open leaves the pool untouched. */
+function assertCanOpen(frame, verb) {
+    if (frame.closed)
+        throw new Error(`[frame] ${verb} after the frame was closed`);
+    if (frame.open !== null) {
+        throw new Error(`[frame] ${verb} while "${passLabel(frame.open)}" is still open; end it first`);
+    }
+}
+/** A WebGL2 context belongs to one canvas for its lifetime, so a pass naming another would draw nowhere visible. */
+function assertTargetReachable(frame, desc) {
+    const deviceCanvas = frame.backend.deviceCanvasTarget;
+    if (deviceCanvas === null || isRenderTarget(desc.target) || desc.target === deviceCanvas)
+        return;
+    throw new Error('[frame] this pass names a canvas the device was not created on; a WebGL2 context cannot present ' +
+        'to a second canvas. Use one pass per viewport on the device canvas, or a renderer per canvas.');
+}
+function openRenderPass(frame, desc) {
+    assertCanOpen(frame, 'frame.pass()');
+    assertTargetReachable(frame, desc);
+    let pass = frame.pool[frame.poolIndex];
+    if (pass === undefined) {
+        pass = createRenderPass(frame, desc);
+        frame.pool.push(pass);
+    }
+    else {
+        pass.desc = desc;
+        pass.count = 0;
+        pass.ended = false;
+    }
+    frame.poolIndex++;
+    frame.open = pass;
+    return pass;
+}
+function createRenderPass(frame, desc) {
+    const pass = {
+        kind: 'render',
+        desc,
+        records: [],
+        count: 0,
+        ended: false,
+        draw: (mesh, opts) => recordDraw(pass, mesh, opts),
+        execute: (bundle) => recordBundle(pass, bundle),
+        scene: (root, camera) => recordScene(frame, pass, root, camera),
+        end: () => endPass$2(frame, pass),
+    };
+    return pass;
+}
+function recordScene(frame, pass, root, camera) {
+    if (frame.renderer === null)
+        throw new Error('[pass] scene() needs a frame opened with frame(renderer).');
+    const view = camera ?? pass.desc.camera;
+    if (view === undefined)
+        throw new Error('[pass] scene() needs a camera, on the pass desc or as its second argument.');
+    drawScene(frame.renderer, pass, root, view);
+}
+function openComputePass(frame, desc) {
+    assertCanOpen(frame, 'frame.compute()');
+    if (frame.backend.name === 'webgl') {
+        throw new Error('[frame] compute passes need the webgpu backend; WebGL2 has no compute shaders');
+    }
+    let pass = frame.computePool[frame.computePoolIndex];
+    if (pass === undefined) {
+        pass = createComputePass(frame, desc);
+        frame.computePool.push(pass);
+    }
+    else {
+        pass.desc = desc;
+        pass.count = 0;
+        pass.ended = false;
+    }
+    frame.computePoolIndex++;
+    frame.open = pass;
+    return pass;
+}
+function openTransformFeedbackPass(frame, desc) {
+    assertCanOpen(frame, 'frame.transformFeedback()');
+    if (frame.backend.name === 'webgpu') {
+        throw new Error('[frame] transform feedback is WebGL2-only; use frame.compute() on the webgpu backend');
+    }
+    let pass = frame.transformFeedbackPool[frame.transformFeedbackPoolIndex];
+    if (pass === undefined) {
+        pass = createTransformFeedbackPass(frame, desc);
+        frame.transformFeedbackPool.push(pass);
+    }
+    else {
+        pass.desc = desc;
+        pass.count = 0;
+        pass.ended = false;
+    }
+    frame.transformFeedbackPoolIndex++;
+    frame.open = pass;
+    return pass;
+}
+function createTransformFeedbackPass(frame, desc) {
+    const pass = {
+        kind: 'transform-feedback',
+        desc,
+        records: [],
+        count: 0,
+        ended: false,
+        dispatch: (node, opts) => recordTransformFeedback(pass, node, opts),
+        end: () => endPass$2(frame, pass),
+    };
+    return pass;
+}
+function recordTransformFeedback(pass, node, opts) {
+    if (pass.ended)
+        throw new Error(`[pass ${passLabel(pass)}] dispatch after end()`);
+    const existing = pass.records[pass.count];
+    if (existing === undefined) {
+        pass.records.push({ node, ...opts });
+    }
+    else {
+        existing.node = node;
+        existing.inputs = opts.inputs;
+        existing.outputs = opts.outputs;
+        existing.count = opts.count;
+        existing.instanceCount = opts.instanceCount;
+    }
+    pass.count++;
+}
+function createComputePass(frame, desc) {
+    const pass = {
+        kind: 'compute',
+        desc,
+        records: [],
+        count: 0,
+        ended: false,
+        dispatch: (node, counts, opts) => recordDispatch(pass, node, counts, undefined, 0, opts?.buffers),
+        dispatchIndirect: (node, indirect, opts) => recordDispatch(pass, node, undefined, indirect, opts?.offset ?? 0, opts?.buffers),
+        end: () => endPass$2(frame, pass),
+    };
+    return pass;
+}
+function recordDispatch(pass, node, counts, indirect, indirectOffset, buffers) {
+    if (pass.ended)
+        throw new Error(`[pass ${passLabel(pass)}] dispatch after end()`);
+    const existing = pass.records[pass.count];
+    if (existing === undefined) {
+        pass.records.push({ node, counts, indirect, indirectOffset, buffers });
+    }
+    else {
+        existing.node = node;
+        existing.counts = counts;
+        existing.indirect = indirect;
+        existing.indirectOffset = indirectOffset;
+        existing.buffers = buffers;
+    }
+    pass.count++;
+}
+function recordDraw(pass, mesh, opts) {
+    if (pass.ended)
+        throw new Error(`[pass ${passLabel(pass)}] draw after end()`);
+    if (opts?.draws !== undefined && (opts.instances !== undefined || opts.range !== undefined)) {
+        throw new Error(`[pass ${passLabel(pass)}] '${mesh.name || 'mesh'}' passes draws alongside instances or range; ` +
+            'each MeshDraw carries its own instanceCount and index range, so the single-draw fields are unreachable.');
+    }
+    const record = pass.records[pass.count];
+    const material = opts?.material ?? mesh.material;
+    // A pooled slot that last held a bundle has no draw fields to overwrite, so it is replaced whole.
+    if (record === undefined || record.kind !== 'draw') {
+        pass.records[pass.count] = { kind: 'draw', mesh, material, opts: opts ?? null };
+    }
+    else {
+        record.mesh = mesh;
+        record.material = material;
+        record.opts = opts ?? null;
+    }
+    pass.count++;
+}
+function recordBundle(pass, bundle) {
+    if (pass.ended)
+        throw new Error(`[pass ${passLabel(pass)}] execute after end()`);
+    if (bundle.disposed)
+        throw new Error(`[bundle ${bundle.label}] execute after dispose()`);
+    const record = pass.records[pass.count];
+    if (record === undefined || record.kind !== 'bundle') {
+        pass.records[pass.count] = { kind: 'bundle', bundle };
+    }
+    else {
+        record.bundle = bundle;
+    }
+    pass.count++;
+}
+function endPass$2(frame, pass) {
+    if (pass.ended)
+        throw new Error(`[pass ${passLabel(pass)}] end() called twice`);
+    if (frame.closed) {
+        throw new Error(`[pass ${passLabel(pass)}] the frame this pass belongs to was closed while it was open; ` +
+            'its draws were never encoded. A frame opened between this pass and its end() is what does this.');
+    }
+    pass.ended = true;
+    frame.open = null; // cleared first: encoding evaluates the graph, which may open a nested pass
+    if (pass.kind === 'compute') {
+        frame.backend.encodeComputePass(pass.desc, pass.records, pass.count);
+    }
+    else if (pass.kind === 'transform-feedback') {
+        frame.backend.encodeTransformFeedbackPass(pass.desc, pass.records, pass.count);
+    }
+    else {
+        const target = pass.desc.target;
+        if (isRenderTarget(target))
+            frame.targets.push(target);
+        frame.backend.encodePass(pass.desc, pass.records, pass.count);
+    }
+}
+function submitFrame$2(frame) {
+    if (frame.closed)
+        throw new Error('[frame] submit() called twice');
+    if (frame.open !== null) {
+        throw new Error(`[frame] submit() while "${passLabel(frame.open)}" is still open; end it first`);
+    }
+    // `abandon()` is the answer to a mid-frame room swap, not a disposal race.
+    for (const target of frame.targets) {
+        const dead = deadAttachment(target);
+        if (dead !== null) {
+            throw new Error(`[frame] '${dead}' was disposed after its pass recorded into it; abandon() the frame instead of disposing mid-frame.`);
+        }
+    }
+    frame.closed = true;
+    frame.everSubmitted = true;
+    frame.backend.submitFrame();
+}
+/** A recorded-but-unencoded pass is dropped with the frame; atomic encoding leaves no GPU pass open. */
+function abandonFrame(frame) {
+    if (frame.closed)
+        return;
+    frame.open = null;
+    frame.closed = true;
+    frame.backend.discardFrame();
+}
+
 /**
  * Clip position of a fullscreen triangle from `@builtin(vertex_index)` alone: vertices 0, 1 and 2 land
  * on (-1,-1), (3,-1) and (-1,3), so no vertex buffer is bound and no attribute is read. Built on call,
@@ -31055,6 +31228,8 @@ class Viewer extends Tab {
         // Add / render each node
         // indexes tracks insertion order within each folder
         const indexes = {};
+        // Every preview is a pass on one frame; this opened a frame per preview and submitted each.
+        const f = frame(renderer);
         for (const canvasData of canvasDataList) {
             const item = this._addNodeItem(canvasData);
             const path = canvasData.path;
@@ -31073,12 +31248,11 @@ class Viewer extends Tab {
                     this.nodes.add(item);
                 }
             }
-            const f = frame(renderer);
             const pass = f.pass({ target: canvasData.canvasTarget, clear: [0, 0, 0, 1], label: 'viewer' });
             pass.draw(canvasData.mesh);
             pass.end();
-            f.submit();
         }
+        f.submit();
     }
     // Private helpers
     _addNodeItem(canvasData) {
@@ -34583,6 +34757,10 @@ function treelessPasses(record, renderer) {
     }
     return [...drawn].map(([passId, drawCount]) => ({ passId, drawCount }));
 }
+/** The factory form; attach it by assigning to `renderer.inspector`. */
+function createInspector() {
+    return new Inspector();
+}
 
 // ─── Geometry ────────────────────────────────────────────────────────────────
 /**
@@ -34963,12 +35141,12 @@ function lineVertex(lineWidthNode, worldUnits = false) {
     if (worldUnits) {
         // world-units path: expand in view space
         // line direction in view space
-        const lineDir = normalize(sub(viewEnd.xyz, viewStart.xyz));
+        const lineDir = normalize$1(sub(viewEnd.xyz, viewStart.xyz));
         // view-space forward: direction from midpoint to camera (camera is at origin in view space)
         const midpoint = mul(add$1(viewStart.xyz, viewEnd.xyz), f32(0.5));
-        const viewFwd = normalize(midpoint.negate());
+        const viewFwd = normalize$1(midpoint.negate());
         // perpendicular to both line direction and view forward
-        const up = normalize(cross(lineDir, viewFwd));
+        const up = normalize$1(cross(lineDir, viewFwd));
         // offset in view space
         const hw = mul(lineWidthNode, f32(0.5));
         const offset = mul(up, mul(hw, sideAttr));
@@ -34988,7 +35166,7 @@ function lineVertex(lineWidthNode, worldUnits = false) {
     const aspect = div(screenSize.x, screenSize.y);
     const rawDir = sub(ndcEnd, ndcStart);
     const dirCorrected = vec2f(mul(rawDir.x, aspect), rawDir.y);
-    const dir = normalize(dirCorrected);
+    const dir = normalize$1(dirCorrected);
     // perpendicular in screen space, un-corrected back to NDC
     const perp = vec2f(div(dir.y.negate(), aspect), dir.x);
     // offset magnitude: pixels → NDC (divide by screen height)
@@ -35302,6 +35480,26 @@ class Line extends Mesh {
         raycastLine(this, this.material, this.geometry, raycaster, this.threshold, intersects);
     }
 }
+/** The factory form, matching `createGeometry` and the other resource constructors. */
+function createLineGeometry(points, closed = false, maxPoints) {
+    return new LineGeometry(points, closed, maxPoints);
+}
+/** The factory form, matching `createLineGeometry`. */
+function createLineSegmentsGeometry(points, maxPoints) {
+    return new LineSegmentsGeometry(points, maxPoints);
+}
+/** The factory form, matching `createMaterial`. */
+function createLineMaterial(opts = {}) {
+    return new LineMaterial(opts);
+}
+/** The factory form, matching `createMesh`. */
+function createLine(geometry, material) {
+    return new Line(geometry, material);
+}
+/** The factory form, matching `createMesh`. */
+function createLineSegments(geometry, material) {
+    return new LineSegments(geometry, material);
+}
 
 /**
  * Opens a bundle for recording. It takes no target: a bundle is replayed into whichever pass executes
@@ -35360,28 +35558,15 @@ function createRenderContext() {
         id: renderContextIdCounter++,
         // MRT
         mrt: null,
-        // Clear state
         // Attachments
         color: true,
         depth: true,
         stencil: false,
-        // Viewport/scissor
-        viewport: false,
-        viewportValue: { x: 0, y: 0, width: 0, height: 0, minDepth: 0, maxDepth: 1 },
-        scissor: false,
-        scissorValue: { x: 0, y: 0, width: 0, height: 0 },
-        // Dimensions
-        width: 0,
-        height: 0,
         // Render target
         renderTarget: null,
         canvasTarget: null,
-        textures: null,
-        depthTexture: null,
         // MSAA
         sampleCount: 1,
-        // Context
-        camera: null,
         // Type flag
         isRenderContext: true,
     };
@@ -35399,7 +35584,7 @@ function buildAttachmentState(target) {
     for (const texture of target.textures)
         formats += `${texture.name}:${texture.format},`;
     const depthAttachment = target._depthAttachment;
-    const stencil = depthAttachment !== null && depthAttachment.format.includes('stencil');
+    const stencil = formatHasStencil(depthAttachment?.format);
     return `${target.textures.length}:${formats}:${target.samples}:${depthAttachment !== null}:${stencil}`;
 }
 function buildMrtState(mrt) {
@@ -35425,14 +35610,14 @@ function getRenderContext(state, target, mrt) {
         context.canvasTarget = null;
         context.sampleCount = target.samples === 0 ? 1 : target.samples;
         context.depth = target._depthAttachment !== null;
-        context.stencil = target._depthAttachment !== null && target._depthAttachment.format.includes('stencil');
+        context.stencil = formatHasStencil(target._depthAttachment?.format);
     }
     else {
         context.renderTarget = null;
         context.canvasTarget = target;
         context.sampleCount = target.samples === 0 ? 1 : target.samples;
         context.depth = true;
-        context.stencil = target.depthFormat.includes('stencil');
+        context.stencil = formatHasStencil(target.depthFormat);
     }
     return context;
 }
@@ -35451,10 +35636,7 @@ function sizeOf(target) {
     return isRenderTarget(target) ? { width: target.width, height: target.height } : target.getDrawingBufferSize();
 }
 function hasStencil(target) {
-    if (isRenderTarget(target)) {
-        return target._depthAttachment?.format.includes('stencil') ?? false;
-    }
-    return target.depthFormat.includes('stencil');
+    return formatHasStencil(isRenderTarget(target) ? target._depthAttachment?.format : target.depthFormat);
 }
 /**
  * A target disposed between recording and submit reaches the device as "destroyed texture used in a
@@ -35462,93 +35644,98 @@ function hasStencil(target) {
  * A room swap disposing its targets mid-frame is the case that does this.
  */
 function assertNotDisposed(rt) {
-    for (const tex of rt.textures) {
-        if (tex._gpuTexture.disposed) {
-            throw new Error(`[frame] pass names a disposed render target (attachment '${tex.name}').`);
-        }
-    }
-    if (rt._depthAttachment?._gpuTexture.disposed) {
-        throw new Error('[frame] pass names a render target whose depth attachment is disposed.');
+    const dead = deadAttachment(rt);
+    if (dead !== null) {
+        throw new Error(`[frame] pass names a disposed render target (attachment '${dead}').`);
     }
 }
-/** Viewport and scissor are physical pixels of the target, so no pixel-ratio scaling applies. */
+/** The shared, attachment-shape-keyed half: what every pass of this shape agrees on. */
 function resolvePassContext(state, desc) {
     const target = desc.target;
     const rt = renderTargetOf(target);
     if (rt !== null)
         assertNotDisposed(rt);
     const ctx = getRenderContext(state, target, desc.mrt ?? null);
-    const { width, height } = sizeOf(target);
-    // The backends read the face and level off the target itself, so the desc has to land there.
-    if (rt !== null && isCubeRenderTarget(rt)) {
-        if (desc.layer !== undefined)
-            rt.activeFace = desc.layer;
-        if (desc.mipLevel !== undefined)
-            rt.activeMipmapLevel = desc.mipLevel;
-    }
-    else if (desc.layer !== undefined || desc.mipLevel !== undefined) {
-        // Accepting these and rendering to face 0 level 0 anyway is how a cube bake silently writes
-        // every face on top of itself.
-        throw new Error('[frame] layer and mipLevel select a cube face and level; this pass names a target that has neither.');
-    }
-    ctx.width = width;
-    ctx.height = height;
-    ctx.camera = desc.camera ?? null;
-    const viewport = desc.viewport;
-    ctx.viewport = viewport !== undefined;
-    if (viewport !== undefined) {
-        const v = ctx.viewportValue;
-        v.x = viewport.x ?? 0;
-        v.y = viewport.y ?? 0;
-        v.width = viewport.width;
-        v.height = viewport.height;
-        v.minDepth = viewport.minDepth ?? 0;
-        v.maxDepth = viewport.maxDepth ?? 1;
-    }
-    const scissor = desc.scissor;
-    if (scissor === undefined) {
-        ctx.scissor = false;
-    }
-    else {
-        const s = ctx.scissorValue;
-        let x = scissor.x ?? 0;
-        let y = scissor.y ?? 0;
-        let w = scissor.width;
-        let h = scissor.height;
-        // Clamp into [0, framebuffer]: pull the origin to 0 and shrink the extent to fit.
-        if (x < 0) {
-            w += x;
-            x = 0;
-        }
-        if (y < 0) {
-            h += y;
-            y = 0;
-        }
-        s.x = x;
-        s.y = y;
-        s.width = Math.max(0, Math.min(w, width - x));
-        s.height = Math.max(0, Math.min(h, height - y));
-        // A rect covering the whole framebuffer clips nothing, so skip the call.
-        ctx.scissor = !(x === 0 && y === 0 && s.width === width && s.height === height);
-    }
     return ctx;
 }
-function resolvePassParams(desc) {
+/** Viewport and scissor are physical pixels of the target, so no pixel-ratio scaling applies. */
+function resolvePassParams(desc, out) {
     const target = desc.target;
     const [r, g, b, a] = desc.clear === false || desc.clear === undefined ? target.clearColor : desc.clear;
     const rt = renderTargetOf(target);
-    return {
-        renderTarget: rt,
-        canvasTarget: rt === null ? target : null,
-        clearColor: { r, g, b, a },
-        autoClear: desc.clear !== false,
-        autoClearDepth: desc.clearDepth !== false,
-        clearDepthValue: typeof desc.clearDepth === 'number' ? desc.clearDepth : 1,
-        autoClearStencil: desc.clearStencil !== false,
-        clearStencilValue: typeof desc.clearStencil === 'number' ? desc.clearStencil : 0,
-        swapchainStencil: hasStencil(target),
-        passId: desc.label ?? 'render',
-    };
+    const { width, height } = sizeOf(target);
+    const viewport = desc.viewport;
+    resolveCubeFace(rt, desc, out);
+    out.renderTarget = rt;
+    out.canvasTarget = rt === null ? target : null;
+    out.clearColor.r = r;
+    out.clearColor.g = g;
+    out.clearColor.b = b;
+    out.clearColor.a = a;
+    out.clearsColor = desc.clear !== false;
+    out.clearsDepth = desc.clearDepth !== false;
+    out.clearDepthValue = typeof desc.clearDepth === 'number' ? desc.clearDepth : 1;
+    out.clearsStencil = desc.clearStencil !== false;
+    out.clearStencilValue = typeof desc.clearStencil === 'number' ? desc.clearStencil : 0;
+    out.swapchainStencil = hasStencil(target);
+    out.passId = desc.label ?? 'render';
+    out.width = width;
+    out.height = height;
+    out.camera = desc.camera ?? null;
+    out.viewport = viewport !== undefined;
+    out.viewportValue.x = viewport?.x ?? 0;
+    out.viewportValue.y = viewport?.y ?? 0;
+    out.viewportValue.width = viewport?.width ?? 0;
+    out.viewportValue.height = viewport?.height ?? 0;
+    out.viewportValue.minDepth = viewport?.minDepth ?? 0;
+    out.viewportValue.maxDepth = viewport?.maxDepth ?? 1;
+    if (desc.scissor === undefined) {
+        out.scissor = false;
+    }
+    else {
+        clampScissor(desc.scissor, width, height, out.scissorValue);
+        out.scissor = !coversFramebuffer(out.scissorValue, width, height);
+    }
+    return out;
+}
+/** Six faces with no default among them, so a cube pass names one and no other target may. */
+function resolveCubeFace(rt, desc, out) {
+    if (rt !== null && isCubeRenderTarget(rt)) {
+        if (desc.layer === undefined) {
+            throw new Error('[frame] a pass on a cube target names the face it writes: pass `layer: 0..5`.');
+        }
+        out.layer = desc.layer;
+        out.mipLevel = desc.mipLevel ?? 0;
+        return;
+    }
+    if (desc.layer !== undefined || desc.mipLevel !== undefined) {
+        throw new Error('[frame] layer and mipLevel select a cube face and level; this pass names a target that has neither.');
+    }
+    out.layer = 0;
+    out.mipLevel = 0;
+}
+/** Clamps into [0, framebuffer]: the origin is pulled to 0 and the extent shrunk to fit. */
+function clampScissor(scissor, width, height, out) {
+    let x = scissor.x ?? 0;
+    let y = scissor.y ?? 0;
+    let w = scissor.width;
+    let h = scissor.height;
+    if (x < 0) {
+        w += x;
+        x = 0;
+    }
+    if (y < 0) {
+        h += y;
+        y = 0;
+    }
+    out.x = x;
+    out.y = y;
+    out.width = Math.max(0, Math.min(w, width - x));
+    out.height = Math.max(0, Math.min(h, height - y));
+}
+/** A rect covering the whole framebuffer clips nothing, so the scissor call is skipped. */
+function coversFramebuffer(s, width, height) {
+    return s.x === 0 && s.y === 0 && s.width === width && s.height === height;
 }
 
 /** Decode + report a device-loss event: log, set the lost flag, fire the user callback. */
@@ -35562,13 +35749,13 @@ function handleDeviceLost(r, info) {
  * program or pipeline warmed here is the one the pass then looks up rather than a second cache entry.
  */
 function compileTargets(r, drawables, target, camera) {
-    const context = resolvePassContext(r._renderContexts, { target, camera });
+    const context = resolvePassContext(r._renderContexts, { target});
     return {
         context,
         objects: drawables.map((mesh) => getRenderObject(r._renderObjects, mesh, mesh.material, camera, context)),
     };
 }
-/** The recorded-draw counterpart to {@link prepareRenderObjects}: no render list, no scene walk. */
+/** Prepares what a pass recorded by hand: no render list, no scene walk, no sort. */
 function prepareRecordedDraws(r, records, count, camera, passCtx, 
 /** Null unless an inspector is attached; only annotates each object for the draw-calls tab. */
 inspectorLabel, prepare, out, outOpts, 
@@ -35632,25 +35819,20 @@ function preparedAt(byDepth, depth) {
 }
 
 /**
- * What `compile` needs of a renderer. Render pre-warm is orchestration and lives on the renderer;
- * compute pre-warm is a device batch and lives on the backend, which is why this reaches both.
- */
-/**
  * Pre-warms the pipelines, bind groups and uploads a later pass would build on its first frame.
  * `target` and `camera` are the pass it is warming for: a key built against anything else warms
  * something no pass will look up.
  */
 function compile(renderer, drawables, target, camera) {
     renderer._assertInitialized('compile');
-    const list = Array.isArray(drawables) ? drawables : [drawables];
-    if (list.length === 0)
+    if (drawables.length === 0)
         return Promise.resolve();
-    const { context, objects } = compileTargets(renderer, list, target, camera);
-    return renderer.backend.compileObjects(objects, context);
+    const { objects } = compileTargets(renderer, drawables, target, camera);
+    return renderer.backend.compileObjects(objects, resolvePassParams({ target, camera }, createPassParams()));
 }
 /** Pre-warms compute pipelines. Throws on WebGL2, which cannot run them at all. */
 function compileCompute(renderer, nodes) {
-    return renderer.backend.compileCompute(Array.isArray(nodes) ? nodes : [nodes]);
+    return renderer.backend.compileCompute(nodes);
 }
 
 /**
@@ -35704,8 +35886,6 @@ class Renderer {
         this._initialized = true;
         return this;
     }
-    /** The renderer's one reusable frame, reopened. */
-    /** Pre-warm the drawables a pass will look up, resolved through the context that pass resolves. */
     dispose() {
         this.backend.dispose();
         // Cleared, not disposed one by one: the backend's teardown invalidates every GPU resource, and
@@ -35730,8 +35910,11 @@ class Renderer {
 }
 
 /**
- * The one place a `Renderer` is constructed. No 'auto' backend: only the caller knows what a probe
- * failure should fall back to, so a backend is chosen and built before this is called.
+ * Build a renderer on a backend and await its device. No 'auto' backend: only the caller knows what a
+ * probe failure should fall back to, so a backend is chosen and built before this is called.
+ *
+ * `new Renderer(backend)` then `await renderer.init()` is the other form, and it is not redundant: a
+ * caller assembling state synchronously has the renderer to hand before anything can be awaited.
  */
 function init(backend) {
     return new Renderer(backend).init();
@@ -35746,7 +35929,7 @@ function read(renderer, target, opts = {}) {
     if (isFrameOpen(renderer._frameState)) {
         return Promise.reject(new Error('[read] reading while a frame is open gives stale pixels; submit() first.'));
     }
-    return renderer.backend.readPixels(target, opts.attachment ?? 0, opts.layer ?? 0);
+    return renderer.backend.readPixels(target, opts.attachment ?? 0, opts.layer ?? 0, opts.mipLevel ?? 0);
 }
 
 function yieldToMain() {
@@ -35755,7 +35938,7 @@ function yieldToMain() {
         return scheduler.yield();
     }
     // fallback: setTimeout with 0ms delay yields to the event loop
-    return new Promise(resolve => setTimeout(resolve, 0));
+    return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 /**
@@ -36028,7 +36211,7 @@ function uniformDetail(block, material, changedBytes) {
  *
  * @param bindingPoint the GL uniform-buffer binding point this group's block was bound to (from the program)
  */
-function updateAndBindUniformGroup(gl, state, buffers, binding, frame, bindingPoint, material) {
+function updateAndBindUniformGroup(gl, b, binding, frame, bindingPoint, material) {
     const block = binding.block;
     // Update-type gate (identical to webgpu/bindings.ts updateUniformBinding).
     let skipCallbacks = false;
@@ -36048,7 +36231,7 @@ function updateAndBindUniformGroup(gl, state, buffers, binding, frame, bindingPo
         }
         // 'object' / 'none' always process.
     }
-    const data = getUboData(state, binding, block.totalBytes);
+    const data = getUboData(b.uniforms, binding, block.totalBytes);
     // Lazily claim the neutral key slot; `webgpu/bindings.ts` does the same, so both backends key a
     // uniform block's device buffer the same way.
     binding.bufferKey ??= {};
@@ -36061,7 +36244,7 @@ function updateAndBindUniformGroup(gl, state, buffers, binding, frame, bindingPo
         const changedBytes = data.uploaded ? changedByteCount(scratch, data.staging) : block.totalBytes;
         if (changedBytes > 0) {
             data.staging = scratch;
-            uploadUniformBlock(gl, buffers, binding.bufferKey, scratch, uniformDetail(block, material, changedBytes));
+            uploadUniformBlock(gl, b.buffers, binding.bufferKey, scratch, uniformDetail(block, material, changedBytes));
             data.uploaded = true;
         }
     }
@@ -36069,11 +36252,11 @@ function updateAndBindUniformGroup(gl, state, buffers, binding, frame, bindingPo
         // First time we see a skipped-shared group (already updated by another object this render):
         // still needs its bytes on the GPU. Pack + upload once.
         packGroup(block, new DataView(data.staging), material);
-        uploadUniformBlock(gl, buffers, binding.bufferKey, data.staging, uniformDetail(block, material, block.totalBytes));
+        uploadUniformBlock(gl, b.buffers, binding.bufferKey, data.staging, uniformDetail(block, material, block.totalBytes));
         data.uploaded = true;
     }
     // Bind the group's UBO to its program binding point.
-    const ubo = getRaw(buffers, binding.bufferKey);
+    const ubo = getRaw(b.buffers, binding.bufferKey);
     if (ubo)
         gl.bindBufferBase(gl.UNIFORM_BUFFER, bindingPoint, ubo);
 }
@@ -36097,10 +36280,10 @@ function getStandaloneUboData(state, block, byteLength) {
  *
  * @param bindingPoint the GL uniform-buffer binding point this group's block was bound to (from the program)
  */
-function updateAndBindStandaloneUniformGroup(gl, state, buffers, block, frame, bindingPoint) {
+function updateAndBindStandaloneUniformGroup(gl, b, block, frame, bindingPoint) {
     // Let any update callbacks (onFrame/onRender) assign node values; direct `.value` sets need nothing.
     invokeUniformGroupCallbacks(block, frame);
-    const data = getStandaloneUboData(state, block, block.totalBytes);
+    const data = getStandaloneUboData(b.uniforms, block, block.totalBytes);
     // Re-pack every dispatch: standalone-kernel uniforms change per frame and there is no dedup key.
     const scratch = new ArrayBuffer(block.totalBytes);
     packGroup(block, new DataView(scratch), null);
@@ -36108,10 +36291,10 @@ function updateAndBindStandaloneUniformGroup(gl, state, buffers, block, frame, b
     if (changedBytes > 0) {
         data.staging = scratch;
         // The block itself is the key: a standalone kernel has no BindGroup to hang one on.
-        uploadUniformBlock(gl, buffers, block, scratch, uniformDetail(block, null, changedBytes));
+        uploadUniformBlock(gl, b.buffers, block, scratch, uniformDetail(block, null, changedBytes));
         data.uploaded = true;
     }
-    const ubo = getRaw(buffers, block);
+    const ubo = getRaw(b.buffers, block);
     if (ubo)
         gl.bindBufferBase(gl.UNIFORM_BUFFER, bindingPoint, ubo);
 }
@@ -36397,8 +36580,10 @@ function prepareRenderObject$1(gl, b, nodes, renderObject, glslOptions) {
         getRenderObjectGl(b.renderObjectGl, renderObject).program = null;
     }
     const nodeState = renderObject.nodeBuilderState;
-    if (!nodeState || !nodeState.vertexCode)
-        return false;
+    if (!nodeState || !nodeState.vertexCode) {
+        throw new Error(`[webgl] '${renderObject.mesh.name || 'mesh'}' compiled to no vertex GLSL; skipping it here drops ` +
+            'it from the pass, which reads as a missing object rather than a failed compile.');
+    }
     // Ensure the RenderObject's bind groups exist (clones non-shared, reuses shared).
     getBindings(renderObject);
     // Compile + link (or fetch the cached) GL program for this material's source.
@@ -36564,10 +36749,10 @@ function glComponentType(gl, glType) {
  * Ensure the geometry's GL buffers are uploaded and its VAO (for `program`) is built, returning the
  * draw resources. Re-uploads buffers whose version changed. The VAO is cached per (geometry, program).
  */
-function prepareGeometry(gl, state, buffers, geometry, nodeState, program, label = 'geometry') {
-    const gb = getGeometryBuffers(gl, state, geometry);
+function prepareGeometry(gl, b, geometry, nodeState, program, label = 'geometry') {
+    const gb = getGeometryBuffers(gl, b.geometries, geometry);
     // Detach any currently-bound VAO before uploading. An index upload binds ELEMENT_ARRAY_BUFFER,
-    // which is captured as VAO state — doing that while a *previous* object's cached VAO is still
+    // which is captured as VAO b.geometries — doing that while a *previous* object's cached VAO is still
     // bound would rewrite that VAO's element binding to this geometry's index buffer, so its next
     // draw would run against the wrong (possibly smaller) buffer. Uploads must land on the default
     // VAO 0. The caller (the draw loop) rebinds the resolved VAO after this returns.
@@ -36577,12 +36762,12 @@ function prepareGeometry(gl, state, buffers, geometry, nodeState, program, label
     for (const group of nodeState.vertexBufferGroups) {
         const buffer = groupBuffer(geometry, group);
         if (buffer)
-            ensureUploaded(gl, buffers, buffer, gl.ARRAY_BUFFER, group.name ?? 'attribute');
+            ensureUploaded(gl, b.buffers, buffer, gl.ARRAY_BUFFER, group.name ?? 'attribute');
     }
     // Upload the index buffer if present.
     let indexType = null;
     if (geometry.index) {
-        ensureUploaded(gl, buffers, geometry.index, gl.ELEMENT_ARRAY_BUFFER, 'index');
+        ensureUploaded(gl, b.buffers, geometry.index, gl.ELEMENT_ARRAY_BUFFER, 'index');
         indexType = glIndexType(gl, geometry.index.array);
     }
     if (gb.bindingsVersion !== geometry.bindingsVersion) {
@@ -36602,9 +36787,11 @@ function prepareGeometry(gl, state, buffers, geometry, nodeState, program, label
         gl.bindVertexArray(vao);
         for (const group of nodeState.vertexBufferGroups) {
             const buffer = groupBuffer(geometry, group);
-            const glBuffer = buffer ? getUploaded(buffers, buffer) : undefined;
-            if (!glBuffer)
-                continue;
+            const glBuffer = buffer ? getUploaded(b.buffers, buffer) : undefined;
+            if (!glBuffer) {
+                throw new Error(`[webgl] the shader reads vertex buffer '${group.name ?? '(direct)'}' and the geometry has none; ` +
+                    'the attributes it feeds would read whatever was last bound.');
+            }
             gl.bindBuffer(gl.ARRAY_BUFFER, glBuffer);
             for (const attr of group.attributes) {
                 const fmt = attribFormat(attr.type);
@@ -36618,12 +36805,12 @@ function prepareGeometry(gl, state, buffers, geometry, nodeState, program, label
                     const offset = attr.offset + slot * columnBytes;
                     // Guard against the device attribute cap: a location past MAX_VERTEX_ATTRIBS is a
                     // silent no-op fetch (the shader reads zeros). Report it as a clear error instead.
-                    if (state.maxVertexAttribs == null) {
-                        state.maxVertexAttribs = gl.getParameter(gl.MAX_VERTEX_ATTRIBS);
+                    if (b.geometries.maxVertexAttribs == null) {
+                        b.geometries.maxVertexAttribs = gl.getParameter(gl.MAX_VERTEX_ATTRIBS);
                     }
-                    if (location >= state.maxVertexAttribs) {
+                    if (location >= b.geometries.maxVertexAttribs) {
                         throw new Error(`[webgl] a geometry uses vertex attribute location ${location}, but this ` +
-                            `device's MAX_VERTEX_ATTRIBS=${state.maxVertexAttribs}; reduce the number of vertex ` +
+                            `device's MAX_VERTEX_ATTRIBS=${b.geometries.maxVertexAttribs}; reduce the number of vertex ` +
                             `attributes on the WebGL2 backend.`);
                     }
                     gl.enableVertexAttribArray(location);
@@ -36638,8 +36825,8 @@ function prepareGeometry(gl, state, buffers, geometry, nodeState, program, label
                 }
             }
         }
-        // Bind the index buffer inside the VAO so it is captured as element-array state.
-        const glIndex = geometry.index ? getUploaded(buffers, geometry.index) : undefined;
+        // Bind the index buffer inside the VAO so it is captured as element-array b.geometries.
+        const glIndex = geometry.index ? getUploaded(b.buffers, geometry.index) : undefined;
         if (glIndex) {
             gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, glIndex);
         }
@@ -37570,9 +37757,6 @@ function createGlRenderTargetsState() {
     return { data: new WeakMap(), fbos: new Set(), renderbuffers: new Set(), msaaWarned: false, pendingResolve: null };
 }
 /** Whether the target's depth format carries a stencil aspect. */
-function depthFormatHasStencil(format) {
-    return format === 'depth24plus-stencil8' || format === 'depth32float-stencil8';
-}
 /** Sized GL internal format for a depth (/stencil) renderbuffer of the given depth-texture format. */
 function depthRenderbufferInternalFormat(gl, format) {
     switch (format) {
@@ -37584,8 +37768,13 @@ function depthRenderbufferInternalFormat(gl, format) {
             return gl.DEPTH24_STENCIL8;
         case 'depth32float-stencil8':
             return gl.DEPTH32F_STENCIL8;
+        // A target with no depth attachment asks for none; `depth24plus` is the one that maps here.
+        case undefined:
+        case 'depth24plus':
+            return gl.DEPTH_COMPONENT24;
         default:
-            return gl.DEPTH_COMPONENT24; // 'depth24plus' and the sensible default
+            throw new Error(`[webgl] '${format}' is not a depth format; a renderbuffer allocated as depth24 would ` +
+                'silently drop its stencil aspect.');
     }
 }
 /**
@@ -37623,11 +37812,11 @@ function isCube(rt) {
  * into the texture FBO at pass end by `resolveActiveRenderTarget`. For a cube target the selected
  * `activeFace` is attached as the color attachment (re-attached cheaply when the face changes).
  */
-function bindRenderTargetFramebuffer(gl, state, textures, renderTarget) {
+function bindRenderTargetFramebuffer(gl, b, renderTarget, layer, mipLevel) {
     // Ensure each color texture's GL storage exists at the current size/format.
     const colorGenerations = [];
     for (const tex of renderTarget.textures) {
-        const data = updateTexture(gl, textures, tex._gpuTexture);
+        const data = updateTexture(gl, b.textures, tex._gpuTexture);
         colorGenerations.push(data.generation);
     }
     // Ensure the depth texture's GL storage exists ONLY when depth is sampled (attached as a texture).
@@ -37635,10 +37824,10 @@ function bindRenderTargetFramebuffer(gl, state, textures, renderTarget) {
     // leaner on the weaker devices the WebGL fallback runs on.
     let depthGeneration = -1;
     if (renderTarget._depthAttachment && renderTarget.depthSampled) {
-        const data = updateTexture(gl, textures, renderTarget._depthAttachment._gpuTexture);
+        const data = updateTexture(gl, b.textures, renderTarget._depthAttachment._gpuTexture);
         depthGeneration = data.generation;
     }
-    let fboData = state.data.get(renderTarget);
+    let fboData = b.renderTargets.data.get(renderTarget);
     const sizeChanged = fboData ? fboData.width !== renderTarget.width || fboData.height !== renderTarget.height : true;
     const depthModeChanged = fboData ? fboData.depthSampled !== renderTarget.depthSampled : false;
     const generationsChanged = fboData &&
@@ -37646,36 +37835,36 @@ function bindRenderTargetFramebuffer(gl, state, textures, renderTarget) {
             fboData.colorGenerations.length !== colorGenerations.length ||
             fboData.colorGenerations.some((g, i) => g !== colorGenerations[i]));
     if (!fboData || sizeChanged || depthModeChanged || generationsChanged) {
-        fboData = rebuildFbo(gl, state, textures, renderTarget, fboData, colorGenerations, depthGeneration);
+        fboData = rebuildFbo(gl, b.renderTargets, b.textures, renderTarget, fboData, colorGenerations, depthGeneration);
     }
-    // Cube target: (re)attach the selected face as the color attachment if it changed.
-    if (isCube(renderTarget) && fboData.attachedFace !== renderTarget.activeFace) {
-        attachCubeFace(gl, textures, renderTarget, fboData);
+    // A level change needs the same re-attach as a face change: the level is baked into the attachment.
+    if (isCube(renderTarget) && (fboData.attachedFace !== layer || fboData.attachedMip !== mipLevel)) {
+        attachCubeFace(gl, b.textures, renderTarget, fboData, layer, mipLevel);
     }
-    const hasStencil = depthFormatHasStencil(renderTarget._depthAttachment?.format);
+    const hasStencil = formatHasStencil(renderTarget._depthAttachment?.format);
     // MSAA: render into the multisample FBO; remember the target so pass end resolves it.
     if (fboData.msaa) {
         gl.bindFramebuffer(gl.FRAMEBUFFER, fboData.msaa.fbo);
-        state.pendingResolve = renderTarget;
+        b.renderTargets.pendingResolve = renderTarget;
     }
     else {
         gl.bindFramebuffer(gl.FRAMEBUFFER, fboData.fbo);
-        state.pendingResolve = null;
+        b.renderTargets.pendingResolve = null;
     }
     return { hasStencil };
 }
-/** Attach the cube target's `activeFace` as the FBO's `COLOR_ATTACHMENT0`. */
-function attachCubeFace(gl, textures, renderTarget, fboData) {
+/** Attach one face at one level as the FBO's `COLOR_ATTACHMENT0`. */
+function attachCubeFace(gl, textures, renderTarget, fboData, layer, mipLevel) {
     const data = getTextureData(textures, renderTarget.texture._gpuTexture);
     if (!data)
         return;
     gl.bindFramebuffer(gl.FRAMEBUFFER, fboData.fbo);
-    const faceTarget = gl.TEXTURE_CUBE_MAP_POSITIVE_X + renderTarget.activeFace;
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, faceTarget, data.texture, renderTarget.activeMipmapLevel);
-    fboData.attachedFace = renderTarget.activeFace;
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_CUBE_MAP_POSITIVE_X + layer, data.texture, mipLevel);
+    fboData.attachedFace = layer;
+    fboData.attachedMip = mipLevel;
     const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
     if (status !== gl.FRAMEBUFFER_COMPLETE) {
-        throw new Error(`[webgl] cube framebuffer is incomplete (face ${renderTarget.activeFace}, status 0x${status.toString(16)}); ` +
+        throw new Error(`[webgl] cube framebuffer is incomplete (face ${layer} level ${mipLevel}, status 0x${status.toString(16)}); ` +
             `rendering into an incomplete framebuffer is not supported on the WebGL2 backend.`);
     }
 }
@@ -37692,7 +37881,6 @@ function rebuildFbo(gl, state, textures, renderTarget, existing, colorGeneration
     }
     gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
     const cube = isCube(renderTarget);
-    let attachedFace = -1;
     // Color attachments.
     const drawBuffers = [];
     renderTarget.textures.forEach((tex, i) => {
@@ -37701,15 +37889,9 @@ function rebuildFbo(gl, state, textures, renderTarget, existing, colorGeneration
             return;
         ensureColorRenderable(gl, tex.format);
         const attachment = gl.COLOR_ATTACHMENT0 + i;
-        if (cube) {
-            // Attach the currently-selected cube face (attachment 0 only — a cube target has one color).
-            const faceTarget = gl.TEXTURE_CUBE_MAP_POSITIVE_X + renderTarget.activeFace;
-            gl.framebufferTexture2D(gl.FRAMEBUFFER, attachment, faceTarget, data.texture, renderTarget.activeMipmapLevel);
-            attachedFace = renderTarget.activeFace;
-        }
-        else {
+        // A cube's colour attachment is `attachCubeFace`'s, and the sentinels below make it run.
+        if (!cube)
             gl.framebufferTexture2D(gl.FRAMEBUFFER, attachment, gl.TEXTURE_2D, data.texture, 0);
-        }
         drawBuffers.push(attachment);
     });
     if (drawBuffers.length > 0) {
@@ -37735,14 +37917,14 @@ function rebuildFbo(gl, state, textures, renderTarget, existing, colorGeneration
         freeDepthRenderbuffer();
         const data = getTextureData(textures, renderTarget._depthAttachment._gpuTexture);
         if (data) {
-            const stencil = depthFormatHasStencil(renderTarget._depthAttachment.format);
+            const stencil = formatHasStencil(renderTarget._depthAttachment.format);
             const attachment = stencil ? gl.DEPTH_STENCIL_ATTACHMENT : gl.DEPTH_ATTACHMENT;
             gl.framebufferTexture2D(gl.FRAMEBUFFER, attachment, gl.TEXTURE_2D, data.texture, 0);
         }
     }
     else if (renderTarget._depthAttachment) {
         // Unsampled depth uses a renderbuffer (reused across rebuilds; re-specified at the current size).
-        const stencil = depthFormatHasStencil(renderTarget._depthAttachment.format);
+        const stencil = formatHasStencil(renderTarget._depthAttachment.format);
         const internalFormat = depthRenderbufferInternalFormat(gl, renderTarget._depthAttachment.format);
         if (!depthRenderbuffer) {
             const created = gl.createRenderbuffer();
@@ -37826,7 +38008,8 @@ function rebuildFbo(gl, state, textures, renderTarget, existing, colorGeneration
         depthGeneration,
         width: renderTarget.width,
         height: renderTarget.height,
-        attachedFace,
+        attachedFace: -1,
+        attachedMip: -1,
         msaa,
     };
     state.data.set(renderTarget, fboData);
@@ -37895,7 +38078,7 @@ function buildMsaaFbo(gl, state, textures, renderTarget) {
                 state.renderbuffers.add(rb);
                 gl.bindRenderbuffer(gl.RENDERBUFFER, rb);
                 gl.renderbufferStorageMultisample(gl.RENDERBUFFER, samples, depthData.fmt.internalFormat, w, h);
-                const stencil = depthFormatHasStencil(renderTarget._depthAttachment.format);
+                const stencil = formatHasStencil(renderTarget._depthAttachment.format);
                 const attachment = stencil ? gl.DEPTH_STENCIL_ATTACHMENT : gl.DEPTH_ATTACHMENT;
                 gl.framebufferRenderbuffer(gl.FRAMEBUFFER, attachment, gl.RENDERBUFFER, rb);
                 depthRenderbuffer = rb;
@@ -38573,17 +38756,17 @@ function resolveStorageSource(gl, textures, renderObject, source) {
     const width = Math.min(totalTexels, textures.maxTextureSize);
     return { buffer, width, height: Math.ceil(totalTexels / width), bytesPerTexel };
 }
-function bindTextures(gl, textures, samplers, renderObject, programInfo) {
+function bindTextures(gl, b, renderObject, programInfo) {
     const bindGroups = getBindings(renderObject);
-    // First pass: collect the GpuSampler assigned to each texture unit (samplers share the unit of
+    // First pass: collect the GpuSampler assigned to each texture unit (b.samplers share the unit of
     // their paired texture, per the combined-sampler model).
-    // We look them up per-unit as we bind textures below.
+    // We look them up per-unit as we bind b.textures below.
     for (const bindGroup of bindGroups) {
         for (const binding of bindGroup.bindings) {
             if (binding.kind === 'storageTexture') {
-                // Storage textures (texture_storage_*, written via textureStore in a compute pass) are
+                // Storage b.textures (texture_storage_*, written via textureStore in a compute pass) are
                 // a WebGPU-only capability; WebGL2 core has no image load/store.
-                throw new Error('[webgl] storage textures are not supported on the WebGL2 backend.');
+                throw new Error('[webgl] storage b.textures are not supported on the WebGL2 backend.');
             }
             if (binding.kind !== 'texture')
                 continue;
@@ -38593,12 +38776,12 @@ function bindTextures(gl, textures, samplers, renderObject, programInfo) {
             // a 0-based index across every texture + storage-buffer a material samples; once it reaches
             // MAX_COMBINED_TEXTURE_IMAGE_UNITS, `activeTexture(TEXTURE0 + unit)` addresses a non-existent
             // unit and the draw samples garbage. Turn that silent corruption into a clear, actionable error.
-            if (textures.maxTextureUnits == null) {
-                textures.maxTextureUnits = gl.getParameter(gl.MAX_COMBINED_TEXTURE_IMAGE_UNITS);
+            if (b.textures.maxTextureUnits == null) {
+                b.textures.maxTextureUnits = gl.getParameter(gl.MAX_COMBINED_TEXTURE_IMAGE_UNITS);
             }
-            if (unit >= textures.maxTextureUnits) {
-                throw new Error(`[webgl] a material samples more textures + storage buffers than this device's ` +
-                    `MAX_COMBINED_TEXTURE_IMAGE_UNITS=${textures.maxTextureUnits} (needs unit ${unit}); ` +
+            if (unit >= b.textures.maxTextureUnits) {
+                throw new Error(`[webgl] a material samples more b.textures + storage buffers than this device's ` +
+                    `MAX_COMBINED_TEXTURE_IMAGE_UNITS=${b.textures.maxTextureUnits} (needs unit ${unit}); ` +
                     `reduce the number sampled by one material on the WebGL2 backend.`);
             }
             // storage() read-lowering: the binding is a read-only storage GpuBuffer reinterpreted AS an
@@ -38615,8 +38798,8 @@ function bindTextures(gl, textures, samplers, renderObject, programInfo) {
             if (storageSource) {
                 // Name-based sources (`storage('slot','read')` + `geometry.setBuffer('slot',…)`) resolve
                 // their buffer from THIS render object's geometry now; value-based already carry it.
-                const resolved = resolveStorageSource(gl, textures, renderObject, storageSource);
-                const glTexture = updateStorageBufferTexture(gl, textures, resolved);
+                const resolved = resolveStorageSource(gl, b.textures, renderObject, storageSource);
+                const glTexture = updateStorageBufferTexture(gl, b.textures, resolved);
                 gl.activeTexture(gl.TEXTURE0 + unit); // updateStorageBufferTexture may have left another unit active
                 gl.bindTexture(gl.TEXTURE_2D, glTexture);
                 gl.bindSampler(unit, null);
@@ -38628,14 +38811,14 @@ function bindTextures(gl, textures, samplers, renderObject, programInfo) {
             const gpuTexture = entry.node.value;
             if (!gpuTexture)
                 continue;
-            // Upload / allocate the GL texture (version-gated). Render-target textures are allocated
+            // Upload / allocate the GL texture (version-gated). Render-target b.textures are allocated
             // by the FBO path; if never seen, updateTexture allocates them here as a safe fallback.
-            let texData = getTextureData(textures, gpuTexture);
+            let texData = getTextureData(b.textures, gpuTexture);
             if (!gpuTexture.isRenderTargetTexture) {
-                texData = updateTexture(gl, textures, gpuTexture);
+                texData = updateTexture(gl, b.textures, gpuTexture);
             }
             else if (!texData) {
-                texData = updateTexture(gl, textures, gpuTexture);
+                texData = updateTexture(gl, b.textures, gpuTexture);
             }
             if (!texData)
                 continue;
@@ -38649,7 +38832,7 @@ function bindTextures(gl, textures, samplers, renderObject, programInfo) {
             assertIntegerNotFiltered(gpuTexture.format, gpuSampler);
             if (gpuSampler) {
                 const hasMips = gpuTexture.generateMipmaps;
-                const glSampler = getSampler(gl, samplers, gpuSampler, hasMips);
+                const glSampler = getSampler(gl, b.samplers, gpuSampler, hasMips);
                 gl.bindSampler(unit, glSampler);
             }
             else {
@@ -38680,7 +38863,7 @@ function bindTextures(gl, textures, samplers, renderObject, programInfo) {
  * combined-sampler uniform `u_<textureId>` is set to that unit. The user binds neighbour data as an
  * explicit `DataTexture` referenced by the kernel's `textureLoad` — there is no hidden mirror.
  */
-function bindStandaloneTextures(gl, textures, samplers, textureEntries, samplerEntries, programInfo) {
+function bindStandaloneTextures(gl, b, textureEntries, samplerEntries, programInfo) {
     for (const entry of textureEntries) {
         const unit = entry.binding;
         const gpuTexture = entry.node.value;
@@ -38688,12 +38871,12 @@ function bindStandaloneTextures(gl, textures, samplers, textureEntries, samplerE
             throw new Error(`[webgl] transform-feedback kernel samples texture '${entry.textureId}' but no ` +
                 `GpuTexture is bound to it (set the DataTexture on the texture node before dispatch).`);
         }
-        let texData = getTextureData(textures, gpuTexture);
+        let texData = getTextureData(b.textures, gpuTexture);
         if (!gpuTexture.isRenderTargetTexture) {
-            texData = updateTexture(gl, textures, gpuTexture);
+            texData = updateTexture(gl, b.textures, gpuTexture);
         }
         else if (!texData) {
-            texData = updateTexture(gl, textures, gpuTexture);
+            texData = updateTexture(gl, b.textures, gpuTexture);
         }
         if (!texData)
             continue;
@@ -38704,7 +38887,7 @@ function bindStandaloneTextures(gl, textures, samplers, textureEntries, samplerE
         assertIntegerNotFiltered(gpuTexture.format, gpuSampler);
         if (gpuSampler) {
             const hasMips = gpuTexture.generateMipmaps;
-            const glSampler = getSampler(gl, samplers, gpuSampler, hasMips);
+            const glSampler = getSampler(gl, b.samplers, gpuSampler, hasMips);
             gl.bindSampler(unit, glSampler);
         }
         else {
@@ -38756,38 +38939,38 @@ function findSamplerForUnit(bindGroups, unit) {
  */
 function bindFramebuffer(gl, caches, params) {
     if (params.renderTarget) {
-        return bindRenderTargetFramebuffer(gl, caches.renderTargets, caches.textures, params.renderTarget);
+        return bindRenderTargetFramebuffer(gl, caches, params.renderTarget, params.layer, params.mipLevel);
     }
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     return { hasStencil: params.swapchainStencil };
 }
-/** Apply the pass context's resolved (physical-pixel) viewport + scissor to GL state. */
-function applyViewportScissor(gl, passCtx) {
-    if (passCtx.viewport) {
-        const v = passCtx.viewportValue;
+/** Apply the pass's resolved (physical-pixel) viewport + scissor to GL state. */
+function applyViewportScissor(gl, params) {
+    if (params.viewport) {
+        const v = params.viewportValue;
         // WebGPU's viewport origin is top-left; GL's is bottom-left. Flip Y against the framebuffer height
         // so a top-left rect (e.g. the studio grid's per-card cells, sourced from DOM coordinates) lands in
         // the right place. A full-framebuffer viewport is unchanged by the flip.
-        gl.viewport(v.x, passCtx.height - v.y - v.height, v.width, v.height);
+        gl.viewport(v.x, params.height - v.y - v.height, v.width, v.height);
         // Honor the viewport's depth range (defaults 0,1). Threaded through per pass so a prior pass's
         // custom range never leaks into this one.
         gl.depthRange(v.minDepth, v.maxDepth);
     }
     else {
-        // No explicit viewport for this pass → cover the full framebuffer at its own size. `passCtx.width`
+        // No explicit viewport for this pass → cover the full framebuffer at its own size. `params.width`
         // / `.height` are the physical framebuffer dimensions (the render target's size, or the canvas
         // drawing buffer). Setting this every pass (rather than relying on the last gl.viewport) is what
         // lets a render target larger than the canvas draw correctly — e.g. a headless 1x1 OffscreenCanvas
         // rendering into a full-size target. Also restore the default full depth range so a preceding
         // pass's custom depthRange doesn't persist as stale state.
-        gl.viewport(0, 0, passCtx.width, passCtx.height);
+        gl.viewport(0, 0, params.width, params.height);
         gl.depthRange(0, 1);
     }
-    if (passCtx.scissor) {
-        const s = passCtx.scissorValue;
+    if (params.scissor) {
+        const s = params.scissorValue;
         gl.enable(gl.SCISSOR_TEST);
         // Same top-left to bottom-left Y flip as the viewport above.
-        gl.scissor(s.x, passCtx.height - s.y - s.height, s.width, s.height);
+        gl.scissor(s.x, params.height - s.y - s.height, s.width, s.height);
     }
     else {
         gl.disable(gl.SCISSOR_TEST);
@@ -38873,21 +39056,26 @@ function planPassBlend(passCtx) {
     }
     return { targetName, opaqueOnly: sawMaterial && sawNo };
 }
-function beginPass$1(gl, caches, passCtx, params) {
+function beginPass$1(caches, passCtx, params) {
+    const gl = caches.gl;
     const passBlend = planPassBlend(passCtx);
     const { hasStencil: targetStencil } = bindFramebuffer(gl, caches, params);
-    applyViewportScissor(gl, passCtx);
-    if (params.autoClear || params.autoClearDepth || params.autoClearStencil) {
-        clearBuffers(gl, params, params.autoClear, params.autoClearDepth, params.autoClearStencil, targetStencil);
+    // Before the scissor, not after: `gl.clear` obeys the scissor box and WebGPU's `loadOp` does not,
+    // so clearing under it would make one `clear` mean two different regions on the two backends.
+    if (params.clearsColor || params.clearsDepth || params.clearsStencil) {
+        gl.disable(gl.SCISSOR_TEST);
+        clearBuffers(gl, params, params.clearsColor, params.clearsDepth, params.clearsStencil, targetStencil);
     }
+    applyViewportScissor(gl, params);
     return { passBlend };
 }
 /** Unbinds the VAO so later buffer mutations cannot record into it, then resolves an MSAA target. */
-function endPass$1(gl, caches) {
+function endPass$1(caches) {
+    const gl = caches.gl;
     gl.bindVertexArray(null);
     resolveActiveRenderTarget(gl, caches.renderTargets);
 }
-function encodeDraws$1(gl, caches, nodes, passCtx, prepared, preparedOpts, count, inspector, info, { passBlend }) {
+function encodeDraws$1(gl, caches, nodes, passCtx, params, prepared, preparedOpts, count, inspector, info, { passBlend }) {
     const hasStencil = !!passCtx.stencil;
     // Pin the GL globals the fresh state cache assumes but the per-draw material state doesn't set
     // (winding, stencil write mask, rasterizer discard) — see establishPassBaseline.
@@ -38913,8 +39101,9 @@ function encodeDraws$1(gl, caches, nodes, passCtx, prepared, preparedOpts, count
         updateForRender$1(nodes, renderObject);
         const payload = getRenderObjectGl(caches.renderObjectGl, renderObject);
         const programInfo = payload.program;
-        if (!programInfo)
-            continue;
+        if (!programInfo) {
+            throw new Error(`[webgl] '${mesh.name || 'mesh'}' reached the draw loop with no linked program.`);
+        }
         // Program (deduped). Inspector: a program switch is the WebGL analogue of a pipeline switch.
         if (currentProgram !== programInfo.program) {
             gl.useProgram(programInfo.program);
@@ -38923,7 +39112,7 @@ function encodeDraws$1(gl, caches, nodes, passCtx, prepared, preparedOpts, count
             // framebuffer height so they match WebGPU's top-left origin. Constant per pass; set on
             // each program bind. null location = program doesn't use the builtin.
             if (programInfo.fragCoordFlipHeightLocation != null) {
-                gl.uniform1f(programInfo.fragCoordFlipHeightLocation, passCtx.height);
+                gl.uniform1f(programInfo.fragCoordFlipHeightLocation, params.height);
             }
             if (inspector)
                 inspector.setPipeline(pipelineLabel(mesh, material));
@@ -38939,18 +39128,18 @@ function encodeDraws$1(gl, caches, nodes, passCtx, prepared, preparedOpts, count
                 const bindingPoint = programInfo.uboBindingPoints.get(binding.block.groupName);
                 if (bindingPoint === undefined)
                     continue; // block optimized out / unused
-                updateAndBindUniformGroup(gl, caches.uniforms, caches.buffers, binding, frame, bindingPoint, material);
+                updateAndBindUniformGroup(gl, caches, binding, frame, bindingPoint, material);
             }
             if (inspector)
                 inspector.setBindGroup(bindGroupIndex, mesh.name || '');
             bindGroupIndex++;
         }
         // Texture + sampler bindings → GL texture units + combined-sampler uniforms.
-        bindTextures(gl, caches.textures, caches.samplers, renderObject, programInfo);
+        bindTextures(gl, caches, renderObject, programInfo);
         // Geometry VAO (uploads buffers + builds/reuses the VAO for this program).
         // `prepareGeometry` detaches the VAO to upload buffers safely (see its note), so the GL VAO
         // is unbound on return — always rebind the resolved one here rather than deduping the GL call.
-        const drawInfo = prepareGeometry(gl, caches.geometries, caches.buffers, geometry, nodeState, programInfo.program, renderObject.mesh.name || 'mesh');
+        const drawInfo = prepareGeometry(gl, caches, geometry, nodeState, programInfo.program, renderObject.mesh.name || 'mesh');
         gl.bindVertexArray(drawInfo.vao);
         if (currentVao !== drawInfo.vao) {
             currentVao = drawInfo.vao;
@@ -39029,396 +39218,6 @@ function encodeDraws$1(gl, caches, nodes, passCtx, prepared, preparedOpts, count
         }
         updateAfter(nodes, renderObject);
     }
-}
-
-function createWebGLFrameBackendState(renderer, backend) {
-    return {
-        renderer,
-        backend,
-        preparedByDepth: [],
-        preparedOptsByDepth: [],
-        segmentsByDepth: [],
-        depth: 0,
-    };
-}
-/** A lost context cannot be drawn to; every frame phase becomes a no-op rather than touching it. */
-function usable$1(s) {
-    return !s.renderer._isDeviceLost && s.backend.gl !== null;
-}
-function beginFrame$1(s) {
-    if (!usable$1(s))
-        return;
-    const frame = s.renderer._nodes.nodeFrame;
-    frame.frameId++;
-    s.renderer._beginInfoFrame();
-    s.renderer.inspector?.begin(frame.frameId);
-}
-function encodePass$1(s, desc, records, count) {
-    if (!usable$1(s))
-        return;
-    const { renderer } = s;
-    const nodeFrame = renderer._nodes.nodeFrame;
-    alignCameraToBackend(desc.camera, CoordinateSystem.WEBGL);
-    if (desc.mrt !== undefined) {
-        const mrtTarget = renderTargetOf(desc.target);
-        if (mrtTarget === null) {
-            throw new Error('[frame] a pass with `mrt` needs a RenderTarget; the swapchain has one attachment');
-        }
-        // Output names resolve against the target's texture names, which is the MRT contract.
-        desc.mrt.resolveOutputs((name) => mrtTarget.getTextureIndex(name), mrtTarget.textures.map((t) => t.name));
-    }
-    const canvasTarget = renderTargetOf(desc.target) === null ? desc.target : null;
-    if (canvasTarget?.autoResize)
-        canvasTarget.syncToClientSize();
-    const ctx = resolvePassContext(renderer._renderContexts, desc);
-    if (ctx.width === 0 || ctx.height === 0)
-        return; // hidden or minimized canvas
-    const params = resolvePassParams(desc);
-    renderer.info.render.calls++;
-    renderer.info.render.frameCalls++;
-    // Fresh per pass, so RENDER-scope node updates run once per pass rather than once per frame.
-    const previousRenderId = nodeFrame.beginRender();
-    setNodeFrame$1(s, desc, ctx);
-    renderer.inspector?.beginRender(params.passId);
-    try {
-        encodeOpenPass$1(s, desc, ctx, params, records, count);
-    }
-    finally {
-        // One bracket for the pass, so a throw anywhere inside it still closes the render scope and
-        // the inspector's pass rather than leaving both open for the rest of the frame.
-        renderer.inspector?.finishRender(params.passId);
-        nodeFrame.endRender(previousRenderId);
-    }
-}
-function encodeOpenPass$1(s, desc, ctx, params, records, count) {
-    const { renderer, backend } = s;
-    const prepared = preparedAt(s.preparedByDepth, s.depth);
-    const preparedOpts = preparedAt(s.preparedOptsByDepth, s.depth);
-    const segments = preparedAt(s.segmentsByDepth, s.depth);
-    s.depth++;
-    let preparedCount = 0;
-    try {
-        preparedCount = prepareRecordedDraws(renderer, records, count, ctx.camera, ctx, renderer.inspector === null ? null : params.passId, (nodes, renderObject) => prepareRenderObject$1(backend.gl, backend, nodes, renderObject, {
-            precision: backend._opts.precision,
-            maxTextureSize: backend._maxTextureSize,
-        }), prepared, preparedOpts, segments);
-    }
-    finally {
-        s.depth--;
-    }
-    // A nested pass prepared against its own target, so restore this one's view of the frame.
-    setNodeFrame$1(s, desc, ctx);
-    const scope = beginPass$1(backend.gl, backend, ctx, params);
-    try {
-        if (preparedCount > 0) {
-            encodeDraws$1(backend.gl, backend, renderer._nodes, ctx, prepared, preparedOpts, preparedCount, renderer.inspector, renderer.info, scope);
-        }
-    }
-    finally {
-        endPass$1(backend.gl, backend);
-    }
-    const renderTarget = renderTargetOf(desc.target);
-    if (renderTarget) {
-        for (const tex of renderTarget.textures) {
-            if (tex.generateMipmaps)
-                generateTextureMipmaps(backend.gl, backend.textures, tex._gpuTexture);
-        }
-    }
-}
-function setNodeFrame$1(s, desc, ctx) {
-    const frame = s.renderer._nodes.nodeFrame;
-    frame.renderer = s.renderer;
-    frame.camera = desc.camera ?? null;
-    frame.width = ctx.width;
-    frame.height = ctx.height;
-}
-/** Unreachable: `beginComputePass` rejects this backend by name before any dispatch is recorded. */
-function encodeComputePass$1() {
-    throw new Error('[frame] compute passes need the webgpu backend; WebGL2 has no compute shaders');
-}
-/** WebGL2 is immediate mode: the work reached the driver as each pass ended, so neither can undo it. */
-function submitFrame$1(s) {
-    if (!usable$1(s))
-        return;
-    s.renderer.inspector?.finish(s.renderer._nodes.nodeFrame.frameId);
-}
-function discardFrame$1(s) {
-    if (!usable$1(s))
-        return;
-    s.renderer.inspector?.finish(s.renderer._nodes.nodeFrame.frameId);
-}
-
-/**
- * probe.ts (webgl) - render a single RenderObject with a PATCHED fragment shader into a tiny FBO and
- * read back the resulting color. Drives the Inspector's live-value shader probe on the WebGL backend.
- *
- * This is the GL sibling of the WebGPU probe re-render in inspector.ts. It reuses the SAME device
- * layer the normal draw uses — `programs.ts` to compile+link a patched program (real vertex GLSL +
- * the probe's patched fragment GLSL), `geometries.ts` to bind the object's VAO, `bindings.ts` to
- * update+bind its std140 UBOs (camera/model, already valid this frame), and `texture-bindings.ts`
- * for its textures — so the probe renders the same mesh with the same inputs, only the fragment
- * output changes. It renders to a 1×1 RGBA8 FBO and `gl.readPixels` the single pixel, returning the
- * decoded value.
- *
- * Nothing here touches WebGPU. The patched-program cache is keyed by the patched fragment source so
- * hovering the same expression across frames reuses one program.
- */
-/** Split the emitter's combined `code` into vertex + fragment; returns the VERTEX source only. */
-function extractVertexSrc(code) {
-    const idx = code.indexOf(FRAGMENT_STAGE_MARKER);
-    return (idx === -1 ? code : code.slice(0, idx)).trimEnd();
-}
-function compileShader(gl, type, source) {
-    const shader = gl.createShader(type);
-    if (!shader)
-        throw new Error('[webgl] createShader returned null.');
-    gl.shaderSource(shader, source);
-    gl.compileShader(shader);
-    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-        const log = gl.getShaderInfoLog(shader);
-        gl.deleteShader(shader);
-        const stage = type === gl.VERTEX_SHADER ? 'vertex' : 'fragment';
-        throw new Error(`[webgl] ${stage} shader compile failed:\n${log}\n---- source ----\n${source}`);
-    }
-    return shader;
-}
-/**
- * Build (or reuse) the probe program + 1×1 FBO. The probe program links the RenderObject's real
- * VERTEX GLSL with the caller's patched FRAGMENT GLSL, resolving the same std140 UBO binding points
- * the normal program does (so the object's uniform groups bind correctly).
- */
-function buildProbeGl(gl, ro, patchedFragment, previous) {
-    if (previous && previous.fragmentSrc === patchedFragment)
-        return previous;
-    if (previous)
-        disposeProbeGl(gl, previous);
-    const nodeState = ro.nodeBuilderState;
-    if (!nodeState || !nodeState.vertexCode) {
-        throw new Error('[webgl] RenderObject has no compiled GLSL.');
-    }
-    const vertexSrc = extractVertexSrc(nodeState.vertexCode);
-    const vs = compileShader(gl, gl.VERTEX_SHADER, vertexSrc);
-    const fs = compileShader(gl, gl.FRAGMENT_SHADER, patchedFragment);
-    const program = gl.createProgram();
-    if (!program)
-        throw new Error('[webgl] createProgram returned null.');
-    gl.attachShader(program, vs);
-    gl.attachShader(program, fs);
-    gl.linkProgram(program);
-    gl.deleteShader(vs);
-    gl.deleteShader(fs);
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-        const log = gl.getProgramInfoLog(program);
-        gl.deleteProgram(program);
-        throw new Error(`[webgl] program link failed:\n${log}`);
-    }
-    // Resolve + bind each std140 UBO block to a fresh binding point (same scheme as programs.ts).
-    const uboBindingPoints = new Map();
-    let nextBindingPoint = 0;
-    for (const group of nodeState.uniformGroups) {
-        if (group.members.length === 0)
-            continue;
-        if (uboBindingPoints.has(group.groupName))
-            continue;
-        const blockIndex = gl.getUniformBlockIndex(program, `Uniforms_${group.groupName}`);
-        if (blockIndex === gl.INVALID_INDEX)
-            continue;
-        const bindingPoint = nextBindingPoint++;
-        gl.uniformBlockBinding(program, blockIndex, bindingPoint);
-        uboBindingPoints.set(group.groupName, bindingPoint);
-    }
-    // 1×1 RGBA8 color texture + depth renderbuffer FBO for the readback.
-    const colorTex = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, colorTex);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-    const depthRb = gl.createRenderbuffer();
-    gl.bindRenderbuffer(gl.RENDERBUFFER, depthRb);
-    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, 1, 1);
-    const fbo = gl.createFramebuffer();
-    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, colorTex, 0);
-    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depthRb);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    return {
-        program,
-        uboBindingPoints,
-        samplerLocations: new Map(),
-        fbo,
-        colorTex,
-        depthRb,
-        fragmentSrc: patchedFragment,
-    };
-}
-/** Free all GL resources of a probe program. */
-function disposeProbeGl(gl, p) {
-    gl.deleteProgram(p.program);
-    gl.deleteFramebuffer(p.fbo);
-    gl.deleteTexture(p.colorTex);
-    gl.deleteRenderbuffer(p.depthRb);
-}
-function createProbeState() {
-    return { gl: null };
-}
-function disposeProbeState(gl, state) {
-    if (gl && state.gl)
-        disposeProbeGl(gl, state.gl);
-    state.gl = null;
-}
-/**
- * Render the RenderObject with the patched fragment into the 1×1 FBO and read back the pixel.
- *
- * Reuses the object's VAO / UBOs / textures via the shared device functions. Returns the RGBA bytes
- * (0..255) of the single rendered pixel, or null if the object has nothing to draw. Restores GL
- * bindings (framebuffer, VAO, program) to their defaults afterward so the main render loop is
- * unaffected — the probe runs after the main frame's draws, on a separate FBO.
- */
-function renderProbe(gl, state, caches, ro, patchedFragment) {
-    const mesh = ro.mesh;
-    if (mesh.count === 0)
-        return null;
-    const nodeState = ro.nodeBuilderState;
-    if (!nodeState)
-        return null;
-    const geometry = ro.geometry;
-    // Build / reuse the probe program (compile errors surface as a thrown Error to the caller).
-    const p = buildProbeGl(gl, ro, patchedFragment, state.gl);
-    state.gl = p;
-    // Wrap the program in a ProgramInfo so the shared texture-binding path can reuse its sampler-loc
-    // cache. (bindTextures only reads `program` + `samplerLocations`.)
-    const programInfo = {
-        program: p.program,
-        uboBindingPoints: p.uboBindingPoints,
-        samplerLocations: p.samplerLocations,
-        flipLocations: new Map(),
-    };
-    // Bind the probe FBO + a 1×1 viewport and clear.
-    gl.bindFramebuffer(gl.FRAMEBUFFER, p.fbo);
-    gl.viewport(0, 0, 1, 1);
-    gl.disable(gl.SCISSOR_TEST);
-    gl.clearColor(0, 0, 0, 1);
-    gl.clearDepth(1.0);
-    gl.depthMask(true);
-    gl.colorMask(true, true, true, true);
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-    // Depth test on, no culling (probe should show the value at the fragment under the mesh center).
-    gl.enable(gl.DEPTH_TEST);
-    gl.depthFunc(gl.LESS);
-    gl.disable(gl.CULL_FACE);
-    gl.disable(gl.BLEND);
-    gl.useProgram(p.program);
-    // Update + bind each uniform group's std140 UBO exactly as the normal draw does. The groups were
-    // already updated this frame by the main render; the update-type gate keeps shared groups from
-    // re-running, and packs+uploads this probe program's own binding points.
-    const bindGroups = getBindings(ro);
-    for (const bindGroup of bindGroups) {
-        for (const binding of bindGroup.bindings) {
-            if (binding.kind !== 'uniform')
-                continue;
-            const bindingPoint = p.uboBindingPoints.get(binding.block.groupName);
-            if (bindingPoint === undefined)
-                continue;
-            updateAndBindUniformGroup(gl, caches.uniforms, caches.buffers, binding, caches.frame, bindingPoint, ro.material);
-        }
-    }
-    // Textures + samplers → GL units + combined-sampler uniforms.
-    bindTextures(gl, caches.textures, caches.samplers, ro, programInfo);
-    // Geometry VAO (uploads buffers + builds/reuses the VAO for this program).
-    const drawInfo = prepareGeometry(gl, caches.geometries, caches.buffers, geometry, nodeState, p.program);
-    gl.bindVertexArray(drawInfo.vao);
-    // Draw (triangle list, instance count = mesh.count), mirroring the render-pass draw selection.
-    const instances = mesh.count;
-    const start = geometry.drawRange.start;
-    if (geometry.index && drawInfo.indexType !== null) {
-        const indexArray = geometry.index.array;
-        const count = Math.min(geometry.drawRange.count, indexArray.length);
-        const bytesPerIndex = drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
-        gl.drawElementsInstanced(gl.TRIANGLES, count, drawInfo.indexType, start * bytesPerIndex, instances);
-    }
-    else {
-        const position = geometry.buffers.get('position');
-        const vertexCount = geometry.drawRange.count === Infinity
-            ? (position?.count ?? 3)
-            : Math.min(geometry.drawRange.count, position?.count ?? geometry.drawRange.count);
-        gl.drawArraysInstanced(gl.TRIANGLES, start, vertexCount, instances);
-    }
-    // Read back the single pixel.
-    const pixel = new Uint8Array(4);
-    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
-    // Restore default bindings so the next main-loop frame is unaffected.
-    gl.bindVertexArray(null);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.useProgram(null);
-    return pixel;
-}
-
-/**
- * read-pixels.ts (webgl) - render-target pixel readback.
- *
- * The GL analogue of `webgpu/read-pixels.ts`. Binds a RenderTarget's texture FBO and reads its color
- * attachment back to a tightly-packed, top-to-bottom RGBA8 `Uint8Array`, the identical output contract
- * to the WebGPU `readPixels`, so an offline/headless bake gets the same bytes on either backend.
- *
- * GL `readPixels` returns rows bottom-to-top (GL's origin is lower-left), so the rows are flipped to
- * top-to-bottom to match the WebGPU convention. The public entry is the
- * `WebGLBackend.readPixels`; this is the free-function impl it delegates to
- * (mirroring `readBufferAsync`).
- */
-/**
- * Read a RenderTarget color attachment back to a tightly-packed, top-to-bottom RGBA8 `Uint8Array`
- * (length `width * height * 4`), matching the WebGPU `readPixels` output. The target's color format
- * must be `rgba8unorm` / `rgba8unorm-srgb` (WebGL2 has no BGRA render format). `attachmentIndex`
- * selects an MRT color attachment; `layer` selects a cube face (0..5). Throws if the target has not
- * been rendered to yet.
- */
-function readPixels$1(gl, state, textures, renderTarget, attachmentIndex = 0, layer = 0) {
-    const tex = renderTarget.textures[attachmentIndex];
-    if (!tex) {
-        throw new Error(`[readPixels] no color attachment at index ${attachmentIndex}.`);
-    }
-    const fmt = tex.format;
-    if (fmt !== 'rgba8unorm' && fmt !== 'rgba8unorm-srgb') {
-        throw new Error(`[readPixels] unsupported attachment format '${fmt}' at index ${attachmentIndex}; ` +
-            `the WebGL2 backend reads back only rgba8unorm / rgba8unorm-srgb targets ` +
-            `(render through an rgba8unorm RenderTarget first).`);
-    }
-    const fboData = state.data.get(renderTarget);
-    if (!fboData) {
-        throw new Error('[readPixels] render target has not been rendered to yet; render() into it first.');
-    }
-    // MSAA target: resolve the multisample result into the texture FBO before reading it.
-    if (state.pendingResolve === renderTarget) {
-        resolveActiveRenderTarget(gl, state);
-    }
-    const { width, height } = renderTarget;
-    const prevRead = gl.getParameter(gl.READ_FRAMEBUFFER_BINDING);
-    if (renderTarget.isCubeRenderTarget === true) {
-        // Cube target: point the read FBO's color attachment at the requested face.
-        const cube = renderTarget;
-        const data = getTextureData(textures, cube.texture._gpuTexture);
-        if (!data) {
-            throw new Error('[readPixels] cube render target has no GL texture; render() into it first.');
-        }
-        gl.bindFramebuffer(gl.READ_FRAMEBUFFER, fboData.fbo);
-        gl.framebufferTexture2D(gl.READ_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_CUBE_MAP_POSITIVE_X + layer, data.texture, cube.activeMipmapLevel);
-        fboData.attachedFace = layer;
-    }
-    else {
-        gl.bindFramebuffer(gl.READ_FRAMEBUFFER, fboData.fbo);
-    }
-    gl.readBuffer(gl.COLOR_ATTACHMENT0 + attachmentIndex);
-    const raw = new Uint8Array(width * height * 4);
-    gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, raw);
-    // GL reads bottom-to-top; flip to top-to-bottom to match the WebGPU readPixels contract.
-    const out = new Uint8Array(width * height * 4);
-    const rowBytes = width * 4;
-    for (let y = 0; y < height; y++) {
-        const src = (height - 1 - y) * rowBytes;
-        out.set(raw.subarray(src, src + rowBytes), y * rowBytes);
-    }
-    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, prevRead);
-    return out;
 }
 
 /**
@@ -39514,7 +39313,7 @@ function getNodeCache(gl, state, node, precision) {
  * output `GpuBuffer`s as the captured-varying targets, and run the kernel under `RASTERIZER_DISCARD`.
  */
 function runTransformFeedback(gl, b, state, node, opts, precision, frame) {
-    const { uniforms, textures, samplers, buffers } = b;
+    const { buffers } = b;
     const { inputs, outputs, count, instanceCount } = opts;
     // Alias guard: a buffer used as an output can't also be an input (a TF-bound buffer must not be
     // read as an attribute in the same dispatch). Ping-pong with distinct buffers instead.
@@ -39552,12 +39351,12 @@ function runTransformFeedback(gl, b, state, node, opts, precision, frame) {
         const bindingPoint = programInfo.uboBindingPoints.get(group.groupName);
         if (bindingPoint === undefined)
             continue;
-        updateAndBindStandaloneUniformGroup(gl, uniforms, buffers, group, frame, bindingPoint);
+        updateAndBindStandaloneUniformGroup(gl, b, group, frame, bindingPoint);
     }
     // Bind any DataTextures the kernel samples via textureLoad() (explicit neighbour gather — the user
     // binds the DataTexture on the texture node; no hidden mirror). Runs in the vertex stage under TF.
     if (compiled.textures.length > 0) {
-        bindStandaloneTextures(gl, textures, samplers, compiled.textures, compiled.samplers, programInfo);
+        bindStandaloneTextures(gl, b, compiled.textures, compiled.samplers, programInfo);
     }
     // Bind inputs as vertex attributes into the node's VAO (rebuilt each dispatch: the caller may
     // ping-pong a different GpuBuffer per element name each frame, so the attribute→buffer binding
@@ -39729,6 +39528,416 @@ function disposeTransformFeedback(gl, state) {
     state.nodes = new WeakMap();
 }
 
+function createWebGLFrameBackendState(renderer, backend) {
+    return {
+        renderer,
+        backend,
+        preparedByDepth: [],
+        preparedOptsByDepth: [],
+        segmentsByDepth: [],
+        paramsByDepth: [],
+        depth: 0,
+    };
+}
+/** A lost context cannot be drawn to; every frame phase becomes a no-op rather than touching it. */
+function usable$1(s) {
+    return !s.renderer._isDeviceLost && s.backend.gl !== null;
+}
+function beginFrame$1(s) {
+    if (!usable$1(s))
+        return;
+    const frame = s.renderer._nodes.nodeFrame;
+    frame.frameId++;
+    s.renderer._beginInfoFrame();
+    s.renderer.inspector?.begin(frame.frameId);
+}
+function encodePass$1(s, desc, records, count) {
+    if (!usable$1(s))
+        return;
+    const { renderer } = s;
+    const nodeFrame = renderer._nodes.nodeFrame;
+    alignCameraToBackend(desc.camera, CoordinateSystem.WEBGL);
+    if (desc.mrt !== undefined) {
+        const mrtTarget = renderTargetOf(desc.target);
+        if (mrtTarget === null) {
+            throw new Error('[frame] a pass with `mrt` needs a RenderTarget; the swapchain has one attachment');
+        }
+        // Output names resolve against the target's texture names, which is the MRT contract.
+        desc.mrt.resolveOutputs((name) => mrtTarget.getTextureIndex(name), mrtTarget.textures.map((t) => t.name));
+    }
+    const canvasTarget = renderTargetOf(desc.target) === null ? desc.target : null;
+    if (canvasTarget?.autoResize)
+        canvasTarget.syncToClientSize();
+    const ctx = resolvePassContext(renderer._renderContexts, desc);
+    const params = resolvePassParams(desc, paramsAt$1(s.paramsByDepth, s.depth));
+    if (params.width === 0 || params.height === 0)
+        return; // hidden or minimized canvas
+    renderer.info.render.calls++;
+    renderer.info.render.frameCalls++;
+    // Fresh per pass, so RENDER-scope node updates run once per pass rather than once per frame.
+    const previousRenderId = nodeFrame.beginRender();
+    aimNodeFrame(s.renderer, desc.camera ?? null, params.width, params.height);
+    renderer.inspector?.beginRender(params.passId);
+    try {
+        encodeOpenPass$1(s, desc, ctx, params, records, count);
+    }
+    finally {
+        // One bracket for the pass, so a throw anywhere inside it still closes the render scope and
+        // the inspector's pass rather than leaving both open for the rest of the frame.
+        renderer.inspector?.finishRender(params.passId);
+        nodeFrame.endRender(previousRenderId);
+    }
+}
+function encodeOpenPass$1(s, desc, ctx, params, records, count) {
+    const { renderer, backend } = s;
+    const prepared = preparedAt(s.preparedByDepth, s.depth);
+    const preparedOpts = preparedAt(s.preparedOptsByDepth, s.depth);
+    const segments = preparedAt(s.segmentsByDepth, s.depth);
+    s.depth++;
+    let preparedCount = 0;
+    try {
+        preparedCount = prepareRecordedDraws(renderer, records, count, params.camera, ctx, renderer.inspector === null ? null : params.passId, (nodes, renderObject) => prepareRenderObject$1(backend.gl, backend, nodes, renderObject, {
+            precision: backend._opts.precision,
+            maxTextureSize: backend._maxTextureSize,
+        }), prepared, preparedOpts, segments);
+    }
+    finally {
+        s.depth--;
+    }
+    // A nested pass prepared against its own target, so restore this one's view of the frame.
+    aimNodeFrame(s.renderer, desc.camera ?? null, params.width, params.height);
+    const scope = beginPass$1(backend, ctx, params);
+    try {
+        if (preparedCount > 0) {
+            encodeDraws$1(backend.gl, backend, renderer._nodes, ctx, params, prepared, preparedOpts, preparedCount, renderer.inspector, renderer.info, scope);
+        }
+    }
+    finally {
+        endPass$1(backend);
+    }
+    const renderTarget = renderTargetOf(desc.target);
+    if (renderTarget) {
+        for (const tex of renderTarget.textures) {
+            if (tex.generateMipmaps)
+                generateTextureMipmaps(backend.gl, backend.textures, tex._gpuTexture);
+        }
+    }
+}
+/** The other kernel pass, counted and timed like `encodeComputePass` is on WebGPU. */
+function encodeTransformFeedbackPass(s, desc, records, count) {
+    if (count === 0 || !usable$1(s))
+        return;
+    const { renderer, backend } = s;
+    const label = desc.label ?? 'transform-feedback';
+    renderer.info.compute.calls++;
+    renderer.info.compute.frameCalls++;
+    renderer.inspector?.perf.start(label);
+    try {
+        for (let i = 0; i < count; i++) {
+            const record = records[i];
+            runTransformFeedback(backend.gl, backend, backend._transformFeedback, record.node, record, backend._opts.precision, renderer._nodes.nodeFrame);
+        }
+    }
+    finally {
+        renderer.inspector?.perf.end(label);
+    }
+}
+/** WebGL2 is immediate mode: the work reached the driver as each pass ended, so neither can undo it. */
+function submitFrame$1(s) {
+    if (!usable$1(s))
+        return;
+    s.renderer.inspector?.finish(s.renderer._nodes.nodeFrame.frameId);
+}
+function discardFrame$1(s) {
+    if (!usable$1(s))
+        return;
+    s.renderer.inspector?.finish(s.renderer._nodes.nodeFrame.frameId);
+}
+/** Grows to the nesting depth in use and never shrinks, like the prepared lists beside it. */
+function paramsAt$1(pool, depth) {
+    let params = pool[depth];
+    if (params === undefined) {
+        params = createPassParams();
+        pool[depth] = params;
+    }
+    return params;
+}
+
+/**
+ * probe.ts (webgl) - render a single RenderObject with a PATCHED fragment shader into a tiny FBO and
+ * read back the resulting color. Drives the Inspector's live-value shader probe on the WebGL backend.
+ *
+ * This is the GL sibling of the WebGPU probe re-render in inspector.ts. It reuses the SAME device
+ * layer the normal draw uses — `programs.ts` to compile+link a patched program (real vertex GLSL +
+ * the probe's patched fragment GLSL), `geometries.ts` to bind the object's VAO, `bindings.ts` to
+ * update+bind its std140 UBOs (camera/model, already valid this frame), and `texture-bindings.ts`
+ * for its textures — so the probe renders the same mesh with the same inputs, only the fragment
+ * output changes. It renders to a 1×1 RGBA8 FBO and `gl.readPixels` the single pixel, returning the
+ * decoded value.
+ *
+ * Nothing here touches WebGPU. The patched-program cache is keyed by the patched fragment source so
+ * hovering the same expression across frames reuses one program.
+ */
+/** Split the emitter's combined `code` into vertex + fragment; returns the VERTEX source only. */
+function extractVertexSrc(code) {
+    const idx = code.indexOf(FRAGMENT_STAGE_MARKER);
+    return (idx === -1 ? code : code.slice(0, idx)).trimEnd();
+}
+function compileShader(gl, type, source) {
+    const shader = gl.createShader(type);
+    if (!shader)
+        throw new Error('[webgl] createShader returned null.');
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+        const log = gl.getShaderInfoLog(shader);
+        gl.deleteShader(shader);
+        const stage = type === gl.VERTEX_SHADER ? 'vertex' : 'fragment';
+        throw new Error(`[webgl] ${stage} shader compile failed:\n${log}\n---- source ----\n${source}`);
+    }
+    return shader;
+}
+/**
+ * Build (or reuse) the probe program + 1×1 FBO. The probe program links the RenderObject's real
+ * VERTEX GLSL with the caller's patched FRAGMENT GLSL, resolving the same std140 UBO binding points
+ * the normal program does (so the object's uniform groups bind correctly).
+ */
+function buildProbeGl(gl, ro, patchedFragment, previous) {
+    if (previous && previous.fragmentSrc === patchedFragment)
+        return previous;
+    if (previous)
+        disposeProbeGl(gl, previous);
+    const nodeState = ro.nodeBuilderState;
+    if (!nodeState || !nodeState.vertexCode) {
+        throw new Error('[webgl] RenderObject has no compiled GLSL.');
+    }
+    const vertexSrc = extractVertexSrc(nodeState.vertexCode);
+    const vs = compileShader(gl, gl.VERTEX_SHADER, vertexSrc);
+    const fs = compileShader(gl, gl.FRAGMENT_SHADER, patchedFragment);
+    const program = gl.createProgram();
+    if (!program)
+        throw new Error('[webgl] createProgram returned null.');
+    gl.attachShader(program, vs);
+    gl.attachShader(program, fs);
+    gl.linkProgram(program);
+    gl.deleteShader(vs);
+    gl.deleteShader(fs);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+        const log = gl.getProgramInfoLog(program);
+        gl.deleteProgram(program);
+        throw new Error(`[webgl] program link failed:\n${log}`);
+    }
+    // Resolve + bind each std140 UBO block to a fresh binding point (same scheme as programs.ts).
+    const uboBindingPoints = new Map();
+    let nextBindingPoint = 0;
+    for (const group of nodeState.uniformGroups) {
+        if (group.members.length === 0)
+            continue;
+        if (uboBindingPoints.has(group.groupName))
+            continue;
+        const blockIndex = gl.getUniformBlockIndex(program, `Uniforms_${group.groupName}`);
+        if (blockIndex === gl.INVALID_INDEX)
+            continue;
+        const bindingPoint = nextBindingPoint++;
+        gl.uniformBlockBinding(program, blockIndex, bindingPoint);
+        uboBindingPoints.set(group.groupName, bindingPoint);
+    }
+    // 1×1 RGBA8 color texture + depth renderbuffer FBO for the readback.
+    const colorTex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, colorTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    const depthRb = gl.createRenderbuffer();
+    gl.bindRenderbuffer(gl.RENDERBUFFER, depthRb);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT16, 1, 1);
+    const fbo = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, colorTex, 0);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depthRb);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    return {
+        program,
+        uboBindingPoints,
+        samplerLocations: new Map(),
+        fbo,
+        colorTex,
+        depthRb,
+        fragmentSrc: patchedFragment,
+    };
+}
+/** Free all GL resources of a probe program. */
+function disposeProbeGl(gl, p) {
+    gl.deleteProgram(p.program);
+    gl.deleteFramebuffer(p.fbo);
+    gl.deleteTexture(p.colorTex);
+    gl.deleteRenderbuffer(p.depthRb);
+}
+function createProbeState() {
+    return { gl: null };
+}
+function disposeProbeState(gl, state) {
+    if (gl && state.gl)
+        disposeProbeGl(gl, state.gl);
+    state.gl = null;
+}
+/**
+ * Render the RenderObject with the patched fragment into the 1×1 FBO and read back the pixel.
+ *
+ * Reuses the object's VAO / UBOs / textures via the shared device functions. Returns the RGBA bytes
+ * (0..255) of the single rendered pixel, or null if the object has nothing to draw. Restores GL
+ * bindings (framebuffer, VAO, program) to their defaults afterward so the main render loop is
+ * unaffected — the probe runs after the main frame's draws, on a separate FBO.
+ */
+function renderProbe(gl, state, caches, frame, ro, patchedFragment) {
+    const mesh = ro.mesh;
+    if (mesh.count === 0)
+        return null;
+    const nodeState = ro.nodeBuilderState;
+    if (!nodeState)
+        return null;
+    const geometry = ro.geometry;
+    // Build / reuse the probe program (compile errors surface as a thrown Error to the caller).
+    const p = buildProbeGl(gl, ro, patchedFragment, state.gl);
+    state.gl = p;
+    // Wrap the program in a ProgramInfo so the shared texture-binding path can reuse its sampler-loc
+    // cache. (bindTextures only reads `program` + `samplerLocations`.)
+    const programInfo = {
+        program: p.program,
+        uboBindingPoints: p.uboBindingPoints,
+        samplerLocations: p.samplerLocations,
+        flipLocations: new Map(),
+    };
+    // Bind the probe FBO + a 1×1 viewport and clear.
+    gl.bindFramebuffer(gl.FRAMEBUFFER, p.fbo);
+    gl.viewport(0, 0, 1, 1);
+    gl.disable(gl.SCISSOR_TEST);
+    gl.clearColor(0, 0, 0, 1);
+    gl.clearDepth(1.0);
+    gl.depthMask(true);
+    gl.colorMask(true, true, true, true);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    // Depth test on, no culling (probe should show the value at the fragment under the mesh center).
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LESS);
+    gl.disable(gl.CULL_FACE);
+    gl.disable(gl.BLEND);
+    gl.useProgram(p.program);
+    // Update + bind each uniform group's std140 UBO exactly as the normal draw does. The groups were
+    // already updated this frame by the main render; the update-type gate keeps shared groups from
+    // re-running, and packs+uploads this probe program's own binding points.
+    const bindGroups = getBindings(ro);
+    for (const bindGroup of bindGroups) {
+        for (const binding of bindGroup.bindings) {
+            if (binding.kind !== 'uniform')
+                continue;
+            const bindingPoint = p.uboBindingPoints.get(binding.block.groupName);
+            if (bindingPoint === undefined)
+                continue;
+            updateAndBindUniformGroup(gl, caches, binding, frame, bindingPoint, ro.material);
+        }
+    }
+    // Textures + samplers → GL units + combined-sampler uniforms.
+    bindTextures(gl, caches, ro, programInfo);
+    // Geometry VAO (uploads buffers + builds/reuses the VAO for this program).
+    const drawInfo = prepareGeometry(gl, caches, geometry, nodeState, p.program);
+    gl.bindVertexArray(drawInfo.vao);
+    // Draw (triangle list, instance count = mesh.count), mirroring the render-pass draw selection.
+    const instances = mesh.count;
+    const start = geometry.drawRange.start;
+    if (geometry.index && drawInfo.indexType !== null) {
+        const indexArray = geometry.index.array;
+        const count = Math.min(geometry.drawRange.count, indexArray.length);
+        const bytesPerIndex = drawInfo.indexType === gl.UNSIGNED_BYTE ? 1 : drawInfo.indexType === gl.UNSIGNED_SHORT ? 2 : 4;
+        gl.drawElementsInstanced(gl.TRIANGLES, count, drawInfo.indexType, start * bytesPerIndex, instances);
+    }
+    else {
+        const position = geometry.buffers.get('position');
+        const vertexCount = geometry.drawRange.count === Infinity
+            ? (position?.count ?? 3)
+            : Math.min(geometry.drawRange.count, position?.count ?? geometry.drawRange.count);
+        gl.drawArraysInstanced(gl.TRIANGLES, start, vertexCount, instances);
+    }
+    // Read back the single pixel.
+    const pixel = new Uint8Array(4);
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+    // Restore default bindings so the next main-loop frame is unaffected.
+    gl.bindVertexArray(null);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.useProgram(null);
+    return pixel;
+}
+
+/**
+ * read-pixels.ts (webgl) - render-target pixel readback.
+ *
+ * The GL analogue of `webgpu/read-pixels.ts`. Binds a RenderTarget's texture FBO and reads its color
+ * attachment back to a tightly-packed, top-to-bottom RGBA8 `Uint8Array`, the identical output contract
+ * to the WebGPU `readPixels`, so an offline/headless bake gets the same bytes on either backend.
+ *
+ * GL `readPixels` returns rows bottom-to-top (GL's origin is lower-left), so the rows are flipped to
+ * top-to-bottom to match the WebGPU convention. The public entry is the
+ * `WebGLBackend.readPixels`; this is the free-function impl it delegates to
+ * (mirroring `readBufferAsync`).
+ */
+/**
+ * Read a RenderTarget color attachment back to a tightly-packed, top-to-bottom RGBA8 `Uint8Array`
+ * (length `width * height * 4`), matching the WebGPU `readPixels` output. The target's color format
+ * must be `rgba8unorm` / `rgba8unorm-srgb` (WebGL2 has no BGRA render format). `attachmentIndex`
+ * selects an MRT color attachment; `layer` selects a cube face (0..5). Throws if the target has not
+ * been rendered to yet.
+ */
+function readPixels$1(gl, b, renderTarget, attachmentIndex = 0, layer = 0, mipLevel = 0) {
+    const tex = renderTarget.textures[attachmentIndex];
+    if (!tex) {
+        throw new Error(`[readPixels] no color attachment at index ${attachmentIndex}.`);
+    }
+    const fmt = tex.format;
+    if (fmt !== 'rgba8unorm' && fmt !== 'rgba8unorm-srgb') {
+        throw new Error(`[readPixels] unsupported attachment format '${fmt}' at index ${attachmentIndex}; ` +
+            `the WebGL2 backend reads back only rgba8unorm / rgba8unorm-srgb targets ` +
+            `(render through an rgba8unorm RenderTarget first).`);
+    }
+    const fboData = b.renderTargets.data.get(renderTarget);
+    if (!fboData) {
+        throw new Error('[readPixels] render target has not been rendered to yet; render() into it first.');
+    }
+    // MSAA target: resolve the multisample result into the texture FBO before reading it.
+    if (b.renderTargets.pendingResolve === renderTarget) {
+        resolveActiveRenderTarget(gl, b.renderTargets);
+    }
+    const width = Math.max(1, renderTarget.width >> mipLevel);
+    const height = Math.max(1, renderTarget.height >> mipLevel);
+    const prevRead = gl.getParameter(gl.READ_FRAMEBUFFER_BINDING);
+    if (renderTarget.isCubeRenderTarget === true) {
+        // Cube target: point the read FBO's color attachment at the requested face.
+        const cube = renderTarget;
+        const data = getTextureData(b.textures, cube.texture._gpuTexture);
+        if (!data) {
+            throw new Error('[readPixels] cube render target has no GL texture; render() into it first.');
+        }
+        gl.bindFramebuffer(gl.READ_FRAMEBUFFER, fboData.fbo);
+        gl.framebufferTexture2D(gl.READ_FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_CUBE_MAP_POSITIVE_X + layer, data.texture, mipLevel);
+        fboData.attachedFace = layer;
+        fboData.attachedMip = mipLevel;
+    }
+    else {
+        gl.bindFramebuffer(gl.READ_FRAMEBUFFER, fboData.fbo);
+    }
+    gl.readBuffer(gl.COLOR_ATTACHMENT0 + attachmentIndex);
+    const raw = new Uint8Array(width * height * 4);
+    gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, raw);
+    // GL reads bottom-to-top; flip to top-to-bottom to match the WebGPU readPixels contract.
+    const out = new Uint8Array(width * height * 4);
+    const rowBytes = width * 4;
+    for (let y = 0; y < height; y++) {
+        const src = (height - 1 - y) * rowBytes;
+        out.set(raw.subarray(src, src + rowBytes), y * rowBytes);
+    }
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, prevRead);
+    return out;
+}
+
 /** WebGL2's device half. Immediate mode: no command encoder and no swapchain, so a pass encodes as it ends. */
 class WebGLBackend {
     name = 'webgl';
@@ -39767,7 +39976,7 @@ class WebGLBackend {
     /** Per-RenderTarget GL framebuffer (FBO) cache. @internal */
     renderTargets = createGlRenderTargetsState();
     /** Transform-feedback runtime state (per-node program/VAO + I/O buffer cache). @internal */
-    _transformFeedback = createTransformFeedbackState();
+    /** @internal */ _transformFeedback = createTransformFeedbackState();
     /** Inspector shader-probe state (one active patched program + 1×1 readback FBO). @internal */
     _probe = createProbeState();
     /** The primary color/attachment format. Fixed at 'rgba8unorm' for the default framebuffer. @internal */
@@ -39797,7 +40006,7 @@ class WebGLBackend {
         this.gl = createContext(this.target.canvas, {
             alpha: this._opts.alpha ?? false,
             depth: this._opts.depth ?? true,
-            stencil: this.target.depthFormat.includes('stencil'),
+            stencil: formatHasStencil(this.target.depthFormat),
             antialias: this.target.samples > 1,
             powerPreference: this._opts.powerPreference ?? 'default',
             preserveDrawingBuffer: this._opts.preserveDrawingBuffer ?? false,
@@ -39847,16 +40056,12 @@ class WebGLBackend {
     encodePass(desc, records, count) {
         encodePass$1(this._frame, desc, records, count);
     }
-    encodeComputePass(_desc, _records, _count) {
-        return encodeComputePass$1();
+    /** Unreachable: `frame.compute()` rejects this backend by name before a dispatch can be recorded. */
+    encodeComputePass() {
+        throw new Error('[webgl] compute shaders are WebGPU-only');
     }
-    encodeTransformFeedbackPass(_desc, records, count) {
-        if (this.renderer._isDeviceLost || !this.gl)
-            return;
-        for (let i = 0; i < count; i++) {
-            const record = records[i];
-            runTransformFeedback(this.gl, this, this._transformFeedback, record.node, record, this._opts.precision, this.renderer._nodes.nodeFrame);
-        }
+    encodeTransformFeedbackPass(desc, records, count) {
+        encodeTransformFeedbackPass(this._frame, desc, records, count);
     }
     submitFrame() {
         submitFrame$1(this._frame);
@@ -39865,7 +40070,7 @@ class WebGLBackend {
         discardFrame$1(this._frame);
     }
     /** WebGL2 has no async link, so this only moves the stall off the first frame and onto load. */
-    async compileObjects(objects, _context) {
+    async compileObjects(objects, _params) {
         const opts = { precision: this._opts.precision, maxTextureSize: this._maxTextureSize };
         for (const renderObject of objects) {
             prepareRenderObject$1(this.gl, this, this.renderer._nodes, renderObject, opts);
@@ -39907,14 +40112,7 @@ class WebGLBackend {
     renderProbe(ro, patchedFragment) {
         if (this.renderer._isDeviceLost || !this.renderer._initialized || !this.gl)
             return null;
-        return renderProbe(this.gl, this._probe, {
-            geometries: this.geometries,
-            buffers: this.buffers,
-            uniforms: this.uniforms,
-            textures: this.textures,
-            samplers: this.samplers,
-            frame: this.renderer._nodes.nodeFrame,
-        }, ro, patchedFragment);
+        return renderProbe(this.gl, this._probe, this, this.renderer._nodes.nodeFrame, ro, patchedFragment);
     }
     /** Release the shader-probe GL resources. @internal */
     clearProbe() {
@@ -39933,22 +40131,9 @@ class WebGLBackend {
      *
      * @throws if an output buffer is also used as an input (ping-pong requires distinct buffers).
      */
-    transformFeedback(node, opts) {
-        if (isFrameOpen(this.renderer._frameState)) {
-            // WebGL2 has no encoder, so this runs the instant it is called while the frame's passes
-            // encode at each `end()`: the kernel would land between them rather than before them.
-            throw new Error('[webgl] transformFeedback() while a frame is open runs out of order; call it before frame() or after submit().');
-        }
-        if (this.renderer._isDeviceLost)
-            return;
-        if (!this.renderer._initialized || !this.gl) {
-            throw new Error('[webgl] transformFeedback() called before init(). Await renderer.init() first.');
-        }
-        runTransformFeedback(this.gl, this, this._transformFeedback, node, opts, this._opts.precision, this.renderer._nodes.nodeFrame);
-    }
     /**
      * The plain GL buffer backing a GpuBuffer within the transform-feedback state, or null if the
-     * buffer was never bound by a `transformFeedback()` call. Used by tests (and Phase 3
+     * buffer was never bound by a transform-feedback pass. Used by tests (and Phase 3
      * `readBufferAsync`) to read a TF output buffer back. @internal
      */
     getTransformFeedbackGlBuffer(buffer) {
@@ -39958,8 +40143,8 @@ class WebGLBackend {
      * Honest native CPU readback of a GpuBuffer (e.g. a transform-feedback output) into a typed array.
      *
      * The fence is polled across event-loop ticks rather than spun on: a synchronous busy-loop never
-     * signals on a single-threaded GL backend. The buffer must have been through `transformFeedback()`,
-     * which is what allocates its GL buffer.
+     * signals on a single-threaded GL backend. The buffer must have been through a transform-feedback
+     * pass, which is what allocates its GL buffer.
      */
     readBufferAsync(buffer) {
         if (!this.renderer._initialized || !this.gl) {
@@ -39967,10 +40152,6 @@ class WebGLBackend {
         }
         return readBufferAsync(this.gl, this.buffers, buffer);
     }
-    /**
-     * Rows come back top-to-bottom to match WebGPU byte-for-byte, which means flipping what GL reads.
-     * The target must carry an `rgba8unorm` or `rgba8unorm-srgb` colour format.
-     */
     /**
      * WebGL2 has no queue to ask, so this fences the command stream and polls across event-loop ticks.
      * A synchronous spin never signals on a single-threaded backend, which `readBufferAsync` found first.
@@ -39984,8 +40165,8 @@ class WebGLBackend {
             return Promise.resolve();
         return clientWaitAsync(gl, sync, 'frame.done').finally(() => gl.deleteSync(sync));
     }
-    readPixels(renderTarget, attachmentIndex = 0, layer = 0) {
-        return Promise.resolve(readPixels$1(this.gl, this.renderTargets, this.textures, renderTarget, attachmentIndex, layer));
+    readPixels(renderTarget, attachmentIndex = 0, layer = 0, mipLevel = 0) {
+        return Promise.resolve(readPixels$1(this.gl, this, renderTarget, attachmentIndex, layer, mipLevel));
     }
     /**
      * Deliberately does not call `WEBGL_lose_context.loseContext()`: a context is per-canvas, so forcing
@@ -40153,10 +40334,10 @@ function encodeDispatches(b, nodes, computeContext, encoder, entries, count, lab
     }
     sharedPass?.end();
 }
-function regenerateComputeMips(device, textures, mipDirty) {
+function regenerateComputeMips(device, textures, mipDirty, encoder) {
     for (const tex of mipDirty) {
         if (isFilterableStorageFormat(tex.format)) {
-            generateTextureMipmaps$1(textures, device, tex);
+            generateTextureMipmaps$1(textures, device, tex, encoder);
         }
         else {
             console.warn(`[webgpu] mipmapsAutoUpdate skipped: storage format '${tex.format}' is not ` +
@@ -40467,16 +40648,9 @@ function initRenderObjectWithPromises(b, nodes, renderObject, promises, compile)
 function prepareRenderObject(b, nodes, renderObject) {
     const initialized = initRenderObject(b, nodes, renderObject, compileWgsl);
     const gpu = getRenderObjectGpu(b.renderObjectGpu, renderObject);
-    if (!initialized || !gpu.pipeline) {
-        console.warn('[gpucat] initRenderObject failed or pipeline missing', {
-            initialized,
-            pipeline: gpu.pipeline,
-        });
-        return false;
-    }
-    if (!renderObject.nodeBuilderState) {
-        console.warn('[gpucat] no nodeBuilderState');
-        return false;
+    if (!initialized || !gpu.pipeline || !renderObject.nodeBuilderState) {
+        throw new Error(`[gpucat] '${renderObject.mesh.name || 'mesh'}' has no pipeline after init; returning false here ` +
+            'drops it from the pass, which reads as a missing object rather than a failed compile.');
     }
     return true;
 }
@@ -40652,7 +40826,7 @@ function stencilAttachmentOps(format, params) {
     if (!formatHasStencil(format))
         return undefined;
     return {
-        stencilLoadOp: params.autoClearStencil ? 'clear' : 'load',
+        stencilLoadOp: params.clearsStencil ? 'clear' : 'load',
         stencilStoreOp: 'store',
         stencilClearValue: params.clearStencilValue,
     };
@@ -40661,8 +40835,7 @@ function stencilAttachmentOps(format, params) {
 function resolveRenderTargetAttachments(device, textures, renderTarget, clearColor, params) {
     ensureRenderTargetTexturesAllocated(textures, device, renderTarget);
     // `clear: false` loads, which is how several viewport/scissor passes composite into one target.
-    // MSAA cannot 'load' a resolve-only target, so it always clears.
-    const loadOp = params.autoClear ? 'clear' : 'load';
+    const loadOp = params.clearsColor ? 'clear' : 'load';
     const colorAttachments = [];
     for (const tex of renderTarget.textures) {
         const textureData = getTextureData$1(textures, tex._gpuTexture);
@@ -40677,7 +40850,7 @@ function resolveRenderTargetAttachments(device, textures, renderTarget, clearCol
                 view: msaaView,
                 resolveTarget: getRenderTargetView(textureData),
                 clearValue: clearColor,
-                loadOp: 'clear',
+                loadOp,
                 storeOp: 'store',
             }
             : {
@@ -40690,15 +40863,17 @@ function resolveRenderTargetAttachments(device, textures, renderTarget, clearCol
     let depthAttachment;
     if (renderTarget._depthAttachment) {
         const depthTextureData = getTextureData$1(textures, renderTarget._depthAttachment._gpuTexture);
-        if (depthTextureData) {
-            depthAttachment = {
-                view: getRenderTargetView(depthTextureData),
-                depthClearValue: params.clearDepthValue,
-                depthLoadOp: params.autoClearDepth ? 'clear' : 'load',
-                depthStoreOp: 'store',
-                ...stencilAttachmentOps(renderTarget._depthAttachment.format, params),
-            };
+        if (!depthTextureData) {
+            // Omitting it instead turns the depth test off for the pass, which reads as a sorting bug.
+            throw new Error('[webgpu] this render target has a depth attachment that was never allocated.');
         }
+        depthAttachment = {
+            view: getRenderTargetView(depthTextureData),
+            depthClearValue: params.clearDepthValue,
+            depthLoadOp: params.clearsDepth ? 'clear' : 'load',
+            depthStoreOp: 'store',
+            ...stencilAttachmentOps(renderTarget._depthAttachment.format, params),
+        };
     }
     return { colorAttachments, depthAttachment };
 }
@@ -40728,14 +40903,14 @@ function resolveSwapchainAttachments(contexts, device, sc, format, clearColor, p
     }
     const swapchainView = currentTexture.createView();
     // `clear: false` loads, which is how several viewport/scissor passes composite into one canvas.
-    // MSAA cannot 'load' a resolve-only target, so it always clears.
-    const loadOp = params.autoClear ? 'clear' : 'load';
+    const loadOp = params.clearsColor ? 'clear' : 'load';
     const colorAttachments = [];
     if (samples > 1 && entry.msaaTextureView) {
         colorAttachments.push({
             view: entry.msaaTextureView,
             resolveTarget: swapchainView,
             clearValue: clearColor,
+            // Discarded at pass end, so there is never anything to load and `clear: false` cannot apply.
             loadOp: 'clear',
             storeOp: 'discard',
         });
@@ -40753,7 +40928,7 @@ function resolveSwapchainAttachments(contexts, device, sc, format, clearColor, p
         depthAttachment: {
             view: entry.depthTextureView,
             depthClearValue: params.clearDepthValue,
-            depthLoadOp: params.autoClearDepth ? 'clear' : 'load',
+            depthLoadOp: params.clearsDepth ? 'clear' : 'load',
             depthStoreOp: 'store',
             ...stencilAttachmentOps(depthFormatFor(target), params),
         },
@@ -40771,13 +40946,13 @@ function resolveCubeAttachments(device, textures, renderTarget, clearColor, para
         {
             view: cubeData.texture.createView({
                 dimension: '2d',
-                baseArrayLayer: renderTarget.activeFace,
+                baseArrayLayer: params.layer,
                 arrayLayerCount: 1,
-                baseMipLevel: renderTarget.activeMipmapLevel,
+                baseMipLevel: params.mipLevel,
                 mipLevelCount: 1,
             }),
             clearValue: clearColor,
-            loadOp: 'clear',
+            loadOp: params.clearsColor ? 'clear' : 'load',
             storeOp: 'store',
         },
     ];
@@ -40788,7 +40963,7 @@ function resolveCubeAttachments(device, textures, renderTarget, clearColor, para
             depthAttachment = {
                 view: getRenderTargetView(depthData),
                 depthClearValue: params.clearDepthValue,
-                depthLoadOp: params.autoClearDepth ? 'clear' : 'load',
+                depthLoadOp: params.clearsDepth ? 'clear' : 'load',
                 depthStoreOp: 'store',
                 ...stencilAttachmentOps(renderTarget._depthAttachment.format, params),
             };
@@ -40796,10 +40971,7 @@ function resolveCubeAttachments(device, textures, renderTarget, clearColor, para
     }
     return { colorAttachments, depthAttachment };
 }
-/**
- * Build GPU color and depth attachments, dispatching on the target kind. Shared by `executeRenderPass`
- * and `clear()` (which then overrides the load ops for the manual clear).
- */
+/** Build GPU color and depth attachments, dispatching on the target kind. */
 function resolveAttachments(b, params) {
     const { device, textures } = b;
     const { renderTarget, clearColor } = params;
@@ -40810,34 +40982,34 @@ function resolveAttachments(b, params) {
         return resolveRenderTargetAttachments(device, textures, renderTarget, clearColor, params);
     return resolveSwapchainAttachments(b.canvasContexts, device, b.swapchain, b.format, clearColor, params);
 }
-function beginPass(encoder, passCtx, colorAttachments, depthAttachment, passId, inspector) {
-    const gpuPass = encoder.beginRenderPass({
-        label: passId,
+function beginPass(b, params) {
+    const { colorAttachments, depthAttachment } = resolveAttachments(b, params);
+    const inspector = b.renderer.inspector;
+    const gpuPass = b._currentEncoder.beginRenderPass({
+        label: params.passId,
         colorAttachments,
         depthStencilAttachment: depthAttachment,
-        timestampWrites: inspector ? inspector.getTimestampWrites(passId) : undefined,
+        timestampWrites: inspector ? inspector.getTimestampWrites(params.passId) : undefined,
     });
-    // Physical-pixel, framebuffer-clamped rects, already resolved onto the pass context.
-    if (passCtx.viewport) {
-        const v = passCtx.viewportValue;
+    // Physical-pixel, framebuffer-clamped rects, already resolved onto the pass params.
+    if (params.viewport) {
+        const v = params.viewportValue;
         gpuPass.setViewport(v.x, v.y, v.width, v.height, v.minDepth, v.maxDepth);
     }
-    if (passCtx.scissor) {
-        const s = passCtx.scissorValue;
+    if (params.scissor) {
+        const s = params.scissorValue;
         gpuPass.setScissorRect(s.x, s.y, s.width, s.height);
     }
-    return {
-        gpuPass,
-        currentSets: createCurrentSets(),
-    };
+    // Fresh per pass: a pooled one needs resetting at the top of every pass, where this starts empty.
+    return { gpuPass, currentSets: createCurrentSets() };
 }
 function endPass(scope) {
     scope.gpuPass.end();
 }
-function encodeDraws(b, nodes, passCtx, preparedObjects, preparedOpts, count, inspector, info, scope, segments) {
+function encodeDraws(ctx, count, scope, segments) {
+    const inspector = ctx.inspector;
     if (inspector)
         inspector.perf.start('drawCalls');
-    const ctx = { b, nodes, passCtx, preparedObjects, preparedOpts, inspector, info };
     if (segments.length === 0) {
         encodeDrawRange(ctx, 0, count, scope);
     }
@@ -40869,7 +41041,7 @@ function getOrRecordBundle(ctx, from, to, bundle) {
         byCamera = new WeakMap();
         b.renderBundles.set(bundle, byCamera);
     }
-    const cameraKey = passCtx.camera ?? CAMERALESS;
+    const cameraKey = ctx.params.camera ?? CAMERALESS;
     let byContext = byCamera.get(cameraKey);
     if (byContext === undefined) {
         byContext = new Map();
@@ -40961,8 +41133,8 @@ function encodeDrawRange(ctx, from, to, { gpuPass, currentSets }) {
                 // Geometry-based group - resolve buffer by name
                 const bufAttr = geometry.buffers.get(group.name);
                 if (!bufAttr) {
-                    slot++;
-                    continue;
+                    throw new Error(`[gpucat] '${mesh.name || 'mesh'}' lost vertex buffer '${group.name}' after its pipeline was ` +
+                        'built; the pipeline still has a layout for it and every later buffer would bind one slot off.');
                 }
                 gpuBuf = ensureUploaded$1(b.buffers, b.device, bufAttr, group.name);
             }
@@ -41051,8 +41223,9 @@ function encodeDrawRange(ctx, from, to, { gpuPass, currentSets }) {
  * textures + samplers, mipmap state, pipeline caches, and (unless the device was pre-created) the
  * device itself. After this the renderer is unusable.
  */
-function disposeDevice(b, deviceProvided) {
-    const { canvasContexts: contexts, device, textures, samplers, buffers, pipelines, bindGroupLayoutCache, swapchain: sc } = b;
+/** The per-canvas attachments this module allocated; the caches are each module's own to tear down. */
+function disposeSwapchain(b) {
+    const { canvasContexts: contexts, swapchain: sc } = b;
     for (const target of sc.targets) {
         releaseContext(contexts, target);
         const entry = attachmentsFor(sc, target);
@@ -41064,17 +41237,6 @@ function disposeDevice(b, deviceProvided) {
         entry.msaaTextureView = null;
     }
     sc.targets.clear();
-    // Each cache tears itself down: whoever owns a cache owns its teardown, so this function sequences
-    // them rather than reaching into their internals.
-    disposeTextureCache$1(textures);
-    disposeSamplerCache$1(samplers);
-    disposeBufferCache$1(buffers);
-    disposePipelines(pipelines);
-    disposeBindGroupLayoutCache(bindGroupLayoutCache);
-    // Destroy the device unless it was externally provided
-    if (!deviceProvided && device) {
-        device.destroy();
-    }
 }
 /** tracks currently set GPU state to avoid redundant setBindGroup/setVertexBuffer/setIndexBuffer calls */
 function createCurrentSets() {
@@ -41147,8 +41309,10 @@ function createWebGPUFrameBackendState(renderer, backend) {
         preparedByDepth: [],
         preparedOptsByDepth: [],
         segmentsByDepth: [],
+        paramsByDepth: [],
+        encodeContextsByDepth: [],
         depth: 0,
-        mipTargets: [],
+        mipTargets: new Set(),
         mipTextures: new Set(),
     };
 }
@@ -41184,15 +41348,15 @@ function encodePass(s, desc, records, count) {
     if (canvasTarget?.autoResize)
         canvasTarget.syncToClientSize();
     const ctx = resolvePassContext(renderer._renderContexts, desc);
-    if (ctx.width === 0 || ctx.height === 0)
+    const params = resolvePassParams(desc, paramsAt(s.paramsByDepth, s.depth));
+    if (params.width === 0 || params.height === 0)
         return; // hidden or minimized canvas
-    const params = resolvePassParams(desc);
     renderer.info.render.calls++;
     renderer.info.render.frameCalls++;
     // Fresh per pass, so RENDER-scope node updates run once per pass rather than once per frame.
     const previousRenderId = nodeFrame.beginRender();
     incrementCallId(backend.geometries);
-    setNodeFrame(s, desc, ctx);
+    aimNodeFrame(s.renderer, desc.camera ?? null, params.width, params.height);
     renderer.inspector?.beginRender(params.passId);
     try {
         encodeOpenPass(s, desc, ctx, params, records, count);
@@ -41206,6 +41370,8 @@ function encodePass(s, desc, records, count) {
 }
 function encodeOpenPass(s, desc, ctx, params, records, count) {
     const { renderer, backend } = s;
+    // Read now: the params struct is pooled per depth, so a later pass owns it by the time this settles.
+    const passId = params.passId;
     backend.device.pushErrorScope('validation');
     try {
         const prepared = preparedAt(s.preparedByDepth, s.depth);
@@ -41214,18 +41380,18 @@ function encodeOpenPass(s, desc, ctx, params, records, count) {
         s.depth++;
         let preparedCount = 0;
         try {
-            preparedCount = prepareRecordedDraws(renderer, records, count, ctx.camera, ctx, renderer.inspector === null ? null : params.passId, (nodes, renderObject) => prepareRenderObject(backend, nodes, renderObject), prepared, preparedOpts, segments);
+            preparedCount = prepareRecordedDraws(renderer, records, count, params.camera, ctx, renderer.inspector === null ? null : params.passId, (nodes, renderObject) => prepareRenderObject(backend, nodes, renderObject), prepared, preparedOpts, segments);
         }
         finally {
             s.depth--;
         }
         // A nested pass prepared against its own target, so restore this one's view of the frame.
-        setNodeFrame(s, desc, ctx);
-        const { colorAttachments, depthAttachment } = resolveAttachments(backend, params);
-        const scope = beginPass(backend._currentEncoder, ctx, colorAttachments, depthAttachment, params.passId, renderer.inspector);
+        aimNodeFrame(s.renderer, desc.camera ?? null, params.width, params.height);
+        const scope = beginPass(backend, params);
         try {
             if (preparedCount > 0) {
-                encodeDraws(backend, renderer._nodes, ctx, prepared, preparedOpts, preparedCount, renderer.inspector, renderer.info, scope, segments);
+                const encodeContext = contextAt(s, ctx, params, prepared, preparedOpts);
+                encodeDraws(encodeContext, preparedCount, scope, segments);
             }
         }
         finally {
@@ -41235,7 +41401,7 @@ function encodeOpenPass(s, desc, ctx, params, records, count) {
     finally {
         backend._pendingValidation.push(backend.device.popErrorScope().then((err) => {
             if (err) {
-                const message = `[WebGPU render validation error] pass '${params.passId}': ${err.message}`;
+                const message = `[WebGPU render validation error] pass '${passId}': ${err.message}`;
                 console.error(message);
                 backend._validationErrors.push(message);
             }
@@ -41243,14 +41409,7 @@ function encodeOpenPass(s, desc, ctx, params, records, count) {
     }
     const renderTarget = renderTargetOf(desc.target);
     if (renderTarget?.textures.some((tex) => tex.generateMipmaps))
-        s.mipTargets.push(renderTarget);
-}
-function setNodeFrame(s, desc, ctx) {
-    const frame = s.renderer._nodes.nodeFrame;
-    frame.renderer = s.renderer;
-    frame.camera = desc.camera ?? null;
-    frame.width = ctx.width;
-    frame.height = ctx.height;
+        s.mipTargets.add(renderTarget);
 }
 function encodeComputePass(s, desc, records, count) {
     if (count === 0 || !usable(s))
@@ -41281,6 +41440,17 @@ function submitFrame(s) {
     const { renderer, backend } = s;
     // A command buffer Dawn rejects takes the whole frame with it, including the clears, and the
     // per-pass scopes closed before this ran — so without a scope here there is no reason, only pixels.
+    // Onto the frame's own encoder, so the chain is one command buffer with the passes that wrote it.
+    for (const renderTarget of s.mipTargets) {
+        for (const tex of renderTarget.textures) {
+            if (tex.generateMipmaps) {
+                generateTextureMipmaps$1(backend.textures, backend.device, tex._gpuTexture, backend._currentEncoder);
+            }
+        }
+    }
+    s.mipTargets.clear();
+    regenerateComputeMips(backend.device, backend.textures, s.mipTextures, backend._currentEncoder);
+    s.mipTextures.clear();
     backend.device.pushErrorScope('validation');
     try {
         backend.device.queue.submit([backend._currentEncoder.finish()]);
@@ -41295,15 +41465,6 @@ function submitFrame(s) {
         }));
     }
     backend._currentEncoder = null;
-    for (const renderTarget of s.mipTargets) {
-        for (const tex of renderTarget.textures) {
-            if (tex.generateMipmaps)
-                generateTextureMipmaps$1(backend.textures, backend.device, tex._gpuTexture);
-        }
-    }
-    s.mipTargets.length = 0;
-    regenerateComputeMips(backend.device, backend.textures, s.mipTextures);
-    s.mipTextures.clear();
     renderer.inspector?.finish(renderer._nodes.nodeFrame.frameId);
 }
 function discardFrame(s) {
@@ -41311,9 +41472,45 @@ function discardFrame(s) {
         return;
     const { renderer, backend } = s;
     backend._currentEncoder = null;
-    s.mipTargets.length = 0;
+    s.mipTargets.clear();
     s.mipTextures.clear();
     renderer.inspector?.finish(renderer._nodes.nodeFrame.frameId);
+}
+/** Grows to the nesting depth in use and never shrinks, like the prepared lists beside it. */
+function paramsAt(pool, depth) {
+    let params = pool[depth];
+    if (params === undefined) {
+        params = createPassParams();
+        pool[depth] = params;
+    }
+    return params;
+}
+/** The draw loop's fixed half, pooled per nesting depth and refilled: a nested pass has its own. */
+function contextAt(s, passCtx, params, preparedObjects, preparedOpts) {
+    const { renderer, backend } = s;
+    let ctx = s.encodeContextsByDepth[s.depth];
+    if (ctx === undefined) {
+        ctx = {
+            b: backend,
+            nodes: renderer._nodes,
+            passCtx,
+            params,
+            preparedObjects,
+            preparedOpts,
+            inspector: null,
+            info: renderer.info,
+        };
+        s.encodeContextsByDepth[s.depth] = ctx;
+    }
+    ctx.b = backend;
+    ctx.nodes = renderer._nodes;
+    ctx.passCtx = passCtx;
+    ctx.params = params;
+    ctx.preparedObjects = preparedObjects;
+    ctx.preparedOpts = preparedOpts;
+    ctx.inspector = renderer.inspector;
+    ctx.info = renderer.info;
+    return ctx;
 }
 
 /**
@@ -41329,7 +41526,7 @@ function discardFrame(s) {
  * For a layered attachment (e.g. a CubeRenderTarget's cube texture), pass `layer`
  * to read a specific array layer / cube face (0..5 = +X,-X,+Y,-Y,+Z,-Z).
  */
-async function readPixels(backend, renderTarget, attachmentIndex = 0, layer = 0) {
+async function readPixels(backend, renderTarget, attachmentIndex = 0, layer = 0, mipLevel = 0) {
     const tex = renderTarget.textures[attachmentIndex];
     if (!tex) {
         throw new Error(`[readPixels] no color attachment at index ${attachmentIndex}.`);
@@ -41342,7 +41539,8 @@ async function readPixels(backend, renderTarget, attachmentIndex = 0, layer = 0)
     if (!textureData) {
         throw new Error('[readPixels] render target has not been rendered to yet.');
     }
-    const { width, height } = renderTarget;
+    const width = Math.max(1, renderTarget.width >> mipLevel);
+    const height = Math.max(1, renderTarget.height >> mipLevel);
     const bytesPerPixel = 4;
     // copyTextureToBuffer requires bytesPerRow to be a multiple of 256.
     const bytesPerRow = Math.ceil((width * bytesPerPixel) / 256) * 256;
@@ -41353,7 +41551,7 @@ async function readPixels(backend, renderTarget, attachmentIndex = 0, layer = 0)
         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
     });
     const encoder = device.createCommandEncoder();
-    encoder.copyTextureToBuffer({ texture: textureData.texture, origin: { x: 0, y: 0, z: layer } }, { buffer: stagingBuffer, bytesPerRow, rowsPerImage: height }, { width, height, depthOrArrayLayers: 1 });
+    encoder.copyTextureToBuffer({ texture: textureData.texture, mipLevel, origin: { x: 0, y: 0, z: layer } }, { buffer: stagingBuffer, bytesPerRow, rowsPerImage: height }, { width, height, depthOrArrayLayers: 1 });
     device.queue.submit([encoder.finish()]);
     await stagingBuffer.mapAsync(GPUMapMode.READ);
     const padded = new Uint8Array(stagingBuffer.getMappedRange());
@@ -41381,17 +41579,20 @@ class WebGPUBackend {
     /** @internal */ renderer = null;
     /** @internal */ device = null;
     /** @internal */ adapter = null;
-    /** @internal */ format = null;
+    /** The colour format every canvas on this device is configured with. @internal */
+    format = null;
     /** The only cache `init` has to build, because it stores the renderer's `info` by reference. @internal */
     buffers = null;
-    /** @internal */ bindGroupLayoutCache = createBindGroupLayoutCache();
+    /** Value-keyed, shared by pipelines and bindings so one entry shape yields one layout. @internal */
+    bindGroupLayoutCache = createBindGroupLayoutCache();
     /** @internal */ textures = createTextureCache$1();
     samplers = createSamplerCache$1();
     /** @internal */ pipelines = createPipelinesState(this.bindGroupLayoutCache);
     /** @internal */ bindings = createBindingsState$1(this.bindGroupLayoutCache);
     /** @internal */ renderObjectGpu = createRenderObjectGpuCache();
     /** @internal */ geometries = createGeometriesState();
-    /** @internal */ renderBundles = new WeakMap();
+    /** Per (bundle, camera, render context); here rather than on the neutral bundle, which may name no device object. @internal */
+    renderBundles = new WeakMap();
     /** @internal */ canvasContexts = new WeakMap();
     /** @internal */ swapchain = createSwapchainState();
     /** A frame is one command buffer; `beginFrame` opens the encoder. @internal */
@@ -41465,6 +41666,7 @@ class WebGPUBackend {
         encodeComputePass(this._frame, desc, records, count);
     }
     /** Unreachable: `frame.transformFeedback()` rejects this backend before a pass can open. */
+    /** Unreachable: `frame.transformFeedback()` rejects this backend by name before a dispatch can be recorded. */
     encodeTransformFeedbackPass() {
         throw new Error('[webgpu] transform feedback is WebGL2-only');
     }
@@ -41475,27 +41677,24 @@ class WebGPUBackend {
         discardFrame(this._frame);
     }
     /** Phase 1 compiles every pipeline in parallel; phase 2's uploads are per drawable, not per material. */
-    async compileObjects(objects, context) {
+    async compileObjects(objects, params) {
         const nodes = this.renderer._nodes;
         const pipelinePromises = [];
         for (const renderObject of objects) {
             compileRenderObject(this, nodes, renderObject, pipelinePromises);
         }
         await Promise.all(pipelinePromises);
+        aimNodeFrame(this.renderer, params.camera, params.width, params.height);
         const preWarmFrame = nodes.nodeFrame;
         for (const renderObject of objects) {
-            preWarmFrame.renderer = this.renderer;
-            preWarmFrame.camera = context.camera;
             preWarmFrame.object = renderObject.mesh;
             preWarmFrame.material = renderObject.material;
-            preWarmFrame.width = context.width;
-            preWarmFrame.height = context.height;
             uploadRenderObjectResources(this, renderObject, renderObject.geometry, preWarmFrame);
             await yieldToMain();
         }
     }
-    readPixels(renderTarget, attachmentIndex, layer) {
-        return readPixels(this, renderTarget, attachmentIndex, layer);
+    readPixels(renderTarget, attachmentIndex, layer, mipLevel) {
+        return readPixels(this, renderTarget, attachmentIndex, layer, mipLevel);
     }
     /** Off the `DeviceBackend` contract on purpose: a neutral signature would widen this to `string`. */
     awaitCompletion() {
@@ -41518,7 +41717,15 @@ class WebGPUBackend {
         memory.backend.bindGroupLayouts = getBindGroupLayoutCacheStats(this.bindGroupLayoutCache).layoutCount;
     }
     dispose() {
-        disposeDevice(this, this._deviceProvided);
+        disposeSwapchain(this);
+        disposeTextureCache$1(this.textures);
+        disposeSamplerCache$1(this.samplers);
+        disposeBufferCache$1(this.buffers);
+        disposePipelines(this.pipelines);
+        disposeBindGroupLayoutCache(this.bindGroupLayoutCache);
+        // A handed-in device is the caller's to destroy; the caches above are ours either way.
+        if (!this._deviceProvided && this.device)
+            this.device.destroy();
     }
     /** The canvas context for a target, configured against this device. Acquired lazily per canvas. */
     getContext(canvasTarget, format, alphaMode) {
@@ -41783,6 +41990,10 @@ class ArrayTexture {
         this._gpuSampler.dispose();
     }
 }
+/** The factory form, matching `createDataTexture` and the other texture constructors. */
+function createArrayTexture(data = null, width = 1, height = 1, depth = 1, options = {}) {
+    return new ArrayTexture(data, width, height, depth, options);
+}
 
 /**
  * A texture created from a canvas element.
@@ -41796,6 +42007,10 @@ class CanvasTexture extends Texture {
             flipY: false,
         });
     }
+}
+/** The factory form; the canvas is re-uploaded whenever `needsUpdate` is set. */
+function createCanvasTexture(canvas) {
+    return new CanvasTexture(canvas);
 }
 
 /**
@@ -41822,9 +42037,7 @@ class DataTexture {
      */
     constructor(data, width, height, options = {}) {
         // Create source with size info
-        const src = data !== null
-            ? new Source({ data, width, height })
-            : null;
+        const src = data !== null ? new Source({ data, width, height }) : null;
         // Derive the shader-facing sample type from the format: integer formats (…uint/…sint) must be
         // typed texture2d<u32>/texture2d<i32> so the GLSL emitter declares usampler2D/isampler2D and
         // textureLoad returns uvec4/ivec4; every other format is float-sampled (texture2d<f32>).
@@ -41852,11 +42065,17 @@ class DataTexture {
     }
     // ─── Convenience getters/setters that forward to internals ───
     /** Unique numeric ID */
-    get id() { return this._gpuTexture.id; }
+    get id() {
+        return this._gpuTexture.id;
+    }
     /** Returns the width of the texture. */
-    get width() { return this._gpuTexture.width; }
+    get width() {
+        return this._gpuTexture.width;
+    }
     /** Returns the height of the texture. */
-    get height() { return this._gpuTexture.height; }
+    get height() {
+        return this._gpuTexture.height;
+    }
     /** The data source for this texture. */
     get source() {
         return this._gpuTexture.source;
@@ -41871,37 +42090,79 @@ class DataTexture {
         return img?.data ?? null;
     }
     /** Horizontal wrap mode (U direction). */
-    get wrapS() { return this._gpuSampler.addressModeU; }
-    set wrapS(v) { this._gpuSampler.addressModeU = v; }
+    get wrapS() {
+        return this._gpuSampler.addressModeU;
+    }
+    set wrapS(v) {
+        this._gpuSampler.addressModeU = v;
+    }
     /** Vertical wrap mode (V direction). */
-    get wrapT() { return this._gpuSampler.addressModeV; }
-    set wrapT(v) { this._gpuSampler.addressModeV = v; }
+    get wrapT() {
+        return this._gpuSampler.addressModeV;
+    }
+    set wrapT(v) {
+        this._gpuSampler.addressModeV = v;
+    }
     /** Magnification filter. */
-    get magFilter() { return this._gpuSampler.magFilter; }
-    set magFilter(v) { this._gpuSampler.magFilter = v; }
+    get magFilter() {
+        return this._gpuSampler.magFilter;
+    }
+    set magFilter(v) {
+        this._gpuSampler.magFilter = v;
+    }
     /** Minification filter. */
-    get minFilter() { return this._gpuSampler.minFilter; }
-    set minFilter(v) { this._gpuSampler.minFilter = v; }
+    get minFilter() {
+        return this._gpuSampler.minFilter;
+    }
+    set minFilter(v) {
+        this._gpuSampler.minFilter = v;
+    }
     /** Mipmap filter mode. */
-    get mipmapFilter() { return this._gpuSampler.mipmapFilter; }
-    set mipmapFilter(v) { this._gpuSampler.mipmapFilter = v; }
+    get mipmapFilter() {
+        return this._gpuSampler.mipmapFilter;
+    }
+    set mipmapFilter(v) {
+        this._gpuSampler.mipmapFilter = v;
+    }
     /** Anisotropic filtering level. */
-    get anisotropy() { return this._gpuSampler.maxAnisotropy; }
-    set anisotropy(v) { this._gpuSampler.maxAnisotropy = v; }
+    get anisotropy() {
+        return this._gpuSampler.maxAnisotropy;
+    }
+    set anisotropy(v) {
+        this._gpuSampler.maxAnisotropy = v;
+    }
     /** WebGPU texture format. */
-    get format() { return this._gpuTexture.format; }
-    set format(v) { this._gpuTexture.format = v; }
+    get format() {
+        return this._gpuTexture.format;
+    }
+    set format(v) {
+        this._gpuTexture.format = v;
+    }
     /** Whether to auto-generate mipmaps. */
-    get generateMipmaps() { return this._gpuTexture.generateMipmaps; }
-    set generateMipmaps(v) { this._gpuTexture.generateMipmaps = v; }
+    get generateMipmaps() {
+        return this._gpuTexture.generateMipmaps;
+    }
+    set generateMipmaps(v) {
+        this._gpuTexture.generateMipmaps = v;
+    }
     /** Whether to flip the image vertically when uploading. */
-    get flipY() { return this._gpuTexture.flipY; }
-    set flipY(v) { this._gpuTexture.flipY = v; }
+    get flipY() {
+        return this._gpuTexture.flipY;
+    }
+    set flipY(v) {
+        this._gpuTexture.flipY = v;
+    }
     /** Whether to premultiply alpha. */
-    get premultiplyAlpha() { return this._gpuTexture.premultiplyAlpha; }
-    set premultiplyAlpha(v) { this._gpuTexture.premultiplyAlpha = v; }
+    get premultiplyAlpha() {
+        return this._gpuTexture.premultiplyAlpha;
+    }
+    set premultiplyAlpha(v) {
+        this._gpuTexture.premultiplyAlpha = v;
+    }
     /** Version for dirty tracking. */
-    get version() { return this._gpuTexture.version; }
+    get version() {
+        return this._gpuTexture.version;
+    }
     /** Set to `true` to trigger a GPU upload on the next render. */
     set needsUpdate(value) {
         if (value) {
@@ -42064,6 +42325,208 @@ function createStructTexture(schema, capacity, options = {}) {
         minFilter: 'nearest',
     });
 }
+/** The factory form, matching `createStructTexture` and the other texture constructors. */
+function createDataTexture(data, width, height, options = {}) {
+    return new DataTexture(data, width, height, options);
+}
 
-export { ArrayTexture, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, FlyControls, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, REGION_CAP, Raycaster, RenderTarget, Renderer, Return, Scene, Source, TOUCH, Texture, TransformControls, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WebGLBackend, WebGPUBackend, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, bundle, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, canvasFormat, ceil, clamp$1 as clamp, color, comparisonSampler, compile, compileCompute, compileComputeWgsl, compileGlsl, compileTransformFeedback, compileWgsl, compute, computeIndex, cond, cos, countLeadingZeros, countOneBits, countTrailingZeros, createBoxGeometry, createCanvasTarget, createCubeRenderTarget, createCylinderGeometry, createFullscreenTriangleGeometry, createGeometry, createIndexBuffer, createIndirectBuffer, createMaterial, createMesh, createObject3D, createOctahedronGeometry, createPlaneGeometry, createRenderTarget, createScene, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createStructTexture, createTorusGeometry, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, drawScene, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frame, frameGroup, frustum, fullscreen, fullscreenPosition, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, glContext, globalId, glsl, glslFn, gpuAdapter, gpuDevice, greaterThan, greaterThanEqual, hasFeature, i32, index, init, instanceIndex, inverseSqrt, isRenderTarget, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, ndcDepthToStorage, normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, positionClip, pow, read, readBuffer, regionsFromLinearRun, reinhardToneMapping, renderGroup, renderOutput, renderTargetOf, renderTexture, resetRendererInfo, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub, tan, targetColor, targetDepth, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexCountGeometry, vertexIndex, webgl, webgpu, wgsl, wgslFn, workgroupBarrier, workgroupId };
+/**
+ * A 3D (volume) texture.
+ *
+ * Sampled using vec3 UVW coordinates. Useful for:
+ * - Volume rendering (medical imaging, clouds, fog)
+ * - 3D LUTs (color grading)
+ * - Signed distance fields
+ */
+class Data3DTexture {
+    /** Type flag for runtime checking */
+    is3DTexture = true;
+    /** The underlying GPU texture resource */
+    _gpuTexture;
+    /** The underlying sampler */
+    _gpuSampler;
+    /** Optional name for debugging */
+    name = '';
+    /**
+     * Constructs a new Data3DTexture.
+     *
+     * @param data - Optional raw data for voxels
+     * @param width - Width of the texture
+     * @param height - Height of the texture
+     * @param depth - Depth of the texture
+     * @param options - Texture options
+     */
+    constructor(data = null, width = 1, height = 1, depth = 1, options = {}) {
+        // Create source if data provided
+        const src = data !== null ? new Source({ data, width, height, depth }) : null;
+        // Create the underlying GpuTexture
+        this._gpuTexture = new GpuTexture(texture3d(), {
+            width,
+            height,
+            depth,
+            source: src ?? undefined,
+            format: options.format,
+            generateMipmaps: options.generateMipmaps ?? false,
+            flipY: options.flipY ?? false,
+            premultiplyAlpha: options.premultiplyAlpha ?? false,
+        });
+        // Create the underlying sampler with defaults for 3D textures
+        this._gpuSampler = new GpuSampler({
+            addressModeU: options.wrapS ?? 'clamp-to-edge',
+            addressModeV: options.wrapT ?? 'clamp-to-edge',
+            addressModeW: 'clamp-to-edge',
+            magFilter: options.magFilter ?? 'nearest',
+            minFilter: options.minFilter ?? 'nearest',
+            mipmapFilter: options.mipmapFilter ?? 'nearest',
+            maxAnisotropy: options.anisotropy ?? 1,
+        });
+    }
+    // ─── Convenience getters/setters that forward to internals ───
+    /** Unique numeric ID */
+    get id() {
+        return this._gpuTexture.id;
+    }
+    /** Returns the width of the texture. */
+    get width() {
+        return this._gpuTexture.width;
+    }
+    /** Returns the height of the texture. */
+    get height() {
+        return this._gpuTexture.height;
+    }
+    /** Depth of the 3D texture */
+    get depth() {
+        return this._gpuTexture.depthOrArrayLayers;
+    }
+    /** The data source for this texture. */
+    get source() {
+        return this._gpuTexture.source;
+    }
+    /** Convenience getter for the source data. */
+    get image() {
+        return this._gpuTexture.source?.data;
+    }
+    /** Horizontal wrap mode (U direction). */
+    get wrapS() {
+        return this._gpuSampler.addressModeU;
+    }
+    set wrapS(v) {
+        this._gpuSampler.addressModeU = v;
+    }
+    /** Vertical wrap mode (V direction). */
+    get wrapT() {
+        return this._gpuSampler.addressModeV;
+    }
+    set wrapT(v) {
+        this._gpuSampler.addressModeV = v;
+    }
+    /** Magnification filter. */
+    get magFilter() {
+        return this._gpuSampler.magFilter;
+    }
+    set magFilter(v) {
+        this._gpuSampler.magFilter = v;
+    }
+    /** Minification filter. */
+    get minFilter() {
+        return this._gpuSampler.minFilter;
+    }
+    set minFilter(v) {
+        this._gpuSampler.minFilter = v;
+    }
+    /** Mipmap filter mode. */
+    get mipmapFilter() {
+        return this._gpuSampler.mipmapFilter;
+    }
+    set mipmapFilter(v) {
+        this._gpuSampler.mipmapFilter = v;
+    }
+    /** Anisotropic filtering level. */
+    get anisotropy() {
+        return this._gpuSampler.maxAnisotropy;
+    }
+    set anisotropy(v) {
+        this._gpuSampler.maxAnisotropy = v;
+    }
+    /** WebGPU texture format. */
+    get format() {
+        return this._gpuTexture.format;
+    }
+    set format(v) {
+        this._gpuTexture.format = v;
+    }
+    /** Whether to auto-generate mipmaps. */
+    get generateMipmaps() {
+        return this._gpuTexture.generateMipmaps;
+    }
+    set generateMipmaps(v) {
+        this._gpuTexture.generateMipmaps = v;
+    }
+    /** Whether to flip the image vertically when uploading. */
+    get flipY() {
+        return this._gpuTexture.flipY;
+    }
+    set flipY(v) {
+        this._gpuTexture.flipY = v;
+    }
+    /** Whether to premultiply alpha. */
+    get premultiplyAlpha() {
+        return this._gpuTexture.premultiplyAlpha;
+    }
+    set premultiplyAlpha(v) {
+        this._gpuTexture.premultiplyAlpha = v;
+    }
+    /** Version for dirty tracking. */
+    get version() {
+        return this._gpuTexture.version;
+    }
+    /** Set to `true` to trigger a GPU upload on the next render. */
+    set needsUpdate(value) {
+        if (value) {
+            this._gpuTexture.needsUpdate = true;
+            if (this._gpuTexture.source) {
+                this._gpuTexture.source.needsUpdate = true;
+            }
+        }
+    }
+    /**
+     * Queue a partial upload of one box of texels, without forcing a full re-upload. `z`/`depth` address
+     * slices of the volume directly, so there is no separate slice helper.
+     */
+    addUpdateRegion(region) {
+        this._gpuTexture.addUpdateRegion(region);
+        if (this._gpuTexture.source)
+            this._gpuTexture.source.needsUpdate = true;
+        return this;
+    }
+    /** Creates a clone of this texture. */
+    clone() {
+        const img = this.image;
+        const tex = new Data3DTexture(img?.data ?? null, this.width, this.height, this.depth, {
+            wrapS: this.wrapS,
+            wrapT: this.wrapT,
+            magFilter: this.magFilter,
+            minFilter: this.minFilter,
+            mipmapFilter: this.mipmapFilter,
+            anisotropy: this.anisotropy,
+            format: this.format,
+            generateMipmaps: this.generateMipmaps,
+            flipY: this.flipY,
+            premultiplyAlpha: this.premultiplyAlpha,
+        });
+        tex.name = this.name;
+        return tex;
+    }
+    /** Disposes of the texture and its GPU resources. */
+    dispose() {
+        this._gpuTexture.dispose();
+        this._gpuSampler.dispose();
+    }
+}
+/** The factory form, matching `createArrayTexture` and the other texture constructors. */
+function createData3DTexture(data = null, width = 1, height = 1, depth = 1, options = {}) {
+    return new Data3DTexture(data, width, height, depth, options);
+}
+
+export { ArrayTexture, BlendMode, Break, BufferLifecycle, Camera, CanvasTarget, CanvasTexture, Const, Continue, CoordinateSystem, CubeCamera, CubeRenderTarget, CubeTexture, Data3DTexture, DataTexture, DepthTexture, Discard, DrawIndexedIndirect, DrawIndirect, FlyControls, Fn, For, Geometry, GpuBuffer, GpuSampler, GpuTexture, If, Inspector, Let, Line, LineGeometry, LineMaterial, LineSegments, LineSegmentsGeometry, Loop, MOUSE, Material, Mesh, Object3D, OrbitControls, OrthographicCamera, PerspectiveCamera, PrivateVar, REGION_CAP, Raycaster, RenderTarget, Renderer, Return, Scene, Source, TOUCH, Texture, TransformControls, TransformFeedbackNode, Uniform, UniformGroup, UniformUpdateType, Var, WebGLBackend, WebGPUBackend, While, WorkgroupVar, abs, acesToneMapping, acos, add$1 as add, and, array, arrayTexture, asin, atan, atan2, atomicAdd, atomicAnd, atomicCompareExchangeWeak, atomicExchange, atomicLoad, atomicMax, atomicMin, atomicOr, atomicStore, atomicSub, atomicXor, attribute, bitcastF32, bitcastI32, bitcastU32, bitwiseAnd, bitwiseOr, bitwiseXor, bool, builtin, bundle, cameraFar, cameraNear, cameraPosition, cameraProjectionMatrix, cameraViewMatrix, canvasFormat, ceil, clamp$1 as clamp, color, comparisonSampler, compile, compileCompute, compileComputeWgsl, compileGlsl, compileTransformFeedback, compileWgsl, compute, computeIndex, cond, cos, countLeadingZeros, countOneBits, countTrailingZeros, createArrayTexture, createBoxGeometry, createCanvasTarget, createCanvasTexture, createCubeCamera, createCubeRenderTarget, createCubeTexture, createCylinderGeometry, createData3DTexture, createDataTexture, createDepthTexture, createFlyControls, createFullscreenTriangleGeometry, createGeometry, createIndexBuffer, createIndirectBuffer, createInspector, createLine, createLineGeometry, createLineMaterial, createLineSegments, createLineSegmentsGeometry, createMaterial, createMesh, createObject3D, createOctahedronGeometry, createOrbitControls, createOrthographicCamera, createPerspectiveCamera, createPlaneGeometry, createRaycaster, createRenderTarget, createSampler, createScene, createSource, createSphereGeometry, createStorageBuffer, createStorageTexture, createStorageTexture1d, createStorageTexture3d, createStorageTextureArray, createStructTexture, createTexture, createTorusGeometry, createTransformControls, createUniform, createUniformBuffer, createVertexBuffer, cross, cubeTexture, schema as d, deadAttachment, depthTexture, deriveVertexFormat, div, dot, dpdx, dpdxCoarse, dpdxFine, dpdy, dpdyCoarse, dpdyFine, drawScene, equal, exp, exp2, f16, f32, field, fields, firstLeadingBit, firstTrailingBit, floor, fract, fragCoord, frame, frameGroup, frustum, fullscreen, fullscreenPosition, fwidth, fwidthCoarse, fwidthFine, fxaa, getIndexFormat, glContext, globalId, glsl, glslFn, gpuAdapter, gpuDevice, greaterThan, greaterThanEqual, hasFeature, i32, index, init, instanceIndex, inverseSqrt, isRenderTarget, layoutSizeOf, layoutStrideOf, length, lessThan, lessThanEqual, localId, localIndex, log, log2, mat2x2f, mat2x2h, mat2x3f, mat2x3h, mat2x4f, mat2x4h, mat3, mat3x2f, mat3x2h, mat3x3f, mat3x3h, mat3x4f, mat3x4h, mat4, mat4x2f, mat4x2h, mat4x3f, mat4x3h, mat4x4f, mat4x4h, max, min, mix, mod, modelNormalMatrix, modelWorldMatrix, mrt, mul, ndcDepthToStorage, normalize$1 as normalize, notEqual, numWorkgroups, objectGroup, or, pack, pack2x16float, pack2x16snorm, pack2x16unorm, pack4x8snorm, pack4x8unorm, packArray, packTo, positionClip, pow, read, readBuffer, regionsFromLinearRun, reinhardToneMapping, renderGroup, renderOutput, renderTargetOf, renderTexture, resetRendererInfo, reverseBits, rgb, sRGBTransferEOTF, sRGBTransferOETF, sampler, screenCoordinate, screenSize, screenUV, select, sharedUniformGroup, shiftLeft, shiftRight, sign, sin, smoothstep, sqrt, step, storage, storageBarrier, storageTexture, struct, sub, tan, targetColor, targetDepth, texture, textureBarrier, textureBinding, textureDimensions, textureGather, textureGatherCompare, textureLoad, textureNumLayers, textureNumLevels, textureSample, textureSampleBias, textureSampleCompare, textureSampleCompareLevel, textureSampleGrad, textureSampleLevel, textureStore, transformFeedback, transpose, u32, uniform, uniformGroup, unpack, unpack2x16float, unpack2x16snorm, unpack2x16unorm, unpack4x8snorm, unpack4x8unorm, unpackArray, unproject, varying, vec2, vec2b, vec2f, vec2h, vec2i, vec2u, vec3, vec3b, vec3f, vec3h, vec3i, vec3u, vec4, vec4b, vec4f, vec4h, vec4i, vec4u, vertexCountGeometry, vertexIndex, webgl, webgpu, wgsl, wgslFn, workgroupBarrier, workgroupId };
 //# sourceMappingURL=index.js.map

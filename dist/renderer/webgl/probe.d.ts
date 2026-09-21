@@ -15,20 +15,7 @@
  */
 import type { NodeFrame } from '../core/node-frame';
 import { type RenderObject } from '../core/render-object';
-import * as Buffers from './buffers';
-import * as Geometries from './geometries';
-import type { SamplerCache } from './samplers';
-import type { TextureCache } from './textures';
-import * as Bindings from './bindings';
-/** The device caches + node frame the probe render needs (a subset of the renderer's caches). */
-export type ProbeCaches = {
-    geometries: Geometries.GeometriesState;
-    buffers: Buffers.BufferCache;
-    uniforms: Bindings.BindingsState;
-    textures: TextureCache;
-    samplers: SamplerCache;
-    frame: NodeFrame;
-};
+import type { WebGLBackend } from './webgl-backend';
 /** A cached probe program: the linked GL program + its UBO binding points, plus the 1×1 readback FBO. */
 type ProbeGl = {
     program: WebGLProgram;
@@ -54,5 +41,5 @@ export declare function disposeProbeState(gl: WebGL2RenderingContext | null, sta
  * bindings (framebuffer, VAO, program) to their defaults afterward so the main render loop is
  * unaffected — the probe runs after the main frame's draws, on a separate FBO.
  */
-export declare function renderProbe(gl: WebGL2RenderingContext, state: ProbeState, caches: ProbeCaches, ro: RenderObject, patchedFragment: string): Uint8Array | null;
+export declare function renderProbe(gl: WebGL2RenderingContext, state: ProbeState, caches: WebGLBackend, frame: NodeFrame, ro: RenderObject, patchedFragment: string): Uint8Array | null;
 export {};

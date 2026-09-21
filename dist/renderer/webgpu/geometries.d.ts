@@ -2,7 +2,7 @@ import type { GpuBuffer } from '../../core/gpu-buffer';
 import type { Geometry } from '../../geometry/geometry';
 import type { Any } from '../../schema/schema';
 import type { RenderObject } from '../core/render-object';
-import type { BackendState } from './backend-state';
+import type { WebGPUBackend } from './webgpu-backend';
 /**
  * @deprecated No longer used, all buffer types route through ensureUploaded.
  * Kept temporarily while call sites that pass this type are migrated.
@@ -64,7 +64,7 @@ export declare function deleteBuffer(state: GeometriesState, buffer: GpuBuffer<A
  * Note: Version tracking is handled by buffers.ts. We just ensure each
  * buffer goes through the upload path (with per-frame deduplication).
  */
-export declare function updateForRender(b: BackendState, renderObject: RenderObject): void;
+export declare function updateForRender(b: WebGPUBackend, renderObject: RenderObject): void;
 /**
  * Dispose a geometry and clean up tracking.
  */

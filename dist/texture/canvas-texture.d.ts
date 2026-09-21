@@ -7,3 +7,5 @@ export declare class CanvasTexture extends Texture<HTMLCanvasElement | Offscreen
     readonly isCanvasTexture = true;
     constructor(canvas: HTMLCanvasElement | OffscreenCanvas);
 }
+/** The factory form; the canvas is re-uploaded whenever `needsUpdate` is set. */
+export declare function createCanvasTexture(canvas: HTMLCanvasElement | OffscreenCanvas): CanvasTexture;

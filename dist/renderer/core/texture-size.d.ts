@@ -12,8 +12,10 @@
  * ones" rather than as the exact resident footprint.
  */
 import type { GpuTexture } from '../../core/gpu-texture';
-/** Bytes per texel for the uncompressed formats gpucat uses. Unknown formats fall back to 4. */
+/** A texel stride, for the row and offset arithmetic that has to be exact. */
 export declare function bytesPerTexel(format: GPUTextureFormat): number;
+/** The debug panel's figure, which wants a number more than it wants to be right. */
+export declare function estimatedBytesPerTexel(format: GPUTextureFormat): number;
 /** Levels in a full mip chain down to 1x1, for a texture of this size. */
 export declare function fullMipChainLength(width: number, height: number): number;
 /**

@@ -115,4 +115,6 @@ export declare class TransformControls {
      */
     private _syncState;
 }
+/** The factory form, matching `createOrbitControls` and `createFlyControls`. */
+export declare function createTransformControls(camera: Camera, domElement?: HTMLElement): TransformControls;
 export {};

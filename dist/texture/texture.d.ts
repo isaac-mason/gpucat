@@ -129,3 +129,5 @@ export declare class Texture<out T extends SourceData = SourceData> {
      */
     dispose(): void;
 }
+/** The factory form, matching `createDataTexture` and the other texture constructors. */
+export declare function createTexture<T extends SourceData = SourceData>(image: T | Source<T> | null, options?: TextureOptions): Texture<T>;

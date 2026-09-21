@@ -15,9 +15,8 @@
 import type { SamplerEntry, TextureEntry } from '../../nodes/builder';
 import { type RenderObject } from '../core/render-object';
 import type { ProgramInfo } from './programs';
-import { type SamplerCache } from './samplers';
-import { type TextureCache } from './textures';
-export declare function bindTextures(gl: WebGL2RenderingContext, textures: TextureCache, samplers: SamplerCache, renderObject: RenderObject, programInfo: ProgramInfo): void;
+import type { WebGLBackend } from './webgl-backend';
+export declare function bindTextures(gl: WebGL2RenderingContext, b: WebGLBackend, renderObject: RenderObject, programInfo: ProgramInfo): void;
 /**
  * Bind a STANDALONE kernel's textures + samplers (transform feedback) into their assigned GL texture
  * units for `programInfo`. The kernel has no RenderObject/BindGroup, so the compiled `TextureEntry[]` /
@@ -27,4 +26,4 @@ export declare function bindTextures(gl: WebGL2RenderingContext, textures: Textu
  * combined-sampler uniform `u_<textureId>` is set to that unit. The user binds neighbour data as an
  * explicit `DataTexture` referenced by the kernel's `textureLoad` — there is no hidden mirror.
  */
-export declare function bindStandaloneTextures(gl: WebGL2RenderingContext, textures: TextureCache, samplers: SamplerCache, textureEntries: readonly TextureEntry[], samplerEntries: readonly SamplerEntry[], programInfo: ProgramInfo): void;
+export declare function bindStandaloneTextures(gl: WebGL2RenderingContext, b: WebGLBackend, textureEntries: readonly TextureEntry[], samplerEntries: readonly SamplerEntry[], programInfo: ProgramInfo): void;

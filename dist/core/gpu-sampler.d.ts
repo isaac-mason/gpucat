@@ -41,3 +41,5 @@ export declare class GpuSampler {
     get settingsKey(): string;
     dispose(): void;
 }
+/** The factory form; the sampler is settings only, the device resource is the renderer's. */
+export declare function createSampler(options?: GpuSamplerOptions): GpuSampler;

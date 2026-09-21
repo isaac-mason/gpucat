@@ -27,7 +27,7 @@ import type { Material } from '../../material/material';
 import type { UniformGroupBlock } from '../../nodes/builder';
 import { type UniformBinding } from '../core/bind-group';
 import type { NodeFrame } from '../core/node-frame';
-import * as Buffers from './buffers';
+import type { WebGLBackend } from './webgl-backend';
 /** Per-uniform-BindGroup GL resources + change-tracking state. */
 type UboData = {
     /** The GL uniform buffer object. */
@@ -63,7 +63,7 @@ export declare function createBindingsState(): BindingsState;
  *
  * @param bindingPoint the GL uniform-buffer binding point this group's block was bound to (from the program)
  */
-export declare function updateAndBindUniformGroup(gl: WebGL2RenderingContext, state: BindingsState, buffers: Buffers.BufferCache, binding: UniformBinding, frame: NodeFrame, bindingPoint: number, material: Material | null): void;
+export declare function updateAndBindUniformGroup(gl: WebGL2RenderingContext, b: WebGLBackend, binding: UniformBinding, frame: NodeFrame, bindingPoint: number, material: Material | null): void;
 /**
  * Update + bind a STANDALONE kernel's uniform group (transform-feedback) to `bindingPoint`.
  *
@@ -76,5 +76,5 @@ export declare function updateAndBindUniformGroup(gl: WebGL2RenderingContext, st
  *
  * @param bindingPoint the GL uniform-buffer binding point this group's block was bound to (from the program)
  */
-export declare function updateAndBindStandaloneUniformGroup(gl: WebGL2RenderingContext, state: BindingsState, buffers: Buffers.BufferCache, block: UniformGroupBlock, frame: NodeFrame, bindingPoint: number): void;
+export declare function updateAndBindStandaloneUniformGroup(gl: WebGL2RenderingContext, b: WebGLBackend, block: UniformGroupBlock, frame: NodeFrame, bindingPoint: number): void;
 export {};

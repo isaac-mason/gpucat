@@ -11,8 +11,7 @@
  * (mirroring `readBufferAsync`).
  */
 import type { RenderTarget } from '../../core/render-target';
-import { type GlRenderTargetsState } from './render-target';
-import { type TextureCache } from './textures';
+import type { WebGLBackend } from './webgl-backend';
 /**
  * Read a RenderTarget color attachment back to a tightly-packed, top-to-bottom RGBA8 `Uint8Array`
  * (length `width * height * 4`), matching the WebGPU `readPixels` output. The target's color format
@@ -20,4 +19,4 @@ import { type TextureCache } from './textures';
  * selects an MRT color attachment; `layer` selects a cube face (0..5). Throws if the target has not
  * been rendered to yet.
  */
-export declare function readPixels(gl: WebGL2RenderingContext, state: GlRenderTargetsState, textures: TextureCache, renderTarget: RenderTarget, attachmentIndex?: number, layer?: number): Uint8Array;
+export declare function readPixels(gl: WebGL2RenderingContext, b: WebGLBackend, renderTarget: RenderTarget, attachmentIndex?: number, layer?: number, mipLevel?: number): Uint8Array;

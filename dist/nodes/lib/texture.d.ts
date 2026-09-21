@@ -9,6 +9,7 @@ import type { CubeTexture } from '../../texture/cube-texture';
 import type { DataTexture } from '../../texture/data-texture';
 import type { DepthTexture } from '../../texture/depth-texture';
 import type { Texture } from '../../texture/texture';
+import type { Data3DTexture } from '../../texture/texture-3d';
 import { CallNode, Node, NodeKind, type StructDef } from './core';
 import { type UniformGroup } from './uniform';
 /**
@@ -264,7 +265,7 @@ export declare function decodeField(base: TextureNode<FlatSampledTexture>, texel
  * High-level texture types that have _gpuSampler.
  * All have ._gpuTexture and ._gpuSampler properties.
  */
-type HighLevelTexture = Texture | CubeTexture | DepthTexture | ArrayTexture;
+type HighLevelTexture = Texture | CubeTexture | DepthTexture | ArrayTexture | Data3DTexture;
 /**
  * Create a sampler node.
  *
@@ -302,10 +303,10 @@ export declare function comparisonSampler(source: HighLevelTexture, compare?: GP
 /** The sampled-texture descriptor a storage texture is sampled as (dual-usage). */
 type StorageSampledOf<S extends d.StorageTexture> = S extends d.textureStorage3d ? d.texture3d : S extends d.textureStorage2dArray ? d.texture2dArray : S extends d.textureStorage1d ? d.texture1d : d.texture2d;
 /**
- * Create a texture node for sampling a 2D texture.
+ * Create a texture node for sampling a flat (non-cube) texture.
  *
  * Accepts either:
- * - A high-level Texture object (auto-creates sampler from texture settings)
+ * - A high-level Texture, DataTexture or Data3DTexture (auto-creates sampler from texture settings)
  * - A GpuTexture + GpuSampler pair (low-level)
  *
  * @example
@@ -325,6 +326,7 @@ type StorageSampledOf<S extends d.StorageTexture> = S extends d.textureStorage3d
  */
 export declare function texture(tex: Texture): TextureNode<d.texture2d>;
 export declare function texture(dataTex: DataTexture): TextureNode<d.texture2d>;
+export declare function texture(tex3d: Data3DTexture): TextureNode<d.texture3d>;
 export declare function texture<D extends FlatSampledTexture>(gpuTex: GpuTexture<D>, gpuSampler: GpuSampler): TextureNode<D>;
 export declare function texture<S extends d.StorageTexture>(storageTex: GpuTexture<S>, gpuSampler: GpuSampler): TextureNode<StorageSampledOf<S>>;
 /**
